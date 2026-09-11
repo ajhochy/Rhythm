@@ -1,0 +1,17 @@
+{
+  "issue": "E12A",
+  "date": "2026-09-11",
+  "test_command": "cd apps/electron && node --experimental-vm-modules --test test/e12a-auth-boundary.test.mjs",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "e12a-c1", "text": "selected validated productionApiBase is the OAuth authorize/token/session target, never fixed RHYTHM_AUTH_API_BASE after override", "mode": "unit", "test": "apps/electron/test/e12a-auth-boundary.test.mjs", "status": "pass" },
+    { "criterion_id": "e12a-c2", "text": "server change invalidates in-flight login generation, clears productionSessionToken and renderer identity-bound gateways/state, then reloads/rebuilds preload config before any request; old bearer cannot reach new host", "mode": "unit", "test": "apps/electron/test/e12a-auth-boundary.test.mjs", "status": "pass" },
+    { "criterion_id": "e12a-c3", "text": "Login result after server/account change discarded", "mode": "unit", "test": "apps/electron/test/e12a-auth-boundary.test.mjs", "status": "pass" },
+    { "criterion_id": "e12a-c4", "text": "All privileged IPC (login, config, signing dispatch) rejects non-owned sender/frame/document", "mode": "unit", "test": "apps/electron/test/e12a-auth-boundary.test.mjs", "status": "pass" },
+    { "criterion_id": "e12a-c5", "text": "All privileged IPC (login, config, signing dispatch) rejects malformed/bounded payload; signer cryptography unchanged here", "mode": "unit", "test": "apps/electron/test/e12a-auth-boundary.test.mjs", "status": "pass" },
+    { "criterion_id": "e12a-c6", "text": "Preload remains frozen/narrow", "mode": "unit", "test": "apps/electron/test/e12a-auth-boundary.test.mjs", "status": "pass" },
+    { "criterion_id": "e12a-c7", "text": "bind native notification callback to authGeneration at creation and reject click if generation changed and/or notification no longer current registry member. Ensure ordinary same-generation click still works and cleanup remains.", "mode": "unit", "test": "apps/electron/test/e12a-auth-boundary.test.mjs", "status": "pass" }
+  ],
+  "not_tested": [],
+  "scope_notes": ["Google authorize stays at Google's provider endpoint; selected Rhythm base owns the desktop exchange/session. No current logout/account-replacement API; no new refresh/persistence API.", "Real OAuth, persistence/expiry D18/E42, Keychain, package, normal launch and network excluded by dispatch."]
+}

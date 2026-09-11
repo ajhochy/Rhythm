@@ -67,6 +67,35 @@ if (hasSingleInstanceLock) {
   let rendererReady = false;
   /** @type {Promise<import('./google-oauth-core.mjs').DesktopAuthLoginResponse> | undefined} */
   let googleSignInInFlight;
+  let authGeneration = 0;
+  let changingServer = false;
+  app.on('window-all-closed', () => { if (!changingServer) app.quit(); });
+  /** @type {(() => Promise<void>) | undefined} */
+  let rebuildMainWindow;
+  const invalidateAuthentication = () => {
+    authGeneration += 1;
+    googleSignInInFlight = undefined;
+    productionSessionToken = undefined;
+    rendererReady = false;
+    pendingNativeNotificationActivations.length = 0;
+    for (const notification of nativeNotificationRegistry.values()) notification.close();
+    nativeNotificationRegistry.clear();
+  };
+  /** @param {Electron.IpcMainEvent | Electron.IpcMainInvokeEvent} event */
+  const ownsDocument = (event) => {
+    const contents = mainWindow?.webContents;
+    return Boolean(contents && !contents.isDestroyed() && event.sender === contents
+      && event.senderFrame && event.senderFrame === contents.mainFrame
+      && /^rhythm:\/\/app\/index\.html(?:#.*)?$/.test(event.senderFrame.url));
+  };
+  /** @param {Electron.IpcMainEvent | Electron.IpcMainInvokeEvent} event */
+  const requireOwnedDocument = (event) => {
+    if (!ownsDocument(event)) throw new Error('Privileged IPC denied');
+  };
+  /** @param {unknown[]} args */
+  const requireNoPayload = (args) => {
+    if (args.length) throw new Error('Invalid IPC payload');
+  };
   /** @type {string | undefined} */
   let productionSessionToken = isArtifactFrameSmoke ? 'artifact-smoke-token' : undefined;
   /** @type {{ loaded: boolean, protocol: string, bridge: unknown, request: { url: string, authenticated: boolean } | undefined } | undefined} */
@@ -133,7 +162,11 @@ if (hasSingleInstanceLock) {
         title: 'Approval requested',
         body: 'An agent action needs your approval.',
       });
-      notification.on('click', () => routeNativeNotificationActivation(target));
+      const generation = authGeneration;
+      notification.on('click', () => {
+        if (generation !== authGeneration || nativeNotificationRegistry.get(target.approvalId) !== notification) return;
+        routeNativeNotificationActivation(target);
+      });
       notification.on('close', () => {
         if (nativeNotificationRegistry.get(target.approvalId) === notification) {
           nativeNotificationRegistry.delete(target.approvalId);
@@ -145,42 +178,66 @@ if (hasSingleInstanceLock) {
   };
 
   ipcMain.on('rhythm:approval-notifications:sync', (event, payload) => {
-    if (event.sender !== mainWindow?.webContents) return;
+    if (!ownsDocument(event)) return;
     syncNativeApprovalNotifications(payload);
   });
 
-  ipcMain.handle('rhythm:auth:google-sign-in', () => {
+  ipcMain.handle('rhythm:auth:google-sign-in', (event, ...args) => {
+    requireOwnedDocument(event);
+    requireNoPayload(args);
+    // No account-replacement API yet: never silently replace an authenticated renderer's identity.
+    if (productionSessionToken) throw new Error('Account replacement denied; restart to sign in again');
     if (!googleSignInInFlight) {
+      const generation = authGeneration;
       googleSignInInFlight = runDesktopGoogleOAuth({
         clientId: resolveGoogleDesktopClientId(GOOGLE_DESKTOP_CLIENT_ID),
-        apiBase: RHYTHM_AUTH_API_BASE,
+        apiBase: productionApiBase,
         openExternal: (url) => shell.openExternal(url),
         fetcher: (url, init) => globalThis.fetch(String(url), init),
       }).then((login) => {
+        if (generation !== authGeneration || !ownsDocument(event)) throw new Error('Sign-in context changed; stale login discarded');
         // Kept in main-process memory only so authenticated artifact documents can be served through
         // the private frame protocol without putting credentials in a URL, DOM attribute, or log.
         productionSessionToken = login.sessionToken;
         return login;
-      }).finally(() => { googleSignInInFlight = undefined; });
+      }).finally(() => { if (generation === authGeneration) googleSignInInFlight = undefined; });
     }
     return googleSignInInFlight;
   });
   // Preload runs in a separate sandboxed process whose inherited environment is fixed before this
   // module loads persisted configuration. Read the validated current value from main instead of
   // assuming a later process.env mutation crosses that boundary.
-  ipcMain.on('rhythm:production-api:get', (event) => {
-    if (event.sender !== mainWindow?.webContents) return;
+  ipcMain.on('rhythm:production-api:get', (event, ...args) => {
+    if (!ownsDocument(event) || args.length) return;
     event.returnValue = productionApiBase;
   });
-  ipcMain.handle('rhythm:production-api:set', createProductionApiSetHandler({
+  const setProductionApi = createProductionApiSetHandler({
     allowedSender: () => mainWindow?.webContents,
     save: async (value) => {
-      const serverUrl = await productionApiConfig.save(value);
-      productionApiBase = serverUrl;
-      process.env.RHYTHM_PRODUCTION_API_URL = serverUrl;
-      return serverUrl;
+      if (value === productionApiBase) return productionApiBase;
+      if (!rebuildMainWindow) throw new Error('Production API update denied before window ready');
+      changingServer = true;
+      invalidateAuthentication();
+      // Destroy, not a renderer notification: no old gateway, bearer or pending callback survives.
+      mainWindow?.destroy();
+      mainWindow = undefined;
+      try {
+        const serverUrl = await productionApiConfig.save(value);
+        productionApiBase = serverUrl;
+        process.env.RHYTHM_PRODUCTION_API_URL = serverUrl;
+        return serverUrl;
+      } finally {
+        // Even a failed save returns to the previous server signed out, with fresh preload config.
+        try { await rebuildMainWindow(); }
+        finally { changingServer = false; }
+      }
     },
-  }));
+  });
+  ipcMain.handle('rhythm:production-api:set', (event, value, ...args) => {
+    requireOwnedDocument(event);
+    if (args.length || typeof value !== 'string' || value.length > 2048) throw new Error('Invalid production API URL payload');
+    return setProductionApi(event, value);
+  });
 
   // Mirrors apps/desktop_flutter/lib/app/core/server/api_server_service.dart +
   // agent_server_controller.dart: THIS process spawns and owns the local api_server, the same way
@@ -195,9 +252,25 @@ if (hasSingleInstanceLock) {
   }
 
   ipcMain.handle('rhythm:agent-server:status', () => agentServer.status);
-  ipcMain.handle('rhythm:human-approval:capability', () => humanApprovalSigner.capability());
-  ipcMain.handle('rhythm:human-approval:sign-decision', async (_event, decision) => {
+  ipcMain.handle('rhythm:human-approval:capability', (event, ...args) => {
+    requireOwnedDocument(event);
+    requireNoPayload(args);
+    return humanApprovalSigner.capability();
+  });
+  ipcMain.handle('rhythm:human-approval:sign-decision', async (event, decision, ...args) => {
+    requireOwnedDocument(event);
+    if (args.length || !decision || typeof decision !== 'object' || Array.isArray(decision)
+      || Object.keys(decision).length !== 4
+      || !['approvalId', 'status', 'decisionNonce', 'payloadDigest'].every((key) => Object.hasOwn(decision, key))
+      || !safeNotificationId(decision.approvalId)
+      || !['approved', 'rejected'].includes(decision.status)
+      || typeof decision.decisionNonce !== 'string' || !/^[a-zA-Z0-9_-]{1,256}$/.test(decision.decisionNonce)
+      || (decision.payloadDigest !== null && (typeof decision.payloadDigest !== 'string' || !/^[a-f0-9]{64}$/.test(decision.payloadDigest)))) {
+      throw new Error('Invalid signing payload');
+    }
+    const generation = authGeneration;
     const signature = await humanApprovalSigner.signDecision(decision);
+    if (generation !== authGeneration || !ownsDocument(event)) throw new Error('Signing context changed');
     cancelNativeNotification(decision.approvalId);
     return signature;
   });
@@ -359,6 +432,7 @@ if (hasSingleInstanceLock) {
       });
     }
 
+    rebuildMainWindow = async () => {
     mainWindow = new BrowserWindow({
       width: 1280,
       height: 800,
@@ -372,14 +446,9 @@ if (hasSingleInstanceLock) {
         additionalArguments: [`--rhythm-shell-version=${app.getVersion()}`],
       },
     });
-    const windowOptions = {
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        sandbox: true,
-        webSecurity: true,
-      },
-    };
+    mainWindow.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
+      if (isMainFrame && !isInPlace && rendererReady) invalidateAuthentication();
+    });
     mainWindow.webContents.on('will-navigate', (event) => {
       denials.navigation = true;
       event.preventDefault();
@@ -409,6 +478,12 @@ if (hasSingleInstanceLock) {
     await mainWindow.loadURL(pendingDeepLink ?? 'rhythm://app/index.html#/agents');
     await mainWindow.webContents.executeJavaScript('globalThis.Notification.requestPermission()');
     pendingDeepLink = null;
+    };
+    const windowOptions = {
+      webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true },
+    };
+    await rebuildMainWindow();
+    if (!mainWindow) throw new Error('Rhythm window unavailable');
 
     if (isArtifactFrameSmoke) {
       artifactFrame = await mainWindow.webContents.executeJavaScript(`new Promise((resolve, reject) => {
