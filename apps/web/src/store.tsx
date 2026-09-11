@@ -199,6 +199,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const [liveSessionError, setLiveSessionError] = useState<string | null>(null);
   const [resumeGone, setResumeGone] = useState<{ id: string; message: string } | null>(null);
   const [liveChildView, setLiveChildView] = useState<LiveChildView | null>(null);
+  const childViewRequestRef = useRef(0);
   const [notifications, setNotifications] = useState<DomainNotification[]>([]);
   const [pushNotifications, setPushNotifications] = useState<PushNotification[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
@@ -563,6 +564,8 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
 
   const selectLiveSession = async (id: string) => {
     if (!live) return;
+    childViewRequestRef.current += 1;
+    setLiveChildView(null);
     rememberLiveSelection(id);
     setLiveSessionError(null);
     try { replaceLiveSession(await gateway.domains.sessions!.detail(id)); }
@@ -706,11 +709,13 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const dismissResumeGone = () => setResumeGone(null);
   const openLiveChildSession = async (childId: string, title: string) => {
     if (!live || !selected.id) return;
+    const request = ++childViewRequestRef.current;
     try {
       const messages = await gateway.domains.sessions!.childMessages(selected.id, childId);
+      if (request !== childViewRequestRef.current || selectedIdRef.current !== selected.id) return;
       setLiveChildView({ parentId: selected.id, childId, title, messages });
     } catch {
-      setLiveSessionError('Child session could not be loaded');
+      if (request === childViewRequestRef.current) setLiveSessionError('Child session could not be loaded');
     }
   };
   const closeLiveChildView = () => setLiveChildView(null);
@@ -831,8 +836,8 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     systemPrompt: profile.systemPrompt || null,
     allowedMcpsJson: profile.allowedMcpsJson ?? JSON.stringify(profile.mcps),
     allowedSkillsJson: profile.allowedSkillsJson ?? JSON.stringify(profile.skills),
-    corePermissionsJson: profile.corePermissionsJson ?? JSON.stringify(profile.permissionRules),
-    allowedDelegatesJson: profile.allowedDelegatesJson ?? JSON.stringify(profile.allowedDelegates),
+    corePermissionsJson: JSON.stringify(profile.permissionRules),
+    allowedDelegatesJson: JSON.stringify(profile.allowedDelegates),
     presetId: profile.presetId ?? null, sortOrder: profile.sortOrder ?? 0,
     modelProvider: profile.modelProvider, modelId: profile.modelId,
     ocAgent: profile.ocAgent ?? null, sessionSelectable: profile.selectable,

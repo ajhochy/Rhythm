@@ -63,7 +63,7 @@ function mentionMatch(value: string) {
 }
 
 export function Composer() {
-  const { selected, profiles, sendInput, sendLiveInput, sendLiveCommand, sessionGatewayMode, cancelSession, reconnect, updateSession, updatePermissionMode, runShell, notify } = useFixtures();
+  const { selected, profiles, sendInput, sendLiveInput, sendLiveCommand, sessionGatewayMode, cancelSession, reconnect, updateSession, updatePermissionMode, runShell, notify, liveChildView } = useFixtures();
   const gateway = useGateway();
   const [draft, setDraft] = useState('');
   const [pendingModel, setPendingModel] = useState<string | null>(null);
@@ -75,12 +75,23 @@ export function Composer() {
   // c2e: real File objects selected via a live-only file input, resolved into canonical
   // parts at submit time (not on selection) so a fast composer-send click can never race
   // ahead of the async FileReader work — see resolveLiveAttachment above.
-  const [liveFiles, setLiveFiles] = useState<File[]>([]);
+  const [filesBySession, setFilesBySession] = useState<Record<string, File[]>>({});
+  const liveFiles = filesBySession[selected.id] ?? [];
+  const setLiveFiles = (next: File[] | ((current: File[]) => File[])) => setFilesBySession((current) => ({
+    ...current, [selected.id]: typeof next === 'function' ? next(current[selected.id] ?? []) : next,
+  }));
   // post-m1-phase-6 c1b: real server-side `@` search results (relative paths) and the
   // canonical attachments resolved from choosing one — kept separate from `liveFiles`
   // (real browser File objects) since these already arrive as resolved content, not bytes.
   const [liveMentionResults, setLiveMentionResults] = useState<string[]>([]);
-  const [liveMentionAttachments, setLiveMentionAttachments] = useState<ComposerAttachment[]>([]);
+  const [mentionsBySession, setMentionsBySession] = useState<Record<string, ComposerAttachment[]>>({});
+  const liveMentionAttachments = mentionsBySession[selected.id] ?? [];
+  // Capture the originating render's ID, including when fileContent resolves after navigation.
+  const setLiveMentionAttachments = (next: ComposerAttachment[] | ((current: ComposerAttachment[]) => ComposerAttachment[])) => setMentionsBySession((current) => ({
+    ...current, [selected.id]: typeof next === 'function' ? next(current[selected.id] ?? []) : next,
+  }));
+  const activeContext = useRef({ id: selected.id, child: Boolean(liveChildView) });
+  activeContext.current = { id: selected.id, child: Boolean(liveChildView) };
   // post-m1-phase-5 c3g: live slash commands replace the fixture's four hard-coded
   // suggestions and dispatch as their own session.command WS frame — GET /opencode/commands,
   // apps/api_server/src/routes/opencode_commands_routes.ts:41-60.
@@ -108,7 +119,7 @@ export function Composer() {
   const offline = isSessionOffline(selected);
   // post-m1-phase-5 c2d: a live child is marked by the canonical `parentSessionId`, never the
   // fixture-only `parentId` (still used by fixture-mode child sessions — apps/web/src/fixtures.ts).
-  const disabledReason = (selected.parentId || selected.parentSessionId)
+  const disabledReason = (liveChildView || selected.parentId || selected.parentSessionId)
     ? 'Child-agent transcripts are read only.'
     : selected.group === 'archived'
       ? 'Archived sessions cannot accept input.'
@@ -162,8 +173,8 @@ export function Composer() {
         ? { id, type: 'text', path, filename, mime: content.mimeType || 'text/plain', size: content.content.length, content: content.content }
         : { id, type: 'file', path, filename, mime: content.mimeType || 'application/octet-stream', size: 0, fileUrl: `file:${path}` };
       setLiveMentionAttachments((current) => [...current, attachment]);
-      setAttachmentFeedback(`${filename} attached.`); notify(`${filename} attached`);
-    }).catch(() => { setAttachmentFeedback(`Could not attach ${filename}.`); notify(`Could not attach ${filename}`); });
+      if (activeContext.current.id === selected.id && !activeContext.current.child) { setAttachmentFeedback(`${filename} attached.`); notify(`${filename} attached`); }
+    }).catch(() => { if (activeContext.current.id === selected.id && !activeContext.current.child) { setAttachmentFeedback(`Could not attach ${filename}.`); notify(`Could not attach ${filename}`); } });
     requestAnimationFrame(() => textareaRef.current?.focus());
   };
 
@@ -232,6 +243,7 @@ export function Composer() {
         setAttachmentFeedback(message); notify(message); return;
       }
       const resolved = [...liveMentionAttachments, ...await Promise.all(liveFiles.map(resolveLiveAttachment))];
+      if (activeContext.current.id !== selected.id || activeContext.current.child) return;
       if (value.startsWith('\\!')) sendLiveInput(value.slice(1), resolved);
       else if (value.startsWith('!')) { runShell(value.slice(1).trim()); notify('Shell command completed in the fixture terminal'); }
       else sendLiveInput(value, resolved);
