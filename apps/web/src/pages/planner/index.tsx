@@ -532,9 +532,9 @@ function LivePlannerPage({ route }: { route: string }) {
     // apps/api_server/src/models/task.ts:7 (TaskStatus) / apps/api_server/src/models/project_instance.ts:8 (ProjectInstanceStep.status)
     const nextStatus: 'open' | 'done' = task.status === 'done' ? 'open' : 'done';
     try {
-      if (isProjectStep(task) && task.sourceId) {
-        await gateway.updateProjectStep(task.sourceId, { status: nextStatus });
-        appendReceipt(`PATCH /project-instances/steps/${task.sourceId} {status:${nextStatus}} → 200`);
+      if (isProjectStep(task)) {
+        await gateway.updateProjectStep(task.id, { status: nextStatus });
+        appendReceipt(`PATCH /project-instances/steps/${task.id} {status:${nextStatus}} → 200`);
       } else {
         await gateway.updateTask(task.id, { status: nextStatus });
         appendReceipt(`PATCH /tasks/${task.id} {status:${nextStatus}} → 200`);
@@ -557,10 +557,10 @@ function LivePlannerPage({ route }: { route: string }) {
     if (!task || mutationPending || isCalendarShadow(task) || task.status === 'done') return;
     setMutationPending(true);
     try {
-      if (isProjectStep(task) && task.sourceId) {
+      if (isProjectStep(task)) {
         // apps/api_server/src/routes/project_instances_routes.ts:13
-        await gateway.updateProjectStep(task.sourceId, { dueDate: date });
-        appendReceipt(`PATCH /project-instances/steps/${task.sourceId} {dueDate:${date}} → 200`);
+        await gateway.updateProjectStep(task.id, { dueDate: date });
+        appendReceipt(`PATCH /project-instances/steps/${task.id} {dueDate:${date}} → 200`);
       } else {
         // apps/api_server/src/routes/weekly_plan_routes.ts:10
         await gateway.scheduleTask(task.id, { scheduledDate: date });
@@ -646,9 +646,9 @@ function LivePlannerPage({ route }: { route: string }) {
     const dueDate = String(data.get('dueDate') ?? '').trim();
     setMutationPending(true);
     try {
-      if (isProjectStep(currentTask) && currentTask.sourceId) {
-        await gateway.updateProjectStep(currentTask.sourceId, { notes, dueDate: dueDate || undefined });
-        appendReceipt(`PATCH /project-instances/steps/${currentTask.sourceId} {notes,dueDate} → 200`);
+      if (isProjectStep(currentTask)) {
+        await gateway.updateProjectStep(currentTask.id, { notes, dueDate: dueDate || undefined });
+        appendReceipt(`PATCH /project-instances/steps/${currentTask.id} {notes,dueDate} → 200`);
       } else {
         await gateway.updateTask(currentTask.id, { notes, scheduledDate: scheduledDate || undefined, dueDate: dueDate || undefined });
         appendReceipt(`PATCH /tasks/${currentTask.id} {notes,dueDate,scheduledDate} → 200`);

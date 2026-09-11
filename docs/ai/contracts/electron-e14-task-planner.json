@@ -1,0 +1,15 @@
+{
+  "issue": "E14",
+  "date": "2026-09-11",
+  "test_command": "npx playwright test --config tests/electron-e14-playwright.config.ts",
+  "waiver": "WAIVED: screenshots are not evidence for this non-visual data-classification and request-ID correction; focused rendered assertions verify the observable groups and exact mutation targets.",
+  "criteria": [
+    { "criterion_id": "e14-c1", "text": "fixed local-date cases yesterday/today/current week/current month/future/undated/completed classify into established UI buckets; operative date scheduledDate first else due/deadline; avoid timezone string comparison and preserve completed grouping", "mode": "ui", "test": "apps/web/tests/electron-e14-task-planner.spec.ts", "status": "pass" },
+    { "criterion_id": "e14-c2", "text": "project step mutations complete/edit notes/date/drag use canonical step id, never sourceId/instance id, while manual tasks retain their endpoints; request assertion uses two steps with IDs distinct from instance", "mode": "ui", "test": "apps/web/tests/electron-e14-task-planner.spec.ts", "status": "pass" },
+    { "criterion_id": "e14-c3", "text": "manual-task edit, drag and complete retain their existing endpoints, and calendar shadow items remain read-only", "mode": "ui", "test": "apps/web/tests/electron-e14-task-planner.spec.ts", "status": "pass" },
+    { "criterion_id": "e14-live", "text": "Real cloud-backed project-step mutation and persistence", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "not_tested: focused browser requests were intercepted; run disposable live readback at the Phase 1 checkpoint." },
+    { "criterion_id": "e14-electron", "text": "Packaged Electron Tasks and Planner smoke", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "not_tested: packaged qualification is deferred to its milestone." },
+    { "criterion_id": "e14-planner-regression", "text": "Planner workflows outside manual edit/drag/complete and calendar read-only behavior", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "not_tested: unrelated Planner workflows are outside this proportional slice." }
+  ],
+  "not_tested": ["e14-live", "e14-electron", "e14-planner-regression"]
+}

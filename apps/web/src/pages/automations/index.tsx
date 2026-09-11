@@ -31,7 +31,7 @@ import {
   triggerCatalog,
   type AutomationAction,
   type AutomationCondition,
-  type AutomationRule,
+  type AutomationRule as FixtureAutomationRule,
   type AutomationSource,
 } from './fixtures';
 import './styles.css';
@@ -39,6 +39,7 @@ import './styles.css';
 type TriggerOption = { key: string; label: string };
 type ActionOption = { type: string; label: string };
 type AccountOption = { id: string; label: string };
+type AutomationRule = FixtureAutomationRule & { canonical?: ServerAutomationRule };
 
 function stripSourcePrefix(triggerKey: string) {
   return triggerKey.replace(/^[a-z_]+\./, '');
@@ -147,6 +148,7 @@ function mapServerRuleToView(rule: ServerAutomationRule, triggers: AutomationTri
   const actionLabel = actions.find((item) => item.key === rule.actionType)?.label ?? rule.actionType;
   const providerLabel = providers.find((item) => item.source === rule.source)?.label ?? sourceLabels[rule.source];
   return {
+    canonical: rule,
     id: rule.id, name: rule.name, source: rule.source, accountId: rule.sourceAccountId,
     accountLabel: rule.sourceAccountId ?? providerLabel,
     triggerKey: rule.triggerKey, triggerLabel,
@@ -396,23 +398,29 @@ export function AutomationsPage({ route }: { route: string }) {
   // source/triggerKey — apps/api_server/src/models/automation_rule.ts:23-43;
   // actionType — apps/api_server/src/models/automation_rule.ts:15-21;
   // sourceAccountId/conditions — apps/api_server/src/models/automation_rule.ts:65-76.
-  const liveAutomationPayload = (draft: BuilderDraft, triggerKey: string): CreateAutomationInput => ({
-    name: draft.name.trim() || suggestedName(draft.source),
-    source: draft.source,
-    triggerKey: triggerKey as AutomationTriggerKey,
-    actionType: draft.actionType as AutomationActionType,
-    sourceAccountId: draft.accountId || null,
-    enabled: true,
-    conditions: draft.conditions.length ? draft.conditions.map((condition) => ({ field: condition.field, operator: condition.operator as ConditionOperator, value: condition.value })) : null,
-    actionConfig: { titleTemplate: draft.titleTemplate, messageTemplate: draft.messageTemplate, templateName: draft.templateName, facilityId: draft.facilityId },
-  });
+  const liveAutomationPayload = (draft: BuilderDraft, triggerKey: string, original?: ServerAutomationRule): CreateAutomationInput => {
+    const actionEdits = Object.fromEntries(Object.entries({ titleTemplate: draft.titleTemplate, messageTemplate: draft.messageTemplate, templateName: draft.templateName, facilityId: draft.facilityId })
+      .filter(([key, value]) => !original || value !== String(original.actionConfig?.[key] ?? '')));
+    return {
+      name: draft.name.trim() || suggestedName(draft.source),
+      source: draft.source,
+      triggerKey: triggerKey as AutomationTriggerKey,
+      actionType: draft.actionType as AutomationActionType,
+      sourceAccountId: draft.accountId || null,
+      enabled: original?.enabled ?? true,
+      triggerConfig: original?.triggerConfig ?? undefined,
+      conditions: original && JSON.stringify(draft.conditions) === JSON.stringify(original.conditions ?? []) ? original.conditions : draft.conditions.length ? draft.conditions.map((condition) => ({ field: condition.field, operator: condition.operator as ConditionOperator, value: condition.value })) : null,
+      // Keep canonical values (including unexposed/nested fields); only replace edited inputs.
+      actionConfig: Object.keys(actionEdits).length ? { ...original?.actionConfig, ...actionEdits } : original?.actionConfig ?? undefined,
+    };
+  };
 
   const submitBuilder = async (draft: BuilderDraft) => {
     const triggerKey = draft.source === 'planning_center' ? draft.pcoTriggerKeys[0] ?? activeCatalog.triggers.planning_center[0]?.key ?? draft.triggerKey : draft.triggerKey;
     if (isLive) {
       if (!liveGateway) return;
       setMutationPending(true);
-      const payload = liveAutomationPayload(draft, triggerKey);
+      const payload = liveAutomationPayload(draft, triggerKey, editingRule?.canonical);
       try {
         if (editingRule) {
           const updated = await liveGateway.update(editingRule.id, payload);
@@ -456,7 +464,7 @@ export function AutomationsPage({ route }: { route: string }) {
     if (isLive) {
       if (!liveGateway) return;
       setMutationPending(true);
-      const payload = liveAutomationPayload(draft, triggerKey);
+      const payload = liveAutomationPayload(draft, triggerKey, inspectorRule.canonical);
       try {
         const updated = await liveGateway.update(inspectorRule.id, payload);
         setRules((current) => current.map((rule) => rule.id === inspectorRule.id ? mapServerRuleToView(updated, liveTriggers, liveActions, liveProviders) : rule));
