@@ -2,8 +2,8 @@
 // Developer ID Application identity (hardened runtime), then notarizes and staples it.
 //
 // Modeled on tools/release/sign_and_notarize_macos.sh (the Flutter reference), simplified: this
-// Electron packages the API server and a matching Node runtime but not the opencode fork binary.
-// findNestedCodeSignTargets() discovers the embedded Node executable and native modules by Mach-O
+// Electron packages the API server, a matching Node runtime and the exact Rhythm fork binary.
+// findNestedCodeSignTargets() discovers the embedded engine, Node and native modules by Mach-O
 // magic, along with Electron's own Frameworks/Helpers, so every nested executable is signed.
 //
 // Required environment (same Apple ID + app-specific-password notarization credentials as
@@ -94,9 +94,15 @@ async function codesign(target, { deep = false } = {}) {
 }
 
 const contentsDir = resolve(artifact, 'Contents');
-for (const target of await findNestedCodeSignTargets(contentsDir)) {
+const engine = resolve(contentsDir, 'Resources/opencode_bin/opencode');
+const targets = await findNestedCodeSignTargets(contentsDir);
+if (!targets.includes(engine) || !(await isMachO(engine))) {
+  throw new Error('Packaged Rhythm fork Mach-O is missing from nested signing targets');
+}
+for (const target of targets) {
   await codesign(target);
 }
+await run('codesign', ['--verify', '--strict', engine]);
 await codesign(artifact, { deep: false });
 
 const verify = await run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', artifact]).catch((error) => error);

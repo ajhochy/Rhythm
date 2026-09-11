@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, net, Notification, protocol, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, net, Notification, protocol, session, shell } from 'electron';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -186,7 +186,8 @@ if (hasSingleInstanceLock) {
   // agent_server_controller.dart: THIS process spawns and owns the local api_server, the same way
   // Flutter's Dart code does, instead of assuming some other process (tools/dev/sandbox.sh, a
   // developer's own terminal) already has one running. Production always pins these bases to the
-  // Flutter-owned 4001/4096 boundary. Alternate ports exist only behind an explicit smoke-only flag.
+  // canonical 4001/4096 boundary, exclusively: foreign owners are conflicts, never adopted.
+  // Alternate ports exist only behind an explicit smoke-only flag.
   const agentServer = new AgentServerService();
   if (!allowTestRuntimePorts) {
     process.env.RHYTHM_LIVE_API_URL = AGENT_SERVER_BASE_URL;
@@ -202,6 +203,8 @@ if (hasSingleInstanceLock) {
   });
   agentServer.onStatusChange((/** @type {import('./agent-server.mjs').AgentServerStatus} */ snapshot) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('rhythm:agent-server:status-changed', snapshot);
+    // ponytail: native error dialog keeps failures actionable without expanding E12's renderer UI.
+    if (!isSmoke && snapshot.status === 'failed') dialog.showErrorBox('Rhythm local runtime unavailable', snapshot.errorMessage ?? 'Quit and reopen Rhythm to retry.');
   });
 
   // api_server_service.dart:134-151's exact shutdown sequence (SIGTERM, race a 2s timer against
@@ -213,11 +216,11 @@ if (hasSingleInstanceLock) {
     if (isSmoke || shuttingDown) return;
     shuttingDown = true;
     event.preventDefault();
-    void agentServer.stopGracefully().finally(() => app.quit());
+    void agentServer.stopGracefully().catch((error) => process.stderr.write(`Runtime shutdown failed: ${error}\n`)).finally(() => app.quit());
   });
   if (!isSmoke) {
     for (const signal of ['SIGINT', 'SIGTERM']) {
-      process.on(signal, () => { void agentServer.stopGracefully().then(() => process.exit(0)); });
+      process.on(signal, () => { void agentServer.stopGracefully().then(() => process.exit(0), (error) => { process.stderr.write(`Runtime shutdown failed: ${error}\n`); process.exit(1); }); });
     }
   }
 
@@ -245,7 +248,7 @@ if (hasSingleInstanceLock) {
     // Fire-and-forget, exactly like Flutter's main.dart:186-190 (`AgentServerController..initialize()`
     // is never awaited before `runApp`) — the window renders immediately and the renderer's own
     // EnvironmentReceipt already polls health with retries while this comes up in the background.
-    if (!isSmoke) void agentServer.start();
+    if (!isSmoke) void agentServer.start().catch((error) => agentServer.reportStartupFailure(error));
 
     protocol.handle('rhythm', (request) => {
       const url = new URL(request.url);
@@ -398,6 +401,7 @@ if (hasSingleInstanceLock) {
     });
     mainWindow.webContents.on('did-finish-load', () => {
       rendererReady = true;
+      mainWindow?.webContents.send('rhythm:agent-server:status-changed', agentServer.status);
       for (const activation of pendingNativeNotificationActivations.splice(0)) {
         routeNativeNotificationActivation(activation);
       }

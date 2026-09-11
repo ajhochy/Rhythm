@@ -1,0 +1,18 @@
+{
+  "issue": "E11",
+  "date": "2026-09-11",
+  "test_command": "cd apps/electron && node --experimental-vm-modules --test --test-concurrency=1 test/agent-server.test.mjs test/agent-server-ownership.test.mjs test/main-runtime.test.mjs",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "e11-c1", "text": "Any occupied port—including healthy Rhythm—shows actionable conflict and is never signaled.", "mode": "unit", "test": "apps/electron/test/agent-server-ownership.test.mjs", "status": "pass" },
+    { "criterion_id": "e11-c2", "text": "spawn error handled without uncaught process error", "mode": "unit", "test": "apps/electron/test/agent-server-ownership.test.mjs", "status": "pass" },
+    { "criterion_id": "e11-c3", "text": "post-ready exit clears ownership/emits failed status", "mode": "unit", "test": "apps/electron/test/agent-server-ownership.test.mjs", "status": "pass" },
+    { "criterion_id": "e11-c4", "text": "rejected filesystem/start caught", "mode": "unit", "test": "apps/electron/test/agent-server-ownership.test.mjs", "status": "pass" },
+    { "criterion_id": "e11-c5", "text": "stop signals only exact owned child and removes listeners", "mode": "unit", "test": "apps/electron/test/agent-server-ownership.test.mjs", "status": "pass" },
+    { "criterion_id": "e11-c6", "text": "main catches promise failures; renderer status bridge gets current/changed state if existing narrow bridge supports it.", "mode": "unit", "test": "apps/electron/test/main-runtime.test.mjs", "status": "pass" },
+    { "criterion_id": "e11-c7", "text": "Restart bounded/manual, no auto-loop. Correct health wait timing/docs.", "mode": "unit", "test": "apps/electron/test/agent-server-ownership.test.mjs", "status": "pass" },
+    { "criterion_id": "e11-c8", "text": "packaged lifecycle", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "Dispatch forbids packaging and normal Electron launch. Human smoke: conflict dialog, quit foreign owner/reopen, owned startup, exit-after-ready, quit and reopen." },
+    { "criterion_id": "e11-c9", "text": "Focused ownership and main-runtime regressions are included in the standard Electron CI test command", "mode": "unit", "test": "apps/electron/package.json", "status": "pass" }
+  ],
+  "not_tested": ["e11-c8"]
+}
