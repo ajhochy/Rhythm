@@ -242,6 +242,10 @@ textarea { width: 100%; padding: 10px 12px; resize: vertical; }
 .prepare-button { min-height: 32px; flex: 0 0 auto; padding: 0 9px; font-size: 10px; white-space: nowrap; }
 .session-actions-menu { width: 210px; }
 .transcript-scroll { min-height: 0; overflow: auto; background: color-mix(in oklab, var(--bg), transparent 4%); }
+/* E52A: explicit message anchors avoid competing browser prepend anchoring. */
+.transcript-reader { position: relative; min-height: 0; display: flex; flex-direction: column; }
+.transcript-reader > .transcript-scroll { flex: 1; overflow-anchor: none; }
+.transcript-reader > .transcript-new-output { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); box-shadow: 0 2px 8px #0003; }
 .transcript { width: min(100%, 840px); min-height: 100%; margin: 0 auto; padding: 8px 24px 38px; }
 .load-older-wrap { display: flex; justify-content: center; padding: 2px 0 12px; }
 .message { padding: 14px 0 18px; border-bottom: 1px solid var(--border-soft); }

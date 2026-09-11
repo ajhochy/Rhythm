@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Icon } from '../icons';
 import { useFixtures } from '../store';
 import { useGateway } from '../gateway/context';
 import type { PendingApproval } from '../gateway/approvals';
-import type { LiveQuestionItem, TranscriptBlock } from '../types';
+import type { LiveQuestionItem, TranscriptBlock, TranscriptMessage } from '../types';
 
 function MarkdownText({ content }: { content: string }) {
   const pieces = content.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
@@ -215,19 +215,99 @@ function PendingApprovalBanner({ sessionId }: { sessionId: string }) {
   );
 }
 
+type ReadingPosition = {
+  top: number; pinned: boolean; anchor?: string; offset: number;
+  latest?: TranscriptMessage; unread: boolean;
+};
+
 export function Transcript() {
   const { selected, sessions, selectSession, demo, loading, notify, loadOlder, revertSession, unrevertSession, forkSession, summarizeSession, sendInput, sessionGatewayMode, liveChildView, openLiveChildSession } = useFixtures();
+  const viewport = useRef<HTMLDivElement>(null);
+  // ponytail: workspace-lifetime positions, not persisted history or virtualization.
+  const positions = useRef(new Map<string, ReadingPosition>());
+  const activeKey = useRef('');
+  const key = liveChildView ? `child:${liveChildView.parentId}:${liveChildView.childId}` : `session:${selected.id}`;
+  const messages = liveChildView?.messages ?? selected.messages;
+  const [newOutput, setNewOutput] = useState(false);
+  const pendingOlder = useRef(new Set<string>());
+  const [olderStatus, setOlderStatus] = useState<Record<string, 'pending' | 'error' | undefined>>({});
+
+  const remember = () => {
+    const el = viewport.current;
+    const position = positions.current.get(activeKey.current);
+    if (!el || !position) return;
+    position.top = el.scrollTop;
+    position.pinned = el.scrollHeight - el.clientHeight - el.scrollTop <= 48;
+    const top = el.getBoundingClientRect().top;
+    const first = [...el.querySelectorAll<HTMLElement>('[data-message-id]')].find((item) => item.getBoundingClientRect().bottom > top);
+    position.anchor = first?.dataset.messageId;
+    position.offset = first ? first.getBoundingClientRect().top - top : 0;
+    if (position.pinned) { position.unread = false; setNewOutput(false); }
+  };
+  const restore = (position: ReadingPosition) => {
+    const el = viewport.current;
+    if (!el) return;
+    if (position.pinned) el.scrollTop = el.scrollHeight;
+    else {
+      const first = [...el.querySelectorAll<HTMLElement>('[data-message-id]')].find((item) => item.dataset.messageId === position.anchor);
+      el.scrollTop = first ? el.scrollTop + first.getBoundingClientRect().top - el.getBoundingClientRect().top - position.offset : position.top;
+    }
+  };
+  useLayoutEffect(() => {
+    const changedSession = activeKey.current !== key;
+    const position = positions.current.get(key) ?? { top: 0, pinned: true, offset: 0, unread: false };
+    const latest = messages.at(-1);
+    if (!changedSession && position.latest && latest && position.latest !== latest && !position.pinned) position.unread = true;
+    position.latest = latest;
+    positions.current.set(key, position);
+    activeKey.current = key;
+    restore(position);
+    setNewOutput(position.unread);
+  });
+  useLayoutEffect(() => {
+    const el = viewport.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => {
+      const position = positions.current.get(activeKey.current);
+      if (position) restore(position);
+    });
+    observer.observe(el);
+    if (el.firstElementChild) observer.observe(el.firstElementChild);
+    return () => observer.disconnect();
+  }, [key, loading, demo]);
+  const jumpToLatest = () => {
+    const position = positions.current.get(key);
+    if (!position) return;
+    position.pinned = true; position.unread = false;
+    restore(position);
+    setNewOutput(false);
+    viewport.current?.focus({ preventScroll: true });
+    remember();
+  };
+  const requestOlder = async () => {
+    const id = selected.id;
+    if (pendingOlder.current.has(id)) return;
+    pendingOlder.current.add(id);
+    setOlderStatus((current) => ({ ...current, [id]: 'pending' }));
+    try {
+      await loadOlder(id);
+      setOlderStatus((current) => ({ ...current, [id]: undefined }));
+    } catch {
+      setOlderStatus((current) => ({ ...current, [id]: 'error' }));
+    } finally { pendingOlder.current.delete(id); }
+  };
   const openChild = (id: string, title: string) => {
     if (sessionGatewayMode === 'live') { void openLiveChildSession(id, title); return; }
     const child = sessions.find((session) => session.id === id && session.parentId === selected.id);
     if (!child) { notify('Child session is unavailable in this fixture'); return; }
     selectSession(child.id); notify(`Loaded child transcript through GET /agent-sessions/${selected.id}/children/${child.id}/messages`);
   };
+  const renderContent = () => {
   // c2j: the child transcript is rendered read-only from its own fetched messages —
   // it is never selected into `sessions`, so the child's SDK id never becomes a local id.
   if (liveChildView) return (
     <section className="transcript" aria-label={`${liveChildView.title} · child transcript`} data-testid="transcript">
-      {liveChildView.messages.map((message) => <article className={`message ${message.role}`} key={message.id} data-testid={`message-${message.id}`}>
+      {liveChildView.messages.map((message) => <article className={`message ${message.role}`} key={message.id} data-message-id={message.id} tabIndex={-1} data-testid={`message-${message.id}`}>
         <header><span className="message-role">{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Rhythm agent' : 'Session'}</span></header>
         <div className="message-blocks">{message.blocks.map((block) => <RichBlock block={block} onOpenChild={() => undefined} key={block.id} />)}</div>
       </article>)}
@@ -241,11 +321,11 @@ export function Transcript() {
   if (demo === 'empty' || selected.messages.length === 0) return <section className="state-panel" data-testid="empty-state"><Icon name="agents" size={28} /><h2>{demo === 'empty' ? 'No sessions in this view' : 'Start this conversation'}</h2><p>{demo === 'empty' ? 'Adjust filters or start a new chat.' : 'Choose a starter or write a precise request below.'}</p><div className="starter-row"><button type="button" onClick={() => sendInput('Review the project context and propose the next safe step.')}>Review project context</button><button type="button" onClick={() => sendInput('Summarize current changes and unresolved decisions.')}>Summarize changes</button></div></section>;
   return (
     <section className="transcript" aria-label={`${selected.name} transcript`} data-testid="transcript">
-      {(sessionGatewayMode !== 'live' || selected.transcriptHasMore !== false) && <div className="load-older-wrap"><button className="text-button" type="button" onClick={() => loadOlder(selected.id)} data-testid="load-older"><Icon name="history" size={14} />Load older messages</button></div>}
+      {(sessionGatewayMode !== 'live' || selected.transcriptHasMore !== false) && <div className="load-older-wrap"><button className="text-button" type="button" disabled={olderStatus[selected.id] === 'pending'} onClick={() => void requestOlder()} data-testid="load-older"><Icon name="history" size={14} />{olderStatus[selected.id] === 'pending' ? 'Loading older messages…' : 'Load older messages'}</button>{olderStatus[selected.id] === 'error' && <p role="alert">Older messages could not be loaded. Try again.</p>}</div>}
       {selected.retry && <div className="retry-banner" role="status" data-testid="retry-status"><Icon name="refresh" className="spin" size={13} /><span>Retrying · attempt {selected.retry.attempt} · {selected.retry.reason}</span></div>}
       {(selected.permission?.status === 'pending' || selected.question?.status === 'pending') && <div className="pending-trigger-banner" role="status"><span className="status-dot waiting" />Agent paused · {selected.permission?.status === 'pending' ? 'permission required before the tool can continue' : 'answer required before the plan can continue'}</div>}
       {selected.revertedMessageId && <div className="reverted-banner" role="status" data-testid="reverted-banner"><Icon name="undo" /><span>History after this point is reverted. You can restore it without losing the fixture transcript.</span><button className="secondary-button" type="button" onClick={() => unrevertSession(selected.id)} data-testid="unrevert">Restore history</button></div>}
-      {selected.messages.map((message) => <article id={`agent-message-${message.id}`} className={`message ${message.role}`} key={message.id} tabIndex={-1} data-testid={`message-${message.id}`}>
+      {selected.messages.map((message) => <article id={`agent-message-${message.id}`} className={`message ${message.role}`} key={message.id} data-message-id={message.id} tabIndex={-1} data-testid={`message-${message.id}`}>
         <header><span className="message-role">{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Rhythm agent' : 'Session'}</span><time dateTime={message.createdAt}>Aug 12 · {message.createdAt.slice(11, 16)}</time></header>
         <div className="message-blocks">{message.blocks.map((block) => <RichBlock block={block} onOpenChild={openChild} key={block.id} />)}</div>
         {message.attachments && message.attachments.length > 0 && <div className="message-attachments">{message.attachments.map((attachment) => <span key={attachment.id}><Icon name={attachment.type === 'file' ? 'command' : 'file'} size={13} />{attachment.filename}{attachment.truncated ? ' · first 100 KB' : ''}</span>)}</div>}
@@ -259,4 +339,6 @@ export function Transcript() {
       {sessionGatewayMode === 'live' ? <LiveQuestionCard /> : <QuestionCard />}
     </section>
   );
+  };
+  return <><div className="transcript-scroll" ref={viewport} onScroll={remember} tabIndex={-1} aria-label="Transcript reading area">{renderContent()}</div>{newOutput && <button className="primary-button transcript-new-output" type="button" onClick={jumpToLatest}>New output</button>}</>;
 }

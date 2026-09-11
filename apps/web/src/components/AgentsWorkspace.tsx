@@ -161,7 +161,7 @@ export function AgentsWorkspace() {
           </div>
         </header>
         <span className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="agent-activity-status">{activityAnnouncement}</span>
-        <div className="transcript-scroll"><Transcript /></div>
+        <div className="transcript-reader"><Transcript /></div>
         <Composer />
       </section>
       {!inspectorCollapsed && <div className="resize-handle inspector-resize" role="separator" aria-orientation="vertical" aria-label="Resize Inspector" aria-valuemin={286} aria-valuemax={470} aria-valuenow={inspectorWidth} aria-valuetext={`${inspectorWidth} pixels`} tabIndex={0} onPointerDown={startResize('inspector')} onKeyDown={resizeWithKeys('inspector')} data-testid="inspector-resizer" />}

@@ -54,7 +54,7 @@ interface FixtureContextValue {
   updateSession(id: string, patch: Partial<Session>): void; archiveSession(id: string): void; unarchiveSession(id: string): void;
   deleteSession(id: string): void; resumeSession(id: string): void; cancelSession(id: string): void; forkSession(id: string): void;
   revertSession(id: string, messageId: string): void; unrevertSession(id: string): void; summarizeSession(id: string): void;
-  loadOlder(id: string): void; replyPermission(reply: 'once' | 'always' | 'reject', reason?: string): void;
+  loadOlder(id: string): Promise<void>; replyPermission(reply: 'once' | 'always' | 'reject', reason?: string): void;
   answerQuestion(answer: string): void; rejectQuestion(): void; sendInput(input: string, attachments?: ComposerAttachment[]): void; reconnect(): void;
   runShell(command: string): void; setActiveFile(path: string): void; resetWorktree(): void; removeWorktree(): void;
   createProfile(): string; updateProfile(id: string, patch: Partial<Profile>): Promise<string>; duplicateProfile(id: string): string;
@@ -723,25 +723,27 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const revertSession = (id: string, messageId: string) => { updateSession(id, { revertedMessageId: messageId }); notify('History reverted after selected message'); };
   const unrevertSession = (id: string) => { updateSession(id, { revertedMessageId: undefined }); notify('Reverted history restored'); };
   const summarizeSession = (id: string) => { updateSession(id, { inputTokens: Math.max(0, selected.inputTokens - 4200) }); notify('Context compacted'); };
-  const loadOlder = (id: string) => {
+  const loadOlder = async (id: string) => {
     if (live) {
       // c2f: canonical cursor pagination — exclusive `before`, follow `pageInfo.nextCursor`
       // until `hasMore` is false. apps/api_server/src/controllers/agent_sessions_controller.ts:2365-2393.
       const target = sessions.find((session) => session.id === id);
       const cursor = target?.transcriptCursor;
       if (!cursor) return;
-      void gateway.domains.sessions!.pageOlder(id, cursor).then((page) => {
+      await gateway.domains.sessions!.pageOlder(id, cursor).then((page) => {
         setSessions((current) => current.map((session) => session.id === id ? {
           ...session,
           messages: [...page.messages, ...session.messages],
           transcriptCursor: page.pageInfo.nextCursor,
           transcriptHasMore: page.pageInfo.hasMore,
         } : session));
-      }).catch(() => setLiveSessionError('Older messages could not be loaded'));
+      });
       return;
     }
     const older = { id: `msg-older-${id}`, role: 'system' as const, createdAt: '2026-08-12T13:58:00-07:00', blocks: [{ id: `b-older-${id}`, kind: 'markdown' as const, content: 'Earlier session context loaded from the fixture transcript.' }] };
-    updateSession(id, { messages: [older, ...selected.messages] });
+    const target = sessions.find((session) => session.id === id);
+    if (!target || target.messages.some((message) => message.id === older.id)) return;
+    updateSession(id, { messages: [older, ...target.messages] });
     notify('Older messages loaded');
   };
 
