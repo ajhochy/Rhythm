@@ -23,8 +23,11 @@ export function AgentsWorkspace() {
   const [retrying, setRetrying] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [resizeAnnouncement, setResizeAnnouncement] = useState('');
+  const [activityAnnouncement, setActivityAnnouncement] = useState('');
   const actionsRef = useRef<HTMLDivElement>(null);
   const actionsTriggerRef = useRef<HTMLButtonElement>(null);
+  const previousStatus = useRef(selected.status);
+  const previousConnection = useRef(connectionMessage);
   // ponytail: a real workspace with zero configured agent profiles is a legitimate live state
   // (fresh install, all profiles deleted) — fall back to a placeholder instead of crashing on
   // undefined.icon/.label when `profiles` resolves empty.
@@ -36,7 +39,25 @@ export function AgentsWorkspace() {
   const presentation = sessionPresentation(selected);
   const recoverableConnection = isSessionOffline(selected) || selected.connectionState === 'unavailable' || Boolean(selected.stuckSince);
 
-  useEffect(() => { setRetrying(false); setActionsOpen(false); }, [selected.id]);
+  useEffect(() => { setRetrying(false); setActionsOpen(false); previousStatus.current = selected.status; previousConnection.current = connectionMessage; }, [selected.id]);
+  useEffect(() => {
+    if (previousStatus.current === 'working' && selected.status !== 'working') setActivityAnnouncement('Agent response complete.');
+    previousStatus.current = selected.status;
+  }, [selected.status]);
+  useEffect(() => {
+    if (previousConnection.current !== connectionMessage) setActivityAnnouncement(`Connection status: ${connectionMessage}`);
+    previousConnection.current = connectionMessage;
+  }, [connectionMessage]);
+  const waitingForDecision = Boolean(selected.livePermission || selected.liveQuestion || selected.permission?.status === 'pending' || selected.question?.status === 'pending');
+  useEffect(() => {
+    if (waitingForDecision) setActivityAnnouncement('Agent is waiting for your decision.');
+  }, [waitingForDecision]);
+  const latestAssistant = [...selected.messages].reverse().find((message) => message.role === 'assistant');
+  const goToActivity = () => {
+    const target = waitingForDecision ? document.querySelector<HTMLElement>('[data-agent-decision="true"]') : latestAssistant ? document.getElementById(`agent-message-${latestAssistant.id}`) : null;
+    target?.scrollIntoView({ block: 'center' });
+    target?.focus({ preventScroll: true });
+  };
   useEffect(() => {
     const query = window.matchMedia('(max-width: 900px)');
     const change = (event: MediaQueryListEvent) => {
@@ -131,6 +152,7 @@ export function AgentsWorkspace() {
             </div>
           </div>
           <div className="session-header-actions">
+            {(waitingForDecision || latestAssistant) && <button className="text-button compact" type="button" onClick={goToActivity} data-testid="agent-go-to-activity">{waitingForDecision ? 'Go to decision' : 'Go to latest response'}</button>}
             <span className="session-cost" title="Total session cost">${selected.cost.toFixed(3)}</span>
             {recoverableConnection && <button className="secondary-button compact" type="button" onClick={() => { setRetrying(true); setTimeout(() => { setRetrying(false); resumeSession(selected.id); notify('Desktop connection restored'); }, 240); }} data-testid="session-retry"><Icon name="refresh" className={retrying ? 'spin' : ''} size={14} />{retrying ? 'Retrying' : 'Reconnect'}</button>}
             <button className="icon-button small" type="button" onClick={() => notify('Session context compacted')} aria-label="Compact session" title="Compact session" data-testid="session-compact"><Icon name="spark" size={15} /></button>
@@ -138,6 +160,7 @@ export function AgentsWorkspace() {
             <div className="menu-anchor" ref={actionsRef}><button ref={actionsTriggerRef} className="icon-button small" type="button" aria-label="Session actions" aria-haspopup="menu" aria-expanded={actionsOpen} onClick={() => setActionsOpen((value) => !value)} data-testid="session-actions"><Icon name="more" size={16} /></button>{actionsOpen && <div className="menu-popover session-actions-menu" role="menu" aria-label="Session actions" onKeyDown={moveActionsFocus}><button role="menuitem" type="button" className="menu-item" onClick={() => { setActionsOpen(false); setSessionSettings(true); }} data-testid="session-actions-settings"><Icon name="rename" size={14} />Agent, model and session settings</button><button role="menuitemcheckbox" aria-checked={selected.fastMode} type="button" className="menu-item" onClick={() => { updateSession(selected.id, { fastMode: !selected.fastMode }); setActionsOpen(false); }} data-testid="session-actions-fast"><Icon name="activity" size={14} />{selected.fastMode ? 'Disable Fast mode' : 'Enable Fast mode'}</button><button role="menuitem" type="button" className="menu-item" onClick={() => { notify('Session context compacted'); setActionsOpen(false); }} data-testid="session-actions-compact"><Icon name="spark" size={14} />Compact session</button><button role="menuitem" type="button" className="menu-item" onClick={() => { setActionsOpen(false); setPrepareOpen(true); }} data-testid="session-actions-prepare"><Icon name="worktree" size={14} />Prepare project for agents</button><button role="menuitem" type="button" className="menu-item" onClick={() => { archiveSession(selected.id); setActionsOpen(false); }}><Icon name="archive" size={14} />Archive session</button><button role="menuitem" type="button" className="menu-item" onClick={() => { notify('Session view closed; selection remains in the rail'); setActionsOpen(false); }}><Icon name="close" size={14} />Close session view</button></div>}</div>
           </div>
         </header>
+        <span className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="agent-activity-status">{activityAnnouncement}</span>
         <div className="transcript-scroll"><Transcript /></div>
         <Composer />
       </section>

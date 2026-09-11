@@ -36,7 +36,7 @@ function PermissionCard() {
   const permission = selected.permission;
   if (!permission || permission.status !== 'pending') return null;
   return (
-    <section className="decision-card permission-card" aria-labelledby="permission-title" data-testid="permission-card">
+    <section data-agent-decision="true" className="decision-card permission-card" aria-labelledby="permission-title" tabIndex={-1} data-testid="permission-card">
       <div className="decision-icon"><Icon name="command" /></div>
       <div className="decision-main"><h3 id="permission-title">Permission required</h3><p>The agent wants to <strong>{permission.operation.toLowerCase()}</strong> in this worktree.</p><pre>{permission.command}</pre><small>{permission.cwd}</small>
         <label className="field compact-field">Optional denial reason<input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Explain what should change" data-testid="permission-reason" /></label>
@@ -52,7 +52,7 @@ function QuestionCard() {
   const question = selected.question;
   if (!question || question.status !== 'pending') return null;
   return (
-    <form className="decision-card question-card" aria-labelledby="question-title" onSubmit={(event) => { event.preventDefault(); if (answer) answerQuestion(answer); }} data-testid="question-card">
+    <form data-agent-decision="true" className="decision-card question-card" aria-labelledby="question-title" tabIndex={-1} onSubmit={(event) => { event.preventDefault(); if (answer) answerQuestion(answer); }} data-testid="question-card">
       <div className="decision-icon"><Icon name="spark" /></div>
       <div className="decision-main"><h3 id="question-title">Agent needs a decision</h3><p>{question.prompt}</p>
         <fieldset><legend className="sr-only">Answer options</legend>{question.options.map((option) => <label className="radio-row" key={option}><input type="radio" name="answer" value={option} checked={answer === option} onChange={() => setAnswer(option)} />{option}</label>)}<div className="radio-row custom-answer"><input type="radio" name="answer" aria-label="Use a custom answer" checked={Boolean(answer) && !question.options.includes(answer)} onChange={() => setAnswer('')} /><label className="sr-only" htmlFor="question-custom-answer">Custom answer</label><input id="question-custom-answer" value={!question.options.includes(answer) ? answer : ''} onChange={(event) => setAnswer(event.target.value)} placeholder="Custom response" data-testid="question-custom" /></div></fieldset>
@@ -82,7 +82,7 @@ function LivePermissionCard() {
     void replyLivePermission(reply, reply === 'reject' ? reason : undefined);
   };
   return (
-    <section className="decision-card permission-card" aria-labelledby="live-permission-title" data-testid="permission-card">
+    <section data-agent-decision="true" className="decision-card permission-card" aria-labelledby="live-permission-title" tabIndex={-1} data-testid="permission-card">
       <div className="decision-icon"><Icon name="command" /></div>
       <div className="decision-main">
         <h3 id="live-permission-title">{permission.title || 'Permission required'}</h3>
@@ -143,7 +143,7 @@ function LiveQuestionCard() {
   const reject = () => { if (sending) return; setSending(true); void rejectLiveQuestion(); };
 
   return (
-    <form className="decision-card question-card" aria-labelledby="live-question-title" onSubmit={(event) => { event.preventDefault(); submit(); }} data-testid="question-card">
+    <form data-agent-decision="true" className="decision-card question-card" aria-labelledby="live-question-title" tabIndex={-1} onSubmit={(event) => { event.preventDefault(); submit(); }} data-testid="question-card">
       <div className="decision-icon"><Icon name="spark" /></div>
       <div className="decision-main">
         <h3 id="live-question-title">Agent needs a decision</h3>
@@ -245,7 +245,7 @@ export function Transcript() {
       {selected.retry && <div className="retry-banner" role="status" data-testid="retry-status"><Icon name="refresh" className="spin" size={13} /><span>Retrying · attempt {selected.retry.attempt} · {selected.retry.reason}</span></div>}
       {(selected.permission?.status === 'pending' || selected.question?.status === 'pending') && <div className="pending-trigger-banner" role="status"><span className="status-dot waiting" />Agent paused · {selected.permission?.status === 'pending' ? 'permission required before the tool can continue' : 'answer required before the plan can continue'}</div>}
       {selected.revertedMessageId && <div className="reverted-banner" role="status" data-testid="reverted-banner"><Icon name="undo" /><span>History after this point is reverted. You can restore it without losing the fixture transcript.</span><button className="secondary-button" type="button" onClick={() => unrevertSession(selected.id)} data-testid="unrevert">Restore history</button></div>}
-      {selected.messages.map((message) => <article className={`message ${message.role}`} key={message.id} data-testid={`message-${message.id}`}>
+      {selected.messages.map((message) => <article id={`agent-message-${message.id}`} className={`message ${message.role}`} key={message.id} tabIndex={-1} data-testid={`message-${message.id}`}>
         <header><span className="message-role">{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Rhythm agent' : 'Session'}</span><time dateTime={message.createdAt}>Aug 12 · {message.createdAt.slice(11, 16)}</time></header>
         <div className="message-blocks">{message.blocks.map((block) => <RichBlock block={block} onOpenChild={openChild} key={block.id} />)}</div>
         {message.attachments && message.attachments.length > 0 && <div className="message-attachments">{message.attachments.map((attachment) => <span key={attachment.id}><Icon name={attachment.type === 'file' ? 'command' : 'file'} size={13} />{attachment.filename}{attachment.truncated ? ' · first 100 KB' : ''}</span>)}</div>}

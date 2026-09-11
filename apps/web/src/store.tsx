@@ -44,7 +44,7 @@ interface LiveChildView {
 interface FixtureContextValue {
   sessions: Session[]; profiles: Profile[]; todos: TodoItem[]; files: FixtureFile[]; diff: string;
   selectedId: string; selected: Session; scope: SessionScope; theme: Theme; inspectorTab: InspectorTab; demo: DemoState;
-  toast: string; connectionMessage: string; runMessage: string; activeFile: string; terminalOutput: string[]; loading: boolean;
+  toast: { message: string; id: number }; connectionMessage: string; runMessage: string; activeFile: string; terminalOutput: string[]; loading: boolean;
   unreadThreads: number; setUnreadThreads(count: number): void;
   liveMessageThreads: MessageThread[]; setLiveMessageThreads: Dispatch<SetStateAction<MessageThread[]>>;
   liveMessagesLoading: boolean; liveMessagesError: string;
@@ -190,7 +190,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(readStoredTheme);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('context');
   const [demo, setDemoState] = useState<DemoState>('running');
-  const [toast, setToast] = useState('Ready');
+  const [toast, setToast] = useState({ message: 'Ready', id: 0 });
   const [connectionMessage, setConnectionMessage] = useState('Desktop connected');
   const [runMessage, setRunMessage] = useState('Sunday service handoff is working');
   const [activeFile, setActiveFile] = useState(seedFiles[0].path);
@@ -218,7 +218,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const liveMessagesRefreshRef = useRef<Promise<void> | null>(null);
 
   const selected = sessions.find((session) => session.id === selectedId) ?? sessions[0] ?? emptyLiveSession();
-  const notify = (message: string) => setToast(message);
+  const notify = (message: string) => setToast((current) => ({ message, id: current.id + 1 }));
   const setTheme = (next: Theme) => { setThemeState(next); persistTheme(next); };
   const selectSession = (id: string) => { setSelectedId(id); const session = sessions.find((item) => item.id === id); if (session) setRunMessage(`${session.name}: ${session.status}`); };
 
@@ -863,7 +863,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const duplicateProfile = (id: string) => { const source = profiles.find((profile) => profile.id === id); if (!source) return id; const nextId = `${id}-copy-${profiles.length}`; setProfiles((current) => [...current, { ...structuredClone(source), id: nextId, label: `${source.label} copy`, isDefault: false, updatedAt: FIXED_NOW }]); notify('Profile duplicated'); return nextId; };
   const deleteProfile = async (id: string) => { if (profiles.find((profile) => profile.id === id)?.isDefault) { notify('Choose another default before deleting this profile'); return; } if (live && !id.startsWith('profile-created-')) await gateway.domains.sessions!.deleteProfile(id); setProfiles((current) => current.filter((profile) => profile.id !== id)); notify('Profile deleted'); };
   const setDefaultProfile = (id: string) => { setProfiles((current) => current.map((profile) => ({ ...profile, isDefault: profile.id === id }))); notify('Default profile updated'); };
-  const resetFixtures = () => { setSessions(cloneSessions()); setProfiles(cloneProfiles()); setTodos(structuredClone(seedTodos)); setUnreadThreads(live ? 0 : 6); setSelectedId('session-sunday-handoff'); setScope('chats'); setInspectorTab('context'); setDemoState('running'); setConnectionMessage('Desktop connected'); setRunMessage('Sunday service handoff is working'); setActiveFile(seedFiles[0].path); setTerminalOutput(['$ pwd', '/workspace/rhythm']); setLoading(false); setToast('Workspace reset'); };
+  const resetFixtures = () => { setSessions(cloneSessions()); setProfiles(cloneProfiles()); setTodos(structuredClone(seedTodos)); setUnreadThreads(live ? 0 : 6); setSelectedId('session-sunday-handoff'); setScope('chats'); setInspectorTab('context'); setDemoState('running'); setConnectionMessage('Desktop connected'); setRunMessage('Sunday service handoff is working'); setActiveFile(seedFiles[0].path); setTerminalOutput(['$ pwd', '/workspace/rhythm']); setLoading(false); notify('Workspace reset'); };
 
   const setDemo = (next: DemoState) => {
     setDemoState(next); setLoading(next === 'loading');

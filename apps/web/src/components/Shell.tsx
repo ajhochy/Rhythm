@@ -74,6 +74,7 @@ export function Shell({ route, children }: { route: string; children: React.Reac
   };
   const openPushNotification = () => navigate('/agents');
   const [demoOpen, setDemoOpen] = useState(false);
+  const [toastVisible, setToastVisible] = useState(false);
   const [compactNav, setCompactNav] = useState(() => window.matchMedia('(max-width: 900px)').matches);
   const activeKey = route.startsWith('/profiles') || route.startsWith('/endpoint-map') || route.startsWith('/tools/') ? 'agents' : route.split('/')[1] || 'agents';
   const activeLabel = activeKey.charAt(0).toUpperCase() + activeKey.slice(1);
@@ -85,6 +86,12 @@ export function Shell({ route, children }: { route: string; children: React.Reac
     query.addEventListener('change', change);
     return () => query.removeEventListener('change', change);
   }, []);
+  useEffect(() => {
+    if (toast.id === 0) return;
+    setToastVisible(true);
+    const timer = window.setTimeout(() => setToastVisible(false), 3_000);
+    return () => window.clearTimeout(timer);
+  }, [toast.id]);
   useEffect(() => {
     const queryDemo = new URLSearchParams(window.location.hash.split('?')[1] || '').get('demo') as DemoState | null;
     if (queryDemo && Object.hasOwn(demoLabels, queryDemo)) setDemo(queryDemo);
@@ -102,7 +109,7 @@ export function Shell({ route, children }: { route: string; children: React.Reac
 
   return (
     <div className="app-canvas" data-od-id="agents-app-shell">
-      <a className="skip-link" href="#/agents" onClick={(event) => { event.preventDefault(); if (!window.location.hash.startsWith('#/agents')) navigate('/agents'); requestAnimationFrame(() => document.getElementById('main-content')?.focus()); }}>Skip to Agents workspace</a>
+      <a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); document.getElementById('main-content')?.focus(); }}>Skip to main content</a>
       <header className="app-header" data-od-id="rhythm-global-header">
         <nav className="destination-nav" aria-label="Product destinations">
           {destinations.map((destination) => destinationButton(destination))}
@@ -160,7 +167,7 @@ export function Shell({ route, children }: { route: string; children: React.Reac
       <section className="workspace-surface" aria-label={`${activeLabel} workspace`}>
         <main id="main-content" tabIndex={-1}>{children}</main>
       </section>
-      <div className="toast" role="status" aria-live="polite" data-testid="toast-status"><Icon name="check" size={15} /><span>{toast}</span></div>
+      <div className="toast" role="status" aria-live="polite" data-visible={toastVisible} data-testid="toast-status"><Icon name="check" size={15} /><span>{toast.message}</span></div>
     </div>
   );
 }

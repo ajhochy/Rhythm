@@ -70,7 +70,9 @@ export function Composer() {
   const [bypassConfirm, setBypassConfirm] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [attachmentFeedback, setAttachmentFeedback] = useState('');
-  const [mentionDismissed, setMentionDismissed] = useState(false);
+  const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
+  const [mentionState, setMentionState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [commandsUnavailable, setCommandsUnavailable] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
   // c2e: real File objects selected via a live-only file input, resolved into canonical
   // parts at submit time (not on selection) so a fast composer-send click can never race
@@ -99,10 +101,11 @@ export function Composer() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const attachButtonRef = useRef<HTMLButtonElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
   const attachments = selected.pendingAttachments ?? [];
 
   useEffect(() => {
-    setDraft(selected.queuedDraft || ''); setPickerOpen(false); setAttachmentFeedback(''); setMentionDismissed(false); setHighlighted(0);
+    setDraft(selected.queuedDraft || ''); setPickerOpen(false); setAttachmentFeedback(''); setSuggestionsDismissed(false); setHighlighted(0);
   }, [selected.id, selected.queuedDraft]);
   useEffect(() => {
     if (!pickerOpen) return;
@@ -131,7 +134,7 @@ export function Composer() {
   const atMatch = mentionMatch(draft);
   const atQuery = atMatch?.[1].toLowerCase() ?? '';
   const mentionOptions = useMemo(() => fileFixtures.filter((file) => file.path.toLowerCase().includes(atQuery)), [atQuery]);
-  const suggestionType = disabledReason ? null : draft.startsWith('/') ? 'slash' : atMatch && !mentionDismissed ? 'mention' : draft.startsWith('!') ? 'shell' : null;
+  const suggestionType = disabledReason || suggestionsDismissed ? null : draft.startsWith('/') ? 'slash' : atMatch ? 'mention' : draft.startsWith('!') ? 'shell' : null;
   const slashOptions = sessionGatewayMode === 'live'
     ? liveCommands.map((command) => `/${command.name}`).filter((command) => command.startsWith(draft))
     : slashCommands.filter((command) => command.startsWith(draft));
@@ -139,24 +142,28 @@ export function Composer() {
   const suggestionCount = suggestionType === 'mention' ? (sessionGatewayMode === 'live' ? liveMentionResults.length : mentionOptions.length) : suggestionType === 'slash' ? slashOptions.length : suggestionType === 'shell' ? 1 : 0;
 
   useEffect(() => { setHighlighted(0); }, [suggestionType, atQuery, draft.startsWith('/')]);
+  useEffect(() => {
+    suggestionsRef.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+  }, [highlighted]);
 
   // post-m1-phase-6 c1b: debounced server-side `@` search — apps/api_server/src/routes/agent_sessions_routes.ts:86,
   // controller.findFiles at apps/api_server/src/controllers/agent_sessions_controller.ts:2441-2454 (query/limit/type).
   useEffect(() => {
-    if (sessionGatewayMode !== 'live' || suggestionType !== 'mention' || !atQuery.trim()) { setLiveMentionResults([]); return; }
+    if (sessionGatewayMode !== 'live' || suggestionType !== 'mention' || !atQuery.trim()) { setLiveMentionResults([]); setMentionState('idle'); return; }
+    setMentionState('loading');
     let active = true;
     const timer = window.setTimeout(() => {
       void gateway.domains.sessions!.findFiles(selected.id, atQuery, { limit: 20, type: 'file' })
-        .then((paths) => { if (active) setLiveMentionResults(paths); })
-        .catch(() => { if (active) setLiveMentionResults([]); });
+        .then((paths) => { if (active) { setLiveMentionResults(paths); setMentionState('ready'); } })
+        .catch(() => { if (active) { setLiveMentionResults([]); setMentionState('error'); } });
     }, 200);
     return () => { active = false; window.clearTimeout(timer); };
   }, [sessionGatewayMode, suggestionType, atQuery, selected.id, gateway]);
 
   useEffect(() => {
-    if (sessionGatewayMode !== 'live') { setLiveCommands([]); return; }
+    if (sessionGatewayMode !== 'live') { setLiveCommands([]); setCommandsUnavailable(false); return; }
     let active = true;
-    void gateway.domains.commands!.list().then((commands) => { if (active) setLiveCommands(commands); }).catch(() => { if (active) setLiveCommands([]); });
+    void gateway.domains.commands!.list().then((commands) => { if (active) { setLiveCommands(commands); setCommandsUnavailable(false); } }).catch(() => { if (active) { setLiveCommands([]); setCommandsUnavailable(true); } });
     return () => { active = false; };
   }, [sessionGatewayMode, gateway]);
 
@@ -165,7 +172,7 @@ export function Composer() {
   const chooseLiveMention = (path: string) => {
     const match = mentionMatch(draft);
     if (match && match.index !== undefined) setDraft(`${draft.slice(0, match.index)}${draft.slice(match.index + match[0].length)}`.trimStart());
-    setMentionDismissed(false);
+    setSuggestionsDismissed(false);
     const filename = path.split('/').at(-1) ?? path;
     void gateway.domains.sessions!.fileContent(selected.id, path).then((content) => {
       const id = `attachment-live-mention-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -221,7 +228,7 @@ export function Composer() {
   const chooseMention = (file: FileFixture) => {
     const match = mentionMatch(draft);
     if (match && match.index !== undefined) setDraft(`${draft.slice(0, match.index)}${draft.slice(match.index + match[0].length)}`.trimStart());
-    addFixture(file); setMentionDismissed(false); requestAnimationFrame(() => textareaRef.current?.focus());
+    addFixture(file); setSuggestionsDismissed(false); requestAnimationFrame(() => textareaRef.current?.focus());
   };
 
   const submit = async () => {
@@ -270,10 +277,11 @@ export function Composer() {
   };
 
   const handleComposerKey = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (suggestionType && event.key === 'Escape') { event.preventDefault(); if (suggestionType === 'mention') setMentionDismissed(true); return; }
+    if (suggestionType && event.key === 'Escape') { event.preventDefault(); setSuggestionsDismissed(true); return; }
     if (suggestionType && suggestionCount > 0 && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
       event.preventDefault(); setHighlighted((value) => (value + (event.key === 'ArrowDown' ? 1 : -1) + suggestionCount) % suggestionCount); return;
     }
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
     if (suggestionType && suggestionCount > 0 && event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); useHighlightedSuggestion(); return; }
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit(); }
   };
@@ -290,7 +298,7 @@ export function Composer() {
       {attachmentFeedback && <div className={`attachment-feedback ${attachmentFeedback.startsWith('Could not') ? 'error' : ''}`} id="composer-attachment-feedback" role={attachmentFeedback.startsWith('Could not') ? 'alert' : 'status'} data-testid="attachment-feedback"><span>{attachmentFeedback}</span>{attachmentFeedback.startsWith('Could not') && <button type="button" className="text-button" onClick={() => { setAttachmentFeedback(''); textareaRef.current?.focus(); }}>Dismiss</button>}</div>}
       <label className="composer-label" htmlFor="composer-input">Message the agent</label>
       <div className="composer-input-row">
-        <textarea id="composer-input" ref={textareaRef} value={draft} onChange={(event) => { setDraft(event.target.value); setMentionDismissed(false); }} onKeyDown={handleComposerKey} placeholder="Message the agent · / command · @ file · ! shell" rows={2} aria-describedby={`composer-help${attachmentFeedback ? ' composer-attachment-feedback' : ''}`} disabled={Boolean(disabledReason)} data-testid="composer-input" />
+        <textarea id="composer-input" ref={textareaRef} value={draft} onChange={(event) => { setDraft(event.target.value); setSuggestionsDismissed(false); }} onKeyDown={handleComposerKey} placeholder="Message the agent · / command · @ file · ! shell" rows={2} role="combobox" aria-autocomplete="list" aria-controls="composer-suggestions-list" aria-expanded={Boolean(suggestionType)} aria-activedescendant={suggestionType && suggestionCount > 0 ? `composer-${suggestionType}-option-${highlighted}` : undefined} aria-describedby={`composer-help${attachmentFeedback ? ' composer-attachment-feedback' : ''}`} disabled={Boolean(disabledReason)} data-testid="composer-input" />
         {selected.status === 'working' && !offline
           // Pre-existing gotcha (unrelated to Phase 4 attachments/streaming/parts/pagination):
           // without distinct `key`s, React patches this button's `type` in place (button→submit)
@@ -301,13 +309,17 @@ export function Composer() {
           ? <button key="composer-cancel" className="danger-icon-button" type="button" onClick={() => cancelSession(selected.id)} aria-label="Cancel running session" data-testid="composer-cancel" disabled={Boolean(disabledReason)}><Icon name="cancel" size={15} /></button>
           : <button key="composer-send" className="send-button" type="submit" aria-label={offline ? 'Queue draft locally' : 'Send message'} data-testid="composer-send" disabled={Boolean(disabledReason)}><Icon name="send" size={17} /></button>}
       </div>
-      {suggestionType && <div className="composer-suggestions" role="listbox" aria-label={`${suggestionType} suggestions`} data-testid="composer-suggestions">
-        {suggestionType === 'slash' && slashOptions.map((command, index) => <button role="option" aria-selected={highlighted === index} type="button" key={command} onClick={() => { setDraft(`${command} `); textareaRef.current?.focus(); }} data-testid={`command-${command.slice(1)}`}><Icon name="command" size={14} /><strong>{command}</strong><small>{sessionGatewayMode === 'live' ? (liveCommands.find((entry) => entry.name === command.slice(1))?.description || 'Command') : 'Fixture command'}</small></button>)}
-        {suggestionType === 'mention' && sessionGatewayMode === 'live' && liveMentionResults.map((path, index) => <button role="option" aria-selected={highlighted === index} type="button" key={path} onClick={() => chooseLiveMention(path)} data-testid={`mention-option-live-${index}`}><Icon name="file" size={14} /><strong>{path}</strong></button>)}
-        {suggestionType === 'mention' && sessionGatewayMode === 'live' && liveMentionResults.length === 0 && <div className="suggestion-empty" role="status" data-testid="mention-no-results">No matching files</div>}
-        {suggestionType === 'mention' && sessionGatewayMode !== 'live' && mentionOptions.map((file, index) => <button role="option" aria-selected={highlighted === index} type="button" key={file.id} onClick={() => chooseMention(file)} data-testid={`mention-option-${file.id}`}><Icon name="file" size={14} /><strong>{file.path}</strong><small>{file.description}</small></button>)}
+      {suggestionType && <div ref={suggestionsRef} id="composer-suggestions-list" className="composer-suggestions" role="listbox" aria-label={`${suggestionType} suggestions`} data-testid="composer-suggestions">
+        {suggestionType === 'slash' && slashOptions.map((command, index) => <button id={`composer-slash-option-${index}`} role="option" aria-selected={highlighted === index} type="button" key={command} onClick={() => { setDraft(`${command} `); textareaRef.current?.focus(); }} data-testid={`command-${command.slice(1)}`}><Icon name="command" size={14} /><strong>{command}</strong><small>{sessionGatewayMode === 'live' ? (liveCommands.find((entry) => entry.name === command.slice(1))?.description || 'Command') : 'Fixture command'}</small></button>)}
+        {suggestionType === 'slash' && sessionGatewayMode === 'live' && commandsUnavailable && <div className="suggestion-empty" role="status">Commands are unavailable. Try again after reconnecting.</div>}
+        {suggestionType === 'slash' && sessionGatewayMode === 'live' && !commandsUnavailable && slashOptions.length === 0 && <div className="suggestion-empty" role="status">No matching commands</div>}
+        {suggestionType === 'mention' && sessionGatewayMode === 'live' && liveMentionResults.map((path, index) => <button id={`composer-mention-option-${index}`} role="option" aria-selected={highlighted === index} type="button" key={path} onClick={() => chooseLiveMention(path)} data-testid={`mention-option-live-${index}`}><Icon name="file" size={14} /><strong>{path}</strong></button>)}
+        {suggestionType === 'mention' && sessionGatewayMode === 'live' && mentionState === 'loading' && <div className="suggestion-empty" role="status">Searching files…</div>}
+        {suggestionType === 'mention' && sessionGatewayMode === 'live' && mentionState === 'error' && <div className="suggestion-empty" role="alert">File search is unavailable. Try again after reconnecting.</div>}
+        {suggestionType === 'mention' && sessionGatewayMode === 'live' && mentionState === 'ready' && liveMentionResults.length === 0 && <div className="suggestion-empty" role="status" data-testid="mention-no-results">No matching files</div>}
+        {suggestionType === 'mention' && sessionGatewayMode !== 'live' && mentionOptions.map((file, index) => <button id={`composer-mention-option-${index}`} role="option" aria-selected={highlighted === index} type="button" key={file.id} onClick={() => chooseMention(file)} data-testid={`mention-option-${file.id}`}><Icon name="file" size={14} /><strong>{file.path}</strong><small>{file.description}</small></button>)}
         {suggestionType === 'mention' && sessionGatewayMode !== 'live' && mentionOptions.length === 0 && <div className="suggestion-empty" role="status" data-testid="mention-no-results">No matching files</div>}
-        {suggestionType === 'shell' && <button role="option" aria-selected="true" type="button" onClick={() => { setDraft('!git status --short'); textareaRef.current?.focus(); }} data-testid="shell-shortcut-option"><Icon name="terminal" size={14} /><strong>!git status --short</strong><small>Run through session shell</small></button>}
+        {suggestionType === 'shell' && <button id="composer-shell-option-0" role="option" aria-selected="true" type="button" onClick={() => { setDraft('!git status --short'); textareaRef.current?.focus(); }} data-testid="shell-shortcut-option"><Icon name="terminal" size={14} /><strong>!git status --short</strong><small>Run through session shell</small></button>}
       </div>}
       <div className="composer-toolbar">
         <div className="composer-selects">
