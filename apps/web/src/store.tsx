@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { FIXED_NOW, seedDiff, seedFiles, seedProfiles, seedSessions, seedTodos } from './fixtures';
 import { useGateway } from './gateway/context';
 import type { GatewayMode } from './gateway';
-import { mapPart, SessionGatewayError, type ProfileMutation, type SessionSocket, type SessionWireEvent } from './gateway/sessions';
+import { mapPart, SessionGatewayError, toSessionViewModel, type ProfileMutation, type SessionSocket, type SessionWireEvent } from './gateway/sessions';
 import type { DomainNotification } from './gateway/notifications';
 import type { MessageThread } from './gateway/messages';
 import { ApprovalGatewayError, type PendingApproval } from './gateway/approvals';
@@ -209,6 +209,9 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const stableEngineRef = useRef<Promise<void>>(Promise.resolve());
   const selectedIdRef = useRef(selectedId);
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
+  const scopeRef = useRef(scope);
+  useEffect(() => { scopeRef.current = scope; }, [scope]);
+  const reconcileLiveSessionsRef = useRef<(() => Promise<void>) | null>(null);
   // Fixture mode starts from its six seeded unread threads. Live mode starts unknown/zero and is
   // hydrated only from GET /message-threads — never show fixture unread state in production.
   const [unreadThreads, setUnreadThreads] = useState(() => live ? 0 : 6);
@@ -217,7 +220,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const [liveMessagesError, setLiveMessagesError] = useState('');
   const liveMessagesRefreshRef = useRef<Promise<void> | null>(null);
 
-  const selected = sessions.find((session) => session.id === selectedId) ?? sessions[0] ?? emptyLiveSession();
+  const selected = sessions.find((session) => session.id === selectedId) ?? (live ? emptyLiveSession() : sessions[0]) ?? emptyLiveSession();
   const notify = (message: string) => setToast((current) => ({ message, id: current.id + 1 }));
   const setTheme = (next: Theme) => { setThemeState(next); persistTheme(next); };
   const selectSession = (id: string) => { setSelectedId(id); const session = sessions.find((item) => item.id === id); if (session) setRunMessage(`${session.name}: ${session.status}`); };
@@ -272,11 +275,19 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
 
   const replaceLiveSession = (incoming: Session) => {
     setSessions((current) => current.some((session) => session.id === incoming.id)
-      ? current.map((session) => session.id === incoming.id ? incoming : session)
+      ? current.map((session) => session.id === incoming.id ? {
+        ...session, ...incoming,
+        messages: incoming.messages.length ? incoming.messages : session.messages,
+        artifacts: incoming.artifacts.length ? incoming.artifacts : session.artifacts,
+        queuedDraft: session.queuedDraft, queuedAttachments: session.queuedAttachments, pendingAttachments: session.pendingAttachments,
+        retry: session.retry, permission: session.permission, question: session.question,
+        livePermission: session.livePermission, liveQuestion: session.liveQuestion, revertedMessageId: session.revertedMessageId,
+      } : session)
       : [incoming, ...current]);
   };
 
   const rememberLiveSelection = (id: string) => {
+    selectedIdRef.current = id;
     setSelectedId(id);
     try {
       if (id) window.localStorage.setItem(LIVE_SELECTED_SESSION_KEY, id);
@@ -294,6 +305,47 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       .then(() => gateway.health.engine())
       .then(() => undefined);
     const onError = () => { if (active) setLiveSessionError('Session service unavailable'); };
+    const mergeMetadata = (existing: Session, incoming: Session): Session => ({
+      ...existing, ...incoming,
+      messages: incoming.messages.length ? incoming.messages : existing.messages,
+      artifacts: incoming.artifacts.length ? incoming.artifacts : existing.artifacts,
+      queuedDraft: existing.queuedDraft, queuedAttachments: existing.queuedAttachments, pendingAttachments: existing.pendingAttachments,
+      retry: existing.retry, permission: existing.permission, question: existing.question,
+      livePermission: existing.livePermission, liveQuestion: existing.liveQuestion, revertedMessageId: existing.revertedMessageId,
+    });
+    const reconcileMembership = async () => {
+      const currentScope = scopeRef.current;
+      const incoming = sessionGateway.listPage
+        ? (await Promise.all([sessionGateway.listPage({ scope: currentScope }), sessionGateway.listPage({ scope: currentScope, archivedOnly: true })]))
+          .flatMap((page) => [...page.ancestors, ...page.sessions])
+        : await sessionGateway.list();
+      if (!active) return;
+      setSessions((current) => {
+        const next = new Map(current.filter((session) => session.scope !== currentScope || session.id === selectedIdRef.current).map((session) => [session.id, session]));
+        for (const session of incoming) {
+          const existing = next.get(session.id) ?? current.find((item) => item.id === session.id);
+          next.set(session.id, existing ? mergeMetadata(existing, session) : session);
+        }
+        return [...next.values()];
+      });
+      const id = selectedIdRef.current;
+      if (!id) return;
+      try { replaceLiveSession(await sessionGateway.detail(id)); }
+      catch (error) {
+        if (error instanceof SessionGatewayError && error.status === 404) {
+          setSessions((current) => current.filter((session) => session.id !== id));
+          rememberLiveSelection('');
+        } else throw error;
+      }
+    };
+    let reconcileInFlight: Promise<void> | null = null;
+    const requestReconcile = () => reconcileInFlight ??= reconcileMembership().finally(() => { reconcileInFlight = null; });
+    reconcileLiveSessionsRef.current = requestReconcile;
+    const reconcileOnFocus = () => { void requestReconcile().catch(onError); };
+    const reconcileOnVisibility = () => { if (document.visibilityState === 'visible') reconcileOnFocus(); };
+    window.addEventListener('focus', reconcileOnFocus);
+    document.addEventListener('visibilitychange', reconcileOnVisibility);
+    const reconcileTimer = window.setInterval(reconcileOnFocus, 2_000);
     // c3c/general race fix: the initial mount kicks off list()+detail() to hydrate the
     // transcript, but a WS event (delta/status) for the same session can legitimately land
     // before that detail() resolves. Without this, the slower initial fetch would overwrite
@@ -305,15 +357,19 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       if (!active) return;
       if (event.type === 'session.removed' && event.id) {
         setSessions((current) => current.filter((session) => session.id !== event.id));
+        if (selectedIdRef.current === event.id) rememberLiveSelection('');
         return;
       }
-      if (event.type === 'session.updated' && event.session && typeof event.session === 'object') {
-        const wire = event.session as { id?: unknown; status?: unknown; working?: unknown };
+      if ((event.type === 'session.created' || event.type === 'session.updated') && event.session && typeof event.session === 'object') {
+        const wire = event.session as Record<string, unknown>;
         if (typeof wire.id === 'string') {
-          setSessions((current) => current.map((session) => session.id === wire.id ? {
-            ...session,
-            status: wire.working === true || wire.status === 'working' ? 'working' : wire.status === 'idle' ? 'idle' : session.status,
-          } : session));
+          liveTouched.add(wire.id);
+          setSessions((current) => {
+            const existing = current.find((session) => session.id === wire.id);
+            const incoming = toSessionViewModel({ ...existing, ...wire });
+            if (!existing) return [incoming, ...current];
+            return current.map((session) => session.id === wire.id ? mergeMetadata(session, incoming) : session);
+          });
         }
         return;
       }
@@ -452,10 +508,8 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     const onReconnect = () => {
       if (!active) return;
       const id = selectedIdRef.current;
-      if (!id) return;
-      sessionSocketRef.current?.send({ v: 1, type: 'session.subscribe', id });
-      void sessionGateway.detail(id).then((detail) => { if (active) replaceLiveSession(detail); }).catch(onError);
-      rehydratePendingPermission(id);
+      if (id) { sessionSocketRef.current?.send({ v: 1, type: 'session.subscribe', id }); rehydratePendingPermission(id); }
+      void requestReconcile().catch(onError);
     };
     sessionSocketRef.current = sessionGateway.connect(onEvent, onError, onReconnect);
     setLoading(true);
@@ -485,6 +539,10 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       sessionSocketRef.current?.close();
       sessionSocketRef.current = null;
       streamedPartsRef.current.clear();
+      reconcileLiveSessionsRef.current = null;
+      window.removeEventListener('focus', reconcileOnFocus);
+      document.removeEventListener('visibilitychange', reconcileOnVisibility);
+      window.clearInterval(reconcileTimer);
     };
   }, [gateway, live]);
 
@@ -576,11 +634,8 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     if (!live) return;
     setLiveSessionError(null);
     try {
-      if (selectedId) replaceLiveSession(await gateway.domains.sessions!.detail(selectedId));
-      else {
-        const next = await gateway.domains.sessions!.list();
-        setSessions(next);
-      }
+      if (reconcileLiveSessionsRef.current) await reconcileLiveSessionsRef.current();
+      else if (selectedIdRef.current) replaceLiveSession(await gateway.domains.sessions!.detail(selectedIdRef.current));
     } catch { setLiveSessionError('Session could not be refreshed'); }
   };
 
@@ -606,7 +661,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     await gateway.domains.sessions!.hardDelete(id);
     setSessions((current) => {
       const remaining = current.filter((session) => session.id !== id);
-      if (selectedId === id) rememberLiveSelection(remaining[0]?.id ?? '');
+      if (selectedIdRef.current === id) rememberLiveSelection('');
       return remaining;
     });
     notify('Session permanently deleted');

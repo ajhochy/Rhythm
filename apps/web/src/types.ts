@@ -101,6 +101,7 @@ export interface Session {
   scope: SessionScope;
   group: SessionGroup;
   status: SessionStatus;
+  statusMessage?: string;
   connectionState?: 'online' | 'offline' | 'unavailable';
   completedAt?: string;
   stuckSince?: string;

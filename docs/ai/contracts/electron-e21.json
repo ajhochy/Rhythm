@@ -1,0 +1,16 @@
+{
+  "issue": "E21",
+  "date": "2026-09-11",
+  "test_command": "cd apps/web && npx playwright test --config tests/electron-e21-playwright.config.ts && RHYTHM_LIVE_E2E=1 npx playwright test --config tests/electron-e21-playwright.config.ts",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "E21-c1", "text": "Centralized canonical metadata upsert handles session.created and complete session.updated fields (name,status,error,category/archive,activity,project,preview,new rows) without replacing transcript/transient/pending attachment state", "mode": "ui", "test": "apps/web/tests/electron-e21-reconciliation.spec.ts", "status": "pass" },
+    { "criterion_id": "E21-c2", "text": "Removed clears selected id explicitly and never silently reroutes subsequent input to first row", "mode": "ui", "test": "apps/web/tests/electron-e21-reconciliation.spec.ts", "status": "pass" },
+    { "criterion_id": "E21-c3", "text": "Current scope/history list and selected detail refresh separately; reconnect/outage reconciles complete current-scope membership plus selected detail, including unselected external create/rename/error/archive/delete", "mode": "ui", "test": "apps/web/tests/electron-e21-reconciliation.spec.ts", "status": "pass" },
+    { "criterion_id": "E21-c4", "text": "Authoritative list refresh is bounded/coalesced and does not run every stream token. Preserve E20 history rows without stale split state", "mode": "ui", "test": "apps/web/tests/electron-e21-reconciliation.spec.ts", "status": "pass" },
+    { "criterion_id": "E21-c5", "text": "Real sandbox behavioral check using test-owned second HTTP client to create/rename/archive/delete while live renderer/WS connected, verify visible membership/order and selection. No prompt/provider", "mode": "live", "test": "apps/web/tests/electron-e21-live.spec.ts", "status": "pass" }
+  ],
+  "not_tested": [],
+  "validation_limits": ["packaged Electron", "long outage", "paged membership beyond first 100"],
+  "implementation_status": "PASS: focused4/4, real sandbox1/1 and web typecheck"
+}

@@ -94,10 +94,10 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
       for (const row of sessions) {
         if (!before.has(row.id) || before.get(row.id) === row) continue;
         const catalogRow = rows.get(row.id);
-        if (catalogRow) rows.set(row.id, { ...catalogRow, name: row.name, status: row.status, group: row.group });
+        if (catalogRow) rows.set(row.id, { ...catalogRow, ...row });
       }
       // A newly created/selected row is already readable through the real detail surface.
-      for (const row of sessions) if (before.size && !before.has(row.id)) rows.set(row.id, row);
+      for (const row of sessions) if (!before.has(row.id)) rows.set(row.id, row);
       return { ...value, rows: [...rows.values()] };
     });
   }, [sessions, liveHistory, historyIdentity]);

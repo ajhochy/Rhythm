@@ -270,6 +270,7 @@ export function toSessionViewModel(value: unknown, messages: unknown[] = [], tra
     hasChildren: source.hasChildren === true || Array.isArray(source.children) && source.children.length > 0,
     group: source.archivedAt != null || source.archived === true ? 'archived' : status === 'resumable' ? 'resumable' : 'active',
     status: ['starting', 'working', 'idle', 'resumable', 'closed', 'error'].includes(status) ? status as Session['status'] : 'idle',
+    statusMessage: typeof source.statusMessage === 'string' ? source.statusMessage : undefined,
     connectionState: 'online', profileId: string(source.profileId, string(source.profile_id)), projectId: string(source.projectId, string(source.project_id)), projectName: string(source.projectName),
     cwd: string(source.cwd), branch: string(source.branch, 'main'), dirtyCount: 0, isolateWorktree: source.isolateWorktree === true || Boolean(source.worktreePath), account: string(source.anthropicAccountId),
     // post-m1-phase-6 c3b/c3d/c3e: the resolved isolated-worktree identity — never defaulted
