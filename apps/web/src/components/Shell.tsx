@@ -65,12 +65,14 @@ const demoLabels: Record<DemoState, string> = {
 export function Shell({ route, children }: { route: string; children: React.ReactNode }) {
   const { theme, setTheme, demo, setDemo, toast, resetFixtures, notify, unreadThreads, sessionGatewayMode, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, pendingApprovals, decideApproval } = useFixtures();
   const live = sessionGatewayMode === 'live';
-  // c4b: entityType -> destination page. Deliberately a list route, not a deep per-entity view —
-  // Rhythm's task/rhythm/project detail routes don't yet accept a hash target id to focus.
-  const entityDestination: Record<string, string> = { task: '/tasks', rhythm: '/rhythms', project: '/projects' };
-  const openDomainNotification = (id: number, entityType: string) => {
+  const entityDestination = (entityType: string, entityId: string) => ({
+    task: `/tasks/task/${encodeURIComponent(entityId)}`,
+    rhythm: `/rhythms/rule/${encodeURIComponent(entityId)}`,
+    project: `/projects/instances/${encodeURIComponent(entityId)}`,
+  })[entityType] ?? '/agents';
+  const openDomainNotification = (id: number, entityType: string, entityId: string) => {
     markNotificationRead(id);
-    navigate(entityDestination[entityType] ?? '/agents');
+    navigate(entityDestination(entityType, entityId));
   };
   const openPushNotification = () => navigate('/agents');
   const [demoOpen, setDemoOpen] = useState(false);
@@ -139,7 +141,7 @@ export function Shell({ route, children }: { route: string; children: React.Reac
                   <button type="button" className="secondary-button compact" data-menu-keep-open onClick={() => void decideApproval(approval.id, 'rejected')}>Reject</button>
                 </div>
               </div>)}
-              {notifications.map((item) => <button key={`domain-${item.id}`} role="menuitem" className="menu-item stacked" type="button" onClick={() => openDomainNotification(item.id, item.entityType)}><strong>{item.message}</strong><small>{item.type}</small></button>)}
+              {notifications.map((item) => <button key={`domain-${item.id}`} role="menuitem" className="menu-item stacked" type="button" onClick={() => openDomainNotification(item.id, item.entityType, item.entityId)}><strong>{item.message}</strong><small>{item.type}</small></button>)}
               {pushNotifications.map((item) => <button key={`push-${item.id}`} role="menuitem" className="menu-item stacked" type="button" onClick={openPushNotification}><strong>{item.title}</strong><small>{item.body}</small></button>)}
               <button role="menuitem" className="menu-item stacked" type="button" onClick={markAllNotificationsRead}><strong>Mark all read</strong><small>Clears unread status</small></button>
             </> : <>

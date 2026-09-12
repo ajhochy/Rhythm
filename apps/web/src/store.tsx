@@ -623,17 +623,16 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     };
   }, [gateway, live]);
 
-  // c4a/c4b: hydrate the recipient-scoped unread list once on mount. Rows this tab already
-  // marked read locally are filtered out even though the server response doesn't know that —
-  // see NOTIFICATIONS_READ_IDS_KEY above.
   useEffect(() => {
     if (!live) return;
     let active = true;
-    const readIds = readLocallyReadIds();
-    void gateway.domains.notifications!.list()
-      .then((rows) => { if (active) setNotifications(rows.filter((row) => !readIds.has(row.id))); })
+    const refresh = () => void gateway.domains.notifications!.list()
+      .then((rows) => { if (active) setNotifications(rows); })
       .catch(() => { if (active) notify('Notifications could not be loaded'); });
-    return () => { active = false; };
+    refresh();
+    const timer = window.setInterval(refresh, 60_000);
+    window.addEventListener('focus', refresh);
+    return () => { active = false; window.clearInterval(timer); window.removeEventListener('focus', refresh); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gateway, live]);
 
@@ -678,23 +677,21 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   };
 
   const markNotificationRead = (id: number) => {
+    const removed = notifications.find((item) => item.id === id);
     setNotifications((current) => current.filter((item) => item.id !== id));
-    const readIds = readLocallyReadIds();
-    readIds.add(id);
-    persistLocallyReadIds(readIds);
     if (!live) return;
-    void gateway.domains.notifications!.markRead(id).catch(() => notify('Notification could not be marked read'));
+    void gateway.domains.notifications!.markRead(id)
+      .then(() => { const readIds = readLocallyReadIds(); readIds.add(id); persistLocallyReadIds(readIds); })
+      .catch(() => { if (removed) setNotifications((current) => current.some((item) => item.id === id) ? current : [removed, ...current]); notify('Notification could not be marked read'); });
   };
 
   const markAllNotificationsRead = () => {
-    const readIds = readLocallyReadIds();
-    for (const item of notifications) readIds.add(item.id);
-    persistLocallyReadIds(readIds);
+    const removed = notifications;
     setNotifications([]);
     if (!live) { notify('All notifications marked read'); return; }
     void gateway.domains.notifications!.markAllRead()
-      .then(() => notify('All notifications marked read'))
-      .catch(() => notify('Notifications could not be marked read'));
+      .then(() => { const readIds = readLocallyReadIds(); for (const item of removed) readIds.add(item.id); persistLocallyReadIds(readIds); notify('All notifications marked read'); })
+      .catch(() => { setNotifications((current) => current.length ? current : removed); notify('Notifications could not be marked read'); });
   };
 
   const selectLiveSession = async (id: string) => {

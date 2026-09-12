@@ -112,6 +112,9 @@ export function LiveMessagesPage({ route }: { route: string }) {
   const [search, setSearch] = useState('');
   const replyRef = useRef<HTMLTextAreaElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const selectedIdRef = useRef(selectedId);
+  const messageRequestRef = useRef(0);
+  useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
   const loadError = pageLoadError || liveMessagesError;
 
   const selectedThread = threads.find((thread) => thread.id === selectedId) ?? null;
@@ -141,22 +144,39 @@ export function LiveMessagesPage({ route }: { route: string }) {
   useEffect(() => {
     const id = threadIdFromRoute(route);
     if (id == null) return;
-    let active = true;
+    setSelectedId(id); selectedIdRef.current = id;
+    const requestId = ++messageRequestRef.current;
     gateway.messages(id)
-      .then((loaded) => { if (active) setMessages(loaded); })
-      .catch((error) => { if (active) setLoadError(boundedMessage(error)); });
+      .then((loaded) => { if (requestId === messageRequestRef.current && selectedIdRef.current === id) setMessages(loaded); })
+      .catch((error) => { if (requestId === messageRequestRef.current) setLoadError(boundedMessage(error)); });
     void gateway.markRead(id).then(() => {
-      if (active) setThreads((current) => current.map((thread) => thread.id === id ? { ...thread, unreadCount: 0, isUnread: false } : thread));
+      if (selectedIdRef.current === id) setThreads((current) => current.map((thread) => thread.id === id ? { ...thread, unreadCount: 0, isUnread: false } : thread));
     }).catch(() => {});
-    return () => { active = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { messageRequestRef.current += 1; };
+  }, [gateway, route, setThreads]);
+
+  useEffect(() => {
+    const refresh = () => {
+      const id = selectedIdRef.current;
+      if (id == null) return;
+      const requestId = ++messageRequestRef.current;
+      void gateway.messages(id).then((loaded) => {
+        if (requestId === messageRequestRef.current && selectedIdRef.current === id) setMessages(loaded);
+      }).catch((error) => { if (requestId === messageRequestRef.current) setLoadError(boundedMessage(error)); });
+    };
+    const timer = window.setInterval(refresh, 15_000);
+    window.addEventListener('focus', refresh);
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', refresh); };
   }, [gateway]);
 
   const openThread = async (id: number) => {
     setSelectedId(id);
+    selectedIdRef.current = id;
+    const requestId = ++messageRequestRef.current;
     setReplyError('');
     try {
       const loaded = await gateway.messages(id);
+      if (requestId !== messageRequestRef.current || selectedIdRef.current !== id) return;
       setMessages(loaded);
       await gateway.markRead(id);
       setThreads((current) => current.map((thread) => thread.id === id ? { ...thread, unreadCount: 0, isUnread: false } : thread));
