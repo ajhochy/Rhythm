@@ -45,11 +45,16 @@ async function readAt(page: Page, y: number) {
   await scroller(page).evaluate((el, y) => { el.scrollTop = y; el.dispatchEvent(new Event('scroll')); }, y);
 }
 async function anchor(page: Page) {
-  return scroller(page).evaluate((el) => {
-    const top = el.getBoundingClientRect().top;
-    const item = [...el.querySelectorAll<HTMLElement>('.message')].find((m) => m.getBoundingClientRect().bottom > top)!;
-    return { id: item.dataset.testid, offset: item.getBoundingClientRect().top - top };
-  });
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const result = await scroller(page).evaluate((el) => {
+      const top = el.getBoundingClientRect().top;
+      const item = [...el.querySelectorAll<HTMLElement>('.message')].find((message) => message.getBoundingClientRect().bottom > top);
+      return item ? { id: item.dataset.testid, offset: item.getBoundingClientRect().top - top } : null;
+    });
+    if (result) return result;
+    await page.waitForTimeout(20);
+  }
+  throw new Error('Transcript never rendered a visible message for anchor inspection');
 }
 
 test('E52A-c1 pinned reader follows both streamed growth and appended output', async ({ page }) => {

@@ -88,7 +88,10 @@ test('E31: rooms and reservations edit, and multi-room create submits exact faci
   await page.getByTestId('facilities-reservation-save').click();
   expect(state.writes).toContainEqual({ method: 'PATCH', path: '/facilities/7', body: { name: 'Main Sanctuary', building: 'Main' } });
   expect(state.writes.find((write) => write.path.endsWith('/reservations/9'))?.body.notes).toBe('Updated notes');
-  expect(state.writes.find((write) => write.method === 'POST')?.body.facility_ids).toEqual([7, 8]);
+  await expect.poll(() => state.writes).toContainEqual({
+    method: 'POST', path: '/facilities/7/reservations',
+    body: { title: 'Two rooms', requester_name: 'Casey', start_time: '2026-09-14T09:00', end_time: '2026-09-14T10:00', notes: null, facility_ids: [7, 8] },
+  });
 });
 
 test('e15: automation cleanup shows and confirms the exact preview', async ({ page }) => {

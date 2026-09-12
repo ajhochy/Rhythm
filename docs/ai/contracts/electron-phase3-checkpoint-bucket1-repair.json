@@ -1,0 +1,24 @@
+{
+  "issue": "Phase3-checkpoint-bucket1-repair",
+  "date": "2026-09-12",
+  "test_command": "npm exec -- playwright test --config tests/post-m1-phase-8-fixture-playwright.config.ts --grep post-m1-p8-c5b && npm exec -- playwright test --config tests/electron-e15-playwright.config.ts --grep E31 --trace on --repeat-each=3",
+  "environment": "Run from apps/web in the clean Phase3 environment recorded in docs/ai/runs/2026-09-12-phase3-checkpoint-bucket1-repair.md",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "P3-b1-c1",
+      "text": "Old import harness supplies authoritative workspace id8; unchanged full POST workspaceId8, no premature creation, stable tab opening and preference persistence assertions pass.",
+      "mode": "ui",
+      "test": "apps/web/tests/gateway/post-m1-phase-8-html-import.live.redspec.ts: post-m1-p8-c5b",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "P3-b1-c2",
+      "text": "E31 polls exact reservation POST path and complete body including facility_ids [7,8], retaining room/reservation edit assertions and default timeouts; three repetitions pass.",
+      "mode": "ui",
+      "test": "apps/web/tests/electron-e15-facilities-safety.spec.ts: E31",
+      "status": "pass"
+    }
+  ],
+  "not_tested": ["Full suite/build", "E52A", "Baseline failures", "Real deployed facility/import behavior", "Remaining Phase3 acceptance gaps"]
+}
