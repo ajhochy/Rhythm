@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { FocusDialog } from '../../components/FocusDialog';
 import { useGateway } from '../../gateway/context';
+import { useAuthUser } from '../../gateway/auth';
 import {
   FacilitiesGatewayError,
   type Facility,
   type Reservation,
   type RecurrenceType,
+  type ReservationGroupOverview,
+  type ReservationSeries,
 } from '../../gateway/facilities';
 import './styles.css';
 
@@ -32,6 +35,7 @@ type ScopedAutomationPreview = AutomationPreview & { facilityId: number | null; 
 type DeleteTarget =
   | { kind: 'facility'; facility: Facility }
   | { kind: 'reservation'; reservation: Reservation }
+  | { kind: 'series'; series: ReservationSeries }
   | { kind: 'automation'; preview: ScopedAutomationPreview };
 
 function isAutomationPreview(value: unknown): value is AutomationPreview {
@@ -45,9 +49,16 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
   // apps/web/src/gateway/index.ts:98 — every domain shares the one bearer from the signed-in
   // session; Facilities must not build its own gateway from a build-time/test-only env value.
   const gateway = useGateway().domains.facilities!;
+  const auth = useAuthUser();
+  const canManage = !auth || auth.user.role === 'admin' || auth.user.isFacilitiesManager === true;
 
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [reservations, setReservations] = useState<Reservation[]>([]);
+  const [groups, setGroups] = useState<ReservationGroupOverview[]>([]);
+  const [series, setSeries] = useState<ReservationSeries[]>([]);
+  const [rangeStart, setRangeStart] = useState('');
+  const [rangeEnd, setRangeEnd] = useState('');
+  const [buildingFilter, setBuildingFilter] = useState('');
   const [selectedFacilityId, setSelectedFacilityId] = useState<number | null>(null);
   const selectedFacilityRef = useRef<number | null>(null);
   const [selectedReservationId] = useState<number | null>(() => reservationIdFromRoute(route));
@@ -55,15 +66,19 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
   const [loadError, setLoadError] = useState('');
 
   const [facilityDialogOpen, setFacilityDialogOpen] = useState(false);
+  const [editingFacility, setEditingFacility] = useState<Facility | null>(null);
   const [facilityName, setFacilityName] = useState('');
   const [facilityBuilding, setFacilityBuilding] = useState('');
   const [facilityError, setFacilityError] = useState('');
 
   const [reservationDialogOpen, setReservationDialogOpen] = useState(false);
+  const [editingReservation, setEditingReservation] = useState<Reservation | null>(null);
   const [reservationTitle, setReservationTitle] = useState('');
   const [reservationRequester, setReservationRequester] = useState('');
   const [reservationStart, setReservationStart] = useState('');
   const [reservationEnd, setReservationEnd] = useState('');
+  const [reservationNotes, setReservationNotes] = useState('');
+  const [reservationFacilityIds, setReservationFacilityIds] = useState<number[]>([]);
   const [reservationError, setReservationError] = useState('');
 
   const [seriesDialogOpen, setSeriesDialogOpen] = useState(false);
@@ -91,9 +106,11 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
     setLoading(true);
     setLoadError('');
     try {
-      const [loadedFacilities, loadedReservations] = await Promise.all([gateway.facilities(), gateway.reservations()]);
+      const filters = { ...(rangeStart ? { start: rangeStart } : {}), ...(rangeEnd ? { end: rangeEnd } : {}), ...(buildingFilter ? { building: buildingFilter } : {}) };
+      const [loadedFacilities, loadedReservations, loadedGroups] = await Promise.all([gateway.facilities(), gateway.reservations(filters), gateway.reservationGroups(filters)]);
       setFacilities(loadedFacilities);
       setReservations(loadedReservations);
+      setGroups(loadedGroups);
       const deepLinkedFacilityId = selectedReservationId != null ? loadedReservations.find((reservation) => reservation.id === selectedReservationId)?.facilityId : undefined;
       setSelectedFacilityId((current) => {
         const next = current ?? deepLinkedFacilityId ?? loadedFacilities[0]?.id ?? null;
@@ -107,14 +124,20 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
     }
   };
 
-  useEffect(() => { void load(); }, [gateway]);
+  useEffect(() => { void load(); }, [gateway, rangeStart, rangeEnd, buildingFilter]);
+  useEffect(() => {
+    if (!selectedFacilityId) { setSeries([]); return; }
+    void gateway.reservationSeries(selectedFacilityId).then(setSeries).catch(() => setSeries([]));
+  }, [gateway, selectedFacilityId]);
 
   const openFacilityDialog = () => {
+    setEditingFacility(null);
     setFacilityName('');
     setFacilityBuilding('');
     setFacilityError('');
     setFacilityDialogOpen(true);
   };
+  const editFacility = (facility: Facility) => { setEditingFacility(facility); setFacilityName(facility.name); setFacilityBuilding(facility.building ?? ''); setFacilityError(''); setFacilityDialogOpen(true); };
 
   const submitFacility = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -123,10 +146,12 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
     try {
       // CreateFacilityInput — apps/web/src/gateway/facilities.ts:15, matching
       // apps/api_server/src/models/facility.ts create fields.
-      const created = await gateway.createFacility({ name, building: facilityBuilding.trim() || null });
-      setFacilities((current) => [...current, created]);
-      selectedFacilityRef.current = created.id;
-      setSelectedFacilityId(created.id);
+      const saved = editingFacility
+        ? await gateway.updateFacility(editingFacility.id, { name, building: facilityBuilding.trim() || null })
+        : await gateway.createFacility({ name, building: facilityBuilding.trim() || null });
+      setFacilities((current) => editingFacility ? current.map((item) => item.id === saved.id ? saved : item) : [...current, saved]);
+      selectedFacilityRef.current = saved.id;
+      setSelectedFacilityId(saved.id);
       setFacilityDialogOpen(false);
     } catch (error) {
       setFacilityError(boundedMessage(error));
@@ -157,6 +182,10 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
       } else if (deleteTarget.kind === 'reservation') {
         await gateway.deleteReservation(deleteTarget.reservation.facilityId, deleteTarget.reservation.id);
         setReservations((current) => current.filter((item) => item.id !== deleteTarget.reservation.id));
+      } else if (deleteTarget.kind === 'series') {
+        await gateway.deleteReservationSeries(deleteTarget.series.facilityId, deleteTarget.series.id);
+        setSeries((current) => current.filter((item) => item.id !== deleteTarget.series.id));
+        setReservations((current) => current.filter((item) => item.seriesId !== deleteTarget.series.id));
       } else {
         await gateway.deleteAutomationReservations(deleteTarget.preview.facilityId ? { facilityId: deleteTarget.preview.facilityId } : undefined);
         setAutomationPreview(null);
@@ -171,13 +200,17 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
   };
 
   const openReservationDialog = () => {
+    setEditingReservation(null);
     setReservationTitle('');
     setReservationRequester('');
     setReservationStart('');
     setReservationEnd('');
+    setReservationNotes('');
+    setReservationFacilityIds(selectedFacilityId ? [selectedFacilityId] : []);
     setReservationError('');
     setReservationDialogOpen(true);
   };
+  const editReservation = (reservation: Reservation) => { setEditingReservation(reservation); setReservationTitle(reservation.title); setReservationRequester(reservation.requesterName); setReservationStart(reservation.startTime.slice(0, 16)); setReservationEnd(reservation.endTime.slice(0, 16)); setReservationNotes(reservation.notes ?? ''); setReservationFacilityIds([reservation.facilityId]); setReservationError(''); setReservationDialogOpen(true); };
 
   const submitReservation = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -188,15 +221,22 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
     try {
       // Request DTO uses snake_case — apps/api_server/src/models/facility.ts:85-105,
       // surfaced by CreateReservationInput (apps/web/src/gateway/facilities.ts:17).
-      const created = await gateway.createReservation(selectedFacilityId, {
+      const input = {
         title,
         requester_name: requesterName,
         start_time: reservationStart,
         end_time: reservationEnd,
-      });
+        notes: reservationNotes.trim() || null,
+        facility_ids: reservationFacilityIds.length > 1 ? reservationFacilityIds : null,
+      };
+      const created = editingReservation
+        ? await gateway.updateReservation(editingReservation.facilityId, editingReservation.id, input)
+        : await gateway.createReservation(selectedFacilityId, input);
       const reservation = 'reservations' in created ? created.reservations[0] : created;
-      if (reservation) setReservations((current) => [...current, reservation]);
-      setReservationDialogOpen(false);
+      if (reservation) setReservations((current) => editingReservation ? current.map((item) => item.id === reservation.id ? reservation : item) : [...current, reservation]);
+      if ('conflicts' in created && created.conflicts.length) {
+        setReservationError(`${created.conflicts.length} requested room${created.conflicts.length === 1 ? '' : 's'} conflicted and were not reserved.`);
+      } else setReservationDialogOpen(false);
     } catch (error) {
       setReservationError(boundedMessage(error));
     }
@@ -256,12 +296,14 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
       <header className="facilities-page-header">
         <div><span className="eyebrow">Rhythm workspace</span><h1 id="facilities-title">Facilities</h1></div>
         <div>
-          <button className="secondary-button" type="button" onClick={openFacilityDialog} data-testid="facilities-add-room">Add facility</button>
-          <button className="primary-button" type="button" onClick={openReservationDialog} disabled={!selectedFacilityId} data-testid="facilities-reserve-space">Reserve space</button>
+          <button className="secondary-button" type="button" onClick={openFacilityDialog} disabled={!canManage} data-testid="facilities-add-room">Add facility</button>
+          <button className="primary-button" type="button" onClick={openReservationDialog} disabled={!selectedFacilityId || !canManage} data-testid="facilities-reserve-space">Reserve space</button>
         </div>
       </header>
 
       {loadError && <p role="alert" data-testid="facilities-live-error">{loadError}</p>}
+      {!canManage && <p role="status">Facilities are read-only for this account.</p>}
+      <fieldset className="facilities-filters"><legend>Reservation range</legend><label>Start<input type="date" value={rangeStart} onChange={(event) => setRangeStart(event.target.value)} /></label><label>End<input type="date" value={rangeEnd} onChange={(event) => setRangeEnd(event.target.value)} /></label><label>Building<select value={buildingFilter} onChange={(event) => setBuildingFilter(event.target.value)}><option value="">All buildings</option>{[...new Set(facilities.map((facility) => facility.building).filter(Boolean))].map((building) => <option key={building!} value={building!}>{building}</option>)}</select></label></fieldset>
 
       {loading ? <p role="status" data-testid="page-state-loading">Loading facilities…</p> : (
         <div className="facilities-workspace">
@@ -272,7 +314,8 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
                   <strong>{facility.name}</strong>
                   {facility.building && <small>{facility.building}</small>}
                 </button>
-                <button type="button" onClick={() => { setDeleteError(''); setDeleteTarget({ kind: 'facility', facility }); }} data-testid={`facilities-room-delete-${facility.id}`}>Delete</button>
+                <button type="button" disabled={!canManage} onClick={() => editFacility(facility)} data-testid={`facilities-room-edit-${facility.id}`}>Edit</button>
+                <button type="button" disabled={!canManage} onClick={() => { setDeleteError(''); setDeleteTarget({ kind: 'facility', facility }); }} data-testid={`facilities-room-delete-${facility.id}`}>Delete</button>
               </li>
             ))}
             {facilities.length === 0 && <li data-testid="facilities-empty">No facilities yet.</li>}
@@ -281,7 +324,7 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
           <section aria-label="Reservations" data-testid="facilities-reservations-panel">
             <header>
               <h2>{selectedFacility ? selectedFacility.name : 'All reservations'}</h2>
-              <button className="secondary-button" type="button" onClick={openSeriesDialog} disabled={!selectedFacilityId} data-testid="facilities-add-series">Recurring series</button>
+              <button className="secondary-button" type="button" onClick={openSeriesDialog} disabled={!selectedFacilityId || !canManage} data-testid="facilities-add-series">Recurring series</button>
               <button className="secondary-button" type="button" onClick={() => void previewAutomation()} data-testid="facilities-automation-preview">Preview automation reservations</button>
               {automationPreview !== null && <button className="secondary-button" type="button" onClick={() => { setDeleteError(''); setDeleteTarget({ kind: 'automation', preview: automationPreview }); }} disabled={automationPreview.total === 0} data-testid="facilities-automation-clear">Remove automation reservations</button>}
             </header>
@@ -294,16 +337,19 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
                   <span>{reservation.requesterName}</span>
                   <time dateTime={reservation.startTime}>{reservation.startTime}</time>–<time dateTime={reservation.endTime}>{reservation.endTime}</time>
                   {reservation.isConflicted && <span role="status" data-testid={`facilities-reservation-conflict-${reservation.id}`}>Conflict{reservation.conflictReason ? `: ${reservation.conflictReason}` : ''}</span>}
-                  <button type="button" onClick={() => { setDeleteError(''); setDeleteTarget({ kind: 'reservation', reservation }); }} data-testid={`facilities-reservation-delete-${reservation.id}`}>Delete</button>
+                  <button type="button" disabled={!canManage} onClick={() => editReservation(reservation)} data-testid={`facilities-reservation-edit-${reservation.id}`}>Edit</button>
+                  <button type="button" disabled={!canManage} onClick={() => { setDeleteError(''); setDeleteTarget({ kind: 'reservation', reservation }); }} data-testid={`facilities-reservation-delete-${reservation.id}`}>Delete</button>
                 </li>
               ))}
               {facilityReservations.length === 0 && <li data-testid="facilities-reservations-empty">No reservations.</li>}
             </ul>
+            {groups.length > 0 && <section aria-label="Multi-room reservation groups"><h3>Multi-room groups</h3><ul>{groups.map((group) => <li key={group.group.id}><strong>{group.group.title}</strong> · {group.facilities.map((facility) => facility.name).join(', ')}{group.conflictCount ? ` · ${group.conflictCount} conflicts` : ''}</li>)}</ul></section>}
+            {series.length > 0 && <section aria-label="Recurring reservation series"><h3>Recurring series</h3><ul>{series.map((item) => <li key={item.id}><strong>{item.title}</strong> · {item.recurrenceType}<button type="button" disabled={!canManage} onClick={() => { setDeleteError(''); setDeleteTarget({ kind: 'series', series: item }); }} data-testid={`facilities-series-delete-${item.id}`}>Delete entire series</button></li>)}</ul></section>}
           </section>
         </div>
       )}
 
-      <FocusDialog open={facilityDialogOpen} onClose={() => setFacilityDialogOpen(false)} title="Add facility" testId="facilities-room-dialog">
+      <FocusDialog open={facilityDialogOpen} onClose={() => setFacilityDialogOpen(false)} title={editingFacility ? 'Edit facility' : 'Add facility'} testId="facilities-room-dialog">
         <form onSubmit={(event) => void submitFacility(event)}>
           <label>Name<input data-autofocus value={facilityName} onChange={(event) => setFacilityName(event.target.value)} data-testid="facilities-room-name" /></label>
           <label>Building<input value={facilityBuilding} onChange={(event) => setFacilityBuilding(event.target.value)} data-testid="facilities-room-building" /></label>
@@ -312,12 +358,14 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
         </form>
       </FocusDialog>
 
-      <FocusDialog open={reservationDialogOpen} onClose={() => setReservationDialogOpen(false)} title="Reserve space" testId="facilities-reservation-dialog">
+      <FocusDialog open={reservationDialogOpen} onClose={() => setReservationDialogOpen(false)} title={editingReservation ? 'Edit reservation' : 'Reserve space'} testId="facilities-reservation-dialog">
         <form onSubmit={(event) => void submitReservation(event)}>
           <label>Title<input data-autofocus value={reservationTitle} onChange={(event) => setReservationTitle(event.target.value)} data-testid="facilities-reservation-title" /></label>
           <label>Requester<input value={reservationRequester} onChange={(event) => setReservationRequester(event.target.value)} data-testid="facilities-reservation-requester" /></label>
           <label>Start<input type="datetime-local" value={reservationStart} onChange={(event) => setReservationStart(event.target.value)} data-testid="facilities-reservation-start" /></label>
           <label>End<input type="datetime-local" value={reservationEnd} onChange={(event) => setReservationEnd(event.target.value)} data-testid="facilities-reservation-end" /></label>
+          <label>Notes<textarea value={reservationNotes} onChange={(event) => setReservationNotes(event.target.value)} data-testid="facilities-reservation-notes" /></label>
+          {!editingReservation && <fieldset><legend>Rooms</legend>{facilities.map((facility) => <label key={facility.id}><input type="checkbox" checked={reservationFacilityIds.includes(facility.id)} onChange={(event) => setReservationFacilityIds((current) => event.target.checked ? [...new Set([...current, facility.id])] : current.filter((id) => id !== facility.id))} />{facility.name}</label>)}</fieldset>}
           {reservationError && <p role="alert" data-testid="facilities-reservation-error">{reservationError}</p>}
           <div className="dialog-actions"><button type="button" onClick={() => setReservationDialogOpen(false)}>Cancel</button><button type="submit" data-testid="facilities-reservation-save">Save</button></div>
         </form>
@@ -336,9 +384,10 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
         </form>
       </FocusDialog>
 
-      <FocusDialog open={deleteTarget !== null} onClose={() => { if (!deletePending) setDeleteTarget(null); }} title={deleteTarget?.kind === 'automation' ? 'Remove automation reservations?' : deleteTarget?.kind === 'facility' ? 'Delete facility?' : 'Delete reservation?'} testId="facilities-delete-dialog">
+      <FocusDialog open={deleteTarget !== null} onClose={() => { if (!deletePending) setDeleteTarget(null); }} title={deleteTarget?.kind === 'automation' ? 'Remove automation reservations?' : deleteTarget?.kind === 'facility' ? 'Delete facility?' : deleteTarget?.kind === 'series' ? 'Delete recurring series?' : 'Delete reservation?'} testId="facilities-delete-dialog">
         {deleteTarget?.kind === 'facility' && <p>Delete {deleteTarget.facility.name} and its reservations?</p>}
         {deleteTarget?.kind === 'reservation' && <p>Delete {deleteTarget.reservation.title} from {facilities.find((item) => item.id === deleteTarget.reservation.facilityId)?.name ?? 'this facility'}?</p>}
+        {deleteTarget?.kind === 'series' && <p>Delete the entire {deleteTarget.series.title} series and all of its generated reservations?</p>}
         {deleteTarget?.kind === 'automation' && <><p>Remove {deleteTarget.preview.total} automation reservation{deleteTarget.preview.total === 1 ? '' : 's'} from {deleteTarget.preview.facilityName}?</p><ul>{deleteTarget.preview.byFacility.map((item) => <li key={item.facilityId}>{item.facilityName}: {item.count}</li>)}</ul></>}
         {deleteError && <p role="alert" data-testid="facilities-delete-error">{deleteError}</p>}
         <div className="dialog-actions"><button type="button" onClick={() => setDeleteTarget(null)} disabled={deletePending} data-testid="facilities-delete-cancel">Cancel</button><button type="button" onClick={() => void confirmDelete()} disabled={deletePending} data-testid="facilities-delete-confirm">{deletePending ? 'Deleting…' : 'Delete'}</button></div>
