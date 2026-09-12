@@ -11,6 +11,12 @@ sharedTranscriptsRouter.get('/', controller.list.bind(controller));
 sharedTranscriptsRouter.get('/:id', controller.getOne.bind(controller));
 sharedTranscriptsRouter.delete('/:id', controller.revoke.bind(controller));
 
+transcriptShareCreationRouter.get(
+  '/agent-sessions/:id/shares/review',
+  requireAuth,
+  controller.review.bind(controller),
+);
+
 transcriptShareCreationRouter.post(
   '/agent-sessions/:id/shares',
   requireAuth,

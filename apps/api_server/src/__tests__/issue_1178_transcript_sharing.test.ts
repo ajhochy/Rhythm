@@ -12,6 +12,7 @@ import {
   transcriptShareCreationRouter,
 } from '../routes/shared_transcripts_routes';
 import { SharedTranscriptsRepository } from '../repositories/shared_transcripts_repository';
+import { transcriptShareReviewHash } from '../services/transcript_share_sanitizer';
 
 describe('issue #1178 transcript sharing contracts', () => {
   const db = new Database(':memory:');
@@ -203,6 +204,11 @@ describe('issue #1178 transcript sharing contracts', () => {
 
   it('derives classifications and content from source parts, ignoring caller misclassification', async () => {
     const sourceId = seedStructuredSource();
+    const prepared = await fetch(`${baseUrl}/agent-sessions/${sourceId}/shares/review`, {
+      headers: bearer(users.owner.token),
+    });
+    expect(prepared.status).toBe(200);
+    const { reviewHash } = await prepared.json() as { reviewHash: string };
     const response = await fetch(`${baseUrl}/agent-sessions/${sourceId}/shares`, {
       method: 'POST',
       headers: {
@@ -210,6 +216,7 @@ describe('issue #1178 transcript sharing contracts', () => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
+        reviewHash,
         recipientUserIds: [users.recipient.id],
         review: {
           items: [
@@ -257,6 +264,99 @@ describe('issue #1178 transcript sharing contracts', () => {
       }),
     });
     expect(response.status).toBe(403);
+  });
+
+  it('E25B-c1: review is owner/admin-only and hashes the entire canonical review deterministically', async () => {
+    const sourceId = seedStructuredSource();
+    const url = `${baseUrl}/agent-sessions/${sourceId}/shares/review`;
+    expect((await fetch(url)).status).toBe(401);
+    for (const user of [users.recipient, users.other]) {
+      expect((await fetch(url, { headers: bearer(user.token) })).status).toBe(404);
+    }
+    const first = await fetch(url, { headers: bearer(users.owner.token) });
+    expect(first.status).toBe(200);
+    const body = await first.json() as { review: { items: unknown[] }; reviewHash: string };
+    expect(body.review.items).toHaveLength(2);
+    expect(body.reviewHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(await (await fetch(url, { headers: bearer(users.owner.token) })).json()).toEqual(body);
+    db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(users.other.id);
+    try {
+      expect(await (await fetch(url, { headers: bearer(users.other.token) })).json()).toEqual(body);
+    } finally { db.prepare("UPDATE users SET role = 'staff' WHERE id = ?").run(users.other.id); }
+  });
+
+  it('E25B-c2: missing/malformed hashes cannot silently publish', async () => {
+    const sourceId = seedStructuredSource();
+    for (const reviewHash of [undefined, '', 'not-a-hash', 42]) {
+      const response = await fetch(`${baseUrl}/agent-sessions/${sourceId}/shares`, {
+        method: 'POST', headers: { ...bearer(users.owner.token), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reviewHash, recipientUserIds: [users.recipient.id], review: { items: [] } }),
+      });
+      expect(response.status).toBe(400);
+    }
+    expect(db.prepare('SELECT count(*) AS n FROM shared_transcripts WHERE source_session_id = ?').get(sourceId)).toEqual({ n: 0 });
+  });
+
+  it('E25B-c1: hash canonicalizes nested keys but binds every category/content/item and array order', () => {
+    const review = { items: [{ id: 'one', category: 'message' as const, content: { b: 2, a: { y: 4, x: 3 } } }] };
+    const hash = transcriptShareReviewHash(review);
+    expect(transcriptShareReviewHash({ items: [{ content: { a: { x: 3, y: 4 }, b: 2 }, category: 'message', id: 'one' }] })).toBe(hash);
+    for (const changed of [
+      { items: [{ ...review.items[0], id: 'two' }] },
+      { items: [{ ...review.items[0], category: 'tool_output' as const }] },
+      { items: [{ ...review.items[0], content: { b: 9, a: { y: 4, x: 3 } } }] },
+      { items: [...review.items, { id: 'added', category: 'message' as const, content: 'new content' }] },
+    ]) expect(transcriptShareReviewHash(changed)).not.toBe(hash);
+    const ordered = { items: [review.items[0], { id: 'two', category: 'message' as const, content: [1, 2] }] };
+    expect(transcriptShareReviewHash(ordered)).not.toBe(transcriptShareReviewHash({ items: [...ordered.items].reverse() }));
+  });
+
+  it('E25B-c3: changes to unselected items invalidate review; fresh subset excludes all unselected content', async () => {
+    const sourceId = seedStructuredSource(); const url = `${baseUrl}/agent-sessions/${sourceId}/shares`;
+    const get = async () => (await (await fetch(`${url}/review`, { headers: bearer(users.owner.token) })).json()) as { reviewHash: string; snapshot: unknown; inclusiveSnapshot: unknown };
+    const a = await get();
+    expect(a.snapshot).toEqual({ items: [{ id: 'user-part', category: 'message', content: { id: 'user-part', type: 'text', text: 'hello from source' } }] });
+    const post = (reviewHash: string, id = 'user-part') => fetch(url, { method: 'POST', headers: { ...bearer(users.owner.token), 'Content-Type': 'application/json' }, body: JSON.stringify({ reviewHash, recipientUserIds: [users.recipient.id], review: { items: [{ id, category: 'message', content: 'ignored client text' }] } }) });
+    db.prepare("UPDATE agent_session_messages SET parts_json = ? WHERE session_id = ? AND role = 'system'").run(JSON.stringify([{ id: 'system-part', type: 'text', text: 'unselected revision B' }]), sourceId);
+    expect((await post(a.reviewHash)).status).toBe(409);
+    const b = await get();
+    expect((await post(b.reviewHash, 'unknown-item')).status).toBe(400);
+    const response = await post(b.reviewHash); expect(response.status).toBe(201);
+    const share = await response.json() as { id: string };
+    const read = await fetch(`${baseUrl}/shares/${share.id}`, { headers: bearer(users.recipient.token) });
+    expect((await read.json() as { snapshot: unknown }).snapshot).toEqual(a.snapshot);
+  });
+
+  it('E25B-c3: changed source rejects old review; fresh exact selection is immutable on recipient read', async () => {
+    const sourceId = seedStructuredSource();
+    const url = `${baseUrl}/agent-sessions/${sourceId}/shares`;
+    const prepare = async () => {
+      const response = await fetch(`${url}/review`, { headers: bearer(users.owner.token) });
+      expect(response.status).toBe(200);
+      return response.json() as Promise<{ reviewHash: string; review: { items: Array<{ id: string; category: string; content: unknown }> } }>;
+    };
+    const a = await prepare();
+    // Same part ID, changed content: ID-only publication is the regression.
+    db.prepare("UPDATE agent_session_messages SET parts_json = ? WHERE session_id = ? AND role = 'input'")
+      .run(JSON.stringify([{ id: 'user-part', type: 'text', text: 'revision B' }]), sourceId);
+    const post = (reviewHash: string) => fetch(url, {
+      method: 'POST', headers: { ...bearer(users.owner.token), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reviewHash, review: a.review, recipientUserIds: [users.recipient.id], explicitlyIncludedItemIds: ['system-part'] }),
+    });
+    const stale = await post(a.reviewHash);
+    expect(stale.status).toBe(409);
+    expect(await stale.text()).not.toContain('revision B');
+    expect(db.prepare('SELECT count(*) AS n FROM shared_transcripts WHERE source_session_id = ?').get(sourceId)).toEqual({ n: 0 });
+    const b = await prepare();
+    expect(b.reviewHash).not.toBe(a.reviewHash);
+    const created = await post(b.reviewHash);
+    expect(created.status).toBe(201);
+    const share = await created.json() as { id: string; snapshot: unknown };
+    expect(share.snapshot).toEqual(b.review);
+    db.prepare("UPDATE agent_session_messages SET parts_json = '[]', raw_text = 'revision C' WHERE session_id = ?").run(sourceId);
+    const read = await fetch(`${baseUrl}/shares/${share.id}`, { headers: bearer(users.recipient.token) });
+    expect(read.status).toBe(200);
+    expect((await read.json() as { snapshot: unknown }).snapshot).toEqual(b.review);
   });
 
   it('enforces snapshot immutability and audit retention through direct SQL', async () => {

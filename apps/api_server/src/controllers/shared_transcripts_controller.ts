@@ -3,6 +3,7 @@ import { AppError } from '../errors/app_error';
 import { SharedTranscriptsRepository } from '../repositories/shared_transcripts_repository';
 import {
   sanitizeTranscriptShare,
+  transcriptShareReviewHash,
   TRANSCRIPT_SHARE_CATEGORIES,
   type TranscriptShareReview,
 } from '../services/transcript_share_sanitizer';
@@ -39,6 +40,25 @@ function activeForRead(share: { revokedAt: string | null; expiresAt: string }): 
 }
 
 export class SharedTranscriptsController {
+  async review(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const sourceOwnerUserId = await repo.sourceOwnerUserId(req.params.id);
+      if (sourceOwnerUserId === undefined || (sourceOwnerUserId !== req.auth!.user.id && !isAdmin(req))) {
+        throw AppError.notFound('Agent session');
+      }
+      const review = await repo.sourceTranscriptReview(req.params.id);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({
+        sourceOwnerUserId,
+        review,
+        reviewHash: transcriptShareReviewHash(review),
+        // Both previews use the publication sanitizer; clients only select items.
+        snapshot: sanitizeTranscriptShare(review),
+        inclusiveSnapshot: sanitizeTranscriptShare(review, review.items.map((item) => item.id)),
+      });
+    } catch (error) { next(error); }
+  }
+
   async create(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const actor = req.auth!.user;
@@ -70,7 +90,11 @@ export class SharedTranscriptsController {
       }
 
       const review = validateReview(req.body?.review);
-      const explicitInclusions = Array.isArray(req.body?.explicitlyIncludedItemIds)
+      const reviewHash: unknown = req.body?.reviewHash;
+      if (typeof reviewHash !== 'string' || !/^[a-f0-9]{64}$/.test(reviewHash)) {
+        throw AppError.badRequest('A valid reviewed reviewHash is required');
+      }
+      const explicitInclusions: string[] = Array.isArray(req.body?.explicitlyIncludedItemIds)
         ? req.body.explicitlyIncludedItemIds.filter(
           (id: unknown): id is string => typeof id === 'string',
         )
@@ -82,10 +106,19 @@ export class SharedTranscriptsController {
         throw AppError.badRequest('expiresAt must be a future timestamp');
       }
 
+      const sourceReview = await repo.sourceTranscriptReview(sourceSessionId);
+      if (transcriptShareReviewHash(sourceReview) !== reviewHash) {
+        throw AppError.conflict('Transcript changed. Review again before sharing.');
+      }
+      const sourceIds = new Set(sourceReview.items.map((item) => item.id));
+      const selectedIds = new Set(review.items.map((item) => item.id));
+      if (review.items.some((item) => !sourceIds.has(item.id)) || explicitInclusions.some((id) => !selectedIds.has(id))) {
+        throw AppError.badRequest('Selected items must belong to the reviewed transcript');
+      }
       const share = await repo.create({
         snapshot: sanitizeTranscriptShare(
           {
-            items: (await repo.sourceTranscriptReview(sourceSessionId)).items
+            items: sourceReview.items
               .filter((sourceItem) =>
                 review.items.some((requested) => requested.id === sourceItem.id)),
           },
