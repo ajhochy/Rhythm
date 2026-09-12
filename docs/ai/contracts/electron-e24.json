@@ -1,0 +1,28 @@
+{
+  "issue": "E24",
+  "date": "2026-09-11",
+  "test_command": "cd apps/web && npx playwright test --config tests/electron-e24-playwright.config.ts && RHYTHM_LIVE_E2E=1 npx playwright test --config tests/electron-e24-playwright.config.ts && npx tsc --noEmit",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "E24-c1", "text": "retain multiple concurrent permission and question requests per session keyed canonical IDs, no overwrite", "mode": "ui", "test": "apps/web/tests/electron-e24-decisions.spec.ts", "status": "pass" },
+    { "criterion_id": "E24-c2", "text": "selection/reconnect rehydrates/reconciles all pending permissions AND questions, removing resolved IDs only", "mode": "ui", "test": "apps/web/tests/electron-e24-decisions.spec.ts", "status": "pass" },
+    { "criterion_id": "E24-c3", "text": "Failed HTTP decision/question resets sending, keeps card/error/retry; no optimistic loss", "mode": "ui", "test": "apps/web/tests/electron-e24-decisions.spec.ts", "status": "pass" },
+    { "criterion_id": "E24-c4", "text": "Rail waiting uses real live pending collections", "mode": "ui", "test": "apps/web/tests/electron-e24-decisions.spec.ts", "status": "pass" },
+    { "criterion_id": "E24-c5", "text": "Local persisted child resolves to interactive selected session", "mode": "ui", "test": "apps/web/tests/electron-e24-decisions.spec.ts", "status": "pass" },
+    { "criterion_id": "E24-c6", "text": "ephemeral SDK child remains read-only with no composer", "mode": "ui", "test": "apps/web/tests/electron-e24-decisions.spec.ts", "status": "pass" },
+    { "criterion_id": "E24-c7", "text": "nested child stack supports hop/back", "mode": "ui", "test": "apps/web/tests/electron-e24-decisions.spec.ts", "status": "pass" },
+    { "criterion_id": "E24-c8", "text": "switching rail clears stack/stale loads; no parent-target input", "mode": "ui", "test": "apps/web/tests/electron-e24-decisions.spec.ts", "status": "pass" },
+    { "criterion_id": "E24-c9", "text": "Closed/error sessions with valid SDK ID are recoverable; 410 retains honest start-fresh", "mode": "ui", "test": "apps/web/tests/electron-e24-decisions.spec.ts", "status": "pass", "additional_test": "apps/web/tests/electron-e23-lifecycle.spec.ts: E23-c8 410 start-fresh" },
+    { "criterion_id": "E24-c10", "text": "Preserve E21 reconciliation and E23 lifecycle", "mode": "ui", "test": "apps/web/tests/electron-e21-reconciliation.spec.ts", "additional_test": "apps/web/tests/electron-e23-lifecycle.spec.ts", "status": "pass" },
+    { "criterion_id": "E24-c11", "text": "one real sandbox safe pending-read/navigation if available without generating provider prompt; otherwise live list/recovery only", "mode": "live", "test": "apps/web/tests/electron-e24-live.spec.ts", "status": "pass", "evidence": "Existing sandbox4098/4097: real renderer selected existing session; permission list and directory-scoped question list both empty. No child available: authorized list/read fallback only. No writes/provider prompts." }
+  ],
+  "not_tested": [],
+  "additional_not_tested": ["actual provider permission generation", "packaged Electron behavior"],
+  "status": "PASS",
+  "continuation": {
+    "ownership_blocker_resolved": true,
+    "acceptance_evidence": "Fresh 13-test RED before implementation, then 13 GREEN. Two additional race contracts confirmed RED before repair. Final focused E21/E23/E24: 36 passed and 1 intentionally skipped E23 live-mutation test; E24 safe live read: 1 passed; web typecheck passed.",
+    "current_blocker": null,
+    "design": "Module-owned useSyncExternalStore collections; Session and FixtureContextValue definitions unchanged. HIGH legacy rehydratePendingPermission left untouched. Internal child stack uses existing context API."
+  }
+}

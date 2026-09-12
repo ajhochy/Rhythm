@@ -8,12 +8,14 @@ import { Inspector } from './Inspector';
 import { ProfileAvatar } from './Profiles';
 import { SessionRail } from './SessionRail';
 import { Transcript } from './Transcript';
+import { usePendingDecisions } from '../pending-decisions';
 
 function clamp(value: number, min: number, max: number) { return Math.min(max, Math.max(min, value)); }
 
 export function AgentsWorkspace() {
   const { selected, sessions, profiles, models, accounts, sessionGatewayMode, saveSessionSettings, connectionMessage: fixtureConnectionMessage, liveSessionError, loading, summarizeSession, prepareLiveSession, startFreshSession, reconnectLiveSession, updateSession: updateFixtureSession, archiveSession, resumeSession, selectSession, notify, resumeGone, liveChildView, closeLiveChildView } = useFixtures();
   const live = sessionGatewayMode === 'live';
+  const pending = usePendingDecisions(selected.id);
   const [settingsError, setSettingsError] = useState('');
   const [savingSettings, setSavingSettings] = useState(false);
   const updateSession: typeof updateFixtureSession = (id, patch) => {
@@ -44,7 +46,7 @@ export function AgentsWorkspace() {
   const profile = profiles.find((item) => item.id === selected.profileId) ?? profiles[0] ?? emptyLiveProfile();
   const parentId = selected.parentId;
   const parent = parentId ? sessions.find((session) => session.id === parentId) : undefined;
-  const readOnlyChild = Boolean(parent) || Boolean(liveChildView);
+  const readOnlyChild = live ? Boolean(liveChildView) : Boolean(parent);
   const backToParent = () => { if (liveChildView) closeLiveChildView(); else if (parent) selectSession(parent.id); };
   const presentation = sessionPresentation(selected);
   const recoverableConnection = Boolean(live && liveSessionError) || isSessionOffline(selected) || selected.connectionState === 'unavailable' || Boolean(selected.stuckSince);
@@ -77,7 +79,7 @@ export function AgentsWorkspace() {
     if (previousConnection.current !== connectionMessage) setActivityAnnouncement(`Connection status: ${connectionMessage}`);
     previousConnection.current = connectionMessage;
   }, [connectionMessage]);
-  const waitingForDecision = Boolean(selected.livePermission || selected.liveQuestion || selected.permission?.status === 'pending' || selected.question?.status === 'pending');
+  const waitingForDecision = live ? !liveChildView && Boolean(pending.permissions.size || pending.questions.size) : selected.permission?.status === 'pending' || selected.question?.status === 'pending';
   useEffect(() => {
     if (waitingForDecision) setActivityAnnouncement('Agent is waiting for your decision.');
   }, [waitingForDecision]);
@@ -191,7 +193,7 @@ export function AgentsWorkspace() {
         </header>
         <span className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="agent-activity-status">{activityAnnouncement}</span>
         <div className="transcript-reader"><Transcript /></div>
-        <Composer />
+        {!liveChildView && <Composer />}
       </section>
       {!inspectorCollapsed && <div className="resize-handle inspector-resize" role="separator" aria-orientation="vertical" aria-label="Resize Inspector" aria-valuemin={286} aria-valuemax={470} aria-valuenow={inspectorWidth} aria-valuetext={`${inspectorWidth} pixels`} tabIndex={0} onPointerDown={startResize('inspector')} onKeyDown={resizeWithKeys('inspector')} data-testid="inspector-resizer" />}
       <Inspector collapsed={inspectorCollapsed} onToggle={toggleInspector} />

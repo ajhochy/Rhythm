@@ -142,16 +142,16 @@ export function Composer() {
   }, [pickerOpen]);
 
   const offline = isSessionOffline(selected);
-  // post-m1-phase-5 c2d: a live child is marked by the canonical `parentSessionId`, never the
-  // fixture-only `parentId` (still used by fixture-mode child sessions — apps/web/src/fixtures.ts).
-  const disabledReason = (liveChildView || selected.parentId || selected.parentSessionId)
+  // Persisted children are interactive local sessions; only ephemeral live views are read-only.
+  const recoverableSdk = sessionGatewayMode === 'live' && Boolean(selected.sdkSessionId);
+  const disabledReason = (liveChildView || sessionGatewayMode !== 'live' && selected.parentId)
     ? 'Child-agent transcripts are read only.'
     : selected.group === 'archived'
       ? 'Archived sessions cannot accept input.'
-      : selected.completedAt
+      : selected.completedAt && !recoverableSdk
         ? 'Resume this completed session before sending.'
-        : selected.status === 'closed' || selected.status === 'error'
-          ? "This run has ended and can't be resumed."
+        : (selected.status === 'closed' || selected.status === 'error') && !recoverableSdk
+          ? 'This run has ended. Resume it or start fresh if its runtime session is unavailable.'
           : '';
   const atMatch = mentionMatch(draft);
   const atQuery = atMatch?.[1].toLowerCase() ?? '';

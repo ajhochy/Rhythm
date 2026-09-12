@@ -3,7 +3,8 @@ import { Icon } from '../icons';
 import { useFixtures } from '../store';
 import { useGateway } from '../gateway/context';
 import type { PendingApproval } from '../gateway/approvals';
-import type { LiveQuestionItem, TranscriptBlock, TranscriptMessage } from '../types';
+import type { LivePermissionRequest, LiveQuestionRequest, LiveQuestionItem, TranscriptBlock, TranscriptMessage } from '../types';
+import { useDecisionReply, usePendingDecisions } from '../pending-decisions';
 
 function MarkdownText({ content }: { content: string }) {
   const pieces = content.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
@@ -65,27 +66,20 @@ function QuestionCard() {
 // post-m1-phase-5 c1a/c1c: live-mode permission card — translated shape only, never a raw
 // engine literal. Broadcast fields (sessionId, permissionID, directory, tool, patterns, title,
 // createdAt) come from apps/api_server/src/services/opencode_stream_bridge.ts:359-391
-// (registerPermission's `permission.asked` frame). `selected.livePermission` is populated by
-// that same frame (and the pending-permissions rehydrate poll) in store.tsx.
-function LivePermissionCard() {
-  const { selected, replyLivePermission } = useFixtures();
+// (registerPermission's `permission.asked` frame). Each card owns only its reply state;
+// pending-decisions holds canonical requests independently of the legacy Session fields.
+function LivePermissionCard({ sessionId, permission }: { sessionId: string; permission: LivePermissionRequest }) {
   const [reason, setReason] = useState('');
-  const [sending, setSending] = useState(false);
-  const permission = selected.livePermission;
-  useEffect(() => { setSending(false); setReason(''); }, [permission?.permissionID]);
-  if (!permission) return null;
-  // c1a: exactly one reply per permissionID — the `sending` guard blocks a second click before
-  // the reply lands and the card unmounts (store.tsx clears `livePermission` on success).
-  const send = (reply: 'once' | 'always' | 'reject') => {
-    if (sending) return;
-    setSending(true);
-    void replyLivePermission(reply, reply === 'reject' ? reason : undefined);
+  const { sending, error, send: reply } = useDecisionReply(sessionId, 'permissions', permission.permissionID);
+  const send = (decision: 'once' | 'always' | 'reject') => {
+    void reply(gateway => gateway.reply(sessionId, permission.permissionID, decision, decision === 'reject' ? reason : undefined));
   };
   return (
-    <section data-agent-decision="true" className="decision-card permission-card" aria-labelledby="live-permission-title" tabIndex={-1} data-testid="permission-card">
+    <section data-agent-decision="true" className="decision-card permission-card" aria-labelledby={`permission-${sessionId}-${permission.permissionID}`} tabIndex={-1} data-testid="permission-card">
       <div className="decision-icon"><Icon name="command" /></div>
       <div className="decision-main">
-        <h3 id="live-permission-title">{permission.title || 'Permission required'}</h3>
+        <h3 id={`permission-${sessionId}-${permission.permissionID}`}>{permission.title || 'Permission required'}</h3>
+        {error && <p role="alert">{error}</p>}
         <p>The agent wants to use <strong>{permission.tool}</strong> in <code>{permission.directory}</code>.</p>
         <pre>{permission.patterns.join('\n')}</pre>
         <label className="field compact-field">Optional denial reason<input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Explain what should change" data-testid="permission-reason" disabled={sending} /></label>
@@ -104,20 +98,16 @@ function LivePermissionCard() {
 // options:string[] prompt. Broadcast shape from
 // apps/api_server/src/services/opencode_stream_bridge.ts:535-556 (registerQuestion's
 // `question.asked` frame: sessionId, requestId, callId, questions).
-function LiveQuestionCard() {
-  const { selected, replyLiveQuestion, rejectLiveQuestion } = useFixtures();
-  const question = selected.liveQuestion;
-  const questions = question?.questions ?? [];
+function LiveQuestionCard({ sessionId, question }: { sessionId: string; question: LiveQuestionRequest }) {
+  const questions = question.questions;
   const [selections, setSelections] = useState<string[][]>([]);
   const [customs, setCustoms] = useState<string[]>([]);
-  const [sending, setSending] = useState(false);
+  const { sending, error, send } = useDecisionReply(sessionId, 'questions', question.requestId);
   useEffect(() => {
     setSelections(questions.map(() => []));
     setCustoms(questions.map(() => ''));
-    setSending(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [question?.callId]);
-  if (!question) return null;
+  }, [question.requestId]);
 
   const toggle = (index: number, label: string, multiple: boolean) => {
     setSelections((current) => current.map((picked, i) => {
@@ -132,21 +122,21 @@ function LiveQuestionCard() {
   // answer-array per question, in the same order the questions were asked.
   const submit = () => {
     if (sending) return;
-    setSending(true);
     const answers = questions.map((_item, index) => {
       const picked = selections[index] ?? [];
       const custom = (customs[index] ?? '').trim();
       return custom ? [...picked, custom] : picked;
     });
-    void replyLiveQuestion(answers);
+    void send(gateway => gateway.replyQuestion(sessionId, question.callId, answers));
   };
-  const reject = () => { if (sending) return; setSending(true); void rejectLiveQuestion(); };
+  const reject = () => { void send(gateway => gateway.rejectQuestion(sessionId, question.callId)); };
 
   return (
-    <form data-agent-decision="true" className="decision-card question-card" aria-labelledby="live-question-title" tabIndex={-1} onSubmit={(event) => { event.preventDefault(); submit(); }} data-testid="question-card">
+    <form data-agent-decision="true" className="decision-card question-card" aria-labelledby={`question-${sessionId}-${question.requestId}`} tabIndex={-1} onSubmit={(event) => { event.preventDefault(); submit(); }} data-testid="question-card">
       <div className="decision-icon"><Icon name="spark" /></div>
       <div className="decision-main">
-        <h3 id="live-question-title">Agent needs a decision</h3>
+        <h3 id={`question-${sessionId}-${question.requestId}`}>Agent needs a decision</h3>
+        {error && <p role="alert">{error}</p>}
         {questions.map((item: LiveQuestionItem, index) => (
           <fieldset key={`${question.callId}-${index}`}>
             <legend>{item.header}</legend>
@@ -223,6 +213,7 @@ type ReadingPosition = {
 export function Transcript() {
   const { selected, sessions, selectSession, demo, loading, notify, loadOlder, revertSession, unrevertSession, forkSession, summarizeSession, sendInput: sendFixtureInput, sendLiveInput, sessionGatewayMode, liveChildView, openLiveChildSession } = useFixtures();
   const sendInput = sessionGatewayMode === 'live' ? sendLiveInput : sendFixtureInput;
+  const pending = usePendingDecisions(selected.id);
   const copyMessage = async (message: TranscriptMessage) => {
     try { await navigator.clipboard.writeText(message.blocks.map(block => block.content).join('\n\n')); notify('Message copied to clipboard'); }
     catch { notify('Message copy failed'); }
@@ -314,7 +305,7 @@ export function Transcript() {
     <section className="transcript" aria-label={`${liveChildView.title} · child transcript`} data-testid="transcript">
       {liveChildView.messages.map((message) => <article className={`message ${message.role}`} key={message.id} data-message-id={message.id} tabIndex={-1} data-testid={`message-${message.id}`}>
         <header><span className="message-role">{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Rhythm agent' : 'Session'}</span></header>
-        <div className="message-blocks">{message.blocks.map((block) => <RichBlock block={block} onOpenChild={() => undefined} key={block.id} />)}</div>
+        <div className="message-blocks">{message.blocks.map((block) => <RichBlock block={block} onOpenChild={openChild} key={block.id} />)}</div>
       </article>)}
     </section>
   );
@@ -340,10 +331,10 @@ export function Transcript() {
       </article>)}
       {selected.queuedDraft && <article className="message user queued-message" aria-label="Queued local draft"><header><span className="message-role">You · queued locally</span><time>Not sent</time></header><p>{selected.queuedDraft}</p><small>Waiting for the direct desktop connection. Rhythm has not told the server this message exists.</small></article>}
       {sessionGatewayMode === 'live' && <PendingApprovalBanner sessionId={selected.id} />}
-      {sessionGatewayMode === 'live' ? <LivePermissionCard /> : <PermissionCard />}
-      {sessionGatewayMode === 'live' ? <LiveQuestionCard /> : <QuestionCard />}
+      {sessionGatewayMode !== 'live' && <PermissionCard />}
+      {sessionGatewayMode !== 'live' && <QuestionCard />}
     </section>
   );
   };
-  return <><div className="transcript-scroll" ref={viewport} onScroll={remember} tabIndex={-1} aria-label="Transcript reading area">{renderContent()}</div>{newOutput && <button className="primary-button transcript-new-output" type="button" onClick={jumpToLatest}>New output</button>}</>;
+  return <><div className="transcript-scroll" ref={viewport} onScroll={remember} tabIndex={-1} aria-label="Transcript reading area">{renderContent()}{sessionGatewayMode === 'live' && !liveChildView && <>{[...pending.permissions.values()].map(permission => <LivePermissionCard key={`${selected.id}:${permission.permissionID}`} sessionId={selected.id} permission={permission} />)}{[...pending.questions.values()].map(question => <LiveQuestionCard key={`${selected.id}:${question.requestId}`} sessionId={selected.id} question={question} />)}</>}</div>{newOutput && <button className="primary-button transcript-new-output" type="button" onClick={jumpToLatest}>New output</button>}</>;
 }

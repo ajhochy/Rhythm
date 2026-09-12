@@ -7,6 +7,7 @@ import { useFixtures } from '../store';
 import type { Session, SessionGroup, SessionScope } from '../types';
 import { FocusDialog } from './FocusDialog';
 import { navigate } from './Shell';
+import { usePendingSessionIds } from '../pending-decisions';
 
 const groupLabels: Record<SessionGroup, string> = { active: 'Active', resumable: 'Resumable', archived: 'Archived' };
 const tools: { key: string; label: string; description: string; icon: IconName }[] = [
@@ -29,6 +30,7 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onToggle(): void }) {
   const fixtures = useFixtures();
   const gateway = useGateway();
+  const pendingSessions = usePendingSessionIds();
   const { sessions, profiles, selected, selectedId, scope, setScope, selectSession, createSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, notify, sessionGatewayMode, createLiveSession, deleteLiveSession, selectLiveSession } = fixtures;
   const eligibleProfiles = profiles.filter(profile => profile.enabled && profile.selectable && (sessionGatewayMode !== 'live' || !profile.id.startsWith('profile-created-')));
   const defaultProfileId = eligibleProfiles.find(profile => profile.isDefault)?.id ?? eligibleProfiles[0]?.id ?? '';
@@ -247,7 +249,9 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
     return depth;
   };
   const sessionRow = (session: SessionCatalogEntry, child = false) => {
-    const presentation = sessionPresentation(session);
+    const presentation = liveHistory && pendingSessions.has(session.id)
+      ? { tone: 'waiting', label: 'Waiting on you', waiting: true }
+      : sessionPresentation(session);
     const parentSession = session.parentId ? sessionsById.get(session.parentId) : undefined;
     return (
     <div className={`session-row-wrap ${child ? 'child-wrap' : ''}`} key={session.id} data-session-menu={session.id} style={child ? { '--child-depth': childDepth(session) } as React.CSSProperties : undefined}>

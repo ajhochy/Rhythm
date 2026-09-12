@@ -9,6 +9,7 @@ import type { MessageThread } from './gateway/messages';
 import { ApprovalGatewayError, type PendingApproval } from './gateway/approvals';
 import { signApprovalDecision } from './security/humanApprovalSigner';
 import { isSessionOffline } from './sessionState';
+import { addPermission, addQuestion, clearPendingDecisions, rehydrateDecisions, removeDecision } from './pending-decisions';
 import type { ComposerAttachment, DemoState, FixtureFile, InspectorTab, Profile, Session, SessionScope, Theme, TodoItem, TranscriptMessage } from './types';
 
 // c4c: a live agent push notification — apps/api_server/src/controllers/notifications_agent_controller.ts:6-32.
@@ -226,6 +227,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const [liveSessionError, setLiveSessionError] = useState<string | null>(null);
   const [resumeGone, setResumeGone] = useState<{ id: string; message: string } | null>(null);
   const [liveChildView, setLiveChildView] = useState<LiveChildView | null>(null);
+  const childStack = useRef<LiveChildView[]>([]);
   const childViewRequestRef = useRef(0);
   const [notifications, setNotifications] = useState<DomainNotification[]>([]);
   const [pushNotifications, setPushNotifications] = useState<PushNotification[]>([]);
@@ -248,6 +250,18 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const liveMessagesRefreshRef = useRef<Promise<void> | null>(null);
 
   const selected = sessions.find((session) => session.id === selectedId) ?? (live ? emptyLiveSession() : sessions[0]) ?? emptyLiveSession();
+  const pendingSessionRef = useRef(selected);
+  pendingSessionRef.current = selected;
+  useEffect(() => {
+    clearPendingDecisions();
+    return clearPendingDecisions;
+  }, [gateway, accountId]);
+  useEffect(() => {
+    childViewRequestRef.current++;
+    childStack.current = [];
+    setLiveChildView(null);
+    if (live && selected.id) void rehydrateDecisions(gateway, selected).catch(() => setLiveSessionError('Pending decisions could not be loaded'));
+  }, [gateway, live, accountId, selected.id, selected.sdkSessionId, selected.cwd]);
   const notify = (message: string) => setToast((current) => ({ message, id: current.id + 1 }));
   const setTheme = (next: Theme) => { setThemeState(next); persistTheme(next); };
   const selectSession = (id: string) => { setSelectedId(id); const session = sessions.find((item) => item.id === id); if (session) setRunMessage(`${session.name}: ${session.status}`); };
@@ -490,6 +504,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       // card (by permissionID) without ever sending another reply for it.
       if (event.type === 'permission.asked' && event.sessionId && event.permissionID) {
         const { sessionId, permissionID, directory, tool, patterns, title, createdAt } = event;
+        addPermission(sessionId, { permissionID, directory: directory ?? '', tool: tool ?? '', patterns: Array.isArray(patterns) ? patterns : [], title: title ?? '', createdAt: createdAt ?? new Date().toISOString() });
         setSessions((current) => current.map((session) => session.id === sessionId ? {
           ...session,
           livePermission: { permissionID, directory: directory ?? '', tool: tool ?? '', patterns: Array.isArray(patterns) ? patterns : [], title: title ?? '', createdAt: createdAt ?? new Date().toISOString() },
@@ -498,6 +513,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       }
       if (event.type === 'permission.replied' && event.sessionId && event.permissionID) {
         const { sessionId, permissionID } = event;
+        removeDecision(sessionId, 'permissions', permissionID);
         setSessions((current) => current.map((session) => session.id === sessionId && session.livePermission?.permissionID === permissionID ? { ...session, livePermission: undefined } : session));
         return;
       }
@@ -506,6 +522,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       if (event.type === 'question.asked' && event.sessionId && event.requestId && event.callId) {
         const { sessionId, requestId, callId, questions } = event;
         const parsedQuestions = (Array.isArray(questions) ? questions : []) as import('./types').LiveQuestionItem[];
+        addQuestion(sessionId, { requestId, callId, questions: parsedQuestions });
         setSessions((current) => current.map((session) => session.id === sessionId ? {
           ...session,
           liveQuestion: { requestId, callId, questions: parsedQuestions },
@@ -514,6 +531,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       }
       if (event.type === 'question.resolved' && event.sessionId && event.requestId) {
         const { sessionId, requestId } = event;
+        removeDecision(sessionId, 'questions', requestId);
         setSessions((current) => current.map((session) => session.id === sessionId && session.liveQuestion?.requestId === requestId ? { ...session, liveQuestion: undefined } : session));
         return;
       }
@@ -551,7 +569,10 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       if (id) { sessionSocketRef.current?.send({ v: 1, type: 'session.subscribe', id }); rehydratePendingPermission(id); }
       void requestReconcile().catch(onError);
     };
-    sessionSocketRef.current = sessionGateway.connect(onEvent, onError, onReconnect);
+    sessionSocketRef.current = sessionGateway.connect(onEvent, onError, () => {
+      onReconnect();
+      void rehydrateDecisions(gateway, pendingSessionRef.current).catch(onError);
+    });
     setLoading(true);
     setLiveSessionError(null);
     void Promise.all([sessionGateway.profiles(), sessionGateway.list()]).then(async ([nextProfiles, nextSessions]) => {
@@ -663,6 +684,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const selectLiveSession = async (id: string) => {
     if (!live) return;
     childViewRequestRef.current += 1;
+    childStack.current = [];
     setLiveChildView(null);
     rememberLiveSelection(id);
     setLiveSessionError(null);
@@ -831,16 +853,27 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const dismissResumeGone = () => setResumeGone(null);
   const openLiveChildSession = async (childId: string, title: string) => {
     if (!live || !selected.id) return;
+    const persisted = sessions.find(session => session.id === childId || session.sdkSessionId === childId);
+    if (persisted) { await selectLiveSession(persisted.id); return; }
     const request = ++childViewRequestRef.current;
+    const pendingView = { parentId: selected.id, childId, title, messages: [] };
+    childStack.current = [...childStack.current, pendingView];
+    setLiveChildView(pendingView);
     try {
       const messages = await gateway.domains.sessions!.childMessages(selected.id, childId);
       if (request !== childViewRequestRef.current || selectedIdRef.current !== selected.id) return;
-      setLiveChildView({ parentId: selected.id, childId, title, messages });
+      const view = { parentId: selected.id, childId, title, messages };
+      childStack.current = [...childStack.current.slice(0, -1), view];
+      setLiveChildView(view);
     } catch {
       if (request === childViewRequestRef.current) setLiveSessionError('Child session could not be loaded');
     }
   };
-  const closeLiveChildView = () => setLiveChildView(null);
+  const closeLiveChildView = () => {
+    childViewRequestRef.current++;
+    childStack.current = childStack.current.slice(0, -1);
+    setLiveChildView(childStack.current.at(-1) ?? null);
+  };
   const forkSession = (id: string, messageId?: string) => {
     if (live) {
       if (!messageId) { notify('Choose a persisted message to fork'); return; }
