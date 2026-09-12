@@ -77,10 +77,10 @@ try {
       const onAuthenticated = (login: AuthLoginResponse) => {
         try { renderGateway(login.sessionToken, login.user); } catch (error) { renderStartupError(error); }
       };
-      void runtimeGateway?.auth?.currentSession?.().then((restored) => {
-        if (restored) onAuthenticated(restored);
-        else root.render(<React.StrictMode><GoogleSignIn auth={runtimeGateway?.auth} onAuthenticated={onAuthenticated} /></React.StrictMode>);
-      }).catch(() => root.render(<React.StrictMode><GoogleSignIn auth={runtimeGateway?.auth} onAuthenticated={onAuthenticated} /></React.StrictMode>));
+      const renderSignIn = () => root.render(<React.StrictMode><GoogleSignIn auth={runtimeGateway?.auth} onAuthenticated={onAuthenticated} /></React.StrictMode>);
+      const restore = runtimeGateway?.auth?.currentSession;
+      if (restore) void restore().then((restored) => restored ? onAuthenticated(restored) : renderSignIn()).catch(renderSignIn);
+      else renderSignIn();
     }
   } else {
     renderGateway(testOnlyToken);

@@ -37,7 +37,7 @@ test('slice-5-c3: actual Electron launch loads the local agents route', async ()
 test('slice-5-c4: actual preload exposes only frozen versioned lifecycle, gateway configuration, Google auth, human-approval signing, and agent-server status', async () => {
   const result = await smoke();
   assert.deepEqual(result.runtime, { apiBase: 'http://127.0.0.1:4001', engineBase: 'http://127.0.0.1:4096', testOverride: false });
-  assert.deepEqual(result.bridge.keys, ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer']);
+  assert.deepEqual(result.bridge.keys, ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates']);
   assert.equal(result.bridge.frozen, true);
   assert.deepEqual(result.bridge.gateway.keys, ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase']);
   assert.equal(result.bridge.gateway.frozen, true);
@@ -50,13 +50,15 @@ test('slice-5-c4: actual preload exposes only frozen versioned lifecycle, gatewa
     apiBase: 'http://127.0.0.1:4001',
     engineBase: 'http://127.0.0.1:4096',
   });
-  assert.deepEqual(result.bridge.auth.keys, ['signInWithGoogle']);
+  assert.deepEqual(result.bridge.auth.keys, ['signInWithGoogle', 'currentSession', 'logout']);
   assert.equal(result.bridge.auth.frozen, true);
   // post-m1-p7-c4e: a narrow, purpose-built surface only — never an arbitrary-sign primitive.
   assert.deepEqual(result.bridge.humanApproval.keys, ['capability', 'signDecision']);
   assert.equal(result.bridge.humanApproval.frozen, true);
   assert.deepEqual(result.bridge.agentServer.keys, ['status', 'onStatusChange']);
   assert.equal(result.bridge.agentServer.frozen, true);
+  assert.deepEqual(result.bridge.updates.keys, ['openDownloadPage']);
+  assert.equal(result.bridge.updates.frozen, true);
   assert.equal(result.bridge.nodeExposed, false);
 });
 

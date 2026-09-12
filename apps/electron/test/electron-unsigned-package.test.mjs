@@ -164,11 +164,11 @@ test('slice-7-c5: packaged binary preserves renderer isolation and fail-closed p
   await assertPackagedBundle('slice-7-c5');
   const receipt = await packagedSmoke(['--smoke', '--security-smoke']);
   assert.equal(receipt.bridge?.nodeExposed, false, 'slice-7-c5: Node is exposed in the packaged renderer');
-  assert.deepEqual(receipt.bridge?.keys, ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer'], 'slice-7-c5: packaged preload exposes capabilities beyond lifecycle, gateway metadata, Google auth, human-approval signing, and agent-server status');
+  assert.deepEqual(receipt.bridge?.keys, ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates'], 'slice-7-c5: packaged preload exposes capabilities beyond the approved closed surface');
   assert.equal(receipt.bridge?.frozen, true, 'slice-7-c5: packaged lifecycle object is not frozen');
   assert.deepEqual(receipt.bridge?.gateway?.keys, ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase'], 'slice-7-c5: packaged preload gateway configuration differs from the approved runtime values');
   assert.equal(receipt.bridge?.gateway?.frozen, true, 'slice-7-c5: packaged gateway metadata is not frozen');
-  assert.deepEqual(receipt.bridge?.auth?.keys, ['signInWithGoogle'], 'slice-7-c5: packaged preload auth surface is broader than the approved Google sign-in capability');
+  assert.deepEqual(receipt.bridge?.auth?.keys, ['signInWithGoogle', 'currentSession', 'logout'], 'slice-7-c5: packaged preload auth surface differs from the approved lifecycle');
   assert.equal(receipt.bridge?.auth?.frozen, true, 'slice-7-c5: packaged auth surface is not frozen');
   // post-m1-p7-c4e: a narrow, purpose-built surface only — never an arbitrary-sign primitive
   // (no raw key export, no "sign these bytes" method; only capability() and the fixed-shape
@@ -177,6 +177,8 @@ test('slice-7-c5: packaged binary preserves renderer isolation and fail-closed p
   assert.equal(receipt.bridge?.humanApproval?.frozen, true, 'slice-7-c5: packaged human-approval surface is not frozen');
   assert.deepEqual(receipt.bridge?.agentServer?.keys, ['status', 'onStatusChange'], 'slice-7-c5: packaged preload agent-server surface is broader than status+onStatusChange');
   assert.equal(receipt.bridge?.agentServer?.frozen, true, 'slice-7-c5: packaged agent-server surface is not frozen');
+  assert.deepEqual(receipt.bridge?.updates?.keys, ['openDownloadPage'], 'slice-7-c5: packaged update surface differs from the fixed download capability');
+  assert.equal(receipt.bridge?.updates?.frozen, true, 'slice-7-c5: packaged update surface is not frozen');
   assert.equal(Number.isInteger(receipt.bridge?.value?.version), true, 'slice-7-c5: packaged lifecycle object has no integer version');
   assert.deepEqual(receipt.denials, {
     navigation: true,

@@ -592,6 +592,10 @@ if (hasSingleInstanceLock) {
       keys: Object.keys(window.rhythmShell?.agentServer || {}),
       frozen: Object.isFrozen(window.rhythmShell?.agentServer),
     },
+    updates: {
+      keys: Object.keys(window.rhythmShell?.updates || {}),
+      frozen: Object.isFrozen(window.rhythmShell?.updates),
+    },
   nodeExposed: typeof process !== 'undefined' || typeof require !== 'undefined',
   value: { version: window.rhythmShell?.version }
 })`);
