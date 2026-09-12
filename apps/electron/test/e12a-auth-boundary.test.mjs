@@ -16,7 +16,7 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
   const directory = await mkdtemp(join(tmpdir(), 'rhythm-e12a-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const handlers = new Map(), listeners = new Map(), protocols = new Map();
-  const windows = [], logins = [], requests = [], signed = [];
+  const windows = [], logins = [], requests = [], signed = [], opened = [];
   let quits = 0;
   const app = Object.assign(new EventEmitter(), {
     getPath: () => directory, requestSingleInstanceLock: () => true, isReady: () => false,
@@ -57,8 +57,8 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
   const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = directory; } });
   await module.link(async (name) => {
     let values;
-    if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on: (key, fn) => listeners.set(key, fn), handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification, protocol: { registerSchemesAsPrivileged() {}, handle: (key, fn) => protocols.set(key, fn) }, safeStorage: { isEncryptionAvailable: () => true, encryptString: (value) => Buffer.from(value), decryptString: (value) => value.toString() }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: { openExternal() {} }, dialog: { showErrorBox() {} } };
-    else if (name === './agent-server.mjs') values = { AgentServerService: Server, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:4001', AGENT_SERVER_ENGINE_PORT: 4096 };
+    if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on: (key, fn) => listeners.set(key, fn), handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification, protocol: { registerSchemesAsPrivileged() {}, handle: (key, fn) => protocols.set(key, fn) }, safeStorage: { isEncryptionAvailable: () => true, encryptString: (value) => Buffer.from(value), decryptString: (value) => value.toString() }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: { openExternal(url) { opened.push(url); } }, dialog: { showErrorBox() {} } };
+    else if (name === './agent-server.mjs') values = { AgentServerService: Server, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:4001', AGENT_SERVER_ENGINE_PORT: 4096, electronDbPath: () => join(directory, 'electron.db'), legacyFlutterDbPath: () => join(directory, 'legacy.db') };
     else if (name === './desktop-google-oauth.mjs') values = { runDesktopGoogleOAuth: (options) => new Promise((resolve) => { logins.push({ options, resolve }); if (immediateLogin) resolve({ sessionToken: 'unexpected', user: { id: 1 } }); }) };
     else if (name === './human-approval-main-signer.mjs') values = { capability: async () => 'capability', signDecision: async (value) => { signed.push(value); return { signature: 'signature' }; } };
     else { values = { ...await import(name.startsWith('.') ? new URL(name, file).href : name) }; if (name === 'node:fs') values.existsSync = () => true; }
@@ -67,7 +67,7 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
   await module.evaluate();
   for (let index = 0; index < 20 && windows.length === 0; index += 1) await tick();
   return {
-    windows, logins, requests, signed, handlers, listeners, quits: () => quits,
+    windows, logins, requests, signed, opened, handlers, listeners, quits: () => quits,
     current: () => windows.at(-1),
     event: () => ({ sender: windows.at(-1).webContents, senderFrame: windows.at(-1).webContents.mainFrame }),
     artifact: () => protocols.get('rhythm-artifact')({ url: 'rhythm-artifact://app/00000000-0000-4000-8000-000000000801', method: 'GET' }),
@@ -230,4 +230,11 @@ test('E42: current session is main-owned and logout clears it before rebuilding'
   await first.bridge.auth.logout();
   assert.equal(first.destroyed, true);
   assert.equal(await h.current().bridge.auth.currentSession(), null);
+});
+
+test('E44: update capability opens only the fixed Rhythm Releases page', async (t) => {
+  const h = await host(t); const bridge = h.current().bridge;
+  assert.deepEqual(Object.keys(bridge.updates), ['openDownloadPage']);
+  await bridge.updates.openDownloadPage();
+  assert.deepEqual(h.opened, ['https://github.com/ajhochy/Rhythm/releases']);
 });

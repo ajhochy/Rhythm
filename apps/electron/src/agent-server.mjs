@@ -78,10 +78,11 @@ export function findServerEntry(nodePath, executablePath = process.execPath) {
   return null;
 }
 
-function dbPath() {
-  const supportDir = join(homedir(), 'Library/Application Support/Rhythm');
+export function electronDbPath() {
+  const supportDir = join(homedir(), 'Library/Application Support/Rhythm Electron');
   return join(supportDir, 'rhythm.db');
 }
+export function legacyFlutterDbPath() { return join(homedir(), 'Library/Application Support/Rhythm/rhythm.db'); }
 
 /**
  * api_server_service.dart:46-92 field-for-field, adapted to this build's optional params (memory
@@ -231,8 +232,13 @@ export class AgentServerService {
       return this.status;
     }
 
-    const targetDbPath = dbPath();
+    const targetDbPath = electronDbPath();
     await mkdir(dirname(targetDbPath), { recursive: true });
+    const legacyDb = legacyFlutterDbPath();
+    if (!existsSync(targetDbPath) && process.env.RHYTHM_ELECTRON_MIGRATE_LEGACY === '1' && existsSync(legacyDb)) {
+      const migrationScript = resolve(serverInfo.workingDir, 'scripts/migrate_desktop_db.mjs');
+      await run(nodePath, [migrationScript, legacyDb, targetDbPath, resolve(dirname(targetDbPath), 'migration-receipt.json')], { cwd: serverInfo.workingDir, timeout: 120_000, maxBuffer: 256 * 1024 });
+    }
     if (generation !== this.#generation) return this.status;
 
     const env = buildEnvironment({

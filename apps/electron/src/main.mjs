@@ -5,7 +5,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { AGENT_SERVER_BASE_URL, AGENT_SERVER_ENGINE_PORT, AgentServerService } from './agent-server.mjs';
+import { AGENT_SERVER_BASE_URL, AGENT_SERVER_ENGINE_PORT, AgentServerService, electronDbPath, legacyFlutterDbPath } from './agent-server.mjs';
 import { injectArtifactFrameBridge, isAllowedArtifactFrameNavigation, parseArtifactFrameRequest } from './artifact-frame-protocol.mjs';
 import { GOOGLE_DESKTOP_CLIENT_ID, RHYTHM_AUTH_API_BASE } from './build-config.mjs';
 import { runDesktopGoogleOAuth } from './desktop-google-oauth.mjs';
@@ -268,6 +268,10 @@ if (hasSingleInstanceLock) {
     invalidateAuthentication(); await clearStoredAuthentication();
     if (rebuildMainWindow) { mainWindow?.destroy(); mainWindow = undefined; await rebuildMainWindow(); }
   });
+  ipcMain.handle('rhythm:updates:open-download', async (event, ...args) => {
+    requireOwnedDocument(event); requireNoPayload(args);
+    await shell.openExternal('https://github.com/ajhochy/Rhythm/releases');
+  });
 
   // Mirrors apps/desktop_flutter/lib/app/core/server/api_server_service.dart +
   // agent_server_controller.dart: THIS process spawns and owns the local api_server, the same way
@@ -348,6 +352,11 @@ if (hasSingleInstanceLock) {
   app.whenReady().then(async () => {
     if (isMissingDistSmoke || !existsSync(webDist)) throw new Error(`Rhythm Electron shell requires built web assets at ${webDist}`);
     await restoreAuthentication();
+    if (!isSmoke && !existsSync(electronDbPath()) && existsSync(legacyFlutterDbPath())) {
+      const choice = await dialog.showMessageBox({ type: 'question', title: 'Import existing Rhythm data?', message: 'Rhythm found data from the Flutter desktop app.', detail: 'Import copies the database into Electron using SQLite backup. The original remains untouched. Imported schedules start disabled for review.', buttons: ['Import existing data', 'Start fresh', 'Cancel'], defaultId: 0, cancelId: 2 });
+      if (choice.response === 2) { app.quit(); return; }
+      process.env.RHYTHM_ELECTRON_MIGRATE_LEGACY = choice.response === 0 ? '1' : '0';
+    }
 
     // Fire-and-forget, exactly like Flutter's main.dart:186-190 (`AgentServerController..initialize()`
     // is never awaited before `runApp`) — the window renders immediately and the renderer's own

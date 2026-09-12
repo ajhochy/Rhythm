@@ -1,0 +1,11 @@
+{
+  "issue": "E43",
+  "date": "2026-09-12",
+  "test_command": "cd apps/electron && node --test test/e43-migration.test.mjs",
+  "criteria": [
+    { "criterion_id": "E43-c1", "text": "Legacy Flutter SQLite is copied through backup into a separate Electron store and source remains unchanged", "mode": "unit", "test": "apps/electron/test/e43-migration.test.mjs", "status": "PASS" },
+    { "criterion_id": "E43-c2", "text": "Copied schedules are disabled for review, integrity/count receipt is written after atomic promotion, and existing destination is never overwritten", "mode": "unit", "test": "apps/electron/test/e43-migration.test.mjs", "status": "PASS" },
+    { "criterion_id": "E43-c3", "text": "First Electron launch offers Import, Start fresh, or Cancel before starting the local runtime", "mode": "integration", "test": "apps/electron/src/main.mjs", "status": "UNVERIFIED" }
+  ],
+  "not_tested": ["rendered native migration dialog", "interrupted filesystem promotion", "rollback with post-cutover data", "packaged migration"]
+}
