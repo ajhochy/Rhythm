@@ -183,3 +183,17 @@ test('E20-c8 expired continuation offers explicit reset, never loops fetching', 
   expect(requests.at(-1)?.searchParams.has('cursor')).toBe(false);
   expect(unexpected).toEqual([]);
 });
+
+test('E54: fixed session and transcript transformations stay inside the interaction budget', () => {
+  const manySessions = Array.from({ length: 10_000 }, (_, index) => toSessionViewModel(row(`perf-${index}`, { name: `Session ${10_000 - index}`, lastActivityAt: `2026-09-${String(index % 28 + 1).padStart(2, '0')}T00:00:00Z` })));
+  const sessionStart = performance.now();
+  const visible = manySessions.filter((session) => session.name.includes('1')).sort((a, b) => compareSessions(a, b, 'activity'));
+  const sessionMs = performance.now() - sessionStart;
+  expect(visible.length).toBeGreaterThan(0); expect(sessionMs).toBeLessThan(200);
+  const messages = Array.from({ length: 1_000 }, (_, index) => ({ id: `m-${index}`, role: index % 2 ? 'assistant' : 'user', createdAt: new Date(index * 1_000).toISOString(), parts: [{ id: `p-${index}`, type: 'text', text: `Message ${index}` }] }));
+  const transcriptStart = performance.now();
+  const mapped = toSessionViewModel(row('perf-transcript'), messages);
+  const transcriptMs = performance.now() - transcriptStart;
+  expect(mapped.messages).toHaveLength(1_000); expect(transcriptMs).toBeLessThan(200);
+  console.log(`E54 fixed transform baseline: sessions=${sessionMs.toFixed(2)}ms transcript=${transcriptMs.toFixed(2)}ms`);
+});

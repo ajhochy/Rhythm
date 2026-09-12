@@ -1,0 +1,10 @@
+{
+  "issue": "E54",
+  "date": "2026-09-12",
+  "test_command": "cd apps/web && npm exec -- playwright test --config tests/electron-e20-playwright.config.ts --grep E54",
+  "criteria": [
+    { "criterion_id": "E54-c1", "text": "10,000-session filter/activity sort completes under 200ms on the development reference machine", "mode": "performance", "test": "apps/web/tests/electron-e20-session-ordering.spec.ts", "status": "PASS" },
+    { "criterion_id": "E54-c2", "text": "1,000-message canonical transcript mapping completes under 200ms", "mode": "performance", "test": "apps/web/tests/electron-e20-session-ordering.spec.ts", "status": "PASS" }
+  ],
+  "not_tested": ["browser DOM render p95", "memory across 20 cycles", "warm/cold packaged startup", "sleep/wake"]
+}
