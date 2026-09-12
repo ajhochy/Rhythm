@@ -22,6 +22,7 @@ async function intercept(page: Page, records: Task[]) {
       if (request.method() === 'GET') {
         if (url.pathname === '/agents/models/catalog') return reply([]);
         if (url.pathname === '/opencode/auth/accounts') return reply({ accounts: [], defaultId: null });
+        if (url.pathname === '/workspaces/me/members') return reply([]);
         if (['/message-threads', '/agent-configs', '/agent-sessions', '/agent-approvals', '/notifications'].includes(url.pathname)) return reply([]);
         if (url.pathname === '/health') return reply({ status: 'ok', healthy: true });
         if (url.pathname === '/tasks') return reply(records);
@@ -136,5 +137,23 @@ test('e14-c3: manual endpoints and calendar read-only behavior remain unchanged'
   ]);
   await page.getByTestId('planner-task-calendar').click();
   await expect(page.getByTestId('planner-save-task')).toHaveCount(0);
+  expect(denied).toEqual([]);
+});
+
+test('E32: Planner bulk completion, within-day ordering, and calendar times use canonical data', async ({ page }) => {
+  const records = [
+    task('bulk-a', { scheduledDate: '2026-09-09', scheduledOrder: 10 }),
+    task('bulk-b', { scheduledDate: '2026-09-09', scheduledOrder: 20 }),
+    task('calendar-time', { sourceType: 'calendar_shadow_event', scheduledDate: '2026-09-09', startsAt: '2026-09-09T16:00:00Z', endsAt: '2026-09-09T17:30:00Z' }),
+  ];
+  const { writes, denied } = await intercept(page, records);
+  await page.goto('/#/planner');
+  await page.getByRole('button', { name: 'Move bulk-a later' }).click();
+  await expect.poll(() => writes.some((write) => write.path === '/tasks/bulk-a' && write.body.scheduledOrder === 21)).toBe(true);
+  await page.getByTestId('planner-task-select-bulk-a').click();
+  await page.getByTestId('planner-task-select-bulk-b').click();
+  await page.getByTestId('planner-complete-selected').click();
+  await expect.poll(() => writes.filter((write) => write.body.status === 'done').map((write) => write.path).sort()).toEqual(['/tasks/bulk-a', '/tasks/bulk-b']);
+  await expect(page.getByTestId('planner-task-time-calendar-time')).not.toBeEmpty();
   expect(denied).toEqual([]);
 });

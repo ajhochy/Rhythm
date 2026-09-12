@@ -38,3 +38,31 @@ for (const editor of ['builder', 'inspector']) {
     expect(patches[1].actionConfig).toEqual({ ...rule.actionConfig, titleTemplate: '' });
   });
 }
+
+test('E35: live automation uses the integration account and complete typed action fields', async ({ page }) => {
+  const rule = {
+    id: 'e35', name: 'Gmail tag', source: 'gmail', triggerKey: 'gmail.email_received', enabled: false,
+    triggerConfig: { label: 'inbox' }, actionType: 'tag_task', sourceAccountId: 'gmail-account',
+    actionConfig: { titleTemplate: '{{subject}}', tag: 'follow-up', notes: '', targetDay: '' }, conditions: [], ownerId: 1,
+    createdAt: '', updatedAt: '', lastEvaluatedAt: null, lastMatchedAt: null, matchCountLastRun: 0, previewSample: null,
+  };
+  const patches: any[] = [];
+  await page.route('**/*', async route => {
+    const url = new URL(route.request().url()); if (url.origin === 'http://127.0.0.1:4186') return route.continue();
+    let body: any = [];
+    if (url.pathname === '/automation-rules') body = [rule];
+    else if (url.pathname === '/automation-catalog/triggers') body = [{ key: rule.triggerKey, source: 'gmail', label: 'Email received', configSchema: {} }];
+    else if (url.pathname === '/automation-catalog/actions') body = [{ key: 'tag_task', label: 'Tag task', configSchema: {} }];
+    else if (url.pathname === '/automation-catalog/providers') body = [{ source: 'gmail', label: 'Gmail' }];
+    else if (url.pathname === '/integrations/accounts') body = [{ id: 'gmail-account', provider: 'gmail', providerDisplayName: 'Gmail', availableTriggerFamilies: [], syncSupportMode: 'scheduled', status: 'connected', needsReauth: false, accountLabel: 'Staff inbox', email: 'staff@example.invalid', displayName: null, expiresAt: null, lastSyncedAt: null, errorMessage: null, scope: null }];
+    if (route.request().method() === 'PATCH') { patches.push(route.request().postDataJSON()); body = { ...rule, ...patches.at(-1) }; }
+    await route.fulfill({ json: body });
+  });
+  await page.goto('/#/automations');
+  const editor = page.getByTestId('automation-direct-editor');
+  await expect(editor.getByTestId('automation-account')).toContainText('Staff inbox');
+  await editor.getByTestId('automation-tag').fill('urgent-follow-up');
+  await editor.getByTestId('automation-builder-submit').click();
+  await expect.poll(() => patches.length).toBe(1);
+  expect(patches[0]).toMatchObject({ sourceAccountId: 'gmail-account', enabled: false, triggerConfig: { label: 'inbox' }, actionConfig: { titleTemplate: '{{subject}}', tag: 'urgent-follow-up', notes: '', targetDay: '' } });
+});

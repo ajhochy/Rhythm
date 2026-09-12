@@ -1,0 +1,12 @@
+{
+  "issue": "E32",
+  "date": "2026-09-11",
+  "waiver": "LivePlannerPage HIGH routed impact was previously disclosed and autonomous implementation authorized.",
+  "test_command": "cd apps/web && npm exec -- playwright test --config tests/electron-e14-playwright.config.ts --grep E32",
+  "criteria": [
+    { "criterion_id": "E32-c1", "text": "Planner bulk completion and within-day ordering use canonical record IDs and exact supported writes", "mode": "ui", "test": "apps/web/tests/electron-e14-task-planner.spec.ts", "status": "PASS" },
+    { "criterion_id": "E32-c2", "text": "Calendar shadow cards expose localized start/end time", "mode": "ui", "test": "apps/web/tests/electron-e14-task-planner.spec.ts", "status": "PASS" },
+    { "criterion_id": "E32-c3", "text": "Dashboard renders goals, goals/messages prevent false empty state, and project-step detail edits use step IDs", "mode": "integration", "test": "apps/web/src/pages/dashboard/index.tsx", "status": "UNVERIFIED" }
+  ],
+  "not_tested": ["E32-c3 rendered journey", "real production persistence", "packaged Electron"]
+}

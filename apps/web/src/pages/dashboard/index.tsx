@@ -298,14 +298,14 @@ function LiveTaskEntry({ task, onInspect, onToggle }: { task: Task; onInspect(ta
   );
 }
 
-function LiveStepEntry({ step, onToggle }: { step: DashboardOnDeckStep; onToggle(step: DashboardOnDeckStep): void }) {
+function LiveStepEntry({ step, onToggle, onInspect }: { step: DashboardOnDeckStep; onToggle(step: DashboardOnDeckStep): void; onInspect(step: DashboardOnDeckStep): void }) {
   return (
     <article className="task-entry">
       <button className="task-toggle" type="button" aria-label={`${step.status === 'done' ? 'Reopen' : 'Complete'} ${step.title}`} onClick={() => onToggle(step)} data-testid={`project-step-toggle-${step.id}`}><span aria-hidden="true">{step.status === 'done' ? '✓' : '○'}</span></button>
-      <span className="task-row" data-status={step.status} data-source-type="project_step" data-source-id={step.id} data-testid={`project-step-row-${step.id}`}>
+      <button type="button" className="task-row" onClick={() => onInspect(step)} data-status={step.status} data-source-type="project_step" data-source-id={step.id} data-testid={`project-step-row-${step.id}`}>
         <span className="row-copy"><strong>{step.title}</strong><small>{step.dueDate ?? 'No due date'}</small></span>
         <span className="row-status">step</span>
-      </span>
+      </button>
     </article>
   );
 }
@@ -323,6 +323,7 @@ function LiveDashboardPage({ route: _route }: { route: string }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [receipts, setReceipts] = useState<string[]>([]);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [selectedStep, setSelectedStep] = useState<DashboardOnDeckStep | null>(null);
   const [collaborators, setCollaborators] = useState<TaskCollaborator[]>([]);
   const [collaboratorId, setCollaboratorId] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
@@ -352,7 +353,7 @@ function LiveDashboardPage({ route: _route }: { route: string }) {
       setProjectInstances(loadedInstances);
       setErrorMessage(null);
       if (blocking) {
-        const hasWork = [loadedSummary.tasks.recent, loadedSummary.tasks.pastDue, loadedSummary.tasks.today, loadedSummary.tasks.thisWeek, loadedSummary.tasks.unscheduled].some((list) => list.length > 0) || loadedInstances.length > 0;
+        const hasWork = [loadedSummary.tasks.recent, loadedSummary.tasks.pastDue, loadedSummary.tasks.today, loadedSummary.tasks.thisWeek, loadedSummary.tasks.unscheduled, loadedSummary.rhythms.items, loadedSummary.goals.items, loadedSummary.messages.unreadPreviews].some((list) => list.length > 0) || loadedInstances.length > 0;
         setSurfaceState(hasWork ? 'ready' : 'empty');
       }
     } catch (error) {
@@ -477,6 +478,17 @@ function LiveDashboardPage({ route: _route }: { route: string }) {
     } catch (error) { setErrorMessage(recordError('PATCH', `/project-instances/steps/${step.id}`, error)); } finally { setMutationPending(false); }
   };
 
+  const saveStep = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); if (!selectedStep) return;
+    const data = new FormData(event.currentTarget); setMutationPending(true);
+    try {
+      await gateway.updateProjectStep(selectedStep.id, { title: String(data.get('title') ?? '').trim(), notes: String(data.get('notes') ?? ''), dueDate: String(data.get('dueDate') ?? '') || undefined });
+      appendReceipt(`PATCH /project-instances/steps/${selectedStep.id} {title,notes,dueDate} → 200`);
+      setSelectedStep(null); await load({ blocking: false });
+    } catch (error) { setErrorMessage(recordError('PATCH', `/project-instances/steps/${selectedStep.id}`, error)); }
+    finally { setMutationPending(false); }
+  };
+
   const inspectTask = async (task: Task) => {
     setSelectedTask(task);
     setCollaboratorId('');
@@ -597,6 +609,7 @@ function LiveDashboardPage({ route: _route }: { route: string }) {
               <article className="progress-card" data-testid="project-progress"><div className="card-topline"><h3>Active projects</h3><button className="text-button" type="button" onClick={() => navigate('/projects')} data-testid="open-projects">Open projects</button></div><dl className="metrics-grid"><Metric label="Active" value={summary.projects.activeCount} /><Metric label="Rhythms" value={summary.rhythms.activeCount} /></dl></article>
             </div>
           </section>
+          {summary.goals.items.length > 0 && <section className="planning-card wide" aria-labelledby="dashboard-goals-title" data-testid="dashboard-goals"><div className="list-head"><h2 id="dashboard-goals-title">Season goals</h2><span>{summary.goals.activeCount} active</span></div>{summary.goals.items.map((goal) => <article key={goal.id} data-testid={`dashboard-goal-${goal.id}`}><strong>{goal.title}</strong><span>{goal.currentValue} / {goal.endValue} {goal.metricType}</span><progress value={goal.progress} max={1} aria-label={`${goal.title} progress`} /><small>{goal.health}</small></article>)}</section>}
 
           <section className="context-strip" aria-label="Dashboard handoffs">
             <article className="unread-card"><div className="card-topline"><div><span className="eyebrow">Unread context</span><h2>Unread messages</h2></div><button className="icon-button" type="button" onClick={() => navigate('/messages')} aria-label="Open messages" title="Open messages" data-testid="open-messages">→</button></div>
@@ -610,7 +623,7 @@ function LiveDashboardPage({ route: _route }: { route: string }) {
             <article className="planning-card wide" data-testid="planning-past-due"><div className="list-head"><h3>Past due · {summary.tasks.pastDue.length}</h3><button className="text-button" type="button" onClick={() => navigate('/planner')} data-testid="open-past-due-planner">Planner</button></div>{summary.tasks.pastDue.map((task) => <LiveTaskEntry key={task.id} task={task} onInspect={(item) => void inspectTask(item)} onToggle={(item) => void toggleTask(item)} />)}{!summary.tasks.pastDue.length && <p className="empty-copy">Nothing overdue.</p>}</article>
             <article className="planning-card" data-testid="planning-today"><div className="list-head"><h3>Today · {summary.tasks.today.length}</h3></div>{summary.tasks.today.map((task) => <LiveTaskEntry key={task.id} task={task} onInspect={(item) => void inspectTask(item)} onToggle={(item) => void toggleTask(item)} />)}{!summary.tasks.today.length && <p className="empty-copy">Nothing scheduled today.</p>}</article>
             <article className="planning-card" data-testid="planning-week"><div className="list-head"><h3>This week · {summary.tasks.thisWeek.length}</h3></div>{summary.tasks.thisWeek.map((task) => <LiveTaskEntry key={task.id} task={task} onInspect={(item) => void inspectTask(item)} onToggle={(item) => void toggleTask(item)} />)}{!summary.tasks.thisWeek.length && <p className="empty-copy">No open tasks later this week.</p>}</article>
-            <article className="planning-card" data-testid="planning-project-steps"><div className="list-head"><h3>Project on deck</h3></div>{summary.projects.items.flatMap((item) => item.onDeckSteps).map((step) => <LiveStepEntry key={step.id} step={step} onToggle={(item) => void toggleStep(item)} />)}{!summary.projects.items.some((item) => item.onDeckSteps.length) && <p className="empty-copy">All project steps are complete.</p>}</article>
+            <article className="planning-card" data-testid="planning-project-steps"><div className="list-head"><h3>Project on deck</h3></div>{summary.projects.items.flatMap((item) => item.onDeckSteps).map((step) => <LiveStepEntry key={step.id} step={step} onToggle={(item) => void toggleStep(item)} onInspect={setSelectedStep} />)}{!summary.projects.items.some((item) => item.onDeckSteps.length) && <p className="empty-copy">All project steps are complete.</p>}</article>
             <article className="planning-card wide" data-testid="planning-unscheduled"><div className="list-head"><h3>Unscheduled · {summary.tasks.unscheduled.length}</h3></div>{summary.tasks.unscheduled.map((task) => <LiveTaskEntry key={task.id} task={task} onInspect={(item) => void inspectTask(item)} onToggle={(item) => void toggleTask(item)} />)}{!summary.tasks.unscheduled.length && <p className="empty-copy">Every open task has a date.</p>}</article>
           </div></section>
           {/* summary.tasks.recent is an overview list that can overlap pastDue/today/thisWeek/unscheduled
@@ -645,6 +658,9 @@ function LiveDashboardPage({ route: _route }: { route: string }) {
           </section>
           <footer><button className="secondary-button" type="button" onClick={() => setSelectedTask(null)} data-testid="task-inspector-cancel">Cancel</button><button className="primary-button" type="submit" disabled={mutationPending} data-testid="task-inspector-save">Save changes</button></footer>
         </form>
+      </FocusDialog>
+      <FocusDialog open={Boolean(selectedStep)} onClose={() => setSelectedStep(null)} title="Project step details" description="Edit the supported on-deck project step fields." testId="dashboard-project-step-dialog">
+        <form onSubmit={(event) => void saveStep(event)}><label>Title<input name="title" data-autofocus defaultValue={selectedStep?.title ?? ''} /></label><label>Notes<textarea name="notes" defaultValue={selectedStep?.notes ?? ''} /></label><label>Due date<input name="dueDate" type="date" defaultValue={selectedStep?.dueDate ?? ''} /></label><div className="dialog-actions"><button type="button" onClick={() => setSelectedStep(null)}>Cancel</button><button type="submit" disabled={mutationPending}>Save step</button></div></form>
       </FocusDialog>
     </section>
   );

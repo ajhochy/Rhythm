@@ -421,16 +421,20 @@ function isCalendarShadow(task: Task): boolean {
   return task.sourceType === 'calendar_shadow_event';
 }
 
-function LiveTaskCard({ task, selected, onInspect, onComplete, onSelect, onDragStart }: {
+function LiveTaskCard({ task, selected, onInspect, onComplete, onSelect, onDragStart, onMove }: {
   task: Task;
   selected: boolean;
   onInspect(task: Task): void;
   onComplete(task: Task): void;
   onSelect(task: Task): void;
   onDragStart(event: DragEvent<HTMLButtonElement>, task: Task): void;
+  onMove?(task: Task, direction: -1 | 1): void;
 }) {
   const readonly = isCalendarShadow(task);
   const sourceLabel = isProjectStep(task) ? task.sourceName ?? 'Project step' : `${task.energy ?? '-'} Task`;
+  const eventTime = isCalendarShadow(task) && task.startsAt
+    ? `${new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(task.startsAt))}${task.endsAt ? `–${new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(task.endsAt))}` : ''}`
+    : null;
   // data-source-id is the task's own canonical id, not task.sourceId (the owning instance for
   // project steps) — apps/api_server/src/repositories/project_instances_repository.ts:106-129
   // maps a step's own row.id onto Task.id, so this proves the real step id survived unchanged.
@@ -439,9 +443,11 @@ function LiveTaskCard({ task, selected, onInspect, onComplete, onSelect, onDragS
       <button className="task-main" type="button" draggable={!readonly} aria-label={`Inspect ${task.title}`} onDragStart={(event) => onDragStart(event, task)} onClick={() => onInspect(task)} data-testid={`planner-task-${task.id}`} data-task-title="true">
         <span className="task-source">{sourceLabel}</span>
         <strong>{task.title}</strong>
+        {eventTime && <small data-testid={`planner-task-time-${task.id}`}>{eventTime}</small>}
         {task.dueDate ? <small data-testid={`planner-task-due-${task.id}`}>Due {task.dueDate}</small> : null}
       </button>
       {!readonly && <div className="task-controls">
+        {onMove && !isProjectStep(task) && <><button type="button" aria-label={`Move ${task.title} earlier`} onClick={() => onMove(task, -1)}>↑</button><button type="button" aria-label={`Move ${task.title} later`} onClick={() => onMove(task, 1)}>↓</button></>}
         <button type="button" aria-label={`Select ${task.title}`} aria-pressed={selected} onClick={() => onSelect(task)} data-testid={`planner-task-select-${task.id}`}><span aria-hidden="true">{selected ? '◆' : '◇'}</span></button>
         <button type="button" aria-label={`${task.status === 'done' ? 'Reopen' : 'Complete'} ${task.title}`} onClick={() => onComplete(task)} data-testid={`planner-complete-${task.id}`}><span aria-hidden="true">{task.status === 'done' ? '↺' : '✓'}</span></button>
       </div>}
@@ -579,6 +585,33 @@ function LivePlannerPage({ route }: { route: string }) {
   };
 
   const toggleSelected = (task: Task) => setSelectedIds((current) => current.includes(task.id) ? current.filter((id) => id !== task.id) : [...current, task.id]);
+  const completeSelected = async () => {
+    if (!selectedIds.length || mutationPending) return;
+    setMutationPending(true); setErrorMessage(null);
+    try {
+      for (const id of selectedIds) {
+        const task = allTasks.find((item) => item.id === id);
+        if (!task || isCalendarShadow(task)) continue;
+        if (isProjectStep(task)) await gateway.updateProjectStep(task.id, { status: 'done' });
+        else await gateway.updateTask(task.id, { status: 'done' });
+      }
+      appendReceipt(`PATCH ${selectedIds.length} selected planner records {status:"done"} → 200`);
+      setSelectedIds([]); await load(week, { blocking: false }); notify('Selected tasks completed');
+    } catch (error) { setErrorMessage(recordError('PATCH', '/planner/selected', error)); }
+    finally { setMutationPending(false); }
+  };
+  const moveWithinDay = async (dayTasks: Task[], task: Task, direction: -1 | 1) => {
+    const index = dayTasks.findIndex((item) => item.id === task.id); const neighbor = dayTasks[index + direction];
+    if (index < 0 || !neighbor || mutationPending) return;
+    const neighborOrder = neighbor.scheduledOrder ?? (index + direction) * 100;
+    setMutationPending(true);
+    try {
+      await gateway.updateTask(task.id, { scheduledOrder: neighborOrder + direction });
+      appendReceipt(`PATCH /tasks/${task.id} {scheduledOrder} → 200`);
+      await load(week, { blocking: false });
+    } catch (error) { setErrorMessage(recordError('PATCH', `/tasks/${task.id}`, error)); }
+    finally { setMutationPending(false); }
+  };
 
   const openInspector = async (task: Task) => {
     setInspectorTaskId(task.id);
@@ -719,7 +752,7 @@ function LivePlannerPage({ route }: { route: string }) {
         {!contentVisible && <StatePanel state={surfaceState as Exclude<PlannerSurfaceState, 'ready' | 'readonly'>} onRetry={() => void load(week)} onCreate={() => { setCreateScheduledDate(undefined); setCreateOpen(true); }} />}
         {contentVisible && plan && <>
           {errorMessage && <div className="readonly-banner" role="alert" data-testid="planner-mutation-error">{errorMessage}</div>}
-          {selectedIds.length > 0 && <aside className="selection-bar" aria-label="Selected tasks"><strong data-testid="planner-selection-count">{selectedIds.length} selected</strong><button className="text-button" type="button" onClick={() => setSelectedIds([])} data-testid="planner-clear-selection">Clear</button></aside>}
+          {selectedIds.length > 0 && <aside className="selection-bar" aria-label="Selected tasks"><strong data-testid="planner-selection-count">{selectedIds.length} selected</strong><button className="primary-button" type="button" disabled={mutationPending} onClick={() => void completeSelected()} data-testid="planner-complete-selected">Complete selected</button><button className="text-button" type="button" onClick={() => setSelectedIds([])} data-testid="planner-clear-selection">Clear</button></aside>}
 
           <section className="planner-board" aria-label="Weekly plan">
             <aside className="backlog-lane" data-testid="planner-backlog">
@@ -735,7 +768,7 @@ function LivePlannerPage({ route }: { route: string }) {
                   .filter((task) => showCompleted || task.status !== 'done');
                 return <section className={`day-lane ${day.isToday ? 'today' : ''}`} key={day.date} aria-labelledby={`planner-day-title-${day.date}`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropOnDay(event, day.date)} data-testid={`planner-day-${day.date}`}>
                   <header><span>{day.weekday}</span><h2 id={`planner-day-title-${day.date}`}>{day.monthDay}</h2>{day.isToday && <em>Today</em>}</header>
-                  <div className="lane-list">{dayTasks.map((task) => <LiveTaskCard key={task.id} task={task} selected={selectedIds.includes(task.id)} onInspect={(item) => void openInspector(item)} onComplete={(item) => void toggleComplete(item)} onSelect={toggleSelected} onDragStart={onDragStart} />)}</div>
+                  <div className="lane-list">{dayTasks.map((task) => <LiveTaskCard key={task.id} task={task} selected={selectedIds.includes(task.id)} onInspect={(item) => void openInspector(item)} onComplete={(item) => void toggleComplete(item)} onSelect={toggleSelected} onDragStart={onDragStart} onMove={(item, direction) => void moveWithinDay(dayTasks, item, direction)} />)}</div>
                   <button className="text-button add-control" type="button" disabled={mutationPending} onClick={() => { setCreateScheduledDate(day.date); setCreateOpen(true); }} data-testid={`planner-add-task-${day.date}`}>+ Add task</button>
                 </section>;
               })}
