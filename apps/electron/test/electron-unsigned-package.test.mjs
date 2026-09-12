@@ -8,6 +8,7 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { FuseState, FuseV1Options, FuseVersion, getCurrentFuseWire } from '@electron/fuses';
 import { liveEnvironment } from '../../web/tests/live-environment.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -58,6 +59,29 @@ test('slice-7-c1: one command produces the unsigned macOS app bundle', async () 
   assert.equal(result.code, 0, `slice-7-c1: package command failed\n${result.stderr}`);
   await assertPathExists(artifactRoot, 'slice-7-c1: package command did not produce dist/Rhythm.app');
   await assertPathExists(packagedBinary, 'slice-7-c1: packaged app binary Contents/MacOS/Rhythm is absent');
+  // Checkpoint regression: a valid launcher is not proof of hardened framework or fresh payloads.
+  const wire = await getCurrentFuseWire(packagedBinary);
+  assert.equal(wire.version, FuseVersion.V1);
+  for (const name of ['RunAsNode', 'EnableNodeOptionsEnvironmentVariable', 'EnableNodeCliInspectArguments', 'OnlyLoadAppFromAsar', 'EnableEmbeddedAsarIntegrityValidation']) {
+    assert.equal(wire[FuseV1Options[name]], FuseState.DISABLE, name);
+  }
+  const resources = resolve(artifactRoot, 'Contents/Resources');
+  const engine = resolve(resources, 'opencode_bin/opencode');
+  const helper = resolve(resources, 'human-approval/rhythm-approval-signer');
+  const commit = await repositoryState('HEAD', ['rev-parse', 'HEAD']);
+  const engineVersion = await run(engine, ['--version']);
+  assert.equal(engineVersion.code, 0);
+  assert.equal(engineVersion.stdout.trim(), `0.0.0-rhythm-${commit.trim()}`);
+  const sourceEngine = resolve(repositoryRoot, `apps/opencode_fork/packages/opencode/dist/opencode-darwin-${process.arch}/bin/opencode`);
+  const hash = async (path) => createHash('sha256').update(await readFile(path)).digest('hex');
+  assert.equal(await hash(engine), await hash(sourceEngine), 'packaged engine must match the fresh fork bytes');
+  for (const binary of [engine, helper]) {
+    const arch = await run('lipo', ['-archs', binary]);
+    assert.equal(arch.code, 0);
+    assert.equal(arch.stdout.trim(), process.arch === 'x64' ? 'x86_64' : 'arm64');
+    assert.ok((await stat(binary)).mode & 0o111, 'payload must be executable');
+  }
+  assert.deepEqual((await readdir(resolve(electronRoot, 'dist'))).filter((name) => name.startsWith('.Rhythm.')), [], 'successful publication must remove temporary bundles');
   const packagedNodeVersion = await run(packagedNode, ['--version']);
   assert.match(packagedNodeVersion.stdout.trim(), /^v22\./, 'slice-7-c1: packaged runtime is not Node 22');
   const signature = await run('codesign', ['--display', '--verbose=4', artifactRoot]);

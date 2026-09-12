@@ -307,7 +307,7 @@ test('issue-2005-c12: projects and dialogs are accessible with focus recovery', 
   const templateTrigger = page.getByTestId('project-template-new');
   await templateTrigger.focus();
   await templateTrigger.click();
-  await expect(page.getByTestId('project-template-dialog')).toHaveAttribute('role', 'dialog');
+  await expect(page.getByRole('dialog').filter({ has: page.getByTestId('project-template-dialog') })).toBeVisible();
   await expectNoSeriousAxe();
   await page.keyboard.press('Escape');
   await expect(templateTrigger).toBeFocused();
@@ -316,7 +316,7 @@ test('issue-2005-c12: projects and dialogs are accessible with focus recovery', 
   const stepTrigger = page.getByTestId('project-step-add');
   await stepTrigger.focus();
   await stepTrigger.click();
-  await expect(page.getByTestId('project-template-step-dialog')).toHaveAttribute('role', 'dialog');
+  await expect(page.getByRole('dialog').filter({ has: page.getByTestId('project-template-step-dialog') })).toBeVisible();
   await expectNoSeriousAxe();
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('project-template-step-dialog')).toHaveCount(0);
@@ -326,7 +326,7 @@ test('issue-2005-c12: projects and dialogs are accessible with focus recovery', 
   const milestoneTrigger = page.getByTestId('project-milestone-add');
   await milestoneTrigger.focus();
   await milestoneTrigger.click();
-  await expect(page.getByTestId('project-milestone-dialog')).toHaveAttribute('role', 'dialog');
+  await expect(page.getByRole('dialog').filter({ has: page.getByTestId('project-milestone-dialog') })).toBeVisible();
   await expectNoSeriousAxe();
   await page.keyboard.press('Escape');
   await expect(milestoneTrigger).toBeFocused();
@@ -334,7 +334,7 @@ test('issue-2005-c12: projects and dialogs are accessible with focus recovery', 
   const collaboratorTrigger = page.getByTestId('project-collaborator-add');
   await collaboratorTrigger.focus();
   await collaboratorTrigger.click();
-  await expect(page.getByTestId('project-collaborator-picker')).toHaveAttribute('role', 'dialog');
+  await expect(page.getByRole('dialog').filter({ has: page.getByTestId('project-collaborator-picker') })).toBeVisible();
   await expectNoSeriousAxe();
   await page.keyboard.press('Escape');
   await expect(collaboratorTrigger).toBeFocused();

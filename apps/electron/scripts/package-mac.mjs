@@ -26,7 +26,8 @@ export async function buildAndStageFork({ electronRoot, resources, run: execute 
   await rm(resolve(forkRoot, 'dist'), { recursive: true, force: true });
   await execute('bun', ['run', 'build', '--single', '--skip-install'], {
     cwd: forkRoot,
-    env: { ...process.env, OPENCODE_CHANNEL: 'rhythm', OPENCODE_VERSION: version, OPENCODE_RELEASE: '' },
+    // The fork embeds a Vite UI too; caller gateway values must not become engine bytes.
+    env: { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('VITE_RHYTHM_'))), OPENCODE_CHANNEL: 'rhythm', OPENCODE_VERSION: version, OPENCODE_RELEASE: '' },
   });
   if (!(await lstat(source)).isFile()) throw new Error('Fork must be a regular executable file');
   await access(source, constants.X_OK).catch(() => { throw new Error('Fork is not executable'); });
@@ -49,7 +50,8 @@ if (packageNodeMajor !== 22) throw new Error(`Electron release packaging require
 const sourceApp = resolve(electronRoot, 'node_modules/electron/dist/Electron.app');
 const distRoot = resolve(electronRoot, 'dist');
 const artifact = resolve(distRoot, 'Rhythm.app');
-const stagingArtifact = resolve(distRoot, '.Rhythm.app.tmp');
+// Official Electron tooling recognizes the framework only inside a .app bundle.
+const stagingArtifact = resolve(distRoot, '.Rhythm.tmp.app');
 const resources = resolve(stagingArtifact, 'Contents/Resources');
 const packagedApp = resolve(resources, 'app');
 const packagedShared = resolve(resources, 'shared');
@@ -80,7 +82,9 @@ await mkdir(distRoot, { recursive: true });
 await Promise.all([
   rm(artifact, { recursive: true, force: true }),
   rm(stagingArtifact, { recursive: true, force: true }),
+  rm(resolve(distRoot, '.Rhythm.app.tmp'), { recursive: true, force: true }),
 ]);
+try {
 await buildAndStageFork({ electronRoot, resources });
 const electronArch = (await run('lipo', ['-archs', resolve(sourceApp, 'Contents/MacOS/Electron')])).stdout.trim();
 if (electronArch !== (process.arch === 'x64' ? 'x86_64' : 'arm64')) {
@@ -176,4 +180,7 @@ await run('codesign', ['--verify', '--strict', approvalHelper]);
 await run('codesign', ['--force', '--deep', '--sign', '-', stagingArtifact]);
 await rename(stagingArtifact, artifact);
 process.stdout.write(`Packaged ${artifact} with an ad-hoc signature.\n`);
+} finally {
+  await rm(stagingArtifact, { recursive: true, force: true });
+}
 }

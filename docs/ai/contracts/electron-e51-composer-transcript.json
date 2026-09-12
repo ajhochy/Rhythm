@@ -4,9 +4,9 @@
   "waiver": "AJ explicitly authorized the one-line HIGH-impact Messages IME guard; the coding profile declined it, so the manager applied that line directly.",
   "test_command": "cd apps/web && npm exec -- playwright test --config tests/electron-e51-playwright.config.ts",
   "criteria": [
-    { "criterion_id": "e51-c1", "text": "IME Enter never sends in Agents or Messages; ordinary Enter sends once", "status": "PASS" },
-    { "criterion_id": "e51-c2", "text": "Slash, mention and shell suggestions expose active option relationships and Escape dismissal", "status": "PASS" },
-    { "criterion_id": "e51-c3", "text": "Waiting decisions and completed responses use concise status with keyboard navigation", "status": "PASS" }
+    { "criterion_id": "e51-c1", "text": "IME Enter never sends in Agents or Messages; ordinary Enter sends once", "mode": "ui", "test": "apps/web/tests/electron-e51-composer-transcript.spec.ts", "status": "PASS" },
+    { "criterion_id": "e51-c2", "text": "Slash, mention and shell suggestions expose active option relationships and Escape dismissal", "mode": "ui", "test": "apps/web/tests/electron-e51-composer-transcript.spec.ts", "status": "PASS" },
+    { "criterion_id": "e51-c3", "text": "Waiting decisions and completed responses use concise status with keyboard navigation", "mode": "ui", "test": "apps/web/tests/electron-e51-composer-transcript.spec.ts", "status": "PASS" }
   ],
   "not_tested": ["manual IME", "VoiceOver", "live suggestion failure states", "semantic markdown", "packaged Electron"]
 }

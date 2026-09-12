@@ -31,8 +31,9 @@ test.describe('transcript decisions and composer', () => {
     await expect(page.getByTestId('toast-status')).toContainText('rejected');
   });
 
-  test('copies, reverts, restores, forks, compacts, and loads older history', async ({ page }) => {
+  test('copies, reverts, restores, forks, compacts, and loads older history', async ({ page, context }) => {
     await openFixture(page);
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(page.url()).origin });
     await page.getByTestId('load-older').click();
     await expect(page.getByText('Earlier session context loaded')).toBeVisible();
     await page.getByTestId('copy-msg-assistant-handoff').click();

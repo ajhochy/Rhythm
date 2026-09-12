@@ -31,6 +31,12 @@ async function open(page: Page, options: { working?: boolean; delayMention?: boo
       if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
       requests.push({ method: req.method(), path: url.pathname + url.search, body: req.postData() ? req.postDataJSON() : null });
       if (req.method() === 'GET') {
+        if (url.pathname === '/agents/models/catalog') return reply([{ provider: 'openai', modelId: 'gpt-5.6', displayName: 'GPT', authorized: true }]);
+        if (url.pathname === '/opencode/auth/accounts') return reply({ accounts: ['account-old', 'account-edited'].map(id => ({ id, label: id })), defaultId: null });
+        if (['/projects', '/shares', '/question'].includes(url.pathname)) return reply([]);
+        // Do not accept the renderer's /agent-sessions//... requests.
+        if (/^\/agent-sessions\/[^/]+\/todo$/.test(url.pathname)) return reply([]);
+        if (/^\/agent-sessions\/[^/]+\/memory-provenance$/.test(url.pathname)) return reply({ recorded: false, memoryIds: [], notePaths: [], items: [] });
         if (url.pathname === '/health') return reply({ healthy: true });
         if (['', a, b].some((id) => url.pathname === `/agent-run-outcomes/${id}`)) return route.fulfill({ status: 404, headers, json: { error: 'No outcome yet' } });
         if (['/message-threads', '/agent-approvals', '/notifications', '/opencode/commands', '/opencode/mcp', '/opencode/skills'].includes(url.pathname)) return reply([]);
@@ -117,9 +123,9 @@ test('e16-c3: ephemeral child cannot compose to parent and rail selection exits 
   const net = await open(page);
   await page.getByTestId(`open-child-${child}`).click();
   await expect(page.getByText('Child-only transcript', { exact: true })).toBeVisible();
-  await expect(page.getByTestId('composer-input')).toBeDisabled();
-  await expect(page.getByTestId('composer-send')).toBeDisabled();
-  await expect(page.getByTestId('composer-live-file-input')).toBeDisabled();
+  await expect(page.getByTestId('composer-input')).toHaveCount(0);
+  await expect(page.getByTestId('composer-send')).toHaveCount(0);
+  await expect(page.getByTestId('composer-live-file-input')).toHaveCount(0);
   await page.getByTestId(`session-${b}`).click();
   await expect(page.getByTestId('child-back')).toHaveCount(0);
   await expect(page.getByText('Child-only transcript', { exact: true })).toHaveCount(0);
@@ -142,18 +148,19 @@ test('e16-c4-policy: edited permission/delegates override stale raw JSON and sur
   const net = await open(page);
   await page.getByTestId('tool-profiles').click();
   await page.getByTestId(`profile-${canonicalProfile.id}`).click();
-  await expect(page.getByTestId('permission-bash-ask')).toBeChecked();
+  await expect(page.getByTestId('profile-permissions')).toHaveValue('{"bash":"ask"}');
   await expect(page.getByTestId('delegate-phase-5-child-profile')).toBeChecked();
-  await page.getByTestId('permission-bash-deny').check();
+  await page.getByTestId('profile-permissions').fill('{"bash":"deny"}');
   await page.getByTestId('delegate-phase-5-child-profile').uncheck();
   await page.getByTestId('profile-save').click();
   await expect.poll(() => net.requests.filter((r) => r.method === 'PATCH').length).toBe(1);
   expect(net.requests.find((r) => r.method === 'PATCH')).toEqual({ method: 'PATCH', path: `/agent-configs/${canonicalProfile.id}`, body: {
-    ...canonicalProfile, id: undefined, allowedMcpsJson: '[]', allowedSkillsJson: '[]', corePermissionsJson: '{"bash":"deny"}', allowedDelegatesJson: '[]', defaultAnthropicAccountId: 'account-old',
+    corePermissionsJson: '{"bash":"deny"}', allowedDelegatesJson: '[]',
   } });
+  expect(net.records[0]).toEqual({ ...canonicalProfile, corePermissionsJson: '{"bash":"deny"}', allowedDelegatesJson: '[]', defaultAnthropicAccountId: 'account-old' });
   await page.reload();
   await page.getByTestId(`profile-${canonicalProfile.id}`).click();
-  await expect(page.getByTestId('permission-bash-deny')).toBeChecked();
+  await expect(page.getByTestId('profile-permissions')).toHaveValue('{"bash":"deny"}');
   await expect(page.getByTestId('delegate-phase-5-child-profile')).not.toBeChecked();
   expect(net.denied).toEqual([]);
 });
@@ -164,7 +171,7 @@ test('e16-c4-account: canonical account ID edit and clear survive reload', async
   await page.getByTestId(`profile-${canonicalProfile.id}`).click();
   await expect(page.getByTestId('profile-account')).toHaveValue('account-old');
   for (const account of ['account-edited', '']) {
-    await page.getByTestId('profile-account').fill(account);
+    await page.getByTestId('profile-account').selectOption(account);
     await page.getByTestId('profile-save').click();
     await expect.poll(() => net.records[0].defaultAnthropicAccountId).toBe(account || null);
     expect(net.requests.filter((r) => r.method === 'PATCH').at(-1)?.body.defaultAnthropicAccountId).toBe(account || null);
@@ -175,7 +182,7 @@ test('e16-c4-account: canonical account ID edit and clear survive reload', async
   expect(net.denied).toEqual([]);
 });
 
-test('e16-c4-unsupported: managed skills cannot claim to save; no auto-approve control invented', async ({ page }) => {
+test('e16-c4-unsupported: managed skills cannot claim to save; canonical auto-approve stays opt-in', async ({ page }) => {
   const net = await open(page);
   await page.getByTestId('tool-profiles').click();
   await page.getByTestId(`profile-${canonicalProfile.id}`).click();
@@ -183,7 +190,7 @@ test('e16-c4-unsupported: managed skills cannot claim to save; no auto-approve c
   await expect(page.getByText('Managed skills cannot be saved by this editor.')).toBeVisible();
   await page.getByTestId('profile-account').scrollIntoViewIfNeeded();
   await page.screenshot({ path: '/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/opencode/e16-profile-controls.png' });
-  await expect(page.getByRole('checkbox', { name: /auto.?approve/i })).toHaveCount(0);
+  await expect(page.getByTestId('profile-auto-approve')).not.toBeChecked();
   expect(net.requests.filter((r) => r.method !== 'GET')).toEqual([]);
   expect(net.denied).toEqual([]);
 });

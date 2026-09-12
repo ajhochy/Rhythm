@@ -14,6 +14,48 @@ All commands delegate to `scripts/run_ai_workflow.py` in this repo.
 
 ## Running tests
 
+### Major-checkpoint isolation and web configuration routing
+
+Run full affected-package suites only at major checkpoints; repair loops run the
+failed files/criteria, not the full API or web suite. Unit checks must not inherit
+live-test port overrides: issue655 and Tailscale contracts intentionally expect
+engine4096/gateway4002. The September11 checkpoint's seven such failures passed
+unchanged after removing `RHYTHM_OPENCODE_ENGINE_PORT` and
+`RHYTHM_MOBILE_GATEWAY_PORT`. Do not change their assertions to sandbox ports.
+
+For the manager-owned Phase2 sandbox, run unit/browser commands from their package
+directory with this clean shell (substitute only the final command):
+
+```sh
+env -i \
+  HOME=/private/tmp/rhythm-electron-phase2-integration/home \
+  TMPDIR=/private/tmp/rhythm-electron-phase2-integration/tmp \
+  PATH=/private/tmp/rhythm-electron-phase2-integration/bin:/Users/ajhochhalter/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin \
+  PLAYWRIGHT_BROWSERS_PATH=/Users/ajhochhalter/Library/Caches/ms-playwright \
+  /bin/zsh -f -c '<targeted command>'
+```
+
+This reuses isolated HOME/tooling, not the server runtime's port environment.
+Only explicitly authorized live tests add their live flags/base URLs. Never
+restart/down the manager-owned sandbox to run unit tests. The issue1186 lifecycle
+test creates its own disposable fake runtime; its pinned Node stub delegates only
+the native-addon ABI probe to real Node and never launches the real API.
+
+Web `npm test` retains three stages: build/default fixture discovery, bucket-A
+rendered config, then `npm run test:electron-slices`. `npm run test:list` lists all
+three without browser execution. Default discovery excludes `electron-e*.spec.ts`:
+`tests/run-electron-slices.mjs` explicitly routes E13–E27/E50–E52A to their dedicated
+configs, including both E16 modes. Live-only selection remains controlled by each
+config's existing opt-in; no global fake gateway mode is injected. Both runners
+fail fast: after a red stage, run the short-circuited dedicated stage explicitly
+at the checkpoint, never count its discovery as a pass. During triage use
+`npm exec -- playwright test --config tests/electron-e14-playwright.config.ts --grep e14-c1`
+or the equivalent failed criterion, not the entire slice manifest.
+
+The old issue1409 source assertions predated E27's actual live PTY. Its default
+tests now exercise rendered fixture labeling and no network mutation; live
+connection/input/failure behavior remains in the dedicated E27 config.
+
 ### Isolated dev sandbox
 
 E02 synthetic bootstrap (2026-09-11, **startup verified; not release qualification**):

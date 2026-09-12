@@ -242,10 +242,12 @@ export function Transcript() {
     const el = viewport.current;
     const position = positions.current.get(activeKey.current);
     if (!el || !position) return;
-    position.top = el.scrollTop;
-    position.pinned = el.scrollHeight - el.clientHeight - el.scrollTop <= 48;
+    // An empty child-loading view must not replace its saved reading anchor.
+    if (!el.querySelector('[data-message-id]')) return;
     const top = el.getBoundingClientRect().top;
     const first = [...el.querySelectorAll<HTMLElement>('[data-message-id]')].find((item) => item.getBoundingClientRect().bottom > top);
+    position.top = el.scrollTop;
+    position.pinned = el.scrollHeight - el.clientHeight - el.scrollTop <= 48;
     position.anchor = first?.dataset.messageId;
     position.offset = first ? first.getBoundingClientRect().top - top : 0;
     if (position.pinned) { position.unread = false; setNewOutput(false); }

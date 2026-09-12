@@ -1,8 +1,52 @@
 import { mkdir } from 'node:fs/promises';
 import { test, expect, type Page } from '@playwright/test';
+import type { WebSocketRoute } from '@playwright/test';
 const safe = { id: 'safe', category: 'message', content: { type: 'text', text: 'Reviewed text A' } };
 const tool = { id: 'tool', category: 'tool_output', content: { type: 'tool', output: 'Explicit tool content' } };
 const artifactId = '11111111-1111-4111-8111-111111111111';
+for (const initiallyEmpty of [true, false]) {
+  test(`E25B-empty-identity: ${initiallyEmpty ? 'empty startup' : 'removed selected session'} never mounts session requests or stale panels`, async ({ page }) => {
+    // Regression: mounting Inspector children with the store's real empty ID leaks requests/data.
+    let empty = initiallyEmpty;
+    let socket: WebSocketRoute | undefined;
+    const forbidden: string[] = [];
+    const session = { id: 'empty-check', name: 'Selected session', profileId: 'profile', status: 'idle', createdAt: '2026-09-11T00:00:00Z' };
+    await page.routeWebSocket(/\/ws\/agents$/, value => { socket = value; });
+    await page.route(/https:\/\/e25b.invalid|http:\/\/127.0.0.1:(4199|4197)/, async route => {
+      const path = new URL(route.request().url()).pathname;
+      if (empty && (path.startsWith('/agent-sessions/') || path.startsWith('/agent-run-outcomes/') || path === '/shares' || path.startsWith('/shares/'))) {
+        forbidden.push(path); return route.abort();
+      }
+      let json: unknown = [];
+      if (path === '/agent-configs') json = [{ id: 'profile', label: 'Profile', enabled: true }];
+      else if (path === '/agent-sessions') json = { sessions: empty ? [] : [session] };
+      else if (path === '/agent-sessions/empty-check') json = { session, messages: [] };
+      else if (path.endsWith('/todo')) json = [{ id: 'old', content: 'Previous session plan', status: 'pending', priority: 'high' }];
+      else if (path.endsWith('/memory-provenance')) json = { recorded: true, memoryIds: ['previous-memory'], notePaths: [], items: [] };
+      else if (path.endsWith('/messages')) json = { messages: [], pageInfo: { hasMore: false, nextCursor: null } };
+      await route.fulfill({ json });
+    });
+    await page.goto('/tests/electron-e22-harness.html');
+    const inspector = page.getByLabel('Session inspector', { exact: true });
+    if (!initiallyEmpty) {
+      await expect(inspector).toContainText('Previous session plan');
+      await expect(inspector).toContainText('previous-memory');
+      await expect.poll(() => Boolean(socket)).toBe(true);
+      empty = true;
+      socket!.send(JSON.stringify({ v: 1, type: 'session.removed', id: session.id }));
+    }
+    await expect.poll(async () => JSON.parse(await page.getByTestId('state').innerText()).selected.id).toBe('');
+    for (const tab of ['context', 'artifacts', 'files', 'changes', 'terminal']) {
+      await page.getByTestId(`inspector-${tab}`).click();
+      await expect(inspector.getByRole('status')).toHaveText('Select a session to inspect its details.');
+      await expect(inspector).not.toContainText('Previous session plan');
+      await expect(inspector).not.toContainText('previous-memory');
+      await expect(inspector.getByRole('button', { name: /Review transcript share|Refresh shares|Refresh plan|Refresh resources/ })).toHaveCount(0);
+    }
+    await expect(inspector.locator('iframe')).toHaveCount(0);
+    expect(forbidden).toEqual([]);
+  });
+}
 async function open(page: Page, conflict = false, unavailable = false) {
   let revision = 'a'; let share: Record<string, unknown> | undefined;
   const posts: unknown[] = []; const requests: string[] = []; const sharingBoundaries: Array<{ origin: string; authorization: string | null }> = [];

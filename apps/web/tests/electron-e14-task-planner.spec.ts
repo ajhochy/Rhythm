@@ -20,6 +20,8 @@ async function intercept(page: Page, records: Task[]) {
     if (['http://127.0.0.1:4098', 'http://127.0.0.1:4097', 'https://api.vcrcapps.com'].includes(url.origin)) {
       if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
       if (request.method() === 'GET') {
+        if (url.pathname === '/agents/models/catalog') return reply([]);
+        if (url.pathname === '/opencode/auth/accounts') return reply({ accounts: [], defaultId: null });
         if (['/message-threads', '/agent-configs', '/agent-sessions', '/agent-approvals', '/notifications'].includes(url.pathname)) return reply([]);
         if (url.pathname === '/health') return reply({ status: 'ok', healthy: true });
         if (url.pathname === '/tasks') return reply(records);

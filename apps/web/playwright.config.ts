@@ -10,7 +10,8 @@ const distPort = Number(process.env.RHYTHM_DIST_PORT ?? e2ePort + 1);
 
 export default defineConfig({
   testDir: './tests',
-  testIgnore: ['electron/**', '**/bucket-a-rendered-repair.spec.ts', ...pausedLiveSpecs],
+  // Electron slices own their server mode/port in dedicated configs, not this fixture server.
+  testIgnore: ['electron/**', '**/electron-e*.spec.ts', '**/bucket-a-rendered-repair.spec.ts', ...pausedLiveSpecs],
   fullyParallel: false,
   workers: 1,
   timeout: 20_000,

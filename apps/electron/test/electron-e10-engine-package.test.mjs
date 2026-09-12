@@ -14,6 +14,12 @@ const version = `0.0.0-rhythm-${'a'.repeat(40)}`;
 
 // Regression: ambient/stale/stock/wrong-CPU engines reach the published app.
 test('e10-c2: fresh fork assembly rejects stale output and pins vendored build identity', async (t) => {
+  const prior = process.env.VITE_RHYTHM_LIVE_TOKEN;
+  process.env.VITE_RHYTHM_LIVE_TOKEN = 'non-credential-fork-build-sentinel';
+  t.after(() => {
+    if (prior === undefined) delete process.env.VITE_RHYTHM_LIVE_TOKEN;
+    else process.env.VITE_RHYTHM_LIVE_TOKEN = prior;
+  });
   assert.match(script, /export async function buildAndStageFork/, 'packaging has no tested fork assembly boundary');
   const { buildAndStageFork } = await import('../scripts/package-mac.mjs');
   const fixture = await mkdtemp(resolve(tmpdir(), 'rhythm-e10-'));
@@ -45,6 +51,7 @@ test('e10-c2: fresh fork assembly rejects stale output and pins vendored build i
           assert.equal(options.env.OPENCODE_CHANNEL, 'rhythm');
           assert.equal(options.env.OPENCODE_VERSION, version);
           assert.equal(options.env.OPENCODE_RELEASE, '');
+          assert.equal(options.env.VITE_RHYTHM_LIVE_TOKEN, undefined, 'caller gateway values must not enter the fork embedded UI build');
           await assert.rejects(access(source), 'old output must be removed before the build');
           built = true;
           if (state === 'missing' || state === 'stale') return { stdout: '' };

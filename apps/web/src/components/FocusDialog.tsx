@@ -41,11 +41,15 @@ export function FocusDialog({
     }
     if (!panel) return;
     if (!panel.open) panel.showModal();
-    const candidates = [...panel.querySelectorAll<HTMLElement>('[data-autofocus], button, input, textarea, select, summary, [href], [tabindex]:not([tabindex="-1"])')];
-    const focusable = candidates.find((item) => item.hasAttribute('data-autofocus') && !item.matches(':disabled') && item.getClientRects().length > 0)
-      ?? candidates.find((item) => !item.matches(':disabled') && item.getClientRects().length > 0)
-      ?? panel;
-    requestAnimationFrame(() => focusable.focus());
+    const candidates = [...panel.querySelectorAll<HTMLElement>('[autofocus], [data-autofocus], button, input, textarea, select, summary, [href], [tabindex]:not([tabindex="-1"])')];
+    const explicitFocus = candidates.find((item) => (item.hasAttribute('autofocus') || item.hasAttribute('data-autofocus')) && !item.matches(':disabled') && item.getClientRects().length > 0);
+    const focusable = explicitFocus ?? candidates.find((item) => !item.matches(':disabled') && item.getClientRects().length > 0) ?? panel;
+    requestAnimationFrame(() => {
+      const browserFocus = document.activeElement;
+      const validInside = browserFocus instanceof HTMLElement && panel.contains(browserFocus) && !browserFocus.matches(':disabled');
+      const browserDefaultClose = browserFocus instanceof HTMLElement && browserFocus.dataset.testid === `${testId}-close`;
+      if (!validInside || (explicitFocus && browserDefaultClose)) focusable.focus();
+    });
     const containFocus = (event: FocusEvent) => {
       if (!panel.contains(event.target as Node)) focusable.focus();
     };

@@ -1,0 +1,30 @@
+{
+  "issue": "E52A-checkpoint-repair",
+  "date": "2026-09-11",
+  "test_command": "cd apps/web && npm exec -- playwright test --config tests/electron-e52a-playwright.config.ts --output ../../docs/ai/runs/artifacts/e52a/repair-green && RHYTHM_E2E_PORT=4283 RHYTHM_DIST_PORT=4284 npm exec -- playwright test tests/responsive-a11y.spec.ts --grep 'uses 44px touch targets' --output ../../docs/ai/runs/artifacts/e52a/repair-green-responsive && npm run typecheck",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "E52A-repair-c1",
+      "text": "Fix affordance stacking/hit target without hidden overlay",
+      "mode": "ui",
+      "test": "apps/web/tests/electron-e52a-transcript.spec.ts: E52A-c2",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "E52A-repair-c2",
+      "text": "per-session+child key/anchor must restore correct first visible message not latest loaded",
+      "mode": "ui",
+      "test": "apps/web/tests/electron-e52a-transcript.spec.ts: E52A-c5",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "E52A-repair-c3",
+      "text": "make exact affected control meet existing 44px coarse-pointer requirement without broad density redesign",
+      "mode": "ui",
+      "test": "apps/web/tests/responsive-a11y.spec.ts: uses 44px touch targets for every visible enabled workbench control",
+      "status": "pass"
+    }
+  ],
+  "not_tested": []
+}

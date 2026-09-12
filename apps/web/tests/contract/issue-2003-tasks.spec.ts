@@ -270,7 +270,7 @@ test('issue-2003-c12: ready editable inspector is accessible and dialog focus re
   const addTrigger = page.getByTestId('task-add-collaborator');
   await addTrigger.focus();
   await addTrigger.click();
-  await expect(page.getByTestId('task-collaborator-picker')).toHaveAttribute('role', 'dialog');
+  await expect(page.getByRole('dialog').filter({ has: page.getByTestId('task-collaborator-picker') })).toBeVisible();
   result = await new AxeBuilder({ page }).analyze();
   expect(result.violations.filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')).toEqual([]);
   await page.keyboard.press('Escape');

@@ -5,6 +5,19 @@ import { readFile, access } from 'node:fs/promises';
 import { createContext, SourceTextModule, SyntheticModule } from 'node:vm';
 import { generateKeyPairSync, sign, createHash, verify } from 'node:crypto';
 import test from 'node:test';
+import { resolve } from 'node:path';
+import { pathToFuseFile } from '@electron/fuses';
+
+test('e12b-package-staging: official fuses resolve the framework, not the launcher, at the assembly path', async () => {
+  // Regression: .Rhythm.app.tmp bypasses the official macOS bundle resolver.
+  const source = await readFile(new URL('../scripts/package-mac.mjs', import.meta.url), 'utf8');
+  const name = source.match(/const stagingArtifact = resolve\(distRoot, '([^']+)'\);/)?.[1];
+  assert.ok(name, 'bind this check to the actual assembly staging name');
+  const bundle = resolve(import.meta.dirname, '../dist', name);
+  assert.equal(pathToFuseFile(resolve(bundle, 'Contents/MacOS/Rhythm')),
+    resolve(bundle, 'Contents/Frameworks/Electron Framework.framework/Electron Framework'));
+  assert.notEqual(name, 'Rhythm.app', 'staging must not overwrite the published bundle');
+});
 
 const file = new URL('../src/human-approval-main-signer.mjs', import.meta.url);
 const decision = { approvalId: 'approval-test-1', status: 'approved', decisionNonce: 'nonce-test-1', payloadDigest: 'a'.repeat(64) };

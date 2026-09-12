@@ -1,0 +1,12 @@
+{
+  "issue": "checkpoint-inspector-empty-identity",
+  "date": "2026-09-11",
+  "test_command": "npm exec -- playwright test --config tests/electron-e25b-playwright.config.ts --grep E25B-empty-identity",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "inspector-empty-c1", "text": "Add identity gating before effects/requests and render honest 'select a session' empty state; no synthesized ID, no requests", "mode": "ui", "test": "apps/web/tests/electron-e25b-inspector.spec.ts: E25B-empty-identity empty startup", "status": "pass" },
+    { "criterion_id": "inspector-empty-c2", "text": "no stale previous-session data", "mode": "ui", "test": "apps/web/tests/electron-e25b-inspector.spec.ts: E25B-empty-identity removed selected session", "status": "pass" },
+    { "criterion_id": "inspector-empty-c3", "text": "SharePanel also must not list/review for empty ID", "mode": "ui", "test": "apps/web/tests/electron-e25b-inspector.spec.ts: E25B-empty-identity", "status": "pass" }
+  ],
+  "not_tested": []
+}

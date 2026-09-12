@@ -235,6 +235,10 @@ textarea { width: 100%; padding: 10px 12px; resize: vertical; }
 .session-header-actions { flex: 0 0 auto; display: flex; align-items: center; justify-content: flex-end; gap: 5px; white-space: nowrap; }
 .session-header-actions > * { flex: 0 0 auto; }
 .session-header-actions svg { flex: 0 0 auto; }
+@container conversation (max-width: 620px) {
+  .session-header { align-items: flex-start; flex-wrap: wrap; }
+  .session-header-actions { width: 100%; justify-content: flex-start; overflow-x: auto; padding-block: 2px; scrollbar-width: thin; }
+}
 .session-cost { color: var(--fg-2); font-family: var(--font-mono); font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .toggle-button { min-height: 32px; display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; padding: 0 8px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); color: var(--fg-2); background: var(--surface); cursor: pointer; font-size: 10px; white-space: nowrap; }
 .toggle-button:hover { color: var(--fg); border-color: var(--border); }
@@ -244,8 +248,8 @@ textarea { width: 100%; padding: 10px 12px; resize: vertical; }
 .transcript-scroll { min-height: 0; overflow: auto; background: color-mix(in oklab, var(--bg), transparent 4%); }
 /* E52A: explicit message anchors avoid competing browser prepend anchoring. */
 .transcript-reader { position: relative; min-height: 0; display: flex; flex-direction: column; }
-.transcript-reader > .transcript-scroll { flex: 1; overflow-anchor: none; }
-.transcript-reader > .transcript-new-output { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); box-shadow: 0 2px 8px #0003; }
+.transcript-reader > .transcript-scroll { flex: 1; overflow-anchor: none; z-index: 0; }
+.transcript-reader > .transcript-new-output { position: absolute; z-index: 1; bottom: 12px; left: 50%; transform: translateX(-50%); box-shadow: 0 2px 8px #0003; }
 .transcript { width: min(100%, 840px); min-height: 100%; margin: 0 auto; padding: 8px 24px 38px; }
 .load-older-wrap { display: flex; justify-content: center; padding: 2px 0 12px; }
 .message { padding: 14px 0 18px; border-bottom: 1px solid var(--border-soft); }
@@ -838,6 +842,7 @@ code, pre { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 :lang(zh) h1, :lang(zh) h2, :lang(zh) h3, :lang(ja) h1, :lang(ja) h2, :lang(ja) h3, :lang(ko) h1, :lang(ko) h2, :lang(ko) h3 { line-height: 1.35; letter-spacing: 0; }
 
 @media (any-pointer: coarse) {
+  [data-testid="agent-go-to-activity"] { min-height: 44px; }
   button, select, input:not([type="checkbox"]):not([type="radio"]), textarea, [role="separator"] { min-height: 44px; }
   button { min-width: 44px; }
   .destination, .global-actions .icon-button, .profile-control { min-height: 44px; height: 44px; }

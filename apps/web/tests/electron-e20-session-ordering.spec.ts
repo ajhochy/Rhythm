@@ -72,6 +72,10 @@ async function open(page: Page, options: { expired?: boolean; hundred?: boolean 
     if (url.pathname === '/agents/models/catalog') return send([]);
     if (url.pathname === '/opencode/auth/accounts') return send({ accounts: [], defaultId: null });
     if (url.pathname === '/agent-configs') return send([{ id: 'profile', label: 'Agent', enabled: true, sessionSelectable: true }]);
+    if (url.pathname === '/shares') return send([]);
+    // Empty IDs remain unexpected: that is a renderer defect, not fixture data.
+    if (/^\/agent-sessions\/[^/]+\/todo$/.test(url.pathname)) return send([]);
+    if (/^\/agent-sessions\/[^/]+\/memory-provenance$/.test(url.pathname)) return send({ recorded: false, memoryIds: [], notePaths: [], items: [] });
     if (/^\/agent-sessions\/(z|a|b|r)\/?$/.test(url.pathname)) return send({ session: roots.find((r) => url.pathname.endsWith(r.id)), messages: [] });
     if (['/notifications', '/agent-approvals', '/message-threads', '/opencode/commands', '/providers', '/provider', '/agent-sessions/z/todos', '/agent-sessions/z/pending-permissions'].includes(url.pathname)) return send([]);
     if (['/agent-run-outcomes/', '/agent-run-outcomes/z'].includes(url.pathname)) return send({ error: 'No run outcome' }, 404);
