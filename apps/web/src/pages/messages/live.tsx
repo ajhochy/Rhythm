@@ -263,17 +263,17 @@ export function LiveMessagesPage({ route }: { route: string }) {
           <div className="messages-rail-summary"><div><strong data-testid="messages-unread-total">{unreadTotal} unread {unreadTotal === 1 ? 'thread' : 'threads'}</strong><span>{visibleThreads.length} {visibleThreads.length === 1 ? 'conversation' : 'conversations'}</span></div><span aria-hidden="true">{String(unreadTotal).padStart(2, '0')}</span></div>
           <label className="search-field messages-search"><Icon name="search" size={14} /><span className="sr-only">Search conversations by title</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search conversations" data-testid="messages-thread-search" /></label>
           {loading ? <div className="messages-selection-state" role="status" data-testid="page-state-loading"><span className="messages-spinner" aria-hidden="true" /><p>Loading conversations…</p></div> : threads.length === 0 ? <div className="messages-no-results" data-testid="messages-no-results"><h2>No conversations yet</h2><p>Start a direct message or group handoff.</p></div> : visibleThreads.length === 0 ? <div className="messages-no-results" data-testid="messages-no-results"><h2>No matching conversations</h2><p>Try a shorter title or clear the search.</p><button className="secondary-button" type="button" onClick={() => setSearch('')}>Clear search</button></div> : (
-            <ul className="messages-thread-list" role="grid" aria-label="Conversation list" data-testid="messages-thread-list">
+            <ul className="messages-thread-list" aria-label="Conversation list" data-testid="messages-thread-list">
               {visibleThreads.map((thread) => {
                 const participant = thread.participants[0];
-                return <li key={thread.id} className="messages-thread-item" role="row">
-                  <div className="messages-thread-row" role="gridcell" tabIndex={0} aria-selected={selectedId === thread.id} data-unread={thread.unreadCount > 0 ? 'true' : 'false'} onClick={() => void openThread(thread.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void openThread(thread.id); } }} data-testid={`messages-thread-${thread.id}`}>
+                return <li key={thread.id} className="messages-thread-item">
+                  <button className="messages-thread-row" type="button" aria-current={selectedId === thread.id ? 'true' : undefined} data-unread={thread.unreadCount > 0 ? 'true' : 'false'} onClick={() => void openThread(thread.id)} data-testid={`messages-thread-${thread.id}`}>
                     <span className="messages-thread-avatar" aria-hidden="true">{initials(participant?.name ?? thread.title)}</span>
                     <span className="messages-thread-copy"><strong>{thread.title}</strong><small>{thread.lastMessage ?? 'No messages yet'}</small></span>
                     <time dateTime={thread.updatedAt}>{timeLabel(thread.updatedAt)}</time>
                     {thread.unreadCount > 0 && <span className="messages-row-unread" aria-label={`${thread.unreadCount} unread message${thread.unreadCount === 1 ? '' : 's'}`} data-testid={`messages-thread-unread-${thread.id}`}>{thread.unreadCount}</span>}
-                  </div>
-                  <div role="gridcell"><LiveThreadActions thread={thread} onRead={() => void toggleUnread(thread)} onUnread={() => void toggleUnread(thread)} /></div>
+                  </button>
+                  <div><LiveThreadActions thread={thread} onRead={() => void toggleUnread(thread)} onUnread={() => void toggleUnread(thread)} /></div>
                 </li>;
               })}
             </ul>
