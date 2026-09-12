@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { FIXED_NOW, seedDiff, seedFiles, seedProfiles, seedSessions, seedTodos } from './fixtures';
 import { useGateway } from './gateway/context';
 import type { GatewayMode } from './gateway';
-import { mapPart, SessionGatewayError, toSessionViewModel, type ProfileMutation, type SessionSocket, type SessionWireEvent, type IdentityProfile, type ModelChoice, type AccountChoice, type SessionSettings, type TurnOverride } from './gateway/sessions';
+import { mapPart, reconcileMessageInfo, SessionGatewayError, toSessionViewModel, type ProfileMutation, type SessionSocket, type SessionWireEvent, type IdentityProfile, type ModelChoice, type AccountChoice, type SessionSettings, type TurnOverride } from './gateway/sessions';
 import { useAuthUser } from './gateway/auth';
 import type { DomainNotification } from './gateway/notifications';
 import type { MessageThread } from './gateway/messages';
@@ -474,9 +474,25 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       if (event.type === 'message.updated' && event.id) {
-        // c2d: message-level info (role/tokens/cost) refresh. Every renderable field it can
-        // carry is already tracked via message.part.updated/message.part.delta above; this
-        // frame still must not be silently dropped as an unhandled event type.
+        const info = event.info && typeof event.info === 'object' ? event.info as Record<string, unknown> : {};
+        if (typeof info.id !== 'string' || !info.id) return;
+        liveTouched.add(event.id);
+        setSessions(current => current.map(session => {
+          if (session.id !== event.id) return session;
+          const existing = session.messages.find(message => message.id === info.id);
+          const message = reconcileMessageInfo(existing, info);
+          return { ...session, messages: existing ? session.messages.map(item => item.id === message.id ? message : item) : [...session.messages, message] };
+        }));
+        return;
+      }
+      if (event.type === 'message.removed' && event.id && event.messageId) {
+        liveTouched.add(event.id);
+        setSessions(current => current.map(session => session.id === event.id ? { ...session, messages: session.messages.filter(message => message.id !== event.messageId) } : session));
+        return;
+      }
+      if (event.type === 'error' && event.id) {
+        liveTouched.add(event.id);
+        setSessions(current => current.map(session => session.id === event.id ? { ...session, status: 'error', retry: undefined, statusMessage: typeof event.message === 'string' ? event.message : 'Session request failed' } : session));
         return;
       }
       if (event.type === 'session.status' && event.id) {

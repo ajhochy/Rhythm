@@ -17,6 +17,7 @@ export type SessionWireEvent = {
   reason?: string;
   part?: unknown;
   info?: unknown;
+  message?: string;
   // notification.push frame — apps/api_server/src/controllers/notifications_agent_controller.ts:6-32;
   // broadcast shape {v:1,type:'notification.push',id,title,body} at apps/api_server/src/app.ts:155-157.
   title?: string;
@@ -232,18 +233,35 @@ const idOf = (value: unknown): string | undefined => typeof value === 'string' ?
 // richer per-type rendering (reasoning/tool/file/agent) is a separate concern.
 const TASK_ID_PATTERN = /task_id:\s*(\S+)/;
 
-export function mapPart(raw: Record<string, unknown>, id: string): TranscriptBlock {
+// Shared with the artifact host: retain the envelope, never interpret HTML here.
+export type McpContent = { type: string; text?: string; resource?: { uri: string; mimeType?: string; text?: string; blob?: string }; [key: string]: unknown };
+export type CanonicalTool = {
+  name: string; callId: string; status: string; input?: unknown; output?: unknown; error?: unknown;
+  metadata?: Record<string, unknown> & { content?: McpContent[] };
+};
+export type RichTranscriptBlock = TranscriptBlock & { tool?: CanonicalTool };
+export type RichTranscriptMessage = TranscriptMessage & {
+  cost?: number; tokens?: { input?: number; output?: number; reasoning?: number; cache?: { read?: number; write?: number } };
+};
+export const canonicalText = (value: unknown): string => typeof value === 'string' ? value : value === undefined ? '' : JSON.stringify(value, null, 2);
+export const blockSource = (block: RichTranscriptBlock): string => block.tool ? canonicalText(block.tool) : block.content;
+
+export function mapPart(raw: Record<string, unknown>, id: string): RichTranscriptBlock {
+  const state = record(raw.state);
+  const tool: CanonicalTool | undefined = raw.type === 'tool' ? {
+    name: string(raw.tool, 'Tool'), callId: string(raw.callID), status: string(state.status, 'unknown'),
+    input: state.input, output: state.output, error: state.error,
+    metadata: state.metadata && typeof state.metadata === 'object' ? record(state.metadata) : undefined,
+  } : undefined;
   if (raw.type === 'tool' && raw.tool === 'task') {
-    const state = record(raw.state);
     const match = TASK_ID_PATTERN.exec(string(state.output));
-    return { id, kind: 'children', content: string(state.title, 'Child session'), meta: string(state.status), childSessionId: match?.[1] };
+    return { id, kind: 'children', content: string(state.title, 'Child session'), meta: string(state.status), childSessionId: match?.[1], tool };
   }
   // post-m1-phase-4 c2d: preserve every other canonical part type instead of collapsing it to
   // markdown. Field vocabulary from apps/api_server/src/services/opencode_stream_bridge.ts:1250-1339.
   if (raw.type === 'reasoning') return { id, kind: 'reasoning', title: 'Reasoning', content: string(raw.text) };
   if (raw.type === 'tool') {
-    const state = record(raw.state);
-    return { id, kind: 'tool', title: string(state.title, string(raw.tool, 'Tool')), content: string(state.output), meta: string(state.status) };
+    return { id, kind: 'tool', title: string(state.title, string(raw.tool, 'Tool')), content: canonicalText(state.output), meta: tool?.status, tool };
   }
   if (raw.type === 'step-start') return { id, kind: 'step-start', content: string(raw.snapshot) };
   if (raw.type === 'step-finish') return { id, kind: 'step-finish', content: string(raw.snapshot), meta: string(raw.reason) };
@@ -253,7 +271,7 @@ export function mapPart(raw: Record<string, unknown>, id: string): TranscriptBlo
   return { id, kind: 'markdown', content: string(raw.text, string(raw.content)) };
 }
 
-function mapMessage(value: unknown): TranscriptMessage {
+export function mapMessage(value: unknown): RichTranscriptMessage {
   const source = record(value);
   const info = record(source.info);
   const parts = Array.isArray(source.parts) ? source.parts : [];
@@ -265,8 +283,30 @@ function mapMessage(value: unknown): TranscriptMessage {
   return {
     id,
     role: ['user', 'assistant', 'system'].includes(role) ? role as TranscriptMessage['role'] : 'system',
-    createdAt: string(info.time?.toString?.(), string(source.createdAt, new Date(0).toISOString())),
+    createdAt: typeof record(info.time).created === 'number' && Number.isFinite(record(info.time).created) && Math.abs(record(info.time).created as number) <= 8640000000000000
+      ? new Date(record(info.time).created as number).toISOString() : string(source.createdAt, new Date(0).toISOString()),
+    ...messageMetadata({ ...source, ...info }),
     blocks: parts.map((part, index) => mapPart(record(part), string(record(part).id, `${id}-${index}`))),
+  };
+}
+
+function messageMetadata(info: Record<string, unknown>): Pick<RichTranscriptMessage, 'cost' | 'tokens'> {
+  const count = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+  const tokens = record(info.tokens); const cache = record(tokens.cache);
+  return {
+    ...(count(info.cost) !== undefined ? { cost: count(info.cost) } : {}),
+    ...(info.tokens && typeof info.tokens === 'object' ? { tokens: { input: count(tokens.input), output: count(tokens.output), reasoning: count(tokens.reasoning), cache: { read: count(cache.read), write: count(cache.write) } } } : {}),
+  };
+}
+
+export function reconcileMessageInfo(existing: TranscriptMessage | undefined, info: Record<string, unknown>): RichTranscriptMessage {
+  const mapped = mapMessage({ info });
+  return { ...existing, ...mapped, ...messageMetadata(info),
+    cost: mapped.cost ?? (existing as RichTranscriptMessage | undefined)?.cost,
+    tokens: mapped.tokens ?? (existing as RichTranscriptMessage | undefined)?.tokens,
+    role: typeof info.role === 'string' ? mapped.role : existing?.role ?? mapped.role,
+    createdAt: record(info.time).created === undefined ? existing?.createdAt ?? mapped.createdAt : mapped.createdAt,
+    blocks: existing?.blocks ?? [],
   };
 }
 

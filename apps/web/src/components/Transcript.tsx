@@ -1,26 +1,36 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Icon } from '../icons';
 import { useFixtures } from '../store';
 import { useGateway } from '../gateway/context';
 import type { PendingApproval } from '../gateway/approvals';
-import type { LivePermissionRequest, LiveQuestionRequest, LiveQuestionItem, TranscriptBlock, TranscriptMessage } from '../types';
+import type { LivePermissionRequest, LiveQuestionRequest, LiveQuestionItem, TranscriptMessage } from '../types';
 import { useDecisionReply, usePendingDecisions } from '../pending-decisions';
+import { SafeMarkdown } from './SafeMarkdown';
+import { blockSource, canonicalText, type RichTranscriptBlock, type RichTranscriptMessage } from '../gateway/sessions';
 
 function MarkdownText({ content }: { content: string }) {
-  const pieces = content.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
-  return <div className="markdown-copy">{pieces.map((piece, index) => piece.startsWith('**') ? <strong key={index}>{piece.slice(2, -2)}</strong> : piece.startsWith('`') ? <code key={index}>{piece.slice(1, -1)}</code> : <span key={index}>{piece}</span>)}</div>;
+  return <SafeMarkdown content={content} />;
 }
 
-function RichBlock({ block, onOpenChild }: { block: TranscriptBlock; onOpenChild(id: string, title: string): void }) {
+function ToolDetails({ block }: { block: RichTranscriptBlock }) {
+  const tool = block.tool;
+  return <details className="tool-block"><summary><code>{tool?.name ?? block.title}</code><small>{tool?.status ?? block.meta ?? 'Status unavailable'}</small></summary>{tool ? <dl>{(['input', 'output', 'metadata', 'error'] as const).map(field => tool[field] !== undefined && <Fragment key={field}><dt>{field}</dt><dd><pre>{canonicalText(tool[field])}</pre></dd></Fragment>)}</dl> : <pre>{block.content || 'Tool details unavailable'}</pre>}</details>;
+}
+
+function MessageUsage({ message }: { message: RichTranscriptMessage }) {
+  return message.cost !== undefined || message.tokens ? <small className="cost-line">{message.cost !== undefined && `Cost $${message.cost} · `}{message.tokens && `Input ${message.tokens.input ?? 'unknown'} · Output ${message.tokens.output ?? 'unknown'} · Cache read ${message.tokens.cache?.read ?? 'unknown'} · Cache write ${message.tokens.cache?.write ?? 'unknown'}`}</small> : null;
+}
+
+function RichBlock({ block, onOpenChild }: { block: RichTranscriptBlock; onOpenChild(id: string, title: string): void }) {
   if (block.kind === 'markdown') return <MarkdownText content={block.content} />;
   if (block.kind === 'reasoning') return <details className="reasoning-block"><summary><Icon name="spark" size={14} />{block.title}<span>{block.meta}</span></summary><p>{block.content}</p></details>;
-  if (block.kind === 'tool') return <details className="tool-block"><summary><span className="tool-state" /> <code>{block.title}</code><span className="block-content-inline">{block.content}</span><small>{block.meta}</small></summary><pre>{`read ${block.content}\nfixture source loaded successfully`}</pre></details>;
+  if (block.kind === 'tool') return <ToolDetails block={block} />;
   if (block.kind === 'diff') return <details className="tool-block" open><summary><Icon name="diff" size={14} /><strong>{block.title}</strong><small>{block.meta}</small></summary><pre className="diff-code">{block.content}</pre></details>;
   if (block.kind === 'terminal') return <details className="tool-block"><summary><Icon name="terminal" size={14} /><strong>{block.title}</strong><small>{block.meta}</small></summary><pre>{block.content}</pre></details>;
   if (block.kind === 'todos') return <div className="inline-plan"><div><Icon name="todo" size={14} /><strong>{block.title}</strong><small>{block.meta}</small></div>{block.content.split('\n').map((item, index) => <span key={item}><i className={index < 3 ? 'done' : ''}>{index < 3 && <Icon name="check" size={11} />}</i>{item}</span>)}</div>;
   // c2j: opens by the block's own SDK child id — never the local session id. See mapPart
   // in gateway/sessions.ts, which extracts this id from a `task` tool part's output text.
-  if (block.kind === 'children') return <button className="child-chip" type="button" onClick={() => block.childSessionId && onOpenChild(block.childSessionId, block.content)} aria-label={`Open child session ${block.content}`} data-testid={block.childSessionId ? `open-child-${block.childSessionId}` : undefined}><span className="status-dot working" /><span><strong>{block.content}</strong><small>{block.meta}</small></span><Icon name="chevronRight" size={14} /></button>;
+  if (block.kind === 'children') return <>{block.tool && <ToolDetails block={block} />}<button className="child-chip" type="button" disabled={!block.childSessionId} onClick={() => block.childSessionId && onOpenChild(block.childSessionId, block.content)} aria-label={`Open child session ${block.content}`} data-testid={block.childSessionId ? `open-child-${block.childSessionId}` : undefined}><span><strong>{block.content}</strong><small>{block.meta}</small></span><Icon name="chevronRight" size={14} /></button></>;
   // c2d: canonical `file`, `step-start`, `step-finish`, `compaction`, and `agent` parts each
   // keep their own type instead of collapsing into a markdown block.
   if (block.kind === 'file') return <div className="file-block" data-testid={`file-${block.id}`}><Icon name="file" size={14} /><strong>{block.title}</strong>{block.meta && <small>{block.meta}</small>}</div>;
@@ -215,7 +225,7 @@ export function Transcript() {
   const sendInput = sessionGatewayMode === 'live' ? sendLiveInput : sendFixtureInput;
   const pending = usePendingDecisions(selected.id);
   const copyMessage = async (message: TranscriptMessage) => {
-    try { await navigator.clipboard.writeText(message.blocks.map(block => block.content).join('\n\n')); notify('Message copied to clipboard'); }
+    try { await navigator.clipboard.writeText(message.blocks.map(blockSource).join('\n\n')); notify('Message copied to clipboard'); }
     catch { notify('Message copy failed'); }
   };
   const viewport = useRef<HTMLDivElement>(null);
@@ -306,6 +316,7 @@ export function Transcript() {
       {liveChildView.messages.map((message) => <article className={`message ${message.role}`} key={message.id} data-message-id={message.id} tabIndex={-1} data-testid={`message-${message.id}`}>
         <header><span className="message-role">{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Rhythm agent' : 'Session'}</span></header>
         <div className="message-blocks">{message.blocks.map((block) => <RichBlock block={block} onOpenChild={openChild} key={block.id} />)}</div>
+        <MessageUsage message={message} /><button type="button" onClick={() => void copyMessage(message)} data-testid={`copy-${message.id}`}>Copy</button>
       </article>)}
     </section>
   );
@@ -319,11 +330,13 @@ export function Transcript() {
     <section className="transcript" aria-label={`${selected.name} transcript`} data-testid="transcript">
       {(sessionGatewayMode !== 'live' || selected.transcriptHasMore !== false) && <div className="load-older-wrap"><button className="text-button" type="button" disabled={olderStatus[selected.id] === 'pending'} onClick={() => void requestOlder()} data-testid="load-older"><Icon name="history" size={14} />{olderStatus[selected.id] === 'pending' ? 'Loading older messages…' : 'Load older messages'}</button>{olderStatus[selected.id] === 'error' && <p role="alert">Older messages could not be loaded. Try again.</p>}</div>}
       {selected.retry && <div className="retry-banner" role="status" data-testid="retry-status"><Icon name="refresh" className="spin" size={13} /><span>Retrying · attempt {selected.retry.attempt} · {selected.retry.reason}</span></div>}
+      {selected.status === 'error' && selected.statusMessage && <p role="alert">{selected.statusMessage}</p>}
       {(selected.permission?.status === 'pending' || selected.question?.status === 'pending') && <div className="pending-trigger-banner" role="status"><span className="status-dot waiting" />Agent paused · {selected.permission?.status === 'pending' ? 'permission required before the tool can continue' : 'answer required before the plan can continue'}</div>}
       {selected.revertedMessageId && <div className="reverted-banner" role="status" data-testid="reverted-banner"><Icon name="undo" /><span>History is reverted at message {selected.revertedMessageId}. The retained transcript remains readable; restore to use it again.</span><button className="secondary-button" type="button" onClick={() => void unrevertSession(selected.id)} data-testid="unrevert">Restore history</button></div>}
       {selected.messages.map((message) => <article id={`agent-message-${message.id}`} className={`message ${message.role}`} key={message.id} data-message-id={message.id} tabIndex={-1} data-testid={`message-${message.id}`}>
-        <header><span className="message-role">{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Rhythm agent' : 'Session'}</span><time dateTime={message.createdAt}>Aug 12 · {message.createdAt.slice(11, 16)}</time></header>
+        <header><span className="message-role">{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Rhythm agent' : 'Session'}</span><time dateTime={message.createdAt}>{message.createdAt}</time></header>
         <div className="message-blocks">{message.blocks.map((block) => <RichBlock block={block} onOpenChild={openChild} key={block.id} />)}</div>
+        <MessageUsage message={message} />
         {message.attachments && message.attachments.length > 0 && <div className="message-attachments">{message.attachments.map((attachment) => <span key={attachment.id}><Icon name={attachment.type === 'file' ? 'command' : 'file'} size={13} />{attachment.filename}{attachment.truncated ? ' · first 100 KB' : ''}</span>)}</div>}
         {message.id === 'msg-user-handoff' && <div className="message-attachments"><span><Icon name="file" size={13} />run-sheet.md</span><span><Icon name="command" size={13} />/review</span></div>}
         {message.id === 'msg-assistant-handoff' && <div className="compaction-divider"><span>Context compacted · 8,420 tokens retained</span></div>}
