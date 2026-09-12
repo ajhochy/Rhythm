@@ -1,0 +1,11 @@
+{
+  "issue": "E30",
+  "date": "2026-09-11",
+  "test_command": "cd apps/web && npm exec -- playwright test --config tests/electron-e30-playwright.config.ts",
+  "criteria": [
+    { "criterion_id": "E30-c1", "text": "One authenticated workspace member gateway uses the current-workspace endpoint", "mode": "unit", "test": "apps/web/tests/electron-e30-workspace-members.spec.ts", "status": "PASS" },
+    { "criterion_id": "E30-c2", "text": "Tasks, Planner and Dashboard are source-bound to selected canonical collaborator IDs at creation with no raw live user-ID input", "mode": "integration", "test": "apps/web/tests/electron-e30-workspace-members.spec.ts", "status": "PASS" },
+    { "criterion_id": "E30-c3", "text": "Rhythm and project assignee/collaborator controls consume the shared current-workspace directory", "mode": "integration", "test": "apps/web/tests/electron-e30-workspace-members.spec.ts", "status": "PASS" }
+  ],
+  "not_tested": ["rendered five-page journey", "real production member mutation", "packaged Electron"]
+}

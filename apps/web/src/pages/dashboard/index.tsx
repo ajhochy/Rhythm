@@ -5,6 +5,7 @@ import { TaskCreateForm } from '../../components/TaskCreateForm';
 import { navigate } from '../../components/Shell';
 import { useFixtures } from '../../store';
 import { useGateway } from '../../gateway/context';
+import { useWorkspaceMembers } from '../../components/useWorkspaceMembers';
 import { DashboardGatewayError, type DashboardSummary } from '../../gateway/dashboard';
 import type { ProjectInstance } from '../../gateway/projects';
 import type { Task, TaskCollaborator, TaskStatus as LiveTaskStatus } from '../../gateway/planner';
@@ -315,6 +316,7 @@ function LiveDashboardPage({ route: _route }: { route: string }) {
   // session; Dashboard must not build its own gateway from a build-time/test-only env value.
   const rendererGateway = useGateway();
   const gateway = rendererGateway.domains.dashboard!;
+  const { members: memberOptions, status: memberStatus, currentUserId: liveUserId } = useWorkspaceMembers();
   const [surfaceState, setSurfaceState] = useState<DashboardSurfaceState>('loading');
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [projectInstances, setProjectInstances] = useState<ProjectInstance[]>([]);
@@ -543,9 +545,14 @@ function LiveDashboardPage({ route: _route }: { route: string }) {
       const notes = String(data.get('notes') ?? '').trim();
       const scheduledDate = String(data.get('scheduledDate') ?? '').trim();
       const dueDate = String(data.get('dueDate') ?? '').trim();
+      const collaboratorId = String(data.get('collaboratorId') ?? '').trim();
       // Server assigns the id; the created record is read back below, never invented client-side.
       const created = await gateway.createTask({ title, notes: notes || undefined, scheduledDate: scheduledDate || undefined, dueDate: dueDate || undefined });
       appendReceipt(`POST /tasks {title${notes ? ',notes' : ''}${scheduledDate ? ',scheduledDate' : ''}${dueDate ? ',dueDate' : ''}} → 201`);
+      if (collaboratorId) {
+        await gateway.addTaskCollaborator(created.id, Number(collaboratorId));
+        appendReceipt(`POST /tasks/${created.id}/collaborators {userId:${collaboratorId}} → 200`);
+      }
       form.reset();
       setTitleError(false);
       setCreateOpen(false);
@@ -617,7 +624,7 @@ function LiveDashboardPage({ route: _route }: { route: string }) {
       <aside className="page-trace" aria-label="Request log" aria-live="polite" tabIndex={0} data-testid="page-trace"><span>Request log</span><ol>{receipts.map((receipt, index) => <li key={`${receipt}-${index}`}>{receipt}</li>)}</ol></aside>
 
       <FocusDialog open={createOpen} onClose={() => { setCreateOpen(false); setTitleError(false); }} title="Add task" description="Set the task details now." testId="dashboard-task-create">
-        <TaskCreateForm idPrefix="dashboard-create" onSubmit={(event) => void createTask(event)} onCancel={() => { setCreateOpen(false); setTitleError(false); }} members={[]} titleRef={taskTitleRef} titleError={titleError ? 'Enter a task title.' : undefined} onTitleChange={() => setTitleError(false)} disabled={mutationPending} noValidate testIds={{ title: 'task-title', notes: 'task-notes', scheduledDate: 'task-schedule', dueDate: 'task-due-date', collaborator: 'task-collaborator', cancel: 'dashboard-task-create-cancel', submit: 'task-add', error: 'task-title-error' }} />
+        <TaskCreateForm idPrefix="dashboard-create" onSubmit={(event) => void createTask(event)} onCancel={() => { setCreateOpen(false); setTitleError(false); }} members={memberOptions.filter((member) => member.userId !== liveUserId)} titleRef={taskTitleRef} titleError={titleError ? 'Enter a task title.' : undefined} onTitleChange={() => setTitleError(false)} disabled={mutationPending || memberStatus === 'loading'} noValidate testIds={{ title: 'task-title', notes: 'task-notes', scheduledDate: 'task-schedule', dueDate: 'task-due-date', collaborator: 'task-collaborator', cancel: 'dashboard-task-create-cancel', submit: 'task-add', error: 'task-title-error' }} />
       </FocusDialog>
 
       <FocusDialog open={Boolean(selectedTask)} onClose={() => setSelectedTask(null)} title="Task details" description="Inspect or update the selected task." testId="task-inspector" wide>
@@ -632,7 +639,7 @@ function LiveDashboardPage({ route: _route }: { route: string }) {
               {!collaborators.length && <li>No collaborators.</li>}
             </ul>
             <div className="inspector-pair">
-              <input type="number" placeholder="User id" value={collaboratorId} onChange={(event) => setCollaboratorId(event.target.value)} data-testid="task-inspector-collaborator-input" />
+              <label>Workspace member<select value={collaboratorId} disabled={memberStatus !== 'ready'} onChange={(event) => setCollaboratorId(event.target.value)} data-testid="task-inspector-collaborator-input"><option value="">Select a member</option>{memberOptions.filter((member) => !collaborators.some((existing) => existing.userId === member.userId)).map((member) => <option key={member.id} value={member.id}>{member.name}{member.email ? ` · ${member.email}` : ''}</option>)}</select></label>
               <button className="secondary-button" type="button" onClick={() => void addCollaborator()} data-testid="task-inspector-collaborator-add">Add</button>
             </div>
           </section>

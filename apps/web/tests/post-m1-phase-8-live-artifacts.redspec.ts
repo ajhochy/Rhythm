@@ -98,6 +98,28 @@ test('restored already-open artifacts load real content instead of a ready empty
   await expect(frame.contentFrame().locator(`[data-artifact-id="${firstId}"]`)).toContainText('Rendered Sunday Service Dashboard');
 });
 
+test('E34: unavailable restored tabs remain recoverable and preference failures stay visible', async ({ page }) => {
+  let preferenceFails = true;
+  await openDashboard(page, async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === `/live-artifacts/${firstId}`) { await json(route, 404, { error: { code: 'NOT_FOUND' } }); return true; }
+    if (url.pathname === '/users/me/preferences' && route.request().method() === 'PATCH') {
+      await json(route, preferenceFails ? 500 : 200, preferenceFails ? { error: { code: 'FAILED' } } : { artifactTabIds: [] });
+      preferenceFails = false;
+      return true;
+    }
+    return false;
+  }, [firstId]);
+  const unavailable = page.locator(`[role="tab"][data-artifact-id="${firstId}"]`);
+  await expect(unavailable).toBeVisible();
+  await unavailable.press('Enter');
+  await expect(page.locator('[data-testid="live-artifact-surface"]:visible')).toContainText('unavailable');
+  await unavailable.getByRole('button', { name: /close/i }).click();
+  await expect(page.getByRole('alert')).toContainText('could not be saved');
+  await page.getByRole('button', { name: 'Retry save' }).click();
+  await expect(page.getByText(/could not be saved/i)).toHaveCount(0);
+});
+
 test('artifact UUID panes keep metadata and local toolbar state isolated while switching', async ({ page }) => {
   // Regression caught: a single unkeyed surface carries A's visibility into B and replaces A's
   // iframe; the B metadata and two stable pane assertions fail.
@@ -115,6 +137,22 @@ test('artifact UUID panes keep metadata and local toolbar state isolated while s
   await expect(visible).not.toContainText('organization');
   await expect(page.getByTestId('live-artifact-surface')).toHaveCount(2);
   await expect(page.locator(`[data-testid="live-artifact-surface"][data-artifact-id="${firstId}"]`)).toBeAttached();
+});
+
+test('E34: failed visibility change rolls back and reports the conflict', async ({ page }) => {
+  await openDashboard(page, async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === `/live-artifacts/${firstId}` && route.request().method() === 'PATCH') { await json(route, 409, { error: { code: 'CONFLICT' } }); return true; }
+    if (url.pathname.endsWith('/collaborators')) { await json(route, 200, []); return true; }
+    if (url.pathname === '/users') { await json(route, 200, []); return true; }
+    return false;
+  });
+  await openArtifact(page, artifacts[0].title);
+  await page.getByRole('button', { name: 'Sharing' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Sharing' });
+  await dialog.getByLabel('Visibility').selectOption('organization');
+  await expect(dialog.getByLabel('Visibility')).toHaveValue('private');
+  await expect(dialog.getByRole('alert')).toContainText('could not be changed');
 });
 
 test('navigation preserves open artifact tabs and their mounted panes', async ({ page }) => {

@@ -7,6 +7,7 @@ import { useFixtures } from '../../store';
 import { useGateway } from '../../gateway/context';
 import { PlannerGatewayError, type Task, type TaskCollaborator, type WeeklyPlan } from '../../gateway/planner';
 import { launchQuickActionSession, quickActionPresets, type QuickActionTaskContext } from '../../components/quickActions';
+import { useWorkspaceMembers } from '../../components/useWorkspaceMembers';
 import {
   partialLongTask,
   plannerEvents,
@@ -454,6 +455,7 @@ function LivePlannerPage({ route }: { route: string }) {
   // session; Planner must not build its own gateway from a build-time/test-only env value.
   const rendererGateway = useGateway();
   const gateway = rendererGateway.domains.planner!;
+  const { members: memberOptions, status: memberStatus } = useWorkspaceMembers();
   const [surfaceState, setSurfaceState] = useState<PlannerSurfaceState>('loading');
   const [week, setWeek] = useState(requestedLiveWeek);
   const [plan, setPlan] = useState<WeeklyPlan | null>(null);
@@ -671,8 +673,13 @@ function LivePlannerPage({ route }: { route: string }) {
     try {
       // Server assigns the id; the created record is read back through the next plan() load,
       // never invented client-side.
-      await gateway.createTask({ title, notes: notes || undefined, dueDate: dueDate || undefined, scheduledDate: scheduledDate || undefined });
+      const created = await gateway.createTask({ title, notes: notes || undefined, dueDate: dueDate || undefined, scheduledDate: scheduledDate || undefined });
       appendReceipt(`POST /tasks {title${notes ? ',notes' : ''}${dueDate ? ',dueDate' : ''}${scheduledDate ? ',scheduledDate' : ''}} → 201`);
+      const collaboratorId = String(data.get('collaboratorId') ?? '');
+      if (collaboratorId) {
+        await gateway.addTaskCollaborator(created.id, Number(collaboratorId));
+        appendReceipt(`POST /tasks/${created.id}/collaborators {userId:${collaboratorId}} → 200`);
+      }
       setCreateOpen(false);
       notify(`${title} added to Planner`);
       await load(week);
@@ -740,7 +747,7 @@ function LivePlannerPage({ route }: { route: string }) {
       <aside className="page-trace" aria-label="Planner endpoint receipts" data-testid="page-trace"><span>Wire receipts</span><ol>{receipts.map((receipt, index) => <li key={`${index}-${receipt}`}>{receipt}</li>)}</ol></aside>
 
       <FocusDialog open={createOpen} onClose={() => setCreateOpen(false)} title="Add task" description="Set the task details now." testId="planner-create-task-dialog">
-        <TaskCreateForm idPrefix="planner-create" onSubmit={(event) => void createTask(event)} onCancel={() => setCreateOpen(false)} members={[]} defaultScheduledDate={createScheduledDate ?? ''} disabled={mutationPending} testIds={{ title: 'planner-create-title', notes: 'planner-create-notes', scheduledDate: 'planner-create-scheduled-date', dueDate: 'planner-create-due-date', collaborator: 'planner-create-collaborator', cancel: 'planner-create-task-cancel', submit: 'planner-create-task-submit' }} />
+        <TaskCreateForm idPrefix="planner-create" onSubmit={(event) => void createTask(event)} onCancel={() => setCreateOpen(false)} members={memberOptions} defaultScheduledDate={createScheduledDate ?? ''} disabled={mutationPending || memberStatus === 'loading'} testIds={{ title: 'planner-create-title', notes: 'planner-create-notes', scheduledDate: 'planner-create-scheduled-date', dueDate: 'planner-create-due-date', collaborator: 'planner-create-collaborator', cancel: 'planner-create-task-cancel', submit: 'planner-create-task-submit' }} />
       </FocusDialog>
 
       <FocusDialog open={Boolean(currentTask)} onClose={closeInspector} title={currentTask && isProjectStep(currentTask) ? 'Edit project step' : 'Edit task'} description={currentTask && isProjectStep(currentTask) ? `Source-owned by ${currentTask.sourceName ?? 'its project'}. Only notes and due date persist from Planner.` : 'Planner persists notes and date fields for existing tasks.'} testId="planner-inspector">
@@ -751,7 +758,7 @@ function LivePlannerPage({ route }: { route: string }) {
           {!isProjectStep(currentTask) && <section className="collaborators task-editor-section" aria-labelledby="planner-collaborators-title">
             <div className="subhead task-editor-section-head"><h3 id="planner-collaborators-title">Collaborators</h3></div>
             <div className="collaborator-chips">{collaborators.map((person) => <span key={person.userId}>{person.name}<button type="button" aria-label={`Remove ${person.name}`} onClick={() => void removeCollaboratorLive(person.userId)} data-testid={`planner-remove-collaborator-${person.userId}`}>×</button></span>)}</div>
-            <div className="inspector-pair"><input type="number" placeholder="User id" value={collaboratorId} onChange={(event) => setCollaboratorId(event.target.value)} data-testid="planner-collaborator-input" /><button className="secondary-button" type="button" onClick={() => void addCollaborator()} data-testid="planner-add-collaborator">Add collaborator</button></div>
+            <div className="inspector-pair"><label>Workspace member<select value={collaboratorId} disabled={memberStatus !== 'ready'} onChange={(event) => setCollaboratorId(event.target.value)} data-testid="planner-collaborator-input"><option value="">Select a member</option>{memberOptions.filter((member) => !collaborators.some((existing) => existing.userId === member.userId)).map((member) => <option key={member.id} value={member.id}>{member.name}{member.email ? ` · ${member.email}` : ''}</option>)}</select></label><button className="secondary-button" type="button" disabled={!collaboratorId} onClick={() => void addCollaborator()} data-testid="planner-add-collaborator">Add collaborator</button></div>{memberStatus === 'error' && <p role="alert">Workspace members could not be loaded.</p>}
           </section>}
           <section className="quick-actions" aria-labelledby="planner-quick-actions-title"><h3 id="planner-quick-actions-title">Agent handoff</h3>{quickActionPresets.map((action) => <button className="secondary-button" type="button" disabled={quickActionPending} key={action.id} onClick={() => void launchQuickAction(action.id)} data-testid={`quick-action-${action.id}`}>{action.label}</button>)}</section>
           <footer className="task-editor-footer"><button className="secondary-button" type="button" onClick={closeInspector} data-testid="planner-edit-cancel">Cancel</button><button className="primary-button" type="submit" disabled={mutationPending} data-testid="planner-save-task">Save changes</button></footer>

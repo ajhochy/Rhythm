@@ -118,26 +118,32 @@ function SharingDialog({
   const [directory, setDirectory] = useState<MessageThreadParticipant[]>([]);
   const [collaborators, setCollaborators] = useState<{ userId: number }[]>([]);
   const [search, setSearch] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setSearch('');
-    void liveArtifacts.collaborators(artifactId).then(setCollaborators).catch(() => setCollaborators([]));
-    void listWorkspaceUsers().then(setDirectory).catch(() => setDirectory([]));
+    setError('');
+    void liveArtifacts.collaborators(artifactId).then(setCollaborators).catch(() => { setCollaborators([]); setError('Collaborators could not be loaded.'); });
+    void listWorkspaceUsers().then(setDirectory).catch(() => { setDirectory([]); setError('Workspace members could not be loaded.'); });
   }, [open, artifactId, liveArtifacts, listWorkspaceUsers]);
 
   const nameFor = (userId: number) => directory.find((user) => user.id === userId)?.name ?? `User ${userId}`;
   const matches = search.trim() ? directory.filter((user) => user.name.toLowerCase().includes(search.toLowerCase()) && !collaborators.some((c) => c.userId === user.id)) : [];
 
   async function addCollaborator(userId: number) {
-    await liveArtifacts.addCollaborator(artifactId, userId);
-    setCollaborators((current) => [...current, { userId }]);
-    setSearch('');
+    setBusy(true); setError('');
+    try { await liveArtifacts.addCollaborator(artifactId, userId); setCollaborators((current) => [...current, { userId }]); setSearch(''); }
+    catch { setError('Collaborator could not be added.'); }
+    finally { setBusy(false); }
   }
 
   async function removeCollaborator(userId: number) {
-    await liveArtifacts.removeCollaborator(artifactId, userId);
-    setCollaborators((current) => current.filter((c) => c.userId !== userId));
+    setBusy(true); setError('');
+    try { await liveArtifacts.removeCollaborator(artifactId, userId); setCollaborators((current) => current.filter((c) => c.userId !== userId)); }
+    catch { setError('Collaborator could not be removed.'); }
+    finally { setBusy(false); }
   }
 
   return (
@@ -146,10 +152,14 @@ function SharingDialog({
         Visibility
         <select
           value={visibility}
+          disabled={busy}
           onChange={(event) => {
             const next = event.target.value as LiveArtifactVisibility;
-            onVisibilityChange(next);
-            void liveArtifacts.patch(artifactId, { visibility: next });
+            setBusy(true); setError('');
+            void liveArtifacts.patch(artifactId, { visibility: next })
+              .then(() => onVisibilityChange(next))
+              .catch(() => setError('Visibility could not be changed.'))
+              .finally(() => setBusy(false));
           }}
         >
           <option value="private">Private</option>
@@ -157,6 +167,7 @@ function SharingDialog({
           <option value="organization">Organization</option>
         </select>
       </label>
+      {error && <p role="alert">{error}</p>}
       <div className="artifact-picker-search">
         <input type="search" role="searchbox" aria-label="Search workspace users" value={search} onChange={(event) => setSearch(event.target.value)} />
       </div>
@@ -438,10 +449,11 @@ async function readHtmlImportFile(file: File): Promise<{ preview: HtmlImportPrev
 // HTML import (post-m1-p8-c5a/c5b). Reference: apps/desktop_flutter/lib/features/live_artifacts —
 // the desktop app's import dialog is the same format/size/UTF-8/preview/warning contract; this is
 // its React equivalent, wired to the same POST /live-artifacts create path the picker-opened flow uses.
-function HtmlImportDialog({ open, onClose, onConfirm }: {
+function HtmlImportDialog({ open, onClose, onConfirm, operationError }: {
   open: boolean;
   onClose(): void;
   onConfirm(input: { title: string; source: string }): void;
+  operationError?: string | null;
 }) {
   const [preview, setPreview] = useState<HtmlImportPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -466,6 +478,7 @@ function HtmlImportDialog({ open, onClose, onConfirm }: {
     <FocusDialog open={open} onClose={onClose} title="Import HTML" description="Import a local HTML file as a private live artifact." testId="html-import-dialog">
       <input ref={inputRef} type="file" accept=".html,.htm" data-autofocus onChange={(event) => void onFileChange(event)} />
       {error && <p role="alert">{error}</p>}
+      {operationError && <p role="alert">{operationError}</p>}
       {preview && (
         <>
           <label>
@@ -476,7 +489,7 @@ function HtmlImportDialog({ open, onClose, onConfirm }: {
           <pre data-testid="html-import-source">{preview.source}</pre>
           <div className="dialog-actions">
             <button type="button" className="secondary-button" onClick={onClose}>Cancel</button>
-            <button type="button" className="primary-button" onClick={() => onConfirm(preview)}>Confirm import</button>
+            <button type="button" className="primary-button" onClick={() => void onConfirm(preview)}>Confirm import</button>
           </div>
         </>
       )}
@@ -500,6 +513,8 @@ function LiveArtifactsWorkspace({
   const [selected, setSelected] = useState<string>('dashboard');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [persistenceError, setPersistenceError] = useState('');
+  const [operationError, setOperationError] = useState('');
   const dashboardRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const addRef = useRef<HTMLButtonElement>(null);
@@ -513,13 +528,14 @@ function LiveArtifactsWorkspace({
         try {
           const detail = await liveArtifacts.get(id);
           loaded.push({ id, title: detail.title, status: 'loading', detail, html: null, frameUrl: null, errorMessage: null });
-        } catch {
-          // A restored tab whose artifact no longer loads is dropped rather than shown broken.
+        } catch (error) {
+          const mapped = mapError(error);
+          loaded.push({ id, title: `Unavailable artifact ${id.slice(0, 8)}`, status: mapped.status, detail: null, html: null, frameUrl: null, errorMessage: mapped.message });
         }
       }
       if (active) {
         setTabs(loaded);
-        for (const tab of loaded) void loadTab(tab.id);
+        for (const tab of loaded) if (tab.detail) void loadTab(tab.id);
       }
     })();
     return () => { active = false; };
@@ -553,7 +569,8 @@ function LiveArtifactsWorkspace({
     try {
       await userPreferences.updateArtifactTabIds(ids);
       setArtifactTabIds(ids);
-    } catch { /* best-effort; UI stays the source of truth for this session */ }
+      setPersistenceError('');
+    } catch { setPersistenceError('Open artifact tabs could not be saved. Retry before closing Rhythm.'); }
   }
 
   async function loadTab(id: string) {
@@ -587,18 +604,16 @@ function LiveArtifactsWorkspace({
   }
 
   async function confirmImport(input: { title: string; source: string }) {
-    setImportOpen(false);
-    // No dedicated "current workspace" endpoint exists yet — every artifact this user can already
-    // see (via the catalog) shares their one workspace, so the first entry's workspaceId stands in
-    // for it. ponytail: revisit if a user can legitimately have zero visible artifacts and still
-    // needs to import their first one into a real (non-default) workspace.
-    const existing = await liveArtifacts.list().catch(() => []);
-    const workspaceId = existing[0]?.workspaceId ?? 1;
-    const created = await liveArtifacts.create({
-      type: 'html', title: input.title, workspaceId, visibility: 'private',
-      bundle: { html: input.source, css: '', js: '' }, state: {},
-    });
-    await openArtifact(created.id, created.title);
+    setOperationError('');
+    try {
+      const workspace = await liveArtifacts.currentWorkspace();
+      const created = await liveArtifacts.create({
+        type: 'html', title: input.title, workspaceId: workspace.id, visibility: 'private',
+        bundle: { html: input.source, css: '', js: '' }, state: {},
+      });
+      setImportOpen(false);
+      await openArtifact(created.id, created.title);
+    } catch { setOperationError('The artifact could not be imported into your current workspace.'); }
   }
 
   function closeTab(id: string) {
@@ -616,10 +631,12 @@ function LiveArtifactsWorkspace({
     if (event.key === 'ArrowRight') { event.preventDefault(); focusNeighbor(id, 1); }
     else if (event.key === 'ArrowLeft') { event.preventDefault(); focusNeighbor(id, -1); }
     else if ((event.key === 'Delete' || event.key === 'Backspace') && id !== 'dashboard') { event.preventDefault(); closeTab(id); }
+    else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectTab(id); }
   }
 
   return (
     <div className="live-artifact-shell">
+      {persistenceError && <div role="alert" className="artifact-tab-error">{persistenceError} <button type="button" className="text-button" onClick={() => void persistTabIds(tabs.map((tab) => tab.id))}>Retry save</button></div>}
       <div className="artifact-tablist-row">
         <div role="tablist" aria-label="Dashboard artifacts" className="artifact-tablist">
           <div
@@ -677,7 +694,7 @@ function LiveArtifactsWorkspace({
       </div>
 
       <ArtifactPicker open={pickerOpen} onClose={() => setPickerOpen(false)} gateway={liveArtifacts} onSelect={(id, title) => void openArtifact(id, title)} />
-      <HtmlImportDialog open={importOpen} onClose={() => setImportOpen(false)} onConfirm={(input) => void confirmImport(input)} />
+      <HtmlImportDialog open={importOpen} onClose={() => { setImportOpen(false); setOperationError(''); }} onConfirm={(input) => void confirmImport(input)} operationError={operationError} />
     </div>
   );
 }

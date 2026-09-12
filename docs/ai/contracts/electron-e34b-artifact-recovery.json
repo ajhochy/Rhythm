@@ -1,0 +1,12 @@
+{
+  "issue": "E34B",
+  "date": "2026-09-11",
+  "waiver": "AJ authorized autonomous continuation after disclosure that LiveArtifactsWorkspace is HIGH (one direct caller, three affected modules).",
+  "test_command": "cd apps/web && npm exec -- playwright test --config tests/post-m1-phase-8-fixture-playwright.config.ts --grep E34",
+  "criteria": [
+    { "criterion_id": "E34B-c1", "text": "Unavailable restored tabs remain visible with retry/remove and keyboard activation", "mode": "ui", "test": "apps/web/tests/post-m1-phase-8-live-artifacts.redspec.ts", "status": "PASS" },
+    { "criterion_id": "E34B-c2", "text": "Tab preference and sharing failures remain visible and do not claim persisted state", "mode": "ui", "test": "apps/web/tests/post-m1-phase-8-live-artifacts.redspec.ts", "status": "PASS" },
+    { "criterion_id": "E34B-c3", "text": "First HTML import uses the authenticated current workspace rather than an artifact or literal fallback", "mode": "ui", "test": "apps/web/tests/post-m1-phase-8-html-import.redspec.ts", "status": "PASS" }
+  ],
+  "not_tested": ["deployed non-default workspace", "packaged Electron"]
+}

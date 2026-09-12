@@ -33,6 +33,7 @@ export interface GatewayDomainContracts {
   orgProposals?: OrgProposalsGateway;
   runOutcomes?: RunOutcomesGateway;
   autoPromotion?: AutoPromotionGateway;
+  workspaceMembers?: ReturnType<typeof createLiveWorkspaceMembersGateway>;
 }
 
 export interface GatewayHealth {
@@ -178,6 +179,7 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
       orgProposals: createLiveOrgProposalsGateway(apiBase, config.taskToken, localFetcher),
       runOutcomes: createLiveRunOutcomesGateway(apiBase, config.taskToken, localFetcher),
       autoPromotion: createLiveAutoPromotionGateway(productionApiBase, config.taskToken, fetcher),
+      workspaceMembers: createLiveWorkspaceMembersGateway(productionApiBase, config.taskToken, fetcher),
     },
     health: {
       api: () => check('api', `${apiBase}/health`),
@@ -233,3 +235,4 @@ import { createLiveDesignsGateway, type DesignsGateway } from './designs';
 import { createLiveOrgProposalsGateway, type OrgProposalsGateway } from './org-proposals';
 import { createLiveRunOutcomesGateway, type RunOutcomesGateway } from './run-outcomes';
 import { createLiveAutoPromotionGateway, type AutoPromotionGateway } from './auto-promotion';
+import { createLiveWorkspaceMembersGateway } from './workspace-members';

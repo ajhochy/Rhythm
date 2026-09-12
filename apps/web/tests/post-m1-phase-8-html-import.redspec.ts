@@ -16,7 +16,7 @@ async function json(route: Route, status: number, value: unknown) {
   await route.fulfill({ status, headers: cors, json: value });
 }
 
-async function openDashboard(page: Page) {
+async function openDashboard(page: Page, onApi?: (route: Route) => Promise<boolean> | boolean) {
   await page.addInitScript(() => {
     Object.defineProperty(window, 'rhythmShell', { configurable: true, value: Object.freeze({
       version: 8,
@@ -28,6 +28,7 @@ async function openDashboard(page: Page) {
   await page.route(/^(?:http:\/\/127\.0\.0\.1:(?:4098|4198)|https:\/\/api\.vcrcapps\.com)\//, async (route) => {
     if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
     const url = new URL(route.request().url());
+    if (onApi && await onApi(route)) return;
     if (url.pathname === '/health') return json(route, 200, { healthy: true });
     if (url.pathname === '/live-artifacts' && route.request().method() === 'GET') return json(route, 200, [existingArtifact]);
     return json(route, 404, { error: { code: 'NOT_FOUND' } });
@@ -36,6 +37,25 @@ async function openDashboard(page: Page) {
   await page.getByRole('button', { name: 'Continue with Google' }).click();
   await expect(page.getByTestId('page-dashboard')).toBeVisible();
 }
+
+test('E34: HTML import uses the authenticated current workspace', async ({ page }) => {
+  let created: Record<string, unknown> | undefined;
+  const imported = { ...existingArtifact, id: '00000000-0000-4000-8000-000000000834', title: 'Current workspace import', workspaceId: 77 };
+  await openDashboard(page, async (route) => {
+    const request = route.request(); const url = new URL(request.url());
+    if (url.pathname === '/workspaces/me') { await json(route, 200, { id: 77, name: 'Current workspace' }); return true; }
+    if (url.pathname === '/live-artifacts' && request.method() === 'POST') { created = request.postDataJSON(); await json(route, 201, imported); return true; }
+    if (url.pathname === '/users/me/preferences' && request.method() === 'PATCH') { await json(route, 200, { artifactTabIds: [imported.id] }); return true; }
+    if (url.pathname === `/live-artifacts/${imported.id}`) { await json(route, 200, { ...imported, state: {} }); return true; }
+    if (url.pathname === `/live-artifacts/${imported.id}/render`) { await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/html' }, body: '<main>Imported</main>' }); return true; }
+    return false;
+  });
+  await page.getByRole('button', { name: /import html/i }).click();
+  await page.locator('input[type="file"]').setInputFiles({ name: 'current.html', mimeType: 'text/html', buffer: Buffer.from('<title>Current workspace import</title><main>Imported</main>') });
+  await page.getByRole('button', { name: /confirm import/i }).click();
+  await expect.poll(() => created?.workspaceId).toBe(77);
+  expect(created).toMatchObject({ type: 'html', visibility: 'private' });
+});
 
 test('post-m1-p8-c5a: local HTML import validates format, bytes, UTF-8, title preview, source preservation, and warnings', async ({ page }) => {
   // Regression caught: import accepts the wrong extension/encoding/size, rewrites source, or skips
