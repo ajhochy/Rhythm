@@ -6,6 +6,7 @@ import {
   transcriptShareReviewHash,
   TRANSCRIPT_SHARE_CATEGORIES,
   type TranscriptShareReview,
+  deriveTranscriptShareReview,
 } from '../services/transcript_share_sanitizer';
 
 const repo = new SharedTranscriptsRepository();
@@ -40,6 +41,51 @@ function activeForRead(share: { revokedAt: string | null; expiresAt: string }): 
 }
 
 export class SharedTranscriptsController {
+  /** Detached publication: provenance is not a remote attestation of local source. */
+  async publish(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const body = req.body;
+      const allowed = ['review', 'reviewHash', 'explicitlyIncludedItemIds', 'recipientUserIds', 'expiresAt'];
+      if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => !allowed.includes(key))) {
+        throw AppError.badRequest('Invalid publication fields');
+      }
+      const review = validateReview(body.review);
+      if (Object.keys(review).some(key => key !== 'items') || review.items.length === 0 || review.items.some(item =>
+        Object.keys(item).some(key => !['id', 'category', 'content'].includes(key)) ||
+        !Object.hasOwn(item, 'content') || !/^[A-Za-z0-9:_-]{1,200}$/.test(item.id))) {
+        throw AppError.badRequest('Invalid snapshot items');
+      }
+      const reviewHash = body.reviewHash;
+      if (typeof reviewHash !== 'string' || !/^[a-f0-9]{64}$/.test(reviewHash)) throw AppError.badRequest('A valid reviewed reviewHash is required');
+      const recipients: unknown = body.recipientUserIds;
+      if (!Array.isArray(recipients) || !recipients.length || recipients.some(id => !Number.isSafeInteger(id) || id <= 0) || new Set(recipients).size !== recipients.length) {
+        throw AppError.badRequest('Unique named recipient IDs are required');
+      }
+      const inclusions: unknown = body.explicitlyIncludedItemIds;
+      if (!Array.isArray(inclusions) || new Set(inclusions).size !== inclusions.length || inclusions.some(id => typeof id !== 'string' || !review.items.some(item => item.id === id))) {
+        throw AppError.badRequest('Explicit inclusions must be unique selected item IDs');
+      }
+      const now = Date.now(); const maxExpiry = now + 30 * 86400000;
+      const expires = body.expiresAt === undefined ? maxExpiry : typeof body.expiresAt === 'string' ? Date.parse(body.expiresAt) : NaN;
+      if (!Number.isFinite(expires) || expires <= now || expires > maxExpiry) throw AppError.badRequest('Expiry must be within the next 30 days');
+      const actorId = req.auth!.user.id;
+      if (!await repo.usersExist(recipients)) throw AppError.badRequest('Every recipient must be a Rhythm user');
+      if (!await repo.recipientsShareWorkspace(actorId, recipients)) throw AppError.forbidden('Transcript recipients must belong to the publisher workspace');
+      // Re-derive recognizable sensitive shapes; a caller cannot label tool/file
+      // content as an ordinary message to bypass default exclusion. Never downgrade
+      // an explicitly sensitive category, and always run recursive redaction again.
+      const classified = { items: review.items.map(item => {
+        const content = item.content;
+        const role = content && typeof content === 'object' && 'role' in content && content.role === 'system' ? 'system' : 'assistant';
+        const derived = deriveTranscriptShareReview([{ id: item.id, role, rawText: '', parts: [content] }]).items[0];
+        return { ...item, category: item.category === 'message' ? derived.category : item.category };
+      }) };
+      const snapshot = { ...sanitizeTranscriptShare(classified, inclusions), reviewHash };
+      const share = await repo.create({ snapshot, ownerUserId: actorId, recipientUserIds: recipients, sourceSessionId: 'detached:v1', expiresAt: new Date(expires).toISOString() });
+      res.status(201).json(share);
+    } catch (error) { next(error); }
+  }
+
   async review(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const sourceOwnerUserId = await repo.sourceOwnerUserId(req.params.id);

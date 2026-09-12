@@ -137,6 +137,61 @@ describe('issue #1178 transcript sharing contracts', () => {
     return sourceId;
   }
 
+  it('E25C-c1: detached publication is consumable without a source and remains revocable', async () => {
+    const sourceId = seedStructuredSource();
+    const prepared = await (await fetch(`${baseUrl}/agent-sessions/${sourceId}/shares/review`, { headers: bearer(users.owner.token) })).json() as { reviewHash: string; snapshot: unknown };
+    const response = await fetch(`${baseUrl}/shares`, {
+      method: 'POST', headers: { ...bearer(users.owner.token), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ review: prepared.snapshot, reviewHash: prepared.reviewHash, explicitlyIncludedItemIds: [], recipientUserIds: [users.recipient.id] }),
+    });
+    expect(response.status).toBe(201);
+    const share = await response.json() as { id: string; sourceSessionId: unknown; expiresAt: string; snapshot: unknown; ownerUserId: number };
+    expect(share.sourceSessionId).toBeNull();
+    expect(share.ownerUserId).toBe(users.owner.id);
+    expect(Date.parse(share.expiresAt) - Date.now()).toBeLessThanOrEqual(30 * 86400000);
+    db.prepare('DELETE FROM agent_sessions WHERE id = ?').run(sourceId);
+    const read = await fetch(`${baseUrl}/shares/${share.id}`, { headers: bearer(users.recipient.token) });
+    expect(read.status).toBe(200);
+    expect((await read.json() as { snapshot: unknown }).snapshot).toMatchObject(prepared.snapshot as object);
+    const listed = await (await fetch(`${baseUrl}/shares`, { headers: bearer(users.recipient.token) })).json() as Array<{ id: string }>;
+    expect(listed.map(value => value.id)).toContain(share.id);
+    expect(() => db.prepare('UPDATE shared_transcripts SET snapshot_json = ? WHERE id = ?').run('{"items":[]}', share.id)).toThrow(/immutable/i);
+    expect((await fetch(`${baseUrl}/shares/${share.id}`, { headers: bearer(users.other.token) })).status).toBe(404);
+    expect((await fetch(`${baseUrl}/shares/${share.id}`, { method: 'DELETE', headers: bearer(users.recipient.token) })).status).toBe(404);
+    expect((await fetch(`${baseUrl}/shares/${share.id}`, { method: 'DELETE', headers: bearer(users.owner.token) })).status).toBe(204);
+    expect((await fetch(`${baseUrl}/shares/${share.id}`, { headers: bearer(users.recipient.token) })).status).toBe(404);
+    expect(db.prepare('SELECT actor_user_id, action FROM share_audit_log WHERE share_id = ? ORDER BY timestamp').all(share.id)).toEqual([
+      { actor_user_id: users.owner.id, action: 'share' }, { actor_user_id: users.recipient.id, action: 'view' }, { actor_user_id: users.owner.id, action: 'revoke' },
+    ]);
+  });
+
+  it('E25C-c2: production rejects malformed publication without mutations and sanitizes forged categories', async () => {
+    const body = { reviewHash: 'a'.repeat(64), review: { items: [{ id: 'safe', category: 'message', content: { type: 'text', text: 'hello' } }] }, explicitlyIncludedItemIds: [], recipientUserIds: [users.recipient.id] };
+    const post = (value: unknown, token: string = users.owner.token) => fetch(`${baseUrl}/shares`, { method: 'POST', headers: { ...bearer(token), 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
+    const before = db.prepare('SELECT count(*) AS n FROM shared_transcripts').get();
+    expect((await post(body, 'invalid')).status).toBe(401);
+    for (const patch of [
+      { recipientUserIds: [] }, { recipientUserIds: [users.recipient.id, users.recipient.id] },
+      { recipientUserIds: [999999] }, { reviewHash: 'bad' }, { ownerUserId: users.other.id },
+      { review: { items: [{ id: 'a', category: 'unknown', content: 'x' }] } },
+      { review: { items: [body.review.items[0], body.review.items[0]] } },
+      { explicitlyIncludedItemIds: ['missing'] }, { explicitlyIncludedItemIds: ['safe', 'safe'] },
+      { expiresAt: new Date(Date.now() + 31 * 86400000).toISOString() },
+    ]) expect((await post({ ...body, ...patch })).status).toBe(400);
+    expect((await post({ ...body, recipientUserIds: [users.other.id] })).status).toBe(403);
+    expect(db.prepare('SELECT count(*) AS n FROM shared_transcripts').get()).toEqual(before);
+    const result = await post({ ...body, review: { items: [
+      ...body.review.items,
+      { id: 'forged', category: 'message', content: { type: 'tool', tool: 'gmail_read', output: 'EXCLUDED_RAW_EMAIL' } },
+      { id: 'secret', category: 'message', content: { type: 'text', text: 'password=raw-secret /Users/private/secret.txt' } },
+    ] }, explicitlyIncludedItemIds: ['secret'] });
+    expect(result.status).toBe(201);
+    const share = await result.json() as { id: string };
+    const consumed = await (await fetch(`${baseUrl}/shares/${share.id}`, { headers: bearer(users.recipient.token) })).json() as { snapshot: { items: unknown[]; reviewHash: string } };
+    expect(consumed.snapshot.items).toEqual([body.review.items[0], { id: 'secret', category: 'message', content: { type: 'text', text: '[REDACTED] [REDACTED]' } }]);
+    expect(consumed.snapshot.reviewHash).toBe(body.reviewHash);
+  });
+
   it('issue-1178-c3: enforces the complete read authorization matrix', async () => {
     const activeId = seedShare();
     for (const principal of [users.owner, users.recipient]) {

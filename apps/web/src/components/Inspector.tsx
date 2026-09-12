@@ -98,7 +98,7 @@ function SharePanel({ sessionId }: { sessionId: string }) {
   const [shares, setShares] = useState<TranscriptShare[]>([]); const [view, setView] = useState<TranscriptShare | null>(null);
   const [error, setError] = useState(''); const [listError, setListError] = useState(''); const [busy, setBusy] = useState(false);
   const sequence = useRef(0);
-  const refresh = async () => { if (!api) return; try { const values = await api.shares(); setShares(values.filter(share => share.sourceSessionId === sessionId)); setListError(''); } catch { setListError('Share list unavailable.'); } };
+  const refresh = async () => { if (!api) return; try { const values = await api.shares(); setShares(values.filter(share => share.sourceSessionId === null || share.sourceSessionId === sessionId)); setListError(''); } catch { setListError('Share list unavailable.'); } };
   useEffect(() => { void refresh(); return () => { sequence.current += 1; }; }, [api, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
   const review = async () => {
     if (!api || busy) return; const current = ++sequence.current;
@@ -132,6 +132,7 @@ function SharePanel({ sessionId }: { sessionId: string }) {
   const read = async (id: string) => { if (!api) return; setError(''); try { setView(await api.share(id)); } catch { setError('Shared snapshot unavailable.'); } };
   return <section className="memory-provenance" aria-label="Transcript sharing"><h3>Transcript sharing</h3>
     <p>Immutable snapshot · named recipients only. Sensitive items are excluded unless explicitly included; secrets remain redacted.</p>
+    <p>Shared copies remain available until revoked or expired (at most 30 days), even if the local session is deleted. Detached copies from all sessions appear here.</p>
     <button type="button" className="secondary-button" disabled={!api || busy} onClick={() => void review()}>Review transcript share</button>
     <button type="button" className="text-button" disabled={busy} onClick={() => void refresh()}>Refresh shares</button>
     {error && <p role="alert">{error}</p>}{listError && <p role="alert">{listError}</p>}

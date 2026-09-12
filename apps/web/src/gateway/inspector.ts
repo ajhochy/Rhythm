@@ -55,10 +55,15 @@ export function sessionResources(messages: Array<{ parts?: unknown[] }>): Sessio
 }
 
 export function createInspectorGateway(apiBase: string, sharingApiBase: string, token: string | undefined, fetcher: typeof fetch = fetch, localFetcher: typeof fetch = fetch) {
-  async function request<T>(path: string, method = 'GET', body?: unknown, authenticated = false): Promise<T> {
+  async function request<T>(path: string, method = 'GET', body?: unknown, authenticated = false, localReview = false): Promise<T> {
     let result: Response;
     if (authenticated && !token) throw new InspectorGatewayError(401);
-    try { result = await (authenticated ? fetcher : localFetcher)(`${authenticated ? sharingApiBase : apiBase}${path}`, { method, cache: 'no-store', headers: { ...(authenticated ? { Authorization: `Bearer ${token}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) }); }
+    // E11 exclusive-runtime exception: bearer only to this loopback review route.
+    if (localReview) {
+      const url = new URL(apiBase);
+      if (url.protocol !== 'http:' || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || url.username || url.password || !/^\/agent-sessions\/[^/]+\/shares\/review$/.test(path)) throw new InspectorGatewayError(403);
+    }
+    try { result = await (authenticated ? fetcher : localFetcher)(`${authenticated && !localReview ? sharingApiBase : apiBase}${path}`, { method, cache: 'no-store', redirect: 'error', headers: { ...(authenticated ? { Authorization: `Bearer ${token}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) }); }
     catch { throw new InspectorGatewayError(0); }
     if (!result.ok) throw new InspectorGatewayError(result.status);
     return result.status === 204 ? undefined as T : result.json();
@@ -69,11 +74,19 @@ export function createInspectorGateway(apiBase: string, sharingApiBase: string, 
     provenance: (id: string) => request<MemoryProvenance>(`${session(id)}/memory-provenance`),
     messages: (id: string, before?: number) => request<{ messages: Array<{ parts?: unknown[] }>; pageInfo: { hasMore: boolean; nextCursor: number | null } }>(`${session(id)}/messages?limit=50${before ? `&before=${before}` : ''}`),
     resource: (id: string, callId: string) => request<{ mimeType: string; text: string }>(`${session(id)}/mcp-app-resource/${encodeURIComponent(callId)}`),
-    // Shares and recipient membership use the signed-in data authority, not the
-    // unauthenticated local agent surface. Missing replicated source fails closed.
-    review: (id: string) => request<PreparedShare>(`${session(id)}/shares/review`, 'GET', undefined, true),
+    review: (id: string) => request<PreparedShare>(`${session(id)}/shares/review`, 'GET', undefined, true, true),
     recipients: () => request<Array<{ userId: number; name: string; email?: string }>>('/workspaces/me/members', 'GET', undefined, true),
-    createShare: (id: string, input: { reviewHash: string; review: ShareReview; explicitlyIncludedItemIds: string[]; recipientUserIds: number[] }) => request<TranscriptShare>(`${session(id)}/shares`, 'POST', input, true),
+    createShare: async (id: string, input: { reviewHash: string; review: ShareReview; explicitlyIncludedItemIds: string[]; recipientUserIds: number[] }) => {
+      const fresh = await request<PreparedShare>(`${session(id)}/shares/review`, 'GET', undefined, true, true);
+      if (fresh.reviewHash !== input.reviewHash) throw new InspectorGatewayError(409);
+      const ids = new Set(input.review.items.map(item => item.id));
+      if (ids.size !== input.review.items.length || [...ids].some(id => !fresh.inclusiveSnapshot.items.some(item => item.id === id))) throw new InspectorGatewayError(400);
+      // Never forward review/raw content supplied by a caller. Publication consumes
+      // only the freshly checked local server's sanitized selected snapshot.
+      return request<TranscriptShare>('/shares', 'POST', { reviewHash: fresh.reviewHash,
+        review: { items: fresh.inclusiveSnapshot.items.filter(item => ids.has(item.id)) },
+        explicitlyIncludedItemIds: input.explicitlyIncludedItemIds, recipientUserIds: input.recipientUserIds }, true);
+    },
     shares: () => request<TranscriptShare[]>('/shares', 'GET', undefined, true),
     share: (id: string) => request<TranscriptShare>(`/shares/${encodeURIComponent(id)}`, 'GET', undefined, true),
     revoke: (id: string) => request<void>(`/shares/${encodeURIComponent(id)}`, 'DELETE', undefined, true),

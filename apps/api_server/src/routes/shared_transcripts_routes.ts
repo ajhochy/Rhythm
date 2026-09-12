@@ -7,6 +7,7 @@ export const sharedTranscriptsRouter = Router();
 export const transcriptShareCreationRouter = Router();
 
 sharedTranscriptsRouter.use(requireAuth);
+sharedTranscriptsRouter.post('/', controller.publish.bind(controller));
 sharedTranscriptsRouter.get('/', controller.list.bind(controller));
 sharedTranscriptsRouter.get('/:id', controller.getOne.bind(controller));
 sharedTranscriptsRouter.delete('/:id', controller.revoke.bind(controller));

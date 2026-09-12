@@ -49,12 +49,12 @@ for (const initiallyEmpty of [true, false]) {
 }
 async function open(page: Page, conflict = false, unavailable = false) {
   let revision = 'a'; let share: Record<string, unknown> | undefined;
-  const posts: unknown[] = []; const requests: string[] = []; const sharingBoundaries: Array<{ origin: string; authorization: string | null }> = [];
+  const posts: unknown[] = []; const requests: string[] = []; const sharingBoundaries: Array<{ path: string; origin: string; authorization: string | null }> = [];
   const session = { id: 'e25b', name: 'E25B', ownerUserId: 4189, profileId: 'profile', status: 'idle', createdAt: '2026-09-11T00:00:00Z' };
   await page.routeWebSocket(/\/ws\/agents$/, () => {});
   await page.route(/https:\/\/e25b.invalid|http:\/\/127.0.0.1:(4199|4197)/, async route => {
     const request = route.request(); const path = new URL(request.url()).pathname; requests.push(`${request.method()} ${path}`);
-    if (path.includes('/shares') || path === '/workspaces/me/members') sharingBoundaries.push({ origin: new URL(request.url()).origin, authorization: request.headers()['authorization'] ?? null });
+    if (path.includes('/shares') || path === '/workspaces/me/members') sharingBoundaries.push({ path, origin: new URL(request.url()).origin, authorization: request.headers()['authorization'] ?? null });
     const fail = (status: number) => route.fulfill({ status, json: { error: { code: 'UNAVAILABLE' } } });
     let json: unknown = [];
     if (path === '/agent-configs') json = [{ id: 'profile', label: 'Profile', enabled: true }];
@@ -70,7 +70,7 @@ async function open(page: Page, conflict = false, unavailable = false) {
     else if (path.endsWith('/mcp-app-resource/call-real')) { if (unavailable) return fail(404); json = { mimeType: 'text/html;profile=mcp-app', text: '<h1>Bound resource</h1><a href="https://escape.invalid">Untrusted link</a><script>parent.postMessage("unsafe", "*")</script><form action="https://escape.invalid"><input value="private"></form>' }; }
     else if (path.endsWith('/shares/review')) { if (unavailable) return fail(403); json = { sourceOwnerUserId: 4189, reviewHash: revision.repeat(64), review: { items: [safe, tool] }, snapshot: { items: [safe] }, inclusiveSnapshot: { items: [safe, tool] } }; }
     else if (path === '/workspaces/me/members') json = [{ userId: 4189, name: 'Owner' }, { userId: 4190, name: 'Recipient Real', email: 'recipient@example.invalid' }];
-    else if (path === '/agent-sessions/e25b/shares' && request.method() === 'POST') {
+    else if (path === '/shares' && request.method() === 'POST') {
       const body = request.postDataJSON(); posts.push(body);
       if (conflict && revision === 'a') { revision = 'b'; return fail(409); }
       share = { id: 'share-real', sourceSessionId: 'e25b', ownerUserId: 4189, recipientUserIds: body.recipientUserIds, snapshot: { items: [safe, tool].filter(item => body.review.items.some((selected: { id: string }) => selected.id === item.id)) }, expiresAt: '2099-01-01T00:00:00Z', revokedAt: null };
@@ -111,7 +111,7 @@ test('E25B-c5: exact server-sanitized selection, authoritative recipients, list/
   await page.getByTestId('share-share-real').getByRole('button', { name: 'Revoke' }).click();
   await expect(page.getByTestId('share-share-real')).toContainText('Revoked');
   expect(sharingBoundaries.length).toBeGreaterThan(0);
-  expect(sharingBoundaries.every(boundary => boundary.origin === 'https://e25b.invalid' && boundary.authorization === 'Bearer e25b-synthetic')).toBe(true);
+  expect(sharingBoundaries.every(boundary => boundary.origin === (boundary.path.endsWith('/shares/review') ? 'http://127.0.0.1:4199' : 'https://e25b.invalid') && boundary.authorization === 'Bearer e25b-synthetic')).toBe(true);
 });
 test('E25B-c6: conflict invalidates confirmation and requires a new review, never auto-retries', async ({ page }) => {
   const { posts } = await open(page, true);
