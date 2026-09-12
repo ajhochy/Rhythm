@@ -52,7 +52,7 @@ test('E35: live automation uses the integration account and complete typed actio
     let body: any = [];
     if (url.pathname === '/automation-rules') body = [rule];
     else if (url.pathname === '/automation-catalog/triggers') body = [{ key: rule.triggerKey, source: 'gmail', label: 'Email received', configSchema: {} }];
-    else if (url.pathname === '/automation-catalog/actions') body = [{ key: 'tag_task', label: 'Tag task', configSchema: {} }];
+    else if (url.pathname === '/automation-catalog/actions') body = [{ key: 'tag_task', label: 'Tag task', configSchema: {} }, { key: 'auto_schedule_task', label: 'Schedule task', configSchema: {} }, { key: 'create_task', label: 'Create task', configSchema: {} }];
     else if (url.pathname === '/automation-catalog/providers') body = [{ source: 'gmail', label: 'Gmail' }];
     else if (url.pathname === '/integrations/accounts') body = [{ id: 'gmail-account', provider: 'gmail', providerDisplayName: 'Gmail', availableTriggerFamilies: [], syncSupportMode: 'scheduled', status: 'connected', needsReauth: false, accountLabel: 'Staff inbox', email: 'staff@example.invalid', displayName: null, expiresAt: null, lastSyncedAt: null, errorMessage: null, scope: null }];
     if (route.request().method() === 'PATCH') { patches.push(route.request().postDataJSON()); body = { ...rule, ...patches.at(-1) }; }
@@ -65,4 +65,8 @@ test('E35: live automation uses the integration account and complete typed actio
   await editor.getByTestId('automation-builder-submit').click();
   await expect.poll(() => patches.length).toBe(1);
   expect(patches[0]).toMatchObject({ sourceAccountId: 'gmail-account', enabled: false, triggerConfig: { label: 'inbox' }, actionConfig: { titleTemplate: '{{subject}}', tag: 'urgent-follow-up', notes: '', targetDay: '' } });
+  await editor.getByTestId('automation-action').selectOption('auto_schedule_task'); await editor.getByTestId('automation-target-day').fill('monday'); await editor.getByTestId('automation-builder-submit').click();
+  await expect.poll(() => patches.length).toBe(2); expect(patches[1]).toMatchObject({ sourceAccountId: 'gmail-account', actionConfig: { targetDay: 'monday' } });
+  await editor.getByTestId('automation-action').selectOption('create_task'); await editor.getByTestId('automation-notes').fill('Include the sender and original subject.'); await editor.getByTestId('automation-builder-submit').click();
+  await expect.poll(() => patches.length).toBe(3); expect(patches[2]).toMatchObject({ sourceAccountId: 'gmail-account', actionConfig: { notes: 'Include the sender and original subject.' } });
 });

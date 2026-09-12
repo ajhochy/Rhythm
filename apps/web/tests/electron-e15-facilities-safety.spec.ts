@@ -32,7 +32,7 @@ async function intercept(page: Page) {
       }
       if (request.method() === 'PATCH' && url.pathname === '/facilities/7') { writes.push({ method: 'PATCH', path: url.pathname, body: request.postDataJSON() }); return reply({ ...facility, ...request.postDataJSON() }); }
       if (request.method() === 'PATCH' && url.pathname === '/facilities/7/reservations/9') { writes.push({ method: 'PATCH', path: url.pathname, body: request.postDataJSON() }); return reply({ ...reservation, ...request.postDataJSON(), requesterName: request.postDataJSON().requester_name, startTime: request.postDataJSON().start_time, endTime: request.postDataJSON().end_time }); }
-      if (request.method() === 'POST' && url.pathname === '/facilities/7/reservations') { const body = request.postDataJSON(); writes.push({ method: 'POST', path: url.pathname, body }); return reply({ group: { id: 'group-1' }, reservations: [{ ...reservation, id: 10, title: body.title }], conflicts: [] }); }
+      if (request.method() === 'POST' && url.pathname === '/facilities/7/reservations') { const body = request.postDataJSON(); writes.push({ method: 'POST', path: url.pathname, body }); return reply({ group: { id: 'group-1' }, reservations: [{ ...reservation, id: 10, title: body.title }], conflicts: [{ facilityId: 8, reason: 'Overlap' }] }); }
       if (request.method() === 'DELETE') {
         const target = `${url.pathname}${url.search}`;
         if (!['/facilities/7', '/facilities/7/reservations/9', '/facilities/automation-reservations?facilityId=7'].includes(target)) return route.abort('blockedbyclient');
@@ -92,6 +92,7 @@ test('E31: rooms and reservations edit, and multi-room create submits exact faci
     method: 'POST', path: '/facilities/7/reservations',
     body: { title: 'Two rooms', requester_name: 'Casey', start_time: '2026-09-14T09:00', end_time: '2026-09-14T10:00', notes: null, facility_ids: [7, 8] },
   });
+  await expect(page.getByTestId('facilities-reservation-error')).toContainText('1 requested room conflicted');
 });
 
 test('e15: automation cleanup shows and confirms the exact preview', async ({ page }) => {

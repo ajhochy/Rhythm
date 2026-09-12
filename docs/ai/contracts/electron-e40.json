@@ -5,7 +5,7 @@
   "criteria": [
     { "criterion_id": "E40-c1", "text": "Settings is reachable and links account, integration, mobile and memory surfaces", "mode": "integration", "test": "apps/web/tests/electron-e40-settings.spec.ts", "status": "PASS" },
     { "criterion_id": "E40-c2", "text": "Workspace roles, facilities manager, removal/join code and email preference use authenticated APIs with admin gating", "mode": "unit", "test": "apps/web/tests/electron-e40-settings.spec.ts", "status": "PASS" },
-    { "criterion_id": "E40-c3", "text": "Appearance, keyboard and destructive confirmation preferences are account-scoped and resettable", "mode": "integration", "test": "apps/web/src/pages/settings/index.tsx", "status": "UNVERIFIED" }
+    { "criterion_id": "E40-c3", "text": "Appearance, keyboard and destructive confirmation preferences are account-scoped and resettable", "mode": "ui", "test": "apps/web/tests/electron-e40-settings-rendered.spec.ts", "status": "PASS" }
   ],
-  "not_tested": ["rendered admin/member journey", "actual keybinding behavior", "semantic-memory binary controls", "real provider account mutation", "packaged Electron"]
+  "not_tested": ["actual keybinding behavior", "semantic-memory binary controls", "real provider account mutation", "packaged Electron"]
 }

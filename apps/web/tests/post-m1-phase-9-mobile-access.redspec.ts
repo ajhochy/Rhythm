@@ -33,6 +33,7 @@ test('post-m1-p9-c1b: React Mobile Access exposes missing/loggedOut/wrongTarget/
 });
 
 test('post-m1-p9-c1c: pairing QR carries exactly gatewayUrl/pairingCode, expires, and regenerates a distinct one-time code', async ({ page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await openPage(page, 'mobile-access', '?scenario=healthy');
   await page.getByTestId('mobile-access-generate-pairing').click();
 
@@ -43,12 +44,16 @@ test('post-m1-p9-c1c: pairing QR carries exactly gatewayUrl/pairingCode, expires
   expect(typeof parsedFirst.pairingCode).toBe('string');
   await expect(page.getByTestId('mobile-access-pairing-qr')).toBeVisible();
   await expect(page.getByTestId('mobile-access-pairing-qr').locator('title')).toHaveText('Scan to pair this phone with Rhythm');
+  const firstQr = await page.getByTestId('mobile-access-pairing-qr').innerHTML();
+  await page.getByTestId('mobile-access-copy-pairing').click();
+  expect(JSON.parse(await page.evaluate(() => navigator.clipboard.readText()))).toEqual(parsedFirst);
   await expect(page.getByTestId('mobile-access-pairing-countdown')).toContainText('Expires in');
 
   await page.getByTestId('mobile-access-regenerate-pairing').click();
   const secondPayload = await page.getByTestId('mobile-access-pairing-payload').textContent();
   const parsedSecond = JSON.parse(secondPayload ?? '{}');
   expect(parsedSecond.pairingCode).not.toBe(parsedFirst.pairingCode);
+  expect(await page.getByTestId('mobile-access-pairing-qr').innerHTML()).not.toBe(firstQr);
 
   // Expiry: fast-forward the fake clock installed by openPage past the fixture TTL.
   await page.clock.fastForward(5_000);

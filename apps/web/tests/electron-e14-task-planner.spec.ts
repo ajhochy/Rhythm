@@ -154,6 +154,7 @@ test('E32: Planner bulk completion, within-day ordering, and calendar times use 
   await page.getByTestId('planner-task-select-bulk-b').click();
   await page.getByTestId('planner-complete-selected').click();
   await expect.poll(() => writes.filter((write) => write.body.status === 'done').map((write) => write.path).sort()).toEqual(['/tasks/bulk-a', '/tasks/bulk-b']);
-  await expect(page.getByTestId('planner-task-time-calendar-time')).not.toBeEmpty();
+  const expectedTime = await page.evaluate(() => `${new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date('2026-09-09T16:00:00Z'))}–${new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date('2026-09-09T17:30:00Z'))}`);
+  await expect(page.getByTestId('planner-task-time-calendar-time')).toHaveText(expectedTime);
   expect(denied).toEqual([]);
 });

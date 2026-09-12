@@ -15,6 +15,8 @@ test('E33: an open transcript refreshes on focus without mixing routes', async (
     return false;
   });
   await expect(page.getByTestId('messages-transcript')).toContainText('First');
+  await expect(page.getByTestId('messages-thread-list')).not.toHaveAttribute('role', 'grid');
+  await expect(page.getByTestId('messages-thread-31')).toHaveJSProperty('tagName', 'BUTTON');
   messages = [...messages, { id: 2, threadId: 31, senderId: 2, senderName: 'Casey Staff', body: 'Arrived while open', createdAt: '2026-09-11T00:01:00Z' }];
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(page.getByTestId('messages-transcript')).toContainText('Arrived while open');
@@ -34,4 +36,23 @@ test('E33: failed notification read rolls back and navigation targets the entity
   await expect(page).toHaveURL(/#\/tasks\/task\/task-733$/);
   await page.getByTestId('notifications-button').click();
   await expect(page.getByRole('menuitem', { name: /Assigned task/ })).toBeVisible();
+});
+
+test('E33: a delayed old-thread refresh cannot overwrite a newly routed thread', async ({ page }) => {
+  const seen: SeenRequest[] = []; let delay = false; let release = () => {};
+  const second = { ...thread, id: 32, title: 'Second thread', lastMessage: 'Second' };
+  await openPhase7Live(page, '/messages/31', seen, async (route, request) => {
+    const path = new URL(request.url()).pathname;
+    if (path === '/users') return fulfillJson(route, 200, thread.participants).then(() => true);
+    if (path === '/message-threads') return fulfillJson(route, 200, [thread, second]).then(() => true);
+    if (path === '/message-threads/31/messages') { if (delay) await new Promise<void>((resolve) => { release = resolve; }); return fulfillJson(route, 200, [{ id: 1, threadId: 31, senderId: 2, senderName: 'Casey', body: 'Late old response', createdAt: '' }]).then(() => true); }
+    if (path === '/message-threads/32/messages') return fulfillJson(route, 200, [{ id: 2, threadId: 32, senderId: 2, senderName: 'Casey', body: 'Current second response', createdAt: '' }]).then(() => true);
+    if (path.endsWith('/read')) return route.fulfill({ status: 204 }).then(() => true);
+    return false;
+  });
+  delay = true; await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await page.evaluate(() => { location.hash = '#/messages/32'; });
+  await expect(page.getByTestId('messages-transcript')).toContainText('Current second response');
+  release(); await page.waitForTimeout(50);
+  await expect(page.getByTestId('messages-transcript')).not.toContainText('Late old response');
 });

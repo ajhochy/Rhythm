@@ -3,7 +3,7 @@
   "date": "2026-09-12",
   "test_command": "cd apps/electron && node --experimental-vm-modules --test test/e12a-auth-boundary.test.mjs",
   "criteria": [
-    { "criterion_id": "E44-c1", "text": "Settings shows packaged app version and exposes only the fixed Rhythm Releases download page", "mode": "integration", "test": "apps/electron/test/e12a-auth-boundary.test.mjs; apps/web/src/pages/settings/index.tsx", "status": "PASS" },
+    { "criterion_id": "E44-c1", "text": "Settings shows packaged app version and exposes only the fixed Rhythm Releases download page", "mode": "ui", "test": "apps/electron/test/e12a-auth-boundary.test.mjs; apps/web/tests/electron-e40-settings-rendered.spec.ts", "status": "PASS" },
     { "criterion_id": "E44-c2", "text": "No arbitrary URL or silent auto-install capability crosses preload", "mode": "unit", "test": "apps/electron/test/e12a-auth-boundary.test.mjs", "status": "PASS" }
   ],
   "not_tested": ["signed Apple Silicon update", "signed Intel update", "rollback data preservation"]
