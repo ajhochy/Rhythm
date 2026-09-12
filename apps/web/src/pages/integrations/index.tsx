@@ -235,6 +235,19 @@ export function IntegrationsPage({ route }: { route: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLive, liveGateway]);
 
+  useEffect(() => {
+    if (!isLive || !liveGateway) return;
+    const refreshAfterReturn = () => void liveGateway.accounts().then((serverAccounts) => {
+      setLiveAccounts(mapLiveAccounts(serverAccounts)); setPageState('ready');
+    }).catch((error) => recordIntegrationsError('GET', '/integrations/accounts', error));
+    const visible = () => { if (document.visibilityState === 'visible') refreshAfterReturn(); };
+    window.addEventListener('focus', refreshAfterReturn);
+    window.addEventListener('pageshow', refreshAfterReturn);
+    document.addEventListener('visibilitychange', visible);
+    return () => { window.removeEventListener('focus', refreshAfterReturn); window.removeEventListener('pageshow', refreshAfterReturn); document.removeEventListener('visibilitychange', visible); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLive, liveGateway]);
+
   const retryLiveLoad = () => { if (liveGateway) void loadLiveAccounts(liveGateway); };
 
   useEffect(() => {

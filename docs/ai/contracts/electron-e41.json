@@ -1,0 +1,11 @@
+{
+  "issue": "E41",
+  "date": "2026-09-12",
+  "test_command": "cd apps/web && npm exec -- playwright test --config tests/post-m1-phase-9-fixture-playwright.config.ts --grep 'pairing QR|consumed pairing|revoke retires'",
+  "criteria": [
+    { "criterion_id": "E41-c1", "text": "Pairing offer renders an actual QR plus exact accessible manual payload and copy path", "mode": "ui", "test": "apps/web/tests/post-m1-phase-9-mobile-access.redspec.ts", "status": "PASS" },
+    { "criterion_id": "E41-c2", "text": "Expiry, one-time consumption and device revoke behavior remain", "mode": "ui", "test": "apps/web/tests/post-m1-phase-9-mobile-access.redspec.ts", "status": "PASS" },
+    { "criterion_id": "E41-c3", "text": "Returning provider windows refresh integration accounts without manual page reload", "mode": "integration", "test": "apps/web/src/pages/integrations/index.tsx", "status": "UNVERIFIED" }
+  ],
+  "not_tested": ["E41-c3 rendered callback", "real phone scan", "real provider OAuth/sync", "packaged Electron"]
+}

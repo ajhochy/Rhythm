@@ -41,6 +41,8 @@ test('post-m1-p9-c1c: pairing QR carries exactly gatewayUrl/pairingCode, expires
   expect(Object.keys(parsedFirst).sort()).toEqual(['gatewayUrl', 'pairingCode']);
   expect(parsedFirst.gatewayUrl).toBe('https://fixture-mac.example.ts.net');
   expect(typeof parsedFirst.pairingCode).toBe('string');
+  await expect(page.getByTestId('mobile-access-pairing-qr')).toBeVisible();
+  await expect(page.getByTestId('mobile-access-pairing-qr').locator('title')).toHaveText('Scan to pair this phone with Rhythm');
   await expect(page.getByTestId('mobile-access-pairing-countdown')).toContainText('Expires in');
 
   await page.getByTestId('mobile-access-regenerate-pairing').click();
