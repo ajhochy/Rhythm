@@ -1,0 +1,11 @@
+{
+  "issue": "E42",
+  "date": "2026-09-12",
+  "test_command": "cd apps/electron && node --experimental-vm-modules --test test/e12a-auth-boundary.test.mjs",
+  "criteria": [
+    { "criterion_id": "E42-c1", "text": "Main persists session only through Electron safeStorage and restores only for the same validated server", "mode": "integration", "test": "apps/electron/src/main.mjs", "status": "UNVERIFIED" },
+    { "criterion_id": "E42-c2", "text": "Renderer retrieves current session through narrow frozen IPC and logout clears identity before fresh window", "mode": "unit", "test": "apps/electron/test/e12a-auth-boundary.test.mjs", "status": "PASS" },
+    { "criterion_id": "E42-c3", "text": "Server changes and navigation invalidate persisted identity, queued activations and renderer state", "mode": "unit", "test": "apps/electron/test/e12a-auth-boundary.test.mjs", "status": "PASS" }
+  ],
+  "not_tested": ["actual encrypted relaunch", "server expiry/401 root transition", "cold/warm OS activation", "packaged Electron"]
+}

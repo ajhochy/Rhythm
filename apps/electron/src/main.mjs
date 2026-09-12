@@ -1,7 +1,7 @@
-import { app, BrowserWindow, dialog, ipcMain, net, Notification, protocol, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, net, Notification, protocol, safeStorage, session, shell } from 'electron';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -34,6 +34,7 @@ if (smokeUserDataPath) app.on('will-quit', () => rmSync(smokeUserDataPath, { rec
 const productionApiConfigPath = resolve(app.getPath('userData'), 'server-config.json');
 const productionApiConfig = createProductionApiConfig({ configPath: productionApiConfigPath, defaultBase: RHYTHM_AUTH_API_BASE, env: process.env });
 let productionApiBase = productionApiConfig.load();
+const authSessionPath = resolve(app.getPath('userData'), 'auth-session.bin');
 process.env.RHYTHM_PRODUCTION_API_URL = productionApiBase;
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -68,6 +69,22 @@ if (hasSingleInstanceLock) {
   /** @type {Promise<import('./google-oauth-core.mjs').DesktopAuthLoginResponse> | undefined} */
   let googleSignInInFlight;
   let authGeneration = 0;
+  /** @type {import('./google-oauth-core.mjs').DesktopAuthLoginResponse['user'] | undefined} */
+  let productionSessionUser;
+  const clearStoredAuthentication = () => rm(authSessionPath, { force: true }).catch(() => undefined);
+  const persistAuthentication = async () => {
+    if (!productionSessionToken || !productionSessionUser || !safeStorage.isEncryptionAvailable()) return;
+    await mkdir(dirname(authSessionPath), { recursive: true });
+    await writeFile(authSessionPath, safeStorage.encryptString(JSON.stringify({ productionApiBase, sessionToken: productionSessionToken, user: productionSessionUser })), { mode: 0o600 });
+  };
+  const restoreAuthentication = async () => {
+    if (isSmoke || !safeStorage.isEncryptionAvailable()) return;
+    try {
+      const stored = JSON.parse(safeStorage.decryptString(await readFile(authSessionPath)));
+      if (stored.productionApiBase !== productionApiBase || typeof stored.sessionToken !== 'string' || !stored.user || typeof stored.user.id !== 'number') throw new Error('invalid stored session');
+      productionSessionToken = stored.sessionToken; productionSessionUser = stored.user;
+    } catch { await clearStoredAuthentication(); }
+  };
   let changingServer = false;
   app.on('window-all-closed', () => { if (!changingServer) app.quit(); });
   /** @type {(() => Promise<void>) | undefined} */
@@ -76,6 +93,8 @@ if (hasSingleInstanceLock) {
     authGeneration += 1;
     googleSignInInFlight = undefined;
     productionSessionToken = undefined;
+    productionSessionUser = undefined;
+    void clearStoredAuthentication();
     rendererReady = false;
     pendingNativeNotificationActivations.length = 0;
     for (const notification of nativeNotificationRegistry.values()) notification.close();
@@ -194,11 +213,13 @@ if (hasSingleInstanceLock) {
         apiBase: productionApiBase,
         openExternal: (url) => shell.openExternal(url),
         fetcher: (url, init) => globalThis.fetch(String(url), init),
-      }).then((login) => {
+      }).then(async (login) => {
         if (generation !== authGeneration || !ownsDocument(event)) throw new Error('Sign-in context changed; stale login discarded');
-        // Kept in main-process memory only so authenticated artifact documents can be served through
-        // the private frame protocol without putting credentials in a URL, DOM attribute, or log.
+        // Main owns the token and persists it only through Electron safeStorage; it never enters a
+        // URL, renderer DOM attribute, log, or plaintext file.
         productionSessionToken = login.sessionToken;
+        productionSessionUser = login.user;
+        await persistAuthentication();
         return login;
       }).finally(() => { if (generation === authGeneration) googleSignInInFlight = undefined; });
     }
@@ -237,6 +258,15 @@ if (hasSingleInstanceLock) {
     requireOwnedDocument(event);
     if (args.length || typeof value !== 'string' || value.length > 2048) throw new Error('Invalid production API URL payload');
     return setProductionApi(event, value);
+  });
+  ipcMain.handle('rhythm:auth:current-session', (event, ...args) => {
+    requireOwnedDocument(event); requireNoPayload(args);
+    return productionSessionToken && productionSessionUser ? { sessionToken: productionSessionToken, user: productionSessionUser } : null;
+  });
+  ipcMain.handle('rhythm:auth:logout', async (event, ...args) => {
+    requireOwnedDocument(event); requireNoPayload(args);
+    invalidateAuthentication(); await clearStoredAuthentication();
+    if (rebuildMainWindow) { mainWindow?.destroy(); mainWindow = undefined; await rebuildMainWindow(); }
   });
 
   // Mirrors apps/desktop_flutter/lib/app/core/server/api_server_service.dart +
@@ -317,6 +347,7 @@ if (hasSingleInstanceLock) {
 
   app.whenReady().then(async () => {
     if (isMissingDistSmoke || !existsSync(webDist)) throw new Error(`Rhythm Electron shell requires built web assets at ${webDist}`);
+    await restoreAuthentication();
 
     // Fire-and-forget, exactly like Flutter's main.dart:186-190 (`AgentServerController..initialize()`
     // is never awaited before `runApp`) — the window renders immediately and the renderer's own

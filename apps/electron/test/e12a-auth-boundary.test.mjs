@@ -57,7 +57,7 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
   const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = directory; } });
   await module.link(async (name) => {
     let values;
-    if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on: (key, fn) => listeners.set(key, fn), handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification, protocol: { registerSchemesAsPrivileged() {}, handle: (key, fn) => protocols.set(key, fn) }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: { openExternal() {} }, dialog: { showErrorBox() {} } };
+    if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on: (key, fn) => listeners.set(key, fn), handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification, protocol: { registerSchemesAsPrivileged() {}, handle: (key, fn) => protocols.set(key, fn) }, safeStorage: { isEncryptionAvailable: () => true, encryptString: (value) => Buffer.from(value), decryptString: (value) => value.toString() }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: { openExternal() {} }, dialog: { showErrorBox() {} } };
     else if (name === './agent-server.mjs') values = { AgentServerService: Server, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:4001', AGENT_SERVER_ENGINE_PORT: 4096 };
     else if (name === './desktop-google-oauth.mjs') values = { runDesktopGoogleOAuth: (options) => new Promise((resolve) => { logins.push({ options, resolve }); if (immediateLogin) resolve({ sessionToken: 'unexpected', user: { id: 1 } }); }) };
     else if (name === './human-approval-main-signer.mjs') values = { capability: async () => 'capability', signDecision: async (value) => { signed.push(value); return { signature: 'signature' }; } };
@@ -65,7 +65,7 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
   });
   await module.evaluate();
-  await tick();
+  for (let index = 0; index < 20 && windows.length === 0; index += 1) await tick();
   return {
     windows, logins, requests, signed, handlers, listeners, quits: () => quits,
     current: () => windows.at(-1),
@@ -164,7 +164,7 @@ test('e12a-c5: closed bounded privileged payloads reject before signing or confi
 test('e12a-c6: preload stays frozen and exposes no generic IPC or credential mutation', async (t) => {
   const h = await host(t), bridge = h.current().bridge;
   for (const value of [bridge, bridge.auth, bridge.gateway, bridge.humanApproval]) assert.equal(Object.isFrozen(value), true);
-  assert.deepEqual(Object.keys(bridge.auth), ['signInWithGoogle']);
+  assert.deepEqual(Object.keys(bridge.auth), ['signInWithGoogle', 'currentSession', 'logout']);
   assert.deepEqual(Object.keys(bridge.gateway), ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase']);
 });
 
@@ -219,4 +219,15 @@ test('e12a-c3: same-URL document replacement discards old login; signed-in accou
   h.logins[1].resolve({ sessionToken: 'new', user: { id: 2 } }); await login;
   await assert.rejects(async () => h.current().bridge.auth.signInWithGoogle(), /replacement denied/i);
   assert.equal(h.logins.length, 2);
+});
+
+test('E42: current session is main-owned and logout clears it before rebuilding', async (t) => {
+  const h = await host(t); const first = h.current();
+  const pending = first.bridge.auth.signInWithGoogle();
+  h.logins[0].resolve({ sessionToken: 'token-A', user: { id: 1, name: 'Admin', email: 'admin@example.invalid', role: 'admin' } });
+  await pending;
+  assert.equal(JSON.stringify(await first.bridge.auth.currentSession()), JSON.stringify({ sessionToken: 'token-A', user: { id: 1, name: 'Admin', email: 'admin@example.invalid', role: 'admin' } }));
+  await first.bridge.auth.logout();
+  assert.equal(first.destroyed, true);
+  assert.equal(await h.current().bridge.auth.currentSession(), null);
 });
