@@ -3,6 +3,10 @@ import { getNetworkStateAsync } from 'expo-network';
 import { deleteItemAsync, getItemAsync, setItemAsync } from 'expo-secure-store';
 
 import { ApiError } from '@/lib/transport/api-error';
+import {
+  parseMobileEnvironmentGrant,
+  type MobileEnvironmentGrant,
+} from '@/lib/pairing/mobile-environment-contract';
 import { PairedMacClient } from '@/lib/transport/paired-mac-client';
 import { PublicGatewayClient } from '@/lib/transport/public-gateway-client';
 
@@ -54,9 +58,32 @@ export interface PairedHost {
 
 export interface PairedHostSnapshot {
   state: PairedHostState;
+  bootstrapState:
+    | 'idle'
+    | 'discovering'
+    | 'environmentSelection'
+    | 'noAuthorizedComputer'
+    | 'retryableError'
+    | 'error'
+    | 'unsupported';
   host: PairedHost | null;
   message: string;
+  environments: MobileEnvironment[];
 }
+
+export interface MobileEnvironment {
+  id: string;
+  name: string;
+  status: 'online' | 'offline';
+  historyAvailable: boolean;
+}
+
+type AccountBootstrapClient = {
+  request<T>(
+    path: string,
+    init: Omit<RequestInit, 'headers'> & { headers?: Record<string, string> },
+  ): Promise<T>;
+};
 
 export interface PairingPayload {
   gatewayUrl: string;
@@ -192,6 +219,42 @@ function relayUrlFromHealth(value: unknown): string | null {
   } catch {
     return null;
   }
+}
+
+function safeBootstrapGatewayUrl(value: unknown): string {
+  try {
+    return safeRelayUrl(value);
+  } catch {
+    return safeGatewayUrl(value);
+  }
+}
+
+function parseMobileEnvironments(value: unknown): MobileEnvironment[] {
+  if (!value || typeof value !== 'object' || !Array.isArray(
+    (value as { environments?: unknown }).environments,
+  )) {
+    throw new PairedHostError('request', 'Rhythm Cloud returned an invalid computer list.');
+  }
+  return (value as { environments: unknown[] }).environments.map((item) => {
+    if (!item || typeof item !== 'object') {
+      throw new PairedHostError('request', 'Rhythm Cloud returned an invalid computer list.');
+    }
+    const environment = item as Partial<MobileEnvironment>;
+    if (
+      typeof environment.id !== 'string' || !environment.id ||
+      typeof environment.name !== 'string' || !environment.name ||
+      !['online', 'offline'].includes(environment.status ?? '') ||
+      typeof environment.historyAvailable !== 'boolean'
+    ) {
+      throw new PairedHostError('request', 'Rhythm Cloud returned an invalid computer list.');
+    }
+    return {
+      id: environment.id,
+      name: environment.name,
+      status: environment.status as MobileEnvironment['status'],
+      historyAvailable: environment.historyAvailable,
+    };
+  });
 }
 
 export function parsePairingPayload(raw: string): PairingPayload {
@@ -370,11 +433,19 @@ export class PairedHostStore {
   private operation = 0;
   private accountUserId: number | null = null;
   private consecutiveRelayReachabilityFailures = 0;
+  private environments: MobileEnvironment[] = [];
+  private bootstrapState: PairedHostSnapshot['bootstrapState'] = 'idle';
 
   constructor(private readonly options: PairedHostStoreOptions = {}) {}
 
   snapshot(): PairedHostSnapshot {
-    return { state: this.state, host: this.host, message: this.message };
+    return {
+      state: this.state,
+      bootstrapState: this.bootstrapState,
+      host: this.host,
+      message: this.message,
+      environments: [...this.environments],
+    };
   }
 
   cancelPending(): void {
@@ -385,6 +456,31 @@ export class PairedHostStore {
     if (this.accountUserId === userId) return;
     this.accountUserId = userId;
     this.cancelPending();
+  }
+
+  async clearForAccountChange(userId: number | null): Promise<PairedHostSnapshot> {
+    ++this.operation;
+    this.accountUserId = userId;
+    this.host = null;
+    this.environments = [];
+    this.bootstrapState = userId === null ? 'idle' : 'discovering';
+    try {
+      await this.neutralizeDeviceToken();
+      await AsyncStorage.removeItem(PAIRED_HOST_META_KEY);
+    } catch {
+      return this.apply(
+        'unhealthy',
+        'The previous computer credential could not be cleared. Unlock this iPhone and retry.',
+        null,
+      );
+    }
+    return this.apply(
+      'unpaired',
+      userId === null
+        ? 'Sign in with Google to find your authorized computer.'
+        : 'Finding computers authorized for this Rhythm account…',
+      null,
+    );
   }
 
   supports(feature: string): boolean {
@@ -496,6 +592,191 @@ export class PairedHostStore {
 
   private neutralizeDeviceToken(): Promise<void> {
     return neutralizeDeviceToken(this.options);
+  }
+
+  async restoreWithAccountBootstrap(
+    client: AccountBootstrapClient,
+    input: { userId: number; deviceName: string },
+    signal?: AbortSignal,
+  ): Promise<PairedHostSnapshot> {
+    this.setAccountUserId(input.userId);
+    const restored = await this.restore(signal);
+    if (restored.state === 'accountMismatch') {
+      const cleared = await this.clearForAccountChange(input.userId);
+      if (cleared.state === 'unhealthy') return cleared;
+      return this.discoverAccountEnvironments(client, input, signal);
+    }
+    if (!['unpaired', 'revoked'].includes(restored.state)) return restored;
+    return this.discoverAccountEnvironments(client, input, signal);
+  }
+
+  async discoverAccountEnvironments(
+    client: AccountBootstrapClient,
+    input: { userId: number; deviceName: string },
+    signal?: AbortSignal,
+  ): Promise<PairedHostSnapshot> {
+    const operation = ++this.operation;
+    this.bootstrapState = 'discovering';
+    this.apply(
+      'unpaired',
+      'Finding computers authorized for this Rhythm account…',
+      null,
+    );
+    try {
+      const response = await client.request<unknown>('/relay/mobile-environments', {
+        method: 'GET',
+        cache: 'no-store',
+        signal,
+      });
+      if (operation !== this.operation || this.accountUserId !== input.userId) {
+        return this.snapshot();
+      }
+      this.environments = parseMobileEnvironments(response);
+      if (this.environments.length === 0) {
+        this.bootstrapState = 'noAuthorizedComputer';
+        return this.apply(
+          'unpaired',
+          'No authorized computer is enrolled for this Rhythm account.',
+          null,
+        );
+      }
+      if (this.environments.length > 1) {
+        this.bootstrapState = 'environmentSelection';
+        return this.apply(
+          'unpaired',
+          'Choose an authorized computer.',
+          null,
+        );
+      }
+      return this.connectEnvironment(client, this.environments[0].id, input, signal);
+    } catch (error) {
+      if (operation !== this.operation) return this.snapshot();
+      if (error instanceof ApiError && error.status === 404) {
+        this.bootstrapState = 'unsupported';
+        return this.apply(
+          'unpaired',
+          'This Rhythm deployment does not support account connection. Pair this iPhone manually.',
+          null,
+        );
+      }
+      if (error instanceof ApiError && error.retryable) {
+        this.bootstrapState = 'retryableError';
+        return this.apply(
+          'unpaired',
+          'Could not reach Rhythm Cloud. Retry finding your authorized computer.',
+          null,
+        );
+      }
+      this.bootstrapState = 'error';
+      this.apply(
+        'unpaired',
+        'Rhythm Cloud returned an invalid computer connection response. Retry or pair manually.',
+        null,
+      );
+      throw error;
+    }
+  }
+
+  async connectEnvironment(
+    client: AccountBootstrapClient,
+    environmentId: string,
+    input: { userId: number; deviceName: string },
+    signal?: AbortSignal,
+  ): Promise<PairedHostSnapshot> {
+    const environment = this.environments.find((item) => item.id === environmentId);
+    if (!environment) {
+      throw new PairedHostError('invalidPayload', 'Choose an authorized computer.');
+    }
+    const operation = ++this.operation;
+    this.bootstrapState = 'discovering';
+    this.apply('unpaired', `Connecting securely to ${environment.name}…`, null);
+    try {
+      const response = await client.request<unknown>(
+        `/relay/mobile-environments/${encodeURIComponent(environment.id)}/connect`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ deviceName: input.deviceName }),
+          signal,
+        },
+      );
+      if (operation !== this.operation || this.accountUserId !== input.userId) {
+        return this.snapshot();
+      }
+      const grant: MobileEnvironmentGrant = parseMobileEnvironmentGrant(
+        response,
+        environment.id,
+        safeBootstrapGatewayUrl,
+        () => new PairedHostError(
+          'request',
+          'Rhythm Cloud returned an invalid device grant.',
+        ),
+      );
+      const host: PairedHost = {
+        rhythmUserId: input.userId,
+        gatewayUrl: grant.gatewayBaseUrl,
+        deviceId: grant.deviceId,
+        hostId: grant.hostId,
+        deviceName: input.deviceName,
+        gatewayVersion: EXPECTED_GATEWAY_VERSION,
+        rhythmVersion: '',
+        opencodeVersion: EXPECTED_OPENCODE_VERSION,
+        contractFingerprint: EXPECTED_CONTRACT_FINGERPRINT,
+        minimumMobileVersion: CURRENT_MOBILE_VERSION,
+        features: [...REQUIRED_FEATURES],
+        pairedAt: new Date().toISOString(),
+      };
+      try {
+        await this.setCredential(PAIRED_DEVICE_SECURE_KEY, grant.deviceToken);
+        if (operation !== this.operation || this.accountUserId !== input.userId) {
+          await this.neutralizeDeviceToken();
+          return this.snapshot();
+        }
+        await AsyncStorage.setItem(PAIRED_HOST_META_KEY, JSON.stringify(host));
+      } catch {
+        await this.neutralizeDeviceToken().catch(() => undefined);
+        throw new PairedHostError(
+          'storage',
+          'The device grant could not be saved securely. Unlock this iPhone and retry.',
+        );
+      }
+      this.host = host;
+      this.bootstrapState = 'idle';
+      if (environment.status === 'offline') {
+        return this.apply(
+          'offline',
+          environment.historyAvailable
+            ? `${environment.name} is offline. Saved history remains available.`
+            : `${environment.name} is offline.`,
+          host,
+        );
+      }
+      return this.refresh(signal);
+    } catch (error) {
+      if (operation !== this.operation) return this.snapshot();
+      if (error instanceof ApiError && error.status === 404) {
+        this.bootstrapState = 'noAuthorizedComputer';
+        return this.apply(
+          'unpaired',
+          'This computer is no longer authorized for this Rhythm account.',
+          null,
+        );
+      }
+      if (error instanceof ApiError && error.retryable) {
+        this.bootstrapState = 'retryableError';
+        return this.apply(
+          'unpaired',
+          'Could not connect to this computer. Retry when the network is available.',
+          null,
+        );
+      }
+      this.bootstrapState = 'error';
+      this.apply(
+        'unpaired',
+        'Rhythm Cloud returned an invalid computer connection response. Retry or pair manually.',
+        null,
+      );
+      throw error;
+    }
   }
 
   async restore(signal?: AbortSignal): Promise<PairedHostSnapshot> {

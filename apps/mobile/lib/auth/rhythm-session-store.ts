@@ -45,9 +45,6 @@ export interface RhythmSessionResult {
 export interface SignInParams {
   code: string;
   codeVerifier: string;
-  nonce: string;
-  clientId: string;
-  redirectUri: string;
 }
 
 export interface SessionStoreClient {
@@ -393,10 +390,10 @@ export class RhythmSessionStore {
     let persistenceStarted = false;
     try {
       const exchange = await this.client.requestPublic<ExchangeResponse>(
-        '/auth/google/mobile-exchange',
+        '/auth/google/mobile-redeem',
         {
           method: 'POST',
-          body: JSON.stringify(params),
+          body: JSON.stringify({ code: params.code, codeVerifier: params.codeVerifier }),
           headers: { 'Content-Type': 'application/json' },
         },
       );
@@ -436,7 +433,15 @@ export class RhythmSessionStore {
       });
     } catch (error) {
       if (!this.current(operation)) return this.snapshot();
-      const classified = persistenceStarted ? storageError() : classifyRhythmAccountError(error);
+      const classified = persistenceStarted
+        ? storageError()
+        : error && typeof error === 'object' && 'status' in error && error.status === 409
+          ? {
+              kind: 'authentication' as const,
+              message: 'Google sign-in expired or was already used. Start a fresh login.',
+              retryable: true,
+            }
+          : classifyRhythmAccountError(error);
       this.fail(classified, null);
       throw Object.assign(error instanceof Error ? error : new Error(classified.message), {
         accountError: classified,

@@ -163,9 +163,10 @@ Minimum required variables:
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REDIRECT_URI=https://api.vcrcapps.com/auth/google/callback`
-- `GOOGLE_AUTH_CLIENT_ID`
-- `GOOGLE_MOBILE_CLIENT_ID`
-- `GOOGLE_MOBILE_REDIRECT_URI=<matching reverse-client iOS redirect URI>`
+  (the hosted API's working web client; shared by the legacy hosted integration
+  callback and the login-only mobile broker)
+- `GOOGLE_AUTH_CLIENT_ID` / `GOOGLE_AUTH_CLIENT_SECRET` for the separate legacy
+  desktop integration flow
 - at least one of `RHYTHM_GOOGLE_ALLOWED_EMAILS=<comma-separated invites>` or `RHYTHM_GOOGLE_ALLOWED_HOSTED_DOMAINS=<comma-separated Workspace domains>`; production rejects new Google accounts when neither list authorizes them
 - `PCO_APPLICATION_ID`
 - `PCO_SECRET`
@@ -174,6 +175,10 @@ Minimum required variables:
 - `LIVE_ARTIFACT_STORAGE_DIR=/data/live-artifacts` (server-managed artifact storage; never expose this path to clients)
 - `RHYTHM_API_DATA_VOLUME=<existing Docker volume name>` (required stable
   identity; obtain it from `docker inspect rhythm-api` on upgrades)
+
+The mobile app no longer needs `GOOGLE_MOBILE_CLIENT_ID` or
+`GOOGLE_MOBILE_REDIRECT_URI`; it begins login through the hosted broker instead
+of exchanging a native Google authorization code.
 
 ## Scheduler quarantine (#1214)
 
@@ -273,6 +278,17 @@ RHYTHM_RELAY_PUBLIC_URL="https://api.vcrcapps.com/relay"
 Google OAuth authorized redirect URI:
 
 - `https://api.vcrcapps.com/auth/google/callback`
+
+Cloudflare must route all three hosted mobile-login paths to the same
+`rhythm-api` process:
+
+- `/auth/google/mobile-begin`
+- `/auth/google/callback`
+- `/auth/google/mobile-redeem`
+
+The broker is process-local. A container restart invalidates an in-flight
+login; the app must begin a fresh login after the resulting retry response.
+This does not change the separate desktop/integration OAuth flow or its scopes.
 
 Planning Center OAuth redirect URI:
 

@@ -501,6 +501,11 @@ function NumericSlider({
     onValueChange(Number((Math.round(raw / step) * step).toFixed(2)));
   }
 
+  function adjust(direction: 1 | -1) {
+    const next = Math.max(minimum, Math.min(maximum, value + direction * step));
+    onValueChange(Number(next.toFixed(2)));
+  }
+
   return (
     <View style={styles.numericSlider}>
       <View style={styles.numericSliderHeader}>
@@ -510,7 +515,15 @@ function NumericSlider({
       <View
         accessibilityLabel={label}
         accessibilityRole="adjustable"
+        accessibilityActions={[
+          { name: 'increment', label: `Increase ${label}` },
+          { name: 'decrement', label: `Decrease ${label}` },
+        ]}
         accessibilityValue={{ max: maximum, min: minimum, now: value, text: valueLabel }}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'increment') adjust(1);
+          if (event.nativeEvent.actionName === 'decrement') adjust(-1);
+        }}
         onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
         onResponderGrant={(event) => setFromPosition(event.nativeEvent.locationX)}
         onResponderMove={(event) => setFromPosition(event.nativeEvent.locationX)}
@@ -582,7 +595,9 @@ function SettingSelectField<T extends string>({
       title={label}
       renderTrigger={({ disabled: triggerDisabled, open, openState }) => (
         <Pressable
+          accessibilityLabel={`${label}, ${valueLabel}`}
           accessibilityRole="button"
+          accessibilityState={{ disabled: triggerDisabled, expanded: openState }}
           disabled={triggerDisabled}
           onPress={open}
           style={({ pressed }) => [

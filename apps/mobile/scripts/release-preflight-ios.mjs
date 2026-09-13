@@ -55,13 +55,6 @@ if (
     `EXPO_PUBLIC_RHYTHM_CLOUD_URL must be ${approvedCloudOrigin}.`,
   );
 }
-for (const name of [
-  'EXPO_PUBLIC_GOOGLE_MOBILE_CLIENT_ID',
-  'EXPO_PUBLIC_GOOGLE_MOBILE_REDIRECT_URI',
-]) {
-  if (!process.env[name]?.trim()) fail(`${name} is required.`);
-}
-
 const easConfig = JSON.parse(
   readFileSync(join(appRoot, 'eas.json'), 'utf8'),
 );

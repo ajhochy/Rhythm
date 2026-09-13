@@ -1,0 +1,18 @@
+{
+  "issue": "ios-account-connect-A1",
+  "date": "2026-09-12",
+  "test_command": "cd apps/mobile && node --test tests/contract/ios-account-connect.test.mjs",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "task-ios-account-connect-c1", "text": "Fresh native install with no pairing state, after successful existing Google OAuth, automatically discovers authorized environment and obtains/stores device grant in SecureStore; no pairing code/manual URL/computer step.", "mode": "integration", "test": "apps/mobile/tests/contract/ios-account-connect.test.mjs", "status": "pass", "reason": "" },
+    { "criterion_id": "task-ios-account-connect-c2", "text": "Account bearer never substitutes for Device auth on chat routes; deviceToken never enters AsyncStorage/logs/errors and safe gateway URL validation remains enforced.", "mode": "integration", "test": "apps/mobile/tests/contract/ios-account-connect.test.mjs", "status": "pass", "reason": "" },
+    { "criterion_id": "task-ios-account-connect-c3", "text": "Zero environments produces explicit provider state 'no authorized computer'; offline environment remains selectable/usable for history where available; network failure exposes retryable state, not endless spinner.", "mode": "integration", "test": "apps/mobile/tests/contract/ios-account-connect.test.mjs", "status": "pass", "reason": "" },
+    { "criterion_id": "task-ios-account-connect-c4", "text": "Logout or account identity change cancels stale bootstrap, removes prior device credential and host metadata, and prevents stale response from reconnecting old account.", "mode": "integration", "test": "apps/mobile/tests/contract/ios-account-connect.test.mjs", "status": "pass", "reason": "" },
+    { "criterion_id": "task-ios-account-connect-c5", "text": "Bootstrap is idempotent across relaunch; restore valid grant without unnecessary network work; revoked/expired grant returns to authenticated bootstrap once, without retry loop.", "mode": "integration", "test": "apps/mobile/tests/contract/ios-account-connect.test.mjs", "status": "pass", "reason": "" },
+    { "criterion_id": "task-ios-account-connect-c6", "text": "Preserve manual pairing compatibility only as fallback for deployments not supporting bootstrap, but Google-first UX provider state is default. No visible UI changes in this slice.", "mode": "integration", "test": "apps/mobile/tests/contract/ios-account-connect.test.mjs", "status": "pass", "reason": "" },
+    { "criterion_id": "task-ios-account-connect-c7", "text": "Focused tests cover fresh install, restore, zero/offline environments, retry, account switch cancellation, token storage boundary, malicious gateway URL, unsupported endpoint fallback.", "mode": "unit", "test": "apps/mobile/tests/contract/ios-account-connect.test.mjs", "status": "pass", "reason": "" },
+    { "criterion_id": "task-ios-account-connect-c8", "text": "Performance baseline tests/counters for bootstrap request count and restore path; adopt only observable improvements and report measured test timing/request count, no speculative claim.", "mode": "unit", "test": "apps/mobile/tests/contract/ios-account-connect.test.mjs", "status": "pass", "reason": "" },
+    { "criterion_id": "task-ios-account-connect-c9", "text": "Native live Google/Cloudflare acceptance remains not_tested until integrated exact artifact and manager observation.", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "The exact hosted-broker candidate is installed with matching bundle/executable hashes and renders sign-in on iOS 18.6 and 26.5. Production is undeployed, so real Google, Cloudflare/Synology bootstrap, and authenticated account connection remain final live acceptance." }
+  ],
+  "not_tested": ["task-ios-account-connect-c9"]
+}

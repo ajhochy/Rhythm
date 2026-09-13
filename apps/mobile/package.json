@@ -23,7 +23,7 @@
     "test:notification-persistence": "node ./tests/notification-persistence.test.mjs",
     "test:transport-clients": "node ./tests/transport-clients.test.mjs",
     "test:rhythm-account": "node ./tests/rhythm-account.test.mjs",
-    "test:google-mobile-oauth": "node ./tests/google-mobile-oauth.test.mjs",
+    "test:google-mobile-oauth": "node ./tests/hosted-mobile-oauth.test.mjs",
     "test:paired-host": "node ./tests/paired-host.test.mjs",
     "test:app-config": "node ./tests/app-config.test.mjs",
     "test:development-invocation": "node --test ./tests/issue-1175-development-invocation.test.mjs",

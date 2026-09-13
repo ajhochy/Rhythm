@@ -5,10 +5,6 @@ import { readFile } from 'node:fs/promises';
 const VALID_PRODUCTION_ENV = {
   EXPO_PUBLIC_E2E_MODE: '',
   EXPO_PUBLIC_E2E_SERVER_URL: '',
-  EXPO_PUBLIC_GOOGLE_MOBILE_CLIENT_ID:
-    '123456789-example.apps.googleusercontent.com',
-  EXPO_PUBLIC_GOOGLE_MOBILE_REDIRECT_URI:
-    'com.googleusercontent.apps.123456789-example:/oauthredirect',
   EXPO_PUBLIC_RHYTHM_CLOUD_URL: 'https://api.vcrcapps.com',
 };
 
@@ -28,10 +24,7 @@ function resolvedConfig(variant, envOverrides = {}) {
 const production = resolvedConfig('production');
 assert.equal(production.name, 'Rhythm Agents');
 assert.equal(production.slug, 'rhythm-mobile');
-assert.deepEqual(production.scheme, [
-  'rhythmagents',
-  'com.googleusercontent.apps.123456789-example',
-]);
+assert.equal(production.scheme, 'rhythmagents');
 assert.equal(production.owner, 'ajhochys-team');
 assert.equal(production.ios.bundleIdentifier, 'org.visaliacrc.rhythm.agents');
 assert.equal(
@@ -40,6 +33,12 @@ assert.equal(
   'production must declare that Rhythm ships no non-exempt encryption',
 );
 assert.equal(production.extra.eas.projectId, 'bd873c89-2fe2-45db-805c-ab819e582e5c');
+assert.equal(
+  production.extra.router.origin,
+  'https://api.vcrcapps.com',
+  'production Expo Router must not fall back to its localhost RSC origin',
+);
+assert.equal(production.extra.hostedOAuthOrigin, 'https://api.vcrcapps.com');
 assert.equal(
   production.ios.infoPlist?.NSPhotoLibraryUsageDescription,
   'Allow Rhythm Agents to access photos you choose to attach to a conversation.',
@@ -58,16 +57,6 @@ assert.equal(
   development.ios.infoPlist.NSAppTransportSecurity.NSAllowsArbitraryLoads,
   true,
   'development must allow HTTP pairing to a Mac LAN/Tailscale IP',
-);
-
-const oauthConfigured = resolvedConfig('development', {
-  EXPO_PUBLIC_GOOGLE_MOBILE_REDIRECT_URI:
-    'com.googleusercontent.apps.example:/oauth-callback',
-});
-assert.deepEqual(
-  oauthConfigured.scheme,
-  ['rhythmagents', 'com.googleusercontent.apps.example'],
-  'native config must register the Google redirect scheme',
 );
 
 const eas = JSON.parse(await readFile(new URL('../eas.json', import.meta.url), 'utf8'));

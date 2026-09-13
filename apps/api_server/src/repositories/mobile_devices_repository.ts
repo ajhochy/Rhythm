@@ -133,6 +133,43 @@ export class MobileDevicesRepository {
     return row?.host_id ?? null;
   }
 
+  findSoleEnrollment(): { hostId: string; userId: number } | null {
+    const rows = this.db
+      .prepare(
+        `SELECT DISTINCT host_id, user_id
+           FROM mobile_devices
+          ORDER BY host_id, user_id
+          LIMIT 2`,
+      )
+      .all() as Array<{ host_id: string; user_id: number }>;
+    if (rows.length !== 1) return null;
+    const row = rows[0];
+    return row.host_id && Number.isSafeInteger(row.user_id) && row.user_id > 0
+      ? { hostId: row.host_id, userId: row.user_id }
+      : null;
+  }
+
+  upsertBootstrapDevice(device: MobileDeviceRecord): void {
+    this.db.prepare(
+      `INSERT INTO mobile_devices
+         (id, host_id, user_id, name, token_verifier, revoked_at, created_at)
+       VALUES (?, ?, ?, ?, ?, NULL, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         token_verifier = excluded.token_verifier,
+         revoked_at = NULL
+       WHERE mobile_devices.host_id = excluded.host_id
+         AND mobile_devices.user_id = excluded.user_id
+         AND mobile_devices.name = excluded.name`,
+    ).run(
+      device.id,
+      device.hostId,
+      device.userId,
+      device.name,
+      device.tokenVerifier,
+      device.createdAt,
+    );
+  }
+
   consumePairingCodeAndCreateDevice(
     pairingCodeId: string,
     device: MobileDeviceRecord,

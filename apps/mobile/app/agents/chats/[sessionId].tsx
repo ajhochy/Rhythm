@@ -83,6 +83,14 @@ export default function AgentChatDetailScreen() {
     readyTargetRef.current.observed = true;
   }
   const routeHeader = <Stack.Screen options={{ headerShown: false }} />;
+  const backToChats = () => {
+    cancelOpenProjectSession();
+    if (router.canGoBack?.()) {
+      router.back();
+      return;
+    }
+    router.replace('/(tabs)/agents');
+  };
 
   useEffect(() => {
     if (!isHydrated) return;
@@ -168,10 +176,7 @@ export default function AgentChatDetailScreen() {
             <Button
               accessibilityLabel={presentation.backLabel}
               mode="outlined"
-              onPress={() => {
-                cancelOpenProjectSession();
-                router.replace('/(tabs)/agents');
-              }}>
+              onPress={backToChats}>
               {presentation.backLabel}
             </Button>
           </View>
@@ -200,10 +205,7 @@ export default function AgentChatDetailScreen() {
           <Button
             accessibilityLabel="Back to chats"
             mode="outlined"
-            onPress={() => {
-              cancelOpenProjectSession();
-              router.replace('/(tabs)/agents');
-            }}>
+            onPress={backToChats}>
             Back to chats
           </Button>
         </ToolScreenState>

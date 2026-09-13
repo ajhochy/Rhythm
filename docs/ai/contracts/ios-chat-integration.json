@@ -1,0 +1,86 @@
+{
+  "issue": "ios-chat-integration",
+  "date": "2026-09-12",
+  "test_command": "npx jest --runInBand tests/contract/ios-chat-integration.test.ts tests/chat/ios-chat-state.test.tsx tests/chat/agent-chat-detail.test.tsx tests/chat/chat-list.test.tsx tests/auth/sign-in-screen.test.tsx tests/session-message-merge.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "ios-chat-integration-c1",
+      "text": "wire new SignInScreen into root/index using existing account readiness and bootstrap states; no pairing requirement on default Google flow; don't discard intended deep link on restore.",
+      "mode": "ui",
+      "test": "tests/contract/ios-chat-integration.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "ios-chat-integration-c2",
+      "text": "ChatView passes actual currentSessionId to ChatContent; route/header/provider/transcript identify same chat on A->B->A including equal-length histories. All in-view chat switches/new chat update route correctly, native back with fallback preserves list state.",
+      "mode": "ui",
+      "test": "tests/chat/ios-chat-state.test.tsx",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "ios-chat-integration-c3",
+      "text": "drafts/attachments per-session, no cross-chat transfer or delayed failure overwriting new typing; draft survives failed/interrupted send.",
+      "mode": "unit",
+      "test": "tests/contract/ios-chat-integration.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "ios-chat-integration-c4",
+      "text": "uncertain prompt acceptance reconciles real history/status before any retry, no blind POST retry/duplicate send; use stable message IDs only if actual engine protocol guarantees semantics.",
+      "mode": "integration",
+      "test": "tests/contract/ios-chat-integration.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "ios-chat-integration-c5",
+      "text": "session catalog zero-project handling gives useful truthful state or supported owner catalog path, not fake project; session missing/forbidden/timeout has terminal recovery not spinner. Preserve existing atomic/cache-first open, stale guards, SSE+polling.",
+      "mode": "integration",
+      "test": "tests/contract/ios-chat-integration.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "ios-chat-integration-c6",
+      "text": "root works with account slice interface as actually implemented and future backend GET /relay/mobile-environments, POST /relay/mobile-environments/:id/connect -> {environmentId,hostId,deviceId,deviceToken,gatewayBaseUrl}; Device-auth chat retained, logout clears account data.",
+      "mode": "integration",
+      "test": "tests/contract/ios-chat-integration.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "ios-chat-integration-c7",
+      "text": "integrate presentation, improve remaining navigation/tool form recoveries where manageable, report uncovered whole-app criteria honestly.",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "The exact hosted-broker candidate renders the sign-in surface on both target Simulators, but production is undeployed; authenticated whole-app navigation and tool recovery remain final live acceptance."
+    },
+    {
+      "criterion_id": "ios-chat-integration-c8",
+      "text": "representative baseline/re-measure same scenarios and build mode, at least 10 trials for any timing claims; harness timings explicitly not iOS performance.",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "Actual iOS timing claims require the same native artifact/device scenarios and manager observation; Jest harness timings are not iOS performance."
+    },
+    {
+      "criterion_id": "ios-chat-integration-c9",
+      "text": "focused regression tests for route identity, stale response, draft concurrency, interrupted send; run full mobile suite only at integration checkpoint, not every edit.",
+      "mode": "unit",
+      "test": "tests/chat/ios-chat-state.test.tsx",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "ios-chat-integration-c10",
+      "text": "no live/native completion claims without manager observation.",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "The exact candidate is installed with matching hashes on both target Simulators, but production OAuth/bootstrap is undeployed and final live chat open/read/send remains mandatory."
+    }
+  ],
+  "not_tested": [
+    "ios-chat-integration-c7",
+    "ios-chat-integration-c8",
+    "ios-chat-integration-c10"
+  ]
+}

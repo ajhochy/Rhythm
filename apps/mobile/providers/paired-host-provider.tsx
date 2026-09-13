@@ -12,6 +12,7 @@ import { AppState, type AppStateStatus } from 'react-native';
 
 import {
   PairedHostStore,
+  type MobileEnvironment,
   type PairedHost,
   type PairedHostSnapshot,
   type PairedHostState,
@@ -45,6 +46,7 @@ export function nextPairedHostProbeInterval(current: number): number {
 
 export interface PairedHostContextValue {
   state: PairedHostState;
+  bootstrapState: PairedHostSnapshot['bootstrapState'];
   host: PairedHost | null;
   client: PairedMacClient | null;
   message: string;
@@ -57,6 +59,9 @@ export interface PairedHostContextValue {
   revoke: () => Promise<PairedHostSnapshot>;
   forget: () => Promise<PairedHostSnapshot>;
   supports: (feature: string) => boolean;
+  environments: MobileEnvironment[];
+  connectEnvironment: (environmentId: string) => Promise<PairedHostSnapshot>;
+  retryBootstrap: () => Promise<PairedHostSnapshot>;
 }
 
 const PairedHostContext = createContext<PairedHostContextValue | null>(null);
@@ -74,6 +79,7 @@ export function PairedHostProvider({ children }: PropsWithChildren) {
   const mountedRef = useRef(true);
   const refreshInFlightRef = useRef<Promise<PairedHostSnapshot> | null>(null);
   const clientScopeRef = useRef<string | null>(null);
+  const previousAccountUserIdRef = useRef<number | null>(null);
   const [probeIntervalMs, setProbeIntervalMs] = useState(
     PAIRED_HOST_PROBE_INTERVAL_MS,
   );
@@ -144,14 +150,44 @@ export function PairedHostProvider({ children }: PropsWithChildren) {
     mountedRef.current = true;
     clientScopeRef.current = null;
     setClient(null);
-    store.setAccountUserId(account.user?.id ?? null);
     const abortController = new AbortController();
     const timeout = setTimeout(
       () => abortController.abort(),
       PAIRED_HOST_PROBE_TIMEOUT_MS,
     );
-    void store.restore(abortController.signal)
+    const accountUserId = account.user?.id ?? null;
+    const previousAccountUserId = previousAccountUserIdRef.current;
+    previousAccountUserIdRef.current = accountUserId;
+    if (accountUserId !== null) {
+      setSnapshot({
+        ...store.snapshot(),
+        bootstrapState: 'discovering',
+        message: 'Finding computers authorized for this Rhythm account…',
+      });
+    }
+    const restore = async () => {
+      if (
+        previousAccountUserId !== null &&
+        previousAccountUserId !== accountUserId
+      ) {
+        const cleared = await store.clearForAccountChange(accountUserId);
+        if (cleared.state === 'unhealthy') return cleared;
+      } else {
+        store.setAccountUserId(accountUserId);
+      }
+      return accountUserId === null
+        ? store.restore(abortController.signal)
+        : typeof store.restoreWithAccountBootstrap === 'function'
+          ? store.restoreWithAccountBootstrap(
+              account.client,
+              { userId: accountUserId, deviceName: 'Rhythm iPhone' },
+              abortController.signal,
+            )
+          : store.restore(abortController.signal);
+    };
+    void restore()
       .then(apply)
+      .catch(() => apply(store.snapshot()))
       .finally(() => clearTimeout(timeout));
     return () => {
       mountedRef.current = false;
@@ -159,7 +195,7 @@ export function PairedHostProvider({ children }: PropsWithChildren) {
       refreshInFlightRef.current = null;
       store.cancelPending();
     };
-  }, [account.user?.id, apply, store]);
+  }, [account.client, account.user?.id, apply, store]);
 
   useEffect(() => {
     const onStateChange = (state: AppStateStatus) => {
@@ -271,6 +307,28 @@ export function PairedHostProvider({ children }: PropsWithChildren) {
     [apply, store],
   );
 
+  const connectEnvironment = useCallback(
+    async (environmentId: string) => {
+      if (!account.user) {
+        throw new Error('Sign in to your Rhythm account before connecting a computer.');
+      }
+      return apply(await store.connectEnvironment(
+        account.client,
+        environmentId,
+        { userId: account.user.id, deviceName: 'Rhythm iPhone' },
+      ));
+    },
+    [account.client, account.user, apply, store],
+  );
+
+  const retryBootstrap = useCallback(async () => {
+    if (!account.user) return store.snapshot();
+    return apply(await store.discoverAccountEnvironments(
+      account.client,
+      { userId: account.user.id, deviceName: 'Rhythm iPhone' },
+    ));
+  }, [account.client, account.user, apply, store]);
+
   const value = useMemo<PairedHostContextValue>(
     () => ({
       ...snapshot,
@@ -280,9 +338,22 @@ export function PairedHostProvider({ children }: PropsWithChildren) {
       refresh,
       revoke,
       forget,
+      connectEnvironment,
+      retryBootstrap,
       supports: (feature) => store.supports(feature),
     }),
-    [client, forget, pair, refresh, refreshRevision, revoke, snapshot, store],
+    [
+      client,
+      connectEnvironment,
+      forget,
+      pair,
+      refresh,
+      refreshRevision,
+      retryBootstrap,
+      revoke,
+      snapshot,
+      store,
+    ],
   );
 
   return (

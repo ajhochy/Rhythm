@@ -8,11 +8,14 @@ import {
   resolveRelayArtifactStorageDir,
 } from '../config/env';
 import { AppError } from '../errors/app_error';
+import { requireLocalOrCloudAuth } from '../middleware/auth_middleware';
 import { requireMobileDevice } from '../middleware/mobile_device_auth';
 import type {
   MobileOpenCodeOwnershipReader,
 } from '../repositories/mobile_opencode_ownership_repository';
 import { getMobilePairingService } from '../services/mobile_gateway_runtime';
+import { MobileDevicesRepository } from '../repositories/mobile_devices_repository';
+import { getDb } from '../database/db';
 import {
   readMirrorSessionChildren,
   readMirrorSessionList,
@@ -51,6 +54,7 @@ const HOP_BY_HOP_HEADERS = new Set([
   'upgrade',
 ]);
 const ARTIFACT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+const MAX_DEVICE_NAME_LENGTH = 128;
 
 function relayProject(req: Request): { id: string; root: string } {
   const projectId = req.header('X-Rhythm-Project-ID')?.trim();
@@ -204,6 +208,96 @@ export function createRelayGatewayRouter(
     for (const response of liveSseResponses) response.end();
     liveSseResponses.clear();
   });
+
+  router.get('/mobile-environments', requireLocalOrCloudAuth, (req, res) => {
+    const enrollment = new MobileDevicesRepository(getDb()).findSoleEnrollment();
+    const userId = req.auth!.user.id;
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      environments: enrollment?.userId === userId
+        ? [{
+            id: enrollment.hostId,
+            name: 'Rhythm Mac',
+            status: uplink.isHostOnline(enrollment.hostId, userId)
+              ? 'online'
+              : 'offline',
+            historyAvailable: true,
+          }]
+        : [],
+    });
+  });
+
+  router.post(
+    '/mobile-environments/:id/connect',
+    requireLocalOrCloudAuth,
+    async (req, res, next) => {
+      try {
+        const enrollment = new MobileDevicesRepository(getDb())
+          .findSoleEnrollment();
+        const userId = req.auth!.user.id;
+        if (
+          !enrollment ||
+          enrollment.userId !== userId ||
+          enrollment.hostId !== req.params.id
+        ) {
+          throw AppError.notFound('Mobile environment');
+        }
+        const deviceName = typeof req.body?.deviceName === 'string'
+          ? req.body.deviceName.trim()
+          : '';
+        if (!deviceName || deviceName.length > MAX_DEVICE_NAME_LENGTH) {
+          throw AppError.badRequest(
+            'deviceName must be between 1 and 128 characters',
+          );
+        }
+        if (!uplink.isHostOnline(enrollment.hostId, userId)) {
+          res.status(503).json({ error: 'mac_offline' });
+          return;
+        }
+        const response = await uplink.sendRpc({
+          method: 'POST',
+          path: '/mobile-gateway/bootstrap/connect',
+          headers: {
+            authorization: `Bearer ${req.auth!.sessionToken}`,
+            'content-type': 'application/json',
+          },
+          bodyB64: Buffer.from(JSON.stringify({
+            environmentId: enrollment.hostId,
+            deviceName,
+          })).toString('base64'),
+        });
+        if (response.status !== 201) {
+          res.status(response.status).end(
+            Buffer.from(response.bodyB64, 'base64'),
+          );
+          return;
+        }
+        const grant = JSON.parse(
+          Buffer.from(response.bodyB64, 'base64').toString('utf8'),
+        ) as Record<string, unknown>;
+        if (
+          grant.hostId !== enrollment.hostId ||
+          grant.userId !== userId ||
+          typeof grant.deviceId !== 'string' ||
+          typeof grant.deviceToken !== 'string'
+        ) {
+          throw AppError.internal('Invalid bootstrap grant');
+        }
+        const origin = `${req.protocol}://${req.get('host')}`;
+        res.setHeader('Cache-Control', 'no-store');
+        res.status(201).json({
+          environmentId: enrollment.hostId,
+          hostId: enrollment.hostId,
+          deviceId: grant.deviceId,
+          deviceToken: grant.deviceToken,
+          gatewayBaseUrl: new URL('/relay/mobile-gateway', origin).toString()
+            .replace(/\/$/, ''),
+        });
+      } catch (error) {
+        next(error instanceof AppError ? error : AppError.internal());
+      }
+    },
+  );
 
   router.get('/health', (_req, res) => {
     res.json({
@@ -450,17 +544,32 @@ export function createRelayGatewayRouter(
         const metadataPath = join(candidateDir, `${artifactId}.meta.json`);
         try {
           const bytes = await readFile(artifactPath);
-          let contentType = 'application/octet-stream';
+          let metadata: {
+            contentType?: unknown;
+            ownerUserId?: unknown;
+            projectId?: unknown;
+            sessionId?: unknown;
+          };
           try {
-            const metadata = JSON.parse(
+            metadata = JSON.parse(
               await readFile(metadataPath, 'utf8'),
-            ) as { contentType?: unknown };
-            if (typeof metadata.contentType === 'string') {
-              contentType = metadata.contentType;
-            }
+            ) as typeof metadata;
           } catch {
-            // Missing or malformed metadata falls back to generic binary bytes.
+            res.status(404).json({ error: 'artifact_not_found' });
+            return;
           }
+          if (
+            metadata.ownerUserId !== req.mobileDevice!.userId ||
+            metadata.projectId !== relayProject(req).id ||
+            typeof metadata.sessionId !== 'string' ||
+            metadata.sessionId.trim() === ''
+          ) {
+            res.status(404).json({ error: 'artifact_not_found' });
+            return;
+          }
+          const contentType = typeof metadata.contentType === 'string'
+            ? metadata.contentType
+            : 'application/octet-stream';
           res.setHeader('content-type', contentType);
           res.status(200).send(bytes);
           return;
@@ -489,14 +598,30 @@ export function createRelayGatewayRouter(
         const contentType = Object.entries(response.headers).find(
           ([name]) => name.toLowerCase() === 'content-type',
         )?.[1] ?? 'application/octet-stream';
-        if (response.status === 200) {
+        const responseHeader = (name: string) => Object.entries(response.headers)
+          .find(([candidate]) => candidate.toLowerCase() === name)?.[1];
+        const artifactOwnerId = Number(responseHeader('x-rhythm-artifact-owner-id'));
+        const artifactProjectId = responseHeader('x-rhythm-artifact-project-id');
+        const artifactSessionId = responseHeader('x-rhythm-artifact-session-id');
+        if (
+          response.status === 200 &&
+          artifactOwnerId === req.mobileDevice!.userId &&
+          artifactProjectId === relayProject(req).id &&
+          typeof artifactSessionId === 'string' &&
+          artifactSessionId.trim() !== ''
+        ) {
           try {
             await mkdir(storageDir, { recursive: true });
             await Promise.all([
               writeFile(join(storageDir, artifactId), bytes),
               writeFile(
                 join(storageDir, `${artifactId}.meta.json`),
-                JSON.stringify({ contentType }),
+                JSON.stringify({
+                  contentType,
+                  ownerUserId: artifactOwnerId,
+                  projectId: artifactProjectId,
+                  sessionId: artifactSessionId,
+                }),
               ),
             ]);
           } catch (error) {
@@ -506,7 +631,10 @@ export function createRelayGatewayRouter(
           }
         }
         for (const [name, value] of Object.entries(response.headers)) {
-          if (!HOP_BY_HOP_HEADERS.has(name.toLowerCase())) {
+          if (
+            !HOP_BY_HOP_HEADERS.has(name.toLowerCase()) &&
+            !name.toLowerCase().startsWith('x-rhythm-artifact-')
+          ) {
             res.setHeader(name, value);
           }
         }

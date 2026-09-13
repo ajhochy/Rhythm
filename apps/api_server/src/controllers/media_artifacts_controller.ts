@@ -24,6 +24,9 @@ export class MediaArtifactsController {
       if (userId === undefined || !store.canUserAccessArtifact(artifact, userId)) {
         throw AppError.notFound('Media artifact');
       }
+      res.set('X-Rhythm-Artifact-Owner-ID', String(userId));
+      res.set('X-Rhythm-Artifact-Project-ID', artifact.project);
+      res.set('X-Rhythm-Artifact-Session-ID', artifact.session);
       let range;
       try {
         range = parseByteRange(req.header('Range') ?? undefined, artifact.size);

@@ -1,0 +1,18 @@
+{
+  "issue": "ios-hosted-mobile-oauth",
+  "date": "2026-09-13",
+  "test_command": "node --test tests/contract/ios-hosted-mobile-oauth.test.mjs",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "task-ios-hosted-mobile-oauth-c1", "text": "Mobile login uses the fixed production cloud origin and fixed rhythmagents callback without native Google client or redirect variables.", "mode": "integration", "test": "tests/contract/ios-hosted-mobile-oauth.test.mjs", "status": "pass", "reason": "" },
+    { "criterion_id": "task-ios-hosted-mobile-oauth-c2", "text": "The app generates cryptographic app_state and PKCE locally, opens the hosted begin URL, and strictly validates the callback for one in-memory attempt.", "mode": "integration", "test": "tests/contract/ios-hosted-mobile-oauth.test.mjs", "status": "pass", "reason": "" },
+    { "criterion_id": "task-ios-hosted-mobile-oauth-c3", "text": "The app redeems once over HTTPS without ambiguous POST retry and explains expired or replayed handoffs as begin-fresh-login errors.", "mode": "integration", "test": "tests/contract/ios-hosted-mobile-oauth.test.mjs", "status": "pass", "reason": "" },
+    { "criterion_id": "task-ios-hosted-mobile-oauth-c4", "text": "Existing session restore remains unchanged and a returned Rhythm session is stored only after a valid redeem response.", "mode": "integration", "test": "tests/contract/ios-hosted-mobile-oauth.test.mjs", "status": "pass", "reason": "" },
+    { "criterion_id": "task-ios-hosted-mobile-oauth-c5", "text": "Cancellation is actionable without replacing the signed-in session, and account switch or concurrent attempts invalidate stale completion.", "mode": "integration", "test": "tests/contract/ios-hosted-mobile-oauth.test.mjs", "status": "pass", "reason": "" },
+    { "criterion_id": "task-ios-hosted-mobile-oauth-c6", "text": "Backend broker tests and a cross-stack contract prove the server callback and redeem shapes are consumed by mobile.", "mode": "integration", "test": "tests/contract/ios-hosted-mobile-oauth.test.mjs", "status": "pass", "reason": "" },
+    { "criterion_id": "task-ios-hosted-mobile-oauth-c7", "text": "Release preflight, app config, EAS production config, signed simulator build, and bundle inspection require no native Google client variables.", "mode": "integration", "test": "tests/contract/ios-hosted-mobile-oauth.test.mjs", "status": "pass", "reason": "" },
+    { "criterion_id": "task-ios-hosted-mobile-oauth-c8", "text": "No Google, web, or Rhythm token is placed in a deep link or logged; only bounded opaque code and state cross the callback.", "mode": "integration", "test": "tests/contract/ios-hosted-mobile-oauth.test.mjs", "status": "pass", "reason": "" },
+    { "criterion_id": "task-ios-hosted-mobile-oauth-c9", "text": "Real Google and Cloudflare/Synology sign-in plus real chat read and one designated send remain unaccepted until manager-run live verification.", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "Production OAuth and chat access are explicitly prohibited in this implementation run." }
+  ],
+  "not_tested": ["task-ios-hosted-mobile-oauth-c9"]
+}

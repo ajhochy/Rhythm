@@ -59,7 +59,7 @@ export function PairedMacSection({
             maxFontSizeMultiplier={1.6}
             variant="titleMedium"
             style={{ color: palette.text }}>
-            Paired Mac
+            Mac connection
           </Text>
           <Text
             accessibilityLiveRegion="polite"
@@ -117,7 +117,7 @@ export function PairedMacSection({
             disabled={!reachable}
             accessibilityLabel="Revoke this iPhone from the paired Mac"
             onPress={onRevoke}>
-            Revoke
+            Revoke iPhone access
           </Button>
         ) : null}
         {host ? (
@@ -125,7 +125,7 @@ export function PairedMacSection({
             maxFontSizeMultiplier={1.8}
             accessibilityLabel="Forget the paired Mac on this iPhone"
             onPress={onForget}>
-            Forget
+            Forget Mac
           </Button>
         ) : null}
       </View>

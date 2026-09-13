@@ -58,20 +58,9 @@ export function ChatComposer({
   showSendAction,
 }: ChatComposerProps) {
   const hasComposerContent = Boolean(draft.trim()) || attachments.length > 0;
-  const showOuterAction = showSendAction ? (hasComposerContent ? 'send' : 'attach') : 'stop';
-  const outerActionIcon = showOuterAction === 'attach' ? 'plus' : showOuterAction;
-  const outerActionDisabled =
-    showOuterAction === 'attach'
-      ? false
-      : showOuterAction === 'send'
-        ? ((!draft.trim() && attachments.length === 0) || connectionStatus !== 'connected' || isCreatingSession || isSpeechInputListening)
-        : connectionStatus !== 'connected' || !currentSessionId || isStoppingSession;
-  const innerActionIcon = hasComposerContent ? 'paperclip' : (isSpeechInputListening ? 'microphone-off' : 'microphone');
-  const innerActionDisabled = hasComposerContent
-    ? false
-    : conversation.active || connectionStatus !== 'connected' || (!isSpeechInputListening && !isSpeechInputAvailable);
-  const handleOuterActionPress = showOuterAction === 'attach' ? onAttach : onSend;
-  const handleInnerActionPress = hasComposerContent ? onAttach : onToggleRecording;
+  const sendDisabled = !hasComposerContent || connectionStatus !== 'connected' || isCreatingSession || isSpeechInputListening;
+  const stopDisabled = connectionStatus !== 'connected' || !currentSessionId || isStoppingSession;
+  const dictationDisabled = conversation.active || connectionStatus !== 'connected' || (!isSpeechInputListening && !isSpeechInputAvailable);
 
   return (
     <Surface
@@ -127,9 +116,20 @@ export function ChatComposer({
       ) : null}
 
       <View style={styles.composerDockRow}>
+        <View testID="chat-attachment-button">
+          <IconButton
+            accessibilityLabel="Add attachment"
+            accessibilityRole="button"
+            icon="plus"
+            size={20}
+            style={styles.composerPrimaryButton}
+            onPress={onAttach}
+          />
+        </View>
         <View style={[styles.inputShell, styles.inputShellFlex, { borderColor: palette.border, backgroundColor: palette.background }]}>
           <View style={styles.composerRow}>
             <TextInput
+               accessibilityLabel="Message"
                testID="chat-prompt-input"
                value={draft}
                onChangeText={onDraftChange}
@@ -163,30 +163,39 @@ export function ChatComposer({
               onPress={Keyboard.dismiss}
             />
 
-            <IconButton
-              testID="chat-secondary-button"
-              icon={innerActionIcon}
-              size={20}
-              selected={!hasComposerContent && isSpeechInputListening}
-              style={styles.composerVoiceButton}
-              disabled={innerActionDisabled}
-              onPress={handleInnerActionPress}
-            />
+            <View testID="chat-dictation-button">
+              <IconButton
+                accessibilityLabel={isSpeechInputListening ? 'Stop dictation' : 'Start dictation'}
+                accessibilityRole="button"
+                testID="chat-secondary-button"
+                icon={isSpeechInputListening ? 'microphone-off' : 'microphone'}
+                size={20}
+                selected={isSpeechInputListening}
+                style={styles.composerVoiceButton}
+                disabled={dictationDisabled}
+                onPress={onToggleRecording}
+              />
+            </View>
           </View>
         </View>
 
-        <IconButton
-          testID="chat-primary-button"
-          mode="contained"
-          icon={outerActionIcon}
-          size={20}
-          style={styles.composerPrimaryButton}
-          containerColor={palette.tint}
-          iconColor={palette.surface}
-          loading={showOuterAction === 'stop' && isStoppingSession}
-          disabled={outerActionDisabled}
-          onPress={handleOuterActionPress}
-        />
+        <View testID={showSendAction ? 'chat-send-button' : 'chat-stop-button'}>
+          <IconButton
+            accessibilityLabel={showSendAction ? 'Send message' : 'Stop response'}
+            accessibilityRole="button"
+            accessibilityState={{ busy: !showSendAction && isStoppingSession }}
+            testID="chat-primary-button"
+            mode="contained"
+            icon={showSendAction ? 'send' : 'stop'}
+            size={20}
+            style={styles.composerPrimaryButton}
+            containerColor={palette.tint}
+            iconColor={palette.surface}
+            loading={!showSendAction && isStoppingSession}
+            disabled={showSendAction ? sendDisabled : stopDisabled}
+            onPress={onSend}
+          />
+        </View>
       </View>
     </Surface>
   );

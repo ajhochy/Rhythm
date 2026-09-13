@@ -53,6 +53,13 @@ const mockSessions = [
     updatedAt: 1,
   },
 ];
+let mockChatState = {
+  error: null as string | null,
+  isLoading: false,
+  isOfflineCache: false,
+  isOnline: true,
+  sessions: mockSessions,
+};
 
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush }) }));
 jest.mock('@/components/chat/session-configuration-sheet', () => ({
@@ -74,15 +81,15 @@ jest.mock('@/providers/agent-chat-provider', () => ({
   useAgentChat: () => ({
     archiveChat: mockArchiveChat,
     deleteChat: mockDeleteChat,
-    error: null,
+    error: mockChatState.error,
     forkChat: mockForkChat,
-    isLoading: false,
-    isOfflineCache: false,
-    isOnline: true,
+    isLoading: mockChatState.isLoading,
+    isOfflineCache: mockChatState.isOfflineCache,
+    isOnline: mockChatState.isOnline,
     refresh: mockRefresh,
     renameChat: mockRenameChat,
     restoreChat: mockRestoreChat,
-    sessions: mockSessions,
+    sessions: mockChatState.sessions,
   }),
 }));
 
@@ -120,12 +127,19 @@ describe('ChatList hierarchy', () => {
   afterEach(() => {
     cleanup();
     jest.clearAllMocks();
+    mockChatState = {
+      error: null,
+      isLoading: false,
+      isOfflineCache: false,
+      isOnline: true,
+      sessions: mockSessions,
+    };
   });
 
   test('task-mobile-agents-session-list-c1: compact rows replace outlined cards', () => {
     // Regression caught: restoring Card rows makes the session list visually noisy.
     const view = screen().getByTestId('chat-row-parent');
-    expect(StyleSheet.flatten(view.props.style)).toEqual(expect.objectContaining({ minHeight: 56 }));
+    expect(StyleSheet.flatten(view.props.style)).toEqual(expect.objectContaining({ minHeight: 72 }));
     expect(StyleSheet.flatten(view.props.style)).not.toEqual(expect.objectContaining({ borderWidth: expect.anything() }));
   });
 
@@ -251,5 +265,49 @@ describe('ChatList hierarchy', () => {
     // Regression caught: vertically centered row text creates a 39–41 point row-open touch target.
     const rowOpen = screen().getByTestId('chat-row-open-parent');
     expect(StyleSheet.flatten(rowOpen.props.style)).toEqual(expect.objectContaining({ alignSelf: 'stretch', minHeight: 44 }));
+  });
+
+  test('task-ios-mobile-ui-c2: visible controls expose current filters and clear them', () => {
+    // Regression caught: project/state filters are hidden in overflow with no visible way to clear them.
+    const active = controller();
+    active.projectId = '/projects/alpha';
+    active.lifecycle = 'active';
+    const rendered = render(
+      <PaperProvider>
+        <ChatList controller={active} />
+      </PaperProvider>,
+    );
+
+    expect(rendered.getByRole('button', { name: 'New chat' })).toBeTruthy();
+    expect(rendered.getByText('Alpha project')).toBeTruthy();
+    expect(rendered.getByText('Active')).toBeTruthy();
+    fireEvent.press(rendered.getByRole('button', { name: 'Clear filters' }));
+    expect(active.setProjectId).toHaveBeenCalledWith(null);
+    expect(active.setLifecycle).toHaveBeenCalledWith('all');
+  });
+
+  test('task-ios-mobile-ui-c2-refresh: refresh failure keeps existing rows and shows retry feedback', () => {
+    // Regression caught: a refresh error replaces already loaded chats with an empty error state.
+    mockChatState.error = 'Mac did not respond';
+    const rendered = screen();
+
+    expect(rendered.getByText('Parent chat')).toBeTruthy();
+    expect(rendered.getByText('Mac did not respond')).toBeTruthy();
+    expect(rendered.getByRole('button', { name: 'Try again' })).toBeTruthy();
+  });
+
+  test('task-ios-mobile-ui-c2-empty: an empty account invites the first chat', () => {
+    // Regression caught: an empty account is mislabeled as a filtered result.
+    mockChatState.sessions = [];
+    const empty = screen();
+    expect(empty.getByText('No chats yet')).toBeTruthy();
+  });
+
+  test('task-ios-mobile-ui-c2-filtered-empty: filtered empty results offer Clear filters', () => {
+    // Regression caught: an empty search looks like an account with no chats.
+    const filtered = screen();
+    fireEvent.changeText(filtered.getByLabelText('Search chats'), 'not-a-chat');
+    expect(filtered.getByText('No matching chats')).toBeTruthy();
+    expect(filtered.getByRole('button', { name: 'Clear filters' })).toBeTruthy();
   });
 });
