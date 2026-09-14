@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {
+  env,
   resolveLiveArtifactStorageDir,
   resolveRelayArtifactStorageDir,
 } from '../config/env';
@@ -41,6 +42,8 @@ import { logger } from '../utils/logger';
 export interface RelayGatewayRouterDependencies {
   uplink?: RelayUplinkServer;
   ownershipRepository?: MobileOpenCodeOwnershipReader;
+  relayPublicUrl?: string | null;
+  allowInsecureLoopbackForTests?: boolean;
 }
 
 const HOP_BY_HOP_HEADERS = new Set([
@@ -55,6 +58,34 @@ const HOP_BY_HOP_HEADERS = new Set([
 ]);
 const ARTIFACT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 const MAX_DEVICE_NAME_LENGTH = 128;
+
+function validatedRelayPublicUrl(
+  value: string | null | undefined,
+  allowInsecureLoopbackForTests = false,
+): string {
+  if (!value) throw AppError.internal('Relay public URL is not configured');
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw AppError.internal('Relay public URL is invalid');
+  }
+  const testLoopback =
+    allowInsecureLoopbackForTests &&
+    url.protocol === 'http:' &&
+    ['127.0.0.1', '::1', 'localhost'].includes(url.hostname.toLowerCase());
+  if (
+    (url.protocol !== 'https:' && !testLoopback) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    (url.port && !testLoopback)
+  ) {
+    throw AppError.internal('Relay public URL is invalid');
+  }
+  return url.toString().replace(/\/$/, '');
+}
 
 function relayProject(req: Request): { id: string; root: string } {
   const projectId = req.header('X-Rhythm-Project-ID')?.trim();
@@ -203,6 +234,7 @@ export function createRelayGatewayRouter(
     },
   });
   const requireDevice = requireMobileDevice(getMobilePairingService);
+  const configuredRelayPublicUrl = dependencies.relayPublicUrl ?? env.relayPublicUrl;
   const liveSseResponses = new Set<Response>();
   uplink.onResynced(() => {
     for (const response of liveSseResponses) response.end();
@@ -254,6 +286,11 @@ export function createRelayGatewayRouter(
           res.status(503).json({ error: 'mac_offline' });
           return;
         }
+        const gatewayBaseUrl = validatedRelayPublicUrl(
+          configuredRelayPublicUrl,
+          dependencies.allowInsecureLoopbackForTests ??
+            env.relayAllowInsecureLoopbackForTests,
+        );
         const response = await uplink.sendRpc({
           method: 'POST',
           path: '/mobile-gateway/bootstrap/connect',
@@ -283,15 +320,13 @@ export function createRelayGatewayRouter(
         ) {
           throw AppError.internal('Invalid bootstrap grant');
         }
-        const origin = `${req.protocol}://${req.get('host')}`;
         res.setHeader('Cache-Control', 'no-store');
         res.status(201).json({
           environmentId: enrollment.hostId,
           hostId: enrollment.hostId,
           deviceId: grant.deviceId,
           deviceToken: grant.deviceToken,
-          gatewayBaseUrl: new URL('/relay/mobile-gateway', origin).toString()
-            .replace(/\/$/, ''),
+          gatewayBaseUrl,
         });
       } catch (error) {
         next(error instanceof AppError ? error : AppError.internal());

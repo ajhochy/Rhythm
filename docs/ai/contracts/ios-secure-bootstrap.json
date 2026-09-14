@@ -1,6 +1,6 @@
 {
   "issue": "ios-secure-bootstrap-b1",
-  "date": "2026-09-12",
+  "date": "2026-09-14",
   "test_command": "npx vitest run src/contract/ios_secure_bootstrap.test.ts src/__tests__/ios_secure_bootstrap_live_e2e.test.ts --no-file-parallelism",
   "waiver": null,
   "criteria": [
@@ -14,7 +14,7 @@
     },
     {
       "criterion_id": "task-ios-secure-bootstrap-c2",
-      "text": "POST /relay/mobile-environments/:id/connect validates bounded deviceName, returns the canonical {environmentId,hostId,deviceId,deviceToken,gatewayBaseUrl} account-bound grant using existing pairing/device lifecycle and a safe same-origin relay gateway URL; unauthorized environment is 404; no token/body logging.",
+      "text": "POST /relay/mobile-environments/:id/connect validates bounded deviceName and returns the canonical {environmentId,hostId,deviceId,deviceToken,gatewayBaseUrl} account-bound grant using the validated server-controlled RHYTHM_RELAY_PUBLIC_URL. TLS-terminating proxy Host/X-Forwarded-* headers and request input cannot redirect the grant; unauthorized environment is 404; no token/body logging.",
       "mode": "integration",
       "test": "apps/api_server/src/contract/ios_secure_bootstrap.test.ts",
       "status": "pass",
@@ -66,7 +66,7 @@
       "mode": "live",
       "test": "apps/api_server/src/__tests__/ios_secure_bootstrap_live_e2e.test.ts",
       "status": "pass",
-      "reason": "Manager canonical live command passed 1/1 against the managed dual-role sandbox on engine 4397, API 4398, gateway 4399, and relay 4400. It observed relay discovery/connect returning gatewayBaseUrl, Device authentication, and GET /projects; down released all ports and source fixture hashes were unchanged."
+      "reason": "2026-09-14 managed dual-role rerun passed 1/1 on unique ports engine 48971, API 48972, gateway 48973, relay 48974. It observed the canonical configured relay base, Device authentication, health, and projects; scoped down released every port and the source fixture hash was unchanged."
     },
     {
       "criterion_id": "task-ios-secure-bootstrap-c9",
@@ -110,11 +110,11 @@
     },
     {
       "criterion_id": "task-ios-secure-bootstrap-c14",
-      "text": "Build API and fork as required, create sanitized synthetic fixture without outputting bearer, start only through enhanced sandbox on unique free ports local API4198 engine4197 gateway4199 relay4200.",
+      "text": "Build API and fork as required, use a sanitized synthetic fixture without outputting bearer, and start only through the enhanced sandbox on preflight-verified unique free ports.",
       "mode": "live",
       "test": "apps/api_server/src/__tests__/ios_secure_bootstrap_live_e2e.test.ts",
       "status": "pass",
-      "reason": "Fork and API built, and sandbox.sh alone started 4198/4197/4199/4200 from the approved synthetic fixture."
+      "reason": "Fork and API built, and sandbox.sh alone started engine 48971, API 48972, gateway 48973, and relay 48974 from the approved synthetic fixture."
     },
     {
       "criterion_id": "task-ios-secure-bootstrap-c15",
@@ -122,7 +122,7 @@
       "mode": "integration",
       "test": "tools/dev/sandbox_dual_role_test.sh",
       "status": "pass",
-      "reason": "Down removed the sandbox, all ports were free, hashes matched, and final focused compatibility passed 57 with 1 env-gated skip."
+      "reason": "Down removed the sandbox, all ports were free, the fixture hash matched, and final focused compatibility passed 60 with 1 env-gated skip."
     },
     {
       "criterion_id": "task-ios-secure-bootstrap-c16",
@@ -131,6 +131,14 @@
       "test": "tools/dev/sandbox_dual_role_test.sh",
       "status": "pass",
       "reason": "The managed topology uses exactly local/all and relay API roles; no cloud-auth process or hand-started server was needed."
+    },
+    {
+      "criterion_id": "task-ios-secure-bootstrap-c17",
+      "text": "The actual mobile relay parser accepts only its configured canonical HTTPS relay base. Every signed-in terminal bootstrap failure renders sanitized error detail with an explicit user-triggered retry and never falls through to manual pairing or a false empty chat state.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/relay-transport-contract.test.ts; apps/mobile/tests/contract/ios-account-connect.test.mjs; apps/mobile/tests/chat/chat-list.test.tsx; apps/mobile/tests/settings/paired-mac-section.test.tsx",
+      "status": "pass",
+      "reason": "Targeted mobile parser/store/UI tests passed 41 assertions; full mobile static and Jest gates passed."
     }
   ],
   "not_tested": []

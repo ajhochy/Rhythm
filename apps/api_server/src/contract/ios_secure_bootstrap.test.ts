@@ -17,6 +17,7 @@ const PROJECT_ID = 'project-owner';
 const OWNER_ID = 42;
 const FOREIGN_ID = 84;
 const HOST_ID = 'host-enrolled-owner';
+const PUBLIC_RELAY_BASE = 'https://api.vcrcapps.com/relay';
 
 function parseWithMobileEnvironmentGrant(
   value: unknown,
@@ -150,6 +151,7 @@ describe.sequential('iOS secure bootstrap B1 acceptance contract', () => {
       headers: Record<string, string>;
       bodyB64: string;
     }> = async () => ({ status: 200, headers: { 'content-type': 'application/json' }, bodyB64: 'e30=' }),
+    relayPublicUrl?: string,
   ) {
     const { OpencodeEventHub } = await import('../services/opencode_event_hub');
     const { createRelayGatewayRouter } = await import('../routes/relay_gateway_routes');
@@ -167,14 +169,19 @@ describe.sequential('iOS secure bootstrap B1 acceptance contract', () => {
       sendRpc,
     };
     const app = express();
-    app.use(express.json());
-    app.use('/relay', createRelayGatewayRouter({ uplink: uplink as never }));
-    app.use(errorHandler);
     const server = http.createServer(app);
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
     const { port } = server.address() as AddressInfo;
-    return `http://127.0.0.1:${port}`;
+    const baseUrl = `http://127.0.0.1:${port}`;
+    app.use(express.json());
+    app.use('/relay', createRelayGatewayRouter({
+      uplink: uplink as never,
+      relayPublicUrl: relayPublicUrl ?? `${baseUrl}/relay`,
+      allowInsecureLoopbackForTests: relayPublicUrl === undefined,
+    }));
+    app.use(errorHandler);
+    return baseUrl;
   }
 
   it('task-ios-secure-bootstrap-c1: only the bound owner discovers the enrolled environment', async () => {
@@ -233,7 +240,7 @@ describe.sequential('iOS secure bootstrap B1 acceptance contract', () => {
       hostId: HOST_ID,
       deviceId: 'bootstrap-device',
       deviceToken: 'bootstrap-device-token',
-      gatewayBaseUrl: `${baseUrl}/relay/mobile-gateway`,
+      gatewayBaseUrl: `${baseUrl}/relay`,
     });
     expect(parseWithMobileEnvironmentGrant(firstGrantResponse, HOST_ID))
       .toEqual(firstGrantResponse);
@@ -264,6 +271,75 @@ describe.sequential('iOS secure bootstrap B1 acceptance contract', () => {
     expect(pairing.authenticateDevice(firstGrant.deviceToken)).toBeNull();
     expect(pairing.authenticateDevice(retriedGrant.deviceToken)?.userId)
       .toBe(state.ownerId);
+  });
+
+  it('task-ios-secure-bootstrap-c2-proxy: TLS termination cannot make request headers control the grant URL', async () => {
+    const state = await fixture();
+    vi.stubEnv('RHYTHM_RELAY_PUBLIC_URL', PUBLIC_RELAY_BASE);
+    const baseUrl = await startRelay(async () => ({
+      status: 201,
+      headers: { 'content-type': 'application/json' },
+      bodyB64: Buffer.from(JSON.stringify({
+        hostId: HOST_ID,
+        userId: state.ownerId,
+        deviceId: 'bootstrap-device',
+        deviceToken: 'bootstrap-device-token',
+      })).toString('base64'),
+    }), PUBLIC_RELAY_BASE);
+
+    const response = await fetch(
+      `${baseUrl}/relay/mobile-environments/${HOST_ID}/connect`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${state.ownerToken}`,
+          'Content-Type': 'application/json',
+          Host: 'attacker.invalid',
+          'X-Forwarded-Host': 'also-attacker.invalid',
+          'X-Forwarded-Proto': 'https',
+        },
+        body: JSON.stringify({ deviceName: 'AJ iPhone' }),
+      },
+    );
+    expect(response.status).toBe(201);
+    const grant = await response.json() as Record<string, unknown>;
+    expect(grant.gatewayBaseUrl).toBe(PUBLIC_RELAY_BASE);
+    expect(parseWithMobileEnvironmentGrant(grant, HOST_ID)).toEqual(grant);
+  });
+
+  it('task-ios-secure-bootstrap-c2-origin: invalid operator origins fail closed', async () => {
+    const state = await fixture();
+    const sendGrant = vi.fn(async () => ({
+      status: 201,
+      headers: { 'content-type': 'application/json' },
+      bodyB64: Buffer.from(JSON.stringify({
+        hostId: HOST_ID,
+        userId: state.ownerId,
+        deviceId: 'bootstrap-device',
+        deviceToken: 'bootstrap-device-token',
+      })).toString('base64'),
+    }));
+    for (const publicUrl of [
+      'http://api.vcrcapps.com/relay',
+      'https://user:password@api.vcrcapps.com/relay',
+      'https://api.vcrcapps.com/relay?redirect=https://attacker.invalid',
+    ]) {
+      const baseUrl = await startRelay(sendGrant, publicUrl);
+      const response = await fetch(
+        `${baseUrl}/relay/mobile-environments/${HOST_ID}/connect`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${state.ownerToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ deviceName: 'AJ iPhone' }),
+        },
+      );
+      expect(response.status).toBe(500);
+      expect(JSON.stringify(await response.json())).not.toContain('deviceToken');
+    }
+    expect(sendGrant).not.toHaveBeenCalled();
   });
 
   it('task-ios-secure-bootstrap-c3: an authenticated but unenrolled machine cannot claim the active uplink', async () => {

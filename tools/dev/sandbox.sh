@@ -68,6 +68,8 @@ relay_runtime_env=(
   "RHYTHM_ROLE=relay"
   "AGENT_LOCAL=false"
   "RHYTHM_NUMBAT_MONITORING_DISABLED=1"
+  "RHYTHM_RELAY_PUBLIC_URL=http://127.0.0.1:$RELAY_PORT/relay"
+  "RHYTHM_RELAY_ALLOW_INSECURE_LOOPBACK_FOR_TESTS=1"
 )
 if [[ "$RELAY_ENABLED" == 1 ]]; then
   runtime_env+=("RHYTHM_RELAY_URLS=ws://127.0.0.1:$RELAY_PORT/relay/uplink")
