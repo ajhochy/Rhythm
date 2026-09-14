@@ -125,8 +125,13 @@ WAIVED: this request mechanically assembles already-implemented, already-contrac
 - Prior `invalid_client` observations belong to the superseded direct-native
   Google flow and do not establish acceptance for this hosted-broker artifact.
   No screenshot content or private identifiers are recorded.
-- Production `/relay/mobile-environments` remains 404 because the candidate is
-  undeployed. No deploy or production mutation was attempted.
+- Hosted API candidate `9c027b52` is deployed. Manager-observed real hosted
+  Google OAuth completed and returned the app to Chats. A bootstrap 404 now
+  surfaces service unavailable with Retry; it does not enter manual pairing,
+  which remains a separate path rather than the Google-first fallback.
+- The relay candidate was rolled back after Mac reconnect was not confirmed.
+  Current state is the old relay reporting `macOnline`; matching desktop
+  installation and a relay update remain required.
 - Manager canonical bootstrap re-verification used only
   `tools/dev/sandbox.sh` on engine `4397`, API `4398`, gateway `4399`, and relay
   `4400` — PASS: 1/1. It observed relay discovery/connect `gatewayBaseUrl`,
@@ -138,11 +143,17 @@ WAIVED: this request mechanically assembles already-implemented, already-contrac
 
 - No commit, push, deploy, production mutation, credential use, or additional
   Simulator interaction beyond evidence capture is authorized.
-- Native UI beyond the observations above, actual successful
-  Cloudflare/Synology bootstrap, Google OAuth completion,
-  VoiceOver/contrast/keyboard, app performance, and final live chat open/send
-  remain `not_tested` and mandatory. No success claim is inferred from opening
-  Google UI.
+- Real hosted Google OAuth completed and returned the app to Chats. Manager
+  installed the refreshed artifact over the existing iOS 26.5 app; installed
+  `main.jsbundle` parity passed for SHA-256 `8ba5de77…`, and the candidate
+  executable SHA-256 is `baaf79cc…`. The app reopened authenticated without
+  another login after its data-container path changed, demonstrating SecureStore
+  session persistence. Manager screenshot evidence accepts only the intended
+  service-unavailable recovery with no pairing or empty-chat banner.
+  Matching desktop installation, relay update with confirmed Mac reconnect,
+  actual environment connection, VoiceOver/contrast/keyboard, app performance,
+  and final live chat open/read/designated-send remain `not_tested` and
+  mandatory. No desktop lifecycle operation is authorized here.
 - Required verification/deployment configuration: the hosted API retains its
   working Google web client ID/secret and exact HTTPS callback
   `https://api.vcrcapps.com/auth/google/callback`; Cloudflare routes
@@ -153,6 +164,6 @@ WAIVED: this request mechanically assembles already-implemented, already-contrac
   `/relay/mobile-environments`; durable enrolled
   `(host_id,user_id)` and matching Google subject/email identity binding. EAS
   authentication is required only if the release preflight itself must pass;
-  no submit/deployment is authorized. Real Google, Cloudflare/Synology,
-  VoiceOver/contrast/keyboard, performance, and live chat acceptance remain
-  manager-owned and untested.
+  no submit is authorized. Actual environment connection,
+  VoiceOver/contrast/keyboard, performance, and live chat read/designated-send
+  acceptance remain manager-owned and untested.

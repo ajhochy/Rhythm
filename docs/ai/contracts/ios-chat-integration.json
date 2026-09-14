@@ -52,7 +52,7 @@
       "mode": "manual",
       "test": null,
       "status": "UNVERIFIED",
-      "reason": "The exact hosted-broker candidate renders the sign-in surface on both target Simulators, but production is undeployed; authenticated whole-app navigation and tool recovery remain final live acceptance."
+      "reason": "Hosted API candidate 9c027b52 is deployed, real hosted Google OAuth returned the app to Chats, and the refreshed iOS 26.5 artifact was installed with main.jsbundle parity. Matching desktop installation, relay candidate/reconnect, authenticated environment navigation, and tool recovery remain not_tested."
     },
     {
       "criterion_id": "ios-chat-integration-c8",
@@ -75,7 +75,7 @@
       "mode": "manual",
       "test": null,
       "status": "UNVERIFIED",
-      "reason": "The exact candidate is installed with matching hashes on both target Simulators, but production OAuth/bootstrap is undeployed and final live chat open/read/send remains mandatory."
+      "reason": "Manager installed the refreshed iOS 26.5 artifact over the existing app. Installed main.jsbundle parity passed for SHA-256 8ba5de77816121ee668d325a780888541d4bdcb9ac720b0a395997ff4a52867d; the candidate executable SHA-256 is baaf79ccf656e1975af86d7637741e0e80cdfb8228ed0a1e251eb11673339e9f. The app reopened authenticated to Chats without another login after its data-container path changed, and manager screenshot evidence confirms the intended service-unavailable recovery with no duplicate pairing or empty-chat banner. The old relay remains healthy and untouched. Matching desktop installation, relay candidate/reconnect, environment discovery, and final chat open/read/designated-send remain not_tested; no desktop lifecycle operation is authorized here."
     }
   ],
   "not_tested": [

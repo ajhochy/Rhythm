@@ -2333,7 +2333,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     if (!pairedHostClient && Platform.OS !== 'web') {
       setConnection({
         status: 'idle',
-        message: 'Pair this iPhone with your Mac to use Rhythm Agents.',
+        message: pairedHostMessage,
       });
       return;
     }

@@ -30,6 +30,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { formatTimestamp } from '@/lib/opencode/format';
 import { useAgentChat } from '@/providers/agent-chat-provider';
 import { useOpencode } from '@/providers/opencode-provider';
+import { usePairedHost } from '@/providers/paired-host-provider';
 import {
   buildAgentChatReadModel,
   type AgentChatRecord,
@@ -85,6 +86,7 @@ export function ChatList({ controller }: ChatListProps) {
   const router = useRouter();
   const opencode = useOpencode();
   const chat = useAgentChat();
+  const pairedHost = usePairedHost();
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
   const [query, setQuery] = useState('');
@@ -122,6 +124,7 @@ export function ChatList({ controller }: ChatListProps) {
     });
   }, [collapsedIds, projectsByPath, query, readModel]);
   const hasFilters = Boolean(query.trim() || controller.projectId || controller.lifecycle !== 'all');
+  const connectionServiceUnavailable = pairedHost.bootstrapState === 'unsupported';
   const selectedProjectLabel = controller.projectId
     ? projectsByPath.get(controller.projectId)?.label ?? 'Selected project'
     : 'All projects';
@@ -246,7 +249,7 @@ export function ChatList({ controller }: ChatListProps) {
             Clear filters
           </Button>
         ) : null}
-        {chat.isOfflineCache ? (
+        {chat.isOfflineCache && !connectionServiceUnavailable ? (
           <Card
             testID="paired-mac-offline-state"
             accessibilityLabel="Offline saved chats. Actions are unavailable."
@@ -453,7 +456,15 @@ export function ChatList({ controller }: ChatListProps) {
           );
         }}
         ListEmptyComponent={
-          chat.isLoading ? (
+          connectionServiceUnavailable ? (
+            <ToolScreenState
+              actionLabel="Retry connection"
+              message={pairedHost.message}
+              onAction={() => void pairedHost.retryBootstrap().catch(() => undefined)}
+              state="error"
+              title="Connection service unavailable"
+            />
+          ) : chat.isLoading ? (
             <ToolScreenState state="loading" title="Loading chats" />
           ) : chat.error && !chat.isOfflineCache ? (
             <ToolScreenState

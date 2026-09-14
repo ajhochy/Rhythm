@@ -48,7 +48,7 @@ tags: [run, Rhythm]
 - Cloud Bearer is used only for `/relay/mobile-environments` discovery/grant calls. Existing chat transport continues to resolve the SecureStore device token and send `Authorization: Device`.
 - Device tokens are written only to SecureStore; host/environment metadata remains secret-free in AsyncStorage.
 - Provider contract adds `bootstrapState`, `environments`, `connectEnvironment`, and `retryBootstrap`; no screen/component changes were made.
-- Manual pairing remains available when discovery returns 404 (unsupported deployment).
+- Current integrated behavior supersedes this slice's original 404 fallback: bootstrap 404 surfaces service unavailable with Retry and does not enter manual pairing. Manual pairing remains a separate path, not the Google-first fallback.
 - Sandbox/native runtime was not started because approved fixture variables are unavailable and the sandbox fails closed as required.
 - Native Google/Cloudflare acceptance is **not_tested** pending the integrated exact artifact and manager observation.
 - No production access, credentials, deploy, push, commit, or manual server start occurred.

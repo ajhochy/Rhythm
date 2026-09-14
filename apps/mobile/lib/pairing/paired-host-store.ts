@@ -655,7 +655,7 @@ export class PairedHostStore {
         this.bootstrapState = 'unsupported';
         return this.apply(
           'unpaired',
-          'This Rhythm deployment does not support account connection. Pair this iPhone manually.',
+          'The connection service is unavailable. A Rhythm Cloud update may be required. Retry after the service is updated.',
           null,
         );
       }

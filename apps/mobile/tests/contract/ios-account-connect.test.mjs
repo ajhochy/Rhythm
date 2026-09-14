@@ -193,15 +193,42 @@ test('A1-c5 restore avoids cloud bootstrap and revoked grant bootstraps exactly 
   assert.equal(revokedCloud.calls.filter(({ path }) => path.endsWith('/connect')).length, 1);
 });
 
-test('A1-c6 unsupported discovery preserves manual pairing fallback', async () => {
+test('A1-c6 signed-in account can explicitly retry an unavailable bootstrap service', async () => {
   __reset();
   const store = new PairedHostStore(); store.setAccountUserId(7);
-  const result = await bootstrap(store, cloudClient(async () => {
-    throw new ApiError({ status: 404, code: 'NOT_FOUND', retryable: false });
-  }));
+  let available = false;
+  const client = cloudClient(async (path) => {
+    if (!available) {
+      throw new ApiError({ status: 404, code: 'NOT_FOUND', retryable: false });
+    }
+    return path === '/relay/mobile-environments' ? { environments: [ONLINE] } : GRANT;
+  });
+  const result = await bootstrap(store, client);
   assert.equal(result.state, 'unpaired');
-  assert.match(result.message, /pair.*manually/i);
-  assert.equal(typeof store.pair, 'function');
+  assert.equal(result.bootstrapState, 'unsupported');
+  assert.match(result.message, /connection service.*unavailable|update required/i);
+  assert.doesNotMatch(result.message, /pair/i);
+  assert.deepEqual(client.calls.map(({ path, init }) => [path, init.method]), [
+    ['/relay/mobile-environments', 'GET'],
+  ]);
+  await Promise.resolve();
+  assert.equal(client.calls.length, 1, '404 must not start an automatic retry loop');
+  assert.equal(__secure().has(PAIRED_DEVICE_SECURE_KEY), false);
+
+  available = true;
+  const recovered = await store.discoverAccountEnvironments(
+    client,
+    { userId: 7, deviceName: 'Rhythm iPhone' },
+  );
+  assert.equal(recovered.state, 'connected');
+  assert.deepEqual(client.calls.map(({ path, init }) => [path, init.method]), [
+    ['/relay/mobile-environments', 'GET'],
+    ['/relay/mobile-environments', 'GET'],
+    ['/relay/mobile-environments/env-1/connect', 'POST'],
+  ]);
+  assert.equal(__secure().get(PAIRED_DEVICE_SECURE_KEY), GRANT.deviceToken);
+  assert.doesNotMatch(JSON.stringify(recovered), new RegExp(GRANT.deviceToken));
+  assert.ok(client.calls.every((call) => !JSON.stringify(call).includes(GRANT.deviceToken)));
 });
 
 test('A1-c7 malicious cloud gateway URL is rejected before secret persistence', async () => {

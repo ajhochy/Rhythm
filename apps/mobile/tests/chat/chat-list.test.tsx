@@ -14,6 +14,7 @@ const mockArchiveChat = jest.fn();
 const mockRestoreChat = jest.fn();
 const mockForkChat = jest.fn();
 const mockDeleteChat = jest.fn();
+const mockRetryBootstrap = jest.fn(async () => undefined);
 
 const mockSessions = [
   {
@@ -60,6 +61,10 @@ let mockChatState = {
   isOnline: true,
   sessions: mockSessions,
 };
+let mockPairedHostState = {
+  bootstrapState: 'idle',
+  message: 'Offline',
+};
 
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush }) }));
 jest.mock('@/components/chat/session-configuration-sheet', () => ({
@@ -70,12 +75,19 @@ jest.mock('@/providers/opencode-provider', () => ({
     activeProjectPath: '/projects/alpha',
     availableModels: [],
     chatPreferences: {},
+    connection: {
+      message: 'Pair this iPhone with your Mac to use Rhythm Agents.',
+      status: 'idle',
+    },
     configuredProviders: [],
     projects: [{ label: 'Alpha project', path: '/projects/alpha' }],
   }),
 }));
 jest.mock('@/providers/paired-host-provider', () => ({
-  usePairedHost: () => ({ message: 'Offline' }),
+  usePairedHost: () => ({
+    ...mockPairedHostState,
+    retryBootstrap: mockRetryBootstrap,
+  }),
 }));
 jest.mock('@/providers/agent-chat-provider', () => ({
   useAgentChat: () => ({
@@ -133,6 +145,10 @@ describe('ChatList hierarchy', () => {
       isOfflineCache: false,
       isOnline: true,
       sessions: mockSessions,
+    };
+    mockPairedHostState = {
+      bootstrapState: 'idle',
+      message: 'Offline',
     };
   });
 
@@ -301,6 +317,26 @@ describe('ChatList hierarchy', () => {
     mockChatState.sessions = [];
     const empty = screen();
     expect(empty.getByText('No chats yet')).toBeTruthy();
+  });
+
+  test('signed-in bootstrap 404 shows truthful recovery and retries only on press', () => {
+    // Regression caught: stale offline-cache copy renders a duplicate manual-pair warning behind recovery.
+    mockChatState.sessions = [];
+    mockChatState.isOnline = false;
+    mockChatState.isOfflineCache = true;
+    mockPairedHostState = {
+      bootstrapState: 'unsupported',
+      message: 'The connection service is unavailable. A Rhythm Cloud update may be required.',
+    };
+    const unavailable = screen();
+
+    expect(unavailable.getByText('Connection service unavailable')).toBeTruthy();
+    expect(unavailable.getByText('The connection service is unavailable. A Rhythm Cloud update may be required.')).toBeTruthy();
+    expect(unavailable.queryByText('No chats yet')).toBeNull();
+    expect(unavailable.queryByText(/pair this iPhone/i)).toBeNull();
+    expect(mockRetryBootstrap).not.toHaveBeenCalled();
+    fireEvent.press(unavailable.getByRole('button', { name: 'Retry connection' }));
+    expect(mockRetryBootstrap).toHaveBeenCalledTimes(1);
   });
 
   test('task-ios-mobile-ui-c2-filtered-empty: filtered empty results offer Clear filters', () => {

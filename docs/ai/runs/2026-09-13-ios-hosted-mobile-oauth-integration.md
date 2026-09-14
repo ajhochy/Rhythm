@@ -44,9 +44,22 @@ tags: [run, Rhythm]
 
 ## Notes
 
+- Post-verification reconciliation (`6ac19d1b`): hosted API candidate
+  `9c027b52` is deployed, and manager-observed real hosted Google OAuth
+  completed and returned the app to Chats. Actual environment connection, chat
+  read, and one designated send remain `not_tested`.
+- Manager installed the refreshed artifact over the existing iOS 26.5 app.
+  Installed `main.jsbundle` parity passed for SHA-256 `8ba5de77…`; candidate
+  executable SHA-256 is `baaf79cc…`. Although the Simulator data-container path
+  changed, the app reopened authenticated to Chats without another login,
+  demonstrating that the Google session persisted in SecureStore.
+- The relay candidate was rolled back after Mac reconnect was not confirmed.
+  Current state is the old relay reporting `macOnline`; matching desktop
+  installation and a relay update remain required. No desktop lifecycle
+  operation is authorized in this reconciliation.
 - Source worktree verified at `rhythm-ios-oauth` on `feature/ios-hosted-oauth`; target verified at `rhythm-ios-integration` on `feature/ios-end-to-end`.
-- No production, Google, Cloudflare, Synology, or live chat operation is authorized in this run.
+- The implementation run authorized no production, Google, Cloudflare, Synology, or live chat operation; the later manager evidence recorded above is reconciliation only.
 - Mobile route sequence: `RhythmAccountProvider` → local 256-bit verifier/state + S256 challenge → ASWebAuthenticationSession `GET https://api.vcrcapps.com/auth/google/mobile-begin` → existing web Google OAuth/callback → exact `rhythmagents://oauth/callback?code=<opaque>&state=<same>` → strict callback validation → one `POST /auth/google/mobile-redeem` with exactly `{code,codeVerifier}` → validate `{sessionToken,user}` → existing SecureStore persistence.
 - Cancellation restores the provider's prior signed-in state; sign-out/account switch and a newer login operation invalidate stale completion. HTTP 409/replay/expiry is surfaced as “Start a fresh login”; the non-idempotent redeem is never retried.
-- Deployment prerequisites: deploy these API routes and broker to the single hosted API process; retain the working web Google client ID/secret and exact HTTPS callback `https://api.vcrcapps.com/auth/google/callback`; ensure Cloudflare forwards begin/callback/redeem to the same process; keep authorized/preprovisioned user policy; ship the app with production origin and fixed `rhythmagents` scheme. No schema or database rollout is required.
-- Not accepted here: real Google login, Cloudflare/Synology behavior, chats/read-only behavior, or the designated real chat send. Those remain manager-run post-deployment checks.
+- Deployed configuration: hosted API candidate `9c027b52` runs these routes and broker in the single hosted API process; retain the working web Google client ID/secret and exact HTTPS callback `https://api.vcrcapps.com/auth/google/callback`; keep Cloudflare forwarding begin/callback/redeem to that same process and preserve authorized/preprovisioned user policy. No schema or database rollout is required.
+- Accepted later by manager evidence: real hosted Google login returned the app to Chats, the refreshed artifact was installed with bundle parity, and the authenticated session persisted. Still not accepted: matching desktop installation, relay candidate/reconnect, environment discovery, chat read, and the designated real chat send.
