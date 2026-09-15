@@ -178,15 +178,55 @@ function idleEvalDebounceMs(): number {
 }
 
 let _idleEvalTimer: ReturnType<typeof setTimeout> | null = null;
+let _idleEvalInFlight: Promise<unknown> | null = null;
+let _idleEvalFollowupRequested = false;
+let _idleEvalFollowupRunFn: (() => Promise<unknown>) | null = null;
+let _idleEvalGeneration = 0;
+
+function armIdleEvaluationTimer(runFn: () => Promise<unknown>, generation: number): void {
+  const timer = setTimeout(() => {
+    if (generation !== _idleEvalGeneration || _idleEvalTimer !== timer) return;
+    _idleEvalTimer = null;
+
+    // Defer invocation into the promise chain so both synchronous throws and
+    // asynchronous rejections follow the same non-fatal cleanup path.
+    const run = Promise.resolve().then(runFn);
+    _idleEvalInFlight = run;
+    run.then(
+      () => settleIdleEvaluation(run, generation),
+      (err) => {
+        logger.warn(`[harvest-eval] scheduled evaluation failed (non-fatal): ${String(err)}`);
+        settleIdleEvaluation(run, generation);
+      },
+    );
+  }, idleEvalDebounceMs());
+  // Don't hold the process open for this alone (mirrors other background
+  // timers in this codebase, e.g. agent_runner.ts's deadline races).
+  timer.unref?.();
+  _idleEvalTimer = timer;
+}
+
+function settleIdleEvaluation(run: Promise<unknown>, generation: number): void {
+  if (generation !== _idleEvalGeneration || _idleEvalInFlight !== run) return;
+  _idleEvalInFlight = null;
+
+  if (!_idleEvalFollowupRequested) return;
+  const followupRunFn = _idleEvalFollowupRunFn ?? evaluateHarvestedDrafts;
+  _idleEvalFollowupRequested = false;
+  _idleEvalFollowupRunFn = null;
+  armIdleEvaluationTimer(followupRunFn, generation);
+}
 
 /**
  * Fire-and-forget scheduling replacement for the old per-turn
  * `evaluateHarvestedDrafts()` call. If a sweep is already pending, this is a
  * no-op — the pending sweep will run once the idle window elapses regardless
  * of how many more turns complete before then, so a burst of turns collapses
- * into exactly one evaluation pass. Never throws; the eventual sweep's own
- * rejection is caught here (mirrors evaluateHarvestedDrafts's own posture, and
- * the old call sites' `.catch(...)` handling this same way).
+ * into exactly one evaluation pass. A completion observed while a sweep is
+ * running requests one coalesced follow-up after that sweep settles and a new
+ * idle window elapses. Never throws; the eventual sweep's own rejection is
+ * caught here (mirrors evaluateHarvestedDrafts's own posture, and the old call
+ * sites' `.catch(...)` handling this same way).
  *
  * `runFn` is an injectable seam for tests (defaults to the real
  * {@link evaluateHarvestedDrafts}) — production callers (agent_runner.ts,
@@ -196,22 +236,24 @@ export function scheduleIdleEvaluation(
   runFn: () => Promise<unknown> = evaluateHarvestedDrafts,
 ): void {
   if (_idleEvalTimer) return; // already pending — coalesce
-  const timer = setTimeout(() => {
-    _idleEvalTimer = null;
-    Promise.resolve(runFn()).catch((err) =>
-      logger.warn(`[harvest-eval] scheduled evaluation failed (non-fatal): ${String(err)}`),
-    );
-  }, idleEvalDebounceMs());
-  // Don't hold the process open for this alone (mirrors other background
-  // timers in this codebase, e.g. agent_runner.ts's deadline races).
-  timer.unref?.();
-  _idleEvalTimer = timer;
+  if (_idleEvalInFlight) {
+    _idleEvalFollowupRequested = true;
+    _idleEvalFollowupRunFn ??= runFn;
+    return;
+  }
+  armIdleEvaluationTimer(runFn, _idleEvalGeneration);
 }
 
 /** Test-only: cancel any pending idle-evaluation timer + reset state. */
 export function _resetIdleEvaluationForTests(): void {
+  _idleEvalGeneration++;
   if (_idleEvalTimer) clearTimeout(_idleEvalTimer);
   _idleEvalTimer = null;
+  _idleEvalInFlight = null;
+  _idleEvalFollowupRequested = false;
+  _idleEvalFollowupRunFn = null;
+  _evaluationGeneration++;
+  _evaluationInFlight = null;
 }
 
 class HarvestJudgeTimeoutError extends Error {
@@ -538,7 +580,25 @@ async function rewriteFlaggedDrafts(
  * throws; each draft's evaluation is individually guarded so one bad draft
  * can't block the rest.
  */
-export async function evaluateHarvestedDrafts(deps: EvaluateDeps = {}): Promise<EvaluateSummary> {
+let _evaluationInFlight: Promise<EvaluateSummary> | null = null;
+let _evaluationGeneration = 0;
+
+export function evaluateHarvestedDrafts(deps: EvaluateDeps = {}): Promise<EvaluateSummary> {
+  if (_evaluationInFlight) return _evaluationInFlight;
+
+  const generation = _evaluationGeneration;
+  const run = Promise.resolve().then(() => evaluateHarvestedDraftsOnce(deps));
+  _evaluationInFlight = run;
+  const release = (): void => {
+    if (generation === _evaluationGeneration && _evaluationInFlight === run) {
+      _evaluationInFlight = null;
+    }
+  };
+  run.then(release, release);
+  return run;
+}
+
+async function evaluateHarvestedDraftsOnce(deps: EvaluateDeps): Promise<EvaluateSummary> {
   try {
     // Hard guard: the real judge must never run under test. A test that wants
     // to exercise this path injects deps.scorer AND clears VITEST/NODE_ENV.
@@ -551,14 +611,25 @@ export async function evaluateHarvestedDrafts(deps: EvaluateDeps = {}): Promise<
     const agentConfigsRepo = deps.agentConfigsRepo ?? new AgentConfigsRepository();
     const judgeTimeoutMs = deps.judgeTimeoutMs ?? harvestJudgeTimeoutMs();
 
-    const uses = countUses();
     const dependedOnSkillNames = collectDependedOnSkillNames(agentConfigsRepo);
     const summary: EvaluateSummary = { ...EMPTY_SUMMARY };
+    let uses: Map<string, number> | null = null;
+    let usageScanFailed = false;
 
     for (const name of listDraftSkillNames()) {
       try {
         const draft = readDraftSkill(name);
         if (!draft || draft.frontmatter.status !== 'draft') continue; // already evaluated or unknown shape
+
+        if (!uses && !usageScanFailed) {
+          try {
+            uses = countUses();
+          } catch (err) {
+            usageScanFailed = true;
+            logger.warn(`[harvest-eval] usage count failed (non-fatal): ${String(err)}`);
+          }
+        }
+        if (!uses) continue;
 
         const count = uses.get(name) ?? 0;
         if (count < evalThreshold()) continue;

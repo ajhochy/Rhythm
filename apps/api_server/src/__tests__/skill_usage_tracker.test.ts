@@ -16,6 +16,10 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 
 import { runMigrations } from '../database/migrations';
 import { setDb, getDb } from '../database/db';
@@ -271,4 +275,183 @@ describe('countSkillToolUses', () => {
 
     expect(countSkillToolUses().get('rebuild-abi')).toBe(2);
   });
+
+  it('agent-server-memory-c1: preserves exact counts across malformed rows, same-timestamp edits, and deletes', () => {
+    seedSession('sess-live');
+    const db = getDb();
+    const insert = db.prepare(
+      `INSERT INTO agent_session_messages
+         (session_id, role, raw_text, stripped_text, sdk_message_id, parts_json, created_at)
+       VALUES (?, 'output', '', '', ?, ?, '2026-09-15T00:00:00.000Z')`,
+    );
+
+    insert.run('sess-live', 'msg-a', JSON.stringify([
+      skillToolPart('  rebuild-abi  '),
+      skillToolPart('rebuild-abi'),
+      skillToolPart('other-skill'),
+      null,
+      42,
+      { type: 'tool', tool: 'skill', state: { status: 'completed', input: { name: '' } } },
+    ]));
+    insert.run('sess-live', 'msg-malformed', '{not-json');
+    insert.run('sess-live', 'msg-object', JSON.stringify({ type: 'tool', tool: 'skill' }));
+
+    expect(Object.fromEntries(countSkillToolUses())).toEqual({
+      'rebuild-abi': 2,
+      'other-skill': 1,
+    });
+
+    // Keep created_at unchanged: an implementation must observe data changes,
+    // rather than return a timestamp-keyed cached aggregate.
+    db.prepare(
+      `UPDATE agent_session_messages SET parts_json = ?
+       WHERE session_id = 'sess-live' AND sdk_message_id = 'msg-a'`,
+    ).run(JSON.stringify([skillToolPart('replacement-skill')]));
+    expect(Object.fromEntries(countSkillToolUses())).toEqual({ 'replacement-skill': 1 });
+
+    db.prepare(
+      `DELETE FROM agent_session_messages
+       WHERE session_id = 'sess-live' AND sdk_message_id = 'msg-a'`,
+    ).run();
+    expect(countSkillToolUses().size).toBe(0);
+  });
+
+  it('matches JSON.parse last-key-wins semantics for duplicate metadata keys at every nested level', () => {
+    seedSession('sess-duplicates');
+    const insert = getDb().prepare(
+      `INSERT INTO agent_session_messages
+         (session_id, role, raw_text, stripped_text, sdk_message_id, parts_json)
+       VALUES ('sess-duplicates', 'output', '', '', ?, ?)`,
+    );
+
+    // Each decisive property is duplicated. JSON.parse keeps its last value,
+    // so this part is one completed use of final-name.
+    insert.run(
+      'duplicate-valid',
+      '[{"type":"text","type":"tool","tool":"bash","tool":"skill",' +
+        '"state":null,"state":{"status":"pending","status":"completed",' +
+        '"input":42,"input":{"name":"old-name","name":"  final-name  "}}}]',
+    );
+
+    // The same duplicate shapes in the opposite order must not count: their
+    // final values make the part, state, status, input, or name ineligible.
+    insert.run(
+      'duplicate-invalid',
+      '[' +
+        '{"type":"tool","type":"text","tool":"skill","state":{"status":"completed","input":{"name":"wrong-type"}}},' +
+        '{"type":"tool","tool":"skill","tool":"bash","state":{"status":"completed","input":{"name":"wrong-tool"}}},' +
+        '{"type":"tool","tool":"skill","state":{"status":"completed","input":{"name":"wrong-state"}},"state":null},' +
+        '{"type":"tool","tool":"skill","state":{"status":"completed","status":"error","input":{"name":"wrong-status"}}},' +
+        '{"type":"tool","tool":"skill","state":{"status":"completed","input":{"name":"wrong-input"},"input":42}},' +
+        '{"type":"tool","tool":"skill","state":{"status":"completed","input":{"name":"wrong-name","name":42}}}' +
+      ']',
+    );
+
+    expect(Object.fromEntries(countSkillToolUses())).toEqual({ 'final-name': 1 });
+  });
+
+  it('reflects owning-session eligibility changes on the next call', () => {
+    seedSession('sess-eligibility-change');
+    new AgentSessionMessagesRepository().upsertStructured(
+      'sess-eligibility-change',
+      'msg-1',
+      'output',
+      JSON.stringify([skillToolPart('eligibility-sensitive')]),
+      null,
+      null,
+    );
+    const db = getDb();
+
+    expect(countSkillToolUses().get('eligibility-sensitive')).toBe(1);
+
+    db.prepare(
+      `UPDATE agent_sessions
+          SET category = 'scheduled', updated_at = '2026-09-15T00:00:00.000Z'
+        WHERE id = 'sess-eligibility-change'`,
+    ).run();
+    expect(countSkillToolUses().get('eligibility-sensitive')).toBeUndefined();
+
+    // Keep the same updated_at while changing eligibility again. This rejects
+    // caches keyed only by the owning session's latest timestamp.
+    db.prepare(
+      `UPDATE agent_sessions
+          SET category = 'chat', updated_at = '2026-09-15T00:00:00.000Z'
+        WHERE id = 'sess-eligibility-change'`,
+    ).run();
+    expect(countSkillToolUses().get('eligibility-sensitive')).toBe(1);
+
+    db.prepare(
+      `UPDATE agent_sessions SET mcp_role = 'skill-extract'
+        WHERE id = 'sess-eligibility-change'`,
+    ).run();
+    expect(countSkillToolUses().get('eligibility-sensitive')).toBeUndefined();
+  });
+
+  it('agent-server-memory-c2: counts a small live signal under a 128 MB heap beside more than 150 MB of irrelevant archived history', () => {
+    const root = mkdtempSync(join(tmpdir(), 'rhythm-skill-usage-heap-'));
+    const dbPath = join(root, 'fixture.db');
+    const fixtureDb = new Database(dbPath);
+    try {
+      fixtureDb.pragma('journal_mode = OFF');
+      fixtureDb.pragma('synchronous = OFF');
+      runMigrations(fixtureDb);
+      fixtureDb.prepare(
+        `INSERT INTO agent_sessions
+           (id, agent_kind, status, cwd, name, is_system, category, mcp_role)
+         VALUES ('live', 'claude-code', 'idle', '/tmp', 'live', 0, 'chat', NULL),
+                ('archive', 'claude-code', 'idle', '/tmp', 'archive', 0, 'chat', NULL)`,
+      ).run();
+      fixtureDb.prepare(
+        `UPDATE agent_sessions SET archived_at = '2026-08-01T00:00:00.000Z'
+         WHERE id = 'archive'`,
+      ).run();
+      fixtureDb.prepare(
+        `INSERT INTO agent_session_messages
+           (session_id, role, raw_text, stripped_text, sdk_message_id, parts_json)
+         VALUES ('live', 'output', '', '', 'live-skill', ?)`,
+      ).run(JSON.stringify([skillToolPart('bounded-skill')]));
+
+      // Generate 160 MiB inside SQLite, without first allocating a giant JS
+      // string in the Vitest process. These are valid, archived text parts and
+      // therefore representative of old transcript history that is irrelevant
+      // to skill-use counts.
+      fixtureDb.exec(`
+        WITH RECURSIVE n(value) AS (
+          VALUES(1)
+          UNION ALL
+          SELECT value + 1 FROM n WHERE value < 40
+        )
+        INSERT INTO agent_session_messages
+          (session_id, role, raw_text, stripped_text, sdk_message_id, parts_json)
+        SELECT 'archive', 'output', '', '', 'archive-' || value,
+               '[{"type":"text","text":"' || hex(zeroblob(2097152)) || '"}]'
+          FROM n
+      `);
+    } finally {
+      fixtureDb.close();
+    }
+
+    try {
+      const apiRoot = resolve(__dirname, '../..');
+      const tsx = join(apiRoot, 'node_modules', '.bin', 'tsx');
+      const child = join(__dirname, 'fixtures', 'skill_usage_tracker_heap_child.ts');
+      const result = spawnSync(tsx, [child, dbPath], {
+        cwd: apiRoot,
+        env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=128' },
+        encoding: 'utf8',
+        timeout: 45_000,
+        maxBuffer: 1024 * 1024,
+      });
+      const diagnostics = [
+        result.error ? String(result.error) : '',
+        result.signal ? `signal=${result.signal}` : '',
+        result.stderr,
+      ].filter(Boolean).join('\n');
+
+      expect(result.status, diagnostics).toBe(0);
+      expect(JSON.parse(result.stdout.trim())).toEqual({ 'bounded-skill': 1 });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 60_000);
 });
