@@ -375,22 +375,25 @@ jobs:
             });
           '
 
-          # Fresh package proof: staged role resources seed both optimizer
-          # profiles and exactly one enabled task for each role.
+          # Fresh package proof (#1492): the retired optimizer generators must not
+          # boot, and the weekly Org Reviewer must — exactly one enabled
+          # "Org Reviewer" task bound to the enabled "org-reviewer" profile, and
+          # zero enabled legacy "Org Self-Optimizer" / "Org External Discovery" tasks.
           for i in $(seq 1 60); do
             if SMOKE_DB="$SMOKE_DB" BUNDLED_API_SERVER="$APP/Contents/Resources/api_server" "$BUNDLED_NODE" -e '
               const Database = require(require("path").resolve(process.env.BUNDLED_API_SERVER, "node_modules/better-sqlite3"));
               const db = new Database(process.env.SMOKE_DB, { readonly: true });
-              const profiles = db.prepare("SELECT COUNT(*) AS n FROM agent_configs WHERE id IN (?, ?)").get("8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f", "9a2d3e4f-5b6c-4d7e-8f9a-1b2c3d4e5f6a").n;
-              const tasks = db.prepare("SELECT name, COUNT(*) AS n FROM agent_scheduled_tasks WHERE enabled = 1 AND name IN (?, ?) GROUP BY name").all("Org Self-Optimizer", "Org External Discovery");
+              const profile = db.prepare("SELECT enabled FROM agent_configs WHERE id = ?").get("org-reviewer");
+              const reviewer = db.prepare("SELECT COUNT(*) AS n FROM agent_scheduled_tasks WHERE enabled = 1 AND name = ? AND agent_config_id = ?").get("Org Reviewer", "org-reviewer").n;
+              const legacy = db.prepare("SELECT COUNT(*) AS n FROM agent_scheduled_tasks WHERE enabled = 1 AND (name LIKE ? OR name LIKE ?)").get("Org Self-Optimizer%", "Org External Discovery%").n;
               db.close();
-              if (profiles !== 2 || tasks.length !== 2 || tasks.some((task) => task.n !== 1)) process.exit(1);
+              if (!profile || profile.enabled !== 1 || reviewer !== 1 || legacy !== 0) process.exit(1);
             '; then
-              echo "fresh package optimizer profiles/tasks OK"
+              echo "fresh package Org Reviewer profile/task OK (legacy optimizer generators retired)"
               break
             fi
             if [ "$i" -eq 60 ]; then
-              echo "::error::Fresh bundled boot did not seed both optimizer profiles and exactly one enabled task each"
+              echo "::error::Fresh bundled boot did not seed the enabled org-reviewer profile with exactly one enabled Org Reviewer task and zero enabled legacy optimizer tasks"
               exit 1
             fi
             sleep 0.25
