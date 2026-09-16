@@ -30,6 +30,17 @@ export function canCommitBootstrappedSession({
   );
 }
 
+/**
+ * #1506 — a bootstrap failure is recorded without a `sessionId`, and chat-view
+ * shows a session-less error in *every* conversation. A later successful
+ * bootstrap must retract it; an error scoped to one session must survive.
+ */
+export function clearSessionlessPromptError<T extends { sessionId?: string }>(
+  current: T | undefined,
+): T | undefined {
+  return current && !current.sessionId ? undefined : current;
+}
+
 export function preserveReadySessionDuringRefresh<
   TSession extends { id: string },
 >({

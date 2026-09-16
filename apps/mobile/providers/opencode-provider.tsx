@@ -30,7 +30,7 @@ import {
 import { Platform } from 'react-native';
 
 import { MOBILE_ATTACHMENT_LIMIT_BYTES } from '@/lib/attachments/limits';
-import { MacOfflineError } from '@/lib/transport/api-error';
+import { MacOfflineError, summarizeError } from '@/lib/transport/api-error';
 import {
   connectionStatusForPresence,
   deriveMacPresence,
@@ -119,6 +119,7 @@ import {
 import {
   canCommitBootstrappedSession,
   cancelSessionRefreshTimers,
+  clearSessionlessPromptError,
   getConfiguredProviders,
   getConversationStatusLabel,
   getCurrentPendingRequests,
@@ -256,6 +257,8 @@ export type {
 
 const OpencodeContext = createContext<OpencodeContextValue | null>(null);
 const ANSI_CSI_PATTERN = new RegExp('\\u001b\\[[0-?]*[ -/]*[@-~]', 'gi');
+/** One replay of the idempotent chat bootstrap after a transient failure (#1506). */
+const BOOTSTRAP_RETRY_DELAY_MS = 1_500;
 
 function authenticatedWebSocket(
   url: string,
@@ -2572,14 +2575,35 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       return;
     }
 
-    void ensureActiveSessionRef.current().catch((error) => {
-      if (isCurrentClient(client)) {
-        setPromptError({
-          message: error instanceof Error ? error.message : 'Could not load this project.',
-          occurredAt: Date.now(),
-        });
+    // #1506 — the reconnect burst can catch a single transient edge 5xx. The
+    // bootstrap is idempotent reads, so replay it once before surfacing an
+    // error that, having no sessionId, would block every conversation.
+    let cancelled = false;
+    const stillCurrent = () => !cancelled && isCurrentClient(client);
+    void (async () => {
+      try {
+        await ensureActiveSessionRef.current();
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, BOOTSTRAP_RETRY_DELAY_MS));
+        if (!stillCurrent()) return;
+        try {
+          await ensureActiveSessionRef.current();
+        } catch (error) {
+          if (!stillCurrent()) return;
+          setPromptError({
+            message: summarizeError(error, 'Could not load this project.'),
+            occurredAt: Date.now(),
+          });
+          return;
+        }
       }
-    });
+      if (!stillCurrent()) return;
+      setPromptError(clearSessionlessPromptError);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [activeProjectPath, client, connection.status, isCurrentClient]);
 
   const refreshCurrentSession = useCallback(
@@ -3100,7 +3124,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           return true;
         }
         setPromptError({
-          message: error instanceof Error ? error.message : 'OpenCode could not send that message.',
+          message: summarizeError(error, 'OpenCode could not send that message.'),
           occurredAt: Date.now(),
           sessionId,
         });
@@ -3624,7 +3648,10 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
               ? error.message
               : 'OpenCode could not complete the request.';
           setPromptError({
-            message: error?.name ? `${error.name}: ${message}` : String(message),
+            message: summarizeError(
+              error?.name ? `${error.name}: ${message}` : String(message),
+              'OpenCode could not complete the request.',
+            ),
             occurredAt: Date.now(),
             sessionId,
           });
