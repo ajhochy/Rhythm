@@ -6,8 +6,8 @@ Electron replacement candidate has a **draft PR open with fully green CI**; AJ's
 
 ## Active branch / PR
 
-- Branch `feature/electron-flutter-retirement` → draft [PR #1495](https://github.com/ajhochy/Rhythm/pull/1495) (base `main`), HEAD `0d564cd9`.
-- CI on `0d564cd9`: Server CI [success](https://github.com/ajhochy/Rhythm/actions/runs/35043853753), Mobile CI [success](https://github.com/ajhochy/Rhythm/actions/runs/35043853763). Both watched to completion.
+- Branch `feature/electron-flutter-retirement` → draft [PR #1495](https://github.com/ajhochy/Rhythm/pull/1495) (base `main`), HEAD `6ebde76e` (docs-only commit on top of `0d564cd9`).
+- CI on `0d564cd9`: Server CI and Mobile CI both green. CI on `6ebde76e` (this docs-only commit): Mobile CI green; Server CI [failed twice in a row](https://github.com/ajhochy/Rhythm/actions/runs/35044550942) (original run + one `--failed` rerun), both times on the same known pre-existing flake `workflow_failure_signal_extractor.test.ts:764` (issue-933-c7 stale-redo). Confirmed unrelated to this branch's changes: this push's diff touches only `docs/ai/*.md`. Worth note: it passed on `0d564cd9` but failed 2/2 on `6ebde76e` — still classified as a timing flake (coarse `created_at` tick ambiguity under load), but recurring twice back-to-back is a slightly stronger signal than a one-off; not chased further here since fixing it is out of scope for this docs-only step.
 - Do not merge. AJ's manual smoke of `apps/electron/dist/Rhythm.app` is the open gate.
 - Prior six-stream handoffs (status not rechecked here): `fix/session-list-and-task-board` draft PR #1486; `fix/bridge-stream-reliability-repair` draft PR #1487; `fix/optimizer-scope-lane` draft PR #1488; `fix/optimizer-generator-lanes` draft PR #1489; `plan/recipes-1485` docs-only draft PR #1490.
 
@@ -35,7 +35,7 @@ Electron replacement candidate has a **draft PR open with fully green CI**; AJ's
 ## Test status
 
 - Integrated automated gate: verifier `4253` PASS (2026-09-14); package built at `apps/electron/dist/Rhythm.app`.
-- PR #1495 CI: Server CI and Mobile CI both green on `0d564cd9` (2 workflows, both watched with `gh run watch --exit-status`, exit 0 each).
+- PR #1495 CI: green on `0d564cd9`. On `6ebde76e` (docs-only follow-up), Mobile CI green; Server CI red twice on the pre-existing `workflow_failure_signal_extractor.test.ts` flake (not a regression — see Active branch/PR).
 - GitNexus compare-main (as of the 2026-09-14 pass): 371 symbols / 254 files, zero affected indexed processes, LOW aggregate.
 - E20 (`electron-e20-session-ordering.spec.ts`) now covers 44px targets for both `.subagent-disclosure` and the `.session-row-wrap.has-subagents` overflow button.
 - PR #1486: automated API/web/Flutter/live gates pass; only subjective visual-parity smoke remains. PR #1487: 33/33 criteria, full API suite 5,999 passing. PR #1488: 8/8 criteria, live 10/10. PR #1489: 24/24 criteria, 165 focused tests, live 2/2.
