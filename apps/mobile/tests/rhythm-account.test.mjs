@@ -176,7 +176,7 @@ function makeMeResponse(overrides = {}) {
   };
 }
 
-/** Build a minimal mobile-exchange success response */
+/** Build a minimal mobile-redeem success response */
 function makeExchangeResponse(token = 'sess-token-abc') {
   return {
     sessionToken: token,
@@ -202,7 +202,7 @@ function makeExchangeResponse(token = 'sess-token-abc') {
   let authenticatedExchangeCalled = false;
   const fakeClient = {
     request: async (path, init) => {
-      if (path === '/auth/google/mobile-exchange') {
+      if (path === '/auth/google/mobile-redeem') {
         authenticatedExchangeCalled = true;
       }
       if (path === '/auth/me') {
@@ -211,13 +211,10 @@ function makeExchangeResponse(token = 'sess-token-abc') {
       throw new Error(`Unexpected path: ${path}`);
     },
     requestPublic: async (path, init) => {
-      assert.equal(path, '/auth/google/mobile-exchange');
+      assert.equal(path, '/auth/google/mobile-redeem');
       assert.deepEqual(JSON.parse(init.body), {
         code: 'auth-code',
         codeVerifier: 'verifier',
-        nonce: 'nonce_abcdefghijklmnopqrstuvwxyz123456',
-        clientId: 'mobile-client-id',
-        redirectUri: 'com.googleusercontent.apps.mobile:/oauth-callback',
       });
       return makeExchangeResponse(exchangeToken);
     },
@@ -368,7 +365,7 @@ function makeExchangeResponse(token = 'sess-token-abc') {
       throw new Error(`Unexpected path: ${path}`);
     },
     requestPublic: async (path) => {
-      if (path === '/auth/google/mobile-exchange') return makeExchangeResponse(SECRET);
+      if (path === '/auth/google/mobile-redeem') return makeExchangeResponse(SECRET);
       throw new Error(`Unexpected public path: ${path}`);
     },
   };
@@ -407,7 +404,7 @@ function makeExchangeResponse(token = 'sess-token-abc') {
       throw new Error(`Unexpected path: ${path}`);
     },
     requestPublic: async (path) => {
-      if (path === '/auth/google/mobile-exchange') return makeExchangeResponse();
+      if (path === '/auth/google/mobile-redeem') return makeExchangeResponse();
       throw new Error(`Unexpected public path: ${path}`);
     },
   };
@@ -445,7 +442,7 @@ function makeExchangeResponse(token = 'sess-token-abc') {
       throw new Error(`Unexpected authenticated path: ${path}`);
     },
     requestPublic: async (path) => {
-      if (path === '/auth/google/mobile-exchange') {
+      if (path === '/auth/google/mobile-redeem') {
         const err = Object.assign(new Error('Bad Request'), {
           name: 'ApiError',
           status: 400,

@@ -11,6 +11,14 @@ function requiredString(value: unknown, field: string): string {
   return value.trim();
 }
 
+function boundedDeviceName(value: unknown): string {
+  const name = requiredString(value, 'deviceName');
+  if (name.length > 128) {
+    throw AppError.badRequest('deviceName must be 128 characters or fewer');
+  }
+  return name;
+}
+
 function authenticatedUserId(req: Request): number {
   if (!req.auth) throw AppError.unauthorized();
   return req.auth.user.id;
@@ -65,6 +73,24 @@ export class MobileGatewayController {
         }),
         ...(env.relayPublicUrl ? { relayUrl: env.relayPublicUrl } : {}),
       });
+    } catch (error) {
+      forwardSecretSafe(next, error);
+    }
+  }
+
+  connectCloudDevice(req: Request, res: Response, next: NextFunction): void {
+    try {
+      const environmentId = requiredString(
+        req.body?.environmentId,
+        'environmentId',
+      );
+      if (environmentId !== this.pairingService.health().hostId) {
+        throw AppError.notFound('Mobile environment');
+      }
+      res.status(201).json(this.pairingService.grantCloudDevice(
+        authenticatedUserId(req),
+        boundedDeviceName(req.body?.deviceName),
+      ));
     } catch (error) {
       forwardSecretSafe(next, error);
     }

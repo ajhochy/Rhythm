@@ -18,6 +18,8 @@ authRouter.post(
 authRouter.get('/me', requireAuth, controller.me.bind(controller));
 authRouter.post('/logout', requireAuth, controller.logout.bind(controller));
 authRouter.get('/google/begin', controller.beginGoogleOAuth.bind(controller));
+authRouter.get('/google/mobile-begin', controller.beginGoogleMobileLogin.bind(controller));
+authRouter.post('/google/mobile-redeem', controller.redeemGoogleMobileLogin.bind(controller));
 authRouter.get('/google/callback', controller.googleCallback.bind(controller));
 authRouter.get(
   '/planning-center/begin',

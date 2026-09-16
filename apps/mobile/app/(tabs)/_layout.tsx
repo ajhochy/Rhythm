@@ -34,7 +34,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="agents"
         options={{
-          title: 'Agents',
+          title: 'Chats',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="message.fill" color={color} />,
         }}
       />

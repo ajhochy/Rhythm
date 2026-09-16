@@ -19,7 +19,7 @@ async function openAgentsAction(page, name) {
     { timeout: 10_000 },
   );
   await page
-    .getByRole('button', { name: 'Agents menu', exact: true })
+    .getByRole('button', { name: 'Chats menu', exact: true })
     .locator('visible=true')
     .click();
   const action = page
@@ -106,7 +106,7 @@ test('issue-1172-delta-c6: unified Activity renders all six source kinds', async
   expect(activitySources.ok()).toBeTruthy();
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await page
-    .getByRole('button', { name: 'Agents menu', exact: true })
+    .getByRole('button', { name: 'Chats menu', exact: true })
     .locator('visible=true')
     .click();
   await page

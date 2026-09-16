@@ -16,7 +16,7 @@ async function openAgentsAction(page, name) {
     0,
     { timeout: 10_000 },
   );
-  await page.getByRole('button', { name: 'Agents menu', exact: true }).click();
+  await page.getByRole('button', { name: 'Chats menu', exact: true }).click();
   const action = page
     .getByRole('menuitem', { name, exact: true })
     .locator('visible=true');
@@ -42,7 +42,7 @@ async function openReadyChat(page, request) {
 
 async function backToAgents(page) {
   await page.getByRole('button', { name: 'Back to Agents' }).click();
-  await expect(page.getByRole('tab', { name: 'Agents' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Chats' })).toBeVisible();
 }
 
 async function openWorkspace(page) {

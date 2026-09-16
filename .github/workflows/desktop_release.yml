@@ -56,9 +56,11 @@ jobs:
       # better_sqlite3.node by construction. Without this pin the runner drifts
       # (e.g. to Node 24 / ABI 137) while the user machine runs a different Node
       # (ABI 127) → ERR_DLOPEN_FAILED at initDb → agent server never binds.
+      # Stay below 24.19.0 until nodejs/node#65446 is fixed: its partial
+      # ObjectWrap backport aborts when GC collects native addon wrappers.
       - uses: actions/setup-node@v4
         with:
-          node-version: '24.x'
+          node-version: '24.18.1'
 
       - name: Install Flutter dependencies
         working-directory: apps/desktop_flutter

@@ -104,6 +104,12 @@ export function createMobileGatewayRouter(): Router {
     withController((active, req, res, next) =>
       active.pair(req, res, next)),
   );
+  router.post(
+    '/bootstrap/connect',
+    requireCloudUser,
+    withController((active, req, res, next) =>
+      active.connectCloudDevice(req, res, next)),
+  );
   router.get(
     '/devices',
     requireCloudUser,

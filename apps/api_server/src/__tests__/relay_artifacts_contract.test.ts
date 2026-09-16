@@ -13,7 +13,7 @@ import http from 'node:http';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import WebSocket, { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 
@@ -252,7 +252,13 @@ describe('Track 7 contract — artifacts + presence', () => {
       ch: 'file',
       t: 'artifact',
       artifactId: 'art_push_1',
-      meta: { contentType: 'image/png', filename: 'render.png' },
+      meta: {
+        contentType: 'image/png',
+        filename: 'render.png',
+        ownerUserId: fixture.userId,
+        projectId: PROJECT_ID,
+        sessionId: 'session-artifact-owner',
+      },
       dataB64: PNG_BYTES.toString('base64'),
     });
     // Wait for the bytes to land, then kill the Mac.
@@ -275,7 +281,7 @@ describe('Track 7 contract — artifacts + presence', () => {
     expect(Buffer.from(await response.arrayBuffer())).toEqual(PNG_BYTES);
   });
 
-  it('continues serving relay artifacts written at the legacy storage root', async () => {
+  it('fails closed for legacy relay artifacts without ownership metadata', async () => {
     const relay = await startRelay(fixture);
     cleanups.push(() => relay.close());
     writeFileSync(join(relay.storageDir, 'art_legacy_1'), PNG_BYTES);
@@ -285,9 +291,7 @@ describe('Track 7 contract — artifacts + presence', () => {
     );
 
     const response = await getArtifact(relay, 'art_legacy_1');
-    expect(response.status).toBe(200);
-    expect(response.headers.get('content-type')).toContain('image/png');
-    expect(Buffer.from(await response.arrayBuffer())).toEqual(PNG_BYTES);
+    expect(response.status).toBe(404);
   });
 
   it('tunnels a miss when the Mac is online and caches the bytes for offline reuse', async () => {
@@ -305,7 +309,12 @@ describe('Track 7 contract — artifacts + presence', () => {
         t: 'res',
         id: req.id,
         status: 200,
-        headers: { 'content-type': 'image/png' },
+        headers: {
+          'content-type': 'image/png',
+          'x-rhythm-artifact-owner-id': String(fixture.userId),
+          'x-rhythm-artifact-project-id': PROJECT_ID,
+          'x-rhythm-artifact-session-id': 'session-artifact-owner',
+        },
         bodyB64: PNG_BYTES.toString('base64'),
       });
     })();
@@ -470,18 +479,37 @@ describe('Track 7 — Mac-side push', () => {
     await waitFor(
       (f): f is UplinkFrame => f.ch === 'ctrl' && f.t === 'hello',
     );
-    return { client, waitFor };
+    const seedOwnership = (artifactId: string, bytes: Buffer) => {
+      const now = '2026-09-12T00:00:00.000Z';
+      const checksum = createHash('sha256').update(bytes).digest('hex');
+      db.pragma('foreign_keys = OFF');
+      db.prepare(
+        `INSERT INTO agent_sessions
+           (id, agent_kind, status, cwd, name, project_id, owner_user_id,
+            delegation_depth, category, created_at, updated_at)
+         VALUES (?, 'claude-code', 'running', '/', 'Artifact test', ?, 1,
+                 0, 'chat', ?, ?)`,
+      ).run('session-artifact-owner', PROJECT_ID, now, now);
+      db.prepare(
+        `INSERT INTO media_artifacts
+           (id, project, session, mime, size, checksum, created_at, storage_key, pinned)
+         VALUES (?, ?, 'session-artifact-owner', 'image/png', 1, ?, ?, ?, 0)`,
+      ).run(artifactId, PROJECT_ID, checksum, now, artifactId);
+      db.pragma('foreign_keys = ON');
+    };
+    return { client, waitFor, seedOwnership };
   }
 
   const isArtifact = (f: UplinkFrame): f is FileArtifactFrame =>
     f.ch === 'file' && f.t === 'artifact';
 
   it('pushArtifact sends bytes for small files', async () => {
-    const { client, waitFor } = await clientWithFakeRelay();
+    const { client, waitFor, seedOwnership } = await clientWithFakeRelay();
     const dir = mkdtempSync(join(tmpdir(), 'push-artifact-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
     const filePath = join(dir, 'small.png');
     writeFileSync(filePath, PNG_BYTES);
+    seedOwnership('art_small', PNG_BYTES);
 
     await client.pushArtifact({
       artifactId: 'art_small',
@@ -491,15 +519,22 @@ describe('Track 7 — Mac-side push', () => {
     const frame = await waitFor(isArtifact);
     expect(frame.artifactId).toBe('art_small');
     expect(frame.dataB64).toBe(PNG_BYTES.toString('base64'));
-    expect(frame.meta).toEqual({ contentType: 'image/png' });
+    expect(frame.meta).toEqual({
+      contentType: 'image/png',
+      ownerUserId: 1,
+      projectId: PROJECT_ID,
+      sessionId: 'session-artifact-owner',
+    });
   });
 
   it('pushArtifact sends metadata-only above the 8MB encoded cap', async () => {
-    const { client, waitFor } = await clientWithFakeRelay();
+    const { client, waitFor, seedOwnership } = await clientWithFakeRelay();
     const dir = mkdtempSync(join(tmpdir(), 'push-artifact-big-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
     const filePath = join(dir, 'big.bin');
-    writeFileSync(filePath, Buffer.alloc(9 * 1024 * 1024, 7)); // 9MB raw > 8MB b64 cap
+    const bytes = Buffer.alloc(9 * 1024 * 1024, 7); // 9MB raw > 8MB b64 cap
+    writeFileSync(filePath, bytes);
+    seedOwnership('art_big', bytes);
 
     await client.pushArtifact({
       artifactId: 'art_big',

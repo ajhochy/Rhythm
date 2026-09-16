@@ -8,6 +8,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ChatComposer } from '@/components/chat/chat-composer';
 import { ChatContent } from '@/components/chat/chat-content';
+import {
+  createSessionDraftStore,
+  type ChatAttachment,
+  type ChatSendAttempt,
+} from '@/components/chat/chat-drafts';
 import { ChatHeader } from '@/components/chat/chat-header';
 import { SessionConfigurationSheet } from '@/components/chat/session-configuration-sheet';
 import { styles } from '@/components/chat/chat-view-styles';
@@ -32,6 +37,7 @@ export function ChatView() {
   const insets = useSafeAreaInsets();
   const {
     activeSession,
+    activeProjectPath,
     availableAgents,
     availableModels,
     chatPreferences,
@@ -54,7 +60,6 @@ export function ChatView() {
     ensureActiveSession,
     isRefreshingDiffs,
     isRefreshingMessages,
-    openSession,
     loadOlderMessages,
     refreshCurrentSession,
     replyToPermission,
@@ -81,8 +86,10 @@ export function ChatView() {
     abortSession,
   } = useOpencode();
 
-  const [draft, setDraft] = useState('');
-  const [attachments, setAttachments] = useState<{ uri: string; mime?: string; filename?: string }[]>([]);
+  const draftStoreRef = useRef(createSessionDraftStore());
+  const [, setDraftRevision] = useState(0);
+  const draftSessionId = currentSessionId ?? '__new-session__';
+  const { attachments, draft } = draftStoreRef.current.get(draftSessionId);
   const [activeTab, setActiveTab] = useState<'session' | 'changes'>('session');
   const [sessionMenuVisible, setSessionMenuVisible] = useState(false);
   const [newSessionSheetVisible, setNewSessionSheetVisible] = useState(false);
@@ -102,7 +109,7 @@ export function ChatView() {
   const [sessionToolBusy, setSessionToolBusy] = useState(false);
   const speechDraftPrefixRef = useRef('');
   const draftRef = useRef('');
-  const attachmentsRef = useRef<{ uri: string; mime?: string; filename?: string }[]>([]);
+  const attachmentsRef = useRef<ChatAttachment[]>([]);
   const lastSentAttachmentsRef = useRef<{ uri: string; mime?: string; filename?: string }[]>([]);
   const lastAutoSpokenMessageIdRef = useRef<string | undefined>(undefined);
 
@@ -166,14 +173,29 @@ export function ChatView() {
     (message) => message.info.id === selectedEditableMessageId,
   ) || editableMessages.at(-1);
   const selectedEditablePart = findEditableUserTextPart(selectedEditableMessage);
+  draftRef.current = draft;
+  attachmentsRef.current = attachments;
 
-  useEffect(() => {
-    draftRef.current = draft;
-  }, [draft]);
+  const updateDraftState = useCallback((value: string) => {
+    draftStoreRef.current.updateDraft(draftSessionId, value);
+    setDraftRevision((revision) => revision + 1);
+  }, [draftSessionId]);
 
-  useEffect(() => {
-    attachmentsRef.current = attachments;
-  }, [attachments]);
+  const updateAttachmentsState = useCallback((
+    value: ChatAttachment[] | ((current: ChatAttachment[]) => ChatAttachment[]),
+  ) => {
+    const current = draftStoreRef.current.get(draftSessionId).attachments;
+    draftStoreRef.current.updateAttachments(
+      draftSessionId,
+      typeof value === 'function' ? value(current) : value,
+    );
+    setDraftRevision((revision) => revision + 1);
+  }, [draftSessionId]);
+
+  const restoreSendAttempt = useCallback((attempt: ChatSendAttempt) => {
+    draftStoreRef.current.restoreFailedSend(attempt);
+    setDraftRevision((revision) => revision + 1);
+  }, []);
 
   useEffect(() => {
     const nextMessage = editableMessages.at(-1);
@@ -195,7 +217,7 @@ export function ChatView() {
       if (conversationActive) {
         return;
       }
-      setDraft(`${speechDraftPrefixRef.current}${transcript}`);
+      updateDraftState(`${speechDraftPrefixRef.current}${transcript}`);
     },
     preferOnDevice: chatPreferences.preferOnDeviceRecognition,
   });
@@ -215,6 +237,7 @@ export function ChatView() {
       return;
     }
 
+    let attempt: ChatSendAttempt | undefined;
     try {
       setSendFeedback(undefined);
       lastSentAttachmentsRef.current = nextAttachments;
@@ -222,9 +245,12 @@ export function ChatView() {
       if (!sessionId) {
         return;
       }
-
-      setDraft('');
-      setAttachments([]);
+      if (promptOverride !== undefined) {
+        draftStoreRef.current.updateDraft(draftSessionId, nextDraft);
+      }
+      draftStoreRef.current.move(draftSessionId, sessionId);
+      attempt = draftStoreRef.current.beginSend(sessionId);
+      setDraftRevision((revision) => revision + 1);
 
       const commandMatch = nextAttachments.length === 0 ? prompt.match(/^\/(\S+)(?:\s+([\s\S]*))?$/) : undefined;
       if (commandMatch && commands.some((command) => command.name === commandMatch[1])) {
@@ -234,16 +260,14 @@ export function ChatView() {
 
       const sent = await sendPrompt(sessionId, prompt, nextAttachments);
       if (!sent) {
-        setDraft(nextDraft);
-        setAttachments(nextAttachments);
+        restoreSendAttempt(attempt);
         setSendFeedback('OpenCode could not send that message. Try again in a moment.');
       }
     } catch (error) {
-      setDraft(nextDraft);
-      setAttachments(nextAttachments);
+      if (attempt) restoreSendAttempt(attempt);
       setSendFeedback(error instanceof Error ? error.message : 'OpenCode could not send that message.');
     }
-  }, [commands, connection.status, currentSessionId, ensureActiveSession, executeCommand, sendPrompt]);
+  }, [commands, connection.status, currentSessionId, draftSessionId, ensureActiveSession, executeCommand, restoreSendAttempt, sendPrompt]);
 
   useEffect(() => {
     if (pendingInteractions > 0) {
@@ -386,7 +410,7 @@ export function ChatView() {
       }
 
       setSendFeedback(undefined);
-      setAttachments((current) => {
+      updateAttachmentsState((current) => {
         const next = [...current];
 
         result.assets.forEach((asset) => {
@@ -416,7 +440,13 @@ export function ChatView() {
     setIsCreatingSession(true);
     try {
       const session = await createSession(title, { preferences });
-      await openSession(session.id);
+      router.replace({
+        pathname: '/agents/chats/[sessionId]',
+        params: {
+          sessionId: session.id,
+          ...(activeProjectPath ? { projectId: activeProjectPath } : {}),
+        },
+      });
       setActiveTab('session');
     } catch (error) {
       setSendFeedback(error instanceof Error ? error.message : 'Could not create a session.');
@@ -424,6 +454,14 @@ export function ChatView() {
     } finally {
       setIsCreatingSession(false);
     }
+  }
+
+  function navigateBackToChats() {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/(tabs)/agents');
   }
 
   async function handleAbort() {
@@ -502,13 +540,19 @@ export function ChatView() {
           diffCount={diffCount}
           running={running}
           showingChanges={activeTab === 'changes'}
-          onBack={() => router.replace('/(tabs)/agents')}
+          onBack={navigateBackToChats}
           onCloseMenu={() => setSessionMenuVisible(false)}
           onConfirmStopConversation={handleConfirmStopConversation}
           onCreateSession={() => setNewSessionSheetVisible(true)}
           onOpenSession={(sessionId) => {
             setSessionMenuVisible(false);
-            void openSession(sessionId);
+            router.replace({
+              pathname: '/agents/chats/[sessionId]',
+              params: {
+                sessionId,
+                ...(activeProjectPath ? { projectId: activeProjectPath } : {}),
+              },
+            });
           }}
           onOpenSessionMenu={() => setSessionMenuVisible(true)}
           onManage={() => setSessionToolsVisible((visible) => !visible)}
@@ -699,6 +743,7 @@ export function ChatView() {
           currentPendingPermissions={currentPendingPermissions}
           currentPendingQuestions={currentPendingQuestions}
           currentTodos={currentTodos}
+          currentSessionId={currentSessionId}
           diffCount={diffCount}
           diffDetails={diffDetails}
           displayTranscript={displayTranscript}
@@ -775,12 +820,12 @@ export function ChatView() {
           onAttach={() => void handleAttach()}
           onDraftChange={(value) => {
             setSendFeedback(undefined);
-            setDraft(value);
+            updateDraftState(value);
           }}
-          onCommandSelect={(command) => setDraft(`/${command} `)}
+          onCommandSelect={(command) => updateDraftState(`/${command} `)}
           onRemoveAttachment={(index) => {
             setSendFeedback(undefined);
-            setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index));
+            updateAttachmentsState((current) => current.filter((_, itemIndex) => itemIndex !== index));
           }}
           onSend={() => {
             if (!showSendAction) {

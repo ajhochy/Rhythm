@@ -1,0 +1,49 @@
+{
+  "issue": "task-ios-duplicate-pair-warning",
+  "date": "2026-09-14",
+  "test_command": "cd apps/mobile && npm test -- --runInBand tests/chat/chat-list.test.tsx",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-ios-duplicate-pair-warning-c1",
+      "text": "signed-in bootstrap404/service unavailable rendered tree contains recovery title/detail/Retry and zero 'Pair this iPhone'/'No chats yet'",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/chat-list.test.tsx",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "task-ios-duplicate-pair-warning-c2",
+      "text": "explicit retry behavior unchanged",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/chat-list.test.tsx",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "task-ios-duplicate-pair-warning-c3",
+      "text": "generic network/chat errors with data still visible",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/chat-list.test.tsx",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "task-ios-duplicate-pair-warning-c4",
+      "text": "legitimate signed-out/pairing route unaffected",
+      "mode": "ui",
+      "test": "apps/mobile/tests/auth/sign-in-screen.test.tsx and apps/mobile/tests/paired-host.test.mjs",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "task-ios-duplicate-pair-warning-c5",
+      "text": "manager-observed exact refreshed iOS 26.5 artifact shows service-unavailable title/detail/Retry and zero Pair this iPhone/No chats yet",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Installed main.jsbundle parity passed for SHA-256 8ba5de77816121ee668d325a780888541d4bdcb9ac720b0a395997ff4a52867d; candidate executable SHA-256 baaf79ccf656e1975af86d7637741e0e80cdfb8228ed0a1e251eb11673339e9f. Manager screenshot: /var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/opencode/attachments/rhythm-recovery-no-pair-banner.png"
+    }
+  ],
+  "not_tested": []
+}

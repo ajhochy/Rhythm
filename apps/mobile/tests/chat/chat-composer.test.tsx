@@ -114,4 +114,17 @@ describe('ChatComposer native multiline sizing', () => {
       expect(inputStyle(input)?.height).toBeUndefined();
     }
   });
+
+  test('task-ios-mobile-ui-c4: attachment, dictation, and send keep distinct labels and stable positions', () => {
+    // Regression caught: icon-only controls swap meaning while retaining the same unnamed target.
+    const screen = render(<ComposerHarness initialDraft="Keep this draft" />);
+
+    expect(screen.getByLabelText('Add attachment')).toBeTruthy();
+    expect(screen.getByLabelText('Start dictation')).toBeTruthy();
+    expect(screen.getByLabelText('Send message')).toBeTruthy();
+    expect(screen.getByTestId('chat-attachment-button')).toBeTruthy();
+    expect(screen.getByTestId('chat-dictation-button')).toBeTruthy();
+    expect(screen.getByTestId('chat-send-button')).toBeTruthy();
+    expect(screen.getByLabelText('Message')).toHaveProp('multiline', true);
+  });
 });

@@ -14,7 +14,9 @@ import { getDb } from '../database/db';
 import { resolveRelayArtifactStorageDir } from '../config/env';
 import {
   initializeMobilePairingSchema,
+  MobileDevicesRepository,
 } from '../repositories/mobile_devices_repository';
+import { MobileCloudIdentityService } from './mobile_cloud_identity_service';
 import { OpencodeEventHub } from './opencode_event_hub';
 import { logger } from '../utils/logger';
 import {
@@ -34,6 +36,7 @@ type BearerValidator = (token: string) => Promise<BearerIdentity | null>;
 export interface RelayUplinkServerOptions {
   bearerValidator?: BearerValidator;
   hub?: OpencodeEventHub;
+  requireEnrollment?: boolean;
 }
 
 interface PendingRpc {
@@ -45,6 +48,7 @@ interface UplinkConnection {
   socket: WebSocket;
   authenticatedUserId: number;
   helloReceived: boolean;
+  hostId: string | null;
 }
 
 const DEVICE_COLUMNS = [
@@ -93,39 +97,10 @@ function validIdentity(value: unknown): value is BearerIdentity {
 async function defaultBearerValidator(
   token: string,
 ): Promise<BearerIdentity | null> {
-  const baseUrl = (
-    process.env.RHYTHM_CLOUD_API_URL ??
-    process.env.PROD_API_URL ??
-    'https://api.vcrcapps.com'
-  ).replace(/\/$/, '');
-  let response: Response;
-  try {
-    response = await fetch(`${baseUrl}/auth/me`, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      redirect: 'error',
-      signal: AbortSignal.timeout(5_000),
-    });
-  } catch {
-    return null;
-  }
-  if (!response.ok) return null;
-  let payload: unknown;
-  try {
-    payload = await response.json();
-  } catch {
-    return null;
-  }
-  if (typeof payload !== 'object' || payload === null) return null;
-  const user = (payload as { user?: unknown }).user;
-  if (typeof user !== 'object' || user === null) return null;
-  const userId = (user as { id?: unknown }).id;
-  return Number.isSafeInteger(userId) && Number(userId) > 0
-    ? { userId: Number(userId) }
-    : null;
+  const user = await new MobileCloudIdentityService().authenticateBearerToken(
+    token,
+  );
+  return user ? { userId: user.id } : null;
 }
 
 function tableExists(table: string): boolean {
@@ -256,6 +231,7 @@ export class RelayUplinkServer {
   readonly hub: OpencodeEventHub;
 
   private readonly bearerValidator: BearerValidator;
+  private readonly requireEnrollment: boolean;
   private readonly wss: WebSocketServer;
   private readonly connections = new Set<UplinkConnection>();
   private readonly pendingRpcs = new Map<string, PendingRpc>();
@@ -268,6 +244,8 @@ export class RelayUplinkServer {
 
   constructor(options: RelayUplinkServerOptions = {}) {
     this.bearerValidator = options.bearerValidator ?? defaultBearerValidator;
+    this.requireEnrollment = options.requireEnrollment ??
+      options.bearerValidator === undefined;
     this.hub = options.hub ?? new OpencodeEventHub();
     this.wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
   }
@@ -306,6 +284,11 @@ export class RelayUplinkServer {
 
   getLastUplinkAt(): string | null {
     return this.lastUplinkAt;
+  }
+
+  isHostOnline(hostId: string, userId: number): boolean {
+    return this.macOnline && this.active?.hostId === hostId &&
+      this.active.authenticatedUserId === userId;
   }
 
   onResynced(callback: () => void): void {
@@ -394,6 +377,7 @@ export class RelayUplinkServer {
       socket,
       authenticatedUserId: userId,
       helloReceived: false,
+      hostId: null,
     };
     this.connections.add(connection);
     socket.on('message', (data, isBinary) => {
@@ -401,15 +385,27 @@ export class RelayUplinkServer {
       const frame = parseUplinkFrame(rawText(data));
       if (!frame) return;
       if (!connection.helloReceived) {
+        let enrollment: { hostId: string; userId: number } | null = null;
+        if (this.requireEnrollment) {
+          const db = getDb();
+          initializeMobilePairingSchema(db);
+          enrollment = new MobileDevicesRepository(db).findSoleEnrollment();
+        }
         if (
           frame.ch !== 'ctrl' ||
           frame.t !== 'hello' ||
-          frame.userId !== connection.authenticatedUserId
+          frame.userId !== connection.authenticatedUserId ||
+          (this.requireEnrollment && (
+            !enrollment ||
+            enrollment.userId !== connection.authenticatedUserId ||
+            enrollment.hostId !== frame.machineId
+          ))
         ) {
           socket.close(1008, 'hello required');
           return;
         }
         connection.helloReceived = true;
+        connection.hostId = frame.machineId;
         if (this.active && this.active !== connection) {
           try {
             this.active.socket.close(1000, 'superseded');

@@ -65,7 +65,7 @@ describe('AgentsOverflowMenu', () => {
       </PaperProvider>,
     );
 
-    fireEvent.press(screen.getByLabelText('Agents menu'));
+    fireEvent.press(screen.getByLabelText('Chats menu'));
     await waitFor(() => {
       expect(screen.getByLabelText('Open workspace')).toBeTruthy();
     });
@@ -88,7 +88,7 @@ describe('AgentsOverflowMenu', () => {
       expect(screen.queryByLabelText('Open workspace')).toBeNull();
     });
 
-    fireEvent.press(screen.getByLabelText('Agents menu'));
+    fireEvent.press(screen.getByLabelText('Chats menu'));
     await waitFor(() => {
       expect(screen.getByLabelText('Archived chats')).toBeTruthy();
     });
@@ -98,7 +98,7 @@ describe('AgentsOverflowMenu', () => {
       expect(screen.queryByLabelText('Archived chats')).toBeNull();
     });
 
-    fireEvent.press(screen.getByLabelText('Agents menu'));
+    fireEvent.press(screen.getByLabelText('Chats menu'));
     await waitFor(() => {
       expect(screen.getByLabelText('Create chat')).toBeTruthy();
     });

@@ -8,7 +8,7 @@ async function openAgentsAction(page, name) {
     0,
     { timeout: 10_000 },
   );
-  await page.getByRole('button', { name: 'Agents menu', exact: true }).click();
+  await page.getByRole('button', { name: 'Chats menu', exact: true }).click();
   const action = page
     .getByRole('menuitem', { name, exact: true })
     .locator('visible=true');
@@ -40,7 +40,7 @@ test('paired production transport drives projects, chat, SSE, and activity witho
     page.getByLabel('Paired Mac status: Connected').last(),
   ).toBeVisible();
 
-  await page.getByRole('tab', { name: 'Agents' }).click();
+  await page.getByRole('tab', { name: 'Chats' }).click();
   const createChat = await openAgentsAction(page, 'Create chat');
   await expect(createChat).toBeEnabled({ timeout: 30_000 });
   await activateMenuItem(createChat);
@@ -58,7 +58,7 @@ test('paired production transport drives projects, chat, SSE, and activity witho
   });
 
   await page.getByRole('button', { name: 'Back to Agents' }).click();
-  await page.getByRole('button', { name: 'Agents menu' }).click();
+  await page.getByRole('button', { name: 'Chats menu' }).click();
   await page.getByRole('menuitem', { name: 'Activity' }).click();
   await expect
     .poll(

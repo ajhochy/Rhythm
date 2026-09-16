@@ -99,13 +99,17 @@ export function NativeSelect<T extends string>({
       {Platform.OS === 'ios' && !options.some((option) => option.sectionLabel) ? null : (
         <Modal animationType="fade" transparent visible={visible} onRequestClose={close}>
           <View style={styles.overlay}>
-            <Pressable style={styles.backdrop} onPress={close} />
-            <View style={[styles.sheet, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+            <Pressable accessibilityLabel="Close options" accessibilityRole="button" style={styles.backdrop} onPress={close} />
+            <View
+              accessibilityLabel={title || 'Choose an option'}
+              accessibilityViewIsModal
+              style={[styles.sheet, { backgroundColor: palette.surface, borderColor: palette.border }]}
+              testID="native-select-modal">
               <View style={[styles.sheetHeader, { borderBottomColor: palette.border }]}>
                 <Text numberOfLines={1} style={[styles.sheetTitle, { color: palette.text }]}>
                   {title || 'Choose an option'}
                 </Text>
-                <Pressable onPress={close} style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}>
+                <Pressable accessibilityLabel="Close options" accessibilityRole="button" onPress={close} style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}>
                   <Text style={[styles.closeButtonLabel, { color: palette.tint }]}>Close</Text>
                 </Pressable>
               </View>
@@ -125,7 +129,9 @@ export function NativeSelect<T extends string>({
                         </Text>
                       ) : null}
                       <Pressable
-                        accessibilityRole="button"
+                        accessibilityLabel={option.label}
+                        accessibilityRole="radio"
+                        accessibilityState={{ checked: selected }}
                         onPress={() => handleSelect(option.value)}
                         style={({ pressed }) => [
                           styles.option,
@@ -194,7 +200,7 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     borderRadius: 999,
-    minHeight: 36,
+    minHeight: 44,
     justifyContent: 'center',
     paddingHorizontal: 10,
   },

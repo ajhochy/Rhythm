@@ -5,6 +5,14 @@ import { IntegrationAccountsRepository } from '../repositories/integration_accou
 import { WorkspaceRepository } from '../repositories/workspace_repository';
 import { AuthService } from '../services/auth_service';
 import { GoogleOAuthService, GOOGLE_AGENT_SCOPES } from '../services/google_oauth_service';
+import { GoogleAccountAuthorizationService } from '../services/google_account_authorization_service';
+import {
+  GoogleMobileLoginBroker,
+  GoogleMobileLoginInvalid,
+  GoogleMobileLoginMissing,
+  GoogleMobileLoginRateLimited,
+  googleMobileLoginBroker,
+} from '../services/google_mobile_login_broker';
 import { PlanningCenterOAuthService } from '../services/planning_center_oauth_service';
 
 const googleOAuth = new GoogleOAuthService();
@@ -12,6 +20,23 @@ const planningCenterOAuth = new PlanningCenterOAuthService();
 const authService = new AuthService();
 const integrationAccountsRepo = new IntegrationAccountsRepository();
 const workspaceRepo = new WorkspaceRepository();
+const googleAccountAuthorization = new GoogleAccountAuthorizationService();
+
+const APP_STATE = /^[A-Za-z0-9._~-]{16,128}$/;
+const CODE_CHALLENGE = /^[A-Za-z0-9_-]{43}$/;
+const CODE_VERIFIER = /^[A-Za-z0-9._~-]{43,128}$/;
+const HANDOFF_CODE = /^[A-Za-z0-9_-]{43}$/;
+const MOBILE_BINDING_COOKIE = 'rhythm_google_mobile_binding';
+
+function secureMobileResponse(res: Response): Response {
+  return res.set('Cache-Control', 'no-store').set('Referrer-Policy', 'no-referrer');
+}
+
+function cookie(req: Request, name: string): string | undefined {
+  const header = req.headers.cookie;
+  if (!header) return undefined;
+  return header.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${name}=`))?.slice(name.length + 1);
+}
 
 export class AuthController {
   async googleLogin(req: Request, res: Response, next: NextFunction) {
@@ -115,6 +140,10 @@ export class AuthController {
   async googleCallback(req: Request, res: Response, next: NextFunction) {
     try {
       const { code, error, state } = req.query as Record<string, string>;
+      if (GoogleMobileLoginBroker.isMobileState(state)) {
+        await this.googleMobileCallback(req, res);
+        return;
+      }
       if (error) throw AppError.badRequest(`Google OAuth failed: ${error}`);
       if (!code) throw AppError.badRequest('Missing Google OAuth code');
       const user = state ? await authService.getUserForSessionToken(state) : null;
@@ -132,6 +161,112 @@ export class AuthController {
         );
     } catch (err) {
       next(err);
+    }
+  }
+
+  async beginGoogleMobileLogin(req: Request, res: Response) {
+    secureMobileResponse(res);
+    const codeChallenge = typeof req.query.code_challenge === 'string' ? req.query.code_challenge : '';
+    const challengeMethod = typeof req.query.code_challenge_method === 'string' ? req.query.code_challenge_method : '';
+    const appState = typeof req.query.app_state === 'string' ? req.query.app_state : '';
+    if (challengeMethod !== 'S256' || !CODE_CHALLENGE.test(codeChallenge) || !APP_STATE.test(appState)) {
+      res.status(400).json({ error: 'invalid_request' });
+      return;
+    }
+    try {
+      const transaction = googleMobileLoginBroker.begin({
+        appState,
+        codeChallenge,
+        rateKey: req.ip ?? req.socket.remoteAddress ?? 'unknown',
+      });
+      res.setHeader('Set-Cookie', `${MOBILE_BINDING_COOKIE}=${transaction.browserBinding}; Max-Age=300; Secure; HttpOnly; SameSite=Lax; Path=/auth/google/callback`);
+      res.redirect(googleOAuth.getHostedMobileAuthorizationUrl({
+        state: transaction.state,
+        nonce: transaction.nonce,
+      }));
+    } catch (error) {
+      if (error instanceof GoogleMobileLoginRateLimited) {
+        res.set('Retry-After', String(error.retryAfterSeconds)).status(429).json({ error: 'rate_limited' });
+        return;
+      }
+      res.status(400).json({ error: 'invalid_request' });
+    }
+  }
+
+  async redeemGoogleMobileLogin(req: Request, res: Response) {
+    secureMobileResponse(res);
+    const input = req.body as Record<string, unknown> | null;
+    if (
+      !input ||
+      Object.keys(input).sort().join(',') !== 'code,codeVerifier' ||
+      typeof input.code !== 'string' ||
+      !HANDOFF_CODE.test(input.code) ||
+      typeof input.codeVerifier !== 'string' ||
+      !CODE_VERIFIER.test(input.codeVerifier)
+    ) {
+      res.status(400).json({ error: 'invalid_request' });
+      return;
+    }
+    try {
+      const identity = googleMobileLoginBroker.consumeHandoff(input.code, input.codeVerifier);
+      const session = await authService.loginWithGoogleProfile(identity);
+      res.status(200).json(session);
+    } catch (error) {
+      if (error instanceof GoogleMobileLoginMissing) {
+        res.status(409).json({ error: 'mobile_login_expired', retry: 'begin_fresh_login' });
+        return;
+      }
+      if (error instanceof GoogleMobileLoginInvalid) {
+        res.status(401).json({ error: 'invalid_grant' });
+        return;
+      }
+      res.status(error instanceof AppError ? error.statusCode : 500).json({ error: 'mobile_login_failed' });
+    }
+  }
+
+  private async googleMobileCallback(req: Request, res: Response): Promise<void> {
+    secureMobileResponse(res);
+    const state = typeof req.query.state === 'string' ? req.query.state : '';
+    let login;
+    try {
+      login = googleMobileLoginBroker.consumeLogin(state, cookie(req, MOBILE_BINDING_COOKIE));
+    } catch (error) {
+      if (error instanceof GoogleMobileLoginMissing) {
+        res.status(409).json({ error: 'mobile_login_expired', retry: 'begin_fresh_login' });
+        return;
+      }
+      res.status(401).json({ error: 'mobile_login_invalid', retry: 'begin_fresh_login' });
+      return;
+    }
+    res.setHeader('Set-Cookie', `${MOBILE_BINDING_COOKIE}=; Max-Age=0; Secure; HttpOnly; SameSite=Lax; Path=/auth/google/callback`);
+    const code = typeof req.query.code === 'string' ? req.query.code : '';
+    if (req.query.error || !/^[\x21-\x7e]{1,4096}$/.test(code)) {
+      res.status(401).json({ error: 'mobile_login_failed', retry: 'begin_fresh_login' });
+      return;
+    }
+    try {
+      const profile = await googleOAuth.exchangeHostedMobileCode({ code, nonce: login.nonce });
+      await googleAccountAuthorization.authorize({
+        sub: profile.sub,
+        email: profile.email!,
+        hostedDomain: profile.hd,
+      });
+      const handoff = googleMobileLoginBroker.issueHandoff({
+        googleSub: profile.sub,
+        email: profile.email!,
+        name: profile.name ?? profile.email!,
+        photoUrl: profile.picture ?? null,
+        hostedDomain: profile.hd ?? null,
+      }, login.codeChallenge);
+      const target = new URL('rhythmagents://oauth/callback');
+      target.searchParams.set('code', handoff);
+      target.searchParams.set('state', login.appState);
+      res.redirect(target.toString());
+    } catch (error) {
+      res.status(error instanceof AppError && error.statusCode === 403 ? 403 : 401).json({
+        error: 'mobile_login_failed',
+        retry: 'begin_fresh_login',
+      });
     }
   }
 

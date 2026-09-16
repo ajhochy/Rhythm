@@ -11,9 +11,13 @@ SB="${RHYTHM_SANDBOX_DIR:-${TMPDIR:-/tmp}/rhythm-dev-sandbox}"
 API_PORT="${RHYTHM_SANDBOX_API_PORT:-4098}"
 ENGINE_PORT="${RHYTHM_SANDBOX_ENGINE_PORT:-4097}"
 GATEWAY_PORT="${RHYTHM_SANDBOX_GATEWAY_PORT:-4099}"
+RELAY_ENABLED="${RHYTHM_SANDBOX_RELAY:-0}"
+RELAY_PORT="${RHYTHM_SANDBOX_RELAY_PORT:-4100}"
 PID_FILE="$SB/api_server.pid"
 ENGINE_PID_FILE="$SB/opencode_engine.pid"
 LOG_FILE="$SB/api_server.log"
+RELAY_PID_FILE="$SB/relay/api_server.pid"
+RELAY_LOG_FILE="$SB/relay/api_server.log"
 SHUTDOWN_FILE="$SB/shutdown.requested"
 FOREGROUND_PID_FILE="$SB/foreground_holder.pid"
 SHUTDOWN_ACK_FILE="$SB/shutdown.acknowledged"
@@ -55,6 +59,21 @@ runtime_env=(
   # the tailnet, while serving a fully-credentialed copy of the real DB.
   "RHYTHM_MOBILE_GATEWAY_PORT=$GATEWAY_PORT"
 )
+relay_runtime_env=(
+  "HOME=$SB/relay/home"
+  "PORT=$RELAY_PORT"
+  "DB_CLIENT=sqlite"
+  "DB_PATH=$SB/relay/rhythm.db"
+  "LIVE_ARTIFACT_STORAGE_DIR=$SB/relay/live-artifacts"
+  "RHYTHM_ROLE=relay"
+  "AGENT_LOCAL=false"
+  "RHYTHM_NUMBAT_MONITORING_DISABLED=1"
+  "RHYTHM_RELAY_PUBLIC_URL=http://127.0.0.1:$RELAY_PORT/relay"
+  "RHYTHM_RELAY_ALLOW_INSECURE_LOOPBACK_FOR_TESTS=1"
+)
+if [[ "$RELAY_ENABLED" == 1 ]]; then
+  runtime_env+=("RHYTHM_RELAY_URLS=ws://127.0.0.1:$RELAY_PORT/relay/uplink")
+fi
 
 fail() { printf 'sandbox: %s\n' "$*" >&2; exit 1; }
 listener() { lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true; }
@@ -186,9 +205,16 @@ safe_sandbox_path() {
   validate_port RHYTHM_SANDBOX_API_PORT "$API_PORT"
   validate_port RHYTHM_SANDBOX_ENGINE_PORT "$ENGINE_PORT"
   validate_port RHYTHM_SANDBOX_GATEWAY_PORT "$GATEWAY_PORT"
+  [[ "$RELAY_ENABLED" == 0 || "$RELAY_ENABLED" == 1 ]] ||
+    fail "RHYTHM_SANDBOX_RELAY must be 0 or 1"
   [[ "$API_PORT" != "$ENGINE_PORT" ]] || fail "sandbox API and engine ports must be different"
   [[ "$GATEWAY_PORT" != "$API_PORT" && "$GATEWAY_PORT" != "$ENGINE_PORT" ]] ||
     fail "sandbox gateway port must differ from the API and engine ports"
+  if [[ "$RELAY_ENABLED" == 1 ]]; then
+    validate_port RHYTHM_SANDBOX_RELAY_PORT "$RELAY_PORT"
+    [[ "$RELAY_PORT" != "$API_PORT" && "$RELAY_PORT" != "$ENGINE_PORT" && "$RELAY_PORT" != "$GATEWAY_PORT" ]] ||
+      fail "sandbox relay port must differ from the API, engine, and gateway ports"
+  fi
 }
 
 copy_runtime_files() {
@@ -213,6 +239,61 @@ copy_runtime_files() {
   if [[ -d "$config_src" && -d "$config_src/skills" ]]; then
     cp -R "$config_src/skills" "$sandbox_home/.config/opencode/"
   fi
+}
+
+copy_relay_runtime_files() {
+  local relay_home="$SB/relay/home"
+  mkdir -p "$relay_home/.config/opencode" "$relay_home/.local/share/opencode" \
+    "$SB/relay/live-artifacts"
+  chmod 700 "$SB/relay" "$relay_home"
+
+  local config_src="$RHYTHM_SANDBOX_OPENCODE_CONFIG"
+  local config_json="$config_src"
+  [[ -f "$config_json" ]] || config_json="$config_src/opencode.json"
+  cp "$config_json" "$relay_home/.config/opencode/opencode.json"
+  chmod u+w "$relay_home/.config/opencode/opencode.json"
+  if [[ -d "$config_src" && -f "$config_src/auth.json" ]]; then
+    cp "$config_src/auth.json" "$relay_home/.local/share/opencode/auth.json"
+  fi
+  if [[ -d "$config_src" && -d "$config_src/skills" ]]; then
+    cp -R "$config_src/skills" "$relay_home/.config/opencode/"
+  fi
+}
+
+configure_relay_runtime() {
+  [[ "$RELAY_ENABLED" == 1 ]] || return 0
+  local bearer
+  bearer="$(sqlite3 "$SB/rhythm.db" "SELECT token FROM sessions WHERE expires_at IS NULL OR expires_at > datetime('now') ORDER BY created_at DESC LIMIT 1;")"
+  [[ -n "$bearer" ]] || fail 'sandbox has no active synthetic session for relay authentication'
+  runtime_env+=("RHYTHM_RELAY_BEARER=$bearer")
+}
+
+wait_for_relay_ready() {
+  for _ in {1..60}; do
+    if curl -fsS "http://127.0.0.1:$RELAY_PORT/health" >/dev/null &&
+      curl -fsS "http://127.0.0.1:$RELAY_PORT/relay/health" >/dev/null; then
+      return 0
+    fi
+    sleep 1
+  done
+  fail "sandbox relay did not become healthy on :$RELAY_PORT"
+}
+
+launch_relay() {
+  [[ "$RELAY_ENABLED" == 1 ]] || return 0
+  nohup env "${relay_runtime_env[@]}" \
+    node "$API_DIR/dist/server.js" --parent-pid=1 --rhythm-sandbox="$SB/relay" >"$RELAY_LOG_FILE" 2>&1 &
+  printf '%s\n' "$!" >"$RELAY_PID_FILE"
+  wait_for_relay_ready
+}
+
+cleanup_failed_up() {
+  local status=$?
+  trap - EXIT
+  if ((status != 0)); then
+    stop >/dev/null 2>&1 || true
+  fi
+  exit "$status"
 }
 
 record_engine_identity() {
@@ -302,17 +383,27 @@ up() {
   require_free_port "$API_PORT"
   require_free_port "$ENGINE_PORT"
   require_free_port "$GATEWAY_PORT"
+  if [[ "$RELAY_ENABLED" == 1 ]]; then
+    require_free_port "$RELAY_PORT"
+  fi
   command -v sqlite3 >/dev/null || fail 'sqlite3 is required'
 
   mkdir -p "$SB"
+  trap cleanup_failed_up EXIT
   copy_runtime_files
   sqlite3 "$RHYTHM_LIVE_DB_PATH" ".backup '$SB/rhythm.db'"
+  if [[ "$RELAY_ENABLED" == 1 ]]; then
+    copy_relay_runtime_files
+    sqlite3 "$RHYTHM_LIVE_DB_PATH" ".backup '$SB/relay/rhythm.db'"
+  fi
   if [[ "$(sqlite3 "$SB/rhythm.db" "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'agent_scheduled_tasks';")" == "1" ]]; then
     sqlite3 "$SB/rhythm.db" 'UPDATE agent_scheduled_tasks SET enabled=0;'
   fi
 
   (cd "$ENGINE_DIR" && bun run build --single)
   (cd "$API_DIR" && npm run build)
+  configure_relay_runtime
+  launch_relay
 
   if [[ "$mode" == foreground ]]; then
     env "${runtime_env[@]}" \
@@ -332,6 +423,7 @@ up() {
   if [[ "$mode" == foreground ]]; then
     wait_in_foreground "$api_pid"
   fi
+  trap - EXIT
 }
 
 stop_recorded_engine_if_needed() {
@@ -370,17 +462,68 @@ stop_recorded_engine_if_needed() {
   fail "recorded sandbox engine PID $recorded_pid did not exit and release :$ENGINE_PORT"
 }
 
+stop_recorded_relay_if_needed() {
+  [[ "$RELAY_ENABLED" == 1 ]] || return 0
+  local current_pid recorded_pid command
+  current_pid="$(listener "$RELAY_PORT")"
+  if [[ -n "$current_pid" ]]; then
+    [[ "$current_pid" =~ ^[0-9]+$ ]] ||
+      fail "sandbox relay port :$RELAY_PORT has multiple listeners; refusing to kill any process"
+    [[ -f "$RELAY_PID_FILE" ]] ||
+      fail "sandbox relay port :$RELAY_PORT is occupied without a recorded relay PID; refusing to kill it"
+  fi
+  [[ -f "$RELAY_PID_FILE" ]] || return 0
+  recorded_pid="$(<"$RELAY_PID_FILE")"
+  [[ "$recorded_pid" =~ ^[0-9]+$ ]] || fail "recorded sandbox relay PID is invalid"
+  [[ -z "$current_pid" || "$current_pid" == "$recorded_pid" ]] ||
+    fail "sandbox relay port :$RELAY_PORT is now PID $current_pid, not recorded PID $recorded_pid; refusing to kill it"
+  if kill -0 "$recorded_pid" 2>/dev/null; then
+    command="$(ps -o command= -p "$recorded_pid" 2>/dev/null || true)"
+    [[ "$command" == *"$API_DIR/dist/server.js"* && "$command" == *"--rhythm-sandbox=$SB/relay"* ]] ||
+      fail "recorded relay PID $recorded_pid no longer belongs to this sandbox; refusing to kill it"
+    kill "$recorded_pid" 2>/dev/null || true
+    for _ in {1..10}; do
+      ! kill -0 "$recorded_pid" 2>/dev/null && [[ -z "$(listener "$RELAY_PORT")" ]] && return 0
+      sleep 1
+    done
+    kill -KILL "$recorded_pid" 2>/dev/null || true
+    for _ in {1..10}; do
+      ! kill -0 "$recorded_pid" 2>/dev/null && [[ -z "$(listener "$RELAY_PORT")" ]] && return 0
+      sleep 0.2
+    done
+  fi
+  [[ -z "$(listener "$RELAY_PORT")" ]] ||
+    fail "recorded sandbox relay PID $recorded_pid did not exit and release :$RELAY_PORT"
+}
+
 stop() {
   safe_sandbox_path
+  local current_pid pid command
+  current_pid="$(listener "$API_PORT")"
+  if [[ -n "$current_pid" ]]; then
+    [[ "$current_pid" =~ ^[0-9]+$ ]] ||
+      fail "sandbox API port :$API_PORT has multiple listeners; refusing to kill any process"
+    [[ -f "$PID_FILE" ]] ||
+      fail "sandbox API port :$API_PORT is occupied without a recorded API PID; refusing to kill it"
+  fi
   if [[ -f "$PID_FILE" ]]; then
-    local pid command
     pid="$(<"$PID_FILE")"
-    command="$(ps -o command= -p "$pid" 2>/dev/null || true)"
-    if [[ -n "$command" ]]; then
-      [[ "$command" == *"$SB"* ]] || fail "PID $pid no longer belongs to this sandbox; refusing to kill it"
+    [[ "$pid" =~ ^[0-9]+$ ]] || fail "recorded sandbox API PID is invalid"
+    [[ -z "$current_pid" || "$current_pid" == "$pid" ]] ||
+      fail "sandbox API port :$API_PORT is now PID $current_pid, not recorded PID $pid; refusing to kill it"
+    if kill -0 "$pid" 2>/dev/null; then
+      command="$(ps -o command= -p "$pid" 2>/dev/null || true)"
+      [[ "$command" == *"$API_DIR/dist/server.js"* && "$command" == *"--rhythm-sandbox=$SB"* ]] ||
+        fail "PID $pid no longer belongs to this sandbox; refusing to kill it"
       : >"$SHUTDOWN_FILE"
       kill "$pid" 2>/dev/null || true
-      for _ in {1..10}; do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+      for _ in {1..10}; do
+        ! kill -0 "$pid" 2>/dev/null && break
+        sleep 1
+      done
+      if kill -0 "$pid" 2>/dev/null; then
+        kill -KILL "$pid" 2>/dev/null || true
+      fi
     fi
   fi
   if [[ -f "$FOREGROUND_PID_FILE" ]]; then
@@ -393,10 +536,14 @@ stop() {
     done
   fi
   stop_recorded_engine_if_needed
+  stop_recorded_relay_if_needed
   [[ -z "$(listener "$API_PORT")" ]] || fail "sandbox API port :$API_PORT is still occupied"
   [[ -z "$(listener "$ENGINE_PORT")" ]] || fail "sandbox engine port :$ENGINE_PORT is still occupied"
   [[ -z "$(listener "$GATEWAY_PORT")" ]] || fail "sandbox gateway port :$GATEWAY_PORT is still occupied"
-  rm -f "$PID_FILE" "$ENGINE_PID_FILE" "$FOREGROUND_PID_FILE" "$SHUTDOWN_FILE" "$SHUTDOWN_ACK_FILE"
+  if [[ "$RELAY_ENABLED" == 1 ]]; then
+    [[ -z "$(listener "$RELAY_PORT")" ]] || fail "sandbox relay port :$RELAY_PORT is still occupied"
+  fi
+  rm -f "$PID_FILE" "$ENGINE_PID_FILE" "$RELAY_PID_FILE" "$FOREGROUND_PID_FILE" "$SHUTDOWN_FILE" "$SHUTDOWN_ACK_FILE"
 }
 
 restart() {
@@ -406,6 +553,10 @@ restart() {
   [[ -f "$SB/rhythm.db" ]] || fail "sandbox DB is missing; run '$0 up' first"
   [[ -d "$SB/home" && -d "$SB/vault" && -d "$SB/live-artifacts" ]] ||
     fail "sandbox runtime directories are incomplete; refusing a partial restart"
+  if [[ "$RELAY_ENABLED" == 1 ]]; then
+    [[ -d "$SB/relay/home" && -d "$SB/relay/live-artifacts" && -f "$SB/relay/rhythm.db" ]] ||
+      fail "sandbox relay runtime is incomplete; refusing a partial restart"
+  fi
   [[ -x "$ENGINE_BIN" ]] || fail "sandbox engine binary is missing: $ENGINE_BIN"
   [[ -f "$API_DIR/dist/server.js" ]] || fail "built api_server is missing; run '$0 up' first"
 
@@ -413,12 +564,19 @@ restart() {
   require_free_port "$API_PORT"
   require_free_port "$ENGINE_PORT"
   require_free_port "$GATEWAY_PORT"
+  if [[ "$RELAY_ENABLED" == 1 ]]; then
+    require_free_port "$RELAY_PORT"
+    trap cleanup_failed_up EXIT
+    configure_relay_runtime
+    launch_relay
+  fi
   nohup env "${runtime_env[@]}" \
     node "$API_DIR/dist/server.js" --parent-pid=1 --rhythm-sandbox="$SB" >"$LOG_FILE" 2>&1 &
   api_pid="$!"
   printf '%s\n' "$api_pid" >"$PID_FILE"
   wait_for_ready
   ensure_rhythm_mcp
+  trap - EXIT
   printf 'Sandbox restarted without replacing DB or vault: %s\n' "$SB"
 }
 
@@ -481,6 +639,14 @@ status() {
   [[ -d "$SB/live-artifacts" ]] || fail "live-artifact storage root is missing"
   printf 'sandbox: %s\nlive-artifact storage: %s\napi :%s listener: %s\nengine :%s listener: %s\ngateway :%s listener: %s\n' \
     "$SB" "$SB/live-artifacts" "$API_PORT" "$(listener "$API_PORT" || true)" "$ENGINE_PORT" "$(listener "$ENGINE_PORT" || true)" "$GATEWAY_PORT" "$(listener "$GATEWAY_PORT" || true)"
+  if [[ "$RELAY_ENABLED" == 1 ]]; then
+    local relay_pid='missing'
+    [[ -d "$SB/relay/live-artifacts" ]] || fail "relay live-artifact storage root is missing"
+    [[ ! -f "$RELAY_PID_FILE" ]] || relay_pid="$(<"$RELAY_PID_FILE")"
+    printf 'relay api :%s listener: %s\nrelay PID: %s\nrelay storage: %s\n' \
+      "$RELAY_PORT" "$(listener "$RELAY_PORT" || true)" \
+      "$relay_pid" "$SB/relay/live-artifacts"
+  fi
 }
 
 usage() {
