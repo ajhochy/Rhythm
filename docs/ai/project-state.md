@@ -10,7 +10,7 @@ Desktop **v0.18.64** (prerelease, signed and notarized) was released from `fc569
 
 ## Active branch / PR
 
-- `main` — SHA `8e2f3f6bf1487929f83220bb22cb26562c5b8d02`.
+- `main` — SHA `b804842a2be70b6d7b8c5fffa2ed1dabcd99bcd4` (#1504 Node 24.18.1 image pin on top of `8e2f3f6b`).
 - This docs PR (`docs/2026-09-16-main-catchup-release`) records the catch-up; no product code changes.
 - Merged: [#1493](https://github.com/ajhochy/Rhythm/pull/1493) iOS hosted sign-in (squash `23a8c618`), [#1495](https://github.com/ajhochy/Rhythm/pull/1495) Electron replacement candidate Phases 1–5 (squash `c27a3f6c`), [#1492](https://github.com/ajhochy/Rhythm/pull/1492) Org Reviewer (squash `8e2f3f6b`).
 - Full detail: [run log](runs/2026-09-16-main-catchup-release.md).
@@ -26,6 +26,7 @@ AJ's manual smoke of the three merged features, plus fixing the desktop release:
 
 ## Risks / known issues
 
+- The hosted relay crash-looped on Node 24.21.0 + better-sqlite3 12.8.0 until the #1504 image lands on the NAS; any floating `node:24` tag will re-trigger it while better-sqlite3 < 13 is installed (#1505).
 - v0.18.64 is a prerelease shipped without manual smoke of #1493/#1495/#1492; the installed app (0.18.63) still needs upgrading.
 - All three feature merges landed ahead of manual smoke, per AJ's explicit 2026-09-16 instruction — none of the above has been visually verified in the shipping app yet.
 - Watchtower auto-deploys `:main` to the hosted API within ~30 minutes of an image publish; hosted state can outrun what has actually been smoke-tested.
@@ -40,4 +41,4 @@ AJ's manual smoke of the three merged features, plus fixing the desktop release:
 
 ## Next step
 
-Relay recreated on `:main` (NAS compose pin to `:relay-smoke` removed), v0.18.64 installed, iOS core acceptance passed on the installed Simulator build. Remaining: AJ's designated-conversation send test, reconnect and VoiceOver passes on iOS; manual smoke of #1495 and #1492 per their PR bodies; investigate the post-turn event-loop stalls (#1503).
+Production relay was crash-looping from 20:45Z (Node 24.21 + better-sqlite3 12, see the run log). #1504 pins the image to Node 24.18.1 and is merged (`b804842a`); once the publish run finishes, recreate `rhythm-relay`/`rhythm-api` on the NAS (or wait for Watchtower) and confirm `RestartCount` stops climbing and `/relay/health` stays 200. Then resume: iOS designated-conversation send test, reconnect and VoiceOver passes; manual smoke of #1495 and #1492; event-loop stalls (#1503); better-sqlite3 13 upgrade (#1505). TestFlight build via Xcode is on hold until the relay is stable.
