@@ -45,35 +45,8 @@ import { env } from '../config/env';
 import { logger } from '../utils/logger';
 import { evaluateLearningSessionEligibility, toLearningEligibilitySessionInput } from './learning_session_eligibility';
 
-interface ToolCallPart {
-  type?: string;
-  tool?: string;
-  state?: {
-    status?: string;
-    input?: { name?: unknown };
-  };
-}
-
-function extractSkillNamesFromPartsJson(partsJson: string | null): string[] {
-  if (!partsJson) return [];
-  try {
-    const parts = JSON.parse(partsJson) as ToolCallPart[];
-    if (!Array.isArray(parts)) return [];
-    const names: string[] = [];
-    for (const part of parts) {
-      if (!part || part.type !== 'tool' || part.tool !== 'skill') continue;
-      if (part.state?.status !== 'completed') continue;
-      const name = part.state?.input?.name;
-      if (typeof name === 'string' && name.trim()) names.push(name.trim());
-    }
-    return names;
-  } catch {
-    return [];
-  }
-}
-
 interface SkillUsageRow {
-  parts_json: string | null;
+  skill_name: unknown;
   is_system: unknown;
   category: unknown;
   mcp_role: unknown;
@@ -81,10 +54,11 @@ interface SkillUsageRow {
 
 /**
  * Count every completed `skill` tool invocation across ALL eligible sessions,
- * keyed by the invoked skill's `name`. A single join pass over
- * `agent_session_messages` + `agent_sessions` — cheap at this app's scale
- * (mirrors the perf posture documented in skill_retrieval.ts). No-op (empty
- * map) under Postgres; NEVER throws.
+ * keyed by the invoked skill's `name`. Each call scans current SQLite history
+ * joined to `agent_sessions`, so edits and deletes are reflected immediately.
+ * No-op (empty map) under Postgres; NEVER throws. SQLite projects only the
+ * small metadata fields needed for counting, so unrelated transcript bodies
+ * never enter V8.
  */
 export function countSkillToolUses(): Map<string, number> {
   if (env.dbClient === 'postgres') return new Map();
@@ -93,15 +67,104 @@ export function countSkillToolUses(): Map<string, number> {
     const db = getDb();
     const rows = db
       .prepare(
-        `SELECT m.parts_json AS parts_json,
-                s.is_system AS is_system,
-                s.category AS category,
-                s.mcp_role AS mcp_role
-           FROM agent_session_messages m
-           JOIN agent_sessions s ON s.id = m.session_id
-          WHERE m.parts_json IS NOT NULL`,
+        `WITH skill_parts AS (
+           SELECT part.value AS part_json,
+                  s.is_system AS is_system,
+                  s.category AS category,
+                  s.mcp_role AS mcp_role
+             FROM agent_session_messages m
+             JOIN agent_sessions s ON s.id = m.session_id
+             JOIN json_each(
+               CASE
+                 WHEN json_valid(m.parts_json) THEN
+                   CASE WHEN json_type(m.parts_json) = 'array' THEN m.parts_json ELSE '[]' END
+                 ELSE '[]'
+               END
+             ) AS part
+            WHERE part.type = 'object'
+              AND (
+                SELECT field.value
+                  FROM json_each(CASE WHEN part.type = 'object' THEN part.value ELSE '{}' END) AS field
+                 WHERE field.key = 'type'
+                 ORDER BY field.id DESC
+                 LIMIT 1
+              ) = 'tool'
+              AND (
+                SELECT field.value
+                  FROM json_each(CASE WHEN part.type = 'object' THEN part.value ELSE '{}' END) AS field
+                 WHERE field.key = 'tool'
+                 ORDER BY field.id DESC
+                 LIMIT 1
+              ) = 'skill'
+         ), states AS (
+           SELECT part_json,
+                  is_system,
+                  category,
+                  mcp_role,
+                  (
+                    SELECT field.value
+                      FROM json_each(part_json) AS field
+                     WHERE field.key = 'state'
+                     ORDER BY field.id DESC
+                     LIMIT 1
+                  ) AS state_json,
+                  (
+                    SELECT field.type
+                      FROM json_each(part_json) AS field
+                     WHERE field.key = 'state'
+                     ORDER BY field.id DESC
+                     LIMIT 1
+                  ) AS state_type
+             FROM skill_parts
+         ), completed_states AS (
+           SELECT is_system,
+                  category,
+                  mcp_role,
+                  (
+                    SELECT field.value
+                      FROM json_each(CASE WHEN state_type = 'object' THEN state_json ELSE '{}' END) AS field
+                     WHERE field.key = 'input'
+                     ORDER BY field.id DESC
+                     LIMIT 1
+                  ) AS input_json,
+                  (
+                    SELECT field.type
+                      FROM json_each(CASE WHEN state_type = 'object' THEN state_json ELSE '{}' END) AS field
+                     WHERE field.key = 'input'
+                     ORDER BY field.id DESC
+                     LIMIT 1
+                  ) AS input_type
+             FROM states
+            WHERE state_type = 'object'
+              AND (
+                SELECT field.value
+                  FROM json_each(CASE WHEN state_type = 'object' THEN state_json ELSE '{}' END) AS field
+                 WHERE field.key = 'status'
+                 ORDER BY field.id DESC
+                 LIMIT 1
+              ) = 'completed'
+         )
+         SELECT (
+                  SELECT field.value
+                    FROM json_each(CASE WHEN input_type = 'object' THEN input_json ELSE '{}' END) AS field
+                   WHERE field.key = 'name'
+                   ORDER BY field.id DESC
+                   LIMIT 1
+                ) AS skill_name,
+                is_system,
+                category,
+                mcp_role
+           FROM completed_states
+          WHERE input_type = 'object'
+            AND (
+              SELECT field.type
+                FROM json_each(CASE WHEN input_type = 'object' THEN input_json ELSE '{}' END) AS field
+               WHERE field.key = 'name'
+               ORDER BY field.id DESC
+               LIMIT 1
+            ) = 'text'`,
       )
-      .all() as SkillUsageRow[];
+      .iterate() as IterableIterator<SkillUsageRow>;
 
     const counts = new Map<string, number>();
     for (const row of rows) {
@@ -114,9 +177,8 @@ export function countSkillToolUses(): Map<string, number> {
       );
       if (!eligibility.eligible) continue;
 
-      for (const name of extractSkillNamesFromPartsJson(row.parts_json)) {
-        counts.set(name, (counts.get(name) ?? 0) + 1);
-      }
+      const name = typeof row.skill_name === 'string' ? row.skill_name.trim() : '';
+      if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
     }
     return counts;
   } catch (err) {

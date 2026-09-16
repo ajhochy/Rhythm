@@ -1,0 +1,50 @@
+{
+  "issue": "agent-server-memory",
+  "generated": "2026-09-15",
+  "criteria": [
+    {
+      "criterion_id": "agent-server-memory-c1",
+      "text": "Skill-use aggregation preserves exact completed-use counts, ignores malformed and non-skill parts, trims names, honors the shared session-eligibility rules, and immediately reflects message edits and deletes without stale cached results.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/skill_usage_tracker.test.ts",
+      "test_id": "agent-server-memory-c1: preserves exact counts across malformed rows, same-timestamp edits, and deletes",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "agent-server-memory-c2",
+      "text": "Skill-use aggregation completes under a 128 MB V8 heap and returns the exact live count when the SQLite database also contains more than 150 MB of synthetic archived transcript parts irrelevant to skill usage.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/skill_usage_tracker.test.ts",
+      "test_id": "agent-server-memory-c2: counts a small live signal under a 128 MB heap beside more than 150 MB of irrelevant archived history",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "agent-server-memory-c3",
+      "text": "A harvested-skill evaluation pass performs no usage-history aggregation when there are no draft skills to evaluate.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/harvested_skill_evaluator.test.ts",
+      "test_id": "agent-server-memory-c3: skips usage-history work when there are no draft skills to evaluate",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "agent-server-memory-c4",
+      "text": "Idle evaluation permits at most one harvested-skill sweep in flight; turn completions during that sweep coalesce, and a later completion can schedule one new sweep after the first settles.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/harvested_skill_evaluator.test.ts",
+      "test_id": "agent-server-memory-c4: never starts a second sweep while the first sweep is still running",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "agent-server-memory-c5",
+      "text": "In the isolated development sandbox, the real API and engine expose exact skill-use counts beside a synthetic 338 MiB transcript archive including a 130 MiB message, reflect edits and deletions on the next HTTP read, and retain the same healthy API process under a 256 MiB V8 heap cap.",
+      "mode": "integration",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/agent_server_memory_live.test.ts",
+      "test_id": "returns exact current counts beside a 338 MiB archive and keeps the same API alive"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [],
+  "live_test_design": "The existing skill metadata HTTP route invokes the same production counter that caused the delayed evaluator OOM, while querying real engine skill discovery. Scheduling and evaluator concurrency are exercised separately with controlled-clock behavioral tests. This avoids requiring an external model to reproduce a database aggregation fault.",
+  "verification_run": "docs/ai/runs/2026-09-15-agent-server-memory-fix.md"
+}

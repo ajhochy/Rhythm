@@ -1,0 +1,56 @@
+{
+  "run_id": "2026-09-15-agent-server-memory",
+  "issue": "agent-server-memory",
+  "date": "2026-09-15",
+  "smoke_result": "unknown",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [],
+  "process_issues": [
+    {
+      "process_category": "tool-sandbox",
+      "description": "The first serial API suite ran without loopback/process permission and real-server hooks timed out. An isolated reproduction exposed listen EPERM; the same test passed with escalation, followed by the full canonical PR gate.",
+      "detected_by": "Vitest failure output and corrected exit-zero run"
+    },
+    {
+      "process_category": "orchestrator-interface",
+      "description": "The repository CLI supports ai-workflow run --issue, not a free-text task. The parent used the same specialist chain, isolated worktree, durable checklist, and canonical checks for this user-reported bug.",
+      "detected_by": "CLI output and workflow dispatch log"
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "planning-agent",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "project-state-updater",
+      "workflow-retrospective"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "planning-agent",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "project-state-updater",
+      "workflow-retrospective"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/src/services/skill_usage_tracker.ts",
+    "apps/api_server/src/services/harvested_skill_evaluator.ts",
+    "apps/desktop_flutter/lib/app/core/server/api_server_service.dart",
+    "apps/desktop_flutter/lib/app/core/agents/agent_server_controller.dart"
+  ],
+  "failure_output": "Error: listen EPERM: operation not permitted 127.0.0.1",
+  "overall_category": "none",
+  "suggested_follow_up": "Use local-process permission for server suites and keep a failing-test output visible during long validation runs.",
+  "notes": "Automated real API/fork and native helper smoke passed; human packaged-chat smoke has not run. No TodoWrite tool was available, so the workflow checklist lives in docs/ai/plans/2026-09-15-agent-server-memory-fix.md. No workflow skill or global configuration changes were needed."
+}
