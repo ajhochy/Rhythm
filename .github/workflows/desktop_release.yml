@@ -310,8 +310,13 @@ jobs:
           SMOKE_HOME="$RUNNER_TEMP/rhythm-package-home"
           SMOKE_DB="$RUNNER_TEMP/smoke.db"
           rm -rf "$SMOKE_HOME" "$SMOKE_DB"
-          mkdir -p "$SMOKE_HOME"
+          mkdir -p "$SMOKE_HOME" "$SMOKE_HOME/managed-skills"
+          # NODE_ENV=test arms the managed-skills test-isolation guard, which
+          # refuses the default ~/.config/opencode/skills root. The Org Reviewer
+          # seed (#1492) writes its owned skill there, so redirect the root into
+          # the throwaway smoke HOME exactly as the unit tests do.
           RHYTHM_MOBILE_GATEWAY_PORT=4003 \
+            RHYTHM_MANAGED_SKILLS_DIR="$SMOKE_HOME/managed-skills" \
             AGENT_LOCAL=true MCP_ROLES_DIR="$APP/Contents/Resources/.mcp-roles" \
             HOME="$SMOKE_HOME" PORT=4002 DB_PATH="$SMOKE_DB" NODE_ENV=test \
             "$BUNDLED_NODE" "$SCRIPT" &
