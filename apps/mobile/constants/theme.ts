@@ -50,9 +50,24 @@ export const Colors = {
   },
 };
 
+export const Spacing = {
+  x1: 4,
+  x2: 8,
+  x3: 12,
+  x4: 16,
+  x6: 24,
+} as const;
+
+export const TypeScale = {
+  largeTitle: 34,
+  body: 17,
+  secondary: 15,
+  meta: 13,
+} as const;
+
 export const Fonts = Platform.select({
   ios: {
-    sans: 'Avenir Next',
+    sans: 'System',
     serif: 'ui-serif',
     rounded: 'ui-rounded',
     mono: 'ui-monospace',

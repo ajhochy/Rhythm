@@ -1,0 +1,81 @@
+{
+  "issue": "agent-server-recovery",
+  "generated": "2026-09-15",
+  "criteria": [
+    {
+      "criterion_id": "agent-server-recovery-c1",
+      "text": "After a once-ready owned API exits unexpectedly, UI transitions to reconnecting and returns ready after a bounded delayed replacement becomes healthy.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/contract/agent_server_recovery_contract_test.dart",
+      "test_id": "C5: once-ready owned exit enters reconnecting and returns ready after one replacement",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "agent-server-recovery-c2",
+      "text": "Repeated immediate crashes stop at documented attempt budget; Retry works afterward.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/contract/agent_server_recovery_contract_test.dart",
+      "test_id": "C5: repeated immediate owned exits stop at the finite recovery budget",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "agent-server-recovery-c3",
+      "text": "Stop/dispose produces no replacement; concurrent Retry/exits spawn one child; old exit callbacks cannot clear the new child.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/contract/agent_server_recovery_contract_test.dart",
+      "test_id": "C5: duplicate and stale exit events cannot create concurrent replacement starts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "agent-server-recovery-c4",
+      "text": "Alive unhealthy and external reused processes are not killed by automatic recovery.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/contract/agent_server_recovery_contract_test.dart",
+      "test_id": "C5: health-only failure changes status without starting or killing a process",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "agent-server-recovery-c5",
+      "text": "A child emitting native stderr without trailing newline then exiting leaves that text plus timestamp/PID/code in durable bounded log after it is gone.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/contract/agent_server_recovery_contract_test.dart",
+      "test_id": "C6: final non-newline stderr is persisted with UTC timestamp, pid, and exit code",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "agent-server-recovery-c6",
+      "text": "Rotation remains bounded, final bytes are flushed, and log failure doesn't prevent recovery.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/contract/agent_server_recovery_contract_test.dart",
+      "test_id": "C6: diagnostics rotation remains bounded while preserving the newest native stderr",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "agent-server-recovery-c7",
+      "text": "Explicit stop and dispose suppress a late owned-exit recovery.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/contract/agent_server_recovery_contract_test.dart",
+      "test_id": "C5: explicit stop and dispose suppress a late owned-exit recovery",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "agent-server-recovery-c8",
+      "text": "External server reuse has no owned exit and does not trigger recovery.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/contract/agent_server_recovery_contract_test.dart",
+      "test_id": "C5: external server reuse has no owned exit and does not trigger recovery",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "agent-server-recovery-c9",
+      "text": "A diagnostics write failure is non-fatal to recovery.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/contract/agent_server_recovery_contract_test.dart",
+      "test_id": "C6: diagnostics write failure is non-fatal to recovery",
+      "status": "pass"
+    }
+  ],
+  "stack": "dart",
+  "not_tested": [],
+  "verification_run": "docs/ai/runs/2026-09-15-agent-server-memory-fix.md"
+}

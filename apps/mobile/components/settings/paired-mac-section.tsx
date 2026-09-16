@@ -2,9 +2,13 @@ import { StyleSheet, View } from 'react-native';
 import { Button, Surface, Text } from 'react-native-paper';
 
 import { Colors } from '@/constants/theme';
-import type {
-  PairedHost,
-  PairedHostState,
+import {
+  isAccountBootstrapFailure,
+  type AccountBootstrapState,
+} from '@/lib/pairing/mobile-environment-contract';
+import {
+  type PairedHost,
+  type PairedHostState,
 } from '@/lib/pairing/paired-host-store';
 
 type Palette = typeof Colors.light;
@@ -23,10 +27,12 @@ const stateLabels: Record<PairedHostState, string> = {
 
 export interface PairedMacSectionProps {
   state: PairedHostState;
+  bootstrapState: AccountBootstrapState;
   host: PairedHost | null;
   message: string;
   onPair: () => void;
   onRefresh: () => void;
+  onRetryBootstrap: () => void;
   onRevoke: () => void;
   onForget: () => void;
   palette: Palette;
@@ -34,16 +40,19 @@ export interface PairedMacSectionProps {
 
 export function PairedMacSection({
   state,
+  bootstrapState,
   host,
   message,
   onPair,
   onRefresh,
+  onRetryBootstrap,
   onRevoke,
   onForget,
   palette,
 }: PairedMacSectionProps) {
   const busy = state === 'pairing';
   const reachable = state === 'connected';
+  const bootstrapFailed = isAccountBootstrapFailure(bootstrapState);
   return (
     <Surface
       accessibilityRole="summary"
@@ -59,7 +68,7 @@ export function PairedMacSection({
             maxFontSizeMultiplier={1.6}
             variant="titleMedium"
             style={{ color: palette.text }}>
-            Paired Mac
+            Mac connection
           </Text>
           <Text
             accessibilityLiveRegion="polite"
@@ -91,9 +100,19 @@ export function PairedMacSection({
         </>
       ) : null}
       <View style={styles.actions}>
+        {bootstrapFailed ? (
+          <Button
+            maxFontSizeMultiplier={1.8}
+            mode="contained"
+            icon="refresh"
+            accessibilityLabel="Retry connection"
+            onPress={onRetryBootstrap}>
+            Retry connection
+          </Button>
+        ) : null}
         <Button
           maxFontSizeMultiplier={1.8}
-          mode={host ? 'outlined' : 'contained'}
+          mode={host || bootstrapFailed ? 'outlined' : 'contained'}
           icon="qrcode-scan"
           disabled={busy || Boolean(host && !reachable)}
           accessibilityLabel={host ? 'Pair a different Mac' : 'Pair a Mac'}
@@ -117,7 +136,7 @@ export function PairedMacSection({
             disabled={!reachable}
             accessibilityLabel="Revoke this iPhone from the paired Mac"
             onPress={onRevoke}>
-            Revoke
+            Revoke iPhone access
           </Button>
         ) : null}
         {host ? (
@@ -125,7 +144,7 @@ export function PairedMacSection({
             maxFontSizeMultiplier={1.8}
             accessibilityLabel="Forget the paired Mac on this iPhone"
             onPress={onForget}>
-            Forget
+            Forget Mac
           </Button>
         ) : null}
       </View>

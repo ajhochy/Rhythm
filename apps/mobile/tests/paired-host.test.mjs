@@ -1119,4 +1119,28 @@ async function secureWriteReplacement({
   assert.equal(__async().has(PAIRED_HOST_META_KEY), false);
 }
 
-console.log('Paired-host security and state-machine tests passed (23 scenarios)');
+// A manual pairing after a failed account discovery must clear the stale
+// bootstrap failure, or Chats hides the real reachability state behind
+// bootstrap recovery for the rest of the session.
+{
+  __setPublicHandler(async (path) =>
+    path === '/mobile-gateway/health' ? healthResponse : pairResponse);
+  const store = new PairedHostStore();
+  store.setAccountUserId(7);
+  const unreachableCloud = {
+    request: async () => {
+      throw new ApiError({ code: 'NETWORK_ERROR', status: 0, retryable: true });
+    },
+  };
+  await store.discoverAccountEnvironments(unreachableCloud, {
+    userId: 7,
+    deviceName: 'AJ iPhone',
+  });
+  assert.equal(store.snapshot().bootstrapState, 'retryableError');
+
+  const paired = await store.pair(PAYLOAD, { userId: 7, deviceName: 'AJ iPhone' });
+  assert.equal(paired.state, 'connected');
+  assert.equal(store.snapshot().bootstrapState, 'idle');
+}
+
+console.log('Paired-host security and state-machine tests passed (24 scenarios)');

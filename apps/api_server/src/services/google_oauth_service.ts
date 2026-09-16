@@ -26,6 +26,8 @@ export const GOOGLE_AGENT_SCOPES = [
   'https://www.googleapis.com/auth/gmail.send',
 ];
 
+export const GOOGLE_LOGIN_SCOPES = ['openid', 'email', 'profile'];
+
 interface GoogleTokenResponse {
   access_token: string;
   expires_in?: number;
@@ -83,6 +85,63 @@ export class GoogleOAuthService {
     });
 
     return `${GOOGLE_AUTH_BASE}?${params.toString()}`;
+  }
+
+  getHostedMobileAuthorizationUrl(options: { state: string; nonce: string }): string {
+    this.assertConfigured();
+    let callback: URL;
+    try {
+      callback = new URL(env.googleRedirectUri);
+    } catch {
+      throw AppError.badRequest('Google OAuth callback is invalid');
+    }
+    if (callback.protocol !== 'https:' || callback.pathname !== '/auth/google/callback') {
+      throw AppError.badRequest('Google OAuth callback must be the fixed HTTPS callback');
+    }
+    return `${GOOGLE_AUTH_BASE}?${new URLSearchParams({
+      client_id: env.googleClientId,
+      redirect_uri: env.googleRedirectUri,
+      response_type: 'code',
+      scope: GOOGLE_LOGIN_SCOPES.join(' '),
+      state: options.state,
+      nonce: options.nonce,
+      prompt: 'select_account',
+    })}`;
+  }
+
+  async exchangeHostedMobileCode(options: {
+    code: string;
+    nonce: string;
+  }): Promise<GoogleUserInfo> {
+    this.assertConfigured();
+    if (
+      !/^[\x21-\x7e]{1,4096}$/.test(options.code) ||
+      !/^[A-Za-z0-9_-]{43}$/.test(options.nonce)
+    ) {
+      throw AppError.badRequest('Google hosted OAuth callback is malformed');
+    }
+    const endpoints = this.hostedLoginEndpoints();
+    const response = await fetch(endpoints.token, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code: options.code,
+        client_id: env.googleClientId,
+        client_secret: env.googleClientSecret,
+        redirect_uri: env.googleRedirectUri,
+        grant_type: 'authorization_code',
+      }),
+    });
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      throw AppError.unauthorized('Google hosted OAuth rejected the authorization code');
+    }
+    const tokens = (await response.json()) as GoogleTokenResponse;
+    if (!tokens.id_token) throw AppError.unauthorized('Google hosted OAuth did not return an ID token');
+    return this.verifyMobileIdToken(tokens.id_token, {
+      clientId: env.googleClientId,
+      nonce: options.nonce,
+    }, endpoints.tokenInfo);
   }
 
   async handleCallback(code: string, ownerId: number): Promise<void> {
@@ -217,13 +276,14 @@ export class GoogleOAuthService {
   private async verifyMobileIdToken(
     idToken: string,
     options: { clientId: string; nonce: string },
+    tokenInfoUrl = GOOGLE_TOKENINFO_URL,
   ): Promise<GoogleUserInfo> {
     // Google's authoritative tokeninfo endpoint verifies the ID token's
     // signature and key rotation before returning claims. Rhythm still pins
     // every security-sensitive claim locally so a valid token minted for a
     // foreign Google client cannot create a Rhythm session.
     const response = await fetch(
-      `${GOOGLE_TOKENINFO_URL}?id_token=${encodeURIComponent(idToken)}`,
+      `${tokenInfoUrl}?id_token=${encodeURIComponent(idToken)}`,
     );
     if (!response.ok) {
       throw AppError.unauthorized('Google ID token verification failed');
@@ -341,6 +401,27 @@ export class GoogleOAuthService {
         'Google OAuth is not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI.',
       );
     }
+  }
+
+  private hostedLoginEndpoints(): { token: string; tokenInfo: string } {
+    const testBase = process.env.RHYTHM_GOOGLE_OAUTH_TEST_BASE_URL;
+    if (!testBase) return { token: GOOGLE_TOKEN_URL, tokenInfo: GOOGLE_TOKENINFO_URL };
+    let url: URL;
+    try {
+      url = new URL(testBase);
+    } catch {
+      throw AppError.badRequest('Google OAuth test boundary is invalid');
+    }
+    if (
+      process.env.RHYTHM_LIVE_E2E !== '1' ||
+      process.env.RHYTHM_LIVE_E2E_ISOLATED !== '1' ||
+      url.protocol !== 'http:' ||
+      (url.hostname !== '127.0.0.1' && url.hostname !== 'localhost')
+    ) {
+      throw AppError.badRequest('Google OAuth test boundary is unavailable');
+    }
+    const base = url.toString().replace(/\/$/, '');
+    return { token: `${base}/token`, tokenInfo: `${base}/tokeninfo` };
   }
 
   private async exchangeCode(code: string): Promise<GoogleTokenResponse> {

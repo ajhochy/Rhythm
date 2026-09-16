@@ -4,6 +4,10 @@ import { PaperProvider } from 'react-native-paper';
 import AgentChatDetailScreen from '@/app/agents/chats/[sessionId]';
 
 const mockReplace = jest.fn();
+const mockBack = jest.fn();
+let mockCanGoBack = false;
+let mockRouteProjectId = '/registered/project';
+let mockRouteSessionId = 'ses-projectless';
 const mockCancelOpenProjectSession = jest.fn();
 const mockOpenProjectSession = jest.fn();
 let mockOpencodeState: Record<string, unknown>;
@@ -11,12 +15,17 @@ let mockOpencodeState: Record<string, unknown>;
 jest.mock('expo-router', () => ({
   Stack: { Screen: () => null },
   useLocalSearchParams: () => ({
-    projectId: '/registered/project',
-    sessionId: 'ses-projectless',
+    projectId: mockRouteProjectId,
+    sessionId: mockRouteSessionId,
   }),
-  useRouter: () => ({ replace: mockReplace }),
+  useRouter: () => ({ back: mockBack, canGoBack: () => mockCanGoBack, replace: mockReplace }),
 }));
-jest.mock('@/components/chat/chat-view', () => ({ ChatView: () => null }));
+jest.mock('@/components/chat/chat-view', () => ({
+  ChatView: () => {
+    const { Text } = jest.requireActual('react-native');
+    return <Text testID="rendered-chat-session">{String(mockOpencodeState.currentSessionId)}</Text>;
+  },
+}));
 jest.mock('@/providers/opencode-provider', () => ({
   useOpencode: () => mockOpencodeState,
 }));
@@ -30,6 +39,9 @@ jest.mock('@/providers/paired-host-provider', () => ({
 
 describe('AgentChatDetailScreen', () => {
   beforeEach(() => {
+    mockCanGoBack = false;
+    mockRouteProjectId = '/registered/project';
+    mockRouteSessionId = 'ses-projectless';
     mockOpencodeState = {
       activeProjectPath: '/registered/project',
       cancelOpenProjectSession: mockCancelOpenProjectSession,
@@ -64,6 +76,21 @@ describe('AgentChatDetailScreen', () => {
 
     expect(mockCancelOpenProjectSession).toHaveBeenCalledTimes(1);
     expect(mockReplace).toHaveBeenCalledWith('/(tabs)/agents');
+  });
+
+  test('ios-chat-integration-c2: native back preserves the existing chat-list stack', () => {
+    // Regression caught: replacing the list route discards its filters and scroll state.
+    mockCanGoBack = true;
+    const screen = render(
+      <PaperProvider>
+        <AgentChatDetailScreen />
+      </PaperProvider>,
+    );
+
+    fireEvent.press(screen.getByLabelText('Back to chats'));
+
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 
   test('issue-1285-c14: ready opener is not cancelled while provider selection commits', () => {
@@ -122,5 +149,34 @@ describe('AgentChatDetailScreen', () => {
     );
 
     expect(screen.queryByText('Opening chat')).toBeNull();
+  });
+
+  test('ios-chat-integration-c2: A→B→A route changes render the matching provider session', () => {
+    const ready = (sessionId: string) => ({
+      ...mockOpencodeState,
+      currentSessionId: sessionId,
+      openProjectSessionState: {
+        kind: 'ready',
+        generation: 1,
+        projectId: mockRouteProjectId,
+        sessionId,
+      },
+    });
+    mockOpencodeState = ready('A');
+    mockRouteSessionId = 'A';
+    const rendered = render(
+      <PaperProvider><AgentChatDetailScreen /></PaperProvider>,
+    );
+    expect(rendered.getByTestId('rendered-chat-session').props.children).toBe('A');
+
+    mockRouteSessionId = 'B';
+    mockOpencodeState = ready('B');
+    rendered.rerender(<PaperProvider><AgentChatDetailScreen /></PaperProvider>);
+    expect(rendered.getByTestId('rendered-chat-session').props.children).toBe('B');
+
+    mockRouteSessionId = 'A';
+    mockOpencodeState = ready('A');
+    rendered.rerender(<PaperProvider><AgentChatDetailScreen /></PaperProvider>);
+    expect(rendered.getByTestId('rendered-chat-session').props.children).toBe('A');
   });
 });

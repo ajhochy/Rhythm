@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   RefreshControl,
@@ -104,6 +104,10 @@ export function ChatContent({
   const shouldPositionInitialTranscriptRef = useRef(false);
   const previousTranscriptRef = useRef({ sessionId: currentSessionId, length: displayTranscript.length });
   const completedTodoCount = currentTodos.filter((todo) => todo.status === 'completed').length;
+  const transcriptExtraData = useMemo(
+    () => [copiedMessageId, speakingMessageId],
+    [copiedMessageId, speakingMessageId],
+  );
 
   useLayoutEffect(() => {
     const previous = previousTranscriptRef.current;
@@ -127,7 +131,7 @@ export function ChatContent({
             styles.content,
             currentTodos.length > 0 ? { paddingBottom: todosExpanded ? 320 : 76 } : null,
           ]}
-          extraData={{ copiedMessageId, speakingMessageId }}
+          extraData={transcriptExtraData}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
           keyExtractor={(entry) => `${entry.id}-${entry.createdAt}`}

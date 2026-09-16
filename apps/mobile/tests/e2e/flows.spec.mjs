@@ -18,7 +18,7 @@ async function openAgentsAction(page, name) {
     0,
     { timeout: 10_000 },
   );
-  await page.getByRole('button', { name: 'Agents menu', exact: true }).click();
+  await page.getByRole('button', { name: 'Chats menu', exact: true }).click();
   const action = page
     .getByRole('menuitem', { name, exact: true })
     .locator('visible=true');
@@ -33,7 +33,7 @@ async function activateMenuItem(item) {
 
 async function openReadyChat(page) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
-  await expect(page.getByRole('tab', { name: 'Agents' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Chats' })).toBeVisible();
   const createChat = await openAgentsAction(page, 'Create chat');
   await expect(createChat).toBeEnabled({
     timeout: 30_000,
@@ -47,8 +47,8 @@ async function openReadyChat(page) {
 
 async function backToAgents(page) {
   await page.getByRole('button', { name: 'Back to Agents' }).click();
-  await expect(page.getByRole('tab', { name: 'Agents' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Agents menu' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Chats' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Chats menu' })).toBeVisible();
 }
 
 async function openWorkspace(page) {
@@ -352,8 +352,8 @@ test('settings can configure an additional provider against the fake server', as
   await openSettings(page);
   await expect(page.getByText('AI defaults')).toBeVisible();
   await page.getByTestId('settings-add-provider-button').click();
-  await expect(page.getByRole('button', { name: 'OpenRouter', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'OpenRouter', exact: true }).click();
+  await expect(page.getByRole('radio', { name: 'OpenRouter', exact: true })).toBeVisible();
+  await page.getByRole('radio', { name: 'OpenRouter', exact: true }).click();
   await expect(page.getByText('Configure OpenRouter')).toBeVisible();
   await page.getByPlaceholder('Paste your API key').fill('sk-test-openrouter');
   await page.getByTestId('settings-provider-save-button').click();
@@ -384,7 +384,7 @@ test('settings explain root-vs-api mismatches and reconnect through a prefixed A
     await openReadyChat(page);
 
     await openSettings(page);
-    await expect(page.getByText('Connection')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Connection Connected/ })).toBeVisible();
     await page.getByRole('button', { name: /Connection Connected/ }).click();
 
     await page.getByTestId('settings-server-url-input').fill(`http://127.0.0.1:${port}`);

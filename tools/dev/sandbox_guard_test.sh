@@ -190,7 +190,7 @@ out="$(env RHYTHM_SANDBOX_DIR="$RESTART_SB" RHYTHM_SANDBOX_ENGINE_DIR="$FAKE_ENG
     trap "[[ -f $SB/fake-listener.pid ]] && builtin kill \$(< $SB/fake-listener.pid) 2>/dev/null || true" EXIT
     printf "5252\n" >"$ENGINE_PID_FILE"
     kill() { [[ "$1" == "-0" ]]; }
-    ps() { printf "node server.js --rhythm-sandbox=%s\n" "$SB"; }
+    ps() { printf "node %s/apps/api_server/dist/server.js --rhythm-sandbox=%s\n" "$ROOT" "$SB"; }
     listener() { [[ "$1" == "$ENGINE_PORT" ]] && printf "5252\n"; }
     process_executable() { printf "/not-this-sandbox/opencode\n"; }
     restart_engine
@@ -232,7 +232,7 @@ out="$(env RHYTHM_SANDBOX_DIR="$RESTART_SB" RHYTHM_SANDBOX_ENGINE_DIR="$FAKE_ENG
       if [[ "$1" == "4242" ]]; then rm -f "$SB/api.alive"; printf "api\n" >>"$SB/kills"; return; fi
       builtin kill "$@"
     }
-    ps() { printf "node server.js --rhythm-sandbox=%s\n" "$SB"; }
+    ps() { printf "node %s/apps/api_server/dist/server.js --rhythm-sandbox=%s\n" "$ROOT" "$SB"; }
     listener() {
       [[ "$1" == "$ENGINE_PORT" && -f "$SB/fake-listener.pid" ]] || return 0
       local pid="$(<"$SB/fake-listener.pid")"
@@ -271,7 +271,7 @@ out="$(env RHYTHM_SANDBOX_DIR="$RESTART_SB" RHYTHM_SANDBOX_ENGINE_DIR="$FAKE_ENG
       if [[ "$1" == "-0" && "$2" == "4242" ]]; then return 0; fi
       builtin kill "$@"
     }
-    ps() { printf "node server.js --rhythm-sandbox=%s\n" "$SB"; }
+    ps() { printf "node %s/apps/api_server/dist/server.js --rhythm-sandbox=%s\n" "$ROOT" "$SB"; }
     listener() {
       [[ "$1" == "$ENGINE_PORT" && -f "$SB/fake-listener.pid" ]] || return 0
       local pid="$(<"$SB/fake-listener.pid")"

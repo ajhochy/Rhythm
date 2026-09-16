@@ -405,6 +405,8 @@ export const env = {
   /** Public relay base advertised by the Mac gateway to paired phones. */
   relayPublicUrl:
     (process.env.RHYTHM_RELAY_PUBLIC_URL ?? '').trim() || null,
+  relayAllowInsecureLoopbackForTests:
+    process.env.RHYTHM_RELAY_ALLOW_INSECURE_LOOPBACK_FOR_TESTS === '1',
   /** Cloud bearer the Mac's uplink presents to the relay (plan §2). */
   relayBearer: (process.env.RHYTHM_RELAY_BEARER ?? '').trim() || null,
   /** #1288 — additive Research Projects surfaces remain opt-in until launched. */

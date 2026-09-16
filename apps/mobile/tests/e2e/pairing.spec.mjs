@@ -14,7 +14,7 @@ async function resetMobile(request) {
 async function openPairingFromSettings(page) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await page.getByRole('tab', { name: 'Settings' }).click();
-  await expect(page.getByText('Paired Mac', { exact: true })).toBeVisible();
+  await expect(page.getByText('Mac connection', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Pair a Mac' }).click();
   await expect(page.getByRole('heading', { name: 'Pair a Mac' })).toBeVisible();
 }

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 test('issue-1172-c10: Activity tool links open the selected supported target UI', async ({ page }) => {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
-  await page.getByRole('button', { name: 'Agents menu' }).click();
+  await page.getByRole('button', { name: 'Chats menu' }).click();
   await page.getByRole('menuitem', { name: 'Activity' }).click();
 
   for (const target of [
@@ -15,8 +15,8 @@ test('issue-1172-c10: Activity tool links open the selected supported target UI'
     await expect(page.getByRole('heading', { name: target.heading, exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: target.detail, exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Back to Tools' }).click();
-    await page.getByRole('tab', { name: 'Agents' }).click();
-    await page.getByRole('button', { name: 'Agents menu' }).click();
+    await page.getByRole('tab', { name: 'Chats' }).click();
+    await page.getByRole('button', { name: 'Chats menu' }).click();
     await page.getByRole('menuitem', { name: 'Activity' }).click();
   }
 });

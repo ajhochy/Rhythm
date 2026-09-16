@@ -47,7 +47,7 @@ async function openAgentsAction(page, name) {
     { timeout: 10_000 },
   );
   await page
-    .getByRole('button', { name: 'Agents menu', exact: true })
+    .getByRole('button', { name: 'Chats menu', exact: true })
     .locator('visible=true')
     .click();
   const action = page
@@ -85,7 +85,7 @@ test('issue-1237-c1: Settings and Agents converge on one paired-Mac reachability
   });
 
   await page
-    .getByRole('tab', { name: /Agents$/ })
+    .getByRole('tab', { name: /Chats$/ })
     .locator('visible=true')
     .click();
   await expect(
@@ -116,7 +116,7 @@ test('issue-1237-c1: Settings and Agents converge on one paired-Mac reachability
       .locator('visible=true'),
   ).toBeVisible({ timeout: boundedOfflineTimeoutMs });
   await page
-    .getByRole('tab', { name: /Agents$/ })
+    .getByRole('tab', { name: /Chats$/ })
     .locator('visible=true')
     .click();
   await expect(
@@ -148,7 +148,7 @@ test('issue-1237-c3: session loading exits to an offline state', async ({
 }) => {
   await pairTestMac(page);
   await page
-    .getByRole('tab', { name: /Agents$/ })
+    .getByRole('tab', { name: /Chats$/ })
     .locator('visible=true')
     .click();
   const createChat = await openAgentsAction(page, 'Create chat');
@@ -211,7 +211,7 @@ test('issue-1237-c5: automatic reconnect performs one authoritative recovery ref
 }) => {
   await pairTestMac(page);
   await page
-    .getByRole('tab', { name: /Agents$/ })
+    .getByRole('tab', { name: /Chats$/ })
     .locator('visible=true')
     .click();
   const createChat = await openAgentsAction(page, 'Create chat');

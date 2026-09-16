@@ -7,6 +7,7 @@ import {
 } from 'react-native';
 import {
   Avatar,
+  Button,
   Card,
   Chip,
   Searchbar,
@@ -152,6 +153,17 @@ export function ActivityFeed({
           </Card.Content>
         </Card>
       ) : null}
+      {errorState && unfilteredCategoryItems.length > 0 ? (
+        <Card accessibilityRole="alert" mode="contained" style={[styles.notice, { backgroundColor: palette.surfaceAlt }]}>
+          <Card.Content style={styles.errorContent}>
+            <View style={styles.errorCopy}>
+              <Text variant="titleSmall" style={{ color: palette.text }}>Could not refresh activity</Text>
+              <Text variant="bodyMedium" style={{ color: palette.muted }}>{error ?? 'Try again when the connection is available.'}</Text>
+            </View>
+            {errorState === 'error' ? <Button compact onPress={onRefresh}>Try again</Button> : null}
+          </Card.Content>
+        </Card>
+      ) : null}
       {category && searchPlaceholder ? (
         <View style={styles.filters}>
           <Searchbar
@@ -280,6 +292,8 @@ export function ActivityFeed({
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   notice: { margin: 16, marginBottom: 0 },
+  errorContent: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  errorCopy: { flex: 1, gap: 2, minWidth: 180 },
   filters: { gap: 10, padding: 16, paddingBottom: 0 },
   list: { gap: 12, padding: 16, paddingBottom: 32 },
   emptyList: { flexGrow: 1 },

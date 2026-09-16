@@ -155,6 +155,24 @@ Pass the same three variables to `status` and `down`. The launcher validates
 that both ports are unprivileged, distinct integers and still refuses to touch
 an occupied port.
 
+For an isolated local + relay topology, opt in with
+`RHYTHM_SANDBOX_RELAY=1` and set a distinct
+`RHYTHM_SANDBOX_RELAY_PORT` (default `4100`). Pass both variables, plus the
+same sandbox directory and local ports, to every `up`, `status`, `restart`, and
+`down` command. The relay uses `$RHYTHM_SANDBOX_DIR/relay` for its own copied
+DB, HOME, PID, log, and storage; the local role authenticates its
+`/relay/uplink` connection with the active synthetic session from the approved
+fixture. The token is never printed. Example for the iOS bootstrap gate:
+
+```bash
+RHYTHM_SANDBOX_RELAY=1 \
+RHYTHM_SANDBOX_RELAY_PORT=4200 \
+RHYTHM_SANDBOX_API_PORT=4198 \
+RHYTHM_SANDBOX_ENGINE_PORT=4197 \
+RHYTHM_SANDBOX_GATEWAY_PORT=4199 \
+tools/dev/sandbox.sh up
+```
+
 Stateful live suites that share one sandbox database must run as separate
 Vitest invocations, or with `--no-file-parallelism`. Do not pass multiple
 pairing/device live-test files to one default Vitest invocation: file workers

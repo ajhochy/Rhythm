@@ -11,7 +11,7 @@ const toolsSource = await readFile(
   'utf8',
 );
 
-test('issue-1182: Agents heading uses content-measured layout at maximum Dynamic Type', () => {
+test('issue-1182: Chats heading uses content-measured layout at maximum Dynamic Type', () => {
   assert.doesNotMatch(
     agentsSource,
     /<Appbar\.Header\b/,
@@ -19,8 +19,8 @@ test('issue-1182: Agents heading uses content-measured layout at maximum Dynamic
   );
   assert.match(
     agentsSource,
-    /<Text\s+accessibilityRole="header"\s+variant="headlineSmall">[\s\S]*?Agents[\s\S]*?<\/Text>/,
-    'Agents must keep a semantic, naturally measured heading',
+    /<Text\s+accessibilityRole="header"\s+style=\{styles\.largeTitle\}>[\s\S]*?Chats[\s\S]*?<\/Text>/,
+    'Chats must keep a semantic, naturally measured heading',
   );
   assert.match(
     agentsSource,

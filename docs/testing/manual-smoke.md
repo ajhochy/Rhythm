@@ -545,3 +545,31 @@ Run only against the disposable sandbox described in
   are 404, and legacy research still completes and writes its vault note.
 - [ ] Review `docs/release/research-projects-rollout.md`. Rollout requires AJ's
   explicit approval; any abort condition keeps the flag off.
+
+---
+
+## Agent-server memory and owned-process recovery
+
+Automated coverage: `agent_server_memory_live.test.ts` uses the isolated API
+and fork; `agent_server_recovery_macos_test.dart` builds a native helper-only
+harness. The shipping app currently fixes its API URL to port 4001, so run
+this release smoke on a dedicated candidate instance, not alongside a live
+desktop instance.
+
+- [ ] With a valid harvested draft and representative history, complete a
+  chat turn and wait beyond the 60-second evaluator window. Confirm the API
+  stays alive and a subsequent turn works. The full SQLite count may still
+  delay responses while scanning large history.
+- [ ] Cause an unexpected exit of only the API child owned by that candidate
+  instance. Confirm reconnecting, bounded replacement, preserved chat
+  history, and a successful new turn with MCP tools. An interrupted turn is
+  not promised to resume; startup may reclaim the orphan engine.
+- [ ] Verify native final stderr and UTC/PID/exit metadata in
+  `~/Library/Application Support/Rhythm/logs/agent-server-crash.log`, with
+  user-only permissions and at most 512 KiB retained.
+- [ ] Exercise Retry while an owned child is alive but unhealthy. Verify
+  shutdown precedes replacement, only one child remains, and MCP tools are
+  installed again for the same signed-in user. Reused external servers must
+  not be stopped by this owned-process path.
+- [ ] Repeated immediate crashes exhaust the three-attempt budget; Retry
+  restores the budget. Normal app quit produces no replacement child.
