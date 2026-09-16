@@ -310,15 +310,17 @@ jobs:
           SMOKE_HOME="$RUNNER_TEMP/rhythm-package-home"
           SMOKE_DB="$RUNNER_TEMP/smoke.db"
           rm -rf "$SMOKE_HOME" "$SMOKE_DB"
-          mkdir -p "$SMOKE_HOME" "$SMOKE_HOME/managed-skills"
-          # NODE_ENV=test arms the managed-skills test-isolation guard, which
-          # refuses the default ~/.config/opencode/skills root. The Org Reviewer
-          # seed (#1492) writes its owned skill there, so redirect the root into
-          # the throwaway smoke HOME exactly as the unit tests do.
+          mkdir -p "$SMOKE_HOME"
+          # Mirror the shipped Flutter launcher (api_server_service.dart): it sets
+          # PORT / AGENT_LOCAL / DB_PATH / MCP_ROLES_DIR and never NODE_ENV. The
+          # old NODE_ENV=test armed the vitest-only isolation guards in
+          # rhythm_managed_skills.ts and opencode_agent_writer.ts, which refuse
+          # every managed-skill and agent-profile write, so the Org Reviewer seed
+          # (#1492) could never complete on a fresh package boot. The throwaway
+          # HOME above is what isolates those writes here.
           RHYTHM_MOBILE_GATEWAY_PORT=4003 \
-            RHYTHM_MANAGED_SKILLS_DIR="$SMOKE_HOME/managed-skills" \
             AGENT_LOCAL=true MCP_ROLES_DIR="$APP/Contents/Resources/.mcp-roles" \
-            HOME="$SMOKE_HOME" PORT=4002 DB_PATH="$SMOKE_DB" NODE_ENV=test \
+            HOME="$SMOKE_HOME" PORT=4002 DB_PATH="$SMOKE_DB" \
             "$BUNDLED_NODE" "$SCRIPT" &
           PID=$!
           cleanup() {
