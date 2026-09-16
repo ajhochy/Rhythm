@@ -2,43 +2,73 @@
 
 ## Current focus
 
-The six-stream open-issue workflow is complete. Four implementation draft PRs await AJ review/manual smoke, and docs-only PR #1490 carries the finalized #1485 recipe-workflow plan. No PR from this workflow is merged.
+iOS end-to-end candidate: Rhythm Agents mobile app (hosted Google sign-in
+without manual pairing, redesigned core journey, reliable chats, recoverable
+bootstrap failures, mobile CI E2E restored). On draft PR #1493, gated on a
+mandatory live acceptance test in the iOS Simulator against the real hosted
+server — currently **BLOCKED** on deployment.
 
 ## Active branch / PR
 
-- `fix/session-list-and-task-board` → draft PR #1486; fixes #1466, #1476, #1477, and #1475.
-- `fix/bridge-stream-reliability-repair` → draft PR #1487; fixes #1457, #1458, #1455, #1456, and #1325.
-- `fix/optimizer-scope-lane` → draft PR #1488; fixes #1479 and #1482.
-- `fix/optimizer-generator-lanes` → draft PR #1489; fixes #1480, #1481, #1483, and #1484.
-- `plan/recipes-1485` → docs-only draft PR #1490 for #1485 plan/review/state.
+- Branch: `feature/ios-end-to-end`
+- Head: `f25abeed1b5da18570b96bd6bbe950842defd6f5`
+- PR: https://github.com/ajhochy/Rhythm/pull/1493 (draft, open, not merged)
+- Run doc: `docs/ai/runs/2026-09-15-ios-mobile-finish.md`
 
-## In progress
+## In progress (AJ-owned; deployment is out of scope for this workflow)
 
-- AJ-owned review, manual smoke, and merge decisions for draft PRs #1486–#1489.
-- #1485 implementation has not started. S0, S1a, S1b, and S2 may begin in parallel where file ownership permits; S3a waits for S0's mode and S1b, with dispatch wiring waiting for S2; S3b follows S3a; S4 follows S3b; S5 needs S1b plus the stable S3 DTO and does not wait for S4. No AJ decision blocks dispatch.
-- Verification workflow corrections are recorded in Rhythm-owned `verification-gate` and `workflow-orchestrator` skills: pre-run `UNVERIFIED` triggers execution, and exact worktree, fixture variables, launch ownership, and readiness are mandatory.
+1. Run "API Image Publish (GHCR)" workflow on `feature/ios-end-to-end`.
+2. On the NAS: `docker compose pull` + `up -d rhythm-relay` for
+   `docker-compose.synology.yml` (Watchtower alone won't pick up the new
+   `RHYTHM_RELAY_PUBLIC_URL` — it recreates with the old env; `compose` with
+   `.env.production`/`.env.relay` is required).
+3. Verify `https://api.vcrcapps.com/health` commit == `f25abeed…` and
+   `/relay/health`.
+4. Relaunch `/Applications/Rhythm.app` so `127.0.0.1:4001` and the Mac relay
+   uplink (`macOnline`) come back up.
+5. Re-run the live acceptance gate (screenshot dir
+   `/private/tmp/rhythm-ios-acceptance/`).
 
 ## Risks / known issues
 
-- GitNexus impact/detect calls were repeatedly attempted, but client v41 cannot read index v42. Risk remains UNKNOWN; there was no HIGH/CRITICAL result. This is a tooling follow-up, not a product gate pass.
-- PR #1486 still needs subjective Electron/web versus Flutter child-session visual-parity smoke. Deferred tasks are excluded from Open after Done.
-- Optimizer diagnosis still selects the global MRU profile rather than a named dedicated profile; this is documented in PR #1489 and intentionally not expanded there.
-- Optional validator cleanup remains for a missing `find` MCP grant and a coding-agent contract-path variant.
-- S4 requires private `ajhochy/rhythm-workflow-e2e` on `main`, a required `workflow-e2e` check, and observable OpenAI plus Anthropic provider metadata before it can run.
+- Desktop Rhythm API on `127.0.0.1:4001` is down (OOM), tracked separately in
+  PR #1494 — blocks the Mac relay uplink and the acceptance gate.
+- Relay env fix (`RHYTHM_RELAY_PUBLIC_URL`) is saved on the NAS but not live:
+  only applies via `docker compose up`, not via Watchtower recreate.
+- Publishing an image built from a feature branch is auto-deployed by
+  Watchtower once pushed to GHCR — do not publish `:main` casually.
+- Pre-existing flaky test on `main` (not this branch's regression):
+  `apps/api_server/src/__tests__/workflow_failure_signal_extractor.test.ts:764`
+  — same-tick `createdAt` collision in `detectStaleRedoSignals`; needs a
+  60s backdate matching its sibling test. Worth its own issue.
+- `bootstrapState === 'environmentSelection'` (multi-computer accounts) has no
+  UI yet — not a failure state, out of scope for this slice.
 
 ## Test status
 
-- Initial triage: 60 open issues and 0 PRs. Twenty-three applicable D1–D4/C2-D issues in #1426–#1451, including tracker #1448, were verified on `main` and closed with evidence; backlog was 35 afterward.
-- PR #1486: automated API, web, Flutter, and live gates pass; only subjective visual-parity smoke remains.
-- PR #1487: 33/33 criteria; full API suite 5,999 passing; all live gates pass.
-- PR #1488: 8/8 criteria and live 10/10. Read-only diagnosis found 16 phantom Obsidian grants across four profiles; no live rows changed.
-- PR #1489: 24/24 criteria, 165 focused tests, live 2/2, and cleanup/integrity checks pass.
-- #1485: OpenAI-authored plan completed Anthropic Opus 5 contrarian review and second-pass Fable review; the remaining approval-guard and completion-binding specification repairs are incorporated. This branch is docs-only.
-- All sandboxes were cleaned; live ports 4001/4096 were preserved. Synthetic fixture v2 uses DELETE journaling, is read-only, and contains no secrets.
+- Mobile CI `foundation` job: was red on every push since 2026-09-13 (E2E
+  label drift from the `Agents`→`Chats` rename in 9c027b52); fixed by
+  `f25abeed` and confirmed green.
+- PR #1493 rollup at `f25abeed`: Mobile CI success (run 35038680725), Server CI
+  success (run 35038680724, one flake-path rerun of a pre-existing timing
+  flake unrelated to this branch).
+- Targeted Jest/contract/E2E suites all green (see run doc for full list);
+  `CI=1 npm run test:e2e:web` (foundation-equivalent) exits 0.
+- Live acceptance gate: **BLOCKED**. All three readiness checks fail — hosted
+  API still serves `9c027b52` (pre-relay-fix), relay `macOnline:false`, local
+  4001 connection refused. No simulator/build/install steps were run.
 
 ## Next step
 
-1. AJ manually smokes #1486, then reviews/smokes #1487–#1489; merge decisions remain AJ-owned.
-2. Decide when to begin #1485 S0 and independently shippable S1a.
-3. Fix the GitNexus client/index version mismatch.
-4. Optionally resolve the validator warnings for the missing `find` grant and coding-agent contract path.
+1. AJ completes the deployment handoff above (image publish, NAS relay
+   recreate, desktop relaunch).
+2. Re-run Step 1 readiness checks; on pass, proceed to Step 2 simulator
+   build/install/launch and criteria 1–6 verification (criterion 7,
+   AJ-only designated-conversation send, stays AJ's).
+3. File the `workflow_failure_signal_extractor.test.ts:764` flake as its own
+   issue (backdate fix, matches sibling test in the same block).
+
+Note: the six-stream/optimizer workflow state (PRs #1486–#1490, #1485 plan)
+lives on other branches (`fix/session-list-and-task-board`,
+`fix/bridge-stream-reliability-repair`, `fix/optimizer-scope-lane`,
+`fix/optimizer-generator-lanes`, `plan/recipes-1485`), not here.

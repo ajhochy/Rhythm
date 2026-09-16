@@ -4,7 +4,7 @@ repo: Rhythm
 branch: feature/ios-end-to-end
 pr: 1493
 issues: [ios-mobile-ui, mobile-ci-e2e]
-status: ready_for_verification
+status: blocked_on_deploy
 tags: [run, Rhythm]
 ---
 
@@ -133,3 +133,139 @@ enrolled computer) has no UI: `environments` and `connectEnvironment` are
 exposed by the provider but consumed by no screen, so such an account would see
 a false "No chats yet". Not a failure state, so it is outside this slice; it
 needs a computer-picker design. AJ's account has one enrolled computer.
+
+## Ship
+
+Triaged the Server CI failure on `feature/ios-end-to-end` at `f25abeed` and
+resolved it without touching product code. Classification: infrastructure/
+timing flake in a test that already lives on `main` — **not** a regression
+from this branch.
+
+Evidence: (a) `f25abeed` touches zero `apps/api_server` files; (b) both
+`apps/api_server/src/__tests__/workflow_failure_signal_extractor.test.ts` and
+`apps/api_server/src/services/workflow_failure_signal_extractor.ts` are
+byte-identical to `main` (the test file was last touched in `0bc46a5e`,
+already on `origin/main`); (c) Server CI passed on this same branch at
+`57b99510` (run 34908760452) with identical extractor code.
+
+Root cause: `detectStaleRedoSignals` (`workflow_failure_signal_extractor.ts:528`)
+stable-sorts a group by `createdAt` and reads `sorted[last]` as the "latest"
+attempt, then applies the #936 stale-fixed safeguard. `AgentSessionsRepository
+.listAll` is `ORDER BY created_at DESC`, so when the failing test's two
+sessions (`s1` closed, `s2` error) are inserted within the same tick, the
+stable sort keeps DESC order and `sorted[last]` resolves to `s1`, tripping the
+safeguard and suppressing the stale-redo signal — the observed "expected
+undefined to be defined" at test line 764. The sibling test in the same
+`describe` block backdates `s1` by 60s for exactly this reason; the failing
+test omits that guard. Local run: stale-redo tests passed 3/3, consistent with
+an intermittent same-tick collision that only fires on a fast/loaded runner.
+
+Action taken (flake path, used exactly once): `gh run rerun --failed
+35038680724`, watched with `--exit-status` → 0. Both checks are now green at
+`f25abeed`: Server CI run 35038680724 = success, Mobile CI run 35038680725 =
+success. PR #1493 rollup: `foundation` = SUCCESS, `server-checks` = SUCCESS,
+`live-postgres-bootstrap` = SUCCESS. The PR is open, still draft, head
+`f25abeed`, local and origin in sync. The Mobile CI `foundation` job that had
+failed on every push since 2026-09-13 is confirmed fixed by `f25abeed`'s E2E
+web change.
+
+No product code, tests, or docs were modified in this step. No deploy actions;
+no live ports (4001/4096) or other lineages' sandboxes touched; nothing
+merged, force-pushed, or deleted.
+
+**CI runs (head f25abeed1b5da18570b96bd6bbe950842defd6f5):**
+
+| Workflow | Conclusion | Run |
+|---|---|---|
+| Mobile CI | success | https://github.com/ajhochy/Rhythm/actions/runs/35038680725 |
+| Server CI | success | https://github.com/ajhochy/Rhythm/actions/runs/35038680724 |
+
+**Follow-up filed, not fixed here** (pre-existing on `main`, out of scope for
+a non-regression fix on this branch):
+`apps/api_server/src/__tests__/workflow_failure_signal_extractor.test.ts:764`
+("issue-933-c7: stale-redo … reworking the same issue # signals when the
+latest attempt is still not clean") needs the same one-line backdate as its
+sibling test: `rawUpdate('agent_sessions', s1.id, { created_at: new
+Date(Date.now() - 60_000).toISOString() })` before extraction. Worth a GitHub
+issue so it stops randomly reddening unrelated PRs.
+
+PR #1493's body was deliberately not edited in this step (the flake path does
+not authorize a body edit).
+
+## Deployment handoff
+
+Deployment (image publish, NAS container recreate, desktop relaunch) is out of
+scope for this workflow — AJ performs it. Required before the live acceptance
+gate can re-run:
+
+1. Run the GitHub workflow **"API Image Publish (GHCR)"**
+   (`api_deploy_synology.yml`) on `feature/ios-end-to-end` and wait for it to
+   complete.
+2. On the NAS (`ssh <user>@192.168.50.231`; `cd /volume1/docker/Rhythm/api_server`):
+   `sudo docker compose -f docker-compose.synology.yml --env-file .env.production pull`,
+   then `sudo docker compose -f docker-compose.synology.yml --env-file .env.production up -d rhythm-relay`
+   (required even after Watchtower — Watchtower recreates containers with the
+   **old** environment, so the new `RHYTHM_RELAY_PUBLIC_URL` in `.env.relay`
+   only takes effect via `compose`).
+3. Verify: `curl -s https://api.vcrcapps.com/health` (commit must equal
+   `f25abeed1b5da18570b96bd6bbe950842defd6f5`) and
+   `curl -s https://api.vcrcapps.com/relay/health`.
+4. Relaunch `/Applications/Rhythm.app` (Cmd+Q, then reopen) so its local API on
+   `127.0.0.1:4001` comes back up and restores the Mac relay uplink (relay
+   health should then show `macOnline:true`).
+5. Re-run the live acceptance stage from the top so Step 1 readiness checks
+   can pass and Step 2 (simulator build/verify) can proceed.
+
+## Accept
+
+**Status: BLOCKED.** All three readiness checks failed, so per the acceptance
+procedure no build/install/launch/simulator interaction was performed and
+criteria 2–7 could not be attempted.
+
+Observations:
+
+- Hosted API commit: `https://api.vcrcapps.com/health` returned
+  `9c027b527ba18c147e2f9f875b0f593b70cd95f5` (builtAt 2026-09-13T17:00:07Z),
+  required `f25abeed1b5da18570b96bd6bbe950842defd6f5` — **FAIL** (relay-fix
+  deploy has not happened).
+- Relay mobile-gateway health: `macOnline:false`, `lastUplinkAt
+  2026-09-14T23:13:45.386Z`, host `34de4a8b-79b0-4df5-a468-bf2a7842a905`,
+  `status:ready` — **FAIL** (required `macOnline:true`; unchanged from the
+  prior readiness snapshot). `/relay/health` shows the same: `status ok, role
+  relay, macOnline false`.
+- Desktop `http://127.0.0.1:4001/health` (single read-only GET, per hard
+  rules): curl exit code 7, connection refused — **FAIL** (consistent with the
+  desktop OOM tracked in PR #1494).
+- No simulator, build, install, launch, git, or server actions were taken —
+  correctly withheld under the BLOCKED branch of the procedure. No screenshots
+  captured (Step 2 never started); screenshot dir reserved at
+  `/private/tmp/rhythm-ios-acceptance/`.
+
+This confirms the deployment-side blockers are still unresolved as of this
+check: the image is not published / relay container not recreated, and the
+desktop app (hence port 4001) is still down.
+
+Remaining before this gate can pass:
+
+- Re-run Step 1 readiness checks after AJ completes the deploy actions above.
+- Step 2: build/codesign/install/launch verification of criterion 1 (sign-in
+  without pairing) and criterion 6-lite (redesigned recovery card / general
+  UI) — not yet attempted.
+- Criterion 2 (real chat list load, counts/timing) — blocked on hosted commit
+  + relay uplink.
+- Criterion 3 (open 3+ real conversations, transcript rendering, scroll/
+  selection preserved) — blocked.
+- Criterion 4 (responsiveness timing: cold open, list→conversation, scroll
+  smoothness) — blocked.
+- Criterion 5 (network interruption / background-foreground reconnect test) —
+  blocked.
+- Criterion 6 full pass (light/dark appearance, Dynamic Type clipping check) —
+  blocked, needs a working session to exercise real screens beyond the static
+  recovery card.
+- Criterion 7 (AJ-only designated-conversation send test) — out of scope for
+  this verifier regardless of readiness; AJ must perform it.
+- VoiceOver/contrast accessibility pass on the redesigned screens — not
+  covered by this acceptance run at all; would need a separate pass.
+- Close-out run doc recording PASS/FAIL per criterion — not written since the
+  gate never reached Step 2; this section is the current close-out state until
+  a rerun happens.
