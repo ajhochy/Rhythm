@@ -67,7 +67,7 @@ runtime_env=(
   "AGENT_LOCAL=true"
   # Synthetic harness runs never inherit an operator's promotion opt-in.
   "AUTO_PROMOTION_FEATURE_AVAILABLE=false"
-  "RHYTHM_LOCAL_RENDERER_ORIGINS=http://127.0.0.1:4175"
+  "RHYTHM_LOCAL_RENDERER_ORIGINS=http://127.0.0.1:4175,rhythm://app"
   # The gateway port is a THIRD listener and was previously unset, so the
   # sandbox bound the default 4002 — the port `tailscale serve` publishes to
   # the tailnet, while serving a fully-credentialed copy of the real DB.

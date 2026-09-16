@@ -12,13 +12,14 @@
     { "criterion_id": "E20-c8", "text": "Use E26 cursor/pageInfo to explicit Load older roots/children and search beyond first100; no silent infinite fetch", "mode": "ui", "test": "apps/web/tests/electron-e20-session-ordering.spec.ts: E20-c3, E20-c7, E20-c8", "status": "pass" },
     { "criterion_id": "E20-c9", "text": "Persist sort/filter/density account+scope only if existing preference mechanism supports without store edits; otherwise defer persistence E22, don't invent local global leak", "mode": "ui", "test": "apps/web/tests/electron-e20-session-ordering.spec.ts: E20-c9", "status": "pass", "reason": "Existing user-preferences gateway supports artifactTabIds only. Persistence deferred E22. Density toggles without new storage keys; source review confirms no preference writes added." },
     { "criterion_id": "E20-c10", "text": "Legacy list response compatible", "mode": "unit", "test": "apps/web/tests/electron-e20-session-ordering.spec.ts: E20-c10", "status": "pass" },
+    { "criterion_id": "E20-disclosure-collision", "text": "Same-name/equal-count parents whose unique IDs share the first eight characters have unique stable accessible disclosure names using the shortest distinguishing ID prefix (minimum eight, up to the full ID) after sorting/reconciliation and independent collapse; visible labels remain concise and unique parent names do not gain ID noise", "mode": "ui", "test": "apps/web/tests/electron-e20-session-ordering.spec.ts: subagent-disclosure-collision", "status": "pass", "reason": "Same-name parent disclosures derive the shortest unique stable ID prefix with an eight-character minimum; unique names and all visible disclosure labels remain concise." },
     { "criterion_id": "E20-live", "text": "live not_tested after integrated rebuild", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "Manager owns integrated E26/E27 rebuild; no live old sandbox requests permitted." }
   ],
   "not_tested": ["E20-live"],
   "evidence": {
     "command_cwd": "apps/web",
-    "green": "15 passed (5.0s); npm run typecheck exit0; git diff --check exit0",
-    "detect_changes": "LOW;43 indexed changed symbols;0 affected processes;6 tracked files including concurrent changes, not an E20-only report",
+    "green": "26 passed (13.7s), including shared-first-eight unique-prefix repair; E21 6 passed; session regressions 7 passed; npm run typecheck/build/test:dist-smoke exit0; isolated sandbox 7598/7597/7599 up/status/down passed",
+    "detect_changes": "LOW;86 indexed changed symbols;0 affected processes;35 indexed files including concurrent changes, not an E20-only report",
     "capture": "/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/opencode/e20-load-controls.png",
     "limitations": "Interception proves renderer/gateway behavior, not running API. E26 pages in server activity snapshot order; selected sort applies consistently to loaded rows, explicitly disclosed while more roots exist. No automatic full-history drain. Persistence deferred E22. Legacy no-pageInfo response cannot expose unavailable server continuation."
   },

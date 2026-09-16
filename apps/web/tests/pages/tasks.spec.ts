@@ -39,13 +39,13 @@ test('Tasks click-through covers filtering, creation, editing, collaborators, bo
   await expect(page.getByTestId('page-trace')).toContainText('POST /tasks {title,notes,scheduledDate,dueDate,preferredAgent} → 201');
   await expect(page.getByTestId('page-trace')).toContainText('POST /tasks/task-sanctuary-reset/collaborators {userId} → 201');
 
-  await page.getByTestId(`task-inspect-${taskId}`).click();
+  await page.getByTestId(`task-select-${taskId}`).click();
   await page.getByTestId('task-edit-notes').fill('A verified final handoff for the whole team.');
   await page.getByTestId('task-edit-agent').selectOption('codex');
   await page.getByTestId('task-save').click();
   await expect(page.getByTestId('page-trace')).toContainText(`PATCH /tasks/${taskId} {title,notes,dueDate,scheduledDate,preferredAgent,energy} → 200`);
 
-  await page.getByTestId(`task-inspect-${taskId}`).click();
+  await page.getByTestId(`task-select-${taskId}`).click();
   await page.getByTestId('task-add-collaborator').click();
   await page.getByTestId('task-collaborator-option-7').click();
   await page.getByTestId('task-remove-collaborator-7').click();
@@ -54,11 +54,12 @@ test('Tasks click-through covers filtering, creation, editing, collaborators, bo
   // Lead determinism fix: slim the board through the worship tag filter (the recipe the
   // red-proven contract c3 uses) — HTML5 dragTo is unreliable when the drop point lands on
   // another draggable card inside a dense column.
+  await page.getByTestId('tasks-filters-toggle').click();
   await page.getByTestId('tasks-tag-filter').selectOption('worship');
   await page.getByTestId('tasks-view-board').click();
   await page.getByTestId(`task-card-${taskId}`).dragTo(page.getByTestId('kanban-column-in-progress'));
   await expect(page.getByTestId('kanban-column-in-progress')).toContainText('Prepare Sunday service handoff');
-  await page.getByTestId(`task-card-${taskId}`).press('Enter');
+  await page.getByTestId(`task-card-${taskId}`).getByRole('button').press('Enter');
   await expect(page.getByTestId('task-inspector')).toBeVisible();
 
   await page.getByTestId('tasks-view-list').click();
@@ -107,7 +108,7 @@ test('Tasks is responsive and axe-clean in representative list, board, inspector
   await expectNoBlockingAxe(page, 'ready list');
   await page.getByTestId('tasks-view-board').click();
   await expectNoBlockingAxe(page, 'ready board');
-  await page.getByTestId(`task-card-${taskId}`).press('Enter');
+  await page.getByTestId(`task-card-${taskId}`).getByRole('button').press('Enter');
   await expectNoBlockingAxe(page, 'task inspector');
 
   await openPage(page, 'tasks', '?state=server-error');

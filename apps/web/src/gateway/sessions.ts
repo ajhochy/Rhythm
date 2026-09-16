@@ -46,6 +46,8 @@ export type SessionCatalogEntry = Session & {
   category?: string;
   archivedAt?: string | null;
   hasChildren?: boolean;
+  childCount?: number;
+  runningChildCount?: number;
 };
 export type SessionListQuery = {
   scope?: Session['scope'] | 'self_improvement';
@@ -224,6 +226,7 @@ const record = (value: unknown): Record<string, unknown> => value && typeof valu
 // `string()` above intentionally rejects numbers, so message-id resolution needs its own
 // coercion instead of silently collapsing every numeric id to ''.
 const idOf = (value: unknown): string | undefined => typeof value === 'string' ? value : typeof value === 'number' ? String(value) : undefined;
+const nonnegativeInteger = (value: unknown): number | undefined => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 
 // c2j (child-session navigation) only: a `tool` part whose `tool` is `task` names the
 // child SDK session it delegated to inline in its output text ("task_id: <id> (for
@@ -316,12 +319,16 @@ export function toSessionViewModel(value: unknown, messages: unknown[] = [], tra
   const page = record(transcriptPage);
   const parentSessionId = typeof source.parentSessionId === 'string' && source.parentSessionId ? source.parentSessionId : undefined;
   const category = string(source.category, string(source.scope, 'chats'));
+  const childCount = nonnegativeInteger(source.childCount);
+  const runningChildCount = nonnegativeInteger(source.runningChildCount);
   return {
     id: string(source.id), name: string(source.name, 'Untitled session'), scope: category === 'scheduled' ? 'scheduled' : category === 'self_improvement' || category === 'background' ? 'background' : 'chats',
     category, lastActivityAt: typeof source.lastActivityAt === 'string' ? source.lastActivityAt : null,
     lastPreview: typeof source.lastPreview === 'string' ? source.lastPreview : null,
     archivedAt: typeof source.archivedAt === 'string' ? source.archivedAt : null,
-    hasChildren: source.hasChildren === true || Array.isArray(source.children) && source.children.length > 0,
+    hasChildren: source.hasChildren === true || childCount !== undefined && childCount > 0 || Array.isArray(source.children) && source.children.length > 0,
+    ...(childCount !== undefined ? { childCount } : {}),
+    ...(runningChildCount !== undefined ? { runningChildCount } : {}),
     group: source.archivedAt != null || source.archived === true ? 'archived' : status === 'resumable' ? 'resumable' : 'active',
     status: ['starting', 'working', 'idle', 'resumable', 'closed', 'error'].includes(status) ? status as Session['status'] : 'idle',
     statusMessage: typeof source.statusMessage === 'string' ? source.statusMessage : undefined,

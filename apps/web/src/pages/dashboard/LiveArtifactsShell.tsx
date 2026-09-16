@@ -511,6 +511,14 @@ function LiveArtifactsWorkspace({
   const [tabs, setTabs] = useState<ArtifactTab[]>([]);
   // Dashboard is always the initial selection — never the last-active artifact tab.
   const [selected, setSelected] = useState<string>('dashboard');
+  // App deliberately mounts this workspace with a fixed route prop. Observe visibility
+  // without remounting its panes when the user comes back from another destination.
+  const [dashboardRouteActive, setDashboardRouteActive] = useState(() => window.location.hash.split('?')[0] === '#/dashboard');
+  useEffect(() => {
+    const changed = () => setDashboardRouteActive(window.location.hash.split('?')[0] === '#/dashboard');
+    window.addEventListener('hashchange', changed);
+    return () => window.removeEventListener('hashchange', changed);
+  }, []);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [persistenceError, setPersistenceError] = useState('');
@@ -677,7 +685,7 @@ function LiveArtifactsWorkspace({
             in-progress state survives switching to an artifact tab and back — only visibility
             toggles. `hidden` keeps it attached to the DOM while removed from layout/a11y tree. */}
         <div hidden={selected !== 'dashboard'} className="artifact-dashboard-pane">
-          <DashboardPage route={route} />
+          <DashboardPage route={route} active={selected === 'dashboard' && dashboardRouteActive} />
         </div>
         {tabs.map((tab) => (
           <div key={tab.id} hidden={selected !== tab.id} className="artifact-tab-pane">

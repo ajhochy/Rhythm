@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { AGENT_SERVER_BASE_URL, AGENT_SERVER_ENGINE_PORT, AgentServerService, electronDbPath, legacyFlutterDbPath } from './agent-server.mjs';
 import { injectArtifactFrameBridge, isAllowedArtifactFrameNavigation, parseArtifactFrameRequest } from './artifact-frame-protocol.mjs';
@@ -22,7 +22,11 @@ export { deepLinkFromArgv } from './policy.mjs';
 // default ~/Library/Application Support/rhythm-electron-shell path that every smoke run must never
 // touch — slice-7-c6 caught exactly that leak when this ran in the other order.
 const isSmoke = process.argv.includes('--smoke');
-const allowTestRuntimePorts = isSmoke && process.argv.includes('--allow-test-runtime-ports');
+const isInteractiveSmoke = process.argv.includes('--interactive-smoke');
+const allowTestRuntimePorts = (isSmoke || isInteractiveSmoke) && process.argv.includes('--allow-test-runtime-ports');
+if (isInteractiveSmoke && (!process.env.RHYTHM_SHELL_USER_DATA || !isAbsolute(process.env.RHYTHM_SHELL_USER_DATA))) {
+  throw new Error('--interactive-smoke requires an explicit absolute RHYTHM_SHELL_USER_DATA path');
+}
 const smokeUserDataPath = isSmoke && !process.env.RHYTHM_SHELL_USER_DATA
   ? mkdtempSync(resolve(tmpdir(), 'rhythm-electron-smoke-'))
   : undefined;
@@ -279,13 +283,15 @@ if (hasSingleInstanceLock) {
   // developer's own terminal) already has one running. Production always pins these bases to the
   // canonical 4001/4096 boundary, exclusively: foreign owners are conflicts, never adopted.
   // Alternate ports exist only behind an explicit smoke-only flag.
-  const agentServer = new AgentServerService();
+  // Interactive smoke renders normally, but the manager owns the external sandbox lifecycle.
+  const agentServer = isInteractiveSmoke ? undefined : new AgentServerService();
+  const externalRuntimeStatus = { status: 'stopped', failureReason: null, stderrTail: null, errorMessage: null };
   if (!allowTestRuntimePorts) {
     process.env.RHYTHM_LIVE_API_URL = AGENT_SERVER_BASE_URL;
     process.env.RHYTHM_LIVE_ENGINE_URL = `http://127.0.0.1:${AGENT_SERVER_ENGINE_PORT}`;
   }
 
-  ipcMain.handle('rhythm:agent-server:status', () => agentServer.status);
+  ipcMain.handle('rhythm:agent-server:status', () => agentServer?.status ?? externalRuntimeStatus);
   ipcMain.handle('rhythm:human-approval:capability', (event, ...args) => {
     requireOwnedDocument(event);
     requireNoPayload(args);
@@ -308,7 +314,7 @@ if (hasSingleInstanceLock) {
     cancelNativeNotification(decision.approvalId);
     return signature;
   });
-  agentServer.onStatusChange((/** @type {import('./agent-server.mjs').AgentServerStatus} */ snapshot) => {
+  agentServer?.onStatusChange((/** @type {import('./agent-server.mjs').AgentServerStatus} */ snapshot) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('rhythm:agent-server:status-changed', snapshot);
     // ponytail: native error dialog keeps failures actionable without expanding E12's renderer UI.
     if (!isSmoke && snapshot.status === 'failed') dialog.showErrorBox('Rhythm local runtime unavailable', snapshot.errorMessage ?? 'Quit and reopen Rhythm to retry.');
@@ -320,12 +326,12 @@ if (hasSingleInstanceLock) {
   // because it isn't catchable — not a concern here since this Electron build targets macOS only).
   let shuttingDown = false;
   app.on('before-quit', (event) => {
-    if (isSmoke || shuttingDown) return;
+    if (isSmoke || !agentServer || shuttingDown) return;
     shuttingDown = true;
     event.preventDefault();
     void agentServer.stopGracefully().catch((error) => process.stderr.write(`Runtime shutdown failed: ${error}\n`)).finally(() => app.quit());
   });
-  if (!isSmoke) {
+  if (!isSmoke && agentServer) {
     for (const signal of ['SIGINT', 'SIGTERM']) {
       process.on(signal, () => { void agentServer.stopGracefully().then(() => process.exit(0), (error) => { process.stderr.write(`Runtime shutdown failed: ${error}\n`); process.exit(1); }); });
     }
@@ -352,7 +358,7 @@ if (hasSingleInstanceLock) {
   app.whenReady().then(async () => {
     if (isMissingDistSmoke || !existsSync(webDist)) throw new Error(`Rhythm Electron shell requires built web assets at ${webDist}`);
     await restoreAuthentication();
-    if (!isSmoke && !existsSync(electronDbPath()) && existsSync(legacyFlutterDbPath())) {
+    if (!isSmoke && agentServer && !existsSync(electronDbPath()) && existsSync(legacyFlutterDbPath())) {
       const choice = await dialog.showMessageBox({ type: 'question', title: 'Import existing Rhythm data?', message: 'Rhythm found data from the Flutter desktop app.', detail: 'Import copies the database into Electron using SQLite backup. The original remains untouched. Imported schedules start disabled for review.', buttons: ['Import existing data', 'Start fresh', 'Cancel'], defaultId: 0, cancelId: 2 });
       if (choice.response === 2) { app.quit(); return; }
       process.env.RHYTHM_ELECTRON_MIGRATE_LEGACY = choice.response === 0 ? '1' : '0';
@@ -361,7 +367,7 @@ if (hasSingleInstanceLock) {
     // Fire-and-forget, exactly like Flutter's main.dart:186-190 (`AgentServerController..initialize()`
     // is never awaited before `runApp`) — the window renders immediately and the renderer's own
     // EnvironmentReceipt already polls health with retries while this comes up in the background.
-    if (!isSmoke) void agentServer.start().catch((error) => agentServer.reportStartupFailure(error));
+    if (!isSmoke && agentServer) void agentServer.start().catch((error) => agentServer.reportStartupFailure(error));
 
     protocol.handle('rhythm', (request) => {
       const url = new URL(request.url);
@@ -510,7 +516,7 @@ if (hasSingleInstanceLock) {
     });
     mainWindow.webContents.on('did-finish-load', () => {
       rendererReady = true;
-      mainWindow?.webContents.send('rhythm:agent-server:status-changed', agentServer.status);
+      mainWindow?.webContents.send('rhythm:agent-server:status-changed', agentServer?.status ?? externalRuntimeStatus);
       for (const activation of pendingNativeNotificationActivations.splice(0)) {
         routeNativeNotificationActivation(activation);
       }

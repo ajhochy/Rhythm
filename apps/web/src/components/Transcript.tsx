@@ -221,7 +221,8 @@ type ReadingPosition = {
 };
 
 export function Transcript() {
-  const { selected, sessions, selectSession, demo, loading, notify, loadOlder, revertSession, unrevertSession, forkSession, summarizeSession, sendInput: sendFixtureInput, sendLiveInput, sessionGatewayMode, liveChildView, openLiveChildSession } = useFixtures();
+  const { selected, sessions, selectSession, demo: fixtureDemo, loading, notify, loadOlder, revertSession, unrevertSession, forkSession, summarizeSession, sendInput: sendFixtureInput, sendLiveInput, sessionGatewayMode, liveChildView, openLiveChildSession } = useFixtures();
+  const demo = sessionGatewayMode === 'live' ? undefined : fixtureDemo;
   const sendInput = sessionGatewayMode === 'live' ? sendLiveInput : sendFixtureInput;
   const pending = usePendingDecisions(selected.id);
   const copyMessage = async (message: TranscriptMessage) => {

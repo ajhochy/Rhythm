@@ -1,0 +1,73 @@
+{
+  "issue": "manual-smoke-subagent-tree-stability-20260914",
+  "date": "2026-09-14",
+  "test_command": "npm exec -- playwright test --config tests/electron-e20-playwright.config.ts --grep 'subagent-(tree|disclosure)' && npm exec -- playwright test --config tests/electron-e21-playwright.config.ts --grep subagent-tree",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-subagent-tree-stability-c1",
+      "text": "Every parent with loaded child sessions renders one keyboard-accessible disclosure directly beneath parent: `N subagent(s)` plus `· M running` when >0; accurate aria-expanded; Enter/Space toggles. Independent state per parent. Child rows hidden while collapsed; parent/project headings unaffected. Use existing styles/icons; no new dependency. Lazy default expanded is acceptable. Preserve nested depths and Load children/older children access; disclosure should account for loaded children and indicate more if useful without inventing totals.",
+      "mode": "ui",
+      "test": "apps/web/tests/electron-e20-session-ordering.spec.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-subagent-tree-stability-c2",
+      "text": "Collapse remains stable through child status/update/list reconciliation; counts/running update without reopening. Selected child/transcript behavior remains coherent; no forced navigation.",
+      "mode": "ui",
+      "test": "apps/web/tests/electron-e21-reconciliation.spec.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-subagent-tree-stability-c3",
+      "text": "Fix flicker at root: bounded listPage reconcile must merge incoming sessions and preserve event-added/current child rows absent from incomplete first page. Do not preserve explicit removals: session.removed/hard delete still removes immediately. Avoid unbounded speculative machinery; rely on explicit removal event. Selected detail404 behavior remains.",
+      "mode": "integration",
+      "test": "apps/web/tests/electron-e21-reconciliation.spec.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-subagent-tree-stability-c4",
+      "text": "Regression simulates event-created working child absent from next hasMore first-page snapshot across multiple reconcile ticks: child remains exactly once, changes idle/working in place, no root promotion/duplicate/flash. Explicit removed event removes it. Also test complete snapshot semantics if pageInfo.hasMore=false can safely reconcile stale rows only if existing behavior/contracts demand it; do not infer complete when merging active+archived bounded pages.",
+      "mode": "integration",
+      "test": "apps/web/tests/electron-e21-reconciliation.spec.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-subagent-tree-stability-c5",
+      "text": "Cover disclosure with multiple/nested children, running count, independent collapse, keyboard/aria/focus, search/project/archive/paging, and live event refresh. Preserve project-heading tests and false-unavailable fix.",
+      "mode": "ui",
+      "test": "apps/web/tests/electron-e20-session-ordering.spec.ts; apps/web/tests/electron-e21-reconciliation.spec.ts",
+      "status": "pass",
+      "reason": "Existing E20 project/search/archive/paging checks compose with the new disclosure contract."
+    },
+    {
+      "criterion_id": "task-subagent-tree-stability-c6",
+      "text": "Use owned sandbox /private/tmp/rhythm-subagent-disclosure-ui on ports 7398/7397/7399 with the approved fixture root; run up/status/down. Run focused E20/E21/session, typecheck/build/dist/diff; live reconciliation only if product behavior changed. Never use live 4001/4096, candidate 8699, old recovery 7098/7097/7099, or retained 589x. No full suite/package/commit/push/PR/merge/peers.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Owned 7398/7397/7399 sandbox reached ready status and was removed; proportional checks are recorded in the run note."
+    },
+    {
+      "criterion_id": "task-subagent-tree-stability-c7",
+      "text": "Keep concise visible count/running text, but accessible name must include stable visible parent session name plus count/running so all controls distinguishable. Avoid relying on ID/title only. Test multiple equal-count parents/nested disclosures in screen-reader control list.",
+      "mode": "ui",
+      "test": "apps/web/tests/electron-e20-session-ordering.spec.ts; apps/web/tests/electron-e21-reconciliation.spec.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-subagent-tree-stability-c8",
+      "text": "Set a depth custom property from existing childDepth/session hierarchy and add minimal `.subagent-disclosure` margin/width style so each disclosure aligns with the child level it controls; nested disclosure clearly deeper than root disclosure and project heading. Preserve RTL logical margins, 44px touch target at narrow, no horizontal overflow/clipping.",
+      "mode": "ui",
+      "test": "apps/web/tests/electron-e20-session-ordering.spec.ts",
+      "status": "pass",
+      "reason": ""
+    }
+  ],
+  "not_tested": []
+}

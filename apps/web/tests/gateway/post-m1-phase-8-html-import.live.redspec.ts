@@ -1,5 +1,10 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 
+test.beforeEach(async ({ page }) => {
+  await page.routeWebSocket('**/*', socket => socket.close());
+  await page.route('**/*', route => new URL(route.request().url()).origin === 'http://127.0.0.1:4178' ? route.continue() : route.abort());
+});
+
 const importedId = '00000000-0000-4000-8000-000000000822';
 const existingArtifact = {
   id: '00000000-0000-4000-8000-000000000821', type: 'html', title: 'Existing artifact', ownerUserId: 81,

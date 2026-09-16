@@ -4,12 +4,11 @@ import { useGateway } from '../gateway/context';
 import { compareSessions, SessionGatewayError, type ProjectBranches, type SessionCatalogEntry, type SessionSort, type TranscriptPageInfo } from '../gateway/sessions';
 import { isSessionRecoverable, sessionPresentation } from '../sessionState';
 import { useFixtures } from '../store';
-import type { Session, SessionGroup, SessionScope } from '../types';
+import type { Session, SessionScope } from '../types';
 import { FocusDialog } from './FocusDialog';
 import { navigate } from './Shell';
 import { usePendingSessionIds } from '../pending-decisions';
 
-const groupLabels: Record<SessionGroup, string> = { active: 'Active', resumable: 'Resumable', archived: 'Archived' };
 const tools: { key: string; label: string; description: string; icon: IconName }[] = [
   { key: 'brain', label: 'Brain', description: 'Workspace memory', icon: 'brain' },
   { key: 'deep-research', label: 'Deep Research', description: 'Research runs', icon: 'search' },
@@ -40,13 +39,12 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const searchToggleRef = useRef<HTMLButtonElement>(null);
-  const [project, setProject] = useState('all');
   const [sort, setSort] = useState<SessionSort>('newest');
   const [archivedOnly, setArchivedOnly] = useState(false);
   const [compact, setCompact] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const normalizedSearch = search.trim();
-  const historyIdentity = useMemo(() => ({ gateway, scope, project, search: normalizedSearch, archivedOnly, refresh }), [gateway, scope, project, normalizedSearch, archivedOnly, refresh]);
+  const historyIdentity = useMemo(() => ({ gateway, scope, search: normalizedSearch, archivedOnly, refresh }), [gateway, scope, normalizedSearch, archivedOnly, refresh]);
   const currentHistory = useRef(historyIdentity);
   currentHistory.current = historyIdentity;
   const [history, setHistory] = useState<{
@@ -61,7 +59,7 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
     if (!gateway.domains.sessions?.listPage) return;
     setHistory((value) => value?.identity === identity ? { ...value, busy: true, error: '' } : { identity, rows: [], pages: {}, busy: true, error: '' });
     try {
-      const result = await gateway.domains.sessions.listPage({ scope, projectId: scope === 'chats' && project !== 'all' ? project : undefined, search: normalizedSearch, archivedOnly, parentId, cursor });
+      const result = await gateway.domains.sessions.listPage({ scope, search: normalizedSearch, archivedOnly, parentId, cursor });
       if (currentHistory.current !== identity) return;
       setHistory((value) => {
         const previous = value?.identity === identity ? value : null;
@@ -113,7 +111,8 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [rowMenuId, setRowMenuId] = useState<string | null>(null);
   const [toolsHeight, setToolsHeight] = useState(224);
-  const [expanded, setExpanded] = useState<Record<SessionGroup | 'parents' | 'children', boolean>>({ active: true, resumable: true, archived: true, parents: true, children: true });
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => new Set());
+  const [collapsedParents, setCollapsedParents] = useState<Set<string>>(() => new Set());
 
   const [name, setName] = useState('');
   const [taskId, setTaskId] = useState('');
@@ -204,7 +203,7 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
     document.addEventListener('pointermove', move); document.addEventListener('pointerup', stop);
   };
 
-  const changeScope = (next: SessionScope) => { setScope(next); setSearch(''); setProject('all'); setSelectedRows([]); };
+  const changeScope = (next: SessionScope) => { setScope(next); setSearch(''); setSelectedRows([]); };
   const moveScope = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
@@ -215,8 +214,10 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
   const catalog: SessionCatalogEntry[] = liveHistory ? currentPage?.rows ?? [] : sessions;
   const projects = new Map((projectLabels?.gateway === gateway ? projectLabels.rows : []).map((item) => [item.id, item.name]));
   for (const session of catalog) if (session.projectId && !projects.has(session.projectId)) projects.set(session.projectId, session.projectName || `Unknown project (${session.projectId})`);
+  const projectNameCounts = new Map<string, number>();
+  for (const name of projects.values()) projectNameCounts.set(name, (projectNameCounts.get(name) ?? 0) + 1);
   const sessionsById = new Map(catalog.map((session) => [session.id, session]));
-  const eligible = catalog.filter((session) => session.scope === scope && (scope !== 'chats' || project === 'all' || (session.projectId || 'null') === project) && (!liveHistory && !archivedOnly || (session.group === 'archived') === archivedOnly));
+  const eligible = catalog.filter((session) => session.scope === scope && (!liveHistory && !archivedOnly || (session.group === 'archived') === archivedOnly));
   const eligibleById = new Map(eligible.map((session) => [session.id, session]));
   const included = new Set<string>();
   for (const session of eligible) {
@@ -228,11 +229,30 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
   const childrenByParent = new Map<string, SessionCatalogEntry[]>();
   for (const session of eligible) {
     if (!included.has(session.id)) continue;
-    if (!session.parentId || !included.has(session.parentId)) visible.push(session);
+    if (!session.parentId || !included.has(session.parentId) || (eligibleById.get(session.parentId)?.projectId || '') !== (session.projectId || '')) visible.push(session);
     else childrenByParent.set(session.parentId, [...(childrenByParent.get(session.parentId) ?? []), session]);
   }
+  const idsByName = new Map<string, string[]>();
+  for (const session of eligible) idsByName.set(session.name, [...(idsByName.get(session.name) ?? []), session.id]);
+  const uniqueName = (session: SessionCatalogEntry) => {
+    const ids = idsByName.get(session.name) ?? [];
+    if (ids.length < 2) return session.name;
+    let length = Math.min(8, session.id.length);
+    while (length < session.id.length && ids.some((id) => id !== session.id && id.startsWith(session.id.slice(0, length)))) length += 1;
+    return `${session.name} (${session.id.slice(0, length)})`;
+  };
   visible.sort((a, b) => compareSessions(a, b, sort));
   for (const children of childrenByParent.values()) children.sort((a, b) => compareSessions(a, b, sort));
+  const projectGroups = new Map<string, { roots: SessionCatalogEntry[]; count: number }>();
+  for (const session of visible) {
+    const id = session.projectId || '';
+    if (!projectGroups.has(id)) projectGroups.set(id, { roots: [], count: 0 });
+    projectGroups.get(id)!.roots.push(session);
+  }
+  for (const session of eligible) if (included.has(session.id)) {
+    const group = projectGroups.get(session.projectId || '');
+    if (group) group.count += 1;
+  }
   const toggleRow = (id: string, additive: boolean) => { if (!additive) { setSelectedRows([]); if (sessionGatewayMode === 'live') void selectLiveSession(id); else selectSession(id); return; } setSelectedRows((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); };
   const removeSession = async (id: string) => {
     if (!liveHistory) { deleteSession(id); return; }
@@ -248,17 +268,18 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
     while (current?.parentId && depth < 4) { depth += 1; current = sessionsById.get(current.parentId); }
     return depth;
   };
-  const sessionRow = (session: SessionCatalogEntry, child = false) => {
+  const sessionRow = (session: SessionCatalogEntry, child = false, disclosure?: { label: string; name: string; expanded: boolean }) => {
     const presentation = liveHistory && pendingSessions.has(session.id)
       ? { tone: 'waiting', label: 'Waiting on you', waiting: true }
       : sessionPresentation(session);
     const parentSession = session.parentId ? sessionsById.get(session.parentId) : undefined;
     return (
-    <div className={`session-row-wrap ${child ? 'child-wrap' : ''}`} key={session.id} data-session-menu={session.id} style={child ? { '--child-depth': childDepth(session) } as React.CSSProperties : undefined}>
+    <div className={`session-row-wrap ${child ? 'child-wrap' : ''} ${disclosure ? 'has-subagents' : ''}`} key={session.id} data-session-menu={session.id} style={child ? { '--child-depth': childDepth(session) } as React.CSSProperties : undefined}>
       <button id={`session-${session.id}`} className={`${child ? 'child-session' : 'session-row'} ${selectedId === session.id ? 'selected' : ''} ${selectedRows.includes(session.id) ? 'multi-selected' : ''}`} type="button" onClick={(event) => toggleRow(session.id, event.shiftKey || event.metaKey)} aria-current={selectedId === session.id ? 'true' : undefined} aria-pressed={selectedRows.includes(session.id)} data-testid={`session-${session.id}`}>
-        <span className={`status-dot ${presentation.tone}`} aria-hidden="true" /><span className="session-copy"><strong>{session.name}</strong>{!compact && <><small>{child ? `${parentSession?.name ?? 'Parent session'} · ${presentation.label}` : `${projects.get(session.projectId) || session.projectName || 'No project'} · ${presentation.label}`}</small>{session.lastPreview && <small title={session.lastPreview}>{session.lastPreview}</small>}</>}</span>{presentation.waiting && <span className="attention-mark" aria-label="Waiting on you">!</span>}
+        <span className={`status-dot ${presentation.tone}`} aria-hidden="true" /><span className="session-copy"><strong>{session.name}</strong>{compact ? <small>{presentation.label}</small> : <><small>{child ? `${parentSession?.name ?? 'Parent session'} · ${presentation.label}` : `${projects.get(session.projectId) || session.projectName || 'No project'} · ${presentation.label}`}</small>{session.lastPreview && <small title={session.lastPreview}>{session.lastPreview}</small>}</>}</span>{presentation.waiting && <span className="attention-mark" aria-label="Waiting on you">!</span>}
       </button>
-      {!child && <><button className="session-overflow-button" type="button" aria-label={`${session.name} actions`} aria-haspopup="menu" aria-expanded={rowMenuId === session.id} onClick={() => setRowMenuId((current) => current === session.id ? null : session.id)} data-testid={`session-menu-${session.id}`}><Icon name="more" size={15} /></button>{rowMenuId === session.id && <div className="menu-popover session-row-menu" role="menu" aria-label={`${session.name} actions`}>
+      {disclosure && <button className="subagent-disclosure" type="button" aria-label={disclosure.name} title={disclosure.name} aria-expanded={disclosure.expanded} aria-controls={`subagent-children-${session.id}`} onClick={() => setCollapsedParents((current) => { const next = new Set(current); if (next.has(session.id)) next.delete(session.id); else next.add(session.id); return next; })} data-testid={`subagents-${session.id}`}><Icon name={disclosure.expanded ? 'chevronDown' : 'chevronRight'} size={13} /><span>{disclosure.label}</span></button>}
+      {!child && <><button className="session-overflow-button" type="button" aria-label={`${uniqueName(session)} actions`} aria-haspopup="menu" aria-expanded={rowMenuId === session.id} onClick={() => setRowMenuId((current) => current === session.id ? null : session.id)} data-testid={`session-menu-${session.id}`}><Icon name="more" size={15} /></button>{rowMenuId === session.id && <div className="menu-popover session-row-menu" role="menu" aria-label={`${uniqueName(session)} actions`}>
         {session.group === 'archived' ? <button className="menu-item" role="menuitem" type="button" onClick={() => { unarchiveSession(session.id); setRowMenuId(null); }} data-testid={`unarchive-${session.id}`}><Icon name="resume" size={14} />Restore</button> : <button className="menu-item" role="menuitem" type="button" onClick={() => { archiveSession(session.id); setRowMenuId(null); }} data-testid={`archive-${session.id}`}><Icon name="archive" size={14} />Archive</button>}
         {isSessionRecoverable(session) && session.group !== 'archived' && <button className="menu-item" role="menuitem" type="button" onClick={() => { resumeSession(session.id); setRowMenuId(null); }} data-testid={`resume-${session.id}`}><Icon name="resume" size={14} />Resume</button>}
         {session.status === 'working' && <button className="menu-item" role="menuitem" type="button" onClick={() => { cancelSession(session.id); setRowMenuId(null); }} data-testid={`cancel-${session.id}`}><Icon name="cancel" size={13} />Cancel</button>}
@@ -273,10 +294,22 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
     const path = new Set(visited).add(session.id);
     const children = childrenByParent.get(session.id) ?? [];
     const page = currentPage?.pages[session.id];
+    const expanded = !collapsedParents.has(session.id);
+    const loadedRunning = children.filter((nestedChild) => nestedChild.status === 'working').length;
+    const hasExactCount = session.childCount !== undefined;
+    const count = hasExactCount ? Math.max(session.childCount!, children.length) : children.length;
+    const running = session.runningChildCount !== undefined ? session.runningChildCount : loadedRunning;
+    const incomplete = !hasExactCount && session.hasChildren === true && (!page || page.hasMore);
+    const countLabel = count === 0 && incomplete ? 'More subagents' : `${count}${incomplete ? '+' : ''} ${count === 1 ? 'subagent' : 'subagents'}`;
+    const childLabel = `${countLabel}${running ? ` · ${running} running` : ''}`;
+    // The chip stays numeric so the session name keeps the row; the full phrase lives in the name/tooltip.
+    const compactLabel = count === 0 && incomplete ? 'More' : `${count}${incomplete ? '+' : ''}${running ? ` · ${running}` : ''}`;
+    const hasDisclosure = count > 0 || session.hasChildren === true;
+    const disclosureName = `${uniqueName(session)}: ${childLabel}`;
     return [
-      sessionRow(session, child),
-      ...(expanded.children ? children.map((nestedChild) => sessionTree(nestedChild, true, path)) : []),
-      liveHistory && session.hasChildren && (!page || page.hasMore) && <button className="secondary-button" key={`load-${session.id}`} type="button" disabled={currentPage?.busy || !!currentPage?.error} onClick={() => void loadHistory(session.id, page?.nextCursor ?? undefined)}>{page ? 'Load older children of ' : 'Load children of '}{session.name}</button>,
+      sessionRow(session, child, hasDisclosure ? { label: compactLabel, name: disclosureName, expanded } : undefined),
+      hasDisclosure && <div id={`subagent-children-${session.id}`} className="subagent-children" key={`subagent-children-${session.id}`}>{expanded ? children.map((nestedChild) => sessionTree(nestedChild, true, path)) : []}</div>,
+      liveHistory && hasDisclosure && (!page || page.hasMore) && <button className="secondary-button" key={`load-${session.id}`} type="button" disabled={currentPage?.busy || !!currentPage?.error} onClick={() => void loadHistory(session.id, page?.nextCursor ?? undefined)}>{page ? 'Load older children of ' : 'Load children of '}{session.name}</button>,
     ];
   };
 
@@ -287,9 +320,21 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
     </header>
     <div className="rail-primary-actions"><button className="primary-button" type="button" disabled={liveHistory && (!defaultProfileId || submitting)} onClick={() => { if (liveHistory) { setSubmitting(true); void createLiveSession({ name: '', cwd: selected.cwd, profileId: defaultProfileId, isolateWorktree: false }).catch(error => notify(error instanceof Error ? error.message : 'Session creation failed')).finally(() => setSubmitting(false)); } else createSession(); }} data-testid="new-chat-instant"><Icon name="plus" size={16} />New session</button><button className="icon-button" type="button" onClick={openAdvanced} aria-label="Advanced new agent session" title="Advanced session options" data-testid="new-session-advanced"><Icon name="sliders" /></button></div>
     <div className="scope-tabs" role="tablist" aria-label="Session scopes" onKeyDown={moveScope}>{(['chats', 'scheduled', 'background'] as SessionScope[]).map((item) => <button role="tab" aria-selected={scope === item} tabIndex={scope === item ? 0 : -1} type="button" key={item} onClick={() => changeScope(item)} data-testid={`scope-${item}`}>{item === 'chats' ? 'Chats' : item === 'scheduled' ? 'Scheduled' : 'Background'}</button>)}</div>
-    <div className="rail-filters"><div className="filter-row">{scope === 'chats' && <label><span className="sr-only">Project filter</span><select value={project} onChange={(event) => setProject(event.target.value)} data-testid="project-filter"><option value="all">All projects</option><option value="null">No project</option>{[...projects].map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>}<label><span className="sr-only">Session sort</span><select value={sort} onChange={(event) => setSort(event.target.value as SessionSort)} data-testid="session-sort"><option value="newest">Date · newest</option><option value="oldest">Date · oldest</option><option value="name">Name</option><option value="activity">Last activity</option><option value="status">Status</option></select></label></div><label><input type="checkbox" checked={archivedOnly} onChange={(event) => setArchivedOnly(event.target.checked)} />Archived sessions</label><label><input type="checkbox" checked={compact} onChange={(event) => setCompact(event.target.checked)} />Compact rows</label></div>
+    <div className="rail-filters"><div className="filter-row"><label><span className="sr-only">Session sort</span><select value={sort} onChange={(event) => setSort(event.target.value as SessionSort)} data-testid="session-sort"><option value="newest">Date · newest</option><option value="oldest">Date · oldest</option><option value="name">Name</option><option value="activity">Last activity</option><option value="status">Status</option></select></label></div><label><input type="checkbox" checked={archivedOnly} onChange={(event) => setArchivedOnly(event.target.checked)} />Archived sessions</label><label><input type="checkbox" checked={compact} onChange={(event) => setCompact(event.target.checked)} />Compact rows</label></div>
     {selectedRows.length > 0 && <div className="bulk-bar" role="toolbar" aria-label="Selected session actions"><strong>{selectedRows.length} selected</strong><button type="button" onClick={() => setSelectedRows([])}>Cancel</button><button type="button" onClick={() => setBulkDeleteOpen(true)}>Delete</button></div>}
-    <div className="session-list" aria-label={`${scope} sessions`} aria-busy={liveHistory && (!currentPage || currentPage.busy)}><section className="agent-disclosure"><button className="group-toggle section-disclosure" type="button" aria-expanded={expanded.parents} onClick={() => setExpanded((current) => ({ ...current, parents: !current.parents }))}><Icon name={expanded.parents ? 'chevronDown' : 'chevronRight'} size={14} /><span>Agents</span><small>{visible.length}</small></button>{expanded.parents && (['active', 'resumable', 'archived'] as SessionGroup[]).map((group) => { const grouped = visible.filter((session) => session.group === group); return <section className="session-group" key={group}><button className="group-toggle" type="button" aria-expanded={expanded[group]} onClick={() => setExpanded((current) => ({ ...current, [group]: !current[group] }))} data-testid={`group-${group}`}><Icon name={expanded[group] ? 'chevronDown' : 'chevronRight'} size={13} /><span>{groupLabels[group]}</span><small>{grouped.length}</small></button>{expanded[group] && <div>{grouped.map((session) => sessionTree(session))}{grouped.length === 0 && <p className="rail-empty">No {groupLabels[group].toLowerCase()} sessions match.</p>}</div>}</section>; })}</section>{liveHistory && <>{(!currentPage || currentPage.busy) && <p role="status">Loading session history…</p>}{currentPage?.error && <div role="alert"><p>{currentPage.error}</p><button className="secondary-button" type="button" onClick={() => setRefresh((value) => value + 1)}>Reset session history</button></div>}{currentPage?.pages['']?.hasMore && <><p className="rail-empty">Order applies to loaded sessions. Load older history to include more.</p><button className="secondary-button" type="button" disabled={currentPage.busy || !!currentPage.error} onClick={() => void loadHistory(undefined, currentPage.pages[''].nextCursor ?? undefined)}>{normalizedSearch ? 'Load older matches' : 'Load older roots'}</button></>}</>}</div>
+    <div className="session-list" aria-label={`${scope} sessions`} aria-busy={liveHistory && (!currentPage || currentPage.busy)}>
+      {[...projectGroups].map(([id, group]) => {
+        const expanded = !collapsedProjects.has(id);
+        const name = id ? projects.get(id)! : 'No project';
+        const label = id && (projectNameCounts.get(name) ?? 0) > 1 ? `${name} (${id})` : name;
+        return <section className="session-group" key={id}>
+          <button className="group-toggle" type="button" aria-expanded={expanded} onClick={() => setCollapsedProjects((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} data-testid={`group-project-${id}`}><Icon name={expanded ? 'chevronDown' : 'chevronRight'} size={13} /><span>{label}</span><small>{group.count}</small></button>
+          {expanded && <div>{group.roots.map((session) => sessionTree(session))}</div>}
+        </section>;
+      })}
+      {projectGroups.size === 0 && (!liveHistory || currentPage && !currentPage.busy && !currentPage.error) && <p className="rail-empty">No sessions match.</p>}
+      {liveHistory && <>{(!currentPage || currentPage.busy) && <p role="status">Loading session history…</p>}{currentPage?.error && <div role="alert"><p>{currentPage.error}</p><button className="secondary-button" type="button" onClick={() => setRefresh((value) => value + 1)}>Reset session history</button></div>}{currentPage?.pages['']?.hasMore && <><p className="rail-empty">Order applies to loaded sessions. Load older history to include more.</p><button className="secondary-button" type="button" disabled={currentPage.busy || !!currentPage.error} onClick={() => void loadHistory(undefined, currentPage.pages[''].nextCursor ?? undefined)}>{normalizedSearch ? 'Load older matches' : 'Load older roots'}</button></>}</>}
+    </div>
     <div className="tools-resizer" role="separator" aria-orientation="horizontal" aria-label="Resize Tools panel" aria-valuemin={120} aria-valuemax={320} aria-valuenow={toolsHeight} aria-valuetext={`${toolsHeight} pixels`} tabIndex={0} onPointerDown={startToolsResize} onKeyDown={(event) => { if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); if (event.key === 'ArrowUp') setToolsHeight((value) => clamp(value + 16, 120, 320)); if (event.key === 'ArrowDown') setToolsHeight((value) => clamp(value - 16, 120, 320)); if (event.key === 'Home') setToolsHeight(120); if (event.key === 'End') setToolsHeight(320); }} data-testid="tools-resizer"><span /></div>
     <nav className="tools-nav" aria-label="Agent tools" style={{ height: `${toolsHeight}px` }}><span className="rail-section-label">Tools</span>{tools.map((tool) => <button type="button" onClick={() => openTool(tool.key)} key={tool.key} data-testid={`tool-${tool.key}`}><Icon name={tool.icon} /><span><strong>{tool.label}</strong><small>{tool.description}</small></span><Icon name="chevronRight" size={14} /></button>)}</nav>
     <footer className="rail-account"><button type="button" onClick={() => navigate('/tools/agent-settings')} data-testid="rail-agent-settings"><span className="avatar">AJ</span><span><strong>AJ Hochhalter</strong><small>Agent settings</small></span><Icon name="settings" size={15} /></button></footer>

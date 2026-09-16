@@ -1,0 +1,105 @@
+{
+  "issue": "manual-smoke-subagent-counts-20260914",
+  "date": "2026-09-14",
+  "test_command": "cd apps/api_server && npx vitest run src/repositories/agent_sessions_history.test.ts src/__tests__/electron_e26_session_history.test.ts && cd ../web && npm exec -- playwright test --config tests/electron-e20-playwright.config.ts --grep 'subagent-(counts|tree|disclosure|overflow)' && npm exec -- playwright test --config tests/electron-e21-playwright.config.ts --grep 'subagent-(counts|tree)'",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-subagent-counts-c1",
+      "text": "Add additive `childCount:number` and `runningChildCount:number` to each history session/ancestor from direct children matching same scope/archive/project/owner filter. Replace existing childExists per-row query with one child stats query\u2014no extra query count; hasChildren=childCount>0. Running means canonical presentation working state (verify statuses used; no guessing). Counts are direct children only; each nested parent gets its own direct total. Test exact0,38,60,164, archived/filter isolation, pagination, ancestors, SQLite query behavior. No DB migration.",
+      "mode": "integration",
+      "test": "apps/api_server/src/repositories/agent_sessions_history.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-subagent-counts-c2",
+      "text": "Controller serializes fields unchanged; web gateway normalizes finite nonnegative integers and ignores malformed values safely. API/gateway backward compatible.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/electron_e26_session_history.test.ts; apps/web/tests/electron-e20-session-ordering.spec.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-subagent-counts-c3",
+      "text": "SessionRail label uses exact totals when provided, running exact total, regardless of loaded preview count. If old server lacks totals and session.hasChildren with incomplete/unloaded children, display honest `N+ subagents` (or `More subagents` before any loaded), never false exact. Loaded-child rendering/paging remains. Count updates from events/reconcile without collapse reset.",
+      "mode": "ui",
+      "test": "apps/web/tests/electron-e20-session-ordering.spec.ts; apps/web/tests/electron-e21-reconciliation.spec.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-subagent-counts-c4",
+      "text": "Replace separate bordered full-width disclosure row with compact inline disclosure attached to parent session row, no nested buttons/overlapping hit targets. Preferred structure: disclosure chevron is sibling button in same parent row; visible count/running sits in parent metadata or beside chevron. Session selection and overflow remain separate; 44px hit target can be visually quiet. No border/card/background; no extra vertical row. Child/nested rows depth/RTL intact; accessible name uses collision-proof shortest unique parent ID prefix already implemented; aria-controls/expanded if practical. Default/compact modes remain readable. Measure screenshot: parent with disclosure should not gain a second block row; no horizontal overflow at320/390; focus visible.",
+      "mode": "ui",
+      "test": "apps/web/tests/electron-e20-session-ordering.spec.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-subagent-counts-c5",
+      "text": "Expanding a parent with exact total greater loaded count supports existing child pagination; loading next page must not duplicate or falsify count. Preserve bounded reconcile flicker fix, explicit removal, project headings, search/archive/scopes/selected child. Branch sandbox must prove 164 count with only preview subset loaded, then load pages100+64.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/electron_e26_session_history_live.test.ts; apps/web/tests/electron-e20-session-ordering.spec.ts; apps/web/tests/electron-e21-live.spec.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-subagent-counts-c6",
+      "text": "Live behavioral test through real branch API+web gateway in owned sandbox /private/tmp/rhythm-subagent-counts-inline ports7698/7697/7699 approved fixture root. up/status/down. Run repository/controller tests, E20/E21/session, live API/browser count/pagination, typecheck API/web, builds/dist/diff/JSON/security. Package not needed. Never live4001/4096/candidate80237, old7098/7097 PIDs26681/26701, retained5898/5897 PIDs65058/65094. No full repo suite/commit/push/PR/merge/peers.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/electron_e26_session_history_live.test.ts; apps/web/tests/electron-e21-live.spec.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-subagent-counts-c7",
+      "text": "Record limitation: non-owning smoke against old live Flutter API can only show fallback; exact60/38/164 requires rebuilt branch API using copied real DB or final Electron-owned runtime. Return READY_FOR_VERIFICATION or new HIGH blocker.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "The final run note records the old-live-API fallback limitation and rebuilt branch requirement."
+    },
+    {
+      "criterion_id": "task-subagent-counts-c8",
+      "text": "Every SessionRail overflow/actions button (`.session-overflow-button`, data-testid `session-menu-<id>`) is a hit target of at least 44x44 CSS px in both layouts: the absolute plain-row variant and the static grid item inside `.session-row-wrap.has-subagents`. The target stays inside its row (no added vertical row space; row min-height unchanged), does not intersect the `.subagent-disclosure` control, and causes no horizontal overflow at 320/390. Icon may stay 15px; padding-based hit area is fine.",
+      "mode": "ui",
+      "test": "apps/web/tests/electron-e20-session-ordering.spec.ts \u2014 'subagent-overflow-hit-area overflow actions keep 44px targets beside disclosures and on plain rows'",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-subagent-counts-c9",
+      "text": "Keyboard focus never moves the SessionRail overflow/actions button out of its row. On a row without subagents (absolute variant) and on a `.session-row-wrap.has-subagents` grid row, tabbing to `session-menu-<id>` keeps its computed position, its offset inside the wrap, the wrap height and the `.session-list` scroll height unchanged, and the target at 44x44 or larger.",
+      "mode": "ui",
+      "test": "apps/web/tests/electron-e20-session-ordering.spec.ts \u2014 'subagent-overflow-focus-stability keyboard focus keeps the actions button inside its own row'",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-subagent-counts-c10",
+      "text": "The inline subagent count chip never clips its own visible label and never starves the session name: at 1280/390/320 the `.session-row` keeps more than 55% of the wrap width and the chip label's scrollWidth fits its clientWidth. Hover and selection paint the whole `.session-row-wrap.has-subagents` (background plus inset border on the wrap, no second surface on the inner row).",
+      "mode": "ui",
+      "test": "apps/web/tests/electron-e20-session-ordering.spec.ts \u2014 'subagent-disclosure-density inline counts stay unclipped without starving session names'",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-subagent-counts-c11",
+      "text": "Overflow/actions buttons and their menus carry unique accessible names when two sessions share a name: the shortest stable unique ID prefix used by the disclosure is reused for `<name> actions`, built over every eligible row rather than parents only, so no two destructive menus announce the same name.",
+      "mode": "ui",
+      "test": "apps/web/tests/electron-e20-session-ordering.spec.ts \u2014 'subagent-disclosure-collision shared first-eight IDs use shortest stable unique prefixes while visible labels stay concise'",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-subagent-counts-c12",
+      "text": "The inline `.subagent-disclosure` chip is itself a hit target of at least 44x44 CSS px no matter how short its label is (single-digit counts included), in the plain and nested `has-subagents` grid layouts, at 1280/390/320 and under a coarse pointer. It must not reintroduce horizontal overflow at 320/390 and must not intersect the `.session-overflow-button`. Root cause guarded: `.subagent-disclosure { min-width: 0 }` (specificity 0,1,0) outranked the coarse-pointer safety net `button { min-width: 44px }` (0,0,1), so the disclosure was the one rail control that opted out of the 44px contract; the E20 disclosure test now asserts width as well as height.",
+      "mode": "ui",
+      "test": "apps/web/tests/electron-e20-session-ordering.spec.ts \u2014 'subagent-disclosure-repair distinguishes equal-count controls and indents nested controls without narrow overflow'",
+      "status": "pass",
+      "reason": ""
+    }
+  ],
+  "not_tested": []
+}

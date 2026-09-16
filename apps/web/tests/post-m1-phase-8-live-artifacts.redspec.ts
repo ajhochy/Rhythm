@@ -1,5 +1,11 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 
+test.beforeEach(async ({ page }) => {
+  await page.routeWebSocket('**/*', socket => socket.close());
+  // Test-local API handlers registered later take precedence; no real remote fallback.
+  await page.route('**/*', route => new URL(route.request().url()).origin === 'http://127.0.0.1:4178' ? route.continue() : route.abort());
+});
+
 const firstId = '00000000-0000-4000-8000-000000000801';
 const secondId = '00000000-0000-4000-8000-000000000802';
 const longId = '00000000-0000-4000-8000-000000000803';

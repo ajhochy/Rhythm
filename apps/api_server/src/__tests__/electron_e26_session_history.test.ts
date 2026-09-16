@@ -15,6 +15,7 @@ describe('E26 real controller + SQLite HTTP contract', () => {
   let close: () => Promise<void>;
   let headers: Record<string, string>;
   let ownId: string;
+  let ownChildId: string;
   let foreignId: string;
   beforeAll(async () => {
     db = new Database(':memory:');
@@ -28,7 +29,8 @@ describe('E26 real controller + SQLite HTTP contract', () => {
     const repo = new AgentSessionsRepository();
     for (let i = 0; i < 105; i++) repo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp/e26', name: `E26 history ${i}`, ownerUserId: owner.id });
     ownId = repo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp/e26', name: 'E26 parent', ownerUserId: owner.id }).id;
-    repo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp/e26', name: 'E26 child needle', parentSessionId: ownId, ownerUserId: owner.id });
+    ownChildId = repo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp/e26', name: 'E26 child needle', parentSessionId: ownId, ownerUserId: owner.id }).id;
+    repo.updateStatus(ownChildId, 'working');
     foreignId = repo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp/e26', name: 'E26 foreign needle', ownerUserId: other.id }).id;
     repo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp/e26', name: 'E26 hidden child needle', parentSessionId: foreignId, ownerUserId: other.id });
     ({ baseUrl, close } = await startTestServer(createApp()));
@@ -49,9 +51,12 @@ describe('E26 real controller + SQLite HTTP contract', () => {
   it('E26-c3/c5/c8: search and child query share auth and return needed ancestor context only', async () => {
     const result = await (await get('?search=%20NEEDLE%20')).json() as any;
     expect(result.sessions.map((s: any) => s.name)).toEqual(['E26 child needle']);
-    expect(result.ancestors.map((s: any) => s.id)).toEqual([ownId]);
+    expect(result.ancestors).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: ownId, hasChildren: true, childCount: 1, runningChildCount: 1 }),
+    ]));
     const children = await (await get(`?parentId=${ownId}&limit=1`)).json() as any;
     expect(children.sessions.map((s: any) => s.name)).toEqual(['E26 child needle']);
+    expect(children.sessions[0]).toMatchObject({ hasChildren: false, childCount: 0, runningChildCount: 0 });
     expect(children.pageInfo).toMatchObject({ hasMore: false, nextCursor: null });
     expect((await get(`?parentId=${foreignId}&limit=1`)).status).toBe(404);
     expect((await fetch(`${baseUrl}/agent-sessions?limit=1`)).status).toBe(401);

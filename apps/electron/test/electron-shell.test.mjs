@@ -1,6 +1,8 @@
 // Regression: a permissive asset resolver or preload bridge could expose files or Node APIs.
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { EventEmitter } from 'node:events';
+import { createContext, SourceTextModule, SyntheticModule } from 'node:vm';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +13,89 @@ const here = dirname(fileURLToPath(import.meta.url));
 const shellRoot = resolve(here, '..');
 const electron = resolve(shellRoot, 'node_modules/.bin/electron');
 let smokeResult;
+
+// Execute the real main module; replace only host boundaries, never its flag/lifecycle logic.
+// No Electron child, network, screenshot writes, timers, or real runtime ownership in this check.
+async function interactiveRuntime(argv, userData = '/fixture/interactive-user-data') {
+  const calls = [], windows = [], handlers = new Map(), paths = new Map();
+  const processBoundary = Object.assign(new EventEmitter(), {
+    argv, env: { RHYTHM_LIVE_API_URL: 'http://127.0.0.1:4098', RHYTHM_LIVE_ENGINE_URL: 'http://127.0.0.1:4097', ...(userData ? { RHYTHM_SHELL_USER_DATA: userData } : {}) },
+    cwd: () => '/fixture', stderr: { write: (message) => calls.push(message) },
+  });
+  const app = Object.assign(new EventEmitter(), {
+    isPackaged: true, setPath: (key, value) => paths.set(key, value), getPath: (key) => paths.get(key) ?? '/default-user-data',
+    requestSingleInstanceLock: () => { calls.push(['lock', paths.get('userData')]); return true; },
+    isReady: () => false, whenReady: async () => {}, getVersion: () => 'test',
+    quit: () => calls.push('quit'), exit: (code) => calls.push(['exit', code]),
+  });
+  class Server {
+    constructor() { calls.push('construct'); this.status = { status: 'stopped' }; }
+    onStatusChange() { calls.push('subscribe'); }
+    async start() { calls.push('start'); }
+    async stopGracefully() { calls.push('stop'); }
+  }
+  class Window {
+    constructor(options) {
+      this.options = options; windows.push(this);
+      this.webContents = Object.assign(new EventEmitter(), { send() {}, setWindowOpenHandler() {}, executeJavaScript: async () => {} });
+    }
+    isDestroyed() { return false; }
+    async loadURL(url) { this.url = url; this.webContents.emit('did-finish-load'); }
+  }
+  const file = new URL('../src/main.mjs', import.meta.url);
+  const context = createContext({ process: processBoundary, URL, Response, console });
+  const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = '/fixture'; } });
+  await module.link(async (name) => {
+    let values;
+    if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: {}, dialog: { showErrorBox: () => calls.push('ownership-error'), showMessageBox: async () => { calls.push('migration'); return { response: 1 }; } } };
+    else if (name === './agent-server.mjs') values = { AgentServerService: Server, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:4001', AGENT_SERVER_ENGINE_PORT: 4096, electronDbPath: () => '/fixture/electron.db', legacyFlutterDbPath: () => '/fixture/legacy.db' };
+    else if (name === './production-api-config.mjs') values = { createProductionApiConfig: () => ({ load: () => 'https://example.invalid' }), createProductionApiSetHandler: () => () => {} };
+    else { values = { ...await import(name.startsWith('.') ? new URL(name, file).href : name) }; if (name === 'node:fs') values.existsSync = (path) => path !== '/fixture/electron.db'; }
+    return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
+  });
+  await module.evaluate();
+  await new Promise((done) => setImmediate(done));
+  app.emit('before-quit', { preventDefault: () => calls.push('prevent-quit') });
+  await new Promise((done) => setImmediate(done));
+  return { calls, windows, handlers, paths, processBoundary };
+}
+
+test('interactive-runtime-c1: interactive smoke keeps the visible normal route', async () => {
+  const result = await interactiveRuntime(['--interactive-smoke', '--allow-test-runtime-ports']);
+  assert.deepEqual(result.calls, [['lock', '/fixture/interactive-user-data']]);
+  assert.equal(result.windows.length, 1);
+  assert.equal(result.windows[0].options.show, true);
+  assert.equal(result.windows[0].url, 'rhythm://app/index.html#/agents');
+});
+
+test('interactive-runtime-c2: interactive smoke never owns or stops the external runtime', async () => {
+  const result = await interactiveRuntime(['--interactive-smoke', '--allow-test-runtime-ports']);
+  assert.deepEqual(result.calls, [['lock', '/fixture/interactive-user-data']]);
+  assert.equal(result.processBoundary.listenerCount('SIGINT'), 0);
+  assert.equal(result.processBoundary.listenerCount('SIGTERM'), 0);
+  assert.equal(result.handlers.get('rhythm:agent-server:status')().status, 'stopped');
+});
+
+test('interactive-runtime-c3: explicit userData required before lock; alternate ports need both flags', async () => {
+  await assert.rejects(interactiveRuntime(['--interactive-smoke', '--allow-test-runtime-ports'], ''), /RHYTHM_SHELL_USER_DATA/);
+  await assert.rejects(interactiveRuntime(['--interactive-smoke', '--allow-test-runtime-ports'], 'relative-path'), /RHYTHM_SHELL_USER_DATA/);
+  for (const argv of [[], ['--allow-test-runtime-ports'], ['--interactive-smoke'], ['--interactive-smoke', '--allow-test-runtime-ports'], ['--smoke'], ['--smoke', '--allow-test-runtime-ports']]) {
+    const result = await interactiveRuntime(argv);
+    const override = argv.includes('--allow-test-runtime-ports') && (argv.includes('--interactive-smoke') || argv.includes('--smoke'));
+    assert.equal(result.processBoundary.env.RHYTHM_LIVE_API_URL, `http://127.0.0.1:${override ? 4098 : 4001}`, argv.join(' '));
+    assert.equal(result.processBoundary.env.RHYTHM_LIVE_ENGINE_URL, `http://127.0.0.1:${override ? 4097 : 4096}`, argv.join(' '));
+  }
+});
+
+test('interactive-runtime-c4: production still owns lifecycle; automated smoke stays hidden and unowned', async () => {
+  const production = await interactiveRuntime([]);
+  for (const call of ['construct', 'subscribe', 'migration', 'start', 'stop', 'prevent-quit']) assert.ok(production.calls.includes(call), call);
+  assert.equal(production.windows[0].options.show, true);
+  assert.equal(production.processBoundary.listenerCount('SIGTERM'), 1);
+  const smoke = await interactiveRuntime(['--smoke']);
+  assert.equal(smoke.windows[0].options.show, false);
+  for (const call of ['start', 'stop', 'migration', 'prevent-quit']) assert.ok(!smoke.calls.includes(call), call);
+});
 
 test('slice-5-c1: resolves only files under the packaged web dist', async () => {
   const { resolveAsset } = await import('../src/policy.mjs');

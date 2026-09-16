@@ -173,7 +173,11 @@ export interface SessionHistoryQuery {
   parentId?: string;
 }
 
-type HistorySession = AgentSession & { hasChildren: boolean };
+type HistorySession = AgentSession & {
+  hasChildren: boolean;
+  childCount: number;
+  runningChildCount: number;
+};
 export interface SessionHistoryPage {
   sessions: HistorySession[];
   ancestors: HistorySession[];
@@ -257,38 +261,57 @@ export function listPage(opts: SessionHistoryQuery = {}): SessionHistoryPage {
   }
   const snapshot = historySnapshots.get(snapshotId)!;
   const read = db.prepare(`SELECT * FROM agent_sessions WHERE id = ? AND ${matchClauses.join(' AND ')}`);
-  const childExists = db.prepare(`SELECT 1 FROM agent_sessions WHERE parent_session_id = ? AND ${filter} LIMIT 1`);
-  const model = (row: AgentSessionRow): HistorySession => ({
-    ...rowToModel(row), hasChildren: !!childExists.get(row.id, ...params),
-  });
-  const sessions: HistorySession[] = [];
+  const sessionRows: AgentSessionRow[] = [];
   let nextOffset = offset;
   // Recheck filters/access on each read. Deletions/changed eligibility may remove
   // snapshot members, but inserts or activity reordering cannot add duplicates.
   for (; offset < snapshot.ids.length; offset++) {
     const row = read.get(snapshot.ids[offset], ...matchParams) as AgentSessionRow | undefined;
     if (!row) continue;
-    if (sessions.length === limit) break;
-    sessions.push(model(row));
+    if (sessionRows.length === limit) break;
+    sessionRows.push(row);
     nextOffset = offset + 1;
   }
   const hasMore = offset < snapshot.ids.length;
-  const ancestors = new Map<string, HistorySession>();
-  const seen = new Set(sessions.map(session => session.id));
+  const ancestorRows = new Map<string, AgentSessionRow>();
+  const seen = new Set(sessionRows.map(session => session.id));
   const readAncestor = db.prepare(`SELECT * FROM agent_sessions WHERE id = ? AND ${filter}`);
-  for (const session of sessions) {
-    let ancestorId = session.parentSessionId;
+  for (const session of sessionRows) {
+    let ancestorId = session.parent_session_id;
     while (ancestorId && !seen.has(ancestorId)) {
       seen.add(ancestorId);
       const row = readAncestor.get(ancestorId, ...params) as AgentSessionRow | undefined;
       if (!row) break;
-      ancestors.set(row.id, model(row));
+      ancestorRows.set(row.id, row);
       ancestorId = row.parent_session_id;
     }
   }
+  const rows = [...sessionRows, ...ancestorRows.values()];
+  const childStats = new Map<string, { childCount: number; runningChildCount: number }>();
+  if (rows.length > 0) {
+    const placeholders = rows.map(() => '?').join(', ');
+    const stats = db.prepare(`SELECT parent_session_id,
+        COUNT(*) AS child_count,
+        SUM(CASE WHEN status = 'working' THEN 1 ELSE 0 END) AS running_child_count
+      FROM agent_sessions
+      WHERE parent_session_id IN (${placeholders}) AND ${filter}
+      GROUP BY parent_session_id`).all(...rows.map(row => row.id), ...params) as {
+        parent_session_id: string;
+        child_count: number;
+        running_child_count: number;
+      }[];
+    for (const row of stats) childStats.set(row.parent_session_id, {
+      childCount: row.child_count,
+      runningChildCount: row.running_child_count,
+    });
+  }
+  const model = (row: AgentSessionRow): HistorySession => {
+    const stats = childStats.get(row.id) ?? { childCount: 0, runningChildCount: 0 };
+    return { ...rowToModel(row), ...stats, hasChildren: stats.childCount > 0 };
+  };
   return {
-    sessions,
-    ancestors: [...ancestors.values()],
+    sessions: sessionRows.map(model),
+    ancestors: [...ancestorRows.values()].map(model),
     pageInfo: {
       limit, hasMore,
       nextCursor: hasMore ? Buffer.from(JSON.stringify([snapshotId, nextOffset])).toString('base64url') : null,

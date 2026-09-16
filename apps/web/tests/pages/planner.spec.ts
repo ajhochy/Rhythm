@@ -1,6 +1,12 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { openPage } from '../helpers';
+import { openPage as openFixturePage } from '../helpers';
+
+async function openPage(page: Page, route: string, query?: string) {
+  await openFixturePage(page, route, query);
+  await page.getByText('Diagnostics', { exact: true }).click();
+  if (await page.getByRole('button', { name: /^Backlog \d/ }).isEnabled()) await page.getByRole('button', { name: /^Backlog \d/ }).click();
+}
 
 async function expectNoOverflow(page: Page) {
   const dimensions = await page.evaluate(() => ({
@@ -39,7 +45,7 @@ test('planner: full weekly planning journey', async ({ page }) => {
 
   await page.getByTestId('planner-task-task-backlog').dragTo(page.getByTestId('planner-day-2026-08-14'));
   await expect(page.getByTestId('planner-day-2026-08-14')).toContainText('Vendor equipment follow-up');
-  await expect(page.getByTestId('page-trace')).toContainText('PATCH /tasks/task-backlog {dueDate:2026-08-14,scheduledDate:2026-08-14,scheduledOrder} → 200');
+  await expect(page.getByTestId('page-trace')).toContainText('PATCH /weekly-plan/tasks/task-backlog {scheduledDate:2026-08-14} → 200');
 
   await page.getByTestId('planner-add-task-2026-08-12').click();
   await page.getByLabel('Task title').fill('Coordinate translated welcome cards 日本語 🌿');
@@ -64,6 +70,7 @@ test('planner: full weekly planning journey', async ({ page }) => {
   await expect(page.getByTestId('planner-day-2026-08-13').getByTestId('planner-task-task-wed')).toBeVisible();
   await expect(page.getByTestId('planner-day-2026-08-13').getByTestId('planner-task-due-task-wed')).toHaveText('Due 2026-08-12');
 
+  await page.getByRole('button', { name: 'Select tasks', exact: true }).click();
   await page.getByTestId('planner-task-select-task-fri').click();
   await page.getByTestId('planner-task-select-step-thu').click();
   await expect(page.getByTestId('planner-selection-count')).toHaveText('2 selected');

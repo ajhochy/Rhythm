@@ -9,8 +9,8 @@ import type { SessionHistoryPage } from '../repositories/agent_sessions_reposito
 // starts no servers, sends no prompts, and deletes only its UUID-namespaced rows.
 describe.skipIf(process.env.RHYTHM_LIVE_E2E !== '1')('E26 live sandbox HTTP history', () => {
   it('E26-c10: real HTTP sees old/search/child history, stable continuation and bounded errors', async () => {
-    const base = process.env.E26_API_URL ?? 'http://127.0.0.1:4098';
-    expect(base).toBe('http://127.0.0.1:4098');
+    const base = process.env.E26_API_URL ?? 'http://127.0.0.1:7698';
+    expect(base).toBe('http://127.0.0.1:7698');
     const sandbox = realpathSync(process.env.RHYTHM_SANDBOX_DIR!);
     expect(sandbox.startsWith('/private/tmp/') || sandbox.startsWith('/private/var/folders/')).toBe(true);
     const dbPath = realpathSync(path.join(sandbox, 'rhythm.db'));
@@ -52,15 +52,16 @@ describe.skipIf(process.env.RHYTHM_LIVE_E2E !== '1')('E26 live sandbox HTTP hist
         seed('old', needle);
         seed('parent', 'nonmatching parent');
         for (let i = 0; i < 105; i++) seed(`root-${String(i).padStart(3, '0')}`, 'recent root', null, null, '2026-02-01');
-        for (let i = 0; i < 505; i++) seed(`child-${String(i).padStart(3, '0')}`, 'child', parentId, i === 504 ? needle.toUpperCase() : null);
+        for (let i = 0; i < 164; i++) seed(`child-${String(i).padStart(3, '0')}`, 'child', parentId, i === 163 ? needle.toUpperCase() : null);
       })();
       const legacy = await get({});
       expect(Object.keys(legacy).sort()).toEqual(['resumable', 'sessions']);
       expect(legacy.sessions).toHaveLength(100);
       expect(legacy.sessions.some(s => s.id === `${prefix}-old`)).toBe(false);
       const found = await get({ search: `  ${needle.toUpperCase()}  ` });
-      expect(found.sessions.map(s => s.id).sort()).toEqual([`${prefix}-child-504`, `${prefix}-old`]);
+      expect(found.sessions.map(s => s.id).sort()).toEqual([`${prefix}-child-163`, `${prefix}-old`]);
       expect(found.ancestors.map(s => s.id)).toEqual([parentId]);
+      expect(found.ancestors[0]).toMatchObject({ childCount: 164, runningChildCount: 0, hasChildren: true });
 
       const first = await get({ limit: '100' });
       expect(first.sessions).toHaveLength(100);
@@ -76,14 +77,18 @@ describe.skipIf(process.env.RHYTHM_LIVE_E2E !== '1')('E26 live sandbox HTTP hist
       expect(second.pageInfo.hasMore).toBe(false);
       let cursor: string | null = null;
       const childIds: string[] = [];
+      const childPageSizes: number[] = [];
       do {
         const result = await get({ parentId, limit: '100', ...(cursor ? { cursor } : {}) });
         expect(result.sessions.length).toBeLessThanOrEqual(100);
+        childPageSizes.push(result.sessions.length);
+        expect(result.sessions.every((session) => session.childCount === 0 && session.runningChildCount === 0)).toBe(true);
         childIds.push(...result.sessions.map(s => s.id));
         cursor = result.pageInfo.nextCursor;
       } while (cursor);
-      expect(childIds).toHaveLength(505);
-      expect(new Set(childIds).size).toBe(505);
+      expect(childPageSizes).toEqual([100, 64]);
+      expect(childIds).toHaveLength(164);
+      expect(new Set(childIds).size).toBe(164);
       for (const query of ['limit=101', 'limit=0', 'cursor=invalid']) {
         const response = await fetch(`${base}/agent-sessions?${query}`, { headers });
         const text = await response.text();

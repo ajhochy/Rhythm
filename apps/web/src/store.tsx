@@ -369,13 +369,14 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     });
     const reconcileMembership = async () => {
       const currentScope = scopeRef.current;
-      const incoming = sessionGateway.listPage
-        ? (await Promise.all([sessionGateway.listPage({ scope: currentScope }), sessionGateway.listPage({ scope: currentScope, archivedOnly: true })]))
-          .flatMap((page) => [...page.ancestors, ...page.sessions])
-        : await sessionGateway.list();
+      const pages = sessionGateway.listPage
+        ? await Promise.all([sessionGateway.listPage({ scope: currentScope }), sessionGateway.listPage({ scope: currentScope, archivedOnly: true })])
+        : null;
+      const incoming = pages ? pages.flatMap((page) => [...page.ancestors, ...page.sessions]) : await sessionGateway.list();
+      const complete = !pages || pages.every((page) => !page.pageInfo.hasMore);
       if (!active) return;
       setSessions((current) => {
-        const next = new Map(current.filter((session) => session.scope !== currentScope || session.id === selectedIdRef.current).map((session) => [session.id, session]));
+        const next = new Map(current.filter((session) => session.scope !== currentScope || !complete || session.id === selectedIdRef.current).map((session) => [session.id, session]));
         for (const session of incoming) {
           const existing = next.get(session.id) ?? current.find((item) => item.id === session.id);
           next.set(session.id, existing ? mergeMetadata(existing, session) : session);
@@ -1090,6 +1091,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const resetFixtures = () => { setSessions(cloneSessions()); setProfiles(cloneProfiles()); setTodos(structuredClone(seedTodos)); setUnreadThreads(live ? 0 : 6); setSelectedId('session-sunday-handoff'); setScope('chats'); setInspectorTab('context'); setDemoState('running'); setConnectionMessage('Desktop connected'); setRunMessage('Sunday service handoff is working'); setActiveFile(seedFiles[0].path); setTerminalOutput(['$ pwd', '/workspace/rhythm']); setLoading(false); notify('Workspace reset'); };
 
   const setDemo = (next: DemoState) => {
+    if (live) return;
     setDemoState(next); setLoading(next === 'loading');
     const targets: Partial<Record<DemoState, string>> = { running: 'session-sunday-handoff', permission: 'session-permission', question: 'session-question', offline: 'session-offline', completed: 'session-completed', resumable: 'session-completed' };
     const target = targets[next]; if (target) { setSelectedId(target); const session = sessions.find((item) => item.id === target); if (session) setScope(session.scope); }

@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 const live = process.env.RHYTHM_LIVE_E2E === '1';
-const api = live ? 4098 : 4199;
-const engine = live ? 4097 : 4197;
+const api = live ? Number(process.env.RHYTHM_SANDBOX_API_PORT ?? 4098) : 4199;
+const engine = live ? Number(process.env.RHYTHM_SANDBOX_ENGINE_PORT ?? 4097) : 4197;
 export default defineConfig({
   testDir: '.', testMatch: live ? 'electron-e21-live.spec.ts' : 'electron-e21-reconciliation.spec.ts', workers: 1,
   timeout: 30000, expect: { timeout: 5000 }, reporter: [['line']],

@@ -3,6 +3,7 @@ const row = (id: string, extra: Record<string, unknown> = {}) => ({ id, name: id
 const state = async (page: Page) => JSON.parse((await page.getByTestId('state').textContent())!);
 async function open(page: Page) {
   let rows = [row('selected'), row('other')];
+  let hasMore = false;
   const sockets: WebSocketRoute[] = []; const sent: any[] = []; const lists: URL[] = []; const details: string[] = [];
   await page.routeWebSocket(/\/ws\/agents$/, (ws) => { sockets.push(ws); ws.onMessage((data) => sent.push(JSON.parse(String(data)))); });
   await page.route(/https:\/\/e21.invalid|http:\/\/127.0.0.1:(4199|4197)/, (route) => {
@@ -11,7 +12,7 @@ async function open(page: Page) {
     if (url.pathname === '/agent-sessions') {
       lists.push(url);
       const matching = rows.filter((r) => (url.searchParams.get('scope') === 'scheduled' ? r.category === 'scheduled' : r.category !== 'scheduled') && (url.searchParams.get('includeArchived') === 'true' || (r.archivedAt !== null) === (url.searchParams.get('archivedOnly') === 'true')));
-      return send({ sessions: matching, resumable: [], ancestors: [], pageInfo: { nextCursor: null, hasMore: false } });
+       return send({ sessions: matching, resumable: [], ancestors: [], pageInfo: { nextCursor: hasMore ? 'bounded-next' : null, hasMore } });
     }
     if (/^\/agent-sessions\/[^/]+$/.test(url.pathname)) {
       const id = url.pathname.split('/').pop()!; details.push(id);
@@ -23,7 +24,7 @@ async function open(page: Page) {
   await page.addInitScript(() => localStorage.setItem('rhythm-agents-live-selected-session', 'selected'));
   await page.goto('/tests/electron-e21-harness.html');
   await expect.poll(async () => (await state(page)).selected.messages.length).toBe(1);
-  return { sockets, sent, lists, details, rows: () => rows, replace: (next: typeof rows) => { rows = next; }, emit: (event: unknown) => sockets.at(-1)!.send(JSON.stringify(event)) };
+   return { sockets, sent, lists, details, rows: () => rows, replace: (next: typeof rows) => { rows = next; }, setHasMore: (next: boolean) => { hasMore = next; }, emit: (event: unknown) => sockets.at(-1)!.send(JSON.stringify(event)) };
 }
 
 test('E21-c1 canonical create/update upserts every metadata field without losing transcript or transient draft state', async ({ page }) => {
@@ -88,4 +89,61 @@ test('E21-c4 unselected metadata changes update visible preview/activity order; 
   expect(h.lists.length).toBe(before);
   expect(before).toBeLessThanOrEqual(5);
   expect(h.details.filter((id) => id === 'other')).toEqual([]);
+});
+
+test('subagent-tree-c3 bounded reconciliation preserves one event-created child until explicit removal', async ({ page }) => {
+  const h = await open(page);
+  h.setHasMore(true);
+  const child = row('event-child', { name: 'Event child', parentSessionId: 'selected', status: 'working' });
+  h.emit({ type: 'session.created', session: child });
+  const disclosure = page.getByTestId('subagents-selected');
+  await expect(disclosure).toHaveAccessibleName('selected: 1 subagent · 1 running');
+  await expect(page.getByTestId('session-event-child')).toHaveCount(1);
+  await expect(page.locator('button.session-row[data-testid="session-event-child"]')).toHaveCount(0);
+
+  await page.waitForTimeout(4_300);
+  await expect(page.getByTestId('session-event-child')).toHaveCount(1);
+  h.emit({ type: 'session.status', id: 'event-child', working: false });
+  await expect(disclosure).toHaveAccessibleName('selected: 1 subagent');
+  h.emit({ type: 'session.status', id: 'event-child', working: true });
+  await expect(disclosure).toHaveAccessibleName('selected: 1 subagent · 1 running');
+  await expect(page.getByTestId('session-event-child')).toHaveCount(1);
+
+  await disclosure.press('Space');
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+  h.emit({ type: 'session.updated', session: { ...child, name: 'Updated child', status: 'idle' } });
+  await expect(disclosure).toHaveAccessibleName('selected: 1 subagent');
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByTestId('session-event-child')).toHaveCount(0);
+  expect((await state(page)).selectedId).toBe('selected');
+
+  h.emit({ type: 'session.removed', id: 'event-child' });
+  await expect(disclosure).toHaveCount(0);
+  expect((await state(page)).sessions.filter((session: any) => session.id === 'event-child')).toHaveLength(0);
+});
+
+test('subagent-counts-c3 exact totals update during reconciliation without resetting collapse', async ({ page }) => {
+  const h = await open(page);
+  const parent = row('counted-parent', { childCount: 164, runningChildCount: 38, hasChildren: true });
+  h.replace([...h.rows(), parent]);
+  h.emit({ type: 'session.created', session: parent });
+  const disclosure = page.getByTestId('subagents-counted-parent');
+  await expect(disclosure).toHaveAccessibleName('counted-parent: 164 subagents · 38 running');
+  await disclosure.click();
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+  const updated = { ...parent, childCount: 165, runningChildCount: 39 };
+  h.replace([...h.rows().filter((row) => row.id !== parent.id), updated]);
+  h.emit({ type: 'session.updated', session: updated });
+  await expect(disclosure).toHaveAccessibleName('counted-parent: 165 subagents · 39 running');
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+});
+
+test('subagent-tree-c4 complete active and archived snapshots remove an absent event-created child', async ({ page }) => {
+  const h = await open(page);
+  const child = row('stale-child', { parentSessionId: 'selected', status: 'working' });
+  h.emit({ type: 'session.created', session: child });
+  await expect(page.getByTestId('subagents-selected')).toHaveAccessibleName('selected: 1 subagent · 1 running');
+
+  await expect.poll(async () => (await state(page)).sessions.some((session: any) => session.id === 'stale-child'), { timeout: 5_000 }).toBe(false);
+  await expect(page.getByTestId('subagents-selected')).toHaveCount(0);
 });

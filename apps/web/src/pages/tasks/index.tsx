@@ -134,6 +134,21 @@ export function TasksPage({ route }: { route: string }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [mutationPending, setMutationPending] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [pendingSelection, setPendingSelection] = useState<{ id: string | null } | null>(null);
+  const inspectorFormRef = useRef<HTMLFormElement>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  const statusLock = useRef(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [narrowInspector, setNarrowInspector] = useState(() => window.matchMedia('(max-width: 1100px)').matches);
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 1100px)');
+    // Keep the mounted draft in its current surface until selection closes.
+    const update = () => { if (!selectedId) setNarrowInspector(media.matches); };
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, [selectedId]);
   // Live-only: the real collaborator round-trip (apps/api_server/src/routes/tasks_routes.ts:14-16).
   // Kept separate from TaskFixture.collaborators, whose {id,name,initials} shape is fixture-only
   // and does not match the API's {userId,name,photoUrl} (apps/api_server/src/models/task.ts:1-5).
@@ -194,6 +209,7 @@ export function TasksPage({ route }: { route: string }) {
   }, [collaboratorPickerOpen, createOpen, deleteTarget]);
 
   const selectedTask = tasks.find((task) => task.id === selectedId) ?? null;
+  useEffect(() => { setDirty(false); setMutationError(null); }, [selectedId]);
   const isReadonly = surfaceState === 'readonly';
   const showsWorkspace = surfaceState === 'ready' || surfaceState === 'readonly' || surfaceState === 'forbidden';
   const ownerOnlyReasonId = 'tasks-owner-only-reason';
@@ -229,7 +245,8 @@ export function TasksPage({ route }: { route: string }) {
     const nextView = overrides.view ?? view;
     const nextSelectedId = Object.hasOwn(overrides, 'selectedId') ? overrides.selectedId ?? null : selectedId;
     const params = hashParams();
-    Object.entries(queryPatch).forEach(([key, value]) => { if (!value || value === 'all' || value === '0' || value === 'open' || value === 'due') params.delete(key); else params.set(key, value); });
+    const defaults: Record<string, string> = { tag: 'all', priority: '0', completion: 'open', date: 'all', sort: 'due' };
+    Object.entries(queryPatch).forEach(([key, value]) => { if (!value || value === defaults[key]) params.delete(key); else params.set(key, value); });
     if (overrides.state) params.set('state', overrides.state);
     const path = `/tasks${nextView === 'board' ? '/board' : ''}${nextSelectedId ? `/task/${encodeURIComponent(nextSelectedId)}` : ''}`;
     const query = params.toString();
@@ -242,11 +259,17 @@ export function TasksPage({ route }: { route: string }) {
   };
 
   const openInspector = (task: TaskFixture) => {
+    if (task.id === selectedId || mutationPending) return;
+    if (dirty) { setPendingSelection({ id: task.id }); return; }
     setSelectedId(task.id);
     writeUrl({ selectedId: task.id });
   };
 
   const closeInspector = () => {
+    // Child Escape/cancel must not also dismiss the containing task dialog.
+    if (collaboratorPickerOpen) return;
+    if (mutationPending) return;
+    if (dirty) { setPendingSelection({ id: null }); return; }
     setSelectedId(null);
     writeUrl({ selectedId: null });
   };
@@ -254,15 +277,21 @@ export function TasksPage({ route }: { route: string }) {
   const appendReceipt = (receipt: string) => setReceipts((current) => [...current, receipt]);
 
   const changeStatus = async (task: TaskFixture, nextStatus: TaskStatus) => {
-    if (mutationPending) return;
+    if (mutationPending || statusLock.current || isReadonly || isSourceReadonly(task)) return;
+    setMutationError(null);
     if (gateway.mode === 'live') {
+      statusLock.current = true;
       setMutationPending(true);
       try {
         const updated = await gateway.domains.tasks!.update(task.id, { status: nextStatus });
         setTasks((current) => current.map((item) => item.id === task.id ? updated : item));
         appendReceipt(`PATCH /tasks/${task.id} {status:"${nextStatus}"} → 200`);
         notify(nextStatus === 'done' ? 'Task marked complete.' : `${task.title} reopened`);
-      } catch (error) { recordError('PATCH', `/tasks/${task.id}`, error); } finally { setMutationPending(false); }
+      } catch (error) {
+        const status = error instanceof TaskGatewayError ? error.status : 0;
+        appendReceipt(`PATCH /tasks/${task.id} → ${status || 'network error'}`);
+        setMutationError('Could not update task status. Your edits are unchanged. Try the status action again.');
+      } finally { statusLock.current = false; setMutationPending(false); }
       return;
     }
     setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: nextStatus, bucket: nextStatus === 'done' ? 'completed' : item.bucket === 'completed' ? 'no-due' : item.bucket } : item));
@@ -309,7 +338,8 @@ export function TasksPage({ route }: { route: string }) {
 
   const saveInspector = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!selectedTask) return;
+    if (!selectedTask || mutationPending || isReadonly || isSourceReadonly(selectedTask)) return;
+    setMutationError(null);
     const data = new FormData(event.currentTarget);
     const title = String(data.get('title') ?? '').trim();
     if (!title) return;
@@ -328,12 +358,28 @@ export function TasksPage({ route }: { route: string }) {
         setTasks((current) => current.map((task) => task.id === selectedTask.id ? updated : task));
         appendReceipt(`PATCH /tasks/${selectedTask.id} {title,notes,dueDate,scheduledDate,preferredAgent,energy} → 200`);
         notify('Task details saved');
-      } catch (error) { recordError('PATCH', `/tasks/${selectedTask.id}`, error); } finally { setMutationPending(false); }
+        setDirty(false);
+        if (pendingSelection) {
+          setSelectedId(pendingSelection.id);
+          writeUrl({ selectedId: pendingSelection.id });
+          setPendingSelection(null);
+        }
+      } catch (error) {
+        const status = error instanceof TaskGatewayError ? error.status : 0;
+        appendReceipt(`PATCH /tasks/${selectedTask.id} → ${status || 'network error'}`);
+        setMutationError('Could not save task details. Your edits are unchanged. Retry Save.');
+      } finally { setMutationPending(false); }
       return;
     }
     setTasks((current) => current.map((task) => task.id === selectedTask.id ? { ...task, ...patch } : task));
     appendReceipt(`PATCH /tasks/${selectedTask.id} {title,notes,dueDate,scheduledDate,preferredAgent,energy} → 200`);
     notify('Task details saved');
+    setDirty(false);
+    if (pendingSelection) {
+      setSelectedId(pendingSelection.id);
+      writeUrl({ selectedId: pendingSelection.id });
+      setPendingSelection(null);
+    }
   };
 
   const addCollaborator = (personId: string) => {
@@ -471,22 +517,27 @@ export function TasksPage({ route }: { route: string }) {
   const renderTaskRow = (task: TaskFixture) => {
     const isOwner = task.isShared === undefined ? task.ownerId === currentUserId : !task.isShared;
     const ownerReason = isOwner ? undefined : ownerOnlyReasonId;
-    return <article className="task-row" role="row" aria-selected={selectedId === task.id} data-status={task.status} data-testid={`task-row-${task.id}`} key={task.id}><span className="task-cell complete-cell" role="gridcell"><label className="task-complete-label"><span className="sr-only">{task.status === 'done' ? 'Reopen' : 'Complete'} {task.title}</span><input type="checkbox" checked={task.status === 'done'} disabled={isReadonly || isSourceReadonly(task) || mutationPending} aria-describedby={isReadonly || isSourceReadonly(task) ? readonlyReasonId : undefined} onChange={(event) => { void changeStatus(task, event.target.checked ? 'done' : 'open'); }} data-testid={`task-complete-${task.id}`} /><span aria-hidden="true" /></label></span><span className="task-cell main-cell" role="gridcell"><button className="task-row-main" type="button" onClick={() => openInspector(task)} data-testid={`task-select-${task.id}`}><span className="task-row-copy"><span className="task-kicker">{task.sourceName ?? taskStatusLabels[task.status]}</span><h3 data-testid="task-title">{task.title}</h3><span className="task-meta">{dateLabel(task)}{task.priority ? ` · P${task.priority}` : ''}</span></span><span className="task-tags" aria-label={task.tags.length ? `Tags: ${task.tags.join(', ')}` : 'No tags'}>{task.tags.slice(0, 3).map((item) => <span key={item}>{item}</span>)}</span></button></span><span className="task-cell inspect-cell" role="gridcell"><button className="icon-button task-inspect-button" type="button" aria-label={`Inspect ${task.title}`} onClick={() => openInspector(task)} data-testid={`task-inspect-${task.id}`}><Icon name="chevronRight" size={15} /></button></span><span className="task-cell menu-cell" role="gridcell"><TaskMenu task={task} ownerOnlyReasonId={ownerReason ?? ownerOnlyReasonId} readonlyReasonId={readonlyReasonId} readonly={isReadonly || isSourceReadonly(task) || mutationPending} isOwner={isOwner} onInspect={() => openInspector(task)} onDelete={() => setDeleteTarget(task)} /></span></article>;
+    return <article className="task-row" role="row" aria-selected={selectedId === task.id} data-status={task.status} data-testid={`task-row-${task.id}`} key={task.id}>
+      <span className="task-cell complete-cell" role="gridcell"><input className="task-completion" type="checkbox" aria-label={`${task.status === 'done' ? 'Reopen' : 'Complete'} ${task.title}`} checked={task.status === 'done'} disabled={isReadonly || isSourceReadonly(task) || mutationPending} aria-describedby={isReadonly || isSourceReadonly(task) ? readonlyReasonId : undefined} onChange={(event) => { void changeStatus(task, event.target.checked ? 'done' : 'open'); }} data-testid={`task-complete-${task.id}`} /></span>
+      <span className="task-cell main-cell" role="gridcell"><button className="task-row-main" type="button" onClick={() => openInspector(task)} data-testid={`task-select-${task.id}`}><span className="task-row-copy"><h3 data-testid="task-title">{task.title}</h3><span className="task-meta">{isSourceReadonly(task) ? 'Read only · update in source · ' : ''}{task.sourceName ?? taskStatusLabels[task.status]} · {dateLabel(task)}{task.priority ? ` · P${task.priority}` : ''}</span></span><span className="task-tags" aria-label={task.tags.length ? `Tags: ${task.tags.join(', ')}` : 'No tags'}>{task.tags.slice(0, 2).map((item) => <span key={item}>{item}</span>)}</span></button></span>
+      <span className="task-cell menu-cell" role="gridcell"><TaskMenu task={task} ownerOnlyReasonId={ownerReason ?? ownerOnlyReasonId} readonlyReasonId={readonlyReasonId} readonly={isReadonly || isSourceReadonly(task) || mutationPending} isOwner={isOwner} onInspect={() => openInspector(task)} onDelete={() => setDeleteTarget(task)} /></span>
+    </article>;
   };
 
   const collaboratorCandidates = selectedTask ? memberOptions.filter((person) => person.id !== selectedTask.ownerId && !selectedTask.collaborators.some((existing) => existing.id === person.id)) : [];
   const selectedIsOwner = selectedTask?.isShared === undefined ? selectedTask?.ownerId === currentUserId : !selectedTask.isShared;
   const selectedReadonly = Boolean(selectedTask && (isReadonly || isSourceReadonly(selectedTask) || mutationPending));
 
-  return <section className="page-shell pg-tasks" data-od-id="tasks-page" data-testid="page-tasks" aria-labelledby="tasks-title" aria-busy={surfaceState === 'loading'}>
+  const collection = <>
     <header className="tasks-header" data-od-id="tasks-header">
-      <div className="tasks-heading"><span className="eyebrow">Planning queue</span><h1 id="tasks-title" data-od-id="tasks-title">Tasks</h1><p>Shape the next useful handoff without losing the wider rhythm.</p></div>
+      <div className="tasks-heading"><h1 id="tasks-title" data-od-id="tasks-title">Tasks</h1></div>
       <div className="tasks-header-actions"><span className="tasks-count" data-testid="tasks-visible-count">{visibleTasks.length} {visibleTasks.length === 1 ? 'task' : 'tasks'}</span><HeaderTaskAction onClick={() => setCreateOpen(true)} disabled={!showsWorkspace || isReadonly || mutationPending} describedBy={isReadonly ? readonlyReasonId : undefined} testId="tasks-header-add-task" /><div className="tasks-view-switch" aria-label="Task presentation"><button type="button" aria-pressed={view === 'list'} onClick={() => { setView('list'); writeUrl({ view: 'list' }); }} data-testid="tasks-view-list">List</button><button type="button" aria-pressed={view === 'board'} onClick={() => { setView('board'); writeUrl({ view: 'board' }); }} data-testid="tasks-view-board">Board</button></div></div>
     </header>
 
     <div className="tasks-scroll" role="region" aria-label="Tasks workspace content" tabIndex={0}>
       {!showsWorkspace && <StatePanel state={surfaceState as Exclude<TasksSurfaceState, 'ready' | 'readonly' | 'forbidden'>} onRetry={recover} onEmpty={recoverEmpty} />}
       {showsWorkspace && <>
+        {mutationError && <p role="alert">{mutationError}</p>}
         {surfaceState === 'readonly' && <div className="tasks-prerequisite readonly" id={readonlyReasonId} role="status" data-testid="page-state-readonly"><strong>Read-only source of truth</strong><span>Inspect the queue here; make changes in its synchronized source of truth.</span></div>}
         {surfaceState === 'forbidden' && <div className="tasks-prerequisite forbidden" id={ownerOnlyReasonId} role="alert" data-testid="page-state-forbidden"><strong>Task owner required</strong><span>Only the task owner can add or remove collaborators or delete a task. Collaborators may still edit and complete shared work.</span></div>}
         {surfaceState !== 'forbidden' && <p className="tasks-owner-note" id={ownerOnlyReasonId}><strong>Shared-task permissions</strong> Collaborators may edit and complete; only the task owner can add or remove collaborators or delete.</p>}
@@ -494,21 +545,54 @@ export function TasksPage({ route }: { route: string }) {
         <div className="tasks-workspace-layout" data-od-id="tasks-workspace-layout">
           <div className="tasks-collection">
             <section className="tasks-workspace" aria-labelledby="tasks-workspace-title" data-od-id="task-queue">
-              <div className="tasks-controls"><div><span className="eyebrow">Organize</span><h2 id="tasks-workspace-title">{view === 'list' ? 'Task list' : 'Task board'}</h2></div><div className="tasks-filter-grid"><div className="search-field"><Icon name="search" size={14} /><label className="sr-only" htmlFor="tasks-search-input">Search tasks</label><input id="tasks-search-input" value={search} onChange={(event) => { setSearch(event.target.value); writeUrl({}, { search: event.target.value }); }} placeholder="Search tasks" data-testid="tasks-search" />{search && <button className="tasks-search-clear" type="button" aria-label="Clear task search" onClick={clearSearch} data-testid="tasks-clear-search"><Icon name="close" size={13} /></button>}</div><label><span>Tag</span><select value={tag} onChange={(event) => setQueryValue('tag', event.target.value, setTag as (value: never) => void)} data-testid="tasks-tag-filter"><option value="all">All tags</option>{tags.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label><span>Priority</span><select value={minimumPriority} onChange={(event) => setQueryValue('priority', event.target.value, setMinimumPriority as (value: never) => void)} data-testid="tasks-priority-filter"><option value="0">Any priority</option><option value="1">P1+</option><option value="2">P2+</option><option value="3">P3+</option></select></label><label><span>Open / All</span><select value={completion} onChange={(event) => setQueryValue('completion', event.target.value, setCompletion as (value: never) => void)} data-testid="tasks-completion-filter"><option value="open">Open</option><option value="all">All</option></select></label><label><span>Date window</span><select value={dateWindow} onChange={(event) => setQueryValue('date', event.target.value, setDateWindow as (value: never) => void)} data-testid="tasks-date-filter"><option value="all">All</option><option value="today">Today</option><option value="week">This Week</option><option value="month">This Month</option></select></label>{view === 'list' && <label><span>Sort</span><select value={sort} onChange={(event) => setQueryValue('sort', event.target.value, setSort as (value: never) => void)} data-testid="tasks-sort"><option value="due">Due date</option><option value="created">Created date</option><option value="status">Status</option><option value="title">Title</option></select></label>}</div></div>
+              <div className="tasks-controls">
+                <h2 id="tasks-workspace-title" className="sr-only">{view === 'list' ? 'Task list' : 'Task board'}</h2>
+                <div className="tasks-filter-grid">
+                  <div className="search-field"><Icon name="search" size={14} /><label className="sr-only" htmlFor="tasks-search-input">Search tasks</label><input id="tasks-search-input" value={search} onChange={(event) => { setSearch(event.target.value); writeUrl({}, { search: event.target.value }); }} placeholder="Search tasks" data-testid="tasks-search" />{search && <button className="tasks-search-clear" type="button" aria-label="Clear task search" onClick={clearSearch} data-testid="tasks-clear-search"><Icon name="close" size={13} /></button>}</div>
+                  <label><span>Open / All</span><select value={completion} onChange={(event) => setQueryValue('completion', event.target.value, setCompletion as (value: never) => void)} data-testid="tasks-completion-filter"><option value="open">Open</option><option value="all">All</option></select></label>
+                  <label><span>Date window</span><select value={dateWindow} onChange={(event) => setQueryValue('date', event.target.value, setDateWindow as (value: never) => void)} data-testid="tasks-date-filter"><option value="all">All</option><option value="today">Today</option><option value="week">This Week</option><option value="month">This Month</option></select></label>
+                  <button className="secondary-button" type="button" data-testid="tasks-filters-toggle" aria-label="Filters" aria-expanded={filtersOpen} aria-controls="tasks-extra-filters" onClick={() => setFiltersOpen(!filtersOpen)}>Filters{tag !== 'all' || minimumPriority !== '0' || sort !== 'due' ? ' •' : ''}</button>
+                </div>
+                <div className="tasks-extra-filters" id="tasks-extra-filters" hidden={!filtersOpen}>
+                  <label><span>Tag</span><select value={tag} onChange={(event) => setQueryValue('tag', event.target.value, setTag as (value: never) => void)} data-testid="tasks-tag-filter"><option value="all">All tags</option>{tags.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                  <label><span>Priority</span><select value={minimumPriority} onChange={(event) => setQueryValue('priority', event.target.value, setMinimumPriority as (value: never) => void)} data-testid="tasks-priority-filter"><option value="0">Any priority</option><option value="1">P1+</option><option value="2">P2+</option><option value="3">P3+</option></select></label>
+                  {view === 'list' && <label><span>Sort</span><select value={sort} onChange={(event) => setQueryValue('sort', event.target.value, setSort as (value: never) => void)} data-testid="tasks-sort"><option value="due">Due date</option><option value="created">Created date</option><option value="status">Status</option><option value="title">Title</option></select></label>}
+                </div>
+              </div>
 
               <div className="tasks-legend" aria-label="Task date and source legend"><span><i className="past" />Past due</span><span><i className="today" />Today</span><span><i className="rhythm" />Rhythm</span><span><i className="project" />Project</span><span><i className="automation" />Automation</span></div>
 
-              {visibleTasks.length === 0 ? <section className="tasks-no-results" data-testid="tasks-no-results"><span className="tasks-state-mark" aria-hidden="true">⌕</span><h2>{search ? 'No matching tasks' : 'Nothing to show'}</h2><p>{search ? 'Clear the search to restore the queue.' : 'Clear an active filter to see the full task list.'}</p><button className="secondary-button" type="button" onClick={clearFilters} data-testid="tasks-clear-filters">Clear filters</button></section> : view === 'list' ? <div className="tasks-list" data-testid="tasks-list">{groupedTasks.map((group) => <section className="task-group" aria-labelledby={`task-group-title-${group.bucket}`} data-testid={`task-group-${group.bucket}`} key={group.bucket}><header><h2 id={`task-group-title-${group.bucket}`}>{taskBucketLabels[group.bucket]}</h2><span>{group.tasks.length}</span></header><div role="grid" aria-label={`${taskBucketLabels[group.bucket]} tasks`}>{group.tasks.map(renderTaskRow)}</div></section>)}</div> : <div className="kanban-board" role="region" tabIndex={0} data-testid="tasks-board" aria-label="Task status board">{boardStatuses.map((status) => { const columnTasks = visibleTasks.filter((task) => task.status === status); return <section className="kanban-column" onDragOver={(event) => event.preventDefault()} onDrop={() => moveTask(status)} aria-labelledby={`kanban-title-${status}`} data-testid={`kanban-column-${status.replaceAll('_', '-')}`} key={status}><header><h2 id={`kanban-title-${status}`}>{taskStatusLabels[status]}</h2><span>{columnTasks.length}</span></header><div className="kanban-stack" role="listbox" aria-label={`${taskStatusLabels[status]} tasks`}>{columnTasks.length ? columnTasks.map((task) => <article className="task-card" role="option" tabIndex={0} draggable={!isReadonly && !isSourceReadonly(task)} aria-selected={selectedId === task.id} aria-label={`Inspect ${task.title}`} onDragStart={() => setDraggedId(task.id)} onClick={() => openInspector(task)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openInspector(task); } }} data-testid={`task-card-${task.id}`} key={task.id}><span className="task-kicker">{taskStatusLabels[task.status]}</span><h3>{task.title}</h3><p>{dateLabel(task)}{task.preferredAgent ? ` · ${task.preferredAgent}` : ''}</p><div className="task-card-tags">{task.priority ? <span>P{task.priority}</span> : null}{task.tags.slice(0, 3).map((item) => <span key={item}>{item}</span>)}</div></article>) : <p className="kanban-empty">No tasks in this stage.</p>}</div></section>; })}</div>}
+              {visibleTasks.length === 0 ? <section className="tasks-no-results" data-testid="tasks-no-results"><span className="tasks-state-mark" aria-hidden="true">⌕</span><h2>{search ? 'No matching tasks' : 'Nothing to show'}</h2><p>{search ? 'Clear the search to restore the queue.' : 'Clear an active filter to see the full task list.'}</p><button className="secondary-button" type="button" onClick={clearFilters} data-testid="tasks-clear-filters">Clear filters</button></section> : view === 'list' ? <div className="tasks-list" data-testid="tasks-list">{groupedTasks.map((group) => <section className="task-group" aria-labelledby={`task-group-title-${group.bucket}`} data-testid={`task-group-${group.bucket}`} key={group.bucket}><header><h2 id={`task-group-title-${group.bucket}`}>{taskBucketLabels[group.bucket]}</h2><span>{group.tasks.length}</span></header><div role="grid" aria-label={`${taskBucketLabels[group.bucket]} tasks`}>{group.tasks.map(renderTaskRow)}</div></section>)}</div> : <div className="kanban-board" role="region" tabIndex={0} data-testid="tasks-board" aria-label="Task status board">{boardStatuses.map((status) => { const columnTasks = visibleTasks.filter((task) => task.status === status); return <section className="kanban-column" onDragOver={(event) => event.preventDefault()} onDrop={() => moveTask(status)} aria-labelledby={`kanban-title-${status}`} data-testid={`kanban-column-${status.replaceAll('_', '-')}`} key={status}><header><h2 id={`kanban-title-${status}`}>{taskStatusLabels[status]}</h2><span>{columnTasks.length}</span></header><div className="kanban-stack" role="list" aria-label={`${taskStatusLabels[status]} tasks`}>{columnTasks.length ? columnTasks.map((task) => <article className="task-card" role="listitem" draggable={!isReadonly && !isSourceReadonly(task) && !mutationPending} data-selected={selectedId === task.id} onDragStart={() => setDraggedId(task.id)} data-testid={`task-card-${task.id}`} key={task.id}>
+                <input className="task-completion" type="checkbox" aria-label={`${task.status === 'done' ? 'Reopen' : 'Complete'} ${task.title}`} checked={task.status === 'done'} disabled={isReadonly || isSourceReadonly(task) || mutationPending} onChange={(event) => void changeStatus(task, event.target.checked ? 'done' : 'open')} data-testid={`task-complete-${task.id}`} />
+                <button className="task-card-main" type="button" aria-label={`Inspect ${task.title}`} onClick={() => openInspector(task)}><h3>{task.title}</h3><span className="task-meta">{isSourceReadonly(task) ? 'Read only · ' : ''}{dateLabel(task)}{task.priority ? ` · P${task.priority}` : ''}</span></button>
+              </article>) : <p className="kanban-empty" role="listitem">No tasks in this stage.</p>}</div></section>; })}</div>}
             </section>
           </div>
 
-          <aside className="task-detail-column" aria-label="Selected task" data-od-id="task-inspector" data-testid="task-inspector">
-            {selectedTask ? <section className="task-detail" aria-labelledby="task-detail-title">
-              <header><div><span className="task-detail-state">{taskStatusLabels[selectedTask.status]}</span><h2 id="task-detail-title">{selectedTask.title}</h2><p>{selectedTask.priority ? `P${selectedTask.priority} · ` : ''}<span role="textbox" aria-label="Source" aria-readonly="true" data-testid="task-source">{selectedTask.sourceName ?? 'Rhythm task'}</span> · {dateLabel(selectedTask)}</p></div><button className="text-button" type="button" onClick={closeInspector} data-testid="task-detail-close">Close</button></header>
-              {selectedReadonly && <div className="inspector-prerequisite" role="status"><strong>Synchronized source of truth</strong><span>This task is inspect-only here.</span></div>}
-              <form className="task-inspector-form" key={selectedTask.id} onSubmit={saveInspector}>
+          {!narrowInspector && inspectorContent()}
+        </div>
+      </>}
+    </div>
+  </>;
+
+  function inspectorContent() {
+    return selectedTask && <aside className="task-detail-column" aria-label="Selected task" data-od-id="task-inspector" data-testid="task-inspector" onKeyDown={(event) => {
+      if (event.key === 'Escape' && !collaboratorPickerOpen) { event.preventDefault(); event.stopPropagation(); closeInspector(); }
+    }}>
+            <section className="task-detail" aria-labelledby="task-detail-title">
+              <header><div><span className="task-detail-state">{taskStatusLabels[selectedTask.status]}</span><h2 id="task-detail-title">{selectedTask.title}</h2><p>{selectedTask.priority ? `P${selectedTask.priority} · ` : ''}<span role="textbox" aria-label="Source" aria-readonly="true" data-testid="task-source">{selectedTask.sourceName ?? 'Rhythm task'}</span> · {dateLabel(selectedTask)}</p></div><button className="text-button" type="button" disabled={mutationPending} onClick={closeInspector} data-testid="task-detail-close">Close</button>
+                <button className="primary-button task-status-action" type="button" disabled={selectedReadonly} onClick={() => changeStatus(selectedTask, selectedTask.status === 'done' ? 'open' : 'done')} data-testid="task-detail-complete">{selectedTask.status === 'done' ? 'Reopen task' : 'Complete task'}</button>
+                {mutationPending && <p role="status">Saving…</p>}
+                {mutationError && <p role="alert">{mutationError}</p>}
+                {pendingSelection && <div role="alert" className="inspector-prerequisite"><strong>Unsaved changes</strong><div className="dialog-actions"><button className="primary-button" type="button" disabled={mutationPending} onClick={() => inspectorFormRef.current?.requestSubmit()}>Save</button><button className="secondary-button" type="button" disabled={mutationPending} onClick={() => { setDirty(false); setSelectedId(pendingSelection.id); writeUrl({ selectedId: pendingSelection.id }); setPendingSelection(null); }}>Discard</button><button className="secondary-button" type="button" disabled={mutationPending} onClick={() => { setPendingSelection(null); inspectorFormRef.current?.querySelector<HTMLInputElement>('input')?.focus(); }}>Keep editing</button></div></div>}
+              </header>
+              {(isReadonly || isSourceReadonly(selectedTask)) && <div className="inspector-prerequisite" role="status"><strong>{isReadonly ? 'Read-only workspace' : 'Synchronized source of truth'}</strong><span>This task is inspect-only here. Make changes in its source.</span></div>}
+              <form ref={inspectorFormRef} className="task-inspector-form" key={selectedTask.id} onSubmit={saveInspector} onChange={(event) => {
+                const data = new FormData(event.currentTarget);
+                setDirty((['title', 'notes', 'scheduledDate', 'dueDate', 'preferredAgent', 'energy'] as const).some((key) => String(data.get(key) ?? '') !== (selectedTask[key] ?? '')));
+              }}>
                 <div className="task-source-grid"><div><span>Created by</span><strong role="textbox" aria-label="Created by" aria-readonly="true" data-testid="task-created-by">{selectedTask.createdBy}</strong></div><div><span>Status</span><strong>{taskStatusLabels[selectedTask.status]}</strong></div></div>
-                <fieldset disabled={selectedReadonly}><legend className="sr-only">Task details</legend><label>Title<input name="title" required defaultValue={selectedTask.title} data-testid="task-edit-title" /></label><label>Notes<textarea name="notes" rows={4} defaultValue={selectedTask.notes} data-testid="task-edit-notes" /></label><div className="inspector-pair"><label>Scheduled date<input name="scheduledDate" type="date" defaultValue={selectedTask.scheduledDate ?? ''} data-testid="task-edit-scheduled-date" /></label><label>Due date<input name="dueDate" type="date" defaultValue={selectedTask.dueDate ?? ''} data-testid="task-edit-due-date" /></label></div><div className="inspector-pair"><label>Default agent<select name="preferredAgent" defaultValue={selectedTask.preferredAgent} data-testid="task-edit-agent"><option value="">None</option><option value="claude-code">Claude Code</option><option value="codex">Codex</option></select></label><label>Energy<select name="energy" defaultValue={selectedTask.energy} data-testid="task-edit-energy"><option value="">None</option><option value="🔥">🔥 Fire</option><option value="⚡">⚡ Electric</option><option value="🌱">🌱 Grounded</option></select></label></div><footer className="task-detail-form-actions"><button className="secondary-button" type="button" onClick={() => changeStatus(selectedTask, selectedTask.status === 'done' ? 'open' : 'done')} data-testid="task-detail-complete">{selectedTask.status === 'done' ? 'Reopen' : 'Complete'}</button><button className="primary-button" type="submit" data-testid="task-save">Save changes</button></footer></fieldset>
+                <fieldset disabled={selectedReadonly}><legend className="sr-only">Task details</legend><label>Title<input name="title" required defaultValue={selectedTask.title} data-testid="task-edit-title" /></label><label>Notes<textarea name="notes" rows={4} defaultValue={selectedTask.notes} data-testid="task-edit-notes" /></label><div className="inspector-pair"><label>Scheduled date<input name="scheduledDate" type="date" defaultValue={selectedTask.scheduledDate ?? ''} data-testid="task-edit-scheduled-date" /></label><label>Due date<input name="dueDate" type="date" defaultValue={selectedTask.dueDate ?? ''} data-testid="task-edit-due-date" /></label></div><div className="inspector-pair"><label>Default agent<select name="preferredAgent" defaultValue={selectedTask.preferredAgent} data-testid="task-edit-agent"><option value="">None</option><option value="claude-code">Claude Code</option><option value="codex">Codex</option></select></label><label>Energy<select name="energy" defaultValue={selectedTask.energy} data-testid="task-edit-energy"><option value="">None</option><option value="🔥">🔥 Fire</option><option value="⚡">⚡ Electric</option><option value="🌱">🌱 Grounded</option></select></label></div><footer className="task-detail-form-actions"><button className="secondary-button" type="submit" data-testid="task-save">Save changes</button></footer></fieldset>
               </form>
               <section className="task-people" aria-labelledby="task-people-title">
                 <div className="inspector-section-heading"><div><h3 id="task-people-title">People</h3><p>Collaborators on this task.</p></div>{gateway.mode !== 'live' && <button className="secondary-button" type="button" disabled={!selectedIsOwner || selectedReadonly} aria-describedby={!selectedIsOwner ? ownerOnlyReasonId : selectedReadonly ? readonlyReasonId : undefined} title={!selectedIsOwner ? 'Only the task owner can add or remove collaborators' : undefined} onClick={() => setCollaboratorPickerOpen(true)} data-testid="task-add-collaborator"><Icon name="plus" size={14} />Add</button>}</div>
@@ -517,17 +601,19 @@ export function TasksPage({ route }: { route: string }) {
                   : <div className="collaborator-list">{selectedTask.collaborators.length ? selectedTask.collaborators.map((person) => <div className="collaborator-chip" data-testid={`task-collaborator-${person.id}`} key={person.id}><span aria-hidden="true">{person.initials}</span><strong>{person.name}</strong><button className="icon-button" type="button" disabled={!selectedIsOwner || selectedReadonly} aria-label={`Remove ${person.name}`} aria-describedby={!selectedIsOwner ? ownerOnlyReasonId : selectedReadonly ? readonlyReasonId : undefined} onClick={() => removeCollaborator(person.id)} data-testid={`task-remove-collaborator-${person.id}`}><Icon name="close" size={13} /></button></div>) : <p>No collaborators yet.</p>}</div>}
               </section>
               {!selectedReadonly && <section className="task-quick-actions" aria-labelledby="task-quick-title"><h3 id="task-quick-title">Quick actions</h3><div>{quickActions.map((action) => <button className="task-action-chip" type="button" disabled={quickActionPending} onClick={() => launchQuickAction(action.id)} data-testid={`quick-action-${action.id}`} key={action.id}>{action.label}</button>)}</div></section>}
-            </section> : <section className="task-detail-empty" aria-labelledby="task-detail-empty-title"><h2 id="task-detail-empty-title">Select a task</h2><p>Open a task to review its context, people, and next actions without leaving the queue.</p></section>}
-          </aside>
-        </div>
-      </>}
-    </div>
+            </section>
+            <FocusDialog open={collaboratorPickerOpen} onClose={() => setCollaboratorPickerOpen(false)} title="Add collaborator" description="Only workspace members who are not the owner or already collaborating are shown." testId="task-collaborator-picker"><div className="collaborator-options" role="listbox" aria-label="Available collaborators">{memberStatus === 'error' ? <p role="alert">Workspace members could not be loaded.</p> : collaboratorCandidates.length ? collaboratorCandidates.map((person) => <button className="secondary-button" role="option" aria-selected="false" type="button" onClick={() => addCollaborator(person.id)} data-testid={`task-collaborator-option-${person.id}`} key={person.id}><span>{person.initials}</span><strong>{person.name}</strong></button>) : <p>No eligible collaborators remain.</p>}</div></FocusDialog>
+          </aside>;
+  }
+
+  return <section className="page-shell pg-tasks" data-od-id="tasks-page" data-testid="page-tasks" aria-labelledby="tasks-title" aria-busy={surfaceState === 'loading'}>
+    {collection}
+    <FocusDialog open={narrowInspector && Boolean(selectedTask) && showsWorkspace} onClose={closeInspector} title="Task details" testId="task-inspector-dialog">{narrowInspector && inspectorContent()}</FocusDialog>
 
     <aside className="page-trace" aria-label="Tasks endpoint receipts" tabIndex={0} data-testid="page-trace"><span>Endpoint ledger</span><ol>{receipts.map((receipt, index) => <li key={`${receipt}-${index}`}>{receipt}</li>)}</ol></aside>
 
     <FocusDialog open={createOpen} onClose={() => setCreateOpen(false)} title="Add task" description="Set the task details now. More people and agent handoffs are available after creation." testId="task-create-dialog"><TaskCreateForm idPrefix="tasks-create" onSubmit={createTask} onCancel={() => setCreateOpen(false)} members={memberOptions.filter((person) => person.userId !== liveUserId)} titleRef={createTitleRef} disabled={isReadonly || mutationPending || memberStatus === 'loading'} describedBy={isReadonly ? readonlyReasonId : undefined} testIds={{ title: 'task-create-title', notes: 'task-create-notes', scheduledDate: 'task-create-scheduled-date', dueDate: 'task-create-due-date', collaborator: 'task-create-collaborator', cancel: 'task-create-cancel', submit: 'task-create-submit', mutations: 'tasks-mutations' }} /></FocusDialog>
 
-    <FocusDialog open={collaboratorPickerOpen} onClose={() => setCollaboratorPickerOpen(false)} title="Add collaborator" description="Only workspace members who are not the owner or already collaborating are shown." testId="task-collaborator-picker"><div className="collaborator-options" role="listbox" aria-label="Available collaborators">{memberStatus === 'error' ? <p role="alert">Workspace members could not be loaded.</p> : collaboratorCandidates.length ? collaboratorCandidates.map((person) => <button className="secondary-button" role="option" aria-selected="false" type="button" onClick={() => addCollaborator(person.id)} data-testid={`task-collaborator-option-${person.id}`} key={person.id}><span>{person.initials}</span><strong>{person.name}</strong></button>) : <p>No eligible collaborators remain.</p>}</div></FocusDialog>
 
     <FocusDialog open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} title={deleteTarget ? `Delete “${deleteTarget.title}”?` : 'Delete task?'} description="This cannot be undone." testId="task-delete-dialog"><p className="delete-copy">The task and its collaborator links will be removed.</p><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setDeleteTarget(null)} data-testid="task-delete-cancel">Cancel</button><button className="danger-button" type="button" disabled={mutationPending} onClick={confirmDelete} data-testid="task-delete-confirm">Delete task</button></div></FocusDialog>
   </section>;

@@ -7,6 +7,7 @@ import { UsersRepository } from './users_repository';
 
 describe('E26 SQLite history contract', () => {
   let db: Database.Database;
+  let queries: string[];
   const repo = new history.AgentSessionsRepository();
   const seed = (id: string, fields: Record<string, unknown> = {}) => {
     db.prepare(`INSERT INTO agent_sessions (id, agent_kind, status, cwd, name, created_at, updated_at)
@@ -20,7 +21,8 @@ describe('E26 SQLite history contract', () => {
     return history.listPage(opts);
   };
   beforeEach(() => {
-    db = new Database(':memory:');
+    queries = [];
+    db = new Database(':memory:', { verbose: (sql) => queries.push(String(sql)) });
     runMigrations(db);
     setDb(db);
     new UsersRepository().create({ name: 'Owner', email: 'owner@example.test' });
@@ -104,6 +106,48 @@ describe('E26 SQLite history contract', () => {
     expect(ids).toHaveLength(505);
     expect(new Set(ids).size).toBe(505);
     expect(history.listChildrenPage('child-504', {}).sessions.map(s => s.id)).toEqual(['grandchild']);
+  });
+
+  it('subagent-counts-c1: one SQLite child-stats query returns exact direct totals with nested and filter isolation', () => {
+    seed('zero', { project_id: 'p', owner_user_id: 1 });
+    seed('parent-38', { project_id: 'p', owner_user_id: 1 });
+    for (let i = 0; i < 38; i++) seed(`p38-child-${i}`, { parent_session_id: 'parent-38', project_id: 'p', owner_user_id: 1, status: 'working' });
+
+    seed('parent-164', { project_id: 'p', owner_user_id: 1 });
+    seed('nested-60', { parent_session_id: 'parent-164', project_id: 'p', owner_user_id: 1, status: 'working' });
+    for (let i = 0; i < 163; i++) seed(`p164-child-${String(i).padStart(3, '0')}`, {
+      parent_session_id: 'parent-164', project_id: 'p', owner_user_id: 1,
+      status: i < 37 ? 'working' : 'closed',
+    });
+    for (let i = 0; i < 60; i++) seed(`nested-child-${String(i).padStart(2, '0')}`, {
+      parent_session_id: 'nested-60', project_id: 'p', owner_user_id: 1,
+      last_preview: i === 59 ? 'nested-count-needle' : null,
+    });
+    seed('excluded-archived', { parent_session_id: 'parent-164', project_id: 'p', owner_user_id: 1, archived_at: '2026-02-01' });
+    seed('excluded-project', { parent_session_id: 'parent-164', project_id: 'q', owner_user_id: 1 });
+    seed('excluded-owner', { parent_session_id: 'parent-164', project_id: 'p', owner_user_id: 2 });
+    seed('excluded-scope', { parent_session_id: 'parent-164', project_id: 'p', owner_user_id: 1, category: 'scheduled', is_system: 1 });
+
+    queries = [];
+    const roots = page({ projectId: 'p', ownerUserId: 1 }).sessions;
+    expect(roots.find((row) => row.id === 'zero')).toMatchObject({ hasChildren: false, childCount: 0, runningChildCount: 0 });
+    expect(roots.find((row) => row.id === 'parent-38')).toMatchObject({ hasChildren: true, childCount: 38, runningChildCount: 38 });
+    expect(roots.find((row) => row.id === 'parent-164')).toMatchObject({ hasChildren: true, childCount: 164, runningChildCount: 38 });
+    expect(queries.filter((sql) => /FROM agent_sessions\s+WHERE parent_session_id IN/i.test(sql))).toHaveLength(1);
+    expect(queries.filter((sql) => /FROM agent_sessions WHERE parent_session_id =/i.test(sql))).toHaveLength(0);
+
+    const firstChildren = history.listChildrenPage('parent-164', { projectId: 'p', ownerUserId: 1, limit: 100 });
+    expect(firstChildren.sessions).toHaveLength(100);
+    expect(firstChildren.pageInfo.hasMore).toBe(true);
+    const nested = firstChildren.sessions.find((row) => row.id === 'nested-60')
+      ?? history.listChildrenPage('parent-164', { projectId: 'p', ownerUserId: 1, limit: 100, cursor: firstChildren.pageInfo.nextCursor! }).sessions.find((row) => row.id === 'nested-60');
+    expect(nested).toMatchObject({ childCount: 60, runningChildCount: 0, hasChildren: true });
+
+    const found = page({ projectId: 'p', ownerUserId: 1, search: 'nested-count-needle' });
+    expect(found.sessions).toHaveLength(1);
+    expect(found.ancestors.find((row) => row.id === 'nested-60')).toMatchObject({ childCount: 60, runningChildCount: 0 });
+    expect(found.ancestors.find((row) => row.id === 'parent-164')).toMatchObject({ childCount: 164, runningChildCount: 38 });
+    expect(page({ projectId: 'p', ownerUserId: 1, includeArchived: true }).sessions.find((row) => row.id === 'parent-164')).toMatchObject({ childCount: 165 });
   });
 
   it('E26-c6: legacy list order, root cap and descendant cap remain unchanged', () => {

@@ -4,8 +4,9 @@ repo: Rhythm
 branch: feature/electron-flutter-retirement
 pr: null
 issues: [E10, E11, E12, E13, E14, E15, E16, E20, E21, E22, E23, E24, E25, E26, E27, E30, E31, E32, E33, E34, E35, E40, E41, E42, E43, E44, E50, E51, E52A, E53, E54]
-status: PASS_AFTER_REPAIR
+status: automated verification passed; manual smoke pending
 tags: [run, Rhythm, verification]
+index: "[[Rhythm]]"
 ---
 
 # Final Phases 1–5 automated integration gate
@@ -14,7 +15,15 @@ tags: [run, Rhythm, verification]
 
 **PASS AFTER FOCUSED REPAIR — automated Phases 1–5 gate.** The sole API failure was proven on merge-base sources as a timestamp-fixture flake; missing rendered bindings were added and passed. Expressly deferred human/provider/native qualification remains mandatory before merge.
 
-Candidate throughout: `feature/electron-flutter-retirement`, `44a71ab850b7ca942073a67b871db1eb9cf592a3`, worktree `/Users/ajhochhalter/Documents/Rhythm-electron-flutter-retirement`. Merge base: `0bc46a5ece1a937c484c0054493c75b0299eafef`. Initial dirty files were exclusively existing generated run evidence and blocked-worker notes. Those notes were not implementation evidence. This run authored only this report and `2026-09-12-final-retirement-contract-check.mjs`; maintained tests regenerated/deleted their configured evidence artifacts. Nothing was staged or blessed.
+Broad-gate candidate: `feature/electron-flutter-retirement` at `44a71ab850b7ca942073a67b871db1eb9cf592a3`; final focused-repair handoff HEAD: `82d6b981`. Merge base: `0bc46a5ece1a937c484c0054493c75b0299eafef`. Initial dirty files were exclusively existing generated run evidence and blocked-worker notes. Those notes were not implementation evidence. The verification run authored only this report and `2026-09-12-final-retirement-contract-check.mjs`; maintained tests regenerated/deleted their configured evidence artifacts. Documentation handoff leaves all generated evidence dirt and blocked no-op notes untouched.
+
+## Handoff / implementation chain
+
+- Phase0: [plan/baseline](2026-09-10-electron-phase0-baseline.md) and [isolated sandbox harness](2026-09-10-electron-e02-harness.md) passed their bounded gates; execution plan: `docs/ai/plans/2026-09-10-electron-flutter-retirement.md`.
+- Ordered commits, preparation through Phase1–2: `ac52bf95` → `6abe7050` → `26f408dd` → `3b5919ad` → `72dd9bb7` → `03056e07` → `d360cc4c` → `afc5d534` → `33bc677e` → `9916723e` → `3b03bcae` → `57912152` → `d3435ae1` → `e72a1b87` → `d1be18ed` → `5b5470a6` → `6c4ec779`.
+- Phase3–5 and checkpoint repairs: `6f0216d0` → `cb9b903d` → `e23f3353` → `2028a7d1` → `f2d044c3` → `bf6bbac8` → `c8bd1fa6` → `b4709f94` → `8f2360d5` → `39c76c78` → `44a71ab8` → `805731d9` → `82d6b981`.
+- Draft PR pending manager push/open; no merge. AJ installed-app smoke is mandatory. Real provider/OAuth/phone, safeStorage encrypted relaunch/expiry, native migration/rollback, signed arm64+x64 Secure Enclave/Keychain, VoiceOver/zoom/browser memory/startup/sleep-wake remain manual/not_tested.
+- Phase6 pilot/cutover/30-day fallback has not started. Automated PASS is not readiness to retire Flutter. This documentation update runs no commands/tests and makes no product, test, plan, contract, Git-history or PR changes.
 
 ## Isolation, commands, receipts
 
@@ -116,7 +125,7 @@ npm exec -- playwright test --config tests/electron-e27-playwright.config.ts tes
 
 Result1 passed,exit0. Invalid supplied bearer denied; real shell nonce/cwd matched; `stty size` exactly29x91; Ctrl-C interrupted sleep30 and same shell executed a second nonce within5s; absent bearer preserved local compatibility. PTY/session cleanup both204.
 
-## Consolidated unresolved findings
+## Initial gate findings (before final focused reconciliation below)
 
 1. **API full-suite failure — unresolved test nondeterminism, not an accepted baseline.** `workflow_failure_signal_extractor.test.ts:764`, issue933-c7, expected a stale-redo signal but receivedundefined. Focused `npm exec -- vitest run --no-file-parallelism src/__tests__/workflow_failure_signal_extractor.test.ts` subsequently passed63/63 unchanged. Test inserts two sessions without distinct timestamps; detector selects latest by createdAt only, and its neighboring safeguard test explicitly backdates one row. Timestamp ordering is a plausible harness cause, not a proven product diagnosis. Both test and detector are unchanged versus main; repository consumers changed, so that alone does not establish pre-existence. No identical full API merge-base run was obtained; retained baseline API package has no installed node_modules. This failure is not waived by the focused pass or earlier checkpoint pass. No toolchain/ABI failure occurred in candidate checks.
 2. **Acceptance evidence gaps — source/fixture assertions do not prove changed user surfaces.** Forty applicable slice/repair contracts parse with nonempty criteria and executable top-level commands. Structure validator does not approve assertions. Several statuses/reasons still describe old narrow dispatches; no blanket criterion reconciliation PASS is issued. E40 tests check source substrings and intercepted route/body vocabulary only; they never render Settings, test admin denial, inspect auth headers, remove a member, generate a join code, or round-trip/reset account preferences. E41 renders SVG/title and payload lifecycle but does not assert copy action or decoded QR contents. E44 fixed IPC URL is exact and passing, but Settings version/update UI lacks a rendered binding assertion. E53's three green tests exercise fixture Messages; changed list/button semantics are in live Messages and are not asserted by E33's live-renderer focus-refresh test. These are missing deterministic automated evidence, not automatically added to AJ's manual exclusions.
@@ -156,3 +165,7 @@ Observed `Sandbox removed: /private/tmp/rhythm-electron-phase3`; diagnostics ret
 - Manager GitNexus compare-main:371 symbols/254 files, zero affected indexed processes, LOW aggregate; individual high/critical changes were disclosed and authorized.
 
 No full-suite rerun followed these exact green repairs. Automated Phases1–5 is **PASS**. Installed/signed/provider/phone/assistive-technology/migration/rollback/startup/sleep-wake evidence remains manual; AJ smoke remains mandatory before merge.
+
+## 2026-09-14 E14 fixture rollover repair
+
+Integrated verifier `4ff01` found the sole current red: E32's fixed `2026-09-09` records were hidden after unpinned `/#/planner` advanced to the September14 week. The harness now opens and asserts `/#/planner?week=2026-W37`; focused E32 passed1/1, full non-sandbox E14 passed9 with1 explicit sandbox skip, focused Planner passed9/9, and web typecheck passed. No product or fixture behavior changed; see `2026-09-14-electron-e14-date-rollover-repair.md`.

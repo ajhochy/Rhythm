@@ -95,6 +95,7 @@ export function Shell({ route, children }: { route: string; children: React.Reac
     return () => window.clearTimeout(timer);
   }, [toast.id]);
   useEffect(() => {
+    if (live) return;
     const queryDemo = new URLSearchParams(window.location.hash.split('?')[1] || '').get('demo') as DemoState | null;
     if (queryDemo && Object.hasOwn(demoLabels, queryDemo)) setDemo(queryDemo);
   }, []);
@@ -121,9 +122,11 @@ export function Shell({ route, children }: { route: string; children: React.Reac
         </nav>
         <div className="global-actions">
           <Menu label="Background activity" icon="activity" testId="background-activity-button">
+            {live ? <button className="menu-item" role="menuitem" type="button" onClick={() => navigate('/agents')}>View agent sessions</button> : <>
             <div className="menu-heading"><span>Background activity</span><small>2 sessions</small></div>
             <button className="activity-row" role="menuitem" type="button" onClick={() => { navigate('/agents'); setDemo('running'); notify('Volunteer coverage audit selected'); }}><span className="status-dot working" /><span><strong>Volunteer coverage audit</strong><small>Working · child agent</small></span></button>
             <button className="activity-row" role="menuitem" type="button" onClick={() => { navigate('/agents'); setDemo('resumable'); }}><span className="status-dot stuck" /><span><strong>Integration health sweep</strong><small>Unavailable · can resume</small></span></button>
+            </>}
           </Menu>
           <Menu label="Notifications" icon="bell" testId="notifications-button">
             {live ? <>
@@ -158,10 +161,10 @@ export function Shell({ route, children }: { route: string; children: React.Reac
               <span className="menu-section-label">Workspace diagnostics</span>
               <button className="menu-item" role="menuitem" type="button" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} data-testid="theme-toggle"><Icon name={theme === 'light' ? 'moon' : 'sun'} size={15} />Switch to {theme === 'light' ? 'dark' : 'light'} theme</button>
               <button className="menu-item" role="menuitem" type="button" onClick={() => navigate('/endpoint-map')} data-testid="endpoint-map-button"><Icon name="endpoint" size={15} />Endpoint Map</button>
-              <div className="diagnostics-demo">
+              {!live && <div className="diagnostics-demo">
                 <button className="menu-item" role="menuitem" type="button" aria-haspopup="menu" aria-expanded={demoOpen} onClick={() => setDemoOpen((value) => !value)} data-menu-keep-open data-testid="demo-states-button"><Icon name="activity" size={15} />Demo states<Icon name="chevronRight" size={13} /></button>
                 {demoOpen && <div className="menu-popover demo-menu" role="menu" aria-label="Demo states" onClick={() => setDemoOpen(false)}>{(Object.keys(demoLabels) as DemoState[]).map((state) => <button role="menuitemradio" aria-checked={demo === state} className="menu-item" type="button" key={state} onClick={() => { setDemo(state); const base = window.location.hash.split('?')[0] || '#/agents'; history.replaceState(null, '', `${base}?demo=${state}`); }} data-testid={`demo-${state}`}>{demo === state ? <Icon name="check" size={14} /> : <span className="menu-spacer" />}{demoLabels[state]}</button>)}<hr /><button role="menuitem" className="menu-item" type="button" onClick={() => { resetFixtures(); history.replaceState(null, '', '#/agents'); }} data-testid="fixture-reset"><Icon name="refresh" size={14} />Reset workspace</button></div>}
-              </div>
+              </div>}
             </div>
           </Menu>
         </div>
