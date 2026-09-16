@@ -21,10 +21,25 @@ class AgentServerController extends ChangeNotifier {
     RhythmMcpAutoInstaller? autoInstaller,
     CuratedMcpAutoInstaller? curatedAutoInstaller,
     ServerConfigService? serverConfigService,
+    Duration Function(int attempt)? recoveryBackoff,
+    int maxRecoveryAttempts = 3,
+    Duration recoveryStabilityInterval = const Duration(seconds: 30),
+    Future<http.Response> Function(Uri)? capabilitiesRequest,
   })  : _autoInstaller = autoInstaller ?? RhythmMcpAutoInstaller(),
         _curatedAutoInstaller =
             curatedAutoInstaller ?? CuratedMcpAutoInstaller(),
-        _serverConfigService = serverConfigService;
+        _serverConfigService = serverConfigService,
+        _recoveryBackoff = recoveryBackoff ?? _defaultRecoveryBackoff,
+        _maxRecoveryAttempts = maxRecoveryAttempts,
+        _recoveryStabilityInterval = recoveryStabilityInterval,
+        _capabilitiesRequest = capabilitiesRequest ?? http.get {
+    try {
+      _ownedExitSubscription =
+          _service.ownedProcessExitEvents.listen(_onOwnedProcessExit);
+    } catch (_) {
+      // Older test doubles may not implement the additive exit-event seam.
+    }
+  }
 
   final ApiServerService _service;
 
@@ -41,6 +56,10 @@ class AgentServerController extends ChangeNotifier {
   /// Optional live source of the configured server URL. When absent we fall
   /// back to [AppConstants.apiBaseUrl] (the cloud baseline).
   final ServerConfigService? _serverConfigService;
+  final Duration Function(int attempt) _recoveryBackoff;
+  final int _maxRecoveryAttempts;
+  final Duration _recoveryStabilityInterval;
+  final Future<http.Response> Function(Uri) _capabilitiesRequest;
 
   /// De-dupes auto-install attempts: we only call the installer when the
   /// session token differs from the last token we installed for.
@@ -68,6 +87,16 @@ class AgentServerController extends ChangeNotifier {
   };
 
   HealthPoller? _poller;
+  StreamSubscription<OwnedProcessExitEvent>? _ownedExitSubscription;
+  Timer? _recoveryTimer;
+  Timer? _stableRecoveryTimer;
+  Future<void>? _startInFlight;
+  Future<void>? _retryInFlight;
+  int _lifecycleEpoch = 0;
+  int _recoveryAttempts = 0;
+  int? _activeOwnedGeneration;
+  bool _stopping = false;
+  bool _disposed = false;
 
   AgentServerStatus get status => _status;
   bool get isReady => _status == AgentServerStatus.ready;
@@ -109,11 +138,34 @@ class AgentServerController extends ChangeNotifier {
   bool isAgentAvailable(String kind) => _capabilities[kind] == true;
   bool get hasAnyAgent => _capabilities.values.any((v) => v);
 
-  Future<void> initialize() async {
+  Future<void> initialize() => _startServer(clearView: true);
+
+  Future<void> _startServer({required bool clearView}) {
+    if (_disposed || _stopping) return Future<void>.value();
+    final inFlight = _startInFlight;
+    if (inFlight != null) return inFlight;
+
+    final epoch = _lifecycleEpoch;
+    late final Future<void> operation;
+    operation = _runStart(epoch: epoch, clearView: clearView).whenComplete(() {
+      if (identical(_startInFlight, operation)) {
+        _startInFlight = null;
+      }
+    });
+    _startInFlight = operation;
+    return operation;
+  }
+
+  Future<void> _runStart({
+    required int epoch,
+    required bool clearView,
+  }) async {
     _status = AgentServerStatus.starting;
     _failureReason = null;
-    _stderrTail = null;
-    _richFailureMessage = null;
+    if (clearView) {
+      _stderrTail = null;
+      _richFailureMessage = null;
+    }
     _capabilities = const {};
     _providerToAgentKind = const {
       'anthropic': 'claude-code',
@@ -121,9 +173,11 @@ class AgentServerController extends ChangeNotifier {
       'openai': 'codex',
       'google': 'gemini-cli',
     };
+    if (!_isActive(epoch)) return;
     notifyListeners();
 
     final result = await _service.start();
+    if (!_isActive(epoch)) return;
     _status = result.ok ? AgentServerStatus.ready : AgentServerStatus.failed;
     _failureReason = result.reason;
     _stderrTail = result.stderrTail;
@@ -131,11 +185,19 @@ class AgentServerController extends ChangeNotifier {
     notifyListeners();
 
     if (result.ok) {
+      _activeOwnedGeneration = _serviceOwnedGeneration();
+      _stableRecoveryTimer?.cancel();
+      _stableRecoveryTimer = Timer(_recoveryStabilityInterval, () {
+        if (_isActive(epoch) && _status == AgentServerStatus.ready) {
+          _recoveryAttempts = 0;
+        }
+      });
       // Fire-and-forget; failures are non-fatal. After capabilities are
       // detected, attempt the rhythm MCP auto-install (F2) — also fire-and-
       // forget, gated and de-duped inside _maybeAutoInstallRhythmMcp.
       unawaited(
-        refreshCapabilities().whenComplete(() {
+        refreshCapabilities().then((_) {
+          if (!_isActive(epoch)) return;
           unawaited(_maybeAutoInstallRhythmMcp());
           unawaited(_maybeAutoInstallCuratedMcp());
         }),
@@ -147,10 +209,72 @@ class AgentServerController extends ChangeNotifier {
         interval: const Duration(seconds: 15),
       );
       _poller!.start();
+    } else if (_recoveryAttempts > 0) {
+      _scheduleRecovery();
     }
   }
 
+  bool _isActive(int epoch) =>
+      !_disposed && !_stopping && epoch == _lifecycleEpoch;
+
+  int? _serviceOwnedGeneration() {
+    try {
+      return _service.currentOwnedProcessGeneration;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _onOwnedProcessExit(OwnedProcessExitEvent event) {
+    if (_disposed || _stopping) return;
+    final expectedGeneration = _activeOwnedGeneration;
+    if (expectedGeneration == null || event.generation != expectedGeneration) {
+      return;
+    }
+
+    // Reserve the next generation before any asynchronous work so duplicate
+    // or late callbacks from this child cannot schedule another replacement.
+    _activeOwnedGeneration = event.generation + 1;
+    _lifecycleEpoch++;
+    _poller?.dispose();
+    _poller = null;
+    _stableRecoveryTimer?.cancel();
+    _stableRecoveryTimer = null;
+    _lastInstalledToken = null;
+    _lastCuratedInstalledToken = null;
+    _status = AgentServerStatus.starting;
+    _failureReason = AgentServerFailureReason.lostConnection;
+    _stderrTail = event.stderrTail;
+    _richFailureMessage = null;
+    notifyListeners();
+    _scheduleRecovery();
+  }
+
+  void _scheduleRecovery() {
+    if (_disposed || _stopping || _recoveryTimer != null) return;
+    if (_recoveryAttempts >= _maxRecoveryAttempts) {
+      _status = AgentServerStatus.failed;
+      _failureReason = AgentServerFailureReason.lostConnection;
+      notifyListeners();
+      return;
+    }
+
+    final attempt = ++_recoveryAttempts;
+    final epoch = _lifecycleEpoch;
+    _recoveryTimer = Timer(_recoveryBackoff(attempt), () {
+      _recoveryTimer = null;
+      if (!_isActive(epoch)) return;
+      unawaited(_startServer(clearView: false));
+    });
+  }
+
+  static Duration _defaultRecoveryBackoff(int attempt) {
+    final seconds = 1 << (attempt - 1).clamp(0, 3);
+    return Duration(seconds: seconds);
+  }
+
   void _onHealthChanged(bool healthy) {
+    if (_disposed || _stopping) return;
     if (!healthy && _status == AgentServerStatus.ready) {
       _status = AgentServerStatus.failed;
       _failureReason = AgentServerFailureReason.lostConnection;
@@ -165,8 +289,10 @@ class AgentServerController extends ChangeNotifier {
   }
 
   Future<void> refreshCapabilities() async {
+    if (_disposed || _stopping) return;
+    final epoch = _lifecycleEpoch;
     try {
-      final response = await http.get(
+      final response = await _capabilitiesRequest(
         Uri.parse('http://localhost:4001/agents/capabilities'),
       );
       if (response.statusCode != 200) {
@@ -177,6 +303,7 @@ class AgentServerController extends ChangeNotifier {
         return;
       }
       final decoded = jsonDecode(response.body);
+      if (!_isActive(epoch)) return;
       if (decoded is! Map<String, dynamic>) {
         stderr.writeln(
           '[AgentServerController] capabilities response was not a JSON object; '
@@ -229,6 +356,7 @@ class AgentServerController extends ChangeNotifier {
   /// Belt-and-suspenders: the whole body is guarded — never throws.
   Future<void> _maybeAutoInstallRhythmMcp() async {
     try {
+      final epoch = _lifecycleEpoch;
       final token = AuthSessionStore.sessionToken;
       final url = _serverConfigService?.url ?? AppConstants.apiBaseUrl;
       final gateOpen = shouldAutoInstallRhythmMcp(
@@ -244,7 +372,9 @@ class AgentServerController extends ChangeNotifier {
       // later trigger (ready hook or onAuthChanged) retries the same token.
       final installed =
           await _autoInstaller.ensure(apiToken: token!, apiUrl: url);
-      if (installed) {
+      if (installed &&
+          _isActive(epoch) &&
+          AuthSessionStore.sessionToken == token) {
         _lastInstalledToken = token;
       }
     } catch (err) {
@@ -260,6 +390,7 @@ class AgentServerController extends ChangeNotifier {
   /// token is never installed twice. Belt-and-suspenders: never throws.
   Future<void> _maybeAutoInstallCuratedMcp() async {
     try {
+      final epoch = _lifecycleEpoch;
       final token = AuthSessionStore.sessionToken;
       final url = _serverConfigService?.url ?? AppConstants.apiBaseUrl;
       final gateOpen = shouldAutoInstallCuratedMcp(
@@ -275,7 +406,9 @@ class AgentServerController extends ChangeNotifier {
       // trigger (ready hook or onAuthChanged) retries the same token.
       final installed =
           await _curatedAutoInstaller.ensure(apiToken: token!, apiUrl: url);
-      if (installed) {
+      if (installed &&
+          _isActive(epoch) &&
+          AuthSessionStore.sessionToken == token) {
         _lastCuratedInstalledToken = token;
       }
     } catch (err) {
@@ -291,23 +424,78 @@ class AgentServerController extends ChangeNotifier {
   void simulateHealthChange(bool healthy) => _onHealthChanged(healthy);
 
   Future<void> retry() {
+    final existing = _retryInFlight;
+    if (existing != null) return existing;
+    late final Future<void> operation;
+    operation = _runManualRetry().whenComplete(() {
+      if (identical(_retryInFlight, operation)) {
+        _retryInFlight = null;
+      }
+    });
+    _retryInFlight = operation;
+    return operation;
+  }
+
+  Future<void> _runManualRetry() async {
+    if (_disposed || _stopping) return;
+    _recoveryTimer?.cancel();
+    _recoveryTimer = null;
+    _stableRecoveryTimer?.cancel();
+    _stableRecoveryTimer = null;
+    _recoveryAttempts = 0;
     _poller?.dispose();
     _poller = null;
-    return initialize();
+    final inFlight = _startInFlight;
+    if (inFlight != null) {
+      await inFlight;
+      if (_disposed || _stopping || _status == AgentServerStatus.ready) return;
+    }
+    final ownedGeneration = _serviceOwnedGeneration();
+    final epoch = ++_lifecycleEpoch;
+    _activeOwnedGeneration = null;
+    if (ownedGeneration != null) {
+      _lastInstalledToken = null;
+      _lastCuratedInstalledToken = null;
+      await _service.stopGracefully();
+      if (!_isActive(epoch)) return;
+    }
+    await _startServer(clearView: true);
   }
 
   /// Gracefully stop the server and clean up. Returns a Future that completes
   /// once the process has exited (or been force-killed after 2 s).
   Future<void> stopAndDispose() async {
+    if (_stopping || _disposed) return;
+    _stopping = true;
+    _lifecycleEpoch++;
+    _recoveryTimer?.cancel();
+    _recoveryTimer = null;
+    _stableRecoveryTimer?.cancel();
+    _stableRecoveryTimer = null;
     _poller?.dispose();
     _poller = null;
     await _service.stopGracefully();
+    final inFlight = _startInFlight;
+    if (inFlight != null) {
+      await inFlight;
+      await _service.stopGracefully();
+    }
   }
 
   @override
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    _stopping = true;
+    _lifecycleEpoch++;
+    _recoveryTimer?.cancel();
+    _recoveryTimer = null;
+    _stableRecoveryTimer?.cancel();
+    _stableRecoveryTimer = null;
     _poller?.dispose();
     _poller = null;
+    unawaited(_ownedExitSubscription?.cancel());
+    _ownedExitSubscription = null;
     _service.stop();
     super.dispose();
   }
