@@ -347,7 +347,11 @@ describe('#792 agent_skills dual-DB schema parity', () => {
     expect(workflow).toContain('assert_grep() {');
     expect(workflow).toContain('grep -qE "$pattern" "$file"');
     for (const guard of [
-      '9a2d3e4f-5b6c-4d7e-8f9a-1b2c3d4e5f6a',
+      // #1492 / #1498: the fresh-package smoke asserts the weekly Org Reviewer
+      // seeding contract, not the retired optimizer generator profiles.
+      '.get("org-reviewer")',
+      '.get("Org Reviewer", "org-reviewer")',
+      '"Org Self-Optimizer%", "Org External Discovery%"',
       "assert_grep 'creative platform tool registration' \"$DEST/dist/index.js\" 'registerCreativePlatformTools\\)?[[:space:]]*\\([[:space:]]*server'",
       "assert_grep 'setup readiness tool registration' \"$DEST/dist/index.js\" 'registerSetupReadinessTool\\)?[[:space:]]*\\([[:space:]]*server'",
       "assert_grep 'org optimizer tool registration' \"$DEST/dist/index.js\" 'registerOrgOptimizerTools\\)?[[:space:]]*\\([[:space:]]*server'",
