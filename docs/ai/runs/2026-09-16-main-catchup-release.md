@@ -8,7 +8,7 @@ status: partial
 tags: [run, Rhythm]
 ---
 
-# Main catch-up: three PRs merged, v0.18.64 release attempt
+# Main catch-up: three PRs merged, v0.18.64 released
 
 AJ explicitly instructed merging all three open PRs (#1493 iOS, #1495 Electron, #1492 Org Reviewer) ahead of their manual smoke, then triggering a release. Executed by an automated agent in isolated worktrees; the shared checkout at `/Users/ajhochhalter/Documents/Rhythm` (on `feature/org-reviewer` with uncommitted user changes) was never touched.
 
@@ -46,6 +46,7 @@ Per-PR, run inside each detached worktree after `npm ci`:
 
 - **API Image Publish (GHCR)** for `8e2f3f6b`: auto-triggered run [35126185122](https://github.com/ajhochy/Rhythm/actions/runs/35126185122) — SUCCESS (6m59s). Hosted `https://api.vcrcapps.com/health` reported `c27a3f6c` at check time (an earlier main SHA); expected — Watchtower deploys `:main` within ~30 minutes, not polled further.
 - **Desktop release v0.18.64**: dispatched `desktop_release.yml` (`release_notes` input, not `notes`). A first dispatch (35127031015) carried the wrong placeholder release notes after a permission-classifier retry and was cancelled immediately, with no tag/release created. Re-dispatched correctly as run [35127366576](https://github.com/ajhochy/Rhythm/actions/runs/35127366576) — **FAILED** after ~17 minutes at "Smoke-test bundled CLI server", before packaging/signing/notarizing/publishing. Log: `"Fresh bundled boot did not seed both optimizer profiles and exactly one enabled task each"`. Root cause: PR #1492 intentionally retired org-optimizer auto-seeding (`auditTaskSeeded=false`, `externalTaskSeeded=false` — replaced by the weekly Org Reviewer), but the release workflow's smoke-test seed-contract assertion was not updated to match. This is a genuine regression from the merge, not a transient/notarization/network flake. No v0.18.64 tag or GitHub release exists; version 0.18.64 is unused and can be reused once the smoke test (or the seeding) is fixed. Per scope, release-workflow scripts were not edited and the run was not retried.
+- **Release follow-through (2026-09-16 18:00–20:00Z):** four pipeline fixes merged to main — #1498 (smoke asserts the Org Reviewer seeding contract), #1499 (`skill_schema_parity.test.ts` pinned the retired profile ID), #1501 (`RHYTHM_MANAGED_SKILLS_DIR` redirect; superseded), #1502 (drop `NODE_ENV=test` from the bundled-server smoke: the shipped launcher never sets it, and in test mode `opencode_agent_writer.ts` returns `skipped` so the reviewer profile projection is `not-applicable` and the seed fails closed). Runs 35130646776, 35133775547 and 35136016441 each failed on the next stale layer. Run [35141645718](https://github.com/ajhochy/Rhythm/actions/runs/35141645718) (dispatched by AJ; a duplicate dispatch 35141668512 was cancelled) then published **v0.18.64** at 20:00:42Z: smoke ✅ sign/notarize ✅ publish ✅, assets `Rhythm-macOS.dmg` + `Rhythm-macOS.zip`. Follow-up #1500 tracks the same-tick stale-redo test flake that hit Server CI three times.
 
 ## Cleanup
 
@@ -55,7 +56,7 @@ All merge worktrees (`rhythm-merge-ios`, `rhythm-merge-electron`, `rhythm-merge-
 
 - iOS, Electron, and Org Reviewer manual smoke (all pending — see `docs/ai/project-state.md` "In progress" for the per-feature checklists pulled from each PR body).
 - NAS relay recreate (`docker compose ... up -d rhythm-relay`) and Rhythm.app relaunch, needed for the iOS relay uplink and to pick up `RHYTHM_RELAY_PUBLIC_URL`.
-- Fixing the release workflow's optimizer-seed smoke assertion and re-running `desktop_release.yml` for v0.18.64.
+- Manual smoke of #1493/#1495/#1492 on v0.18.64; NAS relay recreate; Rhythm.app upgrade/relaunch; Simulator acceptance for #1493.
 
 ## Process note
 

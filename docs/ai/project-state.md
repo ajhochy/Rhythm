@@ -6,7 +6,7 @@ Main now carries four merged PRs, in order: #1494 (prior baseline), #1493 (iOS h
 
 The API image was published to GHCR from `8e2f3f6b` (API Image Publish workflow run [35126185122](https://github.com/ajhochy/Rhythm/actions/runs/35126185122), SUCCESS). `https://api.vcrcapps.com/health` reported `c27a3f6c` at last check — Watchtower deploys `:main` automatically within ~30 minutes, so hosted state may already be ahead of that.
 
-The v0.18.64 desktop release build (release run [35127366576](https://github.com/ajhochy/Rhythm/actions/runs/35127366576)) **FAILED** at the "Smoke-test bundled CLI server" step, well before packaging/signing/notarizing. Root cause is a genuine regression: PR #1492 retired org-optimizer auto-seeding (`auditTaskSeeded=false`, `externalTaskSeeded=false` — intentional, in favor of the weekly Org Reviewer), but the release workflow's bundled-server smoke assertion still expects the old two-profile/one-enabled-task seed contract. No v0.18.64 tag or GitHub release exists; the version is unused and can be reused once the smoke test (or seeding) is fixed.
+Desktop **v0.18.64** (prerelease, signed and notarized) was released from `fc5695ee` at 2026-09-16T20:00Z — [run 35141645718](https://github.com/ajhochy/Rhythm/actions/runs/35141645718), smoke/sign/publish all green — after four release-pipeline fixes for expectations #1492 left stale: #1498 (smoke seed assertion → Org Reviewer contract), #1499 (parity test pinned the retired profile ID), #1501 (managed-skills root, superseded), #1502 (drop `NODE_ENV=test` from the bundled-server smoke so it boots like the Flutter launcher; the opencode agent writer skips profile writes in test mode, so the reviewer seed could never complete there). An earlier attempt (run 35127366576) failed at that smoke.
 
 ## Active branch / PR
 
@@ -26,7 +26,7 @@ AJ's manual smoke of the three merged features, plus fixing the desktop release:
 
 ## Risks / known issues
 
-- v0.18.64 desktop release is broken (see Current focus) — needs a fix on `main` before any release re-run.
+- v0.18.64 is a prerelease shipped without manual smoke of #1493/#1495/#1492; the installed app (0.18.63) still needs upgrading.
 - All three feature merges landed ahead of manual smoke, per AJ's explicit 2026-09-16 instruction — none of the above has been visually verified in the shipping app yet.
 - Watchtower auto-deploys `:main` to the hosted API within ~30 minutes of an image publish; hosted state can outrun what has actually been smoke-tested.
 - Electron/`apps/web` is a prototype only, not the shipping client, per this repo's `CLAUDE.md`.
@@ -36,8 +36,8 @@ AJ's manual smoke of the three merged features, plus fixing the desktop release:
 
 - CI green on each of the three feature merge commits before squash (`gh pr checks`, all pass, first attempt — no reruns needed on any of the three).
 - API Image Publish (GHCR) for `8e2f3f6b`: SUCCESS (run 35126185122).
-- Desktop release build for v0.18.64 (run 35127366576): FAILED at the bundled-CLI-server smoke test (org-optimizer seed-contract mismatch from #1492). No tag/release created.
+- Desktop release v0.18.64 (run 35141645718): SUCCESS — bundled-server smoke, sign/notarize, publish green; assets `Rhythm-macOS.dmg`, `Rhythm-macOS.zip`. Earlier runs 35127366576 / 35130646776 / 35133775547 / 35136016441 failed on the stale #1492 expectations listed above.
 
 ## Next step
 
-Fix the release workflow's bundled-server smoke assertion (or add a compat seed) for the Org Reviewer's retired auto-seeding, then re-run `desktop_release.yml` with `version=0.18.64`. Once released, do the NAS relay recreate and Rhythm.app relaunch, then work through the three features' manual smoke lists above.
+Recreate the NAS relay (`docker compose -f docker-compose.synology.yml --env-file .env.production up -d rhythm-relay`) so `RHYTHM_RELAY_PUBLIC_URL` applies, upgrade/relaunch Rhythm.app to v0.18.64 so the 4001 API and Mac relay uplink return, run the Simulator acceptance for #1493, then work through the three features' manual smoke lists above.
