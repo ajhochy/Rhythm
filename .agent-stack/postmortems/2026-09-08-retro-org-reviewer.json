@@ -1,0 +1,70 @@
+{
+  "run_id": "2026-09-08-retro-org-reviewer",
+  "issue": null,
+  "date": "2026-09-08",
+  "smoke_result": "unknown",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [],
+  "process_issues": [
+    {
+      "process_category": "sandbox-launch",
+      "description": "The launch needed an explicit repository working directory and a held command spanning restart, health probes, and tests; detached test-owned processes did not reliably survive command teardown.",
+      "detected_by": "An initial wrong-directory launcher and refused connection, followed by successful sandbox-script restarts in the held launcher."
+    },
+    {
+      "process_category": "sandbox-routing",
+      "description": "Both MCP destination variables must point to the isolated API. A synthetic read initially inherited the local live-agent URL and reached a nonexistent route; no mutation occurred. The harness now validates both destinations before any session, provider, or tool activity.",
+      "detected_by": "Signed context 404 and inspected sandbox MCP configuration; six isolation-guard regressions exercise the pre-mutation boundary."
+    },
+    {
+      "process_category": "fixture-runtime-parity",
+      "description": "Scheduled fixture assumptions differed from real scheduler behavior: terminal completed_no_op, explicit opencode kind, and unavailable-tool denial wording. Assertions now use production-equivalent schedule fields and require a successful allowed read before testing each forbidden action.",
+      "detected_by": "Real API/fork contract failures and inspection of the scheduler/controller defaults."
+    },
+    {
+      "process_category": "provider-authorization",
+      "description": "The isolated engine initially lacked an OpenAI connection. AJ explicitly authorized use of the existing OpenCode OpenAI credential; the final actual-model suite passed. Scripted provider output was never counted as semantic evidence.",
+      "detected_by": "Executed semantic suite exited 1 with an explicit UNVERIFIED prerequisite; all four semantic cases remained unexecuted."
+    },
+    {
+      "process_category": "tool-schema-discoverability",
+      "description": "The real reviewer diagnosed the correct repair but could not infer accepted proof labels from free-form schema fields. Exposing the exact source enum and string-leaf/file-hash guidance corrected submission without weakening server validation.",
+      "detected_by": "First actual-model run passed 2/4 criteria; the final combined signed and semantic run passed 14/14."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "project-state-updater",
+      "workflow-retrospective"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "project-state-updater",
+      "workflow-retrospective"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/src/services/org_reviewer_service.ts",
+    "apps/api_server/src/services/org_reviewer_seed.ts",
+    "apps/api_server/src/services/agent_runner.ts",
+    "apps/mcp_server/src/tools/orgReviewer.ts",
+    "apps/api_server/src/__tests__/org_reviewer_live.test.ts",
+    "apps/api_server/src/__tests__/org_reviewer_semantic_live.test.ts"
+  ],
+  "failure_output": "Initial real-model proposal submission rejected unknown proof labels; final real-model and signed acceptance 14/14 passed.",
+  "overall_category": "none",
+  "suggested_follow_up": "Complete manual smoke on the draft PR. Keep model-facing schemas explicit and preserve positive authorized controls before permission-denial assertions."
+}

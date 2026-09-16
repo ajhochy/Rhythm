@@ -682,12 +682,17 @@ export function writeAgentProfileFile(config: AgentConfig): AgentProfileWriteRes
     }
     const delegateRoster = parseDelegateRoster(config);
     warnUnresolvableDelegates(config, delegateRoster);
-    // #1322 — ALWAYS written. A non-manager previously got no `task` key and
-    // inherited the engine default `"*": "allow"`.
+    // A scalar explicit denial is an exact least-privilege boundary. Preserve
+    // it instead of replacing it with the default native explore/general
+    // grants; scheduled specialists such as Org Reviewer must not delegate.
+    // Profiles without that exact denial retain the existing native-agent
+    // roster projection.
     fm = setPermissionValue(
       fm,
       'task',
-      buildTaskDelegatePermissions(config.isManager === true ? delegateRoster : [], config.id),
+      corePermissions.task === 'deny'
+        ? 'deny'
+        : buildTaskDelegatePermissions(config.isManager === true ? delegateRoster : [], config.id),
     );
     // #1123 — expose the additive async delegate tool only to manager profiles
     // that can own an interactive chat. Runtime API validation repeats the

@@ -87,6 +87,19 @@ const unavailableLegacyTools = new Set([
   "rhythm_search_context",
 ]);
 
+const retiredNoopTools = new Map<string, string>([
+  ["rhythm_run_org_optimizer", "orgOptimizer.ts"],
+  ["rhythm_run_external_discovery", "orgOptimizer.ts"],
+]);
+
+const reviewerReadTools = new Map<string, string>([
+  ["rhythm_read_org_review_context", "orgReviewer.ts"],
+]);
+
+const humanReviewQueueWrites = new Map<string, string>([
+  ["rhythm_submit_org_review_proposal", "orgReviewer.ts"],
+]);
+
 const protectedWrites = new Map<string, { action: string; sourceFile: string }>(
   [
     ["rhythm_send_email", { action: "email.send", sourceFile: "google.ts" }],
@@ -176,10 +189,6 @@ const protectedWrites = new Map<string, { action: string; sourceFile: string }>(
     ["rhythm_archive_research_project", { action: "research.project.archive", sourceFile: "agentResearch.ts" }],
     ["rhythm_start_research_project_run", { action: "research.project.run.start", sourceFile: "agentResearch.ts" }],
     ["rhythm_discuss_research_report", { action: "research.project.discussion.start", sourceFile: "agentResearch.ts" }],
-    [
-      "rhythm_run_org_optimizer",
-      { action: "org-optimizer.run", sourceFile: "orgOptimizer.ts" },
-    ],
     [
       "rhythm_delegate",
       { action: "delegation.start", sourceFile: "agentDelegation.ts" },
@@ -277,13 +286,6 @@ const protectedWrites = new Map<string, { action: string; sourceFile: string }>(
         sourceFile: "creativePlatform.ts",
       },
     ],
-    [
-      "rhythm_run_external_discovery",
-      {
-        action: "org-optimizer.external-discovery",
-        sourceFile: "orgOptimizer.ts",
-      },
-    ],
     ["rhythm_create_live_artifact", { action: "live-artifact.create", sourceFile: "liveArtifacts.ts" }],
     ["rhythm_update_live_artifact_state", { action: "live-artifact.state.update", sourceFile: "liveArtifacts.ts" }],
     ["rhythm_update_live_artifact_bundle", { action: "live-artifact.bundle.update", sourceFile: "liveArtifacts.ts" }],
@@ -294,8 +296,14 @@ const protectedWrites = new Map<string, { action: string; sourceFile: string }>(
 const approvalRequestTool = "rhythm_request_approval";
 
 function toolBlock(source: string, tool: string): string {
+  const exportedName = new RegExp(
+    `export const ([A-Z][A-Z0-9_]+)\\s*=\\s*['"]${tool}['"]`,
+  ).exec(source)?.[1];
+  const toolArgument = exportedName
+    ? `(?:['"]${tool}['"]|${exportedName})`
+    : `['"]${tool}['"]`;
   const match = new RegExp(
-    `(?:register(?:App)?Tool\\(\\s*server\\s*,|server\\.tool\\()\\s*['"]${tool}['"]`,
+    `(?:register(?:App)?Tool\\(\\s*server\\s*,|server\\.tool\\()\\s*${toolArgument}`,
   ).exec(source);
   const toolIndex = match?.index ?? -1;
   expect(
@@ -327,7 +335,7 @@ function rhythmTools(role: RoleFile): string[] {
 function registeredRhythmTools(): Map<string, string> {
   const registered = new Map<string, string>();
   const registration =
-    /(?:register(?:App)?Tool\(\s*server\s*,|server\.tool\()\s*["'](rhythm_[a-z0-9_]+)["']/g;
+    /(?:register(?:App)?Tool\(\s*server\s*,|server\.tool\()\s*(?:["'](rhythm_[a-z0-9_]+)["']|([A-Z][A-Z0-9_]+))/g;
   for (const name of readdirSync(toolsDir)) {
     if (
       !name.endsWith(".ts") ||
@@ -337,12 +345,18 @@ function registeredRhythmTools(): Map<string, string> {
       continue;
     }
     const source = readFileSync(join(toolsDir, name), "utf8");
+    const namedTools = new Map(
+      [...source.matchAll(/export const ([A-Z][A-Z0-9_]+)\s*=\s*["'](rhythm_[a-z0-9_]+)["']/g)]
+        .map((match) => [match[1], match[2]]),
+    );
     for (const match of source.matchAll(registration)) {
+      const tool = match[1] ?? namedTools.get(match[2]);
+      if (!tool) continue;
       expect(
-        registered.has(match[1]),
-        `${match[1]} must be registered exactly once`,
+        registered.has(tool),
+        `${tool} must be registered exactly once`,
       ).toBe(false);
-      registered.set(match[1], name);
+      registered.set(tool, name);
     }
   }
   return registered;
@@ -416,6 +430,9 @@ describe("#1175 external-content role graph", () => {
         externalReads.has(tool),
         trustedNonUserReads.has(tool),
         protectedWrites.has(tool),
+        retiredNoopTools.has(tool),
+        reviewerReadTools.has(tool),
+        humanReviewQueueWrites.has(tool),
         tool === approvalRequestTool,
       ].filter(Boolean);
       expect(
@@ -427,6 +444,9 @@ describe("#1175 external-content role graph", () => {
       ...externalReads.keys(),
       ...trustedNonUserReads,
       ...protectedWrites.keys(),
+      ...retiredNoopTools.keys(),
+      ...reviewerReadTools.keys(),
+      ...humanReviewQueueWrites.keys(),
       approvalRequestTool,
     ]) {
       expect(
@@ -442,12 +462,64 @@ describe("#1175 external-content role graph", () => {
       ).toBe(false);
     }
 
+    for (const [tool, sourceFile] of retiredNoopTools) {
+      const source = readFileSync(join(toolsDir, sourceFile), "utf8");
+      const block = toolBlock(source, tool);
+      expect(block, `${tool} must identify itself as retired`).toContain(
+        "Retired compatibility tool",
+      );
+      expect(block, `${tool} must not call the API`).not.toContain("apiPost");
+      expect(block, `${tool} must not consume approvals`).not.toContain(
+        "authorizeOutboundAction",
+      );
+      expect(block, `${tool} must return a failed tool result`).toContain(
+        "retiredToolResult",
+      );
+    }
+
+    for (const [tool, sourceFile] of reviewerReadTools) {
+      const source = readFileSync(join(toolsDir, sourceFile), "utf8");
+      const block = toolBlock(source, tool);
+      expect(source, `${tool} must scan each untrusted record`).toContain(
+        "scanContextContentAndRecordExternalContentTaint",
+      );
+      expect(source, `${tool} must fence returned context`).toContain(
+        "untrustedContext",
+      );
+      expect(block, `${tool} must use the bounded context sanitizer`).toContain(
+        "fencedReviewerContext",
+      );
+      expect(block, `${tool} must send engine-signed identity`).toContain(
+        "currentTrustedSecurityCall",
+      );
+      expect(block).toContain("/agent-org-proposals/reviewer/context");
+    }
+
+    for (const [tool, sourceFile] of humanReviewQueueWrites) {
+      const source = readFileSync(join(toolsDir, sourceFile), "utf8");
+      const block = toolBlock(source, tool);
+      expect(block, `${tool} must send engine-signed identity`).toContain(
+        "currentTrustedSecurityCall",
+      );
+      expect(block, `${tool} must use only the reviewer submission seam`).toContain(
+        "/agent-org-proposals/reviewer",
+      );
+      expect(block, `${tool} must remain human-review-only`).toContain(
+        "status=proposed",
+      );
+      expect(block, `${tool} must not consume a bypass approval`).not.toContain(
+        "authorizeOutboundAction",
+      );
+    }
+
     for (const role of roles) {
       const configuredTools = rhythmTools(role);
       const tools = configuredTools.includes("*")
         ? [...registered.keys()]
         : configuredTools;
-      const reads = tools.filter((tool) => externalReads.has(tool));
+      const reads = tools.filter(
+        (tool) => externalReads.has(tool) || reviewerReadTools.has(tool),
+      );
       const writes = tools.filter((tool) => protectedWrites.has(tool));
 
       for (const tool of tools) {
@@ -455,6 +527,9 @@ describe("#1175 external-content role graph", () => {
           externalReads.has(tool),
           trustedNonUserReads.has(tool),
           protectedWrites.has(tool),
+          retiredNoopTools.has(tool),
+          reviewerReadTools.has(tool),
+          humanReviewQueueWrites.has(tool),
           tool === approvalRequestTool,
           !registered.has(tool) && unavailableLegacyTools.has(tool),
         ].filter(Boolean);

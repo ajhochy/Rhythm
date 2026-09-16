@@ -5,6 +5,7 @@ import { env } from '../config/env';
 import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { AgentCapabilityGapsRepository } from '../repositories/agent_capability_gaps_repository';
+import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { AgentResearchRepository } from '../repositories/agent_research_repository';
 import { UsersRepository } from '../repositories/users_repository';
 import { runGapDrivenDiscoveryPass } from '../services/gap_discovery_scheduler';
@@ -88,8 +89,9 @@ describe('post-m1 Phase 7 research, quality, and bounded-discovery contracts', (
     });
   });
 
-  it('post-m1-p7-c3d: gap discovery is role-gated and exposes bounded skip evidence', async () => {
-    // Regression caught: a copied backlog fans out without role gating or a maxGapsPerPass bound.
+  it('post-m1-p7-c3d: retired gap discovery preserves evidence without generating proposals', async () => {
+    // Regression caught: an existing gap backlog starts the replaced generator
+    // despite the Org Reviewer becoming the sole scheduled review path.
     env.agentExecutionEnabled = false;
     await expect(runGapDrivenDiscoveryPass()).resolves.toMatchObject({
       gapsConsidered: 0,
@@ -103,11 +105,16 @@ describe('post-m1 Phase 7 research, quality, and bounded-discovery contracts', (
     const gaps = new AgentCapabilityGapsRepository();
     await gaps.insertIfAbsentAsync({ intentTitle: 'Phase 7 gap one', intentTags: ['phase-7'] });
     await gaps.insertIfAbsentAsync({ intentTitle: 'Phase 7 gap two', intentTags: ['phase-7'] });
+    const before = await gaps.listOpenAsync();
     const result = await runGapDrivenDiscoveryPass({ discoverCandidates: vi.fn().mockResolvedValue([]) });
     expect(result).toMatchObject({
-      gapsConsidered: 1,
-      skipped: false,
+      gapsConsidered: 0,
+      emitted: 0,
+      skipped: true,
+      skippedReason: expect.stringMatching(/retired/i),
       errored: false,
     });
+    expect(await gaps.listOpenAsync()).toEqual(before);
+    expect(await new AgentOrgProposalsRepository().listProposedAsync()).toEqual([]);
   });
 });

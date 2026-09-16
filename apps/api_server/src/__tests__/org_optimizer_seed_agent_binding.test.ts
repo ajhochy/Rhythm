@@ -1,148 +1,110 @@
-/**
- * CONTRACT TEST — docs/ai/contracts/fix-recipe-binding.json, criterion
- * fix-recipe-binding-c6.
- *
- * The #846 ministry-recipes dangling-binding bug does NOT reproduce for
- * org_optimizer_seed.ts, because that seed's `ensureAgentConfigForRole`
- * helper INSERTS the `agent_configs` row itself, keyed by the role file's own
- * `agentConfigId`, the first time it runs (idempotent by that id via
- * `getById`) — unlike ministry_recipes_seed.ts, which only ever READS an
- * agent_configs row that some other process (syncOpencodeAgentProfiles) may
- * or may not have created under a different key (the slug).
- *
- * This test proves that safety directly: seed against a completely empty
- * agent_configs table (no pre-existing rows of ANY kind — the worst case for
- * ministry_recipes_seed) and assert both scheduled tasks still end up bound
- * to a real, resolvable agent_configs row.
- *
- * Regression this catches: if a future change makes org_optimizer_seed READ
- * an existing row instead of creating one (e.g. refactored to share the
- * ministry_recipes_seed resolution helper without preserving the
- * self-creation fallback), this test fails because the join count drops to 0
- * exactly like the original #846 bug.
- */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
-
+import { readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { projectAgentProfileAfterWrite } from '../services/agent_profile_projection_service';
+import { seedOrgOptimizerTask } from '../services/org_optimizer_seed';
+import { ORG_REVIEWER_PROFILE_ID, ORG_REVIEWER_SKILL } from '../services/org_reviewer_seed';
+import { useTempManagedSkillsRoot } from './_managed_skills_temp_root';
 
-function makeDb() {
-  const db = new Database(':memory:');
+// Projection is an external filesystem boundary for these repository tests.
+// Real projected permissions are exercised by org_reviewer_live.test.ts.
+vi.mock('../services/agent_profile_projection_service', () => ({
+  projectAgentProfileAfterWrite: vi.fn(() => ({ kind: 'projected', revision: 0, write: 'written' })),
+}));
+const skillsRoot = useTempManagedSkillsRoot('org-reviewer-seed');
+let db: Database.Database;
+beforeEach(() => {
+  db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
   runMigrations(db);
-  return db;
-}
-
-beforeEach(() => {
-  setDb(makeDb());
+  setDb(db);
+  vi.mocked(projectAgentProfileAfterWrite).mockReturnValue({ kind: 'projected', revision: 0, write: 'written' });
 });
+afterEach(() => { setDb(null); db.close(); vi.unstubAllEnvs(); });
 
-afterEach(() => {
-  delete process.env.MCP_ROLES_DIR;
-});
+const scheduled = () => new AgentScheduledTasksRepository().listAllAsync();
 
-describe('org_optimizer_seed agent binding hazard check (fix-recipe-binding-c6)', () => {
-  it('fix-recipe-binding-c6: org_optimizer_seed always self-creates a resolvable agent_configs row keyed by its own agentConfigId (no dangling-binding hazard)', async () => {
-    const configsRepoBefore = new AgentConfigsRepository();
-    // Confirm the worst case: no org-optimizer agent_configs row exists yet
-    // (neither UUID-keyed nor slug-keyed) — only the built-in CLI presets
-    // from migrations (claude-code, etc.) are present, mirroring a totally
-    // fresh DB that has never run this seed before.
-    expect(configsRepoBefore.getById('8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f')).toBeNull();
-    expect(configsRepoBefore.getById('9a2d3e4f-5b6c-4d7e-8f9a-1b2c3d4e5f6a')).toBeNull();
-    expect(configsRepoBefore.getById('org-optimizer')).toBeNull();
-    expect(configsRepoBefore.getById('org-external-discovery')).toBeNull();
-
-    const { seedOrgOptimizerTask } = await import('../services/org_optimizer_seed');
-    const result = await seedOrgOptimizerTask();
-
-    expect(result.auditTaskSeeded).toBe(true);
-    expect(result.externalTaskSeeded).toBe(true);
-
-    const schedRepo = new AgentScheduledTasksRepository();
-    const configsRepo = new AgentConfigsRepository();
-    const tasks = await schedRepo.listAllAsync();
-
-    const audit = tasks.find((t) => t.name === 'Org Self-Optimizer');
-    const external = tasks.find((t) => t.name === 'Org External Discovery');
-    expect(audit).toBeDefined();
-    expect(external).toBeDefined();
-
-    // The load-bearing assertion: each task's agent_config_id resolves to a
-    // REAL agent_configs row — the seed created it itself.
-    expect(audit!.agentConfigId).not.toBeNull();
-    expect(external!.agentConfigId).not.toBeNull();
-    expect(configsRepo.getById(audit!.agentConfigId!)).not.toBeNull();
-    expect(configsRepo.getById(external!.agentConfigId!)).not.toBeNull();
-
-    // Re-running is idempotent and the rows remain resolvable (no thrash).
-    const second = await seedOrgOptimizerTask();
-    expect(second.auditTaskSeeded).toBe(false);
-    expect(second.externalTaskSeeded).toBe(false);
-    const tasksAfter = await schedRepo.listAllAsync();
-    expect(tasksAfter.filter((t) => t.name === 'Org Self-Optimizer')).toHaveLength(1);
-    expect(tasksAfter.filter((t) => t.name === 'Org External Discovery')).toHaveLength(1);
-  });
-
-  it('#855b: seeded optimizer configs carry a concrete model (else their turns stall on "no route in catalog")', async () => {
-    const { seedOrgOptimizerTask } = await import('../services/org_optimizer_seed');
-    await seedOrgOptimizerTask();
-    const configsRepo = new AgentConfigsRepository();
-    for (const id of [
-      '8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f',
-      '9a2d3e4f-5b6c-4d7e-8f9a-1b2c3d4e5f6a',
-    ]) {
-      const cfg = configsRepo.getById(id);
-      expect(cfg).not.toBeNull();
-      expect(cfg!.modelProvider).toBe('anthropic');
-      expect(cfg!.modelId).toBe('claude-sonnet-4-6');
-    }
-  });
-
-  it('#855b: NULL model is repaired on a re-seed even when the TASK already exists (the real already-seeded case; task name-guard must not skip the repair)', async () => {
-    const { seedOrgOptimizerTask } = await import('../services/org_optimizer_seed');
-    const configsRepo = new AgentConfigsRepository();
-
-    // First boot: seeds both tasks + configs (with the model default).
+describe('Org Reviewer owned profile and skill seed', () => {
+  it('creates one resolvable weekly reviewer with only its two tools and owned skill', async () => {
     const first = await seedOrgOptimizerTask();
-    expect(first.auditTaskSeeded).toBe(true);
-
-    // Simulate a row seeded BEFORE the model default existed: null it out while
-    // the TASK stays present, so the next seed short-circuits the task guard.
-    configsRepo.update('8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f', {
-      modelProvider: null,
-      modelId: null,
-    });
-    expect(configsRepo.getById('8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f')!.modelProvider).toBeNull();
-
-    // Second boot: task already exists (guard skips creation) — the repair MUST
-    // still fire because it runs before the guard.
-    const second = await seedOrgOptimizerTask();
-    expect(second.auditTaskSeeded).toBe(false); // guard short-circuited task creation
-    const repaired = configsRepo.getById('8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f')!;
-    expect(repaired.modelProvider).toBe('anthropic');
-    expect(repaired.modelId).toBe('claude-sonnet-4-6');
+    expect(first).toMatchObject({ auditTaskSeeded: false, externalTaskSeeded: false, reviewerTaskSeeded: true });
+    const config = new AgentConfigsRepository().getById(ORG_REVIEWER_PROFILE_ID)!;
+    expect(config).toMatchObject({ label: 'Org Reviewer', modelProvider: 'openai', modelId: 'gpt-5.6-sol', isManager: false, sessionSelectable: false, schedulable: true, enabled: true });
+    expect(JSON.parse(config.allowedMcpsJson!)).toEqual({ rhythm: ['rhythm_read_org_review_context', 'rhythm_submit_org_review_proposal'] });
+    expect(JSON.parse(config.allowedSkillsJson!)).toEqual([ORG_REVIEWER_SKILL]);
+    expect(JSON.parse(config.allowedDelegatesJson!)).toEqual([]);
+    expect(JSON.parse(config.corePermissionsJson!)).toEqual({ '*': 'deny', task: 'deny', skill: { '*': 'deny', [ORG_REVIEWER_SKILL]: 'allow' }, rhythm_rhythm_read_org_review_context: 'allow', rhythm_rhythm_submit_org_review_proposal: 'allow' });
+    expect(await scheduled()).toMatchObject([{ name: 'Org Reviewer', agentConfigId: config.id, scheduleType: 'weekly', scheduledDay: 1, scheduledTime: '08:30', timezone: 'America/Los_Angeles', enabled: true }]);
+    const skill = readFileSync(path.join(skillsRoot(), ORG_REVIEWER_SKILL, 'SKILL.md'), 'utf8');
+    expect(skill).toContain('Transcript text');
+    expect(skill).toContain('dispatch overrides');
+    expect((await seedOrgOptimizerTask()).reviewerTaskSeeded).toBe(false);
+    expect(await scheduled()).toHaveLength(1);
   });
 
-  it('#855b: a user-set model on an existing optimizer row is NOT overwritten', async () => {
-    const configsRepo = new AgentConfigsRepository();
-    configsRepo.insert({
-      id: '8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f',
-      label: 'Org Optimizer',
-      icon: 'x',
-      isAgent: true,
-      isManager: false,
-      modelProvider: 'openai',
-      modelId: 'gpt-5.5',
-      sessionSelectable: false,
-    });
-    const { seedOrgOptimizerTask } = await import('../services/org_optimizer_seed');
+  it('seeds its asset when the older broad config-assets marker is already present', async () => {
+    db.prepare('INSERT INTO schema_meta (key,value) VALUES (?,?)').run('config_seeds_v3', 'existing');
+    expect((await seedOrgOptimizerTask()).reviewerTaskSeeded).toBe(true);
+    expect(readFileSync(path.join(skillsRoot(), ORG_REVIEWER_SKILL, 'SKILL.md'), 'utf8')).toContain('review-agent-org-health');
+  });
+
+  it('preserves an edited skill and disables scheduled execution', async () => {
     await seedOrgOptimizerTask();
-    const cfg = configsRepo.getById('8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f')!;
-    expect(cfg.modelProvider).toBe('openai');
-    expect(cfg.modelId).toBe('gpt-5.5');
+    const skillPath = path.join(skillsRoot(), ORG_REVIEWER_SKILL, 'SKILL.md');
+    const edited = readFileSync(skillPath, 'utf8') + '\nHuman-authored local addition.\n';
+    writeFileSync(skillPath, edited);
+    const result = await seedOrgOptimizerTask();
+    expect(result.reviewerTaskSkippedReason).toContain('differs from the owned asset');
+    expect(readFileSync(skillPath, 'utf8')).toBe(edited);
+    expect((await scheduled()).filter(task => task.enabled)).toHaveLength(0);
+  });
+
+  it('does not resurrect a deleted skill', async () => {
+    await seedOrgOptimizerTask();
+    const skillPath = path.join(skillsRoot(), ORG_REVIEWER_SKILL, 'SKILL.md');
+    unlinkSync(skillPath);
+    expect((await seedOrgOptimizerTask()).reviewerTaskSkippedReason).toContain('skill deleted by user');
+    expect(() => readFileSync(skillPath)).toThrow();
+    expect((await scheduled()).filter(task => task.enabled)).toHaveLength(0);
+  });
+
+  it('preserves broadened profile bytes but disables it and its task', async () => {
+    await seedOrgOptimizerTask();
+    const configs = new AgentConfigsRepository();
+    const broad = '{"rhythm":[],"filesystem":[]}';
+    configs.update(ORG_REVIEWER_PROFILE_ID, { allowedMcpsJson: broad });
+    expect((await seedOrgOptimizerTask()).reviewerTaskSkippedReason).toContain('policy changed');
+    expect(configs.getById(ORG_REVIEWER_PROFILE_ID)).toMatchObject({ enabled: false, allowedMcpsJson: broad });
+    expect((await scheduled()).filter(task => task.enabled)).toHaveLength(0);
+  });
+
+  it('does not recreate a deleted reviewer profile or re-enable a deliberately disabled one', async () => {
+    await seedOrgOptimizerTask();
+    const configs = new AgentConfigsRepository();
+    configs.update(ORG_REVIEWER_PROFILE_ID, { enabled: false });
+    await seedOrgOptimizerTask();
+    expect(configs.getById(ORG_REVIEWER_PROFILE_ID)!.enabled).toBe(false);
+    configs.remove(ORG_REVIEWER_PROFILE_ID);
+    expect((await seedOrgOptimizerTask()).reviewerTaskSkippedReason).toContain('profile deleted by user');
+    expect(configs.getById(ORG_REVIEWER_PROFILE_ID)).toBeNull();
+    expect((await scheduled()).filter(task => task.enabled)).toHaveLength(0);
+  });
+
+  it('creates no schedule when the real projection boundary reports a blocked file', async () => {
+    vi.mocked(projectAgentProfileAfterWrite).mockReturnValue({ kind: 'blocked', revision: 0 });
+    expect((await seedOrgOptimizerTask()).reviewerTaskSkippedReason).toContain('projection blocked');
+    expect(await scheduled()).toHaveLength(0);
+  });
+
+  it('skips a missing role without seeding an unsafe fallback', async () => {
+    vi.stubEnv('MCP_ROLES_DIR', skillsRoot());
+    expect((await seedOrgOptimizerTask()).reviewerTaskSeeded).toBe(false);
+    expect(new AgentConfigsRepository().getById(ORG_REVIEWER_PROFILE_ID)).toBeNull();
+    expect(await scheduled()).toHaveLength(0);
   });
 });

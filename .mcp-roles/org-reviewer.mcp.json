@@ -1,0 +1,16 @@
+{
+  "$schema": "https://rhythm.vcrcapps.com/schemas/mcp-role.json",
+  "role": "org-reviewer",
+  "agentConfigId": "org-reviewer",
+  "description": "Review bounded session evidence against current configuration and submit concrete repairs for human review. Never apply, approve, install, delegate, or perform unrelated mutations.",
+  "mcpServers": {
+    "rhythm": {
+      "inherit": true,
+      "allowedTools": [
+        "rhythm_read_org_review_context",
+        "rhythm_submit_org_review_proposal"
+      ]
+    }
+  },
+  "allowedSkills": ["review-agent-org-health"]
+}

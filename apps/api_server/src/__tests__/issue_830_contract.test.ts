@@ -5,7 +5,9 @@
  * org_proposal_appliers_wiring.ts, and the exercisedTools resolver exist.
  * See docs/ai/contracts/issue-830.json for the criterion mapping.
  *
- * Covers:
+ * Seed criteria c1–c3 were superseded by Org Reviewer; lifecycle and
+ * exercised-tool assertions below retain their original behavior.
+ * Original coverage:
  *  - issue-830-c1: seedOrgOptimizerTask() is idempotent/name-guarded — at
  *    most one "Org Self-Optimizer" task exists after multiple calls.
  *  - issue-830-c2: seedOrgOptimizerTask() also seeds exactly one external
@@ -50,6 +52,21 @@ import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
+import { useTempManagedSkillsRoot } from './_managed_skills_temp_root';
+
+useTempManagedSkillsRoot('org-reviewer-legacy-contract');
+import * as profileProjection from '../services/agent_profile_projection_service';
+
+async function seedReviewerForTest() {
+  const projection = vi.spyOn(profileProjection, 'projectAgentProfileAfterWrite')
+    .mockReturnValue({ kind: 'projected', revision: 0, write: 'written' });
+  try {
+    const { seedOrgOptimizerTask } = await import('../services/org_optimizer_seed');
+    return await seedOrgOptimizerTask();
+  } finally {
+    projection.mockRestore();
+  }
+}
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -65,52 +82,44 @@ beforeEach(() => {
 
 const ROOT = path.join(__dirname, '..', '..', '..', '..');
 
-describe('issue-830-c1: seedOrgOptimizerTask is idempotent/name-guarded', () => {
-  it('creates at most one "Org Self-Optimizer" task even when called twice', async () => {
+describe('issue-830-c1 superseded: the replacement seed remains idempotent', () => {
+  it('creates one Org Reviewer and never recreates Org Self-Optimizer', async () => {
     // Bug this catches: a missing name-guard would insert a duplicate
     // scheduled task on every server restart.
-    const { seedOrgOptimizerTask } = await import('../services/org_optimizer_seed');
     const schedRepo = new AgentScheduledTasksRepository();
 
-    await seedOrgOptimizerTask();
-    await seedOrgOptimizerTask();
+    await seedReviewerForTest();
+    await seedReviewerForTest();
 
     const all = await schedRepo.listAllAsync();
     const optimizerTasks = all.filter((t) => t.name === 'Org Self-Optimizer');
-    expect(optimizerTasks.length).toBe(1);
+    expect(optimizerTasks).toHaveLength(0);
+    expect(all.filter((t) => t.name === 'Org Reviewer')).toHaveLength(1);
   });
 });
 
-describe('issue-830-c2: exactly one external-discovery task is also seeded, distinct from the audit task', () => {
-  it('seeds a second, differently-named external discovery task', async () => {
-    // Bug this catches: reusing the same task/name for both the internal
-    // audit and the external-discovery pass would collapse two distinct
-    // cadences into one.
-    const { seedOrgOptimizerTask } = await import('../services/org_optimizer_seed');
+describe('issue-830-c2 superseded: external-discovery schedules are retired', () => {
+  it('does not seed a competing external discovery task', async () => {
+    // The replacement must not recreate either retired generator schedule.
     const schedRepo = new AgentScheduledTasksRepository();
 
-    await seedOrgOptimizerTask();
-    await seedOrgOptimizerTask();
+    await seedReviewerForTest();
+    await seedReviewerForTest();
 
     const all = await schedRepo.listAllAsync();
     const externalTasks = all.filter((t) =>
       /external/i.test(t.name) && /discovery|optimizer/i.test(t.name),
     );
-    expect(externalTasks.length).toBe(1);
-    expect(externalTasks[0].name).not.toBe('Org Self-Optimizer');
+    expect(externalTasks).toHaveLength(0);
   });
 });
 
-describe('issue-830-c3: internal audit task is daily, external discovery task is less frequent', () => {
-  it('audit task scheduleType=daily; external task scheduleType is weekly (or otherwise not daily)', async () => {
-    // Bug this catches: seeding the external-discovery pass on the same
-    // daily cadence as the cheap internal audit would make the expensive,
-    // noisy external search run far too often (violates the decision doc's
-    // "throttle it ... less frequent than the internal audit" requirement).
-    const { seedOrgOptimizerTask } = await import('../services/org_optimizer_seed');
+describe('issue-830-c3 superseded: one weekly review cadence', () => {
+  it('uses Monday 08:30 America/Los_Angeles with no daily optimizer', async () => {
+    // The old dual cadence is replaced by one bounded weekly review.
     const schedRepo = new AgentScheduledTasksRepository();
 
-    await seedOrgOptimizerTask();
+    await seedReviewerForTest();
 
     const all = await schedRepo.listAllAsync();
     const audit = all.find((t) => t.name === 'Org Self-Optimizer');
@@ -118,8 +127,9 @@ describe('issue-830-c3: internal audit task is daily, external discovery task is
       (t) => /external/i.test(t.name) && /discovery|optimizer/i.test(t.name),
     );
 
-    expect(audit?.scheduleType).toBe('daily');
-    expect(external?.scheduleType).not.toBe('daily');
+    expect(audit).toBeUndefined();
+    expect(external).toBeUndefined();
+    expect(all.find((t) => t.name === 'Org Reviewer')).toMatchObject({ scheduleType: 'weekly', scheduledDay: 1, scheduledTime: '08:30', timezone: 'America/Los_Angeles' });
   });
 });
 

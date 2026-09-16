@@ -45,6 +45,13 @@ import { runMigrations } from '../database/migrations';
 import { getDb, setDb } from '../database/db';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
+import {
+  ORG_REVIEWER_ALLOWED_MCPS_JSON,
+  ORG_REVIEWER_ALLOWED_SKILLS_JSON,
+  ORG_REVIEWER_CORE_PERMISSIONS_JSON,
+  ORG_REVIEWER_PROFILE_ID,
+} from '../services/org_reviewer_seed';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -63,6 +70,7 @@ describe('#738 — AgentRunner', () => {
     mockCreateSession.mockResolvedValue({ id: 'sdk-session-1' });
     mockPrompt.mockResolvedValue(makePromptResponse('Hello from agent'));
     mockAbortSession.mockResolvedValue(true);
+    mockListMcp.mockResolvedValue({ rhythm: { status: 'connected' } });
     mockCreateWorktree.mockResolvedValue({
       name: 'scheduled-isolated',
       branch: 'agent/scheduled-isolated',
@@ -385,6 +393,72 @@ describe('#738 — AgentRunner', () => {
 
     const recorded = new AgentSessionsRepository().findById(result.sessionId);
     expect(recorded?.permissionMode).toBe('bypassPermissions');
+  });
+
+  it('runs the scheduled Org Reviewer with durable reviewer identity and default engine permissions', async () => {
+    setDb(new Database(':memory:'));
+    runMigrations(getDb());
+    mockPrompt.mockResolvedValue(makePromptResponse('No verified proposal.'));
+    new AgentConfigsRepository().insert({
+      id: ORG_REVIEWER_PROFILE_ID,
+      label: 'Org Reviewer',
+      icon: 'fact-check',
+      enabled: true,
+      isAgent: true,
+      isManager: false,
+      sessionSelectable: false,
+      schedulable: true,
+      modelProvider: 'openai',
+      modelId: 'gpt-5.6-sol',
+      // Even a stale optional engine-agent override cannot move this fixed
+      // reviewer run onto a broader built-in profile.
+      ocAgent: 'build',
+      allowedMcpsJson: ORG_REVIEWER_ALLOWED_MCPS_JSON,
+      allowedSkillsJson: ORG_REVIEWER_ALLOWED_SKILLS_JSON,
+      corePermissionsJson: ORG_REVIEWER_CORE_PERMISSIONS_JSON,
+      allowedDelegatesJson: '[]',
+    });
+    const task = await new AgentScheduledTasksRepository().createAsync({
+      name: 'Org Reviewer',
+      scheduleType: 'weekly',
+      scheduledDay: 1,
+      scheduledTime: '08:30',
+      timezone: 'America/Los_Angeles',
+      prompt: 'Review recent organization health.',
+      agentKind: 'opencode',
+      agentConfigId: ORG_REVIEWER_PROFILE_ID,
+      allowedMcpsJson: ORG_REVIEWER_ALLOWED_MCPS_JSON,
+      allowedSkillsJson: ORG_REVIEWER_ALLOWED_SKILLS_JSON,
+    });
+
+    const result = await run({
+      prompt: task.prompt,
+      agentKind: task.agentKind,
+      agentConfigId: task.agentConfigId,
+      scheduledTaskId: task.id,
+      allowedMcpsJson: task.allowedMcpsJson ?? undefined,
+      allowedSkillsJson: task.allowedSkillsJson ?? undefined,
+      ownerUserId: task.createdByUserId,
+    });
+
+    expect(new AgentSessionsRepository().findById(result.sessionId)).toMatchObject({
+      profileId: ORG_REVIEWER_PROFILE_ID,
+      opencodeAgentId: ORG_REVIEWER_PROFILE_ID,
+      scheduledTaskId: task.id,
+      permissionMode: 'default',
+      approvalBypassExplicit: false,
+    });
+    expect(mockPrompt).toHaveBeenCalledWith(
+      'sdk-session-1',
+      task.prompt,
+      { providerID: 'openai', modelID: 'gpt-5.6-sol' },
+      process.cwd(),
+      expect.objectContaining({
+        agent: ORG_REVIEWER_PROFILE_ID,
+        permissionMode: 'default',
+      }),
+      undefined,
+    );
   });
 
   // ── F. Concurrency cap rejects (N+1)th run ────────────────────────────────

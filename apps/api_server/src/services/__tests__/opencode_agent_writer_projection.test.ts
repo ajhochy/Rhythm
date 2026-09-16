@@ -214,6 +214,25 @@ describe('workflow-orchestrator file projection', () => {
     }
   });
 
+  it('preserves an explicit scalar task denial without native delegate grants', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+    const reviewer = agentConfig('org-reviewer', 'Org Reviewer');
+    reviewer.sessionSelectable = false;
+    reviewer.corePermissionsJson = JSON.stringify({ '*': 'deny', task: 'deny' });
+
+    writeAgentProfileFile(reviewer);
+
+    const projected = readFileSync(
+      join(state.home, '.config', 'opencode', 'agents', 'org-reviewer.md'),
+      'utf8',
+    );
+    expect(projected).toContain('  task: deny');
+    expect(projected).not.toContain('    "explore": allow');
+    expect(projected).not.toContain('    "general": allow');
+  });
+
   it('issue-0-c6: workflow-orchestrator projection grants write', () => {
     state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
     const agentsDir = join(state.home, '.config', 'opencode', 'agents');

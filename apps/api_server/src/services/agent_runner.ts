@@ -54,6 +54,8 @@ import {
   type ReservedTreatmentPreparation,
 } from './org_proposal_experiment_service';
 import type { ExperimentEnrollment } from '../models/agent_org_experiment_enrollment';
+import { asOpenCodeAgentId, asRhythmProfileId, type PermissionMode } from '../models/agent_session';
+import { ORG_REVIEWER_PROFILE_ID } from './org_reviewer_seed';
 
 // ── Environment caps (read per-call so tests can override via process.env) ────
 
@@ -560,6 +562,8 @@ export function resolveRunModel(
 function _recordSession(opts: {
   name: string;
   agentKind: string;
+  profileId?: string | null;
+  opencodeAgentId?: string | null;
   cwd: string;
   taskTitle?: string | null;
   scheduledTaskId?: string | null;
@@ -578,6 +582,8 @@ function _recordSession(opts: {
     const repo = new AgentSessionsRepository();
     const session = repo.insert({
       agentKind: opts.agentKind as import('../models/agent_session').AgentKind,
+      profileId: opts.profileId ? asRhythmProfileId(opts.profileId) : null,
+      opencodeAgentId: opts.opencodeAgentId ? asOpenCodeAgentId(opts.opencodeAgentId) : null,
       taskId: null,
       taskTitle: opts.taskTitle ?? null,
       cwd: opts.cwd,
@@ -811,6 +817,8 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   // concurrency slot or touching model/engine state. This protects existing
   // schedules and background callers after a profile is locked.
   const effectiveConfigId = agentConfigId ?? agentKind;
+  const isOrgReviewer = effectiveConfigId === ORG_REVIEWER_PROFILE_ID;
+  const permissionMode: PermissionMode = isOrgReviewer ? 'default' : 'bypassPermissions';
   if (effectiveConfigId) {
     const config = new AgentConfigsRepository().getById(effectiveConfigId);
     if (config) {
@@ -889,7 +897,9 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     }
   }
   const effectiveSystemPrompt: string | null = profileScope.systemPrompt;
-  const effectiveOcAgent: string | null = profileScope.ocAgent;
+  const effectiveOcAgent: string | null = isOrgReviewer
+    ? ORG_REVIEWER_PROFILE_ID
+    : profileScope.ocAgent;
   // TODO: pass effectiveSystemPrompt to createSession once the SDK supports a
   // per-session system prompt parameter (currently session-level is not exposed).
   // TODO: forward effectiveOcAgent per-turn once there's a profile-level override
@@ -998,6 +1008,8 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   rhythmSessionId = _recordSession({
     name: effectiveName,
     agentKind: effectiveAgentKind,
+    profileId: isOrgReviewer ? ORG_REVIEWER_PROFILE_ID : null,
+    opencodeAgentId: isOrgReviewer ? ORG_REVIEWER_PROFILE_ID : null,
     cwd: effectiveCwd,
     taskTitle: taskTitle ?? null,
     scheduledTaskId: scheduledTaskId ?? null,
@@ -1194,9 +1206,11 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
         // baseline; subsequent bridge events maintain live status and the
         // completion block below remains authoritative for final idle/error.
         sessRepo.updateStatus(rhythmSessionId, 'working');
-        // Every AgentRunner.run() call is headless (see the promptOpts below —
-        // permissionMode is unconditionally 'bypassPermissions' because
-        // "there's no UI to approve tool perms"). But that value is only ever
+        // Headless runs normally use bypassPermissions because no UI is
+        // present to approve tool permissions. The Org Reviewer is the narrow
+        // exception: its projected deny-by-default profile must remain the
+        // engine authority, so both the durable row and prompt use `default`.
+        // The selected value is otherwise only ever
         // passed as a per-prompt SDK option; it was never persisted onto this
         // session's own permission_mode column. opencode_stream_bridge.ts's
         // auto-accept gate for permission.asked/permission.updated events
@@ -1205,7 +1219,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
         // approval card to a UI nobody was watching, hanging the run forever
         // on the very first non-allowlisted tool call (e.g. glob). Persist the
         // same mode here so the bridge's gate agrees with the engine's.
-        sessRepo.updatePermissionMode(rhythmSessionId, 'bypassPermissions');
+        sessRepo.updatePermissionMode(rhythmSessionId, permissionMode);
       } catch (err) {
         logger.warn(`[AgentRunner] setSdkSessionId failed (non-fatal): ${String(err)}`);
       }
@@ -1386,7 +1400,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     }
 
     const promptOpts: Record<string, unknown> = {
-      permissionMode: 'bypassPermissions',
+      permissionMode,
       // Treatment override wins unconditionally; it is NOT "a duplicate" of the profile prompt.
       // When present, it replaces any effectiveSystemPrompt/transient block for this cohort.
       ...(treatmentSystemOverride !== null

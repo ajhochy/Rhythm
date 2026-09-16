@@ -58,6 +58,18 @@ function isAlreadyApplied(status: string): boolean {
   return status === 'applied' || status === 'measuring' || status === 'active';
 }
 
+function requiresHumanReview(provenanceJson: string | null): boolean {
+  if (!provenanceJson) return false;
+  try {
+    const provenance: unknown = JSON.parse(provenanceJson);
+    if (!provenance || typeof provenance !== 'object' || Array.isArray(provenance)) return true;
+    const record = provenance as Record<string, unknown>;
+    return record.source === 'org-reviewer' || record.humanReviewRequired === true;
+  } catch {
+    return true;
+  }
+}
+
 /**
  * Attempts one verified proposal. Every unavailable dependency, stale/missing
  * safety report, failed CAS, or apply error returns a non-success result and
@@ -97,6 +109,9 @@ export async function attemptAutoPromotionAsync(
     return { status: 'not-verified' };
   }
   if (!proposal || proposal.outcomeStatus !== 'verified') return { status: 'not-verified' };
+  // Reviewer provenance is server-owned. Neither experiment success nor a
+  // global opt-in can replace the human decision required for these proposals.
+  if (requiresHumanReview(proposal.provenanceJson)) return { status: 'ineligible' };
   const events = deps.postApplyEvents ?? new PostApplyEventsRepository();
   if (isAlreadyApplied(proposal.status)) {
     const target = reconstructPostApplyTarget(proposal);
