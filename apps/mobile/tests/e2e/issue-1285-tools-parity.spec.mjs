@@ -25,10 +25,10 @@ test.beforeEach(async ({ page }) => {
 test('issue-1285-c3: proposed reviews and paired Gallery metadata are actionable', async ({ page }) => {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await expect(
-    page.getByRole('button', { name: 'Agents menu', exact: true }),
+    page.getByRole('button', { name: 'Chats menu', exact: true }),
   ).toBeVisible();
   await page.waitForTimeout(1_500);
-  await page.getByRole('button', { name: 'Agents menu', exact: true }).click();
+  await page.getByRole('button', { name: 'Chats menu', exact: true }).click();
   await expect(
     page.getByRole('menuitem', { name: 'Create chat', exact: true }),
   ).toBeVisible();

@@ -242,6 +242,8 @@ test('A1-c7 malicious cloud gateway URL is rejected before secret persistence', 
     (error) => error?.kind === 'invalidPayload' && !String(error.message).includes(secret),
   );
   assert.equal(store.snapshot().bootstrapState, 'error');
+  assert.match(store.snapshot().message, /secure Rhythm gateway/i);
+  assert.doesNotMatch(store.snapshot().message, /pair manually/i);
   assert.equal(__secure().has(PAIRED_DEVICE_SECURE_KEY), false);
   assert.equal([...__async().values()].some((value) => String(value).includes(secret)), false);
 });

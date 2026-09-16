@@ -28,6 +28,7 @@ import { ToolScreenState } from '@/components/tools/tool-screen-state';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { formatTimestamp } from '@/lib/opencode/format';
+import { isAccountBootstrapFailure } from '@/lib/pairing/mobile-environment-contract';
 import { useAgentChat } from '@/providers/agent-chat-provider';
 import { useOpencode } from '@/providers/opencode-provider';
 import { usePairedHost } from '@/providers/paired-host-provider';
@@ -124,7 +125,10 @@ export function ChatList({ controller }: ChatListProps) {
     });
   }, [collapsedIds, projectsByPath, query, readModel]);
   const hasFilters = Boolean(query.trim() || controller.projectId || controller.lifecycle !== 'all');
-  const connectionServiceUnavailable = pairedHost.bootstrapState === 'unsupported';
+  // Recovery replaces the empty list; with cached chats on screen it would only
+  // hide the offline warning those rows still need.
+  const showsBootstrapRecovery =
+    rows.length === 0 && isAccountBootstrapFailure(pairedHost.bootstrapState);
   const selectedProjectLabel = controller.projectId
     ? projectsByPath.get(controller.projectId)?.label ?? 'Selected project'
     : 'All projects';
@@ -249,7 +253,7 @@ export function ChatList({ controller }: ChatListProps) {
             Clear filters
           </Button>
         ) : null}
-        {chat.isOfflineCache && !connectionServiceUnavailable ? (
+        {chat.isOfflineCache && !showsBootstrapRecovery ? (
           <Card
             testID="paired-mac-offline-state"
             accessibilityLabel="Offline saved chats. Actions are unavailable."
@@ -456,13 +460,13 @@ export function ChatList({ controller }: ChatListProps) {
           );
         }}
         ListEmptyComponent={
-          connectionServiceUnavailable ? (
+          showsBootstrapRecovery ? (
             <ToolScreenState
               actionLabel="Retry connection"
               message={pairedHost.message}
               onAction={() => void pairedHost.retryBootstrap().catch(() => undefined)}
               state="error"
-              title="Connection service unavailable"
+              title="Computer connection unavailable"
             />
           ) : chat.isLoading ? (
             <ToolScreenState state="loading" title="Loading chats" />

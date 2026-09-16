@@ -319,24 +319,41 @@ describe('ChatList hierarchy', () => {
     expect(empty.getByText('No chats yet')).toBeTruthy();
   });
 
-  test('signed-in bootstrap 404 shows truthful recovery and retries only on press', () => {
+  test.each(['unsupported', 'retryableError', 'error', 'noAuthorizedComputer'] as const)(
+    'signed-in bootstrap failure %s shows truthful recovery and retries only on press',
+    (bootstrapState) => {
     // Regression caught: stale offline-cache copy renders a duplicate manual-pair warning behind recovery.
     mockChatState.sessions = [];
     mockChatState.isOnline = false;
     mockChatState.isOfflineCache = true;
     mockPairedHostState = {
-      bootstrapState: 'unsupported',
+      bootstrapState,
       message: 'The connection service is unavailable. A Rhythm Cloud update may be required.',
     };
     const unavailable = screen();
 
-    expect(unavailable.getByText('Connection service unavailable')).toBeTruthy();
+    expect(unavailable.getByText('Computer connection unavailable')).toBeTruthy();
     expect(unavailable.getByText('The connection service is unavailable. A Rhythm Cloud update may be required.')).toBeTruthy();
     expect(unavailable.queryByText('No chats yet')).toBeNull();
     expect(unavailable.queryByText(/pair this iPhone/i)).toBeNull();
     expect(mockRetryBootstrap).not.toHaveBeenCalled();
     fireEvent.press(unavailable.getByRole('button', { name: 'Retry connection' }));
     expect(mockRetryBootstrap).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  test('cached chats keep the offline warning during a bootstrap failure', () => {
+    // Regression caught: widening the recovery state hid the offline banner above real rows.
+    mockChatState.isOnline = false;
+    mockChatState.isOfflineCache = true;
+    mockPairedHostState = {
+      bootstrapState: 'retryableError',
+      message: 'Could not reach Rhythm Cloud. Retry the secure connection.',
+    };
+    const cached = screen();
+
+    expect(cached.getByLabelText('Offline saved chats. Actions are unavailable.')).toBeTruthy();
+    expect(cached.queryByText('Computer connection unavailable')).toBeNull();
   });
 
   test('task-ios-mobile-ui-c2-filtered-empty: filtered empty results offer Clear filters', () => {

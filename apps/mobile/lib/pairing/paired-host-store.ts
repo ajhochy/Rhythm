@@ -5,6 +5,7 @@ import { deleteItemAsync, getItemAsync, setItemAsync } from 'expo-secure-store';
 import { ApiError } from '@/lib/transport/api-error';
 import {
   parseMobileEnvironmentGrant,
+  type AccountBootstrapState,
   type MobileEnvironmentGrant,
 } from '@/lib/pairing/mobile-environment-contract';
 import { PairedMacClient } from '@/lib/transport/paired-mac-client';
@@ -58,14 +59,7 @@ export interface PairedHost {
 
 export interface PairedHostSnapshot {
   state: PairedHostState;
-  bootstrapState:
-    | 'idle'
-    | 'discovering'
-    | 'environmentSelection'
-    | 'noAuthorizedComputer'
-    | 'retryableError'
-    | 'error'
-    | 'unsupported';
+  bootstrapState: AccountBootstrapState;
   host: PairedHost | null;
   message: string;
   environments: MobileEnvironment[];
@@ -219,6 +213,13 @@ function relayUrlFromHealth(value: unknown): string | null {
   } catch {
     return null;
   }
+}
+
+function bootstrapErrorMessage(error: unknown, fallback: string): string {
+  const detail = error instanceof ApiError || error instanceof PairedHostError
+    ? error.message.trim()
+    : '';
+  return `${detail || fallback} Retry the secure connection.`;
 }
 
 function safeBootstrapGatewayUrl(value: unknown): string {
@@ -527,6 +528,10 @@ export class PairedHostStore {
     this.state = state;
     this.message = message;
     this.host = host;
+    // A host on record means account bootstrap is settled. Without this, a
+    // manual pairing after a failed discovery leaves the stale failure behind
+    // and Chats hides the real reachability state under bootstrap recovery.
+    if (host) this.bootstrapState = 'idle';
     return this.snapshot();
   }
 
@@ -663,14 +668,17 @@ export class PairedHostStore {
         this.bootstrapState = 'retryableError';
         return this.apply(
           'unpaired',
-          'Could not reach Rhythm Cloud. Retry finding your authorized computer.',
+          bootstrapErrorMessage(error, 'Could not reach Rhythm Cloud.'),
           null,
         );
       }
       this.bootstrapState = 'error';
       this.apply(
         'unpaired',
-        'Rhythm Cloud returned an invalid computer connection response. Retry or pair manually.',
+        bootstrapErrorMessage(
+          error,
+          'Rhythm Cloud returned an invalid computer connection response.',
+        ),
         null,
       );
       throw error;
@@ -765,14 +773,17 @@ export class PairedHostStore {
         this.bootstrapState = 'retryableError';
         return this.apply(
           'unpaired',
-          'Could not connect to this computer. Retry when the network is available.',
+          bootstrapErrorMessage(error, 'Could not connect to this computer.'),
           null,
         );
       }
       this.bootstrapState = 'error';
       this.apply(
         'unpaired',
-        'Rhythm Cloud returned an invalid computer connection response. Retry or pair manually.',
+        bootstrapErrorMessage(
+          error,
+          'Rhythm Cloud returned an invalid computer connection response.',
+        ),
         null,
       );
       throw error;

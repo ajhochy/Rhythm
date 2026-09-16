@@ -16,7 +16,7 @@ test.beforeEach(async ({ request }) => {
 test('issue-1232: Agents categories show counts, filter results, and preserve deep links', async ({ page }) => {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
 
-  await page.getByRole('button', { name: 'Agents menu' }).click();
+  await page.getByRole('button', { name: 'Chats menu' }).click();
   await expect(page.getByRole('menuitem', { name: /Chats, \d+ items/ })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: /Scheduled Tasks, \d+ items/ })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: /Background Loops, \d+ items/ })).toBeVisible();
@@ -33,7 +33,7 @@ test('issue-1232: Agents categories show counts, filter results, and preserve de
 
 test('issue-1232: empty Background Loops explains the category', async ({ page }) => {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
-  await page.getByRole('button', { name: 'Agents menu' }).click();
+  await page.getByRole('button', { name: 'Chats menu' }).click();
   await page.getByRole('menuitem', { name: /Background Loops, \d+ items/ }).click();
   await expect(page.getByRole('heading', { name: 'No background loops yet' })).toBeVisible();
   await expect(page.getByText(/self-improvement work/i)).toBeVisible();

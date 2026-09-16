@@ -6,6 +6,20 @@ export interface MobileEnvironmentGrant {
   gatewayBaseUrl: string;
 }
 
+export type AccountBootstrapState =
+  | 'idle'
+  | 'discovering'
+  | 'environmentSelection'
+  | 'noAuthorizedComputer'
+  | 'retryableError'
+  | 'error'
+  | 'unsupported';
+
+export function isAccountBootstrapFailure(state: AccountBootstrapState): boolean {
+  return ['noAuthorizedComputer', 'retryableError', 'error', 'unsupported']
+    .includes(state);
+}
+
 export function parseMobileEnvironmentGrant(
   value: unknown,
   environmentId: string,

@@ -18,7 +18,7 @@ async function openAgentsAction(page, name) {
     0,
     { timeout: 10_000 },
   );
-  await page.getByRole('button', { name: 'Agents menu', exact: true }).click();
+  await page.getByRole('button', { name: 'Chats menu', exact: true }).click();
   const action = page
     .getByRole('menuitem', { name, exact: true })
     .locator('visible=true');

@@ -437,10 +437,12 @@ export default function SettingsScreen() {
         />
         <PairedMacSection
           state={pairedHost.state}
+          bootstrapState={pairedHost.bootstrapState}
           host={pairedHost.host}
           message={pairedHost.message}
           onPair={() => router.push('/pair')}
           onRefresh={() => void runPairedMacAction(pairedHost.refresh)}
+          onRetryBootstrap={() => void runPairedMacAction(pairedHost.retryBootstrap)}
           onRevoke={() => {
             const revoke = () => void runPairedMacAction(pairedHost.revoke);
             if (Platform.OS === 'web') {
