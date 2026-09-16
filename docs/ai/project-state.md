@@ -40,4 +40,4 @@ AJ's manual smoke of the three merged features, plus fixing the desktop release:
 
 ## Next step
 
-Recreate the NAS relay (`docker compose -f docker-compose.synology.yml --env-file .env.production up -d rhythm-relay`) so `RHYTHM_RELAY_PUBLIC_URL` applies, upgrade/relaunch Rhythm.app to v0.18.64 so the 4001 API and Mac relay uplink return, run the Simulator acceptance for #1493, then work through the three features' manual smoke lists above.
+Relay recreated on `:main` (NAS compose pin to `:relay-smoke` removed), v0.18.64 installed, iOS core acceptance passed on the installed Simulator build. Remaining: AJ's designated-conversation send test, reconnect and VoiceOver passes on iOS; manual smoke of #1495 and #1492 per their PR bodies; investigate the post-turn event-loop stalls (#1503).
