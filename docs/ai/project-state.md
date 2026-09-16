@@ -26,7 +26,7 @@ AJ's manual smoke of the three merged features, plus fixing the desktop release:
 
 ## Risks / known issues
 
-- The hosted relay crash-looped on Node 24.21.0 + better-sqlite3 12.8.0 until the #1504 image lands on the NAS; any floating `node:24` tag will re-trigger it while better-sqlite3 < 13 is installed (#1505).
+- The hosted relay crash-looped on Node 24.21.0 + better-sqlite3 12.8.0 from 20:45Z until the #1504 image landed on the NAS at 22:21Z; any floating `node:24` tag will re-trigger it while better-sqlite3 < 13 is installed (#1505).
 - v0.18.64 is a prerelease shipped without manual smoke of #1493/#1495/#1492; the installed app (0.18.63) still needs upgrading.
 - All three feature merges landed ahead of manual smoke, per AJ's explicit 2026-09-16 instruction — none of the above has been visually verified in the shipping app yet.
 - Watchtower auto-deploys `:main` to the hosted API within ~30 minutes of an image publish; hosted state can outrun what has actually been smoke-tested.
@@ -41,4 +41,4 @@ AJ's manual smoke of the three merged features, plus fixing the desktop release:
 
 ## Next step
 
-Production relay was crash-looping from 20:45Z (Node 24.21 + better-sqlite3 12, see the run log). #1504 pins the image to Node 24.18.1 and is merged (`b804842a`); once the publish run finishes, recreate `rhythm-relay`/`rhythm-api` on the NAS (or wait for Watchtower) and confirm `RestartCount` stops climbing and `/relay/health` stays 200. Then resume: iOS designated-conversation send test, reconnect and VoiceOver passes; manual smoke of #1495 and #1492; event-loop stalls (#1503); better-sqlite3 13 upgrade (#1505). TestFlight build via Xcode is on hold until the relay is stable.
+Relay crash loop resolved: #1504 (`b804842a`) is deployed, `rhythm-relay` runs Node 24.18.1 with zero restarts since 22:21Z. Resume: iOS designated-conversation send test, reconnect and VoiceOver passes; the Xcode TestFlight build (on hold per AJ, prepared checkout at `/private/tmp/rhythm-ios-testflight`); manual smoke of #1495 and #1492; event-loop stalls (#1503); better-sqlite3 13 upgrade so no floating Node tag can re-trigger this (#1505).
