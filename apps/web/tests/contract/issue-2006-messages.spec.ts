@@ -165,7 +165,7 @@ test('issue-2006-c6: ready page and New thread dialog satisfy axe and modal focu
   expect(result.violations.filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')).toEqual([]);
 
   await page.getByTestId('messages-new-thread').click();
-  await expect(page.getByTestId('messages-new-thread-dialog')).toHaveAttribute('role', 'dialog');
+  await expect(page.getByRole('dialog').filter({ has: page.getByTestId('messages-new-thread-dialog') })).toBeVisible();
   await expect(page.getByTestId('messages-new-thread-title')).toBeFocused();
   await page.keyboard.press('Shift+Tab');
   await expect(page.getByTestId('messages-new-thread-close')).toBeFocused();

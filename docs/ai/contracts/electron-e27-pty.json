@@ -1,0 +1,18 @@
+{
+  "issue": "E27",
+  "date": "2026-09-11",
+  "test_command": "./node_modules/.bin/playwright test --config tests/electron-e27-playwright.config.ts tests/electron-e27-pty.spec.ts && RHYTHM_LIVE_E2E=1 RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-electron-phase2-integration E27_AUTH_TOKEN=e02-synthetic-session-not-a-secret ./node_modules/.bin/playwright test --config tests/electron-e27-playwright.config.ts tests/electron-e27-pty-live.spec.ts",
+  "working_directory": "apps/web",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "E27-c1", "text": "selected local live session creates existing PTY route", "mode": "ui", "test": "apps/web/tests/electron-e27-pty.spec.ts", "status": "pass" },
+    { "criterion_id": "E27-c2", "text": "xterm input/output/resize/Ctrl-C", "mode": "ui", "test": "apps/web/tests/electron-e27-pty.spec.ts", "status": "pass" },
+    { "criterion_id": "E27-c3", "text": "preserve terminal per session across Inspector tab/collapse/session changes; no output mixing", "mode": "ui", "test": "apps/web/tests/electron-e27-pty.spec.ts", "status": "pass" },
+    { "criterion_id": "E27-c4", "text": "exit/retry/New", "mode": "ui", "test": "apps/web/tests/electron-e27-pty.spec.ts", "status": "pass" },
+    { "criterion_id": "E27-c5", "text": "close invokes existing delete/disposes socket", "mode": "ui", "test": "apps/web/tests/electron-e27-pty.spec.ts", "status": "pass" },
+    { "criterion_id": "E27-c6", "text": "Fixture explicit", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "Verify Fixture badge on deterministic offline terminal; focused renderer server runs live mode. Source explicitly renders the badge in fixture branch." },
+    { "criterion_id": "E27-c7", "text": "one real nonce/cwd/resize/interrupt check against sandbox if synthetic session valid", "mode": "live", "test": "apps/web/tests/electron-e27-pty-live.spec.ts", "status": "pass" },
+    { "criterion_id": "E27-c8", "text": "Supplied invalid, malformed or whitespace credentials are rejected before the local PTY WebSocket bridge; valid and absent local-desktop credentials retain their documented behavior", "mode": "live", "test": "apps/web/tests/electron-e27-pty-live.spec.ts", "status": "pass" }
+  ],
+  "not_tested": ["E27-c6"]
+}

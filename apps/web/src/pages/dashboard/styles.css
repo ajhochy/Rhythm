@@ -159,3 +159,46 @@
 @media (prefers-reduced-motion: reduce) {
   .pg-dashboard *, .pg-dashboard *::before, .pg-dashboard *::after { scroll-behavior: auto; transition: none; animation: none; }
 }
+
+/* Work-first signed-in surface; fixture styling remains isolated above. */
+.pg-dashboard.work-first-dashboard { container-type: inline-size; background: var(--bg); }
+.work-first-dashboard .dashboard-toolbar { flex: 0 0 auto; padding: 8px 16px; gap: 8px; background: var(--surface); }
+.work-first-dashboard .dashboard-heading { display: flex; align-items: baseline; gap: 12px; width: auto; }
+.work-first-dashboard .dashboard-heading h1 { margin: 0; font-size: 1.25rem; line-height: 1.3; }
+.work-first-dashboard .dashboard-heading time { color: var(--fg-2); font-size: .75rem; white-space: nowrap; }
+.work-first-dashboard .dashboard-counts { display: flex; flex-wrap: wrap; flex: 0 0 auto; padding-inline: 16px; border-bottom: 1px solid var(--border-soft); }
+.work-first-dashboard .dashboard-counts button { min-height: 43px; padding: 0 12px; border: 0; color: var(--fg); background: transparent; font-size: .75rem; cursor: pointer; }
+.work-first-dashboard .dashboard-counts button:first-child { padding-inline-start: 0; }
+.work-first-dashboard .dashboard-scroll { padding: 16px; scroll-padding-bottom: 16px; }
+.work-first-dashboard .dashboard-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 350px); gap: 24px; }
+.work-first-dashboard .dashboard-columns > *, .work-first-dashboard .work-queue { min-width: 0; }
+.work-first-dashboard .work-queue { padding: 0 0 12px; margin: 0 0 12px; border-bottom: 1px solid var(--border-soft); }
+.work-first-dashboard .list-head { min-height: 32px; margin: 0; }
+.work-first-dashboard .list-head h2 { margin: 0; font-size: .875rem; line-height: 1.4; }
+.work-first-dashboard .list-head > span { font-family: var(--font-ui); font-size: .6875rem; color: var(--fg-2); }
+.work-first-dashboard .task-row, .work-first-dashboard .task-toggle { min-height: 48px; }
+.work-first-dashboard .task-row { gap: 8px; padding: 4px; }
+.work-first-dashboard .row-copy strong { font-size: .8125rem; line-height: 1.4; }
+.work-first-dashboard .row-copy small, .work-first-dashboard .row-status { font-size: .6875rem; line-height: 1.4; color: var(--fg-2); }
+.work-first-dashboard .task-toggle > span { display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid currentColor; border-radius: 50%; font-size: .875rem; }
+.work-first-dashboard .task-toggle:disabled { cursor: default; }
+.work-first-dashboard .empty-copy { padding: 8px 0; color: var(--fg-2); }
+.work-first-dashboard summary { min-height: 44px; padding-block: 12px; cursor: pointer; font-size: .875rem; font-weight: 600; }
+.work-first-dashboard .thread-preview { margin-top: 0; border-top: 1px solid var(--border-soft); border-bottom: 0; }
+.work-first-dashboard .thread-preview small, .work-first-dashboard .thread-preview em { font-size: .6875rem; color: var(--fg-2); }
+.work-first-dashboard .action-chip { font-size: .75rem; }
+.work-first-dashboard .dashboard-status-action { position: sticky; top: -1px; z-index: 1; padding-block: 8px; background: var(--surface); border-bottom: 1px solid var(--border-soft); margin-bottom: 12px; }
+.work-first-dashboard .dashboard-status-action > button { min-width: 140px; }
+.work-first-dashboard .inspector-collaborator { display: block; }
+.work-first-dashboard :is(button, summary, h2):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@container (max-width: 959px) {
+  .work-first-dashboard .dashboard-columns { grid-template-columns: minmax(0, 1fr); }
+}
+@container (max-width: 560px) {
+  .work-first-dashboard .dashboard-toolbar { flex-wrap: wrap; }
+  .work-first-dashboard .dashboard-heading, .work-first-dashboard .dashboard-header-actions { width: 100%; }
+  .work-first-dashboard .dashboard-header-actions { justify-content: flex-start; flex-wrap: wrap; }
+  .work-first-dashboard .dashboard-status-action > button { width: 100%; }
+  .work-first-dashboard .dashboard-counts { padding-inline: 8px; }
+  .work-first-dashboard .dashboard-counts button { padding-inline: 6px; }
+}

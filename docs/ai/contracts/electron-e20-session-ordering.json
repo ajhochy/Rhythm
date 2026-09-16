@@ -1,0 +1,29 @@
+{
+  "issue": "E20", "date": "2026-09-11", "waiver": null,
+  "test_command": "npx playwright test --config tests/electron-e20-playwright.config.ts",
+  "criteria": [
+    { "criterion_id": "E20-c1", "text": "preserve canonical lastActivityAt,lastPreview,category,archivedAt,projectId and resolve project labels without synthetic Live workspace when unknown", "mode": "unit", "test": "apps/web/tests/electron-e20-session-ordering.spec.ts: E20-c1 and E20-c5", "status": "pass" },
+    { "criterion_id": "E20-c2", "text": "Default Newest parsed createdAt desc; Oldest asc; Name case-insensitive deterministic; Activity lastActivityAt??createdAt; Status working→starting→idle→error→closed→resumable with activity then stable ID tie", "mode": "ui", "test": "apps/web/tests/electron-e20-session-ordering.spec.ts: E20-c2-*", "status": "pass" },
+    { "criterion_id": "E20-c3", "text": "Apply comparator consistently to roots and sibling children", "mode": "ui", "test": "apps/web/tests/electron-e20-session-ordering.spec.ts: E20-c3", "status": "pass" },
+    { "criterion_id": "E20-c4", "text": "Scope buttons issue real E26 list queries translating chats/scheduled/self_improvement/background and archived", "mode": "ui", "test": "apps/web/tests/electron-e20-session-ordering.spec.ts: E20-c4", "status": "pass" },
+    { "criterion_id": "E20-c5", "text": "filters use projectId", "mode": "ui", "test": "apps/web/tests/electron-e20-session-ordering.spec.ts: E20-c5", "status": "pass" },
+    { "criterion_id": "E20-c6", "text": "closed remains main list, archived/resumable distinct", "mode": "unit", "test": "apps/web/tests/electron-e20-session-ordering.spec.ts: E20-c6", "status": "pass" },
+    { "criterion_id": "E20-c7", "text": "search trimmed name+preview and matching child remains discoverable/promoted/contextual", "mode": "ui", "test": "apps/web/tests/electron-e20-session-ordering.spec.ts: E20-c7", "status": "pass" },
+    { "criterion_id": "E20-c8", "text": "Use E26 cursor/pageInfo to explicit Load older roots/children and search beyond first100; no silent infinite fetch", "mode": "ui", "test": "apps/web/tests/electron-e20-session-ordering.spec.ts: E20-c3, E20-c7, E20-c8", "status": "pass" },
+    { "criterion_id": "E20-c9", "text": "Persist sort/filter/density account+scope only if existing preference mechanism supports without store edits; otherwise defer persistence E22, don't invent local global leak", "mode": "ui", "test": "apps/web/tests/electron-e20-session-ordering.spec.ts: E20-c9", "status": "pass", "reason": "Existing user-preferences gateway supports artifactTabIds only. Persistence deferred E22. Density toggles without new storage keys; source review confirms no preference writes added." },
+    { "criterion_id": "E20-c10", "text": "Legacy list response compatible", "mode": "unit", "test": "apps/web/tests/electron-e20-session-ordering.spec.ts: E20-c10", "status": "pass" },
+    { "criterion_id": "E20-disclosure-collision", "text": "Same-name/equal-count parents whose unique IDs share the first eight characters have unique stable accessible disclosure names using the shortest distinguishing ID prefix (minimum eight, up to the full ID) after sorting/reconciliation and independent collapse; visible labels remain concise and unique parent names do not gain ID noise", "mode": "ui", "test": "apps/web/tests/electron-e20-session-ordering.spec.ts: subagent-disclosure-collision", "status": "pass", "reason": "Same-name parent disclosures derive the shortest unique stable ID prefix with an eight-character minimum; unique names and all visible disclosure labels remain concise." },
+    { "criterion_id": "E20-live", "text": "live not_tested after integrated rebuild", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "Manager owns integrated E26/E27 rebuild; no live old sandbox requests permitted." }
+  ],
+  "not_tested": ["E20-live"],
+  "evidence": {
+    "command_cwd": "apps/web",
+    "green": "26 passed (13.7s), including shared-first-eight unique-prefix repair; E21 6 passed; session regressions 7 passed; npm run typecheck/build/test:dist-smoke exit0; isolated sandbox 7598/7597/7599 up/status/down passed",
+    "detect_changes": "LOW;86 indexed changed symbols;0 affected processes;35 indexed files including concurrent changes, not an E20-only report",
+    "capture": "/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/opencode/e20-load-controls.png",
+    "limitations": "Interception proves renderer/gateway behavior, not running API. E26 pages in server activity snapshot order; selected sort applies consistently to loaded rows, explicitly disclosed while more roots exist. No automatic full-history drain. Persistence deferred E22. Legacy no-pageInfo response cannot expose unavailable server continuation."
+  },
+  "manual_smoke_targets": [
+    "E20-live: after manager's integrated E26/E27 rebuild, open /agents in the manager-owned Electron/web sandbox. Verify all five sorts, canonical project labels, scheduled/background/archive queries, preview search beyond initial100 with ancestor context, explicit root/child continuation, selecting an older row, and expired cursor reset. No old-sandbox test, launch, restart or teardown was performed here."
+  ]
+}

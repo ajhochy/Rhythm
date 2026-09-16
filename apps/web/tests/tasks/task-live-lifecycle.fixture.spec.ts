@@ -41,6 +41,8 @@ test('issue-1475-c6: Electron/web moves tasks to Deferred after Done and exclude
   // continues counting parked tasks as Open.
   await page.setViewportSize({ width: 2000, height: 900 });
   await openPage(page, 'tasks');
+  // Tag, priority, and sort now live behind the Filters disclosure.
+  await page.getByTestId('tasks-filters-toggle').click();
   await page.getByTestId('tasks-tag-filter').selectOption('worship');
   await page.getByTestId('tasks-view-board').click();
   const done = page.getByTestId('kanban-column-done');

@@ -1,0 +1,12 @@
+{
+  "issue": "E35",
+  "date": "2026-09-11",
+  "waiver": "Routed Rhythms/Projects/Automations impacts were disclosed and autonomous implementation authorized.",
+  "test_command": "cd apps/web && npm exec -- playwright test --config tests/gateway/electron-e13-automation.config.ts --grep E35",
+  "criteria": [
+    { "criterion_id": "E35-c1", "text": "Automation account picker uses live integration accounts and persists sourceAccountId", "mode": "ui", "test": "apps/web/tests/gateway/electron-e13-automation.spec.ts", "status": "PASS" },
+    { "criterion_id": "E35-c2", "text": "Typed tag, notes and target-day action values preserve complete lossless action configuration", "mode": "ui", "test": "apps/web/tests/gateway/electron-e13-automation.spec.ts", "status": "PASS" },
+    { "criterion_id": "E35-c3", "text": "Rhythm/project assignees and collaborators use authoritative workspace members", "mode": "integration", "test": "apps/web/tests/electron-e30-workspace-members.spec.ts", "status": "PASS" }
+  ],
+  "not_tested": ["provider execution", "full rendered Rhythms/Projects round-trip", "packaged Electron"]
+}

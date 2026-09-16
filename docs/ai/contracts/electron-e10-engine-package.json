@@ -1,0 +1,16 @@
+{
+  "issue": "E10",
+  "date": "2026-09-11",
+  "test_command": "node --test apps/electron/test/electron-e10-engine-package.test.mjs",
+  "waiver": null,
+  "criteria": [
+    {"criterion_id":"e10-c1","text":"packaged app resources contain executable Rhythm fork at existing Contents/Resources/opencode_bin/opencode discovery path","mode":"integration","test":"apps/electron/test/electron-e10-engine-package.test.mjs","status":"pass"},
+    {"criterion_id":"e10-c2","text":"source artifact must be freshly built from this vendored fork for target architecture, not ambient PATH/stock global","mode":"integration","test":"apps/electron/test/electron-e10-engine-package.test.mjs","status":"pass"},
+    {"criterion_id":"e10-c3","text":"Package fails before producing artifact if binary absent, wrong architecture, non-executable, or identity/version isn't the expected fork channel/commit","mode":"integration","test":"apps/electron/test/electron-e10-engine-package.test.mjs","status":"pass"},
+    {"criterion_id":"e10-c4","text":"signing discovers/signs/verifies nested engine Mach-O","mode":"unit","test":"apps/electron/test/electron-e10-engine-package.test.mjs","status":"pass","reason":"Static wiring assertions only; actual signed-bundle validation is e10-c7."},
+    {"criterion_id":"e10-c5","text":"Release workflow provisions matching arm64 and x64 fork for Apple Silicon/Intel without cross-arch masquerade","mode":"unit","test":"apps/electron/test/electron-e10-engine-package.test.mjs","status":"pass","reason":"Static workflow matrix/toolchain/archive assertions; actual builds are e10-c7."},
+    {"criterion_id":"e10-c6","text":"Existing API/Node/addon packaging preserved","mode":"unit","test":"apps/electron/test/electron-e10-engine-package.test.mjs","status":"pass","reason":"Static existing assembly/probe preservation assertions; no full app assembly per dispatch."},
+    {"criterion_id":"e10-c7","text":"signed+both-arch normal lifecycle","mode":"manual","test":null,"status":"UNVERIFIED","reason":"Dispatch prohibits full packaging, signing, notarization, both-architecture builds and lifecycle launches; verify signed arm64 and x64 bundles through normal launch/session/shutdown separately."}
+  ],
+  "not_tested": ["e10-c7"]
+}

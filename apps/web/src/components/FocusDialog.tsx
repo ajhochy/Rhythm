@@ -6,7 +6,7 @@ export function FocusDialog({
 }: {
   open: boolean; title: string; description?: string; onClose(): void; children: React.ReactNode; testId: string; wide?: boolean;
 }) {
-  const panelRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const restoreFrameRef = useRef<number | null>(null);
   const onCloseRef = useRef(onClose);
@@ -20,12 +20,9 @@ export function FocusDialog({
       restoreFrameRef.current = null;
       if (openRef.current) return;
       const returnTarget = returnFocusRef.current;
-      if (!returnTarget?.isConnected) {
-        returnFocusRef.current = null;
-        return;
-      }
-      returnTarget.focus({ preventScroll: true });
-      if (document.activeElement === returnTarget) returnFocusRef.current = null;
+      const target = returnTarget?.isConnected ? returnTarget : document.getElementById('main-content');
+      target?.focus({ preventScroll: true });
+      returnFocusRef.current = null;
     });
   };
 
@@ -36,33 +33,38 @@ export function FocusDialog({
 
   useLayoutEffect(() => {
     if (!open) return;
-    const panel = panelRef.current;
+    const panel = dialogRef.current;
     const activeElement = document.activeElement;
+    if (returnFocusRef.current && !returnFocusRef.current.isConnected) returnFocusRef.current = null;
     if (!returnFocusRef.current && activeElement instanceof HTMLElement && !panel?.contains(activeElement)) {
-      returnFocusRef.current = activeElement;
+      returnFocusRef.current = document.querySelector<HTMLElement>('[aria-haspopup="menu"][aria-expanded="true"]') ?? activeElement;
     }
-    const focusable = panel?.querySelector<HTMLElement>('[data-autofocus]') ?? panel?.querySelector<HTMLElement>('button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])');
-    focusable?.focus();
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); requestClose(); return; }
-      if (event.key !== 'Tab' || !panel) return;
-      const items = [...panel.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')];
-      if (!items.length) return;
-      const first = items[0]; const last = items[items.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    if (!panel) return;
+    if (!panel.open) panel.showModal();
+    const candidates = [...panel.querySelectorAll<HTMLElement>('[autofocus], [data-autofocus], button, input, textarea, select, summary, [href], [tabindex]:not([tabindex="-1"])')];
+    const explicitFocus = candidates.find((item) => (item.hasAttribute('autofocus') || item.hasAttribute('data-autofocus')) && !item.matches(':disabled') && item.getClientRects().length > 0);
+    const focusable = explicitFocus ?? candidates.find((item) => !item.matches(':disabled') && item.getClientRects().length > 0) ?? panel;
+    requestAnimationFrame(() => {
+      const browserFocus = document.activeElement;
+      const validInside = browserFocus instanceof HTMLElement && panel.contains(browserFocus) && !browserFocus.matches(':disabled');
+      const browserDefaultClose = browserFocus instanceof HTMLElement && browserFocus.dataset.testid === `${testId}-close`;
+      if (!validInside || (explicitFocus && browserDefaultClose)) focusable.focus();
+    });
+    const containFocus = (event: FocusEvent) => {
+      if (!panel.contains(event.target as Node)) focusable.focus();
     };
-    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('focusin', containFocus);
     return () => {
-      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('focusin', containFocus);
+      if (panel.open) panel.close();
       scheduleFocusRestore();
     };
   }, [open]);
 
   if (!open) return null;
   return (
-    <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose(); }}>
-      <div ref={panelRef} className={`dialog-panel ${wide ? 'dialog-wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby={`${testId}-title`} aria-describedby={description ? `${testId}-description` : undefined} data-testid={testId}>
+    <dialog ref={dialogRef} className="dialog-backdrop" aria-labelledby={`${testId}-title`} aria-describedby={description ? `${testId}-description` : undefined} onCancel={(event) => { event.preventDefault(); requestClose(); }} onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose(); }}>
+      <div className={`dialog-panel ${wide ? 'dialog-wide' : ''}`} data-testid={testId}>
         <header className="dialog-header">
           <div>
             <h2 id={`${testId}-title`}>{title}</h2>
@@ -72,6 +74,6 @@ export function FocusDialog({
         </header>
         <div className="dialog-body">{children}</div>
       </div>
-    </div>
+    </dialog>
   );
 }

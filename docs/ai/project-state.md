@@ -2,73 +2,46 @@
 
 ## Current focus
 
-iOS end-to-end candidate: Rhythm Agents mobile app (hosted Google sign-in
-without manual pairing, redesigned core journey, reliable chats, recoverable
-bootstrap failures, mobile CI E2E restored). On draft PR #1493, gated on a
-mandatory live acceptance test in the iOS Simulator against the real hosted
-server — currently **BLOCKED** on deployment.
+Electron replacement candidate has a **draft PR open with fully green CI**; AJ's manual smoke of the packaged app is the sole remaining gate. Flutter remains the shipping client — no cutover, pilot, or Phase6 activity has started.
 
 ## Active branch / PR
 
-- Branch: `feature/ios-end-to-end`
-- Head: `f25abeed1b5da18570b96bd6bbe950842defd6f5`
-- PR: https://github.com/ajhochy/Rhythm/pull/1493 (draft, open, not merged)
-- Run doc: `docs/ai/runs/2026-09-15-ios-mobile-finish.md`
+- Branch `feature/electron-flutter-retirement` → draft [PR #1495](https://github.com/ajhochy/Rhythm/pull/1495) (base `main`), HEAD `77dd2284` (2 docs-only commits on top of `0d564cd9`).
+- CI is green on the current HEAD `77dd2284`: [Server CI success](https://github.com/ajhochy/Rhythm/actions/runs/35045672905), [Mobile CI success](https://github.com/ajhochy/Rhythm/actions/runs/35045672918). Along the way, the intermediate commit `6ebde76e` hit the pre-existing `workflow_failure_signal_extractor.test.ts:764` flake twice in a row (original + one `--failed` rerun) before clearing on the next push — confirmed unrelated to any code change (both docs-only commits' diffs touch only `docs/ai/*.md`). Treat that test as a known intermittent flake, not a gate.
+- Do not merge. AJ's manual smoke of `apps/electron/dist/Rhythm.app` is the open gate.
+- Prior six-stream handoffs (status not rechecked here): `fix/session-list-and-task-board` draft PR #1486; `fix/bridge-stream-reliability-repair` draft PR #1487; `fix/optimizer-scope-lane` draft PR #1488; `fix/optimizer-generator-lanes` draft PR #1489; `plan/recipes-1485` docs-only draft PR #1490.
 
-## In progress (AJ-owned; deployment is out of scope for this workflow)
+## In progress
 
-1. Run "API Image Publish (GHCR)" workflow on `feature/ios-end-to-end`.
-2. On the NAS: `docker compose pull` + `up -d rhythm-relay` for
-   `docker-compose.synology.yml` (Watchtower alone won't pick up the new
-   `RHYTHM_RELAY_PUBLIC_URL` — it recreates with the old env; `compose` with
-   `.env.production`/`.env.relay` is required).
-3. Verify `https://api.vcrcapps.com/health` commit == `f25abeed…` and
-   `/relay/health`.
-4. Relaunch `/Applications/Rhythm.app` so `127.0.0.1:4001` and the Mac relay
-   uplink (`macOnline`) come back up.
-5. Re-run the live acceptance gate (screenshot dir
-   `/private/tmp/rhythm-ios-acceptance/`).
+- AJ's manual smoke of the packaged Electron app is active/pending. Note: the desktop API on port 4001 was observed down on 2026-09-15 — that is unrelated to this candidate; if manual smoke needs the live-4001 path, Rhythm.app needs to be relaunched first (do not start 4001/4096 from this workflow).
+- 44px hit-area repair for the SessionRail overflow button (`.session-overflow-button`, `.session-row-wrap.has-subagents`) landed in commit `856c8702`, with new E20 coverage (`subagent-overflow-hit-area`, `apps/web/tests/electron-e20-session-ordering.spec.ts`). The single BLOCKER from the read-only UI/accessibility review is resolved.
+- Follow-up issue filed for a native directory picker (Browse is disabled under the live gateway today; see Next step).
+- Phase6 pilot/cutover/30-day fallback: not started.
+- AJ-owned review, manual smoke, and merge decisions for draft PRs #1486–#1489 remain outstanding.
+- #1485 implementation has not started (S0/S1a/S1b/S2 can begin in parallel; see prior notes for full dependency chain).
 
 ## Risks / known issues
 
-- Desktop Rhythm API on `127.0.0.1:4001` is down (OOM), tracked separately in
-  PR #1494 — blocks the Mac relay uplink and the acceptance gate.
-- Relay env fix (`RHYTHM_RELAY_PUBLIC_URL`) is saved on the NAS but not live:
-  only applies via `docker compose up`, not via Watchtower recreate.
-- Publishing an image built from a feature branch is auto-deployed by
-  Watchtower once pushed to GHCR — do not publish `:main` casually.
-- Pre-existing flaky test on `main` (not this branch's regression):
-  `apps/api_server/src/__tests__/workflow_failure_signal_extractor.test.ts:764`
-  — same-tick `createdAt` collision in `detectStaleRedoSignals`; needs a
-  60s backdate matching its sibling test. Worth its own issue.
-- `bootstrapState === 'environmentSelection'` (multi-computer accounts) has no
-  UI yet — not a failure state, out of scope for this slice.
+- Green CI + integrated automated PASS does not qualify manual smoke, signed dual-architecture packaging, provider/session behavior, assistive technology, native migration/rollback, or broader retirement readiness.
+- Desktop API on port 4001 was down independently on 2026-09-15; not caused by this branch, not fixed by this workflow.
+- Stale verifier sandbox listeners `5897/5898/5899` (PIDs `65058/65094`) and `7097/7098/7099` (PIDs `26681/26701`) are intentionally retained by others; do not touch.
+- `apps/mcp_server/dist` is an untracked build artifact; `tools/dev/sandbox.sh up()` now builds it rather than pre-asserting its existence (fixed in `0d564cd9` after it broke 3 CI tests on a fresh checkout).
+- `workflow_failure_signal_extractor.test.ts:764` is a pre-existing timing flake on loaded runners, unrelated to this branch (not touched, not fixed here; passed on the CI run).
+- Generated screenshot churn/deletions and blocked/no-op worker notes remain out of intended commit scope.
+- PR #1486 still needs subjective Electron/web vs. Flutter child-session visual-parity smoke.
+- Optional validator cleanup (missing `find` MCP grant, a coding-agent contract-path variant) remains open.
+- S4 (#1485) requires private `ajhochy/rhythm-workflow-e2e` on `main` with a required check before it can run.
 
 ## Test status
 
-- Mobile CI `foundation` job: was red on every push since 2026-09-13 (E2E
-  label drift from the `Agents`→`Chats` rename in 9c027b52); fixed by
-  `f25abeed` and confirmed green.
-- PR #1493 rollup at `f25abeed`: Mobile CI success (run 35038680725), Server CI
-  success (run 35038680724, one flake-path rerun of a pre-existing timing
-  flake unrelated to this branch).
-- Targeted Jest/contract/E2E suites all green (see run doc for full list);
-  `CI=1 npm run test:e2e:web` (foundation-equivalent) exits 0.
-- Live acceptance gate: **BLOCKED**. All three readiness checks fail — hosted
-  API still serves `9c027b52` (pre-relay-fix), relay `macOnline:false`, local
-  4001 connection refused. No simulator/build/install steps were run.
+- Integrated automated gate: verifier `4253` PASS (2026-09-14); package built at `apps/electron/dist/Rhythm.app`.
+- PR #1495 CI: green on current HEAD `77dd2284` (Server + Mobile). Intermediate commit `6ebde76e` flaked red twice on `workflow_failure_signal_extractor.test.ts` (not a regression — see Active branch/PR).
+- GitNexus compare-main (as of the 2026-09-14 pass): 371 symbols / 254 files, zero affected indexed processes, LOW aggregate.
+- E20 (`electron-e20-session-ordering.spec.ts`) now covers 44px targets for both `.subagent-disclosure` and the `.session-row-wrap.has-subagents` overflow button.
+- PR #1486: automated API/web/Flutter/live gates pass; only subjective visual-parity smoke remains. PR #1487: 33/33 criteria, full API suite 5,999 passing. PR #1488: 8/8 criteria, live 10/10. PR #1489: 24/24 criteria, 165 focused tests, live 2/2.
 
 ## Next step
 
-1. AJ completes the deployment handoff above (image publish, NAS relay
-   recreate, desktop relaunch).
-2. Re-run Step 1 readiness checks; on pass, proceed to Step 2 simulator
-   build/install/launch and criteria 1–6 verification (criterion 7,
-   AJ-only designated-conversation send, stays AJ's).
-3. File the `workflow_failure_signal_extractor.test.ts:764` flake as its own
-   issue (backdate fix, matches sibling test in the same block).
-
-Note: the six-stream/optimizer workflow state (PRs #1486–#1490, #1485 plan)
-lives on other branches (`fix/session-list-and-task-board`,
-`fix/bridge-stream-reliability-repair`, `fix/optimizer-scope-lane`,
-`fix/optimizer-generator-lanes`, `plan/recipes-1485`), not here.
+1. AJ: manual smoke of `apps/electron/dist/Rhythm.app` (relaunch Rhythm.app first if the live-4001 path is needed — 4001 was down standalone on 2026-09-15). Do not infer PASS or merge PR #1495 from CI/automated evidence alone.
+2. Triage/action the filed follow-up issue: native directory picker for agent project selection (Browse), scoped to `apps/electron/src/main.mjs` + a narrow preload IPC method.
+3. Retain prior handoffs: AJ smoke/review for #1486–#1489; #1485 implementation scheduling remains a separate follow-up.

@@ -1,0 +1,11 @@
+{
+  "issue": "E15",
+  "date": "2026-09-11",
+  "test_command": "cd apps/web && npx playwright test --config tests/electron-e15-playwright.config.ts",
+  "criteria": [
+    { "criterion_id": "e15-c1", "text": "Facility and reservation deletion require named confirmation; cancel or Escape sends no DELETE; failed deletion keeps the record visible", "mode": "ui", "test": "apps/web/tests/electron-e15-facilities-safety.spec.ts", "status": "PASS" },
+    { "criterion_id": "e15-c2", "text": "Automation cleanup displays and confirms the exact preview scope before exactly one scoped DELETE", "mode": "ui", "test": "apps/web/tests/electron-e15-facilities-safety.spec.ts", "status": "PASS" },
+    { "criterion_id": "e15-c3", "text": "A delayed preview response cannot reappear under or authorize deletion for a newly selected facility", "mode": "ui", "test": "apps/web/tests/electron-e15-facilities-safety.spec.ts", "status": "PASS" }
+  ],
+  "not_tested": ["complete Facilities lifecycle", "live cloud persistence", "packaged Electron"]
+}

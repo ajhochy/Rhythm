@@ -1,0 +1,51 @@
+---
+date: 2026-09-11
+repo: Rhythm
+branch: feature/electron-flutter-retirement
+pr: null
+issues: [E12A]
+status: READY_FOR_VERIFICATION
+tags: [run, Rhythm]
+---
+
+## Files
+- Owned: `apps/electron/src/main.mjs`, `apps/electron/test/e12a-auth-boundary.test.mjs`, E12A contract and this run note.
+- Baseline HEAD `3b5919ad`; E50 FocusDialog/Shell/store/styles/tests/evidence and E51 run note already dirty. Preserve concurrent work; no broad formatting.
+
+## Checks
+- Phase 0: acceptance-contract invoked first; read AGENTS/project-state/current-plan and exact main/preload/config/OAuth/renderer callers.
+- RED command (cwd `apps/electron`): `node --experimental-vm-modules --test test/e12a-auth-boundary.test.mjs`.
+- Initial harness run: 3 assertion failures, 3 cancelled due to unresolved fake OAuth. Fixed harness to settle unexpected OAuth for denial checks, before implementation.
+- Confirmed RED: **5 failed, 1 passed, 0 cancelled**. c1 got `https://api.vcrcapps.com` instead of `https://a.example`; c2 old window not destroyed; c3/c4 missing expected rejection; c5 null reached signer then threw on approvalId; c6 frozen preload already passed.
+- Phase 1: GitNexus main file and main `save` LOW, 0 indexed direct callers/processes. `startGoogleLogin` / `setProductionApiBase` UNKNOWN (unresolved); source caller review: main IPC → preload `signInWithGoogle` → web `GoogleSignIn`; config set only preload (no renderer caller yet). Dispatch reports signDecision LOW/2; signer implementation is untouched.
+
+## Notes
+- No workflow-orchestrator skill is exposed in this dispatched session. Follow explicit E12A acceptance and ownership, not a new orchestration run.
+- Scope: real main/config/preload with fake Electron windows/frames, external OAuth browser adapter and signer. Real desktop exchange receives selected base through fake network. No system-under-test state/guards mocked.
+- Google authorize endpoint remains Google's provider endpoint; Rhythm desktop token exchange creates the session on the selected validated Rhythm base. No current logout/account-replacement API exists; no refresh token/persistence invented.
+- No real OAuth, Keychain, package, normal launch, broad Electron suite, sandbox changes, commit/push/PR/issues/peers. Sandbox lifecycle stays manager-owned. Network exception below is explicitly recorded.
+
+## Phase 2 / validation and handoff
+- Implemented only `apps/electron/src/main.mjs`: current validated OAuth exchange base; auth generation guard; same-document navigation invalidation; server change clears main bearer/notification identity state and destroys old window before config persistence or host replacement; new window consumes current frozen preload configuration. Last-window-close suppression applies only during server transition. Failed config save rebuilds signed out on prior in-memory base.
+- IPC login/config-get/config-set/capability/signing dispatch validate owned live main frame and exact app document (hash routes allowed, query/other documents denied). Login/capability reject arguments; config has a 2048-character bound plus existing remote-HTTPS validator; signing uses exactly four fields with bounded ID/nonce, enum status and null-or-SHA256 digest. Signer cryptography unchanged. No renderer/preload/config-helper edits needed.
+- Account replacement fails closed while signed in; there is no supported logout/replacement API to wire in this slice. Restart permits a new account; persistence/expiry remain D18/E42.
+- Initial implementation validation: E12A **6/6 pass**; `npm run typecheck` failed on 13 possibly-undefined mainWindow references after async rebuild. One repair: explicit post-rebuild guard; added same-URL stale-login/account-denial and last-window-close assertions. No broad formatting.
+- First focused command (cwd `apps/electron`): `node --experimental-vm-modules --test --test-concurrency=1 --test-name-pattern='^(?!post-m1-auth-c8:|production repair:)' test/e12a-auth-boundary.test.mjs test/google-oauth.test.mjs test/production-api-security.test.mjs test/runtime-config.test.mjs test/security-smoke-receipt.test.mjs && npm run typecheck` → **25 passed**, typecheck exit 0.
+- **Process deviation:** that Node name filter did not exclude two existing loopback tests. They bound ephemeral localhost HTTP listeners and used fake token exchange; no real Google/network provider request, Keychain, application launch or shared sandbox operation occurred. This exceeded the dispatch's no-network constraint. Reported immediately, corrected selection with explicit skip pattern, not concealed as an offline run.
+- Final focused offline command (cwd `apps/electron`): `node --experimental-vm-modules --test --test-concurrency=1 --test-skip-pattern='post-m1-auth-c8:|production repair:' test/e12a-auth-boundary.test.mjs test/google-oauth.test.mjs test/production-api-security.test.mjs test/runtime-config.test.mjs test/security-smoke-receipt.test.mjs && npm run typecheck && git diff --check` → **23 passed, 0 failed**, including **7 E12A tests**. Both loopback test names absent; typecheck and diff check exit 0. Package-named runtime-config tests inspect sources only; no packaging command executed.
+- `gitnexus_detect_changes(scope: all, repo: Rhythm, worktree: /Users/ajhochhalter/Documents/Rhythm-electron-flutter-retirement)` → **LOW**, 24 changed symbols, 5 tracked files, 0 affected processes. Includes concurrent E50 files; not E12A ownership. Stale index maps some unchanged main declarations as touched; direct diff confirms actual edits. New untracked test/docs are reviewed through patch, not indexed graph claims.
+- `git diff -- apps/electron/src/main.mjs` and `git status --short` confirm E12A owns exactly main, its new focused test, contract and run note; existing E50/E51 changes preserved. E10/E11 tests/runtime/package scripts, signer, API/fork, web, sandbox and plans untouched.
+- **READY_FOR_VERIFICATION.** Verification command is the contract command or the final focused offline command above. Tests assert A bearer only at A, B artifact requests require a fresh B login, stale A login cannot overwrite/clear newer login, old window destruction and new preload consumption, denied foreign frames/documents, bounded malformed signing payloads, and frozen narrow preload.
+- Final standalone contract rerun (cwd `apps/electron`): `node --experimental-vm-modules --test test/e12a-auth-boundary.test.mjs && git diff --check` → **7 passed, 0 failed**, diff check exit 0.
+- **not_tested:** real OAuth/provider traffic, Chromium window lifecycle in an actual Electron launch, account persistence/session expiry, Keychain/signer cryptography (E12B), package/signing, full Electron suite. Config file 0600 persistence is covered by the existing focused config test, not auth persistence. No dashboard external write under exclusive dispatch ownership.
+
+## Security review repair — stale native callback
+- Phase 0 complete: invoked acceptance-contract first; read worktree AGENTS/project-state/current-plan and existing E12A evidence/main/test. Branch verified with `git status --short --branch`; pre-existing E12A and concurrent E50/E51 changes preserved. No orchestration skill exposed; this is the explicit bounded repair dispatch.
+- Added c7 in the existing contract/test. Only this case enables the fake native Notification boundary and window focus support; main auth generation, registry, routing and pending queue remain real. Retains A click callback, switches via real config IPC, invokes while no window exists and again after B readiness (with the same approval ID registered in B), then checks current click and cancellation cleanup.
+- RED (cwd `/Users/ajhochhalter/Documents/Rhythm-electron-flutter-retirement/apps/electron`): `node --experimental-vm-modules --test test/e12a-auth-boundary.test.mjs` → **7 passed, 1 failed, 0 cancelled/skipped**, exit 1. c7 failed `stale activation must not survive in the pending queue`: actual `rhythm://app/index.html#/agents?sessionId=session-A&approvalId=approval-A`, expected `rhythm://app/index.html#/agents`.
+- Phase 1 complete: GitNexus `syncNativeApprovalNotifications` upstream **LOW**, 1 direct caller (main file), 0 affected processes/modules. Reviewed its sole IPC caller and routing/drain/cleanup paths in current source. `host` is untracked/unindexed (UNKNOWN); all callers are local to the existing test. Initial route symbol query was ambiguous; no HIGH/CRITICAL result. No route handler or signer changes.
+- Phase 2 complete, first implementation attempt: capture `authGeneration` when creating the native notification; click returns before routing if generation differs or registry no longer contains that exact notification. Existing show/close/cancel paths unchanged.
+- GREEN (same cwd): `node --experimental-vm-modules --test test/e12a-auth-boundary.test.mjs && npm run typecheck` → **8 passed, 0 failed, 0 cancelled/skipped**, Electron `tsc --noEmit` exit **0**, combined exit **0**. c7 proves no pending activation consumed by B, no stale navigation/focus after B readiness, current-generation target navigation/focus, and registry close/removal/recreation. Only E12A contract and Electron typecheck run for this repair; no broad suite.
+- `gitnexus_detect_changes(scope: all, repo: Rhythm, worktree: /Users/ajhochhalter/Documents/Rhythm-electron-flutter-retirement)` → **LOW**, 25 changed symbols, 5 tracked files, **0 affected processes**. Includes prior E12A and concurrent web edits; index is older than this worktree and untracked tests/docs are not included. Not a claim of exclusive ownership over the tool's aggregate output.
+- Review command (worktree root): `git diff --check -- apps/electron/src/main.mjs && git diff -- apps/electron/src/main.mjs && git status --short` → exit **0**. This repair changes only callback creation in main, the existing E12A test harness/c7, contract, and this evidence. Prior E12A changes retained; E50/E51 files untouched.
+- **READY_FOR_VERIFICATION** for the stale-callback repair. No signer crypto, sandbox lifecycle (wave3 remains manager-owned), package, OAuth/Keychain/normal launch, full suite, commit/push/PR/issues/peers or external dashboard writes. Actual Electron/native OS delivery remains outside this proportional harness check; no live-launch claim.

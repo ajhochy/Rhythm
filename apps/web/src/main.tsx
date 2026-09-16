@@ -42,7 +42,7 @@ const renderGateway = (taskToken?: string, user?: AuthUser) => {
   root.render(
     <React.StrictMode>
       <GatewayProvider gateway={gateway}>
-        {user ? <AuthUserProvider user={user}>{app}</AuthUserProvider> : app}
+        {user ? <AuthUserProvider user={user} auth={runtimeGateway?.auth}>{app}</AuthUserProvider> : app}
       </GatewayProvider>
     </React.StrictMode>,
   );
@@ -77,11 +77,10 @@ try {
       const onAuthenticated = (login: AuthLoginResponse) => {
         try { renderGateway(login.sessionToken, login.user); } catch (error) { renderStartupError(error); }
       };
-      root.render(
-        <React.StrictMode>
-          <GoogleSignIn auth={runtimeGateway?.auth} onAuthenticated={onAuthenticated} />
-        </React.StrictMode>,
-      );
+      const renderSignIn = () => root.render(<React.StrictMode><GoogleSignIn auth={runtimeGateway?.auth} onAuthenticated={onAuthenticated} /></React.StrictMode>);
+      const restore = runtimeGateway?.auth?.currentSession;
+      if (restore) void restore().then((restored) => restored ? onAuthenticated(restored) : renderSignIn()).catch(renderSignIn);
+      else renderSignIn();
     }
   } else {
     renderGateway(testOnlyToken);

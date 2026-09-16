@@ -14,7 +14,102 @@ All commands delegate to `scripts/run_ai_workflow.py` in this repo.
 
 ## Running tests
 
+### Major-checkpoint isolation and web configuration routing
+
+Run full affected-package suites only at major checkpoints; repair loops run the
+failed files/criteria, not the full API or web suite. Unit checks must not inherit
+live-test port overrides: issue655 and Tailscale contracts intentionally expect
+engine4096/gateway4002. The September11 checkpoint's seven such failures passed
+unchanged after removing `RHYTHM_OPENCODE_ENGINE_PORT` and
+`RHYTHM_MOBILE_GATEWAY_PORT`. Do not change their assertions to sandbox ports.
+
+For the manager-owned Phase2 sandbox, run unit/browser commands from their package
+directory with this clean shell (substitute only the final command):
+
+```sh
+env -i \
+  HOME=/private/tmp/rhythm-electron-phase2-integration/home \
+  TMPDIR=/private/tmp/rhythm-electron-phase2-integration/tmp \
+  PATH=/private/tmp/rhythm-electron-phase2-integration/bin:/Users/ajhochhalter/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin \
+  PLAYWRIGHT_BROWSERS_PATH=/Users/ajhochhalter/Library/Caches/ms-playwright \
+  /bin/zsh -f -c '<targeted command>'
+```
+
+This reuses isolated HOME/tooling, not the server runtime's port environment.
+Only explicitly authorized live tests add their live flags/base URLs. Never
+restart/down the manager-owned sandbox to run unit tests. The issue1186 lifecycle
+test creates its own disposable fake runtime; its pinned Node stub delegates only
+the native-addon ABI probe to real Node and never launches the real API.
+
+Web `npm test` retains three stages: build/default fixture discovery, bucket-A
+rendered config, then `npm run test:electron-slices`. `npm run test:list` lists all
+three without browser execution. Default discovery excludes `electron-e*.spec.ts`:
+`tests/run-electron-slices.mjs` explicitly routes E13–E27/E50–E52A to their dedicated
+configs, including both E16 modes. Live-only selection remains controlled by each
+config's existing opt-in; no global fake gateway mode is injected. Both runners
+fail fast: after a red stage, run the short-circuited dedicated stage explicitly
+at the checkpoint, never count its discovery as a pass. During triage use
+`npm exec -- playwright test --config tests/electron-e14-playwright.config.ts --grep e14-c1`
+or the equivalent failed criterion, not the entire slice manifest.
+
+The old issue1409 source assertions predated E27's actual live PTY. Its default
+tests now exercise rendered fixture labeling and no network mutation; live
+connection/input/failure behavior remains in the dedicated E27 config.
+
 ### Isolated dev sandbox
+
+E02 synthetic bootstrap (2026-09-11, **startup verified; not release qualification**):
+the launcher uses an explicit runtime environment and a sandbox-owned
+`$SB/bin/security` blocker. Bare `security` fails without reaching macOS
+Keychain; missing, symlinked, unowned, modified, or incorrectly permissioned
+shims refuse launch. This does **not** qualify real Keychain behavior: that
+requires the later dedicated disposable macOS account tier. Normal packaged
+Electron lifecycle is also **not tested** by these bootstrap guards.
+
+E02 Phase0 is bounded to bootstrap guards: Keychain shim safety, offline build
+input wiring (source inspection only), malformed/unusable MCP rejection, and
+ambient promotion disabled. Proportional verification is only
+`python3 tools/dev/sandbox_e02_guard_test.py` plus `git diff --check`.
+MCP validation requires a nonempty object of local entries with nonempty string
+command arrays; this is structural validation, not proof a command is safe to
+execute. Operator sanitation remains required.
+
+Synthetic fixture launch and runtime `Npm.install`/Arborist isolation are now a
+**launch-only infrastructure prerequisite** for running the proportional guard
+inside the sandbox, not application qualification. Prior outside-sandbox guard
+PASS does not establish startup PASS. `--skip-install` covers the offline fork
+build, not runtime installs. Runtime now pins the absolute local MCP payload
+and refuses `up`/`restart` if it is absent. npm/Arborist receives offline mode,
+an inert `http://127.0.0.1:9` registry and `$SB/npm-cache`; uncached background
+dependencies may fail, not fetch externally. The focused static/environment and
+canonical fixture checks are `python3 tools/dev/sandbox_bootstrap_test.py`.
+Generate sources with `node tools/dev/sandbox_fixture.mjs /private/tmp/<new-fixture>`:
+canonical initDb/migrations, fake workspace/admin/member/session, no live source
+copy, disabled schedules/automations, 0400 DB and local MCP JSON. Use its
+`rhythm.db` and `opencode.json` as the explicit inputs below. The synthetic
+session token is deliberately public and must never be used outside this fixture.
+
+The focused 2026-09-11 diagnosis resolved startup: the caller's Node directory
+also contained a stock `opencode`, which shadowed the built fork and rejected
+the API-managed `reference` config key. Runtime PATH must order **Keychain shim,
+built fork directory, caller Node directory**, then system fallbacks. The API
+still invokes the pinned absolute Node (verified v22.23.0 / ABI127); the SDK
+launches bare `opencode`. Do not trust the API's override-path log alone.
+`RHYTHM_AGENT_URL` and the registered local MCP API URL both target sandbox4098.
+`up` rebuilds fork/API/MCP, using `--skip-embed-web-ui` for the headless fork.
+Readiness requires `/opencode/health` JSON `status=ready` and a listener whose
+executable equals the built fork, not merely HTTP200. Failed startup exits
+rescue sanitized `*.log` files and the health body to `$SB.evidence.XXXXXX`;
+`down` also preserves evidence before deleting runtime. These sibling directories
+survive teardown; do not delete them before reading the actual failure.
+One diagnostic and one corrected startup ran; corrected API/engine readiness,
+local MCP connected, and both focused files (4 + 4 tests) passed. Both runtimes
+were removed; live services were unchanged. No dependency provisioning was needed.
+Web/Electron harness expansion
+belongs at the first relevant UI/integration checkpoint; real Keychain in a
+disposable macOS account and normal packaged lifecycle/architecture qualification
+belong at their first relevant integration/release checkpoints. None is qualified
+by bootstrap guards. See `docs/ai/runs/2026-09-10-electron-e02-harness.md`.
 
 Use `tools/dev/sandbox.sh` to run a second local api_server without touching
 the live app's ports, database, HOME-relative Opencode files, live-artifact

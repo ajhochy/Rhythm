@@ -5,6 +5,7 @@ import { navigate } from '../../components/Shell';
 import { Icon } from '../../icons';
 import { useFixtures } from '../../store';
 import { useGateway } from '../../gateway/context';
+import type { IntegrationAccount } from '../../gateway/integrations';
 import {
   AutomationsGatewayError,
   type AutomationActionCatalogItem,
@@ -31,7 +32,7 @@ import {
   triggerCatalog,
   type AutomationAction,
   type AutomationCondition,
-  type AutomationRule,
+  type AutomationRule as FixtureAutomationRule,
   type AutomationSource,
 } from './fixtures';
 import './styles.css';
@@ -39,6 +40,7 @@ import './styles.css';
 type TriggerOption = { key: string; label: string };
 type ActionOption = { type: string; label: string };
 type AccountOption = { id: string; label: string };
+type AutomationRule = FixtureAutomationRule & { canonical?: ServerAutomationRule };
 
 function stripSourcePrefix(triggerKey: string) {
   return triggerKey.replace(/^[a-z_]+\./, '');
@@ -120,6 +122,9 @@ interface BuilderDraft {
   templateName: string;
   facilityId: string;
   gmailLabel: string;
+  tag: string;
+  notes: string;
+  targetDay: string;
   conditions: AutomationCondition[];
 }
 
@@ -135,9 +140,9 @@ function InspectorPortal({ children }: { children: ReactNode }) {
 interface AutomationCatalog {
   triggers: Record<AutomationSource, TriggerOption[]>;
   actionsFor(source: AutomationSource): ActionOption[];
-  accounts: Partial<Record<Exclude<AutomationSource, 'rhythm'>, AccountOption>>;
+  accounts: Partial<Record<Exclude<AutomationSource, 'rhythm'>, AccountOption[]>>;
 }
-const fixtureCatalog: AutomationCatalog = { triggers: triggerCatalog, actionsFor: allowedActions, accounts };
+const fixtureCatalog: AutomationCatalog = { triggers: triggerCatalog, actionsFor: allowedActions, accounts: Object.fromEntries(Object.entries(accounts).map(([source, account]) => [source, [account]])) };
 
 // Maps the server's canonical AutomationRule (apps/api_server/src/models/automation_rule.ts:45-63)
 // onto this page's display view-model. Labels come from the loaded catalogs so the UI never
@@ -147,6 +152,7 @@ function mapServerRuleToView(rule: ServerAutomationRule, triggers: AutomationTri
   const actionLabel = actions.find((item) => item.key === rule.actionType)?.label ?? rule.actionType;
   const providerLabel = providers.find((item) => item.source === rule.source)?.label ?? sourceLabels[rule.source];
   return {
+    canonical: rule,
     id: rule.id, name: rule.name, source: rule.source, accountId: rule.sourceAccountId,
     accountLabel: rule.sourceAccountId ?? providerLabel,
     triggerKey: rule.triggerKey, triggerLabel,
@@ -167,7 +173,8 @@ function draftForRule(rule: AutomationRule | null, catalog: AutomationCatalog = 
     pcoTriggerKeys: rule?.source === 'planning_center' ? [rule.triggerKey] : catalog.triggers.planning_center[0] ? [catalog.triggers.planning_center[0].key] : [],
     actionType: (rule?.actionType ?? catalog.actionsFor(source)[0]?.type ?? 'create_task') as AutomationAction, titleTemplate: rule?.actionConfig.titleTemplate ?? '',
     messageTemplate: rule?.actionConfig.messageTemplate ?? '', templateName: rule?.actionConfig.templateName ?? '',
-    facilityId: rule?.actionConfig.facilityId ?? '', gmailLabel: 'any', conditions: structuredClone(rule?.conditions ?? []),
+    facilityId: rule?.actionConfig.facilityId ?? '', gmailLabel: String(rule?.canonical?.triggerConfig?.label ?? 'any'),
+    tag: rule?.actionConfig.tag ?? '', notes: rule?.actionConfig.notes ?? '', targetDay: rule?.actionConfig.targetDay ?? '', conditions: structuredClone(rule?.conditions ?? []),
   };
 }
 
@@ -182,7 +189,7 @@ function BuilderDialog({ open, editing, onClose, onSubmit, catalog = fixtureCata
   }, [editing, open, catalog]);
 
   const updateSource = (source: AutomationSource) => {
-    const accountId = source === 'rhythm' ? '' : catalog.accounts[source]?.id ?? '';
+    const accountId = source === 'rhythm' ? '' : catalog.accounts[source]?.[0]?.id ?? '';
     setDraft((current) => ({ ...current, source, accountId, triggerKey: catalog.triggers[source][0]?.key ?? '', actionType: (catalog.actionsFor(source)[0]?.type ?? 'create_task') as AutomationAction }));
     setError('');
   };
@@ -205,7 +212,7 @@ function BuilderDialog({ open, editing, onClose, onSubmit, catalog = fixtureCata
       <section className="builder-section" aria-labelledby="automation-source-heading"><header><span>1</span><div><h3 id="automation-source-heading">Source</h3><p>Where the signal begins.</p></div></header><div className="builder-grid">
         <label className="automation-field span-2">Automation name <span>Optional</span><input data-autofocus value={draft.name} onChange={(event) => set('name', event.target.value)} placeholder={suggestedName(draft.source)} data-testid="automation-name" /></label>
         <label className="automation-field">Provider<select value={draft.source} onChange={(event) => updateSource(event.target.value as AutomationSource)} data-testid="automation-source">{sourceOrder.map((source) => <option value={source} key={source}>{sourceLabels[source]}</option>)}</select></label>
-        <label className="automation-field">Account<select value={draft.accountId} disabled={draft.source === 'rhythm'} onChange={(event) => set('accountId', event.target.value)} data-testid="automation-account"><option value="">Internal Rhythm</option>{Object.entries(catalog.accounts).map(([source, account]) => <option value={account!.id} key={source}>{account!.label}</option>)}</select></label>
+        <label className="automation-field">Account<select value={draft.accountId} disabled={draft.source === 'rhythm'} onChange={(event) => set('accountId', event.target.value)} data-testid="automation-account"><option value="">{draft.source === 'rhythm' ? 'Internal Rhythm' : 'Choose account'}</option>{(catalog.accounts[draft.source as Exclude<AutomationSource, 'rhythm'>] ?? []).map((account) => <option value={account.id} key={account.id}>{account.label}</option>)}</select></label>
       </div></section>
       <section className="builder-section" aria-labelledby="automation-trigger-heading"><header><span>2</span><div><h3 id="automation-trigger-heading">Trigger</h3><p>The catalog event that starts this rule.</p></div></header>
         {draft.source === 'planning_center' ? <fieldset className="trigger-grid"><legend>Planning Center triggers</legend>{catalog.triggers.planning_center.map((trigger) => { const slug = stripSourcePrefix(trigger.key).replaceAll('_', '-'); return <label key={trigger.key}><input type="checkbox" checked={draft.pcoTriggerKeys.includes(trigger.key)} onChange={(event) => set('pcoTriggerKeys', event.target.checked ? [...draft.pcoTriggerKeys, trigger.key] : draft.pcoTriggerKeys.filter((key) => key !== trigger.key))} data-testid={`automation-trigger-pco-${slug}`} />{trigger.label}</label>; })}</fieldset> : <label className="automation-field">Trigger<select value={draft.triggerKey} onChange={(event) => set('triggerKey', event.target.value)} data-testid="automation-trigger">{catalog.triggers[draft.source].map((trigger) => <option value={trigger.key} key={trigger.key}>{trigger.label}</option>)}</select></label>}
@@ -221,6 +228,9 @@ function BuilderDialog({ open, editing, onClose, onSubmit, catalog = fixtureCata
         {draft.actionType === 'send_notification' && <label className="automation-field span-2">Message template<textarea rows={3} value={draft.messageTemplate} onChange={(event) => set('messageTemplate', event.target.value)} placeholder="Follow up with {{sender}}" data-testid="automation-message-template" /></label>}
         {draft.actionType === 'create_reservation' && <label className="automation-field span-2">Room<select value={draft.facilityId} onChange={(event) => set('facilityId', event.target.value)} data-testid="automation-facility"><option value="">Pick a room</option><option value="facility-fellowship-hall">Fellowship Hall</option><option value="facility-sanctuary">Sanctuary</option></select></label>}
         {['create_task', 'tag_task', 'auto_schedule_task', 'auto_schedule'].includes(draft.actionType) && <label className="automation-field span-2">Title template<input value={draft.titleTemplate} onChange={(event) => set('titleTemplate', event.target.value)} placeholder="Follow up: {{title}}" data-testid="automation-title-template" /></label>}
+        {draft.actionType === 'tag_task' && <label className="automation-field">Tag<input value={draft.tag} onChange={(event) => set('tag', event.target.value)} data-testid="automation-tag" /></label>}
+        {['auto_schedule_task', 'auto_schedule'].includes(draft.actionType) && <label className="automation-field">Target day<input value={draft.targetDay} onChange={(event) => set('targetDay', event.target.value)} placeholder="monday" data-testid="automation-target-day" /></label>}
+        {draft.actionType === 'create_task' && <label className="automation-field span-2">Task notes<textarea value={draft.notes} onChange={(event) => set('notes', event.target.value)} data-testid="automation-notes" /></label>}
       </div></section>
       <section className="builder-review" aria-labelledby="automation-review-heading" data-testid="automation-review"><div><span>Review</span><h3 id="automation-review-heading">{reviewName}</h3></div><dl><div><dt>Provider</dt><dd>{sourceLabels[draft.source]}</dd></div><div><dt>Trigger</dt><dd>{draft.source === 'planning_center' ? `${Math.max(1, draft.pcoTriggerKeys.length)} selected` : catalog.triggers[draft.source].find((trigger) => trigger.key === draft.triggerKey)?.label}</dd></div><div><dt>Action</dt><dd>{actions.find((action) => action.type === draft.actionType)?.label}</dd></div></dl></section>
       <footer className="builder-actions"><button className="secondary-button" type="button" onClick={onClose} data-testid="automation-builder-cancel">Cancel</button><button className="primary-button" type="submit" data-testid="automation-builder-submit">{editing ? 'Save automation' : 'Create automation'}</button></footer>
@@ -234,7 +244,7 @@ function DirectAutomationEditor({ rule, disabled, onSave, catalog = fixtureCatal
   useEffect(() => setDraft(draftForRule(rule, catalog)), [rule, catalog]);
   const set = <K extends keyof BuilderDraft>(key: K, value: BuilderDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
   const updateSource = (source: AutomationSource) => {
-    setDraft((current) => ({ ...current, source, accountId: source === 'rhythm' ? '' : catalog.accounts[source]?.id ?? '', triggerKey: catalog.triggers[source][0]?.key ?? '', pcoTriggerKeys: source === 'planning_center' ? (catalog.triggers.planning_center[0] ? [catalog.triggers.planning_center[0].key] : []) : current.pcoTriggerKeys, actionType: (catalog.actionsFor(source)[0]?.type ?? 'create_task') as AutomationAction, conditions: [] }));
+    setDraft((current) => ({ ...current, source, accountId: source === 'rhythm' ? '' : catalog.accounts[source]?.[0]?.id ?? '', triggerKey: catalog.triggers[source][0]?.key ?? '', pcoTriggerKeys: source === 'planning_center' ? (catalog.triggers.planning_center[0] ? [catalog.triggers.planning_center[0].key] : []) : current.pcoTriggerKeys, actionType: (catalog.actionsFor(source)[0]?.type ?? 'create_task') as AutomationAction, conditions: [] }));
     setError('');
   };
   const setCondition = (index: number, patch: Partial<AutomationCondition>) => set('conditions', draft.conditions.map((condition, itemIndex) => itemIndex === index ? { ...condition, ...patch } : condition));
@@ -252,14 +262,14 @@ function DirectAutomationEditor({ rule, disabled, onSave, catalog = fixtureCatal
       <div className="builder-grid">
         <label className="automation-field span-2">Automation name<input value={draft.name} onChange={(event) => set('name', event.target.value)} data-testid="automation-name" /></label>
         <label className="automation-field">Provider<select value={draft.source} onChange={(event) => updateSource(event.target.value as AutomationSource)} data-testid="automation-source">{sourceOrder.map((source) => <option value={source} key={source}>{sourceLabels[source]}</option>)}</select></label>
-        <label className="automation-field">Account<select value={draft.accountId} disabled={draft.source === 'rhythm'} onChange={(event) => set('accountId', event.target.value)} data-testid="automation-account"><option value="">Internal Rhythm</option>{Object.entries(catalog.accounts).map(([source, account]) => <option value={account!.id} key={source}>{account!.label}</option>)}</select></label>
+        <label className="automation-field">Account<select value={draft.accountId} disabled={draft.source === 'rhythm'} onChange={(event) => set('accountId', event.target.value)} data-testid="automation-account"><option value="">{draft.source === 'rhythm' ? 'Internal Rhythm' : 'Choose account'}</option>{(catalog.accounts[draft.source as Exclude<AutomationSource, 'rhythm'>] ?? []).map((account) => <option value={account.id} key={account.id}>{account.label}</option>)}</select></label>
       </div>
       <section className="builder-section" aria-labelledby="automation-direct-trigger"><header><div><h3 id="automation-direct-trigger">Trigger</h3><p>Signal that starts this rule.</p></div></header>
         {draft.source === 'planning_center' ? <fieldset className="trigger-grid"><legend>Planning Center triggers</legend>{catalog.triggers.planning_center.map((trigger) => <label key={trigger.key}><input type="checkbox" checked={draft.pcoTriggerKeys.includes(trigger.key)} onChange={(event) => set('pcoTriggerKeys', event.target.checked ? [...draft.pcoTriggerKeys, trigger.key] : draft.pcoTriggerKeys.filter((key) => key !== trigger.key))} />{trigger.label}</label>)}</fieldset> : <label className="automation-field">Trigger<select value={draft.triggerKey} onChange={(event) => set('triggerKey', event.target.value)} data-testid="automation-trigger">{catalog.triggers[draft.source].map((trigger) => <option value={trigger.key} key={trigger.key}>{trigger.label}</option>)}</select></label>}
         {draft.source === 'gmail' && <label className="automation-field">Label<select value={draft.gmailLabel} onChange={(event) => set('gmailLabel', event.target.value)} data-testid="automation-gmail-label"><option value="any">Any label</option><option value="unread">Unread</option><option value="inbox">Inbox</option><option value="worship">Worship</option><option value="care">Pastoral care</option></select></label>}
       </section>
       <section className="builder-section" aria-labelledby="automation-direct-conditions"><header><div><h3 id="automation-direct-conditions">Conditions</h3><p>Blank rows are omitted on save.</p></div><button className="secondary-button" type="button" onClick={() => set('conditions', [...draft.conditions, { field: conditionFields[draft.source][0], operator: 'equals', value: '' }])} data-testid="automation-add-condition">Add condition</button></header><div className="conditions-list">{draft.conditions.map((condition, index) => <div className="condition-row" key={index}><label className="automation-field">Field<select value={condition.field} onChange={(event) => setCondition(index, { field: event.target.value })}>{conditionFields[draft.source].map((field) => <option value={field} key={field}>{field}</option>)}</select></label><label className="automation-field">Operator<select value={condition.operator} onChange={(event) => setCondition(index, { operator: event.target.value })}><option value="equals">equals</option><option value="not_equals">not equals</option><option value="contains">contains</option><option value="not_contains">not contains</option></select></label><label className="automation-field">Value<input value={condition.value} onChange={(event) => setCondition(index, { value: event.target.value })} data-testid={`automation-condition-value-${index}`} /></label><button className="icon-button" type="button" aria-label={`Remove condition ${index + 1}`} onClick={() => set('conditions', draft.conditions.filter((_, itemIndex) => itemIndex !== index))}><Icon name="delete" size={15} /></button></div>)}</div></section>
-      <section className="builder-section" aria-labelledby="automation-direct-action"><header><div><h3 id="automation-direct-action">Action</h3><p>What Rhythm does after a match.</p></div></header><div className="builder-grid"><label className="automation-field span-2">Action<select value={draft.actionType} onChange={(event) => { set('actionType', event.target.value as AutomationAction); setError(''); }} data-testid="automation-action">{catalog.actionsFor(draft.source).map((action) => <option value={action.type} key={action.type}>{action.label}</option>)}</select></label>{draft.actionType === 'create_project_from_template' && <label className="automation-field span-2">Project template<select value={draft.templateName} onChange={(event) => set('templateName', event.target.value)} data-testid="automation-template-name"><option value="">Choose a template</option><option value="Sunday Service Launch">Sunday Service Launch</option><option value="Community Event">Community Event</option></select></label>}{draft.actionType === 'send_notification' && <label className="automation-field span-2">Message template<textarea rows={3} value={draft.messageTemplate} onChange={(event) => set('messageTemplate', event.target.value)} data-testid="automation-message-template" /></label>}{draft.actionType === 'create_reservation' && <label className="automation-field span-2">Room<select value={draft.facilityId} onChange={(event) => set('facilityId', event.target.value)} data-testid="automation-facility"><option value="">Choose a room</option><option value="facility-fellowship-hall">Fellowship Hall</option><option value="facility-sanctuary">Sanctuary</option></select></label>}{['create_task', 'tag_task', 'auto_schedule_task', 'auto_schedule'].includes(draft.actionType) && <label className="automation-field span-2">Title template<input value={draft.titleTemplate} onChange={(event) => set('titleTemplate', event.target.value)} data-testid="automation-title-template" /></label>}</div></section>
+      <section className="builder-section" aria-labelledby="automation-direct-action"><header><div><h3 id="automation-direct-action">Action</h3><p>What Rhythm does after a match.</p></div></header><div className="builder-grid"><label className="automation-field span-2">Action<select value={draft.actionType} onChange={(event) => { set('actionType', event.target.value as AutomationAction); setError(''); }} data-testid="automation-action">{catalog.actionsFor(draft.source).map((action) => <option value={action.type} key={action.type}>{action.label}</option>)}</select></label>{draft.actionType === 'create_project_from_template' && <label className="automation-field span-2">Project template<select value={draft.templateName} onChange={(event) => set('templateName', event.target.value)} data-testid="automation-template-name"><option value="">Choose a template</option><option value="Sunday Service Launch">Sunday Service Launch</option><option value="Community Event">Community Event</option></select></label>}{draft.actionType === 'send_notification' && <label className="automation-field span-2">Message template<textarea rows={3} value={draft.messageTemplate} onChange={(event) => set('messageTemplate', event.target.value)} data-testid="automation-message-template" /></label>}{draft.actionType === 'create_reservation' && <label className="automation-field span-2">Room<select value={draft.facilityId} onChange={(event) => set('facilityId', event.target.value)} data-testid="automation-facility"><option value="">Choose a room</option><option value="facility-fellowship-hall">Fellowship Hall</option><option value="facility-sanctuary">Sanctuary</option></select></label>}{['create_task', 'tag_task', 'auto_schedule_task', 'auto_schedule'].includes(draft.actionType) && <label className="automation-field span-2">Title template<input value={draft.titleTemplate} onChange={(event) => set('titleTemplate', event.target.value)} data-testid="automation-title-template" /></label>}{draft.actionType === 'tag_task' && <label className="automation-field">Tag<input value={draft.tag} onChange={(event) => set('tag', event.target.value)} data-testid="automation-tag" /></label>}{['auto_schedule_task', 'auto_schedule'].includes(draft.actionType) && <label className="automation-field">Target day<input value={draft.targetDay} onChange={(event) => set('targetDay', event.target.value)} data-testid="automation-target-day" /></label>}{draft.actionType === 'create_task' && <label className="automation-field span-2">Task notes<textarea value={draft.notes} onChange={(event) => set('notes', event.target.value)} data-testid="automation-notes" /></label>}</div></section>
       <footer className="builder-actions"><button className="primary-button" type="submit" data-testid="automation-builder-submit">Save automation</button></footer>
     </fieldset>
   </form>;
@@ -292,6 +302,7 @@ export function AutomationsPage({ route }: { route: string }) {
   const [liveTriggers, setLiveTriggers] = useState<AutomationTriggerCatalogItem[]>([]);
   const [liveActions, setLiveActions] = useState<AutomationActionCatalogItem[]>([]);
   const [liveProviders, setLiveProviders] = useState<AutomationProviderCatalogItem[]>([]);
+  const [liveAccounts, setLiveAccounts] = useState<IntegrationAccount[]>([]);
   const [mutationPending, setMutationPending] = useState(false);
   // The renderer gateway (useGateway()) is composed once in main.tsx and shares one bearer across
   // every domain (apps/web/src/gateway/index.ts:87-106) — this page only ever reads
@@ -302,11 +313,9 @@ export function AutomationsPage({ route }: { route: string }) {
     const triggersBySource: Record<AutomationSource, TriggerOption[]> = { rhythm: [], planning_center: [], google_calendar: [], gmail: [] };
     liveTriggers.forEach((trigger) => { triggersBySource[trigger.source].push({ key: trigger.key, label: trigger.label }); });
     sourceOrder.forEach((source) => { if (!triggersBySource[source].length) triggersBySource[source] = [{ key: '', label: 'No triggers available' }]; });
-    // ponytail: live mode does not yet drive the account picker from GET /integrations/accounts
-    // (that prerequisite belongs to the Integrations gateway, out of this page's scope). Every
-    // live create/update sends the canonical nullable `sourceAccountId: null` instead.
-    return { triggers: triggersBySource, actionsFor: () => liveActions.map((action) => ({ type: action.key, label: action.label })), accounts: {} };
-  }, [liveTriggers, liveActions]);
+    const accountOptions = Object.fromEntries(sourceOrder.filter((source) => source !== 'rhythm').map((source) => [source, liveAccounts.filter((account) => account.provider === source).map((account) => ({ id: account.id, label: account.accountLabel ?? account.email ?? account.displayName ?? account.providerDisplayName }))]));
+    return { triggers: triggersBySource, actionsFor: () => liveActions.map((action) => ({ type: action.key, label: action.label })), accounts: accountOptions };
+  }, [liveTriggers, liveActions, liveAccounts]);
   const activeCatalog = isLive ? liveCatalog : fixtureCatalog;
 
   const selectedRule = rules.find((rule) => rule.id === previewRuleId) ?? null;
@@ -338,8 +347,9 @@ export function AutomationsPage({ route }: { route: string }) {
   const loadLiveAutomations = async (gateway: AutomationsGateway) => {
     setSurfaceState('loading');
     try {
-      const [triggers, actionsList, providers, serverRules] = await Promise.all([gateway.triggers(), gateway.actions(), gateway.providers(), gateway.rules()]);
+      const [triggers, actionsList, providers, serverRules, integrationAccounts] = await Promise.all([gateway.triggers(), gateway.actions(), gateway.providers(), gateway.rules(), rendererGateway.domains.integrations?.accounts() ?? []]);
       setLiveTriggers(triggers); setLiveActions(actionsList); setLiveProviders(providers);
+      setLiveAccounts(integrationAccounts);
       appendReceipt('GET /automation-catalog/triggers → 200');
       appendReceipt('GET /automation-catalog/actions → 200');
       appendReceipt('GET /automation-catalog/providers → 200');
@@ -396,23 +406,29 @@ export function AutomationsPage({ route }: { route: string }) {
   // source/triggerKey — apps/api_server/src/models/automation_rule.ts:23-43;
   // actionType — apps/api_server/src/models/automation_rule.ts:15-21;
   // sourceAccountId/conditions — apps/api_server/src/models/automation_rule.ts:65-76.
-  const liveAutomationPayload = (draft: BuilderDraft, triggerKey: string): CreateAutomationInput => ({
-    name: draft.name.trim() || suggestedName(draft.source),
-    source: draft.source,
-    triggerKey: triggerKey as AutomationTriggerKey,
-    actionType: draft.actionType as AutomationActionType,
-    sourceAccountId: draft.accountId || null,
-    enabled: true,
-    conditions: draft.conditions.length ? draft.conditions.map((condition) => ({ field: condition.field, operator: condition.operator as ConditionOperator, value: condition.value })) : null,
-    actionConfig: { titleTemplate: draft.titleTemplate, messageTemplate: draft.messageTemplate, templateName: draft.templateName, facilityId: draft.facilityId },
-  });
+  const liveAutomationPayload = (draft: BuilderDraft, triggerKey: string, original?: ServerAutomationRule): CreateAutomationInput => {
+    const actionEdits = Object.fromEntries(Object.entries({ titleTemplate: draft.titleTemplate, messageTemplate: draft.messageTemplate, templateName: draft.templateName, facilityId: draft.facilityId, tag: draft.tag, notes: draft.notes, targetDay: draft.targetDay })
+      .filter(([key, value]) => !original || value !== String(original.actionConfig?.[key] ?? '')));
+    return {
+      name: draft.name.trim() || suggestedName(draft.source),
+      source: draft.source,
+      triggerKey: triggerKey as AutomationTriggerKey,
+      actionType: draft.actionType as AutomationActionType,
+      sourceAccountId: draft.accountId || null,
+      enabled: original?.enabled ?? true,
+      triggerConfig: draft.source === 'gmail' ? { ...original?.triggerConfig, label: draft.gmailLabel } : original?.triggerConfig ?? undefined,
+      conditions: original && JSON.stringify(draft.conditions) === JSON.stringify(original.conditions ?? []) ? original.conditions : draft.conditions.length ? draft.conditions.map((condition) => ({ field: condition.field, operator: condition.operator as ConditionOperator, value: condition.value })) : null,
+      // Keep canonical values (including unexposed/nested fields); only replace edited inputs.
+      actionConfig: Object.keys(actionEdits).length ? { ...original?.actionConfig, ...actionEdits } : original?.actionConfig ?? undefined,
+    };
+  };
 
   const submitBuilder = async (draft: BuilderDraft) => {
     const triggerKey = draft.source === 'planning_center' ? draft.pcoTriggerKeys[0] ?? activeCatalog.triggers.planning_center[0]?.key ?? draft.triggerKey : draft.triggerKey;
     if (isLive) {
       if (!liveGateway) return;
       setMutationPending(true);
-      const payload = liveAutomationPayload(draft, triggerKey);
+      const payload = liveAutomationPayload(draft, triggerKey, editingRule?.canonical);
       try {
         if (editingRule) {
           const updated = await liveGateway.update(editingRule.id, payload);
@@ -456,7 +472,7 @@ export function AutomationsPage({ route }: { route: string }) {
     if (isLive) {
       if (!liveGateway) return;
       setMutationPending(true);
-      const payload = liveAutomationPayload(draft, triggerKey);
+      const payload = liveAutomationPayload(draft, triggerKey, inspectorRule.canonical);
       try {
         const updated = await liveGateway.update(inspectorRule.id, payload);
         setRules((current) => current.map((rule) => rule.id === inspectorRule.id ? mapServerRuleToView(updated, liveTriggers, liveActions, liveProviders) : rule));

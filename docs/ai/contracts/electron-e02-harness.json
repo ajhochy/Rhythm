@@ -1,0 +1,83 @@
+{
+  "issue": "electron-e02-harness",
+  "date": "2026-09-11",
+  "test_command": "python3 tools/dev/sandbox_bootstrap_test.py && python3 tools/dev/sandbox_e02_guard_test.py",
+  "waiver": null,
+  "status": "FIXED",
+  "scope": "Focused sandbox bootstrap diagnosis verified with one diagnostic and one corrected startup. Not product parity or release qualification.",
+  "sandbox_startup": {
+    "status": "PASS",
+    "blocker": null,
+    "root_cause": "SDK cross-spawn('opencode') resolved ~/.local/bin/opencode before the built fork because the Node directory preceded the engine directory. That CLI rejected API-managed reference config. PATH is now shim, fork, caller Node; Node remains explicitly pinned at ABI127. Launcher also previously accepted HTTP200 unavailable and lost logs on identity failure.",
+    "guard_evidence": "Corrected up: API4098 status ready, engine4097 healthy PID69049 version 0.0.0-feature/electron-flutter-retirement-202609111544, MCP rhythm connected. record_engine_identity verified the listener executable equals ENGINE_BIN. Bootstrap 4/4 and guards 4/4 passed while sandbox running. No public dependency provisioning needed.",
+    "diagnostics": ["/private/tmp/rhythm-e02-diagnosis-20260911.evidence.NoGGoM", "/private/tmp/rhythm-e02-corrected-20260911.evidence.AYpujA"],
+    "teardown": "Both runtime directories removed via sandbox.sh down; evidence siblings survive. Post-down only unchanged live PID13141 on 4001/4002 and PID13155 on 4096, with unchanged packaged executable paths. Sandbox ports freed. No packet-capture or provider/plugin-functionality qualification claimed."
+  },
+  "criteria": [
+    {
+      "criterion_id": "electron-e02-bootstrap-node-abi",
+      "text": "Pin caller/override Node and validate native ABI; PATH orders Keychain shim, built fork, then Node directory before system fallbacks. API invokes NODE_BIN and bare MCP node resolves the same Node; SDK bare opencode resolves the built fork.",
+      "mode": "integration",
+      "test": "tools/dev/sandbox_bootstrap_test.py:Bootstrap.test_node_abi_preflight_and_runtime_resolution",
+      "status": "PASS",
+      "reason": "Real diagnostic captured wrong CLI configuration rejection and PATH resolution. Corrected launch engine identity/readiness and focused ABI/PATH regression passed on Node v22.23.0 ABI127.",
+      "limitations": "No full application or provider qualification."
+    },
+    {
+      "criterion_id": "electron-e02-bootstrap-local-offline",
+      "text": "Pin absolute local MCP payload with fail-closed preflight; npm/Arborist launch uses explicit offline mode, loopback inert registry and sandbox-local cache; retain offline model build input and skip-install.",
+      "mode": "unit",
+      "test": "tools/dev/sandbox_bootstrap_test.py:Bootstrap.test_local_mcp_and_offline_environment",
+      "status": "pass",
+      "limitations": "Static/environment guard, not packet capture or plugin functionality qualification."
+    },
+    {
+      "criterion_id": "electron-e02-bootstrap-fixture",
+      "text": "Generate read-only synthetic SQLite through canonical initDb/migrations with fake workspace/admin/member/active session, disabled schedules/automations and local MCP config, without live source reads.",
+      "mode": "integration",
+      "test": "tools/dev/sandbox_bootstrap_test.py:Bootstrap.test_synthetic_fixture",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "electron-e02-c6",
+      "text": "Owned Keychain-denial shim resolves first and fails closed on missing, content, permission and symlink tampering, including ambient Python optimization.",
+      "test": "tools/dev/sandbox_e02_guard_test.py",
+      "status": "PASS",
+      "limitations": "Different-UID and post-API-start resolution are not tested; no real Keychain access."
+    },
+    {
+      "criterion_id": "electron-e02-c2",
+      "text": "Reject malformed/unusable MCP structure before launch; require a nonempty local MCP object with nonempty string command arrays. Disable ambient promotion and omit inherited provider credentials from runtime_env.",
+      "test": "tools/dev/sandbox_e02_guard_test.py",
+      "status": "PASS",
+      "limitations": "Regression covers a local entry missing command, not exhaustive config schema or command safety. Environment evidence is bootstrap only."
+    },
+    {
+      "criterion_id": "electron-e02-c5",
+      "text": "Preserve approved checked-in models JSON input and --skip-install build wiring.",
+      "test": null,
+      "status": "SOURCE_REVIEWED",
+      "limitations": "Both launches rebuilt fork/API/MCP from unchanged product source. Headless fork uses established --skip-embed-web-ui. Corrected engine ready with npm offline configuration retained; not a network interception or all-plugin capability test."
+    }
+  ],
+  "deferred": [
+    {
+      "criteria": ["electron-e02-c1", "electron-e02-c2", "electron-e02-c5", "electron-e02-c6"],
+      "checkpoint": "First backend integration checkpoint, before sandbox launch",
+      "evidence_required": "Remaining broader coverage only: recursive/symlink containment, plugin functionality/network interception, post-start shim and different-UID checks, occupied-port rejection. Synthetic fixture/full launch and owned teardown passed in the focused diagnosis; do not repeat bootstrap as a prerequisite.",
+      "status": "NOT_TESTED"
+    },
+    {
+      "criteria": ["electron-e02-c3", "electron-e02-c4"],
+      "checkpoint": "First relevant web/Electron integration checkpoint",
+      "evidence_required": "Web discovery and traffic isolation harness expansion; ordinary Electron integration-flag isolation.",
+      "status": "NOT_TESTED"
+    },
+    {
+      "criteria": ["electron-e02-c4", "electron-e02-c6"],
+      "checkpoint": "First relevant Keychain integration / packaged release checkpoint",
+      "evidence_required": "Real Keychain in dedicated disposable macOS account; normal packaged lifecycle and Apple Silicon/Intel qualification.",
+      "status": "NOT_TESTED"
+    }
+  ]
+}

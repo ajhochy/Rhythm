@@ -17,7 +17,7 @@ export interface SharedTranscript {
   createdAt: string;
   expiresAt: string;
   revokedAt: string | null;
-  sourceSessionId: string;
+  sourceSessionId: string | null;
 }
 
 interface SharedTranscriptRow {
@@ -48,7 +48,8 @@ function rowToShare(row: SharedTranscriptRow): SharedTranscript {
     createdAt: iso(row.created_at),
     expiresAt: iso(row.expires_at),
     revokedAt: row.revoked_at ? iso(row.revoked_at) : null,
-    sourceSessionId: row.source_session_id,
+    sourceSessionId: row.source_session_id === 'detached:v1' &&
+      'reviewHash' in parseJson<TranscriptShareReview>(row.snapshot_json) ? null : row.source_session_id,
   };
 }
 
@@ -250,16 +251,20 @@ export class SharedTranscriptsRepository {
     if (env.dbClient === 'postgres') {
       const result = await getPostgresPool().query<SharedTranscriptRow>(
         `SELECT st.* FROM shared_transcripts st
-         INNER JOIN agent_sessions source ON source.id = st.source_session_id
-         WHERE st.id = $1`,
+         WHERE st.id = $1 AND (
+           (st.source_session_id = 'detached:v1' AND st.snapshot_json->>'reviewHash' IS NOT NULL)
+           OR EXISTS (SELECT 1 FROM agent_sessions source WHERE source.id = st.source_session_id)
+         )`,
         [id],
       );
       return result.rows[0] ? rowToShare(result.rows[0]) : null;
     }
     const row = getDb().prepare(
       `SELECT st.* FROM shared_transcripts st
-       INNER JOIN agent_sessions source ON source.id = st.source_session_id
-       WHERE st.id = ?`,
+       WHERE st.id = ? AND (
+         (st.source_session_id = 'detached:v1' AND json_extract(st.snapshot_json, '$.reviewHash') IS NOT NULL)
+         OR EXISTS (SELECT 1 FROM agent_sessions source WHERE source.id = st.source_session_id)
+       )`,
     ).get(id) as SharedTranscriptRow | undefined;
     return row ? rowToShare(row) : null;
   }

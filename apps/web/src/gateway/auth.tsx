@@ -18,6 +18,8 @@ export interface AuthLoginResponse {
 
 export interface DesktopAuthBridge {
   signInWithGoogle(): Promise<AuthLoginResponse>;
+  currentSession?(): Promise<AuthLoginResponse | null>;
+  logout?(): Promise<void>;
 }
 
 // The signed-in identity (and its server-persisted artifactTabIds) is only known where sign-in
@@ -27,14 +29,15 @@ export interface DesktopAuthBridge {
 interface AuthUserState {
   user: AuthUser;
   setArtifactTabIds(ids: string[]): void;
+  auth?: DesktopAuthBridge;
 }
 
 const AuthUserContext = createContext<AuthUserState | null>(null);
 
-export function AuthUserProvider({ user, children }: { user: AuthUser; children: React.ReactNode }) {
+export function AuthUserProvider({ user, auth, children }: { user: AuthUser; auth?: DesktopAuthBridge; children: React.ReactNode }) {
   const [current, setCurrent] = useState(user);
   return (
-    <AuthUserContext.Provider value={{ user: current, setArtifactTabIds: (artifactTabIds) => setCurrent((existing) => ({ ...existing, artifactTabIds })) }}>
+    <AuthUserContext.Provider value={{ user: current, auth, setArtifactTabIds: (artifactTabIds) => setCurrent((existing) => ({ ...existing, artifactTabIds })) }}>
       {children}
     </AuthUserContext.Provider>
   );

@@ -1,0 +1,10 @@
+{
+  "issue": "E53",
+  "date": "2026-09-12",
+  "test_command": "cd apps/web && npm exec -- playwright test --grep 'issue-2006-c4:|issue-2006-c6:|issue-2006-c13:'",
+  "criteria": [
+    { "criterion_id": "E53-c1", "text": "Live conversation navigation uses a native list of buttons rather than incomplete grid/gridcell semantics", "mode": "ui", "test": "apps/web/tests/electron-e33-messages-notifications.spec.ts", "status": "PASS" },
+    { "criterion_id": "E53-c2", "text": "Selection, actions, modal focus and rename/delete behavior remain accessible", "mode": "ui", "test": "apps/web/tests/contract/issue-2006-messages.spec.ts", "status": "PASS" }
+  ],
+  "not_tested": ["remaining fixture-only composite widgets", "manual VoiceOver", "real 200 percent zoom", "packaged Electron"]
+}

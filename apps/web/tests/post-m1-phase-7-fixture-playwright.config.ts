@@ -9,6 +9,7 @@ export default defineConfig({
     'post-m1-phase-7-schedules-quality.redspec.ts',
     'post-m1-phase-7-notifications.redspec.ts',
     'post-m1-phase-7-approvals.redspec.ts',
+    'electron-e33-messages-notifications.spec.ts',
   ],
   fullyParallel: false,
   workers: 1,

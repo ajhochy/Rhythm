@@ -425,7 +425,7 @@ test('issue-2007-c13: facilities and its dialogs are accessible with focus recov
   const reserveTrigger = page.getByTestId('facilities-reserve-space');
   await reserveTrigger.click();
   const reservationDialog = page.getByTestId('facility-reservation-dialog');
-  await expect(reservationDialog).toHaveAttribute('role', 'dialog');
+  await expect(page.getByRole('dialog').filter({ has: reservationDialog })).toBeVisible();
   await expect(reservationDialog.getByTestId('facility-reservation-title')).toBeFocused();
   await page.keyboard.press('Shift+Tab');
   await expect(reservationDialog.getByTestId('facility-reservation-close')).toBeFocused();
@@ -437,7 +437,7 @@ test('issue-2007-c13: facilities and its dialogs are accessible with focus recov
   await page.getByTestId('facilities-mode-rooms').click();
   const automationTrigger = page.getByTestId('facility-automation-manage');
   await automationTrigger.click();
-  await expect(page.getByTestId('facility-automation-dialog')).toHaveAttribute('aria-modal', 'true');
+  await expect(page.locator('dialog:modal').filter({ has: page.getByTestId('facility-automation-dialog') })).toBeVisible();
   result = await new AxeBuilder({ page }).analyze();
   expect(result.violations.filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')).toEqual([]);
   await page.keyboard.press('Escape');

@@ -1,0 +1,20 @@
+{
+  "issue": "E25B",
+  "date": "2026-09-11",
+  "test_command": "(cd apps/api_server && npx vitest run src/__tests__/issue_1178_transcript_sharing.test.ts) && (cd apps/web && npx playwright test --config tests/electron-e25b-playwright.config.ts)",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "E25B-c1", "text": "Add authenticated GET /agent-sessions/:id/shares/review returning canonical review plus deterministic SHA-256 reviewHash after same source-owner/admin authorization.", "mode": "integration", "test": "apps/api_server/src/__tests__/issue_1178_transcript_sharing.test.ts", "status": "pass" },
+    { "criterion_id": "E25B-c2", "text": "POST requires reviewed reviewHash; no fallback that silently accepts missing hash.", "mode": "integration", "test": "apps/api_server/src/__tests__/issue_1178_transcript_sharing.test.ts", "status": "pass" },
+    { "criterion_id": "E25B-c3", "text": "GET review A, mutate source, POST A hash ->409/no share; fresh GET/hash then exact selected IDs/inclusions create immutable snapshot.", "mode": "integration", "test": "apps/api_server/src/__tests__/issue_1178_transcript_sharing.test.ts", "status": "pass" },
+    { "criterion_id": "E25B-c4", "text": "Real todos/provenance where existing APIs support.", "mode": "ui", "test": "apps/web/tests/electron-e25b-inspector.spec.ts", "status": "pass" },
+    { "criterion_id": "E25B-c5", "text": "Review exact share snapshot, authoritative recipient users, list/revoke.", "mode": "ui", "test": "apps/web/tests/electron-e25b-inspector.spec.ts", "status": "pass" },
+    { "criterion_id": "E25B-c6", "text": "Mismatch returns 409 requiring re-review.", "mode": "ui", "test": "apps/web/tests/electron-e25b-inspector.spec.ts", "status": "pass" },
+    { "criterion_id": "E25B-c7", "text": "Real artifacts/MCP resources where existing APIs support.", "mode": "ui", "test": "apps/web/tests/electron-e25b-inspector.spec.ts", "status": "pass" },
+    { "criterion_id": "E25B-c8", "text": "Unavailable recipient/MCP behavior must be explicit, not fabricated success.", "mode": "ui", "test": "apps/web/tests/electron-e25b-inspector.spec.ts", "status": "pass" },
+    { "criterion_id": "E25B-c9", "text": "Safe real sandbox exact-review share with two synthetic users, stale conflict, recipient read and revoke", "mode": "live", "test": "apps/api_server/src/__tests__/issue_1178_transcript_sharing_live.test.ts", "status": "pass" },
+    { "criterion_id": "E25B-c10", "text": "Durable screenshots for exact share review and isolated Inspector resource preview", "mode": "ui", "test": "apps/web/tests/electron-e25b-inspector.spec.ts", "status": "pass", "reason": "Focused c5/c7 rerun 2/2 captured docs/ai/runs/artifacts/e25b/share-review.png and inspector-resource.png; deterministic rendered boundaries, not live cloud evidence." },
+    { "criterion_id": "E25B-c11", "text": "A local Electron transcript is published to and readable from the production data authority without trusting client content, with source deletion/revocation semantics", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "not_tested: agent sessions are local SQLite while current renderer sharing requests target the production API. Exact-review local behavior passes, but the cross-server publication contract remains Phase 4 platform work." }
+  ],
+  "not_tested": ["E25B-c11"]
+}

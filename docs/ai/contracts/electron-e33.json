@@ -1,0 +1,11 @@
+{
+  "issue": "E33",
+  "date": "2026-09-11",
+  "test_command": "cd apps/web && npm exec -- playwright test --config tests/post-m1-phase-7-fixture-playwright.config.ts --grep E33",
+  "criteria": [
+    { "criterion_id": "E33-c1", "text": "Open transcript refreshes on focus/cadence and stale responses cannot update another selected route", "mode": "ui", "test": "apps/web/tests/electron-e33-messages-notifications.spec.ts", "status": "PASS" },
+    { "criterion_id": "E33-c2", "text": "Notifications refresh and failed read operations roll back rather than staying hidden", "mode": "ui", "test": "apps/web/tests/electron-e33-messages-notifications.spec.ts", "status": "PASS" },
+    { "criterion_id": "E33-c3", "text": "Notification click targets the exact entity route", "mode": "ui", "test": "apps/web/tests/electron-e33-messages-notifications.spec.ts", "status": "PASS" }
+  ],
+  "not_tested": ["real two-user production", "native notification activation", "packaged Electron"]
+}

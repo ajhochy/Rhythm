@@ -1,0 +1,16 @@
+{
+  "lane": "E25A",
+  "worktree": "/Users/ajhochhalter/Documents/Rhythm-electron-flutter-retirement",
+  "branch": "feature/electron-flutter-retirement",
+  "base_head": "d3435ae1",
+  "status": "READY_FOR_VERIFICATION",
+  "contract": "docs/ai/contracts/electron-e25a.json",
+  "run": "docs/ai/runs/2026-09-11-electron-e25a.md",
+  "red": { "tests_failed": 7, "before_implementation": true },
+  "green": { "intercepted_tests": 8, "live_read_tests": 1, "web_typecheck": "pass", "diff_check": "pass" },
+  "live": { "api_port": 4098, "engine_port": 4097, "web_port": 4192, "detail_messages": 0, "rendered_messages": 0, "sse_type": "server.connected", "websocket_type": "connected", "writes": 0, "provider_prompts": 0, "sandbox_lifecycle_changed": false },
+  "gitnexus": { "risk": "low", "changed_indexed_symbols": 17, "affected_processes": 0, "limitation": "Canonical Rhythm index uses stale line attribution; reviewed exact owned diff and new files separately." },
+  "dependency": "marked@15.0.12",
+  "not_tested": ["provider-stream", "real nonempty transcript", "manual assistive technology", "packaged Electron", "E25B artifact execution/Inspector integration"],
+  "committed": false
+}

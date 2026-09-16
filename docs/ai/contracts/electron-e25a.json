@@ -1,0 +1,17 @@
+{
+  "issue": "E25A", "date": "2026-09-11",
+  "test_command": "cd apps/web && npx playwright test --config tests/electron-e25a-playwright.config.ts && RHYTHM_LIVE_E2E=1 npx playwright test --config tests/electron-e25a-playwright.config.ts",
+  "waiver": null,
+  "criteria": [
+    {"criterion_id":"E25A-c1","text":"preserve/reconcile message.updated role/cost/input/output/cache tokens","mode":"ui","test":"apps/web/tests/electron-e25a-transcript.spec.ts","status":"pass"},
+    {"criterion_id":"E25A-c2","text":"message.removed/ws error","mode":"ui","test":"apps/web/tests/electron-e25a-transcript.spec.ts","status":"pass"},
+    {"criterion_id":"E25A-c3","text":"structured tool blocks retain actual input arguments, output, metadata and error—not fabricated success","mode":"ui","test":"apps/web/tests/electron-e25a-transcript.spec.ts","status":"pass"},
+    {"criterion_id":"E25A-c4","text":"MCP tool envelopes/resources remain typed and available to E25B host","mode":"ui","test":"apps/web/tests/electron-e25a-transcript.spec.ts","status":"pass"},
+    {"criterion_id":"E25A-c5","text":"semantic safe markdown renders headings/lists/links/fenced code/tables with raw HTML disabled/sanitized and unsafe URL blocked; external link uses existing approved host capability or clear disabled copy, not window.open","mode":"ui","test":"apps/web/tests/electron-e25a-transcript.spec.ts","status":"pass"},
+    {"criterion_id":"E25A-c6","text":"Copy copies canonical rendered source/code","mode":"ui","test":"apps/web/tests/electron-e25a-transcript.spec.ts","status":"pass"},
+    {"criterion_id":"E25A-c7","text":"Streaming deltas don't duplicate full update","mode":"ui","test":"apps/web/tests/electron-e25a-transcript.spec.ts","status":"pass"},
+    {"criterion_id":"E25A-c8","text":"safe real sandbox detail/event read if available no provider prompt","mode":"live","test":"apps/web/tests/electron-e25a-live.spec.ts","status":"pass"},
+    {"criterion_id":"E25A-c9","text":"provider-stream/manual AT/packaged","mode":"manual","test":null,"status":"UNVERIFIED","reason":"Explicit dispatch not_tested: provider run, human assistive technology and packaged Electron. Real sandbox had zero messages; live nonempty transcript/message-update behavior is not proven by the safe detail/event read."}
+  ],
+  "not_tested": ["E25A-c9"]
+}

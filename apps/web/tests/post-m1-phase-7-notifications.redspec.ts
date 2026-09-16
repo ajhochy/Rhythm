@@ -9,11 +9,12 @@ const notification = {
 test('post-m1-p7-c4b: live notifications derive recipient-scoped unread badge read state and owned navigation', async ({ page }) => {
   // Regression caught: the bell always says 2 unread and Mark all read only emits a toast.
   const seen: SeenRequest[] = [];
+  let read = false;
   await openPhase7Live(page, '/agents', seen, async (route, request) => {
     const url = new URL(request.url());
-    if (url.pathname === '/notifications') return fulfillJson(route, 200, [notification]).then(() => true);
-    if (url.pathname === '/notifications/read-all') return route.fulfill({ status: 204 }).then(() => true);
-    if (url.pathname === `/notifications/${notification.id}/read`) return route.fulfill({ status: 204 }).then(() => true);
+    if (url.pathname === '/notifications') return fulfillJson(route, 200, read ? [] : [notification]).then(() => true);
+    if (url.pathname === '/notifications/read-all') { read = true; return route.fulfill({ status: 204 }).then(() => true); }
+    if (url.pathname === `/notifications/${notification.id}/read`) { read = true; return route.fulfill({ status: 204 }).then(() => true); }
     if (url.pathname === `/tasks/${notification.entityId}`) return fulfillJson(route, 200, { id: notification.entityId, ownerId: 7, title: 'Owned task' }).then(() => true);
     return false;
   });

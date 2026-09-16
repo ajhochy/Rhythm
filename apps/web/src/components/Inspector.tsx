@@ -1,11 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../icons';
 import { useGateway } from '../gateway/context';
+import { useAuthUser } from '../gateway/auth';
+import { InspectorGatewayError, readOnlyResourceDocument, sessionResources, type InspectorTodo, type MemoryProvenance, type PreparedShare, type SessionResource, type TranscriptShare } from '../gateway/inspector';
 import { SessionGatewayError, type SessionFileContent, type SessionFileEntry, type SessionFileStatusEntry } from '../gateway/sessions';
 import { useFixtures } from '../store';
 import type { FixtureFile, InspectorTab, Session } from '../types';
 import { FocusDialog } from './FocusDialog';
 import { navigate } from './Shell';
+import { Terminal } from '@xterm/xterm';
+import type { PtyGateway } from '../gateway/pty';
+import '@xterm/xterm/css/xterm.css';
+import './terminal.css';
 
 const tabs: { id: InspectorTab; label: string; icon: 'activity' | 'diff' | 'terminal' | 'file' | 'artifact' }[] = [
   { id: 'context', label: 'Context', icon: 'activity' }, { id: 'changes', label: 'Changes', icon: 'diff' }, { id: 'terminal', label: 'Terminal', icon: 'terminal' }, { id: 'files', label: 'Files', icon: 'file' }, { id: 'artifacts', label: 'Artifacts', icon: 'artifact' },
@@ -35,7 +41,7 @@ function ContextPanel() {
   const { selected, profiles, sessionGatewayMode } = useFixtures();
   const profile = profiles.find((item) => item.id === selected.profileId);
   const total = selected.inputTokens + selected.outputTokens + selected.cachedTokens;
-  const pct = Math.min(100, Math.round((total / selected.totalBudget) * 100));
+  const pct = selected.totalBudget > 0 ? Math.min(100, Math.round((total / selected.totalBudget) * 100)) : 0;
   return <section className="inspector-panel" aria-label="Session context" data-testid="context-panel">
     <div className="context-path"><Icon name="worktree" /><div><strong>{selected.cwd}</strong><small>{selected.isolateWorktree ? 'Isolated worktree' : 'Project workspace'} · {selected.dirtyCount} changed</small></div></div>
     <div className="token-gauge" aria-label={`${pct}% of context budget used`}><div><strong>{total.toLocaleString()}</strong><small>of {selected.totalBudget.toLocaleString()} tokens</small></div><span><i style={{ width: `${pct}%` }} /></span><em>{pct}%</em></div>
@@ -43,8 +49,147 @@ function ContextPanel() {
       {/* post-m1-phase-6 c3b: the resolved isolated-worktree branch — never defaulted to 'main'. */}
       {selected.worktreeBranch && <div><dt>Worktree branch</dt><dd>{selected.worktreeBranch}</dd></div>}
     </dl>
-    <div className="memory-provenance"><h3>Memory provenance</h3><p>Project memory · services/run-sheet.md</p><p>Session summary · fixed fixture clock</p><p>Profile prompt · {selected.profileId}</p></div>
+    {sessionGatewayMode === 'live' ? <><LiveProvenance sessionId={selected.id} /><SharePanel sessionId={selected.id} /></> : <div className="memory-provenance"><h3>Memory provenance</h3><p>Project memory · services/run-sheet.md</p><p>Session summary · fixed fixture clock</p><p>Profile prompt · {selected.profileId}</p></div>}
     <RunFeedback sessionId={selected.id} hidden={sessionGatewayMode !== 'live' || Boolean(selected.parentSessionId)} />
+  </section>;
+}
+
+function LiveProvenance({ sessionId }: { sessionId: string }) {
+  const api = useGateway().domains.inspector;
+  const [data, setData] = useState<MemoryProvenance | null>(null);
+  const [error, setError] = useState(false);
+  const [revision, refresh] = useState(0);
+  useEffect(() => { let active = true; setError(false); setData(null);
+    api?.provenance(sessionId).then(value => { if (active) setData(value); }).catch(() => { if (active) setError(true); });
+    return () => { active = false; };
+  }, [api, sessionId, revision]);
+  return <section className="memory-provenance"><h3>Memory provenance</h3>
+    {!api || error ? <p role="alert">Memory provenance unavailable.</p> : !data ? <p role="status">Loading provenance…</p> : !data.recorded ? <p>No provenance recorded yet.</p> : <>
+      {data.memoryIds.length === 0 && <p>No memories used in the latest turn.</p>}
+      {data.memoryIds.map(id => <p key={id}>Memory · {id}</p>)}
+      {data.notePaths.map(path => <p key={path}>{path}</p>)}
+      {data.items.length > 0 && <details><summary>Injection details</summary><pre>{JSON.stringify(data.items, null, 2)}</pre></details>}
+    </>}
+    <button type="button" className="text-button" onClick={() => refresh(value => value + 1)}>Refresh provenance</button>
+  </section>;
+}
+
+function LiveTodos({ sessionId }: { sessionId: string }) {
+  const api = useGateway().domains.inspector;
+  const [todos, setTodos] = useState<InspectorTodo[] | null>(null);
+  const [error, setError] = useState(false); const [collapsed, setCollapsed] = useState(false);
+  const [revision, refresh] = useState(0);
+  useEffect(() => { let active = true; setError(false); setTodos(null);
+    api?.todos(sessionId).then(value => { if (active) setTodos(value); }).catch(() => { if (active) setError(true); });
+    return () => { active = false; };
+  }, [api, sessionId, revision]);
+  return <footer className={`todo-footer ${collapsed ? 'collapsed' : ''}`}>
+    <button className="todo-title" type="button" aria-expanded={!collapsed} onClick={() => setCollapsed(value => !value)}><strong>Session plan</strong><small>{todos ? `${todos.filter(todo => todo.status === 'completed').length}/${todos.length}` : '—'}</small></button>
+    {!collapsed && <div>{!api || error ? <p role="alert">Session plan unavailable.</p> : !todos ? <p role="status">Loading plan…</p> : todos.length === 0 ? <p>No session plan yet.</p> : todos.map(todo => <label key={todo.id}><input type="checkbox" readOnly disabled checked={todo.status === 'completed'} /><span>{todo.content} · {todo.status} · {todo.priority}</span></label>)}
+      <button className="text-button" type="button" onClick={() => refresh(value => value + 1)}>Refresh plan</button></div>}
+  </footer>;
+}
+
+function SharePanel({ sessionId }: { sessionId: string }) {
+  const api = useGateway().domains.inspector; const actor = useAuthUser()?.user;
+  const [prepared, setPrepared] = useState<PreparedShare | null>(null);
+  const [members, setMembers] = useState<Array<{ userId: number; name: string }>>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]); const [recipients, setRecipients] = useState<number[]>([]);
+  const [shares, setShares] = useState<TranscriptShare[]>([]); const [view, setView] = useState<TranscriptShare | null>(null);
+  const [error, setError] = useState(''); const [listError, setListError] = useState(''); const [busy, setBusy] = useState(false);
+  const sequence = useRef(0);
+  const refresh = async () => { if (!api) return; try { const values = await api.shares(); setShares(values.filter(share => share.sourceSessionId === null || share.sourceSessionId === sessionId)); setListError(''); } catch { setListError('Share list unavailable.'); } };
+  useEffect(() => { void refresh(); return () => { sequence.current += 1; }; }, [api, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const review = async () => {
+    if (!api || busy) return; const current = ++sequence.current;
+    setBusy(true); setError(''); setPrepared(null); setRecipients([]); setMembers([]);
+    try {
+      const data = await api.review(sessionId);
+      if (current !== sequence.current) return;
+      // /me/members cannot prove eligibility for an admin reviewing another owner's source.
+      if (!actor || data.sourceOwnerUserId !== actor.id) throw new Error('owner-directory-unavailable');
+      const values = await api.recipients();
+      if (current !== sequence.current) return;
+      setMembers(values.filter(member => member.userId !== actor.id));
+      setPrepared(data); setSelectedIds(data.snapshot.items.map(item => item.id));
+    } catch { if (current === sequence.current) setError('Share review unavailable. An authorized source-owner workspace directory is required.'); }
+    finally { if (current === sequence.current) setBusy(false); }
+  };
+  const create = async () => {
+    if (!api || !prepared || busy || !recipients.length) return;
+    setBusy(true); setError('');
+    try {
+      await api.createShare(sessionId, { reviewHash: prepared.reviewHash,
+        review: { items: prepared.inclusiveSnapshot.items.filter(item => selectedIds.includes(item.id)) },
+        explicitlyIncludedItemIds: selectedIds.filter(id => !prepared.snapshot.items.some(item => item.id === id)), recipientUserIds: recipients });
+      setPrepared(null); await refresh();
+    } catch (failure) {
+      if (failure instanceof InspectorGatewayError && failure.status === 409) { setPrepared(null); setRecipients([]); setError('Transcript changed. Review again before sharing.'); }
+      else setError('Share creation unavailable. No success confirmed.');
+    } finally { setBusy(false); }
+  };
+  const revoke = async (id: string) => { if (!api || busy) return; setBusy(true); setError(''); try { await api.revoke(id); await refresh(); } catch { setError('Share revoke unavailable.'); } finally { setBusy(false); } };
+  const read = async (id: string) => { if (!api) return; setError(''); try { setView(await api.share(id)); } catch { setError('Shared snapshot unavailable.'); } };
+  return <section className="memory-provenance" aria-label="Transcript sharing"><h3>Transcript sharing</h3>
+    <p>Immutable snapshot · named recipients only. Sensitive items are excluded unless explicitly included; secrets remain redacted.</p>
+    <p>Shared copies remain available until revoked or expired (at most 30 days), even if the local session is deleted. Detached copies from all sessions appear here.</p>
+    <button type="button" className="secondary-button" disabled={!api || busy} onClick={() => void review()}>Review transcript share</button>
+    <button type="button" className="text-button" disabled={busy} onClick={() => void refresh()}>Refresh shares</button>
+    {error && <p role="alert">{error}</p>}{listError && <p role="alert">{listError}</p>}
+    {shares.length === 0 && !listError && <p>No shared snapshots for this session.</p>}
+    {shares.map(share => <article key={share.id} data-testid={`share-${share.id}`}><code>{share.id}</code><p>Recipients: {share.recipientUserIds.join(', ')} · Expires {share.expiresAt}</p>
+      {share.revokedAt ? <p>Revoked</p> : new Date(share.expiresAt).getTime() <= Date.now() ? <p>Expired</p> : <><button type="button" onClick={() => void read(share.id)}>View snapshot</button>{share.ownerUserId === actor?.id && <button type="button" disabled={busy} onClick={() => void revoke(share.id)}>Revoke</button>}</>}
+    </article>)}
+    <FocusDialog open={Boolean(prepared)} title="Share reviewed transcript" description="Only checked content below will be published. This preview is sanitized by the server." testId="transcript-share-review" onClose={() => { if (!busy) { sequence.current += 1; setPrepared(null); } }} wide>
+      {prepared && <><fieldset disabled={busy}><legend>Exact snapshot selection</legend>
+        {prepared.inclusiveSnapshot.items.map(item => <div key={item.id}><label><input type="checkbox" aria-label={`Include ${item.id}`} checked={selectedIds.includes(item.id)} onChange={event => setSelectedIds(ids => event.target.checked ? [...ids, item.id] : ids.filter(id => id !== item.id))} />{item.id} · {item.category}</label><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(item.content, null, 2)}</pre></div>)}
+      </fieldset><fieldset disabled={busy}><legend>Named recipients</legend>{members.length === 0 && <p>No eligible recipients available.</p>}{members.map(member => <label key={member.userId}><input type="checkbox" checked={recipients.includes(member.userId)} onChange={event => setRecipients(ids => event.target.checked ? [...ids, member.userId] : ids.filter(id => id !== member.userId))} />{member.name}</label>)}</fieldset>
+      {error && <p role="alert">{error}</p>}
+      <button className="primary-button" type="button" disabled={busy || !recipients.length || !selectedIds.length} onClick={() => void create()}>Create immutable share</button></>}
+    </FocusDialog>
+    <FocusDialog open={Boolean(view)} title="Shared snapshot" testId="transcript-share-snapshot" onClose={() => setView(null)} wide><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(view?.snapshot, null, 2)}</pre><button type="button" onClick={() => setView(null)}>Close</button></FocusDialog>
+  </section>;
+}
+
+function LiveResources({ sessionId }: { sessionId: string }) {
+  const gateway = useGateway(); const api = gateway.domains.inspector;
+  const [resources, setResources] = useState<SessionResource[]>([]); const [cursor, setCursor] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false); const [error, setError] = useState('');
+  const [preview, setPreview] = useState<{ title: string; text: string } | null>(null);
+  const sequence = useRef(0);
+  const load = async (before?: number) => {
+    if (!api) return; setLoading(true); setError('');
+    try { const page = await api.messages(sessionId, before); const found = sessionResources(page.messages);
+      setResources(previous => [...new Map([...(before ? previous : []), ...found].map(resource => [`${resource.kind}:${resource.id}`, resource])).values()]);
+      setCursor(page.pageInfo?.hasMore ? page.pageInfo.nextCursor : null);
+    } catch { setError('Resource history unavailable. Retry to load this page.'); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { void load(); return () => { sequence.current += 1; }; }, [api, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const open = async (resource: SessionResource) => {
+    const current = ++sequence.current; setPreview(null); setError('');
+    try {
+      let text: string; let title: string;
+      if (resource.kind === 'mcp') {
+        if (!api) throw new Error(); const result = await api.resource(sessionId, resource.id);
+        if (!result.mimeType.startsWith('text/html') || typeof result.text !== 'string') throw new Error();
+        text = result.text; title = `MCP resource ${resource.id}`;
+      } else {
+        const artifacts = gateway.domains.liveArtifacts; if (!artifacts) throw new Error();
+        const item = await artifacts.get(resource.id); text = await artifacts.render(resource.id); title = item.title;
+      }
+      if (current === sequence.current) setPreview({ title, text: readOnlyResourceDocument(text) });
+    } catch { if (current === sequence.current) setError('Resource unavailable. It may be forbidden, deleted, or no longer provided.'); }
+  };
+  return <section className="inspector-panel artifacts-panel" aria-label="Session artifacts" data-testid="artifacts-panel">
+    <h3>Session resources</h3><p>Read-only previews. Interactive MCP actions are unavailable here.</p>
+    <button className="text-button" type="button" disabled={loading} onClick={() => void load()}>Refresh resources</button>
+    {error && <p role="alert">{error}</p>}{loading && <p role="status">Loading resource history…</p>}
+    {!resources.length && !loading && !error && <p>No resources found in loaded history.</p>}
+    {resources.map(resource => <button className="secondary-button" type="button" key={`${resource.kind}:${resource.id}`} onClick={() => void open(resource)}>Open {resource.kind === 'mcp' ? 'MCP resource' : 'artifact'} {resource.id}</button>)}
+    {cursor && <button type="button" disabled={loading} onClick={() => void load(cursor)}>Load earlier resources</button>}
+    {preview && <div className="artifact-preview"><iframe title={preview.title} sandbox="" referrerPolicy="no-referrer" srcDoc={preview.text} /></div>}
+    <button className="text-button" type="button" onClick={() => navigate('/dashboard')}>Open Dashboard</button>
   </section>;
 }
 
@@ -106,7 +251,7 @@ function terminalResult(command: string) {
   return results[command] ?? `fixture: ${command} completed`;
 }
 
-function TerminalPanel({ pty, updatePty, trace, setTrace, live }: { pty: PtyFixture; updatePty(next: PtyFixture): void; trace: InspectorTrace | null; setTrace(trace: InspectorTrace): void; live: boolean }) {
+function TerminalPanel({ pty, updatePty, trace, setTrace, live, terminals }: { pty: PtyFixture; updatePty(next: PtyFixture): void; trace: InspectorTrace | null; setTrace(trace: InspectorTrace): void; live: boolean; terminals: Map<string, LocalTerminal> }) {
   const { selected, notify } = useFixtures();
   const [command, setCommand] = useState('git status --short');
   const runCommand = () => {
@@ -130,14 +275,131 @@ function TerminalPanel({ pty, updatePty, trace, setTrace, live }: { pty: PtyFixt
     updatePty({ id: nextId, status: 'connected', output: ['$ pwd', selected.cwd] });
     setTrace({ method: 'POST', route: `/agent-sessions/${selected.id}/pty` });
   };
+  if (live) return <LocalTerminalPanel key={selected.id} sessionId={selected.id} terminals={terminals} />;
   return <section className="inspector-panel terminal-panel" aria-label="Session terminal" data-testid="terminal-panel">
-    <header><span><span className={`status-dot ${live ? 'offline' : pty.status === 'connected' ? 'working' : pty.status === 'connecting' ? 'retrying' : 'offline'}`} />{live ? 'Not yet live' : `PTY · ${pty.status}`}</span>{live && <span className="kind-badge">Fixture</span>}</header>
+    <header><span><span className={`status-dot ${pty.status === 'connected' ? 'working' : pty.status === 'connecting' ? 'retrying' : 'offline'}`} />PTY · {pty.status}</span><span className="kind-badge">Fixture</span></header>
     <pre aria-live="polite" data-testid="terminal-output">{pty.output.join('\n')}</pre>
     {pty.status === 'connected' && <><form onSubmit={(event) => { event.preventDefault(); runCommand(); }}><label><span aria-hidden="true">$</span><input value={command} onChange={(event) => setCommand(event.target.value)} aria-label="Terminal command" placeholder="Enter terminal command" data-testid="terminal-input" /></label><button className="primary-button" type="submit" data-testid="terminal-run">Run</button></form><div className="command-chips"><button type="button" onClick={() => setCommand('pwd')}>pwd</button><button type="button" onClick={() => setCommand('git status --short')}>git status</button><button type="button" onClick={() => setCommand('npm test')}>npm test</button><button type="button" onClick={() => setCommand('exit')}>exit</button></div></>}
     {pty.status === 'exited' && <div className="terminal-recovery"><p>[process exited]</p><button className="secondary-button" type="button" onClick={openTerminal} data-testid="terminal-new">New terminal</button></div>}
     {pty.status === 'error' && <div className="terminal-recovery"><p>Terminal connection failed.</p><button className="secondary-button" type="button" onClick={() => { updatePty({ ...pty, status: 'connected' }); setTrace({ method: 'WS', route: `/ws/pty/${pty.id}` }); }} data-testid="terminal-retry">Retry</button></div>}
     {pty.status === 'connecting' && <p className="inspector-state" aria-live="polite">Connecting to terminal…</p>}
     <Trace trace={trace} />
+  </section>;
+}
+
+// Inspector owns these resources; tab/collapse/session navigation only detaches their DOM.
+// ponytail: one bounded xterm scrollback per opened session; explicit Close releases it.
+class LocalTerminal {
+  readonly terminal = new Terminal({ fontSize: 13, fontFamily: 'monospace', scrollback: 2000, screenReaderMode: true, disableStdin: true, theme: { background: '#111318', foreground: '#e4e6eb' } });
+  readonly mount = document.createElement('div');
+  readonly listeners = new Set<() => void>();
+  status: 'connecting' | 'connected' | 'exited' | 'error' | 'closed' = 'connecting';
+  error = '';
+  private id = '';
+  private socket?: WebSocket;
+  private disposed = false;
+  private ready: Promise<void>;
+  private resizeQueue = Promise.resolve();
+  private lastSize = '';
+  constructor(private gateway: PtyGateway, sessionId: string) {
+    this.mount.className = 'terminal-mount';
+    this.terminal.onData((data) => { if (this.status === 'connected' && this.socket?.readyState === WebSocket.OPEN) this.socket.send(data); });
+    this.ready = this.start(sessionId);
+  }
+  private notify() { for (const listener of this.listeners) listener(); }
+  private async start(sessionId: string) {
+    try {
+      this.id = await this.gateway.create(sessionId);
+      if (this.disposed) return;
+      const socket = this.socket = this.gateway.connect(this.id);
+      socket.onmessage = (event) => {
+        if (this.disposed || typeof event.data !== 'string') return;
+        // First output proves the API proxy has attached the engine (upgrade alone does not).
+        this.status = 'connected'; this.terminal.options.disableStdin = false;
+        this.terminal.write(event.data); this.fit(); this.notify();
+      };
+      socket.onerror = () => { if (!this.disposed) { this.status = 'error'; this.error = 'Terminal connection failed'; this.notify(); } };
+      socket.onclose = (event) => {
+        if (this.disposed) return;
+        this.status = event.code === 1000 || event.code === 1005 ? 'exited' : 'error';
+        if (this.status === 'error') this.error = 'Terminal connection lost';
+        this.terminal.options.disableStdin = true; this.notify();
+      };
+    } catch (error) {
+      if (!this.disposed) { this.status = 'error'; this.error = error instanceof Error ? error.message : 'Terminal failed'; this.notify(); }
+    }
+  }
+  attach(host: HTMLElement) {
+    host.append(this.mount);
+    if (!this.terminal.element) {
+      this.terminal.open(this.mount);
+      const probe = document.createElement('span'); probe.className = 'terminal-size-probe'; probe.textContent = 'W'; this.mount.append(probe);
+    }
+    this.fit(); this.terminal.focus();
+  }
+  fit = () => {
+    if (this.disposed || !this.mount.isConnected) return;
+    const bounds = this.mount.getBoundingClientRect();
+    const cell = this.mount.querySelector('.terminal-size-probe')?.getBoundingClientRect();
+    if (!cell?.width || !cell.height || !bounds.width || !bounds.height) return;
+    const cols = Math.max(2, Math.min(500, Math.floor((bounds.width - 16) / cell.width)));
+    const rows = Math.max(2, Math.min(200, Math.floor(bounds.height / Math.ceil(cell.height))));
+    this.terminal.resize(cols, rows);
+    const size = `${cols}:${rows}`;
+    if (!this.id || this.status !== 'connected' || this.lastSize === size) return;
+    this.lastSize = size;
+    this.resizeQueue = this.resizeQueue.then(async () => { if (!this.disposed) await this.gateway.resize(this.id, cols, rows); }).catch((error) => {
+      if (!this.disposed) { this.lastSize = ''; this.error = error instanceof Error ? error.message : 'Terminal resize failed'; this.notify(); }
+    });
+  };
+  async close() {
+    this.disposed = true;
+    if (this.socket) { this.socket.onmessage = null; this.socket.onerror = null; this.socket.onclose = null; this.socket.close(); this.socket = undefined; }
+    this.terminal.dispose(); this.mount.remove();
+    await this.ready; await this.resizeQueue;
+    if (this.id) { await this.gateway.remove(this.id); this.id = ''; }
+    this.status = 'closed'; this.error = ''; this.notify();
+  }
+}
+
+function LocalTerminalPanel({ sessionId, terminals }: { sessionId: string; terminals: Map<string, LocalTerminal> }) {
+  const gateway = useGateway().domains.pty;
+  const host = useRef<HTMLDivElement>(null);
+  const [, redraw] = useState(0);
+  const [generation, setGeneration] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState('');
+  useEffect(() => {
+    if (!gateway || !host.current) return;
+    let resource = terminals.get(sessionId);
+    if (!resource) { resource = new LocalTerminal(gateway, sessionId); terminals.set(sessionId, resource); }
+    const refresh = () => redraw((value) => value + 1);
+    resource.listeners.add(refresh);
+    if (resource.status !== 'closed') resource.attach(host.current);
+    const observer = new ResizeObserver(resource.fit); observer.observe(host.current);
+    refresh();
+    return () => { observer.disconnect(); resource.listeners.delete(refresh); resource.mount.remove(); };
+  }, [gateway, sessionId, terminals, generation]);
+  const resource = terminals.get(sessionId);
+  const change = async (restart: boolean) => {
+    setBusy(true); setActionError('');
+    try {
+      await resource?.close();
+      if (restart) { terminals.delete(sessionId); setGeneration((value) => value + 1); }
+    } catch (error) { setActionError(error instanceof Error ? error.message : 'Terminal cleanup failed'); }
+    finally { setBusy(false); }
+  };
+  if (!gateway) return <section className="inspector-panel" role="status">Local terminal unavailable.</section>;
+  const status = resource?.status ?? 'connecting';
+  return <section className="inspector-panel terminal-panel local-pty" aria-label="Session terminal" data-testid="terminal-panel">
+    <header><span role="status">Local PTY · {status}</span></header>
+    {(actionError || resource?.error) && <p role="alert">{actionError || resource?.error}</p>}
+    <div className="terminal-host" ref={host} data-testid="terminal-output" />
+    <div className="terminal-controls">
+      {(status === 'error' || actionError || resource?.error) && <button type="button" className="secondary-button" disabled={busy} onClick={() => void change(true)} data-testid="terminal-retry">Retry</button>}
+      {(status === 'exited' || status === 'closed') && <button type="button" className="secondary-button" disabled={busy} onClick={() => void change(true)} data-testid="terminal-new">New terminal</button>}
+      {status !== 'closed' && <button type="button" className="secondary-button" disabled={busy} onClick={() => void change(false)} data-testid="terminal-close">Close terminal</button>}
+    </div>
   </section>;
 }
 
@@ -255,7 +517,7 @@ function LiveFilesPanel() {
 // post-m1-phase-6 c2c-c3e: live Changes panel — session diff, VCS git/branch diff, raw-patch
 // export, revert/restore, and worktree reset/remove, all against the real session boundary.
 function LiveChangesPanel() {
-  const { selected, notify } = useFixtures();
+  const { selected, notify, revertSession, unrevertSession } = useFixtures();
   const gateway = useGateway();
   const sessions = gateway.domains.sessions!;
   const [scope, setScope] = useState<'session' | 'git' | 'branch'>('session');
@@ -305,8 +567,8 @@ function LiveChangesPanel() {
     const boundedError = (fallback: string) => (err: unknown) => setError(err instanceof SessionGatewayError ? err.message : fallback);
     if (action === 'reset') sessions.resetWorktree(selected.id).then(() => notify('Worktree changes reset')).catch(boundedError('Worktree reset failed'));
     if (action === 'remove') sessions.removeWorktreeSession(selected.id).then(() => notify('Worktree removed')).catch(boundedError('Worktree removal failed'));
-    if (action === 'revert' && firstUserMessage) sessions.revert(selected.id, firstUserMessage.id).then(() => { notify('History reverted'); loadSessionDiff(); }).catch(boundedError('Revert failed'));
-    if (action === 'restore') sessions.unrevert(selected.id).then(() => { notify('Reverted history restored'); loadSessionDiff(); }).catch(boundedError('Restore failed'));
+    if (action === 'revert' && firstUserMessage) void revertSession(selected.id, firstUserMessage.id).then(ok => { if (ok) loadSessionDiff(); else setError('Revert failed; see session operation error'); });
+    if (action === 'restore') void unrevertSession(selected.id).then(ok => { if (ok) loadSessionDiff(); else setError('Restore failed; see session operation error'); });
   };
 
   const entries = scope === 'session' ? sessionEntries : vcsEntries;
@@ -364,6 +626,10 @@ function ArtifactsPanel({ trace, setTrace }: { trace: InspectorTrace | null; set
 
 export function Inspector({ collapsed, onToggle }: { collapsed: boolean; onToggle(): void }) {
   const { inspectorTab, setInspectorTab, todos, selected, sessionGatewayMode } = useFixtures();
+  const actorId = useAuthUser()?.user.id;
+  const identityKey = `${actorId ?? 'anonymous'}:${selected.id}`;
+  const terminals = useRef(new Map<string, LocalTerminal>()).current;
+  useEffect(() => () => { for (const terminal of terminals.values()) void terminal.close().catch((error) => console.warn('Terminal cleanup failed', error)); terminals.clear(); }, [terminals]);
   const [trace, setTrace] = useState<InspectorTrace | null>(null);
   const [ptySessions, setPtySessions] = useState<Record<string, PtyFixture>>({});
   const [collapsedTodos, setCollapsedTodos] = useState<Record<string, boolean>>({});
@@ -379,7 +645,7 @@ export function Inspector({ collapsed, onToggle }: { collapsed: boolean; onToggl
   const pty = ptySessions[selected.id] ?? { id: `pty-${selected.id}`, status: 'connected' as const, output: ['$ pwd', selected.cwd] };
   const updatePty = (next: PtyFixture) => setPtySessions((current) => ({ ...current, [selected.id]: next }));
   const live = sessionGatewayMode === 'live';
-  const panel = inspectorTab === 'context' ? <ContextPanel /> : inspectorTab === 'changes' ? (live ? <LiveChangesPanel /> : <ChangesPanel trace={trace} setTrace={setTrace} />) : inspectorTab === 'terminal' ? <TerminalPanel pty={pty} updatePty={updatePty} trace={trace} setTrace={setTrace} live={live} /> : inspectorTab === 'files' ? (live ? <LiveFilesPanel /> : <FilesPanel trace={trace} setTrace={setTrace} />) : <ArtifactsPanel trace={trace} setTrace={setTrace} />;
+  const panel = inspectorTab === 'context' ? <ContextPanel key={identityKey} /> : inspectorTab === 'changes' ? (live ? <LiveChangesPanel /> : <ChangesPanel trace={trace} setTrace={setTrace} />) : inspectorTab === 'terminal' ? <TerminalPanel pty={pty} updatePty={updatePty} trace={trace} setTrace={setTrace} live={live} terminals={terminals} /> : inspectorTab === 'files' ? (live ? <LiveFilesPanel /> : <FilesPanel trace={trace} setTrace={setTrace} />) : live ? <LiveResources key={identityKey} sessionId={selected.id} /> : <ArtifactsPanel trace={trace} setTrace={setTrace} />;
   const moveTab = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
     event.preventDefault();
@@ -389,5 +655,10 @@ export function Inspector({ collapsed, onToggle }: { collapsed: boolean; onToggl
     requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-testid="inspector-${next}"]`)?.focus());
   };
   const todosCollapsed = Boolean(collapsedTodos[selected.id]);
-  return <aside className="inspector" aria-label="Session inspector" data-od-id="session-inspector"><header className="inspector-header"><div role="tablist" aria-label="Inspector views" onKeyDown={moveTab}>{tabs.map((tab) => <button role="tab" aria-selected={inspectorTab === tab.id} tabIndex={inspectorTab === tab.id ? 0 : -1} type="button" key={tab.id} onClick={() => { setInspectorTab(tab.id); setTrace(null); }} data-testid={`inspector-${tab.id}`}><Icon name={tab.icon} size={15} /><span>{tab.label}</span></button>)}</div><button ref={collapseControl} className="icon-button small" type="button" onClick={onToggle} aria-label="Collapse Inspector" data-testid="inspector-collapse"><Icon name="collapse" size={16} /></button></header><div className="inspector-content" role="region" aria-label={`${tabs.find((tab) => tab.id === inspectorTab)?.label ?? 'Session'} inspector content`} tabIndex={0} data-testid="inspector-content">{panel}</div><footer className={`todo-footer ${todosCollapsed ? 'collapsed' : ''}`}><button className="todo-title" type="button" onClick={() => setCollapsedTodos((current) => ({ ...current, [selected.id]: !current[selected.id] }))} aria-expanded={!todosCollapsed} data-testid="todo-toggle"><span><Icon name="todo" size={15} /><strong>Session plan</strong></span><small>{todos.filter((todo) => todo.done).length}/{todos.length}</small></button>{!todosCollapsed && <div>{todos.map((todo) => <label key={todo.id}><input type="checkbox" checked={todo.done} disabled readOnly data-testid={`todo-${todo.id}`} /><span>{todo.label}</span></label>)}</div>}</footer></aside>;
+  return <aside className="inspector" aria-label="Session inspector" data-od-id="session-inspector">
+    <header className="inspector-header"><div role="tablist" aria-label="Inspector views" onKeyDown={moveTab}>{tabs.map((tab) => <button role="tab" aria-selected={inspectorTab === tab.id} tabIndex={inspectorTab === tab.id ? 0 : -1} type="button" key={tab.id} onClick={() => { setInspectorTab(tab.id); setTrace(null); }} data-testid={`inspector-${tab.id}`}><Icon name={tab.icon} size={15} /><span>{tab.label}</span></button>)}</div><button ref={collapseControl} className="icon-button small" type="button" onClick={onToggle} aria-label="Collapse Inspector" data-testid="inspector-collapse"><Icon name="collapse" size={16} /></button></header>
+    {/* ponytail: gate mounting, not just requests, so every session panel drops stale state. */}
+    <div className="inspector-content" role="region" aria-label={`${tabs.find((tab) => tab.id === inspectorTab)?.label ?? 'Session'} inspector content`} tabIndex={0} data-testid="inspector-content">{selected.id ? panel : <p className="inspector-empty" role="status">Select a session to inspect its details.</p>}</div>
+    {selected.id && (live ? <LiveTodos key={identityKey} sessionId={selected.id} /> : <footer className={`todo-footer ${todosCollapsed ? 'collapsed' : ''}`}><button className="todo-title" type="button" onClick={() => setCollapsedTodos((current) => ({ ...current, [selected.id]: !current[selected.id] }))} aria-expanded={!todosCollapsed} data-testid="todo-toggle"><span><Icon name="todo" size={15} /><strong>Session plan</strong></span><small>{todos.filter((todo) => todo.done).length}/{todos.length}</small></button>{!todosCollapsed && <div>{todos.map((todo) => <label key={todo.id}><input type="checkbox" checked={todo.done} disabled readOnly data-testid={`todo-${todo.id}`} /><span>{todo.label}</span></label>)}</div>}</footer>)}
+  </aside>;
 }

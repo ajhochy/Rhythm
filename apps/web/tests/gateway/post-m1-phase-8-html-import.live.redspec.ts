@@ -1,5 +1,10 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 
+test.beforeEach(async ({ page }) => {
+  await page.routeWebSocket('**/*', socket => socket.close());
+  await page.route('**/*', route => new URL(route.request().url()).origin === 'http://127.0.0.1:4178' ? route.continue() : route.abort());
+});
+
 const importedId = '00000000-0000-4000-8000-000000000822';
 const existingArtifact = {
   id: '00000000-0000-4000-8000-000000000821', type: 'html', title: 'Existing artifact', ownerUserId: 81,
@@ -31,6 +36,7 @@ test('post-m1-p8-c5b: confirmed import creates one canonical private artifact, t
     const url = new URL(request.url());
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
     if (url.pathname === '/health') return route.fulfill({ status: 200, headers: cors, json: { healthy: true } });
+    if (url.pathname === '/workspaces/me' && request.method() === 'GET') return route.fulfill({ status: 200, headers: cors, json: { id: 8 } });
     if (url.pathname === '/live-artifacts' && request.method() === 'GET') return route.fulfill({ status: 200, headers: cors, json: [existingArtifact] });
     if (url.pathname === '/live-artifacts' && request.method() === 'POST') {
       artifactCount += 1;

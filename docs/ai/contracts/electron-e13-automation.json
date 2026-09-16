@@ -1,0 +1,16 @@
+{
+  "issue": "E13",
+  "date": "2026-09-11",
+  "test_command": "(cd apps/api_server && npx vitest run src/__tests__/electron_e13_automation.test.ts) && (cd apps/web && npx playwright test --config tests/gateway/electron-e13-automation.config.ts)",
+  "waiver": "WAIVED: screenshots are not evidence for this non-visual payload-preservation correction; focused renderer assertions verify exact outgoing state.",
+  "criteria": [
+    { "criterion_id": "e13-c1", "text": "edit only name and assert enabled remains false and every untouched config survives exact readback", "mode": "integration", "test": "apps/api_server/src/__tests__/electron_e13_automation.test.ts", "status": "pass" },
+    { "criterion_id": "e13-c2", "text": "enable-only mutation preserves configs", "mode": "integration", "test": "apps/api_server/src/__tests__/electron_e13_automation.test.ts", "status": "pass" },
+    { "criterion_id": "e13-c3", "text": "explicit supported clear differs from omitted", "mode": "integration", "test": "apps/api_server/src/__tests__/electron_e13_automation.test.ts", "status": "pass" },
+    { "criterion_id": "e13-c4", "text": "Renderer payload must preserve canonical rule state rather than reconstruct four fields or force true", "mode": "ui", "test": "apps/web/tests/gateway/electron-e13-automation.spec.ts", "status": "pass" },
+    { "criterion_id": "e13-live", "text": "Real behavior check at Phase1 checkpoint", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "not_tested: manager-owned running API predates repository fix; no restart allowed. Permitted controller/SQLite readback and renderer request boundary checks passed. Manager smoke target: disposable disabled rule, rename via both editors, enable-only PATCH, explicit null clear, fresh GET after each." },
+    { "criterion_id": "e13-postgres", "text": "PostgreSQL runtime verification", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "not_tested: no disposable PostgreSQL fixture supplied; run the same omitted-versus-null readback matrix against disposable PostgreSQL during verification." },
+    { "criterion_id": "e13-electron", "text": "Packaged Electron UI smoke", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "not_tested: focused browser renderer only. Manual target: disabled rule rename and title clear in packaged Electron, inspect fresh config readback." }
+  ],
+  "not_tested": ["e13-live", "e13-postgres", "e13-electron"]
+}
