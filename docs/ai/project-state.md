@@ -41,4 +41,4 @@ AJ's manual smoke of the three merged features, plus fixing the desktop release:
 
 ## Next step
 
-Relay crash loop resolved (#1504 deployed, `rhythm-relay` on Node 24.18.1, zero restarts since 22:21Z). New: fix [#1506](https://github.com/ajhochy/Rhythm/issues/1506) in the mobile client (session-scoped or auto-clearing prompt error, summarized non-JSON error bodies, height-capped card, one retry on 5xx for bootstrap GETs) before the Xcode TestFlight build (on hold per AJ; prepared checkout at `/private/tmp/rhythm-ios-testflight`). Then: iOS send/reconnect/VoiceOver passes; manual smoke of #1495 and #1492; event-loop stalls (#1503); better-sqlite3 13 upgrade (#1505).
+#1506 is fixed on PR #1507 (CI green, Simulator stability demo PASS on build 2026091601, not merged). AJ: run the TestFlight archive+upload script from the fix checkout, then review/merge #1507. Then: iOS send/reconnect/VoiceOver passes; manual smoke of #1495 and #1492; event-loop stalls (#1503); better-sqlite3 13 upgrade (#1505).
