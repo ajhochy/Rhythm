@@ -21,7 +21,7 @@ test('issue-2009-c1: integrations routes render the real page and section deep l
 
   await openPage(page, 'integrations/import');
   await expectIntegrationsPage(page);
-  await expect(page.getByTestId('ai-import-dialog')).toHaveAttribute('role', 'dialog');
+  await expect(page.getByRole('dialog').filter({ has: page.getByTestId('ai-import-dialog') })).toBeVisible();
 
   await openPage(page, 'integrations/not-a-section');
   await expectIntegrationsPage(page);
@@ -136,13 +136,13 @@ test('issue-2009-c6: page dialogs and fixture handoff are accessible', async ({ 
 
   await page.getByTestId('open-ai-import').click();
   let dialog = page.getByTestId('ai-import-dialog');
-  await expect(dialog).toHaveAttribute('aria-modal', 'true');
+  await expect(page.locator('dialog:modal').filter({ has: dialog })).toBeVisible();
   result = await new AxeBuilder({ page }).analyze();
   expect(result.violations.filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')).toEqual([]);
   await page.keyboard.press('Escape');
 
   await page.getByTestId('planning-center-reconnect').click();
-  await expect(page.getByTestId('oauth-fixture-handoff')).toHaveAttribute('aria-modal', 'true');
+  await expect(page.locator('dialog:modal').filter({ has: page.getByTestId('oauth-fixture-handoff') })).toBeVisible();
   result = await new AxeBuilder({ page }).analyze();
   expect(result.violations.filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')).toEqual([]);
 });

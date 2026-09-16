@@ -20,12 +20,8 @@ const isDevelopmentVariant = appVariant === 'development';
 const isE2EMode = env('EXPO_PUBLIC_E2E_MODE') === '1';
 const allowLocalHttp = isDevelopmentVariant || isE2EMode;
 const e2eServerUrl = env('EXPO_PUBLIC_E2E_SERVER_URL');
-const googleMobileClientId = env('EXPO_PUBLIC_GOOGLE_MOBILE_CLIENT_ID');
-const googleMobileRedirectUri = env('EXPO_PUBLIC_GOOGLE_MOBILE_REDIRECT_URI');
-const googleRedirectScheme = googleMobileRedirectUri?.match(/^([a-z][a-z0-9+.-]*):/i)?.[1];
 const rhythmCloudUrl = env('EXPO_PUBLIC_RHYTHM_CLOUD_URL');
 const productionCloudOrigin = 'https://api.vcrcapps.com';
-const googleClientSuffix = '.apps.googleusercontent.com';
 
 if (isE2EMode && !isDevelopmentVariant) {
   throw new Error(
@@ -42,24 +38,6 @@ if (!isDevelopmentVariant) {
   if (e2eServerUrl) {
     throw new Error(
       'EXPO_PUBLIC_E2E_SERVER_URL is forbidden for production mobile builds.',
-    );
-  }
-  if (
-    !googleMobileClientId ||
-    !/^[0-9]+-[a-z0-9-]+\.apps\.googleusercontent\.com$/i.test(
-      googleMobileClientId,
-    )
-  ) {
-    throw new Error(
-      'EXPO_PUBLIC_GOOGLE_MOBILE_CLIENT_ID must be an exact Google mobile OAuth client ID for production.',
-    );
-  }
-  const clientStem = googleMobileClientId.slice(0, -googleClientSuffix.length);
-  const expectedRedirectUri =
-    `com.googleusercontent.apps.${clientStem}:/oauthredirect`;
-  if (googleMobileRedirectUri !== expectedRedirectUri) {
-    throw new Error(
-      `EXPO_PUBLIC_GOOGLE_MOBILE_REDIRECT_URI must exactly match ${expectedRedirectUri}.`,
     );
   }
   let cloudUrl: URL;
@@ -130,9 +108,7 @@ const config: ExpoConfig = {
   version: '1.0.8',
   orientation: 'portrait',
   icon: './assets/images/icon.png',
-  scheme: googleRedirectScheme
-    ? ['rhythmagents', googleRedirectScheme]
-    : 'rhythmagents',
+  scheme: 'rhythmagents',
   userInterfaceStyle: 'automatic',
   // React Native 0.81's New Architecture can crash while reporting native
   // module exceptions on physical iOS 26 devices. Keep the iOS app on the
@@ -213,7 +189,8 @@ const config: ExpoConfig = {
     reactCompiler: true,
   },
   extra: {
-    router: {},
+    router: isDevelopmentVariant ? {} : { origin: productionCloudOrigin },
+    hostedOAuthOrigin: productionCloudOrigin,
     e2eMode: isE2EMode,
     e2eServerUrl,
     eas: { projectId: 'bd873c89-2fe2-45db-805c-ab819e582e5c' },

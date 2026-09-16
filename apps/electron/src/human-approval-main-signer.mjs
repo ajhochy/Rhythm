@@ -1,129 +1,131 @@
-// Main-process counterpart to apps/web/src/security/humanApprovalSigner.ts's renderer-side Web
-// Crypto signer, and the piece that makes the two ends of the P-256 decision-signature contract
-// (apps/api_server/src/security/human_approval_security.ts) actually agree: whichever process
-// SPAWNS api_server is the one that must hand it HUMAN_APPROVAL_PUBLIC_KEY /
-// HUMAN_APPROVAL_CAPABILITY_SHA256, mirroring apps/desktop_flutter/lib/app/core/server/
-// api_server_service.dart:46-92,186-283 (Flutter calls its native HumanApprovalSigner right before
-// spawning, for the exact same reason). agent-server.mjs calls this module before every spawn.
-//
-// Key storage: macOS Keychain via the `security` CLI, the same pattern already used elsewhere in
-// this repo (apps/api_server/src/services/credentials_bridge_service.ts:327's
-// `security find-generic-password`). ponytail: the private key briefly exists as an argv-passed PEM
-// during `security add-generic-password`, and Node has no Secure-Enclave-backed SecKey equivalent
-// without a native addon — a real, smaller ceiling than Flutter's Secure-Enclave-when-available
-// SecKey (apps/desktop_flutter/macos/Runner/HumanApprovalSigner.swift:93-115). Escalate to a native
-// Node addon or an Electron-specific keytar-like module if that gap needs closing later.
-import { execFile } from 'node:child_process';
-import { createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign as cryptoSign, createHash } from 'node:crypto';
+// Private keys never enter Node. The packaged Security.framework helper owns the identity.
+import { spawn } from 'node:child_process';
+import { createPublicKey, createHash, verify } from 'node:crypto';
 import { userInfo } from 'node:os';
-import { promisify } from 'node:util';
+import { resolve } from 'node:path';
 
-const run = promisify(execFile);
-// Local smoke deliberately gives Electron a disposable HOME so agent configuration cannot leak
-// into the user's real profile. macOS `security`, however, also uses HOME to locate the login
-// Keychain; pointing it at the disposable directory makes an existing app identity unreadable and
-// a new identity impossible to save. Scope the real home override to the Keychain subprocess only.
-export function resolveKeychainEnvironment(env = process.env, userHome = userInfo().homedir) {
-  return { ...env, HOME: userHome };
+// Keep the real account's Keychain under an isolated app HOME, but inherit no app secrets or DYLD knobs.
+export function resolveKeychainEnvironment(_env = process.env, userHome = userInfo().homedir) {
+  return { HOME: userHome, PATH: '/usr/bin:/bin' };
 }
-const keychainEnvironment = resolveKeychainEnvironment();
 
-const KEYCHAIN_SERVICE = 'rhythm-electron-human-approval-key';
-const KEYCHAIN_ACCOUNT = 'signing-key-v1';
-const CAPABILITY_SERVICE = 'rhythm-electron-human-approval-capability';
-const CAPABILITY_ACCOUNT = 'capability-v1';
-// Matches apps/api_server/src/security/human_approval_security.ts:60-73 exactly.
-const CANONICAL_PREFIX = 'rhythm-human-approval-v1';
+function unavailable() {
+  return Object.assign(new Error('Human approval capability unavailable: Secure Enclave helper required'), { code: 'HUMAN_APPROVAL_UNAVAILABLE' });
+}
 
-/** @param {string} service @param {string} account @returns {Promise<string | null>} */
-async function keychainRead(service, account) {
+/** @param {unknown} value @param {string[]} keys */
+function exactKeys(value, keys) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    && Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+}
+
+/** @param {string} value @param {number} min @param {number} max */
+function base64(value, min, max) {
+  if (typeof value !== 'string' || value.length > 128) throw new Error('Invalid encoding');
+  const raw = Buffer.from(value, 'base64');
+  if (raw.length < min || raw.length > max || raw.toString('base64') !== value) throw new Error('Invalid encoding');
+  return raw;
+}
+
+// ponytail: the single-instance main owns creation; serialize it instead of a file-based lock.
+let pending = Promise.resolve();
+/** @param {Parameters<typeof requestHelper>[0]} request */
+function helper(request) {
+  const result = pending.then(() => requestHelper(request));
+  pending = result.then(() => {}, () => {});
+  return result;
+}
+
+/** @param {{ operation: string, decision?: { approvalId: string, status: string, decisionNonce: string, payloadDigest: string | null } }} request */
+async function requestHelper(request) {
+  if (process.platform !== 'darwin' || !process.resourcesPath) throw unavailable();
+  const input = JSON.stringify(request);
+  if (Buffer.byteLength(input) > 4096) throw new Error('Invalid approval decision');
+  const output = await new Promise((accept, reject) => {
+    let settled = false;
+    /** @type {import('node:child_process').ChildProcessWithoutNullStreams | undefined} */
+    let child;
+    let size = 0;
+    /** @type {Buffer[]} */
+    const chunks = [];
+    const fail = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child?.kill('SIGKILL');
+      reject(new Error('Human approval helper failed'));
+    };
+    const timer = setTimeout(fail, 10_000);
+    try {
+      child = spawn(resolve(process.resourcesPath, 'human-approval/rhythm-approval-signer'), [], {
+        env: resolveKeychainEnvironment(), stdio: ['pipe', 'pipe', 'pipe'], shell: false,
+      });
+      child.on('error', fail);
+      child.stdin.on('error', fail);
+      child.stdout.on('error', fail);
+      child.stderr.on('error', fail);
+      // Any stderr is a protocol failure. Discard it immediately; never relay native diagnostics.
+      child.stderr.on('data', fail);
+      child.stdout.on('data', (chunk) => {
+        if (settled) return;
+        size += chunk.length;
+        if (size > 8192) return fail();
+        chunks.push(Buffer.from(chunk));
+      });
+      child.on('close', (code, signal) => {
+        if (settled) return;
+        if (code !== 0 || signal) return fail();
+        settled = true;
+        clearTimeout(timer);
+        accept(Buffer.concat(chunks).toString('utf8'));
+      });
+      child.stdin.end(input);
+    } catch { fail(); }
+  });
+  let result;
   try {
-    const { stdout } = await run('security', ['find-generic-password', '-s', service, '-a', account, '-w'], { env: keychainEnvironment });
-    const value = stdout.trim();
-    return value || null;
-  } catch {
-    return null;
+    result = JSON.parse(output);
+    if (exactKeys(result, ['available', 'code']) && result.available === false && result.code === 'SECURE_ENCLAVE_UNAVAILABLE') throw unavailable();
+    const fields = ['available', 'publicKey', 'capability', ...(request.operation === 'sign' ? ['signature'] : [])];
+    if (!exactKeys(result, fields) || result.available !== true) throw new Error('Invalid schema');
+    const raw = base64(result.publicKey, 65, 65);
+    if (raw[0] !== 4) throw new Error('Invalid point');
+    const publicKey = createPublicKey({ key: { kty: 'EC', crv: 'P-256', x: raw.subarray(1, 33).toString('base64url'), y: raw.subarray(33).toString('base64url') }, format: 'jwk' });
+    if (typeof result.capability !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(result.capability)
+      || Buffer.from(result.capability, 'base64url').toString('base64url') !== result.capability) throw new Error('Invalid capability');
+    if (request.decision) {
+      const signature = base64(result.signature, 8, 72);
+      const d = request.decision;
+      const canonical = ['rhythm-human-approval-v1', d.approvalId, d.status, d.decisionNonce, d.payloadDigest ?? ''].join('\n');
+      // OpenSSL validates ASN.1 DER and the actual signature, not merely its shape.
+      if (!verify('sha256', Buffer.from(canonical, 'utf8'), publicKey, signature)) throw new Error('Invalid signature');
+    }
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'HUMAN_APPROVAL_UNAVAILABLE') throw error;
+    throw new Error('Human approval helper returned invalid data');
   }
+  return result;
 }
 
-/** @param {string} service @param {string} account @param {string} value */
-async function keychainWrite(service, account, value) {
-  // -U: update in place if an entry already exists, instead of erroring.
-  await run('security', ['add-generic-password', '-U', '-s', service, '-a', account, '-w', value], { env: keychainEnvironment });
-}
-
-/** @type {{ privateKey: import('node:crypto').KeyObject, publicKey: import('node:crypto').KeyObject } | undefined} */
-let cachedKeyPair;
-
-async function getOrCreateKeyPair() {
-  if (cachedKeyPair) return cachedKeyPair;
-  const existingEncoded = await keychainRead(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT);
-  if (existingEncoded) {
-    // `security find-generic-password -w` silently switches to hex-encoded output whenever the
-    // stored value contains embedded newlines (a PEM always does) — confirmed empirically, not
-    // documented. Storing/reading base64 (single line, no newlines) sidesteps that entirely rather
-    // than trying to detect and un-hex-encode after the fact.
-    const privateKey = createPrivateKey(Buffer.from(existingEncoded, 'base64').toString('utf8'));
-    const publicKey = createPublicKey(privateKey);
-    cachedKeyPair = { privateKey, publicKey };
-    return cachedKeyPair;
-  }
-  const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
-  const pem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString('utf8');
-  await keychainWrite(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, Buffer.from(pem, 'utf8').toString('base64'));
-  cachedKeyPair = { privateKey, publicKey };
-  return cachedKeyPair;
-}
-
-/** @type {string | undefined} */
-let cachedCapability;
-
-async function getOrCreateCapability() {
-  if (cachedCapability) return cachedCapability;
-  const existing = await keychainRead(CAPABILITY_SERVICE, CAPABILITY_ACCOUNT);
-  if (existing) { cachedCapability = existing; return existing; }
-  const value = randomBytes(32).toString('base64url');
-  await keychainWrite(CAPABILITY_SERVICE, CAPABILITY_ACCOUNT, value);
-  cachedCapability = value;
-  return value;
-}
-
-// The exact 65-byte uncompressed SEC1 point (0x04 || X || Y) publicKeyFromRawBase64 expects at
-// apps/api_server/src/security/human_approval_security.ts:24-46. JWK export gives base64url x/y
-// directly — far more robust than hand-parsing SPKI DER offsets for one fixed curve.
-/** @param {import('node:crypto').KeyObject} publicKey */
-function publicKeyRawBase64(publicKey) {
-  const jwk = publicKey.export({ format: 'jwk' });
-  if (!jwk.x || !jwk.y) throw new Error('EC public key JWK export is missing x/y coordinates');
-  const x = Buffer.from(jwk.x, 'base64url');
-  const y = Buffer.from(jwk.y, 'base64url');
-  return Buffer.concat([Buffer.from([0x04]), x, y]).toString('base64');
-}
-
-/** Called before every spawn — the exact two values api_server's env needs (post-m1-p7-c4d). */
+/** Unchanged API-server registration shape: public point and capability digest only. */
 export async function capabilityMaterial() {
-  const [{ publicKey }, capabilitySha256] = await Promise.all([
-    getOrCreateKeyPair(),
-    getOrCreateCapability().then((value) => createHash('sha256').update(value, 'utf8').digest('hex')),
-  ]);
-  return { humanApprovalPublicKey: publicKeyRawBase64(publicKey), humanApprovalCapabilitySha256: capabilitySha256 };
+  const result = await helper({ operation: 'capability' });
+  return { humanApprovalPublicKey: result.publicKey, humanApprovalCapabilitySha256: createHash('sha256').update(result.capability, 'utf8').digest('hex') };
 }
 
-/** Exposed to the renderer via IPC — narrow surface only (never the private key itself). */
 export async function capability() {
-  return getOrCreateCapability();
+  return (await helper({ operation: 'capability' })).capability;
 }
 
-/**
- * Exposed to the renderer via IPC — narrow surface only (post-m1-p7-c4e: no arbitrary-sign primitive).
- * @param {{ approvalId: string, status: 'approved' | 'rejected', decisionNonce: string, payloadDigest: string | null }} decision
- */
-export async function signDecision({ approvalId, status, decisionNonce, payloadDigest }) {
-  const { privateKey } = await getOrCreateKeyPair();
-  const canonical = [CANONICAL_PREFIX, approvalId, status, decisionNonce, payloadDigest ?? ''].join('\n');
-  // Node's crypto.sign for an EC key defaults to ASN.1 DER — exactly what
-  // human_approval_security.ts's crypto.verify expects, no P1363 conversion needed here (unlike
-  // the renderer's Web Crypto fallback, which emits raw P1363 and must convert).
-  const signature = cryptoSign('sha256', Buffer.from(canonical, 'utf8'), privateKey);
-  return { capability: await getOrCreateCapability(), signature: signature.toString('base64') };
+/** @param {{ approvalId: string, status: 'approved' | 'rejected', decisionNonce: string, payloadDigest: string | null }} decision */
+export async function signDecision(decision) {
+  if (!exactKeys(decision, ['approvalId', 'status', 'decisionNonce', 'payloadDigest'])
+    || typeof decision.approvalId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(decision.approvalId)
+    || !['approved', 'rejected'].includes(decision.status)
+    || typeof decision.decisionNonce !== 'string' || !/^[A-Za-z0-9_-]{1,256}$/.test(decision.decisionNonce)
+    || (decision.payloadDigest !== null && (typeof decision.payloadDigest !== 'string' || !/^[a-f0-9]{64}$/.test(decision.payloadDigest)))) {
+    throw new Error('Invalid approval decision');
+  }
+  const result = await helper({ operation: 'sign', decision });
+  return { capability: result.capability, signature: result.signature };
 }

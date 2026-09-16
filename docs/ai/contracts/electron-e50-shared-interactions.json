@@ -1,0 +1,12 @@
+{
+  "issue": "E50",
+  "date": "2026-09-11",
+  "waiver": "AJ explicitly authorized the CRITICAL shared FocusDialog change after disclosure of 39 direct consumers and 52 impacted symbols.",
+  "test_command": "cd apps/web && npm exec -- playwright test --config tests/electron-e50-playwright.config.ts",
+  "criteria": [
+    { "criterion_id": "e50-c1", "text": "Shared modal contains focus and restores a surviving trigger or main fallback", "mode": "ui", "test": "apps/web/tests/electron-e50-shared-interactions.spec.ts", "status": "PASS" },
+    { "criterion_id": "e50-c2", "text": "Skip link focuses current main content without navigation", "mode": "ui", "test": "apps/web/tests/electron-e50-shared-interactions.spec.ts", "status": "PASS" },
+    { "criterion_id": "e50-c3", "text": "Selected controls retain a focus indicator and repeated toasts remain visible under reduced motion", "mode": "ui", "test": "apps/web/tests/electron-e50-shared-interactions.spec.ts", "status": "PASS" }
+  ],
+  "not_tested": ["all 39 dialog consumers", "manual VoiceOver", "packaged Electron"]
+}

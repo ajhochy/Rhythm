@@ -1,0 +1,13 @@
+{
+  "issue": "E16",
+  "date": "2026-09-11",
+  "test_command": "cd apps/web && npx playwright test --config tests/electron-e16-playwright.config.ts && E16_FIXTURE=1 npx playwright test --config tests/electron-e16-playwright.config.ts",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "e16-c1", "text": "bulk Cancel only clears selected rows and sends ZERO agent cancellation requests; expose Stop selected separately only if existing API/UI makes it minimal, with unambiguous label/confirmation—otherwise leave for E23 and do not invent", "mode": "ui", "test": "apps/web/tests/electron-e16-agents-safety.spec.ts", "status": "pass" },
+    { "criterion_id": "e16-c2", "text": "pending files and mention attachments are keyed/bound to originating selected session; A→B switch and delayed A fileContent can never send A attachment to B; returning A retains intended pending attachments if safe", "mode": "ui", "test": "apps/web/tests/electron-e16-agents-safety.spec.ts", "status": "pass" },
+    { "criterion_id": "e16-c3", "text": "ephemeral child transcript view has no active composer and selecting another rail session clears child context; no input can target parent while child shown", "mode": "ui", "test": "apps/web/tests/electron-e16-agents-safety.spec.ts", "status": "pass" },
+    { "criterion_id": "e16-c4", "text": "profile permission/delegate/account edits serialize edited canonical values, not stale raw JSON/default ID; unsupported managed-skill/auto-approve controls must not report saved success—wire minimally if existing mutation supports, otherwise disable with reason and defer E22", "mode": "ui", "test": "apps/web/tests/electron-e16-agents-safety.spec.ts", "status": "pass" }
+  ],
+  "not_tested": []
+}

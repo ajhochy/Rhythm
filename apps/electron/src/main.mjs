@@ -1,11 +1,11 @@
-import { app, BrowserWindow, ipcMain, net, Notification, protocol, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, net, Notification, protocol, safeStorage, session, shell } from 'electron';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { AGENT_SERVER_BASE_URL, AGENT_SERVER_ENGINE_PORT, AgentServerService } from './agent-server.mjs';
+import { AGENT_SERVER_BASE_URL, AGENT_SERVER_ENGINE_PORT, AgentServerService, electronDbPath, legacyFlutterDbPath } from './agent-server.mjs';
 import { injectArtifactFrameBridge, isAllowedArtifactFrameNavigation, parseArtifactFrameRequest } from './artifact-frame-protocol.mjs';
 import { GOOGLE_DESKTOP_CLIENT_ID, RHYTHM_AUTH_API_BASE } from './build-config.mjs';
 import { runDesktopGoogleOAuth } from './desktop-google-oauth.mjs';
@@ -22,7 +22,11 @@ export { deepLinkFromArgv } from './policy.mjs';
 // default ~/Library/Application Support/rhythm-electron-shell path that every smoke run must never
 // touch — slice-7-c6 caught exactly that leak when this ran in the other order.
 const isSmoke = process.argv.includes('--smoke');
-const allowTestRuntimePorts = isSmoke && process.argv.includes('--allow-test-runtime-ports');
+const isInteractiveSmoke = process.argv.includes('--interactive-smoke');
+const allowTestRuntimePorts = (isSmoke || isInteractiveSmoke) && process.argv.includes('--allow-test-runtime-ports');
+if (isInteractiveSmoke && (!process.env.RHYTHM_SHELL_USER_DATA || !isAbsolute(process.env.RHYTHM_SHELL_USER_DATA))) {
+  throw new Error('--interactive-smoke requires an explicit absolute RHYTHM_SHELL_USER_DATA path');
+}
 const smokeUserDataPath = isSmoke && !process.env.RHYTHM_SHELL_USER_DATA
   ? mkdtempSync(resolve(tmpdir(), 'rhythm-electron-smoke-'))
   : undefined;
@@ -34,6 +38,7 @@ if (smokeUserDataPath) app.on('will-quit', () => rmSync(smokeUserDataPath, { rec
 const productionApiConfigPath = resolve(app.getPath('userData'), 'server-config.json');
 const productionApiConfig = createProductionApiConfig({ configPath: productionApiConfigPath, defaultBase: RHYTHM_AUTH_API_BASE, env: process.env });
 let productionApiBase = productionApiConfig.load();
+const authSessionPath = resolve(app.getPath('userData'), 'auth-session.bin');
 process.env.RHYTHM_PRODUCTION_API_URL = productionApiBase;
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -67,6 +72,53 @@ if (hasSingleInstanceLock) {
   let rendererReady = false;
   /** @type {Promise<import('./google-oauth-core.mjs').DesktopAuthLoginResponse> | undefined} */
   let googleSignInInFlight;
+  let authGeneration = 0;
+  /** @type {import('./google-oauth-core.mjs').DesktopAuthLoginResponse['user'] | undefined} */
+  let productionSessionUser;
+  const clearStoredAuthentication = () => rm(authSessionPath, { force: true }).catch(() => undefined);
+  const persistAuthentication = async () => {
+    if (!productionSessionToken || !productionSessionUser || !safeStorage.isEncryptionAvailable()) return;
+    await mkdir(dirname(authSessionPath), { recursive: true });
+    await writeFile(authSessionPath, safeStorage.encryptString(JSON.stringify({ productionApiBase, sessionToken: productionSessionToken, user: productionSessionUser })), { mode: 0o600 });
+  };
+  const restoreAuthentication = async () => {
+    if (isSmoke || !safeStorage.isEncryptionAvailable()) return;
+    try {
+      const stored = JSON.parse(safeStorage.decryptString(await readFile(authSessionPath)));
+      if (stored.productionApiBase !== productionApiBase || typeof stored.sessionToken !== 'string' || !stored.user || typeof stored.user.id !== 'number') throw new Error('invalid stored session');
+      productionSessionToken = stored.sessionToken; productionSessionUser = stored.user;
+    } catch { await clearStoredAuthentication(); }
+  };
+  let changingServer = false;
+  app.on('window-all-closed', () => { if (!changingServer) app.quit(); });
+  /** @type {(() => Promise<void>) | undefined} */
+  let rebuildMainWindow;
+  const invalidateAuthentication = () => {
+    authGeneration += 1;
+    googleSignInInFlight = undefined;
+    productionSessionToken = undefined;
+    productionSessionUser = undefined;
+    void clearStoredAuthentication();
+    rendererReady = false;
+    pendingNativeNotificationActivations.length = 0;
+    for (const notification of nativeNotificationRegistry.values()) notification.close();
+    nativeNotificationRegistry.clear();
+  };
+  /** @param {Electron.IpcMainEvent | Electron.IpcMainInvokeEvent} event */
+  const ownsDocument = (event) => {
+    const contents = mainWindow?.webContents;
+    return Boolean(contents && !contents.isDestroyed() && event.sender === contents
+      && event.senderFrame && event.senderFrame === contents.mainFrame
+      && /^rhythm:\/\/app\/index\.html(?:#.*)?$/.test(event.senderFrame.url));
+  };
+  /** @param {Electron.IpcMainEvent | Electron.IpcMainInvokeEvent} event */
+  const requireOwnedDocument = (event) => {
+    if (!ownsDocument(event)) throw new Error('Privileged IPC denied');
+  };
+  /** @param {unknown[]} args */
+  const requireNoPayload = (args) => {
+    if (args.length) throw new Error('Invalid IPC payload');
+  };
   /** @type {string | undefined} */
   let productionSessionToken = isArtifactFrameSmoke ? 'artifact-smoke-token' : undefined;
   /** @type {{ loaded: boolean, protocol: string, bridge: unknown, request: { url: string, authenticated: boolean } | undefined } | undefined} */
@@ -133,7 +185,11 @@ if (hasSingleInstanceLock) {
         title: 'Approval requested',
         body: 'An agent action needs your approval.',
       });
-      notification.on('click', () => routeNativeNotificationActivation(target));
+      const generation = authGeneration;
+      notification.on('click', () => {
+        if (generation !== authGeneration || nativeNotificationRegistry.get(target.approvalId) !== notification) return;
+        routeNativeNotificationActivation(target);
+      });
       notification.on('close', () => {
         if (nativeNotificationRegistry.get(target.approvalId) === notification) {
           nativeNotificationRegistry.delete(target.approvalId);
@@ -145,63 +201,123 @@ if (hasSingleInstanceLock) {
   };
 
   ipcMain.on('rhythm:approval-notifications:sync', (event, payload) => {
-    if (event.sender !== mainWindow?.webContents) return;
+    if (!ownsDocument(event)) return;
     syncNativeApprovalNotifications(payload);
   });
 
-  ipcMain.handle('rhythm:auth:google-sign-in', () => {
+  ipcMain.handle('rhythm:auth:google-sign-in', (event, ...args) => {
+    requireOwnedDocument(event);
+    requireNoPayload(args);
+    // No account-replacement API yet: never silently replace an authenticated renderer's identity.
+    if (productionSessionToken) throw new Error('Account replacement denied; restart to sign in again');
     if (!googleSignInInFlight) {
+      const generation = authGeneration;
       googleSignInInFlight = runDesktopGoogleOAuth({
         clientId: resolveGoogleDesktopClientId(GOOGLE_DESKTOP_CLIENT_ID),
-        apiBase: RHYTHM_AUTH_API_BASE,
+        apiBase: productionApiBase,
         openExternal: (url) => shell.openExternal(url),
         fetcher: (url, init) => globalThis.fetch(String(url), init),
-      }).then((login) => {
-        // Kept in main-process memory only so authenticated artifact documents can be served through
-        // the private frame protocol without putting credentials in a URL, DOM attribute, or log.
+      }).then(async (login) => {
+        if (generation !== authGeneration || !ownsDocument(event)) throw new Error('Sign-in context changed; stale login discarded');
+        // Main owns the token and persists it only through Electron safeStorage; it never enters a
+        // URL, renderer DOM attribute, log, or plaintext file.
         productionSessionToken = login.sessionToken;
+        productionSessionUser = login.user;
+        await persistAuthentication();
         return login;
-      }).finally(() => { googleSignInInFlight = undefined; });
+      }).finally(() => { if (generation === authGeneration) googleSignInInFlight = undefined; });
     }
     return googleSignInInFlight;
   });
   // Preload runs in a separate sandboxed process whose inherited environment is fixed before this
   // module loads persisted configuration. Read the validated current value from main instead of
   // assuming a later process.env mutation crosses that boundary.
-  ipcMain.on('rhythm:production-api:get', (event) => {
-    if (event.sender !== mainWindow?.webContents) return;
+  ipcMain.on('rhythm:production-api:get', (event, ...args) => {
+    if (!ownsDocument(event) || args.length) return;
     event.returnValue = productionApiBase;
   });
-  ipcMain.handle('rhythm:production-api:set', createProductionApiSetHandler({
+  const setProductionApi = createProductionApiSetHandler({
     allowedSender: () => mainWindow?.webContents,
     save: async (value) => {
-      const serverUrl = await productionApiConfig.save(value);
-      productionApiBase = serverUrl;
-      process.env.RHYTHM_PRODUCTION_API_URL = serverUrl;
-      return serverUrl;
+      if (value === productionApiBase) return productionApiBase;
+      if (!rebuildMainWindow) throw new Error('Production API update denied before window ready');
+      changingServer = true;
+      invalidateAuthentication();
+      // Destroy, not a renderer notification: no old gateway, bearer or pending callback survives.
+      mainWindow?.destroy();
+      mainWindow = undefined;
+      try {
+        const serverUrl = await productionApiConfig.save(value);
+        productionApiBase = serverUrl;
+        process.env.RHYTHM_PRODUCTION_API_URL = serverUrl;
+        return serverUrl;
+      } finally {
+        // Even a failed save returns to the previous server signed out, with fresh preload config.
+        try { await rebuildMainWindow(); }
+        finally { changingServer = false; }
+      }
     },
-  }));
+  });
+  ipcMain.handle('rhythm:production-api:set', (event, value, ...args) => {
+    requireOwnedDocument(event);
+    if (args.length || typeof value !== 'string' || value.length > 2048) throw new Error('Invalid production API URL payload');
+    return setProductionApi(event, value);
+  });
+  ipcMain.handle('rhythm:auth:current-session', (event, ...args) => {
+    requireOwnedDocument(event); requireNoPayload(args);
+    return productionSessionToken && productionSessionUser ? { sessionToken: productionSessionToken, user: productionSessionUser } : null;
+  });
+  ipcMain.handle('rhythm:auth:logout', async (event, ...args) => {
+    requireOwnedDocument(event); requireNoPayload(args);
+    invalidateAuthentication(); await clearStoredAuthentication();
+    if (rebuildMainWindow) { mainWindow?.destroy(); mainWindow = undefined; await rebuildMainWindow(); }
+  });
+  ipcMain.handle('rhythm:updates:open-download', async (event, ...args) => {
+    requireOwnedDocument(event); requireNoPayload(args);
+    await shell.openExternal('https://github.com/ajhochy/Rhythm/releases');
+  });
 
   // Mirrors apps/desktop_flutter/lib/app/core/server/api_server_service.dart +
   // agent_server_controller.dart: THIS process spawns and owns the local api_server, the same way
   // Flutter's Dart code does, instead of assuming some other process (tools/dev/sandbox.sh, a
   // developer's own terminal) already has one running. Production always pins these bases to the
-  // Flutter-owned 4001/4096 boundary. Alternate ports exist only behind an explicit smoke-only flag.
-  const agentServer = new AgentServerService();
+  // canonical 4001/4096 boundary, exclusively: foreign owners are conflicts, never adopted.
+  // Alternate ports exist only behind an explicit smoke-only flag.
+  // Interactive smoke renders normally, but the manager owns the external sandbox lifecycle.
+  const agentServer = isInteractiveSmoke ? undefined : new AgentServerService();
+  const externalRuntimeStatus = { status: 'stopped', failureReason: null, stderrTail: null, errorMessage: null };
   if (!allowTestRuntimePorts) {
     process.env.RHYTHM_LIVE_API_URL = AGENT_SERVER_BASE_URL;
     process.env.RHYTHM_LIVE_ENGINE_URL = `http://127.0.0.1:${AGENT_SERVER_ENGINE_PORT}`;
   }
 
-  ipcMain.handle('rhythm:agent-server:status', () => agentServer.status);
-  ipcMain.handle('rhythm:human-approval:capability', () => humanApprovalSigner.capability());
-  ipcMain.handle('rhythm:human-approval:sign-decision', async (_event, decision) => {
+  ipcMain.handle('rhythm:agent-server:status', () => agentServer?.status ?? externalRuntimeStatus);
+  ipcMain.handle('rhythm:human-approval:capability', (event, ...args) => {
+    requireOwnedDocument(event);
+    requireNoPayload(args);
+    return humanApprovalSigner.capability();
+  });
+  ipcMain.handle('rhythm:human-approval:sign-decision', async (event, decision, ...args) => {
+    requireOwnedDocument(event);
+    if (args.length || !decision || typeof decision !== 'object' || Array.isArray(decision)
+      || Object.keys(decision).length !== 4
+      || !['approvalId', 'status', 'decisionNonce', 'payloadDigest'].every((key) => Object.hasOwn(decision, key))
+      || !safeNotificationId(decision.approvalId)
+      || !['approved', 'rejected'].includes(decision.status)
+      || typeof decision.decisionNonce !== 'string' || !/^[a-zA-Z0-9_-]{1,256}$/.test(decision.decisionNonce)
+      || (decision.payloadDigest !== null && (typeof decision.payloadDigest !== 'string' || !/^[a-f0-9]{64}$/.test(decision.payloadDigest)))) {
+      throw new Error('Invalid signing payload');
+    }
+    const generation = authGeneration;
     const signature = await humanApprovalSigner.signDecision(decision);
+    if (generation !== authGeneration || !ownsDocument(event)) throw new Error('Signing context changed');
     cancelNativeNotification(decision.approvalId);
     return signature;
   });
-  agentServer.onStatusChange((/** @type {import('./agent-server.mjs').AgentServerStatus} */ snapshot) => {
+  agentServer?.onStatusChange((/** @type {import('./agent-server.mjs').AgentServerStatus} */ snapshot) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('rhythm:agent-server:status-changed', snapshot);
+    // ponytail: native error dialog keeps failures actionable without expanding E12's renderer UI.
+    if (!isSmoke && snapshot.status === 'failed') dialog.showErrorBox('Rhythm local runtime unavailable', snapshot.errorMessage ?? 'Quit and reopen Rhythm to retry.');
   });
 
   // api_server_service.dart:134-151's exact shutdown sequence (SIGTERM, race a 2s timer against
@@ -210,14 +326,14 @@ if (hasSingleInstanceLock) {
   // because it isn't catchable — not a concern here since this Electron build targets macOS only).
   let shuttingDown = false;
   app.on('before-quit', (event) => {
-    if (isSmoke || shuttingDown) return;
+    if (isSmoke || !agentServer || shuttingDown) return;
     shuttingDown = true;
     event.preventDefault();
-    void agentServer.stopGracefully().finally(() => app.quit());
+    void agentServer.stopGracefully().catch((error) => process.stderr.write(`Runtime shutdown failed: ${error}\n`)).finally(() => app.quit());
   });
-  if (!isSmoke) {
+  if (!isSmoke && agentServer) {
     for (const signal of ['SIGINT', 'SIGTERM']) {
-      process.on(signal, () => { void agentServer.stopGracefully().then(() => process.exit(0)); });
+      process.on(signal, () => { void agentServer.stopGracefully().then(() => process.exit(0), (error) => { process.stderr.write(`Runtime shutdown failed: ${error}\n`); process.exit(1); }); });
     }
   }
 
@@ -241,11 +357,17 @@ if (hasSingleInstanceLock) {
 
   app.whenReady().then(async () => {
     if (isMissingDistSmoke || !existsSync(webDist)) throw new Error(`Rhythm Electron shell requires built web assets at ${webDist}`);
+    await restoreAuthentication();
+    if (!isSmoke && agentServer && !existsSync(electronDbPath()) && existsSync(legacyFlutterDbPath())) {
+      const choice = await dialog.showMessageBox({ type: 'question', title: 'Import existing Rhythm data?', message: 'Rhythm found data from the Flutter desktop app.', detail: 'Import copies the database into Electron using SQLite backup. The original remains untouched. Imported schedules start disabled for review.', buttons: ['Import existing data', 'Start fresh', 'Cancel'], defaultId: 0, cancelId: 2 });
+      if (choice.response === 2) { app.quit(); return; }
+      process.env.RHYTHM_ELECTRON_MIGRATE_LEGACY = choice.response === 0 ? '1' : '0';
+    }
 
     // Fire-and-forget, exactly like Flutter's main.dart:186-190 (`AgentServerController..initialize()`
     // is never awaited before `runApp`) — the window renders immediately and the renderer's own
     // EnvironmentReceipt already polls health with retries while this comes up in the background.
-    if (!isSmoke) void agentServer.start();
+    if (!isSmoke && agentServer) void agentServer.start().catch((error) => agentServer.reportStartupFailure(error));
 
     protocol.handle('rhythm', (request) => {
       const url = new URL(request.url);
@@ -356,6 +478,7 @@ if (hasSingleInstanceLock) {
       });
     }
 
+    rebuildMainWindow = async () => {
     mainWindow = new BrowserWindow({
       width: 1280,
       height: 800,
@@ -369,14 +492,9 @@ if (hasSingleInstanceLock) {
         additionalArguments: [`--rhythm-shell-version=${app.getVersion()}`],
       },
     });
-    const windowOptions = {
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        sandbox: true,
-        webSecurity: true,
-      },
-    };
+    mainWindow.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
+      if (isMainFrame && !isInPlace && rendererReady) invalidateAuthentication();
+    });
     mainWindow.webContents.on('will-navigate', (event) => {
       denials.navigation = true;
       event.preventDefault();
@@ -398,6 +516,7 @@ if (hasSingleInstanceLock) {
     });
     mainWindow.webContents.on('did-finish-load', () => {
       rendererReady = true;
+      mainWindow?.webContents.send('rhythm:agent-server:status-changed', agentServer?.status ?? externalRuntimeStatus);
       for (const activation of pendingNativeNotificationActivations.splice(0)) {
         routeNativeNotificationActivation(activation);
       }
@@ -405,6 +524,12 @@ if (hasSingleInstanceLock) {
     await mainWindow.loadURL(pendingDeepLink ?? 'rhythm://app/index.html#/agents');
     await mainWindow.webContents.executeJavaScript('globalThis.Notification.requestPermission()');
     pendingDeepLink = null;
+    };
+    const windowOptions = {
+      webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true },
+    };
+    await rebuildMainWindow();
+    if (!mainWindow) throw new Error('Rhythm window unavailable');
 
     if (isArtifactFrameSmoke) {
       artifactFrame = await mainWindow.webContents.executeJavaScript(`new Promise((resolve, reject) => {
@@ -472,6 +597,10 @@ if (hasSingleInstanceLock) {
     agentServer: {
       keys: Object.keys(window.rhythmShell?.agentServer || {}),
       frozen: Object.isFrozen(window.rhythmShell?.agentServer),
+    },
+    updates: {
+      keys: Object.keys(window.rhythmShell?.updates || {}),
+      frozen: Object.isFrozen(window.rhythmShell?.updates),
     },
   nodeExposed: typeof process !== 'undefined' || typeof require !== 'undefined',
   value: { version: window.rhythmShell?.version }

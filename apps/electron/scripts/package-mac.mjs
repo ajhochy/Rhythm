@@ -1,17 +1,57 @@
 import { execFile } from 'node:child_process';
-import { chmod, cp, mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, cp, lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { buildAndStageApprovalHelper } from './build-approval-helper.mjs';
+import { hardenElectronFuses } from './harden-electron-fuses.mjs';
 
 const run = promisify(execFile);
+
+export async function buildAndStageFork({ electronRoot, resources, run: execute = run }) {
+  const arch = process.env.RHYTHM_PACKAGE_ARCH || process.arch;
+  if (process.platform !== 'darwin' || !['arm64', 'x64'].includes(arch) || arch !== process.arch) {
+    throw new Error(`Fork packaging requires a native macOS ${arch} build; received ${process.platform}/${process.arch}`);
+  }
+  const repoRoot = resolve(electronRoot, '../..');
+  const forkRoot = resolve(electronRoot, '../opencode_fork/packages/opencode');
+  const commit = (await execute('git', ['rev-parse', 'HEAD'], { cwd: repoRoot })).stdout.trim();
+  if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error('Cannot determine fork commit');
+  const dirty = await execute('git', ['status', '--porcelain', '--', 'apps/opencode_fork'], { cwd: repoRoot });
+  if (dirty.stdout.trim()) throw new Error('Fork source must match the checked-out commit');
+  const version = `0.0.0-rhythm-${commit}`;
+  const source = resolve(forkRoot, `dist/opencode-darwin-${arch}/bin/opencode`);
+  // No prebuilt/PATH fallback: a failed or empty build cannot reuse yesterday's engine.
+  await rm(resolve(forkRoot, 'dist'), { recursive: true, force: true });
+  await execute('bun', ['run', 'build', '--single', '--skip-install'], {
+    cwd: forkRoot,
+    // The fork embeds a Vite UI too; caller gateway values must not become engine bytes.
+    env: { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('VITE_RHYTHM_'))), OPENCODE_CHANNEL: 'rhythm', OPENCODE_VERSION: version, OPENCODE_RELEASE: '' },
+  });
+  if (!(await lstat(source)).isFile()) throw new Error('Fork must be a regular executable file');
+  await access(source, constants.X_OK).catch(() => { throw new Error('Fork is not executable'); });
+  const architecture = (await execute('lipo', ['-archs', source])).stdout.trim();
+  if (architecture !== (arch === 'x64' ? 'x86_64' : 'arm64')) {
+    throw new Error(`Fork architecture mismatch: expected ${arch}, received ${architecture}`);
+  }
+  const actual = (await execute(source, ['--version'], { timeout: 30_000 })).stdout.trim();
+  if (actual !== version) throw new Error(`Fork identity mismatch: expected ${version}, received ${actual}`);
+  const destination = resolve(resources, 'opencode_bin/opencode');
+  await mkdir(dirname(destination), { recursive: true });
+  await cp(source, destination);
+}
+
+// Importing the assembly boundary for controlled-input tests must not build the app.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
 const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const packageNodeMajor = Number.parseInt(process.versions.node.split('.')[0], 10);
 if (packageNodeMajor !== 22) throw new Error(`Electron release packaging requires Node 22; received ${process.versions.node}`);
 const sourceApp = resolve(electronRoot, 'node_modules/electron/dist/Electron.app');
 const distRoot = resolve(electronRoot, 'dist');
 const artifact = resolve(distRoot, 'Rhythm.app');
-const stagingArtifact = resolve(distRoot, '.Rhythm.app.tmp');
+// Official Electron tooling recognizes the framework only inside a .app bundle.
+const stagingArtifact = resolve(distRoot, '.Rhythm.tmp.app');
 const resources = resolve(stagingArtifact, 'Contents/Resources');
 const packagedApp = resolve(resources, 'app');
 const packagedShared = resolve(resources, 'shared');
@@ -38,17 +78,25 @@ for (const key of [
 ]) delete rendererBuildEnvironment[key];
 rendererBuildEnvironment.VITE_RHYTHM_GATEWAY_MODE = 'live';
 
+await mkdir(distRoot, { recursive: true });
+await Promise.all([
+  rm(artifact, { recursive: true, force: true }),
+  rm(stagingArtifact, { recursive: true, force: true }),
+  rm(resolve(distRoot, '.Rhythm.app.tmp'), { recursive: true, force: true }),
+]);
+try {
+await buildAndStageFork({ electronRoot, resources });
+const electronArch = (await run('lipo', ['-archs', resolve(sourceApp, 'Contents/MacOS/Electron')])).stdout.trim();
+if (electronArch !== (process.arch === 'x64' ? 'x86_64' : 'arm64')) {
+  throw new Error(`Electron architecture mismatch: ${electronArch}`);
+}
 await run('npm', ['--prefix', '../web', 'run', 'build'], {
   cwd: electronRoot,
   env: rendererBuildEnvironment,
 });
 await run('npm', ['--prefix', '../api_server', 'run', 'build'], { cwd: electronRoot });
-await mkdir(distRoot, { recursive: true });
-await Promise.all([
-  rm(artifact, { recursive: true, force: true }),
-  rm(stagingArtifact, { recursive: true, force: true }),
-]);
 await cp(sourceApp, stagingArtifact, { recursive: true, verbatimSymlinks: true });
+await buildAndStageApprovalHelper({ electronRoot, resources });
 await mkdir(resolve(packagedApp, 'src'), { recursive: true });
 await mkdir(packagedShared, { recursive: true });
 await mkdir(packagedApiServer, { recursive: true });
@@ -125,6 +173,14 @@ for (const [key, value] of [
   await run('plutil', ['-replace', key, '-string', value, infoPlist]);
 }
 
+const approvalHelper = resolve(resources, 'human-approval/rhythm-approval-signer');
+await hardenElectronFuses(resolve(stagingArtifact, 'Contents/MacOS/Rhythm'));
+await run('codesign', ['--force', '--identifier', 'com.rhythm.desktop.approval-signer', '--sign', '-', approvalHelper]);
+await run('codesign', ['--verify', '--strict', approvalHelper]);
 await run('codesign', ['--force', '--deep', '--sign', '-', stagingArtifact]);
 await rename(stagingArtifact, artifact);
 process.stdout.write(`Packaged ${artifact} with an ad-hoc signature.\n`);
+} finally {
+  await rm(stagingArtifact, { recursive: true, force: true });
+}
+}

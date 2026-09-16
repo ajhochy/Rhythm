@@ -1,6 +1,12 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { openPage } from '../helpers';
+import { openPage as openFixturePage } from '../helpers';
+
+async function openPage(page: Page, route: string, query?: string) {
+  await openFixturePage(page, route, query);
+  await page.getByText('Diagnostics', { exact: true }).click();
+  if (await page.getByRole('button', { name: /^Backlog \d/ }).isEnabled()) await page.getByRole('button', { name: /^Backlog \d/ }).click();
+}
 
 async function expectNoPageOverflow(page: Page) {
   const dimensions = await page.evaluate(() => ({
@@ -43,7 +49,7 @@ test('issue-2002-c2: previous next and Today change the deterministic week and l
   await expect(page.getByTestId('planner-week-label')).toHaveText('Week of Aug 3, 2026');
   await page.getByTestId('planner-today').click();
   await expect(page.getByTestId('planner-week-label')).toHaveText('Week of Aug 10, 2026');
-  await expect(page.getByTestId('planner-today')).toBeDisabled();
+  await expect(page.getByTestId('planner-today')).toBeEnabled();
   await expect(page.getByTestId('page-trace')).toContainText('GET /weekly-plan?week=2026-W33 → 200');
 });
 
@@ -65,7 +71,7 @@ test('issue-2002-c4: scheduling normal work moves it and emits the correct task-
   await expect(page.getByTestId('planner-day-2026-08-14').getByTestId('planner-task-task-backlog')).toBeVisible();
   await expect(page.getByTestId('planner-backlog').getByTestId('planner-task-task-backlog')).toHaveCount(0);
   await expect(page.getByTestId('page-trace')).toContainText(
-    'PATCH /tasks/task-backlog {dueDate:2026-08-14,scheduledDate:2026-08-14,scheduledOrder} → 200',
+    'PATCH /weekly-plan/tasks/task-backlog {scheduledDate:2026-08-14} → 200',
   );
 });
 
@@ -129,6 +135,7 @@ test('issue-2002-c8: single and bulk completion update visible plan summaries an
   await expect(page.getByTestId('planner-summary-done')).toHaveText('2');
   await expect(page.getByTestId('page-trace')).toContainText('PATCH /tasks/task-wed {status:done} → 200');
 
+  await page.getByRole('button', { name: 'Select tasks', exact: true }).click();
   await page.getByTestId('planner-task-select-task-fri').click();
   await page.getByTestId('planner-task-select-step-thu').click();
   await expect(page.getByTestId('planner-selection-count')).toHaveText('2 selected');
@@ -146,6 +153,7 @@ test('issue-2002-c9: client-side filters selection and dialogs have observable o
   await expect(page.getByTestId('planner-task-task-done')).toBeVisible();
   await expect(trace.getByRole('listitem')).toHaveCount(before);
 
+  await page.getByRole('button', { name: 'Select tasks', exact: true }).click();
   await page.getByTestId('planner-task-select-task-wed').click();
   await page.getByTestId('planner-clear-selection').click();
   await expect(page.getByTestId('planner-selection-count')).toHaveCount(0);
@@ -209,7 +217,7 @@ test('issue-2002-c12: trace ledger records exact endpoint families and excludes 
 
   await page.getByTestId('planner-task-task-wed').dragTo(page.getByTestId('planner-day-2026-08-13'));
   await expect(trace).toContainText(
-    'PATCH /weekly-plan/tasks/task-wed {scheduledDate:2026-08-13,locked:false,scheduledOrder} → 200',
+    'PATCH /weekly-plan/tasks/task-wed {scheduledDate:2026-08-13} → 200',
   );
   await page.getByTestId('planner-complete-task-wed').click();
   await expect(trace).toContainText('PATCH /tasks/task-wed {status:done} → 200');
@@ -233,7 +241,7 @@ test('issue-2002-c13: Planner has no serious axe violations and modal keyboard f
   await expect(page.getByRole('dialog', { name: 'Edit task' })).toBeVisible();
   await expect(page.getByLabel('Task notes')).toBeFocused();
   await page.keyboard.press('Shift+Tab');
-  await expect(page.getByTestId('planner-inspector-close')).toBeFocused();
+  await expect(page.getByTestId('planner-detail-complete')).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('planner-task-task-wed')).toBeFocused();
 });
@@ -280,6 +288,7 @@ test('issue-2002-c15: Planner fixtures are loopback-only and reload to the ident
   // Lead disambiguation: the creation toast also contains the title, so target the task element itself (strictly stronger).
   await expect(page.getByTestId('planner-task-created-1')).toBeVisible();
   await page.reload();
+  await page.getByRole('button', { name: /^Backlog \d/ }).click();
   await expect(page.getByTestId('planner-task-created-1')).toHaveCount(0);
   await expect(page.locator('[data-testid^="planner-task-"][data-task-title]').allTextContents()).resolves.toEqual(seededTitles);
   expect([...requestedHosts]).toEqual(['127.0.0.1']);

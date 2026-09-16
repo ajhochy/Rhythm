@@ -18,7 +18,7 @@ async function resetScenario(request) {
 
 async function openAgents(page) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
-  await expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible({
+  await expect(page.getByRole('heading', { name: 'Chats' })).toBeVisible({
     timeout: 30_000,
   });
 }
@@ -28,7 +28,7 @@ async function openAgentsAction(page, name) {
     0,
     { timeout: 10_000 },
   );
-  await page.getByRole('button', { name: 'Agents menu', exact: true }).click();
+  await page.getByRole('button', { name: 'Chats menu', exact: true }).click();
   const action = page
     .getByRole('menuitem', { name, exact: true })
     .locator('visible=true');
@@ -62,8 +62,8 @@ test.beforeEach(async ({ request }) => {
 
 test('issue-1235: agents tab has one compact header', async ({ page }) => {
   await openAgents(page);
-  await expect(page.getByRole('heading', { name: 'Agents' })).toHaveCount(1);
-  await expect(page.getByLabel('Agents menu').locator('visible=true')).toHaveCount(1);
+  await expect(page.getByRole('heading', { name: 'Chats' })).toHaveCount(1);
+  await expect(page.getByLabel('Chats menu').locator('visible=true')).toHaveCount(1);
   await page.screenshot({
     path: `${proofDir}/agents-tab.png`,
     fullPage: true,

@@ -45,9 +45,12 @@ test.describe('session rail and lifecycle', () => {
     await page.getByTestId('session-search-toggle').click();
     await page.getByTestId('session-search').fill('Sunday service');
     await expect(page.getByTestId('session-session-sunday-handoff')).toBeVisible();
-    await page.getByTestId('project-filter').selectOption({ label: 'Rhythm desktop' });
-    await expect(page.getByText('No active sessions match.')).toBeVisible();
-    await page.getByTestId('project-filter').selectOption('all');
+    await expect(page.getByTestId('project-filter')).toHaveCount(0);
+    await expect(page.locator('.session-group')).toHaveCount(1);
+    await page.getByTestId('session-search').fill('no matching session xyz');
+    await expect(page.getByText('No sessions match.')).toBeVisible();
+    await expect(page.locator('.session-group')).toHaveCount(0);
+    await page.getByTestId('session-search').fill('');
     await page.getByTestId('session-sort').selectOption('name');
     await page.getByTestId('scope-scheduled').click();
     await expect(page.getByTestId('session-session-queued')).toContainText('Monday planning digest');

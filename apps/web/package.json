@@ -9,8 +9,9 @@
     "typecheck": "tsc -b",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "npm run build && playwright test && playwright test --config tests/bucket-a-rendered-repair-playwright.config.ts",
-    "test:list": "playwright test --list && playwright test --config tests/bucket-a-rendered-repair-playwright.config.ts --list",
+    "test": "npm run build && playwright test && playwright test --config tests/bucket-a-rendered-repair-playwright.config.ts && npm run test:electron-slices",
+    "test:list": "playwright test --list && playwright test --config tests/bucket-a-rendered-repair-playwright.config.ts --list && npm run test:electron-slices -- --list",
+    "test:electron-slices": "node tests/run-electron-slices.mjs",
     "test:external:chrome": "playwright test --config tests/external-host-playwright.config.ts",
     "test:dist-smoke": "node tests/dist-smoke.mjs",
     "test:contract": "playwright test tests/contract --workers=1",
@@ -19,7 +20,10 @@
     "test:ui": "playwright test --ui"
   },
   "dependencies": {
+    "@xterm/xterm": "^6.0.0",
     "lucide-react": "^0.468.0",
+    "marked": "15.0.12",
+    "qrcode.react": "^4.2.0",
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },

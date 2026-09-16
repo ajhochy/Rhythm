@@ -17,6 +17,7 @@ export type SessionWireEvent = {
   reason?: string;
   part?: unknown;
   info?: unknown;
+  message?: string;
   // notification.push frame — apps/api_server/src/controllers/notifications_agent_controller.ts:6-32;
   // broadcast shape {v:1,type:'notification.push',id,title,body} at apps/api_server/src/app.ts:155-157.
   title?: string;
@@ -38,6 +39,42 @@ export type SessionWireEvent = {
 };
 export type SessionSocket = { send(frame: unknown): void; close(): void };
 export type TranscriptPageInfo = { nextCursor: string | null; hasMore: boolean };
+// E20 extends the existing view model locally, without changing shared store contracts.
+export type SessionCatalogEntry = Session & {
+  lastActivityAt?: string | null;
+  lastPreview?: string | null;
+  category?: string;
+  archivedAt?: string | null;
+  hasChildren?: boolean;
+  childCount?: number;
+  runningChildCount?: number;
+};
+export type SessionListQuery = {
+  scope?: Session['scope'] | 'self_improvement';
+  projectId?: string;
+  search?: string;
+  archivedOnly?: boolean;
+  parentId?: string;
+  cursor?: string;
+};
+export type SessionListPage = { sessions: SessionCatalogEntry[]; ancestors: SessionCatalogEntry[]; pageInfo: TranscriptPageInfo };
+export type SessionSort = 'newest' | 'oldest' | 'name' | 'activity' | 'status';
+export type IdentityProfile = Profile & { autoApproveActions?: boolean; reasoningEffort?: string | null };
+export type ModelChoice = { providerId: string; modelId: string; label: string };
+export type AccountChoice = { id: string; label: string; status: string };
+export type SessionSettings = { name?: string; profileId?: string | null; providerId?: string | null; modelId?: string | null; thinkingBudget?: number | null; permissionMode?: string; fastMode?: boolean; anthropicAccountId?: string };
+export type TurnOverride = { profileId?: string; modelOverride?: { providerId: string; modelId: string } };
+const statusOrder: Record<Session['status'], number> = { working: 0, starting: 1, idle: 2, error: 3, closed: 4, resumable: 5 };
+const compareText = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
+const timestamp = (value: string) => Date.parse(value) || 0;
+export function compareSessions(a: SessionCatalogEntry, b: SessionCatalogEntry, sort: SessionSort): number {
+  const activity = () => timestamp(b.lastActivityAt ?? b.createdAt) - timestamp(a.lastActivityAt ?? a.createdAt);
+  const order = sort === 'name' ? compareText(a.name.toLowerCase(), b.name.toLowerCase())
+    : sort === 'status' ? statusOrder[a.status] - statusOrder[b.status] || activity()
+      : sort === 'activity' ? activity()
+        : (timestamp(a.createdAt) - timestamp(b.createdAt)) * (sort === 'oldest' ? 1 : -1);
+  return order || compareText(a.id, b.id);
+}
 // apps/api_server/src/services/tool_surface_estimator.ts:39-52.
 export type ToolSurfaceServerEntry = { name: string; toolCount: number; estimatedTokens: number };
 export type ToolSurfaceReport = { mcpRole: string | null; servers: ToolSurfaceServerEntry[]; builtins: ToolSurfaceServerEntry; totalToolCount: number; totalEstimatedTokens: number };
@@ -61,10 +98,19 @@ export interface ProjectBranches { current: string | null; local: string[]; rece
 
 export interface SessionGateway {
   readonly mode: GatewayMode;
-  profiles(): Promise<Profile[]>;
+  profiles(): Promise<IdentityProfile[]>;
+  models?(): Promise<ModelChoice[]>;
+  accounts?(): Promise<AccountChoice[]>;
+  patchSettings?(localId: string, input: SessionSettings): Promise<Session>;
+  archive?(localId: string, archived: boolean): Promise<void>;
+  fork?(localId: string, messageId: string): Promise<Session>;
+  summarize?(localId: string): Promise<void>;
+  init?(localId: string): Promise<void>;
   list(): Promise<Session[]>;
+  listPage?(query: SessionListQuery): Promise<SessionListPage>;
+  projectLabels?(): Promise<{ id: string; name: string }[]>;
   detail(localId: string): Promise<Session>;
-  create(input: { profileId: string; cwd: string; name: string; isolateWorktree: boolean; worktreeName?: string; branch?: string; createBranch?: boolean; stash?: 'stash' | 'discard' }): Promise<Session>;
+  create(input: { profileId: string; cwd: string; name: string; isolateWorktree: boolean; worktreeName?: string; branch?: string; createBranch?: boolean; stash?: 'stash' | 'discard'; taskId?: string; anthropicAccountId?: string }): Promise<Session>;
   // post-m1-phase-6 c1b/c2a: GET /:id/files/find-files?query&limit&type — returns relative paths.
   findFiles(localId: string, query: string, opts?: { limit?: number; type?: 'file' | 'directory' }): Promise<string[]>;
   // GET /:id/files/list?path — engine-shaped entries scoped to the session/worktree directory.
@@ -80,8 +126,8 @@ export interface SessionGateway {
   // GET /:id/vcs/diff/raw — raw text/x-diff patch, never re-encoded (post-m1-p6-c2e).
   vcsDiffRaw(localId: string): Promise<string>;
   // POST /:id/revert {messageId} / POST /:id/unrevert (post-m1-p6-c2f).
-  revert(localId: string, messageId: string): Promise<void>;
-  unrevert(localId: string): Promise<void>;
+  revert(localId: string, messageId: string): Promise<{ revertedMessageId?: string } | void>;
+  unrevert(localId: string): Promise<{ revertedMessageId?: string } | void>;
   // POST /:id/worktree/reset — surfaces the bounded 502 WORKTREE_RESET_FAILED (post-m1-p6-c3d).
   resetWorktree(localId: string): Promise<void>;
   // POST /:id/worktree/remove — surfaces the bounded 502 WORKTREE_REMOVE_FAILED; returns the
@@ -100,8 +146,8 @@ export interface SessionGateway {
   // services/mobile_opencode_operations.generated.ts). Honest rejection here, not a fabricated
   // success, until the engine gains that capability.
   dispatchMcp(localId: string, server: string, tool: string, args: Record<string, unknown>): Promise<never>;
-  createProfile(input: ProfileMutation): Promise<Profile>;
-  patchProfile(id: string, input: ProfileMutation): Promise<Profile>;
+  createProfile(input: ProfileMutation): Promise<IdentityProfile>;
+  patchProfile(id: string, input: Partial<ProfileMutation>): Promise<IdentityProfile>;
   deleteProfile(id: string): Promise<void>;
   hardDelete(localId: string): Promise<void>;
   cancel(localId: string): Promise<void>;
@@ -120,6 +166,8 @@ export interface SessionGateway {
 }
 
 export interface ProfileMutation {
+  autoApproveActions?: boolean;
+  reasoningEffort?: string | null;
   label: string;
   icon: string;
   enabled: boolean;
@@ -178,6 +226,7 @@ const record = (value: unknown): Record<string, unknown> => value && typeof valu
 // `string()` above intentionally rejects numbers, so message-id resolution needs its own
 // coercion instead of silently collapsing every numeric id to ''.
 const idOf = (value: unknown): string | undefined => typeof value === 'string' ? value : typeof value === 'number' ? String(value) : undefined;
+const nonnegativeInteger = (value: unknown): number | undefined => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 
 // c2j (child-session navigation) only: a `tool` part whose `tool` is `task` names the
 // child SDK session it delegated to inline in its output text ("task_id: <id> (for
@@ -187,18 +236,35 @@ const idOf = (value: unknown): string | undefined => typeof value === 'string' ?
 // richer per-type rendering (reasoning/tool/file/agent) is a separate concern.
 const TASK_ID_PATTERN = /task_id:\s*(\S+)/;
 
-export function mapPart(raw: Record<string, unknown>, id: string): TranscriptBlock {
+// Shared with the artifact host: retain the envelope, never interpret HTML here.
+export type McpContent = { type: string; text?: string; resource?: { uri: string; mimeType?: string; text?: string; blob?: string }; [key: string]: unknown };
+export type CanonicalTool = {
+  name: string; callId: string; status: string; input?: unknown; output?: unknown; error?: unknown;
+  metadata?: Record<string, unknown> & { content?: McpContent[] };
+};
+export type RichTranscriptBlock = TranscriptBlock & { tool?: CanonicalTool };
+export type RichTranscriptMessage = TranscriptMessage & {
+  cost?: number; tokens?: { input?: number; output?: number; reasoning?: number; cache?: { read?: number; write?: number } };
+};
+export const canonicalText = (value: unknown): string => typeof value === 'string' ? value : value === undefined ? '' : JSON.stringify(value, null, 2);
+export const blockSource = (block: RichTranscriptBlock): string => block.tool ? canonicalText(block.tool) : block.content;
+
+export function mapPart(raw: Record<string, unknown>, id: string): RichTranscriptBlock {
+  const state = record(raw.state);
+  const tool: CanonicalTool | undefined = raw.type === 'tool' ? {
+    name: string(raw.tool, 'Tool'), callId: string(raw.callID), status: string(state.status, 'unknown'),
+    input: state.input, output: state.output, error: state.error,
+    metadata: state.metadata && typeof state.metadata === 'object' ? record(state.metadata) : undefined,
+  } : undefined;
   if (raw.type === 'tool' && raw.tool === 'task') {
-    const state = record(raw.state);
     const match = TASK_ID_PATTERN.exec(string(state.output));
-    return { id, kind: 'children', content: string(state.title, 'Child session'), meta: string(state.status), childSessionId: match?.[1] };
+    return { id, kind: 'children', content: string(state.title, 'Child session'), meta: string(state.status), childSessionId: match?.[1], tool };
   }
   // post-m1-phase-4 c2d: preserve every other canonical part type instead of collapsing it to
   // markdown. Field vocabulary from apps/api_server/src/services/opencode_stream_bridge.ts:1250-1339.
   if (raw.type === 'reasoning') return { id, kind: 'reasoning', title: 'Reasoning', content: string(raw.text) };
   if (raw.type === 'tool') {
-    const state = record(raw.state);
-    return { id, kind: 'tool', title: string(state.title, string(raw.tool, 'Tool')), content: string(state.output), meta: string(state.status) };
+    return { id, kind: 'tool', title: string(state.title, string(raw.tool, 'Tool')), content: canonicalText(state.output), meta: tool?.status, tool };
   }
   if (raw.type === 'step-start') return { id, kind: 'step-start', content: string(raw.snapshot) };
   if (raw.type === 'step-finish') return { id, kind: 'step-finish', content: string(raw.snapshot), meta: string(raw.reason) };
@@ -208,7 +274,7 @@ export function mapPart(raw: Record<string, unknown>, id: string): TranscriptBlo
   return { id, kind: 'markdown', content: string(raw.text, string(raw.content)) };
 }
 
-function mapMessage(value: unknown): TranscriptMessage {
+export function mapMessage(value: unknown): RichTranscriptMessage {
   const source = record(value);
   const info = record(source.info);
   const parts = Array.isArray(source.parts) ? source.parts : [];
@@ -220,28 +286,60 @@ function mapMessage(value: unknown): TranscriptMessage {
   return {
     id,
     role: ['user', 'assistant', 'system'].includes(role) ? role as TranscriptMessage['role'] : 'system',
-    createdAt: string(info.time?.toString?.(), string(source.createdAt, new Date(0).toISOString())),
+    createdAt: typeof record(info.time).created === 'number' && Number.isFinite(record(info.time).created) && Math.abs(record(info.time).created as number) <= 8640000000000000
+      ? new Date(record(info.time).created as number).toISOString() : string(source.createdAt, new Date(0).toISOString()),
+    ...messageMetadata({ ...source, ...info }),
     blocks: parts.map((part, index) => mapPart(record(part), string(record(part).id, `${id}-${index}`))),
   };
 }
 
-export function toSessionViewModel(value: unknown, messages: unknown[] = [], transcriptPage?: unknown): Session {
+function messageMetadata(info: Record<string, unknown>): Pick<RichTranscriptMessage, 'cost' | 'tokens'> {
+  const count = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+  const tokens = record(info.tokens); const cache = record(tokens.cache);
+  return {
+    ...(count(info.cost) !== undefined ? { cost: count(info.cost) } : {}),
+    ...(info.tokens && typeof info.tokens === 'object' ? { tokens: { input: count(tokens.input), output: count(tokens.output), reasoning: count(tokens.reasoning), cache: { read: count(cache.read), write: count(cache.write) } } } : {}),
+  };
+}
+
+export function reconcileMessageInfo(existing: TranscriptMessage | undefined, info: Record<string, unknown>): RichTranscriptMessage {
+  const mapped = mapMessage({ info });
+  return { ...existing, ...mapped, ...messageMetadata(info),
+    cost: mapped.cost ?? (existing as RichTranscriptMessage | undefined)?.cost,
+    tokens: mapped.tokens ?? (existing as RichTranscriptMessage | undefined)?.tokens,
+    role: typeof info.role === 'string' ? mapped.role : existing?.role ?? mapped.role,
+    createdAt: record(info.time).created === undefined ? existing?.createdAt ?? mapped.createdAt : mapped.createdAt,
+    blocks: existing?.blocks ?? [],
+  };
+}
+
+export function toSessionViewModel(value: unknown, messages: unknown[] = [], transcriptPage?: unknown): SessionCatalogEntry {
   const source = record(value);
   const status = string(source.status, source.working === true ? 'working' : 'idle');
   const page = record(transcriptPage);
   const parentSessionId = typeof source.parentSessionId === 'string' && source.parentSessionId ? source.parentSessionId : undefined;
+  const category = string(source.category, string(source.scope, 'chats'));
+  const childCount = nonnegativeInteger(source.childCount);
+  const runningChildCount = nonnegativeInteger(source.runningChildCount);
   return {
-    id: string(source.id), name: string(source.name, 'Untitled session'), scope: source.scope === 'scheduled' || source.scope === 'background' ? source.scope : 'chats',
-    group: source.archived === true ? 'archived' : status === 'resumable' || status === 'closed' ? 'resumable' : 'active',
+    id: string(source.id), name: string(source.name, 'Untitled session'), scope: category === 'scheduled' ? 'scheduled' : category === 'self_improvement' || category === 'background' ? 'background' : 'chats',
+    category, lastActivityAt: typeof source.lastActivityAt === 'string' ? source.lastActivityAt : null,
+    lastPreview: typeof source.lastPreview === 'string' ? source.lastPreview : null,
+    archivedAt: typeof source.archivedAt === 'string' ? source.archivedAt : null,
+    hasChildren: source.hasChildren === true || childCount !== undefined && childCount > 0 || Array.isArray(source.children) && source.children.length > 0,
+    ...(childCount !== undefined ? { childCount } : {}),
+    ...(runningChildCount !== undefined ? { runningChildCount } : {}),
+    group: source.archivedAt != null || source.archived === true ? 'archived' : status === 'resumable' ? 'resumable' : 'active',
     status: ['starting', 'working', 'idle', 'resumable', 'closed', 'error'].includes(status) ? status as Session['status'] : 'idle',
-    connectionState: 'online', profileId: string(source.profileId, string(source.profile_id)), projectId: string(source.projectId, string(source.project_id)), projectName: string(source.projectName, 'Live workspace'),
+    statusMessage: typeof source.statusMessage === 'string' ? source.statusMessage : undefined,
+    connectionState: 'online', profileId: string(source.profileId, string(source.profile_id)), projectId: string(source.projectId, string(source.project_id)), projectName: string(source.projectName),
     cwd: string(source.cwd), branch: string(source.branch, 'main'), dirtyCount: 0, isolateWorktree: source.isolateWorktree === true || Boolean(source.worktreePath), account: string(source.anthropicAccountId),
     // post-m1-phase-6 c3b/c3d/c3e: the resolved isolated-worktree identity — never defaulted
     // to 'main' or synthesized client-side. apps/api_server/src/__tests__/post_m1_phase_6_files_worktrees_contract.test.ts:96-100.
     worktreeName: typeof source.worktreeName === 'string' && source.worktreeName ? source.worktreeName : undefined,
     worktreePath: typeof source.worktreePath === 'string' && source.worktreePath ? source.worktreePath : undefined,
     worktreeBranch: typeof source.worktreeBranch === 'string' && source.worktreeBranch ? source.worktreeBranch : undefined,
-    model: string(source.modelId, 'Configured model'), modelId: string(source.modelId) || undefined, providerId: string(source.providerId) || undefined, sdkSessionId: string(source.sdkSessionId) || undefined, thinkingBudget: 'Medium', permissionMode: string(source.permissionMode, 'default'), fastMode: source.fastMode === true,
+    model: string(source.modelId, 'Configured model'), modelId: string(source.modelId) || undefined, providerId: string(source.providerId) || undefined, sdkSessionId: string(source.sdkSessionId) || undefined, thinkingBudget: typeof source.thinkingBudget === 'number' ? String(source.thinkingBudget) : '', permissionMode: string(source.permissionMode, 'default'), fastMode: source.fastMode === true,
     createdAt: string(source.createdAt, new Date(0).toISOString()), updatedAt: string(source.updatedAt, string(source.createdAt, new Date(0).toISOString())), cost: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalBudget: 0,
     // post-m1-phase-5 c2d: preserve canonical delegation identity instead of dropping it — a
     // child's canonical parentSessionId is normalized into the web model's parentId; both fields
@@ -263,7 +361,7 @@ function flattenSessionTree(value: unknown): Session[] {
   return [session, ...children.flatMap(flattenSessionTree)];
 }
 
-function mapProfile(value: unknown): Profile {
+function mapProfile(value: unknown): IdentityProfile {
   const source = record(value);
   const modelProvider = typeof source.modelProvider === 'string' ? source.modelProvider : null;
   const modelId = typeof source.modelId === 'string' ? source.modelId : null;
@@ -276,6 +374,8 @@ function mapProfile(value: unknown): Profile {
     catch { return {}; }
   };
   return {
+    autoApproveActions: source.autoApproveActions === true,
+    reasoningEffort: typeof source.reasoningEffort === 'string' ? source.reasoningEffort : null,
     id: string(source.id), icon: string(source.icon, 'AG'), label: string(source.label, string(source.id)),
     systemPrompt: string(source.systemPrompt), managerAgent: source.isManager === true,
     allowedDelegates: parseList(source.allowedDelegatesJson), selectable: source.sessionSelectable !== false,
@@ -312,6 +412,45 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
   const request = (path: string, init: RequestInit = {}) => fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
   return {
     mode: 'live',
+    archive: async (id, archived) => { await response('Archive session', request(`/agent-sessions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ archived }) })); },
+    fork: async (id, messageId) => toSessionViewModel(await response('Fork session', request(`/agent-sessions/${encodeURIComponent(id)}/fork`, { method: 'POST', body: JSON.stringify({ messageId }) }))),
+    summarize: async id => { await response('Compact session', request(`/agent-sessions/${encodeURIComponent(id)}/summarize`, { method: 'POST' })); },
+    init: async id => {
+      const result = await response<{ ok?: boolean }>('Prepare project', request(`/agent-sessions/${encodeURIComponent(id)}/init`, { method: 'POST' }));
+      if (result.ok !== true) throw new Error('Project initialization was not confirmed by the engine');
+    },
+    models: async () => {
+      const rows = await response<unknown[]>('Load models', request('/agents/models/catalog'));
+      const choices = rows.map(record).filter(row => row.authorized === true && string(row.provider) && string(row.modelId))
+        .map(row => ({ providerId: string(row.provider), modelId: string(row.modelId), label: string(row.displayName, string(row.modelId)) }));
+      return [...new Map(choices.map(row => [`${row.providerId}/${row.modelId}`, row])).values()];
+    },
+    accounts: async () => {
+      const body = await response<{ accounts?: unknown[] }>('Load accounts', request('/opencode/auth/accounts'));
+      return (body.accounts ?? []).map(record).map(row => ({ id: string(row.id), label: string(row.label, string(row.id)), status: string(row.status) }));
+    },
+    patchSettings: async (id, input) => {
+      await response<unknown>('Save session settings', request(`/agent-sessions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(input) }));
+      const body = await response<{ session: unknown; messages?: unknown[]; transcriptPage?: unknown }>('Read session settings', request(`/agent-sessions/${encodeURIComponent(id)}?transcriptLimit=50`));
+      return toSessionViewModel(body.session, body.messages ?? [], body.transcriptPage);
+    },
+    projectLabels: async () => (await response<unknown[]>('Load projects', request('/projects?includeArchived=true')))
+      .map((value) => ({ id: string(record(value).id), name: string(record(value).name) })),
+    listPage: async (query) => {
+      const params = new URLSearchParams({ limit: '100', scope: query.scope === 'background' ? 'self_improvement' : query.scope ?? 'chats' });
+      if (query.projectId) params.set('projectId', query.projectId);
+      if (query.search?.trim()) params.set('search', query.search.trim());
+      if (query.archivedOnly) params.set('archivedOnly', 'true');
+      if (query.parentId) params.set('parentId', query.parentId);
+      if (query.cursor) params.set('cursor', query.cursor);
+      const body = await response<{ sessions?: unknown[]; resumable?: unknown[]; ancestors?: unknown[]; pageInfo?: TranscriptPageInfo }>('Load session history', request(`/agent-sessions?${params}`));
+      const rows = [...(body.sessions ?? []), ...(body.resumable ?? [])].flatMap(flattenSessionTree);
+      return {
+        sessions: [...new Map(rows.map((session) => [session.id, session])).values()],
+        ancestors: (body.ancestors ?? []).map((value) => toSessionViewModel(value)),
+        pageInfo: body.pageInfo ?? { nextCursor: null, hasMore: false },
+      };
+    },
     profiles: async () => (await response<unknown[]>('Load profiles', request('/agent-configs'))).map(mapProfile),
     list: async () => {
       const body = await response<{ sessions?: unknown[] }>('Load sessions', request('/agent-sessions?scope=chats'));
@@ -319,7 +458,12 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
     },
     detail: async (localId) => {
       const body = await response<{ session: unknown; messages?: unknown[]; transcriptPage?: unknown }>('Load session', request(`/agent-sessions/${encodeURIComponent(localId)}?transcriptLimit=50`));
-      return toSessionViewModel(body.session, body.messages ?? [], body.transcriptPage);
+      // Context usage is the latest persisted model response, not a guessed subtraction.
+      // The API supplies parsed SDK tokens on structured messages; no budget is invented.
+      const latest = [...(body.messages ?? [])].reverse().map(record).find(message => message.tokens && (message.role === 'output' || message.role === 'assistant'));
+      const tokens = record(latest?.tokens);
+      const count = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+      return { ...toSessionViewModel(body.session, body.messages ?? [], body.transcriptPage), inputTokens: count(tokens.input), outputTokens: count(tokens.output), cachedTokens: count(record(tokens.cache).read) };
     },
     // post-m1-phase-4 c2f: exclusive `before` cursor, canonical `pageInfo.nextCursor`/`hasMore`.
     pageOlder: async (localId, before) => {
@@ -378,8 +522,17 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
       if (!result.ok) throw new SessionGatewayError(result.status, failureText(result.status, 'Export patch'));
       return result.text();
     },
-    revert: async (localId, messageId) => { await response<void>('Revert session', request(`/agent-sessions/${encodeURIComponent(localId)}/revert`, { method: 'POST', body: JSON.stringify({ messageId }) })); },
-    unrevert: async (localId) => { await response<void>('Restore session', request(`/agent-sessions/${encodeURIComponent(localId)}/unrevert`, { method: 'POST' })); },
+    revert: async (localId, messageId) => {
+      const result = record(await response('Revert session', request(`/agent-sessions/${encodeURIComponent(localId)}/revert`, { method: 'POST', body: JSON.stringify({ messageId }) })));
+      const boundary = string(record(result.revert).messageID);
+      if (!boundary) throw new Error('Engine did not confirm a reverted message boundary');
+      return { revertedMessageId: boundary };
+    },
+    unrevert: async (localId) => {
+      const result = record(await response('Restore session', request(`/agent-sessions/${encodeURIComponent(localId)}/unrevert`, { method: 'POST' })));
+      if (!string(result.id) || result.revert != null) throw new Error('Engine did not confirm restored history');
+      return { revertedMessageId: undefined };
+    },
     // c3d/c3e: both surface the server's bounded 502 (WORKTREE_RESET_FAILED/WORKTREE_REMOVE_FAILED)
     // as a SessionGatewayError instead of swallowing it into a false "success".
     resetWorktree: async (localId) => { await response<void>('Reset worktree', request(`/agent-sessions/${encodeURIComponent(localId)}/worktree/reset`, { method: 'POST' })); },

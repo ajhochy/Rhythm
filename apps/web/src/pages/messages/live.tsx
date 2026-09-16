@@ -112,6 +112,9 @@ export function LiveMessagesPage({ route }: { route: string }) {
   const [search, setSearch] = useState('');
   const replyRef = useRef<HTMLTextAreaElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const selectedIdRef = useRef(selectedId);
+  const messageRequestRef = useRef(0);
+  useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
   const loadError = pageLoadError || liveMessagesError;
 
   const selectedThread = threads.find((thread) => thread.id === selectedId) ?? null;
@@ -141,22 +144,39 @@ export function LiveMessagesPage({ route }: { route: string }) {
   useEffect(() => {
     const id = threadIdFromRoute(route);
     if (id == null) return;
-    let active = true;
+    setSelectedId(id); selectedIdRef.current = id;
+    const requestId = ++messageRequestRef.current;
     gateway.messages(id)
-      .then((loaded) => { if (active) setMessages(loaded); })
-      .catch((error) => { if (active) setLoadError(boundedMessage(error)); });
+      .then((loaded) => { if (requestId === messageRequestRef.current && selectedIdRef.current === id) setMessages(loaded); })
+      .catch((error) => { if (requestId === messageRequestRef.current) setLoadError(boundedMessage(error)); });
     void gateway.markRead(id).then(() => {
-      if (active) setThreads((current) => current.map((thread) => thread.id === id ? { ...thread, unreadCount: 0, isUnread: false } : thread));
+      if (selectedIdRef.current === id) setThreads((current) => current.map((thread) => thread.id === id ? { ...thread, unreadCount: 0, isUnread: false } : thread));
     }).catch(() => {});
-    return () => { active = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { messageRequestRef.current += 1; };
+  }, [gateway, route, setThreads]);
+
+  useEffect(() => {
+    const refresh = () => {
+      const id = selectedIdRef.current;
+      if (id == null) return;
+      const requestId = ++messageRequestRef.current;
+      void gateway.messages(id).then((loaded) => {
+        if (requestId === messageRequestRef.current && selectedIdRef.current === id) setMessages(loaded);
+      }).catch((error) => { if (requestId === messageRequestRef.current) setLoadError(boundedMessage(error)); });
+    };
+    const timer = window.setInterval(refresh, 15_000);
+    window.addEventListener('focus', refresh);
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', refresh); };
   }, [gateway]);
 
   const openThread = async (id: number) => {
     setSelectedId(id);
+    selectedIdRef.current = id;
+    const requestId = ++messageRequestRef.current;
     setReplyError('');
     try {
       const loaded = await gateway.messages(id);
+      if (requestId !== messageRequestRef.current || selectedIdRef.current !== id) return;
       setMessages(loaded);
       await gateway.markRead(id);
       setThreads((current) => current.map((thread) => thread.id === id ? { ...thread, unreadCount: 0, isUnread: false } : thread));
@@ -243,17 +263,17 @@ export function LiveMessagesPage({ route }: { route: string }) {
           <div className="messages-rail-summary"><div><strong data-testid="messages-unread-total">{unreadTotal} unread {unreadTotal === 1 ? 'thread' : 'threads'}</strong><span>{visibleThreads.length} {visibleThreads.length === 1 ? 'conversation' : 'conversations'}</span></div><span aria-hidden="true">{String(unreadTotal).padStart(2, '0')}</span></div>
           <label className="search-field messages-search"><Icon name="search" size={14} /><span className="sr-only">Search conversations by title</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search conversations" data-testid="messages-thread-search" /></label>
           {loading ? <div className="messages-selection-state" role="status" data-testid="page-state-loading"><span className="messages-spinner" aria-hidden="true" /><p>Loading conversations…</p></div> : threads.length === 0 ? <div className="messages-no-results" data-testid="messages-no-results"><h2>No conversations yet</h2><p>Start a direct message or group handoff.</p></div> : visibleThreads.length === 0 ? <div className="messages-no-results" data-testid="messages-no-results"><h2>No matching conversations</h2><p>Try a shorter title or clear the search.</p><button className="secondary-button" type="button" onClick={() => setSearch('')}>Clear search</button></div> : (
-            <ul className="messages-thread-list" role="grid" aria-label="Conversation list" data-testid="messages-thread-list">
+            <ul className="messages-thread-list" aria-label="Conversation list" data-testid="messages-thread-list">
               {visibleThreads.map((thread) => {
                 const participant = thread.participants[0];
-                return <li key={thread.id} className="messages-thread-item" role="row">
-                  <div className="messages-thread-row" role="gridcell" tabIndex={0} aria-selected={selectedId === thread.id} data-unread={thread.unreadCount > 0 ? 'true' : 'false'} onClick={() => void openThread(thread.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void openThread(thread.id); } }} data-testid={`messages-thread-${thread.id}`}>
+                return <li key={thread.id} className="messages-thread-item">
+                  <button className="messages-thread-row" type="button" aria-current={selectedId === thread.id ? 'true' : undefined} data-unread={thread.unreadCount > 0 ? 'true' : 'false'} onClick={() => void openThread(thread.id)} data-testid={`messages-thread-${thread.id}`}>
                     <span className="messages-thread-avatar" aria-hidden="true">{initials(participant?.name ?? thread.title)}</span>
                     <span className="messages-thread-copy"><strong>{thread.title}</strong><small>{thread.lastMessage ?? 'No messages yet'}</small></span>
                     <time dateTime={thread.updatedAt}>{timeLabel(thread.updatedAt)}</time>
                     {thread.unreadCount > 0 && <span className="messages-row-unread" aria-label={`${thread.unreadCount} unread message${thread.unreadCount === 1 ? '' : 's'}`} data-testid={`messages-thread-unread-${thread.id}`}>{thread.unreadCount}</span>}
-                  </div>
-                  <div role="gridcell"><LiveThreadActions thread={thread} onRead={() => void toggleUnread(thread)} onUnread={() => void toggleUnread(thread)} /></div>
+                  </button>
+                  <div><LiveThreadActions thread={thread} onRead={() => void toggleUnread(thread)} onUnread={() => void toggleUnread(thread)} /></div>
                 </li>;
               })}
             </ul>
@@ -275,7 +295,7 @@ export function LiveMessagesPage({ route }: { route: string }) {
               </div>
               <fieldset className="messages-composer-fieldset"><legend className="sr-only">Reply to {selectedThread.title}</legend><div className="messages-composer">
                 <label htmlFor="messages-reply-input">Reply</label>
-                <div><textarea ref={replyRef} id="messages-reply-input" rows={2} value={reply} onChange={(event) => { setReply(event.target.value); setReplyError(''); }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void sendReply(); } }} aria-describedby={replyError ? 'messages-reply-error' : 'messages-reply-help'} data-testid="messages-reply-input" /><button className="primary-button messages-send" type="button" onClick={() => void sendReply()} data-testid="messages-send"><Icon name="send" size={16} /><span>Send</span></button></div>
+                <div><textarea ref={replyRef} id="messages-reply-input" rows={2} value={reply} onChange={(event) => { setReply(event.target.value); setReplyError(''); }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void sendReply(); } }} aria-describedby={replyError ? 'messages-reply-error' : 'messages-reply-help'} data-testid="messages-reply-input" /><button className="primary-button messages-send" type="button" onClick={() => void sendReply()} data-testid="messages-send"><Icon name="send" size={16} /><span>Send</span></button></div>
                 <small id="messages-reply-help">Enter to send · Shift+Enter for a new line</small>{replyError && <p id="messages-reply-error" role="alert" data-testid="messages-reply-error">{replyError}</p>}
               </div></fieldset>
             </>

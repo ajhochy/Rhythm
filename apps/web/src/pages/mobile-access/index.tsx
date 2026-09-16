@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import { useGateway } from '../../gateway/context';
 import {
   MobileAccessGatewayError,
@@ -69,6 +70,7 @@ export function MobileAccessPage() {
   const [offerStatus, setOfferStatus] = useState<OfferStatus>('idle');
   const [generating, setGenerating] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState(0);
+  const [copyStatus, setCopyStatus] = useState('');
   const deviceCountAtOffer = useRef(0);
 
   const [devices, setDevices] = useState<MobilePairedDevice[]>(() => (isLive ? [] : seedFixtureDevices()));
@@ -160,6 +162,11 @@ export function MobileAccessPage() {
   };
 
   const dismissOffer = () => { setOffer(null); setOfferStatus('idle'); };
+  const copyPairing = async () => {
+    if (!pairingPayload) return;
+    try { await navigator.clipboard.writeText(JSON.stringify(pairingPayload)); setCopyStatus('Pairing details copied.'); }
+    catch { setCopyStatus('Pairing details could not be copied.'); }
+  };
 
   const simulateFixturePair = () => {
     setDevices((current) => [...current, newFixtureDevice()]);
@@ -238,17 +245,20 @@ export function MobileAccessPage() {
             <button className="primary-button" type="button" onClick={() => void generateOffer()} disabled={generating} data-testid="mobile-access-generate-pairing">{generating ? 'Generating…' : 'Generate pairing code'}</button>
           )}
 
-          {offer && pairingPayload && (
-            <div data-testid="mobile-access-pairing-offer">
-              <pre data-testid="mobile-access-pairing-payload">{JSON.stringify(pairingPayload)}</pre>
-              <p role="status" data-testid="mobile-access-pairing-countdown">Expires in {secondsRemaining}s</p>
-              <div style={{ display: 'flex', gap: 8 }}>
+           {offer && pairingPayload && (
+             <div data-testid="mobile-access-pairing-offer">
+               <QRCodeSVG value={JSON.stringify(pairingPayload)} title="Scan to pair this phone with Rhythm" size={224} marginSize={2} data-testid="mobile-access-pairing-qr" />
+               <details><summary>Manual pairing details</summary><pre data-testid="mobile-access-pairing-payload">{JSON.stringify(pairingPayload)}</pre></details>
+               <p role="status" data-testid="mobile-access-pairing-countdown">Expires in {secondsRemaining}s</p>
+               <div style={{ display: 'flex', gap: 8 }}>
+                 <button className="secondary-button" type="button" onClick={() => void copyPairing()} data-testid="mobile-access-copy-pairing">Copy details</button>
                 <button className="secondary-button" type="button" onClick={() => void generateOffer()} disabled={generating} data-testid="mobile-access-regenerate-pairing">Regenerate</button>
                 {!isLive && (
                   <button className="text-button" type="button" onClick={simulateFixturePair} data-testid="mobile-access-fixture-simulate-pair">Simulate phone pairs (fixture only)</button>
                 )}
-              </div>
-            </div>
+               </div>
+               {copyStatus && <p role="status">{copyStatus}</p>}
+             </div>
           )}
 
           {offerStatus === 'expired' && (

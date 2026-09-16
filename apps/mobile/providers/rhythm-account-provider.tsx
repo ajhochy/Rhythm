@@ -26,7 +26,10 @@ import {
   type PropsWithChildren,
 } from 'react';
 
-import { startGoogleMobileOAuth } from '@/lib/auth/google-mobile-oauth';
+import {
+  HostedMobileOAuthError,
+  startHostedMobileOAuth,
+} from '@/lib/auth/hosted-mobile-oauth';
 import {
   classifyRhythmAccountError,
   RhythmSessionStore,
@@ -52,11 +55,13 @@ export interface RhythmAccountContextValue {
   /** Token-bearing transport; resolves the current SecureStore token per call. */
   client: RhythmCloudClient;
   error: RhythmAccountError | undefined;
+  isRestoring: boolean;
   /**
    * Exchange a Google auth code for a Rhythm Cloud session.
    * Resolves when sign-in succeeds; throws on failure.
    */
   signIn: () => Promise<void>;
+  cancelSignIn: () => void;
   /** Sign out and clear the stored session. */
   signOut: () => Promise<void>;
   /**
@@ -78,9 +83,6 @@ const RhythmAccountContext = createContext<RhythmAccountContextValue | null>(nul
 
 const RHYTHM_CLOUD_BASE_URL =
   process.env.EXPO_PUBLIC_RHYTHM_CLOUD_URL ?? 'https://api.vcrcapps.com';
-const GOOGLE_MOBILE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_MOBILE_CLIENT_ID ?? '';
-const GOOGLE_MOBILE_REDIRECT_URI = process.env.EXPO_PUBLIC_GOOGLE_MOBILE_REDIRECT_URI ?? '';
-
 function buildCloudClient(): RhythmCloudClient {
   return new RhythmCloudClient({
     baseUrl: RHYTHM_CLOUD_BASE_URL,
@@ -104,6 +106,7 @@ export function RhythmAccountProvider({ children }: PropsWithChildren) {
   );
   const [user, setUser] = useState<RhythmUser | null>(e2eUser);
   const [error, setError] = useState<RhythmAccountError>();
+  const [isRestoring, setIsRestoring] = useState(!e2eMode);
   const operationRef = useRef(0);
   const [client] = useState<RhythmCloudClient>(() => buildCloudClient());
 
@@ -131,6 +134,8 @@ export function RhythmAccountProvider({ children }: PropsWithChildren) {
         setState('error');
         setError(classifyRhythmAccountError(cause));
       }
+    }).finally(() => {
+      if (!cancelled && operation === operationRef.current) setIsRestoring(false);
     });
 
     return () => {
@@ -142,18 +147,26 @@ export function RhythmAccountProvider({ children }: PropsWithChildren) {
 
   const signIn = useCallback(async (): Promise<void> => {
     const operation = ++operationRef.current;
+    const previous = { state, user, error };
     setState('signingIn');
     setError(undefined);
     try {
-      const oauthParams = await startGoogleMobileOAuth({
-        clientId: GOOGLE_MOBILE_CLIENT_ID,
-        redirectUri: GOOGLE_MOBILE_REDIRECT_URI,
-      });
+      const oauthParams = await startHostedMobileOAuth();
       if (operation !== operationRef.current) return;
       const result = await store.signIn(oauthParams);
       if (operation === operationRef.current) applyResult(result);
     } catch (cause) {
       if (operation === operationRef.current) {
+        if (cause instanceof HostedMobileOAuthError && cause.cancelled) {
+          setState(previous.state);
+          setUser(previous.user);
+          setError({
+            kind: 'authentication',
+            message: cause.message,
+            retryable: true,
+          });
+          return;
+        }
         const accountError = cause && typeof cause === 'object' && 'accountError' in cause
           ? (cause as { accountError: RhythmAccountError }).accountError
           : classifyRhythmAccountError(cause);
@@ -162,7 +175,14 @@ export function RhythmAccountProvider({ children }: PropsWithChildren) {
       }
       throw cause;
     }
-  }, [applyResult, store]);
+  }, [applyResult, error, state, store, user]);
+
+  const cancelSignIn = useCallback(() => {
+    operationRef.current += 1;
+    store.cancelPending();
+    setState('signedOut');
+    setError(undefined);
+  }, [store]);
 
   const signOut = useCallback(async (): Promise<void> => {
     const operation = ++operationRef.current;
@@ -180,7 +200,7 @@ export function RhythmAccountProvider({ children }: PropsWithChildren) {
 
   return (
     <RhythmAccountContext.Provider
-      value={{ state, user, client, error, signIn, signOut, refresh }}>
+      value={{ state, user, client, error, isRestoring, signIn, cancelSignIn, signOut, refresh }}>
       {children}
     </RhythmAccountContext.Provider>
   );

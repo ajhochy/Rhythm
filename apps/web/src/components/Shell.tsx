@@ -3,8 +3,8 @@ import { Icon, type IconName } from '../icons';
 import { useFixtures } from '../store';
 import type { DemoState } from '../types';
 
-const destinations = ['Dashboard', 'Planner', 'Tasks', 'Rhythms', 'Projects', 'Messages', 'Facilities', 'Automations', 'Integrations', 'Agents'];
-const optional = new Set(['Facilities', 'Automations', 'Integrations']);
+const destinations = ['Dashboard', 'Planner', 'Tasks', 'Rhythms', 'Projects', 'Messages', 'Facilities', 'Automations', 'Integrations', 'Agents', 'Settings'];
+const optional = new Set(['Facilities', 'Automations', 'Integrations', 'Settings']);
 
 function moveMenuFocus(event: React.KeyboardEvent<HTMLElement>) {
   if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
@@ -65,15 +65,18 @@ const demoLabels: Record<DemoState, string> = {
 export function Shell({ route, children }: { route: string; children: React.ReactNode }) {
   const { theme, setTheme, demo, setDemo, toast, resetFixtures, notify, unreadThreads, sessionGatewayMode, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, pendingApprovals, decideApproval } = useFixtures();
   const live = sessionGatewayMode === 'live';
-  // c4b: entityType -> destination page. Deliberately a list route, not a deep per-entity view —
-  // Rhythm's task/rhythm/project detail routes don't yet accept a hash target id to focus.
-  const entityDestination: Record<string, string> = { task: '/tasks', rhythm: '/rhythms', project: '/projects' };
-  const openDomainNotification = (id: number, entityType: string) => {
+  const entityDestination = (entityType: string, entityId: string) => ({
+    task: `/tasks/task/${encodeURIComponent(entityId)}`,
+    rhythm: `/rhythms/rule/${encodeURIComponent(entityId)}`,
+    project: `/projects/instances/${encodeURIComponent(entityId)}`,
+  })[entityType] ?? '/agents';
+  const openDomainNotification = (id: number, entityType: string, entityId: string) => {
     markNotificationRead(id);
-    navigate(entityDestination[entityType] ?? '/agents');
+    navigate(entityDestination(entityType, entityId));
   };
   const openPushNotification = () => navigate('/agents');
   const [demoOpen, setDemoOpen] = useState(false);
+  const [toastVisible, setToastVisible] = useState(false);
   const [compactNav, setCompactNav] = useState(() => window.matchMedia('(max-width: 900px)').matches);
   const activeKey = route.startsWith('/profiles') || route.startsWith('/endpoint-map') || route.startsWith('/tools/') ? 'agents' : route.split('/')[1] || 'agents';
   const activeLabel = activeKey.charAt(0).toUpperCase() + activeKey.slice(1);
@@ -86,6 +89,13 @@ export function Shell({ route, children }: { route: string; children: React.Reac
     return () => query.removeEventListener('change', change);
   }, []);
   useEffect(() => {
+    if (toast.id === 0) return;
+    setToastVisible(true);
+    const timer = window.setTimeout(() => setToastVisible(false), 3_000);
+    return () => window.clearTimeout(timer);
+  }, [toast.id]);
+  useEffect(() => {
+    if (live) return;
     const queryDemo = new URLSearchParams(window.location.hash.split('?')[1] || '').get('demo') as DemoState | null;
     if (queryDemo && Object.hasOwn(demoLabels, queryDemo)) setDemo(queryDemo);
   }, []);
@@ -102,7 +112,7 @@ export function Shell({ route, children }: { route: string; children: React.Reac
 
   return (
     <div className="app-canvas" data-od-id="agents-app-shell">
-      <a className="skip-link" href="#/agents" onClick={(event) => { event.preventDefault(); if (!window.location.hash.startsWith('#/agents')) navigate('/agents'); requestAnimationFrame(() => document.getElementById('main-content')?.focus()); }}>Skip to Agents workspace</a>
+      <a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); document.getElementById('main-content')?.focus(); }}>Skip to main content</a>
       <header className="app-header" data-od-id="rhythm-global-header">
         <nav className="destination-nav" aria-label="Product destinations">
           {destinations.map((destination) => destinationButton(destination))}
@@ -112,9 +122,11 @@ export function Shell({ route, children }: { route: string; children: React.Reac
         </nav>
         <div className="global-actions">
           <Menu label="Background activity" icon="activity" testId="background-activity-button">
+            {live ? <button className="menu-item" role="menuitem" type="button" onClick={() => navigate('/agents')}>View agent sessions</button> : <>
             <div className="menu-heading"><span>Background activity</span><small>2 sessions</small></div>
             <button className="activity-row" role="menuitem" type="button" onClick={() => { navigate('/agents'); setDemo('running'); notify('Volunteer coverage audit selected'); }}><span className="status-dot working" /><span><strong>Volunteer coverage audit</strong><small>Working · child agent</small></span></button>
             <button className="activity-row" role="menuitem" type="button" onClick={() => { navigate('/agents'); setDemo('resumable'); }}><span className="status-dot stuck" /><span><strong>Integration health sweep</strong><small>Unavailable · can resume</small></span></button>
+            </>}
           </Menu>
           <Menu label="Notifications" icon="bell" testId="notifications-button">
             {live ? <>
@@ -132,7 +144,7 @@ export function Shell({ route, children }: { route: string; children: React.Reac
                   <button type="button" className="secondary-button compact" data-menu-keep-open onClick={() => void decideApproval(approval.id, 'rejected')}>Reject</button>
                 </div>
               </div>)}
-              {notifications.map((item) => <button key={`domain-${item.id}`} role="menuitem" className="menu-item stacked" type="button" onClick={() => openDomainNotification(item.id, item.entityType)}><strong>{item.message}</strong><small>{item.type}</small></button>)}
+              {notifications.map((item) => <button key={`domain-${item.id}`} role="menuitem" className="menu-item stacked" type="button" onClick={() => openDomainNotification(item.id, item.entityType, item.entityId)}><strong>{item.message}</strong><small>{item.type}</small></button>)}
               {pushNotifications.map((item) => <button key={`push-${item.id}`} role="menuitem" className="menu-item stacked" type="button" onClick={openPushNotification}><strong>{item.title}</strong><small>{item.body}</small></button>)}
               <button role="menuitem" className="menu-item stacked" type="button" onClick={markAllNotificationsRead}><strong>Mark all read</strong><small>Clears unread status</small></button>
             </> : <>
@@ -149,10 +161,10 @@ export function Shell({ route, children }: { route: string; children: React.Reac
               <span className="menu-section-label">Workspace diagnostics</span>
               <button className="menu-item" role="menuitem" type="button" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} data-testid="theme-toggle"><Icon name={theme === 'light' ? 'moon' : 'sun'} size={15} />Switch to {theme === 'light' ? 'dark' : 'light'} theme</button>
               <button className="menu-item" role="menuitem" type="button" onClick={() => navigate('/endpoint-map')} data-testid="endpoint-map-button"><Icon name="endpoint" size={15} />Endpoint Map</button>
-              <div className="diagnostics-demo">
+              {!live && <div className="diagnostics-demo">
                 <button className="menu-item" role="menuitem" type="button" aria-haspopup="menu" aria-expanded={demoOpen} onClick={() => setDemoOpen((value) => !value)} data-menu-keep-open data-testid="demo-states-button"><Icon name="activity" size={15} />Demo states<Icon name="chevronRight" size={13} /></button>
                 {demoOpen && <div className="menu-popover demo-menu" role="menu" aria-label="Demo states" onClick={() => setDemoOpen(false)}>{(Object.keys(demoLabels) as DemoState[]).map((state) => <button role="menuitemradio" aria-checked={demo === state} className="menu-item" type="button" key={state} onClick={() => { setDemo(state); const base = window.location.hash.split('?')[0] || '#/agents'; history.replaceState(null, '', `${base}?demo=${state}`); }} data-testid={`demo-${state}`}>{demo === state ? <Icon name="check" size={14} /> : <span className="menu-spacer" />}{demoLabels[state]}</button>)}<hr /><button role="menuitem" className="menu-item" type="button" onClick={() => { resetFixtures(); history.replaceState(null, '', '#/agents'); }} data-testid="fixture-reset"><Icon name="refresh" size={14} />Reset workspace</button></div>}
-              </div>
+              </div>}
             </div>
           </Menu>
         </div>
@@ -160,7 +172,7 @@ export function Shell({ route, children }: { route: string; children: React.Reac
       <section className="workspace-surface" aria-label={`${activeLabel} workspace`}>
         <main id="main-content" tabIndex={-1}>{children}</main>
       </section>
-      <div className="toast" role="status" aria-live="polite" data-testid="toast-status"><Icon name="check" size={15} /><span>{toast}</span></div>
+      <div className="toast" role="status" aria-live="polite" data-visible={toastVisible} data-testid="toast-status"><Icon name="check" size={15} /><span>{toast.message}</span></div>
     </div>
   );
 }

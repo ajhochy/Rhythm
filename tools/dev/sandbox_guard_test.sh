@@ -58,7 +58,7 @@ chmod 400 "$DB"
 CONFIG_DIR="$FIXTURE_ROOT/opencode-config"
 mkdir -p "$CONFIG_DIR"
 cat >"$CONFIG_DIR/opencode.json" <<'JSON'
-{"mcp": {"rhythm": {"type": "local"}}}
+{"mcp": {"rhythm": {"type": "local", "command": ["node", "mcp_server.js"]}}}
 JSON
 chmod 400 "$CONFIG_DIR/opencode.json"
 
@@ -144,7 +144,7 @@ cat >"$EMPTY_MCP_DIR/opencode.json" <<'JSON'
 {"mcp": {}}
 JSON
 chmod 400 "$EMPTY_MCP_DIR/opencode.json"
-assert_case 'empty MCP map rejected' fail 'empty MCP map' \
+assert_case 'empty MCP map rejected' fail 'requires a safe MCP map' \
   "RHYTHM_APPROVED_FIXTURE_ROOT=$FIXTURE_ROOT" "RHYTHM_LIVE_DB_PATH=$DB" \
   "RHYTHM_SANDBOX_OPENCODE_CONFIG=$EMPTY_MCP_DIR" "RHYTHM_SANDBOX_DIR=$SANDBOX_DIR"
 
@@ -158,7 +158,7 @@ assert_case 'non-shadow optimizer mode rejected' fail 'RHYTHM_OPTIMIZER_MODE=sha
 NO_OPTIMIZER_DIR="$FIXTURE_ROOT/no-optimizer-config"
 mkdir -p "$NO_OPTIMIZER_DIR"
 cat >"$NO_OPTIMIZER_DIR/opencode.json" <<'JSON'
-{"mcp": {"rhythm": {"type": "local"}}}
+{"mcp": {"rhythm": {"type": "local", "command": ["node", "mcp_server.js"]}}}
 JSON
 chmod 400 "$NO_OPTIMIZER_DIR/opencode.json"
 assert_case 'schema-valid OpenCode config accepted' ok '' \
@@ -190,7 +190,7 @@ out="$(env RHYTHM_SANDBOX_DIR="$RESTART_SB" RHYTHM_SANDBOX_ENGINE_DIR="$FAKE_ENG
     trap "[[ -f $SB/fake-listener.pid ]] && builtin kill \$(< $SB/fake-listener.pid) 2>/dev/null || true" EXIT
     printf "5252\n" >"$ENGINE_PID_FILE"
     kill() { [[ "$1" == "-0" ]]; }
-    ps() { printf "node server.js --rhythm-sandbox=%s\n" "$SB"; }
+    ps() { printf "node %s/apps/api_server/dist/server.js --rhythm-sandbox=%s\n" "$ROOT" "$SB"; }
     listener() { [[ "$1" == "$ENGINE_PORT" ]] && printf "5252\n"; }
     process_executable() { printf "/not-this-sandbox/opencode\n"; }
     restart_engine
@@ -206,6 +206,8 @@ fi
 # ── 14. restart-engine preserves API, isolates env, rewrites PID, and cleans ─
 RESTART_SB="$WORK/restart-success"
 mkdir -p "$RESTART_SB/home" "$RESTART_SB/vault" "$RESTART_SB/live-artifacts"
+# launch_engine validates the Keychain shim `up` installs; a mocked sandbox must own one too.
+chmod 700 "$RESTART_SB"
 printf 'prior-log-line\n' >"$RESTART_SB/api_server.log"
 cat >"$FAKE_ENGINE_BIN" <<'SH'
 #!/usr/bin/env bash
@@ -230,7 +232,7 @@ out="$(env RHYTHM_SANDBOX_DIR="$RESTART_SB" RHYTHM_SANDBOX_ENGINE_DIR="$FAKE_ENG
       if [[ "$1" == "4242" ]]; then rm -f "$SB/api.alive"; printf "api\n" >>"$SB/kills"; return; fi
       builtin kill "$@"
     }
-    ps() { printf "node server.js --rhythm-sandbox=%s\n" "$SB"; }
+    ps() { printf "node %s/apps/api_server/dist/server.js --rhythm-sandbox=%s\n" "$ROOT" "$SB"; }
     listener() {
       [[ "$1" == "$ENGINE_PORT" && -f "$SB/fake-listener.pid" ]] || return 0
       local pid="$(<"$SB/fake-listener.pid")"
@@ -238,6 +240,7 @@ out="$(env RHYTHM_SANDBOX_DIR="$RESTART_SB" RHYTHM_SANDBOX_ENGINE_DIR="$FAKE_ENG
     }
     process_executable() { printf "%s\n" "$ENGINE_BIN"; }
     curl() { [[ -n "$(listener "$ENGINE_PORT")" ]]; }
+    prepare_security_shim
     restart_engine
     new_engine="$(<"$ENGINE_PID_FILE")"
     [[ "$(<"$PID_FILE")" == "4242" && "$new_engine" != "$old_engine" ]]
@@ -259,6 +262,7 @@ fi
 # ── 15. failed replacement readiness remains owned and cleanable ────────────
 RESTART_SB="$WORK/restart-timeout"
 mkdir -p "$RESTART_SB/home" "$RESTART_SB/live-artifacts"
+chmod 700 "$RESTART_SB"
 out="$(env RHYTHM_SANDBOX_DIR="$RESTART_SB" RHYTHM_SANDBOX_ENGINE_DIR="$FAKE_ENGINE_DIR" \
   bash -c '
     source "$1"
@@ -267,7 +271,7 @@ out="$(env RHYTHM_SANDBOX_DIR="$RESTART_SB" RHYTHM_SANDBOX_ENGINE_DIR="$FAKE_ENG
       if [[ "$1" == "-0" && "$2" == "4242" ]]; then return 0; fi
       builtin kill "$@"
     }
-    ps() { printf "node server.js --rhythm-sandbox=%s\n" "$SB"; }
+    ps() { printf "node %s/apps/api_server/dist/server.js --rhythm-sandbox=%s\n" "$ROOT" "$SB"; }
     listener() {
       [[ "$1" == "$ENGINE_PORT" && -f "$SB/fake-listener.pid" ]] || return 0
       local pid="$(<"$SB/fake-listener.pid")"
@@ -275,6 +279,7 @@ out="$(env RHYTHM_SANDBOX_DIR="$RESTART_SB" RHYTHM_SANDBOX_ENGINE_DIR="$FAKE_ENG
     }
     process_executable() { printf "%s\n" "$ENGINE_BIN"; }
     wait_for_engine_ready() { return 1; }
+    prepare_security_shim
     launch_engine || true
     [[ -f "$ENGINE_PID_FILE" ]] || exit 91
     down
@@ -286,6 +291,17 @@ if [[ "$status" -eq 0 ]]; then
 else
   fail_count=$((fail_count + 1))
   printf 'FAIL (restart-engine readiness timeout cleanup): exit %s:\n%s\n' "$status" "$out" >&2
+fi
+
+# Reject caller origin injection and catch loss of either approved renderer.
+if env RHYTHM_LOCAL_RENDERER_ORIGINS=https://unapproved.invalid bash -c '
+  source "$1"
+  env -i "${runtime_env[@]}" /bin/bash -c '\''[[ "$RHYTHM_LOCAL_RENDERER_ORIGINS" == "http://127.0.0.1:4175,rhythm://app" ]]'\''
+' bash "$SANDBOX_SH"; then
+  pass=$((pass + 1))
+else
+  fail_count=$((fail_count + 1))
+  printf 'FAIL (exact approved renderer origins exported)\n' >&2
 fi
 
 printf '\nsandbox_guard_test: %d passed, %d failed\n' "$pass" "$fail_count"

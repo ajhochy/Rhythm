@@ -233,7 +233,11 @@ import {
   getRecoveryDelayMs,
   getStableRecoveryEventId,
 } from '@/providers/services/agent-chat-service';
-import { pollForNewAssistantTurn } from '@/providers/services/post-prompt-refresh';
+import {
+  messageMatchesPrompt,
+  pollForNewAssistantTurn,
+  reconcilePromptAcceptance,
+} from '@/providers/services/post-prompt-refresh';
 
 export type {
   AgentOption,
@@ -391,6 +395,11 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const pendingNotificationOriginBySessionIdRef =
     useRef(new Map<string, PendingNotificationOrigin>());
   const promptSubmissionRef = useRef<{ active: boolean; sessionId?: string }>({ active: false });
+  const uncertainPromptBySessionRef = useRef(new Map<string, {
+    attachments: { uri: string; mime?: string; filename?: string }[];
+    baselineMessageIds: Set<string>;
+    prompt: string;
+  }>());
   const [currentConfig, setCurrentConfig] = useState<Config>();
   const [availableProviders, setAvailableProviders] = useState<ProviderOption[]>([]);
   const [providerAuthMethodsById, setProviderAuthMethodsById] = useState<Record<string, ProviderAuthMethod[]>>({});
@@ -2324,7 +2333,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     if (!pairedHostClient && Platform.OS !== 'web') {
       setConnection({
         status: 'idle',
-        message: 'Pair this iPhone with your Mac to use Rhythm Agents.',
+        message: pairedHostMessage,
       });
       return;
     }
@@ -2860,16 +2869,58 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         return false;
       }
 
+      const reconcile = (attempt: {
+        attachments: { uri: string; mime?: string; filename?: string }[];
+        baselineMessageIds: Set<string>;
+        prompt: string;
+      }) => reconcilePromptAcceptance({
+        baselineMessageIds: attempt.baselineMessageIds,
+        isActive: () => isCurrentClient(client),
+        matchesPrompt: (message) => messageMatchesPrompt(
+          message,
+          attempt.prompt,
+          attempt.attachments,
+        ),
+        refreshMessages: () => refreshMessages(sessionId, true),
+        refreshStatus: async () => {
+          const statuses = (await client.session.status()).data;
+          return statuses?.[sessionId]?.type;
+        },
+      });
+      const uncertainAttempt = uncertainPromptBySessionRef.current.get(sessionId);
+      if (uncertainAttempt) {
+        const outcome = await reconcile(uncertainAttempt);
+        if (outcome === 'uncertain') {
+          throw new Error('Still confirming whether OpenCode accepted the previous message. Refresh the chat before sending again.');
+        }
+        uncertainPromptBySessionRef.current.delete(sessionId);
+        if (outcome === 'accepted') {
+          const sameAttachments = (attachments ?? []).length === uncertainAttempt.attachments.length &&
+            (attachments ?? []).every((attachment, index) =>
+              attachment.uri === uncertainAttempt.attachments[index]?.uri);
+          if (trimmedPrompt === uncertainAttempt.prompt && sameAttachments) {
+            scheduleSessionRefresh(sessionId, { sessions: true, messages: true, diff: true, todos: true });
+            return true;
+          }
+          throw new Error('The previous message was accepted. Your newer draft is still here; review the refreshed chat, then send it.');
+        }
+      }
+
       promptSubmissionRef.current = { active: true, sessionId };
       setPromptError(undefined);
 
       const currentSession = sessions.find((session) => session.id === sessionId);
+      const baselineMessages = messagesBySession[sessionId] || [];
+      const baselineMessageIds = new Set(
+        baselineMessages.map((message) => message.info.id),
+      );
       const baselineAssistantMessageIds = new Set(
-        (messagesBySession[sessionId] || [])
+        baselineMessages
           .filter((message) => message.info.role === 'assistant')
           .map((message) => message.info.id),
       );
       let promptAccepted = false;
+      let promptDispatched = false;
 
       try {
         const sessionExecutionState = getSessionExecutionState(currentSession);
@@ -2996,6 +3047,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         }
         parts.push(...preparedFileParts);
 
+        promptDispatched = true;
         await client.session.promptAsync({
           sessionID: sessionId,
           ...(executionPlan.agent !== undefined ? { agent: executionPlan.agent } : {}),
@@ -3029,6 +3081,20 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         return true;
       } catch (error) {
         promptSubmissionRef.current = { active: false, sessionId: undefined };
+        if (!promptAccepted && promptDispatched) {
+          const uncertainAttempt = {
+            attachments: [...(attachments ?? [])],
+            baselineMessageIds,
+            prompt: trimmedPrompt,
+          };
+          const outcome = await reconcile(uncertainAttempt);
+          if (outcome === 'accepted') {
+            promptAccepted = true;
+            uncertainPromptBySessionRef.current.delete(sessionId);
+          } else if (outcome === 'uncertain') {
+            uncertainPromptBySessionRef.current.set(sessionId, uncertainAttempt);
+          }
+        }
         if (promptAccepted) {
           scheduleSessionRefresh(sessionId, { sessions: true, messages: true, diff: true, todos: true, delayMs: 1000 });
           return true;

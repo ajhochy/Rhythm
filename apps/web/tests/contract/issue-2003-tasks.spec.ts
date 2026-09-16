@@ -36,6 +36,7 @@ test('issue-2003-c2: filters grouping sorting and clear recovery are determinist
   await expect(page.getByTestId('tasks-visible-count')).toHaveText('8 tasks');
   await page.getByTestId('tasks-search').fill('');
 
+  await page.getByTestId('tasks-filters-toggle').click();
   await page.getByTestId('tasks-tag-filter').selectOption('worship');
   await page.getByTestId('tasks-priority-filter').selectOption('3');
   await page.getByTestId('tasks-date-filter').selectOption('today');
@@ -61,6 +62,7 @@ test('issue-2003-c3: list and board preserve selection filters and status moveme
   // Regression caught: switching presentation resets filters/selection or moving a card changes only its column without the PATCH receipt.
   await openPage(page, 'tasks');
   await expectTasksPage(page);
+  await page.getByTestId('tasks-filters-toggle').click();
   await page.getByTestId('tasks-tag-filter').selectOption('worship');
   await page.getByTestId(`task-row-${taskId}`).click();
   await expect(page.getByTestId('task-inspector')).toContainText(taskTitle);
@@ -68,7 +70,7 @@ test('issue-2003-c3: list and board preserve selection filters and status moveme
 
   await page.getByTestId('tasks-view-board').click();
   await expect(page.getByTestId('tasks-tag-filter')).toHaveValue('worship');
-  await expect(page.getByTestId(`task-card-${taskId}`)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId(`task-card-${taskId}`)).toHaveAttribute('data-selected', 'true');
   await expect(page.getByTestId('kanban-column-open')).toBeVisible();
   await expect(page.getByTestId('kanban-column-in-progress')).toBeVisible();
   await expect(page.getByTestId('kanban-column-waiting-for-reply')).toBeVisible();
@@ -212,7 +214,7 @@ test('issue-2003-c9: state matrix and no-results expose recovery and prerequisit
   await openPage(page, 'tasks', '?state=readonly');
   await expect(page.getByTestId('page-state-readonly')).toContainText('source of truth');
   await expect(page.getByTestId('tasks-header-add-task')).toBeDisabled();
-  await expect(page.getByTestId(`task-inspect-${taskId}`)).toBeEnabled();
+  await expect(page.getByTestId(`task-select-${taskId}`)).toBeEnabled();
 
   await openPage(page, 'tasks');
   await page.getByTestId('tasks-search').fill('no fixture task has this text');
@@ -249,6 +251,7 @@ test('issue-2003-c11: enabled controls are identifiable live and receipt-honest'
 
   const traceBefore = await page.getByTestId('page-trace').textContent();
   await page.getByTestId('tasks-search').fill('livestream');
+  await page.getByTestId('tasks-filters-toggle').click();
   await page.getByTestId('tasks-sort').selectOption('title');
   await page.getByTestId('tasks-view-board').click();
   await expect(page.getByTestId('page-trace')).toHaveText(traceBefore ?? '');
@@ -262,7 +265,7 @@ test('issue-2003-c12: ready editable inspector is accessible and dialog focus re
   let result = await new AxeBuilder({ page }).analyze();
   expect(result.violations.filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')).toEqual([]);
 
-  const trigger = page.getByTestId(`task-inspect-${taskId}`);
+  const trigger = page.getByTestId(`task-select-${taskId}`);
   await trigger.focus();
   await trigger.click();
   await expect(page.getByTestId('task-inspector')).toHaveAttribute('aria-label', 'Selected task');
@@ -270,7 +273,7 @@ test('issue-2003-c12: ready editable inspector is accessible and dialog focus re
   const addTrigger = page.getByTestId('task-add-collaborator');
   await addTrigger.focus();
   await addTrigger.click();
-  await expect(page.getByTestId('task-collaborator-picker')).toHaveAttribute('role', 'dialog');
+  await expect(page.getByRole('dialog').filter({ has: page.getByTestId('task-collaborator-picker') })).toBeVisible();
   result = await new AxeBuilder({ page }).analyze();
   expect(result.violations.filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')).toEqual([]);
   await page.keyboard.press('Escape');
@@ -326,12 +329,11 @@ test('issue-2003-c15: selecting a task keeps the queue visible and synchronizes 
   await expectTasksPage(page);
 
   const inspector = page.getByTestId('task-inspector');
-  await expect(inspector).toBeVisible();
-  await expect(inspector).toHaveAttribute('aria-label', 'Selected task');
-  await expect(inspector).not.toHaveAttribute('role', 'dialog');
-  await expect(inspector).toContainText('Select a task');
+  await expect(inspector).toHaveCount(0);
 
   await page.getByTestId(`task-select-${taskId}`).click();
+  await expect(inspector).toHaveAttribute('aria-label', 'Selected task');
+  await expect(inspector).not.toHaveAttribute('role', 'dialog');
   await expect(page.getByTestId('tasks-list')).toBeVisible();
   await expect(inspector).toContainText(taskTitle);
   await expect(inspector).toContainText('Confirm the final run sheet and coverage notes.');

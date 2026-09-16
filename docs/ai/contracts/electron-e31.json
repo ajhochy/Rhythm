@@ -1,0 +1,12 @@
+{
+  "issue": "E31",
+  "date": "2026-09-11",
+  "waiver": "LiveFacilitiesPage HIGH routed impact was disclosed and autonomous implementation authorized; existing APIs do not expose occurrence/future-only series deletion.",
+  "test_command": "cd apps/web && npm exec -- playwright test --config tests/electron-e15-playwright.config.ts --grep 'E31|e15'",
+  "criteria": [
+    { "criterion_id": "E31-c1", "text": "Facility and reservation edits persist exact supported fields", "mode": "ui", "test": "apps/web/tests/electron-e15-facilities-safety.spec.ts", "status": "PASS" },
+    { "criterion_id": "E31-c2", "text": "Multi-room creation submits exact selected facility IDs and exposes partial conflicts", "mode": "ui", "test": "apps/web/tests/electron-e15-facilities-safety.spec.ts", "status": "PASS" },
+    { "criterion_id": "E31-c3", "text": "Range/building filters, group/series summaries and role-aware mutation controls are rendered", "mode": "integration", "test": "apps/web/src/pages/facilities/live.tsx", "status": "UNVERIFIED" }
+  ],
+  "not_tested": ["E31-c3", "occurrence/future-only series mutation not exposed by API", "real production conflicts", "packaged Electron"]
+}

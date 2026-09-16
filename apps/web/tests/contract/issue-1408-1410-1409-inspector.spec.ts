@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { openFixture } from '../helpers';
 
 const inspectorPath = path.resolve(import.meta.dirname, '../../src/components/Inspector.tsx');
 
@@ -29,14 +30,21 @@ test('issue-1410-c2: clipboard rejection does not report success', async () => {
   expect(source).toMatch(/async function copyFilePath[\s\S]*catch\s*\{[\s\S]*notify\([^)]*(failed|unable)/i);
 });
 
-test('issue-1409-c1: live mode labels the fixture-only terminal', async () => {
-  // Regression caught: live users cannot distinguish hardcoded terminal output from a real PTY.
-  const source = await inspectorSource();
-  expect(source).toMatch(/live\s*\?\s*['"]Not yet live['"][\s\S]*live\s*&&\s*<span className="kind-badge">Fixture/);
+test('issue-1409-c1: simulated terminal is explicitly labeled Fixture', async ({ page }) => {
+  // E27 now owns real live PTY behavior through its dedicated config.
+  await openFixture(page);
+  await page.getByTestId('inspector-terminal').click();
+  await expect(page.getByTestId('terminal-panel').locator('.kind-badge')).toHaveText('Fixture');
 });
 
-test('issue-1409-c2: live mode never claims the fixture terminal PTY is connected', async () => {
-  // Regression caught: the terminal header falsely advertises a connected PTY in live mode.
-  const source = await inspectorSource();
-  expect(source).toMatch(/live\s*\?\s*['"]Not yet live['"]\s*:\s*`PTY · \$\{pty\.status\}`/);
+test('issue-1409-c2: fixture commands never claim a local PTY connection', async ({ page }) => {
+  const writes: string[] = [];
+  page.on('request', request => { if (request.method() !== 'GET') writes.push(request.url()); });
+  await openFixture(page);
+  await page.getByTestId('inspector-terminal').click();
+  await page.getByTestId('terminal-input').fill('pwd');
+  await page.getByTestId('terminal-run').click();
+  await expect(page.getByTestId('toast-status')).toContainText('Fixture terminal command completed');
+  await expect(page.getByTestId('terminal-panel')).not.toContainText('Local PTY');
+  expect(writes).toEqual([]);
 });

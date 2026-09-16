@@ -72,7 +72,7 @@ export function McpSection({
     <Card mode="contained" style={[styles.card, { backgroundColor: palette.surface }]}>
       <Card.Content style={styles.section}>
         <View style={styles.header}>
-          <Text variant="titleLarge" style={[styles.title, { color: palette.text }]}>MCP servers</Text>
+          <Text variant="titleLarge" style={[styles.title, { color: palette.text }]}>Advanced · MCP servers</Text>
           <Button compact loading={busy === 'refresh'} onPress={() => void run('refresh', onRefresh)}>Refresh</Button>
         </View>
         <SegmentedButtons
@@ -131,6 +131,9 @@ export function McpSection({
                   <View style={styles.enabledControl}>
                     <Text variant="labelMedium">Enabled</Text>
                     <Switch
+                      accessibilityLabel={`${serverName} enabled`}
+                      accessibilityRole="switch"
+                      accessibilityState={{ checked: enabled, disabled: Boolean(busy) }}
                       value={enabled}
                       disabled={Boolean(busy)}
                       onValueChange={(value) => void run(actionKey, () => onSetEnabled(serverName, value))}

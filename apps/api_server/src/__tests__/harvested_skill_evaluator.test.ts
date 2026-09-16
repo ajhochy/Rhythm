@@ -120,6 +120,101 @@ describe('evaluateHarvestedDrafts — Unit 3 keep/disable/rewrite-needed (guard 
     });
   }
 
+  it('agent-server-memory-c3: skips usage-history work when there are no draft skills to evaluate', async () => {
+    let usageScans = 0;
+    const summary = await evaluateHarvestedDrafts({
+      scorer: scorerReturning(90),
+      countUses: () => {
+        usageScans++;
+        return new Map();
+      },
+      reload: noopReload,
+      proposalsRepo: new AgentOrgProposalsRepository(),
+    });
+
+    expect(summary).toEqual({
+      evaluated: 0,
+      kept: 0,
+      disabled: 0,
+      rewriteNeeded: 0,
+      scoreUnknown: 0,
+      rewriteAttempted: 0,
+      rewritten: 0,
+      harvesterSignalCreated: false,
+    });
+    expect(usageScans).toBe(0);
+  });
+
+  it('still runs the rewrite-needed sweep without scanning usage history', async () => {
+    writeDraftManagedSkill({
+      name: 'rewrite-only',
+      description: 'about rewrite-only',
+      body: '# rewrite-only\n\nVague procedure.\n',
+      sourceSessionId: 'sess-1',
+      confidence: 0.7,
+      status: 'rewrite-needed',
+      evaluatedAt: '2026-07-09T00:00:00.000Z',
+      postScore: 40,
+      measureReason: 'not complete yet',
+    });
+    let usageScans = 0;
+
+    const summary = await evaluateHarvestedDrafts({
+      scorer: scorerReturning(90),
+      rewriter: rewriterReturning('# rewrite-only\n\nComplete procedure.\n'),
+      countUses: () => {
+        usageScans++;
+        return new Map();
+      },
+      reload: noopReload,
+      proposalsRepo: new AgentOrgProposalsRepository(),
+    });
+
+    expect(usageScans).toBe(0);
+    expect(summary).toMatchObject({ rewriteAttempted: 1, rewritten: 1 });
+    expect(readDraftSkill('rewrite-only')?.frontmatter.status).toBe('active');
+  });
+
+  it('coalesces direct evaluator calls and permits a fresh pass after settlement', async () => {
+    seedDraft('single-flight');
+    let finishScore!: (result: ScoreResult) => void;
+    const firstScorer = vi.fn(
+      () =>
+        new Promise<ScoreResult>((resolve) => {
+          finishScore = resolve;
+        }),
+    );
+    const overlappingScorer = vi.fn(scorerReturning(90));
+
+    const first = evaluateHarvestedDrafts({
+      scorer: firstScorer,
+      countUses: usesReturning({ 'single-flight': 3 }),
+      reload: noopReload,
+      proposalsRepo: new AgentOrgProposalsRepository(),
+    });
+    await vi.waitFor(() => expect(firstScorer).toHaveBeenCalledTimes(1));
+    const overlapping = evaluateHarvestedDrafts({
+      scorer: overlappingScorer,
+      countUses: usesReturning({ 'single-flight': 3 }),
+      reload: noopReload,
+      proposalsRepo: new AgentOrgProposalsRepository(),
+    });
+
+    expect(overlapping).toBe(first);
+    expect(overlappingScorer).not.toHaveBeenCalled();
+    finishScore({ score: 90, reason: 'first pass complete' });
+    await Promise.all([first, overlapping]);
+
+    seedDraft('after-single-flight');
+    await evaluateHarvestedDrafts({
+      scorer: overlappingScorer,
+      countUses: usesReturning({ 'after-single-flight': 3 }),
+      reload: noopReload,
+      proposalsRepo: new AgentOrgProposalsRepository(),
+    });
+    expect(overlappingScorer).toHaveBeenCalledTimes(1);
+  });
+
   it('leaves a draft untouched (status: draft) below the use threshold', async () => {
     seedDraft('under-threshold');
     const summary = await evaluateHarvestedDrafts({
@@ -130,6 +225,28 @@ describe('evaluateHarvestedDrafts — Unit 3 keep/disable/rewrite-needed (guard 
     });
     expect(summary.evaluated).toBe(0);
     expect(readDraftSkill('under-threshold')?.frontmatter.status).toBe('draft');
+  });
+
+  it('scans usage history only once for multiple draft candidates', async () => {
+    seedDraft('candidate-one');
+    seedDraft('candidate-two');
+    let usageScans = 0;
+
+    const summary = await evaluateHarvestedDrafts({
+      scorer: scorerReturning(90),
+      countUses: () => {
+        usageScans++;
+        return new Map([
+          ['candidate-one', 3],
+          ['candidate-two', 3],
+        ]);
+      },
+      reload: noopReload,
+      proposalsRepo: new AgentOrgProposalsRepository(),
+    });
+
+    expect(usageScans).toBe(1);
+    expect(summary.evaluated).toBe(2);
   });
 
   it('keeps a high-scoring draft: status -> active, stays live, score/reason recorded', async () => {
@@ -778,11 +895,107 @@ describe('#1109 — scheduleIdleEvaluation debounces evaluateHarvestedDrafts off
     expect(runFn).toHaveBeenCalledTimes(2);
   });
 
+  it('agent-server-memory-c4: never starts a second sweep while the first sweep is still running', async () => {
+    let finishFirst!: () => void;
+    const firstRun = new Promise<void>((resolve) => {
+      finishFirst = resolve;
+    });
+    const runFn = vi.fn()
+      .mockImplementationOnce(() => firstRun)
+      .mockResolvedValue(undefined);
+
+    scheduleIdleEvaluation(runFn);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(runFn).toHaveBeenCalledTimes(1);
+
+    // A second completed turn during the expensive scan must be coalesced.
+    scheduleIdleEvaluation(runFn);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(runFn).toHaveBeenCalledTimes(1);
+
+    finishFirst();
+    await firstRun;
+    await vi.runAllTicks();
+
+    // The completion observed during the first run already owns the one
+    // follow-up timer; another completion coalesces into that same pass.
+    scheduleIdleEvaluation(runFn);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(runFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('coalesces completions during a sweep into one delayed follow-up', async () => {
+    let finishFirst!: () => void;
+    const firstRun = new Promise<void>((resolve) => {
+      finishFirst = resolve;
+    });
+    const runFn = vi.fn().mockImplementationOnce(() => firstRun).mockResolvedValue(undefined);
+
+    scheduleIdleEvaluation(runFn);
+    await vi.advanceTimersByTimeAsync(1000);
+    scheduleIdleEvaluation(runFn);
+    scheduleIdleEvaluation(runFn);
+    scheduleIdleEvaluation(runFn);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(runFn).toHaveBeenCalledTimes(1);
+
+    finishFirst();
+    await firstRun;
+    await vi.runAllTicks();
+    await vi.advanceTimersByTimeAsync(999);
+    expect(runFn).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(runFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('releases the scheduler guard after a synchronous throw', async () => {
+    const runFn = vi
+      .fn<() => Promise<unknown>>()
+      .mockImplementationOnce(() => {
+        throw new Error('synchronous boom');
+      })
+      .mockResolvedValue(undefined);
+
+    scheduleIdleEvaluation(runFn);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(runFn).toHaveBeenCalledTimes(1);
+
+    scheduleIdleEvaluation(runFn);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(runFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('an old in-flight finalizer cannot corrupt scheduler state after a test reset', async () => {
+    let finishOld!: () => void;
+    const oldRun = new Promise<void>((resolve) => {
+      finishOld = resolve;
+    });
+    const oldRunFn = vi.fn(() => oldRun);
+    scheduleIdleEvaluation(oldRunFn);
+    await vi.advanceTimersByTimeAsync(1000);
+    scheduleIdleEvaluation(oldRunFn); // requests a follow-up in the old generation
+
+    _resetIdleEvaluationForTests();
+    const newRunFn = vi.fn().mockResolvedValue(undefined);
+    scheduleIdleEvaluation(newRunFn);
+    finishOld();
+    await oldRun;
+    await vi.runAllTicks();
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(oldRunFn).toHaveBeenCalledTimes(1);
+    expect(newRunFn).toHaveBeenCalledTimes(1);
+  });
+
   it('never throws when the scheduled sweep rejects', async () => {
     const runFn = vi.fn().mockRejectedValue(new Error('boom'));
     expect(() => scheduleIdleEvaluation(runFn)).not.toThrow();
     await vi.advanceTimersByTimeAsync(1000);
     expect(runFn).toHaveBeenCalledTimes(1);
+
+    scheduleIdleEvaluation(runFn);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(runFn).toHaveBeenCalledTimes(2);
   });
 
   it('defaults to the real evaluateHarvestedDrafts when no runFn is injected (production call shape)', async () => {

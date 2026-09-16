@@ -2,8 +2,8 @@
 // Developer ID Application identity (hardened runtime), then notarizes and staples it.
 //
 // Modeled on tools/release/sign_and_notarize_macos.sh (the Flutter reference), simplified: this
-// Electron packages the API server and a matching Node runtime but not the opencode fork binary.
-// findNestedCodeSignTargets() discovers the embedded Node executable and native modules by Mach-O
+// Electron packages the API server, a matching Node runtime and the exact Rhythm fork binary.
+// findNestedCodeSignTargets() discovers the embedded engine, Node and native modules by Mach-O
 // magic, along with Electron's own Frameworks/Helpers, so every nested executable is signed.
 //
 // Required environment (same Apple ID + app-specific-password notarization credentials as
@@ -21,6 +21,7 @@ import { existsSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { hardenElectronFuses } from './harden-electron-fuses.mjs';
 
 const run = promisify(execFile);
 const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -94,9 +95,25 @@ async function codesign(target, { deep = false } = {}) {
 }
 
 const contentsDir = resolve(artifact, 'Contents');
-for (const target of await findNestedCodeSignTargets(contentsDir)) {
-  await codesign(target);
+const engine = resolve(contentsDir, 'Resources/opencode_bin/opencode');
+const approvalHelper = resolve(contentsDir, 'Resources/human-approval/rhythm-approval-signer');
+const targets = await findNestedCodeSignTargets(contentsDir);
+if (!targets.includes(approvalHelper) || !(await isMachO(approvalHelper))) {
+  throw new Error('Packaged approval helper Mach-O is missing from nested signing targets');
 }
+if (!targets.includes(engine) || !(await isMachO(engine))) {
+  throw new Error('Packaged Rhythm fork Mach-O is missing from nested signing targets');
+}
+await hardenElectronFuses(resolve(artifact, 'Contents/MacOS/Rhythm'));
+for (const target of targets) {
+  if (target === approvalHelper) {
+    // Native helper needs no Electron JIT/library-validation exceptions. Keep Keychain identity stable.
+    await run('codesign', ['--force', '--options', 'runtime', '--timestamp', '--identifier',
+      'com.rhythm.desktop.approval-signer', '--sign', identity, target]);
+  } else await codesign(target);
+}
+await run('codesign', ['--verify', '--strict', approvalHelper]);
+await run('codesign', ['--verify', '--strict', engine]);
 await codesign(artifact, { deep: false });
 
 const verify = await run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', artifact]).catch((error) => error);

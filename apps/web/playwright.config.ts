@@ -10,7 +10,10 @@ const distPort = Number(process.env.RHYTHM_DIST_PORT ?? e2ePort + 1);
 
 export default defineConfig({
   testDir: './tests',
-  testIgnore: ['electron/**', '**/bucket-a-rendered-repair.spec.ts', ...pausedLiveSpecs],
+  // Electron slices own their server mode/port in dedicated configs, not this fixture server.
+  // daily-work-dashboard owns tests/dashboard-daily-work-playwright.config.ts: its route
+  // allowlist only continues that config's :4286 origin and aborts this server's.
+  testIgnore: ['electron/**', '**/electron-e*.spec.ts', '**/bucket-a-rendered-repair.spec.ts', '**/daily-work-dashboard-20260912.spec.ts', ...pausedLiveSpecs],
   fullyParallel: false,
   workers: 1,
   timeout: 20_000,
@@ -36,10 +39,13 @@ export default defineConfig({
       timeout: 30_000,
     },
     {
-      command: `RHYTHM_DIST_PORT=${distPort} node tests/serve-dist.mjs`,
+      // Build here rather than trusting dist/: apps/electron/scripts/package-mac.mjs rebuilds
+      // this same directory in live-gateway mode, so a prior package run leaves a bundle whose
+      // shell refuses to boot without host runtime configuration.
+      command: `npm run build && RHYTHM_DIST_PORT=${distPort} node tests/serve-dist.mjs`,
       url: `http://127.0.0.1:${distPort}/index.html`,
       reuseExistingServer: false,
-      timeout: 30_000,
+      timeout: 180_000,
     },
   ],
 });

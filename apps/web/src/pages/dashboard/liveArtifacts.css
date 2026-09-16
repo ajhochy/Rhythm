@@ -5,20 +5,20 @@
 
 .live-artifact-shell { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 
-.artifact-tablist-row { display: flex; align-items: stretch; border-bottom: 1px solid var(--border); background: var(--surface-raised); flex-shrink: 0; }
+.live-artifact-shell .artifact-tablist-row { display: flex; align-items: stretch; min-height: 44px; border-bottom: 1px solid var(--border-soft); background: var(--surface); flex-shrink: 0; }
 
 .artifact-tablist { display: flex; align-items: stretch; overflow-x: auto; flex: 1 1 auto; min-width: 0; }
 
 .artifact-tab {
-  display: flex; align-items: center; gap: 6px; max-width: 220px; padding: 10px 12px;
+  display: flex; align-items: center; gap: 4px; max-width: 220px; padding: 0 8px; min-height: 43px;
   border: none; border-right: 1px solid var(--border); background: transparent; color: var(--fg);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; flex-shrink: 0;
 }
 .artifact-tab[aria-selected="true"] { background: var(--bg); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent, #4f6af5); }
 .artifact-tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.artifact-tab-close { flex-shrink: 0; border: none; background: transparent; color: inherit; cursor: pointer; padding: 0 2px; line-height: 1; }
+.artifact-tab-close { flex-shrink: 0; border: none; background: transparent; color: inherit; cursor: pointer; padding: 0; width: 44px; min-height: 43px; line-height: 1; }
 
-.artifact-tab-add { flex-shrink: 0; border: none; border-left: 1px solid var(--border); background: transparent; color: var(--fg); width: 40px; cursor: pointer; font-size: 16px; }
+.artifact-tab-add { flex-shrink: 0; border: none; border-left: 1px solid var(--border); background: transparent; color: var(--fg); width: 44px; cursor: pointer; font-size: 1rem; }
 
 .artifact-tab-content { flex: 1 1 auto; min-height: 0; overflow: auto; }
 /* .artifact-tab-content isn't itself a flex container, so each pane (the fixed dashboard tab and

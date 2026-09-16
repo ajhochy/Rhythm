@@ -225,7 +225,7 @@ export class AutomationRulesRepository {
           dto.triggerKey ?? existing.triggerKey,
           dto.source ?? existing.source,
           dto.triggerKey ?? existing.triggerKey,
-          'triggerConfig' in dto
+          dto.triggerConfig !== undefined
             ? dto.triggerConfig
               ? JSON.stringify(dto.triggerConfig)
               : null
@@ -233,14 +233,14 @@ export class AutomationRulesRepository {
               ? JSON.stringify(existing.triggerConfig)
               : null,
           dto.actionType ?? existing.actionType,
-          'actionConfig' in dto
+          dto.actionConfig !== undefined
             ? dto.actionConfig
               ? JSON.stringify(dto.actionConfig)
               : null
             : existing.actionConfig
               ? JSON.stringify(existing.actionConfig)
               : null,
-          'conditions' in dto
+          dto.conditions !== undefined
             ? dto.conditions
               ? JSON.stringify(dto.conditions)
               : null
@@ -280,7 +280,7 @@ export class AutomationRulesRepository {
         dto.triggerKey ?? existing.triggerKey,
         dto.source ?? existing.source,
         dto.triggerKey ?? existing.triggerKey,
-        'triggerConfig' in dto
+        dto.triggerConfig !== undefined
           ? dto.triggerConfig
             ? JSON.stringify(dto.triggerConfig)
             : null
@@ -288,14 +288,14 @@ export class AutomationRulesRepository {
             ? JSON.stringify(existing.triggerConfig)
             : null,
         dto.actionType ?? existing.actionType,
-        'actionConfig' in dto
+        dto.actionConfig !== undefined
           ? dto.actionConfig
             ? JSON.stringify(dto.actionConfig)
             : null
           : existing.actionConfig
             ? JSON.stringify(existing.actionConfig)
             : null,
-        'conditions' in dto
+        dto.conditions !== undefined
           ? dto.conditions
             ? JSON.stringify(dto.conditions)
             : null

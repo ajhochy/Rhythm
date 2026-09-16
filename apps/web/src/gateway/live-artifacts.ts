@@ -61,6 +61,7 @@ export class LiveArtifactsGatewayError extends Error {
 
 export interface LiveArtifactsGateway {
   readonly mode: GatewayMode;
+  currentWorkspace(): Promise<{ id: number; name?: string }>;
   list(search?: string): Promise<LiveArtifact[]>;
   get(id: string): Promise<LiveArtifactDetail>;
   render(id: string): Promise<string>;
@@ -99,6 +100,7 @@ export function createLiveArtifactsGateway(apiBase: string, token: string | unde
   const json = (value: unknown) => JSON.stringify(value);
   return {
     mode: 'live',
+    currentWorkspace: () => response<{ id: number; name?: string }>(request('/workspaces/me')),
     // apps/api_server/src/controllers/live_artifacts_controller.ts:27 — list is HTML-only by contract.
     list: (search) => response<LiveArtifact[]>(request(`/live-artifacts?type=html${search ? `&search=${encodeURIComponent(search)}` : ''}`)),
     get: (id) => response<LiveArtifactDetail>(request(`/live-artifacts/${encodeURIComponent(id)}`)),

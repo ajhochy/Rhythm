@@ -103,7 +103,7 @@ function fakeSandboxEnv(): {
   // optimizer mode if declared at all), and both source paths read-only.
   writeFileSync(
     join(opencodeConfigDir, "opencode.json"),
-    JSON.stringify({ mcp: { local: { type: "local" } } }),
+    JSON.stringify({ mcp: { local: { type: "local", command: ["/usr/bin/true"] } } }),
   );
   chmodSync(join(opencodeConfigDir, "opencode.json"), 0o400);
 
@@ -126,6 +126,7 @@ function fakeSandboxEnv(): {
       'pid_file="$RHYTHM_SANDBOX_DIR/fake_engine.pid"',
       "for _ in {1..100}; do",
       '  if [[ -f "$pid_file" ]] && kill -0 "$(<"$pid_file")" 2>/dev/null; then',
+      '    printf \'{"status":"ready"}\\n\'',
       "    exit 0",
       "  fi",
       "  sleep 0.01",
@@ -155,15 +156,19 @@ function fakeSandboxEnv(): {
   writeExecutable(
     "node",
     [
+      // Run the actual native-addon preflight, but never launch the real API.
+      `if [[ "$1" == "-e" ]]; then exec ${JSON.stringify(process.execPath)} "$@"; fi`,
+      '[[ "$1" == */dist/server.js && "$3" == --rhythm-sandbox=* ]] || exit 64',
+      'sandbox="${3#--rhythm-sandbox=}"',
       "(",
       "  trap 'exit 0' TERM INT HUP",
       "  while true; do sleep 0.1; done",
       ") &",
       'engine_pid="$!"',
-      'printf "%s\\n" "$engine_pid" >"$RHYTHM_SANDBOX_DIR/fake_engine.pid"',
-      'if [[ -n "${RHYTHM_TEST_NODE_EXIT:-}" ]]; then',
+      'printf "%s\\n" "$engine_pid" >"$sandbox/fake_engine.pid"',
+      'if [[ -f "$sandbox/../node-exit" ]]; then',
       "  sleep 0.2",
-      '  exit "$RHYTHM_TEST_NODE_EXIT"',
+      '  exit "$(<"$sandbox/../node-exit")"',
       "fi",
       "cleanup() {",
       '  if [[ "${RHYTHM_TEST_ORPHAN_ENGINE:-0}" != 1 ]]; then',
@@ -183,6 +188,7 @@ function fakeSandboxEnv(): {
       ...process.env,
       HOME: fakeHome,
       PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+      RHYTHM_SANDBOX_NODE_BIN: join(fakeBin, "node"),
       RHYTHM_APPROVED_FIXTURE_ROOT: root,
       RHYTHM_LIVE_DB_PATH: liveDb,
       RHYTHM_SANDBOX_OPENCODE_CONFIG: opencodeConfigDir,
@@ -363,11 +369,9 @@ describe("tools/dev/sandbox.sh foreground lifecycle (#1186)", () => {
   }, reliabilityIterations * iterationDeadlineMs + 5_000);
 
   it("propagates an unexpected foreground API exit", async () => {
-    const { env } = fakeSandboxEnv();
-    const result = await run("bash", [sandboxScript, "up", "--foreground"], {
-      ...env,
-      RHYTHM_TEST_NODE_EXIT: "23",
-    });
+    const { env, root } = fakeSandboxEnv();
+    writeFileSync(join(root, "node-exit"), "23");
+    const result = await run("bash", [sandboxScript, "up", "--foreground"], env);
     expect(result.code).toBe(23);
     expect((await run("bash", [sandboxScript, "down"], env)).code).toBe(0);
   });

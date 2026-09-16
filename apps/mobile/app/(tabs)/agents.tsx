@@ -62,7 +62,7 @@ export function AgentsOverflowMenu({
     <Menu
       anchor={
         <Pressable
-          accessibilityLabel="Agents menu"
+          accessibilityLabel="Chats menu"
           accessibilityRole="button"
           onPress={() => setMenuVisible(true)}
           style={({ pressed }) => [
@@ -79,7 +79,7 @@ export function AgentsOverflowMenu({
       onDismiss={() => setMenuVisible(false)}
       visible={menuVisible}>
       <ScrollView
-        accessibilityLabel="Agents menu options"
+        accessibilityLabel="Chats menu options"
         bounces={false}
         style={{
           maxHeight: Math.max(240, height - insets.top - insets.bottom - 96),
@@ -248,15 +248,17 @@ export default function AgentsScreen() {
         testID="compact-agents-header"
         style={[styles.header, { backgroundColor: palette.background }]}>
         <View style={styles.headerRow}>
-          <Text accessibilityRole="header" variant="headlineSmall">
-            Agents
+          <Text accessibilityRole="header" style={styles.largeTitle}>
+            Chats
           </Text>
-          <AgentsOverflowMenu
-            chatController={chatController}
-            counts={counts}
-            onSectionChange={setSection}
-            section={section}
-          />
+          <View style={styles.headerActions}>
+            <AgentsOverflowMenu
+              chatController={chatController}
+              counts={counts}
+              onSectionChange={setSection}
+              section={section}
+            />
+          </View>
         </View>
       </SafeAreaView>
       {section === 'chats' ? (
@@ -322,12 +324,14 @@ export default function AgentsScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  header: { paddingBottom: 6, paddingHorizontal: 16, paddingTop: 4 },
+  header: { paddingBottom: 8, paddingHorizontal: 16, paddingTop: 8 },
   headerRow: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
+  headerActions: { alignItems: 'center', flexDirection: 'row', gap: 4 },
+  largeTitle: { fontSize: 34, fontWeight: '700', lineHeight: 41 },
   headerAction: {
     alignItems: 'center',
     justifyContent: 'center',

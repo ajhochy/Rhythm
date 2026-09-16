@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../../../features/notifications/data/human_approval_signer.dart';
@@ -28,6 +29,101 @@ typedef AgentServerStartResult = ({
   /// Human-readable rich failure message (may include rebuild command).
   String? failureMessage,
 });
+
+typedef OwnedProcessExitEvent = ({
+  int generation,
+  int exitCode,
+  String stderrTail,
+});
+
+/// Persists native child-process stderr independently of the Node logger.
+///
+/// Writes are serialized, bounded to [maxBytes], and fail soft so a full or
+/// unavailable log directory can never prevent server recovery.
+class AgentServerDiagnosticsLog {
+  AgentServerDiagnosticsLog({required this.file, required this.maxBytes})
+      : assert(maxBytes > 0);
+
+  final File file;
+  final int maxBytes;
+  Future<void> _writeQueue = Future<void>.value();
+
+  Future<void> recordOwnedExit({
+    required int pid,
+    required int exitCode,
+    required Stream<List<int>> stderrChunks,
+    required DateTime timestamp,
+  }) {
+    final operation = _writeQueue.then((_) async {
+      try {
+        final stderrTail = <int>[];
+        await for (final chunk in stderrChunks) {
+          stderrTail.addAll(chunk);
+          if (stderrTail.length > maxBytes) {
+            stderrTail.removeRange(0, stderrTail.length - maxBytes);
+          }
+        }
+
+        final header = utf8.encode(
+          '\n[${timestamp.toUtc().toIso8601String()}] '
+          'pid=$pid exitCode=$exitCode\n',
+        );
+        late final List<int> report;
+        if (header.length >= maxBytes) {
+          report = header.sublist(0, maxBytes);
+        } else {
+          final bodyBudget = maxBytes - header.length;
+          final body = stderrTail.length > bodyBudget
+              ? stderrTail.sublist(stderrTail.length - bodyBudget)
+              : stderrTail;
+          report = <int>[...header, ...body];
+        }
+
+        await file.parent.create(recursive: true);
+        if (!await file.exists()) {
+          await file.create();
+        }
+        if (!Platform.isWindows) {
+          try {
+            await Process.run('chmod', ['600', file.path]);
+          } catch (_) {
+            // File permissions are best-effort on unsupported hosts.
+          }
+        }
+        final existingBudget = maxBytes - report.length;
+        var existing = <int>[];
+        if (existingBudget > 0) {
+          final handle = await file.open();
+          try {
+            final length = await handle.length();
+            final readLength =
+                length < existingBudget ? length : existingBudget;
+            await handle.setPosition(length - readLength);
+            existing = await handle.read(readLength);
+          } finally {
+            await handle.close();
+          }
+        }
+        await file.writeAsBytes(
+          <int>[...existing, ...report],
+          flush: true,
+        );
+      } catch (_) {
+        // Durable diagnostics must never block lifecycle recovery.
+      }
+    });
+    _writeQueue = operation;
+    return operation;
+  }
+
+  Future<void> flush() async {
+    try {
+      await _writeQueue;
+    } catch (_) {
+      // Matches recordOwnedExit's non-fatal contract.
+    }
+  }
+}
 
 /// Builds the environment map passed to the spawned api_server process.
 ///
@@ -143,12 +239,23 @@ class ApiServerService {
     String? memoryVaultSubdir,
     HumanApprovalSigner? humanApprovalSigner,
     Future<String?> Function()? relaySessionTokenProvider,
+    AgentServerDiagnosticsLog? diagnosticsLog,
+    Duration processDrainTimeout = const Duration(seconds: 1),
   })  : _memoryVaultPath = memoryVaultPath,
         _memoryVaultSubdir = memoryVaultSubdir,
         _relaySessionTokenProvider = relaySessionTokenProvider,
-        _humanApprovalSigner = humanApprovalSigner ?? HumanApprovalSigner();
+        _humanApprovalSigner = humanApprovalSigner ?? HumanApprovalSigner(),
+        _diagnosticsLog = diagnosticsLog ?? _defaultDiagnosticsLog(),
+        _processDrainTimeout = processDrainTimeout;
 
   Process? _process;
+  int _processGeneration = 0;
+  int? _currentOwnedProcessGeneration;
+  int _startEpoch = 0;
+  final Set<int> _intentionalExitGenerations = <int>{};
+  final StreamController<OwnedProcessExitEvent> _ownedProcessExitController =
+      StreamController<OwnedProcessExitEvent>.broadcast();
+  Future<void>? _exitDrainFuture;
 
   /// #885 — Optional persisted Memory Vault path/subdir to inject into the
   /// spawned api_server's environment. Null means "let the api_server use
@@ -162,6 +269,8 @@ class ApiServerService {
   /// a throwing provider simply leaves RHYTHM_RELAY_BEARER unset.
   final Future<String?> Function()? _relaySessionTokenProvider;
   final HumanApprovalSigner _humanApprovalSigner;
+  final AgentServerDiagnosticsLog _diagnosticsLog;
+  final Duration _processDrainTimeout;
 
   /// Rolling buffer of recent stderr lines from the spawned server process.
   /// Capped at 20 lines x 200 chars (~4 KB) to bound memory.
@@ -171,14 +280,37 @@ class ApiServerService {
 
   bool get isRunning => _process != null;
 
+  Stream<OwnedProcessExitEvent> get ownedProcessExitEvents =>
+      _ownedProcessExitController.stream;
+  int? get currentOwnedProcessGeneration => _currentOwnedProcessGeneration;
+
+  /// Exercises the exact production stream-drain and exit-notification path
+  /// with a harmless helper process, without launching a second API server.
+  @visibleForTesting
+  Future<void> superviseOwnedProcessForTesting(
+    Process process, {
+    bool ready = true,
+  }) {
+    _process = process;
+    final generation = ++_processGeneration;
+    _currentOwnedProcessGeneration = generation;
+    _observeOwnedProcess(process, generation, Future<bool>.value(ready));
+    return _exitDrainFuture!;
+  }
+
   // ---------------------------------------------------------------------------
   // #614 — Graceful shutdown
   // ---------------------------------------------------------------------------
 
   /// Terminates the server process gracefully: SIGTERM → 2 s grace → SIGKILL.
   Future<void> stopGracefully() async {
+    _startEpoch++;
     final proc = _process;
-    if (proc == null) return;
+    if (proc == null) {
+      await _diagnosticsLog.flush();
+      return;
+    }
+    _intentionalExitGenerations.add(_processGeneration);
     _process = null;
     proc.kill(ProcessSignal.sigterm);
     // Wait up to 2 s for the process to exit; escalate if still alive.
@@ -193,6 +325,8 @@ class ApiServerService {
     if (!done.isCompleted) {
       proc.kill(ProcessSignal.sigkill);
     }
+    await _exitDrainFuture;
+    await _diagnosticsLog.flush();
   }
 
   void _appendStderr(String line) {
@@ -229,6 +363,7 @@ class ApiServerService {
   /// become healthy. Returns a structured result describing success or the
   /// specific failure mode encountered.
   Future<AgentServerStartResult> start() async {
+    final startEpoch = ++_startEpoch;
     _stderrBuffer.clear();
     late final String humanApprovalCapabilitySha256;
     late final String humanApprovalPublicKey;
@@ -306,8 +441,18 @@ class ApiServerService {
       );
     }
 
+    if (startEpoch != _startEpoch) {
+      return (
+        ok: false,
+        reason: AgentServerFailureReason.spawnThrew,
+        stderrTail: null,
+        failureMessage: null,
+      );
+    }
+
+    late final Process process;
     try {
-      _process = await Process.start(
+      process = await Process.start(
         serverInfo.executable,
         // Pass Flutter's own PID so the server-side watchdog can probe it
         // with signal-0 instead of relying on ppid===1.  In dev mode the
@@ -338,21 +483,32 @@ class ApiServerService {
       );
     }
 
-    _process!.stdout
-        .transform(const SystemEncoding().decoder)
-        .listen((line) => stdout.write('[api_server] $line'));
-    _process!.stderr.transform(const SystemEncoding().decoder).listen((line) {
-      stderr.write('[api_server] $line');
-      _appendStderr(line);
-    });
+    final generation = ++_processGeneration;
+    _currentOwnedProcessGeneration = generation;
+    final readinessDecision = Completer<bool>();
+    _observeOwnedProcess(process, generation, readinessDecision.future);
+    if (startEpoch != _startEpoch) {
+      _intentionalExitGenerations.add(generation);
+      process.kill(ProcessSignal.sigterm);
+      readinessDecision.complete(false);
+      return (
+        ok: false,
+        reason: AgentServerFailureReason.spawnThrew,
+        stderrTail: null,
+        failureMessage: null,
+      );
+    }
 
-    _process!.exitCode.then((code) {
-      stdout.writeln('[ApiServerService] Server exited with code $code');
-      _process = null;
-    });
+    _process = process;
 
-    final ready = await _waitForReady();
-    if (ready) {
+    final ready = await Future.any<bool>([
+      _waitForReady(),
+      process.exitCode.then((_) => false),
+    ]);
+    final acceptedReady =
+        ready && startEpoch == _startEpoch && identical(_process, process);
+    readinessDecision.complete(acceptedReady);
+    if (acceptedReady) {
       return (ok: true, reason: null, stderrTail: null, failureMessage: null);
     }
     return (
@@ -365,8 +521,110 @@ class ApiServerService {
 
   /// Terminates the server process.
   void stop() {
-    _process?.kill(ProcessSignal.sigterm);
+    _startEpoch++;
+    final proc = _process;
+    if (proc != null) {
+      _intentionalExitGenerations.add(_processGeneration);
+      proc.kill(ProcessSignal.sigterm);
+    }
     _process = null;
+  }
+
+  void _observeOwnedProcess(
+    Process process,
+    int generation,
+    Future<bool> readinessDecision,
+  ) {
+    final nativeStderrTail = <int>[];
+    final stdoutDone = Completer<void>();
+    final stderrDone = Completer<void>();
+    late final StreamSubscription<List<int>> stdoutSubscription;
+    late final StreamSubscription<List<int>> stderrSubscription;
+    stdoutSubscription = process.stdout.listen(
+      (chunk) {
+        stdout.write(
+          '[api_server] ${utf8.decode(chunk, allowMalformed: true)}',
+        );
+      },
+      onError: (Object _, StackTrace __) {
+        if (!stdoutDone.isCompleted) stdoutDone.complete();
+      },
+      onDone: () {
+        if (!stdoutDone.isCompleted) stdoutDone.complete();
+      },
+    );
+    stderrSubscription = process.stderr.listen(
+      (chunk) {
+        final decoded = utf8.decode(chunk, allowMalformed: true);
+        stderr.write('[api_server] $decoded');
+        _appendStderr(decoded);
+        nativeStderrTail.addAll(chunk);
+        if (nativeStderrTail.length > _diagnosticsLog.maxBytes) {
+          nativeStderrTail.removeRange(
+            0,
+            nativeStderrTail.length - _diagnosticsLog.maxBytes,
+          );
+        }
+      },
+      onError: (Object _, StackTrace __) {
+        if (!stderrDone.isCompleted) stderrDone.complete();
+      },
+      onDone: () {
+        if (!stderrDone.isCompleted) stderrDone.complete();
+      },
+    );
+
+    final drainFuture = process.exitCode.then((code) async {
+      stdout.writeln('[ApiServerService] Server exited with code $code');
+      final drained = await Future.any<bool>([
+        Future.wait<void>([stdoutDone.future, stderrDone.future])
+            .then((_) => true),
+        Future<void>.delayed(_processDrainTimeout).then((_) => false),
+      ]);
+      if (!drained) {
+        await Future.wait<void>([
+          stdoutSubscription.cancel(),
+          stderrSubscription.cancel(),
+        ]);
+      }
+      final intentional = _intentionalExitGenerations.remove(generation);
+      final wasReady = await readinessDecision;
+      final stderrTail = _stderrTail();
+      if (!intentional) {
+        await _diagnosticsLog.recordOwnedExit(
+          pid: process.pid,
+          exitCode: code,
+          stderrChunks: Stream<List<int>>.value(nativeStderrTail),
+          timestamp: DateTime.now().toUtc(),
+        );
+      }
+      if (identical(_process, process)) {
+        _process = null;
+      }
+      if (_currentOwnedProcessGeneration == generation) {
+        _currentOwnedProcessGeneration = null;
+      }
+      if (!intentional && wasReady && !_ownedProcessExitController.isClosed) {
+        _ownedProcessExitController.add((
+          generation: generation,
+          exitCode: code,
+          stderrTail: stderrTail,
+        ));
+      }
+    });
+    _exitDrainFuture = drainFuture;
+    unawaited(drainFuture);
+  }
+
+  static AgentServerDiagnosticsLog _defaultDiagnosticsLog() {
+    final home = Platform.environment['HOME'] ?? '.';
+    return AgentServerDiagnosticsLog(
+      file: File(
+        '$home/Library/Application Support/Rhythm/logs/'
+        'agent-server-crash.log',
+      ),
+      maxBytes: 512 * 1024,
+    );
   }
 
   // ---------------------------------------------------------------------------

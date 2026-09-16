@@ -24,7 +24,7 @@
 .pg-messages .messages-thread-row { min-width: 0; min-height: 72px; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; grid-template-rows: 1fr 1fr; align-items: center; gap: 0 9px; padding: 8px 5px 8px 8px; border: 0; border-radius: var(--r-sm); color: var(--fg-2); background: transparent; cursor: pointer; text-align: start; }
 .pg-messages .messages-thread-row:hover { background: color-mix(in oklab, var(--surface), var(--fg) 6%); }
 .pg-messages .messages-thread-row:focus-visible, .pg-messages .messages-transcript:focus-visible, .pg-messages .messages-trace:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
-.pg-messages .messages-thread-row[aria-selected="true"] { color: var(--fg); background: var(--surface-warm); box-shadow: inset 2px 0 var(--accent); }
+.pg-messages .messages-thread-row[aria-current="true"] { color: var(--fg); background: var(--surface-warm); box-shadow: inset 2px 0 var(--accent); }
 .pg-messages .messages-thread-avatar { width: 34px; height: 34px; display: grid; grid-row: 1 / -1; place-items: center; border: 1px solid var(--border-soft); border-radius: 50%; color: var(--accent); background: color-mix(in oklab, var(--surface-warm), var(--bg) 18%); font-family: var(--font-mono); font-size: 9px; font-weight: 700; }
 .pg-messages .messages-thread-copy { min-width: 0; display: grid; grid-row: 1 / -1; gap: 3px; }
 .pg-messages .messages-thread-copy strong, .pg-messages .messages-thread-copy small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -143,13 +143,13 @@
   .pg-messages .dialog-panel { max-height: calc(100dvh - 16px); }
 }
 
-.pg-messages:dir(rtl) .messages-thread-row[aria-selected="true"] { box-shadow: inset -2px 0 var(--accent); }
+.pg-messages:dir(rtl) .messages-thread-row[aria-current="true"] { box-shadow: inset -2px 0 var(--accent); }
 .pg-messages:dir(rtl) .messages-thread-menu { right: auto; left: 2px; }
 .pg-messages:dir(rtl) .messages-message { border-radius: var(--r-md) 4px var(--r-md) var(--r-md); }
 .pg-messages:dir(rtl) .messages-message.own { border-radius: 4px var(--r-md) var(--r-md) var(--r-md); }
 
 @media (forced-colors: active) {
-  .pg-messages .messages-thread-row[aria-selected="true"], .pg-messages .messages-message, .pg-messages .messages-state, .pg-messages .messages-recipient-list > label { border-color: CanvasText; }
+  .pg-messages .messages-thread-row[aria-current="true"], .pg-messages .messages-message, .pg-messages .messages-state, .pg-messages .messages-recipient-list > label { border-color: CanvasText; }
   .pg-messages button:focus-visible, .pg-messages input:focus-visible, .pg-messages select:focus-visible, .pg-messages textarea:focus-visible, .pg-messages .messages-thread-row:focus-visible, .pg-messages .messages-transcript:focus-visible, .pg-messages .messages-trace:focus-visible { outline: 3px solid Highlight; outline-offset: 2px; box-shadow: none; }
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { FocusDialog } from '../../components/FocusDialog';
 import { navigate } from '../../components/Shell';
@@ -182,6 +182,10 @@ export function IntegrationsPage({ route }: { route: string }) {
   const [importError, setImportError] = useState('');
   const [importPartial, setImportPartial] = useState('');
   const [pendingImport, setPendingImport] = useState<ImportPlan | null>(null);
+  const [importPreview, setImportPreview] = useState<ImportPlan | null>(null);
+  // ponytail: page-local recovery only; durable retries need server idempotency first.
+  const importOperations = useRef(new WeakMap<ImportRecord, { key: string; templateId?: string; nextStep: number }>());
+  const importRunning = useRef(false);
   const [importedCounts, setImportedCounts] = useState({ tasks: 0, rhythms: 0, projects: 0 });
   const unknownSection = Boolean(section && !supportedSections.has(section));
   // The renderer gateway (useGateway()) is composed once in main.tsx and shares one bearer across
@@ -228,6 +232,19 @@ export function IntegrationsPage({ route }: { route: string }) {
     if (!isLive) return;
     if (!liveGateway) { setPageState('unavailable'); return; }
     void loadLiveAccounts(liveGateway);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLive, liveGateway]);
+
+  useEffect(() => {
+    if (!isLive || !liveGateway) return;
+    const refreshAfterReturn = () => void liveGateway.accounts().then((serverAccounts) => {
+      setLiveAccounts(mapLiveAccounts(serverAccounts)); setPageState('ready');
+    }).catch((error) => recordIntegrationsError('GET', '/integrations/accounts', error));
+    const visible = () => { if (document.visibilityState === 'visible') refreshAfterReturn(); };
+    window.addEventListener('focus', refreshAfterReturn);
+    window.addEventListener('pageshow', refreshAfterReturn);
+    document.addEventListener('visibilitychange', visible);
+    return () => { window.removeEventListener('focus', refreshAfterReturn); window.removeEventListener('pageshow', refreshAfterReturn); document.removeEventListener('visibilitychange', visible); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLive, liveGateway]);
 
@@ -474,49 +491,60 @@ export function IntegrationsPage({ route }: { route: string }) {
   };
 
   const runLiveImport = async (plan: ImportPlan, gateway: IntegrationsGateway) => {
+    if (importRunning.current) return;
+    importRunning.current = true;
     setMutationPending(true);
     const nextCounts = { ...importedCounts };
     const remaining: ImportPlan = { tasks: [], rhythms: [], projects: [] };
     for (const item of plan.tasks) {
       try {
-        await gateway.importTask({ title: String(item.title ?? 'Imported task'), notes: item.notes != null ? String(item.notes) : undefined, dueDate: item.dueDate != null ? String(item.dueDate) : undefined });
-        appendReceipt('POST /tasks {title,notes,scheduledDate,preferredAgent} → 201'); nextCounts.tasks += 1;
+        await gateway.importTask({ title: String(item.title ?? 'Imported task'), notes: item.notes != null ? String(item.notes) : undefined, scheduledDate: item.scheduledDate != null ? String(item.scheduledDate) : undefined, dueDate: item.dueDate != null ? String(item.dueDate) : undefined });
+        appendReceipt(`POST /tasks {title,notes,scheduledDate,dueDate} → 201 · local operation ${importOperations.current.get(item)?.key}`); nextCounts.tasks += 1;
       } catch (error) {
-        appendReceipt(`POST /tasks {title,notes,scheduledDate,preferredAgent} → ${error instanceof IntegrationsGatewayError ? error.status : 0 || 'network error'}`);
+        appendReceipt(`POST /tasks {title,notes,scheduledDate,dueDate} → ${error instanceof IntegrationsGatewayError ? error.status : 'network error'} · local operation ${importOperations.current.get(item)?.key}`);
         remaining.tasks.push(item);
       }
     }
     for (const item of plan.rhythms) {
       try {
-        await gateway.importRhythm({ title: String(item.title ?? 'Imported rhythm'), frequency: normalizeFrequency(item.frequency), dayOfWeek: typeof item.dayOfWeek === 'number' ? item.dayOfWeek : undefined });
-        appendReceipt('POST /recurring-rules {title,frequency,dayOfWeek} → 201'); nextCounts.rhythms += 1;
+        await gateway.importRhythm({ title: String(item.title ?? 'Imported rhythm'), frequency: normalizeFrequency(item.frequency), dayOfWeek: typeof item.dayOfWeek === 'number' ? item.dayOfWeek : undefined, dayOfMonth: typeof item.dayOfMonth === 'number' ? item.dayOfMonth : undefined, month: typeof item.month === 'number' ? item.month : undefined });
+        appendReceipt(`POST /recurring-rules {title,frequency,dayOfWeek,dayOfMonth,month} → 201 · local operation ${importOperations.current.get(item)?.key}`); nextCounts.rhythms += 1;
       } catch (error) {
-        appendReceipt(`POST /recurring-rules {title,frequency,dayOfWeek} → ${error instanceof IntegrationsGatewayError ? error.status : 0 || 'network error'}`);
+        appendReceipt(`POST /recurring-rules {title,frequency,dayOfWeek,dayOfMonth,month} → ${error instanceof IntegrationsGatewayError ? error.status : 'network error'} · local operation ${importOperations.current.get(item)?.key}`);
         remaining.rhythms.push(item);
       }
     }
     for (const project of plan.projects) {
       const name = String(project.name ?? 'Imported project');
+      const operation = importOperations.current.get(project)!;
+      let path = '/project-templates';
       try {
-        const template = await gateway.importProjectTemplate({ name, description: project.description != null ? String(project.description) : undefined });
-        appendReceipt('POST /project-templates {name,description} → 201'); nextCounts.projects += 1;
-        const steps = Array.isArray(project.steps) ? project.steps as ImportRecord[] : [];
-        for (const step of steps) {
-          await gateway.addImportedProjectStep(template.id, { title: String(step.title ?? 'Step'), offsetDays: typeof step.offsetDays === 'number' ? step.offsetDays : 0, offsetDescription: step.offsetDescription != null ? String(step.offsetDescription) : undefined });
-          appendReceipt(`POST /project-templates/${template.id}/steps {title,offsetDays,offsetDescription,sortOrder,assigneeId} → 201`);
+        if (!operation.templateId) {
+          const template = await gateway.importProjectTemplate({ name, description: project.description != null ? String(project.description) : undefined });
+          if (typeof template.id !== 'string' || !template.id) throw new Error('Template response missing ID; inspect server before retrying');
+          operation.templateId = template.id;
+          appendReceipt(`POST /project-templates {name,description} → 201 · ${template.id} · local operation ${operation.key}`);
         }
-        appendReceipt('GET /project-templates → 200');
+        const steps = Array.isArray(project.steps) ? project.steps as ImportRecord[] : [];
+        path = `/project-templates/${operation.templateId}/steps`;
+        for (; operation.nextStep < steps.length; operation.nextStep += 1) {
+          const step = steps[operation.nextStep];
+          await gateway.addImportedProjectStep(operation.templateId, { title: String(step.title ?? 'Step'), offsetDays: typeof step.offsetDays === 'number' ? step.offsetDays : 0, offsetDescription: step.offsetDescription != null ? String(step.offsetDescription) : undefined, sortOrder: operation.nextStep });
+          appendReceipt(`POST ${path} {title,offsetDays,offsetDescription,sortOrder} → 201 · local operation ${operation.key}:step:${operation.nextStep}`);
+        }
+        nextCounts.projects += 1;
       } catch (error) {
-        appendReceipt(`POST /project-templates {name,description} → ${error instanceof IntegrationsGatewayError ? error.status : 0 || 'network error'}`);
+        appendReceipt(`POST ${path} → ${error instanceof IntegrationsGatewayError ? error.status : 'network error'} · local operation ${operation.key}${operation.templateId ? `:step:${operation.nextStep}` : ''}`);
         remaining.projects.push(project);
       }
     }
     setImportedCounts(nextCounts);
     setMutationPending(false);
+    importRunning.current = false;
     const failed = remaining.tasks.length + remaining.rhythms.length + remaining.projects.length;
     const completedThisPass = plan.tasks.length + plan.rhythms.length + plan.projects.length - failed;
-    if (failed) { setPendingImport(remaining); setImportPartial(`${completedThisPass} imported, ${failed} failed. Successful records will not be duplicated.`); return; }
-    setPendingImport(null); setImportOpen(false); notify(countMessage(nextCounts));
+    if (failed) { setPendingImport(remaining); setImportPartial(`${completedThisPass} completed this pass, ${failed} pending. Retry skips confirmed records and steps in this page only. Inspect any uncertain result before retrying.`); return; }
+    setPendingImport(null); setImportPreview(null); setImportJson(''); setImportOpen(false); notify(countMessage(nextCounts));
   };
 
   const runImport = (plan: ImportPlan, retry = false) => {
@@ -551,7 +579,20 @@ export function IntegrationsPage({ route }: { route: string }) {
     setPendingImport(null); setImportOpen(false); notify(countMessage(nextCounts));
   };
 
-  const submitImport = () => { const plan = parseImport(); if (plan) runImport(plan); };
+  const submitImport = () => {
+    const plan = parseImport();
+    if (!plan) return;
+    if (!isLive) { runImport(plan); return; }
+    const record = (item: unknown): item is ImportRecord => Boolean(item && typeof item === 'object' && !Array.isArray(item));
+    if (![...plan.tasks, ...plan.rhythms, ...plan.projects].every(record) || plan.projects.some(project => project.steps != null && (!Array.isArray(project.steps) || !project.steps.every(record)))) {
+      setImportError('Every import record and project step must be an object; steps must be an array.'); return;
+    }
+    for (const item of [...plan.tasks, ...plan.rhythms, ...plan.projects]) {
+      importOperations.current.set(item, { key: crypto.randomUUID(), nextStep: 0 });
+    }
+    setImportedCounts({ tasks: 0, rhythms: 0, projects: 0 });
+    setImportError(''); setImportPreview(plan);
+  };
 
   const providerActive = (id: string) => section === id ? 'true' : undefined;
   const calendar = account('google-calendar'); const gmail = account('gmail'); const pco = account('planning-center');
@@ -620,8 +661,57 @@ export function IntegrationsPage({ route }: { route: string }) {
     </FocusDialog>
 
 
-    <FocusDialog open={importOpen} onClose={() => setImportOpen(false)} title="AI Import" description="Use any assistant separately, then paste JSON here. Rhythm never contacts it." testId="ai-import-dialog" wide>
-      <div className="pg-integrations-import"><div className="pg-integrations-tabs" role="tablist" aria-label="AI Import steps"><button type="button" role="tab" aria-selected={importStep === 'prompt'} onClick={() => setImportStep('prompt')} data-testid="ai-import-prompt-tab">1 · Copy prompt</button><button type="button" role="tab" aria-selected={importStep === 'paste'} onClick={() => setImportStep('paste')} data-testid="ai-import-paste-tab">2 · Paste JSON</button></div>{importStep === 'prompt' ? <section aria-labelledby="import-prompt-title"><div className="pg-integrations-dialog-heading"><div><span className="eyebrow">Local prompt</span><h3 id="import-prompt-title">Ask for structured JSON</h3></div></div><pre>{importPrompt}</pre><div className="pg-integrations-dialog-actions"><button className="secondary-button" type="button" onClick={() => { setCopyStatus('Copied!'); notify('Import prompt copied'); }} data-testid="ai-import-copy-prompt">Copy prompt</button><span role="status" aria-live="polite" data-testid="ai-import-copy-status">{copyStatus}</span><span /><button className="primary-button" type="button" onClick={() => setImportStep('paste')} data-testid="ai-import-next">Next</button></div></section> : <section aria-labelledby="import-json-title"><div className="pg-integrations-dialog-heading"><div><span className="eyebrow">Structured input</span><h3 id="import-json-title">Paste JSON</h3></div></div><label className="pg-integrations-json-label" htmlFor="ai-import-json">Tasks, rhythms, and project templates JSON<textarea id="ai-import-json" rows={12} value={importJson} onChange={(event) => { setImportJson(event.target.value); setImportError(''); }} placeholder='{"tasks":[],"rhythms":[],"projects":[]}' data-autofocus data-testid="ai-import-json" /></label>{importError && <p className="pg-integrations-import-error" role="alert" data-testid="ai-import-error">{importError}</p>}{importPartial && <div className="pg-integrations-import-error" role="alert" data-testid="ai-import-partial-error"><strong>Import paused</strong><span>{importPartial}</span></div>}<div className="pg-integrations-dialog-actions"><button className="secondary-button" type="button" onClick={() => setImportOpen(false)} data-testid="ai-import-cancel">Cancel</button><span />{pendingImport ? <button className="primary-button" type="button" onClick={() => runImport(pendingImport, true)} data-testid="ai-import-retry">Retry remaining</button> : <button className="primary-button" type="button" onClick={submitImport} data-testid="ai-import-submit">Import</button>}</div></section>}</div>
+    <FocusDialog open={importOpen} onClose={() => { if (!mutationPending) setImportOpen(false); }} title="AI Import" description="Use any assistant separately, then paste JSON here. Rhythm never contacts it." testId="ai-import-dialog" wide>
+      <div className="pg-integrations-import">
+        <div className="pg-integrations-tabs" role="tablist" aria-label="AI Import steps">
+          <button type="button" role="tab" aria-selected={importStep === 'prompt'} onClick={() => setImportStep('prompt')} data-testid="ai-import-prompt-tab">1 · Copy prompt</button>
+          <button type="button" role="tab" aria-selected={importStep === 'paste'} onClick={() => setImportStep('paste')} data-testid="ai-import-paste-tab">2 · Paste JSON</button>
+        </div>
+        {importStep === 'prompt' ? <section aria-labelledby="import-prompt-title">
+          <div className="pg-integrations-dialog-heading"><div><span className="eyebrow">Local prompt</span><h3 id="import-prompt-title">Ask for structured JSON</h3></div></div>
+          <pre>{importPrompt}</pre>
+          <div className="pg-integrations-dialog-actions"><button className="secondary-button" type="button" onClick={() => { setCopyStatus('Copied!'); notify('Import prompt copied'); }} data-testid="ai-import-copy-prompt">Copy prompt</button><span role="status" aria-live="polite" data-testid="ai-import-copy-status">{copyStatus}</span><span /><button className="primary-button" type="button" onClick={() => setImportStep('paste')} data-testid="ai-import-next">Next</button></div>
+        </section> : <section aria-labelledby="import-json-title">
+          <div className="pg-integrations-dialog-heading"><div><span className="eyebrow">Structured input</span><h3 id="import-json-title">Paste JSON</h3></div></div>
+          {isLive && <p role="note" data-testid="ai-import-retry-warning">The API does not provide idempotency for these imports. Local operation keys only track this page's confirmed responses; a lost response may have created a record. Inspect the server before retrying uncertain results. Closing this dialog keeps recovery while you stay on this page. Reloading or leaving this page loses recovery; importing the same JSON again may duplicate records. Abandoning recovery does not undo server writes.</p>}
+          <label className="pg-integrations-json-label" htmlFor="ai-import-json">Tasks, rhythms, and project templates JSON<textarea id="ai-import-json" rows={12} value={importJson} disabled={mutationPending || Boolean(pendingImport)} onChange={(event) => { setImportJson(event.target.value); setImportError(''); setImportPreview(null); }} placeholder='{"tasks":[],"rhythms":[],"projects":[]}' data-autofocus data-testid="ai-import-json" /></label>
+          {importError && <p className="pg-integrations-import-error" role="alert" data-testid="ai-import-error">{importError}</p>}
+          {isLive && importPreview && !pendingImport && <section aria-label="Import preview" data-testid="ai-import-preview">
+            <h3>Review before importing</h3>
+            <p>Planned work and deadlines stay separate. This intentionally corrects Flutter's old deadline import behavior: dueDate is never used as scheduledDate.</p>
+            <ul>
+              {importPreview.tasks.map((item, index) => <li key={`task-${index}`}><strong>{String(item.title ?? 'Imported task')}</strong> · Planned (scheduledDate): {String(item.scheduledDate ?? 'Not set')} · Deadline (dueDate): {String(item.dueDate ?? 'Not set')}</li>)}
+              {importPreview.rhythms.map((item, index) => <li key={`rhythm-${index}`}><strong>{String(item.title ?? 'Imported rhythm')}</strong> · {normalizeFrequency(item.frequency)}{normalizeFrequency(item.frequency) === 'annual' && ` · month ${item.month ?? 'Not set'}`}{normalizeFrequency(item.frequency) !== 'weekly' ? ` · day ${item.dayOfMonth ?? 'Not set'}` : ` · weekday ${item.dayOfWeek ?? 'Not set'}`}</li>)}
+              {importPreview.projects.map((item, index) => <li key={`project-${index}`}><strong>{String(item.name ?? 'Imported project')}</strong> · {Array.isArray(item.steps) ? item.steps.length : 0} steps</li>)}
+            </ul>
+          </section>}
+          {importPartial && <div className="pg-integrations-import-error" role="alert" data-testid="ai-import-partial-error"><strong>Import paused</strong><span>{importPartial}</span></div>}
+          {isLive && pendingImport && <section aria-label="Remaining import operations" data-testid="ai-import-recovery">
+            <h3>Remaining operations (local keys)</h3>
+            <ul>{[...pendingImport.tasks, ...pendingImport.rhythms, ...pendingImport.projects].map(item => {
+              const operation = importOperations.current.get(item)!;
+              const steps = Array.isArray(item.steps) ? item.steps as ImportRecord[] : [];
+              return <li key={operation.key} data-operation-key={operation.key}>
+                <strong>{String(item.title ?? item.name ?? 'Imported record')}</strong> · <code>{operation.key}</code>
+                {operation.templateId && <p>Created template retained: <code>{operation.templateId}</code> · {operation.nextStep} steps confirmed.</p>}
+                {steps.length > operation.nextStep && <ol>{steps.slice(operation.nextStep).map((step, index) => <li key={index} data-operation-key={`${operation.key}:step:${operation.nextStep + index}`}>{String(step.title ?? 'Step')} · <code>{operation.key}:step:{operation.nextStep + index}</code></li>)}</ol>}
+              </li>;
+            })}</ul>
+          </section>}
+          <div className="pg-integrations-dialog-actions">
+            <button className="secondary-button" type="button" disabled={mutationPending} onClick={() => setImportOpen(false)} data-testid="ai-import-cancel">{isLive && pendingImport ? 'Close — keep recovery' : 'Cancel'}</button>
+            {isLive && pendingImport && <button className="secondary-button" type="button" disabled={mutationPending} data-testid="ai-import-abandon" onClick={() => {
+              if (!window.confirm('Abandon local recovery? Created records and steps remain on the server. Reimporting may duplicate them.')) return;
+              setPendingImport(null); setImportPreview(null); setImportPartial(''); setImportJson(''); setImportError(''); setImportedCounts({ tasks: 0, rhythms: 0, projects: 0 });
+              importOperations.current = new WeakMap();
+            }}>Abandon recovery</button>}
+            <span />
+            {pendingImport ? <button className="primary-button" type="button" disabled={mutationPending || pageState !== 'ready'} onClick={() => runImport(pendingImport, true)} data-testid="ai-import-retry">Retry remaining</button>
+              : isLive && importPreview ? <button className="primary-button" type="button" disabled={mutationPending || pageState !== 'ready'} onClick={() => runImport(importPreview)} data-testid="ai-import-confirm">{mutationPending ? 'Importing…' : 'Import reviewed records'}</button>
+                : <button className="primary-button" type="button" disabled={mutationPending || pageState !== 'ready'} onClick={submitImport} data-testid="ai-import-submit">{isLive ? 'Preview import' : 'Import'}</button>}
+          </div>
+        </section>}
+      </div>
     </FocusDialog>
   </section>;
 }

@@ -7,10 +7,6 @@ const VALID_PRODUCTION_ENV = {
   EXPO_APP_VARIANT: 'production',
   EXPO_PUBLIC_E2E_MODE: '',
   EXPO_PUBLIC_E2E_SERVER_URL: '',
-  EXPO_PUBLIC_GOOGLE_MOBILE_CLIENT_ID:
-    '123456789-example.apps.googleusercontent.com',
-  EXPO_PUBLIC_GOOGLE_MOBILE_REDIRECT_URI:
-    'com.googleusercontent.apps.123456789-example:/oauthredirect',
   EXPO_PUBLIC_RHYTHM_CLOUD_URL: 'https://api.vcrcapps.com',
 };
 
@@ -61,7 +57,7 @@ test('issue-1175-c18: hostile QR origins never receive cloud credentials and can
   );
   const controllerPair = controller.slice(
     controller.indexOf('pair(req:'),
-    controller.indexOf('listDevices(', controller.indexOf('pair(req:')),
+    controller.indexOf('\n  connectCloudDevice(', controller.indexOf('pair(req:')),
   );
   const servicePair = service.slice(
     service.indexOf('pair(input:'),
@@ -112,8 +108,7 @@ test('issue-1175-c18: hostile QR origins never receive cloud credentials and can
 
 test('issue-1175-c22: a production app cannot compile in test mode or with unusable authentication', async () => {
   // Regression caught: EXPO_PUBLIC_E2E_MODE could silently win in a production
-  // build, while missing OAuth variables still produced a signed app whose
-  // only sign-in action failed at runtime.
+  // build, while a missing hosted cloud origin still produced an unusable app.
   const good = expoConfig();
   assert.equal(good.status, 0, good.stderr || good.stdout);
   const resolved = JSON.parse(good.stdout);
@@ -126,12 +121,6 @@ test('issue-1175-c22: a production app cannot compile in test mode or with unusa
 
   for (const [label, overrides] of [
     ['production E2E', { EXPO_PUBLIC_E2E_MODE: '1' }],
-    ['missing client id', { EXPO_PUBLIC_GOOGLE_MOBILE_CLIENT_ID: '' }],
-    ['missing redirect', { EXPO_PUBLIC_GOOGLE_MOBILE_REDIRECT_URI: '' }],
-    ['mismatched redirect', {
-      EXPO_PUBLIC_GOOGLE_MOBILE_REDIRECT_URI:
-        'com.googleusercontent.apps.someone-else:/oauthredirect',
-    }],
     ['missing Cloud origin', { EXPO_PUBLIC_RHYTHM_CLOUD_URL: '' }],
     ['insecure Cloud origin', {
       EXPO_PUBLIC_RHYTHM_CLOUD_URL: 'http://api.vcrcapps.com',
@@ -161,7 +150,7 @@ test('issue-1175-c22: a production app cannot compile in test mode or with unusa
   assert.match(verifier, /__control/);
   assert.match(verifier, /fake[-_ ]?user/i);
   assert.match(verifier, /test gateway|E2E_SERVER_URL|e2eServerUrl/i);
-  assert.match(verifier, /GOOGLE_MOBILE_CLIENT_ID|oauth/i);
+  assert.match(verifier, /api\.vcrcapps\.com/);
   assert.match(
     packageJson.scripts['release:preflight:ios'] ?? '',
     /verify-production-bundle/,

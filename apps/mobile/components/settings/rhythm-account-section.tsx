@@ -87,7 +87,7 @@ export function RhythmAccountSection({
             variant="titleMedium"
             style={[styles.title, { color: palette.text }]}
           >
-            Rhythm Account
+            Account
           </Text>
           <Chip
             compact
@@ -121,6 +121,7 @@ export function RhythmAccountSection({
               mode="contained"
               onPress={onSignIn}
               disabled={isBusy}
+              accessibilityState={{ busy: isBusy, disabled: isBusy }}
               accessibilityLabel="Sign in to Rhythm"
             >
               Sign in with Google
@@ -132,6 +133,7 @@ export function RhythmAccountSection({
               mode="outlined"
               onPress={onRefresh}
               disabled={isBusy}
+              accessibilityState={{ busy: isBusy, disabled: isBusy }}
               accessibilityLabel="Refresh Rhythm session"
             >
               Refresh session

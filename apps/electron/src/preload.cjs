@@ -14,6 +14,8 @@ const gateway = Object.freeze({
 });
 const auth = Object.freeze({
   signInWithGoogle: () => ipcRenderer.invoke('rhythm:auth:google-sign-in'),
+  currentSession: () => ipcRenderer.invoke('rhythm:auth:current-session'),
+  logout: () => ipcRenderer.invoke('rhythm:auth:logout'),
 });
 // post-m1-p7-c4d/c4e: a narrow, purpose-built surface only — never an arbitrary-sign primitive.
 // The private key never crosses this bridge, only its already-finished output (capability string,
@@ -36,6 +38,7 @@ const agentServer = Object.freeze({
     return () => ipcRenderer.removeListener('rhythm:agent-server:status-changed', listener);
   },
 });
+const updates = Object.freeze({ openDownloadPage: () => ipcRenderer.invoke('rhythm:updates:open-download') });
 // Renderer code can only reconcile pending approval IDs with the main process. Main validates the
 // closed approval/session target schema and owns all text, presentation, dedupe, and navigation.
 window.addEventListener('rhythm:approval-notifications', (event) => {
@@ -43,11 +46,12 @@ window.addEventListener('rhythm:approval-notifications', (event) => {
   ipcRenderer.send('rhythm:approval-notifications:sync', event.detail);
 });
 contextBridge.exposeInMainWorld('rhythmShell', Object.freeze({
-  version: 5,
+  version: 6,
   appVersion,
   platform: process.platform,
   gateway,
   auth,
   humanApproval,
   agentServer,
+  updates,
 }));

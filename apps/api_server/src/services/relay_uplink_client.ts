@@ -1,6 +1,7 @@
 import { WebSocket, type RawData } from 'ws';
 import { readFile } from 'node:fs/promises';
 
+import { getDb } from '../database/db';
 import { logger } from '../utils/logger';
 import { RelayOutboxRepository } from '../repositories/relay_outbox_repository';
 import { OpencodeEventHub, type HubSubscription } from './opencode_event_hub';
@@ -145,11 +146,35 @@ export class RelayUplinkClient {
     try {
       const bytes = await readFile(input.filePath);
       const encoded = bytes.toString('base64');
+      const ownership = getDb().prepare(
+        `SELECT a.project AS project_id,
+                a.session AS session_id,
+                s.owner_user_id
+           FROM media_artifacts a
+           JOIN agent_sessions s ON s.id = a.session OR s.sdk_session_id = a.session
+          WHERE a.id = ?
+          LIMIT 1`,
+      ).get(input.artifactId) as {
+        project_id: string;
+        session_id: string;
+        owner_user_id: number | null;
+      } | undefined;
+      if (!ownership || ownership.owner_user_id === null) {
+        logger.warn(
+          `[RelayUplinkClient] artifact push skipped without explicit ownership: ${input.artifactId}`,
+        );
+        return;
+      }
       const frame: FileArtifactFrame = {
         ch: 'file',
         t: 'artifact',
         artifactId: input.artifactId,
-        meta: input.meta,
+        meta: {
+          ...input.meta,
+          projectId: ownership.project_id,
+          sessionId: ownership.session_id,
+          ownerUserId: ownership.owner_user_id,
+        },
         dataB64:
           Buffer.byteLength(encoded, 'ascii') <= ARTIFACT_BASE64_LIMIT_BYTES
             ? encoded
@@ -255,11 +280,16 @@ export class RelayUplinkClient {
 
   private async initializeConnection(socket: WebSocket): Promise<void> {
     const health = await this.options.healthProvider();
+    const enrolledHostId = typeof health === 'object' && health !== null &&
+        !Array.isArray(health) &&
+        typeof (health as { hostId?: unknown }).hostId === 'string'
+      ? (health as { hostId: string }).hostId
+      : this.options.machineId;
     if (!this.sendFrameOn(socket, {
       ch: 'ctrl',
       t: 'hello',
       userId: this.options.userId,
-      machineId: this.options.machineId,
+      machineId: enrolledHostId,
       health,
     })) {
       return;

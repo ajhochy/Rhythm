@@ -13,6 +13,7 @@ import { buildMemoryPreface, isMemoryInjectionEnabled } from './memory_retrieval
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
 import { isAllowedLocalAgentSurfaceRequest } from '../middleware/local_agent_surface_guard';
+import { resolveLocalOrCloudBearer } from '../middleware/auth_middleware';
 import { resolveProfileScope } from './agent_profile_scope';
 import { retainTurn } from './turn_redispatch';
 import type { PermissionMode } from '../models/agent_session';
@@ -63,6 +64,15 @@ function rejectRemoteLegacyUpgrade(
       'Cache-Control: no-store\r\n\r\n',
     () => socket.destroy(),
   );
+}
+
+async function hasValidOptionalBearer(request: http.IncomingMessage): Promise<boolean> {
+  const header = request.headers.authorization;
+  if (header === undefined) return true;
+  if (Array.isArray(header) || !header.trim()) return false;
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  const token = match?.[1].trim();
+  return Boolean(token && await resolveLocalOrCloudBearer(token));
 }
 
 export interface MobileUpgradeHandler {
@@ -129,6 +139,7 @@ export function attachWsGateway(
 
   server.on('upgrade', (req, socket, head) => {
     if (mobileUpgradeHandler?.handleUpgrade(req, socket, head)) return;
+    void (async () => {
     let pathname = '/';
     try {
       pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
@@ -142,6 +153,10 @@ export function attachWsGateway(
       legacyAgentSurface &&
       !isAllowedLocalAgentSurfaceRequest(req.headers)
     ) {
+      rejectRemoteLegacyUpgrade(socket);
+      return;
+    }
+    if (legacyAgentSurface && !(await hasValidOptionalBearer(req))) {
       rejectRemoteLegacyUpgrade(socket);
       return;
     }
@@ -166,6 +181,7 @@ export function attachWsGateway(
       return;
     }
     socket.destroy();
+    })().catch(() => rejectRemoteLegacyUpgrade(socket));
   });
   wss.once('close', () => mobileUpgradeHandler?.close());
 

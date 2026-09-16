@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { Appbar, Avatar, Card, Text } from 'react-native-paper';
+import { Avatar, Card, Text } from 'react-native-paper';
 
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -33,18 +33,10 @@ export default function ToolsScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}>
-      <Appbar.Header
-        testID="compact-tools-header"
-        elevated={false}
-        style={{ backgroundColor: palette.background }}>
-        <Appbar.Content
-          title="Tools"
-          titleStyle={{ color: palette.text }}
-        />
-      </Appbar.Header>
       <ScrollView
         accessibilityLabel="Agent tools"
         contentContainerStyle={styles.content}>
+        <Text accessibilityRole="header" style={[styles.largeTitle, { color: palette.text }]}>Tools</Text>
         <Text style={{ color: palette.muted }} variant="bodyLarge">
           Work with Rhythm’s knowledge, automation, operations, and connection
           tools through your paired Mac.
@@ -59,12 +51,13 @@ export default function ToolsScreen() {
             mode="outlined"
             onPress={() => router.push(tool.route as never)}
             style={[styles.card, { borderColor: palette.border }]}>
-            <Card.Title
-              left={(props) => <Avatar.Icon {...props} icon={copy.icon} />}
-              subtitle={copy.description}
-              subtitleNumberOfLines={3}
-              title={tool.title}
-            />
+            <Card.Content style={styles.cardContent}>
+              <Avatar.Icon icon={copy.icon} size={44} />
+              <View style={styles.cardCopy}>
+                <Text variant="titleMedium" style={{ color: palette.text }}>{tool.title}</Text>
+                <Text variant="bodyMedium" style={{ color: palette.muted }}>{copy.description}</Text>
+              </View>
+            </Card.Content>
           </Card>
           );
         })}
@@ -75,6 +68,9 @@ export default function ToolsScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { gap: 14, padding: 16, paddingBottom: 32 },
+  content: { gap: 16, padding: 16, paddingBottom: 32 },
+  largeTitle: { fontSize: 34, fontWeight: '700', lineHeight: 41 },
   card: { borderRadius: 16 },
+  cardContent: { alignItems: 'center', flexDirection: 'row', gap: 12, minHeight: 72, paddingVertical: 12 },
+  cardCopy: { flex: 1, gap: 4, minWidth: 0 },
 });

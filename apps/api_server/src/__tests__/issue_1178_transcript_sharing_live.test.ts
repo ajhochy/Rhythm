@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { realpathSync } from 'node:fs';
+import path from 'node:path';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 
@@ -12,7 +14,7 @@ describeLive('issue_1178_transcript_sharing_live', () => {
   it('creates, reads, audits, and immediately revokes a sanitized snapshot through real HTTP', async () => {
     if (
       !/^\d{4,5}$/.test(expectedPort) ||
-      ['4001', '4096', '4097', '4098'].includes(expectedPort) ||
+       ['4001', '4096', '4097'].includes(expectedPort) ||
       baseUrl !== `http://127.0.0.1:${expectedPort}`
     ) {
       throw new Error('RHYTHM_LIVE_URL must use the declared isolated alternate port');
@@ -25,7 +27,13 @@ describeLive('issue_1178_transcript_sharing_live', () => {
       throw new Error('Live transcript-share test requires an attested isolated database');
     }
 
-    const db = new Database(dbPath);
+    const sandbox = realpathSync(process.env.RHYTHM_SANDBOX_DIR ?? '');
+    if (!/^\/(private\/tmp|var\/folders)\//.test(sandbox) || realpathSync(dbPath) !== path.join(sandbox, 'rhythm.db')) {
+      throw new Error('Live share test must use the manager-owned temporary sandbox database');
+    }
+    const db = new Database(dbPath, { fileMustExist: true });
+    const synthetic = db.prepare("SELECT id FROM users WHERE id = 1 AND email = 'admin@example.invalid'").get();
+    if (!synthetic) { db.close(); throw new Error('Synthetic fixture identity missing; no writes performed'); }
     const runId = randomUUID();
     const sourceId = randomUUID();
     const ownerToken = randomUUID();
@@ -33,6 +41,7 @@ describeLive('issue_1178_transcript_sharing_live', () => {
     let ownerId: number | null = null;
     let recipientId: number | null = null;
     let shareId: string | null = null;
+    let workspaceId: number | null = null;
     const headers = (token: string) => ({
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
@@ -51,7 +60,7 @@ describeLive('issue_1178_transcript_sharing_live', () => {
       db.prepare('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)')
         .run(recipientToken, recipientId, new Date(Date.now() + 600_000).toISOString());
       // Recipients must share a workspace with the owner (fail-closed 403).
-      const workspaceId = Number(db.prepare(
+      workspaceId = Number(db.prepare(
         `INSERT INTO workspaces (name, join_code, created_by) VALUES (?, ?, ?)`,
       ).run(`Issue 1178 Workspace ${runId}`, `join-${runId}`, ownerId)
         .lastInsertRowid);
@@ -82,10 +91,30 @@ describeLive('issue_1178_transcript_sharing_live', () => {
         { id: 'tool', type: 'tool', tool: 'read', state: { output: 'private tool result' } },
       ]));
 
+      const reviewResponse = await fetch(`${baseUrl}/agent-sessions/${sourceId}/shares/review`, {
+        headers: headers(ownerToken),
+      });
+      expect(reviewResponse.status).toBe(200);
+      const { reviewHash } = await reviewResponse.json() as { reviewHash: string };
+      db.prepare("UPDATE agent_session_messages SET parts_json = ? WHERE session_id = ? AND role = 'user'").run(JSON.stringify([
+        { id: 'safe', type: 'text', text: 'approved transcript revision B' },
+        { id: 'secret', type: 'text', text: 'Authorization: Bearer abc.def.ghi' },
+      ]), sourceId);
+      const stale = await fetch(`${baseUrl}/agent-sessions/${sourceId}/shares`, {
+        method: 'POST', headers: headers(ownerToken),
+        body: JSON.stringify({ reviewHash, recipientUserIds: [recipientId], review: { items: [{ id: 'safe', category: 'message' }] } }),
+      });
+      expect(stale.status).toBe(409);
+      expect(db.prepare('SELECT count(*) AS n FROM shared_transcripts WHERE source_session_id = ?').get(sourceId)).toEqual({ n: 0 });
+      const fresh = await fetch(`${baseUrl}/agent-sessions/${sourceId}/shares/review`, { headers: headers(ownerToken) });
+      expect(fresh.status).toBe(200);
+      const freshReview = await fresh.json() as { reviewHash: string };
+      expect(freshReview.reviewHash).not.toBe(reviewHash);
       const createdResponse = await fetch(`${baseUrl}/agent-sessions/${sourceId}/shares`, {
         method: 'POST',
         headers: headers(ownerToken),
         body: JSON.stringify({
+          reviewHash: freshReview.reviewHash,
           recipientUserIds: [recipientId],
           review: {
             items: [
@@ -117,6 +146,11 @@ describeLive('issue_1178_transcript_sharing_live', () => {
         headers: headers(recipientToken),
       });
       expect(recipientRead.status).toBe(200);
+      const expectedSnapshot = { items: [{ id: 'safe', category: 'message', content: { id: 'safe', type: 'text', text: 'approved transcript revision B' } }] };
+      expect((await recipientRead.json() as { snapshot: unknown }).snapshot).toEqual(expectedSnapshot);
+      db.prepare("UPDATE agent_session_messages SET parts_json = '[]', raw_text = 'unreviewed revision C' WHERE session_id = ?").run(sourceId);
+      const immutableRead = await fetch(`${baseUrl}/shares/${shareId}`, { headers: headers(recipientToken) });
+      expect((await immutableRead.json() as { snapshot: unknown }).snapshot).toEqual(expectedSnapshot);
 
       const revoked = await fetch(`${baseUrl}/shares/${shareId}`, {
         method: 'DELETE',
@@ -131,9 +165,9 @@ describeLive('issue_1178_transcript_sharing_live', () => {
       const audit = db.prepare(
         'SELECT action, actor_user_id FROM share_audit_log WHERE share_id = ? ORDER BY timestamp',
       ).all(shareId) as Array<{ action: string; actor_user_id: number }>;
-      expect(audit.map((entry) => entry.action)).toEqual(['share', 'view', 'revoke']);
+      expect(audit.map((entry) => entry.action)).toEqual(['share', 'view', 'view', 'revoke']);
       expect(audit.map((entry) => entry.actor_user_id))
-        .toEqual([ownerId, recipientId, ownerId]);
+        .toEqual([ownerId, recipientId, recipientId, ownerId]);
     } finally {
       // Share/audit rows are protected by append-only DB triggers, and user
       // deletion cascades into them — the guard correctly refuses. The
@@ -149,6 +183,7 @@ describeLive('issue_1178_transcript_sharing_live', () => {
       if (shareId) tryDelete('DELETE FROM shared_transcripts WHERE id = ?', shareId);
       tryDelete('DELETE FROM agent_sessions WHERE id = ?', sourceId);
       tryDelete('DELETE FROM sessions WHERE token IN (?, ?)', ownerToken, recipientToken);
+      if (workspaceId !== null) tryDelete('DELETE FROM workspaces WHERE id = ?', workspaceId);
       if (ownerId !== null) tryDelete('DELETE FROM users WHERE id = ?', ownerId);
       if (recipientId !== null) tryDelete('DELETE FROM users WHERE id = ?', recipientId);
       db.close();

@@ -87,6 +87,11 @@ describe('issue #1375 transcript-share retention contracts', () => {
 
   it('issue-1375-c1: the authenticated create-share route and repository fallback default to 90 days', async () => {
     const sourceSessionId = source();
+    const reviewResponse = await fetch(`${baseUrl}/agent-sessions/${sourceSessionId}/shares/review`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+    });
+    expect(reviewResponse.status).toBe(200);
+    const { reviewHash } = await reviewResponse.json() as { reviewHash: string };
     const beforeRoute = Date.now();
     const response = await fetch(`${baseUrl}/agent-sessions/${sourceSessionId}/shares`, {
       method: 'POST',
@@ -96,6 +101,7 @@ describe('issue #1375 transcript-share retention contracts', () => {
       },
       body: JSON.stringify({
         recipientUserIds: [recipientId],
+        reviewHash,
         review: { items: [{ id: 'safe', category: 'message' }] },
       }),
     });

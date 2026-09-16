@@ -11,6 +11,7 @@ import {
 import {
   Button,
   Card,
+  Chip,
   Dialog,
   Divider,
   Menu,
@@ -26,8 +27,11 @@ import type { ChatListController } from '@/components/chat/chat-list-controller'
 import { ToolScreenState } from '@/components/tools/tool-screen-state';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { formatTimestamp } from '@/lib/opencode/format';
+import { isAccountBootstrapFailure } from '@/lib/pairing/mobile-environment-contract';
 import { useAgentChat } from '@/providers/agent-chat-provider';
 import { useOpencode } from '@/providers/opencode-provider';
+import { usePairedHost } from '@/providers/paired-host-provider';
 import {
   buildAgentChatReadModel,
   type AgentChatRecord,
@@ -83,6 +87,7 @@ export function ChatList({ controller }: ChatListProps) {
   const router = useRouter();
   const opencode = useOpencode();
   const chat = useAgentChat();
+  const pairedHost = usePairedHost();
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
   const [query, setQuery] = useState('');
@@ -119,6 +124,17 @@ export function ChatList({ controller }: ChatListProps) {
       );
     });
   }, [collapsedIds, projectsByPath, query, readModel]);
+  const hasFilters = Boolean(query.trim() || controller.projectId || controller.lifecycle !== 'all');
+  // Recovery replaces the empty list; with cached chats on screen it would only
+  // hide the offline warning those rows still need.
+  const showsBootstrapRecovery =
+    rows.length === 0 && isAccountBootstrapFailure(pairedHost.bootstrapState);
+  const selectedProjectLabel = controller.projectId
+    ? projectsByPath.get(controller.projectId)?.label ?? 'Selected project'
+    : 'All projects';
+  const lifecycleLabel = controller.lifecycle === 'all'
+    ? 'All states'
+    : `${controller.lifecycle.charAt(0).toUpperCase()}${controller.lifecycle.slice(1)}`;
   function routingProjectId(record: AgentChatRecord): string | undefined {
     return record.projectId ?? record.routingProjectId ?? opencode.activeProjectPath;
   }
@@ -202,13 +218,42 @@ export function ChatList({ controller }: ChatListProps) {
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}>
       <View style={styles.filters}>
+        <View style={styles.primaryActions}>
+          <View style={styles.filterSummary}>
+            <Text variant="labelMedium" style={{ color: palette.muted }}>Filters</Text>
+            <Chip compact icon="folder-outline">{selectedProjectLabel}</Chip>
+            <Chip compact icon="filter-outline">{lifecycleLabel}</Chip>
+          </View>
+          <Button
+            accessibilityLabel="New chat"
+            disabled={!chat.isOnline || controller.isCreating}
+            icon="plus"
+            mode="contained"
+            onPress={() => void controller.openCreateSheet()}>
+            New chat
+          </Button>
+        </View>
         <Searchbar
           accessibilityLabel="Search chats"
           onChangeText={setQuery}
           placeholder="Search chats"
           value={query}
         />
-        {chat.isOfflineCache ? (
+        {hasFilters ? (
+          <Button
+            accessibilityLabel="Clear filters"
+            compact
+            icon="filter-remove-outline"
+            onPress={() => {
+              setQuery('');
+              controller.setProjectId(null);
+              controller.setLifecycle('all');
+            }}
+            style={styles.clearFilters}>
+            Clear filters
+          </Button>
+        ) : null}
+        {chat.isOfflineCache && !showsBootstrapRecovery ? (
           <Card
             testID="paired-mac-offline-state"
             accessibilityLabel="Offline saved chats. Actions are unavailable."
@@ -220,6 +265,20 @@ export function ChatList({ controller }: ChatListProps) {
                 variant="bodyMedium">
                 {opencode.connection.message}
               </Text>
+            </Card.Content>
+          </Card>
+        ) : null}
+        {chat.error && rows.length > 0 ? (
+          <Card
+            accessibilityRole="alert"
+            mode="contained"
+            style={{ backgroundColor: palette.surfaceAlt }}>
+            <Card.Content style={styles.refreshErrorContent}>
+              <View style={styles.refreshErrorCopy}>
+                <Text variant="titleSmall" style={{ color: palette.text }}>Could not refresh chats</Text>
+                <Text variant="bodyMedium" style={{ color: palette.muted }}>{chat.error}</Text>
+              </View>
+              <Button accessibilityLabel="Try again" compact onPress={() => void chat.refresh()}>Try again</Button>
             </Card.Content>
           </Card>
         ) : null}
@@ -292,7 +351,7 @@ export function ChatList({ controller }: ChatListProps) {
                 style={styles.rowText}
                 testID={`chat-row-open-${item.id}`}>
                 <Text
-                  numberOfLines={1}
+                  numberOfLines={2}
                   style={[
                     styles.title,
                     item.depth === 0 ? styles.parentTitle : styles.childTitle,
@@ -300,8 +359,11 @@ export function ChatList({ controller }: ChatListProps) {
                   ]}>
                   {item.title}
                 </Text>
-                <Text numberOfLines={1} style={{ color: palette.text }} variant="bodySmall">
+                <Text numberOfLines={2} style={{ color: palette.text }} variant="bodySmall">
                   {metadata}
+                </Text>
+                <Text style={{ color: palette.muted }} variant="labelSmall">
+                  {formatTimestamp(item.updatedAt)}
                 </Text>
               </Pressable>
               <Menu
@@ -398,7 +460,15 @@ export function ChatList({ controller }: ChatListProps) {
           );
         }}
         ListEmptyComponent={
-          chat.isLoading ? (
+          showsBootstrapRecovery ? (
+            <ToolScreenState
+              actionLabel="Retry connection"
+              message={pairedHost.message}
+              onAction={() => void pairedHost.retryBootstrap().catch(() => undefined)}
+              state="error"
+              title="Computer connection unavailable"
+            />
+          ) : chat.isLoading ? (
             <ToolScreenState state="loading" title="Loading chats" />
           ) : chat.error && !chat.isOfflineCache ? (
             <ToolScreenState
@@ -486,9 +556,14 @@ export function ChatList({ controller }: ChatListProps) {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   filters: { gap: 12, padding: 16 },
+  primaryActions: { alignItems: 'flex-start', flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'space-between' },
+  filterSummary: { alignItems: 'center', flexDirection: 'row', flex: 1, flexWrap: 'wrap', gap: 8 },
+  clearFilters: { alignSelf: 'flex-start', minHeight: 44 },
+  refreshErrorContent: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  refreshErrorCopy: { flex: 1, gap: 2, minWidth: 180 },
   list: { padding: 8, paddingBottom: 32 },
   emptyList: { flexGrow: 1 },
-  row: { alignItems: 'center', flexDirection: 'row', minHeight: 56 },
+  row: { alignItems: 'center', flexDirection: 'row', minHeight: 72 },
   disclosureButton: { alignItems: 'center', height: 48, justifyContent: 'center', width: 48 },
   disclosureSpacer: { height: 48, width: 48 },
   rowText: { alignSelf: 'stretch', flex: 1, gap: 2, justifyContent: 'center', minHeight: 44, minWidth: 0 },

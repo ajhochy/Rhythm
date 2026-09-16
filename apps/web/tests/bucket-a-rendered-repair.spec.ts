@@ -44,10 +44,17 @@ async function installLiveRoutes(page: Page, override?: (route: Route, url: URL)
 test('bucket-a-rendered-profile: asset icon renders initials and unrelated PATCH preserves the full path', async ({ page }, testInfo) => {
   // Regression caught: a Flutter asset path appears as text/broken media or is truncated to three characters on save.
   let patch: Record<string, unknown> | undefined;
+  let savedProfile = { ...profile };
   await installLiveRoutes(page, async (route, url) => {
+    if (url.pathname === '/agent-configs') { await fulfillJson(route, [savedProfile]); return true; }
+    if (url.pathname === '/agents/models/catalog') {
+      await fulfillJson(route, [{ provider: profile.modelProvider, modelId: profile.modelId, displayName: profile.modelId, authorized: true }]);
+      return true;
+    }
     if (url.pathname === `/agent-configs/${profile.id}` && route.request().method() === 'PATCH') {
       patch = route.request().postDataJSON();
-      await fulfillJson(route, { ...profile, ...patch });
+      savedProfile = { ...savedProfile, ...patch };
+      await fulfillJson(route, savedProfile);
       return true;
     }
     if (url.pathname === '/opencode/mcp' || url.pathname.startsWith('/opencode/skills')) { await fulfillJson(route, []); return true; }
@@ -60,7 +67,12 @@ test('bucket-a-rendered-profile: asset icon renders initials and unrelated PATCH
   await expect(row).not.toContainText(assetIcon);
   await page.getByTestId('profile-system-prompt').fill('Unrelated prompt edit');
   await page.getByTestId('profile-save').click();
-  await expect.poll(() => patch?.icon).toBe(assetIcon);
+  // Sparse PATCH must leave the unedited asset value intact, not resend every field.
+  await expect.poll(() => patch).toEqual({ systemPrompt: 'Unrelated prompt edit' });
+  expect(savedProfile.icon).toBe(assetIcon);
+  await page.reload();
+  await expect(page.getByTestId('profile-icon')).toHaveValue(assetIcon);
+  await expect(page.getByTestId('profile-system-prompt')).toHaveValue('Unrelated prompt edit');
   await page.screenshot({ path: screenshotPath(testInfo, 'bucket-a-profile-asset-fallback.png') });
 });
 

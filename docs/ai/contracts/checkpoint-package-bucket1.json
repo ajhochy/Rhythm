@@ -1,0 +1,14 @@
+{
+  "issue": "checkpoint-package-bucket1",
+  "date": "2026-09-11",
+  "test_command": "node --experimental-vm-modules --test --test-concurrency=1 test/electron-e10-engine-package.test.mjs test/electron-e12b-native-signing.test.mjs && npm run test:package",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "bucket1-c1", "text": "make staging path a valid unique .app", "mode": "integration", "test": "apps/electron/test/electron-e12b-native-signing.test.mjs: e12b-package-staging", "status": "pass" },
+    { "criterion_id": "bucket1-c2", "text": "preserving atomic final replacement/cleanup and no stale bundle collisions", "mode": "integration", "test": "apps/electron/test/electron-unsigned-package.test.mjs: slice-7-c1 and slice-7-c6", "status": "pass" },
+    { "criterion_id": "bucket1-c3", "text": "Verify final .app exists, fuses disabled, helper and exact engine present", "mode": "integration", "test": "apps/electron/test/electron-unsigned-package.test.mjs: slice-7-c1", "status": "pass" },
+    { "criterion_id": "bucket1-c4", "text": "smoke runs in --smoke only", "mode": "integration", "test": "apps/electron/test/electron-unsigned-package.test.mjs: slice-7-c3, slice-7-c5, slice-7-c6; apps/electron/test/post-m1-phase-1-packaged-host.test.mjs", "status": "pass" },
+    { "criterion_id": "bucket1-c5", "text": "not_tested signed architectures", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "Developer ID signed arm64/x64, notarization and real Keychain qualification are explicitly excluded; manager-owned release hardware gate." }
+  ],
+  "not_tested": ["bucket1-c5"]
+}

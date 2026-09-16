@@ -45,8 +45,20 @@ type ApiTask = {
 
 function bucket(task: ApiTask): TaskFixture['bucket'] {
   if (task.status === 'done') return 'completed';
-  if (!task.dueDate && !task.scheduledDate) return 'no-due';
-  return 'week';
+  const operativeDate = task.scheduledDate || task.dueDate;
+  if (!operativeDate) return 'no-due';
+  // Date-only API values are local calendar days, not UTC midnight instants.
+  const date = new Date(/^\d{4}-\d{2}-\d{2}$/.test(operativeDate) ? `${operativeDate}T00:00:00` : operativeDate);
+  if (Number.isNaN(date.getTime())) return 'no-due';
+  date.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (date < today) return 'past-due';
+  if (date.getTime() === today.getTime()) return 'today';
+  const nextMonday = new Date(today);
+  nextMonday.setDate(today.getDate() + 8 - (today.getDay() || 7));
+  // ponytail: existing month bucket also holds later dates; no new UI bucket.
+  return date < nextMonday ? 'week' : 'month';
 }
 
 function mapTask(task: ApiTask): TaskFixture {

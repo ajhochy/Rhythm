@@ -153,6 +153,29 @@ export class MobilePairingService {
     };
   }
 
+  grantCloudDevice(userId: number, deviceName: string): {
+    deviceId: string;
+    hostId: string;
+    userId: number;
+    deviceToken: string;
+  } {
+    const deviceId = createHash('sha256')
+      .update(`cloud-bootstrap\0${this.hostId}\0${userId}\0${deviceName}`)
+      .digest('hex');
+    const deviceToken = randomBytes(32).toString('base64url');
+    this.repository.upsertBootstrapDevice({
+      id: deviceId,
+      hostId: this.hostId,
+      userId,
+      name: deviceName,
+      tokenVerifier: verifier(deviceToken).toString('hex'),
+      revokedAt: null,
+      createdAt: this.now().toISOString(),
+    });
+    replicateDevicesToRelay();
+    return { deviceId, hostId: this.hostId, userId, deviceToken };
+  }
+
   health(): typeof MOBILE_GATEWAY_COMPATIBILITY & { status: 'ready'; hostId: string } {
     return {
       status: 'ready',

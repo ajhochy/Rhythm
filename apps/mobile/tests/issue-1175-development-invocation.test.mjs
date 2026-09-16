@@ -80,8 +80,6 @@ test('issue-1175-c31: ordinary prototype commands force development config witho
     NODE_ENV: 'production',
   };
   for (const name of [
-    'EXPO_PUBLIC_GOOGLE_MOBILE_CLIENT_ID',
-    'EXPO_PUBLIC_GOOGLE_MOBILE_REDIRECT_URI',
     'EXPO_PUBLIC_RHYTHM_CLOUD_URL',
   ]) {
     delete env[name];

@@ -604,7 +604,7 @@ function assertIsApiError(err, label) {
   });
 
   const result = await client.requestPublic(
-    '/auth/google/mobile-exchange',
+    '/auth/google/mobile-redeem',
     { method: 'POST', body: JSON.stringify({ code: 'code' }) },
     async (_url, init) => {
       capturedHeaders = new Headers(init.headers ?? {});
@@ -618,7 +618,7 @@ function assertIsApiError(err, label) {
   assert.equal(tokenProviderCalled, false, 'public request must not read the session token');
   assert.equal(capturedHeaders.has('Authorization'), false, 'public request must not send Authorization');
   assert.equal(result.sessionToken, 'new-session');
-  console.log('  ✓ Cloud public request reaches mobile exchange without bearer auth');
+  console.log('  ✓ Cloud public request reaches mobile redeem without bearer auth');
 }
 
 // ---------------------------------------------------------------------------

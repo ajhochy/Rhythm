@@ -68,7 +68,7 @@ test('issue-2004-c4: create validates recurrence and supported step template fie
   await expectRhythmsPage(page);
   await page.getByTestId('rhythms-new-rule').click();
   const dialog = page.getByTestId('rhythm-create-dialog');
-  await expect(dialog).toHaveAttribute('role', 'dialog');
+  await expect(page.getByRole('dialog').filter({ has: dialog })).toBeVisible();
   const createReceiptsBefore = await page.getByTestId('page-trace').getByText(/POST \/recurring-rules /).count();
   await dialog.getByTestId('rhythm-create-submit').click();
   expect(await dialog.getByTestId('rhythm-create-title').evaluate((input: HTMLInputElement) => input.checkValidity())).toBe(false);
@@ -259,7 +259,7 @@ test('issue-2004-c12: ready page and dialogs are accessible', async ({ page }) =
 
   await page.getByTestId('rhythms-new-rule').click();
   const dialog = page.getByTestId('rhythm-create-dialog');
-  await expect(dialog).toHaveAttribute('aria-modal', 'true');
+  await expect(page.locator('dialog:modal').filter({ has: dialog })).toBeVisible();
   await expect(dialog.getByLabel('Title')).toBeFocused();
   result = await new AxeBuilder({ page }).analyze();
   expect(result.violations.filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')).toEqual([]);

@@ -142,7 +142,7 @@ test('issue-2008-c6: ready page and builder satisfy axe and modal focus', async 
   expect(result.violations.filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')).toEqual([]);
 
   const { dialog } = await openBuilder(page);
-  await expect(dialog).toHaveAttribute('role', 'dialog');
+  await expect(page.getByRole('dialog').filter({ has: dialog })).toBeVisible();
   await expect(dialog.getByTestId('automation-name')).toBeFocused();
   await page.keyboard.press('Shift+Tab');
   expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);

@@ -1,0 +1,17 @@
+{
+  "issue": "E52A",
+  "date": "2026-09-11",
+  "test_command": "cd apps/web && npx playwright test --config tests/electron-e52a-playwright.config.ts",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "E52A-c1", "text": "transcript follows streamed/new output only while reader pinned near bottom", "mode": "ui", "test": "apps/web/tests/electron-e52a-transcript.spec.ts", "status": "pass" },
+    { "criterion_id": "E52A-c2", "text": "if scrolled up, viewport/focus remain and visible 'New output' jump appears; jump moves to latest and repins", "mode": "ui", "test": "apps/web/tests/electron-e52a-transcript.spec.ts", "status": "pass" },
+    { "criterion_id": "E52A-c3", "text": "Prepending older messages preserves first visible message/offset and focus", "mode": "ui", "test": "apps/web/tests/electron-e52a-transcript.spec.ts", "status": "pass" },
+    { "criterion_id": "E52A-c4", "text": "Load older shows pending/disabled and failure feedback, no duplicate request", "mode": "ui", "test": "apps/web/tests/electron-e52a-transcript.spec.ts", "status": "pass" },
+    { "criterion_id": "E52A-c5", "text": "child→parent/session switch restores sensible per-session position", "mode": "ui", "test": "apps/web/tests/electron-e52a-transcript.spec.ts", "status": "pass" },
+    { "criterion_id": "E52A-m1", "text": "Long-session performance", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "Explicitly deferred by dispatch; only deterministic 30-message browser history plus stream/prepend tested." },
+    { "criterion_id": "E52A-m2", "text": "VoiceOver", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "Explicitly deferred by dispatch; browser focus and aria attributes are not VoiceOver qualification." },
+    { "criterion_id": "E52A-m3", "text": "Live backend", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "Explicitly excluded by dispatch; HTTP/WebSocket boundary fixtures only, shared sandbox manager-owned and untouched." }
+  ],
+  "not_tested": ["E52A-m1", "E52A-m2", "E52A-m3"]
+}

@@ -1,0 +1,15 @@
+{
+  "issue": "E34A",
+  "date": "2026-09-11",
+  "test_command": "cd apps/web && npm exec -- playwright test --config tests/electron-e34a-playwright.config.ts",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "E34A-c1", "text": "preserve monthly dayOfMonth and annual month/day; separate scheduledDate vs dueDate per D14", "mode": "ui", "test": "apps/web/tests/electron-e34a-import.spec.ts", "status": "pass" },
+    { "criterion_id": "E34A-c2", "text": "preview both", "mode": "ui", "test": "apps/web/tests/electron-e34a-import.spec.ts", "status": "pass" },
+    { "criterion_id": "E34A-c3", "text": "Project template succeeds/step fails: retain created template ID and remaining steps; retry only missing steps, never duplicate template or prior steps. Stable local operation keys", "mode": "ui", "test": "apps/web/tests/electron-e34a-import.spec.ts", "status": "pass" },
+    { "criterion_id": "E34A-c4", "text": "Other task/rhythm records retry independently without duplicating successful records", "mode": "ui", "test": "apps/web/tests/electron-e34a-import.spec.ts", "status": "pass" },
+    { "criterion_id": "E34A-c5", "text": "explicit warning if API lacks idempotency; reload/abandon semantics honest", "mode": "ui", "test": "apps/web/tests/electron-e34a-import.spec.ts", "status": "pass" },
+    { "criterion_id": "E34A-deployed", "text": "deployed import", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "Production access prohibited. Intercepted renderer/gateway tests do not establish deployed persistence; separately smoke dates and partial retries against an approved non-production deployment." }
+  ],
+  "not_tested": ["E34A-deployed"]
+}

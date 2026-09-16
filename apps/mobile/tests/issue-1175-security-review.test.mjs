@@ -4,10 +4,6 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const VALID_PRODUCTION_ENV = {
-  EXPO_PUBLIC_GOOGLE_MOBILE_CLIENT_ID:
-    '123456789-example.apps.googleusercontent.com',
-  EXPO_PUBLIC_GOOGLE_MOBILE_REDIRECT_URI:
-    'com.googleusercontent.apps.123456789-example:/oauthredirect',
   EXPO_PUBLIC_RHYTHM_CLOUD_URL: 'https://api.vcrcapps.com',
 };
 

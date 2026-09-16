@@ -1,0 +1,48 @@
+{
+  "issue": "E26",
+  "date": "2026-09-11",
+  "test_command": "npx vitest run src/repositories/agent_sessions_history.test.ts src/repositories/agent_sessions_repository.test.ts src/__tests__/electron_e26_session_history.test.ts src/__tests__/electron_e26_session_history_live.test.ts",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "E26-c1", "text": "opt-in list query supports bounded limit <=100 and opaque stable cursor ordered by COALESCE(last_activity_at,updated_at,created_at) DESC then id deterministic", "mode": "integration", "test": "src/repositories/agent_sessions_history.test.ts; src/__tests__/electron_e26_session_history.test.ts", "status": "pass" },
+    { "criterion_id": "E26-c2", "text": "concurrent insert/update between pages causes no duplicate IDs and documented snapshot/keyset behavior", "mode": "integration", "test": "src/repositories/agent_sessions_history.test.ts", "status": "pass" },
+    { "criterion_id": "E26-c3", "text": "search trimmed/case-insensitive across name,lastPreview/project-relevant stored fields and discovers matching root beyond initial100 plus child whose parent doesn't match, returning needed ancestor context", "mode": "integration", "test": "src/repositories/agent_sessions_history.test.ts; src/__tests__/electron_e26_session_history.test.ts", "status": "pass" },
+    { "criterion_id": "E26-c4", "text": "filters scope/category, archived and project id preserved", "mode": "integration", "test": "src/repositories/agent_sessions_history.test.ts", "status": "pass" },
+    { "criterion_id": "E26-c5", "text": "descendants have explicit bounded continuation per parent rather than silent500 cap", "mode": "integration", "test": "src/repositories/agent_sessions_history.test.ts; src/__tests__/electron_e26_session_history.test.ts", "status": "pass" },
+    { "criterion_id": "E26-c6", "text": "Existing no-pagination request retains exact {sessions,resumable} compatible shape/order/caps", "mode": "integration", "test": "src/repositories/agent_sessions_history.test.ts; src/__tests__/electron_e26_session_history.test.ts", "status": "pass" },
+    { "criterion_id": "E26-c7", "text": "Invalid cursor/limits return bounded400", "mode": "integration", "test": "src/repositories/agent_sessions_history.test.ts; src/__tests__/electron_e26_session_history.test.ts", "status": "pass" },
+    { "criterion_id": "E26-c8", "text": "All routes remain inside agentExecutionEnabled/local agent role and current access controls; do not invent hosted Postgres implementation or schema", "mode": "integration", "test": "src/__tests__/electron_e26_session_history.test.ts", "status": "pass" },
+    { "criterion_id": "E26-c9", "text": "API contract must document optional pageInfo/child endpoint shape", "mode": "manual", "test": null, "status": "pass", "reason": "Manager reviewed the documented opt-in query/response/consistency/access contract before E20 integration." },
+    { "criterion_id": "E26-c10", "text": "Env-gated real HTTP behavioral test passes after the integrated rebuild", "mode": "live", "test": "src/__tests__/electron_e26_session_history_live.test.ts", "status": "pass" }
+  ],
+  "not_tested": [],
+  "api": {
+    "method": "GET",
+    "path": "/agent-sessions",
+    "activation": "Presence of limit, cursor, search, or parentId opts into history mode. Otherwise the existing handler and exact {sessions,resumable} response, ordering and caps are unchanged, including scheduledTaskId's legacy20 and tree's legacy500 descendant cap.",
+    "query": {
+      "limit": "Integer 1..100, default50. Invalid, duplicate, empty, fractional or >100 is400, not clamped.",
+      "cursor": "Opaque nextCursor; resend the same normalized filters and auth identity. Limit may change. Empty/malformed/unknown/evicted/expired/cross-query cursors return bounded400; discard the cursor and restart.",
+      "search": "Trimmed literal substring, max500 characters, SQLite lower() ASCII case-insensitive matching; percent/underscore are literal. Searches stored session name,last_preview,cwd,task_title,project_id plus referenced project name/cwd across the entire catalog, not the first100. Empty/whitespace search lists roots. Nonempty search includes matching roots and descendants as flat results.",
+      "scope": "chats|scheduled|self_improvement; maps to persisted category. Default chats, or scheduled when scheduledTaskId is supplied. Chats excludes is_system=1. Invalid scope is400 in explicit mode only.",
+      "projectId": "Optional exact project ID; literal null selects unassigned. Composes with scope, archive and search.",
+      "scheduledTaskId": "Optional exact scheduled task ID; nonempty string in explicit mode. Composes with other filters.",
+      "includeArchived": "true|false, defaultfalse. archivedOnly=true takes precedence.",
+      "archivedOnly": "true|false, defaultfalse.",
+      "parentId": "Optional nonempty local session ID, max200 characters. Child endpoint is this SAME mounted route with ?parentId=<id>&limit=100; no route/mount changes. Returns only direct children, each with hasChildren. Follow pageInfo.nextCursor with the same parent/filter set; repeat for grandchildren. Missing/inaccessible/filtered-out parent is404."
+    },
+    "response": {
+      "sessions": "At most limit flat AgentSession rows plus hasChildren:boolean. No children array in explicit mode; hasChildren is an existence query under the same scope/project/archive/owner filters, not a silent truncated tree.",
+      "ancestors": "Flat deduplicated AgentSession rows plus hasChildren for context of this page's results, linked by parentSessionId. Search match not required, but same scope/project/archive/owner filters apply; stops at missing/filtered-out ancestors or cycles. Context is not a search hit and does not count against limit; may repeat across pages. No descendants are recursively expanded.",
+      "resumable": "Always [] in explicit mode: matching resumable sessions appear in the paged catalog, not a second unbounded/global result set. Legacy resumable unchanged.",
+      "pageInfo": { "limit": "number", "hasMore": "boolean", "nextCursor": "string|null", "expiresAt": "ISO8601 UTC snapshot expiry" }
+    },
+    "consistency": "Snapshot pagination, NOT OFFSET over mutable SQL rows: first read freezes all matching IDs ordered by COALESCE(last_activity_at,updated_at,created_at) DESC,id DESC. Cursor advances through that frozen ID sequence. Inserts and forward/backward activity changes cannot duplicate or reorder IDs during traversal. Full row contents and eligibility/access are re-read; deleted or no-longer-matching/authorized members disappear, new matches require a fresh query. Context/hasChildren are current reads. Repeat cursor is repeatable for unchanged eligible rows, not a historical row-value snapshot. Snapshot is bound to current DB, normalized filters and owner. In-memory ID-only snapshots expire10 minutes after creation; max32 active snapshots per process with oldest-created eviction. Restart invalidates cursors. No schema, long-lived SQL transaction or hosted implementation.",
+    "access": "Existing agentExecutionEnabled mounting and router authenticateIfPresent(local)/requireAuth(nonlocal) unchanged. Explicit queries additionally honor the existing row-owner rule: an authenticated caller sees only its owner ID or unowned local rows, including results/context/child discovery and every continuation read. Anonymous access is only through the existing local-mode router policy. No new cloud/production surface."
+  },
+  "live_test_command": "RHYTHM_LIVE_E2E=1 RHYTHM_SANDBOX_DIR=<manager-running-sandbox> E26_AUTH_TOKEN=<synthetic-sandbox-token> E26_API_URL=http://127.0.0.1:4098 npx vitest run src/__tests__/electron_e26_session_history_live.test.ts",
+  "manual_smoke_targets": [
+    "E26-c9: manager/client integrator reviews api section, especially flat search hits/ancestors, parentId continuation, and snapshot-expiry reset handling.",
+    "E26-c10: manager rebuilds/restarts using the existing sandbox workflow, then executes live_test_command from apps/api_server. Requires ready real engine on4097, new API4098 and existing synthetic rhythm.db in the named temp sandbox. Test checks readiness/new response before seeding107 roots+505 children, drives real HTTP, mutates one activity key/inserts one row between pages, and cleans up its UUID-namespaced project/sessions. No engine prompts or server lifecycle actions."
+  ]
+}

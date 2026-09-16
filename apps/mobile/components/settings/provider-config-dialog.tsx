@@ -1,4 +1,4 @@
-import { StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Chip, Dialog, HelperText, RadioButton, Text, TextInput } from 'react-native-paper';
 
 import { Colors } from '@/constants/theme';
@@ -42,7 +42,8 @@ export function ProviderConfigDialog({
   return (
     <Dialog visible onDismiss={onDismiss}>
       <Dialog.Title>{`Configure ${selectedProviderLabel}`}</Dialog.Title>
-      <Dialog.Content style={styles.dialogContent}>
+      <Dialog.ScrollArea style={styles.scrollArea}>
+        <ScrollView accessibilityViewIsModal contentContainerStyle={styles.dialogContent} keyboardShouldPersistTaps="handled">
         {selectedProviderDescription ? (
           <Text variant="bodyMedium" style={{ color: palette.muted }}>
             {selectedProviderDescription}
@@ -51,7 +52,7 @@ export function ProviderConfigDialog({
         {effectiveAuthMethods.length > 1 ? (
           <RadioButton.Group onValueChange={(value) => onMethodChange(Number(value))} value={String(selectedMethodIndex)}>
             {effectiveAuthMethods.map((method, index) => (
-              <View key={`${method.label}-${index}`} style={styles.authMethodRow}>
+              <View accessibilityLabel={method.label} accessibilityRole="radio" accessibilityState={{ checked: selectedMethodIndex === index }} key={`${method.label}-${index}`} style={styles.authMethodRow}>
                 <RadioButton value={String(index)} />
                 <Text style={{ color: palette.text }}>{method.label}</Text>
               </View>
@@ -68,6 +69,8 @@ export function ProviderConfigDialog({
               <View style={styles.chipWrap}>
                 {(prompt.options || []).map((option: NonNullable<typeof prompt.options>[number]) => (
                   <Chip
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: authValues[prompt.key] === option.value }}
                     key={option.value}
                     selected={authValues[prompt.key] === option.value}
                     onPress={() => onAuthValueChange(prompt.key, option.value)}>
@@ -98,7 +101,8 @@ export function ProviderConfigDialog({
           <HelperText type="error">Setup details for this provider are unavailable right now.</HelperText>
         ) : null}
         {providerDialogError ? <HelperText type="error">{providerDialogError}</HelperText> : null}
-      </Dialog.Content>
+        </ScrollView>
+      </Dialog.ScrollArea>
       <Dialog.Actions>
         <Button onPress={onDismiss}>Cancel</Button>
         <Button testID="settings-provider-save-button" disabled={!selectedMethod} loading={isConfiguringProvider} onPress={onSubmit}>
@@ -111,6 +115,7 @@ export function ProviderConfigDialog({
 
 const styles = StyleSheet.create({
   dialogContent: { gap: 14 },
+  scrollArea: { maxHeight: '70%', paddingHorizontal: 24 },
   authMethodRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   promptGroup: { gap: 8 },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

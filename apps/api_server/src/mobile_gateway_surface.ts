@@ -17,6 +17,7 @@ export function mobileJsonBodyLimitBytes(
 function isPhoneGatewayRoute(method: string, path: string): boolean {
   if (method === 'GET' && path === '/mobile-gateway/health') return true;
   if (method === 'POST' && path === '/mobile-gateway/pair') return true;
+  if (method === 'POST' && path === '/mobile-gateway/bootstrap/connect') return true;
   if (method === 'POST' && path === '/mobile-gateway/project') return true;
   if (method === 'GET' && path === '/mobile-gateway/projects') return true;
   if (method === 'GET' && path === '/mobile-gateway/agent-activity') {

@@ -1,0 +1,16 @@
+{
+  "issue": "E25C",
+  "date": "2026-09-11",
+  "test_command": "(cd apps/api_server && npx vitest run src/__tests__/issue_1178_transcript_sharing.test.ts src/__tests__/e25c_transcript_sharing_postgres.test.ts src/services/transcript_share_sanitizer.test.ts src/__tests__/issue_1375_transcript_share_retention.test.ts) && (cd apps/web && npx playwright test --config tests/electron-e25c-playwright.config.ts)",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "E25C-c1", "text": "Store sourceSessionId=null/detached so central reads don't require unavailable local source; update repository find/list for detached only while preserving existing source-bound local behavior and immutable trigger/audit/revoke/expiry.", "mode": "integration", "test": "apps/api_server/src/__tests__/issue_1178_transcript_sharing.test.ts", "status": "pass" },
+    { "criterion_id": "E25C-c2", "text": "Add authenticated production POST /shares accepting only validated ShareReview snapshot, reviewHash provenance, explicit inclusion IDs, recipient IDs, expiry; reject malformed categories/duplicates/missing recipients/cross-workspace; run sanitizeTranscriptShare again, never trust client category/content for redaction; owner actor.", "mode": "integration", "test": "apps/api_server/src/__tests__/issue_1178_transcript_sharing.test.ts", "status": "pass" },
+    { "criterion_id": "E25C-c3", "text": "Renderer uses authenticated local base for review/prepare, production base for recipient directory/create/list/read/revoke. Never send raw local transcript to production—only locally sanitized selected snapshot. UI says shared copy remains until revoke/expiry even if local session deleted.", "mode": "ui", "test": "apps/web/tests/electron-e25c-sharing.spec.ts", "status": "pass" },
+    { "criterion_id": "E25C-c4", "text": "Existing local POST remains hash-bound and compatible.", "mode": "integration", "test": "apps/api_server/src/__tests__/issue_1178_transcript_sharing.test.ts", "status": "pass" },
+    { "criterion_id": "E25C-c5", "text": "SQLite + Postgres paths compatible, no destructive migration/new column unless unavoidable.", "mode": "integration", "test": "apps/api_server/src/__tests__/e25c_transcript_sharing_postgres.test.ts", "status": "pass" },
+    { "criterion_id": "E25C-c6", "text": "One safe live two-server check uses local sandbox plus inert intercepted production without contacting real production.", "mode": "live", "test": "apps/web/tests/electron-e25c-sharing.spec.ts", "status": "pass", "reason": "Manager authorized one test-owned synthetic session/message in the approved sandbox DB; exact local review and seven gateway requests passed, then rows were deleted in finally." },
+    { "criterion_id": "E25C-c7", "text": "Actual deployed cloud recipient", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "No deployment or real-production contact authorized." }
+  ],
+  "not_tested": ["E25C-c7"]
+}
