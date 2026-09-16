@@ -367,7 +367,6 @@ up() {
   local api_pid
 
   validate_node
-  [[ -f "$ROOT/apps/mcp_server/dist/index.js" ]] || fail 'local MCP payload missing; refusing npx fallback'
   validate_copied_data_inputs
   safe_sandbox_path
   [[ ! -e "$SB" && ! -L "$SB" ]] || fail 'sandbox directory already exists; refusing to reuse unverified runtime files'
@@ -389,6 +388,10 @@ up() {
 
   (cd "$ENGINE_DIR" && MODELS_DEV_API_JSON="$ROOT/apps/opencode_fork/packages/opencode/test/tool/fixtures/models-api.json" bun run build --single --skip-install --skip-embed-web-ui) >"$SB/engine-build.log" 2>&1
   (cd "$API_DIR" && npm run build)
+  # up() builds the local MCP payload here; under `set -e` a failed build aborts
+  # the run, so do NOT re-add a pre-build existence guard (it makes up() fail on
+  # any checkout that has not built mcp_server yet). restart() does not build,
+  # so it keeps its own guard.
   (cd "$ROOT/apps/mcp_server" && npm run build)
 
   validate_security_shim
