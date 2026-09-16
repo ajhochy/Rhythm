@@ -2,7 +2,7 @@
 date: 2026-09-16
 repo: Rhythm
 branch: fix/mobile-1506-stale-prompt-error
-pr: TBD
+pr: 1507
 issues: [1506]
 status: pending
 tags: [run, rhythm]
