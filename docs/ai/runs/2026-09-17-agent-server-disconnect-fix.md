@@ -2,7 +2,7 @@
 date: 2026-09-17
 repo: Rhythm
 branch: fix/agent-server-health-flap
-pr: null
+pr: https://github.com/ajhochy/Rhythm/pull/1508
 issues: [1503]
 status: verified-awaiting-manual-smoke
 tags: [run, rhythm]
