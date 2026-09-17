@@ -25,6 +25,7 @@ import {
   getTranscriptActivityLabel,
   isTranscriptDisplayMessage,
 } from '@/lib/opencode/transcript';
+import { summarizeError } from '@/lib/transport/api-error';
 import { speakText, stopSpeaking } from '@/lib/voice/speech-output';
 import { useSpeechInput } from '@/lib/voice/use-speech-input';
 import { useOpencode } from '@/providers/opencode-provider';
@@ -265,7 +266,7 @@ export function ChatView() {
       }
     } catch (error) {
       if (attempt) restoreSendAttempt(attempt);
-      setSendFeedback(error instanceof Error ? error.message : 'OpenCode could not send that message.');
+      setSendFeedback(summarizeError(error, 'OpenCode could not send that message.'));
     }
   }, [commands, connection.status, currentSessionId, draftSessionId, ensureActiveSession, executeCommand, restoreSendAttempt, sendPrompt]);
 
@@ -429,7 +430,7 @@ export function ChatView() {
         return next;
       });
     } catch (error) {
-      setSendFeedback(error instanceof Error ? error.message : 'Could not attach that file.');
+      setSendFeedback(summarizeError(error, 'Could not attach that file.'));
     }
   }
 
@@ -449,7 +450,7 @@ export function ChatView() {
       });
       setActiveTab('session');
     } catch (error) {
-      setSendFeedback(error instanceof Error ? error.message : 'Could not create a session.');
+      setSendFeedback(summarizeError(error, 'Could not create a session.'));
       throw error;
     } finally {
       setIsCreatingSession(false);
@@ -473,7 +474,7 @@ export function ChatView() {
     try {
       await abortSession(currentSessionId);
     } catch (error) {
-      setSendFeedback(error instanceof Error ? error.message : 'Could not stop the session.');
+      setSendFeedback(summarizeError(error, 'Could not stop the session.'));
     } finally {
       setIsStoppingSession(false);
     }
@@ -485,7 +486,7 @@ export function ChatView() {
       setSendFeedback(undefined);
       await action();
     } catch (error) {
-      setSendFeedback(error instanceof Error ? error.message : 'The session action failed.');
+      setSendFeedback(summarizeError(error, 'The session action failed.'));
     } finally {
       setSessionToolBusy(false);
     }
@@ -757,27 +758,27 @@ export function ChatView() {
           onLoadOlderMessages={() => currentSessionId
             ? void loadOlderMessages(currentSessionId)
             : undefined}
-          onRejectQuestion={(requestId) => void rejectQuestion(requestId).catch((error) => setSendFeedback(error instanceof Error ? error.message : 'Could not reject the question.'))}
-          onReplyToPermission={(requestId, reply) => void replyToPermission(requestId, reply).catch((error) => setSendFeedback(error instanceof Error ? error.message : 'Could not reply to the permission request.'))}
-          onReplyToQuestion={(requestId, answers) => void replyToQuestion(requestId, answers).catch((error) => setSendFeedback(error instanceof Error ? error.message : 'Could not answer the question.'))}
+          onRejectQuestion={(requestId) => void rejectQuestion(requestId).catch((error) => setSendFeedback(summarizeError(error, 'Could not reject the question.')))}
+          onReplyToPermission={(requestId, reply) => void replyToPermission(requestId, reply).catch((error) => setSendFeedback(summarizeError(error, 'Could not reply to the permission request.')))}
+          onReplyToQuestion={(requestId, answers) => void replyToQuestion(requestId, answers).catch((error) => setSendFeedback(summarizeError(error, 'Could not answer the question.')))}
           onForkMessage={(messageId) => {
             if (!currentSessionId) return;
-            void forkSession(currentSessionId, messageId).catch((error) => setSendFeedback(error instanceof Error ? error.message : 'Could not fork session.'));
+            void forkSession(currentSessionId, messageId).catch((error) => setSendFeedback(summarizeError(error, 'Could not fork session.')));
           }}
           onRevertMessage={(messageId) => {
             if (!currentSessionId) return;
             if (Platform.OS === 'web') {
               if (globalThis.confirm('Revert from this message?\n\nOpenCode will revert session changes after this point.')) {
-                void revertSession(currentSessionId, messageId).catch((error) => setSendFeedback(error instanceof Error ? error.message : 'Could not revert session.'));
+                void revertSession(currentSessionId, messageId).catch((error) => setSendFeedback(summarizeError(error, 'Could not revert session.')));
               }
               return;
             }
             Alert.alert('Revert from this message?', 'OpenCode will revert session changes after this point.', [
               { text: 'Cancel', style: 'cancel' },
-              { text: 'Revert', style: 'destructive', onPress: () => void revertSession(currentSessionId, messageId).catch((error) => setSendFeedback(error instanceof Error ? error.message : 'Could not revert session.')) },
+              { text: 'Revert', style: 'destructive', onPress: () => void revertSession(currentSessionId, messageId).catch((error) => setSendFeedback(summarizeError(error, 'Could not revert session.'))) },
             ]);
           }}
-          onUnrevert={() => currentSessionId ? void unrevertSession(currentSessionId).catch((error) => setSendFeedback(error instanceof Error ? error.message : 'Could not restore the session.')) : undefined}
+          onUnrevert={() => currentSessionId ? void unrevertSession(currentSessionId).catch((error) => setSendFeedback(summarizeError(error, 'Could not restore the session.'))) : undefined}
           onSendStarterPrompt={(prompt) => void handleSendPrompt(prompt)}
           onToggleSpeak={(entry) => void handleSpeakEntry(entry)}
           palette={palette}
@@ -791,7 +792,8 @@ export function ChatView() {
           <Card mode="contained" style={[styles.sendErrorCard, { backgroundColor: `${palette.danger}14` }]}>
             <Card.Content style={styles.sendErrorContent}>
               <Text variant="titleSmall" style={{ color: palette.danger }}>Action failed</Text>
-              <Text selectable variant="bodySmall" style={{ color: palette.text }}>{sendErrorMessage}</Text>
+              {/* #1506 — capped so Dismiss/Copy stay reachable; Copy details keeps the whole text. */}
+              <Text selectable variant="bodySmall" numberOfLines={6} style={{ color: palette.text }}>{sendErrorMessage}</Text>
               <View style={styles.sendErrorActions}>
                 <Button compact onPress={() => {
                   void Clipboard.setStringAsync(sendErrorDetails).then(() => setCopiedMessageId('__send-error__'));

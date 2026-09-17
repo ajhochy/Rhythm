@@ -185,3 +185,61 @@ export function normalizeBodyReadError(source: ApiErrorSource): ApiError {
     retryable: true,
   });
 }
+
+/**
+ * Longest server-supplied text we will render in a UI card (#1506).
+ * A Cloudflare 502 page is ~4 KB of HTML; shown verbatim it pushed the
+ * transcript and composer off-screen and hid the card's own buttons.
+ */
+const MAX_DISPLAY_MESSAGE = 200;
+
+function readStatus(value: unknown): number | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  const nested = (key: string) => {
+    const child = record[key];
+    return child && typeof child === 'object'
+      ? (child as Record<string, unknown>).status
+      : undefined;
+  };
+  for (const candidate of [record.status, record.statusCode, nested('cause'), nested('response')]) {
+    if (typeof candidate === 'number' && candidate > 0) return candidate;
+  }
+  return undefined;
+}
+
+function readMessage(value: unknown): string | undefined {
+  if (typeof value === 'string') return value;
+  if (value instanceof Error) return value.message;
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  const data = record.data;
+  if (data && typeof data === 'object' && typeof (data as Record<string, unknown>).message === 'string') {
+    return (data as Record<string, string>).message;
+  }
+  if (typeof record.message === 'string') return record.message;
+  if (typeof record.error === 'string') return record.error;
+  return undefined;
+}
+
+/**
+ * Turn anything thrown — an `ApiError`, a plain `Error`, or the raw response
+ * body the generated SDK throws for a non-JSON error (`throwOnError: true`
+ * rethrows `await response.text()` verbatim) — into one short line safe to
+ * show in a card.
+ *
+ * A body that is HTML, empty, or longer than `MAX_DISPLAY_MESSAGE` tells the
+ * user nothing, so it is replaced by `fallback` rather than rendered.
+ */
+export function summarizeError(value: unknown, fallback: string): string {
+  if (value instanceof ApiError) return value.message;
+
+  const status = readStatus(value);
+  if (status !== undefined) return `Request failed with status ${status}`;
+
+  const text = readMessage(value)?.trim();
+  if (!text || text.startsWith('<') || text.length > MAX_DISPLAY_MESSAGE) {
+    return fallback;
+  }
+  return text;
+}
