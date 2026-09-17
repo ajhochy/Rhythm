@@ -41,4 +41,4 @@ AJ's manual smoke of the three merged features, plus fixing the desktop release:
 
 ## Next step
 
-#1506 is fixed on PR #1507 (CI green, Simulator stability demo PASS on build 2026091601, not merged). AJ: run the TestFlight archive+upload script from the fix checkout, then review/merge #1507. Then: iOS send/reconnect/VoiceOver passes; manual smoke of #1495 and #1492; event-loop stalls (#1503); better-sqlite3 13 upgrade (#1505).
+iOS 1.0.8 build 2026091601 (the #1506 fix) is uploaded to TestFlight and processing; PR #1507 is open with CI green and the Simulator acceptance demo PASS — AJ to review/merge. Then: iOS send/reconnect/VoiceOver passes on the TestFlight build; manual smoke of #1495 and #1492; event-loop stalls (#1503); better-sqlite3 13 upgrade (#1505). Remove the `/private/tmp/rhythm-ios-testflight` worktree once #1507 needs no further builds.
