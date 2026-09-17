@@ -29,7 +29,7 @@
 
 - Branch `fix/agent-server-health-flap`: `ai-workflow checks --level pr` 15/16 green (flutter analyze/format/test 1,321, api_server tsc/lint/vitest/build, mcp_server tsc/vitest/build, fork typecheck + session tests, mobile static/contract/fake-server); `mobile web e2e` 67/71 with the 4 failures re-passing in isolation (#1287 flake, out of scope). Contract tests c1 (api) and c3 (Flutter) fail on `main`, pass on the branch.
 - Live: 44-minute soak on the real database and engine with 6 chat turns — 0 health failures, 0 API restarts, same API pid throughout.
-- CI on the branch: see the PR checks (run recorded in the run log after push).
+- CI on PR #1508 head `9cc940d3`: Desktop CI, Mobile CI foundation, live-postgres-bootstrap green first try; Server CI failed once on `workflow_failure_signal_extractor.test.ts` c7 (`expected undefined to be defined`, unrelated, passes locally 3/3, parallel-vitest shared-state class #755/#1088) and passed on re-run — all 4 checks green.
 
 ## Next step
 

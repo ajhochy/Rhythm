@@ -38,6 +38,10 @@ index: "[[Rhythm]]"
 - Smoke probes on the running fixed build: `/health` 200 in 0.9 ms, `/opencode/health` `ready`, `/agents/capabilities` 200.
 - Environment fixes needed to run the PR gate locally (not committed): `npm ci` in `apps/api_server`, `apps/mcp_server`, `apps/mobile`; `bun install` in `apps/opencode_fork` (reverted its `bun.lock` drift); `playwright install chromium` for the mobile package's pinned `chromium_headless_shell-1217`.
 
+## CI (PR #1508, head `9cc940d3`)
+
+- Desktop CI `desktop-checks` pass (14m46s); Mobile CI `foundation` pass; Server CI `live-postgres-bootstrap` pass; Server CI `server-checks` failed once — `workflow_failure_signal_extractor.test.ts › issue-933-c7 stale-redo`, `AssertionError: expected undefined to be defined`, 659 passed / 130 skipped otherwise. The test has no import path into the changed modules and passes locally 3/3; CI runs `npm test` file-parallel (the #755/#1088 shared-state class). Re-run of the failed job: success. Final: 4/4 green.
+
 ## Soak (fixed dev build, `RHYTHM_DIAG_BIGPARSE=1`, real DB + engine)
 
 - Window 19:29:14Z–20:13:43Z (44 min), 6 scripted multi-step chat turns (ls/date/wc + reply) in a dedicated test session, each followed by the idle skill-evaluator sweep on the 4 GB database.
