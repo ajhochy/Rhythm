@@ -2,6 +2,8 @@
 
 ## Current focus
 
+**2026-09-17 update:** `main` is `fc2725e5` (#1507 mobile stale-prompt-error fix on top of #1504 Node pin). iOS 1.0.8 build 2026091601 is VALID in App Store Connect and live for the internal "Testing" TestFlight group.
+
 Main now carries four merged PRs, in order: #1494 (prior baseline), #1493 (iOS hosted sign-in), #1495 (Electron replacement candidate, Phases 1–5), #1492 (Org Reviewer). AJ explicitly instructed merging #1493/#1495/#1492 ahead of their manual smoke on 2026-09-16. Current `main`: `8e2f3f6bf1487929f83220bb22cb26562c5b8d02` (merge order: iOS squash `23a8c618` → Electron squash `c27a3f6c` → Org Reviewer squash `8e2f3f6b`).
 
 The API image was published to GHCR from `8e2f3f6b` (API Image Publish workflow run [35126185122](https://github.com/ajhochy/Rhythm/actions/runs/35126185122), SUCCESS). `https://api.vcrcapps.com/health` reported `c27a3f6c` at last check — Watchtower deploys `:main` automatically within ~30 minutes, so hosted state may already be ahead of that.
@@ -41,4 +43,4 @@ AJ's manual smoke of the three merged features, plus fixing the desktop release:
 
 ## Next step
 
-iOS 1.0.8 build 2026091601 (the #1506 fix) is uploaded to TestFlight and processing; PR #1507 is open with CI green and the Simulator acceptance demo PASS — AJ to review/merge. Then: iOS send/reconnect/VoiceOver passes on the TestFlight build; manual smoke of #1495 and #1492; event-loop stalls (#1503); better-sqlite3 13 upgrade (#1505). Remove the `/private/tmp/rhythm-ios-testflight` worktree once #1507 needs no further builds.
+Merged and released: #1507 on `main` (`fc2725e5`); iOS 1.0.8 build 2026091601 VALID and available to the internal "Testing" TestFlight group. Next: install the TestFlight build on a real phone and run the iOS send/reconnect/VoiceOver passes; manual smoke of #1495 and #1492 on desktop v0.18.64; event-loop stalls (#1503); better-sqlite3 13 upgrade (#1505); merge this docs PR.
