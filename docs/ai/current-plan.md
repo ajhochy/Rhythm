@@ -1,4 +1,4 @@
-> Current execution plan (2026-09-10): [Electron replacement and Flutter retirement](plans/2026-09-10-electron-flutter-retirement.md), branch `feature/electron-flutter-retirement`, base `0bc46a5ece1a937c484c0054493c75b0299eafef`. Execution authorized; bounded Phase 0 baseline, capability inventory and isolated sandbox bootstrap are complete. Product implementation has not started. Historical plan below is preserved unchanged.
+> Current execution plan (2026-09-10): [Electron replacement and Flutter retirement](plans/2026-09-10-electron-flutter-retirement.md), branch `feature/electron-flutter-retirement`. Phases 1–5 (units E10–E54) are implemented and merged into `main` via PR [#1495](https://github.com/ajhochy/Rhythm/pull/1495) (squash commit `c27a3f6c`, 2026-09-16); manual smoke is still pending — see `docs/ai/project-state.md`. Phase 6 (pilot/cutover/30-day fallback) and Flutter retirement itself have not started; Flutter (`apps/desktop_flutter`) remains the shipping client. Historical plan below is preserved unchanged.
 
 # Current Plan — Cloud Live Artifacts / Worship Calendar
 
