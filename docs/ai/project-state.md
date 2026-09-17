@@ -8,7 +8,7 @@
 
 ## Active branch / PR
 
-- `fix/agent-server-health-flap` off `main` `2350a500` — draft PR pending (opened by this run; see run log for the URL once created). Do not merge before manual smoke.
+- `fix/agent-server-health-flap` off `main` `2350a500` — draft [PR #1508](https://github.com/ajhochy/Rhythm/pull/1508). Do not merge before manual smoke.
 - Related open issues: #1503 (event-loop stalls — the SQLite variant is fixed here; the Sep 16 gzip'd-JSON-array variant is still unattributed), #1505 (better-sqlite3 13 upgrade).
 
 ## In progress
@@ -33,4 +33,4 @@
 
 ## Next step
 
-Open the draft PR for `fix/agent-server-health-flap`, watch CI, then hand to AJ for manual smoke (checklist in the PR body). After smoke passes: merge manually, cut the next desktop patch release (increment from v0.18.64), and pick up the follow-ups (Retry-during-stall path, `lostConnection` copy, #1503 gzip variant, #1505).
+Draft [PR #1508](https://github.com/ajhochy/Rhythm/pull/1508) is open; watch CI, then hand to AJ for manual smoke (checklist in the PR body). After smoke passes: merge manually, cut the next desktop patch release (increment from v0.18.64), and pick up the follow-ups (Retry-during-stall path, `lostConnection` copy, #1503 gzip variant, #1505).
