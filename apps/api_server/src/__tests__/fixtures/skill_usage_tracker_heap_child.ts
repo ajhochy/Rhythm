@@ -13,10 +13,12 @@ const dbPath = process.argv[2];
 if (!dbPath) throw new Error('database path argument is required');
 
 const db = new Database(dbPath, { readonly: true });
-try {
-  setDb(db);
-  process.stdout.write(JSON.stringify(Object.fromEntries(countSkillToolUses())));
-} finally {
-  setDb(null);
-  db.close();
-}
+void (async () => {
+  try {
+    setDb(db);
+    process.stdout.write(JSON.stringify(Object.fromEntries(await countSkillToolUses())));
+  } finally {
+    setDb(null);
+    db.close();
+  }
+})();
