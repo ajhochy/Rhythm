@@ -68,7 +68,7 @@ test('issue-1521-c3: every existing Settings action is reachable from an inspect
   await page.getByRole('button', { name: 'Reset keyboard preference' }).click();
 
   await selectRow(page, 'Workspace');
-  await expect(page.getByText('VCRC', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('list-inspector-detail').getByText('VCRC', { exact: true })).toBeVisible();
 
   await selectRow(page, 'Join code');
   await page.getByRole('button', { name: 'Regenerate join code' }).click();
@@ -113,7 +113,7 @@ test('issue-1521-c4: device preferences persist per account and workspace values
   await page.reload();
   await expect(page.getByLabel('Send message key')).toHaveValue('Meta+Enter');
   await selectRow(page, 'Workspace');
-  await expect(page.getByText('VCRC', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('list-inspector-detail').getByText('VCRC', { exact: true })).toBeVisible();
   await expect(page.locator('.settings-scope').getByText('Workspace administration', { exact: true })).toBeVisible();
 
   await openSettings(page, '?user=2', 'keyboard-safety');
@@ -190,7 +190,7 @@ test('issue-1521-c8: loading error empty missing and unsaved states are explicit
   // Regression caught: stale details survive a missing ID, loading/error states expose live controls,
   // or changing sections silently throws away an edited keyboard preference.
   await openSettings(page, '?state=loading');
-  await expect(page.getByRole('status')).toContainText('Loading settings');
+  await expect(page.getByRole('status')).toContainText('Loading Settings sections');
   await expect(page.getByLabel('Theme')).toHaveCount(0);
 
   await openSettings(page, '?state=error');
