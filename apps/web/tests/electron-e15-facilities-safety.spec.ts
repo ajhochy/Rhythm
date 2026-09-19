@@ -64,6 +64,7 @@ test('e15: facility and reservation deletion require confirmation and preserve f
   await expect(page.getByTestId('facilities-room-7')).toHaveCount(0);
 
   await page.reload();
+  await page.getByTestId('facilities-reservation-9').click();
   await page.getByTestId('facilities-reservation-delete-9').click();
   await expect(page.getByTestId('facilities-delete-dialog')).toContainText('Sunday service');
   await page.keyboard.press('Escape');
@@ -76,6 +77,7 @@ test('E31: rooms and reservations edit, and multi-room create submits exact faci
   await page.getByTestId('facilities-room-edit-7').click();
   await page.getByTestId('facilities-room-name').fill('Main Sanctuary');
   await page.getByTestId('facilities-room-save').click();
+  await page.getByTestId('facilities-reservation-9').click();
   await page.getByTestId('facilities-reservation-edit-9').click();
   await page.getByTestId('facilities-reservation-notes').fill('Updated notes');
   await page.getByTestId('facilities-reservation-save').click();
