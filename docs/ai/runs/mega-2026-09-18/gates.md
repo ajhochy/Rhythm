@@ -11,3 +11,9 @@
 - `npm run typecheck` PASS; `npm run lint` PASS (0 errors, 3 pre-existing warnings); `npm run contract:check` PASS
 - `npm test` (jest): first run under load 95 → 3 suites failed (workspace-search + 2 timing suites); full rerun PASS 32/32 suites, 132/132 tests → flake, not regression
 - `node --test tests/contract/issue-1510-working-sound.test.mjs tests/paired-host.test.mjs` PASS 11/11
+## apps/electron — final gate on mega bd5d0414 (2026-09-18 20:05 PDT)
+- `npm run typecheck` PASS; `npm test` PASS 159/159 (includes hermes-server, hermes-view, hermes-protocol, electron-icon, security-smoke-receipt, e12a auth boundary with the E44 fixture repair)
+## apps/mobile e2e — on mega (2026-09-18 ~20:15 PDT)
+- `EXPO_PUBLIC_RHYTHM_RELAY_DISABLED=1 npx playwright test tests/e2e/issue-1373-relay-kill-switch.spec.mjs` PASS 1/1
+- `npm run test:e2e:web` 70 passed, 1 skipped, 1 failed (issue-1174 parity); rerun alone → see line below
+- rerun alone: 
