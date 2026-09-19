@@ -50,6 +50,33 @@ const hermes = Object.freeze({
     ipcRenderer.on('hermes:status', listener);
     return () => ipcRenderer.removeListener('hermes:status', listener);
   },
+// B3 owns this key independently of B2's `hermes` supervisor bridge. Keep the
+// native attachment capability private so a stale document cannot reuse it.
+let hermesViewEpoch = 0;
+/** @type {string | undefined} */
+let hermesViewAttachment;
+const hermesView = Object.freeze({
+  attach: async () => {
+    const epoch = ++hermesViewEpoch;
+    hermesViewAttachment = undefined;
+    const result = await ipcRenderer.invoke('hermes:view:attach');
+    if (epoch !== hermesViewEpoch) {
+      if (result?.attachment) await ipcRenderer.invoke('hermes:view:detach', { attachment: result.attachment });
+      return { ok: false, reason: 'detached' };
+    }
+    if (result?.ok === true && typeof result.attachment === 'string') hermesViewAttachment = result.attachment;
+    return { ok: result?.ok === true, reason: result?.reason };
+  },
+  /** @param {{x: number, y: number, width: number, height: number}} bounds */
+  setBounds: (bounds) => ipcRenderer.invoke('hermes:view:bounds', { attachment: hermesViewAttachment, bounds }),
+  detach: () => {
+    ++hermesViewEpoch;
+    const attachment = hermesViewAttachment;
+    hermesViewAttachment = undefined;
+    return ipcRenderer.invoke('hermes:view:detach', { attachment });
+  },
+  /** @param {unknown} intent */
+  sendIntent: (intent) => ipcRenderer.invoke('hermes:intent', { attachment: hermesViewAttachment, intent }),
 });
 // Renderer code can only reconcile pending approval IDs with the main process. Main validates the
 // closed approval/session target schema and owns all text, presentation, dedupe, and navigation.
@@ -68,4 +95,5 @@ contextBridge.exposeInMainWorld('rhythmShell', Object.freeze({
   updates,
   selectDirectory: () => ipcRenderer.invoke('shell:select-directory'),
   hermes,
+  hermesView,
 }));

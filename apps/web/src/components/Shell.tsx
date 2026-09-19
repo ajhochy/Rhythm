@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { Icon, type IconName } from '../icons';
 import { useFixtures } from '../store';
 import type { DemoState } from '../types';
+import { hermesShell } from '../pages/hermes/bridge';
 
 const destinations = ['Dashboard', 'Planner', 'Tasks', 'Rhythms', 'Projects', 'Messages', 'Facilities', 'Automations', 'Integrations', 'Agents', 'Settings'];
-const optional = new Set(['Facilities', 'Automations', 'Integrations', 'Settings']);
+const optional = new Set(['Facilities', 'Automations', 'Integrations', 'Settings', 'Hermes']);
 
 function moveMenuFocus(event: React.KeyboardEvent<HTMLElement>) {
   if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
@@ -63,6 +64,7 @@ const demoLabels: Record<DemoState, string> = {
 };
 
 export function Shell({ route, children }: { route: string; children: React.ReactNode }) {
+  const visibleDestinations = hermesShell()?.hermes?.enabled === true ? [...destinations, 'Hermes'] : destinations;
   const { theme, setTheme, demo, setDemo, toast, resetFixtures, notify, unreadThreads, sessionGatewayMode, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, pendingApprovals, decideApproval } = useFixtures();
   const live = sessionGatewayMode === 'live';
   const entityDestination = (entityType: string, entityId: string) => ({
@@ -115,9 +117,9 @@ export function Shell({ route, children }: { route: string; children: React.Reac
       <a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); document.getElementById('main-content')?.focus(); }}>Skip to main content</a>
       <header className="app-header" data-od-id="rhythm-global-header">
         <nav className="destination-nav" aria-label="Product destinations">
-          {destinations.map((destination) => destinationButton(destination))}
+          {visibleDestinations.map((destination) => destinationButton(destination))}
           <Menu label="More destinations" icon="chevronDown" testId="nav-more" className="more-nav" popoverClassName="nav-overflow" triggerClassName="destination" triggerContent={<>More <Icon name="chevronDown" size={14} /></>}>
-            {(compactNav ? destinations.filter((destination) => !['Dashboard', 'Agents'].includes(destination)) : [...optional]).map((destination) => destinationButton(destination, true))}
+            {(compactNav ? visibleDestinations.filter((destination) => !['Dashboard', 'Agents'].includes(destination)) : [...optional].filter((destination) => visibleDestinations.includes(destination))).map((destination) => destinationButton(destination, true))}
           </Menu>
         </nav>
         <div className="global-actions">

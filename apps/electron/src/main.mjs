@@ -15,6 +15,7 @@ import { deepLinkFromArgv, resolveAsset, validateRequest, webDist } from './poli
 import { createProductionApiConfig, createProductionApiSetHandler } from './production-api-config.mjs';
 import { resolveGoogleDesktopClientId } from './runtime-config.mjs';
 import { validateSecuritySmokeReceipt } from './security-smoke-receipt.mjs';
+import { registerHermesView } from './hermes-view.mjs';
 
 export { deepLinkFromArgv } from './policy.mjs';
 
@@ -64,6 +65,7 @@ if (hasSingleInstanceLock) {
 
   /** @type {BrowserWindow | undefined} */
   let mainWindow;
+  registerHermesView({ ipcMain, getWindow: () => mainWindow });
   /** @type {string | null} */
   let pendingDeepLink = deepLinkFromArgv(process.argv);
   /** @type {Map<string, Notification>} */
