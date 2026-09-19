@@ -5,7 +5,7 @@
 
 .list-inspector .list-inspector-panes {
   display: grid;
-  grid-template-columns: minmax(240px, min(var(--list-inspector-list-width, 320px), calc(100% - 280px))) minmax(0, 1fr);
+  grid-template-columns: minmax(240px, min(var(--list-inspector-list-width, 320px), calc(100% - 288px))) 8px minmax(0, 1fr);
   min-height: 420px;
   min-width: 0;
   border: 1px solid var(--border-soft);
@@ -22,7 +22,6 @@
   max-height: none;
   padding: 8px;
   border: 0;
-  border-inline-end: 1px solid var(--border-soft);
   background: color-mix(in oklab, var(--surface), var(--bg) 4%);
   overflow: visible;
 }
@@ -70,10 +69,11 @@
 .list-inspector .row-actions { flex-wrap: wrap; }
 .list-inspector .row-actions > button, .list-inspector .primary-button, .list-inspector-toolbar button, .list-inspector-footer button { min-height: 44px; min-width: 44px; white-space: normal; }
 .list-inspector :is(.list-inspector-list, .list-inspector-row, .list-inspector-detail, .list-inspector-back):focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-:root[dir="rtl"] .list-inspector .list-inspector-rail { border: 0; border-inline-end: 1px solid var(--border-soft); }
+:root[dir="rtl"] .list-inspector .list-inspector-rail { border: 0; }
 
 @container list-inspector (width < 720px) {
   .list-inspector .list-inspector-panes { grid-template-columns: minmax(0, 1fr); }
+  .list-inspector .list-inspector-splitter { display: none; }
   .list-inspector[data-pane="inspector"] .list-inspector-rail { display: none; }
   .list-inspector[data-pane="list"] .list-inspector-detail { display: none; }
   .list-inspector .list-inspector-back { display: inline-flex; }

@@ -64,8 +64,8 @@ button:disabled, input:disabled, textarea:disabled, select:disabled { cursor: no
 .spin { animation: spin .65s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.app-canvas { position: relative; height: 100dvh; min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--bg); }
-.app-header { flex: 0 0 48px; min-width: 0; display: flex; align-items: center; gap: 10px; }
+.app-canvas { position: relative; height: 100dvh; min-width: 0; display: flex; flex-direction: column; gap: 0; padding: 12px; background: var(--bg); }
+.app-header { flex: 0 0 var(--app-navigation-height, 48px); min-width: 0; display: flex; align-items: center; gap: 10px; }
 .destination-nav { flex: 1; min-width: 0; display: flex; align-items: stretch; gap: 2px; overflow: hidden; }
 .destination { position: relative; flex: 0 0 auto; min-height: 44px; display: inline-flex; align-items: center; gap: 5px; padding: 0 7px; border: 0; border-radius: var(--r-sm); color: var(--muted); background: transparent; cursor: pointer; font-size: 12.5px; font-weight: 520; letter-spacing: .02em; }
 .destination::after { content: ""; position: absolute; right: 7px; bottom: 1px; left: 7px; height: 2px; border-radius: var(--r-pill); background: transparent; }
@@ -117,7 +117,7 @@ button:disabled, input:disabled, textarea:disabled, select:disabled { cursor: no
 .toast { position: fixed; right: 24px; bottom: 20px; z-index: 80; max-width: 420px; min-height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--fg); background: var(--surface-raised); box-shadow: var(--shadow); font-size: 12px; transform: translateY(70px); opacity: 0; transition: transform .18s ease, opacity .18s ease; pointer-events: none; }
 .toast[data-visible="true"] { transform: translateY(0); opacity: 1; }
 
-.agents-workspace { --collapsed-inspector-width: 56px; --rail-width: 280px; --inspector-resizer-width: 5px; --inspector-width: 336px; height: 100%; min-width: 0; display: grid; grid-template-columns: var(--rail-width) 5px minmax(360px, 1fr) var(--inspector-resizer-width) var(--inspector-width); background: color-mix(in oklab, var(--bg), transparent 4%); }
+.agents-workspace { --collapsed-inspector-width: 56px; --rail-width: 280px; --inspector-resizer-width: 8px; --inspector-width: 336px; height: 100%; min-width: 0; display: grid; grid-template-columns: var(--rail-width) 8px minmax(360px, 1fr) var(--inspector-resizer-width) var(--inspector-width); background: color-mix(in oklab, var(--bg), transparent 4%); }
 .session-rail, .inspector, .conversation-pane { min-width: 0; min-height: 0; background: var(--surface); }
 .session-rail { grid-column: 1; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border-soft); }
 .rail-resize { grid-column: 2; }
@@ -207,9 +207,7 @@ textarea { width: 100%; padding: 10px 12px; resize: vertical; }
 .subagent-disclosure span { overflow: hidden; text-overflow: ellipsis; }
 .subagent-disclosure:hover { color: var(--fg); }
 .rail-empty { margin: 0; padding: 6px 24px 9px; color: var(--muted); font-size: 10px; }
-.tools-resizer { position: relative; flex: 0 0 7px; display: grid; place-items: center; cursor: ns-resize; border-top: 1px solid var(--border-soft); border-bottom: 1px solid var(--border-soft); }
-.tools-resizer span { width: 28px; height: 2px; border-radius: var(--r-pill); background: var(--border); }
-.tools-resizer:hover span, .tools-resizer:focus-visible span { height: 3px; background: var(--accent); }
+.tools-resizer { flex-basis: 8px; border-top: 1px solid var(--border-soft); border-bottom: 1px solid var(--border-soft); }
 .tools-nav { min-height: 150px; flex: 0 0 auto; overflow: auto; padding: 6px 7px; }
 .rail-section-label { display: block; padding: 4px 8px 6px; }
 .tools-nav button, .rail-account button { width: 100%; min-height: 42px; display: grid; grid-template-columns: 20px minmax(0, 1fr) 14px; align-items: center; gap: 8px; padding: 5px 8px; border: 0; border-radius: var(--r-sm); color: var(--fg-2); background: transparent; cursor: pointer; text-align: left; }
@@ -772,13 +770,13 @@ code, pre { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
   .more-nav { display: block; }
   .profile-control { width: 44px; grid-template-columns: 30px; padding: 5px; }
   .profile-control .account-copy, .profile-control > svg { display: none; }
-  .agents-workspace { grid-template-columns: var(--rail-width) 5px minmax(350px, 1fr) var(--inspector-resizer-width) min(var(--inspector-width), 300px); }
+  .agents-workspace { grid-template-columns: var(--rail-width) 8px minmax(350px, 1fr) var(--inspector-resizer-width) min(var(--inspector-width), 300px); }
   .prepare-button { width: 32px; padding: 0; }
   .prepare-button span { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; padding: 0; border: 0; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 }
 
 @media (max-width: 1120px) {
-  .agents-workspace { grid-template-columns: min(var(--rail-width), 228px) 5px minmax(360px, 1fr) var(--inspector-resizer-width) min(var(--inspector-width), 286px); }
+  .agents-workspace { grid-template-columns: min(var(--rail-width), 228px) 8px minmax(360px, 1fr) var(--inspector-resizer-width) min(var(--inspector-width), 286px); }
 }
 
 @media (max-width: 900px) {
@@ -793,7 +791,7 @@ code, pre { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
   .inspector { inset-inline-end: 0; }
   .session-rail.collapsed { width: 48px; box-shadow: none; }
   .inspector.collapsed { width: var(--collapsed-inspector-width); box-shadow: none; }
-  .resize-handle { display: none; }
+  .agents-workspace > .splitter { display: none; }
   .session-header { gap: 6px; padding-inline: 9px; }
   .session-header-actions .prepare-button, .session-header-actions > .icon-button:not([data-testid="session-actions"]) { display: none; }
   .session-identity h1 { max-width: 100%; }
@@ -808,8 +806,8 @@ code, pre { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
 @media (max-width: 680px) {
   .agents-workspace { --collapsed-inspector-width: 52px; }
-  .app-canvas { gap: 5px; padding: 6px; }
-  .app-header { flex-basis: 44px; gap: 5px; }
+  .app-canvas { gap: 0; padding: 6px; }
+  .app-header { flex-basis: var(--app-navigation-height, 44px); gap: 5px; }
   .destination { min-height: 40px; padding-inline: 6px; font-size: 11px; }
   .global-actions { gap: 3px; }
   .global-actions .icon-button, .profile-control { width: 40px; height: 40px; min-height: 40px; }
