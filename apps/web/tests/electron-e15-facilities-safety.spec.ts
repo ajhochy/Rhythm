@@ -86,7 +86,7 @@ test('E31: rooms and reservations edit, and multi-room create submits exact faci
   await page.getByTestId('facilities-reservation-requester').fill('Casey');
   await page.getByTestId('facilities-reservation-start').fill('2026-09-14T09:00');
   await page.getByTestId('facilities-reservation-end').fill('2026-09-14T10:00');
-  await page.getByLabel('Chapel').check();
+  await page.getByRole('checkbox', { name: 'Chapel', exact: true }).check();
   await page.getByTestId('facilities-reservation-save').click();
   expect(state.writes).toContainEqual({ method: 'PATCH', path: '/facilities/7', body: { name: 'Main Sanctuary', building: 'Main' } });
   expect(state.writes.find((write) => write.path.endsWith('/reservations/9'))?.body.notes).toBe('Updated notes');

@@ -135,6 +135,7 @@ test.describe('shared Splitter', () => {
 
     await page.evaluate(() => { window.location.hash = '/settings'; });
     await expect(page.getByTestId('page-settings')).toBeVisible();
+    await page.getByRole('option', { name: 'Appearance', exact: true }).click();
     await page.getByTestId('reset-layout').click();
     await expect(shell).toHaveAttribute('aria-valuenow', '48');
     await expect.poll(() => page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith('layout.')))).toEqual([]);
