@@ -1,0 +1,135 @@
+.rail-view-controls {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.rail-sort { min-width: 0; }
+.rail-sort select { min-height: 44px; font-size: 11px; }
+
+.rail-view-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 44px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg-2);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.rail-view-trigger:hover, .rail-view-trigger[aria-expanded="true"] { background: var(--surface-warm); }
+.session-rail .rail-view-menu {
+  inset-inline: 12px;
+  top: calc(100% - 4px);
+  width: auto;
+  max-height: min(420px, 65vh);
+  overflow-y: auto;
+  text-align: start;
+}
+:root[dir="rtl"] .session-rail .rail-view-menu { inset-inline: 12px; }
+
+.rail-view-item {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--fg);
+  background: transparent;
+  text-align: start;
+  cursor: pointer;
+}
+
+.rail-view-item:hover, .rail-view-item:focus-visible { background: var(--surface-warm); }
+.rail-option-mark { display: flex; align-items: center; }
+.rail-view-help { margin: 0 8px 8px; color: var(--muted); font-size: 12px; }
+.rail-view-label { margin: 8px 8px 2px; color: var(--fg-2); font-weight: 600; }
+.rail-archive-chip {
+  flex-shrink: 0;
+  min-height: 44px;
+  margin: 0 12px 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--fg);
+  background: var(--surface-warm);
+  font-size: 12px;
+  text-align: start;
+  cursor: pointer;
+}
+
+.rail-compact .session-row { min-height: 44px; }
+
+.rail-load-children {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-inline-start: calc(7px + (var(--child-depth, 1) * 7px));
+  width: calc(100% - 7px - (var(--child-depth, 1) * 7px));
+  min-height: 44px;
+  padding: 6px 9px;
+  border: 0;
+  border-inline-start: 1px solid var(--border-soft);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  text-align: start;
+  font-size: 12px;
+  font-weight: 400;
+  cursor: pointer;
+  overflow-anchor: none;
+}
+
+.rail-load-children > svg { flex-shrink: 0; }
+.rail-load-children:hover { color: var(--fg); background: var(--surface-warm); }
+.rail-load-children[aria-disabled="true"] { cursor: progress; }
+.rail-child-retry { color: var(--fg-2); text-decoration: underline; text-underline-offset: 3px; }
+
+.rail-add-project, .rail-project-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--fg-2);
+  background: transparent;
+  text-align: start;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.session-rail > .rail-add-project { flex-shrink: 0; margin: 0 12px 4px; }
+.rail-add-project:hover, .rail-project-select:hover, .rail-project-select[aria-pressed="true"] { background: var(--surface-warm); color: var(--fg); }
+.rail-empty-project { padding: 2px 12px 8px; color: var(--muted); font-size: 12px; }
+.rail-empty-project p { margin: 4px 0; }
+.rail-project-path { overflow-wrap: anywhere; white-space: normal; }
+.rail-project-error { padding: 8px; color: var(--fg-2); }
+.rail-project-error button { min-height: 44px; }
+.rail-project-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.rail-project-form > input { width: 100%; min-width: 0; }
+.rail-project-form > p { margin: 0 0 8px; color: var(--muted); }
+.rail-project-form .field { min-width: 0; }
+.rail-project-form button { min-height: 44px; }
+.rail-folder-picker { justify-self: start; }
+.agent-project-empty { margin: auto; padding: 24px; max-width: 520px; overflow-wrap: anywhere; }
+.agent-project-empty h1 { font-size: 22px; }
+.agent-project-empty p { color: var(--muted); }
+.agent-project-empty button { min-height: 44px; }
+.session-rail .group-toggle { grid-template-columns: 16px minmax(0, 1fr) auto; text-align: start; }
+.session-rail .group-toggle > span { overflow-wrap: anywhere; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-load-children .spin { animation: none; }
+}

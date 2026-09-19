@@ -95,6 +95,14 @@ export interface SessionFileDiffEntry { file: string; before: string; after: str
 export interface SessionVcsDiffEntry { file: string; patch?: string; additions: number; deletions: number; status?: string }
 // GET /projects/:id/branches — apps/api_server/src/controllers/projects_controller.ts:161-175.
 export interface ProjectBranches { current: string | null; local: string[]; recent: string[] }
+export interface AgentProject { id: string; name: string; cwd?: string; vcsBranch?: string | null; archivedAt?: string | null }
+
+function mapAgentProject(value: unknown): AgentProject {
+  const row = record(value);
+  return { id: string(row.id), name: string(row.name), cwd: string(row.cwd),
+    vcsBranch: typeof row.vcsBranch === 'string' ? row.vcsBranch : null,
+    archivedAt: typeof row.archivedAt === 'string' ? row.archivedAt : null };
+}
 
 export interface SessionGateway {
   readonly mode: GatewayMode;
@@ -108,9 +116,10 @@ export interface SessionGateway {
   init?(localId: string): Promise<void>;
   list(): Promise<Session[]>;
   listPage?(query: SessionListQuery): Promise<SessionListPage>;
-  projectLabels?(): Promise<{ id: string; name: string }[]>;
+  projectLabels?(): Promise<AgentProject[]>;
+  createProject?(input: { name: string; cwd: string }): Promise<AgentProject>;
   detail(localId: string): Promise<Session>;
-  create(input: { profileId: string; cwd: string; name: string; isolateWorktree: boolean; worktreeName?: string; branch?: string; createBranch?: boolean; stash?: 'stash' | 'discard'; taskId?: string; anthropicAccountId?: string }): Promise<Session>;
+  create(input: { profileId: string; cwd: string; name: string; projectId?: string; isolateWorktree: boolean; worktreeName?: string; branch?: string; createBranch?: boolean; stash?: 'stash' | 'discard'; taskId?: string; anthropicAccountId?: string }): Promise<Session>;
   // post-m1-phase-6 c1b/c2a: GET /:id/files/find-files?query&limit&type — returns relative paths.
   findFiles(localId: string, query: string, opts?: { limit?: number; type?: 'file' | 'directory' }): Promise<string[]>;
   // GET /:id/files/list?path — engine-shaped entries scoped to the session/worktree directory.
@@ -435,7 +444,20 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
       return toSessionViewModel(body.session, body.messages ?? [], body.transcriptPage);
     },
     projectLabels: async () => (await response<unknown[]>('Load projects', request('/projects?includeArchived=true')))
-      .map((value) => ({ id: string(record(value).id), name: string(record(value).name) })),
+      .map(mapAgentProject),
+    createProject: async (input) => {
+      // ProjectsController uses the canonical AppError envelope, {error:{code,message}}.
+      // Adapt it here without changing error semantics for other session operations.
+      const pending = request('/projects', { method: 'POST', body: JSON.stringify({ name: input.name, cwd: input.cwd }) }).then(async (result) => {
+        if (!result.ok) {
+          const body = await result.clone().json().catch(() => null);
+          const message = record(record(body).error).message;
+          if (typeof message === 'string') throw new SessionGatewayError(result.status, message);
+        }
+        return result;
+      });
+      return mapAgentProject(await response<unknown>('Create project', pending));
+    },
     listPage: async (query) => {
       const params = new URLSearchParams({ limit: '100', scope: query.scope === 'background' ? 'self_improvement' : query.scope ?? 'chats' });
       if (query.projectId) params.set('projectId', query.projectId);

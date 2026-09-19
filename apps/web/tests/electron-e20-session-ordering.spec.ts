@@ -42,7 +42,7 @@ test('E20-c2-status full rank and equal-status activity/ID ties never depend on 
 });
 
 test('E20-c10 legacy trees and separate resumable response survive paging adapter', async () => {
-  const gateway = createLiveSessionsGateway('http://e20.invalid', 'test', async () => new Response(JSON.stringify({ sessions: [{ ...row('root'), children }], resumable: [row('resume', { status: 'resumable' })] })), class {} as typeof WebSocket);
+  const gateway = createLiveSessionsGateway('http://e20.invalid', 'test', async () => new Response(JSON.stringify({ sessions: [{ ...row('root'), children }], resumable: [row('resume', { status: 'resumable' })] })), class {} as unknown as typeof WebSocket);
   expect(typeof (gateway as any).listPage).toBe('function');
   if (!(gateway as any).listPage) return;
   const result = await (gateway as any).listPage({ scope: 'chats' });
@@ -120,7 +120,7 @@ test('E20-c3 same comparator orders children, explicit bounded root and child co
   const { requests, unexpected } = await open(page);
   await expect(page.getByRole('button', { name: 'Load older roots', exact: true })).toBeVisible();
   expect(requests.filter((u) => u.searchParams.has('cursor'))).toHaveLength(0);
-  await page.getByRole('button', { name: 'Load children of alpha', exact: true }).click();
+  await page.getByRole('button', { name: 'Load subagents for alpha', exact: true }).click();
   await expect(page.getByTestId('session-c2')).toBeVisible();
   const childIds = () => page.locator('button.child-session').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')));
   await expect.poll(childIds).toEqual(['session-c2', 'session-c1']);
@@ -131,7 +131,7 @@ test('E20-c3 same comparator orders children, explicit bounded root and child co
     await expect.poll(childIds).toEqual(['session-c1', 'session-c2']);
   }
   await page.getByRole('complementary', { name: 'Agents', exact: true }).screenshot({ path: '/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/opencode/e20-load-controls.png' });
-  await page.getByRole('button', { name: 'Load older children of alpha', exact: true }).click();
+  await page.getByRole('button', { name: 'Load more subagents for alpha', exact: true }).click();
   await expect(page.getByTestId('session-c3')).toBeVisible();
   await page.getByRole('button', { name: 'Load older roots', exact: true }).click();
   await expect(page.getByTestId('session-older-root')).toBeVisible();
@@ -144,7 +144,7 @@ test('subagent-tree-c1 loaded nested children have independent keyboard disclosu
   const projectHeading = page.getByTestId('group-project-p1');
   const rootDisclosure = page.getByTestId('subagents-z');
   await expect(rootDisclosure).toHaveAccessibleName('alpha: 164 subagents · 38 running');
-  await page.getByRole('button', { name: 'Load children of alpha', exact: true }).click();
+  await page.getByRole('button', { name: 'Load subagents for alpha', exact: true }).click();
   await expect(rootDisclosure).toHaveAccessibleName('alpha: 164 subagents · 38 running');
   await expect(rootDisclosure).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByTestId('session-c1')).toBeVisible();
@@ -156,11 +156,11 @@ test('subagent-tree-c1 loaded nested children have independent keyboard disclosu
   await expect(rootDisclosure).toHaveAttribute('aria-expanded', 'false');
   await expect(page.getByTestId('session-c1')).toHaveCount(0);
   await expect(page).toHaveURL(/\/agents$/);
-  await expect(page.getByRole('button', { name: 'Load older children of alpha', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Load more subagents for alpha', exact: true })).toBeVisible();
   await expect(projectHeading).toHaveAttribute('aria-expanded', 'true');
 
   await rootDisclosure.press('Enter');
-  await page.getByRole('button', { name: 'Load children of Able', exact: true }).click();
+  await page.getByRole('button', { name: 'Load subagents for Able', exact: true }).click();
   const nestedDisclosure = page.getByTestId('subagents-c1');
   await expect(nestedDisclosure).toHaveAccessibleName('Able: 60 subagents');
   await nestedDisclosure.press('Enter');
@@ -172,8 +172,8 @@ test('subagent-tree-c1 loaded nested children have independent keyboard disclosu
 
 test('subagent-disclosure-repair distinguishes equal-count controls and indents nested controls without narrow overflow', async ({ page }) => {
   await open(page);
-  await page.getByRole('button', { name: 'Load children of alpha', exact: true }).click();
-  await page.getByRole('button', { name: 'Load children of Able', exact: true }).click();
+  await page.getByRole('button', { name: 'Load subagents for alpha', exact: true }).click();
+  await page.getByRole('button', { name: 'Load subagents for Able', exact: true }).click();
 
   // Regression: generic count-only names collapse equal-count parents into indistinguishable screen-reader controls.
   const disclosures = page.locator('button.subagent-disclosure');
@@ -229,7 +229,7 @@ test('subagent-disclosure-repair distinguishes equal-count controls and indents 
 
 test('subagent-overflow-hit-area overflow actions keep 44px targets beside disclosures and on plain rows', async ({ page }) => {
   await open(page);
-  await page.getByRole('button', { name: 'Load children of alpha', exact: true }).click();
+  await page.getByRole('button', { name: 'Load subagents for alpha', exact: true }).click();
   // Regression: the overflow control measured 34x34 in both the has-subagents grid and the absolute plain-row layout.
   const measure = async (width: number) => {
     for (const id of ['z', 'b']) {
@@ -261,7 +261,7 @@ test('subagent-overflow-hit-area overflow actions keep 44px targets beside discl
 
 test('subagent-overflow-focus-stability keyboard focus keeps the actions button inside its own row', async ({ page }) => {
   await open(page);
-  await page.getByRole('button', { name: 'Load children of alpha', exact: true }).click();
+  await page.getByRole('button', { name: 'Load subagents for alpha', exact: true }).click();
   // Regression: the shared :focus-visible rule set position:relative, so Tab pulled the absolutely
   // positioned plain-row actions button out of its row, grew the wrap and pushed the list down.
   const geometry = (id: string) => page.getByTestId(`session-menu-${id}`).evaluate((button) => {
@@ -288,7 +288,7 @@ test('subagent-overflow-focus-stability keyboard focus keeps the actions button 
 
 test('subagent-disclosure-density inline counts stay unclipped without starving session names', async ({ page }) => {
   await open(page);
-  await page.getByRole('button', { name: 'Load children of alpha', exact: true }).click();
+  await page.getByRole('button', { name: 'Load subagents for alpha', exact: true }).click();
   // Regression: a fixed 132px count chip clipped its own label at every width and left the
   // session name a third of the row, while hover/selection painted only that fragment.
   const measure = (id: string) => page.getByTestId(`subagents-${id}`).evaluate((control) => {
@@ -328,18 +328,18 @@ test('subagent-counts-c3 old servers never present a bounded preview as an exact
   await open(page, { oldServer: true });
   const disclosure = page.getByTestId('subagents-z');
   await expect(disclosure).toHaveAccessibleName('alpha: More subagents');
-  await page.getByRole('button', { name: 'Load children of alpha', exact: true }).click();
+  await page.getByRole('button', { name: 'Load subagents for alpha', exact: true }).click();
   await expect(disclosure).toHaveAccessibleName('alpha: 2+ subagents · 1 running');
-  await page.getByRole('button', { name: 'Load older children of alpha', exact: true }).click();
+  await page.getByRole('button', { name: 'Load more subagents for alpha', exact: true }).click();
   await expect(disclosure).toHaveAccessibleName('alpha: 3 subagents · 1 running');
 });
 
 test('subagent-disclosure-collision shared first-eight IDs use shortest stable unique prefixes while visible labels stay concise', async ({ page }) => {
   await open(page, { equalParentNames: true });
-  const sameNameLoaders = page.getByRole('button', { name: 'Load children of Same name', exact: true });
+  const sameNameLoaders = page.getByRole('button', { name: /^Load subagents for Same name \(parent-shared-/ });
   await sameNameLoaders.first().click();
   await sameNameLoaders.first().click();
-  await page.getByRole('button', { name: 'Load children of Unique name', exact: true }).click();
+  await page.getByRole('button', { name: 'Load subagents for Unique name', exact: true }).click();
 
   const first = page.getByTestId('subagents-parent-shared-alpha');
   const second = page.getByTestId('subagents-parent-shared-beta');
@@ -369,7 +369,7 @@ test('subagent-disclosure-collision shared first-eight IDs use shortest stable u
   await page.getByTestId('sessions-refresh').click();
   await sameNameLoaders.first().click();
   await sameNameLoaders.first().click();
-  await page.getByRole('button', { name: 'Load children of Unique name', exact: true }).click();
+  await page.getByRole('button', { name: 'Load subagents for Unique name', exact: true }).click();
   await expect(first).toHaveAccessibleName('Same name (parent-shared-a): 1 subagent');
   await expect(second).toHaveAccessibleName('Same name (parent-shared-b): 1 subagent');
   await expect(unique).toHaveAccessibleName('Unique name: 1 subagent');
@@ -393,7 +393,8 @@ test('E20-c4 scope and archived controls query canonical E26 filters', async ({ 
       await expect(page.locator('.session-list .group-toggle')).toHaveCount(1);
     }
   }
-  await page.getByRole('checkbox', { name: 'Archived sessions' }).check();
+  await page.getByRole('button', { name: 'View options', exact: true }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'View archived sessions' }).click();
   await expect(page.getByTestId('session-archived')).toBeVisible();
   await expect(page.getByTestId('session-archived')).toContainText('Archived');
   await expect(page.getByTestId('group-project-p1')).toHaveAccessibleName('Same label (p1) 1');
@@ -423,7 +424,7 @@ test('project-headings-c3 project trees replace Agents and status disclosures', 
   await expect(page.locator('.agent-disclosure')).toHaveCount(0);
   await expect(page.locator('.session-list .group-toggle')).toHaveCount(2);
   await expect(page.locator('.session-list').getByRole('button', { name: /^(Agents|Active|Resumable|Archived)\s*\d*$/ })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Load children of alpha', exact: true }).click();
+  await page.getByRole('button', { name: 'Load subagents for alpha', exact: true }).click();
   const project = page.locator('.session-group').filter({ has: page.getByTestId('group-project-p1') });
   await expect(project.getByTestId('session-c1')).toBeVisible();
   await expect(project.getByTestId('session-r')).toBeVisible();
@@ -464,10 +465,13 @@ test('project-headings-c4 delayed live list preserves loading status and clears 
 
 test('project-headings-c5 Tab reaches each heading with a visible keyboard focus outline', async ({ page }) => {
   const { unexpected } = await open(page);
-  const preceding = page.getByRole('checkbox', { name: 'Compact rows' });
+  const preceding = page.getByRole('button', { name: 'View options', exact: true });
   await expect(page.locator('.session-group > .group-toggle')).toHaveText(['Same label (p2)1', 'Same label (p1)3']);
   await preceding.click();
+  await page.keyboard.press('Escape');
   await expect(preceding).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('region', { name: 'chats sessions' })).toBeFocused();
   // A tabindex=-1 heading or removed/transparent focus outline must fail, unlike .focus().
   for (const id of ['p2', 'p1']) {
     await page.keyboard.press('Tab');
@@ -509,7 +513,8 @@ test('project-headings-c5 independent keyboard collapse retains accessible selec
   await expect(second).toHaveAttribute('aria-expanded', 'false');
   await expect(page.getByTestId('session-z')).toBeVisible();
   await second.press('Enter');
-  await page.getByRole('checkbox', { name: 'Compact rows' }).check();
+  await page.getByRole('button', { name: 'View options', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Compact', exact: true }).click();
   await page.getByRole('complementary', { name: 'Agents', exact: true }).screenshot({ path: testInfo.outputPath('project-headings.png') });
 });
 
@@ -566,12 +571,13 @@ test('E20-c7 trimmed server search discovers child beyond first100 with context 
 
 test('E20-c9 density is usable without inventing persisted cross-account preferences', async ({ page }) => {
   const { unexpected } = await open(page);
-  await page.getByRole('button', { name: 'Load children of alpha', exact: true }).click();
+  await page.getByRole('button', { name: 'Load subagents for alpha', exact: true }).click();
   await expect(page.getByTestId('session-c1')).toBeVisible();
   await expect(page.getByTestId('session-b')).toContainText('needle preview');
   const keys = () => page.evaluate(() => Object.keys(localStorage).filter((key) => /compact|density|session-sort|project-filter/.test(key)).sort());
   const before = await keys();
-  await page.getByRole('checkbox', { name: 'Compact rows' }).check();
+  await page.getByRole('button', { name: 'View options', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Compact', exact: true }).click();
   await expect(page.getByTestId('session-b')).not.toContainText('needle preview');
   // Compact must not leave only an aria-hidden colored dot (roots and children).
   for (const [id, status] of [['z', 'Working'], ['r', 'Ready to resume'], ['c1', 'Working']]) {
@@ -581,7 +587,8 @@ test('E20-c9 density is usable without inventing persisted cross-account prefere
     await expect(session).not.toContainText('Same label');
   }
   await expect(page.getByTestId('session-c1')).not.toContainText('alpha');
-  await page.getByRole('checkbox', { name: 'Compact rows' }).uncheck();
+  await page.getByRole('button', { name: 'View options', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Comfortable', exact: true }).click();
   await expect(page.getByTestId('session-b')).toContainText('needle preview');
   expect(await keys()).toEqual(before);
   expect(unexpected).toEqual([]);
