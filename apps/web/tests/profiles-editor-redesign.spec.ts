@@ -170,11 +170,11 @@ test('small windows, 200 percent zoom equivalent, RTL and long text keep control
 
 // Data fixtures through the existing E22 canonical gateway harness. No actual
 // engine/API requests are permitted; this is rendered contract evidence only.
-async function openCanonicalFixture(page: Page) {
+async function openCanonicalFixture(page: Page, options: { allowedMcpsJson?: string } = {}) {
   const profiles = ['alpha', 'beta'].map(id => ({
     id, label: id, icon: 'AG', enabled: true, isAgent: true, isManager: false, sessionSelectable: true,
     modelProvider: 'custom', modelId: 'model-one', defaultAnthropicAccountId: null, systemPrompt: '',
-    allowedMcpsJson: '{"server":[], "other":["keep"]}', allowedSkillsJson: null as string | null,
+    allowedMcpsJson: options.allowedMcpsJson ?? '{"server":[], "other":["keep"]}', allowedSkillsJson: null as string | null,
     allowedDelegatesJson: '[]', corePermissionsJson: '{"bash":{"*":"ask","git *":"allow"}, "future":{"x":"deny"}}',
     updatedAt: '2026-09-18T00:00:00Z',
   }));
@@ -254,6 +254,20 @@ test('canonical fixture: inheritance, large catalogs, grouped selection and poli
   await expect(page.getByTestId('permission-bash')).toHaveValue('deny');
 });
 
+test('canonical fixture: advanced MCP server policy is warned, locked, and preserved through unrelated saves', async ({ page }) => {
+  const raw = '{"server":{"mode":"capability-rules","allowedTools":{"include":["tool-*"],"exclude":["tool-9"]},"approval":{"write":"ask"},"future":{"weight":1e+03}},"other":["keep"]}';
+  const fixture = await openCanonicalFixture(page, { allowedMcpsJson: raw });
+  const group = page.locator('.profile-capability-group').filter({ has: page.locator('summary strong', { hasText: /^server$/ }) });
+  await expect(group.locator('summary')).toContainText('Advanced');
+  await expect(group.getByRole('alert')).toContainText('Advanced MCP policy');
+  await expect(page.getByTestId('mcp-server-tool-0')).toBeDisabled();
+  await expect(group.getByRole('button', { name: 'Select all in group: server' })).toBeDisabled();
+  await page.getByTestId('profile-label').fill('Advanced policy retained');
+  await page.getByTestId('profile-save').click();
+  await expect(page.getByTestId('profile-save-status')).toHaveText('Profile saved');
+  expect(fixture.profiles[0].allowedMcpsJson).toBe(raw);
+});
+
 test('canonical fixture: pending save blocks switching and a failure retains the original draft for retry', async ({ page }) => {
   const fixture = await openCanonicalFixture(page);
   fixture.reject(true); fixture.hold();
@@ -274,4 +288,48 @@ test('canonical fixture: pending save blocks switching and a failure retains the
   await expect(page.getByTestId('profile-save-status')).toHaveText('Profile saved');
   expect(fixture.writes.map(write => write.id)).toEqual(['alpha', 'alpha']);
   expect(fixture.profiles[0].label).toBe('Edited alpha'); expect(fixture.profiles[1].label).toBe('beta');
+});
+
+test('live profile save survives a full UI reload', async ({ page }) => {
+  test.skip(process.env.RHYTHM_LIVE_E2E !== '1', 'Requires the approved isolated Rhythm sandbox');
+  const apiBase = process.env.RHYTHM_LIVE_API_URL;
+  const engineBase = process.env.RHYTHM_LIVE_ENGINE_URL;
+  const productionApiBase = process.env.RHYTHM_LIVE_PRODUCTION_API_URL ?? 'https://api.invalid';
+  const token = process.env.RHYTHM_LIVE_TOKEN;
+  test.skip(!apiBase || !engineBase || !token, 'Set RHYTHM_LIVE_API_URL, RHYTHM_LIVE_ENGINE_URL, and RHYTHM_LIVE_TOKEN');
+  const marker = `[SMOKE] profile-${Date.now()}`;
+  let createdId = '';
+
+  await page.route('**/tests/electron-e22-harness.tsx', async route => {
+    const response = await route.fetch();
+    const code = (await response.text())
+      .replaceAll('env.VITE_RHYTHM_API_BASE', JSON.stringify(apiBase))
+      .replaceAll('env.VITE_RHYTHM_ENGINE_BASE', JSON.stringify(engineBase))
+      .replaceAll('env.VITE_RHYTHM_PRODUCTION_API_BASE', JSON.stringify(productionApiBase))
+      .replaceAll('env.VITE_RHYTHM_LIVE_TOKEN', JSON.stringify(token));
+    await route.fulfill({ response, body: code });
+  });
+
+  try {
+    await page.goto('/tests/electron-e22-harness.html');
+    await page.getByRole('button', { name: 'Switch surface' }).click();
+    await page.getByTestId('profile-create').click();
+    await page.getByTestId('profile-label').fill(marker);
+    await page.getByTestId('profile-system-prompt').fill(`${marker} persisted instructions`);
+    const created = page.waitForResponse(response => response.request().method() === 'POST' && response.url() === `${apiBase}/agent-configs`);
+    await page.getByTestId('profile-save').click();
+    const payload = await (await created).json() as { id: string };
+    createdId = payload.id;
+    await expect(page.getByTestId('profile-save-status')).toHaveText('Profile saved');
+
+    await page.reload();
+    await page.getByRole('button', { name: 'Switch surface' }).click();
+    await page.getByTestId(`profile-${createdId}`).click();
+    await expect(page.getByTestId('profile-label')).toHaveValue(marker);
+    await expect(page.getByTestId('profile-system-prompt')).toHaveValue(`${marker} persisted instructions`);
+  } finally {
+    if (createdId) {
+      await page.request.delete(`${apiBase}/agent-configs/${encodeURIComponent(createdId)}`, { headers: { Authorization: `Bearer ${token}` } });
+    }
+  }
 });

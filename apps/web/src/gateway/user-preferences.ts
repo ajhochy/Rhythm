@@ -1,4 +1,5 @@
 import type { GatewayMode } from '.';
+import type { SessionSort } from './sessions';
 
 export const SEND_MESSAGE_KEY_OPTIONS = [
   { value: 'Enter', label: 'Enter' },
@@ -6,9 +7,17 @@ export const SEND_MESSAGE_KEY_OPTIONS = [
 ] as const;
 
 export type SendMessageKey = typeof SEND_MESSAGE_KEY_OPTIONS[number]['value'];
-export type LocalUserPreferences = { theme: 'dark' | 'light'; sendKey: SendMessageKey };
+export type LocalUserPreferences = {
+  theme: 'dark' | 'light';
+  sendKey: SendMessageKey;
+  sessionSort: SessionSort;
+  archivedOnly: boolean;
+  compact: boolean;
+};
 
-export const DEFAULT_LOCAL_USER_PREFERENCES: LocalUserPreferences = { theme: 'dark', sendKey: 'Enter' };
+export const DEFAULT_LOCAL_USER_PREFERENCES: LocalUserPreferences = {
+  theme: 'dark', sendKey: 'Enter', sessionSort: 'newest', archivedOnly: false, compact: false,
+};
 export const USER_PREFERENCES_CHANGED_EVENT = 'rhythm:user-preferences-changed';
 
 export function localUserPreferencesKey(userId: string | number | undefined) {
@@ -24,6 +33,9 @@ export function readLocalUserPreferences(
     return {
       theme: value.theme === 'light' ? 'light' : 'dark',
       sendKey: value.sendKey === 'Meta+Enter' ? 'Meta+Enter' : 'Enter',
+      sessionSort: ['newest', 'oldest', 'name', 'activity', 'status'].includes(value.sessionSort ?? '') ? value.sessionSort! : 'newest',
+      archivedOnly: value.archivedOnly === true,
+      compact: value.compact === true,
     };
   } catch {
     return DEFAULT_LOCAL_USER_PREFERENCES;
@@ -67,8 +79,8 @@ export interface UserPreferencesGateway {
   updateArtifactTabIds(ids: string[]): Promise<{ artifactTabIds: string[] }>;
 }
 
-// artifactTabIds is the ONLY server-persisted tab preference. The validated theme and composer
-// preferences above intentionally remain account-scoped to this device.
+// artifactTabIds is the ONLY server-persisted tab preference. The validated theme, composer,
+// and Agents-rail preferences above intentionally remain account-scoped to this device.
 // Mounted at /users in apps/api_server/src/app.ts; PATCH /me/preferences declared at
 // apps/api_server/src/routes/users_routes.ts:10 and validated (<=50 unique UUID strings) at
 // apps/api_server/src/controllers/users_controller.ts:91-98.

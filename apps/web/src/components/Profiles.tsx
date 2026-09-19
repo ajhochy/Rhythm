@@ -28,8 +28,9 @@ export function ProfileAvatar({ profile, size }: { profile: Profile; size?: 'lar
 }
 
 type CapabilityChoice = { name: string; description?: string; testId: string };
-function CapabilityGroup({ name, choices, selected, inherited, filter, disabled, onChange }: {
+function CapabilityGroup({ name, choices, selected, inherited, filter, disabled, error, onChange }: {
   name: string; choices: CapabilityChoice[]; selected: string[]; inherited: boolean; filter: string; disabled?: boolean;
+  error?: string;
   onChange(selected: string[]): void;
 }) {
   const [expanded, setExpanded] = useState(true);
@@ -37,7 +38,8 @@ function CapabilityGroup({ name, choices, selected, inherited, filter, disabled,
   const visible = choices.filter(choice => `${name} ${choice.name} ${choice.description ?? ''}`.toLowerCase().includes(query));
   if (query && !visible.length) return null;
   return <details className="profile-capability-group" open={query ? true : expanded} onToggle={event => { if (!query) setExpanded(event.currentTarget.open); }}>
-    <summary><strong>{name}</strong><span>{choices.filter(choice => selected.includes(choice.name)).length} of {choices.length} selected</span><span className="profile-policy-source">{inherited ? 'Inherited' : 'Explicit'}</span></summary>
+    <summary><strong>{name}</strong><span>{choices.filter(choice => selected.includes(choice.name)).length} of {choices.length} selected</span><span className="profile-policy-source">{error ? 'Advanced' : inherited ? 'Inherited' : 'Explicit'}</span></summary>
+    {error && <p role="alert" className="profile-feedback error">{error}</p>}
     <div className="profile-group-actions"><button className="text-button" type="button" aria-label={`Select all in group: ${name}`} disabled={disabled || !choices.length} onClick={() => onChange([...new Set([...selected, ...choices.map(choice => choice.name)])])}>Select all in group</button><button className="text-button" type="button" aria-label={`Clear group: ${name}`} disabled={disabled || !selected.length} onClick={() => onChange([])}>Clear group</button></div>
     <div className="profile-capability-choices">{visible.map(choice => <label key={choice.name} className="profile-check-choice"><input type="checkbox" checked={selected.includes(choice.name)} disabled={disabled} onChange={event => onChange(event.target.checked ? [...selected, choice.name] : selected.filter(item => item !== choice.name))} data-testid={choice.testId} /><span><strong>{choice.name}</strong>{choice.description && <small>{choice.description}</small>}</span></label>)}</div>
     {!choices.length && <p>No tools are listed for this server.</p>}
@@ -265,7 +267,7 @@ export function Profiles() {
                   const server = mcpCatalog.find(item => item.name === name);
                   const group = mcpGroupSelection(mcpPolicy, name, server?.tools ?? []);
                   const names = [...new Set([...(server?.tools ?? []), ...group.selected])];
-                  return <CapabilityGroup key={name} name={name} choices={names.map(tool => ({ name: tool, description: server?.tools.includes(tool) ? undefined : 'Not in the current catalog; saved selection retained.', testId: `mcp-${name}-${tool}` }))} selected={group.selected} inherited={group.inherited} filter={capabilityFilter} disabled={!!mcpPolicy.error || !!mcpCatalogError || !server} onChange={tools => setMcpGroup(name, tools)} />;
+                  return <CapabilityGroup key={name} name={name} choices={names.map(tool => ({ name: tool, description: server?.tools.includes(tool) ? undefined : 'Not in the current catalog; saved selection retained.', testId: `mcp-${name}-${tool}` }))} selected={group.selected} inherited={group.inherited} filter={capabilityFilter} error={group.error} disabled={!!mcpPolicy.error || !!mcpCatalogError || !server || !!group.error} onChange={tools => setMcpGroup(name, tools)} />;
                 })}
                 {!mcpCatalogError && !availableMcpGroups.length && <p>No MCP servers configured.</p>}
                 {capabilityFilter && availableMcpGroups.length > 0 && !availableMcpGroups.some(name => capabilitiesMatch(`${name} ${mcpCatalog.find(server => server.name === name)?.tools.join(' ') ?? ''} ${mcpGroupSelection(mcpPolicy, name, []).selected.join(' ')}`)) && <p>No matching MCP tools.</p>}

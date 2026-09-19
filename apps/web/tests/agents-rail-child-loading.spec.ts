@@ -79,6 +79,14 @@ test('initial load, paging, nested parents and repeated activation preserve sele
   expect(await list.evaluate(element => element.scrollTop)).toBe(top);
   await expect(page.getByTestId('selection')).toHaveText('parent-one');
   await expect(initial).toHaveAccessibleName(`Load more subagents for ${parentTitle} (parent-o)`);
+  await page.getByTestId('subagents-parent-one').click();
+  await expect(page.getByTestId('session-nested')).toBeHidden();
+  await expect(initial).toBeHidden();
+  await expect(page.getByTestId('subagents-parent-one')).toHaveAttribute('aria-expanded', 'false');
+  await page.getByTestId('subagents-parent-one').click();
+  await expect(page.getByTestId('session-nested')).toBeVisible();
+  await expect(initial).toBeVisible();
+  expect(fixture.childRequests).toHaveLength(1);
   await page.locator('[data-load-parent="nested"]').click();
   await expect(page.getByTestId('session-grandchild')).toBeVisible();
   await expect(page.locator('[data-load-parent="nested"]')).toHaveCount(0);
