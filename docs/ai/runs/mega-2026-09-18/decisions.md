@@ -1,0 +1,26 @@
+# Decisions made for you (running log; each line = decision — rejected alternative)
+
+- Deadline: the 14:00 PT target had passed before the session started (18:38 PDT); AJ then granted 8 hours → dispatch stop 01:45 PDT, draft PRs by ~02:30 PDT, same drop order — rejected treating the run as already failed.
+- Codex model: `gpt-6-astra` (the id configured in ~/.codex/config.toml and confirmed by a live probe) — rejected falling back to gpt-5.6-sol.
+- Dispatch mode: codex-companion `task --background` + polling/monitor — rejected foreground-in-background-Bash (10-minute tool timeout risk would orphan workers).
+- Worktrees: `.mega-wt/<ws>` with node_modules symlinked from the main checkout (workers only typecheck/unit-test) — rejected per-worktree `npm ci` (minutes and GBs each).
+- Wave 1b (Agents UX, profiles editor, reading comfort) dispatched in parallel with WS-0, accepting `styles.css` merge conflicts — rejected serializing everything behind WS-0.
+- `packages/rhythm-workspace-ui` stays a standalone package with its own lockfile and root `workspace-ui:*` scripts — rejected adding it to the root npm workspace (root lockfile pins apps/api_server and Watchtower deploys from it).
+- Fork: pushed `wt/t_c118913c` unchanged for preservation, then rebased a copy onto fork main as `mega/2026-09-18-rhythm-plugin-finish` — rejected rewriting the original branch.
+- Hermes sidecar: pinned port 9121 (`RHYTHM_HERMES_PORT`), env flag `RHYTHM_HERMES_ENABLED` default ON, `failed/port-in-use` instead of port roaming — rejected auto-assign (0) and 9119 (Hermes Desktop's own default).
+- Hermes sidecar spawns the dashboard server (serves UI at `/` + `/api/*`, `hermes_cli/web_dist`), minting `HERMES_DASHBOARD_SESSION_TOKEN` like Hermes Desktop does — rejected `hermes serve` (backend only, 404 at `/`) and rejected any Rhythm-side auth invention.
+- Hermes install affordance: native consent dialog showing the exact bootstrap command, Cancel default, never elevated — rejected silent install.
+- B4: `hermes skin` drives only the TUI (all builtin skins describe terminal themes) → generic theme seam in the fork dashboard + Rhythm theme in the feature pack + `insertCSS` in the Electron tab — rejected shipping a TUI skin.
+- B3 intents limited to `navigate-session` and `new-chat` (≤64 KiB), MessageChannelMain per attach, sandboxed WebContentsView on its own partition — rejected any generic postMessage/proxy bridge.
+- Gate cadence: targeted gate (typecheck + build + the workstream's specs + the shared primitive spec) after each merge; full apps/web Playwright suite at checkpoints (after WS-0, after the eight views, final) — rejected the full suite after every merge (15–30 min × ~15 merges does not fit the window).
+- Acceptance contracts: tests are authored test-first by the Codex workers; a Codex assembler emits `docs/ai/contracts/issue-N.json` from worker reports before verification-gate — rejected Claude-authored contract stubs (Codex-only rule).
+- #1510 mobile: working sound default off; a stored `true` that only reflects the old default is migrated to off once; explicit re-enables persist — rejected discarding every saved preference.
+- #1522: creates through the existing `ProjectsController.create`; live creation against the running API is left for AJ (isolated data) — rejected mutating the live :4001 database during the run.
+- #1524: one shared `Splitter` integrated through ListInspector, AgentsWorkspace, SessionRail (tools handle) and Shell — rejected per-page splitter edits (conflicts with eight parallel view workers).
+- Issue drafting: no `docs/ai/issue-template.md` exists → #1527/#1534 structure used verbatim; issues filed as #1540–#1543.
+- Reviews: `codex-companion adversarial-review` per merged workstream from the integration worktree — rejected Claude review agents.
+- B2 phase 2 (Hermes payload inside Rhythm.app) dropped: the phase-0 spike returned NO-GO (404 MiB relocatable Python, 71 Mach-O files, clean lock-qualified build blocked); sidecar-only ships — rejected packaging on unqualified evidence.
+- B2 correction: the supervisor spawns `hermes dashboard --no-open` (UI + API on one port, minted `HERMES_DASHBOARD_SESSION_TOKEN` in the child env, readiness on `/api/health`) after the first worker kept `hermes serve` and proved it never serves the UI — rejected keeping `serve` plus a second dashboard process.
+- #1520 icon identity test fix dispatched as a follow-up rather than merging with two red tests — rejected skipping the tests.
+- Codex model switched to `gpt-5.6-sol` for all dispatches after AJ's 19:15 instruction (token burn) — the first 13 workers ran on gpt-6-astra.
+- Load management: wave 2 (8 views) was dispatched at load 22 and pushed the 1-minute load to 170; follow-up fixes and reviews are queued behind a load < 30 waiter — rejected killing running workers.
