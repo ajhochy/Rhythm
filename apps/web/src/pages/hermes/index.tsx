@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Splitter } from '../../components/Splitter';
 import { dashboardDraftContext, hermesShell, type HermesStatus } from './bridge';
 import './styles.css';
 
@@ -59,8 +60,17 @@ export function HermesPage() {
   const [busy, setBusy] = useState(false);
   const [viewError, setViewError] = useState('');
   const [intentMessage, setIntentMessage] = useState('');
+  const [compactLayout, setCompactLayout] = useState(() => window.matchMedia('(max-width: 700px)').matches);
+  const [statusWidth, setStatusWidth] = useState(220);
+  const [statusHeight, setStatusHeight] = useState(120);
   const revision = useRef(0);
   const alive = useRef(true);
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 700px)');
+    const change = (event: MediaQueryListEvent) => setCompactLayout(event.matches);
+    query.addEventListener('change', change);
+    return () => query.removeEventListener('change', change);
+  }, []);
   useEffect(() => {
     alive.current = true;
     if (!enabled) { setStatus({ state: 'disabled' }); return () => { alive.current = false; }; }
@@ -111,13 +121,16 @@ export function HermesPage() {
       <button type="button" className="primary-button" disabled={state !== 'ready' || !!viewError || !hermesShell()?.hermesView} onClick={() => void askAboutDashboard()}>Ask Hermes about my dashboard</button>
     </header>
     {intentMessage && <p className="hermes-notice" role="status">{intentMessage}</p>}
-    <div className="hermes-layout">
+    <div className="hermes-layout" style={{ '--hermes-status-width': `${statusWidth}px`, '--hermes-status-height': `${statusHeight}px` } as React.CSSProperties}>
       <aside className="hermes-inspector" aria-label="Hermes status" tabIndex={0}>
         <h2>Connection</h2>
         <dl><dt>Status</dt><dd aria-live="polite">{stateLabels[state]}</dd>{status.version && <><dt>Version</dt><dd>{status.version}</dd></>}</dl>
         <p>Opens on this Mac.</p>
         <p>Dashboard context is shared only when you choose the toolbar action.</p>
       </aside>
+      {compactLayout
+        ? <Splitter orientation="horizontal" storageKey="layout.hermes.status-height" min={80} max={220} defaultSize={120} onResize={setStatusHeight} ariaLabel="Resize Hermes status" testId="hermes-status-resizer" />
+        : <Splitter orientation="vertical" storageKey="layout.hermes.status-width" min={180} max={360} defaultSize={220} onResize={setStatusWidth} ariaLabel="Resize Hermes status" testId="hermes-status-resizer" />}
       <div className="hermes-content">
         {state === 'ready' && !viewError ? <HermesHost key={`${status.url ?? ''}:${status.port ?? ''}`} onError={setViewError} /> : <div className="hermes-state" tabIndex={0}>
           {state === 'disabled' && <><h2>Hermes is disabled</h2><p>Open Rhythm for desktop to use Hermes. If it was disabled, launch Rhythm with <code>RHYTHM_HERMES_ENABLED=1</code> to enable it.</p></>}

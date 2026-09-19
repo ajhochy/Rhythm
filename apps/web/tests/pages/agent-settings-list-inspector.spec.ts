@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { openFixture } from '../helpers';
 import { atNarrow, atZoom200, expectInspectorHeading, expectListInspectorAxeClean, expectSelected, keyboardSelect, selectRow } from '../helpers/list-inspector';
+import { fulfillJson, openInterceptedLiveApp } from '../post-m1-phase-5-live-fixtures';
 
 const profiles = 'Profiles overview';
 const autoPromotion = 'Auto-promotion';
@@ -106,5 +107,140 @@ test.describe('Agent Settings list and inspector', () => {
     const overflow = await page.locator('.list-inspector').evaluate((element) => ({ content: element.scrollWidth, available: element.clientWidth }));
     expect(overflow.content).toBeLessThanOrEqual(overflow.available + 1);
     await expectListInspectorAxeClean(page);
+  });
+});
+
+test.describe('Agent Settings live persistence', () => {
+  test('authorizes an account, saves the default, and restores it after reload', async ({ page }) => {
+    let defaultAccountId = 'work';
+    let accounts = [{ id: 'work', label: 'Work account', status: 'active' }];
+    const mutations: string[] = [];
+
+    await openInterceptedLiveApp(page, '/#/tools/agent-settings?settingsSection=accounts', {
+      handleApi: async (route, request) => {
+        if (request.pathname === '/opencode/auth/accounts' && request.method === 'GET') {
+          await fulfillJson(route, 200, { accounts, defaultAccountId });
+          return true;
+        }
+        if (request.pathname === '/opencode/auth/accounts/login-start' && request.method === 'POST') {
+          const body = request.body as { accountId: string; label: string };
+          mutations.push(`start:${body.accountId}:${body.label}`);
+          await fulfillJson(route, 200, { authorizeUrl: 'https://example.test/anthropic-authorize' });
+          return true;
+        }
+        if (request.pathname === '/opencode/auth/accounts/login-complete' && request.method === 'POST') {
+          const body = request.body as { accountId: string; code: string };
+          mutations.push(`complete:${body.accountId}:${body.code}`);
+          accounts = [...accounts, { id: body.accountId, label: 'Personal account', status: 'active' }];
+          await fulfillJson(route, 200, { account: accounts.at(-1) });
+          return true;
+        }
+        if (request.pathname === '/opencode/auth/accounts/default' && request.method === 'PATCH') {
+          const body = request.body as { accountId: string };
+          defaultAccountId = body.accountId;
+          mutations.push(`default:${body.accountId}`);
+          await fulfillJson(route, 200, { ok: true, defaultAccountId });
+          return true;
+        }
+        if (request.pathname === '/opencode/mcp') {
+          await fulfillJson(route, 200, []);
+          return true;
+        }
+        return false;
+      },
+    });
+
+    await page.getByTestId('agent-settings-account-id').fill('personal');
+    await page.getByTestId('agent-settings-account-label').fill('Personal account');
+    await page.getByTestId('agent-settings-account-start').click();
+    await expect(page.getByTestId('agent-settings-account-authorization-link')).toHaveAttribute('href', 'https://example.test/anthropic-authorize');
+    await page.getByTestId('agent-settings-account-code').fill('authorization-code#state');
+    await page.getByTestId('agent-settings-account-complete').click();
+    await expect(page.getByTestId('agent-settings-account-personal')).toContainText('Personal account');
+    await page.getByTestId('agent-settings-account-default-personal').click();
+    await expect(page.getByTestId('agent-settings-account-personal')).toContainText('Default');
+    expect(mutations).toEqual([
+      'start:personal:Personal account',
+      'complete:personal:authorization-code#state',
+      'default:personal',
+    ]);
+
+    await page.reload();
+    await expect(page.getByTestId('agent-settings-account-personal')).toContainText('Default');
+    await expect(page.getByTestId('agent-settings-account-default-personal')).toHaveCount(0);
+  });
+
+  test('saves MCP server, credential, and OAuth changes and restores them after reload', async ({ page }) => {
+    type Server = { name: string; status: string; error: null; requiredEnv: string[]; needsCredentials: boolean; source: 'curated' | 'adhoc'; tools: string[] };
+    let servers: Server[] = [
+      { name: 'stripe', status: 'disabled', error: null, requiredEnv: ['STRIPE_SECRET_KEY'], needsCredentials: true, source: 'curated', tools: [] },
+      { name: 'notion', status: 'needs_auth', error: null, requiredEnv: [], needsCredentials: true, source: 'curated', tools: [] },
+    ];
+    const mutations: string[] = [];
+
+    await openInterceptedLiveApp(page, '/#/tools/agent-settings?settingsSection=mcp', {
+      handleApi: async (route, request) => {
+        if (request.pathname === '/opencode/auth/accounts') {
+          await fulfillJson(route, 200, { accounts: [], defaultAccountId: null });
+          return true;
+        }
+        if (request.pathname === '/opencode/mcp' && request.method === 'GET') {
+          await fulfillJson(route, 200, servers);
+          return true;
+        }
+        if (request.pathname === '/opencode/mcp' && request.method === 'POST') {
+          const body = request.body as { name: string; url?: string; command?: string };
+          mutations.push(`add:${body.name}:${body.url ?? body.command}`);
+          const added: Server = { name: body.name, status: 'disconnected', error: null, requiredEnv: [], needsCredentials: false, source: 'adhoc', tools: [] };
+          servers = [...servers, added];
+          await fulfillJson(route, 200, added);
+          return true;
+        }
+        if (request.pathname === '/opencode/mcp/stripe/credentials' && request.method === 'POST') {
+          const body = request.body as { environment: Record<string, string> };
+          mutations.push(`credentials:${body.environment.STRIPE_SECRET_KEY}`);
+          servers = servers.map((server) => server.name === 'stripe' ? { ...server, status: 'connected', needsCredentials: false } : server);
+          await fulfillJson(route, 200, servers.find((server) => server.name === 'stripe'));
+          return true;
+        }
+        if (request.pathname === '/opencode/mcp/notion/oauth/start' && request.method === 'POST') {
+          mutations.push('oauth:start:notion');
+          await fulfillJson(route, 200, { authorizationUrl: 'https://example.test/notion-authorize' });
+          return true;
+        }
+        if (request.pathname === '/opencode/mcp/notion/oauth/status' && request.method === 'GET') {
+          mutations.push('oauth:status:notion');
+          servers = servers.map((server) => server.name === 'notion' ? { ...server, status: 'connected', needsCredentials: false } : server);
+          await fulfillJson(route, 200, { status: 'connected' });
+          return true;
+        }
+        return false;
+      },
+    });
+
+    await page.getByTestId('agent-settings-mcp-add-name').fill('calendar');
+    await page.getByTestId('agent-settings-mcp-add-value').fill('https://mcp.example.test');
+    await page.getByTestId('agent-settings-mcp-add').click();
+    await expect(page.getByTestId('agent-settings-mcp-calendar')).toContainText('disconnected');
+
+    await page.getByTestId('agent-settings-mcp-credential-stripe-STRIPE_SECRET_KEY').fill('sk_test_saved');
+    await page.getByTestId('agent-settings-mcp-credentials-save-stripe').click();
+    await expect(page.getByTestId('agent-settings-mcp-stripe')).toContainText('connected');
+
+    await page.getByTestId('agent-settings-mcp-oauth-notion').click();
+    await expect(page.getByTestId('agent-settings-mcp-authorization-link')).toHaveAttribute('href', 'https://example.test/notion-authorize');
+    await page.getByTestId('agent-settings-mcp-oauth-status').click();
+    await expect(page.getByTestId('agent-settings-mcp-notion')).toContainText('connected');
+
+    expect(mutations).toEqual([
+      'add:calendar:https://mcp.example.test',
+      'credentials:sk_test_saved',
+      'oauth:start:notion',
+      'oauth:status:notion',
+    ]);
+    await page.reload();
+    await expect(page.getByTestId('agent-settings-mcp-calendar')).toContainText('disconnected');
+    await expect(page.getByTestId('agent-settings-mcp-stripe')).toContainText('connected');
+    await expect(page.getByTestId('agent-settings-mcp-notion')).toContainText('connected');
   });
 });

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, 
 import { FocusDialog } from '../../components/FocusDialog';
 import { HeaderTaskAction } from '../../components/HeaderTaskAction';
 import { TaskCreateForm } from '../../components/TaskCreateForm';
+import { Splitter } from '../../components/Splitter';
 import { navigate } from '../../components/Shell';
 import { Icon } from '../../icons';
 import { useFixtures } from '../../store';
@@ -141,6 +142,7 @@ export function TasksPage({ route }: { route: string }) {
   const statusLock = useRef(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [narrowInspector, setNarrowInspector] = useState(() => window.matchMedia('(max-width: 1100px)').matches);
+  const [detailWidth, setDetailWidth] = useState(400);
   useEffect(() => {
     const media = window.matchMedia('(max-width: 1100px)');
     // Keep the mounted draft in its current surface until selection closes.
@@ -542,7 +544,7 @@ export function TasksPage({ route }: { route: string }) {
         {surfaceState === 'forbidden' && <div className="tasks-prerequisite forbidden" id={ownerOnlyReasonId} role="alert" data-testid="page-state-forbidden"><strong>Task owner required</strong><span>Only the task owner can add or remove collaborators or delete a task. Collaborators may still edit and complete shared work.</span></div>}
         {surfaceState !== 'forbidden' && <p className="tasks-owner-note" id={ownerOnlyReasonId}><strong>Shared-task permissions</strong> Collaborators may edit and complete; only the task owner can add or remove collaborators or delete.</p>}
 
-        <div className="tasks-workspace-layout" data-od-id="tasks-workspace-layout">
+        <div className="tasks-workspace-layout" data-od-id="tasks-workspace-layout" style={{ '--task-detail-width': `${detailWidth}px` } as React.CSSProperties}>
           <div className="tasks-collection">
             <section className="tasks-workspace" aria-labelledby="tasks-workspace-title" data-od-id="task-queue">
               <div className="tasks-controls">
@@ -569,6 +571,7 @@ export function TasksPage({ route }: { route: string }) {
             </section>
           </div>
 
+          {!narrowInspector && selectedTask && <Splitter orientation="vertical" storageKey="layout.tasks.detail" min={320} max={620} defaultSize={400} onResize={setDetailWidth} ariaLabel="Resize task details" resizeEdge="end" testId="tasks-detail-resizer" />}
           {!narrowInspector && inspectorContent()}
         </div>
       </>}

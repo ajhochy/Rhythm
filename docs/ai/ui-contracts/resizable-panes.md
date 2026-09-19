@@ -23,6 +23,11 @@ Layout preferences use numeric pixel values in local storage under `layout.*` ke
 | Agents session rail / conversation | `layout.agents.rail` |
 | Agents conversation / inspector | `layout.agents.inspector` |
 | Agents session list / Tools panel | `layout.agents.tools` |
+| Tasks collection / task detail | `layout.tasks.detail` |
+| Rhythms collection / rhythm detail | `layout.rhythms.detail` |
+| Planner day boundaries | `layout.planner.day-1` through `layout.planner.day-6` |
+| Profiles list / profile editor | `layout.profiles.rail` |
+| Hermes status / embedded workspace | `layout.hermes.status-width` or `layout.hermes.status-height` |
 | Shared list / inspector | `layout.list-inspector.<label-slug>` |
 | Future route-specific boundary | `layout.<route>.<stable-boundary-name>` |
 
@@ -39,16 +44,17 @@ The Shell boundary applies to every route in `apps/web/src/App.tsx`. The current
 | `/agents` | Session list / stacked Tools panel | Covered by `SessionRail` and `layout.agents.tools`. |
 | `/dashboard` | Dashboard card, metric, planning, and context grids | No persistent pane boundary; these are responsive content grids. |
 | `/dashboard` live artifact tabs | Toolbar / artifact iframe | No fixed pane boundary in the current surface. The iframe flexes to its container and receives the shared resize notification. |
-| `/planner` and agenda/detail states | Seven day columns and any opened detail dialog | Follow-up: day columns are still a fixed calendar grid; dialogs are modal rather than adjacent panes. |
-| `/tasks`, `/tasks/task/:id`, list and board tabs | Task list or board / 400 px detail column | Follow-up: route still owns a fixed `tasks-workspace-layout` boundary. |
-| `/rhythms`, rule/detail states | Rhythm list / rule inspector | Follow-up: route still owns a fixed `rhythms-layout` boundary. |
-| `/projects`, templates and instances tabs | Template rail / template detail; project list / inspector; instance list / inspector | Follow-up: route has multiple fixed project grids. Each tab needs its own stable key. |
-| `/messages`, thread states | Conversation list / active conversation | Follow-up: route still owns a fixed `messages-workspace` boundary. |
-| `/facilities`, reservations and rooms tabs | Reservation or room list / detail | Follow-up: route still owns a fixed `facilities-split-shell` boundary. |
-| `/automations`, automation tabs | Automation list / detail | Follow-up: route-specific workspace remains fixed. |
-| `/integrations`, provider/import states | Provider list / provider detail | Follow-up: route-specific workspace remains fixed. |
-| `/profiles` | Profile rail / profile settings and functions | Follow-up: current `profiles-workspace` remains fixed pending the profile redesign integration. |
+| `/planner`, week view | Each adjacent pair of the seven day lanes | Covered by six independent splitters and `layout.planner.day-1` through `layout.planner.day-6`. Agenda is a single column; task and event details are modal. |
+| `/tasks`, `/tasks/task/:id`, list and board tabs | Task list or board / selected task detail | Covered by `layout.tasks.detail`; the compact view keeps task details in a modal. |
+| `/rhythms`, rule/detail states | Rhythm list / rule inspector | Covered by `layout.rhythms.detail`; the responsive single-column view has no adjacent pane boundary. |
+| `/projects`, templates and instances tabs | Project list / selected template or instance inspector | Covered transitively by `ListInspector` with `layout.list-inspector.projects`. |
+| `/messages`, thread states | Conversation list / active conversation | Covered transitively by `ListInspector` with `layout.list-inspector.conversations`. |
+| `/facilities`, overview, reservations, and rooms | Facility or reservation list / detail | Covered transitively by `ListInspector` with `layout.list-inspector.facility-reservations` or `layout.list-inspector.facility-rooms`. |
+| `/automations`, automation states | Automation list / detail | Covered transitively by `ListInspector` with `layout.list-inspector.automation-rules`. |
+| `/integrations`, provider and import states | Provider list / provider detail | Covered transitively by `ListInspector` with `layout.list-inspector.integrations`; the import flow is a single wizard surface. |
+| `/profiles` | Profile rail / profile settings and functions | Covered by `layout.profiles.rail`. |
 | `/endpoint-map` | Endpoint table | No adjacent view pane boundary. |
+| `/hermes` | Connection status / embedded Hermes workspace | Covered by `layout.hermes.status-width` on wide layouts and `layout.hermes.status-height` when stacked. The embedded view receives resize notifications. |
 | `/mobile-access` | Pairing and device content | No adjacent view pane boundary. |
 | `/settings` | Settings sections | No adjacent view pane boundary; contains the shared Reset layout action. |
 | unknown route | Recovery page | No adjacent view pane boundary. |
@@ -57,13 +63,18 @@ The Shell boundary applies to every route in `apps/web/src/App.tsx`. The current
 
 | Tool/tab | Pane boundary | Status |
 | --- | --- | --- |
+| Brain (`brain`) | Agent memories / memory detail | Covered transitively by `ListInspector` with `layout.list-inspector.agent-memories`. |
+| Deep Research (`deep-research`) | Research projects / run detail and evidence tabs | Covered transitively by `ListInspector` with `layout.list-inspector.research-projects`. |
 | Tasks (`tasks`) | Scheduled jobs / inspector | Covered transitively by `ListInspector` with `layout.list-inspector.scheduled-agent-jobs`. |
-| Deep Research (`deep-research`) | Research projects / run detail | Follow-up: legacy `tool-split` remains fixed. |
-| Skills (`skills`) | Skill list / content detail | Follow-up: legacy `tool-split` remains fixed. |
-| Playbooks (`playbooks`) | Playbook list / content detail | Follow-up: legacy `tool-split` remains fixed. |
-| Report Card (`report-card`) | Agent list / run-quality detail | Follow-up: legacy `tool-split` remains fixed. |
-| Email (`email`) | Signal list / message detail | Follow-up: legacy `tool-split` remains fixed. |
-| Brain, Webhooks, Cookbook, Review Queue, Gallery, Agent Settings | Current rendered state | No persistent adjacent pane boundary in the current implementation. Re-inventory when their pending list/inspector redesigns merge. |
+| Webhooks (`webhooks`) | Webhook endpoints / endpoint detail | Covered transitively by `ListInspector` with `layout.list-inspector.webhook-endpoints`. |
+| Skills (`skills`) | Skill list / content detail | Covered transitively by `ListInspector` with `layout.list-inspector.skills`. |
+| Playbooks (`playbooks`) | Playbook list / content detail | Covered transitively by `ListInspector` with `layout.list-inspector.playbooks`. |
+| Cookbook (`cookbook`) | Recipe list / recipe detail | Covered transitively by `ListInspector` with `layout.list-inspector.cookbook-recipes`. |
+| Review Queue (`review`) | Proposal list / proposal detail | Covered transitively by `ListInspector` with `layout.list-inspector.organization-proposals`. |
+| Report Card (`report-card`) | Agent list / run-quality detail | Covered transitively by `ListInspector` with `layout.list-inspector.agent-report-cards`. |
+| Email (`email`) | Signal list / message detail | Covered transitively by `ListInspector` with `layout.list-inspector.email-signals`. |
+| Gallery (`gallery`) | Artifact list / artifact detail | Covered transitively by `ListInspector` with `layout.list-inspector.creative-media-artifacts`. |
+| Agent Settings (`agent-settings`) | Settings section list / section editor | Covered transitively by `ListInspector` with `layout.list-inspector.agent-settings-sections`. |
 | Profiles tool entry | Navigation redirects to `/profiles` | Covered by the `/profiles` inventory row. |
 
 ## Review checklist for new screens

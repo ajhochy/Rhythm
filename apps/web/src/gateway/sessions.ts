@@ -61,7 +61,7 @@ export type SessionListPage = { sessions: SessionCatalogEntry[]; ancestors: Sess
 export type SessionSort = 'newest' | 'oldest' | 'name' | 'activity' | 'status';
 export type IdentityProfile = Profile & { autoApproveActions?: boolean; reasoningEffort?: string | null };
 export type ModelChoice = { providerId: string; modelId: string; label: string };
-export type AccountChoice = { id: string; label: string; status: string };
+export type AccountChoice = { id: string; label: string; status: string; isDefault?: boolean };
 export type SessionSettings = { name?: string; profileId?: string | null; providerId?: string | null; modelId?: string | null; thinkingBudget?: number | null; permissionMode?: string; fastMode?: boolean; anthropicAccountId?: string };
 export type TurnOverride = { profileId?: string; modelOverride?: { providerId: string; modelId: string } };
 const statusOrder: Record<Session['status'], number> = { working: 0, starting: 1, idle: 2, error: 3, closed: 4, resumable: 5 };
@@ -109,6 +109,10 @@ export interface SessionGateway {
   profiles(): Promise<IdentityProfile[]>;
   models?(): Promise<ModelChoice[]>;
   accounts?(): Promise<AccountChoice[]>;
+  startAccountLogin?(input: { accountId: string; label: string }): Promise<{ authorizationUrl: string }>;
+  completeAccountLogin?(input: { accountId: string; code: string }): Promise<void>;
+  setDefaultAccount?(accountId: string): Promise<void>;
+  removeAccount?(accountId: string): Promise<void>;
   patchSettings?(localId: string, input: SessionSettings): Promise<Session>;
   archive?(localId: string, archived: boolean): Promise<void>;
   fork?(localId: string, messageId: string): Promise<Session>;
@@ -435,9 +439,21 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
       return [...new Map(choices.map(row => [`${row.providerId}/${row.modelId}`, row])).values()];
     },
     accounts: async () => {
-      const body = await response<{ accounts?: unknown[] }>('Load accounts', request('/opencode/auth/accounts'));
-      return (body.accounts ?? []).map(record).map(row => ({ id: string(row.id), label: string(row.label, string(row.id)), status: string(row.status) }));
+      const body = await response<{ accounts?: unknown[]; defaultAccountId?: string }>('Load accounts', request('/opencode/auth/accounts'));
+      return (body.accounts ?? []).map(record).map(row => ({
+        id: string(row.id),
+        label: string(row.label, string(row.id)),
+        status: string(row.status),
+        isDefault: string(row.id) === body.defaultAccountId,
+      }));
     },
+    startAccountLogin: async (input) => {
+      const result = await response<{ authorizeUrl: string }>('Start account authorization', request('/opencode/auth/accounts/login-start', { method: 'POST', body: JSON.stringify(input) }));
+      return { authorizationUrl: result.authorizeUrl };
+    },
+    completeAccountLogin: async (input) => { await response<unknown>('Complete account authorization', request('/opencode/auth/accounts/login-complete', { method: 'POST', body: JSON.stringify(input) })); },
+    setDefaultAccount: async (accountId) => { await response<unknown>('Set default account', request('/opencode/auth/accounts/default', { method: 'PATCH', body: JSON.stringify({ accountId }) })); },
+    removeAccount: async (accountId) => { await response<unknown>('Remove account', request(`/opencode/auth/accounts/${encodeURIComponent(accountId)}`, { method: 'DELETE' })); },
     patchSettings: async (id, input) => {
       await response<unknown>('Save session settings', request(`/agent-sessions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(input) }));
       const body = await response<{ session: unknown; messages?: unknown[]; transcriptPage?: unknown }>('Read session settings', request(`/agent-sessions/${encodeURIComponent(id)}?transcriptLimit=50`));
