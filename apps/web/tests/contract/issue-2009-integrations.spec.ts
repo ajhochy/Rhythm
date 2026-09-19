@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { openPage } from '../helpers';
+import { expectSelected, selectRow } from '../helpers/list-inspector';
 
 async function expectIntegrationsPage(page: Page) {
   await expect(page.getByTestId('page-integrations')).toBeVisible();
@@ -16,7 +17,7 @@ test('issue-2009-c1: integrations routes render the real page and section deep l
   for (const section of ['google-calendar', 'gmail', 'planning-center', 'assistant-tools']) {
     await openPage(page, `integrations/${section}`);
     await expectIntegrationsPage(page);
-    await expect(page.getByTestId(`integration-${section}`)).toHaveAttribute('data-deep-link-active', 'true');
+    await expectSelected(page, section === 'google-calendar' ? 'Google Calendar' : section === 'gmail' ? 'Gmail' : section === 'planning-center' ? 'Planning Center' : 'Assistant access');
   }
 
   await openPage(page, 'integrations/import');
@@ -30,24 +31,24 @@ test('issue-2009-c1: integrations routes render the real page and section deep l
   await expect(page).toHaveURL(/#\/integrations$/);
 });
 
-test('issue-2009-c2: provider cards distinguish connection sync error and permission states', async ({ page }) => {
-  // Regression caught: cards collapse needs-reauth/error into a generic disconnected chip, hide prerequisites, or invent disconnect/revoke controls.
+test('issue-2009-c2: provider rows and inspectors distinguish connection sync error and permission states', async ({ page }) => {
+  // Regression caught: rows collapse needs-reauth/error into a generic disconnected chip, inspectors hide prerequisites, or invent disconnect/revoke controls.
   await openPage(page, 'integrations', '?fixture=account-states');
   await expectIntegrationsPage(page);
-  await expect(page.getByTestId('integration-status-google-calendar')).toHaveText('Connected');
+  await expect(page.getByTestId('integration-google-calendar')).toContainText('Connected');
   await expect(page.getByTestId('integration-google-calendar')).toContainText('aj@example.test');
-  await expect(page.getByTestId('integration-status-gmail')).toHaveText('Permission required');
+  await expect(page.getByTestId('integration-gmail')).toContainText('Permission required');
   await expect(page.getByTestId('integration-gmail')).toContainText(/Reconnect Google|authorization expired/i);
-  await expect(page.getByTestId('integration-status-planning-center')).toHaveText('Needs attention');
+  await expect(page.getByTestId('integration-planning-center')).toContainText('Needs attention');
   await expect(page.getByTestId('integration-planning-center')).toContainText('Refresh token rejected');
   await expect(page.getByTestId('integration-disconnect')).toHaveCount(0);
   await expect(page.getByRole('button', { name: /revoke/i })).toHaveCount(0);
 
   await openPage(page, 'integrations', '?fixture=disconnected');
   await expectIntegrationsPage(page);
-  await expect(page.getByTestId('integration-status-google-calendar')).toHaveText('Not connected');
+  await expect(page.getByTestId('integration-google-calendar')).toContainText('Not connected');
   await expect(page.getByTestId('google-calendar-connect')).toBeEnabled();
-  await page.getByTestId('integration-select-gmail').click();
+  await selectRow(page, 'Gmail');
   await expect(page.getByTestId('gmail-signals-empty')).toContainText('Connect Gmail and sync once');
 });
 
@@ -94,7 +95,7 @@ test('issue-2009-c4: enabled controls are live identifiable and restore focus', 
   await expect(page.getByTestId('calendar-selected-summary')).toContainText('3 of 3');
   await expect(page.getByTestId('page-trace')).toHaveText(traceBefore ?? '');
 
-  await page.getByTestId('integration-select-planning-center').click();
+  await selectRow(page, 'Planning Center');
   await expect(page.getByTestId('planning-center-direct-editor')).toBeVisible();
   await expect(page.getByTestId('pco-team-worship-vocals')).toBeEnabled();
 });
@@ -113,7 +114,7 @@ test('issue-2009-c5: visible ledger is exact append only and excludes client con
 
   const initialReceipts = await trace.locator('li').allTextContents();
   await page.getByTestId('calendar-select-none').click();
-  await page.getByTestId('integration-select-planning-center').click();
+  await selectRow(page, 'Planning Center');
   await expect(trace).toContainText('GET /integrations/planning-center/task-options → 200');
   const after = await trace.locator('li').allTextContents();
   expect(after.slice(0, initialReceipts.length)).toEqual(initialReceipts);
@@ -123,17 +124,18 @@ test('issue-2009-c5: visible ledger is exact append only and excludes client con
 });
 
 test('issue-2009-c6: page dialogs and fixture handoff are accessible', async ({ page }) => {
-  // Regression caught: compact cards look acceptable while axe finds serious violations or focus escapes a dialog/handoff.
+  // Regression caught: compact list/inspector markup looks acceptable while axe finds serious violations or focus escapes a dialog/handoff.
   await openPage(page, 'integrations');
   await expectIntegrationsPage(page);
   let result = await new AxeBuilder({ page }).analyze();
   expect(result.violations.filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')).toEqual([]);
 
-  await page.getByTestId('integration-select-planning-center').click();
+  await selectRow(page, 'Planning Center');
   await expect(page.getByTestId('planning-center-direct-editor')).toBeVisible();
   result = await new AxeBuilder({ page }).analyze();
   expect(result.violations.filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')).toEqual([]);
 
+  await selectRow(page, 'AI Import');
   await page.getByTestId('open-ai-import').click();
   let dialog = page.getByTestId('ai-import-dialog');
   await expect(page.locator('dialog:modal').filter({ has: dialog })).toBeVisible();
@@ -141,6 +143,7 @@ test('issue-2009-c6: page dialogs and fixture handoff are accessible', async ({ 
   expect(result.violations.filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')).toEqual([]);
   await page.keyboard.press('Escape');
 
+  await selectRow(page, 'Planning Center');
   await page.getByTestId('planning-center-reconnect').click();
   await expect(page.locator('dialog:modal').filter({ has: page.getByTestId('oauth-fixture-handoff') })).toBeVisible();
   result = await new AxeBuilder({ page }).analyze();
@@ -175,7 +178,7 @@ test('issue-2009-c7: integrations remains responsive under required presentation
   expect(undersized).toEqual([]);
 
   await page.emulateMedia({ forcedColors: 'active', reducedMotion: 'reduce' });
-  await page.getByTestId('integration-select-planning-center').click();
+  await selectRow(page, 'Planning Center');
   await expect(page.getByTestId('planning-center-direct-editor')).toBeVisible();
   const dialogOverflow = await page.evaluate(() => ({ client: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
   expect(dialogOverflow.scroll).toBeLessThanOrEqual(dialogOverflow.client + 1);
@@ -192,10 +195,11 @@ test('issue-2009-c8: fixtures block every external and OAuth request and reset o
   await expectIntegrationsPage(page);
   const seededAccounts = await page.locator('[data-testid^="integration-account-"]').allTextContents();
   const seededSignals = await page.locator('[data-testid^="gmail-signal-"]').allTextContents();
+  await selectRow(page, 'Gmail');
   await page.getByTestId('gmail-reconnect').click();
   await expect(page.getByTestId('oauth-fixture-handoff')).toContainText('FIXTURE HANDOFF');
   await page.keyboard.press('Escape');
-  await page.getByTestId('integration-select-google-calendar').click();
+  await selectRow(page, 'Google Calendar');
   await page.getByTestId('calendar-select-none').click();
   await page.getByTestId('calendar-save').click();
   await page.reload();
@@ -224,6 +228,7 @@ test('issue-2009-c9: connect actions expose explicit OAuth fixture handoffs with
   await expect(page.getByTestId('page-trace')).toContainText('GET /auth/google/begin?sessionToken=fixture-session → 302 FIXTURE HANDOFF');
   await handoff.getByTestId('oauth-handoff-close').click();
 
+  await selectRow(page, 'Planning Center');
   await page.getByTestId('planning-center-connect').click();
   handoff = page.getByTestId('oauth-fixture-handoff');
   await expect(handoff).toContainText('Planning Center');
@@ -305,11 +310,13 @@ test('issue-2009-c13: assistant Google consent remains separate and fixture safe
   // Regression caught: broad agent read/send consent is merged into Gmail metadata connection or launches a real OAuth host without intent=agent.
   await openPage(page, 'integrations/assistant-tools');
   await expectIntegrationsPage(page);
-  const card = page.getByTestId('integration-assistant-tools');
-  await expect(card).toContainText('Full Google Calendar and Gmail');
-  await expect(card).toContainText('read + send');
-  await expect(card.getByTestId('assistant-google-enable')).toBeVisible();
-  await card.getByTestId('assistant-google-enable').click();
+  const row = page.getByTestId('integration-assistant-tools');
+  await expect(row).toContainText('Separate consent');
+  const inspector = page.getByTestId('list-inspector-detail');
+  await expect(inspector).toContainText('Full Google Calendar and Gmail');
+  await expect(inspector).toContainText('read + send');
+  await expect(inspector.getByTestId('assistant-google-enable')).toBeVisible();
+  await inspector.getByTestId('assistant-google-enable').click();
   await expect(page.getByTestId('oauth-fixture-handoff')).toContainText('Assistant Google tools');
   await expect(page.getByTestId('page-trace')).toContainText('GET /auth/google/begin?intent=agent&sessionToken=fixture-session → 302 FIXTURE HANDOFF');
   await expect(page.getByTestId('integration-gmail')).not.toContainText('read + send');

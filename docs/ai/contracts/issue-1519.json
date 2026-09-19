@@ -1,0 +1,64 @@
+{
+  "issue": 1519,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1519-c1",
+      "text": "List each provider/account or existing integration section on the left with a clear name and short identity/connection-status subtitle.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/integrations-list-inspector.spec.ts",
+      "test_id": "issue-1519-c1: rows expose compact provider identity and connection status",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1519-c2",
+      "text": "Selecting an entry shows connection details, supported settings, and related actions in the main inspector.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/integrations-list-inspector.spec.ts",
+      "test_id": "issue-1519-c2: selecting two entries swaps the inspector details",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1519-c3",
+      "text": "Keep connect/reconnect/disconnect and sync actions, calendar selection, Gmail signals, Planning Center filters, and applicable import tools discoverable in the appropriate inspector context.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/integrations-list-inspector.spec.ts",
+      "test_id": "issue-1519-c3: every existing item action remains reachable from its inspector",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1519-c4",
+      "text": "Keep broad assistant Google access distinct from narrower integration consent. Selection must not initiate OAuth, sync, disconnect, or import.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/integrations-list-inspector.spec.ts",
+      "test_id": "issue-1519-c4: consent scopes stay distinct and selection is inert",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1519-c5",
+      "text": "Mouse and keyboard selection update the correct inspector, with visible focus and selected state.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/integrations-list-inspector.spec.ts",
+      "test_id": "issue-1519-c5: keyboard selection updates visible focus and selected state",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1519-c6",
+      "text": "Long titles/metadata, empty results, loading, errors, and read-only access remain usable; resizing does not clip essential controls.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/integrations-list-inspector.spec.ts",
+      "test_id": "issue-1519-c6: states narrow layout zoom long metadata and readonly inspection remain usable",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1519-c7",
+      "text": "Refresh and existing deep links preserve or restore the correct selection; missing/deleted items produce a clear state rather than stale details.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/integrations-list-inspector.spec.ts",
+      "test_id": "issue-1519-c7: deep links and refresh restore the selected integration",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
