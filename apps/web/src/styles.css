@@ -1,14 +1,14 @@
 :root {
   color-scheme: dark;
-  --bg: oklch(0.15 0.014 185);
-  --surface: oklch(0.205 0.018 185);
-  --surface-warm: oklch(0.25 0.03 175);
-  --surface-raised: oklch(0.275 0.026 178);
-  --fg: oklch(0.96 0.012 165);
-  --fg-2: oklch(0.84 0.04 165);
-  --muted: oklch(0.72 0.035 180);
-  --border: oklch(0.50 0.04 183);
-  --border-soft: oklch(0.30 0.026 183);
+  --bg: #252727;
+  --surface: #2b2e2d;
+  --surface-warm: #323735;
+  --surface-raised: #363c39;
+  --fg: #dedfdf;
+  --fg-2: #bfc6c3;
+  --muted: #a3aaa8;
+  --border: #697571;
+  --border-soft: #3e4542;
   --accent: oklch(0.68 0.12 175);
   --accent-on: oklch(0.15 0.025 185);
   --accent-hover: color-mix(in oklab, var(--accent), black 8%);
