@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { openPage } from '../helpers';
+import { selectRow } from '../helpers/list-inspector';
 
 async function expectNoBlockingAxe(page: Page, state: string) {
   const result = await new AxeBuilder({ page }).analyze();
@@ -17,6 +18,7 @@ test('Integrations click-through covers provider sync settings consent and deter
   await page.getByTestId('calendar-save').click();
   await expect(page.getByTestId('calendar-save-status')).toContainText('saved and synced');
 
+  await selectRow(page, 'Gmail');
   await page.getByTestId('gmail-sync').click();
   await expect(page.getByTestId('gmail-sync-status')).toContainText(/Gmail synced/i);
   await page.getByTestId('gmail-reconnect').click();
@@ -25,7 +27,7 @@ test('Integrations click-through covers provider sync settings consent and deter
   await expect(page.getByTestId('gmail-reconnect')).toBeFocused();
 
   // Regression caught: selecting Planning Center required a second dialog before its editable filters appeared.
-  await page.getByTestId('integration-select-planning-center').click();
+  await selectRow(page, 'Planning Center');
   await expect(page.getByTestId('planning-center-direct-editor')).toBeVisible();
   await expect(page.getByTestId('pco-team-worship-vocals')).toBeEnabled();
   await page.getByTestId('pco-team-worship-vocals').click();
@@ -33,10 +35,12 @@ test('Integrations click-through covers provider sync settings consent and deter
   await page.getByTestId('planning-center-preferences-save').click();
   await expect(page.getByTestId('planning-center-preferences-summary')).toContainText('Teams: 1 selected');
 
+  await selectRow(page, 'Assistant access');
   await page.getByTestId('assistant-google-enable').click();
   await expect(page.getByTestId('oauth-fixture-handoff')).toContainText('Assistant Google tools');
   await page.getByTestId('oauth-handoff-close').click();
 
+  await selectRow(page, 'AI Import');
   await page.getByTestId('open-ai-import').click();
   await page.getByTestId('ai-import-next').click();
   await page.getByTestId('ai-import-json').fill('{"tasks":[{"title":"Prepare welcome desk"}],"rhythms":[],"projects":[]}');
@@ -96,17 +100,19 @@ test('Integrations representative states and dialogs have no serious or critical
   await openPage(page, 'integrations');
   await expectNoBlockingAxe(page, 'ready');
 
-  await page.getByTestId('integration-select-planning-center').click();
+  await selectRow(page, 'Planning Center');
   await expect(page.getByTestId('planning-center-direct-editor')).toBeVisible();
   await expectNoBlockingAxe(page, 'Planning Center preferences');
   await page.keyboard.press('Escape');
 
+  await selectRow(page, 'AI Import');
   await page.getByTestId('open-ai-import').click();
   await expectNoBlockingAxe(page, 'AI Import prompt');
   await page.getByTestId('ai-import-next').click();
   await expectNoBlockingAxe(page, 'AI Import paste');
   await page.keyboard.press('Escape');
 
+  await selectRow(page, 'Planning Center');
   await page.getByTestId('planning-center-reconnect').click();
   await expectNoBlockingAxe(page, 'OAuth fixture handoff');
   await page.keyboard.press('Escape');
