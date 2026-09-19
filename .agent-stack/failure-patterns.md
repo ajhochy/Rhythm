@@ -700,3 +700,11 @@
 - **Criteria affected**: session-opening-c1, session-opening-c2, session-opening-native.
 - **Root cause**: hash-only navigation preserves the old loaded document after generated asset replacement; full navigation deliberately clears auth.
 - **Suggested fix**: retain the refresh/sign-in handoff step and verify two exact live targets after it.
+
+## 2026-09-18 — Electron mega visual smoke — computer-use authorization block
+
+- **Result**: smoke BLOCKED on all 10 requested visual steps; per smoke policy this is a failed verification run. Verification did not claim the manual visual gate had passed, so there is no correctness divergence.
+- **Category**: none for product correctness; process issue `computer-use-authorization`; workflow W3 because TodoWrite was unavailable.
+- **Criteria affected**: mega-visual-c1 through mega-visual-c10.
+- **Root cause**: the control inventory listed the running Electron process, but app selection for Electron and Finder returned `Computer Use was not approved`, preventing UI observations and screenshots.
+- **Suggested fix**: preflight computer-use grants for the already-running Electron process and Finder before visual-smoke dispatch, then rerun all ten criteria without substituting static evidence for rendered behavior.
