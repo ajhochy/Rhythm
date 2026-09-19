@@ -46,6 +46,7 @@
   padding: 0 24px var(--profile-footer-height, 88px);
   scroll-padding-block: 16px var(--profile-footer-height, 88px);
 }
+.profile-editor-controls { min-width: 0; margin: 0; padding: 0; border: 0; }
 .profile-editor .editor-section { max-width: 880px; margin-inline: auto; padding-block: 26px; }
 .profile-editor .editor-section > header { align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-block-end: 18px; }
 .profile-editor .editor-section h3 { font-size: 16px; line-height: 1.4; }

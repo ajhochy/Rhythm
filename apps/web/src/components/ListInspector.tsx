@@ -72,8 +72,11 @@ export function ListInspector({ label, items, groups, selectedId, onSelect, tool
   const hasError = error !== undefined && error !== null && error !== false;
   const missing = selectedId !== null && !selected && !loading && !hasError;
   const showList = loading || hasError || selectedId === null || listForId === selectedId;
-  const term = searchable ? query.trim().toLocaleLowerCase() : '';
-  const visible = items.filter((item) => [item.title, item.subtitle, item.meta, item.badge].filter(Boolean).join(' ').toLocaleLowerCase().includes(term));
+  const terms = searchable ? query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean) : [];
+  const visible = items.filter((item) => {
+    const searchableText = [item.title, item.subtitle, item.meta, item.badge].filter(Boolean).join(' ').toLocaleLowerCase();
+    return terms.every((term) => searchableText.includes(term));
+  });
   const knownGroups = new Set(groups?.map((group) => group.id));
   const sections = [
     ...(groups ?? []).map((group) => ({ ...group, items: visible.filter((item) => item.group === group.id) })),
@@ -137,16 +140,10 @@ export function ListInspector({ label, items, groups, selectedId, onSelect, tool
     }
   };
   const title = loading ? `Loading ${label}` : hasError ? `${label} unavailable` : missing ? 'Item not found' : selected?.title ?? 'Select an item';
-  const announcement = hasError ? ''
-    : loading ? `Loading ${label}`
-      : missing ? 'This item was not found or is no longer available.'
-        : !items.length ? `No ${label} available.`
-          : !visible.length ? 'No results match your search.' : '';
   const effectiveListWidth = Math.min(listPaneWidth, containerWidth ?? listPaneWidth);
   const width = { '--list-inspector-list-width': `${effectiveListWidth}px` } as CSSProperties;
 
   return <div ref={rootRef} className={`list-inspector${className ? ` ${className}` : ''}`} style={width} data-pane={showList ? 'list' : 'inspector'}>
-    <span className="sr-only" aria-live="polite" aria-atomic="true">{announcement}</span>
     <div className="list-inspector-panes tool-split">
       <aside className="list-inspector-rail tool-rail" aria-label={`${label} list`}>
         {toolbar && <div className="list-inspector-toolbar">{toolbar}</div>}
@@ -177,10 +174,10 @@ export function ListInspector({ label, items, groups, selectedId, onSelect, tool
             </div>)}
           </div>)}
         </div>
-        {loading ? <div className="list-inspector-state">Loading {label}…</div>
+        {loading ? <div className="list-inspector-state" role="status" aria-live="polite" aria-atomic="true">Loading {label}…</div>
           : hasError ? <div className="list-inspector-state" role="alert">{error}</div>
-          : !items.length ? <div className="list-inspector-state">{emptyState ?? 'No items yet.'}</div>
-          : !visible.length ? <div className="list-inspector-state">No results match your search.</div> : null}
+          : !items.length ? <div className="list-inspector-state" role="status" aria-live="polite" aria-atomic="true">{emptyState ?? 'No items yet.'}</div>
+          : !visible.length ? <div className="list-inspector-state" role="status" aria-live="polite" aria-atomic="true">No results match your search.</div> : null}
         {listFooter && <div className="list-inspector-footer">{listFooter}</div>}
       </aside>
       <Splitter orientation="vertical" storageKey={`layout.list-inspector.${layoutSlug(label)}`} min={240} max={Math.max(520, defaultListWidth)} defaultSize={defaultListWidth} onResize={setListPaneWidth} ariaLabel={`Resize ${label} list`} className="list-inspector-splitter" />
@@ -190,7 +187,7 @@ export function ListInspector({ label, items, groups, selectedId, onSelect, tool
           <div ref={backRef} role="button" tabIndex={0} className="list-inspector-back secondary-button" onClick={back} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); back(); } }}>Back to list</div>
           <h2 id={headingId} ref={headingRef} tabIndex={-1}>{title}</h2>
         </header>
-        {loading || hasError ? null : missing ? <p>This item was not found or is no longer available. Select another item from the list.</p> : inspector(selected)}
+        {loading || hasError ? null : missing ? <p role="status" aria-live="polite">This item was not found or is no longer available. Select another item from the list.</p> : inspector(selected)}
       </section>
     </div>
   </div>;

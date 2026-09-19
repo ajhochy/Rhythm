@@ -97,13 +97,17 @@ async function expectReadingMeasure(page: Page) {
   const measure = await page.getByTestId('transcript').evaluate(element => {
     const markdown = element.querySelector('.markdown-copy')!;
     const style = getComputedStyle(markdown);
-    const ctx = document.createElement('canvas').getContext('2d')!;
-    ctx.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    const probe = document.createElement('span');
+    probe.style.cssText = 'position:absolute;visibility:hidden;display:inline-block;width:72ch';
+    probe.style.font = style.font;
+    document.body.append(probe);
+    const seventyTwoCh = probe.getBoundingClientRect().width;
+    probe.remove();
     return {
       transcript: element.getBoundingClientRect().width,
       available: element.parentElement!.clientWidth,
       markdownMax: parseFloat(style.maxWidth),
-      seventyTwoCh: ctx.measureText('0').width * 72,
+      seventyTwoCh,
       whitespace: style.whiteSpace,
     };
   });

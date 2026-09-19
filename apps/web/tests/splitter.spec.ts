@@ -5,8 +5,10 @@ async function dragBy(page: Page, splitter: Locator, deltaX: number, deltaY: num
   await splitter.scrollIntoViewIfNeeded();
   const bounds = await splitter.boundingBox();
   expect(bounds).not.toBeNull();
-  const startX = bounds!.x + bounds!.width / 2;
-  const startY = bounds!.y + bounds!.height / 2;
+  const viewport = page.viewportSize();
+  expect(viewport).not.toBeNull();
+  const startX = Math.min(Math.max(bounds!.x + bounds!.width / 2, 1), viewport!.width - 1);
+  const startY = Math.min(Math.max(bounds!.y + bounds!.height / 2, 1), viewport!.height - 1);
   await page.mouse.move(startX, startY);
   await page.mouse.down();
   await page.mouse.move(startX + deltaX, startY + deltaY, { steps: 4 });

@@ -13,7 +13,7 @@ test('issue-1521 review: saved send key controls Composer and survives reload', 
   await expect(page.getByLabel('Send message key')).toHaveValue('Meta+Enter');
   await expect(page.getByLabel('Require confirmation for destructive tools')).toHaveCount(0);
 
-  await page.goto('/tests/electron-e22-harness.html');
+  await page.goto('/tests/electron-e22-harness.html?gateway=fixture');
   const input = page.getByTestId('composer-input');
   await expect(page.getByText('Cmd/Ctrl+Enter to send · Enter for newline')).toBeVisible();
   await input.fill('Keep this draft');
