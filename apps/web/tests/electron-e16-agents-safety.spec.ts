@@ -150,6 +150,7 @@ test('e16-c4-policy: edited permission/delegates override stale raw JSON and sur
   await page.getByTestId(`profile-${canonicalProfile.id}`).click();
   await expect(page.getByTestId('profile-permissions')).toHaveValue('{"bash":"ask"}');
   await expect(page.getByTestId('delegate-phase-5-child-profile')).toBeChecked();
+  await page.getByText('Advanced (JSON)', { exact: true }).click();
   await page.getByTestId('profile-permissions').fill('{"bash":"deny"}');
   await page.getByTestId('delegate-phase-5-child-profile').uncheck();
   await page.getByTestId('profile-save').click();
