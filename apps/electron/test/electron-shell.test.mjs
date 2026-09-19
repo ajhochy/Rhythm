@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { EventEmitter } from 'node:events';
-import { createContext, SourceTextModule, SyntheticModule } from 'node:vm';
+import { createContext, runInNewContext, SourceTextModule, SyntheticModule } from 'node:vm';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,7 +16,7 @@ let smokeResult;
 
 // Execute the real main module; replace only host boundaries, never its flag/lifecycle logic.
 // No Electron child, network, screenshot writes, timers, or real runtime ownership in this check.
-async function interactiveRuntime(argv, userData = '/fixture/interactive-user-data') {
+async function interactiveRuntime(argv, userData = '/fixture/interactive-user-data', selectDirectory = async () => ({ canceled: true, filePaths: [] })) {
   const calls = [], windows = [], handlers = new Map(), paths = new Map();
   const processBoundary = Object.assign(new EventEmitter(), {
     argv, env: { RHYTHM_LIVE_API_URL: 'http://127.0.0.1:4098', RHYTHM_LIVE_ENGINE_URL: 'http://127.0.0.1:4097', ...(userData ? { RHYTHM_SHELL_USER_DATA: userData } : {}) },
@@ -37,8 +37,9 @@ async function interactiveRuntime(argv, userData = '/fixture/interactive-user-da
   class Window {
     constructor(options) {
       this.options = options; windows.push(this);
-      this.webContents = Object.assign(new EventEmitter(), { send() {}, setWindowOpenHandler() {}, executeJavaScript: async () => {} });
+      this.webContents = Object.assign(new EventEmitter(), { mainFrame: { url: 'rhythm://app/index.html#/agents' }, isDestroyed: () => false, send() {}, setWindowOpenHandler() {}, executeJavaScript: async () => {} });
     }
+    static fromWebContents(contents) { return windows.find((window) => window.webContents === contents) ?? null; }
     isDestroyed() { return false; }
     async loadURL(url) { this.url = url; this.webContents.emit('did-finish-load'); }
   }
@@ -47,7 +48,7 @@ async function interactiveRuntime(argv, userData = '/fixture/interactive-user-da
   const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = '/fixture'; } });
   await module.link(async (name) => {
     let values;
-    if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: {}, dialog: { showErrorBox: () => calls.push('ownership-error'), showMessageBox: async () => { calls.push('migration'); return { response: 1 }; } } };
+    if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: {}, dialog: { showOpenDialog: selectDirectory, showErrorBox: () => calls.push('ownership-error'), showMessageBox: async () => { calls.push('migration'); return { response: 1 }; } } };
     else if (name === './agent-server.mjs') values = { AgentServerService: Server, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:4001', AGENT_SERVER_ENGINE_PORT: 4096, electronDbPath: () => '/fixture/electron.db', legacyFlutterDbPath: () => '/fixture/legacy.db' };
     else if (name === './production-api-config.mjs') values = { createProductionApiConfig: () => ({ load: () => 'https://example.invalid' }), createProductionApiSetHandler: () => () => {} };
     else { values = { ...await import(name.startsWith('.') ? new URL(name, file).href : name) }; if (name === 'node:fs') values.existsSync = (path) => path !== '/fixture/electron.db'; }
@@ -97,6 +98,78 @@ test('interactive-runtime-c4: production still owns lifecycle; automated smoke s
   for (const call of ['start', 'stop', 'migration', 'prevent-quit']) assert.ok(!smoke.calls.includes(call), call);
 });
 
+test('directory-picker: actual preload adds only a no-payload selectDirectory capability', async () => {
+  let bridge;
+  const calls = [];
+  runInNewContext(await readFile(resolve(shellRoot, 'src/preload.cjs'), 'utf8'), {
+    require(name) {
+      assert.equal(name, 'electron');
+      return {
+        contextBridge: { exposeInMainWorld: (key, value) => { assert.equal(key, 'rhythmShell'); bridge = value; } },
+        ipcRenderer: { sendSync: () => 'https://example.invalid', invoke: async (...args) => { calls.push(args); return '/selected/project'; } },
+      };
+    },
+    process: { argv: [], env: {}, platform: 'darwin' },
+    window: { addEventListener() {} },
+  });
+  assert.deepEqual(Object.keys(bridge), ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory']);
+  assert.equal(Object.isFrozen(bridge), true);
+  assert.equal(await bridge.selectDirectory({ properties: ['openFile'] }), '/selected/project');
+  assert.deepEqual(calls, [['shell:select-directory']]);
+});
+
+test('directory-picker: owned native dialog returns only the first path string or null', async () => {
+  let response;
+  const dialogs = [];
+  const runtime = await interactiveRuntime(['--interactive-smoke'], undefined, async (owner, options) => {
+    dialogs.push({ owner, options }); return response;
+  });
+  const owner = runtime.windows[0];
+  const event = { sender: owner.webContents, senderFrame: owner.webContents.mainFrame };
+  const handler = runtime.handlers.get('shell:select-directory');
+  for (const [result, expected] of [
+    [{ canceled: false, filePaths: ['/Users/AJ/Project with spaces', '/second'], bookmarks: ['never exposed'] }, '/Users/AJ/Project with spaces'],
+    [{ canceled: true, filePaths: ['/discarded'] }, null],
+    [{ canceled: false, filePaths: [] }, null],
+    [{ canceled: false, filePaths: [''] }, null],
+    [{ canceled: false, filePaths: [123] }, '123'],
+  ]) {
+    response = result;
+    assert.equal(await handler(event), expected);
+    assert.equal(dialogs.at(-1).owner, owner);
+    assert.deepEqual(JSON.parse(JSON.stringify(dialogs.at(-1).options)), { properties: ['openDirectory', 'createDirectory'] });
+  }
+});
+
+test('directory-picker: foreign senders, frames, hosts and payloads cannot open the dialog', async () => {
+  let opened = 0;
+  const runtime = await interactiveRuntime(['--interactive-smoke'], undefined, async () => { opened++; return { canceled: true, filePaths: [] }; });
+  const owner = runtime.windows[0];
+  const event = { sender: owner.webContents, senderFrame: owner.webContents.mainFrame };
+  const handler = runtime.handlers.get('shell:select-directory');
+  for (const invalid of [{ sender: {}, senderFrame: event.senderFrame }, { ...event, senderFrame: { url: event.senderFrame.url } }, { ...event, senderFrame: undefined }]) {
+    await assert.rejects(handler(invalid), /denied/);
+  }
+  for (const url of ['https://example.invalid', 'rhythm://other/index.html', 'rhythm-artifact://app/index.html']) {
+    event.senderFrame.url = url;
+    await assert.rejects(handler(event), /denied/);
+  }
+  event.senderFrame.url = 'rhythm://app/index.html#/agents';
+  await assert.rejects(handler(event, { properties: ['openFile'] }), /Invalid IPC payload/);
+  owner.isDestroyed = () => true;
+  await assert.rejects(handler(event), /owner unavailable/);
+  assert.equal(opened, 0);
+});
+
+test('directory-picker: navigation during selection cannot receive a stale path', async () => {
+  const runtime = await interactiveRuntime(['--interactive-smoke'], undefined, async (owner) => {
+    owner.webContents.mainFrame.url = 'https://example.invalid';
+    return { canceled: false, filePaths: ['/private/project'] };
+  });
+  const contents = runtime.windows[0].webContents;
+  await assert.rejects(runtime.handlers.get('shell:select-directory')({ sender: contents, senderFrame: contents.mainFrame }), /denied/);
+});
+
 test('slice-5-c1: resolves only files under the packaged web dist', async () => {
   const { resolveAsset } = await import('../src/policy.mjs');
   assert.equal(resolveAsset('/index.html'), resolve(shellRoot, '../web/dist/index.html'));
@@ -122,7 +195,7 @@ test('slice-5-c3: actual Electron launch loads the local agents route', async ()
 test('slice-5-c4: actual preload exposes only frozen versioned lifecycle, gateway configuration, Google auth, human-approval signing, and agent-server status', async () => {
   const result = await smoke();
   assert.deepEqual(result.runtime, { apiBase: 'http://127.0.0.1:4001', engineBase: 'http://127.0.0.1:4096', testOverride: false });
-  assert.deepEqual(result.bridge.keys, ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates']);
+  assert.deepEqual(result.bridge.keys, ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory']);
   assert.equal(result.bridge.frozen, true);
   assert.deepEqual(result.bridge.gateway.keys, ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase']);
   assert.equal(result.bridge.gateway.frozen, true);

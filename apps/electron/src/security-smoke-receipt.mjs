@@ -1,4 +1,4 @@
-const BRIDGE_KEYS = ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates'];
+const BRIDGE_KEYS = ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory'];
 const GATEWAY_KEYS = ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase'];
 const AUTH_KEYS = ['signInWithGoogle', 'currentSession', 'logout'];
 const HUMAN_APPROVAL_KEYS = ['capability', 'signDecision'];

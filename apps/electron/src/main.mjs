@@ -276,6 +276,14 @@ if (hasSingleInstanceLock) {
     requireOwnedDocument(event); requireNoPayload(args);
     await shell.openExternal('https://github.com/ajhochy/Rhythm/releases');
   });
+  ipcMain.handle('shell:select-directory', async (event, ...args) => {
+    requireOwnedDocument(event); requireNoPayload(args);
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed()) throw new Error('Directory picker owner unavailable');
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'] });
+    requireOwnedDocument(event);
+    return canceled || !filePaths[0] ? null : String(filePaths[0]);
+  });
 
   // Mirrors apps/desktop_flutter/lib/app/core/server/api_server_service.dart +
   // agent_server_controller.dart: THIS process spawns and owns the local api_server, the same way
