@@ -101,7 +101,7 @@ test.describe('Facilities shared list and inspector', () => {
   test('keeps empty, loading, error, and read-only states usable', async ({ page }) => {
     // Regression caught: page-level states previously removed the selectable shell and exposed stale details.
     await openPage(page, 'facilities', '?state=loading');
-    await expect(page.getByRole('status')).toContainText('Loading Facility reservations');
+    await expect(page.locator('.list-inspector-state[role="status"]')).toContainText('Loading Facility reservations');
     await expect(page.getByTestId('facility-reservation-direct-editor')).toHaveCount(0);
 
     await openPage(page, 'facilities', '?state=empty');
@@ -136,7 +136,9 @@ test.describe('Facilities shared list and inspector', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await atZoom200(page);
     const back = page.getByRole('button', { name: 'Back to list', exact: true });
-    if (await back.isVisible()) await back.click();
+    await expect(back).toBeVisible();
+    await back.click();
+    await expect(list).toBeVisible();
     const longRoom = page.getByRole('option', { name: '礼拝チーム室 🎵', exact: true });
     await expect(longRoom).toBeVisible();
     await expect(longRoom.locator('strong')).toHaveAttribute('title', '礼拝チーム室 🎵');

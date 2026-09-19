@@ -105,6 +105,9 @@ test('Messages is responsive and axe-clean across representative states', async 
   }
 
   await expectNoBlockingAxe(page, 'ready conversation');
+  const back = page.getByRole('button', { name: 'Back to list' });
+  await expect(back).toBeVisible();
+  await back.click();
   await page.getByTestId('messages-new-thread').click();
   await expectNoBlockingAxe(page, 'new conversation dialog');
   await page.keyboard.press('Escape');
