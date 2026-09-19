@@ -1,0 +1,29 @@
+.hermes-page { height: 100%; min-height: 0; display: flex; flex-direction: column; color: var(--fg); background: var(--surface); }
+.hermes-toolbar { flex: none; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 20px 24px; border-block-end: 1px solid var(--border-soft); }
+.hermes-toolbar h1 { margin: 0; font-size: 22px; font-weight: 600; }
+.hermes-toolbar p { margin: 4px 0 0; color: var(--muted); }
+.hermes-page button { min-width: 44px; min-height: 44px; white-space: normal; }
+.hermes-toolbar button { max-width: 100%; }
+.hermes-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--hermes-status-width, 220px) 8px minmax(0, 1fr); }
+.hermes-inspector { padding: 24px; overflow: auto; border-inline-end: 1px solid var(--border-soft); background: var(--surface-raised); }
+.hermes-inspector h2 { margin: 0 0 20px; font-size: 14px; }
+.hermes-inspector dl { margin: 0 0 24px; }
+.hermes-inspector dt { margin-block-start: 16px; color: var(--muted); font-size: 12px; }
+.hermes-inspector dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+.hermes-inspector p { color: var(--muted); }
+.hermes-content { min-width: 0; min-height: 0; display: flex; }
+.hermes-host { flex: 1; min-width: 0; min-height: 0; }
+.hermes-state { flex: 1; overflow: auto; padding: clamp(20px, 4vw, 56px); }
+.hermes-state h2 { margin: 0 0 12px; font-size: 20px; }
+.hermes-state p { max-width: 60ch; margin: 0 0 24px; color: var(--muted); overflow-wrap: anywhere; white-space: pre-wrap; }
+.hermes-state code { color: var(--fg); font-family: var(--font-mono); }
+.hermes-state progress { max-width: 100%; accent-color: var(--accent); }
+.hermes-notice { flex: none; margin: 0; padding: 12px 24px; color: var(--fg-2); border-block-end: 1px solid var(--border-soft); }
+@media (max-width: 700px) {
+  .hermes-toolbar { padding: 16px; }
+  .hermes-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: var(--hermes-status-height, 120px) 8px minmax(0, 1fr); }
+  .hermes-inspector { padding: 12px 16px; max-height: none; border-inline-end: 0; border-block-end: 1px solid var(--border-soft); }
+  .hermes-inspector h2, .hermes-inspector p { display: none; }
+  .hermes-inspector dl { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 12px; margin: 0; }
+  .hermes-inspector dt, .hermes-inspector dd { margin: 0; }
+}

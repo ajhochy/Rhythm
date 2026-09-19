@@ -4,8 +4,8 @@
     "enginePackage": "opencode",
     "engineVersion": "1.14.49",
     "openapiPath": "apps/opencode_fork/packages/sdk/openapi.json",
-    "openapiSha256": "f960fbd07a9495b8911ffd511e297307f2f9e6f7e400a0d36f0740aac96dfd56",
-    "operationCount": 133
+    "openapiSha256": "7e730bf5f4d349273df5dcd723eea9d8920df48d6ced50b57f6e41a592eb8872",
+    "operationCount": 137
   },
   "classificationDefinitions": {
     "surfaced": "An explicit mobile screen, control, or user action exposes this operation.",
@@ -440,6 +440,15 @@
       "reason": "The MCP screen displays connected-server state.",
       "surface": "Tools/MCP",
       "gatewayAllowed": true
+    },
+    {
+      "operationId": "mcp.tools",
+      "method": "GET",
+      "path": "/mcp/tools",
+      "classification": "intentionally-omitted",
+      "reason": "Rhythm API validates live MCP tool grants server-side; Mobile does not expose raw engine tool IDs.",
+      "gatewayAllowed": false,
+      "gatewayReason": "Live MCP tool IDs are reserved for server-side grant validation"
     },
     {
       "operationId": "part.delete",

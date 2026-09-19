@@ -1,0 +1,42 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import {
+  DEFAULT_LOCAL_USER_PREFERENCES,
+  matchesSendMessageKey,
+  readLocalUserPreferences,
+} from '../src/gateway/user-preferences.ts';
+
+test('issue-1521: invalid persisted composer shortcuts fall back to Enter', () => {
+  const storage = {
+    getItem: () => JSON.stringify({ theme: 'solarized', sendKey: 'Shift+Enter' }),
+  };
+
+  assert.deepEqual(readLocalUserPreferences('user-1', storage), DEFAULT_LOCAL_USER_PREFERENCES);
+});
+
+test('issue-1521: the selected composer shortcut matches only its advertised chord', () => {
+  const key = (overrides = {}) => ({
+    key: 'Enter', altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, ...overrides,
+  });
+
+  assert.equal(matchesSendMessageKey(key(), 'Enter'), true);
+  assert.equal(matchesSendMessageKey(key({ shiftKey: true }), 'Enter'), false);
+  assert.equal(matchesSendMessageKey(key(), 'Meta+Enter'), false);
+  assert.equal(matchesSendMessageKey(key({ metaKey: true }), 'Meta+Enter'), true);
+  assert.equal(matchesSendMessageKey(key({ ctrlKey: true }), 'Meta+Enter'), true);
+  assert.equal(matchesSendMessageKey(key({ altKey: true, metaKey: true }), 'Meta+Enter'), false);
+});
+
+test('issue-1521: sandboxed storage access falls back before preferences are read', (t) => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    get() { throw new DOMException('Storage is unavailable in this sandbox', 'SecurityError'); },
+  });
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, 'localStorage', original);
+    else delete globalThis.localStorage;
+  });
+  assert.deepEqual(readLocalUserPreferences('sandbox'), DEFAULT_LOCAL_USER_PREFERENCES);
+});

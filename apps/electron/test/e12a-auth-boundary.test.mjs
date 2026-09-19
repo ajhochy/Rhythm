@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createContext, SourceTextModule, SyntheticModule, runInContext } from 'node:vm';
@@ -12,12 +13,14 @@ const decision = { approvalId: 'approval-1', status: 'approved', decisionNonce: 
 const tick = () => new Promise((r) => setImmediate(r));
 
 // Real main + config + preload; fake only Electron, OAuth browser interaction, signer and I/O.
-async function host(t, immediateLogin = false, Notification = { isSupported: () => false }) {
+async function host(t, immediateLogin = false, Notification = { isSupported: () => false }, options = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'rhythm-e12a-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
+  const authFilePath = join(directory, 'auth-session.bin');
+  if (options.storedSession) await writeFile(authFilePath, Buffer.from(JSON.stringify(options.storedSession)));
   const handlers = new Map(), listeners = new Map(), protocols = new Map();
   const windows = [], logins = [], requests = [], signed = [], opened = [];
-  let quits = 0;
+  let quits = 0, encryptionAvailabilityChecks = 0, postLoadScriptCalls = 0;
   const app = Object.assign(new EventEmitter(), {
     getPath: () => directory, requestSingleInstanceLock: () => true, isReady: () => false,
     whenReady: async () => {}, getVersion: () => 'test', quit() { quits += 1; }, exit(code) { throw new Error(`startup ${code}`); },
@@ -29,7 +32,7 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
       if (Notification.isSupported()) { this.isMinimized = () => false; this.focus = () => {}; }
       this.webContents = Object.assign(new EventEmitter(), {
         mainFrame: { url: '' }, getURL: () => this.webContents.mainFrame.url,
-        isDestroyed: () => this.destroyed, send() {}, setWindowOpenHandler() {}, executeJavaScript: async () => {},
+        isDestroyed: () => this.destroyed, send() {}, setWindowOpenHandler() {}, executeJavaScript: async () => { postLoadScriptCalls += 1; },
       });
       windows.push(this);
     }
@@ -57,22 +60,35 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
   const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = directory; } });
   await module.link(async (name) => {
     let values;
-    if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on: (key, fn) => listeners.set(key, fn), handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification, protocol: { registerSchemesAsPrivileged() {}, handle: (key, fn) => protocols.set(key, fn) }, safeStorage: { isEncryptionAvailable: () => true, encryptString: (value) => Buffer.from(value), decryptString: (value) => value.toString() }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: { openExternal(url) { opened.push(url); } }, dialog: { showErrorBox() {} } };
+    if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on: (key, fn) => listeners.set(key, fn), handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification, protocol: { registerSchemesAsPrivileged() {}, handle: (key, fn) => protocols.set(key, fn) }, safeStorage: { isEncryptionAvailable: () => { encryptionAvailabilityChecks += 1; return true; }, encryptString: (value) => Buffer.from(value), decryptString: (value) => value.toString() }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: { openExternal(url) { opened.push(url); } }, dialog: { showErrorBox() {} } };
     else if (name === './agent-server.mjs') values = { AgentServerService: Server, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:4001', AGENT_SERVER_ENGINE_PORT: 4096, electronDbPath: () => join(directory, 'electron.db'), legacyFlutterDbPath: () => join(directory, 'legacy.db') };
+    else if (name === './hermes-server.mjs') values = { createHermesSupervisor: () => ({ getStatus: () => ({ state: 'disabled', port: 9121, url: 'http://127.0.0.1:9121' }), onStatus() {}, async start() {}, async stop() {} }) };
     else if (name === './desktop-google-oauth.mjs') values = { runDesktopGoogleOAuth: (options) => new Promise((resolve) => { logins.push({ options, resolve }); if (immediateLogin) resolve({ sessionToken: 'unexpected', user: { id: 1 } }); }) };
     else if (name === './human-approval-main-signer.mjs') values = { capability: async () => 'capability', signDecision: async (value) => { signed.push(value); return { signature: 'signature' }; } };
-    else { values = { ...await import(name.startsWith('.') ? new URL(name, file).href : name) }; if (name === 'node:fs') values.existsSync = () => true; }
+    else { values = { ...await import(name.startsWith('.') ? new URL(name, file).href : name) }; if (name === 'node:fs') values.existsSync = (path) => String(path) === authFilePath ? existsSync(path) : true; }
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
   });
   await module.evaluate();
-  for (let index = 0; index < 20 && windows.length === 0; index += 1) await tick();
+  for (let index = 0; index < 20 && (!windows.at(-1)?.bridge || postLoadScriptCalls === 0); index += 1) await tick();
+  assert.ok(windows.at(-1)?.bridge && postLoadScriptCalls > 0, 'host waits for the initial window bootstrap');
   return {
-    windows, logins, requests, signed, opened, handlers, listeners, quits: () => quits,
+    windows, logins, requests, signed, opened, handlers, listeners, quits: () => quits, encryptionAvailabilityChecks: () => encryptionAvailabilityChecks,
     current: () => windows.at(-1),
     event: () => ({ sender: windows.at(-1).webContents, senderFrame: windows.at(-1).webContents.mainFrame }),
     artifact: () => protocols.get('rhythm-artifact')({ url: 'rhythm-artifact://app/00000000-0000-4000-8000-000000000801', method: 'GET' }),
   };
 }
+
+test('startup skips Keychain availability when no stored auth exists, but restores an encrypted session when present', async (t) => {
+  const empty = await host(t);
+  assert.ok(empty.current()?.bridge, 'first launch should reach a window');
+  assert.equal(empty.encryptionAvailabilityChecks(), 0, 'missing auth file must not consult Keychain');
+
+  const storedSession = { productionApiBase: A, sessionToken: 'stored-session', user: { id: 42, name: 'Stored' } };
+  const restored = await host(t, false, { isSupported: () => false }, { storedSession });
+  assert.ok(restored.encryptionAvailabilityChecks() > 0, 'stored auth still requires safeStorage');
+  assert.equal(JSON.stringify(await restored.current().bridge.auth.currentSession()), JSON.stringify({ sessionToken: 'stored-session', user: storedSession.user }));
+});
 
 test('e12a-c1: selected server reaches the real desktop token/session exchange, not the build default', async (t) => {
   const h = await host(t);
@@ -82,7 +98,7 @@ test('e12a-c1: selected server reaches the real desktop token/session exchange, 
   const login = await exchangeDesktopAuthorizationCode({ apiBase: h.logins[0].options.apiBase, code: 'code', codeVerifier: 'verifier', redirectUri: 'http://127.0.0.1:1/callback', fetcher: async (url) => {
     target = String(url); return Response.json({ sessionToken: 'token-A', user: { id: 1 } });
   } });
-  assert.equal(target, `${A}/auth/google/desktop-exchange`);
+  assert.equal(target, `${A}/auth/google/desktop-login-exchange`);
   h.logins[0].resolve(login);
   assert.equal((await pending).sessionToken, 'token-A');
 });
@@ -232,9 +248,32 @@ test('E42: current session is main-owned and logout clears it before rebuilding'
   assert.equal(await h.current().bridge.auth.currentSession(), null);
 });
 
-test('E44: update capability opens only the fixed Rhythm Releases page', async (t) => {
+test('issue-1542-c6 / E44: update capability opens only the fixed Rhythm Releases page', async (t) => {
   const h = await host(t); const bridge = h.current().bridge;
   assert.deepEqual(Object.keys(bridge.updates), ['openDownloadPage']);
   await bridge.updates.openDownloadPage();
   assert.deepEqual(h.opened, ['https://github.com/ajhochy/Rhythm/releases']);
+});
+
+test('issue-1510: dismissing a pending approval does not repeat its native alert on re-sync', async (t) => {
+  const shown = [];
+  class Notification extends EventEmitter {
+    static isSupported() { return true; }
+    constructor(options) { super(); this.options = options; this.closed = false; }
+    show() { shown.push(this); }
+    close() { this.closed = true; this.emit('close'); }
+  }
+  const h = await host(t, false, Notification);
+  const approval = { id: 'approval-1510', sessionId: 'session-1510', status: 'pending' };
+  const sync = (rows) => h.listeners.get('rhythm:approval-notifications:sync')(h.event(), rows);
+  sync([approval, approval]);
+  assert.equal(shown.length, 1);
+  assert.notEqual(shown[0].options.silent, true, 'the first actionable approval keeps its configured OS alert');
+  shown[0].close();
+  for (let index = 0; index < 5; index += 1) sync([{ ...approval }]);
+  assert.equal(shown.length, 1, 'a dismissed pending ID must stay deduplicated across repeated snapshots');
+  sync([approval, { ...approval, id: 'approval-1510-next' }]);
+  assert.equal(shown.length, 2, 'new actionable approvals still alert');
+  sync([]);
+  assert.equal(shown[1].closed, true, 'resolved approvals are withdrawn');
 });

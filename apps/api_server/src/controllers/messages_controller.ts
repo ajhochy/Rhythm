@@ -44,6 +44,19 @@ export class MessagesController {
     }
   }
 
+  async deleteThread(req: Request, res: Response, next: NextFunction) {
+    try {
+      const threadId = Number(req.params.id);
+      if (!Number.isSafeInteger(threadId) || threadId <= 0) {
+        throw AppError.notFound('MessageThread');
+      }
+      await repo.deleteThreadAsync(threadId, req.auth!.user.id);
+      res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async getMessages(req: Request, res: Response, next: NextFunction) {
     try {
       res.json(

@@ -1,0 +1,150 @@
+.agent-settings-scope {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface-warm);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .02em;
+}
+
+.agent-settings-intro {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin-block-end: 18px;
+}
+
+.agent-settings-intro p,
+.agent-settings-gap p,
+.agent-settings-empty p,
+.agent-settings-mcp-list p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.agent-settings-gap,
+.agent-settings-empty {
+  display: grid;
+  gap: 6px;
+  margin-block: 16px;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  background: color-mix(in oklab, var(--surface), var(--bg) 5%);
+}
+
+.agent-settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block: 14px;
+}
+
+.agent-settings-actions > button,
+.agent-settings-records + button,
+.auto-promotion-card footer button,
+[data-testid="auto-promotion-dialog"] .dialog-actions button,
+[data-testid="agent-settings-mcp-remove-dialog"] .dialog-actions button,
+[data-testid="agent-settings-account-remove-dialog"] .dialog-actions button,
+.agent-settings-form button {
+  min-width: 44px;
+  min-height: 44px;
+  white-space: normal;
+}
+
+.agent-settings-records,
+.agent-settings-mcp-list {
+  display: grid;
+  gap: 8px;
+  margin-block: 14px;
+}
+
+.agent-settings-records article {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+}
+
+.agent-settings-records article > span,
+.agent-settings-mcp-list article header > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.agent-settings-records small,
+.agent-settings-mcp-list small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.agent-settings-mcp-list article {
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.agent-settings-form {
+  display: grid;
+  gap: 12px;
+  margin-block: 16px;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.agent-settings-form h4,
+.agent-settings-form p {
+  margin: 0;
+}
+
+.agent-settings-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.agent-settings-form input,
+.agent-settings-form select {
+  width: 100%;
+  min-height: 44px;
+}
+
+.agent-settings-form button,
+.agent-settings-gap button {
+  justify-self: start;
+}
+
+.agent-settings-mcp-list article header,
+.auto-promotion-card > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.auto-promotion-card > header p {
+  margin: 0;
+}
+
+@container list-inspector (width < 720px) {
+  .agent-settings-mcp-list article header,
+  .auto-promotion-card > header {
+    flex-wrap: wrap;
+  }
+}

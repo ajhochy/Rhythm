@@ -61,7 +61,7 @@ export type SessionListPage = { sessions: SessionCatalogEntry[]; ancestors: Sess
 export type SessionSort = 'newest' | 'oldest' | 'name' | 'activity' | 'status';
 export type IdentityProfile = Profile & { autoApproveActions?: boolean; reasoningEffort?: string | null };
 export type ModelChoice = { providerId: string; modelId: string; label: string };
-export type AccountChoice = { id: string; label: string; status: string };
+export type AccountChoice = { id: string; label: string; status: string; isDefault?: boolean };
 export type SessionSettings = { name?: string; profileId?: string | null; providerId?: string | null; modelId?: string | null; thinkingBudget?: number | null; permissionMode?: string; fastMode?: boolean; anthropicAccountId?: string };
 export type TurnOverride = { profileId?: string; modelOverride?: { providerId: string; modelId: string } };
 const statusOrder: Record<Session['status'], number> = { working: 0, starting: 1, idle: 2, error: 3, closed: 4, resumable: 5 };
@@ -95,12 +95,24 @@ export interface SessionFileDiffEntry { file: string; before: string; after: str
 export interface SessionVcsDiffEntry { file: string; patch?: string; additions: number; deletions: number; status?: string }
 // GET /projects/:id/branches — apps/api_server/src/controllers/projects_controller.ts:161-175.
 export interface ProjectBranches { current: string | null; local: string[]; recent: string[] }
+export interface AgentProject { id: string; name: string; cwd?: string; vcsBranch?: string | null; archivedAt?: string | null }
+
+function mapAgentProject(value: unknown): AgentProject {
+  const row = record(value);
+  return { id: string(row.id), name: string(row.name), cwd: string(row.cwd),
+    vcsBranch: typeof row.vcsBranch === 'string' ? row.vcsBranch : null,
+    archivedAt: typeof row.archivedAt === 'string' ? row.archivedAt : null };
+}
 
 export interface SessionGateway {
   readonly mode: GatewayMode;
   profiles(): Promise<IdentityProfile[]>;
   models?(): Promise<ModelChoice[]>;
   accounts?(): Promise<AccountChoice[]>;
+  startAccountLogin?(input: { accountId: string; label: string }): Promise<{ authorizationUrl: string }>;
+  completeAccountLogin?(input: { accountId: string; code: string }): Promise<void>;
+  setDefaultAccount?(accountId: string): Promise<void>;
+  removeAccount?(accountId: string): Promise<void>;
   patchSettings?(localId: string, input: SessionSettings): Promise<Session>;
   archive?(localId: string, archived: boolean): Promise<void>;
   fork?(localId: string, messageId: string): Promise<Session>;
@@ -108,9 +120,10 @@ export interface SessionGateway {
   init?(localId: string): Promise<void>;
   list(): Promise<Session[]>;
   listPage?(query: SessionListQuery): Promise<SessionListPage>;
-  projectLabels?(): Promise<{ id: string; name: string }[]>;
+  projectLabels?(): Promise<AgentProject[]>;
+  createProject?(input: { name: string; cwd: string }): Promise<AgentProject>;
   detail(localId: string): Promise<Session>;
-  create(input: { profileId: string; cwd: string; name: string; isolateWorktree: boolean; worktreeName?: string; branch?: string; createBranch?: boolean; stash?: 'stash' | 'discard'; taskId?: string; anthropicAccountId?: string }): Promise<Session>;
+  create(input: { profileId: string; cwd: string; name: string; projectId?: string; isolateWorktree: boolean; worktreeName?: string; branch?: string; createBranch?: boolean; stash?: 'stash' | 'discard'; taskId?: string; anthropicAccountId?: string }): Promise<Session>;
   // post-m1-phase-6 c1b/c2a: GET /:id/files/find-files?query&limit&type — returns relative paths.
   findFiles(localId: string, query: string, opts?: { limit?: number; type?: 'file' | 'directory' }): Promise<string[]>;
   // GET /:id/files/list?path — engine-shaped entries scoped to the session/worktree directory.
@@ -426,16 +439,41 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
       return [...new Map(choices.map(row => [`${row.providerId}/${row.modelId}`, row])).values()];
     },
     accounts: async () => {
-      const body = await response<{ accounts?: unknown[] }>('Load accounts', request('/opencode/auth/accounts'));
-      return (body.accounts ?? []).map(record).map(row => ({ id: string(row.id), label: string(row.label, string(row.id)), status: string(row.status) }));
+      const body = await response<{ accounts?: unknown[]; defaultAccountId?: string }>('Load accounts', request('/opencode/auth/accounts'));
+      return (body.accounts ?? []).map(record).map(row => ({
+        id: string(row.id),
+        label: string(row.label, string(row.id)),
+        status: string(row.status),
+        isDefault: string(row.id) === body.defaultAccountId,
+      }));
     },
+    startAccountLogin: async (input) => {
+      const result = await response<{ authorizeUrl: string }>('Start account authorization', request('/opencode/auth/accounts/login-start', { method: 'POST', body: JSON.stringify(input) }));
+      return { authorizationUrl: result.authorizeUrl };
+    },
+    completeAccountLogin: async (input) => { await response<unknown>('Complete account authorization', request('/opencode/auth/accounts/login-complete', { method: 'POST', body: JSON.stringify(input) })); },
+    setDefaultAccount: async (accountId) => { await response<unknown>('Set default account', request('/opencode/auth/accounts/default', { method: 'PATCH', body: JSON.stringify({ accountId }) })); },
+    removeAccount: async (accountId) => { await response<unknown>('Remove account', request(`/opencode/auth/accounts/${encodeURIComponent(accountId)}`, { method: 'DELETE' })); },
     patchSettings: async (id, input) => {
       await response<unknown>('Save session settings', request(`/agent-sessions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(input) }));
       const body = await response<{ session: unknown; messages?: unknown[]; transcriptPage?: unknown }>('Read session settings', request(`/agent-sessions/${encodeURIComponent(id)}?transcriptLimit=50`));
       return toSessionViewModel(body.session, body.messages ?? [], body.transcriptPage);
     },
     projectLabels: async () => (await response<unknown[]>('Load projects', request('/projects?includeArchived=true')))
-      .map((value) => ({ id: string(record(value).id), name: string(record(value).name) })),
+      .map(mapAgentProject),
+    createProject: async (input) => {
+      // ProjectsController uses the canonical AppError envelope, {error:{code,message}}.
+      // Adapt it here without changing error semantics for other session operations.
+      const pending = request('/projects', { method: 'POST', body: JSON.stringify({ name: input.name, cwd: input.cwd }) }).then(async (result) => {
+        if (!result.ok) {
+          const body = await result.clone().json().catch(() => null);
+          const message = record(record(body).error).message;
+          if (typeof message === 'string') throw new SessionGatewayError(result.status, message);
+        }
+        return result;
+      });
+      return mapAgentProject(await response<unknown>('Create project', pending));
+    },
     listPage: async (query) => {
       const params = new URLSearchParams({ limit: '100', scope: query.scope === 'background' ? 'self_improvement' : query.scope ?? 'chats' });
       if (query.projectId) params.set('projectId', query.projectId);

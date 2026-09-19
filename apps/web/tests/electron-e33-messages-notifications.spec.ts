@@ -16,8 +16,9 @@ test('E33: an open transcript refreshes on focus without mixing routes', async (
     return false;
   });
   await expect(page.getByTestId('messages-transcript')).toContainText('First');
-  await expect(page.getByTestId('messages-thread-list')).not.toHaveAttribute('role', 'grid');
-  await expect(page.getByTestId('messages-thread-31')).toHaveJSProperty('tagName', 'BUTTON');
+  await expect(page.getByTestId('messages-thread-list').getByRole('listbox')).toHaveAttribute('aria-label', 'Conversations');
+  await expect(page.getByTestId('messages-thread-31')).toHaveJSProperty('tagName', 'DIV');
+  await expect(page.getByTestId('messages-thread-31')).toHaveAttribute('role', 'option');
   messages = [...messages, { id: 2, threadId: 31, senderId: 2, senderName: 'Casey Staff', body: 'Arrived while open', createdAt: '2026-09-11T00:01:00Z' }];
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(page.getByTestId('messages-transcript')).toContainText('Arrived while open');

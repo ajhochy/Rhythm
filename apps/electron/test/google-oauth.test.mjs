@@ -22,7 +22,8 @@ test('desktop OAuth exchange uses Node fetch instead of Chromium net.fetch', () 
   assert.match(mainSource, /fetcher:\s*\(url, init\)\s*=>\s*globalThis\.fetch/);
 });
 
-test('post-m1-auth-c1/c2: PKCE and authorization URL match Flutter', async () => {
+test('post-m1-auth-c1/c2: PKCE and authorization URL request isolated login scopes', async () => {
+  assert.deepEqual([...GOOGLE_DESKTOP_SCOPES], ['openid', 'email', 'profile']);
   const pkce = await generatePkcePair();
   assert.match(pkce.verifier, /^[A-Za-z0-9_-]{86}$/);
   assert.match(pkce.challenge, /^[A-Za-z0-9_-]{43}$/);
@@ -37,9 +38,7 @@ test('post-m1-auth-c1/c2: PKCE and authorization URL match Flutter', async () =>
     ['code_challenge', pkce.challenge],
     ['code_challenge_method', 'S256'],
     ['state', 'state'],
-    ['access_type', 'offline'],
-    ['prompt', 'consent'],
-    ['include_granted_scopes', 'true'],
+    ['include_granted_scopes', 'false'],
   ]);
 });
 
@@ -69,7 +68,7 @@ test('post-m1-auth-c7: desktop exchange body and response shape match Flutter', 
       return new Response(JSON.stringify({ sessionToken: 'runtime-token', user: { id: 1, name: 'AJ', email: 'aj@example.test', role: 'admin' } }), { status: 200 });
     },
   });
-  assert.equal(captured.url, 'https://api.vcrcapps.com/auth/google/desktop-exchange');
+  assert.equal(captured.url, 'https://api.vcrcapps.com/auth/google/desktop-login-exchange');
   assert.deepEqual(JSON.parse(captured.init.body), { code: 'code', codeVerifier: 'verifier', redirectUri: 'http://127.0.0.1:1/callback' });
   assert.equal(login.sessionToken, 'runtime-token');
 });
@@ -94,7 +93,8 @@ test('post-m1-auth-c8: host binds loopback, opens externally, exchanges, and clo
       assert.equal(response.status, 200);
       assert.match(await response.text(), /You can close this window and return to Rhythm/);
     },
-    fetcher: async (_url, init) => {
+    fetcher: async (url, init) => {
+      if (String(url).endsWith('/desktop-login-capability')) return Response.json({ loginOnlyDesktopExchange: true });
       assert.equal(JSON.parse(init.body).code, 'authorization-code');
       return new Response(JSON.stringify({ sessionToken: 'runtime-token', user: { id: 1, name: 'AJ', email: 'aj@example.test', role: 'admin' } }), { status: 200 });
     },
@@ -102,6 +102,23 @@ test('post-m1-auth-c8: host binds loopback, opens externally, exchanges, and clo
   assert.match(openedUrl, /^https:\/\/accounts\.google\.com\/o\/oauth2\/v2\/auth\?/);
   assert.equal(login.sessionToken, 'runtime-token');
   await assert.rejects(fetch(callbackUrl), /fetch failed/);
+});
+
+test('old API fails before opening Google or creating a loopback listener', async () => {
+  let opened = false;
+  let listened = false;
+  await assert.rejects(runDesktopGoogleOAuth({
+    clientId: 'desktop-client',
+    apiBase: 'https://api.vcrcapps.com',
+    openExternal: async () => { opened = true; },
+    createLoopbackServer: () => { listened = true; throw new Error('unexpected listener'); },
+    fetcher: async (url) => {
+      assert.equal(String(url), 'https://api.vcrcapps.com/auth/google/desktop-login-capability');
+      return new Response('Not found', { status: 404 });
+    },
+  }), /does not support safe Google sign-in/);
+  assert.equal(opened, false);
+  assert.equal(listened, false);
 });
 
 test('production repair: OAuth does not exchange or tear down until the browser confirmation response flushes', async () => {
@@ -121,7 +138,8 @@ test('production repair: OAuth does not exchange or tear down until the browser 
           browserFinished = true;
         });
     },
-    fetcher: async () => {
+    fetcher: async (url) => {
+      if (String(url).endsWith('/desktop-login-capability')) return Response.json({ loginOnlyDesktopExchange: true });
       assert.equal(browserFinished, true, 'token exchange started before Chrome received the loopback response');
       return new Response(JSON.stringify({ sessionToken: 'runtime-token', user: { id: 1, name: 'AJ', email: 'aj@example.test', role: 'admin' } }), { status: 200 });
     },

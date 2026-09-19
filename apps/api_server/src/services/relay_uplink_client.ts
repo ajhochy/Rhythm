@@ -12,6 +12,7 @@ import {
   type FileArtifactFrame,
   type RpcReqFrame,
   type RpcResFrame,
+  type PtyFrame,
   type UplinkFrame,
 } from './relay_uplink_protocol';
 
@@ -48,6 +49,23 @@ const HOP_BY_HOP_HEADERS = new Set([
 
 const RPC_TIMEOUT_MS = 30_000;
 const ARTIFACT_BASE64_LIMIT_BYTES = 8 * 1024 * 1024;
+const PTY_MAX_FRAME_BYTES = 1024 * 1024;
+const PTY_MAX_PENDING_BYTES = 1024 * 1024;
+const PTY_MAX_WIRE_BUFFER_BYTES = 2 * 1024 * 1024;
+
+function safeDiagnosticId(value: unknown): string {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{1,256}$/.test(value)
+    ? value
+    : 'unknown';
+}
+
+interface LocalPtyConnection {
+  socket: WebSocket;
+  pending: Array<{ dataB64: string; binary: boolean }>;
+  pendingBytes: number;
+  ready: boolean;
+  uplink: WebSocket;
+}
 
 type DialResult = 'failed' | 'closed' | 'stopped';
 
@@ -77,6 +95,7 @@ export class RelayUplinkClient {
     frame: RpcReqFrame;
     socket: WebSocket;
   }> = [];
+  private readonly ptyConnections = new Map<string, LocalPtyConnection>();
 
   constructor(options: RelayUplinkClientOptions) {
     this.options = options;
@@ -108,6 +127,7 @@ export class RelayUplinkClient {
     this.hubSubscription = null;
     this.pendingInbound.length = 0;
     this.rpcQueue.length = 0;
+    this.closeAllPtys();
 
     const socket = this.socket;
     if (socket) {
@@ -161,7 +181,7 @@ export class RelayUplinkClient {
       } | undefined;
       if (!ownership || ownership.owner_user_id === null) {
         logger.warn(
-          `[RelayUplinkClient] artifact push skipped without explicit ownership: ${input.artifactId}`,
+          `[RelayUplinkClient] artifact push skipped without explicit ownership artifactId=${safeDiagnosticId(input.artifactId)} userId=${this.options.userId} state=${this.isConnected() ? 'online' : 'offline'}`,
         );
         return;
       }
@@ -182,12 +202,12 @@ export class RelayUplinkClient {
       };
       if (!this.sendFrame(frame)) {
         logger.warn(
-          `[RelayUplinkClient] artifact push skipped while offline: ${input.artifactId}`,
+          `[RelayUplinkClient] artifact push skipped while offline artifactId=${safeDiagnosticId(input.artifactId)} userId=${this.options.userId}`,
         );
       }
     } catch (error) {
       logger.warn(
-        `[RelayUplinkClient] artifact push failed for ${input.artifactId}: ${String(error)}`,
+        `[RelayUplinkClient] artifact push failed artifactId=${safeDiagnosticId(input.artifactId)} userId=${this.options.userId} sessionId=${safeDiagnosticId(input.meta.sessionId)} state=${this.isConnected() ? 'online' : 'offline'} reason=${error instanceof Error ? error.name : 'UnknownError'}`,
       );
     }
   }
@@ -253,6 +273,7 @@ export class RelayUplinkClient {
           this.socket = null;
           this.ready = false;
         }
+        this.closeAllPtys(socket);
         this.removePendingInbound(socket);
         resolve(result);
       };
@@ -261,7 +282,7 @@ export class RelayUplinkClient {
         opened = true;
         void this.initializeConnection(socket).catch((error) => {
           logger.warn(
-            `[RelayUplinkClient] connection initialization failed: ${String(error)}`,
+            `[RelayUplinkClient] connection initialization failed reason=${error instanceof Error ? error.name : 'UnknownError'}`,
           );
           socket.terminate();
         });
@@ -325,6 +346,10 @@ export class RelayUplinkClient {
   }
 
   private processFrame(socket: WebSocket, frame: UplinkFrame): void {
+    if (frame.ch === 'pty') {
+      this.processPtyFrame(socket, frame);
+      return;
+    }
     if (frame.ch === 'ctrl' && frame.t === 'resync') {
       this.handleResync(socket, frame);
       return;
@@ -341,6 +366,139 @@ export class RelayUplinkClient {
     if (frame.ch === 'rpc' && frame.t === 'req') {
       this.rpcQueue.push({ frame, socket });
       this.pumpRpcQueue();
+    }
+  }
+
+  private processPtyFrame(uplink: WebSocket, frame: PtyFrame): void {
+    if (frame.t === 'open') {
+      if (this.ptyConnections.has(frame.id) ||
+        !/^[A-Za-z0-9_-]{1,256}$/.test(frame.ptyId) ||
+        !/^[A-Za-z0-9_-]{1,256}$/.test(frame.projectId) ||
+        typeof frame.deviceToken !== 'string' ||
+        typeof frame.ticket !== 'string' ||
+        frame.ticket.length < 16 || frame.ticket.length > 4_096) {
+        this.sendPtyFrame(uplink, { ch: 'pty', t: 'close', id: frame.id, code: 1008 });
+        return;
+      }
+      const localUrl = new URL(this.options.dispatchBaseUrl);
+      localUrl.protocol = localUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+      localUrl.pathname = `/mobile-gateway/pty/${encodeURIComponent(frame.ptyId)}/connect`;
+      localUrl.search = '';
+      localUrl.searchParams.set('ticket', frame.ticket);
+      let local: WebSocket;
+      try {
+        local = new WebSocket(localUrl.toString(), {
+          headers: {
+            Authorization: `Device ${frame.deviceToken}`,
+            'X-Rhythm-Project-ID': frame.projectId,
+          },
+          maxPayload: PTY_MAX_FRAME_BYTES,
+          perMessageDeflate: false,
+        });
+      } catch {
+        this.sendPtyFrame(uplink, { ch: 'pty', t: 'close', id: frame.id, code: 1011 });
+        return;
+      }
+      const connection: LocalPtyConnection = {
+        socket: local, uplink, pending: [], pendingBytes: 0, ready: false,
+      };
+      this.ptyConnections.set(frame.id, connection);
+      const close = (code: number): void => {
+        if (this.ptyConnections.get(frame.id) !== connection) return;
+        this.closeLocalPty(frame.id, connection, code);
+      };
+      local.once('open', () => {
+        connection.ready = true;
+        if (!this.sendPtyFrame(uplink, { ch: 'pty', t: 'ready', id: frame.id })) {
+          close(1013);
+          return;
+        }
+        for (const payload of connection.pending) {
+          const bytes = Buffer.from(payload.dataB64, 'base64');
+          if (local.bufferedAmount + bytes.byteLength > PTY_MAX_PENDING_BYTES) {
+            close(1013);
+            return;
+          }
+          local.send(bytes, { binary: payload.binary }, (error) => {
+            if (error) close(1011);
+          });
+        }
+        connection.pending.length = 0;
+        connection.pendingBytes = 0;
+      });
+      local.on('message', (data, binary) => {
+        const bytes = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
+        if (bytes.byteLength > PTY_MAX_FRAME_BYTES ||
+          !this.sendPtyFrame(uplink, {
+            ch: 'pty', t: 'data', id: frame.id,
+            dataB64: bytes.toString('base64'), binary,
+          })) close(1009);
+      });
+      local.once('unexpected-response', (_request, response) => {
+        response.resume();
+        close(response.statusCode === 401 ? 4401 :
+          response.statusCode === 403 || response.statusCode === 404 ? 4403 : 1008);
+      });
+      local.once('error', () => close(1011));
+      local.once('close', (code) => close(code));
+      return;
+    }
+    const connection = this.ptyConnections.get(frame.id);
+    if (!connection || connection.uplink !== uplink) return;
+    if (frame.t === 'data' && typeof frame.dataB64 === 'string' &&
+      frame.dataB64.length <= PTY_MAX_FRAME_BYTES * 2) {
+      const bytes = Buffer.from(frame.dataB64, 'base64');
+      if (bytes.byteLength > PTY_MAX_FRAME_BYTES) {
+        this.closeLocalPty(frame.id, connection, 1009);
+        return;
+      }
+      if (!connection.ready) {
+        connection.pendingBytes += bytes.byteLength;
+        if (connection.pendingBytes > PTY_MAX_PENDING_BYTES) {
+          this.closeLocalPty(frame.id, connection, 1009);
+        } else {
+          connection.pending.push({ dataB64: frame.dataB64, binary: frame.binary === true });
+        }
+      } else if (connection.socket.readyState === WebSocket.OPEN &&
+        connection.socket.bufferedAmount + bytes.byteLength <= PTY_MAX_PENDING_BYTES) {
+        connection.socket.send(bytes, { binary: frame.binary === true }, (error) => {
+          if (error) this.closeLocalPty(frame.id, connection, 1011);
+        });
+      } else {
+        this.closeLocalPty(frame.id, connection, 1013);
+      }
+    } else if (frame.t === 'close') {
+      this.ptyConnections.delete(frame.id);
+      if (connection.socket.readyState === WebSocket.OPEN) connection.socket.close();
+      else connection.socket.terminate();
+    }
+  }
+
+  private sendPtyFrame(uplink: WebSocket, frame: PtyFrame): boolean {
+    if (uplink.bufferedAmount + Buffer.byteLength(serializeUplinkFrame(frame)) >
+      PTY_MAX_WIRE_BUFFER_BYTES) return false;
+    return this.sendFrameOn(uplink, frame);
+  }
+
+  private closeLocalPty(
+    id: string,
+    connection: LocalPtyConnection,
+    code: number,
+  ): void {
+    if (this.ptyConnections.get(id) !== connection) return;
+    this.ptyConnections.delete(id);
+    const local = connection.socket;
+    if (local.readyState === WebSocket.OPEN) local.close();
+    else if (local.readyState === WebSocket.CONNECTING) local.terminate();
+    this.sendPtyFrame(connection.uplink, { ch: 'pty', t: 'close', id, code });
+  }
+
+  private closeAllPtys(uplink?: WebSocket): void {
+    for (const [id, connection] of this.ptyConnections) {
+      if (uplink && connection.uplink !== uplink) continue;
+      this.ptyConnections.delete(id);
+      if (connection.socket.readyState === WebSocket.OPEN) connection.socket.close();
+      else if (connection.socket.readyState === WebSocket.CONNECTING) connection.socket.terminate();
     }
   }
 

@@ -56,7 +56,7 @@ const HOP_BY_HOP_HEADERS = new Set([
   'transfer-encoding',
   'upgrade',
 ]);
-const ARTIFACT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+const ARTIFACT_ID_PATTERN = /^[A-Za-z0-9_-]{1,256}$/;
 const MAX_DEVICE_NAME_LENGTH = 128;
 
 function validatedRelayPublicUrl(
@@ -417,7 +417,7 @@ export function createRelayGatewayRouter(
   );
 
   router.all('/mobile-gateway/pty/*', requireDevice, (_req, res) => {
-    res.status(501).json({ error: 'pty_requires_direct_connection' });
+    res.status(426).json({ error: 'pty_websocket_upgrade_required' });
   });
 
   // Relay-served mirror reads (Track 5). Keep this region separate from the
@@ -661,7 +661,7 @@ export function createRelayGatewayRouter(
             ]);
           } catch (error) {
             logger.warn(
-              `[RelayGateway] failed to cache artifact ${artifactId}: ${String(error)}`,
+              `[RelayGateway] failed to cache artifact ${artifactId} (${error instanceof Error ? error.name : 'UnknownError'})`,
             );
           }
         }

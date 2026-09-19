@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { FocusDialog } from '../../components/FocusDialog';
+import { ListInspector } from '../../components/ListInspector';
 import { navigate } from '../../components/Shell';
 import { Icon } from '../../icons';
 import { useFixtures } from '../../store';
@@ -46,12 +47,11 @@ function threadIdForTitle(title: string) {
   return `thread-${slug || 'new-conversation'}`;
 }
 
-function StatePanel({ state, onRetry, onNew }: { state: Exclude<MessagesSurfaceState, 'ready' | 'readonly'>; onRetry(): void; onNew(): void }) {
-  if (state === 'loading') return <section className="messages-state loading" role="status" aria-live="polite" data-testid="page-state-loading"><span className="messages-spinner" aria-hidden="true" /><span className="eyebrow">Workspace messages</span><h2>Loading conversations</h2><p>Gathering thread summaries and unread state.</p></section>;
-  if (state === 'empty') return <section className="messages-state" role="status" data-testid="page-state-empty"><span className="messages-state-mark" aria-hidden="true">＋</span><span className="eyebrow">A quiet inbox</span><h2>No conversations</h2><p>Start a direct message or gather a group around the next handoff.</p><button className="primary-button" type="button" onClick={onNew} data-testid="messages-empty-new-thread">New conversation</button></section>;
-  if (state === 'server-error') return <section className="messages-state danger" role="alert" data-testid="page-state-server-error"><span className="messages-state-code">503</span><span className="eyebrow">Retryable server error</span><h2>Messages could not be loaded</h2><p>The seeded adapter returned an error. Any open dialog and draft are preserved for recovery.</p><button className="primary-button" type="button" onClick={onRetry} data-testid="page-retry">Retry</button></section>;
-  if (state === 'forbidden') return <section className="messages-state warning" role="alert" data-testid="page-state-forbidden"><span className="messages-state-code">403</span><span className="eyebrow">Membership required</span><h2>Messages are restricted</h2><p>Authenticated workspace membership is required to inspect conversations.</p></section>;
-  return <section className="messages-state warning" role="status" data-testid="page-state-unavailable"><span className="messages-state-mark" aria-hidden="true">◇</span><span className="eyebrow">Desktop prerequisite</span><h2>Messages are unavailable</h2><p>Reconnect the local Rhythm API before loading or changing conversations.</p></section>;
+function StatePanel({ state, onRetry, onNew }: { state: Exclude<MessagesSurfaceState, 'ready' | 'readonly' | 'loading'>; onRetry(): void; onNew(): void }) {
+  if (state === 'empty') return <div className="messages-state" data-testid="page-state-empty"><span className="messages-state-mark" aria-hidden="true">＋</span><span className="eyebrow">A quiet inbox</span><h3>No conversations</h3><p>Start a direct message or gather a group around the next handoff.</p><button className="primary-button" type="button" onClick={onNew} data-testid="messages-empty-new-thread">New conversation</button></div>;
+  if (state === 'server-error') return <div className="messages-state danger" data-testid="page-state-server-error"><span className="messages-state-code">503</span><span className="eyebrow">Retryable server error</span><h3>Messages could not be loaded</h3><p>The seeded adapter returned an error. Any open dialog and draft are preserved for recovery.</p><button className="primary-button" type="button" onClick={onRetry} data-testid="page-retry">Retry</button></div>;
+  if (state === 'forbidden') return <div className="messages-state warning" data-testid="page-state-forbidden"><span className="messages-state-code">403</span><span className="eyebrow">Membership required</span><h3>Messages are restricted</h3><p>Authenticated workspace membership is required to inspect conversations.</p></div>;
+  return <div className="messages-state warning" data-testid="page-state-unavailable"><span className="messages-state-mark" aria-hidden="true">◇</span><span className="eyebrow">Desktop prerequisite</span><h3>Messages are unavailable</h3><p>Reconnect the local Rhythm API before loading or changing conversations.</p></div>;
 }
 
 function ThreadActions({ thread, readonly, onRead, onUnread, onRename, onDelete, testId }: { thread: MessageThreadFixture; readonly: boolean; onRead(): void; onUnread(): void; onRename(): void; onDelete(): void; testId?: string }) {
@@ -120,16 +120,12 @@ function FixtureMessagesPage({ route }: { route: string }) {
   const hydratedRouteRef = useRef<string | null>(null);
 
   const selectedThread = threads.find((thread) => thread.id === selectedId) ?? null;
-  const renameTarget = threads.find((thread) => thread.id === renameTargetId) ?? null;
-  const deleteTarget = threads.find((thread) => thread.id === deleteTargetId) ?? null;
   const requestedThreadId = threadIdFromRoute(route);
   const invalidThread = Boolean(requestedThreadId && !selectedThread);
+  const renameTarget = threads.find((thread) => thread.id === renameTargetId) ?? null;
+  const deleteTarget = threads.find((thread) => thread.id === deleteTargetId) ?? null;
   const readonly = surfaceState === 'readonly';
   const unreadTotal = threads.filter((thread) => thread.unreadCount > 0).length;
-  const visibleThreads = useMemo(() => {
-    const needle = search.trim().toLocaleLowerCase();
-    return needle ? threads.filter((thread) => thread.title.toLocaleLowerCase().includes(needle)) : threads;
-  }, [search, threads]);
 
   const appendReceipt = (receipt: string) => setReceipts((current) => [...current, receipt]);
   const updateSurfaceUrl = (next: MessagesSurfaceState) => {
@@ -162,6 +158,8 @@ function FixtureMessagesPage({ route }: { route: string }) {
     appendReceipt(`POST /message-threads/${id}/read → 204`);
     appendReceipt(`GET /message-threads/${id}/messages → 200`);
     appendReceipt('GET /message-threads → 200');
+    setReply('');
+    setReplyError('');
     if (shouldNavigate) navigate(`/messages/${encodeURIComponent(id)}`);
   };
 
@@ -223,8 +221,7 @@ function FixtureMessagesPage({ route }: { route: string }) {
       setReplyError('');
       navigate(fallback ? `/messages/${encodeURIComponent(fallback.id)}` : '/messages');
       requestAnimationFrame(() => {
-        const focusTarget = document.querySelector<HTMLElement>(fallback ? '[data-testid="messages-selected-thread-actions"]' : '[data-testid="messages-thread-search"]');
-        focusTarget?.focus({ preventScroll: true });
+        document.querySelector<HTMLElement>(fallback ? '[data-testid="messages-selected-thread-actions"]' : '[data-testid="messages-thread-search"]')?.focus({ preventScroll: true });
       });
     }
     notify(`${targetTitle} deleted`);
@@ -279,13 +276,13 @@ function FixtureMessagesPage({ route }: { route: string }) {
     appendReceipt(`GET /message-threads/${id}/messages → 200`);
     appendReceipt('GET /message-threads → 200');
     setSelectedId(id);
+    hydratedRouteRef.current = id;
+    navigate(`/messages/${encodeURIComponent(id)}`);
     setNewThreadOpen(false);
     setThreadType('direct');
     setThreadTitle('');
     setSelectedRecipients([]);
-    hydratedRouteRef.current = id;
     notify(`${title} created`);
-    navigate(`/messages/${encodeURIComponent(id)}`);
   };
 
   const sendReply = () => {
@@ -316,9 +313,11 @@ function FixtureMessagesPage({ route }: { route: string }) {
     notify('Messages reconnected');
   };
 
-  const statePanel = surfaceState !== 'ready' && surfaceState !== 'readonly'
+  const listThreads = surfaceState === 'empty' ? [] : threads.filter((thread) => thread.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
+  const inspectorError = surfaceState === 'server-error' || surfaceState === 'forbidden' || surfaceState === 'unavailable'
     ? <StatePanel state={surfaceState} onRetry={recover} onNew={openNewThread} />
-    : null;
+    : undefined;
+  const mutationsDisabled = readonly || (surfaceState !== 'ready' && surfaceState !== 'empty');
 
   return <section className="page-shell pg-messages" aria-labelledby="messages-title" data-testid="page-messages" {...(selectedId ? { 'data-selected-stable-id': selectedId } : {})}>
     <header className="messages-page-header">
@@ -327,49 +326,59 @@ function FixtureMessagesPage({ route }: { route: string }) {
         <label>Page state<select value={surfaceState} onChange={(event) => changeSurfaceState(event.target.value as MessagesSurfaceState)} data-testid="messages-state-picker">{supportedStates.map((state) => <option key={state} value={state}>{state}</option>)}</select></label>
         <label>Next mutation<select value={mutationMode} onChange={(event) => setMutationMode(event.target.value as MutationMode)} data-testid="messages-mutation-mode"><option value="success">Succeed</option><option value="server-error">Return 500</option></select></label>
       </div>
-      <fieldset className="messages-header-mutations" disabled={readonly} aria-disabled={readonly ? 'true' : undefined} data-testid="messages-mutations">
-        <legend className="sr-only">Conversation mutations</legend>
-        <button className="primary-button" type="button" onClick={openNewThread} aria-describedby={readonly ? 'messages-readonly-reason' : undefined} data-testid="messages-new-thread"><Icon name="plus" size={15} />New</button>
-      </fieldset>
     </header>
 
     {readonly && <div className="messages-readonly" id="messages-readonly-reason" role="status" data-testid="page-state-readonly"><strong>Read-only workspace.</strong> Conversations remain inspectable; workspace edit permission is required to send, rename, delete, or change unread state.</div>}
 
-    {statePanel ?? <div className={`messages-workspace ${selectedThread ? 'has-selection' : ''}`} data-testid="messages-responsive-primary">
-      <aside className="messages-thread-rail" aria-label="Conversations">
-        <div className="messages-rail-summary"><div><strong data-testid="messages-unread-total">{unreadTotal} unread {unreadTotal === 1 ? 'thread' : 'threads'}</strong><span data-testid="messages-visible-count">{visibleThreads.length} {visibleThreads.length === 1 ? 'conversation' : 'conversations'}</span></div><span aria-hidden="true">{String(unreadTotal).padStart(2, '0')}</span></div>
-        <label className="search-field messages-search"><Icon name="search" size={14} /><span className="sr-only">Search conversations by title</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search conversations" data-testid="messages-thread-search" /></label>
-        <ul className="messages-thread-list" role="grid" aria-label="Conversation list" data-testid="messages-thread-list">
-          {visibleThreads.map((thread) => <li key={thread.id} className="messages-thread-item" role="row">
-            <div className="messages-thread-row" role="gridcell" tabIndex={0} aria-selected={selectedId === thread.id} data-unread={thread.unreadCount > 0 ? 'true' : 'false'} data-thread-row="true" onClick={() => hydrateThread(thread.id, true)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); hydrateThread(thread.id, true); } }} data-testid={`messages-thread-${thread.id}`}>
-              <span className="messages-thread-avatar" aria-hidden="true">{thread.participants[0]?.initials ?? 'R'}</span><span className="messages-thread-copy"><strong>{thread.title}</strong><small>{thread.lastMessage}</small></span><time dateTime={thread.updatedAt}>{timeLabel(thread.updatedAt)}</time>{thread.unreadCount > 0 && <span className="messages-row-unread" aria-label={`${thread.unreadCount} unread message`} data-testid={`messages-thread-unread-${thread.id}`}>{thread.unreadCount}</span>}
-            </div>
-            <div role="gridcell"><ThreadActions thread={thread} readonly={readonly} onRead={() => markRead(thread.id)} onUnread={() => markUnread(thread.id)} onRename={() => openRenameThread(thread)} onDelete={() => openDeleteThread(thread)} /></div>
-          </li>)}
-        </ul>
-        {visibleThreads.length === 0 && <div className="messages-no-results" data-testid="messages-no-results"><h2>No matching conversations</h2><p>Try a shorter title or clear the search.</p><button className="secondary-button" type="button" onClick={() => setSearch('')} data-testid="messages-clear-search">Clear search</button></div>}
-      </aside>
-
-      <section className="messages-conversation" aria-label="Selected conversation">
-        {invalidThread ? <div className="messages-selection-state" data-testid="messages-thread-not-found"><span className="messages-state-mark" aria-hidden="true">?</span><h2>Conversation not found</h2><p>This link does not match a conversation in the current workspace.</p><button className="secondary-button" type="button" onClick={() => navigate('/messages')} data-testid="messages-back-to-conversations">Back to conversations</button></div>
-          : !selectedThread ? <div className="messages-selection-state" data-testid="messages-empty-selection"><span className="messages-state-mark" aria-hidden="true">↗</span><h2>Select a conversation</h2><p>Choose a thread to read its participants and transcript.</p></div>
-            : <>
+    <div className="messages-workspace" data-testid={surfaceState === 'loading' ? 'page-state-loading' : 'messages-responsive-primary'}>
+      <div className="messages-list-inspector-host" data-testid="messages-thread-list">
+        <ListInspector
+          className="messages-list-inspector"
+          label="Conversations"
+          items={(surfaceState === 'empty' ? [] : threads).map((thread) => ({
+            id: `messages-thread-${thread.id}`,
+            title: thread.title,
+            subtitle: thread.lastMessage || 'No messages yet',
+            meta: timeLabel(thread.updatedAt),
+            badge: thread.unreadCount > 0 ? `${thread.unreadCount} unread` : undefined,
+          }))}
+          selectedId={selectedId && !invalidThread ? `messages-thread-${selectedId}` : null}
+          onSelect={(rowId) => hydrateThread(rowId.slice('messages-thread-'.length), true)}
+          filterItem={(item) => item.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())}
+          toolbar={<div className="messages-list-toolbar">
+            <div className="messages-rail-summary"><div><strong data-testid="messages-unread-total">{unreadTotal} unread {unreadTotal === 1 ? 'thread' : 'threads'}</strong><span data-testid="messages-visible-count">{listThreads.length} {listThreads.length === 1 ? 'conversation' : 'conversations'}</span></div><span aria-hidden="true">{String(unreadTotal).padStart(2, '0')}</span></div>
+            <label className="search-field messages-search"><Icon name="search" size={14} /><span className="sr-only">Search conversations by title</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search conversations" data-testid="messages-thread-search" /></label>
+            <fieldset className="messages-header-mutations" disabled={mutationsDisabled} aria-disabled={mutationsDisabled ? 'true' : undefined} data-testid="messages-mutations">
+              <legend className="sr-only">Conversation mutations</legend>
+              <button className="primary-button" type="button" onClick={openNewThread} aria-describedby={readonly ? 'messages-readonly-reason' : undefined} data-testid="messages-new-thread"><Icon name="plus" size={15} />New conversation</button>
+            </fieldset>
+          </div>}
+          loading={surfaceState === 'loading'}
+          error={inspectorError}
+          emptyState={<StatePanel state="empty" onRetry={recover} onNew={openNewThread} />}
+          noResultsState={<div className="messages-no-results" data-testid="messages-no-results"><h3>No matching conversations</h3><p>Try a shorter title or clear the search.</p><button className="secondary-button" type="button" onClick={() => setSearch('')} data-testid="messages-clear-search">Clear search</button></div>}
+          inspector={(item) => {
+            const thread = item ? threads.find((candidate) => `messages-thread-${candidate.id}` === item.id) ?? null : null;
+            if (invalidThread) return <div className="messages-selection-state" data-testid="messages-thread-not-found"><span className="messages-state-mark" aria-hidden="true">?</span><h3>Conversation not found</h3><p>This link does not match a conversation in the current workspace.</p><button className="secondary-button" type="button" onClick={() => navigate('/messages')} data-testid="messages-back-to-conversations">Back to conversations</button></div>;
+            if (!thread) return <div className="messages-selection-state" data-testid="messages-empty-selection"><span className="messages-state-mark" aria-hidden="true">↗</span><h3>Select a conversation</h3><p>Choose a thread to read its participants and transcript.</p></div>;
+            return <div className="messages-conversation" role="region" aria-label="Selected conversation">
               <header className="messages-conversation-header">
-                <button className="text-button messages-mobile-back" type="button" onClick={() => navigate('/messages')} data-testid="messages-mobile-back">Back to conversations</button>
-                <div className="messages-conversation-heading"><span className="eyebrow" data-testid="messages-thread-type">{selectedThread.type === 'group' ? 'Group' : 'Direct'}</span><h2 data-testid="messages-subject">{selectedThread.title}</h2><p><span data-testid="messages-participants">{selectedThread.participants.map((participant) => participant.name).join(' · ')}</span><span aria-hidden="true"> · </span>{selectedThread.messages.length} {selectedThread.messages.length === 1 ? 'message' : 'messages'}</p></div>
-                <ThreadActions thread={selectedThread} readonly={readonly} onRead={() => markRead(selectedThread.id)} onUnread={() => markUnread(selectedThread.id)} onRename={() => openRenameThread(selectedThread)} onDelete={() => openDeleteThread(selectedThread)} testId="messages-selected-thread-actions" />
+                <div className="messages-conversation-heading"><span className="eyebrow" data-testid="messages-thread-type">{thread.type === 'group' ? 'Group' : 'Direct'}</span><span className="sr-only" data-testid="messages-subject">{thread.title}</span><p><span data-testid="messages-participants">{thread.participants.map((participant) => participant.name).join(' · ')}</span><span aria-hidden="true"> · </span>{thread.messages.length} {thread.messages.length === 1 ? 'message' : 'messages'}</p></div>
+                <ThreadActions thread={thread} readonly={readonly} onRead={() => markRead(thread.id)} onUnread={() => markUnread(thread.id)} onRename={() => openRenameThread(thread)} onDelete={() => openDeleteThread(thread)} testId="messages-selected-thread-actions" />
               </header>
-              {incomingVisible && selectedThread.id === 'thread-weekend-team' && <div className="messages-incoming" role="status"><span><strong>New from Morgan</strong> · Volunteer coverage is current.</span><button className="text-button" type="button" onClick={() => setIncomingVisible(false)} data-testid="messages-incoming-dismiss">Dismiss</button></div>}
-              <div className="messages-transcript" ref={transcriptRef} tabIndex={0} aria-label={`${selectedThread.title} transcript`} aria-live="polite" data-testid="messages-transcript">
-                {selectedThread.messages.length === 0 ? <div className="messages-transcript-empty"><p>No messages yet. Start the conversation below.</p></div> : selectedThread.messages.map((message) => <article className={`messages-message ${message.senderId === currentMessageUser.id ? 'own' : ''}`} key={message.id} data-message-row="true"><header><strong>{message.senderName}</strong><time dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time></header><p>{message.body}</p></article>)}
+              {incomingVisible && thread.id === 'thread-weekend-team' && <div className="messages-incoming" role="status"><span><strong>New from Morgan</strong> · Volunteer coverage is current.</span><button className="text-button" type="button" onClick={() => setIncomingVisible(false)} data-testid="messages-incoming-dismiss">Dismiss</button></div>}
+              <div className="messages-transcript" ref={transcriptRef} role="log" tabIndex={0} aria-label={`${thread.title} transcript`} aria-live="polite" data-testid="messages-transcript">
+                {thread.messages.length === 0 ? <div className="messages-transcript-empty"><p>No messages yet. Start the conversation below.</p></div> : thread.messages.map((message) => <article className={`messages-message ${message.senderId === currentMessageUser.id ? 'own' : ''}`} key={message.id} data-message-row="true"><header><strong>{message.senderName}</strong><time dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time></header><p>{message.body}</p></article>)}
               </div>
               <fieldset className="messages-composer-fieldset" disabled={readonly} aria-disabled={readonly ? 'true' : undefined}>
-                <legend className="sr-only">Reply to {selectedThread.title}</legend>
+                <legend className="sr-only">Reply to {thread.title}</legend>
                 <div className="messages-composer"><label htmlFor="messages-reply-input">Reply</label><div><textarea ref={replyRef} id="messages-reply-input" rows={2} value={reply} onChange={(event) => { setReply(event.target.value); setReplyError(''); }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendReply(); } }} aria-describedby={replyError ? 'messages-reply-error' : 'messages-reply-help'} data-testid="messages-reply-input" /><button className="primary-button messages-send" type="button" onClick={sendReply} data-testid="messages-send"><Icon name="send" size={16} /><span>Send</span></button></div><small id="messages-reply-help">Enter to send · Shift+Enter for a new line</small>{replyError && <p id="messages-reply-error" role="alert" data-testid="messages-reply-error">{replyError}</p>}</div>
               </fieldset>
-            </>}
-      </section>
-    </div>}
+            </div>;
+          }}
+        />
+      </div>
+    </div>
 
     <aside className="messages-trace" tabIndex={0} aria-label="API receipt ledger" data-testid="page-trace"><span>Page trace</span><ol>{receipts.map((receipt, index) => <li key={`${receipt}-${index}`}>{receipt}</li>)}</ol></aside>
 
@@ -402,7 +411,7 @@ function FixtureMessagesPage({ route }: { route: string }) {
 
     <FocusDialog open={Boolean(deleteTarget)} onClose={closeDeleteThread} title="Delete thread" description={deleteTarget ? `Delete “${deleteTarget.title}” and its message history? This action cannot be undone.` : undefined} testId="messages-delete-thread-dialog">
       <div className="messages-thread-delete-confirmation">
-        <p>The next conversation will stay open so you can continue working.</p>
+        <p>The inspector will show that this conversation is no longer available.</p>
         <div className="dialog-actions"><button className="secondary-button" type="button" onClick={closeDeleteThread} data-testid="messages-delete-thread-cancel">Cancel</button><button className="danger-button" data-autofocus type="button" onClick={deleteThread} data-testid="messages-delete-thread-confirm">Delete thread</button></div>
       </div>
     </FocusDialog>

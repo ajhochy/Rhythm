@@ -95,6 +95,32 @@ test('slice-7-c1: one command produces the unsigned macOS app bundle', async () 
   );
 });
 
+test('rhythm-icon: packaged plist references the Rhythm artwork, with no Electron fallback', {
+  skip: !existsSync('/usr/bin/iconutil') && 'iconutil unavailable; inspect the macOS bundle on a macOS runner',
+}, async () => {
+  await assertPackagedBundle('rhythm-icon');
+  const resources = resolve(artifactRoot, 'Contents/Resources');
+  const plist = await run('plutil', ['-convert', 'json', '-o', '-', resolve(artifactRoot, 'Contents/Info.plist')]);
+  assert.equal(plist.code, 0, plist.stderr);
+  const metadata = JSON.parse(plist.stdout);
+  assert.equal(metadata.CFBundleIconFile, 'Rhythm');
+  if (Object.hasOwn(metadata, 'CFBundleIconName')) assert.equal(metadata.CFBundleIconName, 'Rhythm');
+  const icon = await readFile(resolve(resources, `${metadata.CFBundleIconFile}.icns`));
+  assert.equal(icon.toString('ascii', 0, 4), 'icns');
+  const inventory = JSON.parse(await readFile(resolve(resources, 'Rhythm.icns.json'), 'utf8'));
+  assert.equal(inventory.icon, 'Rhythm.icns');
+  assert.equal(inventory.sha256, createHash('sha256').update(icon).digest('hex'));
+  const appiconset = resolve(repositoryRoot, 'apps/desktop_flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset');
+  const contents = JSON.parse(await readFile(resolve(appiconset, 'Contents.json'), 'utf8'));
+  const retina = contents.images.find((image) => image.idiom === 'mac' && image.size === '512x512' && image.scale === '2x');
+  const source = await readFile(resolve(appiconset, retina.filename));
+  assert.equal(inventory.images.length, 10);
+  assert.deepEqual(inventory.images.find((image) => image.iconsetName === 'icon_512x512@2x.png'), {
+    iconsetName: 'icon_512x512@2x.png', source: retina.filename, pixels: 1024, sha256: createHash('sha256').update(source).digest('hex'),
+  });
+  assert.equal(existsSync(resolve(resources, 'electron.icns')), false);
+});
+
 test('slice-7-c2: packaged web assets byte-match apps/web/dist by SHA-256', async () => {
   // Regression caught: a stale renderer copy ships even though its file count matches.
   await assertPackagedBundle('slice-7-c2');
@@ -164,7 +190,7 @@ test('slice-7-c5: packaged binary preserves renderer isolation and fail-closed p
   await assertPackagedBundle('slice-7-c5');
   const receipt = await packagedSmoke(['--smoke', '--security-smoke']);
   assert.equal(receipt.bridge?.nodeExposed, false, 'slice-7-c5: Node is exposed in the packaged renderer');
-  assert.deepEqual(receipt.bridge?.keys, ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates'], 'slice-7-c5: packaged preload exposes capabilities beyond the approved closed surface');
+  assert.deepEqual(receipt.bridge?.keys, ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory', 'hermes', 'hermesView'], 'slice-7-c5: packaged preload exposes capabilities beyond the approved closed surface');
   assert.equal(receipt.bridge?.frozen, true, 'slice-7-c5: packaged lifecycle object is not frozen');
   assert.deepEqual(receipt.bridge?.gateway?.keys, ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase'], 'slice-7-c5: packaged preload gateway configuration differs from the approved runtime values');
   assert.equal(receipt.bridge?.gateway?.frozen, true, 'slice-7-c5: packaged gateway metadata is not frozen');
@@ -179,6 +205,10 @@ test('slice-7-c5: packaged binary preserves renderer isolation and fail-closed p
   assert.equal(receipt.bridge?.agentServer?.frozen, true, 'slice-7-c5: packaged agent-server surface is not frozen');
   assert.deepEqual(receipt.bridge?.updates?.keys, ['openDownloadPage'], 'slice-7-c5: packaged update surface differs from the fixed download capability');
   assert.equal(receipt.bridge?.updates?.frozen, true, 'slice-7-c5: packaged update surface is not frozen');
+  assert.deepEqual(receipt.bridge?.hermes?.keys, ['enabled', 'getStatus', 'install', 'restart', 'onStatus']);
+  assert.equal(receipt.bridge?.hermes?.frozen, true);
+  assert.deepEqual(receipt.bridge?.hermesView?.keys, ['attach', 'setBounds', 'detach', 'sendIntent']);
+  assert.equal(receipt.bridge?.hermesView?.frozen, true);
   assert.equal(Number.isInteger(receipt.bridge?.value?.version), true, 'slice-7-c5: packaged lifecycle object has no integer version');
   assert.deepEqual(receipt.denials, {
     navigation: true,

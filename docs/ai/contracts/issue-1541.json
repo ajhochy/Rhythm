@@ -1,0 +1,67 @@
+{
+  "issue": 1541,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1541-c1",
+      "text": "**HRM-B2-AC1:** The Phase 0 report compares the freezing options with measured arm64 artifact sizes/startup evidence and signing notes, records go/no-go, and Phase 2 changes exist only for a go result.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: Phase 0 evidence is documentation-only; no automated test was authored for the report."
+    },
+    {
+      "criterion_id": "issue-1541-c2",
+      "text": "**HRM-B2-AC2:** On the real Electron runtime, login-shell discovery starts the exact loopback command on port 9121; health success moves starting → ready, while absent Hermes, timeout and crash produce a clear unavailable/failed state.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires real Electron runtime supervision and health verification."
+    },
+    {
+      "criterion_id": "issue-1541-c3",
+      "text": "**HRM-B2-AC3:** Quitting stops the owned process tree without leaving a listener; an occupied port fails safely without attaching to or killing an unrelated service, and existing Rhythm API/OpenCode processes remain untouched.",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-server.test.mjs",
+      "test_id": "Hermes busy port fails exactly, with no adoption, roaming, or signaling",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1541-c4",
+      "text": "**HRM-B2-AC4:** Smoke-build defaults expose Hermes, explicit `RHYTHM_HERMES_ENABLED=0` launches/installs nothing, and OpenCode remains the default engine in both cases.",
+      "mode": "unit",
+      "test_file": "apps/electron/test/main-runtime.test.mjs",
+      "test_id": "issue-1541-c4: feature flag starts Hermes in attached mode and not explicit self-test modes",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1541-c5",
+      "text": "**HRM-B2-AC5:** Missing-Hermes UI runs zero installer commands before consent or after decline/cancel; explicit consent runs only the trusted bootstrap flow, and success/failure is reflected after re-discovery and health polling.",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-server.test.mjs",
+      "test_id": "Hermes consent runs bootstrap in login shell, streams private log, re-resolves, then starts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1541-c6",
+      "text": "**HRM-B2-AC6:** For Phase 0 go, the actual unsigned arm64 `.app` starts its bundled Hermes offline with no checkout or developer/runtime tools on PATH; missing/corrupt resources fail validation or show an honest unavailable state without fallback.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: Phase 0 was no-go, so no bundled payload or packaged-app inspection exists for this criterion."
+    },
+    {
+      "criterion_id": "issue-1541-c7",
+      "text": "**HRM-B2-AC7:** For Phase 0 go, inventory matches every declared resource hash, source revision, Python/runtime version and architecture; license/provenance checks and scans find no credentials, user data, inherited Vite secrets or developer paths, and packaging leaves preferences unchanged with recorded archive/installed-size deltas.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: Phase 0 was no-go, so no qualifying bundled-payload inventory exists."
+    },
+    {
+      "criterion_id": "issue-1541-c8",
+      "text": "**HRM-B2-AC8:** For Phase 0 no-go, the report explicitly marks AC6–AC7 not applicable, ships no bundled payload, and supplies passing sidecar evidence without claiming a self-contained or signed release.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Manual review of the Phase 0 no-go report and shipped artifact boundary is required."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-1541-c1", "issue-1541-c2", "issue-1541-c6", "issue-1541-c7", "issue-1541-c8"]
+}

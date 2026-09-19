@@ -1,0 +1,52 @@
+{
+  "issue": 1510,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1510-c1",
+      "text": "Reproduce and identify the audio source separately on mobile and Electron, documenting the actual trigger and affected build(s).",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires audible verification on a physical iPhone and the actual Electron app."
+    },
+    {
+      "criterion_id": "issue-1510-c2",
+      "text": "With working sounds disabled, normal text turns produce no recurring processing bell in either client, including streaming, tool activity, reconnect, and repeated turns.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires audible verification on a physical iPhone and the actual Electron app."
+    },
+    {
+      "criterion_id": "issue-1510-c3",
+      "text": "Processing audio is opt-in; document the treatment of default-enabled versus explicitly saved user preferences instead of silently discarding intentional choices.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/contract/issue-1510-working-sound.test.mjs",
+      "test_id": "legacy preference snapshots migrate once, preserving unrelated choices and subsequent opt-ins",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1510-c4",
+      "text": "Disabling processing audio during an active turn stops it promptly. The off preference persists after relaunch.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires audible verification on a physical iPhone and relaunch timing in the actual app."
+    },
+    {
+      "criterion_id": "issue-1510-c5",
+      "text": "Any retained opt-in loop stops on completion, cancellation, failure, and the relevant session/lifecycle transitions; replayed events do not create duplicate or orphaned playback.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/issue-1510-working-sound.test.mjs",
+      "test_id": "rendered provider sound lifecycle respects preference, selected session, voice, cancellation, errors and app state",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1510-c6",
+      "text": "Intentional voice output and configured approval/completion alerts continue to work, without globally muting the OS or suppressing needed notifications.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires audible verification of speech, approval, and completion alerts on the physical clients."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-1510-c1", "issue-1510-c2", "issue-1510-c4", "issue-1510-c6"]
+}

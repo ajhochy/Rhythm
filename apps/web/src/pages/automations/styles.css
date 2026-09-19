@@ -21,7 +21,10 @@
 .pg-automations .automations-dependency > span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .pg-automations .automations-dependency > svg { flex: 0 0 auto; color: var(--warning); }
 .pg-automations .automations-dependency button { flex: 0 0 auto; min-height: 44px; }
-.pg-automations .automation-workspace { min-width: 0; min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(470px, 1.15fr) minmax(340px, .85fr); overflow: hidden; background: var(--surface); }
+.pg-automations .automation-workspace { min-width: 0; min-height: 0; flex: 1; display: block; overflow: auto; padding: 12px 24px 18px; background: var(--surface); }
+.pg-automations .automation-workspace > .list-inspector { min-width: 0; }
+.pg-automations .list-inspector-toolbar .primary-button { flex: 1; justify-content: center; }
+.pg-automations .list-inspector-footer { color: var(--muted); font-family: var(--font-mono); font-size: 9px; }
 .pg-automations .automation-groups { min-width: 0; min-height: 0; overflow: auto; border-inline-end: 1px solid var(--border-soft); }
 .pg-automations .automation-group { min-width: 0; margin: 0; }
 .pg-automations .automation-group > header { min-height: 50px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--border); background: color-mix(in oklab, var(--surface), var(--bg) 3%); }
@@ -65,7 +68,8 @@
 .pg-automations .rule-progress span { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 .pg-automations .rule-result { color: var(--success); background: color-mix(in oklab, var(--success), transparent 93%); }
 .pg-automations .automation-inspector { min-width: 0; min-height: 0; overflow: auto; padding: 24px; background: color-mix(in oklab, var(--surface), var(--bg) 4%); }
-.pg-automations .automation-inspector-content { display: grid; gap: 20px; }
+.pg-automations .automation-inspector-content { min-width: 0; display: grid; gap: 20px; }
+.pg-automations .automation-inspector-summary { max-width: 64ch; margin: 0; color: var(--muted); }
 .pg-automations .automation-inspector-content > header { display: grid; gap: 5px; }
 .pg-automations .automation-inspector-content > header > span, .pg-automations .automation-inspector-sample > span { color: var(--accent); font-family: var(--font-mono); font-size: 9px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
 .pg-automations .automation-inspector-content h2 { margin: 0; font-size: 24px; line-height: 1.18; letter-spacing: -.022em; }
@@ -78,6 +82,10 @@
 .pg-automations .automation-inspector-content dd { min-width: 0; margin: 0; color: var(--fg-2); overflow-wrap: anywhere; }
 .pg-automations .automation-inspector-sample { display: grid; gap: 7px; padding-top: 16px; border-top: 1px solid var(--border-soft); }
 .pg-automations .automation-inspector-sample p { margin: 0; color: var(--fg-2); }
+.pg-automations .automation-inspector-actions { min-width: 0; display: flex; flex-wrap: wrap; gap: 8px; padding-block: 4px; }
+.pg-automations .automation-inspector-actions fieldset { min-width: 0; display: flex; flex: 1 1 auto; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; border: 0; }
+.pg-automations .automation-inspector-actions button { min-width: 44px; min-height: 44px; }
+.pg-automations .automation-inspector-actions .danger-control { color: color-mix(in oklab, var(--danger), var(--fg) 22%); }
 .pg-automations .automation-inspector-empty { min-height: 260px; display: grid; place-content: center; gap: 6px; color: var(--muted); text-align: center; }
 .pg-automations .automation-inspector-empty strong { color: var(--fg); }
 .pg-automations .automation-inspector-empty p { max-width: 38ch; margin: 0; }
@@ -98,6 +106,12 @@
 .pg-automations .automations-skeleton span:nth-child(2) { width: 78%; }
 .pg-automations .automations-skeleton span:nth-child(3) { width: 56%; }
 .pg-automations .automations-not-found { flex: 1; min-height: 0; margin: 24px auto; }
+.pg-automations .automations-list-state { display: grid; gap: 6px; color: var(--muted); }
+.pg-automations .automations-list-state strong { color: var(--fg); }
+.pg-automations .automations-list-state p { margin: 0; overflow-wrap: anywhere; }
+.pg-automations .automations-list-state button { width: fit-content; min-width: 44px; min-height: 44px; margin-top: 4px; }
+.pg-automations .automations-list-state.danger strong { color: color-mix(in oklab, var(--danger), var(--fg) 10%); }
+.pg-automations .automations-list-state.warning strong { color: var(--warning); }
 .pg-automations .page-trace { flex: 0 0 auto; min-width: 0; max-height: 84px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; overflow: auto; padding: 8px 24px; border-top: 1px solid var(--border-soft); color: var(--muted); background: color-mix(in oklab, var(--bg), var(--surface) 32%); font-family: var(--font-mono); font-size: 8px; }
 .pg-automations .page-trace > span { color: var(--fg-2); font-weight: 650; letter-spacing: .07em; text-transform: uppercase; white-space: nowrap; }
 .pg-automations .page-trace ol { min-width: 0; display: flex; flex-wrap: wrap; gap: 3px 16px; margin: 0; padding-inline-start: 18px; }
@@ -150,7 +164,7 @@
 
 @media (max-width: 900px) {
   .pg-automations .automations-header, .pg-automations .automations-overview { padding-inline: 16px; }
-  .pg-automations .automation-workspace { grid-template-columns: minmax(390px, 1fr) minmax(300px, .85fr); }
+  .pg-automations .automation-workspace { padding-inline: 16px; }
   .pg-automations .rule-main { align-items: start; }
   .pg-automations .rule-actions { flex-wrap: wrap; justify-content: end; max-width: 208px; }
   .pg-automations .page-trace { padding-inline: 14px; }
@@ -164,7 +178,7 @@
   .pg-automations .automations-overview dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 14px; }
   .pg-automations .automations-overview dl div { justify-content: space-between; }
   .pg-automations .automations-dependency { align-items: stretch; flex-direction: column; padding-inline: 14px; }
-  .pg-automations .automation-workspace { display: block; overflow: auto; }
+  .pg-automations .automation-workspace { padding: 8px; }
   .pg-automations .automation-groups { overflow: visible; border-inline-end: 0; }
   .pg-automations .automation-inspector { min-height: 420px; overflow: visible; border-top: 1px solid var(--border); }
   .pg-automations .automation-rule { grid-template-columns: minmax(0, 1fr); grid-template-areas: "select" "actions" "inspect" "progress"; gap: 5px; }

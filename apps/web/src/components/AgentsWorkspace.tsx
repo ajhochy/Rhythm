@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../icons';
 import { isSessionOffline, sessionPresentation } from '../sessionState';
 import { emptyLiveProfile, useFixtures } from '../store';
@@ -7,10 +7,10 @@ import { FocusDialog } from './FocusDialog';
 import { Inspector } from './Inspector';
 import { ProfileAvatar } from './Profiles';
 import { SessionRail } from './SessionRail';
+import { Splitter } from './Splitter';
 import { Transcript } from './Transcript';
 import { usePendingDecisions } from '../pending-decisions';
-
-function clamp(value: number, min: number, max: number) { return Math.min(max, Math.max(min, value)); }
+import type { AgentProject } from '../gateway/sessions';
 
 export function AgentsWorkspace() {
   const { selected, sessions, profiles, models, accounts, sessionGatewayMode, saveSessionSettings, connectionMessage: fixtureConnectionMessage, liveSessionError, loading, summarizeSession, prepareLiveSession, startFreshSession, reconnectLiveSession, updateSession: updateFixtureSession, archiveSession, resumeSession, selectSession, notify, resumeGone, liveChildView, closeLiveChildView } = useFixtures();
@@ -30,6 +30,8 @@ export function AgentsWorkspace() {
   const [inspectorCollapsed, setInspectorCollapsed] = useState(compactLayout);
   const [sessionSettings, setSessionSettings] = useState(false);
   const [prepareOpen, setPrepareOpen] = useState(false);
+  const [selectedProject, setSelectedProject] = useState<AgentProject | null>(null);
+  useEffect(() => { setSelectedProject(null); }, [selected.id]);
   const [retrying, setRetrying] = useState(false);
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
   const connectionMessage = live ? retrying ? 'Reconciling session…' : liveSessionError ?? (loading ? 'Loading session…' : fixtureConnectionMessage === 'Desktop connected' ? 'Session loaded' : fixtureConnectionMessage) : fixtureConnectionMessage;
@@ -111,15 +113,8 @@ export function AgentsWorkspace() {
     requestAnimationFrame(() => actionsRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus());
     return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', key); };
   }, [actionsOpen]);
-  const startResize = (side: 'rail' | 'inspector') => (event: React.PointerEvent) => {
-    event.currentTarget.setPointerCapture(event.pointerId);
-    const startX = event.clientX;
-    const start = side === 'rail' ? railWidth : inspectorWidth;
-    const move = (pointer: PointerEvent) => side === 'rail' ? setRailWidth(clamp(start + pointer.clientX - startX, 228, 380)) : setInspectorWidth(clamp(start - pointer.clientX + startX, 286, 470));
-    const stop = () => { document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', stop); notify(`${side === 'rail' ? 'Sessions rail' : 'Inspector'} resized`); };
-    document.addEventListener('pointermove', move);
-    document.addEventListener('pointerup', stop);
-  };
+  const resizeRail = useCallback((size: number) => { setRailWidth(size); setResizeAnnouncement(`Sessions rail width ${size} pixels`); }, []);
+  const resizeInspector = useCallback((size: number) => { setInspectorWidth(size); setResizeAnnouncement(`Inspector width ${size} pixels`); }, []);
   const toggleRail = () => {
     setRailCollapsed((value) => {
       if (compactLayout && value) setInspectorCollapsed(true);
@@ -132,26 +127,6 @@ export function AgentsWorkspace() {
       return !value;
     });
   };
-  const resizeWithKeys = (side: 'rail' | 'inspector') => (event: React.KeyboardEvent) => {
-    if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return;
-    event.preventDefault();
-    if (event.key === 'Home') {
-      if (side === 'rail') { setRailWidth(228); setResizeAnnouncement('Sessions rail width 228 pixels'); }
-      else { setInspectorWidth(286); setResizeAnnouncement('Inspector width 286 pixels'); }
-      return;
-    }
-    if (event.key === 'End') {
-      if (side === 'rail') { setRailWidth(380); setResizeAnnouncement('Sessions rail width 380 pixels'); }
-      else { setInspectorWidth(470); setResizeAnnouncement('Inspector width 470 pixels'); }
-      return;
-    }
-    const rtl = document.documentElement.dir === 'rtl';
-    const direction = event.key === 'ArrowRight' ? 1 : -1;
-    const delta = direction * (rtl ? -1 : 1) * 12;
-    if (side === 'rail') setRailWidth((value) => { const next = clamp(value + delta, 228, 380); setResizeAnnouncement(`Sessions rail width ${next} pixels`); return next; });
-    else setInspectorWidth((value) => { const next = clamp(value - delta, 286, 470); setResizeAnnouncement(`Inspector width ${next} pixels`); return next; });
-  };
-
   const moveActionsFocus = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
     const items = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemcheckbox"]')];
@@ -165,12 +140,13 @@ export function AgentsWorkspace() {
   return (
     <section className="agents-workspace" aria-label="Agents workspace" style={{
       '--rail-width': railCollapsed ? '48px' : `${railWidth}px`,
-      '--inspector-resizer-width': inspectorCollapsed ? '0px' : '5px',
+      '--inspector-resizer-width': inspectorCollapsed ? '0px' : '8px',
       '--inspector-width': inspectorCollapsed ? 'var(--collapsed-inspector-width)' : `${inspectorWidth}px`,
     } as React.CSSProperties} data-od-id="agents-workspace">
-      <SessionRail collapsed={railCollapsed} onToggle={toggleRail} />
-      {!railCollapsed && <div className="resize-handle rail-resize" role="separator" aria-orientation="vertical" aria-label="Resize Agents rail" aria-valuemin={228} aria-valuemax={380} aria-valuenow={railWidth} aria-valuetext={`${railWidth} pixels`} tabIndex={0} onPointerDown={startResize('rail')} onKeyDown={resizeWithKeys('rail')} data-testid="rail-resizer" />}
-      <section className="conversation-pane" aria-label="Active agent session" data-od-id="active-agent-session">
+      <SessionRail collapsed={railCollapsed} onToggle={toggleRail} selectedProject={selectedProject} onSelectProject={setSelectedProject} />
+      {!railCollapsed && <Splitter orientation="vertical" storageKey="layout.agents.rail" min={228} max={380} defaultSize={280} onResize={resizeRail} ariaLabel="Resize Agents rail" className="rail-resize" testId="rail-resizer" />}
+      <section className="conversation-pane" aria-label={selectedProject ? 'Selected agent project' : 'Active agent session'} data-od-id="active-agent-session">
+        {selectedProject ? <div className="agent-project-empty" role="status" data-testid="selected-agent-project"><Icon name="worktree" size={28} /><h1>{selectedProject.name}</h1><p className="rail-project-path">{selectedProject.cwd}</p><p>No session selected. Use New session in the Agents rail to start here.</p><button className="secondary-button" type="button" onClick={() => setSelectedProject(null)}>Back to sessions</button></div> : <>
         <header className="session-header">
           <div className="session-identity">
             <ProfileAvatar profile={profile} />
@@ -194,9 +170,10 @@ export function AgentsWorkspace() {
         <span className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="agent-activity-status">{activityAnnouncement}</span>
         <div className="transcript-reader"><Transcript /></div>
         {!liveChildView && <Composer />}
+        </>}
       </section>
-      {!inspectorCollapsed && <div className="resize-handle inspector-resize" role="separator" aria-orientation="vertical" aria-label="Resize Inspector" aria-valuemin={286} aria-valuemax={470} aria-valuenow={inspectorWidth} aria-valuetext={`${inspectorWidth} pixels`} tabIndex={0} onPointerDown={startResize('inspector')} onKeyDown={resizeWithKeys('inspector')} data-testid="inspector-resizer" />}
-      <Inspector collapsed={inspectorCollapsed} onToggle={toggleInspector} />
+      {!inspectorCollapsed && <Splitter orientation="vertical" storageKey="layout.agents.inspector" min={286} max={470} defaultSize={336} onResize={resizeInspector} ariaLabel="Resize Inspector" resizeEdge="end" className="inspector-resize" testId="inspector-resizer" />}
+      {selectedProject ? <aside className={`inspector${inspectorCollapsed ? ' collapsed' : ''}`} aria-label="Project context" /> : <Inspector collapsed={inspectorCollapsed} onToggle={toggleInspector} />}
       <span className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="panel-resize-status">{resizeAnnouncement}</span>
 
       <FocusDialog open={sessionSettings} onClose={() => setSessionSettings(false)} title="Session settings" description="Update the fields supported by PATCH /agent-sessions/:id." testId="session-settings-dialog" wide>

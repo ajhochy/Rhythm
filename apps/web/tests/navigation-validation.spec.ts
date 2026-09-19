@@ -37,7 +37,7 @@ test.describe('child navigation and accessible resizing', () => {
     const rail = page.getByTestId('rail-resizer');
     await rail.focus();
     await page.keyboard.press('ArrowRight');
-    await expect(rail).toHaveAttribute('aria-valuenow', '292');
+    await expect(rail).toHaveAttribute('aria-valuenow', '296');
     await page.keyboard.press('Home');
     await expect(rail).toHaveAttribute('aria-valuenow', '228');
     await page.keyboard.press('End');
@@ -45,8 +45,8 @@ test.describe('child navigation and accessible resizing', () => {
     const inspector = page.getByTestId('inspector-resizer');
     await inspector.focus();
     await page.keyboard.press('ArrowLeft');
-    await expect(inspector).toHaveAttribute('aria-valuenow', '348');
-    await expect(page.getByTestId('panel-resize-status')).toHaveText('Inspector width 348 pixels');
+    await expect(inspector).toHaveAttribute('aria-valuenow', '352');
+    await expect(page.getByTestId('panel-resize-status')).toHaveText('Inspector width 352 pixels');
     await page.keyboard.press('Home');
     await expect(inspector).toHaveAttribute('aria-valuenow', '286');
     await page.keyboard.press('End');

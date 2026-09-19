@@ -2864,6 +2864,56 @@
         ]
       }
     },
+    "/mcp/tools": {
+      "get": {
+        "tags": [
+          "mcp"
+        ],
+        "operationId": "mcp.tools",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Live MCP tool IDs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Live MCP tool IDs"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get the composed IDs of tools advertised by connected MCP servers.",
+        "summary": "List live MCP tool IDs",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.mcp.tools({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/mcp/{name}/auth": {
       "post": {
         "tags": [

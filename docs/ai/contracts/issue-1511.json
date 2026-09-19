@@ -1,0 +1,62 @@
+{
+  "issue": 1511,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1511-c1",
+      "text": "The Agents rail no longer reserves two standalone rows for the Archived sessions and Compact rows checkboxes.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agents-rail-view-options.spec.ts",
+      "test_id": "view options replaces standalone checkboxes and supports keyboard selection and return focus",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1511-c2",
+      "text": "Both capabilities are discoverable through one clearly labeled, compact control near the existing list controls.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agents-rail-view-options.spec.ts",
+      "test_id": "view options replaces standalone checkboxes and supports keyboard selection and return focus",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1511-c3",
+      "text": "Copy distinguishes viewing archived sessions from archiving/deleting a session, and explains density in plain language.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agents-rail-view-options.spec.ts",
+      "test_id": "view options replaces standalone checkboxes and supports keyboard selection and return focus",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1511-c4",
+      "text": "The selected archive/density options are apparent; archived view has a clear label and return path.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agents-rail-view-options.spec.ts",
+      "test_id": "archive is an explicit view with an obvious return path, without mutating sessions",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1511-c5",
+      "text": "Existing sorting, archive filtering, density behavior, account-scoped persistence, and session selection remain correct.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: no automated test authored in this run covers the requested account-scoped persistence; the worker retained nonpersistent state."
+    },
+    {
+      "criterion_id": "issue-1511-c6",
+      "text": "Keyboard and screen-reader users can open the menu, identify/change the selected options, and return focus to its trigger on close. Narrow layouts and 200% zoom do not split controls from their labels or clip options.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agents-rail-view-options.spec.ts",
+      "test_id": "narrow rail at 200 percent with RTL keeps dark view options contained and accessible",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1511-c7",
+      "text": "Before/after Electron screenshots at the same window size demonstrate recovered list space and readable labels; AJ reviews the result.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Visual acceptance by AJ is required in the actual Electron app."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-1511-c5", "issue-1511-c7"]
+}

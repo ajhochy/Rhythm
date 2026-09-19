@@ -5,7 +5,7 @@ import { validateSecuritySmokeReceipt } from '../src/security-smoke-receipt.mjs'
 
 const validReceipt = {
   bridge: {
-    keys: ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates'],
+    keys: ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory', 'hermes', 'hermesView'],
     frozen: true,
     gateway: {
       keys: ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase'],
@@ -14,6 +14,8 @@ const validReceipt = {
     auth: { keys: ['signInWithGoogle', 'currentSession', 'logout'], frozen: true },
     humanApproval: { keys: ['capability', 'signDecision'], frozen: true },
     agentServer: { keys: ['status', 'onStatusChange'], frozen: true },
+    hermes: { keys: ['enabled', 'getStatus', 'install', 'restart', 'onStatus'], frozen: true },
+    hermesView: { keys: ['attach', 'setBounds', 'detach', 'sendIntent'], frozen: true },
     updates: { keys: ['openDownloadPage'], frozen: true },
     nodeExposed: false,
     value: { version: 6 },
@@ -27,7 +29,7 @@ const validReceipt = {
   },
 };
 
-test('signed security smoke accepts the exact hardened bridge and denial receipt', () => {
+test('issue-1542-c12: signed security smoke accepts both exact Hermes bridge receipts', () => {
   assert.deepEqual(validateSecuritySmokeReceipt(validReceipt), { ok: true });
 });
 
@@ -35,6 +37,7 @@ test('signed security smoke rejects every unsafe bridge and denial invariant', (
   const invalidMutations = [
     (receipt) => { receipt.bridge.nodeExposed = true; },
     (receipt) => { receipt.bridge.keys.push('filesystem'); },
+    (receipt) => { receipt.bridge.keys = receipt.bridge.keys.filter((key) => key !== 'selectDirectory'); },
     (receipt) => { receipt.bridge.frozen = false; },
     (receipt) => { receipt.bridge.gateway.keys.push('fetch'); },
     (receipt) => { receipt.bridge.gateway.frozen = false; },
@@ -44,6 +47,10 @@ test('signed security smoke rejects every unsafe bridge and denial invariant', (
     (receipt) => { receipt.bridge.humanApproval.frozen = false; },
     (receipt) => { receipt.bridge.agentServer.keys.push('spawn'); },
     (receipt) => { receipt.bridge.agentServer.frozen = false; },
+    (receipt) => { receipt.bridge.hermes.keys.push('token'); },
+    (receipt) => { receipt.bridge.hermes.frozen = false; },
+    (receipt) => { receipt.bridge.hermesView.keys.push('token'); },
+    (receipt) => { receipt.bridge.hermesView.frozen = false; },
     (receipt) => { receipt.bridge.updates.keys.push('install'); },
     (receipt) => { receipt.bridge.updates.frozen = false; },
     (receipt) => { receipt.bridge.value.version = '5'; },

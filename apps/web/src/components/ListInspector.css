@@ -1,0 +1,86 @@
+.list-inspector {
+  container: list-inspector / inline-size;
+  min-width: 0;
+}
+
+.list-inspector .list-inspector-panes {
+  display: grid;
+  grid-template-columns: minmax(240px, min(var(--list-inspector-list-width, 320px), calc(100% - 288px))) 8px minmax(0, 1fr);
+  min-height: 420px;
+  min-width: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.list-inspector .list-inspector-rail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  max-height: none;
+  padding: 8px;
+  border: 0;
+  background: color-mix(in oklab, var(--surface), var(--bg) 4%);
+  overflow: visible;
+}
+
+.list-inspector-list {
+  min-height: 44px;
+  max-height: 65vh;
+  overflow: auto;
+}
+
+.list-inspector-row {
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  min-height: 52px;
+  padding: 6px 9px;
+  border-radius: var(--r-sm);
+  color: var(--fg-2);
+  cursor: pointer;
+  text-align: start;
+}
+
+.list-inspector-row:hover, .list-inspector-row.selected {
+  color: var(--fg);
+  background: var(--surface-warm);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.list-inspector-row[aria-disabled="true"] { opacity: .58; cursor: not-allowed; }
+.list-inspector-row strong { overflow: hidden; font-size: 11px; font-weight: 560; text-overflow: ellipsis; white-space: nowrap; }
+.list-inspector-row-meta { display: flex; gap: 6px; min-width: 0; align-items: center; }
+.list-inspector-row small { min-width: 0; overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.list-inspector-badge { max-width: 50%; overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; margin-inline-start: auto; }
+.list-inspector-group-label { padding: 8px 9px 4px; color: var(--muted); font-size: 11px; font-weight: 600; overflow-wrap: anywhere; }
+.list-inspector-toolbar, .list-inspector-footer { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px; min-width: 0; }
+.list-inspector-search { display: block; margin-block: 4px 8px; }
+.list-inspector-search input { width: 100%; min-width: 0; min-height: 44px; padding: 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--fg); }
+.list-inspector-search input::placeholder { color: var(--muted); }
+.list-inspector-state { padding: 9px; color: var(--muted); overflow-wrap: anywhere; }
+.list-inspector .list-inspector-detail { min-width: 0; padding: 16px 18px 24px; overflow: auto; overflow-wrap: anywhere; }
+.list-inspector-header h2 { margin: 5px 0 8px; font-size: 18px; letter-spacing: -.015em; }
+.list-inspector .list-inspector-back { display: none; min-height: 44px; min-width: 44px; width: fit-content; cursor: pointer; }
+.list-inspector .detail-header { flex-wrap: wrap; }
+.list-inspector .detail-header > div { min-width: 0; }
+.list-inspector .row-actions { flex-wrap: wrap; }
+.list-inspector .row-actions > button, .list-inspector .primary-button, .list-inspector-toolbar button, .list-inspector-footer button { min-height: 44px; min-width: 44px; white-space: normal; }
+.list-inspector :is(.list-inspector-list, .list-inspector-row, .list-inspector-detail, .list-inspector-back):focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+:root[dir="rtl"] .list-inspector .list-inspector-rail { border: 0; }
+
+@container list-inspector (width < 720px) {
+  .list-inspector .list-inspector-panes { grid-template-columns: minmax(0, 1fr); }
+  .list-inspector .list-inspector-splitter { display: none; }
+  .list-inspector[data-pane="inspector"] .list-inspector-rail { display: none; }
+  .list-inspector[data-pane="list"] .list-inspector-detail { display: none; }
+  .list-inspector .list-inspector-back { display: inline-flex; }
+  .list-inspector .list-inspector-rail { border: 0; }
+  .list-inspector .detail-header, .list-inspector .run-history > header { flex-wrap: wrap; }
+}
+
+@media (forced-colors: active) {
+  .list-inspector-row.selected { outline: 2px solid Highlight; outline-offset: -2px; }
+}

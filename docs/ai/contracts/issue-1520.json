@@ -1,0 +1,55 @@
+{
+  "issue": 1520,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1520-c1",
+      "text": "The macOS packaging pipeline includes the correct multi-resolution Rhythm icon and sets the bundle icon metadata to that resource.",
+      "mode": "unit",
+      "test_file": "apps/electron/test/electron-icon.test.mjs",
+      "test_id": "Rhythm icon: assembly maps every source slot and inventories the converter output",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1520-c2",
+      "text": "The packaged app's primary icon is the Rhythm icon, with no fallback to the generic Electron icon.",
+      "mode": "integration",
+      "test_file": "apps/electron/test/electron-unsigned-package.test.mjs",
+      "test_id": "rhythm-icon: packaged plist references the Rhythm artwork, with no Electron fallback",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1520-c3",
+      "text": "A freshly packaged/installed app displays the Rhythm icon in Finder, Dock, Command-Tab, and Get Info, at normal and Retina sizes.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires packaged-app inspection in Finder, Dock, Command-Tab, and Get Info."
+    },
+    {
+      "criterion_id": "issue-1520-c4",
+      "text": "The release pipeline uses the same icon assembly step; the icon is present before app signing/notarization, with no post-signing bundle modification.",
+      "mode": "unit",
+      "test_file": "apps/electron/test/electron-icon.test.mjs",
+      "test_id": "Rhythm icon: packaging and release assemble icons before bundle signing",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1520-c5",
+      "text": "Packaging fails clearly if the required Rhythm artwork or generated icon is absent/invalid.",
+      "mode": "unit",
+      "test_file": "apps/electron/test/electron-icon.test.mjs",
+      "test_id": "Rhythm icon: rejects missing mapping before conversion",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1520-c6",
+      "text": "Add a focused packaging regression check for the referenced icon resource and Rhythm artwork identity/content, not merely the existence of an arbitrary `.icns` file.",
+      "mode": "integration",
+      "test_file": "apps/electron/test/electron-unsigned-package.test.mjs",
+      "test_id": "rhythm-icon: packaged plist references the Rhythm artwork, with no Electron fallback",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-1520-c3"]
+}

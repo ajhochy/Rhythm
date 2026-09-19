@@ -9,9 +9,9 @@ const manifest = JSON.parse(
   await readFile(new URL('../contracts/rhythm-opencode-contract.json', import.meta.url), 'utf8'),
 );
 assert.equal(manifest.engineVersion, '1.14.49');
-assert.equal(manifest.operationCount, 136);
-assert.equal(manifest.operations.length, 136);
-assert.equal(new Set(manifest.operations.map(({ operationId }) => operationId)).size, 136);
+assert.equal(manifest.operationCount, 137);
+assert.equal(manifest.operations.length, 137);
+assert.equal(new Set(manifest.operations.map(({ operationId }) => operationId)).size, 137);
 
 const pairedHostStoreSource = await readFile(
   new URL('../lib/pairing/paired-host-store.ts', import.meta.url),

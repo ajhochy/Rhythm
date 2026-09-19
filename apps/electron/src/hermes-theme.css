@@ -1,0 +1,55 @@
+/* hermes dashboard serves web/src/index.css (Nous palette + shadcn aliases).
+   !important keeps the embedded palette above ThemeProvider's inline tokens. */
+:root {
+  color-scheme: light;
+  --rhythm-hermes-primary: #4F6AF5;
+  --rhythm-hermes-sidebar: #F8F9FA;
+  --rhythm-hermes-border: #E5E7EB;
+  --rhythm-hermes-text: #111827;
+  --rhythm-hermes-muted: #6B7280;
+  --rhythm-hermes-subtle: #9CA3AF;
+  --rhythm-hermes-surface: #FFFFFF;
+  --foreground: transparent !important;
+  --foreground-base: #FFFFFF !important;
+  --foreground-alpha: 0 !important;
+  --midground: var(--rhythm-hermes-text) !important;
+  --midground-base: var(--rhythm-hermes-text) !important;
+  --midground-alpha: 1 !important;
+  --background: var(--rhythm-hermes-surface) !important;
+  --background-base: var(--rhythm-hermes-surface) !important;
+  --background-alpha: 1 !important;
+  --theme-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  --theme-font-display: var(--theme-font-sans) !important;
+  --color-text-primary: var(--rhythm-hermes-text) !important;
+  --color-text-secondary: var(--rhythm-hermes-muted) !important;
+  --color-text-tertiary: var(--rhythm-hermes-subtle) !important;
+  --color-primary: var(--rhythm-hermes-primary) !important;
+  --color-primary-foreground: #FFFFFF !important;
+  --color-card: var(--rhythm-hermes-surface) !important;
+  --color-muted: var(--rhythm-hermes-sidebar) !important;
+  --color-muted-foreground: var(--rhythm-hermes-muted) !important;
+  --color-border: var(--rhythm-hermes-border) !important;
+  --color-input: var(--rhythm-hermes-border) !important;
+  --color-ring: var(--rhythm-hermes-primary) !important;
+  --color-destructive: #EF4444 !important;
+  --color-success: #10B981 !important;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --rhythm-hermes-primary: #8397FF;
+    --rhythm-hermes-sidebar: #171D2B;
+    --rhythm-hermes-border: #374151;
+    --rhythm-hermes-text: #F3F4F6;
+    --rhythm-hermes-muted: #B4BDCB;
+    --rhythm-hermes-subtle: #9CA3AF;
+    --rhythm-hermes-surface: #111827;
+  }
+}
+body { background: var(--rhythm-hermes-surface); color: var(--rhythm-hermes-text); }
+aside, nav { background-color: var(--rhythm-hermes-sidebar); }
+:where(button, a, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--rhythm-hermes-primary);
+  outline-offset: 2px;
+}
+::selection { background: var(--rhythm-hermes-primary); color: #FFFFFF; }

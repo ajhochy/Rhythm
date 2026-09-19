@@ -1,13 +1,77 @@
 import { execFile } from 'node:child_process';
-import { access, chmod, cp, lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { access, chmod, cp, lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { buildAndStageApprovalHelper } from './build-approval-helper.mjs';
 import { hardenElectronFuses } from './harden-electron-fuses.mjs';
 
 const run = promisify(execFile);
+
+// Reuse the shipping Flutter artwork, including both normal and Retina representations.
+export async function buildRhythmIcns({ appiconsetDir, outDir, run: execute = run }) {
+  await mkdir(outDir, { recursive: true });
+  const iconPath = resolve(outDir, 'Rhythm.icns');
+  const inventoryPath = resolve(outDir, 'Rhythm.icns.json');
+  await Promise.all([rm(iconPath, { force: true }), rm(inventoryPath, { force: true })]);
+  const temporary = await mkdtemp(resolve(outDir, '.rhythm-icon-'));
+  try {
+    const contents = JSON.parse(await readFile(resolve(appiconsetDir, 'Contents.json'), 'utf8'));
+    const iconset = resolve(temporary, 'Rhythm.iconset');
+    await mkdir(iconset);
+    const images = [];
+    for (const size of [16, 32, 128, 256, 512]) {
+      for (const scale of [1, 2]) {
+        const name = `icon_${size}x${size}${scale === 2 ? '@2x' : ''}.png`;
+        const entry = contents.images?.find((image) => image.idiom === 'mac' && image.size === `${size}x${size}` && image.scale === `${scale}x`);
+        if (!entry || typeof entry.filename !== 'string' || !entry.filename || basename(entry.filename) !== entry.filename) {
+          throw new Error(`Required Rhythm artwork missing: ${size}x${size}@${scale}x in Contents.json`);
+        }
+        const source = resolve(appiconsetDir, entry.filename);
+        const png = await readFile(source).catch((cause) => { throw new Error(`Required Rhythm artwork missing: ${source}`, { cause }); });
+        const pixels = size * scale;
+        if (png.length < 33 || png.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a'
+          || png.toString('ascii', 12, 16) !== 'IHDR' || png.readUInt32BE(16) !== pixels || png.readUInt32BE(20) !== pixels) {
+          throw new Error(`Invalid Rhythm artwork: ${entry.filename} must be a ${pixels}x${pixels} PNG`);
+        }
+        await writeFile(resolve(iconset, name), png);
+        images.push({ iconsetName: name, source: entry.filename, pixels, sha256: createHash('sha256').update(png).digest('hex') });
+      }
+    }
+    const generated = resolve(temporary, 'Rhythm.icns');
+    try {
+      await execute('iconutil', ['-c', 'icns', '-o', generated, iconset]);
+    } catch (cause) {
+      throw new Error(`Rhythm icon assembly failed: iconutil is required and must accept the complete iconset (${cause.message})`, { cause });
+    }
+    const icns = await readFile(generated).catch((cause) => { throw new Error('iconutil did not produce Rhythm.icns', { cause }); });
+    if (icns.length <= 8 || icns.toString('ascii', 0, 4) !== 'icns' || icns.readUInt32BE(4) !== icns.length) {
+      throw new Error('iconutil produced an invalid Rhythm.icns');
+    }
+    const inventory = { icon: 'Rhythm.icns', sha256: createHash('sha256').update(icns).digest('hex'), images };
+    await rename(generated, iconPath);
+    await writeFile(inventoryPath, `${JSON.stringify(inventory, null, 2)}\n`);
+    return { iconPath, inventoryPath };
+  } catch (error) {
+    await Promise.all([rm(iconPath, { force: true }), rm(inventoryPath, { force: true })]);
+    throw error;
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+}
+
+export async function stageRhythmIcon({ appiconsetDir, resources, infoPlist, run: execute = run }) {
+  const result = await buildRhythmIcns({ appiconsetDir, outDir: resources, run: execute });
+  const plist = JSON.parse((await execute('plutil', ['-convert', 'json', '-o', '-', infoPlist])).stdout);
+  await execute('plutil', ['-replace', 'CFBundleIconFile', '-string', 'Rhythm', infoPlist]);
+  if (Object.hasOwn(plist, 'CFBundleIconName')) {
+    await execute('plutil', ['-replace', 'CFBundleIconName', '-string', 'Rhythm', infoPlist]);
+  }
+  await rm(resolve(resources, 'electron.icns'), { force: true });
+  return result;
+}
 
 export async function buildAndStageFork({ electronRoot, resources, run: execute = run }) {
   const arch = process.env.RHYTHM_PACKAGE_ARCH || process.arch;
@@ -96,6 +160,11 @@ await run('npm', ['--prefix', '../web', 'run', 'build'], {
 });
 await run('npm', ['--prefix', '../api_server', 'run', 'build'], { cwd: electronRoot });
 await cp(sourceApp, stagingArtifact, { recursive: true, verbatimSymlinks: true });
+await stageRhythmIcon({
+  appiconsetDir: resolve(electronRoot, '../desktop_flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset'),
+  resources,
+  infoPlist,
+});
 await buildAndStageApprovalHelper({ electronRoot, resources });
 await mkdir(resolve(packagedApp, 'src'), { recursive: true });
 await mkdir(packagedShared, { recursive: true });
@@ -111,6 +180,12 @@ await Promise.all([
   cp(resolve(electronRoot, 'src/google-oauth-core.mjs'), resolve(packagedApp, 'src/google-oauth-core.mjs')),
   cp(resolve(electronRoot, 'src/desktop-google-oauth.mjs'), resolve(packagedApp, 'src/desktop-google-oauth.mjs')),
   cp(resolve(electronRoot, 'src/agent-server.mjs'), resolve(packagedApp, 'src/agent-server.mjs')),
+  cp(resolve(electronRoot, 'src/hermes-server.mjs'), resolve(packagedApp, 'src/hermes-server.mjs')),
+  cp(resolve(electronRoot, 'src/hermes-view.mjs'), resolve(packagedApp, 'src/hermes-view.mjs')),
+  cp(resolve(electronRoot, 'src/hermes-view-preload.cjs'), resolve(packagedApp, 'src/hermes-view-preload.cjs')),
+  cp(resolve(electronRoot, 'src/hermes-protocol.mjs'), resolve(packagedApp, 'src/hermes-protocol.mjs')),
+  cp(resolve(electronRoot, 'src/hermes-theme.mjs'), resolve(packagedApp, 'src/hermes-theme.mjs')),
+  cp(resolve(electronRoot, 'src/hermes-theme.css'), resolve(packagedApp, 'src/hermes-theme.css')),
   cp(resolve(electronRoot, 'src/human-approval-main-signer.mjs'), resolve(packagedApp, 'src/human-approval-main-signer.mjs')),
   cp(resolve(electronRoot, 'package.json'), resolve(packagedApp, 'package.json')),
   cp(resolve(electronRoot, '../shared/production-api-base.mjs'), resolve(packagedShared, 'production-api-base.mjs')),

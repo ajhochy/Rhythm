@@ -106,11 +106,11 @@ test.describe('remaining Flutter parity edge cases', () => {
       await expect(page.getByTestId(`tool-state-${state}`)).toBeVisible();
       if (state === 'empty') {
         await page.getByTestId('tool-load-example').click();
-        await expect(page.getByTestId('brain-list')).toBeVisible();
+        await expect(page.locator('.list-inspector')).toBeVisible();
       }
       if (state === 'server-error' || state === 'unavailable') {
         await page.getByTestId(state === 'server-error' ? 'tool-retry' : 'tool-check-again').click();
-        await expect(page.getByTestId('brain-list')).toBeVisible();
+        await expect(page.locator('.list-inspector')).toBeVisible();
       }
     }
   });

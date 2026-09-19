@@ -1,7 +1,7 @@
 {
   "engineVersion": "1.14.49",
-  "openapiSha256": "f960fbd07a9495b8911ffd511e297307f2f9e6f7e400a0d36f0740aac96dfd56",
-  "operationCount": 136,
+  "openapiSha256": "7e730bf5f4d349273df5dcd723eea9d8920df48d6ced50b57f6e41a592eb8872",
+  "operationCount": 137,
   "operations": [
     {
       "method": "GET",
@@ -519,6 +519,17 @@
       ],
       "classification": "surfaced",
       "reason": "The MCP screen displays connected-server state."
+    },
+    {
+      "method": "GET",
+      "path": "/mcp/tools",
+      "operationId": "mcp.tools",
+      "summary": "List live MCP tool IDs",
+      "tags": [
+        "mcp"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Rhythm API validates live MCP tool grants server-side; Mobile does not expose raw engine tool IDs."
     },
     {
       "method": "DELETE",

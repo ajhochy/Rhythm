@@ -21,6 +21,7 @@ import {
   type CtrlResyncDoneFrame,
   type EventsEnvFrame,
   type ReplDevicesFrame,
+  type PtyFrame,
   type RpcResFrame,
   type UplinkFrame,
 } from '../services/relay_uplink_protocol';
@@ -281,6 +282,125 @@ describe('Track 1 contract — RelayUplinkClient', () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     expect(warnings).toHaveLength(2);
+  });
+
+  it('issue-1373-c6: artifact read failures report a sanitized reason', async () => {
+    // Regression caught: a failed local read interpolates an exception whose
+    // message includes the private host path into relay diagnostics.
+    const secretPath = '/private/tmp/relay-private-host-path-1373/secret.txt';
+    const warnings: string[] = [];
+    const warn = vi.spyOn(logger, 'warn').mockImplementation((message) => {
+      warnings.push(String(message));
+    });
+    cleanups.push(() => warn.mockRestore());
+    const { client } = makeClient([]);
+    cleanups.push(() => client.stop());
+
+    await client.pushArtifact({
+      artifactId: 'artifact1373',
+      meta: { ownerUserId: 7 },
+      filePath: secretPath,
+    });
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/artifact|read/i);
+    expect(warnings[0]).not.toContain(secretPath);
+    expect(warnings[0]).not.toContain('secret.txt');
+  });
+
+  it('issue-1373-c1: the Mac uplink preserves PTY text in both directions', async () => {
+    // Regression caught: relay-side upgrade succeeds but the Mac never opens
+    // its authenticated local PTY or drops data from either direction.
+    const relay = await startFakeRelay();
+    cleanups.push(() => relay.close());
+    const localServer = http.createServer();
+    const localWss = new WebSocketServer({ server: localServer });
+    let localSocket: WsSocket | null = null;
+    let localPath = '';
+    let localAuth = '';
+    let localProject = '';
+    localWss.on('connection', (socket, request) => {
+      localSocket = socket;
+      localPath = request.url ?? '';
+      localAuth = request.headers.authorization ?? '';
+      localProject = String(request.headers['x-rhythm-project-id'] ?? '');
+    });
+    await new Promise<void>((resolve) => localServer.listen(0, '127.0.0.1', resolve));
+    const port = (localServer.address() as AddressInfo).port;
+    cleanups.push(() => new Promise<void>((resolve) => {
+      localWss.close(() => localServer.close(() => resolve()));
+    }));
+    const { client } = makeClient([relay.url], {
+      dispatchBaseUrl: `http://127.0.0.1:${port}`,
+    });
+    cleanups.push(() => client.stop());
+    client.start();
+    await relay.waitFor(isHello);
+
+    relay.send({
+      ch: 'pty', t: 'open', id: 'tunnel1373', ptyId: 'pty_1373',
+      projectId: 'project_1373', deviceToken: 'synthetic-device-token',
+      ticket: 'synthetic-ticket-123456789',
+    });
+    await relay.waitFor(
+      (frame): frame is Extract<PtyFrame, { t: 'ready' }> =>
+        frame.ch === 'pty' && frame.t === 'ready' && frame.id === 'tunnel1373',
+    );
+    expect(localPath).toBe('/mobile-gateway/pty/pty_1373/connect?ticket=synthetic-ticket-123456789');
+    expect(localAuth).toBe('Device synthetic-device-token');
+    expect(localProject).toBe('project_1373');
+    expect(localSocket).not.toBeNull();
+
+    const input = new Promise<string>((resolve) => {
+      localSocket!.once('message', (data) => resolve(String(data)));
+    });
+    relay.send({
+      ch: 'pty', t: 'data', id: 'tunnel1373',
+      dataB64: Buffer.from('input-from-relay').toString('base64'), binary: false,
+    });
+    expect(await input).toBe('input-from-relay');
+    localSocket!.send('output-from-mac');
+    const output = await relay.waitFor(
+      (frame): frame is Extract<PtyFrame, { t: 'data' }> =>
+        frame.ch === 'pty' && frame.t === 'data' && frame.id === 'tunnel1373',
+    );
+    expect(Buffer.from(output.dataB64, 'base64').toString()).toBe('output-from-mac');
+    localSocket!.close(4403, 'project denied');
+    const denied = await relay.waitFor(
+      (frame): frame is Extract<PtyFrame, { t: 'close' }> =>
+        frame.ch === 'pty' && frame.t === 'close' && frame.id === 'tunnel1373',
+    );
+    expect(denied.code).toBe(4403);
+  });
+
+  it('issue-1373-c7: local project rejection stays actionable across the uplink', async () => {
+    const relay = await startFakeRelay();
+    cleanups.push(() => relay.close());
+    const localServer = http.createServer();
+    localServer.on('upgrade', (_request, socket) => {
+      socket.end('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n');
+    });
+    await new Promise<void>((resolve) => localServer.listen(0, '127.0.0.1', resolve));
+    cleanups.push(() => new Promise<void>((resolve) => localServer.close(() => resolve())));
+    const port = (localServer.address() as AddressInfo).port;
+    const { client } = makeClient([relay.url], {
+      dispatchBaseUrl: `http://127.0.0.1:${port}`,
+    });
+    cleanups.push(() => client.stop());
+    client.start();
+    await relay.waitFor(isHello);
+    relay.send({
+      ch: 'pty', t: 'open', id: 'denied1373', ptyId: 'pty_foreign',
+      projectId: 'project_foreign', deviceToken: 'synthetic-device-token',
+      ticket: 'synthetic-ticket-123456789',
+    });
+    const denied = await relay.waitFor(
+      (frame): frame is Extract<PtyFrame, { t: 'close' }> =>
+        frame.ch === 'pty' && frame.t === 'close' && frame.id === 'denied1373',
+    );
+    expect(denied.code).toBe(4403);
+    expect(relay.frames.some((frame) => frame.ch === 'pty' &&
+      frame.t === 'ready' && frame.id === 'denied1373')).toBe(false);
   });
 
   it('answers ctrl/resync with an immediate resync-done (Phase 1 stub)', async () => {

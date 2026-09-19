@@ -1,0 +1,17 @@
+Changes: 370 files, 2218 symbols
+Affected processes: 4
+Risk level: medium
+
+Changed symbols:
+  Symbol MAX_DEVICE_NAME_LENGTH → apps/api_server/src/routes/relay_gateway_routes.ts
+  Symbol createRelayGatewayRouter → apps/api_server/src/routes/relay_gateway_routes.ts
+  Symbol timeout → apps/api_server/src/services/relay_uplink_client.ts
+  Symbol method → apps/api_server/src/services/relay_uplink_client.ts
+  Symbol headers → apps/api_server/src/services/relay_uplink_client.ts
+... and 2213 more
+
+Affected execution flows:
+  • Pair → PairedHostError (5 steps) — changed: safeRelayUrl, pair
+  • CreateRelayGatewayRouter → AppError (3 steps) — changed: createRelayGatewayRouter
+  • Pair → RelayDisabled (4 steps) — changed: relayDisabled, snapshot, pair
+  • IntegrationsPage → QueryParams (3 steps) — changed: IntegrationsPage
