@@ -14,10 +14,12 @@ async function dragBy(page: Page, splitter: Locator, deltaX: number, deltaY: num
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
+    if (sessionStorage.getItem('splitter-test-storage-initialized') === 'true') return;
     for (let index = localStorage.length - 1; index >= 0; index -= 1) {
       const key = localStorage.key(index);
       if (key?.startsWith('layout.')) localStorage.removeItem(key);
     }
+    sessionStorage.setItem('splitter-test-storage-initialized', 'true');
   });
 });
 
