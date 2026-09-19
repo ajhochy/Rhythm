@@ -123,6 +123,8 @@ export function permissionDefault(value: unknown): PermissionAction | 'inherit' 
 }
 
 export type McpSelection = { raw: string | null; map: Record<string, unknown> | null; error?: string };
+export type McpGroupSelection = { inherited: boolean; selected: string[]; error?: string };
+const advancedMcpPolicyError = 'Advanced MCP policy detected. The existing value is preserved; structured tool editing is unavailable.';
 export function parseMcpSelection(raw: string | null | undefined): McpSelection {
   if (raw == null) return { raw: null, map: null };
   try {
@@ -135,17 +137,27 @@ export function parseMcpSelection(raw: string | null | undefined): McpSelection 
   return { raw, map: {}, error: 'MCP selection has an unsupported format. Existing policy is preserved; tool editing is unavailable.' };
 }
 
-export function mcpGroupSelection(policy: McpSelection, server: string, catalog: string[]) {
+export function mcpGroupSelection(policy: McpSelection, server: string, catalog: string[]): McpGroupSelection {
   if (policy.map === null) return { inherited: true, selected: catalog };
   if (!Object.hasOwn(policy.map, server)) return { inherited: false, selected: [] as string[] };
   const value = policy.map[server];
-  const grants = Array.isArray(value) ? value : isRecord(value) && Array.isArray(value.allowedTools) ? value.allowedTools : [];
-  const selected = grants.filter((item): item is string => typeof item === 'string');
+  if (value === null) return { inherited: true, selected: catalog };
+  let grants: unknown;
+  if (Array.isArray(value)) grants = value;
+  else if (isRecord(value) && Object.keys(value).length === 0) grants = [];
+  else if (isRecord(value) && Object.keys(value).length === 1 && Object.hasOwn(value, 'allowedTools')) grants = value.allowedTools;
+  else return { inherited: false, selected: [], error: advancedMcpPolicyError };
+  if (!Array.isArray(grants) || !grants.every(item => typeof item === 'string')) {
+    return { inherited: false, selected: [], error: advancedMcpPolicyError };
+  }
+  const selected = grants as string[];
   return { inherited: selected.length === 0, selected: selected.length ? selected : catalog };
 }
 
 export function editMcpGroup(policy: McpSelection, server: string, selected: string[], catalog: Array<{ name: string; tools: string[] }>): string {
   if (policy.error) throw new Error(policy.error);
+  const group = mcpGroupSelection(policy, server, catalog.find(item => item.name === server)?.tools ?? []);
+  if (group.error) throw new Error(group.error);
   // Editing unrestricted access explicitly narrows to the known catalog. Do not
   // materialize empty server arrays: the backend interprets those as inherit-all.
   let raw = policy.map === null

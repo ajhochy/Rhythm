@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Icon, type IconName } from '../icons';
 import { useGateway } from '../gateway/context';
+import { useAuthUser } from '../gateway/auth';
 import { compareSessions, SessionGatewayError, type AgentProject, type ProjectBranches, type SessionCatalogEntry, type SessionSort, type TranscriptPageInfo } from '../gateway/sessions';
+import { readLocalUserPreferences, writeLocalUserPreferences } from '../gateway/user-preferences';
 import { isSessionRecoverable, sessionPresentation } from '../sessionState';
 import { useFixtures } from '../store';
 import type { Session, SessionScope } from '../types';
@@ -29,6 +31,9 @@ const accounts = ['Rhythm workspace', 'Research account'];
 export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProject }: { collapsed: boolean; onToggle(): void; selectedProject: AgentProject | null; onSelectProject(project: AgentProject | null): void }) {
   const fixtures = useFixtures();
   const gateway = useGateway();
+  const auth = useAuthUser();
+  const preferenceUserId = auth?.user.id ?? 'fixture';
+  const initialViewPreferences = readLocalUserPreferences(preferenceUserId);
   const pendingSessions = usePendingSessionIds();
   const { sessions, profiles, selected, selectedId, scope, setScope, selectSession, createSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, notify, sessionGatewayMode, createLiveSession, deleteLiveSession, selectLiveSession } = fixtures;
   const eligibleProfiles = profiles.filter(profile => profile.enabled && profile.selectable && (sessionGatewayMode !== 'live' || !profile.id.startsWith('profile-created-')));
@@ -39,9 +44,24 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const searchToggleRef = useRef<HTMLButtonElement>(null);
-  const [sort, setSort] = useState<SessionSort>('newest');
-  const [archivedOnly, setArchivedOnly] = useState(false);
-  const [compact, setCompact] = useState(false);
+  const [sort, setSort] = useState<SessionSort>(initialViewPreferences.sessionSort);
+  const [archivedOnly, setArchivedOnly] = useState(initialViewPreferences.archivedOnly);
+  const [compact, setCompact] = useState(initialViewPreferences.compact);
+  useEffect(() => {
+    const preferences = readLocalUserPreferences(preferenceUserId);
+    setSort(preferences.sessionSort);
+    setArchivedOnly(preferences.archivedOnly);
+    setCompact(preferences.compact);
+  }, [preferenceUserId]);
+  const setSortPreference = (value: SessionSort) => {
+    setSort(value); writeLocalUserPreferences(preferenceUserId, { sessionSort: value });
+  };
+  const setArchivedOnlyPreference = (value: boolean) => {
+    setArchivedOnly(value); writeLocalUserPreferences(preferenceUserId, { archivedOnly: value });
+  };
+  const setCompactPreference = (value: boolean) => {
+    setCompact(value); writeLocalUserPreferences(preferenceUserId, { compact: value });
+  };
   const [viewOptionsOpen, setViewOptionsOpen] = useState(false);
   const viewOptionsRef = useRef<HTMLDivElement>(null);
   const viewOptionsTriggerRef = useRef<HTMLButtonElement>(null);
@@ -220,7 +240,7 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
       setProjectLabels((value) => ({ gateway, rows: [...(value?.gateway === gateway ? value.rows.filter((row) => row.id !== project.id) : []), project] }));
       setProjectRefresh((value) => value + 1);
       setCollapsedProjects((value) => { const next = new Set(value); next.delete(project.id); return next; });
-      setSearch(''); setArchivedOnly(false); setScope('chats'); setSelectedRows([]);
+      setSearch(''); setArchivedOnlyPreference(false); setScope('chats'); setSelectedRows([]);
       onSelectProject(project);
       setProjectFormOpen(false);
       notify(`Project ${project.name} created`);
@@ -448,11 +468,13 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
     const disclosureName = `${uniqueName(session)}: ${childLabel}`;
     return [
       sessionRow(session, child, hasDisclosure ? { label: compactLabel, name: disclosureName, expanded } : undefined),
-      hasDisclosure && <div id={`subagent-children-${session.id}`} className="subagent-children" key={`subagent-children-${session.id}`}>{expanded ? children.map((nestedChild) => sessionTree(nestedChild, true, path)) : []}</div>,
-      liveHistory && hasDisclosure && (!page || page.hasMore) && <button className="rail-load-children" key={`load-${session.id}`} type="button" data-load-parent={session.id} style={{ '--child-depth': Math.min(4, childDepth(session) + 1) } as React.CSSProperties} aria-disabled={childRequest?.busy || undefined} aria-busy={childRequest?.busy || undefined} onClick={() => void loadHistory(session.id, childRequest?.resetCursor ? undefined : page?.nextCursor ?? undefined)}>
-        <Icon name={childRequest?.busy ? 'refresh' : 'chevronDown'} className={childRequest?.busy ? 'spin' : undefined} size={13} />
-        <span aria-live="polite" aria-atomic="true">{childRequest?.error ? <>{childRequest.error} <span className="rail-child-retry">Retry</span></> : page ? 'Load more subagents' : 'Load subagents'}<span className="sr-only"> for {uniqueName(session)}{childRequest?.busy ? ' — Loading' : ''}</span></span>
-      </button>,
+      hasDisclosure && <div id={`subagent-children-${session.id}`} className="subagent-children" key={`subagent-children-${session.id}`}>{expanded && <>
+        {children.map((nestedChild) => sessionTree(nestedChild, true, path))}
+        {liveHistory && (!page || page.hasMore) && <button className="rail-load-children" type="button" data-load-parent={session.id} style={{ '--child-depth': Math.min(4, childDepth(session) + 1) } as React.CSSProperties} aria-disabled={childRequest?.busy || undefined} aria-busy={childRequest?.busy || undefined} onClick={() => void loadHistory(session.id, childRequest?.resetCursor ? undefined : page?.nextCursor ?? undefined)}>
+          <Icon name={childRequest?.busy ? 'refresh' : 'chevronDown'} className={childRequest?.busy ? 'spin' : undefined} size={13} />
+          <span aria-live="polite" aria-atomic="true">{childRequest?.error ? <>{childRequest.error} <span className="rail-child-retry">Retry</span></> : page ? 'Load more subagents' : 'Load subagents'}<span className="sr-only"> for {uniqueName(session)}{childRequest?.busy ? ' — Loading' : ''}</span></span>
+        </button>}
+      </>}</div>,
     ];
   };
 
@@ -465,19 +487,19 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
     <button className="rail-add-project" type="button" onClick={openProjectForm} data-testid="rail-add-project"><Icon name="plus" size={14} />Add project</button>
     <div className="scope-tabs" role="tablist" aria-label="Session scopes" onKeyDown={moveScope}>{(['chats', 'scheduled', 'background'] as SessionScope[]).map((item) => <button role="tab" aria-selected={scope === item} tabIndex={scope === item ? 0 : -1} type="button" key={item} onClick={() => changeScope(item)} data-testid={`scope-${item}`}>{item === 'chats' ? 'Chats' : item === 'scheduled' ? 'Scheduled' : 'Background'}</button>)}</div>
     <div className="rail-filters rail-view-controls" ref={viewOptionsRef} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setViewOptionsOpen(false); }}>
-      <label className="rail-sort"><span className="sr-only">Session sort</span><select value={sort} onChange={(event) => setSort(event.target.value as SessionSort)} data-testid="session-sort"><option value="newest">Date · newest</option><option value="oldest">Date · oldest</option><option value="name">Name</option><option value="activity">Last activity</option><option value="status">Status</option></select></label>
+      <label className="rail-sort"><span className="sr-only">Session sort</span><select value={sort} onChange={(event) => setSortPreference(event.target.value as SessionSort)} data-testid="session-sort"><option value="newest">Date · newest</option><option value="oldest">Date · oldest</option><option value="name">Name</option><option value="activity">Last activity</option><option value="status">Status</option></select></label>
       <button ref={viewOptionsTriggerRef} className="rail-view-trigger" type="button" aria-haspopup="menu" aria-expanded={viewOptionsOpen} aria-controls={viewOptionsOpen ? 'rail-view-options' : undefined} onClick={() => { viewOptionsLastItem.current = false; setViewOptionsOpen((value) => !value); }} onKeyDown={(event) => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); viewOptionsLastItem.current = event.key === 'ArrowUp'; setViewOptionsOpen(true); } }}>View options<Icon name="chevronDown" size={13} /></button>
       {viewOptionsOpen && <div id="rail-view-options" className="menu-popover rail-view-menu" role="menu" tabIndex={0} aria-label="View options" onKeyDown={moveViewOptionsFocus}>
-        <button className="rail-view-item" type="button" role="menuitemcheckbox" tabIndex={-1} aria-checked={archivedOnly} aria-describedby="rail-archive-help" onClick={() => { setArchivedOnly((value) => !value); closeViewOptions(); }}><span className="rail-option-mark" aria-hidden="true">{archivedOnly && <Icon name="check" size={14} />}</span><span>View archived sessions</span></button>
+        <button className="rail-view-item" type="button" role="menuitemcheckbox" tabIndex={-1} aria-checked={archivedOnly} aria-describedby="rail-archive-help" onClick={() => { setArchivedOnlyPreference(!archivedOnly); closeViewOptions(); }}><span className="rail-option-mark" aria-hidden="true">{archivedOnly && <Icon name="check" size={14} />}</span><span>View archived sessions</span></button>
         <p role="presentation" id="rail-archive-help" className="rail-view-help">Shows archived conversations instead of active ones. Does not archive anything.</p>
         <div role="group" aria-labelledby="rail-spacing-label" aria-describedby="rail-spacing-help">
           <p role="presentation" id="rail-spacing-label" className="rail-view-label">Row spacing</p>
           <p role="presentation" id="rail-spacing-help" className="rail-view-help">Compact fits more sessions in the list</p>
-          {(['Comfortable', 'Compact'] as const).map((spacing) => <button className="rail-view-item" type="button" role="menuitemradio" tabIndex={-1} aria-checked={compact === (spacing === 'Compact')} key={spacing} onClick={() => { setCompact(spacing === 'Compact'); closeViewOptions(); }}><span className="rail-option-mark" aria-hidden="true">{compact === (spacing === 'Compact') && <Icon name="check" size={14} />}</span><span>{spacing}</span></button>)}
+          {(['Comfortable', 'Compact'] as const).map((spacing) => <button className="rail-view-item" type="button" role="menuitemradio" tabIndex={-1} aria-checked={compact === (spacing === 'Compact')} key={spacing} onClick={() => { setCompactPreference(spacing === 'Compact'); closeViewOptions(); }}><span className="rail-option-mark" aria-hidden="true">{compact === (spacing === 'Compact') && <Icon name="check" size={14} />}</span><span>{spacing}</span></button>)}
         </div>
       </div>}
     </div>
-    {archivedOnly && <button className="rail-archive-chip" type="button" onClick={() => setArchivedOnly(false)}>Archived sessions — Back to active</button>}
+    {archivedOnly && <button className="rail-archive-chip" type="button" onClick={() => setArchivedOnlyPreference(false)}>Archived sessions — Back to active</button>}
     {selectedRows.length > 0 && <div className="bulk-bar" role="toolbar" aria-label="Selected session actions"><strong>{selectedRows.length} selected</strong><button type="button" onClick={() => setSelectedRows([])}>Cancel</button><button type="button" onClick={() => setBulkDeleteOpen(true)}>Delete</button></div>}
     <div ref={sessionListRef} className={`session-list${compact ? ' rail-compact' : ''}`} role="region" tabIndex={0} aria-label={`${scope} sessions`} aria-busy={liveHistory && (!currentPage || currentPage.busy)}>
       {[...projectGroups].map(([id, group]) => {

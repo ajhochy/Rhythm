@@ -66,13 +66,32 @@ test('clearing last MCP tool removes server grant instead of broadening to inher
   assert.equal(mcpGroupSelection(parseMcpSelection(next), 'server', ['a']).inherited, false);
 });
 test('MCP edits preserve other servers and advanced server settings', () => {
-  const raw = '{"server": {"allowedTools":["a"], "future": { "n":1e2 }}, "other":null}';
+  const raw = '{"server": {"allowedTools":["a"]}, "other":{"future": { "n":1e2 }}}';
   assert.equal(editMcpGroup(parseMcpSelection(raw), 'server', ['a', 'b'], []), raw.replace('["a"]', '["a","b"]'));
   const narrowed = JSON.parse(editMcpGroup(parseMcpSelection(null), 'server', ['a'], [{ name: 'server', tools: ['a', 'b'] }, { name: 'empty', tools: [] }]));
   assert.deepEqual(narrowed, { server: ['a'] });
   assert.ok(parseMcpSelection('bad').error);
   assert.ok(parseSkillSelection('{}').error);
   assert.throws(() => editMcpGroup(parseMcpSelection('bad'), 'server', ['a'], []));
+});
+
+test('advanced MCP server policies are explicit, read-only, and lossless while supported peers remain editable', () => {
+  const raw = '{"rhythm":{"mode":"capability-rules","allowedTools":{"include":["tasks.*"],"exclude":["tasks.delete"]},"approval":{"write":"ask"},"future":{"weight":1e+03}},"github":{"allowedTools":["issues.read"]},"scalar":"future-mode","malformed":{"allowedTools":{"include":["read"]}}}';
+  const policy = parseMcpSelection(raw);
+
+  for (const server of ['rhythm', 'scalar', 'malformed']) {
+    const group = mcpGroupSelection(policy, server, ['read', 'write']);
+    assert.equal(group.inherited, false);
+    assert.deepEqual(group.selected, []);
+    assert.match(group.error, /advanced MCP policy/i);
+    assert.throws(() => editMcpGroup(policy, server, ['read'], []), /advanced MCP policy/i);
+    assert.equal(policy.raw, raw);
+  }
+
+  const next = editMcpGroup(policy, 'github', ['issues.read', 'pulls.read'], []);
+  assert.equal(next, raw.replace('["issues.read"]', '["issues.read","pulls.read"]'));
+  assert.ok(next.includes('"allowedTools":{"include":["tasks.*"],"exclude":["tasks.delete"]}'));
+  assert.ok(next.includes('"future":{"weight":1e+03}'));
 });
 
 test('no-op inherit/removal preserves the root marker; prototype-like new categories are own JSON data', () => {

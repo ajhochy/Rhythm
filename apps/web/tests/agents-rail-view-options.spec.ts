@@ -48,18 +48,49 @@ test('archive is an explicit view with an obvious return path, without mutating 
   expect(await page.evaluate(() => localStorage.getItem('rhythm-agents-fixture-sessions'))).toBe(before);
 });
 
-test('existing nonpersistent preference contract survives reload without new account-wide keys', async ({ page }) => {
-  await page.goto('/agents');
-  const keys = () => page.evaluate(() => Object.keys(localStorage).filter(key => /compact|density|session-sort|project-filter|archivedOnly/.test(key)).sort());
-  const before = await keys();
+test('sort, archive, and density preferences persist across reload and stay isolated per account', async ({ page }) => {
+  await page.route('**/tests/rail-view-preferences-fixture.html', route => route.fulfill({ contentType: 'text/html', body: `<!doctype html><html lang="en"><head><title>Rail preferences fixture</title></head><body><div id="root"></div><script type="module">
+    import RefreshRuntime from '/@react-refresh';
+    RefreshRuntime.injectIntoGlobalHook(window); window.$RefreshReg$ = () => {}; window.$RefreshSig$ = () => type => type; window.__vite_plugin_react_preamble_installed__ = true;
+    const {default: React} = await import('/node_modules/.vite/deps/react.js');
+    const {default: {createRoot}} = await import('/node_modules/.vite/deps/react-dom_client.js');
+    const {FixtureProvider} = await import('/src/store.tsx');
+    const {composeGateway} = await import('/src/gateway/index.ts');
+    const {GatewayProvider} = await import('/src/gateway/context.tsx');
+    const {AuthUserProvider} = await import('/src/gateway/auth.tsx');
+    const {SessionRail} = await import('/src/components/SessionRail.tsx');
+    await import('/src/styles.css');
+    const h = React.createElement; const gateway = composeGateway({mode:'fixture'});
+    function App() { const [userId, setUserId] = React.useState(101); return h('main', {style:{width:'300px',height:'100vh',display:'grid',gridTemplateRows:'auto minmax(0,1fr)'}},
+      h('button', {type:'button','data-testid':'switch-account',onClick:()=>setUserId(id=>id===101?202:101)}, 'Switch account'),
+      h(AuthUserProvider,{key:userId,user:{id:userId,name:'User '+userId,email:userId+'@example.invalid',role:'user'}},
+        h(GatewayProvider,{gateway},h(FixtureProvider,null,h(SessionRail,{collapsed:false,onToggle:()=>{},selectedProject:null,onSelectProject:()=>{}}))))); }
+    createRoot(document.getElementById('root')).render(h(App));
+  </script></body></html>` }));
+  await page.goto('/tests/rail-view-preferences-fixture.html');
   await page.getByTestId('session-sort').selectOption('name');
   await page.getByRole('button', { name: 'View options', exact: true }).click();
   await page.getByRole('menuitemradio', { name: 'Compact', exact: true }).click();
-  await page.reload();
+  await page.getByRole('button', { name: 'View options', exact: true }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'View archived sessions' }).click();
+
+  await page.getByTestId('switch-account').click();
+  await expect(page.getByTestId('session-sort')).toHaveValue('newest');
   await page.getByRole('button', { name: 'View options', exact: true }).click();
   await expect(page.getByRole('menuitemradio', { name: 'Comfortable', exact: true })).toHaveAttribute('aria-checked', 'true');
   await expect(page.getByRole('menuitemcheckbox', { name: 'View archived sessions' })).toHaveAttribute('aria-checked', 'false');
-  expect(await keys()).toEqual(before);
+  await page.keyboard.press('Escape');
+
+  await page.getByTestId('switch-account').click();
+  await expect(page.getByTestId('session-sort')).toHaveValue('name');
+  await expect(page.getByRole('button', { name: 'Archived sessions — Back to active', exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByTestId('session-sort')).toHaveValue('name');
+  await page.getByRole('button', { name: 'View options', exact: true }).click();
+  await expect(page.getByRole('menuitemradio', { name: 'Compact', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('menuitemcheckbox', { name: 'View archived sessions' })).toHaveAttribute('aria-checked', 'true');
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('rhythm.settings.101') ?? '{}'))).toMatchObject({ sessionSort: 'name', archivedOnly: true, compact: true });
+  expect(await page.evaluate(() => localStorage.getItem('rhythm.settings.202'))).toBeNull();
 });
 
 for (const theme of ['light', 'dark']) test(`narrow rail at 200 percent with RTL keeps ${theme} view options contained and accessible`, async ({ page }, testInfo) => {
