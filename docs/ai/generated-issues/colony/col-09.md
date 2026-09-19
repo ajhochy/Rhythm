@@ -2,13 +2,15 @@
 
 Make the installed Rhythm app contain the Colony renderer, scanner, assets and compatible runtime without requiring development tooling.
 
-Parent: {{EPIC}}  
-Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)  
+Parent: #1525
+
+Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)
+
 Milestone: Colony M3 — Packaged Apple Silicon and Intel builds
 
 ## Dependencies
 
-{{COL-03}}, {{COL-07}}, {{COL-08}}
+#1528, #1532, #1533
 
 ## Likely files
 
@@ -23,6 +25,8 @@ Milestone: Colony M3 — Packaged Apple Silicon and Intel builds
 - Extend the existing packager and bundled Node 22 path. Pin a supported exact Node patch >=22.13 and verify node:sqlite, architecture and worker startup before accepting a payload.
 - Build with neutral environment inputs, stage only production resources and preserve licenses/source provenance. Store writable state in userData only.
 - Package the renderer/GLB assets so it can start offline; no npm install, art download, Homebrew lookup or sibling checkout may be needed at runtime.
+
+- Test a clean Mac with Git/developer tools unavailable as well as no system Node; preserve task discovery with honest metadata degradation and no installation prompt.
 
 ## Acceptance criteria
 

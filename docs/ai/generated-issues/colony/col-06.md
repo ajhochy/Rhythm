@@ -2,13 +2,15 @@
 
 Make Colony menu actions open the exact intended task and use consistent Rhythm labels, keyboard behavior and failure feedback.
 
-Parent: {{EPIC}}  
-Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)  
+Parent: #1525
+
+Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)
+
 Milestone: Colony M2 — Rhythm-native UI and menus
 
 ## Dependencies
 
-{{COL-03}}, {{COL-05}}
+#1528, #1530
 
 ## Likely files
 
@@ -20,7 +22,7 @@ Milestone: Colony M2 — Rhythm-native UI and menus
 
 ## Requirements
 
-- Prerequisite: reviewed codex/electron-session-opening companion receiver. Reuse the existing local-ID selection path for Rhythm; opening in the same app must not reload the renderer or sign the user out.
+- Prerequisite: reviewed [Rhythm draft PR #1538](https://github.com/ajhochy/Rhythm/pull/1538), the codex/electron-session-opening companion receiver. Its scoped native evidence and three uninvestigated broad-suite failures remain explicit review inputs. Reuse the existing local-ID selection path for Rhythm; opening in the same app must not reload the renderer or sign the user out.
 - Use opaque inventory references. Resolve and validate known harness/task/checkout targets in privileged code; reject arbitrary commands, executable paths, URLs and stale/foreign refs.
 - Implement approved task and View menus with checked/disabled state, primary labels and focus restoration. Only qualified actions appear: exact open, parent inspection, local viewed/archive, Finder/copy path and user-triggered screenshot/view controls.
 - A Rhythm SDK-only child must resolve through its verified parent/child navigation contract or show an unavailable reason; never substitute an SDK ID for a local session ID or choose the first task.

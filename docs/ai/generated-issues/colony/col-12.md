@@ -2,13 +2,15 @@
 
 Prepare a supportable opt-in Colony release for all Rhythm Electron users while retaining the host app release and cutover boundaries.
 
-Parent: {{EPIC}}  
-Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)  
+Parent: #1525
+
+Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)
+
 Milestone: Colony M4 — Installed acceptance and opt-in rollout
 
 ## Dependencies
 
-{{COL-11}}
+#1536
 
 ## Likely files
 

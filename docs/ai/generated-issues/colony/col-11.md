@@ -2,13 +2,15 @@
 
 Prove that real users can install, enable and use Colony from the distributed signed apps on both supported Mac architectures.
 
-Parent: {{EPIC}}  
-Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)  
+Parent: #1525
+
+Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)
+
 Milestone: Colony M4 — Installed acceptance and opt-in rollout
 
 ## Dependencies
 
-{{COL-06}}, {{COL-08}}, {{COL-10}}
+#1531, #1533, #1535
 
 ## Likely files
 

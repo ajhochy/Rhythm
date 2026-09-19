@@ -2,8 +2,10 @@
 
 Produce a concrete UI and menu design that makes Colony feel native to Rhythm Electron while retaining the 3D world and multi-harness clarity.
 
-Parent: {{EPIC}}  
-Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)  
+Parent: #1525
+
+Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)
+
 Milestone: Colony M2 — Rhythm-native UI and menus
 
 ## Dependencies

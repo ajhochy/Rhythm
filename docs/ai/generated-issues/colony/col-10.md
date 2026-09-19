@@ -2,13 +2,15 @@
 
 Build and verify Colony through the existing architecture-specific Electron signing/notarization pipeline.
 
-Parent: {{EPIC}}  
-Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)  
+Parent: #1525
+
+Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)
+
 Milestone: Colony M3 — Packaged Apple Silicon and Intel builds
 
 ## Dependencies
 
-{{COL-09}}
+#1534
 
 ## Likely files
 

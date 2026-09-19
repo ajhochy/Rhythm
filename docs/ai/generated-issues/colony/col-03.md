@@ -2,13 +2,15 @@
 
 Let Electron lazily start, supervise and stop one Colony scanner while preserving the ownership of every existing Rhythm and harness process.
 
-Parent: {{EPIC}}  
-Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)  
+Parent: #1525
+
+Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)
+
 Milestone: Colony M1 — Foundation and local runtime
 
 ## Dependencies
 
-{{COL-02}}
+#1527
 
 ## Likely files
 
@@ -22,6 +24,8 @@ Milestone: Colony M1 — Foundation and local runtime
 - Use the packaged Node executable and absolute packaged scanner entry, with an explicit version/capability handshake and sanitized environment. Packaged mode must never fall back to a developer checkout or ambient PATH.
 - Start only after local opt-in and first use; serialize concurrent starts. Define startup timeout, bounded restart attempts and user-visible recovery status. Stop only the child/process group spawned by this service.
 - Resolve enabled source paths on the main/worker side. Source toggles are applied before opening stores; aggregate per-source failures while retaining healthy results.
+
+- Git enrichment is optional. A clean Mac without Git/developer tools must still show local task paths with explicit unknown repository metadata, without triggering installation prompts or fetching tooling.
 
 ## Acceptance criteria
 

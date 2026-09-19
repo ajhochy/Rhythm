@@ -2,13 +2,15 @@
 
 Expose the existing Colony data operations and 3D scene through explicit embedded contracts, without a public local HTTP server or broad native privileges.
 
-Parent: {{EPIC}}  
-Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)  
+Parent: #1525
+
+Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)
+
 Milestone: Colony M1 — Foundation and local runtime
 
 ## Dependencies
 
-{{COL-01}}
+#1526
 
 ## Likely files
 

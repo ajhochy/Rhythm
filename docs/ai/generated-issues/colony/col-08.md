@@ -2,13 +2,15 @@
 
 Keep Colony responsive and usable with large inventories, hidden tabs, limited GPUs and failed local sources.
 
-Parent: {{EPIC}}  
-Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)  
+Parent: #1525
+
+Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)
+
 Milestone: Colony M2 — Rhythm-native UI and menus
 
 ## Dependencies
 
-{{COL-05}}, {{COL-06}}, {{COL-07}}
+#1530, #1531, #1532
 
 ## Likely files
 

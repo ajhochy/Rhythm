@@ -5,22 +5,30 @@
     {
       "key": "M1",
       "title": "Colony M1 \u2014 Foundation and local runtime",
-      "description": "Adopt reviewed Bot Crossing source, prove the isolated embedded contracts and run a separately owned read-only scanner. Exit: real Electron uses local synthetic harness data without a localhost server, source writes, or changes to Rhythm API/engine ownership."
+      "description": "Adopt reviewed Bot Crossing source, prove the isolated embedded contracts and run a separately owned read-only scanner. Exit: real Electron uses local synthetic harness data without a localhost server, source writes, or changes to Rhythm API/engine ownership.",
+      "number": 105,
+      "url": "https://github.com/ajhochy/Rhythm/milestone/105"
     },
     {
       "key": "M2",
       "title": "Colony M2 \u2014 Rhythm-native UI and menus",
-      "description": "Design and implement the Colony workspace using Rhythm Electron conventions, exact task navigation, local opt-in/preferences, accessibility and bounded resource use. Exit: the native tab works through the real scanner; UI/menu review and failure-state tests pass."
+      "description": "Design and implement the Colony workspace using Rhythm Electron conventions, exact task navigation, local opt-in/preferences, accessibility and bounded resource use. Exit: the native tab works through the real scanner; UI/menu review and failure-state tests pass.",
+      "number": 106,
+      "url": "https://github.com/ajhochy/Rhythm/milestone/106"
     },
     {
       "key": "M3",
       "title": "Colony M3 \u2014 Packaged Apple Silicon and Intel builds",
-      "description": "Extend existing Electron packaging and release CI with pinned Colony resources, bundled Node 22 capability checks, asset notices and architecture-specific signed/notarized ZIPs. Exit: both exact artifacts pass post-sign packaged smoke without a checkout or system Node."
+      "description": "Extend existing Electron packaging and release CI with pinned Colony resources, bundled Node 22 capability checks, asset notices and architecture-specific signed/notarized ZIPs. Exit: both exact artifacts pass post-sign packaged smoke without a checkout or system Node.",
+      "number": 107,
+      "url": "https://github.com/ajhochy/Rhythm/milestone/107"
     },
     {
       "key": "M4",
       "title": "Colony M4 \u2014 Installed acceptance and opt-in rollout",
-      "description": "Qualify installed signed builds on Apple Silicon and Intel, including real task opening, account boundaries, upgrades and rollback. Exit: documented feature approval and all-user local opt-in rollout readiness; separate Electron host/cutover gates remain in force."
+      "description": "Qualify installed signed builds on Apple Silicon and Intel, including real task opening, account boundaries, upgrades and rollback. Exit: documented feature approval and all-user local opt-in rollout readiness; separate Electron host/cutover gates remain in force.",
+      "number": 108,
+      "url": "https://github.com/ajhochy/Rhythm/milestone/108"
     }
   ],
   "issues": [
@@ -56,7 +64,9 @@
         "Add an import manifest/inventory check and a negative fixture containing forbidden user-data files.",
         "Record asset size baseline and hash input manifest for later package comparison."
       ],
-      "file": "docs/ai/generated-issues/colony/col-01.md"
+      "file": "docs/ai/generated-issues/colony/col-01.md",
+      "number": 1526,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1526"
     },
     {
       "id": "COL-02",
@@ -94,7 +104,9 @@
         "Run real Electron protocol/hostile-frame/message-lifetime tests on the pinned runtime; a plain browser test is not sufficient.",
         "Falsify one sender-validation check and one chunk/atomic-commit guard to show the tests catch the failure."
       ],
-      "file": "docs/ai/generated-issues/colony/col-02.md"
+      "file": "docs/ai/generated-issues/colony/col-02.md",
+      "number": 1527,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1527"
     },
     {
       "id": "COL-03",
@@ -117,7 +129,8 @@
       "requirements": [
         "Use the packaged Node executable and absolute packaged scanner entry, with an explicit version/capability handshake and sanitized environment. Packaged mode must never fall back to a developer checkout or ambient PATH.",
         "Start only after local opt-in and first use; serialize concurrent starts. Define startup timeout, bounded restart attempts and user-visible recovery status. Stop only the child/process group spawned by this service.",
-        "Resolve enabled source paths on the main/worker side. Source toggles are applied before opening stores; aggregate per-source failures while retaining healthy results."
+        "Resolve enabled source paths on the main/worker side. Source toggles are applied before opening stores; aggregate per-source failures while retaining healthy results.",
+        "Git enrichment is optional. A clean Mac without Git/developer tools must still show local task paths with explicit unknown repository metadata, without triggering installation prompts or fetching tooling."
       ],
       "ac": [
         "With Colony disabled, normal app startup performs zero harness reads and creates zero Colony children. Ten concurrent enable/open events create one scanner; repeated tab use does not create another.",
@@ -130,7 +143,9 @@
         "Run a real packaged-Node worker against sanitized read-only harness fixtures and inspect listener/process receipts.",
         "Snapshot/hash fixture stores before and after scanning; no harness DB/transcript writes are permitted."
       ],
-      "file": "docs/ai/generated-issues/colony/col-03.md"
+      "file": "docs/ai/generated-issues/colony/col-03.md",
+      "number": 1528,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1528"
     },
     {
       "id": "COL-04",
@@ -164,7 +179,9 @@
         "Review side by side with current rendered Rhythm Tasks/Agents; include representative long paths/branches and synthetic parent/worker names.",
         "Perform a bounded design/accessibility review of the packet; this issue does not claim rendered implementation or release qualification."
       ],
-      "file": "docs/ai/generated-issues/colony/col-04.md"
+      "file": "docs/ai/generated-issues/colony/col-04.md",
+      "number": 1529,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1529"
     },
     {
       "id": "COL-05",
@@ -201,7 +218,9 @@
         "Rendered click/keyboard tests using the actual route and scene message path, including parent/worker, long-label and empty/filter fixtures.",
         "Batch native Electron screenshots for desktop/narrow/dark/light states and compare against COL-04; fix material findings in a bounded pass."
       ],
-      "file": "docs/ai/generated-issues/colony/col-05.md"
+      "file": "docs/ai/generated-issues/colony/col-05.md",
+      "number": 1530,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1530"
     },
     {
       "id": "COL-06",
@@ -224,7 +243,7 @@
         "Native session-opening and Colony action smoke tests"
       ],
       "requirements": [
-        "Prerequisite: reviewed codex/electron-session-opening companion receiver. Reuse the existing local-ID selection path for Rhythm; opening in the same app must not reload the renderer or sign the user out.",
+        "Prerequisite: reviewed [Rhythm draft PR #1538](https://github.com/ajhochy/Rhythm/pull/1538), the codex/electron-session-opening companion receiver. Its scoped native evidence and three uninvestigated broad-suite failures remain explicit review inputs. Reuse the existing local-ID selection path for Rhythm; opening in the same app must not reload the renderer or sign the user out.",
         "Use opaque inventory references. Resolve and validate known harness/task/checkout targets in privileged code; reject arbitrary commands, executable paths, URLs and stale/foreign refs.",
         "Implement approved task and View menus with checked/disabled state, primary labels and focus restoration. Only qualified actions appear: exact open, parent inspection, local viewed/archive, Finder/copy path and user-triggered screenshot/view controls.",
         "A Rhythm SDK-only child must resolve through its verified parent/child navigation contract or show an unavailable reason; never substitute an SDK ID for a local session ID or choose the first task."
@@ -239,7 +258,9 @@
         "HTTP/IPC action contracts plus real native task identity receipts; use synthetic IDs in committed evidence.",
         "Exercise a known-working sibling route as a control and repeat switching without reload; test unsupported SDK-only children explicitly."
       ],
-      "file": "docs/ai/generated-issues/colony/col-06.md"
+      "file": "docs/ai/generated-issues/colony/col-06.md",
+      "number": 1531,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1531"
     },
     {
       "id": "COL-07",
@@ -276,7 +297,9 @@
         "End-to-end settings/enable/disable/account-switch and restart tests with fake profiles.",
         "Filesystem before/after evidence for source preservation, large-state chunking, atomic failure, concurrent saves and downgrade/backup restoration."
       ],
-      "file": "docs/ai/generated-issues/colony/col-07.md"
+      "file": "docs/ai/generated-issues/colony/col-07.md",
+      "number": 1532,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1532"
     },
     {
       "id": "COL-08",
@@ -313,7 +336,9 @@
         "Run large synthetic fixtures, keyboard/accessibility checks and a bounded native visual pass over failure/empty states.",
         "Record hardware, OS, scene size, timings and limitations; do not use cold/warm measurements from a different app build as proof."
       ],
-      "file": "docs/ai/generated-issues/colony/col-08.md"
+      "file": "docs/ai/generated-issues/colony/col-08.md",
+      "number": 1533,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1533"
     },
     {
       "id": "COL-09",
@@ -339,7 +364,8 @@
       "requirements": [
         "Extend the existing packager and bundled Node 22 path. Pin a supported exact Node patch >=22.13 and verify node:sqlite, architecture and worker startup before accepting a payload.",
         "Build with neutral environment inputs, stage only production resources and preserve licenses/source provenance. Store writable state in userData only.",
-        "Package the renderer/GLB assets so it can start offline; no npm install, art download, Homebrew lookup or sibling checkout may be needed at runtime."
+        "Package the renderer/GLB assets so it can start offline; no npm install, art download, Homebrew lookup or sibling checkout may be needed at runtime.",
+        "Test a clean Mac with Git/developer tools unavailable as well as no system Node; preserve task discovery with honest metadata degradation and no installation prompt."
       ],
       "ac": [
         "The packaged app starts Colony against synthetic stores with the repo checkout unavailable and PATH containing no Node/npm; all assets and scanner capabilities load from the bundle.",
@@ -352,7 +378,9 @@
         "Run adopted scanner/state tests with the exact packaged Node, including a real read-only SQLite fixture.",
         "Verify manifest and all source/art/icon notices against the staged payload."
       ],
-      "file": "docs/ai/generated-issues/colony/col-09.md"
+      "file": "docs/ai/generated-issues/colony/col-09.md",
+      "number": 1534,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1534"
     },
     {
       "id": "COL-10",
@@ -389,7 +417,9 @@
         "Use the actual final signed artifacts for smoke; unsigned source Electron or browser e2e does not substitute.",
         "Validate release notes and artifact naming remain within the existing Electron prerelease policy."
       ],
-      "file": "docs/ai/generated-issues/colony/col-10.md"
+      "file": "docs/ai/generated-issues/colony/col-10.md",
+      "number": 1535,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1535"
     },
     {
       "id": "COL-11",
@@ -427,7 +457,9 @@
         "Run real signing/Keychain checks in disposable accounts; mock Keychain and Rosetta alone do not qualify the Intel/real-credential gates.",
         "Record failure postmortem and repair only demonstrated defects before repeating affected acceptance paths."
       ],
-      "file": "docs/ai/generated-issues/colony/col-11.md"
+      "file": "docs/ai/generated-issues/colony/col-11.md",
+      "number": 1536,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1536"
     },
     {
       "id": "COL-12",
@@ -463,7 +495,15 @@
         "Perform a documentation walkthrough against the exact installed candidate and capture the bounded pilot/rollback result.",
         "Verify support instructions, artifact links and compatibility matrix match the tested build."
       ],
-      "file": "docs/ai/generated-issues/colony/col-12.md"
+      "file": "docs/ai/generated-issues/colony/col-12.md",
+      "number": 1537,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1537"
     }
-  ]
+  ],
+  "epic": {
+    "number": 1525,
+    "url": "https://github.com/ajhochy/Rhythm/issues/1525",
+    "title": "[Colony] Rhythm-native workspace and packaged macOS rollout"
+  },
+  "publication_verified": true
 }

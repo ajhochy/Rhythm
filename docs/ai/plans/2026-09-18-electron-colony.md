@@ -1,10 +1,16 @@
 # Colony in Rhythm Electron
 
-Date: 2026-09-18  
-Status: implementation plan; no Colony integration code has been written  
-Planning branch: `codex/colony-integration-plan`  
-Audience: all Rhythm desktop users, explicitly opt-in  
+Date: 2026-09-18
+
+Status: implementation plan; no Colony integration code has been written
+
+Planning branch: `codex/colony-integration-plan`
+
+Audience: all Rhythm desktop users, explicitly opt-in
+
 First platforms: macOS Apple Silicon and Intel
+
+Tracking: [epic #1525](https://github.com/ajhochy/Rhythm/issues/1525) · [milestones and issue dependencies](2026-09-18-electron-colony-tracking.md)
 
 ## Goal and confirmed scope
 
@@ -50,8 +56,10 @@ those standalone actions remain outside the embedded menu until separately quali
 ## Source evidence and prior art
 
 Inspected Rhythm base: `2350a500fe87f4acdc429be4c181997f251ce4e3`. The companion exact-session
-receiver is on `codex/electron-session-opening`; its reviewed change must be available before
-COL-06 closes. Bot source candidate is fork commit
+receiver is [draft PR #1538](https://github.com/ajhochy/Rhythm/pull/1538) on
+`codex/electron-session-opening`; its reviewed change must be available before COL-06 closes.
+Focused/native opening checks passed, but its broad monorepo gate reported three uninvestigated
+failures outside the changed packages; the PR records those review limits. Bot source candidate is fork commit
 `36d2c29989f567de0ac4d30a957610163cfc4d86`, including
 [Bot Crossing draft #4](https://github.com/ajhochy/bot-crossing/pull/4). Adoption requires reviewing
 that exact revision and its preceding stack; do not silently track a moving branch.
@@ -141,6 +149,9 @@ flowchart LR
 - Opt-in and source toggles are local to the desktop profile/account; they are not organization
   defaults and do not sync to the hosted API. A new account/profile starts disabled. Sign-out or
   account switch revokes channels, stops the scanner and clears displayed data from memory.
+- Git enrichment is optional: a clean Mac without Git/developer tools still shows local tasks and
+  paths, with unknown repository metadata where needed. Do not trigger an OS developer-tools
+  installation prompt or fetch Git at runtime.
 - Each source can be disabled before reading its store. Missing/locked/malformed sources show
   individual diagnostics; one failed adapter cannot blank all other results.
 - Archive means **Archive from Colony**, with a reversible local preference. It never archives,
@@ -270,5 +281,5 @@ build inputs during COL-01/COL-09, using current host policy rather than new uns
 - [x] Separate runtime/behavior, packaged artifacts and release qualification.
 - [x] Define ordered slices, acceptance criteria and verification boundaries.
 - [x] Generate 12 issue files with 48 acceptance criteria and validate acyclic dependencies.
-- [ ] Create GitHub milestones, epic and implementation issues; verify assignments.
+- [x] Create four GitHub milestones, epic #1525 and issues #1526–#1537; verify bodies and assignments.
 - [ ] Publish the durable plan and record the run; do not start implementation.

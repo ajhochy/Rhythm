@@ -2,13 +2,15 @@
 
 Implement the approved Colony workspace inside Rhythm using existing React UI conventions and the embedded scene contract.
 
-Parent: {{EPIC}}  
-Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)  
+Parent: #1525
+
+Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)
+
 Milestone: Colony M2 — Rhythm-native UI and menus
 
 ## Dependencies
 
-{{COL-02}}, {{COL-04}}
+#1527, #1529
 
 ## Likely files
 

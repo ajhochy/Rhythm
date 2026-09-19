@@ -2,8 +2,10 @@
 
 Create a reproducible, reviewable source boundary for Colony in the Rhythm repository while retaining the working standalone data model and read-only harness behavior.
 
-Parent: {{EPIC}}  
-Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)  
+Parent: #1525
+
+Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)
+
 Milestone: Colony M1 — Foundation and local runtime
 
 ## Dependencies

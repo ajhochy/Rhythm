@@ -2,13 +2,15 @@
 
 Give each desktop profile explicit control of local scanning and preserve Colony state safely across restarts, imports and upgrades.
 
-Parent: {{EPIC}}  
-Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)  
+Parent: #1525
+
+Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md)
+
 Milestone: Colony M2 — Rhythm-native UI and menus
 
 ## Dependencies
 
-{{COL-03}}, {{COL-05}}
+#1528, #1530
 
 ## Likely files
 
