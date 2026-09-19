@@ -96,7 +96,7 @@ test('issue-1513-c8: deep links restore selection and missing ids show not found
 
   await openFixture(page, '#/tools/brain?memoryId=deleted');
   await expectInspectorHeading(page, 'Item not found');
-  await expect(page.getByRole('status')).toContainText('no longer available');
+  await expect(page.getByTestId('list-inspector-detail').getByRole('status')).toContainText('no longer available');
 
   await openFixture(page, '#/tools/brain');
   await selectRow(page, selectableTools[0].first);
@@ -111,11 +111,11 @@ test('issue-1513-c7: edge states remain accessible at narrow width and 200 perce
   await expect(page.getByText('No results match your search.')).toBeVisible();
 
   for (const state of ['loading', 'server-error', 'empty', 'readonly']) {
-    await openFixture(page, `#/tools/brain?state=${state}`);
+    await page.getByTestId('tool-state-select').selectOption(state);
     await expect(page.getByTestId(state === 'server-error' ? 'tool-state-server-error' : `tool-state-${state}`)).toBeVisible();
   }
 
-  await openFixture(page, '#/tools/brain');
+  await page.getByTestId('tool-state-select').selectOption('ready');
   await atNarrow(page);
   await expect(page.getByRole('option', { name: selectableTools[0].second }).locator('strong')).toHaveAttribute('title', selectableTools[0].second);
   await selectRow(page, selectableTools[0].second);

@@ -88,7 +88,7 @@ test.describe('Agent Settings list and inspector', () => {
 
     await selectRow(page, profiles);
     await page.getByTestId('agent-settings-open-profiles').click();
-    await expect(page).toHaveURL(/#\/profiles$/);
+    await expect.poll(() => new URL(page.url()).hash).toBe('#/profiles?settingsSection=profiles');
   });
 
   test('uses one pane at 640px and remains unclipped at 200% zoom', async ({ page }) => {
@@ -111,6 +111,8 @@ test.describe('Agent Settings list and inspector', () => {
 });
 
 test.describe('Agent Settings live persistence', () => {
+  test.skip(process.env.RHYTHM_LIVE_E2E !== '1', 'Requires the live-gateway Playwright environment; the default suite serves fixture mode');
+
   test('authorizes an account, saves the default, and restores it after reload', async ({ page }) => {
     let defaultAccountId = 'work';
     let accounts = [{ id: 'work', label: 'Work account', status: 'active' }];
