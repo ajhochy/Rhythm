@@ -1,6 +1,6 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { FocusDialog } from '../../components/FocusDialog';
+import { ListInspector, useSelectedId, type ListInspectorItem } from '../../components/ListInspector';
 import { navigate } from '../../components/Shell';
 import { Icon } from '../../icons';
 import { useFixtures } from '../../store';
@@ -85,12 +85,6 @@ type TemplateDialogState = { mode: 'create' } | { mode: 'edit'; template: Projec
 type StepDialogState = { mode: 'create'; templateId: string } | { mode: 'edit'; templateId: string; step: ProjectTemplateStep } | null;
 type InspectorDraft = Pick<ProjectInstanceStep, 'title' | 'notes' | 'scheduledDate' | 'dueDate' | 'assigneeId'>;
 
-function InspectorPortal({ children }: { children: ReactNode }) {
-  const [target, setTarget] = useState<Element | null>(null);
-  useEffect(() => { setTarget(document.querySelector("[data-testid='project-inspector']")); }, []);
-  return target ? createPortal(children, target) : null;
-}
-
 const supportedStates: ProjectsState[] = ['ready', 'loading', 'empty', 'server-error', 'forbidden', 'unavailable', 'readonly'];
 
 function hashParams() {
@@ -116,16 +110,13 @@ function derivedStatus(instance: ProjectInstance) {
   return instance.steps.length > 0 && instance.steps.every((step) => step.status === 'done') ? 'Done' : 'Active';
 }
 
+const templateRowId = (id: string) => `project-template-${id}`;
+const instanceRowId = (id: string) => `project-instance-${id}`;
+const templateRowPrefix = 'project-template-';
+const instanceRowPrefix = 'project-instance-';
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="project-field"><span>{label}</span>{children}</label>;
-}
-
-function StatePanel({ state, templateMode, onRetry, onCreate }: { state: ProjectsState; templateMode: boolean; onRetry(): void; onCreate(): void }) {
-  if (state === 'loading') return <section className="projects-state loading" role="status" aria-live="polite" data-testid="page-state-loading"><span className="state-orbit" aria-hidden="true" /><span className="eyebrow">Project ledger</span><h2>Loading projects</h2><p>Gathering templates, people, milestones, and active work.</p><div className="state-lines" aria-hidden="true"><span /><span /><span /></div></section>;
-  if (state === 'empty' && templateMode) return <section className="projects-state" role="status" data-testid="page-state-empty"><span className="state-mark" aria-hidden="true">＋</span><span className="eyebrow">Template library</span><h2>No templates yet</h2><p>Build a repeatable sequence, then start projects from a single anchor date.</p><button className="primary-button" type="button" onClick={onCreate} data-testid="projects-empty-create-template">Create template</button></section>;
-  if (state === 'server-error') return <section className="projects-state danger" role="alert" data-testid="page-state-server-error"><span className="state-code">503</span><span className="eyebrow">Retryable server error</span><h2>Could not load active projects</h2><p>The project service returned an error without discarding the current context.</p><button className="primary-button" type="button" onClick={onRetry} data-testid="page-retry">Retry</button></section>;
-  if (state === 'unavailable') return <section className="projects-state warning" role="status" data-testid="page-state-unavailable"><span className="state-mark" aria-hidden="true">◇</span><span className="eyebrow">Service prerequisite</span><h2>Projects are unavailable</h2><p>Reconnect the project service and authenticated desktop session before trying again.</p><button className="secondary-button" type="button" onClick={onRetry} data-testid="projects-check-again">Check again</button></section>;
-  return null;
 }
 
 export function ProjectsPage({ route }: { route: string }) {
@@ -139,6 +130,7 @@ export function ProjectsPage({ route }: { route: string }) {
   const scopedInstances = templateMatch?.[2] === 'instances';
   const routeTemplateId = templateMatch ? decodeURIComponent(templateMatch[1]) : null;
   const routeInstanceId = instanceMatch ? decodeURIComponent(instanceMatch[1]) : null;
+  const [selectedRowId, setSelectedRowId] = useSelectedId('projectId');
   const [surfaceState, setSurfaceState] = useState<ProjectsState>(initialState);
   const [templates, setTemplates] = useState<ProjectTemplate[]>(() => live ? [] : cloneProjectTemplates());
   const [instances, setInstances] = useState<ProjectInstance[]>(() => live ? [] : cloneProjectInstances());
@@ -151,7 +143,6 @@ export function ProjectsPage({ route }: { route: string }) {
       : [...initialProjectReceipts];
   });
   const [showCompleted, setShowCompleted] = useState(false);
-  const [expandedIds, setExpandedIds] = useState<string[]>(() => live ? (routeInstanceId ? [routeInstanceId] : []) : [routeInstanceId ?? cloneProjectInstances()[0]?.id].filter(Boolean) as string[]);
   const [templateDialog, setTemplateDialog] = useState<TemplateDialogState>(null);
   const [stepDialog, setStepDialog] = useState<StepDialogState>(null);
   const [templateDelete, setTemplateDelete] = useState<ProjectTemplate | null>(null);
@@ -164,7 +155,6 @@ export function ProjectsPage({ route }: { route: string }) {
   const [milestoneDelete, setMilestoneDelete] = useState<{ instanceId: string; milestone: ProjectMilestone } | null>(null);
   const [collaboratorOpenFor, setCollaboratorOpenFor] = useState<string | null>(null);
   const [instanceDelete, setInstanceDelete] = useState<ProjectInstance | null>(null);
-  const [inspector, setInspector] = useState<{ instanceId: string; stepId: string } | null>(null);
   const [directInspector, setDirectInspector] = useState<{ instanceId: string; stepId: string } | null>(null);
   const [inspectorDraft, setInspectorDraft] = useState<InspectorDraft | null>(null);
   const templateNameRef = useRef<HTMLInputElement>(null);
@@ -215,21 +205,24 @@ export function ProjectsPage({ route }: { route: string }) {
   }, [live, projectsGateway]);
 
   // Collaborators are not embedded in the templates/instances list response (project_instance.ts:40-52),
-  // so the selected/expanded instance's collaborators are fetched lazily on selection.
+  // so the selected instance's collaborators are fetched lazily on selection.
+  const selectedInstanceIdForLoad = selectedRowId?.startsWith(instanceRowPrefix)
+    ? selectedRowId.slice(instanceRowPrefix.length)
+    : selectedRowId === null ? routeInstanceId : null;
   useEffect(() => {
-    if (!live || !projectsGateway || !routeInstanceId) return;
+    if (!live || !projectsGateway || !selectedInstanceIdForLoad) return;
     let cancelled = false;
     (async () => {
       try {
         // apps/api_server/src/routes/project_instances_routes.ts:19 GET /project-instances/:id/collaborators
-        const collaborators = await projectsGateway.collaborators(routeInstanceId);
+        const collaborators = await projectsGateway.collaborators(selectedInstanceIdForLoad);
         if (cancelled) return;
-        setInstances((current) => current.map((instance) => instance.id === routeInstanceId ? { ...instance, collaborators: collaborators.map((c) => ({ id: String(c.userId), name: c.name, initials: c.name.slice(0, 2).toUpperCase() })) } : instance));
-        appendReceipt(`GET /project-instances/${routeInstanceId}/collaborators → 200`);
+        setInstances((current) => current.map((instance) => instance.id === selectedInstanceIdForLoad ? { ...instance, collaborators: collaborators.map((c) => ({ id: String(c.userId), name: c.name, initials: c.name.slice(0, 2).toUpperCase() })) } : instance));
+        appendReceipt(`GET /project-instances/${selectedInstanceIdForLoad}/collaborators → 200`);
       } catch { /* collaborator prefetch failure surfaces on the next explicit mutation instead of blocking the page */ }
     })();
     return () => { cancelled = true; };
-  }, [live, projectsGateway, routeInstanceId]);
+  }, [live, projectsGateway, selectedInstanceIdForLoad]);
 
   useEffect(() => {
     if (templateDialog?.mode === 'create') templateNameRef.current?.focus();
@@ -239,27 +232,67 @@ export function ProjectsPage({ route }: { route: string }) {
     if (stepDialog?.mode === 'create') stepTitleRef.current?.focus();
   }, [stepDialog]);
 
-  const selectedTemplate = routeTemplateId
-    ? templates.find((template) => template.id === routeTemplateId) ?? null
-    : templates[0] ?? null;
   const isReadonly = surfaceState === 'readonly';
   const isForbidden = surfaceState === 'forbidden';
   const mutationDisabled = isReadonly || isForbidden || mutationPending;
-  const showsWorkspace = ['ready', 'readonly', 'forbidden'].includes(surfaceState) || (surfaceState === 'empty' && !templateMode);
-  const activeInstances = instances.filter((instance) => scopedInstances ? instance.templateId === routeTemplateId : true);
-  const visibleInstances = activeInstances.filter((instance) => showCompleted || derivedStatus(instance) !== 'Done');
-  const selectedProject = visibleInstances.find((instance) => expandedIds.includes(instance.id)) ?? visibleInstances[0] ?? null;
+  const visibleInstances = instances.filter((instance) => showCompleted || derivedStatus(instance) !== 'Done');
+  const projectItems: ListInspectorItem[] = surfaceState === 'empty' ? [] : [
+    ...templates.map((template) => ({
+      id: templateRowId(template.id),
+      title: template.name,
+      subtitle: `${template.steps.length} ${template.steps.length === 1 ? 'step' : 'steps'} · ${template.anchorType}`,
+      group: 'templates',
+    })),
+    ...visibleInstances.map((instance) => {
+      const completeSteps = instance.steps.filter((step) => step.status === 'done').length;
+      return {
+        id: instanceRowId(instance.id),
+        title: instance.name,
+        subtitle: `${instance.owner.name} · ${completeSteps}/${instance.steps.length} steps`,
+        badge: derivedStatus(instance),
+        group: 'active-projects',
+      };
+    }),
+  ];
+  const routeSelectedRowId = routeTemplateId ? templateRowId(routeTemplateId) : routeInstanceId ? instanceRowId(routeInstanceId) : null;
+  const defaultSelectedRowId = templateMode
+    ? projectItems.find((item) => item.group === 'templates')?.id ?? projectItems[0]?.id ?? null
+    : projectItems.find((item) => item.group === 'active-projects')?.id ?? projectItems[0]?.id ?? null;
+  const effectiveSelectedRowId = selectedRowId ?? routeSelectedRowId ?? defaultSelectedRowId;
+  const selectedTemplateId = effectiveSelectedRowId?.startsWith(templateRowPrefix) ? effectiveSelectedRowId.slice(templateRowPrefix.length) : null;
+  const selectedTemplate = selectedTemplateId ? templates.find((template) => template.id === selectedTemplateId) ?? null : null;
   const selectedInspectorInstance = directInspector ? instances.find((instance) => instance.id === directInspector.instanceId) ?? null : null;
   const selectedInspectorStep = directInspector && selectedInspectorInstance ? selectedInspectorInstance.steps.find((step) => step.id === directInspector.stepId) ?? null : null;
+  const hasUnsavedInspectorEdits = Boolean(inspectorDraft && selectedInspectorStep && (
+    inspectorDraft.title !== selectedInspectorStep.title
+    || inspectorDraft.notes !== selectedInspectorStep.notes
+    || inspectorDraft.scheduledDate !== selectedInspectorStep.scheduledDate
+    || inspectorDraft.dueDate !== selectedInspectorStep.dueDate
+    || inspectorDraft.assigneeId !== selectedInspectorStep.assigneeId
+  ));
   const fixtureSnapshot = JSON.stringify({
     templates: seededProjectTemplates.map((template) => [template.id, template.steps.map((step) => step.id)]),
     instances: seededProjectInstances.map((instance) => [instance.id, instance.steps.map((step) => [step.id, step.status])]),
   });
 
+  useEffect(() => {
+    if (selectedRowId === null && effectiveSelectedRowId && ['ready', 'readonly', 'forbidden'].includes(surfaceState)) setSelectedRowId(effectiveSelectedRowId);
+  }, [effectiveSelectedRowId, selectedRowId, setSelectedRowId, surfaceState]);
+
+  const selectProjectItem = (rowId: string) => {
+    if (rowId === effectiveSelectedRowId) return;
+    if (hasUnsavedInspectorEdits && !window.confirm('Discard unsaved step edits and select another project item?')) return;
+    setDirectInspector(null);
+    setInspectorDraft(null);
+    setSelectedRowId(rowId);
+  };
+
   const writeState = (next: ProjectsState) => {
     setSurfaceState(next);
-    const base = window.location.hash.split('?')[0] || '#/projects';
-    history.replaceState(null, '', `${base}?state=${next}`);
+    const [base = '#/projects', query = ''] = window.location.hash.split('?');
+    const params = new URLSearchParams(query);
+    params.set('state', next);
+    history.replaceState(history.state, '', `${base}?${params.toString()}`);
   };
   const retry = () => {
     if (live) { void loadAll(); return; }
@@ -301,6 +334,7 @@ export function ProjectsPage({ route }: { route: string }) {
         } else {
           const created = await projectsGateway.createTemplate({ name, description: description || null });
           setTemplates((current) => [...current, mapGatewayTemplate(created)]);
+          setSelectedRowId(templateRowId(created.id));
           appendReceipt('POST /project-templates {name,description} → 201');
           notify(`${name} created`);
         }
@@ -316,6 +350,7 @@ export function ProjectsPage({ route }: { route: string }) {
     } else {
       const id = `template-${slugify(name)}`;
       setTemplates((current) => [...current, { id, name, description, anchorType: 'Event date', steps: [] }]);
+      setSelectedRowId(templateRowId(id));
       appendReceipt('POST /project-templates {name,description} → 201');
       notify(`${name} created`);
     }
@@ -333,7 +368,6 @@ export function ProjectsPage({ route }: { route: string }) {
         appendReceipt(`DELETE /project-templates/${target.id} → 204`);
         setTemplateDelete(null);
         notify(`${target.name} deleted`);
-        if (routeTemplateId === target.id) navigate('/projects/templates');
         await loadAll();
       } catch (error) { handleGatewayError('DELETE', `/project-templates/${target.id}`, error); } finally { setMutationPending(false); }
       return;
@@ -343,7 +377,6 @@ export function ProjectsPage({ route }: { route: string }) {
     appendReceipt(`DELETE /project-templates/${target.id} → 204`);
     setTemplateDelete(null);
     notify(`${target.name} deleted`);
-    if (routeTemplateId === target.id) navigate('/projects/templates');
   };
 
   // Canonical body: CreateStepDto apps/api_server/src/models/project_template.ts:35-41 (update is Partial).
@@ -480,12 +513,15 @@ export function ProjectsPage({ route }: { route: string }) {
           assigneeId: inspectorDraft.assigneeId ? Number(inspectorDraft.assigneeId) : null,
         });
         mergeStep(updated);
+        setInspectorDraft((current) => current ? { ...current, title } : current);
         appendReceipt(`PATCH /project-instances/steps/${directInspector.stepId} {title,notes,dueDate,scheduledDate,assigneeId} → 200`);
         notify('Project step updated');
       } catch (error) { handleGatewayError('PATCH', `/project-instances/steps/${directInspector.stepId}`, error); } finally { setMutationPending(false); }
       return;
     }
-    setInstances((current) => current.map((instance) => instance.id === directInspector.instanceId ? { ...instance, steps: instance.steps.map((step) => step.id === directInspector.stepId ? { ...step, ...inspectorDraft, title: inspectorDraft.title.trim() } : step) } : instance));
+    const title = inspectorDraft.title.trim();
+    setInstances((current) => current.map((instance) => instance.id === directInspector.instanceId ? { ...instance, steps: instance.steps.map((step) => step.id === directInspector.stepId ? { ...step, ...inspectorDraft, title } : step) } : instance));
+    setInspectorDraft((current) => current ? { ...current, title } : current);
     appendReceipt(`PATCH /project-instances/steps/${directInspector.stepId} {title,notes,dueDate,scheduledDate,assigneeId} → 200`);
     notify('Project step updated');
   };
@@ -643,27 +679,14 @@ export function ProjectsPage({ route }: { route: string }) {
     </article>
   );
 
-  const renderInstance = (instance: ProjectInstance) => {
-    const expanded = selectedProject?.id === instance.id;
-    const completeSteps = instance.steps.filter((step) => step.status === 'done').length;
-    const row = <article className={`instance-row${expanded ? ' selected' : ''}`} aria-expanded={expanded} key={instance.id} data-testid={`project-instance-${instance.id}`} data-od-id={`project-row-${instance.id}`}>
-      <button className="instance-expand" type="button" aria-pressed={expanded} onClick={() => setExpandedIds([instance.id])} data-testid={`project-instance-expand-${instance.id}`} data-od-id={`project-select-${instance.id}`}>
-        <span className="instance-date">{instance.anchorDate}</span>
-        <span className="instance-row-copy"><strong>{instance.name}</strong><small>{instance.owner.name} · {completeSteps}/{instance.steps.length} steps</small></span>
-        <span className="status-badge" data-testid={`project-instance-status-${instance.id}`}>{derivedStatus(instance)}</span>
-      </button>
-    </article>;
-    const isLastTemplateInstance = templateMode && instance.id === visibleInstances[visibleInstances.length - 1]?.id;
-    return isLastTemplateInstance ? <Fragment key={instance.id}>{row}{selectedProject && renderProjectInspector(selectedProject)}</Fragment> : row;
-  };
-
   const renderProjectInspector = (instance: ProjectInstance) => {
     const owner = instance.owner.id === (live ? String(liveUserId) : currentProjectUserId);
     const groupedSteps = instance.milestones.map((milestone) => ({ milestone, steps: instance.steps.filter((step) => step.milestoneId === milestone.id && (showCompleted || step.status !== 'done')) }));
     const ungrouped = instance.steps.filter((step) => !step.milestoneId && (showCompleted || step.status !== 'done'));
-    return <aside className="project-inspector" aria-label="Selected project" data-testid="project-inspector" data-od-id="project-inspector">
+    const editingThisProject = directInspector?.instanceId === instance.id && selectedInspectorStep && inspectorDraft;
+    return <div className="project-inspector" data-testid="project-inspector" data-od-id="project-inspector">
       <header className="project-inspector-header">
-        <div><h2 data-od-id="project-inspector-title">{instance.name}</h2><p>{instance.anchorDate} · {derivedStatus(instance)}</p></div>
+        <div><span className="eyebrow">Active project</span><p>{instance.anchorDate} · <strong data-testid={`project-instance-status-${instance.id}`}>{derivedStatus(instance)}</strong></p></div>
         <button className="danger-button compact" type="button" disabled={mutationDisabled || !owner} aria-describedby={mutationDisabled ? 'projects-owner-reason' : undefined} onClick={() => setInstanceDelete(instance)} data-testid={`project-instance-delete-${instance.id}`}>Delete</button>
       </header>
       <div className="instance-detail">
@@ -674,40 +697,64 @@ export function ProjectsPage({ route }: { route: string }) {
           <section className="milestone-group ungrouped" data-testid="project-milestone-ungrouped"><header><div><span>-</span><h4>Ungrouped</h4></div></header>{ungrouped.length ? ungrouped.map((step) => renderStepRow(instance, step)) : <p className="milestone-empty">Every visible step belongs to a milestone.</p>}</section>
         </div>
       </div>
-    </aside>;
+      {editingThisProject && <form className="project-dialog-form inspector-form" onSubmit={saveInspector} data-testid="project-step-direct-editor">
+        <section className="inspector-context"><div><span>Project</span><strong>{instance.name}</strong></div><div><span>Project owner</span><strong>{instance.owner.name}</strong></div><div data-testid="project-step-collaborators"><span>Collaborators</span><strong>{instance.collaborators.map((person) => person.name).join(', ') || 'None'}</strong></div></section>
+        <fieldset disabled={mutationDisabled} aria-describedby={mutationDisabled ? 'projects-readonly-reason' : undefined}><legend className="sr-only">Project step fields</legend><Field label="Title"><input value={inspectorDraft.title} onChange={(event) => setInspectorDraft({ ...inspectorDraft, title: event.target.value })} data-testid="project-step-title" /></Field><Field label="Notes"><textarea rows={4} value={inspectorDraft.notes} onChange={(event) => setInspectorDraft({ ...inspectorDraft, notes: event.target.value })} data-testid="project-step-notes" /></Field><div className="dialog-grid"><Field label="Scheduled date"><input type="date" value={inspectorDraft.scheduledDate} onChange={(event) => setInspectorDraft({ ...inspectorDraft, scheduledDate: event.target.value })} data-testid="project-step-scheduled-date" /></Field><Field label="Due date"><input type="date" value={inspectorDraft.dueDate} onChange={(event) => setInspectorDraft({ ...inspectorDraft, dueDate: event.target.value })} data-testid="project-step-due-date" /></Field></div><Field label="Assignee"><select value={inspectorDraft.assigneeId} disabled={memberStatus !== 'ready'} onChange={(event) => setInspectorDraft({ ...inspectorDraft, assigneeId: event.target.value })} data-testid="project-step-assignee">{memberOptions.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => { setDirectInspector(null); setInspectorDraft(null); }} data-testid="project-step-edit-cancel">Cancel</button><button className="primary-button" type="submit" data-testid="project-step-save">Save details</button></div></fieldset>
+        {inspectorDraft.scheduledDate > inspectorDraft.dueDate && <p className="schedule-warning" role="status" data-testid="project-step-schedule-warning">This step is scheduled after its deadline.</p>}
+      </form>}
+    </div>;
   };
 
-  const renderProjectBoard = () => <div className="project-board" data-od-id="projects-split-view">
-    <section className="project-list-pane" aria-label="Active project list" data-testid="projects-list-pane" data-od-id="project-list-pane">
-      <header><h3>Projects</h3><span>{visibleInstances.length}</span></header>
-      <div className="instance-list">{visibleInstances.map(renderInstance)}</div>
-    </section>
-    {selectedProject ? renderProjectInspector(selectedProject) : <aside className="project-inspector empty" aria-label="Selected project" data-testid="project-inspector"><h2>Select a project</h2><p>Project details, people, milestones, and steps appear here.</p></aside>}
-  </div>;
+  const renderTemplateInspector = (template: ProjectTemplate) => {
+    const linkedInstances = instances.filter((instance) => instance.templateId === template.id && (showCompleted || derivedStatus(instance) !== 'Done'));
+    return <div className="template-detail" data-testid="project-template-inspector">
+      <header className="template-detail-header"><div><span className="eyebrow">{template.anchorType}</span><p>{template.description || 'No description provided.'}</p></div><div className="row-actions"><button className="secondary-button" type="button" disabled={mutationDisabled} onClick={() => setTemplateDialog({ mode: 'edit', template })} data-testid={`project-template-edit-${template.id}`}><Icon name="rename" size={14} />Edit</button><button className="danger-button" type="button" disabled={mutationDisabled} onClick={() => setTemplateDelete(template)} data-testid={`project-template-delete-${template.id}`}><Icon name="delete" size={14} />Delete</button><button className="primary-button" type="button" disabled={mutationDisabled} onClick={() => { setAnchorDate(''); setInstanceName(''); setStartSuccess(null); setStartOpen(true); }} data-testid="project-start">Start Project</button></div></header>
+      <nav className="template-tabs" aria-label={`${template.name} sections`}><button type="button" aria-pressed={!scopedInstances} onClick={() => navigate(`/projects/templates/${template.id}`)} data-testid="project-template-tab-steps">Template Steps</button><button type="button" aria-pressed={scopedInstances} onClick={() => navigate(`/projects/templates/${template.id}/instances`)} data-testid="project-template-tab-instances">Active Projects</button></nav>
+      {scopedInstances ? <section className="template-instances-panel" data-testid="project-template-instances-panel"><div className="section-heading"><div><span className="eyebrow">Generated work</span><h3>Active Projects</h3></div><button className="secondary-button" type="button" onClick={refresh} data-testid="project-template-instances-refresh">Refresh</button></div>{linkedInstances.length ? <ul className="template-instance-summaries">{linkedInstances.map((instance) => <li key={instance.id}><strong>{instance.name}</strong><span>{instance.anchorDate} · {instance.owner.name} · {derivedStatus(instance)}</span></li>)}</ul> : <p className="inline-empty">No active projects from this template.</p>}</section> : <section className="template-steps-panel" data-testid="project-template-steps-panel"><div className="section-heading"><div><span className="eyebrow">Chronological offsets</span><h3>Template Steps</h3><p>Stored sort order is shown for API context; display order follows offset days.</p></div><button className="secondary-button" type="button" disabled={mutationDisabled} onClick={() => setStepDialog({ mode: 'create', templateId: template.id })} data-testid="project-step-add">Add Step</button></div>{template.steps.length ? <div className="template-step-list">{[...template.steps].sort((left, right) => left.offsetDays - right.offsetDays).map((step) => <article className="template-step" key={step.id} data-testid={`project-template-step-${step.id}`}><div className="offset-marker"><strong data-testid="project-step-offset-value">{step.offsetDays}</strong><span>days</span></div><div className="template-step-copy"><h4>{step.title}</h4><p>{step.offsetDescription || 'Relative to anchor'} · {projectMembers.find((person) => person.id === step.assigneeId)?.name}</p><span>Stored sortOrder <b data-testid="project-step-sort-order">{step.sortOrder}</b> · server-owned, not reorderable</span></div><div className="template-step-actions"><button className="icon-button" type="button" disabled={mutationDisabled} aria-label={`Edit ${step.title}`} onClick={() => setStepDialog({ mode: 'edit', templateId: template.id, step })} data-testid={`project-step-edit-${step.id}`}>✎</button><button className="icon-button danger-text" type="button" disabled={mutationDisabled} aria-label={`Delete ${step.title}`} onClick={() => setStepDelete({ templateId: template.id, step })} data-testid={`project-step-delete-${step.id}`}>×</button></div></article>)}</div> : <div className="inline-empty" data-testid="projects-no-template-steps"><h3>No steps yet</h3><p>Add the first offset from this template’s anchor date.</p><button className="primary-button" type="button" disabled={mutationDisabled} onClick={() => setStepDialog({ mode: 'create', templateId: template.id })} data-testid="projects-empty-add-step">Add Step</button></div>}</section>}
+    </div>;
+  };
 
   return <section className="page-shell pg-projects" data-testid="page-projects" aria-labelledby="projects-title">
     <header className="projects-header">
       <div className="projects-heading"><h1 id="projects-title" data-od-id="projects-title">Projects</h1><p>Build repeatable templates and manage active project work.</p></div>
       <div className="projects-header-controls">
         <label className="projects-state-picker"><span>View state</span><select value={surfaceState} onChange={(event) => writeState(event.target.value as ProjectsState)} data-testid="projects-state-select">{supportedStates.map((state) => <option key={state} value={state}>{state}</option>)}</select></label>
-        <button className="secondary-button" type="button" disabled={!showsWorkspace} onClick={refresh} data-testid="projects-refresh">Refresh projects</button>
       </div>
     </header>
-    <nav className="projects-mode" aria-label="Projects mode"><button type="button" aria-pressed={templateMode} onClick={() => navigate('/projects/templates')} data-testid="projects-mode-templates">Templates</button><button type="button" aria-pressed={!templateMode} onClick={() => navigate('/projects')} data-testid="projects-mode-active">Active Projects</button></nav>
     <div className="projects-scroll" aria-busy={surfaceState === 'loading'}>
-      <StatePanel state={surfaceState} templateMode={templateMode} onRetry={retry} onCreate={() => setTemplateDialog({ mode: 'create' })} />
       {surfaceState === 'forbidden' && <div className="projects-prerequisite" role="status" data-testid="page-state-forbidden"><strong>Project owner access required</strong><span id="projects-owner-reason">You may inspect project context, but only the project owner can change people, steps, milestones, or delete the project.</span></div>}
       {surfaceState === 'readonly' && <div className="projects-prerequisite" role="status" data-testid="page-state-readonly"><strong>Projects are read-only</strong><span id="projects-readonly-reason">Inspection is available; return to the owning source or ask the project owner to make changes.</span></div>}
-      {showsWorkspace && <>
-        <fieldset className={`projects-mutation-gate${templateMode ? '' : ' active'}`} disabled={isReadonly} aria-disabled={isReadonly ? 'true' : undefined} aria-describedby={isReadonly ? 'projects-readonly-reason' : undefined} data-testid="projects-mutations"><legend className="sr-only">Project mutation controls</legend>{templateMode ? <button className="primary-button" type="button" disabled={isForbidden} onClick={() => setTemplateDialog({ mode: 'create' })} data-testid="project-template-new">New template</button> : <span className="sr-only">Project changes are available to owners.</span>}</fieldset>
-        {templateMode ? <div className="templates-layout">
-          <aside className="template-rail" aria-label="Project templates"><header><h2>Templates</h2><span>{templates.length}</span></header><div className="template-list" role="grid" aria-label="Project templates">{templates.map((template) => { const selected = template.id === selectedTemplate?.id; return <article className="template-row" role="row" aria-selected={selected ? 'true' : 'false'} key={template.id} data-testid={`project-template-${template.id}`}><div className="template-select-cell" role="gridcell"><button className="template-select" type="button" onClick={() => navigate(`/projects/templates/${template.id}`)} data-testid={`project-template-select-${template.id}`}><strong>{template.name}</strong><span>{template.steps.length} steps · {template.anchorType}</span></button></div><div className="template-row-actions" role="gridcell"><button className="icon-button" type="button" disabled={mutationDisabled} aria-label={`Edit ${template.name}`} onClick={() => setTemplateDialog({ mode: 'edit', template })} data-testid={`project-template-edit-${template.id}`}><Icon name="rename" size={14} /></button><button className="icon-button danger-text" type="button" disabled={mutationDisabled} aria-label={`Delete ${template.name}`} onClick={() => setTemplateDelete(template)} data-testid={`project-template-delete-${template.id}`}><Icon name="delete" size={14} /></button></div></article>; })}</div></aside>
-          <main className="template-detail">{selectedTemplate ? <><header className="template-detail-header"><div><span className="eyebrow">{selectedTemplate.anchorType}</span><h2>{selectedTemplate.name}</h2><p>{selectedTemplate.description}</p></div><button className="primary-button" type="button" disabled={mutationDisabled} onClick={() => { setAnchorDate(''); setInstanceName(''); setStartSuccess(null); setStartOpen(true); }} data-testid="project-start">Start Project</button></header><nav className="template-tabs" aria-label={`${selectedTemplate.name} sections`}><button type="button" aria-pressed={!scopedInstances} onClick={() => navigate(`/projects/templates/${selectedTemplate.id}`)} data-testid="project-template-tab-steps">Template Steps</button><button type="button" aria-pressed={scopedInstances} onClick={() => navigate(`/projects/templates/${selectedTemplate.id}/instances`)} data-testid="project-template-tab-instances">Active Projects</button></nav>{scopedInstances ? <section className="template-instances-panel" data-testid="project-template-instances-panel"><div className="section-heading"><div><span className="eyebrow">Generated work</span><h3>Active Projects</h3></div><button className="secondary-button" type="button" onClick={refresh} data-testid="project-template-instances-refresh">Refresh</button></div>{visibleInstances.length ? visibleInstances.map(renderInstance) : <p className="inline-empty">No active projects from this template.</p>}</section> : <section className="template-steps-panel" data-testid="project-template-steps-panel"><div className="section-heading"><div><span className="eyebrow">Chronological offsets</span><h3>Template Steps</h3><p>Stored sort order is shown for API context; display order follows offset days.</p></div><button className="secondary-button" type="button" disabled={mutationDisabled} onClick={() => setStepDialog({ mode: 'create', templateId: selectedTemplate.id })} data-testid="project-step-add">Add Step</button></div>{selectedTemplate.steps.length ? <div className="template-step-list">{[...selectedTemplate.steps].sort((left, right) => left.offsetDays - right.offsetDays).map((step) => <article className="template-step" key={step.id} data-testid={`project-template-step-${step.id}`}><div className="offset-marker"><strong data-testid="project-step-offset-value">{step.offsetDays}</strong><span>days</span></div><div className="template-step-copy"><h4>{step.title}</h4><p>{step.offsetDescription || 'Relative to anchor'} · {projectMembers.find((person) => person.id === step.assigneeId)?.name}</p><span>Stored sortOrder <b data-testid="project-step-sort-order">{step.sortOrder}</b> · server-owned, not reorderable</span></div><div className="template-step-actions"><button className="icon-button" type="button" disabled={mutationDisabled} aria-label={`Edit ${step.title}`} onClick={() => setStepDialog({ mode: 'edit', templateId: selectedTemplate.id, step })} data-testid={`project-step-edit-${step.id}`}>✎</button><button className="icon-button danger-text" type="button" disabled={mutationDisabled} aria-label={`Delete ${step.title}`} onClick={() => setStepDelete({ templateId: selectedTemplate.id, step })} data-testid={`project-step-delete-${step.id}`}>×</button></div></article>)}</div> : <div className="inline-empty" data-testid="projects-no-template-steps"><h3>No steps yet</h3><p>Add the first offset from this template’s anchor date.</p><button className="primary-button" type="button" disabled={mutationDisabled} onClick={() => setStepDialog({ mode: 'create', templateId: selectedTemplate.id })} data-testid="projects-empty-add-step">Add Step</button></div>}</section>}</> : <div className="template-prompt"><span className="state-mark" aria-hidden="true">◇</span><h2>Select a template</h2><p>Inspect its chronology or begin a live project.</p></div>}</main>
-        </div> : <section className="active-projects" data-od-id="active-projects"><header className="active-toolbar"><div><h2 data-od-id="active-projects-title">Active Projects <b data-testid="projects-instance-count">{visibleInstances.length}</b></h2><p>Select a project to review its people, milestones, and next steps.</p></div><button className="secondary-button" type="button" aria-pressed={showCompleted} onClick={() => setShowCompleted((value) => !value)} data-testid="projects-show-completed" data-od-id="projects-completed-filter">{showCompleted ? 'Hide completed' : 'Show completed'}</button></header>{surfaceState === 'empty' ? <div className="projects-state compact" role="status" data-testid="page-state-empty"><span className="state-mark" aria-hidden="true">◇</span><h2 data-testid="projects-no-active">No active projects yet</h2><p>Choose a template to start a project from a tested sequence.</p><button className="primary-button" type="button" onClick={() => navigate('/projects/templates')} data-testid="projects-empty-open-templates">Open templates</button></div> : visibleInstances.length ? renderProjectBoard() : <div className="inline-empty"><h3>No incomplete active projects</h3><p>Show completed to review finished projects and steps.</p><button className="secondary-button" type="button" onClick={() => setShowCompleted(true)} data-testid="projects-show-completed-empty">Show completed</button></div>}</section>}
-      </>}
+      <ListInspector
+        className="projects-list-inspector"
+        label="Projects"
+        groups={[{ id: 'templates', label: 'Templates' }, { id: 'active-projects', label: 'Active projects' }]}
+        items={projectItems}
+        selectedId={effectiveSelectedRowId}
+        onSelect={selectProjectItem}
+        loading={surfaceState === 'loading'}
+        error={surfaceState === 'server-error'
+          ? <div className="projects-list-state" data-testid="page-state-server-error"><strong>Could not load projects</strong><p>The project service returned an error without discarding the current context.</p><button className="primary-button" type="button" onClick={retry} data-testid="page-retry">Retry</button></div>
+          : surfaceState === 'unavailable'
+            ? <div className="projects-list-state" data-testid="page-state-unavailable"><strong>Projects are unavailable</strong><p>Reconnect the project service and authenticated desktop session before trying again.</p><button className="secondary-button" type="button" onClick={retry} data-testid="projects-check-again">Check again</button></div>
+            : undefined}
+        emptyState={<div className="projects-list-state" data-testid="page-state-empty"><strong data-testid={templateMode ? undefined : 'projects-no-active'}>{templateMode ? 'No templates yet' : 'No active projects yet'}</strong><p>{templateMode ? 'Create a reusable sequence for your next project.' : 'Choose a template to start a project from a tested sequence.'}</p>{templateMode ? <button className="primary-button" type="button" onClick={() => setTemplateDialog({ mode: 'create' })} data-testid="projects-empty-create-template">Create template</button> : <button className="primary-button" type="button" onClick={() => navigate('/projects/templates')} data-testid="projects-empty-open-templates">Open templates</button>}</div>}
+        toolbar={<>
+          <fieldset className="projects-mutation-gate" disabled={isReadonly || ['loading', 'server-error', 'unavailable'].includes(surfaceState)} aria-disabled={isReadonly ? 'true' : undefined} aria-describedby={isReadonly ? 'projects-readonly-reason' : undefined} data-testid="projects-mutations"><legend className="sr-only">Project mutation controls</legend><button className="primary-button" type="button" disabled={isForbidden} onClick={() => setTemplateDialog({ mode: 'create' })} data-testid="project-template-new">New template</button></fieldset>
+          <button className="secondary-button" type="button" disabled={['loading', 'server-error', 'unavailable'].includes(surfaceState)} onClick={refresh} data-testid="projects-refresh">Refresh</button>
+          <button className="secondary-button" type="button" disabled={['loading', 'server-error', 'unavailable', 'empty'].includes(surfaceState)} aria-pressed={showCompleted} onClick={() => setShowCompleted((value) => !value)} data-testid="projects-show-completed" data-od-id="projects-completed-filter">{showCompleted ? 'Hide completed' : 'Show completed'}</button>
+        </>}
+        listFooter={<span className="projects-list-count"><b>{templates.length}</b> templates · <b data-testid="projects-instance-count">{visibleInstances.length}</b> active projects</span>}
+        inspector={(item) => {
+          if (!item) return <div className="template-prompt"><h3>Select a template or active project</h3><p>Its ownership, steps, milestones, and actions will appear here.</p></div>;
+          if (item.id.startsWith(templateRowPrefix)) {
+            const template = templates.find((candidate) => templateRowId(candidate.id) === item.id);
+            return template ? renderTemplateInspector(template) : null;
+          }
+          const instance = instances.find((candidate) => instanceRowId(candidate.id) === item.id);
+          return instance ? renderProjectInspector(instance) : null;
+        }}
+      />
     </div>
-    {selectedInspectorStep && selectedInspectorInstance && inspectorDraft && <InspectorPortal><form className="project-dialog-form inspector-form" onSubmit={saveInspector} data-testid="project-step-direct-editor"><section className="inspector-context"><div><span>Project</span><strong>{selectedInspectorInstance.name}</strong></div><div><span>Project owner</span><strong>{selectedInspectorInstance.owner.name}</strong></div></section><fieldset disabled={mutationDisabled} aria-describedby={mutationDisabled ? 'projects-readonly-reason' : undefined}><legend className="sr-only">Project step fields</legend><Field label="Title"><input value={inspectorDraft.title} onChange={(event) => setInspectorDraft({ ...inspectorDraft, title: event.target.value })} data-testid="project-step-title" /></Field><Field label="Notes"><textarea rows={4} value={inspectorDraft.notes} onChange={(event) => setInspectorDraft({ ...inspectorDraft, notes: event.target.value })} data-testid="project-step-notes" /></Field><div className="dialog-grid"><Field label="Scheduled date"><input type="date" value={inspectorDraft.scheduledDate} onChange={(event) => setInspectorDraft({ ...inspectorDraft, scheduledDate: event.target.value })} data-testid="project-step-scheduled-date" /></Field><Field label="Due date"><input type="date" value={inspectorDraft.dueDate} onChange={(event) => setInspectorDraft({ ...inspectorDraft, dueDate: event.target.value })} data-testid="project-step-due-date" /></Field></div><Field label="Assignee"><select value={inspectorDraft.assigneeId} disabled={memberStatus !== 'ready'} onChange={(event) => setInspectorDraft({ ...inspectorDraft, assigneeId: event.target.value })} data-testid="project-step-assignee">{memberOptions.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field><div className="dialog-actions"><button className="primary-button" type="submit" data-testid="project-step-save">Save details</button></div></fieldset></form></InspectorPortal>}
-    {inspectorDraft && inspectorDraft.scheduledDate > inspectorDraft.dueDate && <InspectorPortal><p className="schedule-warning" role="status" data-testid="project-step-schedule-warning">This step is scheduled after its deadline.</p></InspectorPortal>}
     <output className="page-trace" aria-live="polite" data-testid="page-trace"><span>API receipt ledger</span><ol>{receipts.map((receipt, index) => <li key={`${receipt}-${index}`}>{receipt}</li>)}</ol></output>
     <span className="sr-only" data-testid="projects-fixture-snapshot">{fixtureSnapshot}</span>
 
@@ -720,6 +767,5 @@ export function ProjectsPage({ route }: { route: string }) {
     <FocusDialog open={Boolean(milestoneDelete)} onClose={() => setMilestoneDelete(null)} title={milestoneDelete ? `Delete “${milestoneDelete.milestone.title}”?` : 'Delete milestone?'} description="Its steps will move to Ungrouped." testId="project-milestone-delete-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setMilestoneDelete(null)} data-testid="project-milestone-delete-cancel">Cancel</button><button className="danger-button" type="button" onClick={confirmMilestoneDelete} data-testid="project-milestone-delete-confirm">Delete milestone</button></div></FocusDialog>
     <FocusDialog open={Boolean(collaboratorOpenFor)} onClose={() => setCollaboratorOpenFor(null)} title="Add project collaborator" description="The owner and existing collaborators are excluded." testId="project-collaborator-picker"><div className="collaborator-options" role="listbox" aria-label="Workspace members">{memberStatus === 'error' ? <p role="alert">Workspace members could not be loaded.</p> : collaboratorOpenFor && memberOptions.filter((person) => { const instance = instances.find((item) => item.id === collaboratorOpenFor); return person.id !== instance?.owner.id && !instance?.collaborators.some((collaborator) => collaborator.id === person.id); }).map((person) => <button className="secondary-button" role="option" aria-selected="false" type="button" key={person.id} onClick={() => addCollaborator(collaboratorOpenFor, person.id)} data-testid={`project-collaborator-option-${person.id}`}><span aria-hidden="true">{person.initials}</span><strong>{person.name}</strong></button>)}</div></FocusDialog>
     <FocusDialog open={Boolean(instanceDelete)} onClose={() => setInstanceDelete(null)} title={instanceDelete ? `Delete “${instanceDelete.name}”?` : 'Delete active project?'} description="Only this generated project instance will be removed." testId="project-instance-delete-dialog"><p className="delete-copy">The template and neighboring project instances are preserved.</p><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setInstanceDelete(null)} data-testid="project-instance-delete-cancel">Cancel</button><button className="danger-button" type="button" onClick={confirmInstanceDelete} data-testid="project-instance-delete-confirm">Delete project</button></div></FocusDialog>
-    <FocusDialog open={Boolean(inspector && selectedInspectorStep && selectedInspectorInstance)} onClose={() => setInspector(null)} title={selectedInspectorStep?.title ?? 'Project step'} description="Project context stays visible while supported step fields are edited." testId="project-step-inspector" wide>{selectedInspectorStep && selectedInspectorInstance && inspectorDraft && <form className="project-dialog-form inspector-form" onSubmit={saveInspector}><section className="inspector-context"><div><span>Project</span><strong>{selectedInspectorInstance.name}</strong></div><div><span>Project owner</span><strong>{selectedInspectorInstance.owner.name}</strong></div><div data-testid="project-step-collaborators"><span>Collaborators</span><strong>{selectedInspectorInstance.collaborators.map((person) => person.name).join(', ') || 'None'}</strong></div></section><fieldset disabled={mutationDisabled}><legend className="sr-only">Project step fields</legend><Field label="Title"><input value={inspectorDraft.title} onChange={(event) => setInspectorDraft({ ...inspectorDraft, title: event.target.value })} data-testid="project-step-title" /></Field><Field label="Notes"><textarea rows={4} value={inspectorDraft.notes} onChange={(event) => setInspectorDraft({ ...inspectorDraft, notes: event.target.value })} data-testid="project-step-notes" /></Field><div className="dialog-grid"><Field label="Scheduled date"><input type="date" value={inspectorDraft.scheduledDate} onChange={(event) => setInspectorDraft({ ...inspectorDraft, scheduledDate: event.target.value })} data-testid="project-step-scheduled-date" /></Field><Field label="Due date"><input type="date" value={inspectorDraft.dueDate} onChange={(event) => setInspectorDraft({ ...inspectorDraft, dueDate: event.target.value })} data-testid="project-step-due-date" /></Field></div><Field label="Assignee"><select value={inspectorDraft.assigneeId} onChange={(event) => setInspectorDraft({ ...inspectorDraft, assigneeId: event.target.value })} data-testid="project-step-assignee">{projectMembers.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field></fieldset>{inspectorDraft.scheduledDate > inspectorDraft.dueDate && <p className="schedule-warning" role="status">This step is scheduled after its deadline.</p>}<div className="dialog-actions"><button className="primary-button" type="submit" disabled={mutationDisabled} data-testid="project-step-save">Save details</button></div></form>}</FocusDialog>
   </section>;
 }
