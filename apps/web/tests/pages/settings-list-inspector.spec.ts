@@ -62,10 +62,10 @@ test('issue-1521-c3: every existing Settings action is reachable from an inspect
   await page.getByLabel('Theme').selectOption('light');
 
   await selectRow(page, 'Keyboard & safety');
-  await page.getByLabel('Send message key').fill('Meta+Enter');
-  await page.getByLabel('Require confirmation for destructive tools').uncheck();
-  await page.getByRole('button', { name: 'Save keyboard and safety preferences' }).click();
-  await page.getByRole('button', { name: 'Reset keyboard and safety preferences' }).click();
+  await page.getByLabel('Send message key').selectOption('Meta+Enter');
+  await expect(page.getByLabel('Require confirmation for destructive tools')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Save keyboard preference' }).click();
+  await page.getByRole('button', { name: 'Reset keyboard preference' }).click();
 
   await selectRow(page, 'Workspace');
   await expect(page.getByText('VCRC', { exact: true })).toBeVisible();
@@ -108,8 +108,8 @@ test('issue-1521-c4: device preferences persist per account and workspace values
   await selectRow(page, 'Appearance');
   await page.getByLabel('Theme').selectOption('light');
   await selectRow(page, 'Keyboard & safety');
-  await page.getByLabel('Send message key').fill('Meta+Enter');
-  await page.getByRole('button', { name: 'Save keyboard and safety preferences' }).click();
+  await page.getByLabel('Send message key').selectOption('Meta+Enter');
+  await page.getByRole('button', { name: 'Save keyboard preference' }).click();
   await page.reload();
   await expect(page.getByLabel('Send message key')).toHaveValue('Meta+Enter');
   await selectRow(page, 'Workspace');
@@ -207,11 +207,11 @@ test('issue-1521-c8: loading error empty missing and unsaved states are explicit
   await expect(page.getByRole('button', { name: 'Check Rhythm releases' })).toHaveCount(0);
 
   await openSettings(page, '', 'keyboard-safety');
-  await page.getByLabel('Send message key').fill('Shift+Enter');
+  await page.getByLabel('Send message key').selectOption('Meta+Enter');
   page.once('dialog', (dialog) => dialog.dismiss());
   await page.getByRole('option', { name: 'Workspace', exact: true }).click();
   await expectInspectorHeading(page, 'Keyboard & safety');
-  await expect(page.getByLabel('Send message key')).toHaveValue('Shift+Enter');
+  await expect(page.getByLabel('Send message key')).toHaveValue('Meta+Enter');
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('option', { name: 'Workspace', exact: true }).click();
   await expectInspectorHeading(page, 'Workspace');

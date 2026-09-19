@@ -5,14 +5,20 @@ import { resetSplitterSizes } from '../../components/Splitter';
 import { useAuthUser } from '../../gateway/auth';
 import { useGateway } from '../../gateway/context';
 import type { WorkspaceSettings } from '../../gateway/settings';
+import {
+  DEFAULT_LOCAL_USER_PREFERENCES,
+  readLocalUserPreferences,
+  resetLocalUserPreferences,
+  SEND_MESSAGE_KEY_OPTIONS,
+  sendMessageKeyLabel,
+  writeLocalUserPreferences,
+  type SendMessageKey,
+} from '../../gateway/user-preferences';
 import type { WorkspaceMember } from '../../gateway/workspace-members';
 import { useFixtures } from '../../store';
 import './SettingsPage.css';
 
 type SettingsMember = WorkspaceMember & { isFacilitiesManager?: boolean };
-type LocalSettings = { theme: 'dark' | 'light'; sendKey: string; dangerousConfirm: boolean };
-
-const defaultLocalSettings: LocalSettings = { theme: 'dark', sendKey: 'Enter', dangerousConfirm: true };
 
 const settingsGroups = [
   { id: 'preferences', label: 'Personal preferences' },
@@ -28,26 +34,13 @@ const relatedDestinations: Record<string, string> = {
   memory: '/tools/brain',
 };
 
-function readLocalSettings(key: string): LocalSettings {
-  try {
-    const value = JSON.parse(localStorage.getItem(key) ?? '{}') as Partial<LocalSettings>;
-    return {
-      theme: value.theme === 'light' ? 'light' : 'dark',
-      sendKey: typeof value.sendKey === 'string' && value.sendKey.trim() ? value.sendKey : 'Enter',
-      dangerousConfirm: typeof value.dangerousConfirm === 'boolean' ? value.dangerousConfirm : true,
-    };
-  } catch {
-    return defaultLocalSettings;
-  }
-}
-
 export function SettingsPage() {
   const gateway = useGateway();
   const settings = gateway.domains.settings;
   const auth = useAuthUser();
   const { theme, setTheme } = useFixtures();
-  const localKey = `rhythm.settings.${auth?.user.id ?? 'fixture'}`;
-  const initialLocal = readLocalSettings(localKey);
+  const preferenceUserId = auth?.user.id ?? 'fixture';
+  const initialLocal = readLocalUserPreferences(preferenceUserId);
   const shell = (window as Window & {
     rhythmShell?: { appVersion?: string; updates?: { openDownloadPage(): Promise<void> } };
   }).rhythmShell;
@@ -60,15 +53,11 @@ export function SettingsPage() {
   const [busy, setBusy] = useState(false);
   const [emailEnabled, setEmailEnabled] = useState(auth?.user.emailNotificationsEnabled ?? true);
   const [runtime, setRuntime] = useState({ api: 'checking', engine: 'checking' });
-  const [sendKey, setSendKey] = useState(initialLocal.sendKey);
-  const [dangerousConfirm, setDangerousConfirm] = useState(initialLocal.dangerousConfirm);
-  const [savedKeyboard, setSavedKeyboard] = useState({
-    sendKey: initialLocal.sendKey,
-    dangerousConfirm: initialLocal.dangerousConfirm,
-  });
+  const [sendKey, setSendKey] = useState<SendMessageKey>(initialLocal.sendKey);
+  const [savedKeyboard, setSavedKeyboard] = useState(initialLocal.sendKey);
   const [selectedId, setSelectedId] = useSelectedId('settingsSection');
 
-  const keyboardDirty = sendKey !== savedKeyboard.sendKey || dangerousConfirm !== savedKeyboard.dangerousConfirm;
+  const keyboardDirty = sendKey !== savedKeyboard;
   const admin = workspace?.role === 'admin';
 
   const loadWorkspace = useCallback(async (showLoading = false) => {
@@ -95,13 +84,12 @@ export function SettingsPage() {
   useEffect(() => { void loadWorkspace(true); }, [loadWorkspace]);
 
   useEffect(() => {
-    const next = readLocalSettings(localKey);
+    const next = readLocalUserPreferences(preferenceUserId);
     setTheme(next.theme);
     setSendKey(next.sendKey);
-    setDangerousConfirm(next.dangerousConfirm);
-    setSavedKeyboard({ sendKey: next.sendKey, dangerousConfirm: next.dangerousConfirm });
+    setSavedKeyboard(next.sendKey);
     setEmailEnabled(auth?.user.emailNotificationsEnabled ?? true);
-  }, [auth?.user.emailNotificationsEnabled, localKey, setTheme]);
+  }, [auth?.user.emailNotificationsEnabled, preferenceUserId, setTheme]);
 
   useEffect(() => {
     void Promise.all([gateway.health.api(), gateway.health.engine()])
@@ -113,10 +101,6 @@ export function SettingsPage() {
     const route = window.location.hash.split('?')[0];
     if (selectedId === null && (route === '' || route === '#/settings')) setSelectedId('appearance');
   }, [selectedId, setSelectedId]);
-
-  const saveLocal = (patch: Partial<LocalSettings>) => {
-    localStorage.setItem(localKey, JSON.stringify({ ...readLocalSettings(localKey), ...patch }));
-  };
 
   const mutate = async (operation: () => Promise<unknown>) => {
     setBusy(true);
@@ -134,8 +118,7 @@ export function SettingsPage() {
   };
 
   const discardKeyboardDraft = () => {
-    setSendKey(savedKeyboard.sendKey);
-    setDangerousConfirm(savedKeyboard.dangerousConfirm);
+    setSendKey(savedKeyboard);
   };
 
   const canLeaveSelection = (nextId: string) => {
@@ -154,27 +137,21 @@ export function SettingsPage() {
   };
 
   const saveKeyboardPreferences = () => {
-    const next = { sendKey: sendKey.trim() || 'Enter', dangerousConfirm };
-    setSendKey(next.sendKey);
-    setSavedKeyboard(next);
-    saveLocal(next);
+    setSavedKeyboard(sendKey);
+    writeLocalUserPreferences(preferenceUserId, { sendKey });
   };
 
   const resetLocalPreferences = () => {
-    localStorage.removeItem(localKey);
-    setTheme(defaultLocalSettings.theme);
-    setSendKey(defaultLocalSettings.sendKey);
-    setDangerousConfirm(defaultLocalSettings.dangerousConfirm);
-    setSavedKeyboard({
-      sendKey: defaultLocalSettings.sendKey,
-      dangerousConfirm: defaultLocalSettings.dangerousConfirm,
-    });
+    resetLocalUserPreferences(preferenceUserId);
+    setTheme(DEFAULT_LOCAL_USER_PREFERENCES.theme);
+    setSendKey(DEFAULT_LOCAL_USER_PREFERENCES.sendKey);
+    setSavedKeyboard(DEFAULT_LOCAL_USER_PREFERENCES.sendKey);
   };
 
   const facilitiesManagers = members.filter((member) => member.isFacilitiesManager).length;
   const items: ListInspectorItem[] = [
     { id: 'appearance', title: 'Appearance', subtitle: `${theme === 'light' ? 'Light' : 'Dark'} theme · This device`, group: 'preferences' },
-    { id: 'keyboard-safety', title: 'Keyboard & safety', subtitle: `${sendKey || 'Enter'} to send · This device`, badge: keyboardDirty ? 'Unsaved' : undefined, group: 'preferences' },
+    { id: 'keyboard-safety', title: 'Keyboard & safety', subtitle: `${sendMessageKeyLabel(sendKey)} to send · This device`, badge: keyboardDirty ? 'Unsaved' : undefined, group: 'preferences' },
     { id: 'workspace', title: 'Workspace', subtitle: workspace?.name ?? 'No workspace available', group: 'workspace' },
     { id: 'members', title: 'Members & roles', subtitle: members.length === 1 ? '1 workspace member' : `${members.length} workspace members`, group: 'workspace' },
     { id: 'join-code', title: 'Join code', subtitle: admin ? 'Available to workspace admins' : 'Admin access required', group: 'workspace' },
@@ -205,7 +182,7 @@ export function SettingsPage() {
             <select value={theme} onChange={(event) => {
               const next = event.target.value as 'dark' | 'light';
               setTheme(next);
-              saveLocal({ theme: next });
+              writeLocalUserPreferences(preferenceUserId, { theme: next });
             }}>
               <option value="dark">Dark</option>
               <option value="light">Light</option>
@@ -219,18 +196,16 @@ export function SettingsPage() {
         break;
       case 'keyboard-safety':
         content = <>
-          <p className="settings-section-intro">Set the composer shortcut and choose whether destructive tools require an extra confirmation on this device.</p>
+          <p className="settings-section-intro">Set the composer shortcut on this device. Destructive actions keep the confirmation required by their own workflow.</p>
           <form className="settings-form" onSubmit={(event) => { event.preventDefault(); saveKeyboardPreferences(); }}>
             <label className="settings-field">Send message key
-              <input value={sendKey} onChange={(event) => setSendKey(event.target.value)} />
-            </label>
-            <label className="settings-check">
-              <input type="checkbox" checked={dangerousConfirm} onChange={(event) => setDangerousConfirm(event.target.checked)} />
-              <span><strong>Require confirmation for destructive tools</strong><small>Ask before an agent performs a potentially destructive action.</small></span>
+              <select value={sendKey} onChange={(event) => setSendKey(event.target.value as SendMessageKey)}>
+                {SEND_MESSAGE_KEY_OPTIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
+              </select>
             </label>
             <div className="settings-actions">
-              <button className="primary-button" type="submit" disabled={!keyboardDirty}>Save keyboard and safety preferences</button>
-              <button className="secondary-button" type="button" onClick={resetLocalPreferences}>Reset keyboard and safety preferences</button>
+              <button className="primary-button" type="submit" disabled={!keyboardDirty}>Save keyboard preference</button>
+              <button className="secondary-button" type="button" onClick={resetLocalPreferences}>Reset keyboard preference</button>
             </div>
           </form>
           <p className="settings-scope">Device preference · Account scoped</p>

@@ -14,7 +14,7 @@ test('E40/E44: rendered Settings performs admin/preference actions and shows ver
   await page.getByLabel('Email notifications').uncheck(); await selectRow(page, 'Runtime & updates'); await page.getByRole('button', { name: 'Check Rhythm releases' }).click();
   const calls = await page.evaluate(() => (window as any).__e40);
   expect(calls).toEqual(expect.arrayContaining([['role', 2, 'admin'], ['user', 2, { isFacilitiesManager: true }], ['remove', 2], ['preferences', { emailNotificationsEnabled: false }], ['update']]));
-  await selectRow(page, 'Keyboard & safety'); await page.getByLabel('Send message key').fill('Meta+Enter'); await page.getByRole('button', { name: 'Reset keyboard and safety preferences' }).click(); await expect(page.getByLabel('Send message key')).toHaveValue('Enter');
+  await selectRow(page, 'Keyboard & safety'); await page.getByLabel('Send message key').selectOption('Meta+Enter'); await page.getByRole('button', { name: 'Reset keyboard preference' }).click(); await expect(page.getByLabel('Send message key')).toHaveValue('Enter');
 });
 
 test('E40: ordinary members cannot see or use workspace administration', async ({ page }) => {
@@ -29,10 +29,10 @@ test('E40: ordinary members cannot see or use workspace administration', async (
   await expect(page.getByLabel('Facilities manager for Admin')).toBeDisabled();
 });
 
-test('E40: appearance, keyboard and safety preferences survive reload and stay account-scoped', async ({ page }) => {
+test('E40: appearance and keyboard preferences survive reload and stay account-scoped', async ({ page }) => {
   await page.goto('/tests/electron-e40-harness.html?user=1');
-  await page.getByLabel('Theme').selectOption('light'); await selectRow(page, 'Keyboard & safety'); await page.getByLabel('Send message key').fill('Meta+Enter'); await page.getByLabel('Require confirmation for destructive tools').uncheck(); await page.getByRole('button', { name: 'Save keyboard and safety preferences' }).click();
-  await page.reload(); await expect(page.getByLabel('Send message key')).toHaveValue('Meta+Enter'); await expect(page.getByLabel('Require confirmation for destructive tools')).not.toBeChecked(); await selectRow(page, 'Appearance'); await expect(page.getByLabel('Theme')).toHaveValue('light');
-  await page.goto('/tests/electron-e40-harness.html?user=2#/settings?settingsSection=keyboard-safety'); await expect(page.getByLabel('Send message key')).toHaveValue('Enter'); await expect(page.getByLabel('Require confirmation for destructive tools')).toBeChecked(); await selectRow(page, 'Appearance'); await expect(page.getByLabel('Theme')).toHaveValue('dark');
-  await page.goto('/tests/electron-e40-harness.html?user=1#/settings?settingsSection=keyboard-safety'); await page.getByRole('button', { name: 'Reset keyboard and safety preferences' }).click(); await expect(page.getByLabel('Send message key')).toHaveValue('Enter'); await expect(page.getByLabel('Require confirmation for destructive tools')).toBeChecked(); await selectRow(page, 'Appearance'); await expect(page.getByLabel('Theme')).toHaveValue('dark');
+  await page.getByLabel('Theme').selectOption('light'); await selectRow(page, 'Keyboard & safety'); await page.getByLabel('Send message key').selectOption('Meta+Enter'); await page.getByRole('button', { name: 'Save keyboard preference' }).click();
+  await page.reload(); await expect(page.getByLabel('Send message key')).toHaveValue('Meta+Enter'); await expect(page.getByLabel('Require confirmation for destructive tools')).toHaveCount(0); await selectRow(page, 'Appearance'); await expect(page.getByLabel('Theme')).toHaveValue('light');
+  await page.goto('/tests/electron-e40-harness.html?user=2#/settings?settingsSection=keyboard-safety'); await expect(page.getByLabel('Send message key')).toHaveValue('Enter'); await selectRow(page, 'Appearance'); await expect(page.getByLabel('Theme')).toHaveValue('dark');
+  await page.goto('/tests/electron-e40-harness.html?user=1#/settings?settingsSection=keyboard-safety'); await page.getByRole('button', { name: 'Reset keyboard preference' }).click(); await expect(page.getByLabel('Send message key')).toHaveValue('Enter'); await selectRow(page, 'Appearance'); await expect(page.getByLabel('Theme')).toHaveValue('dark');
 });

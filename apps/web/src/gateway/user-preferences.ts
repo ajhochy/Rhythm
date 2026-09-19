@@ -1,11 +1,74 @@
 import type { GatewayMode } from '.';
 
+export const SEND_MESSAGE_KEY_OPTIONS = [
+  { value: 'Enter', label: 'Enter' },
+  { value: 'Meta+Enter', label: 'Cmd/Ctrl+Enter' },
+] as const;
+
+export type SendMessageKey = typeof SEND_MESSAGE_KEY_OPTIONS[number]['value'];
+export type LocalUserPreferences = { theme: 'dark' | 'light'; sendKey: SendMessageKey };
+
+export const DEFAULT_LOCAL_USER_PREFERENCES: LocalUserPreferences = { theme: 'dark', sendKey: 'Enter' };
+export const USER_PREFERENCES_CHANGED_EVENT = 'rhythm:user-preferences-changed';
+
+export function localUserPreferencesKey(userId: string | number | undefined) {
+  return `rhythm.settings.${userId ?? 'fixture'}`;
+}
+
+export function readLocalUserPreferences(
+  userId: string | number | undefined,
+  storage: Pick<Storage, 'getItem'> = localStorage,
+): LocalUserPreferences {
+  try {
+    const value = JSON.parse(storage.getItem(localUserPreferencesKey(userId)) ?? '{}') as Partial<LocalUserPreferences>;
+    return {
+      theme: value.theme === 'light' ? 'light' : 'dark',
+      sendKey: value.sendKey === 'Meta+Enter' ? 'Meta+Enter' : 'Enter',
+    };
+  } catch {
+    return DEFAULT_LOCAL_USER_PREFERENCES;
+  }
+}
+
+export function writeLocalUserPreferences(
+  userId: string | number | undefined,
+  patch: Partial<LocalUserPreferences>,
+  storage: Pick<Storage, 'getItem' | 'setItem'> = localStorage,
+) {
+  const next = { ...readLocalUserPreferences(userId, storage), ...patch };
+  storage.setItem(localUserPreferencesKey(userId), JSON.stringify(next));
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(USER_PREFERENCES_CHANGED_EVENT));
+  return next;
+}
+
+export function resetLocalUserPreferences(
+  userId: string | number | undefined,
+  storage: Pick<Storage, 'removeItem'> = localStorage,
+) {
+  storage.removeItem(localUserPreferencesKey(userId));
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(USER_PREFERENCES_CHANGED_EVENT));
+}
+
+export function matchesSendMessageKey(
+  event: Pick<KeyboardEvent, 'key' | 'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey'>,
+  sendKey: SendMessageKey,
+) {
+  if (event.key !== 'Enter' || event.shiftKey || event.altKey) return false;
+  if (sendKey === 'Meta+Enter') return event.metaKey || event.ctrlKey;
+  return !event.metaKey && !event.ctrlKey;
+}
+
+export function sendMessageKeyLabel(sendKey: SendMessageKey) {
+  return SEND_MESSAGE_KEY_OPTIONS.find((option) => option.value === sendKey)?.label ?? 'Enter';
+}
+
 export interface UserPreferencesGateway {
   readonly mode: GatewayMode;
   updateArtifactTabIds(ids: string[]): Promise<{ artifactTabIds: string[] }>;
 }
 
-// artifactTabIds is the ONLY persisted tab preference — never invent a client-side storage key.
+// artifactTabIds is the ONLY server-persisted tab preference. The validated theme and composer
+// preferences above intentionally remain account-scoped to this device.
 // Mounted at /users in apps/api_server/src/app.ts; PATCH /me/preferences declared at
 // apps/api_server/src/routes/users_routes.ts:10 and validated (<=50 unique UUID strings) at
 // apps/api_server/src/controllers/users_controller.ts:91-98.
