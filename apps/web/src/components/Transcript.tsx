@@ -1,3 +1,4 @@
+import './Transcript.css';
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Icon } from '../icons';
 import { useFixtures } from '../store';
@@ -14,7 +15,7 @@ function MarkdownText({ content }: { content: string }) {
 
 function ToolDetails({ block }: { block: RichTranscriptBlock }) {
   const tool = block.tool;
-  return <details className="tool-block"><summary><code>{tool?.name ?? block.title}</code><small>{tool?.status ?? block.meta ?? 'Status unavailable'}</small></summary>{tool ? <dl>{(['input', 'output', 'metadata', 'error'] as const).map(field => tool[field] !== undefined && <Fragment key={field}><dt>{field}</dt><dd><pre>{canonicalText(tool[field])}</pre></dd></Fragment>)}</dl> : <pre>{block.content || 'Tool details unavailable'}</pre>}</details>;
+  return <details className="tool-block"><summary><code>{tool?.name ?? block.title}</code><small>{tool?.status ?? block.meta ?? 'Status unavailable'}</small></summary>{tool ? <dl>{(['input', 'output', 'metadata', 'error'] as const).map(field => tool[field] !== undefined && <Fragment key={field}><dt>{field}</dt><dd><pre tabIndex={0}>{canonicalText(tool[field])}</pre></dd></Fragment>)}</dl> : <pre tabIndex={0}>{block.content || 'Tool details unavailable'}</pre>}</details>;
 }
 
 function MessageUsage({ message }: { message: RichTranscriptMessage }) {
@@ -25,8 +26,8 @@ function RichBlock({ block, onOpenChild }: { block: RichTranscriptBlock; onOpenC
   if (block.kind === 'markdown') return <MarkdownText content={block.content} />;
   if (block.kind === 'reasoning') return <details className="reasoning-block"><summary><Icon name="spark" size={14} />{block.title}<span>{block.meta}</span></summary><p>{block.content}</p></details>;
   if (block.kind === 'tool') return <ToolDetails block={block} />;
-  if (block.kind === 'diff') return <details className="tool-block" open><summary><Icon name="diff" size={14} /><strong>{block.title}</strong><small>{block.meta}</small></summary><pre className="diff-code">{block.content}</pre></details>;
-  if (block.kind === 'terminal') return <details className="tool-block"><summary><Icon name="terminal" size={14} /><strong>{block.title}</strong><small>{block.meta}</small></summary><pre>{block.content}</pre></details>;
+  if (block.kind === 'diff') return <details className="tool-block" open><summary><Icon name="diff" size={14} /><strong>{block.title}</strong><small>{block.meta}</small></summary><pre className="diff-code" tabIndex={0}>{block.content}</pre></details>;
+  if (block.kind === 'terminal') return <details className="tool-block"><summary><Icon name="terminal" size={14} /><strong>{block.title}</strong><small>{block.meta}</small></summary><pre tabIndex={0}>{block.content}</pre></details>;
   if (block.kind === 'todos') return <div className="inline-plan"><div><Icon name="todo" size={14} /><strong>{block.title}</strong><small>{block.meta}</small></div>{block.content.split('\n').map((item, index) => <span key={item}><i className={index < 3 ? 'done' : ''}>{index < 3 && <Icon name="check" size={11} />}</i>{item}</span>)}</div>;
   // c2j: opens by the block's own SDK child id — never the local session id. See mapPart
   // in gateway/sessions.ts, which extracts this id from a `task` tool part's output text.
@@ -352,5 +353,5 @@ export function Transcript() {
     </section>
   );
   };
-  return <><div className="transcript-scroll" ref={viewport} onScroll={remember} tabIndex={-1} aria-label="Transcript reading area">{renderContent()}{sessionGatewayMode === 'live' && !liveChildView && <>{[...pending.permissions.values()].map(permission => <LivePermissionCard key={`${selected.id}:${permission.permissionID}`} sessionId={selected.id} permission={permission} />)}{[...pending.questions.values()].map(question => <LiveQuestionCard key={`${selected.id}:${question.requestId}`} sessionId={selected.id} question={question} />)}</>}</div>{newOutput && <button className="primary-button transcript-new-output" type="button" onClick={jumpToLatest}>New output</button>}</>;
+  return <><div className="transcript-scroll" ref={viewport} onScroll={remember} role="region" tabIndex={0} aria-label="Transcript reading area">{renderContent()}{sessionGatewayMode === 'live' && !liveChildView && <>{[...pending.permissions.values()].map(permission => <LivePermissionCard key={`${selected.id}:${permission.permissionID}`} sessionId={selected.id} permission={permission} />)}{[...pending.questions.values()].map(question => <LiveQuestionCard key={`${selected.id}:${question.requestId}`} sessionId={selected.id} question={question} />)}</>}</div>{newOutput && <button className="primary-button transcript-new-output" type="button" onClick={jumpToLatest}>New output</button>}</>;
 }
