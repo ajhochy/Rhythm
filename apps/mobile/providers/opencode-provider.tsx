@@ -482,8 +482,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
   const stopSessionWorkingSound = useCallback((sessionId?: string) => {
     if (!sessionId) return;
-    // A stale busy poll must not restart a cancelled/finished/failed turn.
-    // A new prompt or non-idle status event allows the next turn to opt in again.
+    // Keep terminal state sticky for this session so a stale busy event cannot
+    // restart a cancelled/finished/failed turn. Only explicit prompt submission
+    // opens the next turn generation via allowSessionWorkingSound.
     setStoppedWorkingSoundSessions((current) => current.has(sessionId) ? current : new Set([...current, sessionId]));
     if (sessionId === currentSessionIdRef.current) {
       void stopWorkingSoundAsync().catch(() => undefined);
@@ -3645,8 +3646,6 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           const sessionId = event.properties.sessionID;
           if (event.properties.status.type === 'idle') {
             stopSessionWorkingSound(sessionId);
-          } else {
-            allowSessionWorkingSound(sessionId);
           }
           setSessionStatuses((current) => ({
             ...current,
@@ -3883,7 +3882,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       mounted = false;
       activeAbortController?.abort();
     };
-  }, [activeProjectPath, allowSessionWorkingSound, catalogClient, client, coalescedIdleRefresh, coalescedRefreshArchivedSessions, coalescedRefreshSessions, connection.status, pairedHostClient, pairedHostRecord?.relayUrl, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPairedHost, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, replaceSessionMessages, scheduleSessionRefresh, settings, settleBackgroundRead, stopSessionWorkingSound]);
+  }, [activeProjectPath, catalogClient, client, coalescedIdleRefresh, coalescedRefreshArchivedSessions, coalescedRefreshSessions, connection.status, pairedHostClient, pairedHostRecord?.relayUrl, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPairedHost, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, replaceSessionMessages, scheduleSessionRefresh, settings, settleBackgroundRead, stopSessionWorkingSound]);
 
   useEffect(
     () => () => {

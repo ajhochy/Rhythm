@@ -30,12 +30,12 @@ async function loadModule(path, dependencies = {}) {
 
 const utils = await loadModule('providers/opencode-provider-utils.ts');
 
-test('legacy preference snapshots migrate once, preserving unrelated choices and subsequent opt-ins', () => {
+test('legacy preference snapshots preserve explicit choices and default only missing values off', () => {
   assert.equal(utils.defaultChatPreferences.workingSoundEnabled, false);
   for (const enabled of [true, false, undefined]) {
     const legacy = { workingSoundEnabled: enabled, workingSoundVariant: 'glass', speechRate: 1.25 };
     const migrated = utils.migrateWorkingSoundPreferences(legacy);
-    assert.equal(migrated.workingSoundEnabled, false);
+    assert.equal(migrated.workingSoundEnabled, enabled === true);
     assert.equal(migrated.workingSoundDefaultMigrated, 1);
     assert.equal(migrated.speechRate, 1.25);
     assert.equal(migrated.workingSoundVariant, 'glass');
@@ -49,7 +49,7 @@ test('legacy preference snapshots migrate once, preserving unrelated choices and
 test('real persistence hook migrates on hydration and host change; on/off survive remount', async () => {
   const saved = new Map([
     ['one', JSON.stringify({ workingSoundEnabled: true })],
-    ['two', JSON.stringify({ workingSoundEnabled: true })],
+    ['two', JSON.stringify({ workingSoundEnabled: false })],
   ]);
   const scopeFor = (_account, serverUrl) => ({ settingsKey: serverUrl });
   const { useOpencodePersistence } = await loadModule('providers/use-opencode-persistence.ts', {
@@ -99,19 +99,19 @@ test('real persistence hook migrates on hydration and host change; on/off surviv
   };
   try {
     await mount();
-    assert.equal(state.chatPreferences.workingSoundEnabled, false);
+    assert.equal(state.chatPreferences.workingSoundEnabled, true, 'an explicit legacy opt-in survives hydration');
     assert.equal(JSON.parse(saved.get('one')).workingSoundDefaultMigrated, 1);
-    await setEnabled(true);
-    await act(async () => root.unmount());
-    await mount();
-    assert.equal(state.chatPreferences.workingSoundEnabled, true, 're-enabled sound survives relaunch');
     await setEnabled(false);
     await act(async () => root.unmount());
     await mount();
     assert.equal(state.chatPreferences.workingSoundEnabled, false, 'off survives relaunch');
+    await setEnabled(true);
+    await act(async () => root.unmount());
+    await mount();
+    assert.equal(state.chatPreferences.workingSoundEnabled, true, 're-enabled sound survives relaunch');
     await act(async () => state.setSettings((current) => ({ ...current, serverUrl: 'two' })));
     await act(tick);
-    assert.equal(state.chatPreferences.workingSoundEnabled, false, 'switching hosts migrates that stored snapshot too');
+    assert.equal(state.chatPreferences.workingSoundEnabled, false, 'switching hosts preserves that explicit stored opt-out too');
     assert.equal(JSON.parse(saved.get('two')).workingSoundDefaultMigrated, 1);
   } finally {
     await act(async () => root?.unmount());
@@ -327,8 +327,10 @@ test('rendered provider sound lifecycle respects preference, selected session, v
     await render({ connection: { status: 'connected' } });
     await status('idle');
     assert.equal(audible(), false, 'completion stops');
+    await act(async () => controls.allowSessionWorkingSound('one'));
+    await flush();
     await status('busy');
-    assert.equal(audible(), true, 'a second turn can opt in');
+    assert.equal(audible(), true, 'an explicit second turn can opt in');
     await act(async () => controls.handleEvent({ type: 'session.error', properties: { sessionID: 'one' } }));
     await flush();
     assert.equal(audible(), false, 'error stops even without an idle event');
@@ -336,12 +338,20 @@ test('rendered provider sound lifecycle respects preference, selected session, v
     await flush();
     assert.equal(audible(), false, 'stale busy polling cannot restart a failed turn');
     await status('busy');
+    assert.equal(audible(), false, 'a replayed busy event cannot reopen a failed turn');
+    await act(async () => controls.allowSessionWorkingSound('one'));
+    await flush();
+    assert.equal(audible(), true, 'an explicit new prompt generation can reopen playback');
     let aborted;
     await act(async () => { aborted = controls.abortSession('one'); });
     await flush();
     assert.equal(audible(), false, 'cancel stops before the abort HTTP response');
     abortGate.resolve(); await aborted;
     await status('busy');
+    assert.equal(audible(), false, 'a replayed busy event cannot reopen a cancelled turn');
+    await act(async () => controls.allowSessionWorkingSound('one'));
+    await flush();
+    assert.equal(audible(), true, 'the next explicit prompt generation still opts in');
     await act(async () => controls.handleEvent({ type: 'session.idle', properties: { sessionID: 'one' } }));
     await flush();
     assert.equal(audible(), false, 'idle completion stops');

@@ -157,11 +157,11 @@ export const defaultChatPreferences: ChatPreferences = {
 };
 
 export function migrateWorkingSoundPreferences(stored: Partial<ChatPreferences>): Partial<ChatPreferences> {
-  // Legacy snapshots saved the default too, so explicit opt-in is unknowable.
-  // Reset unmarked snapshots once; the persisted marker preserves later opt-ins.
+  // Preserve every stored boolean: it may be an intentional user choice.
+  // Only snapshots with no choice inherit the new default-off behavior.
   return {
     ...stored,
-    workingSoundEnabled: stored.workingSoundDefaultMigrated === 1 && stored.workingSoundEnabled === true,
+    workingSoundEnabled: stored.workingSoundEnabled === true,
     workingSoundDefaultMigrated: 1,
   };
 }

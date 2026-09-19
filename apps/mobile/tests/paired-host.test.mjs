@@ -338,6 +338,61 @@ async function pairedStore() {
   assert.equal(result.host.relayUrl, undefined);
 }
 
+await test(
+  'relay-first migration fails closed on auth, scope, and host identity failures',
+  async (t) => {
+    const RELAY = 'https://api.vcrcapps.com/relay';
+
+    await t.test('401 revokes the rejected credential without direct fallback', async () => {
+      __reset();
+      const store = await pairedStore();
+      __setMacHandler(async (_path, _init, _token, baseUrl) => {
+        assert.equal(baseUrl, RELAY);
+        throw new ApiError({ code: 'UNAUTHORIZED', status: 401 });
+      });
+
+      const result = await store.refresh();
+
+      assert.equal(result.state, 'revoked');
+      assert.match(result.message, /revoked|pair it again/i);
+      assert.equal(__secure().has(PAIRED_DEVICE_SECURE_KEY), false);
+      assert.deepEqual(__macRequests().map((call) => call.baseUrl), [RELAY]);
+    });
+
+    await t.test('403 exposes an actionable account failure without direct fallback', async () => {
+      __reset();
+      const store = await pairedStore();
+      __setMacHandler(async (_path, _init, _token, baseUrl) => {
+        assert.equal(baseUrl, RELAY);
+        throw new ApiError({ code: 'FORBIDDEN', status: 403 });
+      });
+
+      const result = await store.refresh();
+
+      assert.equal(result.state, 'accountMismatch');
+      assert.match(result.message, /account|pair/i);
+      assert.equal(__secure().get(PAIRED_DEVICE_SECURE_KEY), TOKEN);
+      assert.deepEqual(__macRequests().map((call) => call.baseUrl), [RELAY]);
+    });
+
+    await t.test('a relay response for another host is rejected and never adopted', async () => {
+      __reset();
+      const store = await pairedStore();
+      __setMacHandler(async (_path, _init, _token, baseUrl) => {
+        assert.equal(baseUrl, RELAY);
+        return { ...healthResponse, hostId: 'host-other', relayUrl: RELAY };
+      });
+
+      const result = await store.refresh();
+
+      assert.equal(result.state, 'accountMismatch');
+      assert.match(result.message, /different Mac|pair/i);
+      assert.equal(result.host.relayUrl, undefined);
+      assert.deepEqual(__macRequests().map((call) => call.baseUrl), [RELAY]);
+    });
+  },
+);
+
 // issue-1387-c9: a saved relay path must never blame Tailscale when its own
 // health probe fails.
 {
