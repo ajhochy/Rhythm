@@ -1,5 +1,5 @@
 <!-- Current local repair: 2026-09-19 -->
-> Signed local repair now starts API/engine and opens the authenticated workspace; user accepted local behavior. Fresh Electron checks: 177 passed, typecheck passed; focused OAuth API: 5 passed. Fresh mega-branch packaging is underway. Full campaign and approval-flow qualification remain open. See [startup repair](runs/2026-09-19-electron-runtime-startup-repair.md). No push.
+> Signed local repair now starts API/engine and opens the authenticated workspace; user accepted local behavior. Fresh Electron checks: 177 passed, typecheck passed; focused OAuth API: 5 passed. Fresh mega-branch package c92c7544 is open as Rhythm Mega.app with Hermes Ready and dashboard loaded; 22 package checks passed, one live check skipped. Pending approvals/decisions load notices remain. Full campaign and approval-flow qualification remain open. See [startup repair](runs/2026-09-19-electron-runtime-startup-repair.md). Repairs pushed to draft PR #1544.
 
 # Rhythm — Project State
 

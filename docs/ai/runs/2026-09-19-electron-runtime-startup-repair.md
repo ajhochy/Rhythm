@@ -46,3 +46,16 @@ The earlier Keychain-blocked observations above are historical and superseded fo
 - GitNexus detect-changes: low risk, expected OAuth/signing/startup symbols, no indexed affected processes.
 - User requested integration into PR #1544 and a fresh package from the mega branch. Repairs were already in that branch's checkout; clean packaging is in progress.
 - Local UI still displayed a pending-approvals load notification. No claim of complete approval-flow or mega-campaign qualification.
+
+## Fresh mega-branch package
+
+- Repair source commit c92c7544 pushed to draft PR #1544.
+- Fresh package rebuilt engine, web, API, helper and production dependencies from that source. First packaging attempt with Homebrew Node failed due to its external libnode dylib; standalone Node 22 packaging succeeded.
+- `npm run test:package`: 22 passed, zero failed, one env-gated live check skipped. Includes repeated package determinism, real packaged launch, isolation, single-instance and native dependency checks.
+- Local package signing initially overlapped a test-triggered rebuild; signing was rerun sequentially after all package checks. Developer ID signature and deep strict verification then passed.
+- Public Google desktop client configuration restored to the same value used by the accepted candidate. No secret embedded.
+- Installed local candidate: `/Users/ajhochhalter/Applications/Rhythm Mega.app`; signed, not newly notarized.
+- Launched with existing encrypted sign-in profile, Hermes enabled and port 9122 because an unrelated source Electron process owned 9121. Unrelated process preserved.
+- UI navigation More > Hermes opened the embedded real dashboard, status Ready, existing Sessions content loaded. API 4001 and engine 4096 healthy; engine reports version 0.0.0-rhythm-c92c7544f4420324cebbaca8023d1e7f80c0d778.
+- Live runtime reuse test passed again against the fresh installed candidate.
+- Pending approvals/decisions load notices remain visible on the mega UI; no assertion of complete error-free application or full campaign qualification.
