@@ -214,17 +214,27 @@ export function createHermesSupervisor({
       }
     });
     const deadline = Date.now() + readyTimeoutMs;
+    /** @type {number | undefined} */
+    let lastHttpStatus;
     while (active(current) && server === child && status.state === 'starting' && Date.now() < deadline) {
       try {
         const response = await fetch(`${url}/api/health`, { method: 'GET', redirect: 'manual', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(Math.max(1, Math.min(2_000, deadline - Date.now())))]) });
-        // Any HTTP response proves listening; readiness does not depend on a particular body or status.
-        void response.body?.cancel().catch(() => {});
-        if (active(current) && server === child && status.state === 'starting') return publish('ready', details);
+        if (!response.ok || response.status < 200 || response.status >= 300) {
+          lastHttpStatus = response.status;
+          void response.body?.cancel().catch(() => {});
+        } else {
+          const health = await response.json();
+          const validHealth = health && typeof health === 'object'
+            && health.ok === true
+            && typeof health.version === 'string' && health.version.trim().length > 0
+            && typeof health.auth_required === 'boolean';
+          if (validHealth && active(current) && server === child && status.state === 'starting') return publish('ready', details);
+        }
       } catch { /* Retry until the wall-clock budget expires. */ }
       if (active(current)) await delay(Math.max(1, Math.min(pollMs, deadline - Date.now())), undefined, { signal: abort.signal }).catch(() => {});
     }
     if (active(current) && server === child && status.state === 'starting') {
-      const reason = `readiness-timeout${tail() ? `\n${tail()}` : ''}`;
+      const reason = `readiness-timeout${lastHttpStatus === undefined ? '' : ` (last HTTP status ${lastHttpStatus})`}${tail() ? `\n${tail()}` : ''}`;
       // Suppress late exit/readiness updates while shutting down this failed attempt.
       const timeoutGeneration = ++generation;
       await stopOwned();
