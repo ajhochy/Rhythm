@@ -130,6 +130,7 @@ export type ChatPreferences = {
   speechRate: number;
   speechVoiceId?: string;
   workingSoundEnabled: boolean;
+  workingSoundDefaultMigrated?: 1;
   workingSoundVariant: 'soft' | 'glass';
   workingSoundVolume: number;
   responseScope: ResponseScope;
@@ -147,12 +148,23 @@ export const defaultChatPreferences: ChatPreferences = {
   preferOnDeviceRecognition: true,
   resumeListeningAfterReply: true,
   speechRate: 1,
-  workingSoundEnabled: true,
+  workingSoundEnabled: false,
+  workingSoundDefaultMigrated: 1,
   workingSoundVariant: 'soft',
   workingSoundVolume: 0.18,
   responseScope: 'brief',
   includeNextActions: true,
 };
+
+export function migrateWorkingSoundPreferences(stored: Partial<ChatPreferences>): Partial<ChatPreferences> {
+  // Legacy snapshots saved the default too, so explicit opt-in is unknowable.
+  // Reset unmarked snapshots once; the persisted marker preserves later opt-ins.
+  return {
+    ...stored,
+    workingSoundEnabled: stored.workingSoundDefaultMigrated === 1 && stored.workingSoundEnabled === true,
+    workingSoundDefaultMigrated: 1,
+  };
+}
 
 export type PromptExecutionPlan = {
   agent?: string;

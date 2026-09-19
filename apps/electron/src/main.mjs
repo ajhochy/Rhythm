@@ -190,11 +190,8 @@ if (hasSingleInstanceLock) {
         if (generation !== authGeneration || nativeNotificationRegistry.get(target.approvalId) !== notification) return;
         routeNativeNotificationActivation(target);
       });
-      notification.on('close', () => {
-        if (nativeNotificationRegistry.get(target.approvalId) === notification) {
-          nativeNotificationRegistry.delete(target.approvalId);
-        }
-      });
+      // Dismissal/OS expiry is not resolution: retain the pending ID so another
+      // snapshot cannot re-show (and re-sound) it. Reconciliation/auth reset clears it.
       nativeNotificationRegistry.set(target.approvalId, notification);
       notification.show();
     }
