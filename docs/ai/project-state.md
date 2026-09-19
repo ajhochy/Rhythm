@@ -7,7 +7,7 @@ Draft the 2026-09-18 mega PR covering the mobile relay/audio changes, unified El
 ## Active branch / PR
 
 - Integration branch: `mega/2026-09-18-mobile-electron-hermes`.
-- Draft PR: [TBD](https://github.com/ajhochy/Rhythm/compare/main...mega/2026-09-18-mobile-electron-hermes?expand=1).
+- Draft PR: [#1544](https://github.com/ajhochy/Rhythm/pull/1544) (Rhythm) and [hermes-rhythm-plugin #17](https://github.com/ajhochy/hermes-rhythm-plugin/pull/17) (fork). Do not merge before manual smoke.
 - Draft body: [mega PR body](runs/mega-2026-09-18/PR-BODY.md); evidence: [run record](runs/2026-09-18-mega-mobile-electron-hermes.md).
 
 ## In progress
@@ -34,4 +34,4 @@ Draft the 2026-09-18 mega PR covering the mobile relay/audio changes, unified El
 
 ## Next step
 
-AJ runs the ordered smoke in `docs/ai/runs/mega-2026-09-18/PR-BODY.md`; the orchestrator records final live/review results, updates the TBD PR link and pending gate line, and leaves merge manual.
+AJ grants Codex Computer Use access to Electron + Finder and runs `docs/ai/runs/mega-2026-09-18/finish-brief.md` (visual smoke, hosted live smoke with a disposable bearer, fork live gate, remaining #1373 work); then manual smoke per PR #1544 and manual merge.
