@@ -54,4 +54,5 @@ contextBridge.exposeInMainWorld('rhythmShell', Object.freeze({
   humanApproval,
   agentServer,
   updates,
+  selectDirectory: () => ipcRenderer.invoke('shell:select-directory'),
 }));

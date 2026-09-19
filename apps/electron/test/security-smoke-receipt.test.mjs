@@ -5,7 +5,7 @@ import { validateSecuritySmokeReceipt } from '../src/security-smoke-receipt.mjs'
 
 const validReceipt = {
   bridge: {
-    keys: ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates'],
+    keys: ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory'],
     frozen: true,
     gateway: {
       keys: ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase'],
@@ -35,6 +35,7 @@ test('signed security smoke rejects every unsafe bridge and denial invariant', (
   const invalidMutations = [
     (receipt) => { receipt.bridge.nodeExposed = true; },
     (receipt) => { receipt.bridge.keys.push('filesystem'); },
+    (receipt) => { receipt.bridge.keys = receipt.bridge.keys.filter((key) => key !== 'selectDirectory'); },
     (receipt) => { receipt.bridge.frozen = false; },
     (receipt) => { receipt.bridge.gateway.keys.push('fetch'); },
     (receipt) => { receipt.bridge.gateway.frozen = false; },
