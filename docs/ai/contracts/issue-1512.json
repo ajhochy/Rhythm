@@ -1,0 +1,63 @@
+{
+  "issue": 1512,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1512-c1",
+      "text": "The screenshot's stacked multiline outlined buttons are replaced by visually subordinate, compact tree controls.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agents-rail-child-loading.spec.ts",
+      "test_id": "continuations are accessible at 200 percent in a narrow dark RTL rail",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1512-c2",
+      "text": "Long parent titles do not expand the visible loading label into a large block; parent context remains clear through grouping and accessibility text.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agents-rail-child-loading.spec.ts",
+      "test_id": "initial load, paging, nested parents and repeated activation preserve selection and scroll",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1512-c3",
+      "text": "Both initial child loading and pagination remain discoverable and functional, including nested parents and multiple parents with similar names.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agents-rail-child-loading.spec.ts",
+      "test_id": "initial load, paging, nested parents and repeated activation preserve selection and scroll",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1512-c4",
+      "text": "Loading/error/retry states are clear; repeated activation does not duplicate requests or rows, and the continuation control disappears when no more results exist.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agents-rail-child-loading.spec.ts",
+      "test_id": "failure has inline Retry and does not block other parents; expired cursors restart that branch",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1512-c5",
+      "text": "Loaded children, counts, ordering, expansion, selected session, and scroll position remain correct.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agents-rail-child-loading.spec.ts",
+      "test_id": "initial load, paging, nested parents and repeated activation preserve selection and scroll",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1512-c6",
+      "text": "Keyboard operation, focus visibility, accessible parent-specific names, existing minimum hit-area requirements, narrow rails, both themes, and 200% zoom remain usable. Compact visuals must not mean a tiny click target.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agents-rail-child-loading.spec.ts",
+      "test_id": "continuations are accessible at 200 percent in a narrow dark RTL rail",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1512-c7",
+      "text": "AJ reviews before/after screenshots of the same long-title, nested-session case in the actual Electron app.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Visual acceptance by AJ is required in the actual Electron app."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-1512-c7"]
+}

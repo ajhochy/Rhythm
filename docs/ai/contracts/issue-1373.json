@@ -1,0 +1,60 @@
+{
+  "issue": 1373,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1373-c1",
+      "text": "Mobile connects to its paired session transport through the Cloudflare relay with **no** Tailscale dependency, and the existing SSE/PTY/prompt contract is unchanged.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires Cloudflare deploy and a physical off-LAN device; relay PTY remained unimplemented in this run."
+    },
+    {
+      "criterion_id": "issue-1373-c2",
+      "text": "Auth boundary preserved: device-token/cloud-bearer validation unchanged; the relay never sees or needs a raw model-held bearer; fail closed on invalid/expired/revoked tokens.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: no automated test authored in this run covers established-uplink expiry and revocation end to end."
+    },
+    {
+      "criterion_id": "issue-1373-c3",
+      "text": "Relay endpoints are authenticated and tenant/project-scoped; opaque IDs; cross-user/cross-project fail closed.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/ios_secure_bootstrap.test.ts",
+      "test_id": "task-ios-secure-bootstrap-c6: cached artifacts require matching owner, project, and session ownership",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1373-c4",
+      "text": "Disconnect/relay-drop recovery is idempotent — resume the same session or show a durable actionable failure, never duplicate.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires a physical off-LAN device and a controlled relay-drop test."
+    },
+    {
+      "criterion_id": "issue-1373-c5",
+      "text": "Explicit kill switch; disabling the relay falls back to the existing paired path with no data loss.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/paired-host.test.mjs",
+      "test_id": "issue-1373: relay kill switch preserves pairing and selects only the direct path",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1373-c6",
+      "text": "Observability records operator/session/relay state + sanitized failure reason, no credentials/host paths/transcript content.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: no automated test authored in this run; raw exception logging remains."
+    },
+    {
+      "criterion_id": "issue-1373-c7",
+      "text": "Threat-model review + a negative test from a second user/project proving denial.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/ios_secure_bootstrap.test.ts",
+      "test_id": "task-ios-secure-bootstrap-c7: the synthetic matrix has distinct two-user enrollment state",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-1373-c1", "issue-1373-c2", "issue-1373-c4", "issue-1373-c6"]
+}

@@ -1,0 +1,62 @@
+{
+  "issue": 1542,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1542-c1",
+      "text": "**HRM-B3-AC1:** With the flag enabled and B2 ready, the Hermes sidebar route renders the real supervised dashboard inside the pinned Electron app; starting/failed states are legible, and navigation back to Rhythm works.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires real pinned-Electron dashboard and authentication inspection."
+    },
+    {
+      "criterion_id": "issue-1542-c2",
+      "text": "**HRM-B3-AC2:** With `RHYTHM_HERMES_ENABLED=0`, no Hermes sidebar entry/view/channel is active; a direct route shows the disabled state and creates zero privileged actions or Hermes launch requests.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/hermes.spec.ts",
+      "test_id": "Hermes disabled bridge hides the destination even if a stale status says ready",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1542-c3",
+      "text": "**HRM-B3-AC3:** Runtime probes confirm Node integration off, context isolation/sandbox/web security on, no Rhythm bearer exposure and no access to parent DOM, filesystem/process APIs, arbitrary URLs or broad native IPC; only the Hermes-native auth handoff succeeds.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires real pinned-Electron runtime and Hermes-native authentication inspection."
+    },
+    {
+      "criterion_id": "issue-1542-c4",
+      "text": "**HRM-B3-AC4:** Valid typed intents navigate to the requested session or open an editable draft with bounded, labelled Rhythm context; neither sends a message nor creates a legacy Rhythm agent session.",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-view.test.mjs",
+      "test_id": "Hermes navigates only to its dashboard session route and refuses unsafe draft emulation",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1542-c5",
+      "text": "**HRM-B3-AC5:** Foreign/sibling frames, an unapproved origin, malformed or oversize messages, unknown methods and unsupported versions each produce zero native/session actions, zero sends and zero state writes.",
+      "mode": "unit",
+      "test_file": "apps/electron/test/hermes-protocol.test.mjs",
+      "test_id": "Hermes protocol rejects unknown versions/types, malformed DTOs and URL injection",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1542-c6",
+      "text": "**HRM-B3-AC6:** A stale document/channel after reload, navigation, route exit or disable produces zero actions; the replacement document can act only through its newly validated channel.",
+      "mode": "unit",
+      "test_file": "apps/electron/test/hermes-view.test.mjs",
+      "test_id": "Hermes reload revokes old generation; only the current main frame can reactivate",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1542-c7",
+      "text": "**HRM-B3-AC7:** Rendered route/status/disabled tests pass, keyboard focus enters and exits the embedded view predictably, and 200% zoom/RTL preserve accessible names and controls without nested interactive elements or inaccessible scroll regions.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/hermes.spec.ts",
+      "test_id": "Hermes ready is accessible at narrow RTL and enlarged text",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-1542-c1", "issue-1542-c3"]
+}

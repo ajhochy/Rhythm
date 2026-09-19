@@ -8,7 +8,7 @@
       "mode": "unit",
       "test_file": "apps/web/src/components/ToolWorkspace.contract.test.mjs",
       "test_id": "issue-1513-c1: inventory names every exposed Agent Tool",
-      "status": "pass"
+      "status": "pending"
     },
     {
       "criterion_id": "issue-1513-c2",
@@ -16,7 +16,7 @@
       "mode": "unit",
       "test_file": "apps/web/src/components/ToolWorkspace.contract.test.mjs",
       "test_id": "issue-1513-c2: every in-scope Agent Tool adopts the shared ListInspector primitive",
-      "status": "pass"
+      "status": "pending"
     },
     {
       "criterion_id": "issue-1513-c3",
@@ -24,14 +24,14 @@
       "mode": "unit",
       "test_file": "apps/web/src/components/ToolWorkspace.contract.test.mjs",
       "test_id": "issue-1513-c3: adopted tools do not retain page-specific list and split shells",
-      "status": "pass"
+      "status": "pending"
     },
     {
       "criterion_id": "issue-1513-c4",
       "text": "Keep Agents → Tasks as the baseline and preserve its scheduling, history, and action behavior. Do not copy an existing defect merely to achieve visual parity.",
       "mode": "ui",
-      "test_file": "apps/web/tests/agent-tools.spec.ts",
-      "test_id": "runs and manages schedules and webhooks through explicit contracts",
+      "test_file": "apps/web/tests/tools.spec.ts",
+      "test_id": "creates, edits, toggles, triggers, and deletes schedules; creates and revokes webhooks",
       "status": "pending"
     },
     {

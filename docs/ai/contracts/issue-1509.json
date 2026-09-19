@@ -1,0 +1,93 @@
+{
+  "issue": 1509,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1509-c1",
+      "text": "At normal zoom, task titles use an agreed readable size/weight near the proposed 14px / 400–450 / 20px settings; meaningful metadata is at least 11px.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/reading-comfort-1509.spec.ts",
+      "test_id": "dark: task typography, contrast and distinct interaction states",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1509-c2",
+      "text": "A same-content, same-window-size, same-zoom before/after comparison demonstrates the proposed calmer dark treatment; AJ accepts the reading comfort before app-wide rollout.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Visual acceptance by AJ is required."
+    },
+    {
+      "criterion_id": "issue-1509-c3",
+      "text": "Redundant status/date text is omitted where the grouping already communicates it, while meaningful exceptions and accessible task context remain available.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: no automated test authored in this run; the redundant metadata renderer was not changed."
+    },
+    {
+      "criterion_id": "issue-1509-c4",
+      "text": "Hover, selected, completed, disabled, and keyboard-focus states remain distinguishable. Completion and row-action hit areas remain at least 44×44 CSS px.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/reading-comfort-1509.spec.ts",
+      "test_id": "light: task typography, contrast and distinct interaction states",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1509-c5",
+      "text": "Normal text meets WCAG AA's 4.5:1 minimum across actual relevant backgrounds, including hover and selection. Controls and focus indicators retain applicable accessibility contrast.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/reading-comfort-1509.spec.ts",
+      "test_id": "task typography, contrast and distinct interaction states",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1509-c6",
+      "text": "Long titles, narrow layouts, 200% zoom, and light mode retain usable layout, accessible names, and existing task interactions.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/reading-comfort-1509.spec.ts",
+      "test_id": "200% zoom: long task names wrap and controls stay usable",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1509-c7",
+      "text": "Agents chat receives the agreed color, font, weight, line-height, and secondary-text treatment; it is included in the deliverable rather than left as an unspecified future rollout.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/reading-comfort-1509.spec.ts",
+      "test_id": "dark: chat body, secondary labels, actions and bounded reading width",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1509-c8",
+      "text": "Assistant text, user bubbles, links, markdown structure, metadata, and actions have a clear, calm hierarchy while maintaining required contrast and visible keyboard focus.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/reading-comfort-1509.spec.ts",
+      "test_id": "light: chat body, secondary labels, actions and bounded reading width",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1509-c9",
+      "text": "The current transcript/message maximum widths and intentional content/paragraph breaks are preserved. No full-window text-width change is included.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/reading-comfort-1509.spec.ts",
+      "test_id": "chat body, secondary labels, actions and bounded reading width",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1509-c10",
+      "text": "Before/after comparison uses identical conversation content, window size, zoom, and pane arrangement; AJ reviews the chat reading comfort alongside Tasks.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Visual acceptance by AJ is required."
+    },
+    {
+      "criterion_id": "issue-1509-c11",
+      "text": "Streaming, message selection/copy, scrolling/history anchoring, tool/reasoning expansion, code blocks, tables, and narrow-window behavior remain usable.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/reading-comfort-1509.spec.ts",
+      "test_id": "200% zoom: markdown, paragraphs, selection, tool expansion and copy",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-1509-c2", "issue-1509-c3", "issue-1509-c10"]
+}
