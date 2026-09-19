@@ -9,12 +9,13 @@
   --muted: #a3aaa8;
   --border: #697571;
   --border-soft: #3e4542;
-  --accent: oklch(0.68 0.12 175);
+  --accent: oklch(0.69 0.12 175);
   --accent-on: oklch(0.15 0.025 185);
   --accent-hover: color-mix(in oklab, var(--accent), black 8%);
   --success: oklch(0.74 0.15 148);
   --warning: oklch(0.82 0.15 85);
   --danger: oklch(0.68 0.19 20);
+  --danger-on: oklch(0.15 0.025 20);
   --info: oklch(0.72 0.12 230);
   --font-ui: Inter, system-ui, sans-serif;
   --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
@@ -144,7 +145,7 @@ button:disabled, input:disabled, textarea:disabled, select:disabled { cursor: no
 .secondary-button { border: 1px solid var(--border); color: var(--fg); background: var(--surface); }
 .secondary-button:hover { background: color-mix(in oklab, var(--surface), var(--fg) 8%); }
 .secondary-button.compact { min-height: 32px; padding: 0 9px; font-size: 11px; }
-.danger-button { border: 1px solid var(--danger); color: var(--fg); background: var(--danger); }
+.danger-button { border: 1px solid var(--danger); color: var(--danger-on); background: var(--danger); }
 .text-danger-button { border: 0; color: color-mix(in oklab, var(--danger), white 24%); background: transparent; }
 .text-danger-button:hover { background: color-mix(in oklab, var(--danger), transparent 84%); }
 .text-button { min-height: 34px; padding: 0 2px; border: 0; color: var(--fg-2); background: transparent; text-decoration: underline; text-underline-offset: 4px; }

@@ -126,9 +126,6 @@
   .pg-messages .messages-fixture-controls label { min-width: 120px; }
   .pg-messages .messages-readonly { padding-inline: 12px; }
   .pg-messages .messages-workspace { grid-template-columns: minmax(0, 1fr); }
-  .pg-messages .messages-workspace.has-selection .messages-thread-rail { display: none; }
-  .pg-messages .messages-workspace:not(.has-selection) .messages-conversation { display: none; }
-  .pg-messages .messages-mobile-back { display: inline-flex; }
   .pg-messages .messages-conversation-header { align-items: flex-start; padding: 9px 12px; }
   .pg-messages .messages-incoming { padding-inline: 12px; }
   .pg-messages .messages-transcript { padding: 12px; }
