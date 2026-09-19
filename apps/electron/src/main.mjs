@@ -10,6 +10,7 @@ import { injectArtifactFrameBridge, isAllowedArtifactFrameNavigation, parseArtif
 import { GOOGLE_DESKTOP_CLIENT_ID, RHYTHM_AUTH_API_BASE } from './build-config.mjs';
 import { runDesktopGoogleOAuth } from './desktop-google-oauth.mjs';
 import * as humanApprovalSigner from './human-approval-main-signer.mjs';
+import { createHermesSupervisor } from './hermes-server.mjs';
 import { deepLinkFromArgv, resolveAsset, validateRequest, webDist } from './policy.mjs';
 import { createProductionApiConfig, createProductionApiSetHandler } from './production-api-config.mjs';
 import { resolveGoogleDesktopClientId } from './runtime-config.mjs';
@@ -290,6 +291,27 @@ if (hasSingleInstanceLock) {
   // Alternate ports exist only behind an explicit smoke-only flag.
   // Interactive smoke renders normally, but the manager owns the external sandbox lifecycle.
   const agentServer = isInteractiveSmoke ? undefined : new AgentServerService();
+  const ownsHermesRuntime = !isSmoke && !isInteractiveSmoke;
+  const hermes = createHermesSupervisor({
+    env: process.env,
+    installLogPath: resolve(app.getPath('userData'), 'hermes-install.log'),
+    showConsent: (options) => dialog.showMessageBox(options),
+  });
+  for (const [channel, action] of /** @type {const} */ ([
+    ['hermes:get-status', () => hermes.getStatus()],
+    ['hermes:install', () => ownsHermesRuntime && !shuttingDown ? hermes.install() : hermes.getStatus()],
+    ['hermes:restart', () => ownsHermesRuntime && !shuttingDown ? hermes.restart() : hermes.getStatus()],
+  ])) {
+    ipcMain.handle(channel, (event, ...args) => {
+      requireOwnedDocument(event); requireNoPayload(args);
+      return action();
+    });
+  }
+  hermes.onStatus((snapshot) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('hermes:status', snapshot);
+    }
+  });
   const externalRuntimeStatus = { status: 'stopped', failureReason: null, stderrTail: null, errorMessage: null };
   if (!allowTestRuntimePorts) {
     process.env.RHYTHM_LIVE_API_URL = AGENT_SERVER_BASE_URL;
@@ -330,15 +352,16 @@ if (hasSingleInstanceLock) {
   // normal app quit, and OS SIGINT/SIGTERM (main.dart:182-192; SIGTERM is skipped on Windows there
   // because it isn't catchable — not a concern here since this Electron build targets macOS only).
   let shuttingDown = false;
+  const stopRuntimes = async () => { await Promise.all([agentServer?.stopGracefully(), hermes.stop()]); };
   app.on('before-quit', (event) => {
-    if (isSmoke || !agentServer || shuttingDown) return;
+    if (isSmoke || (!agentServer && !ownsHermesRuntime) || shuttingDown) return;
     shuttingDown = true;
     event.preventDefault();
-    void agentServer.stopGracefully().catch((error) => process.stderr.write(`Runtime shutdown failed: ${error}\n`)).finally(() => app.quit());
+    void stopRuntimes().catch((error) => process.stderr.write(`Runtime shutdown failed: ${error}\n`)).finally(() => app.quit());
   });
   if (!isSmoke && agentServer) {
     for (const signal of ['SIGINT', 'SIGTERM']) {
-      process.on(signal, () => { void agentServer.stopGracefully().then(() => process.exit(0), (error) => { process.stderr.write(`Runtime shutdown failed: ${error}\n`); process.exit(1); }); });
+      process.on(signal, () => { shuttingDown = true; void stopRuntimes().then(() => process.exit(0), (error) => { process.stderr.write(`Runtime shutdown failed: ${error}\n`); process.exit(1); }); });
     }
   }
 
@@ -373,6 +396,7 @@ if (hasSingleInstanceLock) {
     // is never awaited before `runApp`) — the window renders immediately and the renderer's own
     // EnvironmentReceipt already polls health with retries while this comes up in the background.
     if (!isSmoke && agentServer) void agentServer.start().catch((error) => agentServer.reportStartupFailure(error));
+    if (ownsHermesRuntime && !shuttingDown && process.env.RHYTHM_HERMES_ENABLED !== '0') void hermes.start();
 
     protocol.handle('rhythm', (request) => {
       const url = new URL(request.url);
@@ -522,6 +546,7 @@ if (hasSingleInstanceLock) {
     mainWindow.webContents.on('did-finish-load', () => {
       rendererReady = true;
       mainWindow?.webContents.send('rhythm:agent-server:status-changed', agentServer?.status ?? externalRuntimeStatus);
+      mainWindow?.webContents.send('hermes:status', hermes.getStatus());
       for (const activation of pendingNativeNotificationActivations.splice(0)) {
         routeNativeNotificationActivation(activation);
       }
@@ -599,6 +624,11 @@ if (hasSingleInstanceLock) {
       keys: Object.keys(window.rhythmShell?.humanApproval || {}),
       frozen: Object.isFrozen(window.rhythmShell?.humanApproval),
     },
+    hermes: {
+      keys: Object.keys(window.rhythmShell?.hermes || {}),
+      frozen: Object.isFrozen(window.rhythmShell?.hermes),
+      enabled: window.rhythmShell?.hermes?.enabled,
+    },
     agentServer: {
       keys: Object.keys(window.rhythmShell?.agentServer || {}),
       frozen: Object.isFrozen(window.rhythmShell?.agentServer),
@@ -610,6 +640,7 @@ if (hasSingleInstanceLock) {
   nodeExposed: typeof process !== 'undefined' || typeof require !== 'undefined',
   value: { version: window.rhythmShell?.version }
 })`);
+    if (bridge?.hermes) bridge.hermes.status = await mainWindow.webContents.executeJavaScript('window.rhythmShell.hermes.getStatus()');
     await mainWindow.webContents.executeJavaScript(`window.open('https://example.invalid')`);
     await mainWindow.webContents.executeJavaScript(`location.href = 'https://example.invalid'`).catch(() => undefined);
     await mainWindow.webContents.executeJavaScript(`navigator.geolocation.getCurrentPosition(() => {}, () => {})`);

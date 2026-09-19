@@ -39,6 +39,18 @@ const agentServer = Object.freeze({
   },
 });
 const updates = Object.freeze({ openDownloadPage: () => ipcRenderer.invoke('rhythm:updates:open-download') });
+const hermes = Object.freeze({
+  enabled: process.env.RHYTHM_HERMES_ENABLED !== '0',
+  getStatus: () => ipcRenderer.invoke('hermes:get-status'),
+  install: () => ipcRenderer.invoke('hermes:install'),
+  restart: () => ipcRenderer.invoke('hermes:restart'),
+  /** @param {(status: import('./hermes-server.mjs').Status) => void} callback */
+  onStatus: (callback) => {
+    const listener = (/** @type {unknown} */ _event, /** @type {import('./hermes-server.mjs').Status} */ snapshot) => callback(snapshot);
+    ipcRenderer.on('hermes:status', listener);
+    return () => ipcRenderer.removeListener('hermes:status', listener);
+  },
+});
 // Renderer code can only reconcile pending approval IDs with the main process. Main validates the
 // closed approval/session target schema and owns all text, presentation, dedupe, and navigation.
 window.addEventListener('rhythm:approval-notifications', (event) => {
@@ -55,4 +67,5 @@ contextBridge.exposeInMainWorld('rhythmShell', Object.freeze({
   agentServer,
   updates,
   selectDirectory: () => ipcRenderer.invoke('shell:select-directory'),
+  hermes,
 }));
