@@ -52,7 +52,7 @@
       "contract_status": "pass",
       "smoke_status": "pass",
       "category": "none",
-      "notes": "Observed waveform on current ad hoc candidate. Does not prove signed installed Dock or Command-Tab."
+      "notes": "Final source70bcf2c9 signed/notarized ARM artifact installed separately as version0.18.65. Native Finder/Get Info show Rhythm waveform; all ten normal/Retina artwork hashes match. Dock control timed out and held Command-Tab was unavailable; those surfaces remain unverified."
     },
     {
       "criterion_id": "physical-device",
@@ -61,6 +61,14 @@
       "smoke_status": "not_checked",
       "category": "C5",
       "notes": "Paired iPhone locked; no audible observation or cellular route. Relay public health became macOnline true but source/image/device qualification remains open."
+    },
+    {
+      "criterion_id": "signed-arm64-package",
+      "text": "Exact-source Developer ID signature, Gatekeeper acceptance, stapled ticket and installed native launch",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Workflow35454150623 ARM succeeded, publication skipped. Downloaded ZIP SHA256 d2a303e834745cd099391ef5d3d8e4872bb3d0fd7a49dd8bdc4af41967998f93. Local codesign/spctl/stapler pass before and after separate installation; engine version matches70bcf2c9. Native safe-login rejection passed before browser; candidate quit, protected services healthy."
     }
   ],
   "process_issues": [
@@ -117,5 +125,33 @@
   ],
   "failure_output": "Hosted browser: 22 failed, 7 passed, 5 skipped. Initial M3: schema_drift; subsequent safe endpoint capability: oauth_login_only_unavailable.",
   "overall_category": "C1",
-  "suggested_follow_up": "Require integration-preservation and deployed login-only capability proof before minimal-scope desktop OAuth, then rerun native and hosted gates on the signed candidate."
+  "suggested_follow_up": "Require integration-preservation and deployed login-only capability proof before minimal-scope desktop OAuth, then rerun native and hosted gates on the signed candidate.",
+  "final_source_ci": {
+    "source": "70bcf2c96a9a74521d4b61f009bf47aa89557436",
+    "server": {
+      "run": 35454145321,
+      "passed": 6185,
+      "skipped": 253,
+      "failed": 0
+    },
+    "mobile": {
+      "run": 35454145315,
+      "status": "success",
+      "playwrightPassed": 70,
+      "playwrightSkipped": 1,
+      "playwrightFlaky": 1
+    },
+    "fork": {
+      "run": 35454145318,
+      "status": "success"
+    },
+    "signing": {
+      "run": 35454150623,
+      "arm64": "success",
+      "x64": "success",
+      "releasePublication": "skipped in both jobs",
+      "localTrust": "codesign, Gatekeeper and stapler pass for both downloaded architectures",
+      "localNative": "ARM only; Finder/Get Info and safe login rejection pass; Dock/Command-Tab unverified"
+    }
+  }
 }
