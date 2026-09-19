@@ -112,11 +112,11 @@ test.describe('Projects shared list and inspector', () => {
     // Regression caught: state fixtures bypass the primitive or read-only mode hides details with its actions enabled.
     await openPage(page, 'projects', '?state=loading');
     await expect(page.locator('.list-inspector-state[role="status"]')).toContainText('Loading Projects');
-    await expect(page.getByRole('option')).toHaveCount(0);
+    await expect(page.getByRole('listbox', { name: 'Projects' }).getByRole('option')).toHaveCount(0);
 
     await openPage(page, 'projects', '?state=empty');
     await expect(page.getByTestId('page-state-empty')).toContainText('No active projects yet');
-    await expect(page.getByRole('option')).toHaveCount(0);
+    await expect(page.getByRole('listbox', { name: 'Projects' }).getByRole('option')).toHaveCount(0);
 
     await openPage(page, 'projects', '?state=server-error');
     await expect(page.getByTestId('page-state-server-error')).toContainText('Could not load projects');

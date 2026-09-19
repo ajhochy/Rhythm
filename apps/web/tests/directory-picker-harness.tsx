@@ -14,5 +14,5 @@ const gateway = composeGateway({
   productionApiBase: 'https://directory-picker.invalid', taskToken: 'directory-picker-test-only',
 });
 createRoot(document.getElementById('root')!).render(
-  <GatewayProvider gateway={gateway}><FixtureProvider><SessionRail collapsed={false} onToggle={() => {}} /></FixtureProvider></GatewayProvider>,
+  <GatewayProvider gateway={gateway}><FixtureProvider><SessionRail collapsed={false} onToggle={() => {}} selectedProject={null} onSelectProject={() => {}} /></FixtureProvider></GatewayProvider>,
 );

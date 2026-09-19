@@ -57,7 +57,7 @@ test('Messages exposes empty, loading, error, and read-only states in the shared
   await expect(page.getByTestId('page-state-empty')).toContainText('No conversations');
 
   await openPage(page, 'messages', '?state=loading');
-  await expect(page.getByRole('status')).toContainText('Loading Conversations');
+  await expect(page.locator('.list-inspector-state[role="status"]')).toContainText('Loading Conversations');
 
   await openPage(page, 'messages', '?state=server-error');
   await expect(page.getByTestId('page-state-server-error')).toContainText('Messages could not be loaded');
