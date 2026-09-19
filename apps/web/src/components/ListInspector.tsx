@@ -1,9 +1,14 @@
 import { useCallback, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import './ListInspector.css';
+import { Splitter } from './Splitter';
 
 export type ListInspectorItem = { id: string; title: string; subtitle?: string; meta?: string; badge?: string; group?: string; disabled?: boolean };
 
 const selectionEvent = 'rhythm:list-inspector-selection';
+
+function layoutSlug(label: string) {
+  return label.normalize('NFKD').toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'pane';
+}
 
 function subscribeToSelection(listener: () => void) {
   window.addEventListener('hashchange', listener);
@@ -51,7 +56,9 @@ export function ListInspector({ label, items, groups, selectedId, onSelect, tool
 }) {
   const instanceId = useId();
   const headingId = `${instanceId}-heading`;
+  const defaultListWidth = listWidth !== undefined && Number.isFinite(listWidth) ? Math.max(240, listWidth) : 320;
   const [query, setQuery] = useState('');
+  const [listPaneWidth, setListPaneWidth] = useState(defaultListWidth);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [listForId, setListForId] = useState<string | null>();
   const listRef = useRef<HTMLDivElement>(null);
@@ -112,7 +119,7 @@ export function ListInspector({ label, items, groups, selectedId, onSelect, tool
     }
   };
   const title = loading ? `Loading ${label}` : hasError ? `${label} unavailable` : missing ? 'Item not found' : selected?.title ?? 'Select an item';
-  const width = listWidth !== undefined && Number.isFinite(listWidth) ? { '--list-inspector-list-width': `${Math.max(240, listWidth)}px` } as CSSProperties : undefined;
+  const width = { '--list-inspector-list-width': `${listPaneWidth}px` } as CSSProperties;
 
   return <div className={`list-inspector${className ? ` ${className}` : ''}`} style={width} data-pane={showList ? 'list' : 'inspector'}>
     <div className="list-inspector-panes tool-split">
@@ -151,6 +158,7 @@ export function ListInspector({ label, items, groups, selectedId, onSelect, tool
           : !visible.length ? <div className="list-inspector-state" role="status">No results match your search.</div> : null}
         {listFooter && <div className="list-inspector-footer">{listFooter}</div>}
       </aside>
+      <Splitter orientation="vertical" storageKey={`layout.list-inspector.${layoutSlug(label)}`} min={240} max={Math.max(520, defaultListWidth)} defaultSize={defaultListWidth} onResize={setListPaneWidth} ariaLabel={`Resize ${label} list`} className="list-inspector-splitter" />
       <section className="list-inspector-detail tool-detail" aria-labelledby={headingId} tabIndex={0} data-testid="list-inspector-detail">
         <header className="list-inspector-header">
           {/* Inspection remains available inside an existing disabled action fieldset. */}

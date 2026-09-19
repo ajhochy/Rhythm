@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { ListInspector, useSelectedId, type ListInspectorItem } from '../../components/ListInspector';
 import { navigate } from '../../components/Shell';
+import { resetSplitterSizes } from '../../components/Splitter';
 import { useAuthUser } from '../../gateway/auth';
 import { useGateway } from '../../gateway/context';
 import type { WorkspaceSettings } from '../../gateway/settings';
@@ -210,6 +211,9 @@ export function SettingsPage() {
               <option value="light">Light</option>
             </select>
           </label>
+          <div className="settings-actions">
+            <button className="secondary-button" type="button" onClick={() => resetSplitterSizes()} data-testid="reset-layout">Reset layout</button>
+          </div>
           <p className="settings-scope">Device preference · Account scoped</p>
         </>;
         break;

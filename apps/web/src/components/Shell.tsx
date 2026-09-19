@@ -3,6 +3,7 @@ import { Icon, type IconName } from '../icons';
 import { useFixtures } from '../store';
 import type { DemoState } from '../types';
 import { hermesShell } from '../pages/hermes/bridge';
+import { Splitter } from './Splitter';
 
 const destinations = ['Dashboard', 'Planner', 'Tasks', 'Rhythms', 'Projects', 'Messages', 'Facilities', 'Automations', 'Integrations', 'Agents', 'Settings'];
 const optional = new Set(['Facilities', 'Automations', 'Integrations', 'Settings', 'Hermes']);
@@ -80,6 +81,7 @@ export function Shell({ route, children }: { route: string; children: React.Reac
   const [demoOpen, setDemoOpen] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
   const [compactNav, setCompactNav] = useState(() => window.matchMedia('(max-width: 900px)').matches);
+  const [navigationHeight, setNavigationHeight] = useState(48);
   const activeKey = route.startsWith('/profiles') || route.startsWith('/endpoint-map') || route.startsWith('/tools/') ? 'agents' : route.split('/')[1] || 'agents';
   const activeLabel = activeKey.charAt(0).toUpperCase() + activeKey.slice(1);
 
@@ -113,7 +115,7 @@ export function Shell({ route, children }: { route: string; children: React.Reac
   };
 
   return (
-    <div className="app-canvas" data-od-id="agents-app-shell">
+    <div className="app-canvas" style={{ '--app-navigation-height': `${navigationHeight}px` } as React.CSSProperties} data-od-id="agents-app-shell">
       <a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); document.getElementById('main-content')?.focus(); }}>Skip to main content</a>
       <header className="app-header" data-od-id="rhythm-global-header">
         <nav className="destination-nav" aria-label="Product destinations">
@@ -171,6 +173,7 @@ export function Shell({ route, children }: { route: string; children: React.Reac
           </Menu>
         </div>
       </header>
+      <Splitter orientation="horizontal" storageKey="layout.shell.navigation" min={44} max={112} defaultSize={48} onResize={setNavigationHeight} ariaLabel="Resize app navigation" className="shell-navigation-splitter" testId="shell-navigation-resizer" />
       <section className="workspace-surface" aria-label={`${activeLabel} workspace`}>
         <main id="main-content" tabIndex={-1}>{children}</main>
       </section>

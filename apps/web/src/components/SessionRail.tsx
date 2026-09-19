@@ -7,6 +7,7 @@ import { useFixtures } from '../store';
 import type { Session, SessionScope } from '../types';
 import { FocusDialog } from './FocusDialog';
 import { navigate } from './Shell';
+import { Splitter } from './Splitter';
 import { usePendingSessionIds } from '../pending-decisions';
 import './SessionRail.css';
 
@@ -25,8 +26,6 @@ const tools: { key: string; label: string; description: string; icon: IconName }
   { key: 'gallery', label: 'Gallery', description: 'Artifacts', icon: 'gallery' },
 ];
 const accounts = ['Rhythm workspace', 'Research account'];
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-
 export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProject }: { collapsed: boolean; onToggle(): void; selectedProject: AgentProject | null; onSelectProject(project: AgentProject | null): void }) {
   const fixtures = useFixtures();
   const gateway = useGateway();
@@ -339,19 +338,6 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
     if (!selectedProject && next !== selected.branch && selected.dirtyCount > 0) { setPendingBranch(next); return; }
     setBranch(next); setNewBranchMode(false);
   };
-  const startToolsResize = (event: React.PointerEvent<HTMLDivElement>) => {
-    event.currentTarget.setPointerCapture(event.pointerId);
-    event.currentTarget.focus();
-    const startY = event.clientY;
-    const startHeight = toolsHeight;
-    const move = (pointer: PointerEvent) => setToolsHeight(clamp(startHeight - (pointer.clientY - startY), 120, 320));
-    const stop = () => {
-      document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', stop);
-      notify('Tools panel resized');
-    };
-    document.addEventListener('pointermove', move); document.addEventListener('pointerup', stop);
-  };
-
   const changeScope = (next: SessionScope) => { setScope(next); setSearch(''); setSelectedRows([]); };
   const moveScope = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return;
@@ -511,7 +497,7 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
       {projectsError && <div className="rail-project-error" role="alert">{projectsError} <button type="button" onClick={() => setProjectRefresh((value) => value + 1)}>Retry projects</button></div>}
       {liveHistory && <>{(!currentPage || currentPage.busy) && <p role="status">Loading session history…</p>}{currentPage?.error && <div role="alert"><p>{currentPage.error}</p><button className="secondary-button" type="button" onClick={() => setRefresh((value) => value + 1)}>Reset session history</button></div>}{currentPage?.pages['']?.hasMore && <><p className="rail-empty">Order applies to loaded sessions. Load older history to include more.</p><button className="secondary-button" type="button" disabled={currentPage.busy || !!currentPage.error} onClick={() => void loadHistory(undefined, currentPage.pages[''].nextCursor ?? undefined)}>{normalizedSearch ? 'Load older matches' : 'Load older roots'}</button></>}</>}
     </div>
-    <div className="tools-resizer" role="separator" aria-orientation="horizontal" aria-label="Resize Tools panel" aria-valuemin={120} aria-valuemax={320} aria-valuenow={toolsHeight} aria-valuetext={`${toolsHeight} pixels`} tabIndex={0} onPointerDown={startToolsResize} onKeyDown={(event) => { if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); if (event.key === 'ArrowUp') setToolsHeight((value) => clamp(value + 16, 120, 320)); if (event.key === 'ArrowDown') setToolsHeight((value) => clamp(value - 16, 120, 320)); if (event.key === 'Home') setToolsHeight(120); if (event.key === 'End') setToolsHeight(320); }} data-testid="tools-resizer"><span /></div>
+    <Splitter orientation="horizontal" storageKey="layout.agents.tools" min={120} max={320} defaultSize={224} onResize={setToolsHeight} ariaLabel="Resize Tools panel" resizeEdge="end" className="tools-resizer" testId="tools-resizer" />
     <nav className="tools-nav" aria-label="Agent tools" style={{ height: `${toolsHeight}px` }}><span className="rail-section-label">Tools</span>{tools.map((tool) => <button type="button" onClick={() => openTool(tool.key)} key={tool.key} data-testid={`tool-${tool.key}`}><Icon name={tool.icon} /><span><strong>{tool.label}</strong><small>{tool.description}</small></span><Icon name="chevronRight" size={14} /></button>)}</nav>
     <footer className="rail-account"><button type="button" onClick={() => navigate('/tools/agent-settings')} data-testid="rail-agent-settings"><span className="avatar">AJ</span><span><strong>AJ Hochhalter</strong><small>Agent settings</small></span><Icon name="settings" size={15} /></button></footer>
 
