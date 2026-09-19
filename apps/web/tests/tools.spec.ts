@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { chooseDemo, openFixture } from './helpers';
+import { selectRow } from './helpers/list-inspector';
 
 async function expectTrace(page: Page, route: string) {
   await expect(page.getByTestId('tool-trace')).toContainText(route);
@@ -9,12 +10,11 @@ async function expectTrace(page: Page, route: string) {
 test.describe('shipping-shaped Agents tools', () => {
   test('searches, expands, edits, and deletes Brain memories', async ({ page }) => {
     await openFixture(page, '#/tools/brain');
-    await page.getByTestId('brain-search').fill('offline');
-    await expect(page.getByTestId('brain-list')).toContainText('desktop relay is offline');
-    await expectTrace(page, '/agent-memory/search');
-    await page.getByTestId('brain-search').fill('');
+    await page.getByRole('searchbox', { name: 'Search Agent memories' }).fill('offline');
+    await expect(page.getByRole('option', { name: /desktop relay is offline/ })).toBeVisible();
+    await page.getByRole('searchbox', { name: 'Search Agent memories' }).fill('');
     const memory = page.getByTestId('memory-memory-relay');
-    await memory.getByRole('button').first().click();
+    await memory.click();
     await page.getByTestId('brain-edit-memory-relay').click();
     await page.getByTestId('memory-editor').getByLabel('Content').fill('Keep every fixture run deterministic.');
     await page.getByTestId('memory-save').click();
@@ -117,11 +117,12 @@ test.describe('shipping-shaped Agents tools', () => {
 
     await openFixture(page, '#/tools/review');
     await page.getByTestId('proposal-expand-proposal-research-agent').click();
-    await expect(page.getByTestId('proposal-proposal-research-agent')).toContainText('verified runs');
+    await expect(page.getByTestId('proposal-proposal-research-agent-details')).toContainText('verified runs');
     await page.getByTestId('proposal-approve-proposal-research-agent').click();
     await page.getByTestId('review-filter').selectOption('approved');
     await expect(page.getByText('Adopt research-librarian profile')).toBeVisible();
     await page.getByTestId('review-filter').selectOption('proposed');
+    await selectRow(page, 'Promote verification skill');
     await page.getByTestId('proposal-reject-proposal-review-skill').click();
     await page.getByTestId('proposal-reject-dialog-confirm').click();
     await page.getByTestId('review-filter').selectOption('rejected');
@@ -144,7 +145,7 @@ test.describe('shipping-shaped Agents tools', () => {
     await expect(page.getByTestId('transcript')).toContainText('Seeded Gmail context');
 
     await openFixture(page, '#/tools/gallery');
-    await page.getByTestId('design-design-relay-card').getByRole('button', { name: 'Select Relay status card' }).click();
+    await selectRow(page, 'Relay status card');
     await page.getByTestId('gallery-open-design-relay-card').click();
     await expectTrace(page, '/artifact');
     await page.getByTestId('gallery-launch').click();
