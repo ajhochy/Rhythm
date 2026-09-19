@@ -1307,6 +1307,26 @@ export class Mcp extends HeyApiClient {
         });
     }
     /**
+     * List live MCP tool IDs
+     *
+     * Get the composed IDs of tools advertised by connected MCP servers.
+     */
+    tools(parameters, options) {
+        const params = buildClientParams([parameters], [
+            {
+                args: [
+                    { in: "query", key: "directory" },
+                    { in: "query", key: "workspace" },
+                ],
+            },
+        ]);
+        return (options?.client ?? this.client).get({
+            url: "/mcp/tools",
+            ...options,
+            ...params,
+        });
+    }
+    /**
      * Connect an MCP server.
      */
     connect(parameters, options) {

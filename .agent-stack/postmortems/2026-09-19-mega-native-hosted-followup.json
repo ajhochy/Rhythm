@@ -96,7 +96,14 @@
       "project-state-updater"
     ],
     "skipped_skills": [],
-    "issues": [],
+    "issues": [
+      {
+        "workflow_category": "W1",
+        "affected_skill": "verification-gate",
+        "description": "Generated SDK regeneration ran before the required GitNexus class-impact check. Post-generation impact was CRITICAL for the widely used Mcp class; warning and narrow generated diff review occurred before commit.",
+        "detected_by": "Generator and GitNexus tool order; no claim of pre-edit impact."
+      }
+    ],
     "notes": "Tools have no TodoWrite capability; execution/check/evidence lists are recorded in repository run documents. Existing PRs 1544 and fork17 carry the repairs and remaining acceptance; no duplicate tracking issue created."
   },
   "implementation_files": [
