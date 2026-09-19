@@ -59,8 +59,10 @@ export function ListInspector({ label, items, groups, selectedId, onSelect, tool
   const defaultListWidth = listWidth !== undefined && Number.isFinite(listWidth) ? Math.max(240, listWidth) : 320;
   const [query, setQuery] = useState('');
   const [listPaneWidth, setListPaneWidth] = useState(defaultListWidth);
+  const [containerWidth, setContainerWidth] = useState<number | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [listForId, setListForId] = useState<string | null>();
+  const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const backRef = useRef<HTMLDivElement>(null);
@@ -80,6 +82,22 @@ export function ListInspector({ label, items, groups, selectedId, onSelect, tool
   const enabled = sections.flatMap((group) => group.items).filter((item) => !item.disabled);
   const rovingId = enabled.find((item) => item.id === focusedId)?.id
     ?? enabled.find((item) => item.id === selectedId)?.id ?? enabled[0]?.id;
+
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const measure = () => {
+      if (root.clientWidth > 0) setContainerWidth(root.clientWidth);
+    };
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(root);
+    window.addEventListener('resize', measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, []);
 
   useLayoutEffect(() => {
     if (!pendingFocus.current) return;
@@ -119,9 +137,16 @@ export function ListInspector({ label, items, groups, selectedId, onSelect, tool
     }
   };
   const title = loading ? `Loading ${label}` : hasError ? `${label} unavailable` : missing ? 'Item not found' : selected?.title ?? 'Select an item';
-  const width = { '--list-inspector-list-width': `${listPaneWidth}px` } as CSSProperties;
+  const announcement = hasError ? ''
+    : loading ? `Loading ${label}`
+      : missing ? 'This item was not found or is no longer available.'
+        : !items.length ? `No ${label} available.`
+          : !visible.length ? 'No results match your search.' : '';
+  const effectiveListWidth = Math.min(listPaneWidth, containerWidth ?? listPaneWidth);
+  const width = { '--list-inspector-list-width': `${effectiveListWidth}px` } as CSSProperties;
 
-  return <div className={`list-inspector${className ? ` ${className}` : ''}`} style={width} data-pane={showList ? 'list' : 'inspector'}>
+  return <div ref={rootRef} className={`list-inspector${className ? ` ${className}` : ''}`} style={width} data-pane={showList ? 'list' : 'inspector'}>
+    <span className="sr-only" aria-live="polite" aria-atomic="true">{announcement}</span>
     <div className="list-inspector-panes tool-split">
       <aside className="list-inspector-rail tool-rail" aria-label={`${label} list`}>
         {toolbar && <div className="list-inspector-toolbar">{toolbar}</div>}
@@ -152,10 +177,10 @@ export function ListInspector({ label, items, groups, selectedId, onSelect, tool
             </div>)}
           </div>)}
         </div>
-        {loading ? <div className="list-inspector-state" role="status">Loading {label}…</div>
+        {loading ? <div className="list-inspector-state">Loading {label}…</div>
           : hasError ? <div className="list-inspector-state" role="alert">{error}</div>
           : !items.length ? <div className="list-inspector-state">{emptyState ?? 'No items yet.'}</div>
-          : !visible.length ? <div className="list-inspector-state" role="status">No results match your search.</div> : null}
+          : !visible.length ? <div className="list-inspector-state">No results match your search.</div> : null}
         {listFooter && <div className="list-inspector-footer">{listFooter}</div>}
       </aside>
       <Splitter orientation="vertical" storageKey={`layout.list-inspector.${layoutSlug(label)}`} min={240} max={Math.max(520, defaultListWidth)} defaultSize={defaultListWidth} onResize={setListPaneWidth} ariaLabel={`Resize ${label} list`} className="list-inspector-splitter" />
@@ -165,7 +190,7 @@ export function ListInspector({ label, items, groups, selectedId, onSelect, tool
           <div ref={backRef} role="button" tabIndex={0} className="list-inspector-back secondary-button" onClick={back} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); back(); } }}>Back to list</div>
           <h2 id={headingId} ref={headingRef} tabIndex={-1}>{title}</h2>
         </header>
-        {loading || hasError ? null : missing ? <p role="status">This item was not found or is no longer available. Select another item from the list.</p> : inspector(selected)}
+        {loading || hasError ? null : missing ? <p>This item was not found or is no longer available. Select another item from the list.</p> : inspector(selected)}
       </section>
     </div>
   </div>;

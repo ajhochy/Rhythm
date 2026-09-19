@@ -61,9 +61,13 @@ export async function expectListInspectorAxeClean(page: Page) {
 
 /** Match parity-edge-cases.spec.ts: CSS zoom exercises reflow, unlike device scale. */
 export async function atZoom200(page: Page) {
-  await page.evaluate(() => { document.body.style.zoom = '2'; });
+  await page.evaluate(async () => {
+    document.body.style.zoom = '2';
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  });
 }
 
 export async function atNarrow(page: Page) {
   await page.setViewportSize({ width: 640, height: 900 });
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
