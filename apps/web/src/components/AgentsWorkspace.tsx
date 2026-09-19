@@ -9,6 +9,7 @@ import { ProfileAvatar } from './Profiles';
 import { SessionRail } from './SessionRail';
 import { Transcript } from './Transcript';
 import { usePendingDecisions } from '../pending-decisions';
+import type { AgentProject } from '../gateway/sessions';
 
 function clamp(value: number, min: number, max: number) { return Math.min(max, Math.max(min, value)); }
 
@@ -30,6 +31,8 @@ export function AgentsWorkspace() {
   const [inspectorCollapsed, setInspectorCollapsed] = useState(compactLayout);
   const [sessionSettings, setSessionSettings] = useState(false);
   const [prepareOpen, setPrepareOpen] = useState(false);
+  const [selectedProject, setSelectedProject] = useState<AgentProject | null>(null);
+  useEffect(() => { setSelectedProject(null); }, [selected.id]);
   const [retrying, setRetrying] = useState(false);
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
   const connectionMessage = live ? retrying ? 'Reconciling session…' : liveSessionError ?? (loading ? 'Loading session…' : fixtureConnectionMessage === 'Desktop connected' ? 'Session loaded' : fixtureConnectionMessage) : fixtureConnectionMessage;
@@ -168,9 +171,10 @@ export function AgentsWorkspace() {
       '--inspector-resizer-width': inspectorCollapsed ? '0px' : '5px',
       '--inspector-width': inspectorCollapsed ? 'var(--collapsed-inspector-width)' : `${inspectorWidth}px`,
     } as React.CSSProperties} data-od-id="agents-workspace">
-      <SessionRail collapsed={railCollapsed} onToggle={toggleRail} />
+      <SessionRail collapsed={railCollapsed} onToggle={toggleRail} selectedProject={selectedProject} onSelectProject={setSelectedProject} />
       {!railCollapsed && <div className="resize-handle rail-resize" role="separator" aria-orientation="vertical" aria-label="Resize Agents rail" aria-valuemin={228} aria-valuemax={380} aria-valuenow={railWidth} aria-valuetext={`${railWidth} pixels`} tabIndex={0} onPointerDown={startResize('rail')} onKeyDown={resizeWithKeys('rail')} data-testid="rail-resizer" />}
-      <section className="conversation-pane" aria-label="Active agent session" data-od-id="active-agent-session">
+      <section className="conversation-pane" aria-label={selectedProject ? 'Selected agent project' : 'Active agent session'} data-od-id="active-agent-session">
+        {selectedProject ? <div className="agent-project-empty" role="status" data-testid="selected-agent-project"><Icon name="worktree" size={28} /><h1>{selectedProject.name}</h1><p className="rail-project-path">{selectedProject.cwd}</p><p>No session selected. Use New session in the Agents rail to start here.</p><button className="secondary-button" type="button" onClick={() => setSelectedProject(null)}>Back to sessions</button></div> : <>
         <header className="session-header">
           <div className="session-identity">
             <ProfileAvatar profile={profile} />
@@ -194,9 +198,10 @@ export function AgentsWorkspace() {
         <span className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="agent-activity-status">{activityAnnouncement}</span>
         <div className="transcript-reader"><Transcript /></div>
         {!liveChildView && <Composer />}
+        </>}
       </section>
       {!inspectorCollapsed && <div className="resize-handle inspector-resize" role="separator" aria-orientation="vertical" aria-label="Resize Inspector" aria-valuemin={286} aria-valuemax={470} aria-valuenow={inspectorWidth} aria-valuetext={`${inspectorWidth} pixels`} tabIndex={0} onPointerDown={startResize('inspector')} onKeyDown={resizeWithKeys('inspector')} data-testid="inspector-resizer" />}
-      <Inspector collapsed={inspectorCollapsed} onToggle={toggleInspector} />
+      {selectedProject ? <aside className={`inspector${inspectorCollapsed ? ' collapsed' : ''}`} aria-label="Project context" /> : <Inspector collapsed={inspectorCollapsed} onToggle={toggleInspector} />}
       <span className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="panel-resize-status">{resizeAnnouncement}</span>
 
       <FocusDialog open={sessionSettings} onClose={() => setSessionSettings(false)} title="Session settings" description="Update the fields supported by PATCH /agent-sessions/:id." testId="session-settings-dialog" wide>

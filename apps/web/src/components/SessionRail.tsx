@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Icon, type IconName } from '../icons';
 import { useGateway } from '../gateway/context';
-import { compareSessions, SessionGatewayError, type ProjectBranches, type SessionCatalogEntry, type SessionSort, type TranscriptPageInfo } from '../gateway/sessions';
+import { compareSessions, SessionGatewayError, type AgentProject, type ProjectBranches, type SessionCatalogEntry, type SessionSort, type TranscriptPageInfo } from '../gateway/sessions';
 import { isSessionRecoverable, sessionPresentation } from '../sessionState';
 import { useFixtures } from '../store';
 import type { Session, SessionScope } from '../types';
 import { FocusDialog } from './FocusDialog';
 import { navigate } from './Shell';
 import { usePendingSessionIds } from '../pending-decisions';
+import './SessionRail.css';
 
 const tools: { key: string; label: string; description: string; icon: IconName }[] = [
   { key: 'brain', label: 'Brain', description: 'Workspace memory', icon: 'brain' },
@@ -26,7 +27,7 @@ const tools: { key: string; label: string; description: string; icon: IconName }
 const accounts = ['Rhythm workspace', 'Research account'];
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onToggle(): void }) {
+export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProject }: { collapsed: boolean; onToggle(): void; selectedProject: AgentProject | null; onSelectProject(project: AgentProject | null): void }) {
   const fixtures = useFixtures();
   const gateway = useGateway();
   const pendingSessions = usePendingSessionIds();
@@ -42,36 +43,120 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
   const [sort, setSort] = useState<SessionSort>('newest');
   const [archivedOnly, setArchivedOnly] = useState(false);
   const [compact, setCompact] = useState(false);
+  const [viewOptionsOpen, setViewOptionsOpen] = useState(false);
+  const viewOptionsRef = useRef<HTMLDivElement>(null);
+  const viewOptionsTriggerRef = useRef<HTMLButtonElement>(null);
+  const viewOptionsLastItem = useRef(false);
+  const closeViewOptions = () => {
+    setViewOptionsOpen(false);
+    viewOptionsTriggerRef.current?.focus({ preventScroll: true });
+  };
+  useLayoutEffect(() => {
+    if (!viewOptionsOpen) return;
+    const menu = viewOptionsRef.current?.querySelector<HTMLElement>('[role="menu"]');
+    const rail = viewOptionsRef.current?.closest('aside');
+    const fitMenu = () => {
+      if (!menu || !rail) return;
+      const bounds = menu.getBoundingClientRect();
+      const scale = menu.offsetWidth ? bounds.width / menu.offsetWidth : 1;
+      menu.style.maxHeight = `${Math.max(44, (Math.min(window.innerHeight, rail.getBoundingClientRect().bottom) - bounds.top - 8) / scale)}px`;
+    };
+    fitMenu();
+    const resize = new ResizeObserver(fitMenu);
+    if (rail) resize.observe(rail);
+    const items = viewOptionsRef.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]');
+    items?.[viewOptionsLastItem.current ? items.length - 1 : 0]?.focus();
+    const closeOutside = (event: PointerEvent) => {
+      if (!viewOptionsRef.current?.contains(event.target as Node)) setViewOptionsOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOutside);
+    window.addEventListener('resize', fitMenu);
+    return () => { resize.disconnect(); document.removeEventListener('pointerdown', closeOutside); window.removeEventListener('resize', fitMenu); };
+  }, [viewOptionsOpen]);
+  const moveViewOptionsFocus = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeViewOptions(); return; }
+    if (event.key === 'Tab') { closeViewOptions(); return; }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const items = [...event.currentTarget.querySelectorAll<HTMLElement>('[role^="menuitem"]')];
+    const current = items.indexOf(document.activeElement as HTMLElement);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    items[next]?.focus();
+  };
   const [refresh, setRefresh] = useState(0);
   const normalizedSearch = search.trim();
   const historyIdentity = useMemo(() => ({ gateway, scope, search: normalizedSearch, archivedOnly, refresh }), [gateway, scope, normalizedSearch, archivedOnly, refresh]);
   const currentHistory = useRef(historyIdentity);
   currentHistory.current = historyIdentity;
+  const historyRequests = useRef({ identity: historyIdentity, keys: new Set<string>() });
+  const sessionListRef = useRef<HTMLDivElement>(null);
+  const pendingScrollRestore = useRef<{ top: number; focusParent?: string } | null>(null);
   const [history, setHistory] = useState<{
     identity: typeof historyIdentity; rows: SessionCatalogEntry[];
     pages: Record<string, TranscriptPageInfo>; busy: boolean; error: string;
+    children: Record<string, { busy: boolean; error: string; resetCursor?: boolean }>;
   } | null>(null);
-  const [projectLabels, setProjectLabels] = useState<{ gateway: typeof gateway; rows: { id: string; name: string }[] } | null>(null);
+  const [projectLabels, setProjectLabels] = useState<{ gateway: typeof gateway; rows: AgentProject[] } | null>(null);
+  const [projectRefresh, setProjectRefresh] = useState(0);
+  const [projectsError, setProjectsError] = useState('');
+  const [projectFormOpen, setProjectFormOpen] = useState(false);
+  const [projectName, setProjectName] = useState('');
+  const [projectCwd, setProjectCwd] = useState('');
+  const [projectError, setProjectError] = useState('');
+  const [projectSaving, setProjectSaving] = useState(false);
+  const [folderPicking, setFolderPicking] = useState(false);
+  const projectSaveInFlight = useRef(false);
+  const projectFormGeneration = useRef(0);
+  const currentGateway = useRef(gateway);
+  currentGateway.current = gateway;
   const liveHistory = sessionGatewayMode === 'live';
   const currentPage = history?.identity === historyIdentity ? history : null;
   const loadHistory = async (parentId?: string, cursor?: string) => {
     const identity = historyIdentity;
     if (!gateway.domains.sessions?.listPage) return;
-    setHistory((value) => value?.identity === identity ? { ...value, busy: true, error: '' } : { identity, rows: [], pages: {}, busy: true, error: '' });
+    if (historyRequests.current.identity !== identity) historyRequests.current = { identity, keys: new Set() };
+    const requests = historyRequests.current.keys;
+    const key = parentId ?? '';
+    if (requests.has(key)) return;
+    requests.add(key);
+    setHistory((value) => {
+      const previous = value?.identity === identity ? value : { identity, rows: [], pages: {}, children: {}, busy: false, error: '' };
+      return parentId ? { ...previous, children: { ...previous.children, [parentId]: { busy: true, error: '' } } } : { ...previous, busy: true, error: '' };
+    });
     try {
       const result = await gateway.domains.sessions.listPage({ scope, search: normalizedSearch, archivedOnly, parentId, cursor });
       if (currentHistory.current !== identity) return;
+      if (parentId && sessionListRef.current) {
+        pendingScrollRestore.current = {
+          top: sessionListRef.current.scrollTop,
+          focusParent: !result.pageInfo.hasMore && document.activeElement?.getAttribute('data-load-parent') === parentId ? parentId : undefined,
+        };
+      }
       setHistory((value) => {
         const previous = value?.identity === identity ? value : null;
         const rows = new Map((previous?.rows ?? []).map((row) => [row.id, row]));
         for (const row of [...result.ancestors, ...result.sessions]) rows.set(row.id, row);
-        return { identity, rows: [...rows.values()], pages: { ...previous?.pages, [parentId ?? '']: result.pageInfo }, busy: false, error: '' };
+        return { identity, rows: [...rows.values()], pages: { ...previous?.pages, [key]: result.pageInfo },
+          busy: parentId ? previous?.busy ?? false : false, error: parentId ? previous?.error ?? '' : '',
+          children: { ...previous?.children, ...(parentId ? { [parentId]: { busy: false, error: '' } } : {}) } };
       });
     } catch (error) {
       if (currentHistory.current !== identity) return;
-      setHistory((value) => value?.identity === identity ? { ...value, busy: false, error: error instanceof SessionGatewayError && error.status === 400 ? 'Session history cursor expired. Reset session history to continue.' : 'Session history unavailable. Reset session history to retry.' } : value);
+      const expired = error instanceof SessionGatewayError && error.status === 400;
+      setHistory((value) => value?.identity !== identity ? value : parentId
+        ? { ...value, children: { ...value.children, [parentId]: { busy: false, error: expired ? 'Subagent history expired.' : 'Could not load subagents.', resetCursor: expired } } }
+        : { ...value, busy: false, error: expired ? 'Session history cursor expired. Reset session history to continue.' : 'Session history unavailable. Reset session history to retry.' });
+    } finally {
+      requests.delete(key);
     }
   };
+  useLayoutEffect(() => {
+    const restore = pendingScrollRestore.current;
+    pendingScrollRestore.current = null;
+    if (!restore || !sessionListRef.current) return;
+    if (restore.focusParent) document.getElementById(`subagents-toggle-${restore.focusParent}`)?.focus({ preventScroll: true });
+    sessionListRef.current.scrollTop = restore.top;
+  }, [currentPage]);
   useEffect(() => {
     if (!liveHistory) return;
     setHistory(null);
@@ -82,9 +167,72 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
   useEffect(() => {
     if (!liveHistory || !gateway.domains.sessions?.projectLabels) return;
     let active = true;
-    void gateway.domains.sessions.projectLabels().then((rows) => { if (active) setProjectLabels({ gateway, rows }); }).catch(() => { if (active) setProjectLabels({ gateway, rows: [] }); });
+    setProjectsError('');
+    void gateway.domains.sessions.projectLabels().then((rows) => { if (active) setProjectLabels({ gateway, rows }); }).catch(() => { if (active) setProjectsError('Projects could not be loaded.'); });
     return () => { active = false; };
-  }, [gateway, liveHistory]);
+  }, [gateway, liveHistory, projectRefresh]);
+  useEffect(() => {
+    projectFormGeneration.current += 1;
+    setProjectFormOpen(false);
+    onSelectProject(null);
+    // Project selection belongs to this gateway/account, never the next one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gateway]);
+  const openProjectForm = () => {
+    projectFormGeneration.current += 1;
+    setProjectName(''); setProjectCwd(''); setProjectError(''); setFolderPicking(false); setProjectFormOpen(true);
+  };
+  const closeProjectForm = () => {
+    if (projectSaveInFlight.current) return;
+    projectFormGeneration.current += 1;
+    setProjectFormOpen(false);
+  };
+  // Optional until the native picker bridge lands; manual entry is always available.
+  const projectShell = (window as Window & { rhythmShell?: { selectDirectory?: () => Promise<string | null> } }).rhythmShell;
+  const chooseProjectFolder = async () => {
+    if (!projectShell?.selectDirectory || folderPicking) return;
+    const generation = projectFormGeneration.current;
+    setFolderPicking(true); setProjectError('');
+    try {
+      const path = await projectShell.selectDirectory();
+      if (generation === projectFormGeneration.current && path !== null) setProjectCwd(path);
+    } catch {
+      if (generation === projectFormGeneration.current) setProjectError('The folder picker could not open. Enter the working directory below.');
+    } finally {
+      if (generation === projectFormGeneration.current) setFolderPicking(false);
+    }
+  };
+  const addProject = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (projectSaveInFlight.current || folderPicking) return;
+    const name = projectName.trim(); const cwd = projectCwd.trim();
+    if (!name || !cwd) { setProjectError('Enter a project name and working directory.'); return; }
+    if (!(cwd.startsWith('/') || cwd === '~' || cwd.startsWith('~/')) || cwd.includes('\0')) {
+      setProjectError('Enter an absolute directory path, such as /Users/you/project or ~/project.'); return;
+    }
+    if (!gateway.domains.sessions?.createProject) { setProjectError('Project creation is unavailable in this workspace. Connect to the agent service and try again.'); return; }
+    const generation = projectFormGeneration.current;
+    projectSaveInFlight.current = true;
+    setProjectSaving(true); setProjectError('');
+    try {
+      const project = await gateway.domains.sessions.createProject({ name, cwd });
+      if (currentGateway.current !== gateway || generation !== projectFormGeneration.current) return;
+      // Keep the successful response visible even if the subsequent catalog refresh fails.
+      setProjectLabels((value) => ({ gateway, rows: [...(value?.gateway === gateway ? value.rows.filter((row) => row.id !== project.id) : []), project] }));
+      setProjectRefresh((value) => value + 1);
+      setCollapsedProjects((value) => { const next = new Set(value); next.delete(project.id); return next; });
+      setSearch(''); setArchivedOnly(false); setScope('chats'); setSelectedRows([]);
+      onSelectProject(project);
+      setProjectFormOpen(false);
+      notify(`Project ${project.name} created`);
+    } catch (error) {
+      if (currentGateway.current !== gateway || generation !== projectFormGeneration.current) return;
+      setProjectError(error instanceof SessionGatewayError && error.status === 400 ? error.message.replace(/\bcwd\b/g, 'Working directory') : 'Project could not be saved. Check the connection and try again.');
+    } finally {
+      projectSaveInFlight.current = false;
+      setProjectSaving(false);
+    }
+  };
   // Keep live status/creation/deletion changes without re-fetching on every streamed token.
   const previousSessions = useRef(sessions);
   useEffect(() => {
@@ -142,8 +290,8 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
   }, [rowMenuId]);
 
   const resetAdvanced = () => {
-    setName(''); setTaskId(''); setCwd(selected.cwd); setIsolateWorktree(false); setWorktreeName('');
-    setBranch(selected.branch); setNewBranchMode(false); setNewBranch(''); setPendingBranch(null); setStashConfirmed(false);
+    setName(''); setTaskId(''); setCwd(selectedProject?.cwd ?? selected.cwd); setIsolateWorktree(false); setWorktreeName('');
+    setBranch(selectedProject ? selectedProject.vcsBranch ?? '' : selected.branch); setNewBranchMode(false); setNewBranch(''); setPendingBranch(null); setStashConfirmed(false);
     setAccount(''); setProfileId(defaultProfileId); setSubmitting(false); setSubmitError(null);
   };
   const openAdvanced = () => { resetAdvanced(); setLiveBranches(null); setAdvancedOpen(true); };
@@ -155,11 +303,11 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
     let active = true;
     setLiveTasks([]); setTasksError('');
     void gateway.domains.tasks!.list().then(rows => { if (active) setLiveTasks(rows.filter(task => task.status !== 'done')); }).catch(() => { if (active) setTasksError('Task catalog unavailable'); });
-    void gateway.domains.sessions!.branches(selected.projectId)
+    void gateway.domains.sessions!.branches(selectedProject?.id ?? selected.projectId)
       .then((data) => { if (active) setLiveBranches(data); })
       .catch(() => { if (active) setLiveBranches(null); });
     return () => { active = false; };
-  }, [advancedOpen, sessionGatewayMode, selected.projectId, gateway]);
+  }, [advancedOpen, sessionGatewayMode, selected.projectId, selectedProject?.id, gateway]);
   const startSession = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!name.trim() || submitting) return;
@@ -167,7 +315,7 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
     try {
       if (sessionGatewayMode === 'live') {
         await createLiveSession({
-          name: name.trim(), cwd, profileId, taskId: taskId || undefined, anthropicAccountId: account || undefined, isolateWorktree, worktreeName: isolateWorktree ? worktreeName || undefined : undefined,
+          name: name.trim(), cwd, profileId, ...(selectedProject && cwd === selectedProject.cwd ? { projectId: selectedProject.id } : {}), taskId: taskId || undefined, anthropicAccountId: account || undefined, isolateWorktree, worktreeName: isolateWorktree ? worktreeName || undefined : undefined,
           branch: newBranchMode ? newBranch : branch || undefined, createBranch: newBranchMode, stash: stashConfirmed ? 'stash' : undefined,
         });
       } else {
@@ -176,6 +324,7 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
         if (cwd.includes('server-error')) { setSubmitError({ status: 503, message: 'Fixture server could not create the worktree. Request id: fixture-create-503.' }); return; }
         createSession({ name: name.trim(), taskId, cwd, branch: newBranchMode ? newBranch : branch, createBranch: newBranchMode, stash: stashConfirmed, isolateWorktree, worktreeName, anthropicAccountId: account });
       }
+      onSelectProject(null);
       setAdvancedOpen(false);
     } catch (error) {
       setSubmitError(error instanceof SessionGatewayError
@@ -187,7 +336,7 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
   };
   const selectBranch = (next: string) => {
     if (next === '__new__') { setNewBranchMode(true); setNewBranch(''); return; }
-    if (next !== selected.branch && selected.dirtyCount > 0) { setPendingBranch(next); return; }
+    if (!selectedProject && next !== selected.branch && selected.dirtyCount > 0) { setPendingBranch(next); return; }
     setBranch(next); setNewBranchMode(false);
   };
   const startToolsResize = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -212,7 +361,8 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
     changeScope(next); requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-testid="scope-${next}"]`)?.focus());
   };
   const catalog: SessionCatalogEntry[] = liveHistory ? currentPage?.rows ?? [] : sessions;
-  const projects = new Map((projectLabels?.gateway === gateway ? projectLabels.rows : []).map((item) => [item.id, item.name]));
+  const projectCatalog = projectLabels?.gateway === gateway ? projectLabels.rows : [];
+  const projects = new Map(projectCatalog.map((item) => [item.id, item.name]));
   for (const session of catalog) if (session.projectId && !projects.has(session.projectId)) projects.set(session.projectId, session.projectName || `Unknown project (${session.projectId})`);
   const projectNameCounts = new Map<string, number>();
   for (const name of projects.values()) projectNameCounts.set(name, (projectNameCounts.get(name) ?? 0) + 1);
@@ -253,7 +403,10 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
     const group = projectGroups.get(session.projectId || '');
     if (group) group.count += 1;
   }
-  const toggleRow = (id: string, additive: boolean) => { if (!additive) { setSelectedRows([]); if (sessionGatewayMode === 'live') void selectLiveSession(id); else selectSession(id); return; } setSelectedRows((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); };
+  if (scope === 'chats' && !archivedOnly && !normalizedSearch) for (const project of projectCatalog) {
+    if (project.cwd && !project.archivedAt && !projectGroups.has(project.id)) projectGroups.set(project.id, { roots: [], count: 0 });
+  }
+  const toggleRow = (id: string, additive: boolean) => { if (!additive) { onSelectProject(null); setSelectedRows([]); if (sessionGatewayMode === 'live') void selectLiveSession(id); else selectSession(id); return; } setSelectedRows((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); };
   const removeSession = async (id: string) => {
     if (!liveHistory) { deleteSession(id); return; }
     await deleteLiveSession(id);
@@ -275,10 +428,10 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
     const parentSession = session.parentId ? sessionsById.get(session.parentId) : undefined;
     return (
     <div className={`session-row-wrap ${child ? 'child-wrap' : ''} ${disclosure ? 'has-subagents' : ''}`} key={session.id} data-session-menu={session.id} style={child ? { '--child-depth': childDepth(session) } as React.CSSProperties : undefined}>
-      <button id={`session-${session.id}`} className={`${child ? 'child-session' : 'session-row'} ${selectedId === session.id ? 'selected' : ''} ${selectedRows.includes(session.id) ? 'multi-selected' : ''}`} type="button" onClick={(event) => toggleRow(session.id, event.shiftKey || event.metaKey)} aria-current={selectedId === session.id ? 'true' : undefined} aria-pressed={selectedRows.includes(session.id)} data-testid={`session-${session.id}`}>
-        <span className={`status-dot ${presentation.tone}`} aria-hidden="true" /><span className="session-copy"><strong>{session.name}</strong>{compact ? <small>{presentation.label}</small> : <><small>{child ? `${parentSession?.name ?? 'Parent session'} · ${presentation.label}` : `${projects.get(session.projectId) || session.projectName || 'No project'} · ${presentation.label}`}</small>{session.lastPreview && <small title={session.lastPreview}>{session.lastPreview}</small>}</>}</span>{presentation.waiting && <span className="attention-mark" aria-label="Waiting on you">!</span>}
+      <button id={`session-${session.id}`} className={`${child ? 'child-session' : 'session-row'} ${!selectedProject && selectedId === session.id ? 'selected' : ''} ${selectedRows.includes(session.id) ? 'multi-selected' : ''}`} type="button" onClick={(event) => toggleRow(session.id, event.shiftKey || event.metaKey)} aria-current={!selectedProject && selectedId === session.id ? 'true' : undefined} aria-pressed={selectedRows.includes(session.id)} data-testid={`session-${session.id}`}>
+        <span className={`status-dot ${presentation.tone}`} aria-hidden="true" /><span className="session-copy"><strong>{session.name}</strong>{compact ? <small>{presentation.label}</small> : <><small>{child ? `${parentSession?.name ?? 'Parent session'} · ${presentation.label}` : `${projects.get(session.projectId) || session.projectName || 'No project'} · ${presentation.label}`}</small>{session.lastPreview && <small title={session.lastPreview}>{session.lastPreview}</small>}</>}</span>{presentation.waiting && <span className="attention-mark" role="img" aria-label="Waiting on you">!</span>}
       </button>
-      {disclosure && <button className="subagent-disclosure" type="button" aria-label={disclosure.name} title={disclosure.name} aria-expanded={disclosure.expanded} aria-controls={`subagent-children-${session.id}`} onClick={() => setCollapsedParents((current) => { const next = new Set(current); if (next.has(session.id)) next.delete(session.id); else next.add(session.id); return next; })} data-testid={`subagents-${session.id}`}><Icon name={disclosure.expanded ? 'chevronDown' : 'chevronRight'} size={13} /><span>{disclosure.label}</span></button>}
+      {disclosure && <button id={`subagents-toggle-${session.id}`} className="subagent-disclosure" type="button" aria-label={disclosure.name} title={disclosure.name} aria-expanded={disclosure.expanded} aria-controls={`subagent-children-${session.id}`} onClick={() => setCollapsedParents((current) => { const next = new Set(current); if (next.has(session.id)) next.delete(session.id); else next.add(session.id); return next; })} data-testid={`subagents-${session.id}`}><Icon name={disclosure.expanded ? 'chevronDown' : 'chevronRight'} size={13} /><span>{disclosure.label}</span></button>}
       {!child && <><button className="session-overflow-button" type="button" aria-label={`${uniqueName(session)} actions`} aria-haspopup="menu" aria-expanded={rowMenuId === session.id} onClick={() => setRowMenuId((current) => current === session.id ? null : session.id)} data-testid={`session-menu-${session.id}`}><Icon name="more" size={15} /></button>{rowMenuId === session.id && <div className="menu-popover session-row-menu" role="menu" aria-label={`${uniqueName(session)} actions`}>
         {session.group === 'archived' ? <button className="menu-item" role="menuitem" type="button" onClick={() => { unarchiveSession(session.id); setRowMenuId(null); }} data-testid={`unarchive-${session.id}`}><Icon name="resume" size={14} />Restore</button> : <button className="menu-item" role="menuitem" type="button" onClick={() => { archiveSession(session.id); setRowMenuId(null); }} data-testid={`archive-${session.id}`}><Icon name="archive" size={14} />Archive</button>}
         {isSessionRecoverable(session) && session.group !== 'archived' && <button className="menu-item" role="menuitem" type="button" onClick={() => { resumeSession(session.id); setRowMenuId(null); }} data-testid={`resume-${session.id}`}><Icon name="resume" size={14} />Resume</button>}
@@ -294,6 +447,7 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
     const path = new Set(visited).add(session.id);
     const children = childrenByParent.get(session.id) ?? [];
     const page = currentPage?.pages[session.id];
+    const childRequest = currentPage?.children[session.id];
     const expanded = !collapsedParents.has(session.id);
     const loadedRunning = children.filter((nestedChild) => nestedChild.status === 'working').length;
     const hasExactCount = session.childCount !== undefined;
@@ -309,35 +463,69 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
     return [
       sessionRow(session, child, hasDisclosure ? { label: compactLabel, name: disclosureName, expanded } : undefined),
       hasDisclosure && <div id={`subagent-children-${session.id}`} className="subagent-children" key={`subagent-children-${session.id}`}>{expanded ? children.map((nestedChild) => sessionTree(nestedChild, true, path)) : []}</div>,
-      liveHistory && hasDisclosure && (!page || page.hasMore) && <button className="secondary-button" key={`load-${session.id}`} type="button" disabled={currentPage?.busy || !!currentPage?.error} onClick={() => void loadHistory(session.id, page?.nextCursor ?? undefined)}>{page ? 'Load older children of ' : 'Load children of '}{session.name}</button>,
+      liveHistory && hasDisclosure && (!page || page.hasMore) && <button className="rail-load-children" key={`load-${session.id}`} type="button" data-load-parent={session.id} style={{ '--child-depth': Math.min(4, childDepth(session) + 1) } as React.CSSProperties} aria-disabled={childRequest?.busy || undefined} aria-busy={childRequest?.busy || undefined} onClick={() => void loadHistory(session.id, childRequest?.resetCursor ? undefined : page?.nextCursor ?? undefined)}>
+        <Icon name={childRequest?.busy ? 'refresh' : 'chevronDown'} className={childRequest?.busy ? 'spin' : undefined} size={13} />
+        <span aria-live="polite" aria-atomic="true">{childRequest?.error ? <>{childRequest.error} <span className="rail-child-retry">Retry</span></> : page ? 'Load more subagents' : 'Load subagents'}<span className="sr-only"> for {uniqueName(session)}{childRequest?.busy ? ' — Loading' : ''}</span></span>
+      </button>,
     ];
   };
 
   return <aside className="session-rail" aria-label="Agents" data-od-id="sessions-tools-rail">
     <header className={`rail-header ${searchOpen ? 'searching' : ''}`}>
       {searchOpen ? <label className="rail-title-search"><Icon name="search" size={15} /><span className="sr-only">Search sessions</span><input ref={searchRef} value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { setSearch(''); setSearchOpen(false); requestAnimationFrame(() => searchToggleRef.current?.focus()); } }} placeholder="Search agents" data-testid="session-search" /></label> : <h2>Agents</h2>}
-      <div className="rail-header-actions"><button ref={searchToggleRef} className="icon-button small" type="button" onClick={() => { if (searchOpen) { setSearch(''); setSearchOpen(false); } else setSearchOpen(true); }} aria-label={searchOpen ? 'Close search' : 'Search agents'} aria-expanded={searchOpen} data-testid="session-search-toggle"><Icon name={searchOpen ? 'close' : 'search'} size={15} /></button><button className="icon-button small" type="button" onClick={() => { if (liveHistory) setRefresh((value) => value + 1); else notify('Session list refreshed at Aug 12, 3:48 PM'); }} aria-label="Refresh sessions" data-testid="sessions-refresh"><Icon name="refresh" size={15} /></button><button className="icon-button small" type="button" onClick={onToggle} aria-label="Collapse Agents" data-testid="rail-collapse"><Icon name="collapse" size={16} /></button></div>
+      <div className="rail-header-actions"><button ref={searchToggleRef} className="icon-button small" type="button" onClick={() => { if (searchOpen) { setSearch(''); setSearchOpen(false); } else setSearchOpen(true); }} aria-label={searchOpen ? 'Close search' : 'Search agents'} aria-expanded={searchOpen} data-testid="session-search-toggle"><Icon name={searchOpen ? 'close' : 'search'} size={15} /></button><button className="icon-button small" type="button" onClick={() => { if (liveHistory) { setRefresh((value) => value + 1); setProjectRefresh((value) => value + 1); } else notify('Session list refreshed at Aug 12, 3:48 PM'); }} aria-label="Refresh sessions" data-testid="sessions-refresh"><Icon name="refresh" size={15} /></button><button className="icon-button small" type="button" onClick={onToggle} aria-label="Collapse Agents" data-testid="rail-collapse"><Icon name="collapse" size={16} /></button></div>
     </header>
-    <div className="rail-primary-actions"><button className="primary-button" type="button" disabled={liveHistory && (!defaultProfileId || submitting)} onClick={() => { if (liveHistory) { setSubmitting(true); void createLiveSession({ name: '', cwd: selected.cwd, profileId: defaultProfileId, isolateWorktree: false }).catch(error => notify(error instanceof Error ? error.message : 'Session creation failed')).finally(() => setSubmitting(false)); } else createSession(); }} data-testid="new-chat-instant"><Icon name="plus" size={16} />New session</button><button className="icon-button" type="button" onClick={openAdvanced} aria-label="Advanced new agent session" title="Advanced session options" data-testid="new-session-advanced"><Icon name="sliders" /></button></div>
+    <div className="rail-primary-actions"><button className="primary-button" type="button" disabled={liveHistory && (!defaultProfileId || submitting)} onClick={() => { if (liveHistory) { setSubmitting(true); void createLiveSession({ name: '', cwd: selectedProject?.cwd ?? selected.cwd, ...(selectedProject ? { projectId: selectedProject.id } : {}), profileId: defaultProfileId, isolateWorktree: false }).then(() => onSelectProject(null)).catch(error => notify(error instanceof Error ? error.message : 'Session creation failed')).finally(() => setSubmitting(false)); } else createSession(); }} data-testid="new-chat-instant"><Icon name="plus" size={16} />New session</button><button className="icon-button" type="button" onClick={openAdvanced} aria-label="Advanced new agent session" title="Advanced session options" data-testid="new-session-advanced"><Icon name="sliders" /></button></div>
+    <button className="rail-add-project" type="button" onClick={openProjectForm} data-testid="rail-add-project"><Icon name="plus" size={14} />Add project</button>
     <div className="scope-tabs" role="tablist" aria-label="Session scopes" onKeyDown={moveScope}>{(['chats', 'scheduled', 'background'] as SessionScope[]).map((item) => <button role="tab" aria-selected={scope === item} tabIndex={scope === item ? 0 : -1} type="button" key={item} onClick={() => changeScope(item)} data-testid={`scope-${item}`}>{item === 'chats' ? 'Chats' : item === 'scheduled' ? 'Scheduled' : 'Background'}</button>)}</div>
-    <div className="rail-filters"><div className="filter-row"><label><span className="sr-only">Session sort</span><select value={sort} onChange={(event) => setSort(event.target.value as SessionSort)} data-testid="session-sort"><option value="newest">Date · newest</option><option value="oldest">Date · oldest</option><option value="name">Name</option><option value="activity">Last activity</option><option value="status">Status</option></select></label></div><label><input type="checkbox" checked={archivedOnly} onChange={(event) => setArchivedOnly(event.target.checked)} />Archived sessions</label><label><input type="checkbox" checked={compact} onChange={(event) => setCompact(event.target.checked)} />Compact rows</label></div>
+    <div className="rail-filters rail-view-controls" ref={viewOptionsRef} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setViewOptionsOpen(false); }}>
+      <label className="rail-sort"><span className="sr-only">Session sort</span><select value={sort} onChange={(event) => setSort(event.target.value as SessionSort)} data-testid="session-sort"><option value="newest">Date · newest</option><option value="oldest">Date · oldest</option><option value="name">Name</option><option value="activity">Last activity</option><option value="status">Status</option></select></label>
+      <button ref={viewOptionsTriggerRef} className="rail-view-trigger" type="button" aria-haspopup="menu" aria-expanded={viewOptionsOpen} aria-controls={viewOptionsOpen ? 'rail-view-options' : undefined} onClick={() => { viewOptionsLastItem.current = false; setViewOptionsOpen((value) => !value); }} onKeyDown={(event) => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); viewOptionsLastItem.current = event.key === 'ArrowUp'; setViewOptionsOpen(true); } }}>View options<Icon name="chevronDown" size={13} /></button>
+      {viewOptionsOpen && <div id="rail-view-options" className="menu-popover rail-view-menu" role="menu" tabIndex={0} aria-label="View options" onKeyDown={moveViewOptionsFocus}>
+        <button className="rail-view-item" type="button" role="menuitemcheckbox" tabIndex={-1} aria-checked={archivedOnly} aria-describedby="rail-archive-help" onClick={() => { setArchivedOnly((value) => !value); closeViewOptions(); }}><span className="rail-option-mark" aria-hidden="true">{archivedOnly && <Icon name="check" size={14} />}</span><span>View archived sessions</span></button>
+        <p role="presentation" id="rail-archive-help" className="rail-view-help">Shows archived conversations instead of active ones. Does not archive anything.</p>
+        <div role="group" aria-labelledby="rail-spacing-label" aria-describedby="rail-spacing-help">
+          <p role="presentation" id="rail-spacing-label" className="rail-view-label">Row spacing</p>
+          <p role="presentation" id="rail-spacing-help" className="rail-view-help">Compact fits more sessions in the list</p>
+          {(['Comfortable', 'Compact'] as const).map((spacing) => <button className="rail-view-item" type="button" role="menuitemradio" tabIndex={-1} aria-checked={compact === (spacing === 'Compact')} key={spacing} onClick={() => { setCompact(spacing === 'Compact'); closeViewOptions(); }}><span className="rail-option-mark" aria-hidden="true">{compact === (spacing === 'Compact') && <Icon name="check" size={14} />}</span><span>{spacing}</span></button>)}
+        </div>
+      </div>}
+    </div>
+    {archivedOnly && <button className="rail-archive-chip" type="button" onClick={() => setArchivedOnly(false)}>Archived sessions — Back to active</button>}
     {selectedRows.length > 0 && <div className="bulk-bar" role="toolbar" aria-label="Selected session actions"><strong>{selectedRows.length} selected</strong><button type="button" onClick={() => setSelectedRows([])}>Cancel</button><button type="button" onClick={() => setBulkDeleteOpen(true)}>Delete</button></div>}
-    <div className="session-list" aria-label={`${scope} sessions`} aria-busy={liveHistory && (!currentPage || currentPage.busy)}>
+    <div ref={sessionListRef} className={`session-list${compact ? ' rail-compact' : ''}`} role="region" tabIndex={0} aria-label={`${scope} sessions`} aria-busy={liveHistory && (!currentPage || currentPage.busy)}>
       {[...projectGroups].map(([id, group]) => {
         const expanded = !collapsedProjects.has(id);
         const name = id ? projects.get(id)! : 'No project';
         const label = id && (projectNameCounts.get(name) ?? 0) > 1 ? `${name} (${id})` : name;
+        const project = projectCatalog.find((item) => item.id === id);
         return <section className="session-group" key={id}>
           <button className="group-toggle" type="button" aria-expanded={expanded} onClick={() => setCollapsedProjects((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} data-testid={`group-project-${id}`}><Icon name={expanded ? 'chevronDown' : 'chevronRight'} size={13} /><span>{label}</span><small>{group.count}</small></button>
-          {expanded && <div>{group.roots.map((session) => sessionTree(session))}</div>}
+          {expanded && <div>{group.roots.map((session) => sessionTree(session))}{group.count === 0 && project?.cwd && <div className="rail-empty-project">
+            <p>{currentPage?.pages['']?.hasMore ? 'No sessions loaded.' : 'No active sessions.'}</p><p className="rail-project-path" title={project.cwd}>{project.cwd}</p>
+            <button className="rail-project-select" type="button" aria-pressed={selectedProject?.id === id} onClick={() => { onSelectProject(project); setSelectedRows([]); }}>{selectedProject?.id === id ? 'Selected project' : 'Select project'}<span className="sr-only"> {label}</span></button>
+          </div>}</div>}
         </section>;
       })}
-      {projectGroups.size === 0 && (!liveHistory || currentPage && !currentPage.busy && !currentPage.error) && <p className="rail-empty">No sessions match.</p>}
+      {projectGroups.size === 0 && (!liveHistory || currentPage && !currentPage.busy && !currentPage.error) && <div className="rail-empty"><p>No sessions match.</p><button className="rail-add-project" type="button" onClick={openProjectForm}>Add project</button></div>}
+      {projectsError && <div className="rail-project-error" role="alert">{projectsError} <button type="button" onClick={() => setProjectRefresh((value) => value + 1)}>Retry projects</button></div>}
       {liveHistory && <>{(!currentPage || currentPage.busy) && <p role="status">Loading session history…</p>}{currentPage?.error && <div role="alert"><p>{currentPage.error}</p><button className="secondary-button" type="button" onClick={() => setRefresh((value) => value + 1)}>Reset session history</button></div>}{currentPage?.pages['']?.hasMore && <><p className="rail-empty">Order applies to loaded sessions. Load older history to include more.</p><button className="secondary-button" type="button" disabled={currentPage.busy || !!currentPage.error} onClick={() => void loadHistory(undefined, currentPage.pages[''].nextCursor ?? undefined)}>{normalizedSearch ? 'Load older matches' : 'Load older roots'}</button></>}</>}
     </div>
     <div className="tools-resizer" role="separator" aria-orientation="horizontal" aria-label="Resize Tools panel" aria-valuemin={120} aria-valuemax={320} aria-valuenow={toolsHeight} aria-valuetext={`${toolsHeight} pixels`} tabIndex={0} onPointerDown={startToolsResize} onKeyDown={(event) => { if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); if (event.key === 'ArrowUp') setToolsHeight((value) => clamp(value + 16, 120, 320)); if (event.key === 'ArrowDown') setToolsHeight((value) => clamp(value - 16, 120, 320)); if (event.key === 'Home') setToolsHeight(120); if (event.key === 'End') setToolsHeight(320); }} data-testid="tools-resizer"><span /></div>
     <nav className="tools-nav" aria-label="Agent tools" style={{ height: `${toolsHeight}px` }}><span className="rail-section-label">Tools</span>{tools.map((tool) => <button type="button" onClick={() => openTool(tool.key)} key={tool.key} data-testid={`tool-${tool.key}`}><Icon name={tool.icon} /><span><strong>{tool.label}</strong><small>{tool.description}</small></span><Icon name="chevronRight" size={14} /></button>)}</nav>
     <footer className="rail-account"><button type="button" onClick={() => navigate('/tools/agent-settings')} data-testid="rail-agent-settings"><span className="avatar">AJ</span><span><strong>AJ Hochhalter</strong><small>Agent settings</small></span><Icon name="settings" size={15} /></button></footer>
+
+    <FocusDialog open={projectFormOpen} onClose={closeProjectForm} title="Add project" description="Give an existing working directory a name so you can start sessions in it." testId="add-project-dialog">
+      <form className="rail-project-form" onSubmit={addProject}>
+        <label className="field">Project name<input value={projectName} onChange={(event) => setProjectName(event.target.value)} required disabled={projectSaving} data-autofocus data-testid="project-name" autoComplete="off" /></label>
+        <label className="field" htmlFor="agent-project-cwd">Working directory</label>
+        <input id="agent-project-cwd" value={projectCwd} onChange={(event) => setProjectCwd(event.target.value)} required disabled={projectSaving} placeholder="/Users/you/project" aria-describedby="project-directory-help" data-testid="project-cwd" autoComplete="off" spellCheck={false} />
+        <button className="secondary-button rail-folder-picker" type="button" onClick={() => void chooseProjectFolder()} disabled={!projectShell?.selectDirectory || folderPicking || projectSaving}>{folderPicking ? 'Choosing folder…' : 'Choose folder…'}</button>
+        <p id="project-directory-help">{projectShell?.selectDirectory ? 'Choose a folder or enter its full path.' : 'Folder browsing is unavailable here. Enter the full directory path.'}</p>
+        {projectError && <p className="form-error" role="alert">{projectError}</p>}
+        <footer className="dialog-actions"><button className="secondary-button" type="button" onClick={closeProjectForm} disabled={projectSaving}>Cancel</button><button className="primary-button" type="submit" disabled={projectSaving || folderPicking || !projectName.trim() || !projectCwd.trim()}>{projectSaving ? 'Creating…' : 'Create'}</button></footer>
+      </form>
+    </FocusDialog>
 
     <FocusDialog open={advancedOpen} onClose={closeAdvanced} title="New agent session" description="Choose the task and working context. Model and agent are selected after the session starts." testId="advanced-session-dialog" wide>
       <form className="form-grid advanced-session-form" onSubmit={startSession}>
@@ -350,9 +538,9 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
         <fieldset className="branch-options span-2"><legend>Branch</legend>{newBranchMode ? <div className="field-with-action"><input value={newBranch} onChange={(event) => setNewBranch(event.target.value)} placeholder="new-branch-name" aria-label="New branch name" data-testid="advanced-new-branch" /><button type="button" onClick={() => { setNewBranchMode(false); setNewBranch(''); }}>Cancel</button></div> : sessionGatewayMode === 'live'
           ? <select value={branch} onChange={(event) => selectBranch(event.target.value)} aria-label="Branch" data-testid="advanced-branch">
               {branch === '' && <option value="">Use cwd's current branch</option>}
-              {cwd === selected.cwd && <><option value={liveBranches?.current ?? selected.branch}>Current · {liveBranches?.current ?? selected.branch}</option>
-              {(liveBranches?.recent ?? []).filter((name) => name !== (liveBranches?.current ?? selected.branch)).map((name) => <option value={name} key={`recent-${name}`}>{name} · recent</option>)}
-              {(liveBranches?.local ?? []).filter((name) => name !== (liveBranches?.current ?? selected.branch) && !(liveBranches?.recent ?? []).includes(name)).map((name) => <option value={name} key={`local-${name}`}>{name} · local</option>)}</>}
+              {cwd === (selectedProject?.cwd ?? selected.cwd) && <><option value={liveBranches?.current ?? (selectedProject ? selectedProject.vcsBranch ?? '' : selected.branch)}>Current · {liveBranches?.current ?? (selectedProject ? selectedProject.vcsBranch ?? '' : selected.branch)}</option>
+              {(liveBranches?.recent ?? []).filter((name) => name !== (liveBranches?.current ?? (selectedProject ? selectedProject.vcsBranch ?? '' : selected.branch))).map((name) => <option value={name} key={`recent-${name}`}>{name} · recent</option>)}
+              {(liveBranches?.local ?? []).filter((name) => name !== (liveBranches?.current ?? (selectedProject ? selectedProject.vcsBranch ?? '' : selected.branch)) && !(liveBranches?.recent ?? []).includes(name)).map((name) => <option value={name} key={`local-${name}`}>{name} · local</option>)}</>}
               <option value="__new__">New branch from current</option>
             </select>
           : <select value={branch} onChange={(event) => selectBranch(event.target.value)} aria-label="Branch" data-testid="advanced-branch"><option value={selected.branch}>Current · {selected.branch}</option>{selected.branch !== 'release/desktop' && <option value="release/desktop">release/desktop · recent</option>}{selected.branch !== 'main' && <option value="main">main · local</option>}<option value="__new__">New branch from current</option></select>}</fieldset>
