@@ -7,8 +7,14 @@ async function dragBy(page: Page, splitter: Locator, deltaX: number, deltaY: num
   expect(bounds).not.toBeNull();
   const viewport = page.viewportSize();
   expect(viewport).not.toBeNull();
-  const startX = Math.min(Math.max(bounds!.x + bounds!.width / 2, 1), viewport!.width - 1);
-  const startY = Math.min(Math.max(bounds!.y + bounds!.height / 2, 1), viewport!.height - 1);
+  const visibleLeft = Math.max(bounds!.x, 0);
+  const visibleRight = Math.min(bounds!.x + bounds!.width, viewport!.width);
+  const visibleTop = Math.max(bounds!.y, 0);
+  const visibleBottom = Math.min(bounds!.y + bounds!.height, viewport!.height);
+  expect(visibleRight).toBeGreaterThan(visibleLeft);
+  expect(visibleBottom).toBeGreaterThan(visibleTop);
+  const startX = (visibleLeft + visibleRight) / 2;
+  const startY = (visibleTop + visibleBottom) / 2;
   await page.mouse.move(startX, startY);
   await page.mouse.down();
   await page.mouse.move(startX + deltaX, startY + deltaY, { steps: 4 });

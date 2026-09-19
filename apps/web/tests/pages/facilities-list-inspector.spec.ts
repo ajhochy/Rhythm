@@ -106,7 +106,7 @@ test.describe('Facilities shared list and inspector', () => {
 
     await openPage(page, 'facilities', '?state=empty');
     await expect(page.getByTestId('page-state-empty')).toContainText('No reservations in this range');
-    await expect(page.getByRole('option')).toHaveCount(0);
+    await expect(page.getByRole('listbox', { name: 'Facility reservations' }).getByRole('option')).toHaveCount(0);
 
     await openPage(page, 'facilities', '?state=server-error');
     await expect(page.getByRole('alert').first()).toContainText('Facilities could not be loaded');

@@ -156,10 +156,11 @@ test('subagent-tree-c1 loaded nested children have independent keyboard disclosu
   await expect(rootDisclosure).toHaveAttribute('aria-expanded', 'false');
   await expect(page.getByTestId('session-c1')).toHaveCount(0);
   await expect(page).toHaveURL(/\/agents$/);
-  await expect(page.getByRole('button', { name: 'Load more subagents for alpha', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Load more subagents for alpha', exact: true })).toHaveCount(0);
   await expect(projectHeading).toHaveAttribute('aria-expanded', 'true');
 
   await rootDisclosure.press('Enter');
+  await expect(page.getByRole('button', { name: 'Load more subagents for alpha', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Load subagents for Able', exact: true }).click();
   const nestedDisclosure = page.getByTestId('subagents-c1');
   await expect(nestedDisclosure).toHaveAccessibleName('Able: 60 subagents');
