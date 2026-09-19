@@ -16,8 +16,9 @@
 //   APPLE_ID                    — Apple ID email used for notarization.
 //   APPLE_APP_SPECIFIC_PASSWORD — app-specific password for that Apple ID.
 import { execFile } from 'node:child_process';
-import { open, readdir } from 'node:fs/promises';
+import { mkdtemp, open, readdir, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -42,6 +43,7 @@ if (!existsSync(artifact)) {
 
 const identity = process.env.APPLE_SIGNING_IDENTITY.trim();
 const teamId = process.env.APPLE_TEAM_ID.trim();
+if (!/^[A-Z0-9]{10}$/.test(teamId)) throw new Error('Invalid APPLE_TEAM_ID');
 
 // Mach-O magic numbers (32/64-bit, fat/universal, both endiannesses). Notarization rejected the
 // first attempt here because two helper executables nested inside Contents/Frameworks/*.framework
@@ -105,12 +107,21 @@ if (!targets.includes(engine) || !(await isMachO(engine))) {
   throw new Error('Packaged Rhythm fork Mach-O is missing from nested signing targets');
 }
 await hardenElectronFuses(resolve(artifact, 'Contents/MacOS/Rhythm'));
-for (const target of targets) {
-  if (target === approvalHelper) {
-    // Native helper needs no Electron JIT/library-validation exceptions. Keep Keychain identity stable.
-    await run('codesign', ['--force', '--options', 'runtime', '--timestamp', '--identifier',
-      'com.rhythm.desktop.approval-signer', '--sign', identity, target]);
-  } else await codesign(target);
+const helperEntitlementsDir = await mkdtemp(join(tmpdir(), 'rhythm-approval-entitlements-'));
+try {
+  const helperEntitlements = join(helperEntitlementsDir, 'helper.plist');
+  // A bare signed executable has no default Data Protection Keychain access group.
+  // Secure Enclave key creation needs an app identifier tied to this signing team.
+  await writeFile(helperEntitlements, `<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict>\n<key>com.apple.application-identifier</key><string>${teamId}.com.rhythm.desktop.approval-signer</string>\n<key>com.apple.developer.team-identifier</key><string>${teamId}</string>\n</dict></plist>\n`, { mode: 0o600 });
+  for (const target of targets) {
+    if (target === approvalHelper) {
+      // Native helper needs no Electron JIT/library-validation exceptions. Keep Keychain identity stable.
+      await run('codesign', ['--force', '--options', 'runtime', '--timestamp', '--identifier',
+        'com.rhythm.desktop.approval-signer', '--entitlements', helperEntitlements, '--sign', identity, target]);
+    } else await codesign(target);
+  }
+} finally {
+  await rm(helperEntitlementsDir, { recursive: true, force: true });
 }
 await run('codesign', ['--verify', '--strict', approvalHelper]);
 await run('codesign', ['--verify', '--strict', engine]);
