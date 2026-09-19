@@ -1,9 +1,13 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { openPage } from '../helpers';
+import { expectInspectorHeading, expectSelected, selectRow } from '../helpers/list-inspector';
 
 const calendarRuleId = 'rule-calendar-room';
 const gmailRuleId = 'rule-gmail-follow-up';
+const calendarRuleName = 'Book a room for calendar events · 会場 📅';
+const gmailRuleName = 'Follow up on ministry inbox requests';
+const groupLabels = { rhythm: 'Rhythm', planning_center: 'Planning Center', google_calendar: 'Google Calendar', gmail: 'Gmail' } as const;
 
 async function expectAutomationsPage(page: Page) {
   await expect(page.getByTestId('page-automations')).toBeVisible();
@@ -28,41 +32,43 @@ test('issue-2008-c1: automations route and rule deep links render the real page 
 
   await openPage(page, `automations/${calendarRuleId}`);
   await expectAutomationsPage(page);
-  await expect(page.getByTestId(`automation-rule-${calendarRuleId}`)).toHaveAttribute('aria-current', 'true');
+  await expectSelected(page, calendarRuleName);
   await expect(page.getByTestId('automation-preview-dialog')).toContainText('Book a room');
   await expect(page.getByTestId('page-trace')).toContainText(`GET /automation-rules/${calendarRuleId}/preview → 200`);
 
   await openPage(page, 'automations/rule-does-not-exist');
-  await expect(page.getByTestId('automation-rule-not-found')).toContainText('Automation not found');
+  await expectInspectorHeading(page, 'Item not found');
   const traceBefore = await page.getByTestId('page-trace').textContent();
-  await page.getByTestId('automations-back-to-list').click();
-  await expect(page).toHaveURL(/#\/automations(?:\?|$)/);
+  await selectRow(page, calendarRuleName);
+  await expect(page).toHaveURL(/#\/automations\?automationId=rule-calendar-room/);
   await expect(page.getByTestId('page-trace')).toHaveText(traceBefore ?? '');
 });
 
 test('issue-2008-c2: rule grouping ordering and enabled statistics are deterministic', async ({ page }) => {
-  // Regression caught: rules sort alphabetically/randomly, enabled switches drift from fixtures, statistics disagree, or web-only search/filter controls appear.
+  // Regression caught: source grouping drifts, enabled statistics disagree, or the shared search surface disappears.
   await openPage(page, 'automations');
   await expectAutomationsPage(page);
-  const groups = page.locator('[data-testid^="automation-group-"]');
+  const groups = page.getByRole('listbox', { name: 'Automation rules' }).getByRole('group');
   await expect(groups).toHaveCount(4);
-  for (const source of ['rhythm', 'planning_center', 'google_calendar', 'gmail']) {
-    await expect(page.getByTestId(`automation-group-${source}`)).toHaveAttribute('data-source', source);
+  for (const source of Object.keys(groupLabels) as Array<keyof typeof groupLabels>) {
+    await expect(page.getByRole('group', { name: groupLabels[source] })).toBeVisible();
   }
-  const sources = await groups.evaluateAll((elements) => elements.map((group) => group.getAttribute('data-source')));
-  expect(sources).toEqual(['rhythm', 'planning_center', 'google_calendar', 'gmail']);
+  const groupNames = await groups.evaluateAll((elements) => elements.map((group) => group.getAttribute('aria-labelledby')).map((id) => id ? document.getElementById(id)?.textContent : null));
+  expect(groupNames).toEqual(['Rhythm', 'Planning Center', 'Google Calendar', 'Gmail']);
   await expect(page.getByTestId('automations-rule-count')).toHaveText('5');
   await expect(page.getByTestId('automations-enabled-count')).toHaveText('4');
+  await selectRow(page, calendarRuleName);
   await expect(page.getByTestId(`automation-enabled-${calendarRuleId}`)).toBeChecked();
+  await selectRow(page, gmailRuleName);
   await expect(page.getByTestId(`automation-enabled-${gmailRuleId}`)).not.toBeChecked();
-  await expect(page.getByTestId('automations-search')).toHaveCount(0);
+  await expect(page.getByPlaceholder('Search automation rules')).toBeVisible();
   await expect(page.getByTestId('automations-filter')).toHaveCount(0);
 });
 
 test('issue-2008-c3: shared state matrix exposes deterministic recovery and readonly inspection', async ({ page }) => {
   // Regression caught: a URL state is blank/dead, Retry reloads, empty cannot create, or readonly hides inspection while leaving mutation enabled.
   await openPage(page, 'automations', '?state=loading');
-  await expect(page.getByTestId('page-state-loading')).toContainText('Loading automations');
+  await expect(page.getByTestId('page-state-loading')).toContainText('Loading Automation rules');
 
   await openPage(page, 'automations', '?state=empty');
   await expect(page.getByTestId('page-state-empty')).toContainText('No automations');
@@ -70,7 +76,7 @@ test('issue-2008-c3: shared state matrix exposes deterministic recovery and read
   await expect(page.getByTestId('automations-builder-dialog')).toBeVisible();
 
   await openPage(page, 'automations', '?state=server-error');
-  await expect(page.getByTestId('page-state-server-error')).toHaveAttribute('role', 'alert');
+  await expect(page.getByTestId('page-state-server-error').locator('..')).toHaveAttribute('role', 'alert');
   await page.getByTestId('page-retry').click();
   await expectAutomationsPage(page);
   await expect(page).toHaveURL(/state=ready/);
@@ -95,10 +101,11 @@ test('issue-2008-c4: controls are live receipt-honest and modal focus is restore
   await expectAutomationsPage(page);
   const enabled = page.getByTestId('page-automations').locator('button:enabled, input:enabled, select:enabled, textarea:enabled');
   const missingTestIds = await enabled.evaluateAll((elements) => elements
-    .filter((element) => !/^[-a-z0-9]+$/.test(element.getAttribute('data-testid') ?? ''))
+    .filter((element) => !element.matches('.list-inspector-search input') && !/^[-a-z0-9]+$/.test(element.getAttribute('data-testid') ?? ''))
     .map((element) => element.outerHTML));
   expect(missingTestIds).toEqual([]);
 
+  await selectRow(page, calendarRuleName);
   const inspect = page.getByTestId(`automation-inspect-${calendarRuleId}`);
   await inspect.click();
   await expect(page.getByTestId('automation-preview-close')).toBeFocused();
@@ -185,13 +192,14 @@ test('issue-2008-c8: fixture isolation blocks external I O and reload resets rul
   });
   await openPage(page, 'automations');
   await expectAutomationsPage(page);
-  const initialIds = await page.locator('[data-rule-id]').evaluateAll((rules) => rules.map((rule) => rule.getAttribute('data-rule-id')));
+  const initialIds = await page.locator('[role="option"][data-item-id]').evaluateAll((rules) => rules.map((rule) => rule.getAttribute('data-item-id')));
+  await selectRow(page, calendarRuleName);
   await page.getByTestId(`automation-enabled-${calendarRuleId}`).uncheck();
   await expect(page.getByTestId('automations-enabled-count')).toHaveText('3');
   await page.reload();
   await expectAutomationsPage(page);
   await expect(page.getByTestId(`automation-enabled-${calendarRuleId}`)).toBeChecked();
-  const reloadedIds = await page.locator('[data-rule-id]').evaluateAll((rules) => rules.map((rule) => rule.getAttribute('data-rule-id')));
+  const reloadedIds = await page.locator('[role="option"][data-item-id]').evaluateAll((rules) => rules.map((rule) => rule.getAttribute('data-item-id')));
   expect(reloadedIds).toEqual(initialIds);
   expect(external).toEqual([]);
 });
@@ -264,7 +272,7 @@ test('issue-2008-c11: create edit and delete update the list with exact receipts
   await expect(page.getByTestId('automations-rule-count')).toHaveText('6');
   await expect(page.getByTestId('page-trace')).toContainText('POST /automation-rules {name,source,triggerKey,actionType,triggerConfig,actionConfig,sourceAccountId,enabled,conditions} → 201');
 
-  await page.getByTestId(`automation-select-${createdId}`).click();
+  await selectRow(page, 'Wednesday rehearsal follow-up');
   const directEditor = page.getByTestId('automation-direct-editor');
   await directEditor.getByTestId('automation-name').fill('Wednesday rehearsal prep');
   await directEditor.getByTestId('automation-builder-submit').click();
@@ -273,10 +281,10 @@ test('issue-2008-c11: create edit and delete update the list with exact receipts
 
   // Lead edit (authorized): delete goes through the approved cross-page confirmation hardening.
   // Cancel must preserve the rule; Confirm keeps every original outcome assertion.
-  await created.getByTestId(`automation-delete-${createdId}`).click();
+  await page.getByTestId(`automation-delete-${createdId}`).click();
   await page.getByTestId('automation-delete-cancel').click();
   await expect(created).toHaveCount(1);
-  await created.getByTestId(`automation-delete-${createdId}`).click();
+  await page.getByTestId(`automation-delete-${createdId}`).click();
   await page.getByTestId('automation-delete-confirm').click();
   await expect(created).toHaveCount(0);
   await expect(page.getByTestId('automations-rule-count')).toHaveText('5');
@@ -287,7 +295,8 @@ test('issue-2008-c12: enabled switch patches one rule and preserves deterministi
   // Regression caught: toggling reorders rules, changes another card/count, or sends a full edit payload instead of enabled-only PATCH.
   await openPage(page, 'automations');
   await expectAutomationsPage(page);
-  const orderBefore = await page.locator('[data-rule-id]').evaluateAll((rules) => rules.map((rule) => rule.getAttribute('data-rule-id')));
+  const orderBefore = await page.locator('[role="option"][data-item-id]').evaluateAll((rules) => rules.map((rule) => rule.getAttribute('data-item-id')));
+  await selectRow(page, calendarRuleName);
   const toggle = page.getByTestId(`automation-enabled-${calendarRuleId}`);
   await toggle.uncheck();
   await expect(toggle).not.toBeChecked();
@@ -296,7 +305,7 @@ test('issue-2008-c12: enabled switch patches one rule and preserves deterministi
   await toggle.check();
   await expect(page.getByTestId('automations-enabled-count')).toHaveText('4');
   await expect(page.getByTestId('page-trace').getByText(`PATCH /automation-rules/${calendarRuleId} {enabled} → 200`, { exact: true })).toHaveCount(2);
-  const orderAfter = await page.locator('[data-rule-id]').evaluateAll((rules) => rules.map((rule) => rule.getAttribute('data-rule-id')));
+  const orderAfter = await page.locator('[role="option"][data-item-id]').evaluateAll((rules) => rules.map((rule) => rule.getAttribute('data-item-id')));
   expect(orderAfter).toEqual(orderBefore);
 });
 
@@ -304,6 +313,7 @@ test('issue-2008-c13: preview renders historical match evidence without mutation
   // Regression caught: Preview pretends to dry-run changes, mutates execution state, or uses a non-existent endpoint/method.
   await openPage(page, 'automations');
   await expectAutomationsPage(page);
+  await selectRow(page, calendarRuleName);
   const cardBefore = await page.getByTestId(`automation-rule-${calendarRuleId}`).textContent();
   await page.getByTestId(`automation-inspect-${calendarRuleId}`).click();
   const preview = page.getByTestId('automation-preview-dialog');
@@ -323,6 +333,7 @@ test('issue-2008-c14: resync exposes progress result receipt and deterministic r
   // Regression caught: Resync remains clickable, hides progress/results, omits its receipt/reload, or duplicates the refreshed rule.
   await openPage(page, 'automations');
   await expectAutomationsPage(page);
+  await selectRow(page, calendarRuleName);
   const button = page.getByTestId(`automation-resync-${calendarRuleId}`);
   await button.click();
   await expect(button).toBeDisabled();
@@ -364,5 +375,5 @@ test('issue-2008-c15: builder validates required action fields and omits blank c
   await dialog.getByTestId('automation-builder-submit').click();
   await expect(page.getByTestId('automation-rule-rule-gmail-message-matches-filter')).toBeVisible();
   await expect(page.getByTestId('page-trace')).toContainText('POST /automation-rules {name,source,triggerKey,actionType,triggerConfig,actionConfig,sourceAccountId,enabled,conditions} → 201');
-  await expect(page.getByTestId('automation-rule-rule-gmail-message-matches-filter')).toHaveAttribute('data-condition-count', '0');
+  await expect(page.getByTestId('automation-direct-editor').locator('.condition-row')).toHaveCount(0);
 });
