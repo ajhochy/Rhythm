@@ -293,17 +293,21 @@ if (hasSingleInstanceLock) {
   // Alternate ports exist only behind an explicit smoke-only flag.
   // Interactive smoke renders normally, but the manager owns the external sandbox lifecycle.
   const agentServer = isInteractiveSmoke ? undefined : new AgentServerService();
-  const ownsHermesRuntime = !isSmoke && !isInteractiveSmoke;
+  const isHermesSelfTest = isSmoke || isMissingDistSmoke;
+  const managesHermesRuntime = !isHermesSelfTest;
+  /** @param {string} text */
+  const writeHermesLog = (text) => process.stdout?.write?.(text.endsWith('\n') ? text : `${text}\n`);
   const hermes = createHermesSupervisor({
     env: process.env,
     installLogPath: resolve(app.getPath('userData'), 'hermes-install.log'),
+    log: writeHermesLog,
     showConsent: (options) => dialog.showMessageBox(options),
   });
   bindHermesViewSupervisor(hermes);
   for (const [channel, action] of /** @type {const} */ ([
     ['hermes:get-status', () => hermes.getStatus()],
-    ['hermes:install', () => ownsHermesRuntime && !shuttingDown ? hermes.install() : hermes.getStatus()],
-    ['hermes:restart', () => ownsHermesRuntime && !shuttingDown ? hermes.restart() : hermes.getStatus()],
+    ['hermes:install', () => managesHermesRuntime && !shuttingDown ? hermes.install() : hermes.getStatus()],
+    ['hermes:restart', () => managesHermesRuntime && !shuttingDown ? hermes.restart() : hermes.getStatus()],
   ])) {
     ipcMain.handle(channel, (event, ...args) => {
       requireOwnedDocument(event); requireNoPayload(args);
@@ -311,6 +315,8 @@ if (hasSingleInstanceLock) {
     });
   }
   hermes.onStatus((snapshot) => {
+    const reason = snapshot.reason?.split(/\r?\n/, 1)[0];
+    writeHermesLog(`hermes: ${snapshot.state}${reason ? ` ${reason}` : ''}`);
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('hermes:status', snapshot);
     }
@@ -357,12 +363,12 @@ if (hasSingleInstanceLock) {
   let shuttingDown = false;
   const stopRuntimes = async () => { await Promise.all([agentServer?.stopGracefully(), hermes.stop()]); };
   app.on('before-quit', (event) => {
-    if (isSmoke || (!agentServer && !ownsHermesRuntime) || shuttingDown) return;
+    if (isHermesSelfTest || (!agentServer && !managesHermesRuntime) || shuttingDown) return;
     shuttingDown = true;
     event.preventDefault();
     void stopRuntimes().catch((error) => process.stderr.write(`Runtime shutdown failed: ${error}\n`)).finally(() => app.quit());
   });
-  if (!isSmoke && agentServer) {
+  if (!isHermesSelfTest && (agentServer || managesHermesRuntime)) {
     for (const signal of ['SIGINT', 'SIGTERM']) {
       process.on(signal, () => { shuttingDown = true; void stopRuntimes().then(() => process.exit(0), (error) => { process.stderr.write(`Runtime shutdown failed: ${error}\n`); process.exit(1); }); });
     }
@@ -399,7 +405,7 @@ if (hasSingleInstanceLock) {
     // is never awaited before `runApp`) — the window renders immediately and the renderer's own
     // EnvironmentReceipt already polls health with retries while this comes up in the background.
     if (!isSmoke && agentServer) void agentServer.start().catch((error) => agentServer.reportStartupFailure(error));
-    if (ownsHermesRuntime && !shuttingDown && process.env.RHYTHM_HERMES_ENABLED !== '0') void hermes.start();
+    if (managesHermesRuntime && !shuttingDown && process.env.RHYTHM_HERMES_ENABLED !== '0') void hermes.start();
 
     protocol.handle('rhythm', (request) => {
       const url = new URL(request.url);

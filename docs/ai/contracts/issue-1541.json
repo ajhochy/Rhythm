@@ -22,15 +22,15 @@
       "mode": "integration",
       "test_file": "apps/electron/test/hermes-server.test.mjs",
       "test_id": "Hermes busy port fails exactly, with no adoption, roaming, or signaling",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1541-c4",
       "text": "**HRM-B2-AC4:** Smoke-build defaults expose Hermes, explicit `RHYTHM_HERMES_ENABLED=0` launches/installs nothing, and OpenCode remains the default engine in both cases.",
       "mode": "unit",
-      "test_file": "apps/electron/test/hermes-server.test.mjs",
-      "test_id": "Hermes disabled means no binary lookup, fetch, consent, or spawn for any operation",
-      "status": "pending"
+      "test_file": "apps/electron/test/main-runtime.test.mjs",
+      "test_id": "issue-1541-c4: feature flag starts Hermes in attached mode and not explicit self-test modes",
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1541-c5",
@@ -38,7 +38,7 @@
       "mode": "integration",
       "test_file": "apps/electron/test/hermes-server.test.mjs",
       "test_id": "Hermes consent runs bootstrap in login shell, streams private log, re-resolves, then starts",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1541-c6",
