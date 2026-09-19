@@ -10,19 +10,48 @@ import { buildRhythmIcns, stageRhythmIcon } from '../scripts/package-mac.mjs';
 
 const run = promisify(execFile);
 const artwork = resolve(import.meta.dirname, '../../desktop_flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset');
-const iconutil = spawnSync('iconutil', ['--help']);
-const skipNative = iconutil.error?.code === 'ENOENT' ? 'iconutil unavailable; macOS icon assembly requires Apple iconutil' : false;
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
-const standardNames = [
-  'icon_16x16.png', 'icon_16x16@2x.png', 'icon_32x32.png', 'icon_32x32@2x.png',
-  'icon_128x128.png', 'icon_128x128@2x.png', 'icon_256x256.png', 'icon_256x256@2x.png',
-  'icon_512x512.png', 'icon_512x512@2x.png',
+const standardIcons = [
+  ['icon_16x16.png', 16], ['icon_16x16@2x.png', 32],
+  ['icon_32x32.png', 32], ['icon_32x32@2x.png', 64],
+  ['icon_128x128.png', 128], ['icon_128x128@2x.png', 256],
+  ['icon_256x256.png', 256], ['icon_256x256@2x.png', 512],
+  ['icon_512x512.png', 512], ['icon_512x512@2x.png', 1024],
 ];
+const standardNames = standardIcons.map(([name]) => name);
+
+async function iconutilSkipReason() {
+  const iconutil = spawnSync('iconutil', ['--help']);
+  if (iconutil.error?.code === 'ENOENT') return 'iconutil unavailable; macOS icon assembly requires Apple iconutil';
+
+  // Some managed macOS sandboxes expose /usr/bin/iconutil but prevent it from
+  // assembling even an iconset extracted from Electron's known-good icon.
+  const root = await mkdtemp(resolve(tmpdir(), 'rhythm-iconutil-probe-'));
+  try {
+    const reference = resolve(import.meta.dirname, '../node_modules/electron/dist/Electron.app/Contents/Resources/electron.icns');
+    const iconset = resolve(root, 'Electron.iconset');
+    await run('iconutil', ['-c', 'iconset', '-o', iconset, reference]);
+    assert.deepEqual((await readdir(iconset)).sort(), [...standardNames].sort());
+    await run('iconutil', ['-c', 'icns', '-o', resolve(root, 'Electron.icns'), iconset]);
+    return false;
+  } catch {
+    return 'iconutil unavailable; this environment cannot assemble a known-good Electron iconset';
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+const skipNative = await iconutilSkipReason();
 
 async function temporary(t) {
   const root = await mkdtemp(resolve(tmpdir(), 'rhythm-icon-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   return root;
+}
+
+async function pixelHash(source, output) {
+  await run('sips', ['-s', 'format', 'bmp', source, '--out', output]);
+  return hash(await readFile(output));
 }
 
 test('Rhythm icon: assembly maps every source slot and inventories the converter output', async (t) => {
@@ -31,24 +60,25 @@ test('Rhythm icon: assembly maps every source slot and inventories the converter
   let converted;
   const result = await buildRhythmIcns({ appiconsetDir: artwork, outDir, run: async (command, args) => {
     assert.equal(command, 'iconutil');
-    assert.equal(args[0], '-c'); assert.equal(args[1], 'icns'); assert.equal(args[3], '-o');
-    assert.deepEqual((await readdir(args[2])).sort(), [...standardNames].sort());
+    assert.equal(args[0], '-c'); assert.equal(args[1], 'icns'); assert.equal(args[2], '-o');
+    assert.deepEqual((await readdir(args[4])).sort(), [...standardNames].sort());
     for (const entry of contents.images) {
       const name = `icon_${entry.size}${entry.scale === '2x' ? '@2x' : ''}.png`;
-      assert.deepEqual(await readFile(resolve(args[2], name)), await readFile(resolve(artwork, entry.filename)));
+      assert.deepEqual(await readFile(resolve(args[4], name)), await readFile(resolve(artwork, entry.filename)));
     }
     // Fake only the external converter boundary; real iconutil coverage follows below.
-    const png = await readFile(resolve(args[2], 'icon_512x512@2x.png'));
+    const png = await readFile(resolve(args[4], 'icon_512x512@2x.png'));
     const header = Buffer.alloc(16);
     header.write('icns'); header.writeUInt32BE(png.length + 16, 4);
     header.write('ic10', 8); header.writeUInt32BE(png.length + 8, 12);
     converted = Buffer.concat([header, png]);
-    await writeFile(args[4], converted);
+    await writeFile(args[3], converted);
   } });
   assert.deepEqual(await readFile(result.iconPath), converted);
   const inventory = JSON.parse(await readFile(result.inventoryPath, 'utf8'));
   assert.equal(inventory.sha256, hash(converted));
   assert.deepEqual(inventory.images.map((image) => image.iconsetName), standardNames);
+  assert.deepEqual(inventory.images.map((image) => image.pixels), standardIcons.map(([, pixels]) => pixels));
   for (const image of inventory.images) assert.equal(image.sha256, hash(await readFile(resolve(artwork, image.source))));
   assert.deepEqual((await readdir(outDir)).sort(), ['Rhythm.icns', 'Rhythm.icns.json']);
 });
@@ -61,7 +91,7 @@ for (const hasIconName of [true, false]) test(`Rhythm icon: staged plist and art
   await writeFile(resolve(resources, 'electron.icns'), 'upstream icon');
   await writeFile(infoPlist, `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleIconFile</key><string>electron.icns</string>${hasIconName ? '<key>CFBundleIconName</key><string>electron</string>' : ''}</dict></plist>`);
   const result = await stageRhythmIcon({ appiconsetDir: artwork, resources, infoPlist, run: async (command, args) => {
-    if (command === 'iconutil') assert.deepEqual((await readdir(args[2])).sort(), [...standardNames].sort());
+    if (command === 'iconutil') assert.deepEqual((await readdir(args[4])).sort(), [...standardNames].sort());
     return run(command, args);
   } });
   const plist = JSON.parse((await run('plutil', ['-convert', 'json', '-o', '-', infoPlist])).stdout);
@@ -72,6 +102,7 @@ for (const hasIconName of [true, false]) test(`Rhythm icon: staged plist and art
   assert.equal(inventory.icon, 'Rhythm.icns');
   assert.equal(inventory.sha256, hash(await readFile(result.iconPath)));
   assert.deepEqual(inventory.images.map((image) => image.iconsetName), standardNames);
+  assert.deepEqual(inventory.images.map((image) => image.pixels), standardIcons.map(([, pixels]) => pixels));
   const contents = JSON.parse(await readFile(resolve(artwork, 'Contents.json'), 'utf8'));
   const retina = contents.images.find((image) => image.size === '512x512' && image.scale === '2x');
   assert.equal(inventory.images.at(-1).source, retina.filename);
@@ -81,8 +112,12 @@ for (const hasIconName of [true, false]) test(`Rhythm icon: staged plist and art
   assert.deepEqual((await readdir(resources)).sort(), ['Rhythm.icns', 'Rhythm.icns.json']);
   // Real conversion back out catches an arbitrary/generic icon accompanied by a plausible inventory.
   const extracted = resolve(root, 'extracted.iconset');
-  await run('iconutil', ['-c', 'iconset', result.iconPath, '-o', extracted]);
-  assert.equal(hash(await readFile(resolve(extracted, 'icon_512x512@2x.png'))), inventory.images.at(-1).sha256);
+  await run('iconutil', ['-c', 'iconset', '-o', extracted, result.iconPath]);
+  const sourceArtwork = resolve(artwork, retina.filename);
+  assert.equal(
+    await pixelHash(resolve(extracted, 'icon_512x512@2x.png'), resolve(root, 'extracted.bmp')),
+    await pixelHash(sourceArtwork, resolve(root, 'source.bmp')),
+  );
 });
 
 for (const fault of ['missing mapping', 'missing file', 'wrong dimensions', 'invalid PNG']) test(`Rhythm icon: rejects ${fault} before conversion`, async (t) => {
@@ -108,7 +143,7 @@ for (const fault of ['missing iconutil', 'missing output', 'invalid output']) te
   await writeFile(resolve(outDir, 'Rhythm.icns.json'), '{}');
   await assert.rejects(buildRhythmIcns({ appiconsetDir: artwork, outDir, run: async (_command, args) => {
     if (fault === 'missing iconutil') throw Object.assign(new Error('spawn iconutil ENOENT'), { code: 'ENOENT' });
-    if (fault === 'invalid output') await writeFile(args.at(-1), 'not an icns');
+    if (fault === 'invalid output') await writeFile(args[3], 'not an icns');
   } }), /iconutil (?:is required|did not produce|produced an invalid)/);
   assert.deepEqual(await readdir(outDir), []);
 });

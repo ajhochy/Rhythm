@@ -42,7 +42,7 @@ export async function buildRhythmIcns({ appiconsetDir, outDir, run: execute = ru
     }
     const generated = resolve(temporary, 'Rhythm.icns');
     try {
-      await execute('iconutil', ['-c', 'icns', iconset, '-o', generated]);
+      await execute('iconutil', ['-c', 'icns', '-o', generated, iconset]);
     } catch (cause) {
       throw new Error(`Rhythm icon assembly failed: iconutil is required and must accept the complete iconset (${cause.message})`, { cause });
     }
