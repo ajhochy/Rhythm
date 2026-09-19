@@ -2,57 +2,36 @@
 
 ## Current focus
 
-Exact-session external opening in the source Electron client, approved by AJ as
-Rhythm's companion change for Bot Crossing. The renderer now consumes the existing
-`rhythm://app/index.html#/agents?sessionId=<local-id>` contract and fetches the exact
-conversation even when absent from the first list page. Flutter remains the
-shipping client; this does not change the Electron replacement/release gates.
+Draft the 2026-09-18 mega PR covering the mobile relay/audio changes, unified Electron list-and-inspector surfaces, resizable panes, the Hermes sidecar/dashboard tab, and the standalone Rhythm workspace package. The bundled Hermes payload remains NO-GO; this draft ships the installed-runtime sidecar path only.
 
 ## Active branch / PR
 
-- `codex/electron-session-opening`, isolated from the original dirty checkout,
-  based on `2350a500fe87f4acdc429be4c181997f251ce4e3` (`origin/main`).
-- Draft [PR #1538](https://github.com/ajhochy/Rhythm/pull/1538), implementation
-  commit `3f08c4d9`; no merge authorized.
-- Evidence and exact commands: [run record](runs/2026-09-18-electron-session-opening.md).
+- Integration branch: `mega/2026-09-18-mobile-electron-hermes`.
+- Draft PR: [TBD](https://github.com/ajhochy/Rhythm/compare/main...mega/2026-09-18-mobile-electron-hermes?expand=1).
+- Draft body: [mega PR body](runs/mega-2026-09-18/PR-BODY.md); evidence: [run record](runs/2026-09-18-mega-mobile-electron-hermes.md).
 
 ## In progress
 
-- Broad `ai-workflow checks --level pr` exited 1 in three unchanged packages.
-  Focused renderer, native source-shell, and actual warm-profile opening checks
-  succeeded; the draft is qualified only for this opening change.
-- Existing Electron replacement, signed-package, architecture, and provider
-  qualification remain separate. Prior release history is preserved in
-  [the catch-up run](runs/2026-09-16-main-catchup-release.md).
+- AJ's manual smoke across Electron, mobile, and the installed Hermes Rhythm feature pack.
+- The orchestrator is filling final gate numbers and the live Playwright command.
+- Issue-first adversarial reviews are still running or awaiting reconciliation.
 
 ## Risks / known issues
 
-- Replacing generated assets underneath a running shell requires one renderer
-  Reload. Existing security policy clears authentication on that navigation;
-  normal Google sign-in is required once. Subsequent hash-only links reuse it.
-- Built capability metadata describes the on-disk renderer, so handoff must also
-  refresh an already loaded old document before reporting opening capability.
-- Native sandbox uses a disposable synthetic identity and mock Keychain. It does
-  not qualify signed packaging, real Keychain, production OAuth, or Flutter.
-- No API, engine, main/preload, authentication, or session-lifecycle source changes.
-  Live services and the existing main process were preserved during the handoff.
+- #1373 still lacks relay PTY, bounded credential-freshness handling, and sanitized operator/session diagnostics.
+- The Hermes live gate needs AJ's hosted credential or approved authentication flow plus installed Desktop/browser and ACP checks.
+- #1520 still needs installed-app icon inspection in Finder, Dock, Command-Tab, and Get Info.
+- #1510 still needs audible attribution and verification on a physical iPhone and the actual Electron candidate.
+- Adversarial review findings remain pending and may require repair before handoff.
 
 ## Test status
 
-- Issue static gate: 4 checks, exit 0. Electron unit suite: 73 tests, exit 0.
-- Exact-session UI/parser suite: 13 tests, exit 0; two reproduced red regressions
-  demonstrate wrong initial selection and stale reconciliation clearing selection.
-- Real source Electron + rebuilt canonical sandbox: cold and same-profile
-  second-instance exact selection, one window, zero opening mutations, unchanged
-  service PIDs, and screenshots. Neutral renderer build and credential scan pass.
-- Actual live warm-profile opening matched the requested session after Reload and
-  normal Google sign-in; main/API/engine PIDs survived and service badges healthy.
-- Full PR gate: 13 stages passed; API trigger-parity assertion, fork interrupted
-  bash finalization, and mobile edited-title UI assertion failed. Root causes
-  remain uninvestigated. [Follow-up](issues/2026-09-18-unrelated-pr-gate-failures.md).
+- Fork B1 local install, plugin doctor, enable/list, and `hermes doctor` passed; reload/disable/uninstall and credentialed/rendered gates remain open.
+- `rhythm-workspace-ui` typecheck/build/vitest passed with 235 tests; the isolated React 19.2.0 contract suite passed without duplicate React.
+- Mobile typecheck, lint, contract check, 32 Jest suites / 132 tests, and 11 focused relay/audio tests passed after a load-related flaky first run.
+- Electron typecheck and all 159 tests passed, including Hermes server/view/protocol, icon, security receipt, and repaired E44 coverage.
+- Relay-disabled mobile Playwright passed 1/1. The full mobile web E2E run reported 70 passed, 1 skipped, and one #1174 parity failure; its standalone rerun was pending at time of writing.
 
 ## Next step
 
-Review scoped draft #1538 before merge. Resolve the
-separate broad-gate failures before claiming a repository-wide green gate.
-Signed/installable Electron qualification remains separate work.
+AJ runs the ordered smoke in `docs/ai/runs/mega-2026-09-18/PR-BODY.md`; the orchestrator records final live/review results, updates the TBD PR link and pending gate line, and leaves merge manual.
