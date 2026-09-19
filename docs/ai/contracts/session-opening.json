@@ -1,0 +1,104 @@
+{
+  "issue": null,
+  "request": "User-approved Rhythm Electron exact-session opening",
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "session-opening-c1",
+      "text": "direct local ID outside the first page overrides saved selection",
+      "mode": "ui",
+      "test_file": "apps/web/tests/gateway/session-opening.spec.ts",
+      "test_id": "session-opening-c1: direct local ID outside the first page overrides saved selection",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "session-opening-c2",
+      "text": "changing only sessionId updates the visible conversation",
+      "mode": "ui",
+      "test_file": "apps/web/tests/gateway/session-opening.spec.ts",
+      "test_id": "session-opening-c2: changing only sessionId updates the visible conversation",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "session-opening-c3",
+      "text": "the latest link survives delayed initial hydration",
+      "mode": "ui",
+      "test_file": "apps/web/tests/gateway/session-opening.spec.ts",
+      "test_id": "session-opening-c3: the latest link survives delayed initial hydration",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "session-opening-c4",
+      "text": "stale detail failure cannot replace the newer selected session",
+      "mode": "ui",
+      "test_file": "apps/web/tests/gateway/session-opening.spec.ts",
+      "test_id": "session-opening-c4: stale detail failure cannot replace the newer selected session",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "session-opening-c5",
+      "text": "missing session reports failure without opening a different conversation",
+      "mode": "ui",
+      "test_file": "apps/web/tests/gateway/session-opening.spec.ts",
+      "test_id": "session-opening-c5: missing session reports failure without opening a different conversation",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "session-opening-c6",
+      "text": "malformed and repeated IDs are visibly rejected",
+      "mode": "ui",
+      "test_file": "apps/web/tests/gateway/session-opening.spec.ts",
+      "test_id": "session-opening-c6: malformed and repeated IDs are visibly rejected",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "session-opening-c7",
+      "text": "a scheduled session opens with its matching rail scope",
+      "mode": "ui",
+      "test_file": "apps/web/tests/gateway/session-opening.spec.ts",
+      "test_id": "session-opening-c7: a scheduled session opens with its matching rail scope",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "session-opening-c8",
+      "text": "the built capability contract matches the accepted URI",
+      "mode": "ui",
+      "test_file": "apps/web/tests/gateway/session-opening.spec.ts",
+      "test_id": "session-opening-c8: the built capability contract matches the accepted URI",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "session-opening-c9",
+      "text": "an older reconciliation failure cannot clear the latest link",
+      "mode": "ui",
+      "test_file": "apps/web/tests/gateway/session-opening.spec.ts",
+      "test_id": "session-opening-c9: an older reconciliation failure cannot clear the latest link",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "session-opening-c10",
+      "text": "an archived session opens without unarchiving it",
+      "mode": "ui",
+      "test_file": "apps/web/tests/gateway/session-opening.spec.ts",
+      "test_id": "session-opening-c10: an archived session opens without unarchiving it",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "session-opening-native",
+      "text": "Cold launch and same-profile second-instance navigation select exact local IDs through the real sandbox without session mutations or service restarts",
+      "mode": "live",
+      "test_file": "apps/electron/test/session-opening/live.mjs",
+      "test_id": "RHYTHM_LIVE_E2E=1",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "Signed packaged Electron, real Keychain, Flutter and release architecture qualification are outside the approved source Electron opening repair."
+  ],
+  "verification": {
+    "scoped_opening": "pass",
+    "repository_pr_gate": "fail",
+    "follow_up": "docs/ai/issues/2026-09-18-unrelated-pr-gate-failures.md"
+  }
+}

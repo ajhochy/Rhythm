@@ -13,7 +13,7 @@ export default defineConfig({
   // Electron slices own their server mode/port in dedicated configs, not this fixture server.
   // daily-work-dashboard owns tests/dashboard-daily-work-playwright.config.ts: its route
   // allowlist only continues that config's :4286 origin and aborts this server's.
-  testIgnore: ['electron/**', '**/electron-e*.spec.ts', '**/bucket-a-rendered-repair.spec.ts', '**/daily-work-dashboard-20260912.spec.ts', ...pausedLiveSpecs],
+  testIgnore: ['electron/**', '**/electron-e*.spec.ts', '**/bucket-a-rendered-repair.spec.ts', '**/daily-work-dashboard-20260912.spec.ts', '**/session-opening.spec.ts', '**/agent-session-link.spec.ts', ...pausedLiveSpecs],
   fullyParallel: false,
   workers: 1,
   timeout: 20_000,

@@ -1,0 +1,135 @@
+{
+  "run_id": "2026-09-18-session-opening",
+  "issue": null,
+  "date": "2026-09-18",
+  "smoke_result": "pass",
+  "verification_claimed": "unknown",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "session-opening-c1",
+      "text": "direct local ID outside the first page overrides saved selection",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the automated contract; full criterion was not repeated on private live inventory."
+    },
+    {
+      "criterion_id": "session-opening-c2",
+      "text": "changing only sessionId updates the visible conversation",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Coordinator observed two exact local ID/title matches through real Bot opening; no extra reload or sign-in on second target."
+    },
+    {
+      "criterion_id": "session-opening-c3",
+      "text": "the latest link survives delayed initial hydration",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the automated contract; full criterion was not repeated on private live inventory."
+    },
+    {
+      "criterion_id": "session-opening-c4",
+      "text": "stale detail failure cannot replace the newer selected session",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the automated contract; full criterion was not repeated on private live inventory."
+    },
+    {
+      "criterion_id": "session-opening-c5",
+      "text": "missing session reports failure without opening a different conversation",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the automated contract; full criterion was not repeated on private live inventory."
+    },
+    {
+      "criterion_id": "session-opening-c6",
+      "text": "malformed and repeated IDs are visibly rejected",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the automated contract; full criterion was not repeated on private live inventory."
+    },
+    {
+      "criterion_id": "session-opening-c7",
+      "text": "a scheduled session opens with its matching rail scope",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the automated contract; full criterion was not repeated on private live inventory."
+    },
+    {
+      "criterion_id": "session-opening-c8",
+      "text": "the built capability contract matches the accepted URI",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the automated contract; full criterion was not repeated on private live inventory."
+    },
+    {
+      "criterion_id": "session-opening-c9",
+      "text": "an older reconciliation failure cannot clear the latest link",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the automated contract; full criterion was not repeated on private live inventory."
+    },
+    {
+      "criterion_id": "session-opening-c10",
+      "text": "an archived session opens without unarchiving it",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the automated contract; full criterion was not repeated on private live inventory."
+    },
+    {
+      "criterion_id": "session-opening-native",
+      "text": "Cold launch and same-profile second-instance navigation select exact local IDs through the real sandbox without session mutations or service restarts",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the automated contract; full criterion was not repeated on private live inventory."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "warm-renderer-handoff",
+      "description": "Replacing on-disk assets did not refresh old JavaScript on hash-only navigation. One Reload loaded the new asset and intentionally invalidated authentication under existing main-process policy; normal Google sign-in restored the workspace.",
+      "detected_by": "Native live CUA observation plus main.mjs did-start-navigation source."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/web/src/store.tsx",
+    "apps/web/src/agentSessionLink.ts",
+    "apps/web/public/desktop-capabilities.json"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Retain the explicit warm-document refresh and normal sign-in handoff step; never equate an on-disk capability marker with the already loaded renderer."
+}
