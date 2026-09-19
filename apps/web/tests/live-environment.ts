@@ -13,7 +13,12 @@ function loopbackBase(name: string, value: string): string {
   return `http://127.0.0.1:${port}`;
 }
 
-function productionBase(value: string): string {
+function productionBase(value: string, env: NodeJS.ProcessEnv = process.env): string {
+  // Sandbox runs (tools/dev/sandbox.sh) serve the "production" domain API from loopback too;
+  // allow that only with an explicit opt-in so ordinary live runs still require remote HTTPS.
+  if (env.RHYTHM_LIVE_ALLOW_LOOPBACK_PRODUCTION === '1' && /^http:\/\/127\.0\.0\.1:\d+$/.test(value.replace(/\/$/, ''))) {
+    return value.replace(/\/$/, '');
+  }
   try {
     return normalizeRemoteProductionApiBase(value);
   } catch {
@@ -28,7 +33,7 @@ export function liveEnvironment(env: NodeJS.ProcessEnv = process.env) {
   return {
     apiBase,
     engineBase,
-    productionApiBase: productionBase(env.RHYTHM_LIVE_PRODUCTION_API_URL ?? DEFAULT_PRODUCTION_API_URL),
+    productionApiBase: productionBase(env.RHYTHM_LIVE_PRODUCTION_API_URL ?? DEFAULT_PRODUCTION_API_URL, env),
     wsBase: apiBase.replace(/^http:/, 'ws:'),
   };
 }
