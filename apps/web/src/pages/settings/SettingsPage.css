@@ -1,0 +1,275 @@
+.settings-page {
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  padding: 20px;
+  overflow: hidden;
+}
+
+.settings-page-header {
+  min-width: 0;
+}
+
+.settings-page-header h1 {
+  margin: 3px 0 2px;
+  font-size: 22px;
+  line-height: 1.2;
+  letter-spacing: -.02em;
+}
+
+.settings-page-header p,
+.settings-section-intro {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--muted);
+}
+
+.settings-list-inspector,
+.settings-list-inspector .list-inspector-panes {
+  height: 100%;
+  min-height: 0;
+}
+
+.settings-list-inspector .list-inspector-list {
+  flex: 1 1 auto;
+  min-height: 44px;
+  max-height: none;
+}
+
+.settings-inspector-content {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+
+.settings-section-intro {
+  color: var(--fg-2);
+  line-height: 1.6;
+}
+
+.settings-form,
+.settings-field {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.settings-form {
+  gap: 14px;
+}
+
+.settings-field,
+.settings-inline-field {
+  color: var(--fg-2);
+  font-size: 11px;
+  font-weight: 580;
+}
+
+.settings-field > :is(input, select) {
+  width: min(100%, 420px);
+  min-height: 44px;
+}
+
+.settings-check {
+  min-height: 52px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  color: var(--fg-2);
+  cursor: pointer;
+}
+
+.settings-check input {
+  width: 20px;
+  min-height: 20px;
+  margin: 0;
+}
+
+.settings-check span,
+.settings-member-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.settings-check strong,
+.settings-member-copy strong {
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.settings-check small,
+.settings-member-copy small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-actions > button,
+.settings-page .settings-inspector-content > button,
+.settings-load-error button {
+  min-height: 44px;
+  white-space: normal;
+}
+
+.settings-scope {
+  width: fit-content;
+  margin: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-pill);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.settings-properties {
+  margin: 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+.settings-properties div {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.settings-properties dt {
+  color: var(--muted);
+}
+
+.settings-properties dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--fg-2);
+  overflow-wrap: anywhere;
+  text-align: end;
+}
+
+.settings-member-list,
+.settings-access-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-member-list li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(130px, 180px) auto;
+  align-items: end;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.settings-inline-field {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.settings-inline-field select {
+  min-width: 0;
+  min-height: 44px;
+}
+
+.settings-member-list button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.settings-access-list li {
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.settings-join-code {
+  width: fit-content;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--fg-2);
+  background: var(--bg);
+}
+
+.settings-join-code code {
+  color: var(--fg);
+  font-family: var(--font-mono);
+}
+
+.settings-readonly,
+.settings-empty,
+.settings-feedback,
+.settings-load-error {
+  margin: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.settings-readonly,
+.settings-feedback,
+.settings-load-error {
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+  background: color-mix(in oklab, var(--surface), var(--bg) 5%);
+}
+
+.settings-feedback.error {
+  border-color: color-mix(in oklab, var(--danger), var(--border) 45%);
+  color: var(--fg-2);
+}
+
+.settings-load-error {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-load-error p {
+  margin: 0;
+}
+
+@container list-inspector (width < 760px) {
+  .settings-member-list li {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .settings-properties div {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+    padding: 8px 0;
+  }
+
+  .settings-properties dd {
+    text-align: start;
+  }
+}
+
+@media (max-height: 640px) {
+  .settings-page {
+    padding-block: 12px;
+  }
+
+  .settings-page-header p {
+    display: none;
+  }
+}
