@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { FIXED_NOW } from '../fixtures';
 import { useGateway } from '../gateway/context';
 import type { AgentMemory } from '../gateway/memory';
@@ -14,6 +14,7 @@ import type { Profile } from '../types';
 import { Icon } from '../icons';
 import { useFixtures } from '../store';
 import { FocusDialog } from './FocusDialog';
+import { ListInspector, useSelectedId } from './ListInspector';
 import { profileAvatarLabel } from './Profiles';
 import { navigate } from './Shell';
 
@@ -72,7 +73,10 @@ function ToolFrame({ slug, title, description, actions, trace, children }: { slu
   const chooseState = (next: ToolSurfaceState) => {
     setSurfaceState(next);
     const route = window.location.hash.split('?')[0] || `#/tools/${slug}`;
-    history.replaceState(null, '', next === 'ready' ? route : `${route}?state=${next}`);
+    const params = new URLSearchParams(window.location.hash.split('?')[1] ?? '');
+    if (next === 'ready') params.delete('state'); else params.set('state', next);
+    const query = params.toString();
+    history.replaceState(history.state, '', `${route}${query ? `?${query}` : ''}`);
   };
   const recover = () => {
     setRecoveryCount((count) => count + 1);
@@ -103,7 +107,7 @@ function ToolFrame({ slug, title, description, actions, trace, children }: { slu
           {actions && <fieldset className="tool-header-actions" disabled={!isReady} data-testid="tool-header-action-gate"><legend className="sr-only">{title} actions</legend>{actions}</fieldset>}
         </div>
       </header>
-      <div className="tool-workspace-body" tabIndex={0} aria-busy={surfaceState === 'loading'} aria-label={`${title} workspace content`} data-testid="tool-workspace-content">
+      <div className="tool-workspace-body" role="region" tabIndex={0} aria-busy={surfaceState === 'loading'} aria-label={`${title} workspace content`} data-testid="tool-workspace-content">
         {statePanel}
         {(isReady || isReadonly) && <>
           {isReadonly && <div className="tool-readonly-banner" role="status" data-testid="tool-state-readonly"><Icon name="review" size={15} /><span><strong>Read-only access</strong> You can inspect this Tool, but actions and edits are unavailable for this role.</span></div>}
@@ -404,13 +408,23 @@ function LiveResearchTool() {
 type Schedule = { id: string; name: string; prompt: string; type: string; enabled: boolean; lastRun: string; runState: string };
 function FixtureSchedulesTool() {
   const { notify } = useFixtures(); const [items, setItems] = useState<Schedule[]>([{ id: 'schedule-digest', name: 'Monday planning digest', prompt: 'Summarize open work and unresolved owners.', type: 'weekly', enabled: true, lastRun: 'Aug 10, 9:00 AM', runState: 'completed' }, { id: 'schedule-health', name: 'Integration health sweep', prompt: 'Check configured agent integrations.', type: 'daily', enabled: false, lastRun: 'Aug 11, 8:00 AM', runState: 'error' }]);
-  const [selectedId, setSelectedId] = useState(items[0].id); const [editing, setEditing] = useState<Schedule | 'new' | null>(null); const [deleting, setDeleting] = useState<Schedule | null>(null); const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-schedules', detail: 'Scheduled jobs loaded' }); const selected = items.find((item) => item.id === selectedId) ?? items[0];
+  const [selectedId, setSelectedId] = useSelectedId('scheduleId'); const [editing, setEditing] = useState<Schedule | 'new' | null>(null); const [deleting, setDeleting] = useState<Schedule | null>(null); const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-schedules', detail: 'Scheduled jobs loaded' }); const effectiveId = selectedId ?? items[0]?.id ?? null; const selected = items.find((item) => item.id === effectiveId) ?? null;
+  useEffect(() => { if (selectedId === null && items[0]) setSelectedId(items[0].id); }, [selectedId, items, setSelectedId]);
   const record = (method: string, route: string, detail: string) => { setTrace({ method, route, detail }); notify(detail); };
   const save = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); const patch = { name: String(data.get('name')), prompt: String(data.get('prompt')), type: String(data.get('type')), enabled: data.get('enabled') === 'on' }; if (editing === 'new') { const item = { id: `schedule-${items.length + 1}`, ...patch, lastRun: 'Never', runState: 'idle' }; setItems((current) => [...current, item]); setSelectedId(item.id); record('POST', '/agent-schedules', 'Schedule created with name, prompt, scheduleType, timezone, enabled, and profile'); } else if (editing) { setItems((current) => current.map((item) => item.id === editing.id ? { ...item, ...patch } : item)); record('PATCH', `/agent-schedules/${editing.id}`, 'Schedule updated'); } setEditing(null); };
   return <ToolFrame slug="tasks" title="Agent Schedules" description="Create and operate recurring or one-time agent jobs, with linked session history." trace={trace} actions={<><button className="secondary-button compact" type="button" onClick={() => record('GET', '/agent-schedules', 'Schedules refreshed')} data-testid="schedules-refresh"><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={() => setEditing('new')} data-testid="schedule-new"><Icon name="plus" size={14} />New Schedule</button></>}>
-    <div className="tool-split"><aside className="tool-rail" aria-label="Scheduled agent jobs">{items.map((item) => <button className={item.id === selected.id ? 'selected' : ''} type="button" key={item.id} onClick={() => { setSelectedId(item.id); record('GET', `/agent-sessions?scheduledTaskId=${item.id}`, 'Recent scheduled runs loaded'); }} data-testid={`schedule-${item.id}`}><strong>{item.name}</strong><small>{item.type} · {item.enabled ? 'Enabled' : 'Disabled'}</small></button>)}</aside><section className="tool-detail"><header className="detail-header"><div><span className={`state-badge ${selected.enabled ? 'completed' : ''}`}>{selected.enabled ? 'Enabled' : 'Disabled'}</span><h2>{selected.name}</h2><p>{selected.prompt}</p></div><div className="row-actions"><button className="secondary-button compact" type="button" onClick={() => { setItems((current) => current.map((item) => item.id === selected.id ? { ...item, enabled: !item.enabled } : item)); record('PATCH', `/agent-schedules/${selected.id}`, `Schedule ${selected.enabled ? 'disabled' : 'enabled'}`); }} data-testid="schedule-toggle">{selected.enabled ? 'Disable' : 'Enable'}</button><button className="secondary-button compact" type="button" onClick={() => setEditing(selected)} data-testid="schedule-edit"><Icon name="rename" size={13} />Edit</button><button className="text-danger-button" type="button" onClick={() => setDeleting(selected)} data-testid="schedule-delete"><Icon name="delete" size={13} />Delete</button></div></header><dl className="tool-properties"><div><dt>Schedule Type</dt><dd>{selected.type}</dd></div><div><dt>Timezone</dt><dd>America/Los_Angeles</dd></div><div><dt>Last run</dt><dd>{selected.lastRun}</dd></div></dl><div className="run-history"><header><h3>Run history</h3><button className="primary-button" type="button" onClick={() => { setItems((current) => current.map((item) => item.id === selected.id ? { ...item, lastRun: 'Aug 12, 3:48 PM', runState: 'working' } : item)); record('POST', `/agent-schedules/${selected.id}/trigger-now`, 'Scheduled job triggered now'); }} data-testid="schedule-trigger"><Icon name="resume" size={13} />Trigger now</button></header><button type="button" onClick={() => record('GET', `/agent-sessions?scheduledTaskId=${selected.id}`, 'Opened linked run session')}><span className={`status-dot ${selected.runState}`} /><strong>{selected.name} · manual run</strong><small>{selected.runState} · {selected.lastRun}</small></button></div></section></div>
+    <ListInspector
+      label="Scheduled agent jobs"
+      items={items.map((item) => ({ id: `schedule-${item.id}`, title: item.name, subtitle: `${item.type} · ${item.enabled ? 'Enabled' : 'Disabled'}` }))}
+      selectedId={effectiveId === null ? null : `schedule-${effectiveId}`}
+      onSelect={(rowId) => { const id = rowId.slice('schedule-'.length); setSelectedId(id); record('GET', `/agent-sessions?scheduledTaskId=${id}`, 'Recent scheduled runs loaded'); }}
+      emptyState={<EmptyState title="No schedules yet">Create a schedule for recurring work or a one-time agent job.</EmptyState>}
+      inspector={(item) => item && selected ? <>
+        <header className="detail-header"><div><span className={`state-badge ${selected.enabled ? 'completed' : ''}`}>{selected.enabled ? 'Enabled' : 'Disabled'}</span><p>{selected.prompt}</p></div><div className="row-actions"><button className="secondary-button compact" type="button" onClick={() => { setItems((current) => current.map((item) => item.id === selected.id ? { ...item, enabled: !item.enabled } : item)); record('PATCH', `/agent-schedules/${selected.id}`, `Schedule ${selected.enabled ? 'disabled' : 'enabled'}`); }} data-testid="schedule-toggle">{selected.enabled ? 'Disable' : 'Enable'}</button><button className="secondary-button compact" type="button" onClick={() => setEditing(selected)} data-testid="schedule-edit"><Icon name="rename" size={13} />Edit</button><button className="text-danger-button" type="button" onClick={() => setDeleting(selected)} data-testid="schedule-delete"><Icon name="delete" size={13} />Delete</button></div></header><dl className="tool-properties"><div><dt>Schedule Type</dt><dd>{selected.type}</dd></div><div><dt>Timezone</dt><dd>America/Los_Angeles</dd></div><div><dt>Last run</dt><dd>{selected.lastRun}</dd></div></dl><div className="run-history"><header><h3>Run history</h3><button className="primary-button" type="button" onClick={() => { setItems((current) => current.map((item) => item.id === selected.id ? { ...item, lastRun: 'Aug 12, 3:48 PM', runState: 'working' } : item)); record('POST', `/agent-schedules/${selected.id}/trigger-now`, 'Scheduled job triggered now'); }} data-testid="schedule-trigger"><Icon name="resume" size={13} />Trigger now</button></header><button type="button" onClick={() => record('GET', `/agent-sessions?scheduledTaskId=${selected.id}`, 'Opened linked run session')}><span className={`status-dot ${selected.runState}`} /><strong>{selected.name} · manual run</strong><small>{selected.runState} · {selected.lastRun}</small></button></div>
+      </> : <p>Select a schedule to inspect its details.</p>}
+    />
     <FocusDialog open={Boolean(editing)} onClose={() => setEditing(null)} title={editing === 'new' ? 'New Schedule' : 'Edit Schedule'} description="Schedule times use America/Los_Angeles." testId="schedule-editor" wide><form className="form-grid" onSubmit={save}><label className="field">Name<input name="name" required data-autofocus defaultValue={editing && editing !== 'new' ? editing.name : ''} /></label><label className="field">Schedule Type<select name="type" defaultValue={editing && editing !== 'new' ? editing.type : 'daily'}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="cron">Cron Expression</option><option value="once">Once</option></select></label><label className="field span-2">Instructions / Prompt<textarea name="prompt" required rows={4} defaultValue={editing && editing !== 'new' ? editing.prompt : ''} /></label><label className="check-label span-2"><input type="checkbox" name="enabled" defaultChecked={editing && editing !== 'new' ? editing.enabled : true} />Enabled</label><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit" data-testid="schedule-save">Save</button></footer></form></FocusDialog>
-    <ConfirmDialog open={Boolean(deleting)} title="Delete scheduled task?" description={deleting ? `Delete “${deleting.name}”? This cannot be undone.` : ''} confirmLabel="Delete" onClose={() => setDeleting(null)} onConfirm={() => { if (!deleting) return; setItems((current) => current.filter((item) => item.id !== deleting.id)); record('DELETE', `/agent-schedules/${deleting.id}`, 'Scheduled task deleted'); setSelectedId(items.find((item) => item.id !== deleting.id)?.id || ''); setDeleting(null); }} testId="schedule-delete-dialog" />
+    <ConfirmDialog open={Boolean(deleting)} title="Delete scheduled task?" description={deleting ? `Delete “${deleting.name}”? This cannot be undone.` : ''} confirmLabel="Delete" onClose={() => setDeleting(null)} onConfirm={() => { if (!deleting) return; setItems((current) => current.filter((item) => item.id !== deleting.id)); record('DELETE', `/agent-schedules/${deleting.id}`, 'Scheduled task deleted'); setSelectedId(deleting.id); setDeleting(null); }} testId="schedule-delete-dialog" />
   </ToolFrame>;
 }
 
@@ -422,32 +436,50 @@ function LiveSchedulesTool() {
   const gateway = useGateway();
   const { notify } = useFixtures();
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [runs, setRuns] = useState<ScheduledTaskRun[]>([]);
+  const [selectedId, setSelectedId] = useSelectedId('scheduleId');
+  const [loading, setLoading] = useState(true);
+  const [runState, setRunState] = useState<{ taskId: string | null; runs: ScheduledTaskRun[]; error: string | null; loading: boolean }>({ taskId: null, runs: [], error: null, loading: false });
+  const runRequest = useRef(0);
   const [editing, setEditing] = useState<ScheduledTask | 'new' | null>(null);
   const [deleting, setDeleting] = useState<ScheduledTask | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [runsError, setRunsError] = useState<string | null>(null);
   const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-schedules', detail: 'Loading live schedules' });
-  const selected = tasks.find((task) => task.id === selectedId) ?? tasks[0] ?? null;
+  const effectiveId = selectedId ?? tasks[0]?.id ?? null;
+  const selected = tasks.find((task) => task.id === effectiveId) ?? null;
+  const currentTaskId = useRef(effectiveId);
+  currentTaskId.current = effectiveId;
+  const runs = runState.taskId === effectiveId ? runState.runs : [];
+  const runsError = runState.taskId === effectiveId ? runState.error : null;
+  const runsLoading = runState.taskId !== effectiveId || runState.loading;
+  useEffect(() => { if (selectedId === null && tasks[0]) setSelectedId(tasks[0].id); }, [selectedId, tasks, setSelectedId]);
 
   const loadTasks = async () => {
     setError(null);
+    setLoading(true);
     try {
       const next = await gateway.domains.schedules!.list();
       setTasks(next);
-      setSelectedId((current) => (current && next.some((task) => task.id === current) ? current : (next[0]?.id ?? null)));
       setTrace({ method: 'GET', route: '/agent-schedules', detail: `${next.length} schedules loaded` });
     } catch (err) { setError(err instanceof Error ? err.message : 'Schedules failed to load'); }
+    finally { setLoading(false); }
   };
   useEffect(() => { void loadTasks(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadRuns = async (id: string) => {
-    setRunsError(null);
-    try { setRuns(await gateway.domains.schedules!.runs(id)); }
-    catch (err) { setRuns([]); setRunsError(err instanceof Error ? err.message : 'Run history failed to load'); }
+    if (currentTaskId.current !== id) return;
+    const request = ++runRequest.current;
+    setRunState({ taskId: id, runs: [], error: null, loading: true });
+    try {
+      const next = await gateway.domains.schedules!.runs(id);
+      if (request === runRequest.current && currentTaskId.current === id) setRunState({ taskId: id, runs: next, error: null, loading: false });
+    } catch (err) {
+      if (request === runRequest.current && currentTaskId.current === id) setRunState({ taskId: id, runs: [], error: err instanceof Error ? err.message : 'Run history failed to load', loading: false });
+    }
   };
-  useEffect(() => { if (selected) void loadRuns(selected.id); else setRuns([]); }, [selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (selected) void loadRuns(selected.id);
+    return () => { runRequest.current += 1; };
+  }, [selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openRun = async (run: ScheduledTaskRun) => {
     if (!run.rootSessionId) return;
@@ -504,13 +536,17 @@ function LiveSchedulesTool() {
   };
 
   return <ToolFrame slug="tasks" title="Agent Schedules" description="Create and operate recurring or one-time agent jobs, with linked session history." trace={trace} actions={<><button className="secondary-button compact" type="button" onClick={() => void loadTasks()} data-testid="schedules-refresh"><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={() => setEditing('new')} data-testid="schedule-new"><Icon name="plus" size={14} />New Schedule</button></>}>
-    {error && <section className="tool-state-panel error" role="alert" data-testid="schedules-error"><span className="tool-state-code">Error</span><p>{error}</p></section>}
-    {!error && tasks.length === 0 && <EmptyState title="No schedules yet">Create a schedule for recurring work or a one-time agent job.</EmptyState>}
-    {selected && <div className="tool-split">
-      <aside className="tool-rail" aria-label="Scheduled agent jobs">{tasks.map((task) => <button className={task.id === selected.id ? 'selected' : ''} type="button" key={task.id} onClick={() => setSelectedId(task.id)} data-testid={`schedule-${task.id}`}><strong>{task.name}</strong><small>{task.scheduleType} · {task.enabled ? 'Enabled' : 'Disabled'}</small></button>)}</aside>
-      <section className="tool-detail">
+    <ListInspector
+      label="Scheduled agent jobs"
+      items={tasks.map((task) => ({ id: `schedule-${task.id}`, title: task.name, subtitle: `${task.scheduleType} · ${task.enabled ? 'Enabled' : 'Disabled'}` }))}
+      selectedId={effectiveId === null ? null : `schedule-${effectiveId}`}
+      onSelect={(id) => setSelectedId(id.slice('schedule-'.length))}
+      loading={loading}
+      error={error ? <section className="tool-state-panel error" data-testid="schedules-error"><span className="tool-state-code">Error</span><p>{error}</p></section> : undefined}
+      emptyState={<EmptyState title="No schedules yet">Create a schedule for recurring work or a one-time agent job.</EmptyState>}
+      inspector={(item) => item && selected ? <>
         <header className="detail-header">
-          <div><span className={`state-badge ${selected.enabled ? 'completed' : ''}`}>{selected.enabled ? 'Enabled' : 'Disabled'}</span><h2>{selected.name}</h2><p>{selected.prompt}</p></div>
+          <div><span className={`state-badge ${selected.enabled ? 'completed' : ''}`}>{selected.enabled ? 'Enabled' : 'Disabled'}</span><p>{selected.prompt}</p></div>
           <div className="row-actions">
             <button className="secondary-button compact" type="button" onClick={() => void toggleEnabled(selected)} data-testid="schedule-toggle">{selected.enabled ? 'Disable' : 'Enable'}</button>
             <button className="secondary-button compact" type="button" onClick={() => setEditing(selected)} data-testid="schedule-edit"><Icon name="rename" size={13} />Edit</button>
@@ -524,12 +560,13 @@ function LiveSchedulesTool() {
         </dl>
         <div className="run-history">
           <header><h3>Run history</h3><button className="primary-button" type="button" onClick={() => void triggerNow()} data-testid="schedule-trigger"><Icon name="resume" size={13} />Trigger now</button></header>
+          {runsLoading && <p role="status">Loading run history…</p>}
           {runsError && <p role="alert">{runsError}</p>}
           {runs.map((run) => <button key={run.id} type="button" onClick={() => void openRun(run)} data-testid={`schedule-run-${run.id}`}><span className={`status-dot ${run.status}`} /><strong>{run.startedAt}</strong><small>{run.status}{run.error ? ` · ${run.error}` : ''}</small></button>)}
-          {runs.length === 0 && !runsError && <p className="tool-empty-inline">No runs yet.</p>}
+          {!runsLoading && runs.length === 0 && !runsError && <p className="tool-empty-inline">No runs yet.</p>}
         </div>
-      </section>
-    </div>}
+      </> : <p>Select a schedule to inspect its details.</p>}
+    />
     <FocusDialog open={Boolean(editing)} onClose={() => setEditing(null)} title={editing === 'new' ? 'New Schedule' : 'Edit Schedule'} description="Schedule times use the task's own timezone." testId="schedule-editor" wide><form className="form-grid" onSubmit={save}><label className="field">Name<input name="name" required data-autofocus defaultValue={editing && editing !== 'new' ? editing.name : ''} /></label><label className="field">Schedule Type<select name="type" defaultValue={editing && editing !== 'new' ? editing.scheduleType : 'daily'}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="cron">Cron Expression</option><option value="once">Once</option></select></label><label className="field span-2">Instructions / Prompt<textarea name="prompt" required rows={4} defaultValue={editing && editing !== 'new' ? editing.prompt : ''} /></label><label className="check-label span-2"><input type="checkbox" name="enabled" defaultChecked={editing && editing !== 'new' ? editing.enabled : true} />Enabled</label><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit" data-testid="schedule-save">Save</button></footer></form></FocusDialog>
     <ConfirmDialog open={Boolean(deleting)} title="Delete scheduled task?" description={deleting ? `Delete “${deleting.name}”? This cannot be undone.` : ''} confirmLabel="Delete" onClose={() => setDeleting(null)} onConfirm={() => { if (deleting) void removeTask(deleting); }} testId="schedule-delete-dialog" />
   </ToolFrame>;
