@@ -1,0 +1,195 @@
+.rhythm-workspace-root .pg-tasks { height: 100%; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; color: var(--rhythm-fg); background: color-mix(in oklab, var(--rhythm-bg), var(--rhythm-surface) 16%); }
+.rhythm-workspace-root .pg-tasks .tasks-header { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 17px 24px; border-bottom: 1px solid var(--rhythm-border-soft); background: color-mix(in oklab, var(--rhythm-surface), var(--rhythm-bg) 8%); }
+.rhythm-workspace-root .pg-tasks .tasks-heading { min-width: 0; }
+.rhythm-workspace-root .pg-tasks .tasks-heading h1 { margin: 2px 0 0; font-size: clamp(21px, 2vw, 27px); line-height: 1.15; font-weight: 620; letter-spacing: -.025em; }
+.rhythm-workspace-root .pg-tasks .tasks-heading p { max-width: 58ch; margin: 4px 0 0; color: var(--rhythm-fg-muted); overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-tasks .tasks-header-actions { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.rhythm-workspace-root .pg-tasks .tasks-count { flex: 0 0 auto; padding: 6px 9px; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-pill); color: var(--rhythm-fg-secondary); background: var(--rhythm-surface); font-family: var(--rhythm-font-mono); font-size: 9px; white-space: nowrap; }
+.rhythm-workspace-root .pg-tasks .tasks-view-switch { flex: 0 0 auto; display: flex; gap: 2px; padding: 3px; border-radius: var(--rhythm-radius-sm); background: var(--rhythm-bg); }
+.rhythm-workspace-root .pg-tasks .tasks-view-switch button { min-width: 64px; min-height: 38px; padding: 0 10px; border: 0; border-radius: 7px; color: var(--rhythm-fg-muted); background: transparent; cursor: pointer; font-size: 10px; }
+.rhythm-workspace-root .pg-tasks .tasks-view-switch button[aria-pressed="true"] { color: var(--rhythm-fg); background: var(--rhythm-surface-warm); box-shadow: inset 0 0 0 1px var(--rhythm-border); }
+.rhythm-workspace-root .pg-tasks .tasks-scroll { min-width: 0; min-height: 0; overflow: auto; padding: 20px 24px 28px; }
+.rhythm-workspace-root .pg-tasks .tasks-state { width: min(100%, 700px); min-height: 360px; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 18px auto; padding: 38px 24px; border-block: 1px solid var(--rhythm-border-soft); background: transparent; text-align: center; }
+.rhythm-workspace-root .pg-tasks .tasks-state.danger { border-color: color-mix(in oklab, var(--rhythm-danger), var(--rhythm-border) 45%); }
+.rhythm-workspace-root .pg-tasks .tasks-state.warning { border-color: color-mix(in oklab, var(--rhythm-warning), var(--rhythm-border) 42%); }
+.rhythm-workspace-root .pg-tasks .tasks-state h2, .rhythm-workspace-root .pg-tasks .tasks-no-results h2 { margin: 10px 0 4px; font-size: 20px; letter-spacing: -.015em; }
+.rhythm-workspace-root .pg-tasks .tasks-state p, .rhythm-workspace-root .pg-tasks .tasks-no-results p { max-width: 54ch; margin: 0 0 17px; color: var(--rhythm-fg-muted); }
+.rhythm-workspace-root .pg-tasks .tasks-state-mark { width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid var(--rhythm-border); border-radius: 50%; color: var(--rhythm-accent); font-family: var(--rhythm-font-mono); font-size: 22px; }
+.rhythm-workspace-root .pg-tasks .tasks-state-code { color: var(--rhythm-danger); font-family: var(--rhythm-font-mono); font-size: 25px; font-weight: 650; }
+.rhythm-workspace-root .pg-tasks .tasks-state-spinner { width: 32px; height: 32px; margin-bottom: 8px; border: 2px solid var(--rhythm-border); border-top-color: var(--rhythm-accent); border-radius: 50%; animation: rhythm-tasks-spin .9s linear infinite; }
+.rhythm-workspace-root .pg-tasks .tasks-skeleton { width: min(100%, 360px); display: grid; gap: 7px; margin-top: 10px; }
+.rhythm-workspace-root .pg-tasks .tasks-skeleton span { height: 8px; border-radius: var(--rhythm-radius-pill); background: var(--rhythm-surface-warm); }
+.rhythm-workspace-root .pg-tasks .tasks-skeleton span:nth-child(2) { width: 78%; justify-self: center; }
+.rhythm-workspace-root .pg-tasks .tasks-skeleton span:nth-child(3) { width: 58%; justify-self: center; }
+.rhythm-workspace-root .pg-tasks .tasks-prerequisite { min-width: 0; display: flex; align-items: flex-start; gap: 10px; margin-bottom: 14px; padding: 10px 12px; border: 1px solid color-mix(in oklab, var(--rhythm-warning), var(--rhythm-border) 44%); border-radius: var(--rhythm-radius-sm); color: var(--rhythm-fg-secondary); background: color-mix(in oklab, var(--rhythm-warning), transparent 92%); }
+.rhythm-workspace-root .pg-tasks .tasks-prerequisite strong { flex: 0 0 auto; color: var(--rhythm-warning); }
+.rhythm-workspace-root .pg-tasks .tasks-prerequisite span { overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-tasks .tasks-owner-note { margin: 0 0 10px; color: var(--rhythm-fg-muted); font-size: 9px; overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-tasks .tasks-owner-note strong { margin-inline-end: 5px; color: var(--rhythm-fg-secondary); font-family: var(--rhythm-font-mono); font-size: 8px; letter-spacing: .05em; text-transform: uppercase; }
+.rhythm-workspace-root .pg-tasks .tasks-workspace-layout { min-width: 0; display: grid; grid-template-columns: minmax(520px, 1.55fr) minmax(300px, .75fr); align-items: start; }
+.rhythm-workspace-root .pg-tasks .tasks-collection { min-width: 0; padding-inline-end: 20px; }
+.rhythm-workspace-root .pg-tasks .tasks-filter-grid > label:not(.search-field), .rhythm-workspace-root .pg-tasks .task-inspector-form label { min-width: 0; display: grid; gap: 4px; color: var(--rhythm-fg-muted); font-size: 9px; }
+.rhythm-workspace-root .pg-tasks .tasks-workspace { min-width: 0; }
+.rhythm-workspace-root .pg-tasks .tasks-controls { min-width: 0; display: grid; gap: 10px; padding: 15px 0 11px; border-bottom: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-tasks .tasks-controls h2 { margin: 2px 0 0; font-size: 17px; letter-spacing: -.015em; }
+.rhythm-workspace-root .pg-tasks .tasks-filter-grid { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 7px; }
+.rhythm-workspace-root .pg-tasks .tasks-filter-grid .search-field { width: 100%; min-height: 44px; }
+.rhythm-workspace-root .pg-tasks .tasks-filter-grid > .search-field { grid-column: span 2; }
+.rhythm-workspace-root .pg-tasks .tasks-search-clear { flex: 0 0 44px; width: 44px; height: 44px; display: grid; place-items: center; margin-inline-end: -9px; padding: 0; border: 0; color: var(--rhythm-fg-muted); background: transparent; cursor: pointer; }
+.rhythm-workspace-root .pg-tasks .tasks-search-clear:hover { color: var(--rhythm-fg); }
+.rhythm-workspace-root .pg-tasks .tasks-filter-grid select { min-width: 0; min-height: 44px; font-size: 10px; }
+.rhythm-workspace-root .pg-tasks .tasks-legend { min-width: 0; display: flex; flex-wrap: wrap; gap: 8px 17px; padding: 9px 0; border-bottom: 1px solid var(--rhythm-border-soft); color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 8px; }
+.rhythm-workspace-root .pg-tasks .tasks-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.rhythm-workspace-root .pg-tasks .tasks-legend i { width: 7px; height: 7px; border-radius: 50%; background: var(--rhythm-border); }
+.rhythm-workspace-root .pg-tasks .tasks-legend i.past { background: var(--rhythm-danger); }
+.rhythm-workspace-root .pg-tasks .tasks-legend i.today { background: var(--rhythm-accent); }
+.rhythm-workspace-root .pg-tasks .tasks-legend i.rhythm { background: var(--rhythm-success); }
+.rhythm-workspace-root .pg-tasks .tasks-legend i.project { background: var(--rhythm-info); }
+.rhythm-workspace-root .pg-tasks .tasks-legend i.automation { background: var(--rhythm-warning); }
+.rhythm-workspace-root .pg-tasks .tasks-list { min-width: 0; display: grid; align-content: start; gap: 18px; padding-top: 15px; }
+.rhythm-workspace-root .pg-tasks .task-group { min-width: 0; }
+.rhythm-workspace-root .pg-tasks .task-group > header { min-width: 0; min-height: 31px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--rhythm-border); }
+.rhythm-workspace-root .pg-tasks .task-group > header h2 { margin: 0; font-family: var(--rhythm-font-mono); font-size: 9px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
+.rhythm-workspace-root .pg-tasks .task-group > header span { color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 9px; }
+.rhythm-workspace-root .pg-tasks .task-row { min-width: 0; min-height: 62px; display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px 44px; align-items: stretch; border-bottom: 1px solid var(--rhythm-border-soft); color: var(--rhythm-fg); }
+.rhythm-workspace-root .pg-tasks .task-cell { min-width: 0; display: grid; place-items: stretch; }
+.rhythm-workspace-root .pg-tasks .task-cell.complete-cell, .rhythm-workspace-root .pg-tasks .task-cell.inspect-cell, .rhythm-workspace-root .pg-tasks .task-cell.menu-cell { place-items: center; }
+.rhythm-workspace-root .pg-tasks .task-cell.main-cell, .rhythm-workspace-root .pg-tasks .task-row-main { width: 100%; }
+.rhythm-workspace-root .pg-tasks .task-row:hover, .rhythm-workspace-root .pg-tasks .task-row[aria-selected="true"] { background: color-mix(in oklab, var(--rhythm-surface), var(--rhythm-fg) 6%); }
+.rhythm-workspace-root .pg-tasks .task-row[aria-selected="true"] { box-shadow: inset 2px 0 var(--rhythm-accent); }
+.rhythm-workspace-root .pg-tasks .task-complete-label { min-width: 44px; min-height: 44px; display: grid; place-items: center; cursor: pointer; }
+.rhythm-workspace-root .pg-tasks .task-complete-label input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.rhythm-workspace-root .pg-tasks .task-complete-label > span:last-child { width: 18px; height: 18px; display: grid; place-items: center; border: 1px solid var(--rhythm-border); border-radius: 50%; color: var(--rhythm-success); background: var(--rhythm-surface); }
+.rhythm-workspace-root .pg-tasks .task-complete-label input:checked + span::after { content: '✓'; font-size: 11px; }
+.rhythm-workspace-root .pg-tasks .task-complete-label input:focus-visible + span { box-shadow: var(--rhythm-focus); }
+.rhythm-workspace-root .pg-tasks .task-complete-label input:disabled + span { opacity: .5; cursor: not-allowed; }
+.rhythm-workspace-root .pg-tasks .task-row-main { min-width: 0; min-height: 61px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 7px 8px; border: 0; color: var(--rhythm-fg); background: transparent; cursor: pointer; text-align: start; }
+.rhythm-workspace-root .pg-tasks .task-row-copy { min-width: 0; display: grid; gap: 1px; }
+.rhythm-workspace-root .pg-tasks .task-kicker { color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 8px; letter-spacing: .03em; overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-tasks .task-row h3, .rhythm-workspace-root .pg-tasks .task-card h3 { margin: 0; overflow-wrap: anywhere; font-size: 12px; line-height: 1.35; font-weight: 570; }
+.rhythm-workspace-root .pg-tasks .task-row[data-status="done"] h3 { color: var(--rhythm-fg-muted); text-decoration: line-through; }
+.rhythm-workspace-root .pg-tasks .task-meta { color: var(--rhythm-fg-muted); font-size: 9px; }
+.rhythm-workspace-root .pg-tasks .task-tags, .rhythm-workspace-root .pg-tasks .task-card-tags { min-width: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.rhythm-workspace-root .pg-tasks .task-tags > span, .rhythm-workspace-root .pg-tasks .task-card-tags > span { max-width: 130px; padding: 3px 6px; overflow: hidden; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-pill); color: var(--rhythm-fg-secondary); background: var(--rhythm-surface); font-family: var(--rhythm-font-mono); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.rhythm-workspace-root .pg-tasks .task-menu-anchor { position: relative; display: grid; place-items: center; }
+.rhythm-workspace-root .pg-tasks .task-menu-trigger { width: 44px; height: 44px; }
+.rhythm-workspace-root .pg-tasks .task-inspect-button { width: 44px; height: 44px; }
+.rhythm-workspace-root .pg-tasks .task-menu { width: 190px; }
+.rhythm-workspace-root .pg-tasks .task-menu .menu-item { min-height: 42px; }
+.rhythm-workspace-root .pg-tasks .task-menu .danger-item { color: color-mix(in oklab, var(--rhythm-danger), white 24%); }
+.rhythm-workspace-root .pg-tasks .task-menu .menu-item:disabled { opacity: .52; cursor: not-allowed; }
+.rhythm-workspace-root .pg-tasks .kanban-board { min-width: 0; max-width: 100%; display: grid; grid-template-columns: repeat(4, minmax(220px, 1fr)); gap: 8px; overflow-x: auto; padding: 14px 0 4px; scroll-snap-type: inline proximity; }
+.rhythm-workspace-root .pg-tasks .kanban-column { min-width: 220px; min-height: 360px; overflow: hidden; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-md); background: color-mix(in oklab, var(--rhythm-surface), var(--rhythm-bg) 5%); scroll-snap-align: start; }
+.rhythm-workspace-root .pg-tasks .kanban-column > header { min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 11px; border-bottom: 1px solid var(--rhythm-border-soft); background: var(--rhythm-surface-warm); }
+.rhythm-workspace-root .pg-tasks .kanban-column > header h2 { margin: 0; font-family: var(--rhythm-font-mono); font-size: 9px; letter-spacing: .05em; text-transform: uppercase; }
+.rhythm-workspace-root .pg-tasks .kanban-column > header span { color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 9px; }
+.rhythm-workspace-root .pg-tasks .kanban-stack { display: grid; align-content: start; gap: 7px; padding: 7px; }
+.rhythm-workspace-root .pg-tasks .task-card { min-width: 0; min-height: 112px; padding: 10px; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-sm); color: var(--rhythm-fg); background: var(--rhythm-surface); cursor: grab; }
+.rhythm-workspace-root .pg-tasks .task-card:hover, .rhythm-workspace-root .pg-tasks .task-card[aria-selected="true"] { border-color: var(--rhythm-border); background: var(--rhythm-surface-warm); }
+.rhythm-workspace-root .pg-tasks .task-card[aria-selected="true"] { box-shadow: inset 0 0 0 1px var(--rhythm-accent); }
+.rhythm-workspace-root .pg-tasks .task-card p { margin: 7px 0; color: var(--rhythm-fg-muted); font-size: 9px; overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-tasks .task-card-tags { justify-content: flex-start; }
+.rhythm-workspace-root .pg-tasks .kanban-empty { margin: 0; padding: 18px 9px; color: var(--rhythm-fg-muted); text-align: center; }
+.rhythm-workspace-root .pg-tasks .tasks-no-results { min-height: 300px; display: grid; place-content: center; justify-items: center; padding: 30px; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-md); background: var(--rhythm-surface); text-align: center; }
+.rhythm-workspace-root .pg-tasks .page-trace { min-width: 0; max-height: 82px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; overflow: auto; padding: 8px 24px; border-top: 1px solid var(--rhythm-border-soft); color: var(--rhythm-fg-muted); background: color-mix(in oklab, var(--rhythm-bg), var(--rhythm-surface) 32%); font-family: var(--rhythm-font-mono); font-size: 8px; }
+.rhythm-workspace-root .pg-tasks .page-trace > span { color: var(--rhythm-fg-secondary); font-weight: 650; letter-spacing: .07em; text-transform: uppercase; white-space: nowrap; }
+.rhythm-workspace-root .pg-tasks .page-trace ol { min-width: 0; display: flex; flex-wrap: wrap; gap: 3px 16px; margin: 0; padding-inline-start: 18px; }
+.rhythm-workspace-root .pg-tasks .page-trace li { overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-tasks .dialog-panel { max-height: min(780px, calc(100dvh - 30px)); }
+.rhythm-workspace-root .pg-tasks .task-detail-column { min-width: 0; position: sticky; top: 0; overflow: hidden; border-inline-start: 1px solid var(--rhythm-border-soft); background: color-mix(in oklab, var(--rhythm-surface), var(--rhythm-bg) 5%); }
+.rhythm-workspace-root .pg-tasks .task-detail { min-width: 0; display: grid; gap: 17px; padding: 20px; }
+.rhythm-workspace-root .pg-tasks .task-detail > header { min-width: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding-bottom: 15px; border-bottom: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-tasks .task-detail > header > div { min-width: 0; }
+.rhythm-workspace-root .pg-tasks .task-detail-state { color: var(--rhythm-fg-muted); font-size: 10px; font-weight: 550; }
+.rhythm-workspace-root .pg-tasks .task-detail h2 { margin: 4px 0; overflow-wrap: anywhere; font-size: 21px; line-height: 1.2; font-weight: 610; letter-spacing: -.025em; }
+.rhythm-workspace-root .pg-tasks .task-detail > header p { margin: 0; overflow-wrap: anywhere; color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 9px; }
+.rhythm-workspace-root .pg-tasks .task-detail-empty { min-height: 210px; display: grid; align-content: start; gap: 7px; padding: 24px 20px; }
+.rhythm-workspace-root .pg-tasks .task-detail-empty h2 { margin: 2px 0 0; font-size: 17px; }
+.rhythm-workspace-root .pg-tasks .task-detail-empty p { max-width: 36ch; margin: 0; color: var(--rhythm-fg-muted); }
+.rhythm-workspace-root .pg-tasks .task-inspector-form { min-width: 0; display: grid; gap: 12px; }
+.rhythm-workspace-root .pg-tasks .task-inspector-form fieldset { min-width: 0; display: grid; gap: 12px; margin: 0; padding: 0; border: 0; }
+.rhythm-workspace-root .pg-tasks .task-inspector-form input, .rhythm-workspace-root .pg-tasks .task-inspector-form textarea, .rhythm-workspace-root .pg-tasks .task-inspector-form select { width: 100%; min-width: 0; min-height: 44px; }
+.rhythm-workspace-root .pg-tasks .task-detail-form-actions { display: flex; justify-content: flex-end; gap: 7px; padding-top: 2px; }
+.rhythm-workspace-root .pg-tasks .task-detail-form-actions button { min-height: 44px; }
+.rhythm-workspace-root .pg-tasks .task-source-grid, .rhythm-workspace-root .pg-tasks .inspector-pair { min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.rhythm-workspace-root .pg-tasks .task-source-grid > div { min-width: 0; display: grid; gap: 3px; padding: 9px 10px; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-sm); background: var(--rhythm-bg); }
+.rhythm-workspace-root .pg-tasks .task-source-grid span { color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 8px; text-transform: uppercase; }
+.rhythm-workspace-root .pg-tasks .task-source-grid strong { overflow-wrap: anywhere; font-size: 10px; font-weight: 560; }
+.rhythm-workspace-root .pg-tasks .inspector-prerequisite { display: grid; gap: 2px; padding: 9px 10px; border: 1px solid color-mix(in oklab, var(--rhythm-warning), var(--rhythm-border) 42%); border-radius: var(--rhythm-radius-sm); background: color-mix(in oklab, var(--rhythm-warning), transparent 92%); }
+.rhythm-workspace-root .pg-tasks .inspector-prerequisite strong { color: var(--rhythm-warning); }
+.rhythm-workspace-root .pg-tasks .inspector-prerequisite span { color: var(--rhythm-fg-muted); }
+.rhythm-workspace-root .pg-tasks .task-people, .rhythm-workspace-root .pg-tasks .task-quick-actions { padding-top: 15px; border-top: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-tasks .inspector-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.rhythm-workspace-root .pg-tasks .inspector-section-heading h3, .rhythm-workspace-root .pg-tasks .task-quick-actions h3 { margin: 2px 0 0; font-size: 14px; }
+.rhythm-workspace-root .pg-tasks .inspector-section-heading p { margin: 2px 0 0; color: var(--rhythm-fg-muted); font-size: 10px; }
+.rhythm-workspace-root .pg-tasks .collaborator-list { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+.rhythm-workspace-root .pg-tasks .collaborator-list > p { margin: 0; color: var(--rhythm-fg-muted); }
+.rhythm-workspace-root .pg-tasks .collaborator-chip { min-width: 0; display: grid; grid-template-columns: 28px minmax(0, 1fr) 36px; align-items: center; gap: 7px; padding: 4px 5px 4px 6px; border: 1px solid var(--rhythm-border); border-radius: var(--rhythm-radius-pill); background: var(--rhythm-surface); }
+.rhythm-workspace-root .pg-tasks .collaborator-chip > span { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; color: var(--rhythm-accent); background: var(--rhythm-surface-warm); font-family: var(--rhythm-font-mono); font-size: 8px; }
+.rhythm-workspace-root .pg-tasks .collaborator-chip strong { overflow-wrap: anywhere; font-size: 10px; }
+.rhythm-workspace-root .pg-tasks .collaborator-chip .icon-button { width: 36px; height: 36px; min-height: 36px; }
+.rhythm-workspace-root .pg-tasks .task-quick-actions > div { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+.rhythm-workspace-root .pg-tasks .task-action-chip { min-height: 44px; padding: 0 11px; border: 1px solid var(--rhythm-border); border-radius: var(--rhythm-radius-sm); color: var(--rhythm-fg-secondary); background: transparent; cursor: pointer; font-size: 10px; }
+.rhythm-workspace-root .pg-tasks .task-action-chip:hover { color: var(--rhythm-fg); background: var(--rhythm-surface-warm); }
+.rhythm-workspace-root .pg-tasks .collaborator-options { display: grid; gap: 7px; }
+.rhythm-workspace-root .pg-tasks .collaborator-options .secondary-button { min-height: 52px; display: grid; grid-template-columns: 32px minmax(0, 1fr); justify-content: start; text-align: start; }
+.rhythm-workspace-root .pg-tasks .collaborator-options .secondary-button > span { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; color: var(--rhythm-accent); background: var(--rhythm-surface-warm); font-family: var(--rhythm-font-mono); font-size: 8px; }
+.rhythm-workspace-root .pg-tasks .delete-copy { margin: 0; color: var(--rhythm-fg-muted); }
+.rhythm-workspace-root .pg-tasks button, .rhythm-workspace-root .pg-tasks input, .rhythm-workspace-root .pg-tasks select, .rhythm-workspace-root .pg-tasks textarea { max-width: 100%; }
+.rhythm-workspace-root .pg-tasks .primary-button, .rhythm-workspace-root .pg-tasks .secondary-button, .rhythm-workspace-root .pg-tasks .danger-button, .rhythm-workspace-root .pg-tasks .text-button, .rhythm-workspace-root .pg-tasks .icon-button { min-height: 44px; }
+.rhythm-workspace-root .pg-tasks :disabled { cursor: not-allowed; }
+
+@keyframes rhythm-tasks-spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 880px) {
+  .rhythm-workspace-root .pg-tasks .tasks-workspace-layout { grid-template-columns: minmax(0, 1fr); }
+  .rhythm-workspace-root .pg-tasks .tasks-collection { padding-inline-end: 0; }
+  .rhythm-workspace-root .pg-tasks .task-detail-column { position: static; margin-top: 20px; border-inline-start: 0; border-top: 1px solid var(--rhythm-border-soft); }
+}
+
+@media (max-width: 768px) {
+  .rhythm-workspace-root .pg-tasks .tasks-header { align-items: flex-start; padding: 14px 16px; }
+  .rhythm-workspace-root .pg-tasks .tasks-header-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .rhythm-workspace-root .pg-tasks .tasks-scroll { padding: 14px; }
+  .rhythm-workspace-root .pg-tasks .tasks-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rhythm-workspace-root .pg-tasks .tasks-filter-grid .search-field { grid-column: 1 / -1; }
+  .rhythm-workspace-root .pg-tasks .task-row-main { grid-template-columns: minmax(0, 1fr); }
+  .rhythm-workspace-root .pg-tasks .task-tags { justify-content: flex-start; }
+  .rhythm-workspace-root .pg-tasks .page-trace { padding-inline: 14px; }
+}
+
+@media (max-width: 520px) {
+  .rhythm-workspace-root .pg-tasks .tasks-header { flex-wrap: wrap; gap: 10px; }
+  .rhythm-workspace-root .pg-tasks .tasks-heading, .rhythm-workspace-root .pg-tasks .tasks-header-actions { width: 100%; }
+  .rhythm-workspace-root .pg-tasks .tasks-header-actions { justify-content: flex-start; }
+  .rhythm-workspace-root .pg-tasks .tasks-header-actions .page-task-action { margin-inline-start: auto; }
+  .rhythm-workspace-root .pg-tasks .tasks-view-switch { flex: 1 0 100%; order: 2; }
+  .rhythm-workspace-root .pg-tasks .tasks-view-switch button { flex: 1; }
+  .rhythm-workspace-root .pg-tasks .tasks-scroll { padding: 10px; }
+  .rhythm-workspace-root .pg-tasks .tasks-filter-grid, .rhythm-workspace-root .pg-tasks .task-source-grid, .rhythm-workspace-root .pg-tasks .inspector-pair { grid-template-columns: minmax(0, 1fr); }
+  .rhythm-workspace-root .pg-tasks .tasks-filter-grid .search-field { grid-column: 1; width: 100%; }
+  .rhythm-workspace-root .pg-tasks .task-row { grid-template-columns: 44px minmax(0, 1fr) 44px 44px; }
+  .rhythm-workspace-root .pg-tasks .task-tags { display: none; }
+  .rhythm-workspace-root .pg-tasks .tasks-prerequisite { display: grid; }
+  .rhythm-workspace-root .pg-tasks .page-trace { max-height: 98px; grid-template-columns: 1fr; gap: 4px; }
+  .rhythm-workspace-root .pg-tasks .page-trace ol { display: grid; }
+  .rhythm-workspace-root .pg-tasks .dialog-backdrop { padding: 8px; }
+  .rhythm-workspace-root .pg-tasks .dialog-panel { max-height: calc(100dvh - 16px); }
+  .rhythm-workspace-root .pg-tasks .dialog-actions { flex-wrap: wrap; }
+  .rhythm-workspace-root .pg-tasks .dialog-actions button { flex: 1 1 130px; }
+  .rhythm-workspace-root .pg-tasks .task-detail { padding: 16px 12px 20px; }
+  .rhythm-workspace-root .pg-tasks .task-detail-form-actions { flex-wrap: wrap; }
+  .rhythm-workspace-root .pg-tasks .task-detail-form-actions button { flex: 1 1 130px; }
+}
+
+.rhythm-workspace-root .pg-tasks:dir(rtl) .task-row[aria-selected="true"] { box-shadow: inset -2px 0 var(--rhythm-accent); }
+.rhythm-workspace-root .pg-tasks:dir(rtl) .task-menu { right: auto; left: 0; }
+
+@media (forced-colors: active) {
+  .rhythm-workspace-root .pg-tasks .kanban-column, .rhythm-workspace-root .pg-tasks .task-card, .rhythm-workspace-root .pg-tasks .tasks-prerequisite, .rhythm-workspace-root .pg-tasks .task-detail-column { border-color: CanvasText; }
+  .rhythm-workspace-root .pg-tasks button:focus-visible, .rhythm-workspace-root .pg-tasks input:focus-visible, .rhythm-workspace-root .pg-tasks select:focus-visible, .rhythm-workspace-root .pg-tasks textarea:focus-visible, .rhythm-workspace-root .pg-tasks [role="button"]:focus-visible { outline: 3px solid Highlight; outline-offset: 2px; box-shadow: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rhythm-workspace-root .pg-tasks *, .rhythm-workspace-root .pg-tasks *::before, .rhythm-workspace-root .pg-tasks *::after { scroll-behavior: auto; transition: none; animation: none; }
+}

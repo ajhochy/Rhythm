@@ -1,0 +1,53 @@
+{
+  "name": "@ajhochy/rhythm-workspace-ui",
+  "version": "0.2.0",
+  "private": false,
+  "description": "Host-neutral Rhythm collaborative workspace screens (non-agent) for embedding in any React 18.3/19.2 host shell.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./styles.css": "./dist/styles/rhythm.css"
+  },
+  "sideEffects": [
+    "./dist/styles/rhythm.css",
+    "**/*.css"
+  ],
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup && node ./scripts/copy-styles.mjs",
+    "prepublishOnly": "npm run build",
+    "typecheck": "tsc --noEmit",
+    "pretest": "npm run build",
+    "test": "vitest run --config vitest.config.ts",
+    "test:react19": "node ./scripts/react19-matrix.mjs",
+    "test:all": "npm run test && npm run test:react19"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1 || ^19.2.0",
+    "react-dom": "^18.3.1 || ^19.2.0"
+  },
+  "dependencies": {
+    "lucide-react": "^0.462.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "axe-core": "^4.10.2",
+    "jsdom": "^25.0.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "tsup": "^8.5.1",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}
