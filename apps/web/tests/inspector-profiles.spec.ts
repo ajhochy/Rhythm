@@ -117,6 +117,7 @@ test.describe('inspector and profile workflows', () => {
     await page.getByTestId('profile-rename').click();
     await page.getByTestId('profile-inline-name').fill('Release Steward');
     await page.getByTestId('profile-inline-confirm').click();
+    await expect(page.getByTestId('profile-save-status')).toHaveText('Unsaved changes');
     await page.getByTestId('profile-icon').fill('RS');
     await page.getByTestId('profile-system-prompt').fill('Prepare releases, preserve scope, and verify every handoff.');
     await page.getByTestId('profile-manager').check();
@@ -125,7 +126,7 @@ test.describe('inspector and profile workflows', () => {
     await page.getByTestId('profile-model').selectOption('claude-sonnet-4');
     await page.getByTestId('mcp-gitnexus').check();
     await page.getByTestId('skill-verification').check();
-    await page.getByTestId('permission-shell-allow').check();
+    await page.getByTestId('permission-shell').selectOption('allow');
     await page.getByTestId('profile-managed-skills').check();
     await page.getByTestId('profile-save').click();
     await expect(page.getByTestId('toast-status')).toContainText('saved');
