@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { openFixture, openPage } from './helpers';
 
 async function dragBy(page: Page, splitter: Locator, deltaX: number, deltaY: number) {
+  await splitter.scrollIntoViewIfNeeded();
   const bounds = await splitter.boundingBox();
   expect(bounds).not.toBeNull();
   const startX = bounds!.x + bounds!.width / 2;
@@ -194,15 +195,32 @@ test.describe('shared Splitter', () => {
     await expect(shell).toHaveAttribute('aria-valuenow', '64');
     await page.getByTestId('rail-resizer').focus();
     await page.keyboard.press('ArrowRight');
+    await page.evaluate(() => {
+      localStorage.setItem('layout.planner.day-1', '200');
+      localStorage.setItem('layout.tasks.detail', '432');
+      localStorage.setItem('splitter-test.unrelated', 'keep');
+    });
+    await expect.poll(() => page.evaluate(() => ({
+      shell: localStorage.getItem('layout.shell.navigation'),
+      rail: localStorage.getItem('layout.agents.rail'),
+      planner: localStorage.getItem('layout.planner.day-1'),
+      tasks: localStorage.getItem('layout.tasks.detail'),
+    }))).toEqual({ shell: '64', rail: '296', planner: '200', tasks: '432' });
 
-    await page.evaluate(() => { window.location.hash = '/settings'; });
+    await page.goto('/tests/electron-e40-harness.html#/settings');
     await expect(page.getByTestId('page-settings')).toBeVisible();
-    await page.getByRole('option', { name: 'Appearance', exact: true }).click();
+    const settingsList = page.getByRole('separator', { name: 'Resize Settings sections list' });
+    await settingsList.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(settingsList).toHaveAttribute('aria-valuenow', '336');
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('layout.list-inspector.settings-sections'))).toBe('336');
     await page.getByTestId('reset-layout').click();
-    await expect(shell).toHaveAttribute('aria-valuenow', '48');
+    await expect(settingsList).toHaveAttribute('aria-valuenow', '320');
     await expect.poll(() => page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith('layout.')))).toEqual([]);
+    expect(await page.evaluate(() => localStorage.getItem('splitter-test.unrelated'))).toBe('keep');
 
-    await page.evaluate(() => { window.location.hash = '/agents'; });
+    await page.goto('/#/agents');
+    await expect(page.getByTestId('shell-navigation-resizer')).toHaveAttribute('aria-valuenow', '48');
     await expect(page.getByTestId('rail-resizer')).toHaveAttribute('aria-valuenow', '280');
   });
 
