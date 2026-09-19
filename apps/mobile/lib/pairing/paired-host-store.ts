@@ -585,8 +585,9 @@ export class PairedHostStore {
   /**
    * Probe the KNOWN relay base for an already-paired host that has no stored
    * relayUrl, and return a host with relayUrl adopted when the relay is
-   * reachable and advertises a valid one. Never throws — an unreachable relay
-   * returns null so the caller falls back to the stored (Tailscale) path.
+   * reachable and advertises a valid one. Relay reachability failures return
+   * null so the caller can fall back to the stored (Tailscale) path. Auth,
+   * scope, and identity failures propagate so refresh fails closed.
    * The device token is replicated to the relay by the Mac, so the existing
    * pairing authenticates there without a re-pair.
    */
@@ -612,11 +613,28 @@ export class PairedHostStore {
         '/mobile-gateway/health',
         { method: 'GET', signal },
       );
-      if (health.status !== 'ready') return null;
+      if (!hasCompatibilityFields(health)) {
+        throw new PairedHostError(
+          'request',
+          'Rhythm Cloud Gateway returned an invalid health response. Try again or pair this iPhone again.',
+        );
+      }
+      if (health.hostId !== host.hostId) {
+        throw new PairedHostError(
+          'accountMismatch',
+          'Rhythm Cloud Gateway authenticated a different Mac. Pair this iPhone again from the intended Mac.',
+        );
+      }
       const relayUrl = relayUrlFromHealth(health.relayUrl) ?? relayBase;
       return { host: { ...host, relayUrl }, health };
-    } catch {
-      return null;
+    } catch (error) {
+      if (
+        error instanceof ApiError &&
+        (error.code === 'NETWORK_ERROR' || error.status === 0 || error.status >= 500)
+      ) {
+        return null;
+      }
+      throw error;
     }
   }
 
@@ -980,6 +998,18 @@ export class PairedHostStore {
         return this.apply(
           'revoked',
           'This iPhone was revoked by the paired Mac. Pair it again.',
+        );
+      }
+      if (error instanceof ApiError && error.status === 403) {
+        return this.apply(
+          'accountMismatch',
+          'Rhythm Cloud Gateway refused this iPhone for the paired account. Sign in with the account that paired this Mac or pair it again.',
+        );
+      }
+      if (error instanceof PairedHostError) {
+        return this.apply(
+          error.kind === 'accountMismatch' ? 'accountMismatch' : 'unhealthy',
+          error.message,
         );
       }
       if (
