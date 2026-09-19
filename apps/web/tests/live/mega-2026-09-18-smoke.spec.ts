@@ -79,8 +79,10 @@ function isMarked(row: JsonRow) {
   return JSON.stringify(row).includes(markerPrefix);
 }
 
-function authHeaders(local = false): Record<string, string> {
-  return local ? {} : { Authorization: `Bearer ${bearer}` };
+function authHeaders(_local = false): Record<string, string> {
+  // Loopback sandboxes gate authenticated routes too (AGENT_LOCAL only relaxes agent-local routers),
+  // so always send the configured disposable bearer.
+  return bearer ? { Authorization: `Bearer ${bearer}` } : {};
 }
 
 async function checkedJson(response: JsonResponse, operation: string) {
