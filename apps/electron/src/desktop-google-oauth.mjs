@@ -76,6 +76,23 @@ export async function runDesktopGoogleOAuth({
 }) {
   if (!clientId) throw new Error('GOOGLE_DESKTOP_CLIENT_ID is not set; cannot start Google sign-in.');
 
+  // A pre-deployment server still exchanges desktop codes by replacing integration tokens.
+  // Verify the separate login-only boundary before creating OAuth state or opening a browser.
+  let capability;
+  try {
+    const response = await fetcher(`${apiBase}/auth/google/desktop-login-capability`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (response.status === 200) capability = await response.json();
+  } catch {
+    // Treat network, timeout, and malformed-body failures as unsupported.
+  }
+  if (capability?.loginOnlyDesktopExchange !== true) {
+    throw new Error('This Rhythm server does not support safe Google sign-in; update the server before signing in.');
+  }
+
   const { verifier, challenge } = await generatePkcePair();
   const state = randomUrlSafeString(32);
   let settleCallback;

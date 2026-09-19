@@ -2,23 +2,21 @@
 
 ## Focus and branches
 
-Finish the 2026-09-18 mega draft with honest native, hosted, sandbox, and local evidence. Branch `mega/2026-09-18-mobile-electron-hermes`: [PR #1544](https://github.com/ajhochy/Rhythm/pull/1544). Fork `mega/2026-09-18-rhythm-plugin-finish`: [PR #17](https://github.com/ajhochy/hermes-rhythm-plugin/pull/17), pushed at `c5c9c1e17b`. Both remain draft; no merge/deployment.
+Acceptance follow-up for draft [PR #1544](https://github.com/ajhochy/Rhythm/pull/1544), branch `mega/2026-09-18-mobile-electron-hermes`, and draft [fork PR #17](https://github.com/ajhochy/hermes-rhythm-plugin/pull/17), branch `mega/2026-09-18-rhythm-plugin-finish`. Neither is merged or deployed. Qualification-only signing is prepared separately from publication.
 
-## Changes and gates
+## Current evidence
 
-Relay PTY, bounded buffering, device/uplink credential freshness, and sanitized diagnostics are implemented. Shared-inspector review repaired Messages/Facilities preservation, schedule history selection, task metadata, and Planner sizing. Electron readiness is deterministic: 163/163 three consecutive runs plus final parent pass. Mobile: 32 suites/133 tests, typecheck/lint/contract green (three existing warnings). Fork: 283/283, packaging 62/62; only the reproduced host JSX incompatibility is repaired.
-
-Final API: 660 files/6,180 tests passed, 250 tests skipped; build passed. Exact-source relay sandbox: 1/1 passed and teardown complete. Final web: 459 passed/47 skipped/0 failed with typecheck/build/dist smoke green. Final Electron slice manifest: 155 passed/4 skipped/0 failed. The sandbox preference boot/save repair has 3 unit and 14 focused rendered passes. See [finish PR body](runs/mega-2026-09-18/PR-BODY.md) and [run record](runs/2026-09-18-mega-mobile-electron-hermes.md).
+- Public desktop OAuth configuration and authorized test bearer found; bearer used only in process memory. Flutter-owned API4001/engine4096 are healthy and preserved.
+- Global campaign-prefix absence verified in all six hosted collections (HTTP200, zero matches); Google Calendar/Gmail both connected, needsReauth false. An M3 attempt exposed a legacy integration overwrite and was stopped; existing grants were restored and verified. New API/client login-only capability prevents a repeat. Production still has the older API.
+- Hermes fixed native candidate mounts and rejects unsupported login before browser launch. Running backend Rescan removes removed plugin registrations and route; final disk-list cleanup also passed in the same running candidate. Installed Hermes remains open and unchanged.
+- Hosted browser: **7 passed /22 failed /5 skipped**, primarily disallowed browser origin. Native attach harness selects12 tests but remains unrun at native auth boundary. Atomic paused Automation API roundtrip passed and cleaned up. Messages safely skipped on deployed API; new creator-scoped cleanup passed real isolated API/engine sandbox1/1.
+- Web **460 passed /47 skipped**, Electron slices **155 passed /4 skipped**, Electron **176/176**, mobile **32 suites/133 tests**, all required typecheck/build/lint/contract gates passed (3 existing mobile warnings).
+- API full **6185 passed /251 skipped /1 timeout failure**; exact failed PTY file then **2/2**, recorded as flake. Focused OAuth **9/9** and real login-only capability/rejection sandbox **1/1**. Fork final scoped tests **296/296**, packaging **62/62**, loader/settings **19/19**; earlier M10 timing failures retained, thresholds unchanged.
 
 ## Blocking acceptance
 
-- Native brief: 1 pass (packaged Finder/Get Info icon), 9 blocked at missing `GOOGLE_DESKTOP_CLIENT_ID`. Requested local :4001/:4096 were absent. Sidecar health 200 does not establish embedded UI behavior.
-- Hosted suite: no `RHYTHM_LIVE_TOKEN`; 1 setup failure, 33 not run. Six collection GETs returned 403. Zero rows created here; global marker absence unverified.
-- Installed Hermes registers `/rhythm` but mounts no workspace. M3, hosted reads, draft, ACP and zero-write trace remain blocked. CLI reload is unavailable. Both plugin installs were removed; backups/auth preserved, but running-host native registrations remain cached. Exact final JSX-only package was reinstalled and its route created an element successfully, but mounted no workspace.
-- #1513 review 8/9 and #1509 9/11: native/live and subjective acceptance pending. Physical #1510 audio, TestFlight/device, Cloudflare/NAS deployment and off-LAN relay checks remain open. Bundled Hermes payload remains NO-GO.
+Nine authenticated native brief steps remain blocked by encrypted Keychain persistence and the final client's required undeployed login-only endpoint. M3 hosted reads, actual ACP deny/allow/read-back, unsent draft and nonempty zero-write trace remain open. Finder/Get Info pass for the ad hoc candidate; signed/notarized installed Dock/Command-Tab remain separate. Physical #1510 audio, matched comfort acceptance, TestFlight/device and deployed image/off-LAN checks remain open. Paired iPhone was locked; relay health became macOnline true but does not prove the phone path. Bundled Hermes release remains NO-GO.
 
-## Next acceptance boundary
+## Evidence
 
-Local gates are complete. Publication and exact remote-head CI are recorded on the draft PRs; neither branch is a deployment. Restore missing runtime/auth prerequisites and resolve the installed-host route before rerunning blocked acceptance. Preserve the running Flutter/Hermes apps and user data. Full decisions and cleanup: [checklist](../../.proof/mega-2026-09-18/CHECKLIST.md).
-
-The #1174 isolated mobile spec reproduced an intermittent terminal-menu timeout (3/4); the failed case passed alone (1/1). The flake remains unmodified, as does the earlier M10 timing flake.
+[Follow-up and decisions](runs/2026-09-19-mega-acceptance-followup.md), [hosted writes](runs/2026-09-19-hosted-write-gaps.md), [release/device gates](runs/2026-09-19-device-release-preflight.md), [native table](../../.proof/mega-2026-09-18/VISUAL-SMOKE.md). Current PR and qualification workflow checks supersede historical September18 counts. Preserve installed apps/services, existing profiles/auth, and unrelated fork deletions.

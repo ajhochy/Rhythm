@@ -715,3 +715,11 @@
 - Category: C5 environment configuration.
 - Root cause: process lacks the handoff bearer and public Google client configuration; requested local services are absent.
 - Follow-up: keep PR1544 open and distinguish startup health from authenticated native/hosted behavior.
+
+## 2026-09-19 — PR 1544 — Login and integration grants shared one endpoint
+
+- **Result**: smoke FAIL; previous acceptance was blocked, not claimed PASS.
+- **Category**: C1 missing integration-preservation contract; C5 native/hosted environment boundaries.
+- **Criteria affected**: desktop OAuth, M3, native workspace and hosted smoke.
+- **Root cause**: legacy login overwrote integration credentials; browser origin was rejected; protected native Keychain persistence did not finish.
+- **Suggested fix**: deploy separately capability-checked login-only OAuth, preserve existing provider rows, rerun actual native/signed and hosted behavior.

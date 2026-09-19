@@ -13,9 +13,12 @@ export default defineConfig({
   testDir: './live',
   testMatch: 'mega-2026-09-18-smoke.spec.ts',
   fullyParallel: false,
+  preserveOutput: 'never',
   use: {
     ...liveConfig.use,
-    trace: 'retain-on-failure',
+    trace: 'off',
+    screenshot: 'off',
+    video: 'off',
   },
   webServer: {
     command: [

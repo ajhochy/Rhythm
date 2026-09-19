@@ -85,7 +85,7 @@ if (hasSingleInstanceLock) {
     await writeFile(authSessionPath, safeStorage.encryptString(JSON.stringify({ productionApiBase, sessionToken: productionSessionToken, user: productionSessionUser })), { mode: 0o600 });
   };
   const restoreAuthentication = async () => {
-    if (isSmoke || !safeStorage.isEncryptionAvailable()) return;
+    if (isSmoke || !existsSync(authSessionPath) || !safeStorage.isEncryptionAvailable()) return;
     try {
       const stored = JSON.parse(safeStorage.decryptString(await readFile(authSessionPath)));
       if (stored.productionApiBase !== productionApiBase || typeof stored.sessionToken !== 'string' || !stored.user || typeof stored.user.id !== 'number') throw new Error('invalid stored session');

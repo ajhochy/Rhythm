@@ -339,6 +339,16 @@ export class GoogleOAuthService {
     tokens: GoogleTokenResponse,
     profile: GoogleUserInfo,
   ): Promise<void> {
+    const scopes = (tokens.scope ?? '').split(/\s+/);
+    const providers: Array<'google_calendar' | 'gmail'> = [];
+    if (scopes.some((scope) => scope.startsWith('https://www.googleapis.com/auth/calendar'))) {
+      providers.push('google_calendar');
+    }
+    if (scopes.some((scope) => scope.startsWith('https://www.googleapis.com/auth/gmail.') || scope === 'https://mail.google.com/')) {
+      providers.push('gmail');
+    }
+    if (providers.length === 0) return;
+
     const expiresAt = tokens.expires_in
       ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
       : null;
@@ -350,10 +360,10 @@ export class GoogleOAuthService {
       displayName: profile.name ?? null,
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token ?? null,
-      scope: tokens.scope ?? GOOGLE_SCOPES.join(' '),
+      scope: tokens.scope ?? null,
       tokenType: tokens.token_type ?? null,
       expiresAt,
-    });
+    }, { insertOnly: true, providers });
   }
 
   private assertDesktopConfigured(): void {

@@ -1,5 +1,16 @@
 # Hosted smoke receipt
 
+## September 19 follow-up
+
+**7 passed / 22 failed / 5 skipped** out of 34. The authorized existing bearer was supplied only in process memory. Browser origin `http://127.0.0.1:4175` is rejected by local/hosted API CORS; native `rhythm://app` is allowed. Preserve the failures. No Origin spoofing, proxy or security bypass was used.
+
+Paused Automation API create/read-back/delete passed; UI loading failed. Messages safely skipped before creation because the deployed API has no delete route. Creator-scoped cleanup and paused-create behavior passed a disposable real API/engine sandbox (1/1); the new route is not deployed. The attach-only native harness selects 12 applicable tests but has not run because native auth persistence did not finish.
+
+Final authenticated collection audit at 2026-09-19T15:42:33Z found **zero campaign-prefix rows in all six collections**, all HTTP 200: tasks 1541, facilities 18, reservations 310, templates 1, automations 3, threads 7. No current-run rows remain. See [sanitized audit](hosted-final-audit-2026-09-19.json). Traces/screenshots/videos were off, retained output disabled, and cache/dist/test-results contained zero bearer matches.
+
+## September 18 receipt (historical)
+
+
 ## Result
 
 BLOCKED. `RHYTHM_LIVE_TOKEN` is absent in the executing process. The exact requested command exited 1: one test setup failed on the required-bearer assertion; 33 tests did not run. Cleanup then observed connection refusal from the requested local API :4001. No test reached a create/write operation.

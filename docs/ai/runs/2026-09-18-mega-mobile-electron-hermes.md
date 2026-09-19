@@ -147,3 +147,9 @@ Current operator gate counts: native **1/0/9**, hosted runner **0/1/33**, fork *
 ### Dashboard receipt
 
 The explicitly requested `node publish-to-rhythm.mjs run` command exited 0: `RUN reactElectronLiveSuite OK: rev 4395 -> 4396, 10 runs`. Payload status was `pending`; its data-only note was `1/0/9;0/1/33;5/1/5;6/0/1`. This proves the requested manual publication, not automatic lifecycle capture.
+
+## September 19 acceptance follow-up
+
+The September18 missing-client/token/services snapshot is superseded by [the follow-up run](2026-09-19-mega-acceptance-followup.md). Client ID and an authorized in-memory bearer are available, Flutter services are healthy, and six hosted collections contain zero campaign markers. Hosted browser rerun:7 passed/22 failed/5 skipped at an Origin/CORS boundary. Native1 pass/9 blocked; protected Keychain persistence and an undeployed login-only capability remain gates. The M3 integration-token side effect was disclosed, existing Google/Gmail grants restored and verified, and both clients plus API repaired to separate identity login from integrations.
+
+Final web460/47, slices155/4, Electron176/176, mobile133/133; API6185/251/1 timeout followed by isolated2/2 is a flake. Real hosted-write sandbox1/1 and login-only API sandbox1/1 passed. Hermes final scoped296/296, loader/settings19/19; rebuilt candidate mounts and running-host removal works. Earlier failures/installed-host evidence remain historical. No production merge/deploy or physical-device qualification is implied.

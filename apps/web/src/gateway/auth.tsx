@@ -76,7 +76,7 @@ export function GoogleSignIn({ auth, onAuthenticated }: {
       <section aria-labelledby="sign-in-title" style={{ width: 'min(420px, 100%)', padding: 32, border: '1px solid var(--border)', borderRadius: 18, background: 'var(--surface-raised)', boxShadow: '0 24px 70px rgb(0 0 0 / 18%)' }}>
         <p style={{ margin: '0 0 8px', color: 'var(--muted)', font: '600 11px var(--font-mono)', letterSpacing: '.08em', textTransform: 'uppercase' }}>Rhythm desktop</p>
         <h1 id="sign-in-title" style={{ margin: '0 0 10px' }}>Sign in to Rhythm</h1>
-        <p style={{ margin: '0 0 24px', color: 'var(--muted)' }}>Use your Google account to open your live workspace and calendar access.</p>
+        <p style={{ margin: '0 0 24px', color: 'var(--muted)' }}>Use your Google account to open your Rhythm workspace.</p>
         <button className="primary-button" type="button" onClick={() => void signIn()} disabled={!auth || signingIn} style={{ width: '100%' }}>
           {signingIn ? 'Waiting for Google…' : 'Continue with Google'}
         </button>

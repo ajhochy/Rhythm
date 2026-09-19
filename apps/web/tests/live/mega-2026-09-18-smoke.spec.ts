@@ -14,13 +14,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   expect,
-  test,
   type APIRequestContext,
   type APIResponse,
   type Locator,
   type Page,
   type Request,
+  type Route,
 } from '@playwright/test';
+import { nativeElectronTransport, test } from './electron-native-test';
 import {
   expectInspectorHeading,
   expectListInspectorAxeClean,
@@ -28,7 +29,7 @@ import {
   selectRow,
 } from '../helpers/list-inspector';
 import { liveEnvironment } from '../live-environment';
-import { ownsMegaSmokeRow } from '../helpers/mega-smoke-ownership';
+import { ownsMegaSmokeRow, permitsMegaSmokeWrite } from '../helpers/mega-smoke-ownership';
 
 const environment = liveEnvironment({
   ...process.env,
@@ -45,12 +46,13 @@ const bearer = process.env.RHYTHM_LIVE_TOKEN?.trim() ?? '';
 const hostedSkipReason = 'Hosted API rejected this bearer; provide a hosted RHYTHM_LIVE_TOKEN to cover hosted-domain tests.';
 
 type JsonRow = Record<string, unknown>;
-type WriteReceipt = { method: string; url: string; body: string; source: 'page' | 'cleanup' };
-type JsonResponse = Pick<APIResponse, 'ok' | 'status' | 'statusText' | 'json'>;
+type WriteReceipt = { method: string; url: string; body: string; source: 'page' | 'cleanup' | 'probe' };
+type JsonResponse = Pick<APIResponse, 'ok' | 'status' | 'statusText' | 'json' | 'url'>;
 
 const allWrites: WriteReceipt[] = [];
-const allowedIds = new Set<string>();
+const allowedDeleteUrls = new Set<string>();
 const tempDirectories = new Set<string>();
+const requestListeners = new WeakMap<Page, Set<(request: Request) => void>>();
 let hostedAvailable = false;
 let hostedRejectionLogged = false;
 
@@ -63,17 +65,17 @@ function isApiUrl(raw: string) {
 
 function recordPageWrites(page: Page): WriteReceipt[] {
   const writes: WriteReceipt[] = [];
-  page.on('request', (request: Request) => {
+  const listener = (request: Request) => {
     if (!writeMethods.has(request.method()) || !isApiUrl(request.url())) return;
     const receipt = { method: request.method(), url: request.url(), body: request.postData() ?? '', source: 'page' as const };
     writes.push(receipt);
     allWrites.push(receipt);
-  });
+  };
+  page.on('request', listener);
+  const listeners = requestListeners.get(page) ?? new Set();
+  listeners.add(listener);
+  requestListeners.set(page, listeners);
   return writes;
-}
-
-function rememberId(value: unknown) {
-  if (typeof value === 'number' || typeof value === 'string') allowedIds.add(String(value));
 }
 
 function rowId(row: JsonRow) {
@@ -114,8 +116,9 @@ async function checkedJson(response: JsonResponse, operation: string) {
 
 async function directDelete(request: APIRequestContext, base: string, path: string, id: unknown, local = false) {
   if (!local && !hostedAvailable) return;
-  rememberId(id);
   const url = `${base}${path}`;
+  expect(id).not.toBeNull();
+  allowedDeleteUrls.add(url);
   const receipt = { method: 'DELETE', url, body: '', source: 'cleanup' as const };
   allWrites.push(receipt);
   const response = await request.delete(url, { headers: authHeaders(local) });
@@ -139,6 +142,12 @@ async function listRows(request: APIRequestContext, base: string, path: string, 
 
 async function cleanMarkerRows(request: APIRequestContext) {
   if (hostedAvailable) {
+    const threads = (await listRows(request, environment.productionApiBase, '/message-threads')).filter(isMarked);
+    for (const thread of threads) {
+      const id = rowId(thread);
+      if (id != null) await directDelete(request, environment.productionApiBase, `/message-threads/${encodeURIComponent(String(id))}`, id);
+    }
+
     const reservations = (await listRows(request, environment.productionApiBase, '/facilities/reservations')).filter(isMarked);
     for (const reservation of reservations) {
       const facilityId = reservation.facilityId ?? reservation.facility_id;
@@ -179,14 +188,19 @@ async function cleanMarkerRows(request: APIRequestContext) {
 }
 
 function writeIsSafe(write: WriteReceipt) {
-  if (write.body.includes(markerPrefix) || decodeURIComponent(write.url).includes(markerPrefix)) return true;
-  const decoded = decodeURIComponent(new URL(write.url).pathname);
-  return [...allowedIds].some((id) => decoded.split('/').includes(id));
+  if (write.source === 'probe' && write.method === 'DELETE' && ['/message-threads/-2147483648', '/automation-rules/00000000-0000-0000-0000-000000000000'].includes(new URL(write.url).pathname)) return true;
+  return permitsMegaSmokeWrite(write, marker, allowedDeleteUrls);
 }
 
 async function openLive(page: Page, route: string) {
-  await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'light' });
-  await page.goto(`/#${route.startsWith('/') ? route : `/${route}`}`);
+  if (!nativeElectronTransport) await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'light' });
+  const hash = `#${route.startsWith('/') ? route : `/${route}`}`;
+  if (nativeElectronTransport) {
+    await page.evaluate((nextHash) => { window.location.hash = nextHash; }, hash);
+    await expect(page).toHaveURL(`rhythm://app/index.html${hash}`);
+  } else {
+    await page.goto(`/${hash}`);
+  }
   await expect(page.locator('#main-content')).toBeAttached();
   await expect(page.getByRole('alert').filter({ hasText: 'Live gateway could not start' })).toHaveCount(0);
 }
@@ -226,7 +240,7 @@ async function createdId(response: JsonResponse) {
   const body = await checkedJson(response, 'create request');
   const id = body && typeof body === 'object' ? rowId(body as JsonRow) : null;
   expect(id, 'create response must return an id used by the cleanup guard').not.toBeNull();
-  rememberId(id);
+  allowedDeleteUrls.add(`${response.url().replace(/\/$/, '')}/${encodeURIComponent(String(id))}`);
   return String(id);
 }
 
@@ -241,6 +255,16 @@ async function dragBy(page: Page, splitter: Locator, deltaX: number, deltaY: num
   await page.mouse.up();
 }
 
+const liveWriteGuard = async (route: Route) => {
+  const request = route.request();
+  if (!writeMethods.has(request.method()) || !isApiUrl(request.url())) return route.continue();
+  const write = { method: request.method(), url: request.url(), body: request.postData() ?? '', source: 'page' as const };
+  if (!writeIsSafe(write)) return route.abort('blockedbyclient');
+  return route.continue();
+};
+
+test.beforeEach(async ({ page }) => { await page.route('**/*', liveWriteGuard); });
+
 test.beforeAll(async ({ request }) => {
   expect(Boolean(bearer), 'RHYTHM_LIVE_TOKEN must be provided through the process environment').toBeTruthy();
   const response = await request.get(`${environment.productionApiBase}/auth/me`, { headers: authHeaders() });
@@ -250,12 +274,21 @@ test.beforeAll(async ({ request }) => {
   await cleanMarkerRows(request);
 });
 
-test.afterEach(async ({ request }) => {
-  await cleanMarkerRows(request);
-  await Promise.all([...tempDirectories].map(async (directory) => {
-    await rm(directory, { recursive: true, force: true });
-    tempDirectories.delete(directory);
-  }));
+test.afterEach(async ({ page, request }) => {
+  try {
+    await cleanMarkerRows(request);
+    await Promise.all([...tempDirectories].map(async (directory) => {
+      await rm(directory, { recursive: true, force: true });
+      tempDirectories.delete(directory);
+    }));
+  } finally {
+    try {
+      await page.unroute('**/*', liveWriteGuard);
+    } finally {
+      for (const listener of requestListeners.get(page) ?? []) page.off('request', listener);
+      requestListeners.delete(page);
+    }
+  }
 });
 
 test.afterAll(async ({ request }) => {
@@ -370,9 +403,39 @@ test.describe('Messages — #1516', () => {
     await verifyListInspectorSelection(page, 'Conversations', writes, 'Messages has fewer than two live conversations');
   });
 
-  test('thread plus message create/read-back/delete cycle', async () => {
+  test('self-only marked thread create/read-back/delete cycle without sending a message', async ({ page, request }) => {
     test.skip(!hostedAvailable, hostedSkipReason);
-    test.skip(true, 'The Messages UI and gateway expose createThread/sendMessage but no thread or message delete operation; creating live data would violate cleanup policy.');
+    const probeId = '-2147483648';
+    expect((await listRows(request, environment.productionApiBase, '/message-threads')).some((thread) => String(rowId(thread)) === probeId), 'DELETE capability probe must not target an owned row').toBe(false);
+    const probeUrl = `${environment.productionApiBase}/message-threads/${probeId}`;
+    allWrites.push({ method: 'DELETE', url: probeUrl, body: '', source: 'probe' });
+    const capability = await request.delete(probeUrl, { headers: authHeaders() });
+    const capabilityBody = capability.headers()['content-type']?.includes('application/json') ? await capability.json() as JsonRow : null;
+    test.skip(capability.status() !== 404 || (capabilityBody?.error as JsonRow | undefined)?.code !== 'NOT_FOUND' || (capabilityBody?.error as JsonRow | undefined)?.message !== 'MessageThread not found', 'Hosted Messages DELETE route is not deployed; no thread was created.');
+    const auth = await checkedJson(await request.get(`${environment.productionApiBase}/auth/me`, { headers: authHeaders() }), 'GET /auth/me');
+    const userId = (auth as { user?: { id?: unknown } })?.user?.id;
+    expect(typeof userId).toBe('number');
+    const title = `${marker}-THREAD`;
+    const input = { participantIds: [userId], threadType: 'group', title };
+    const createUrl = `${environment.productionApiBase}/message-threads`;
+    allWrites.push({ method: 'POST', url: createUrl, body: JSON.stringify(input), source: 'page' });
+    const threadId = await createdId(await request.post(createUrl, { headers: authHeaders(), data: input }));
+
+    const threads = await listRows(request, environment.productionApiBase, '/message-threads');
+    expect(threads.find((thread) => String(rowId(thread)) === threadId)).toMatchObject({ title, createdBy: userId });
+    const messages = await checkedJson(await request.get(`${environment.productionApiBase}/message-threads/${encodeURIComponent(threadId)}/messages`, { headers: authHeaders() }), 'GET own thread messages');
+    expect(messages).toEqual([]);
+    const pageWrites = recordPageWrites(page);
+    await openLive(page, '/messages');
+    await selectRow(page, title);
+    await expectInspectorHeading(page, title);
+    expect(pageWrites).toEqual([]);
+
+    const deleteUrl = `${environment.productionApiBase}/message-threads/${encodeURIComponent(threadId)}`;
+    allWrites.push({ method: 'DELETE', url: deleteUrl, body: '', source: 'cleanup' });
+    const deleted = await request.delete(deleteUrl, { headers: authHeaders() });
+    expect(deleted.status()).toBe(204);
+    expect((await listRows(request, environment.productionApiBase, '/message-threads')).some((thread) => String(rowId(thread)) === threadId)).toBe(false);
   });
 });
 
@@ -414,9 +477,38 @@ test.describe('Automations — #1518', () => {
     await verifyListInspectorSelection(page, 'Automation rules', writes, 'Automations has fewer than two live rules');
   });
 
-  test('paused rule create/read-back/delete cycle', async () => {
+  test('paused rule create/read-back/delete cycle', async ({ page, request }) => {
     test.skip(!hostedAvailable, hostedSkipReason);
-    test.skip(true, 'The create UI sends enabled=true and has no atomic paused control; briefly creating an executable live rule violates the smoke safety contract.');
+    const probeId = '00000000-0000-0000-0000-000000000000';
+    expect((await listRows(request, environment.productionApiBase, '/automation-rules')).some((rule) => String(rowId(rule)) === probeId), 'Automation DELETE probe must not target an owned row').toBe(false);
+    const probeUrl = `${environment.productionApiBase}/automation-rules/${probeId}`;
+    allWrites.push({ method: 'DELETE', url: probeUrl, body: '', source: 'probe' });
+    const capability = await request.delete(probeUrl, { headers: authHeaders() });
+    const capabilityBody = capability.headers()['content-type']?.includes('application/json') ? await capability.json() as JsonRow : null;
+    test.skip(capability.status() !== 404 || (capabilityBody?.error as JsonRow | undefined)?.code !== 'NOT_FOUND' || (capabilityBody?.error as JsonRow | undefined)?.message !== 'AutomationRule not found', 'Hosted automation DELETE route is unavailable; no rule was created.');
+    const name = `${marker}-PAUSED-RULE`;
+    const input = { name, source: 'rhythm', triggerKey: 'rhythm.task_due', actionType: 'create_task', enabled: false };
+    const createUrl = `${environment.productionApiBase}/automation-rules`;
+    allWrites.push({ method: 'POST', url: createUrl, body: JSON.stringify(input), source: 'page' });
+    const created = await checkedJson(await request.post(createUrl, { headers: authHeaders(), data: input }), 'POST paused automation rule') as JsonRow;
+    expect(created).toMatchObject({ name, enabled: false });
+    const id = String(rowId(created));
+    expect(id).not.toBe('undefined');
+    allowedDeleteUrls.add(`${environment.productionApiBase}/automation-rules/${encodeURIComponent(id)}`);
+    const readBack = await checkedJson(await request.get(`${environment.productionApiBase}/automation-rules/${encodeURIComponent(id)}`, { headers: authHeaders() }), 'GET paused automation rule');
+    expect(readBack).toMatchObject({ id, name, enabled: false });
+    const pageWrites = recordPageWrites(page);
+    await openLive(page, '/automations');
+    await selectRow(page, name);
+    await expectInspectorHeading(page, name);
+    await expect(page.getByTestId(`automation-enabled-${id}`)).not.toBeChecked();
+    expect(pageWrites).toEqual([]);
+
+    const deleteUrl = `${environment.productionApiBase}/automation-rules/${encodeURIComponent(id)}`;
+    allWrites.push({ method: 'DELETE', url: deleteUrl, body: '', source: 'cleanup' });
+    const deleted = await request.delete(deleteUrl, { headers: authHeaders() });
+    expect(deleted.status()).toBe(204);
+    expect((await listRows(request, environment.productionApiBase, '/automation-rules')).some((rule) => String(rowId(rule)) === id)).toBe(false);
   });
 });
 

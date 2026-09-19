@@ -170,13 +170,14 @@ export class IntegrationAccountsRepository {
     scope: string | null;
     tokenType: string | null;
     expiresAt: string | null;
-  }): Promise<IntegrationAccount[]> {
+  }, options: { insertOnly?: boolean; providers?: IntegrationProvider[] } = {}): Promise<IntegrationAccount[]> {
     if (env.dbClient === 'postgres') {
       const now = new Date().toISOString();
-      const providers: IntegrationProvider[] = ['google_calendar', 'gmail'];
+      const providers: IntegrationProvider[] = options.providers ?? ['google_calendar', 'gmail'];
       for (const provider of providers) {
         const existing = await this.findByProviderAsync(provider, data.ownerId);
         if (existing) {
+          if (options.insertOnly) continue;
           await getPostgresPool().query(
             `UPDATE integration_accounts
              SET external_account_id = $1, email = $2, display_name = $3, status = $4,
@@ -203,7 +204,8 @@ export class IntegrationAccountsRepository {
               id, owner_id, provider, external_account_id, email, display_name, status,
               access_token, refresh_token, scope, token_type, expires_at,
               last_synced_at, error_message, created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+            ON CONFLICT (owner_id, provider) DO NOTHING`,
             [
               uuidv4(),
               data.ownerId,
@@ -230,7 +232,7 @@ export class IntegrationAccountsRepository {
       );
       return accounts.filter((account): account is IntegrationAccount => account != null);
     }
-    return this.upsertGoogleAccount(data);
+    return this.upsertGoogleAccount(data, options);
   }
 
   upsertGoogleAccount(data: {
@@ -243,13 +245,14 @@ export class IntegrationAccountsRepository {
     scope: string | null;
     tokenType: string | null;
     expiresAt: string | null;
-  }): IntegrationAccount[] {
+  }, options: { insertOnly?: boolean; providers?: IntegrationProvider[] } = {}): IntegrationAccount[] {
     const now = new Date().toISOString();
-    const providers: IntegrationProvider[] = ['google_calendar', 'gmail'];
+    const providers: IntegrationProvider[] = options.providers ?? ['google_calendar', 'gmail'];
 
     for (const provider of providers) {
       const existing = this.findByProvider(provider, data.ownerId);
       if (existing) {
+        if (options.insertOnly) continue;
         getDb()
           .prepare(
             `UPDATE integration_accounts
@@ -274,7 +277,7 @@ export class IntegrationAccountsRepository {
       } else {
         getDb()
           .prepare(
-            `INSERT INTO integration_accounts (
+            `INSERT OR IGNORE INTO integration_accounts (
               id, owner_id, provider, external_account_id, email, display_name, status,
               access_token, refresh_token, scope, token_type, expires_at,
               last_synced_at, error_message, created_at, updated_at
