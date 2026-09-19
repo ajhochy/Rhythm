@@ -4,7 +4,7 @@ Date: 2026-09-18
 
 Status: implementation plan; no Colony integration code has been written
 
-Planning branch: `codex/colony-integration-plan`
+Planning branch: `codex/colony-integration-plan` · [documentation draft #1539](https://github.com/ajhochy/Rhythm/pull/1539)
 
 Audience: all Rhythm desktop users, explicitly opt-in
 
@@ -282,4 +282,4 @@ build inputs during COL-01/COL-09, using current host policy rather than new uns
 - [x] Define ordered slices, acceptance criteria and verification boundaries.
 - [x] Generate 12 issue files with 48 acceptance criteria and validate acyclic dependencies.
 - [x] Create four GitHub milestones, epic #1525 and issues #1526–#1537; verify bodies and assignments.
-- [ ] Publish the durable plan and record the run; do not start implementation.
+- [x] Publish documentation draft #1539 and record the run (Dev Dashboard revision 4228); implementation remains unstarted.

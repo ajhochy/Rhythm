@@ -40,3 +40,5 @@ Plan: [Colony in Rhythm Electron](https://github.com/ajhochy/Rhythm/blob/codex/c
 ## Completion rule
 
 All twelve implementation issues and their required evidence must be accepted. A green browser or source build does not qualify installed signed behavior. Both Mac architectures, native exact-task selection, profile isolation, upgrade/rollback and the opt-in rollout checklist must pass; a missing required gate remains open. Human review/merge/release is separate.
+
+Planning document review: [draft PR #1539](https://github.com/ajhochy/Rhythm/pull/1539). This documentation PR does not complete the implementation issues.

@@ -2,7 +2,7 @@
 date: 2026-09-18
 repo: rhythm
 branch: codex/colony-integration-plan
-pr: null
+pr: https://github.com/ajhochy/Rhythm/pull/1539
 issues: [1525, 1526, 1527, 1528, 1529, 1530, 1531, 1532, 1533, 1534, 1535, 1536, 1537]
 status: pass
 tags: [run, rhythm, planning]
@@ -20,6 +20,8 @@ milestones. This branch implements no Colony integration and authorizes no merge
 - Proposed architecture decision in `docs/ai/decisions/2026-09-18-colony-integration-proposal.md`.
 - Reproducible issue bodies and publication manifest in `docs/ai/generated-issues/colony/`.
 - [Epic #1525](https://github.com/ajhochy/Rhythm/issues/1525), implementation issues #1526–#1537, and milestones #105–#108. The design/UI/menu work is explicit in M2 and #1529–#1533.
+
+- [Documentation draft #1539](https://github.com/ajhochy/Rhythm/pull/1539) published against `main`; draft/base/head and documentation-only file inventory read back. Dev Dashboard recorded at revision 4228.
 
 ## Checks
 

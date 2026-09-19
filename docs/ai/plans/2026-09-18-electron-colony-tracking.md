@@ -2,7 +2,7 @@
 
 Parent epic: [#1525](https://github.com/ajhochy/Rhythm/issues/1525)
 
-[Full plan](2026-09-18-electron-colony.md)
+[Full plan](2026-09-18-electron-colony.md) · [documentation draft #1539](https://github.com/ajhochy/Rhythm/pull/1539)
 
 ## Milestones
 

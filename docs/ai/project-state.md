@@ -17,7 +17,7 @@ branch contains planning documents only; no Colony integration is implemented he
 
 The plan and GitHub breakdown are written. All 13 remote issue bodies and milestone assignments
 were read back and matched their local files. No implementation issues were closed; no
-integration, merge or release was performed. Publication of the documentation draft is pending.
+integration, merge or release was performed. [Documentation draft #1539](https://github.com/ajhochy/Rhythm/pull/1539) is published. The planning run is recorded on the Dev Dashboard at revision 4228.
 
 ## Risks / known gates
 
