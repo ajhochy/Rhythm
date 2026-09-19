@@ -69,11 +69,13 @@ test('E21-c3 outage reconciles unselected membership and selected detail indepen
   await expect.poll(async () => (await state(page)).selectedId).toBe('');
   expect((await state(page)).sessions.some((session: any) => session.id === 'selected')).toBe(false);
   await expect(page.getByTestId('session-scheduled-new')).toHaveCount(0);
-  await page.getByRole('checkbox', { name: 'Archived sessions' }).check();
+  await page.getByRole('button', { name: 'View options' }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'View archived sessions' }).click();
   await expect(page.getByTestId('session-scheduled-new')).toContainText('Renamed while offline');
 });
 
 test('E21-c4 unselected metadata changes update visible preview/activity order; refresh is coalesced, never token driven', async ({ page }) => {
+  await page.clock.install();
   const h = await open(page);
   await page.getByTestId('session-sort').selectOption('activity');
   const update = row('other', { name: 'External rename', lastPreview: 'external preview', lastActivityAt: '2026-09-11T00:00:00Z', status: 'error' });
