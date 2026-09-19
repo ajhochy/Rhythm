@@ -15,7 +15,7 @@ import { deepLinkFromArgv, resolveAsset, validateRequest, webDist } from './poli
 import { createProductionApiConfig, createProductionApiSetHandler } from './production-api-config.mjs';
 import { resolveGoogleDesktopClientId } from './runtime-config.mjs';
 import { validateSecuritySmokeReceipt } from './security-smoke-receipt.mjs';
-import { registerHermesView } from './hermes-view.mjs';
+import { bindHermesViewSupervisor, registerHermesView } from './hermes-view.mjs';
 
 export { deepLinkFromArgv } from './policy.mjs';
 
@@ -299,6 +299,7 @@ if (hasSingleInstanceLock) {
     installLogPath: resolve(app.getPath('userData'), 'hermes-install.log'),
     showConsent: (options) => dialog.showMessageBox(options),
   });
+  bindHermesViewSupervisor(hermes);
   for (const [channel, action] of /** @type {const} */ ([
     ['hermes:get-status', () => hermes.getStatus()],
     ['hermes:install', () => ownsHermesRuntime && !shuttingDown ? hermes.install() : hermes.getStatus()],
@@ -630,6 +631,10 @@ if (hasSingleInstanceLock) {
       keys: Object.keys(window.rhythmShell?.hermes || {}),
       frozen: Object.isFrozen(window.rhythmShell?.hermes),
       enabled: window.rhythmShell?.hermes?.enabled,
+    },
+    hermesView: {
+      keys: Object.keys(window.rhythmShell?.hermesView || {}),
+      frozen: Object.isFrozen(window.rhythmShell?.hermesView),
     },
     agentServer: {
       keys: Object.keys(window.rhythmShell?.agentServer || {}),

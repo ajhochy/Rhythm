@@ -66,7 +66,7 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
   });
   await module.evaluate();
-  for (let index = 0; index < 20 && windows.length === 0; index += 1) await tick();
+  for (let index = 0; index < 20 && !windows.at(-1)?.bridge; index += 1) await tick();
   return {
     windows, logins, requests, signed, opened, handlers, listeners, quits: () => quits,
     current: () => windows.at(-1),
@@ -233,7 +233,7 @@ test('E42: current session is main-owned and logout clears it before rebuilding'
   assert.equal(await h.current().bridge.auth.currentSession(), null);
 });
 
-test('E44: update capability opens only the fixed Rhythm Releases page', async (t) => {
+test('issue-1542-c6 / E44: update capability opens only the fixed Rhythm Releases page', async (t) => {
   const h = await host(t); const bridge = h.current().bridge;
   assert.deepEqual(Object.keys(bridge.updates), ['openDownloadPage']);
   await bridge.updates.openDownloadPage();

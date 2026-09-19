@@ -1,0 +1,104 @@
+{
+  "issue": 1542,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1542-c1",
+      "text": "Spawn `hermes dashboard --port <port> --host 127.0.0.1 --no-open`.",
+      "mode": "unit",
+      "test_file": "apps/electron/test/hermes-server.test.mjs",
+      "test_id": "issue-1542-c1: Hermes uses exact pinned dashboard arguments",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1542-c2",
+      "text": "Append `--skip-build` only when `<install dir>/hermes_cli/web_dist/index.html` exists.",
+      "mode": "unit",
+      "test_file": "apps/electron/test/hermes-server.test.mjs",
+      "test_id": "issue-1542-c2: Hermes skip-build checks hermes_cli/web_dist and ignores legacy web/dist",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1542-c3",
+      "text": "Mint a session token per start with `crypto.randomBytes(32).toString('base64url')`, pass it ONLY via the child's env as `HERMES_DASHBOARD_SESSION_TOKEN`, keep it in main-process memory, and export `getSessionToken()` from the supervisor for the sibling module `hermes-view.mjs` (main process only). It must never cross IPC/preload and must never appear in logs or `Status`.",
+      "mode": "unit",
+      "test_file": "apps/electron/test/hermes-server.test.mjs",
+      "test_id": "issue-1542-c3: Hermes mints a main-only token per child and redacts it from diagnostics",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1542-c4",
+      "text": "Readiness: poll `GET <url>/api/health` (public path) instead of `/`; any HTTP response still counts as listening.",
+      "mode": "unit",
+      "test_file": "apps/electron/test/hermes-server.test.mjs",
+      "test_id": "issue-1542-c4: Hermes health HTTP responses are listening without redirect following",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1542-c5",
+      "text": "Merge the two sections of `docs/ai/contracts/hermes-electron-contract.md` into one coherent document; state the final spawn command and token flow.",
+      "mode": "unit",
+      "test_file": "apps/electron/test/hermes-server.test.mjs",
+      "test_id": "issue-1542-c5: Hermes contract records one coherent dashboard, token, readiness, and view contract",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1542-c6",
+      "text": "Fix the E44 fixture flake in `apps/electron/test/e12a-auth-boundary.test.mjs` if it is a small fixture ordering issue (window created before `bridge` access).",
+      "mode": "unit",
+      "test_file": "apps/electron/test/e12a-auth-boundary.test.mjs",
+      "test_id": "issue-1542-c6 / E44: update capability opens only the fixed Rhythm Releases page",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1542-c7",
+      "text": "Bind the supervisor to the view via B3's `bindHermesViewSupervisor`.",
+      "mode": "unit",
+      "test_file": "apps/electron/test/hermes-server.test.mjs",
+      "test_id": "issue-1542-c7: Hermes main binds the native supervisor, authorizes IPC, broadcasts status, and awaits shutdown",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1542-c8",
+      "text": "The view attaches only when status is `ready`, loads `status.url`, and completes Hermes's HTML token bootstrap using `getSessionToken()` from the supervisor (main process only).",
+      "mode": "unit",
+      "test_file": "apps/electron/test/hermes-view.test.mjs",
+      "test_id": "issue-1542-c8: Hermes view requires the main-only token but loads only the clean ready URL for server HTML bootstrap",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1542-c9",
+      "text": "A Hermes view must not survive a supervisor token generation change.",
+      "mode": "unit",
+      "test_file": "apps/electron/test/hermes-view.test.mjs",
+      "test_id": "issue-1542-c9: Hermes token rotation revokes a view tied to the prior dashboard start",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1542-c10",
+      "text": "Add B3's five native support files to the packaging manifest in `apps/electron/scripts/package-mac.mjs` so the packaged main can resolve its imports.",
+      "mode": "unit",
+      "test_file": "apps/electron/test/hermes-view.test.mjs",
+      "test_id": "issue-1542-c10: packaged main stages every Hermes view support file",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1542-c11",
+      "text": "Register `test/hermes-protocol.test.mjs` and `test/hermes-view.test.mjs` in the `test` npm script.",
+      "mode": "unit",
+      "test_file": "apps/electron/test/hermes-view.test.mjs",
+      "test_id": "issue-1542-c11: canonical Electron tests include both B3 suites",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1542-c12",
+      "text": "Update the closed bridge allowlists and nested security receipts for BOTH keys `hermes` and `hermesView`.",
+      "mode": "unit",
+      "test_file": "apps/electron/test/security-smoke-receipt.test.mjs",
+      "test_id": "issue-1542-c12: signed security smoke accepts both exact Hermes bridge receipts",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
