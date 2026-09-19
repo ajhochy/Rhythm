@@ -15,7 +15,7 @@ Acceptance follow-up for draft [PR #1544](https://github.com/ajhochy/Rhythm/pull
 
 ## Blocking acceptance
 
-Nine authenticated native brief steps remain blocked by encrypted Keychain persistence and the final client's required undeployed login-only endpoint. M3 hosted reads, actual ACP deny/allow/read-back, unsent draft and nonempty zero-write trace remain open. Finder/Get Info pass for the ad hoc candidate; signed/notarized installed Dock/Command-Tab remain separate. Physical #1510 audio, matched comfort acceptance, TestFlight/device and deployed image/off-LAN checks remain open. Paired iPhone was locked; relay health became macOnline true but does not prove the phone path. Bundled Hermes release remains NO-GO.
+Nine authenticated native brief steps remain blocked by encrypted Keychain persistence and the final client's required undeployed login-only endpoint. M3 hosted reads, actual ACP deny/allow/read-back, unsent draft and nonempty zero-write trace remain open. Finder/Get Info pass for the ad hoc candidate; signed/notarized installed Dock/Command-Tab remain separate. Physical #1510 audio, matched comfort acceptance, TestFlight/device and deployed image/off-LAN checks remain open. The signed iOS development build reached EAS but could not schedule: no suitable internal-distribution credentials. Paired iPhone was locked; relay health became macOnline true but does not prove the phone path. Bundled Hermes release remains NO-GO.
 
 ## Evidence
 

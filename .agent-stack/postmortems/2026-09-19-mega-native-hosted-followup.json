@@ -44,7 +44,7 @@
       "contract_status": "fail",
       "smoke_status": "pass",
       "category": "none",
-      "notes": "Same owned candidate Rescan changed Agent plugins 1 to 0 and removed sidebar; final Desktop disk-list cache repair tracked separately."
+      "notes": "Same owned candidate Rescan changed Agent plugins 1 to 0, removed sidebar and stale disk listing, and retained bundled Rhythm OFF. Final IPC message replay passed; credentialed M3 remains blocked by deployment."
     },
     {
       "criterion_id": "finder-icon",
@@ -68,6 +68,11 @@
       "process_category": "release-auth-environment",
       "description": "The old deployed desktop exchange mutates integrations; protected Keychain interaction was denied; no security bypass attempted.",
       "detected_by": "Native UI, API status receipts, source review, computer-control rejection."
+    },
+    {
+      "process_category": "release-dependency-drift",
+      "description": "Both signing qualification jobs stopped at frozen install because a GitHub main dependency moved; pinning the existing locked commit restores deterministic resolution.",
+      "detected_by": "Workflow35452996081 and clean Bun1.3.13 ARM/x64 reproduction."
     }
   ],
   "workflow_adherence": {

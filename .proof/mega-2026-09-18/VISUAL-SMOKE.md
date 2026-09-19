@@ -9,8 +9,8 @@ The public desktop client ID, authorized process bearer and Flutter-owned local 
 | 01–08, 10 | Nine authenticated native workspace/comfort/folder/splitter/Hermes/zoom steps | Config and services restored; login reached provider, then secure persistence blocked. Safe final login now requires undeployed server capability. | BLOCKED (9) | Current sign-in outcome recorded in run log; protected dialog not captured |
 | 09 | Rhythm icon in packaged Finder/Get Info | Mint waveform shown on current ad hoc package | PASS | [Finder](23-electron-current-package-finder.png), [Get Info](22-electron-current-package-info.png) |
 | Hermes mount | Real workspace mounts in rebuilt host | Isolated candidate mounted workspace and Connect Rhythm | PASS (candidate) | [Mounted](24-hermes-candidate-mounted.png), [Connect](25-hermes-connect-rhythm.png) |
-| Hermes safe login | Old hosted API cannot begin unsafe OAuth | 503 before browser; no OAuth state or credential stored | PASS (rejection only) | [Safe rejection](26-hermes-safe-login-block.png) |
-| Hermes running disposal | Removed plugin unloads without candidate restart | Agent plugins 1→0 and sidebar removed after Rescan; cached disk listing separately tracked | PASS (backend/route) | [Before](27-hermes-before-running-disposal.png), [After](28-hermes-after-running-disposal.png) |
+| Hermes safe login | Old hosted API cannot begin unsafe OAuth | 503 before browser; final native message identifies required server update | PASS (rejection only) | [Final rejection](32-hermes-final-actionable-login.png) |
+| Hermes running disposal | Removed plugin unloads without candidate restart | Agent plugins 1→0, sidebar and stale disk listing removed after Rescan; bundled Rhythm remains OFF | PASS (backend/route) | [Before](27-hermes-before-running-disposal.png), [Final after](31-hermes-final-running-disposal.png) |
 
 The OAuth attempt exposed an integration overwrite bug; the existing Google/Gmail grants were restored and verified. See `docs/ai/runs/2026-09-19-mega-acceptance-followup.md` for incident, decisions, evidence and current gates. No password/token/key was entered in a UI. Installed Flutter/Hermes remain running.
 
