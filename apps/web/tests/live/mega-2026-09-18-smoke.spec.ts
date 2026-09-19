@@ -1,3 +1,14 @@
+/**
+ * Sandbox run:
+ * RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_TOKEN=rhythm-mega-fixture-local-token-not-a-secret RHYTHM_LIVE_API_URL=http://127.0.0.1:4098 RHYTHM_LIVE_ENGINE_URL=http://127.0.0.1:4097 npx playwright test --config tests/live-smoke-playwright.config.ts
+ * Full hosted run: use the same command with AJ's disposable hosted bearer in RHYTHM_LIVE_TOKEN.
+ *
+ * Target classification (from apps/web/src/gateway/index.ts):
+ * - Hosted domain: Facilities, Messages, project templates, Automations, Integrations,
+ *   the Email agent tool, main Settings workspace values, and /tasks typography.
+ * - Agent local: all other Agent Tools (including #1513 tasks via schedules), Agent Settings,
+ *   Agents rail/project CRUD, Profiles, Hermes, #1496, layout splitters, and transcript typography.
+ */
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -30,6 +41,7 @@ const markerPrefix = 'MEGA-SMOKE-2026-09-18-';
 const runId = `${Date.now().toString(36)}-${process.pid}`;
 const marker = `${markerPrefix}${runId}`;
 const bearer = process.env.RHYTHM_LIVE_TOKEN?.trim() ?? '';
+const hostedSkipReason = 'Hosted API rejected this bearer; provide a hosted RHYTHM_LIVE_TOKEN to cover hosted-domain tests.';
 
 type JsonRow = Record<string, unknown>;
 type WriteReceipt = { method: string; url: string; body: string; source: 'page' | 'cleanup' };
@@ -38,6 +50,8 @@ type JsonResponse = Pick<APIResponse, 'ok' | 'status' | 'statusText' | 'json'>;
 const allWrites: WriteReceipt[] = [];
 const allowedIds = new Set<string>();
 const tempDirectories = new Set<string>();
+let hostedAvailable = false;
+let hostedRejectionLogged = false;
 
 test.skip(process.env.RHYTHM_LIVE_E2E !== '1', 'Set RHYTHM_LIVE_E2E=1 to acknowledge writes against the live Rhythm services.');
 
@@ -79,6 +93,13 @@ function isMarked(row: JsonRow) {
   return JSON.stringify(row).includes(markerPrefix);
 }
 
+function markHostedUnavailable() {
+  hostedAvailable = false;
+  if (hostedRejectionLogged) return;
+  hostedRejectionLogged = true;
+  console.log('hosted API rejected the bearer; hosted-domain tests skipped — run with a hosted RHYTHM_LIVE_TOKEN to cover them');
+}
+
 function authHeaders(_local = false): Record<string, string> {
   // Loopback sandboxes gate authenticated routes too (AGENT_LOCAL only relaxes agent-local routers),
   // so always send the configured disposable bearer.
@@ -91,44 +112,56 @@ async function checkedJson(response: JsonResponse, operation: string) {
 }
 
 async function directDelete(request: APIRequestContext, base: string, path: string, id: unknown, local = false) {
+  if (!local && !hostedAvailable) return;
   rememberId(id);
   const url = `${base}${path}`;
   const receipt = { method: 'DELETE', url, body: '', source: 'cleanup' as const };
   allWrites.push(receipt);
   const response = await request.delete(url, { headers: authHeaders(local) });
+  if (!local && [401, 403].includes(response.status())) {
+    markHostedUnavailable();
+    return;
+  }
   expect([200, 202, 204, 404], `cleanup DELETE ${path}`).toContain(response.status());
 }
 
 async function listRows(request: APIRequestContext, base: string, path: string, local = false) {
+  if (!local && !hostedAvailable) return [];
   const response = await request.get(`${base}${path}`, { headers: authHeaders(local) });
+  if (!local && [401, 403].includes(response.status())) {
+    markHostedUnavailable();
+    return [];
+  }
   const body = await checkedJson(response, `cleanup GET ${path}`);
   return rowsFrom(body);
 }
 
 async function cleanMarkerRows(request: APIRequestContext) {
-  const reservations = (await listRows(request, environment.productionApiBase, '/facilities/reservations')).filter(isMarked);
-  for (const reservation of reservations) {
-    const facilityId = reservation.facilityId ?? reservation.facility_id;
-    const id = rowId(reservation);
-    if (facilityId != null && id != null) await directDelete(request, environment.productionApiBase, `/facilities/${encodeURIComponent(String(facilityId))}/reservations/${encodeURIComponent(String(id))}`, id);
-  }
+  if (hostedAvailable) {
+    const reservations = (await listRows(request, environment.productionApiBase, '/facilities/reservations')).filter(isMarked);
+    for (const reservation of reservations) {
+      const facilityId = reservation.facilityId ?? reservation.facility_id;
+      const id = rowId(reservation);
+      if (facilityId != null && id != null) await directDelete(request, environment.productionApiBase, `/facilities/${encodeURIComponent(String(facilityId))}/reservations/${encodeURIComponent(String(id))}`, id);
+    }
 
-  const facilities = (await listRows(request, environment.productionApiBase, '/facilities')).filter(isMarked);
-  for (const facility of facilities) {
-    const id = rowId(facility);
-    if (id != null) await directDelete(request, environment.productionApiBase, `/facilities/${encodeURIComponent(String(id))}`, id);
-  }
+    const facilities = (await listRows(request, environment.productionApiBase, '/facilities')).filter(isMarked);
+    for (const facility of facilities) {
+      const id = rowId(facility);
+      if (id != null) await directDelete(request, environment.productionApiBase, `/facilities/${encodeURIComponent(String(id))}`, id);
+    }
 
-  const templates = (await listRows(request, environment.productionApiBase, '/project-templates')).filter(isMarked);
-  for (const template of templates) {
-    const id = rowId(template);
-    if (id != null) await directDelete(request, environment.productionApiBase, `/project-templates/${encodeURIComponent(String(id))}`, id);
-  }
+    const templates = (await listRows(request, environment.productionApiBase, '/project-templates')).filter(isMarked);
+    for (const template of templates) {
+      const id = rowId(template);
+      if (id != null) await directDelete(request, environment.productionApiBase, `/project-templates/${encodeURIComponent(String(id))}`, id);
+    }
 
-  const rules = (await listRows(request, environment.productionApiBase, '/automation-rules')).filter(isMarked);
-  for (const rule of rules) {
-    const id = rowId(rule);
-    if (id != null) await directDelete(request, environment.productionApiBase, `/automation-rules/${encodeURIComponent(String(id))}`, id);
+    const rules = (await listRows(request, environment.productionApiBase, '/automation-rules')).filter(isMarked);
+    for (const rule of rules) {
+      const id = rowId(rule);
+      if (id != null) await directDelete(request, environment.productionApiBase, `/automation-rules/${encodeURIComponent(String(id))}`, id);
+    }
   }
 
   const projects = (await listRows(request, environment.apiBase, '/projects?includeArchived=true', true)).filter(isMarked);
@@ -209,6 +242,10 @@ async function dragBy(page: Page, splitter: Locator, deltaX: number, deltaY: num
 
 test.beforeAll(async ({ request }) => {
   expect(Boolean(bearer), 'RHYTHM_LIVE_TOKEN must be provided through the process environment').toBeTruthy();
+  const response = await request.get(`${environment.productionApiBase}/auth/me`, { headers: authHeaders() });
+  if (response.status() === 200) hostedAvailable = true;
+  else if ([401, 403].includes(response.status())) markHostedUnavailable();
+  else expect(response.status(), `hosted API probe GET /auth/me: ${response.status()} ${response.statusText()}`).toBe(200);
   await cleanMarkerRows(request);
 });
 
@@ -222,8 +259,10 @@ test.afterEach(async ({ request }) => {
 
 test.afterAll(async ({ request }) => {
   await cleanMarkerRows(request);
-  const unsafe = allWrites.filter((write) => !writeIsSafe(write));
-  expect(unsafe, `Unsafe live writes:\n${unsafe.map((write) => `${write.method} ${write.url}`).join('\n')}`).toEqual([]);
+  for (const origin of [productionOrigin, localOrigin]) {
+    const unsafe = allWrites.filter((write) => new URL(write.url).origin === origin && !writeIsSafe(write));
+    expect(unsafe, `Unsafe live writes to ${origin}:\n${unsafe.map((write) => `${write.method} ${write.url}`).join('\n')}`).toEqual([]);
+  }
 });
 
 test.describe('Agent Tools — #1513/#1515–#1519/#1521/#1514', () => {
@@ -243,6 +282,7 @@ test.describe('Agent Tools — #1513/#1515–#1519/#1521/#1514', () => {
 
   for (const [slug, label] of tools) {
     test(`#1513 ${slug}: live ListInspector selection is inert, keyboardable, and axe-clean`, async ({ page }) => {
+      test.skip(slug === 'email' && !hostedAvailable, hostedSkipReason);
       const writes = recordPageWrites(page);
       await openLive(page, `/tools/${slug}`);
       await expect(page.getByTestId(`tool-page-${slug}`)).toBeVisible();
@@ -253,6 +293,7 @@ test.describe('Agent Tools — #1513/#1515–#1519/#1521/#1514', () => {
 
 test.describe('Facilities — #1515', () => {
   test('live room rows select without mutation and meet the ListInspector contract', async ({ page }) => {
+    test.skip(!hostedAvailable, hostedSkipReason);
     const writes = recordPageWrites(page);
     await openLive(page, '/facilities');
     await expect(page.getByTestId('page-facilities')).toBeVisible();
@@ -260,6 +301,7 @@ test.describe('Facilities — #1515', () => {
   });
 
   test('creates, reads back, and deletes a marked room and reservation', async ({ page }) => {
+    test.skip(!hostedAvailable, hostedSkipReason);
     recordPageWrites(page);
     await openLive(page, '/facilities');
     await expect(page.getByTestId('facilities-add-room')).toBeEnabled();
@@ -299,6 +341,7 @@ test.describe('Facilities — #1515', () => {
 
 test.describe('Messages — #1516', () => {
   test('live conversations select without mutation and meet the ListInspector contract', async ({ page }) => {
+    test.skip(!hostedAvailable, hostedSkipReason);
     const writes = recordPageWrites(page);
     await openLive(page, '/messages');
     await expect(page.getByTestId('page-messages')).toBeVisible();
@@ -306,12 +349,14 @@ test.describe('Messages — #1516', () => {
   });
 
   test('thread plus message create/read-back/delete cycle', async () => {
+    test.skip(!hostedAvailable, hostedSkipReason);
     test.skip(true, 'The Messages UI and gateway expose createThread/sendMessage but no thread or message delete operation; creating live data would violate cleanup policy.');
   });
 });
 
 test.describe('Projects — #1517', () => {
   test('live projects select without mutation and meet the ListInspector contract', async ({ page }) => {
+    test.skip(!hostedAvailable, hostedSkipReason);
     const writes = recordPageWrites(page);
     await openLive(page, '/projects/templates');
     await expect(page.getByTestId('page-projects')).toBeVisible();
@@ -319,6 +364,7 @@ test.describe('Projects — #1517', () => {
   });
 
   test('creates, reads back, and deletes a marked project template', async ({ page }) => {
+    test.skip(!hostedAvailable, hostedSkipReason);
     recordPageWrites(page);
     await openLive(page, '/projects/templates');
     const name = `${marker}-TEMPLATE`;
@@ -339,6 +385,7 @@ test.describe('Projects — #1517', () => {
 
 test.describe('Automations — #1518', () => {
   test('live rules select without mutation and meet the ListInspector contract', async ({ page }) => {
+    test.skip(!hostedAvailable, hostedSkipReason);
     const writes = recordPageWrites(page);
     await openLive(page, '/automations');
     await expect(page.getByTestId('page-automations')).toBeVisible();
@@ -346,12 +393,14 @@ test.describe('Automations — #1518', () => {
   });
 
   test('paused rule create/read-back/delete cycle', async () => {
+    test.skip(!hostedAvailable, hostedSkipReason);
     test.skip(true, 'The create UI sends enabled=true and has no atomic paused control; briefly creating an executable live rule violates the smoke safety contract.');
   });
 });
 
 test.describe('Integrations — #1519', () => {
   test('provider selection is inert and the no-create panel cancels cleanly', async ({ page }) => {
+    test.skip(!hostedAvailable, hostedSkipReason);
     const writes = recordPageWrites(page);
     await openLive(page, '/integrations');
     await expect(page.getByTestId('page-integrations')).toBeVisible();
@@ -368,6 +417,7 @@ test.describe('Integrations — #1519', () => {
 
 test.describe('Settings — #1521', () => {
   test('selection is inert, axe-clean, and a device-local theme preference restores', async ({ page }) => {
+    test.skip(!hostedAvailable, hostedSkipReason);
     const writes = recordPageWrites(page);
     await openLive(page, '/settings');
     await expect(page.getByTestId('page-settings')).toBeVisible();
@@ -506,6 +556,7 @@ test.describe('Profiles — #1523', () => {
 
 test.describe('Reading comfort — #1509', () => {
   test('live task rows keep the shipped typography and completion hit area', async ({ page }) => {
+    test.skip(!hostedAvailable, hostedSkipReason);
     recordPageWrites(page);
     await openLive(page, '/tasks');
     await expect(page.getByTestId('page-tasks')).toBeVisible();
