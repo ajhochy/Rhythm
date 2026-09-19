@@ -158,12 +158,14 @@ test('bucket-a-rendered-gallery: broken image and video replace media with type 
     return false;
   });
   await page.goto('/#/tools/gallery', { waitUntil: 'domcontentloaded' });
-  await expect(page.getByTestId('design-broken-image').locator('img')).toBeAttached();
-  await expect(page.getByTestId('design-broken-video').locator('video')).toBeAttached();
-  await expect(page.getByTestId('design-broken-image').locator('img')).toHaveCount(0);
-  await expect(page.getByTestId('design-broken-video').locator('video')).toHaveCount(0);
-  await expect(page.getByTestId('design-broken-image').locator('svg')).toBeVisible();
-  await expect(page.getByTestId('design-broken-video').locator('svg')).toBeVisible();
+  const preview = page.getByTestId('list-inspector-detail').locator('.tool-inspector-preview');
+  await expect(preview.locator('img')).toBeAttached();
+  await expect(preview.locator('img')).toHaveCount(0);
+  await expect(preview.locator('svg')).toBeVisible();
+  await page.getByRole('option', { name: 'Broken video' }).click();
+  await expect(preview.locator('video')).toBeAttached();
+  await expect(preview.locator('video')).toHaveCount(0);
+  await expect(preview.locator('svg')).toBeVisible();
   await page.screenshot({ path: screenshotPath(testInfo, 'bucket-a-gallery-media-fallback.png') });
 });
 
@@ -181,7 +183,7 @@ test('bucket-a-rendered-skills: delayed, rejected list, and rejected content rem
     return false;
   });
   await page.goto('/#/tools/skills');
-  await expect(page.getByText('Loading skills…')).toBeVisible();
+  await expect(page.getByText('Loading Skills…')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'No managed skills found' })).toHaveCount(0);
   const content = page.locator('pre.managed-body');
   await expect(content).toHaveAttribute('role', 'alert');
@@ -292,8 +294,7 @@ test('self-improvement-review-live: closed tool safety, conditional confirmation
   });
   await page.goto('http://127.0.0.1:4181/#/tools/review');
   await page.getByTestId('review-filter').selectOption('sandbox-vetted');
-  const card = page.getByTestId('proposal-tool-1');
-  await expect(page.getByText('1 proposal', { exact: true })).toBeVisible();
+  const card = page.getByTestId('proposal-tool-1-details');
   await expect(card).toContainText('Deployment: sandbox-vetted');
   await expect(card).toContainText('Outcome: unproven');
   await expect(card).toContainText('planner-tool');
@@ -310,8 +311,8 @@ test('self-improvement-review-live: closed tool safety, conditional confirmation
   await expect(page.getByTestId('proposal-approve-tool-1')).toHaveCount(0);
   await page.getByTestId('review-filter').selectOption('active');
   await expect(page.getByText('Applied Changes')).toBeVisible();
-  await expect(card).toContainText('Deployment: active');
-  await expect(card).toContainText('Outcome: verified');
+  await expect(page.getByTestId('proposal-tool-1-details')).toContainText('Deployment: active');
+  await expect(page.getByTestId('proposal-tool-1-details')).toContainText('Outcome: verified');
   await page.getByTestId('proposal-revert-tool-1').click();
   await expect(page.getByTestId('proposal-revert-dialog')).toBeVisible();
   await page.getByTestId('proposal-revert-confirm').click();
