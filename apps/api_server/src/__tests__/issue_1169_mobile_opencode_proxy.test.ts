@@ -561,6 +561,7 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
       ['POST', '/tui/submit-prompt', 'tui.submitPrompt'],
       ['GET', '/api/session', 'v2.session.list'],
       ['POST', '/sync/start', 'sync.start'],
+      ['GET', '/mcp/tools', 'mcp.tools'],
       ['GET', '/experimental/workspace', 'experimental.workspace.list'],
       ['GET', '/experimental/console', 'experimental.console.get'],
     ] as const;

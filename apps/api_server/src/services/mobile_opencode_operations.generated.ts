@@ -52,6 +52,7 @@ export const MOBILE_OPENCODE_OPERATION_MANIFEST = [
   {"operationId":"mcp.connect","method":"POST","path":"/mcp/{name}/connect","allowed":true},
   {"operationId":"mcp.disconnect","method":"POST","path":"/mcp/{name}/disconnect","allowed":true},
   {"operationId":"mcp.status","method":"GET","path":"/mcp","allowed":true},
+  {"operationId":"mcp.tools","method":"GET","path":"/mcp/tools","allowed":false,"reason":"Live MCP tool IDs are reserved for server-side grant validation"},
   {"operationId":"part.delete","method":"DELETE","path":"/session/{sessionID}/message/{messageID}/part/{partID}","allowed":true},
   {"operationId":"part.update","method":"PATCH","path":"/session/{sessionID}/message/{messageID}/part/{partID}","allowed":true},
   {"operationId":"path.get","method":"GET","path":"/path","allowed":true},
