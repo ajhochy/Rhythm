@@ -49,6 +49,7 @@ async function interactiveRuntime(argv, userData = '/fixture/interactive-user-da
     let values;
     if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: {}, dialog: { showErrorBox: () => calls.push('ownership-error'), showMessageBox: async () => { calls.push('migration'); return { response: 1 }; } } };
     else if (name === './agent-server.mjs') values = { AgentServerService: Server, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:4001', AGENT_SERVER_ENGINE_PORT: 4096, electronDbPath: () => '/fixture/electron.db', legacyFlutterDbPath: () => '/fixture/legacy.db' };
+    else if (name === './hermes-server.mjs') values = { createHermesSupervisor: () => ({ getStatus: () => ({ state: 'disabled', port: 9121, url: 'http://127.0.0.1:9121' }), onStatus() {}, async start() {}, async stop() {} }) };
     else if (name === './production-api-config.mjs') values = { createProductionApiConfig: () => ({ load: () => 'https://example.invalid' }), createProductionApiSetHandler: () => () => {} };
     else { values = { ...await import(name.startsWith('.') ? new URL(name, file).href : name) }; if (name === 'node:fs') values.existsSync = (path) => path !== '/fixture/electron.db'; }
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
@@ -122,7 +123,7 @@ test('slice-5-c3: actual Electron launch loads the local agents route', async ()
 test('slice-5-c4: actual preload exposes only frozen versioned lifecycle, gateway configuration, Google auth, human-approval signing, and agent-server status', async () => {
   const result = await smoke();
   assert.deepEqual(result.runtime, { apiBase: 'http://127.0.0.1:4001', engineBase: 'http://127.0.0.1:4096', testOverride: false });
-  assert.deepEqual(result.bridge.keys, ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates']);
+  assert.deepEqual(result.bridge.keys, ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'hermes']);
   assert.equal(result.bridge.frozen, true);
   assert.deepEqual(result.bridge.gateway.keys, ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase']);
   assert.equal(result.bridge.gateway.frozen, true);
@@ -144,6 +145,11 @@ test('slice-5-c4: actual preload exposes only frozen versioned lifecycle, gatewa
   assert.equal(result.bridge.agentServer.frozen, true);
   assert.deepEqual(result.bridge.updates.keys, ['openDownloadPage']);
   assert.equal(result.bridge.updates.frozen, true);
+  assert.deepEqual(result.bridge.hermes.keys, ['enabled', 'getStatus', 'install', 'restart', 'onStatus']);
+  assert.equal(result.bridge.hermes.frozen, true);
+  assert.equal(result.bridge.hermes.enabled, process.env.RHYTHM_HERMES_ENABLED !== '0');
+  assert.equal(result.bridge.hermes.status.state, process.env.RHYTHM_HERMES_ENABLED === '0' ? 'disabled' : 'stopped');
+  assert.equal(result.bridge.hermes.status.url, `http://127.0.0.1:${process.env.RHYTHM_HERMES_PORT ?? '9121'}`);
   assert.equal(result.bridge.nodeExposed, false);
 });
 

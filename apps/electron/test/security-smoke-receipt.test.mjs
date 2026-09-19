@@ -5,7 +5,7 @@ import { validateSecuritySmokeReceipt } from '../src/security-smoke-receipt.mjs'
 
 const validReceipt = {
   bridge: {
-    keys: ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates'],
+    keys: ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'hermes'],
     frozen: true,
     gateway: {
       keys: ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase'],
@@ -14,6 +14,7 @@ const validReceipt = {
     auth: { keys: ['signInWithGoogle', 'currentSession', 'logout'], frozen: true },
     humanApproval: { keys: ['capability', 'signDecision'], frozen: true },
     agentServer: { keys: ['status', 'onStatusChange'], frozen: true },
+    hermes: { keys: ['enabled', 'getStatus', 'install', 'restart', 'onStatus'], frozen: true },
     updates: { keys: ['openDownloadPage'], frozen: true },
     nodeExposed: false,
     value: { version: 6 },
@@ -44,6 +45,8 @@ test('signed security smoke rejects every unsafe bridge and denial invariant', (
     (receipt) => { receipt.bridge.humanApproval.frozen = false; },
     (receipt) => { receipt.bridge.agentServer.keys.push('spawn'); },
     (receipt) => { receipt.bridge.agentServer.frozen = false; },
+    (receipt) => { receipt.bridge.hermes.keys.push('token'); },
+    (receipt) => { receipt.bridge.hermes.frozen = false; },
     (receipt) => { receipt.bridge.updates.keys.push('install'); },
     (receipt) => { receipt.bridge.updates.frozen = false; },
     (receipt) => { receipt.bridge.value.version = '5'; },
