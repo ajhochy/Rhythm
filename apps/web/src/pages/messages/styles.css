@@ -156,3 +156,22 @@
 @media (prefers-reduced-motion: reduce) {
   .pg-messages *, .pg-messages *::before, .pg-messages *::after { scroll-behavior: auto; animation: none; transition: none; }
 }
+
+/* Messages adopts the shared Agents → Tasks list and inspector frame. */
+.pg-messages { display: flex; flex-direction: column; }
+.pg-messages .messages-page-header { grid-template-columns: minmax(220px, 1fr) auto; }
+.pg-messages .messages-workspace { min-height: 0; display: block; flex: 1 1 auto; overflow: hidden; }
+.pg-messages .messages-list-inspector-host, .pg-messages .messages-list-inspector { width: 100%; height: 100%; min-height: 0; }
+.pg-messages .messages-list-inspector .list-inspector-panes { height: 100%; min-height: 0; }
+.pg-messages .messages-list-inspector .list-inspector-list { min-height: 44px; max-height: none; flex: 1 1 auto; }
+.pg-messages .messages-list-inspector .list-inspector-detail { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); padding: 0; overflow: hidden; }
+.pg-messages .messages-list-inspector .list-inspector-header { padding: 11px 18px 7px; border-bottom: 1px solid var(--border-soft); background: var(--surface); }
+.pg-messages .messages-list-toolbar { width: 100%; min-width: 0; display: grid; gap: 8px; }
+.pg-messages .messages-list-toolbar .messages-rail-summary { min-height: 44px; padding: 4px 5px; border: 0; }
+.pg-messages .messages-list-toolbar .messages-header-mutations, .pg-messages .messages-list-toolbar .primary-button { width: 100%; }
+.pg-messages .messages-list-inspector .messages-conversation { height: 100%; min-height: 0; }
+.pg-messages .messages-list-inspector .messages-conversation-header { min-height: 54px; padding-block: 7px; }
+.pg-messages .messages-list-inspector .messages-state { width: auto; min-height: 0; margin: 0; padding: 18px 8px; border: 0; }
+.pg-messages .messages-list-inspector .messages-state h3, .pg-messages .messages-list-inspector .messages-selection-state h3 { margin: 2px 0; color: var(--fg); font-size: 16px; font-weight: 590; }
+.pg-messages .messages-list-inspector .messages-state p, .pg-messages .messages-list-inspector .messages-selection-state p { max-width: 52ch; margin: 0 0 7px; }
+.pg-messages .messages-list-inspector .messages-selection-state { height: 100%; }

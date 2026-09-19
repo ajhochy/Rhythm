@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { openPage } from '../helpers';
+import { expectInspectorHeading, selectRow } from '../helpers/list-inspector';
 
 const weekendThreadId = 'thread-weekend-team';
 
@@ -14,13 +15,18 @@ test('Messages click-through covers search, unread state, reply, incoming notice
   await openPage(page, 'messages');
   await expect(page.getByTestId('messages-unread-total')).toHaveText('6 unread threads');
 
-  await page.getByTestId('messages-thread-search').fill('weekend');
+  const search = page.getByPlaceholder('Search conversations');
+  await search.fill('weekend');
   await expect(page.getByTestId(`messages-thread-${weekendThreadId}`)).toBeVisible();
-  await page.getByTestId('messages-thread-search').fill('missing title');
-  await page.getByTestId('messages-clear-search').click();
+  await search.fill('missing title');
+  await expect(page.getByText('No results match your search.')).toBeVisible();
+  await search.fill('');
 
-  await page.getByTestId(`messages-thread-${weekendThreadId}`).click();
-  await expect(page.getByTestId('messages-subject')).toHaveText('Weekend Team');
+  await selectRow(page, 'Weekend Team');
+  await expectInspectorHeading(page, 'Weekend Team');
+  await expect(page.getByTestId('messages-unread-total')).toHaveText('6 unread threads');
+  await page.getByTestId('messages-selected-thread-actions').click();
+  await page.getByRole('menuitem', { name: 'Mark as read' }).click();
   await expect(page.getByTestId('messages-unread-total')).toHaveText('5 unread threads');
   await page.getByTestId('messages-incoming-dismiss').click();
   await expect(page.getByTestId('messages-incoming-dismiss')).toHaveCount(0);
@@ -41,7 +47,7 @@ test('Messages click-through covers search, unread state, reply, incoming notice
   await expect(dialog.getByTestId('messages-create-thread')).toBeDisabled();
   await dialog.getByTestId('messages-recipient-riley-chen').check();
   await dialog.getByTestId('messages-create-thread').click();
-  await expect(page.getByTestId('messages-subject')).toHaveText('Care coordination');
+  await expectInspectorHeading(page, 'Care coordination');
   await expect(page.getByTestId('messages-participants')).toContainText('Morgan Lee');
   await expect(page.getByTestId('messages-participants')).not.toContainText('@');
 });
@@ -91,8 +97,9 @@ test('Messages is responsive and axe-clean across representative states', async 
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
     await openPage(page, `messages/${weekendThreadId}`);
     await expect(page.getByTestId('messages-responsive-primary')).toBeVisible();
-    if (width <= 640) await expect(page.getByTestId('messages-mobile-back')).toBeVisible();
-    else await expect(page.getByTestId('messages-mobile-back')).toBeHidden();
+    const back = page.getByRole('button', { name: 'Back to list' });
+    if (width === 390) await expect(back).toBeVisible();
+    if (width === 1024) await expect(back).toBeHidden();
     const overflow = await page.evaluate(() => ({ client: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
     expect(overflow.scroll, `${width}px`).toBeLessThanOrEqual(overflow.client + 1);
   }
