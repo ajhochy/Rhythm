@@ -126,7 +126,7 @@
 .pg-integrations .dialog-panel { max-width: calc(100vw - 28px); }
 .pg-integrations .dialog-body { padding: 0; }
 .pg-integrations .pg-integrations-handoff { display: grid; justify-items: start; gap: 9px; padding: 18px; }
-.pg-integrations .pg-integrations-handoff-badge { min-height: 26px; display: inline-flex; align-items: center; padding: 3px 8px; border: 1px solid var(--accent); border-radius: var(--r-pill); color: var(--accent); font-family: var(--font-mono); font-size: 8px; font-weight: 700; letter-spacing: .08em; }
+.pg-integrations .pg-integrations-handoff-badge { min-height: 26px; display: inline-flex; align-items: center; padding: 3px 8px; border: 1px solid var(--accent); border-radius: var(--r-pill); color: color-mix(in oklab, var(--accent), var(--fg) 10%); font-family: var(--font-mono); font-size: 8px; font-weight: 700; letter-spacing: .08em; }
 .pg-integrations .pg-integrations-handoff h3 { margin: 0; font-size: 17px; }
 .pg-integrations .pg-integrations-handoff p { margin: 0; color: var(--muted); }
 .pg-integrations .pg-integrations-handoff code { max-width: 100%; padding: 9px 10px; overflow-wrap: anywhere; border: 1px solid var(--border-soft); border-radius: var(--r-sm); color: var(--fg-2); background: var(--bg); font-size: 9px; }

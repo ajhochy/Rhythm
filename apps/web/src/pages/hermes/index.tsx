@@ -51,7 +51,7 @@ function HermesHost({ onError }: { onError(message: string): void }) {
       void hermesShell()?.hermesView?.detach().catch(() => undefined);
     };
   }, [onError]);
-  return <div ref={host} className="hermes-host" data-hermes-host role="region" aria-label="Hermes" tabIndex={0} />;
+  return <div ref={host} className="hermes-host" data-hermes-host role="region" aria-label="Hermes workspace" tabIndex={0} />;
 }
 
 export function HermesPage() {

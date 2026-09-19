@@ -328,13 +328,13 @@ function FixtureMessagesPage({ route }: { route: string }) {
           inspector={(item) => {
             const thread = item ? threads.find((candidate) => `messages-thread-${candidate.id}` === item.id) ?? null : null;
             if (!thread) return <div className="messages-selection-state" data-testid="messages-empty-selection"><span className="messages-state-mark" aria-hidden="true">↗</span><h3>Select a conversation</h3><p>Choose a thread to read its participants and transcript.</p></div>;
-            return <div className="messages-conversation" aria-label="Selected conversation">
+            return <div className="messages-conversation" role="region" aria-label="Selected conversation">
               <header className="messages-conversation-header">
                 <div className="messages-conversation-heading"><span className="eyebrow" data-testid="messages-thread-type">{thread.type === 'group' ? 'Group' : 'Direct'}</span><span className="sr-only" data-testid="messages-subject">{thread.title}</span><p><span data-testid="messages-participants">{thread.participants.map((participant) => participant.name).join(' · ')}</span><span aria-hidden="true"> · </span>{thread.messages.length} {thread.messages.length === 1 ? 'message' : 'messages'}</p></div>
                 <ThreadActions thread={thread} readonly={readonly} onRead={() => markRead(thread.id)} onUnread={() => markUnread(thread.id)} onRename={() => openRenameThread(thread)} onDelete={() => openDeleteThread(thread)} testId="messages-selected-thread-actions" />
               </header>
               {incomingVisible && thread.id === 'thread-weekend-team' && <div className="messages-incoming" role="status"><span><strong>New from Morgan</strong> · Volunteer coverage is current.</span><button className="text-button" type="button" onClick={() => setIncomingVisible(false)} data-testid="messages-incoming-dismiss">Dismiss</button></div>}
-              <div className="messages-transcript" ref={transcriptRef} tabIndex={0} aria-label={`${thread.title} transcript`} aria-live="polite" data-testid="messages-transcript">
+              <div className="messages-transcript" ref={transcriptRef} role="log" tabIndex={0} aria-label={`${thread.title} transcript`} aria-live="polite" data-testid="messages-transcript">
                 {thread.messages.length === 0 ? <div className="messages-transcript-empty"><p>No messages yet. Start the conversation below.</p></div> : thread.messages.map((message) => <article className={`messages-message ${message.senderId === currentMessageUser.id ? 'own' : ''}`} key={message.id} data-message-row="true"><header><strong>{message.senderName}</strong><time dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time></header><p>{message.body}</p></article>)}
               </div>
               <fieldset className="messages-composer-fieldset" disabled={readonly} aria-disabled={readonly ? 'true' : undefined}>

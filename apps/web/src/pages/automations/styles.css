@@ -110,7 +110,7 @@
 .pg-automations .automations-list-state strong { color: var(--fg); }
 .pg-automations .automations-list-state p { margin: 0; overflow-wrap: anywhere; }
 .pg-automations .automations-list-state button { width: fit-content; min-width: 44px; min-height: 44px; margin-top: 4px; }
-.pg-automations .automations-list-state.danger strong { color: var(--danger); }
+.pg-automations .automations-list-state.danger strong { color: color-mix(in oklab, var(--danger), var(--fg) 10%); }
 .pg-automations .automations-list-state.warning strong { color: var(--warning); }
 .pg-automations .page-trace { flex: 0 0 auto; min-width: 0; max-height: 84px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; overflow: auto; padding: 8px 24px; border-top: 1px solid var(--border-soft); color: var(--muted); background: color-mix(in oklab, var(--bg), var(--surface) 32%); font-family: var(--font-mono); font-size: 8px; }
 .pg-automations .page-trace > span { color: var(--fg-2); font-weight: 650; letter-spacing: .07em; text-transform: uppercase; white-space: nowrap; }

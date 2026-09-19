@@ -139,7 +139,7 @@ test('Projects is responsive and axe-clean across representative surfaces and di
     document.documentElement.dir = 'rtl';
     document.documentElement.lang = 'ar';
   });
-  await expect(page.getByText('إطلاق خدمة المجتمع - 准备礼拜 🎵', { exact: true })).toBeVisible();
+  await expect(page.locator('.list-inspector-detail:visible').getByRole('heading', { name: 'إطلاق خدمة المجتمع - 准备礼拜 🎵', exact: true })).toBeVisible();
   const resilientOverflow = await page.evaluate(() => ({ client: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
   expect(resilientOverflow.scroll).toBeLessThanOrEqual(resilientOverflow.client + 1);
 });

@@ -733,7 +733,7 @@ export function ProjectsPage({ route }: { route: string }) {
         onSelect={selectProjectItem}
         loading={surfaceState === 'loading'}
         error={surfaceState === 'server-error'
-          ? <div className="projects-list-state" data-testid="page-state-server-error"><strong>Could not load projects</strong><p>The project service returned an error without discarding the current context.</p><button className="primary-button" type="button" onClick={retry} data-testid="page-retry">Retry</button></div>
+          ? <div className="projects-list-state" role="alert" data-testid="page-state-server-error"><strong>Could not load projects</strong><p>The project service returned an error without discarding the current context.</p><button className="primary-button" type="button" onClick={retry} data-testid="page-retry">Retry</button></div>
           : surfaceState === 'unavailable'
             ? <div className="projects-list-state" data-testid="page-state-unavailable"><strong>Projects are unavailable</strong><p>Reconnect the project service and authenticated desktop session before trying again.</p><button className="secondary-button" type="button" onClick={retry} data-testid="projects-check-again">Check again</button></div>
             : undefined}

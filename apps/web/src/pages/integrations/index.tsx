@@ -624,9 +624,7 @@ export function IntegrationsPage({ route }: { route: string }) {
         : <>
           {pageState === 'readonly' && <div className="pg-integrations-readonly" id="integrations-readonly-reason" role="status" data-testid="page-state-readonly"><strong>Read-only integration access.</strong> Integration-management write access is required to connect, sync, or change preferences. Provider details remain inspectable.</div>}
           <p className="sr-only" id="sync-all-prerequisite">Connect at least one provider before syncing all.</p>
-          <fieldset className="pg-integrations-mutations" disabled={pageState === 'readonly'} aria-disabled={pageState === 'readonly' ? 'true' : 'false'} aria-describedby={pageState === 'readonly' ? 'integrations-readonly-reason' : undefined} data-testid="integrations-mutations">
-            <legend className="sr-only">Integration management controls</legend>
-            <ListInspector
+          <ListInspector
               className="pg-integrations-list-inspector"
               label="Integrations"
               items={integrationItems}
@@ -637,7 +635,9 @@ export function IntegrationsPage({ route }: { route: string }) {
               error={integrationError}
               emptyState={<StatePanel state="empty" onRetry={() => undefined} onConnect={() => openHandoff('google')} />}
               listFooter={<span className="pg-integrations-list-count">{connectedCount} of 3 providers connected</span>}
-              inspector={(item) => {
+              inspector={(item) => <fieldset className="pg-integrations-mutations" disabled={pageState === 'readonly'} aria-disabled={pageState === 'readonly' ? 'true' : 'false'} aria-describedby={pageState === 'readonly' ? 'integrations-readonly-reason' : undefined} data-testid="integrations-mutations">
+                <legend className="sr-only">Integration management controls</legend>
+                {(() => {
                 if (!item) return <p>Select an integration to inspect its details and available actions.</p>;
                 const itemSection = item.id.slice('integration-'.length);
                 if (itemSection === 'google-calendar') return <section data-testid="integration-inspector">
@@ -659,11 +659,11 @@ export function IntegrationsPage({ route }: { route: string }) {
                 if (itemSection === 'assistant-tools') return <section data-testid="integration-inspector"><header className="detail-header"><div><span className="eyebrow">Separate consent</span><p>Grant the assistant full Google Calendar and Gmail access for agent actions, including read + send. This is broader than the Gmail metadata connection.</p></div><div className="row-actions"><button className="primary-button" type="button" onClick={() => openHandoff('assistant')} data-testid="assistant-google-enable">Enable assistant access</button></div></header></section>;
                 if (itemSection === 'import') return <section data-testid="integration-inspector"><header className="detail-header"><div><span className="eyebrow">Import tools</span><p>Import tasks, rhythms, and project templates from structured JSON. Selecting this item never starts an import.</p></div><div className="row-actions"><button className="primary-button" type="button" onClick={() => { setImportStep('prompt'); setImportOpen(true); }} data-testid="open-ai-import">Open AI Import</button></div></header></section>;
                 return null;
-              }}
+                })()}
+              </fieldset>}
             />
-            {syncAllPartial && <div className="pg-integrations-partial" role="alert" data-testid="sync-all-partial"><div><strong>Sync completed with one provider error</strong><span>Google Calendar synced · Gmail synced · Planning Center failed</span></div><button className="secondary-button" type="button" onClick={retryFailedSync} disabled={syncingAll} data-testid="sync-all-retry-failed">Retry failed</button></div>}
-            <p className="pg-integrations-sync-all-status" role="status" aria-live="polite" data-testid="sync-all-status">{syncAllStatus}</p>
-          </fieldset>
+          {syncAllPartial && <div className="pg-integrations-partial" role="alert" data-testid="sync-all-partial"><div><strong>Sync completed with one provider error</strong><span>Google Calendar synced · Gmail synced · Planning Center failed</span></div><button className="secondary-button" type="button" onClick={retryFailedSync} disabled={syncingAll || pageState === 'readonly'} data-testid="sync-all-retry-failed">Retry failed</button></div>}
+          <p className="pg-integrations-sync-all-status" role="status" aria-live="polite" data-testid="sync-all-status">{syncAllStatus}</p>
         </>}
       <TraceLedger receipts={receipts} />
     </div>
