@@ -1,0 +1,50 @@
+{
+  "issue": 1543,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1543-c1",
+      "text": "**HRM-B4-AC1:** A generic theme registers and disposes through the fork's dashboard seam; removing the Rhythm feature pack restores the default dashboard with no Rhythm-specific core dependency, and no `hermes skin` change is needed.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: no automated B4 theme test was authored in this run."
+    },
+    {
+      "criterion_id": "issue-1543-c2",
+      "text": "**HRM-B4-AC2:** Computed styles in the feature-pack dashboard and Electron tab match the canonical light tokens listed above and the documented dark mapping, including error/success states with accessible foregrounds and non-color indicators.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: no automated B4 computed-style test was authored in this run."
+    },
+    {
+      "criterion_id": "issue-1543-c3",
+      "text": "**HRM-B4-AC3:** Repeated reloads, light/dark changes and enable/disable cycles produce one current theme per live document with no stale insertion keys or duplicate styles; unrelated Hermes/Rhythm surfaces retain their original styles.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: no automated B4 lifecycle test was authored in this run."
+    },
+    {
+      "criterion_id": "issue-1543-c4",
+      "text": "**HRM-B4-AC4:** Both hosts pass a recorded matrix of three supported window sizes (minimum, typical and wide; exact dimensions in the test fixtures) × light/dark × 100%/200% zoom; screenshots show readable, unclipped navigation, content, forms and status states with no lost actions.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires visual inspection of the full two-host screenshot matrix."
+    },
+    {
+      "criterion_id": "issue-1543-c5",
+      "text": "**HRM-B4-AC5:** Every matrix case is axe clean for WCAG 2.1 AA, including contrast and `scrollable-region-focusable`, `nested-interactive`, `aria-prohibited-attr` checks; keyboard traversal/focus, 44×44 primary targets, accessible names at zoom and RTL layout also pass explicit rendered assertions.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: no automated B4 axe matrix test was authored in this run."
+    },
+    {
+      "criterion_id": "issue-1543-c6",
+      "text": "**HRM-B4-AC6:** Theme assets are present in the unified package and Electron payload, work offline, and missing theme resources yield the usable baseline; package inventory/provenance covers those assets and scans find no credentials or user data.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires packaged-app inspection and package inventory review; no B4 packaging test was authored in this run."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-1543-c1", "issue-1543-c2", "issue-1543-c3", "issue-1543-c4", "issue-1543-c5", "issue-1543-c6"]
+}

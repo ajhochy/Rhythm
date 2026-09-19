@@ -1,0 +1,64 @@
+{
+  "issue": 1518,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1518-c1",
+      "text": "Show compact automation rows with name and short status/source/trigger metadata; use lightweight grouping or filtering where useful.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/automations-list-inspector.spec.ts",
+      "test_id": "selects two rules without execution and exposes every item action in the inspector",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1518-c2",
+      "text": "Selecting a rule displays trigger, conditions, action, account, and other supported settings in the main inspector.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/automations-list-inspector.spec.ts",
+      "test_id": "selects two rules without execution and exposes every item action in the inspector",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1518-c3",
+      "text": "Keep existing create, edit, enable/pause, preview, history/details, and delete functions where supported. Keep item-level actions in the inspector and global creation in the page toolbar.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/automations-list-inspector.spec.ts",
+      "test_id": "selects two rules without execution and exposes every item action in the inspector",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1518-c4",
+      "text": "Selecting or inspecting a rule must never execute it. Preserve unavailable/read-only states and confirmation requirements.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/automations-list-inspector.spec.ts",
+      "test_id": "selects two rules without execution and exposes every item action in the inspector",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1518-c5",
+      "text": "Mouse and keyboard selection update the correct inspector, with visible focus and selected state.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/automations-list-inspector.spec.ts",
+      "test_id": "supports roving keyboard focus and selection",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1518-c6",
+      "text": "Long titles/metadata, empty results, loading, errors, and read-only access remain usable; resizing does not clip essential controls.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/automations-list-inspector.spec.ts",
+      "test_id": "uses one narrow pane and remains usable at 200 percent zoom",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1518-c7",
+      "text": "Refresh and existing deep links preserve or restore the correct selection; missing/deleted items produce a clear state rather than stale details.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/automations-list-inspector.spec.ts",
+      "test_id": "restores selection, shows missing ids, and clears stale details after deletion",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
