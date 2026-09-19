@@ -57,7 +57,7 @@ for (const healthy of [false, true]) for (const port of [4001, 4096]) {
 
 test('e11-c2: async spawn error is handled and never becomes ready', async (t) => {
   const f = await fixture({ spawnError: true });
-  t.mock.method(globalThis, 'fetch', async () => ({ ok: true }));
+  t.mock.method(globalThis, 'fetch', async (url) => ({ ok: true, json: async () => String(url).endsWith('/global/health') ? { healthy: true, version: 'test' } : { status: 'ok', service: 'rhythm-api-server' } }));
   const pending = f.service.start();
   // Assertion catches missing error handler before emitting would crash the process.
   await new Promise((r) => setTimeout(r, 20));
@@ -67,7 +67,7 @@ test('e11-c2: async spawn error is handled and never becomes ready', async (t) =
 });
 
 test('e11-c3: exit after ready clears ownership and publishes failure', async (t) => {
-  const f = await fixture(); t.mock.method(globalThis, 'fetch', async () => ({ ok: true }));
+  const f = await fixture(); t.mock.method(globalThis, 'fetch', async (url) => ({ ok: true, json: async () => String(url).endsWith('/global/health') ? { healthy: true, version: 'test' } : { status: 'ok', service: 'rhythm-api-server' } }));
   assert.equal((await f.service.start()).status, 'ready');
   f.child.emit('exit', 7);
   assert.equal(f.snapshots.at(-1).failureReason, 'lostConnection');
@@ -84,7 +84,7 @@ test('e11-c4: rejected filesystem startup resolves actionable failed state', asy
 });
 
 for (const graceful of [true, false]) test(`e11-c5: owned stop graceful=${graceful} signals exact child and cleans listeners`, async (t) => {
-  const f = await fixture({ graceful }); t.mock.method(globalThis, 'fetch', async () => ({ ok: true }));
+  const f = await fixture({ graceful }); t.mock.method(globalThis, 'fetch', async (url) => ({ ok: true, json: async () => String(url).endsWith('/global/health') ? { healthy: true, version: 'test' } : { status: 'ok', service: 'rhythm-api-server' } }));
   await f.service.start();
   await f.service.stopGracefully();
   assert.deepEqual(f.signals, graceful ? ['SIGTERM'] : ['SIGTERM', 'SIGKILL']);
@@ -127,15 +127,35 @@ for (const host of ['127.0.0.1', '::1']) test(`e11-c1: real bind probe rejects a
 
 test('e11-c5: stopping during startup cannot publish late health as ready', async (t) => {
   const f = await fixture();
-  let respond;
+  const responses = [];
   const requested = new Promise((resolve) => {
-    t.mock.method(globalThis, 'fetch', () => { resolve(); return new Promise((r) => { respond = r; }); });
+    t.mock.method(globalThis, 'fetch', () => { resolve(); return new Promise((r) => { responses.push(r); }); });
   });
   const start = f.service.start();
   await requested;
   await f.service.stopGracefully();
-  respond({ ok: true });
+  for (const respond of responses) respond({ ok: true, json: async () => ({ status: 'ok', service: 'rhythm-api-server', healthy: true, version: 'test' }) });
   assert.equal((await start).status, 'stopped');
   assert.equal(f.snapshots.some((s) => s.status === 'ready'), false);
   assert.deepEqual(f.signals, ['SIGTERM']);
+});
+
+test('existing healthy Rhythm API and engine are reused and survive Electron shutdown', async (t) => {
+  const f = await fixture({ occupied: [4001, 4096] });
+  t.mock.method(globalThis, 'fetch', async (url) => ({ ok: true, json: async () =>
+    String(url).endsWith('/global/health') ? { healthy: true, version: 'rhythm-test' } : { status: 'ok', service: 'rhythm-api-server' } }));
+  assert.equal((await f.service.start()).status, 'ready');
+  assert.equal((await f.service.start()).status, 'ready');
+  assert.equal(f.spawns(), 0);
+  await f.service.stopGracefully(); f.service.stop();
+  assert.deepEqual(f.signals, []);
+  assert.equal(f.service.status.status, 'stopped');
+});
+
+test('HTTP 200 from unrelated servers is not accepted as Rhythm', async (t) => {
+  const f = await fixture({ occupied: [4001, 4096] });
+  t.mock.method(globalThis, 'fetch', async () => ({ ok: true, json: async () => ({ healthy: true, status: 'ok', service: 'other-service', version: '1' }) }));
+  assert.equal((await f.service.start()).failureReason, 'portConflict');
+  assert.equal(f.spawns(), 0);
+  assert.deepEqual(f.signals, []);
 });

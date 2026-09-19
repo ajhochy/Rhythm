@@ -85,7 +85,7 @@ if (hasSingleInstanceLock) {
     await writeFile(authSessionPath, safeStorage.encryptString(JSON.stringify({ productionApiBase, sessionToken: productionSessionToken, user: productionSessionUser })), { mode: 0o600 });
   };
   const restoreAuthentication = async () => {
-    if (isSmoke || !existsSync(authSessionPath) || !safeStorage.isEncryptionAvailable()) return;
+    if (isSmoke || !safeStorage.isEncryptionAvailable()) return;
     try {
       const stored = JSON.parse(safeStorage.decryptString(await readFile(authSessionPath)));
       if (stored.productionApiBase !== productionApiBase || typeof stored.sessionToken !== 'string' || !stored.user || typeof stored.user.id !== 'number') throw new Error('invalid stored session');
@@ -289,7 +289,7 @@ if (hasSingleInstanceLock) {
   // agent_server_controller.dart: THIS process spawns and owns the local api_server, the same way
   // Flutter's Dart code does, instead of assuming some other process (tools/dev/sandbox.sh, a
   // developer's own terminal) already has one running. Production always pins these bases to the
-  // canonical 4001/4096 boundary, exclusively: foreign owners are conflicts, never adopted.
+  // canonical 4001/4096 boundary: healthy Rhythm services are reused without ownership.
   // Alternate ports exist only behind an explicit smoke-only flag.
   // Interactive smoke renders normally, but the manager owns the external sandbox lifecycle.
   const agentServer = isInteractiveSmoke ? undefined : new AgentServerService();
@@ -353,7 +353,14 @@ if (hasSingleInstanceLock) {
   agentServer?.onStatusChange((/** @type {import('./agent-server.mjs').AgentServerStatus} */ snapshot) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('rhythm:agent-server:status-changed', snapshot);
     // ponytail: native error dialog keeps failures actionable without expanding E12's renderer UI.
-    if (!isSmoke && snapshot.status === 'failed') dialog.showErrorBox('Rhythm local runtime unavailable', snapshot.errorMessage ?? 'Quit and reopen Rhythm to retry.');
+    if (!isSmoke && snapshot.status === 'failed') {
+      void dialog.showMessageBox({ type: 'error', title: 'Rhythm local runtime unavailable',
+        message: snapshot.errorMessage ?? 'Rhythm could not start its local runtime.',
+        buttons: ['Retry', 'Close'], defaultId: 0, cancelId: 1,
+      }).then(({ response }) => {
+        if (response === 0 && !shuttingDown) void agentServer?.start();
+      });
+    }
   });
 
   // api_server_service.dart:134-151's exact shutdown sequence (SIGTERM, race a 2s timer against
@@ -401,10 +408,8 @@ if (hasSingleInstanceLock) {
       process.env.RHYTHM_ELECTRON_MIGRATE_LEGACY = choice.response === 0 ? '1' : '0';
     }
 
-    // Fire-and-forget, exactly like Flutter's main.dart:186-190 (`AgentServerController..initialize()`
-    // is never awaited before `runApp`) — the window renders immediately and the renderer's own
-    // EnvironmentReceipt already polls health with retries while this comes up in the background.
-    if (!isSmoke && agentServer) void agentServer.start().catch((error) => agentServer.reportStartupFailure(error));
+    // Initial workspace requests must not race local API startup and cache connection errors.
+    if (!isSmoke && agentServer) await agentServer.start().catch((error) => agentServer.reportStartupFailure(error));
     if (managesHermesRuntime && !shuttingDown && process.env.RHYTHM_HERMES_ENABLED !== '0') void hermes.start();
 
     protocol.handle('rhythm', (request) => {
@@ -530,8 +535,15 @@ if (hasSingleInstanceLock) {
         additionalArguments: [`--rhythm-shell-version=${app.getVersion()}`],
       },
     });
-    mainWindow.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
-      if (isMainFrame && !isInPlace && rendererReady) invalidateAuthentication();
+    mainWindow.webContents.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
+      if (isMainFrame && !isInPlace && rendererReady) {
+        if (/^rhythm:\/\/app\/index\.html(?:#.*)?$/.test(url)) {
+          // Revoke pending work from the old document, but a trusted reload is not logout.
+          authGeneration += 1;
+          googleSignInInFlight = undefined;
+          rendererReady = false;
+        } else invalidateAuthentication();
+      }
     });
     mainWindow.webContents.on('will-navigate', (event) => {
       denials.navigation = true;

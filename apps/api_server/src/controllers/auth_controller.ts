@@ -312,33 +312,6 @@ export class AuthController {
     }
   }
 
-  googleDesktopLoginCapability(_req: Request, res: Response) {
-    res.set('Cache-Control', 'no-store').status(200).json({ loginOnlyDesktopExchange: true });
-  }
-
-  async googleDesktopLoginExchange(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { code, codeVerifier, redirectUri } = req.body as Record<string, unknown>;
-      if (!code || typeof code !== 'string') throw AppError.badRequest('code is required');
-      if (!codeVerifier || typeof codeVerifier !== 'string') throw AppError.badRequest('codeVerifier is required');
-      if (!redirectUri || typeof redirectUri !== 'string') throw AppError.badRequest('redirectUri is required');
-
-      const { profile } = await googleOAuth.exchangeDesktopCode({ code, codeVerifier, redirectUri });
-      if (!profile.email) throw AppError.badRequest('Google account did not return an email');
-
-      const session = await authService.loginWithGoogleProfile({
-        googleSub: profile.sub,
-        email: profile.email,
-        name: profile.name ?? profile.email,
-        photoUrl: profile.picture ?? null,
-        hostedDomain: profile.hd ?? null,
-      });
-      res.status(200).json(session);
-    } catch (err) {
-      next(err);
-    }
-  }
-
   async googleMobileExchange(req: Request, res: Response, next: NextFunction) {
     try {
       const { code, codeVerifier, nonce } = req.body as Record<

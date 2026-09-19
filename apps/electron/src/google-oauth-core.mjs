@@ -3,6 +3,7 @@ export const GOOGLE_DESKTOP_SCOPES = Object.freeze([
   'openid',
   'email',
   'profile',
+  'https://www.googleapis.com/auth/calendar.readonly',
 ]);
 export const GOOGLE_OAUTH_CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -33,7 +34,9 @@ export function buildGoogleAuthorizationUrl({ clientId, redirectUri, codeChallen
     ['code_challenge', codeChallenge],
     ['code_challenge_method', 'S256'],
     ['state', state],
-    ['include_granted_scopes', 'false'],
+    ['access_type', 'offline'],
+    ['prompt', 'consent'],
+    ['include_granted_scopes', 'true'],
   ]);
   return `${GOOGLE_OAUTH_AUTHORIZE_URL}?${params.toString()}`;
 }
@@ -71,7 +74,7 @@ export async function exchangeDesktopAuthorizationCode({
   redirectUri,
   fetcher = fetch,
 }) {
-  const response = await fetcher(`${apiBase}/auth/google/desktop-login-exchange`, {
+  const response = await fetcher(`${apiBase}/auth/google/desktop-exchange`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ code, codeVerifier, redirectUri }),

@@ -4,8 +4,7 @@
 // every renderer live-mode call previously assumed some OTHER process (usually
 // `tools/dev/sandbox.sh`) was already running api_server.
 //
-// D20: Electron exclusively owns its local runtime. Canonical ports/database remain the same,
-// but an existing Flutter/other server is a conflict, never an adoption or reclamation target.
+// Reuse a healthy Rhythm runtime without taking ownership. Only stop children we spawned.
 // Hermetic smoke runs remain isolated by their explicit RHYTHM_LIVE_* URLs plus isolated HOME and
 // RHYTHM_SHELL_USER_DATA; main.mjs never starts this service for --smoke runs.
 import { execFile, spawn } from 'node:child_process';
@@ -113,6 +112,20 @@ export async function checkHealth(baseUrl, signal = AbortSignal.timeout(2_000)) 
   } catch { return false; }
 }
 
+/** Recognize Rhythm, rather than treating an arbitrary HTTP 200 as a usable server. */
+export async function runningRhythmRuntime(signal = AbortSignal.timeout(2_000)) {
+  try {
+    const [apiResponse, engineResponse] = await Promise.all([
+      fetch(`${AGENT_SERVER_BASE_URL}/health`, { signal }),
+      fetch(`http://127.0.0.1:${AGENT_SERVER_ENGINE_PORT}/global/health`, { signal }),
+    ]);
+    if (!apiResponse.ok || !engineResponse.ok) return false;
+    const [api, engine] = await Promise.all([apiResponse.json(), engineResponse.json()]);
+    return api?.service === 'rhythm-api-server' && api?.status === 'ok'
+      && engine?.healthy === true && typeof engine.version === 'string';
+  } catch { return false; }
+}
+
 /** Bind rather than HTTP-probe: even a non-HTTP listener is a conflict. No PID discovery.
  * @param {number} port @returns {Promise<boolean>} */
 export async function portAvailable(port) {
@@ -137,6 +150,7 @@ const STDERR_MAX_LINE_CHARS = 200;
 export class AgentServerService {
   /** @type {import('node:child_process').ChildProcess | undefined} */
   #process;
+  #usingExisting = false;
   /** @type {string[]} */
   #stderrLines = [];
   /** @type {AgentServerStatus['status']} */
@@ -181,7 +195,7 @@ export class AgentServerService {
 
   start() {
     if (this.#starting) return this.#starting;
-    if (this.#process || this.#stopping) return Promise.resolve(this.status);
+    if (this.#process || this.#usingExisting || this.#stopping) return Promise.resolve(this.status);
     this.#abort = new AbortController();
     this.#starting = this.#start(this.#generation).catch((error) => {
       this.reportStartupFailure(error);
@@ -204,11 +218,21 @@ export class AgentServerService {
     this.#errorMessage = undefined;
     this.#emit();
 
+    const occupied = [];
     for (const port of [AGENT_SERVER_PORT, AGENT_SERVER_ENGINE_PORT]) {
-      if (!await portAvailable(port)) {
-        this.#setFailed('portConflict', `Local runtime port ${port} is already in use. Quit Flutter or the other app/server using this port, then reopen Rhythm. Nothing was stopped or adopted.`);
-        return this.status;
+      if (!await portAvailable(port)) occupied.push(port);
+    }
+    if (occupied.length) {
+      const healthy = await runningRhythmRuntime();
+      if (generation !== this.#generation) return this.status;
+      if (healthy) {
+        this.#usingExisting = true;
+        this.#status = 'ready';
+        this.#emit();
+      } else {
+        this.#setFailed('portConflict', `Local runtime port ${occupied.join(' / ')} is in use, but the Rhythm API and engine are not both healthy. Quit the conflicting server, then reopen Rhythm. Nothing was stopped.`);
       }
+      return this.status;
     }
     if (generation !== this.#generation) return this.status;
 
@@ -216,7 +240,7 @@ export class AgentServerService {
     try {
       material = await capabilityMaterial();
     } catch (error) {
-      this.#setFailed('approvalCredentialsUnavailable', 'Rhythm could not unlock its human-approval Keychain identity. Unlock your Mac and try again.');
+      this.#setFailed('approvalCredentialsUnavailable', 'Rhythm could not access its approval identity. Complete any macOS Keychain authorization, then retry.');
       return this.status;
     }
 
@@ -309,7 +333,7 @@ export class AgentServerService {
       await new Promise((r) => setTimeout(r, Math.min(200, deadline - Date.now())));
       const remaining = deadline - Date.now();
       if (remaining <= 0 || this.#abort.signal.aborted) break;
-      if (await checkHealth(AGENT_SERVER_BASE_URL, AbortSignal.any([this.#abort.signal, AbortSignal.timeout(Math.min(2_000, remaining))]))) return true;
+      if (await runningRhythmRuntime(AbortSignal.any([this.#abort.signal, AbortSignal.timeout(Math.min(2_000, remaining))]))) return true;
     }
     return false;
   }
@@ -328,6 +352,12 @@ export class AgentServerService {
   async #stopOwned() {
     this.#generation++;
     this.#abort.abort();
+    if (this.#usingExisting) {
+      this.#usingExisting = false;
+      this.#status = 'stopped';
+      this.#emit();
+      return;
+    }
     const proc = this.#process;
     if (!proc) {
       if (this.#status === 'starting') { this.#status = 'stopped'; this.#emit(); }
@@ -349,6 +379,12 @@ export class AgentServerService {
   stop() {
     this.#generation++;
     this.#abort.abort();
+    if (this.#usingExisting) {
+      this.#usingExisting = false;
+      this.#status = 'stopped';
+      this.#emit();
+      return;
+    }
     if (!this.#process) return;
     this.#status = 'stopping'; this.#emit();
     try { this.#process.kill('SIGTERM'); }

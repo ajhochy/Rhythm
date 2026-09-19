@@ -11,14 +11,6 @@ authRouter.post(
   '/google/desktop-exchange',
   controller.googleDesktopExchange.bind(controller),
 );
-authRouter.get(
-  '/google/desktop-login-capability',
-  controller.googleDesktopLoginCapability.bind(controller),
-);
-authRouter.post(
-  '/google/desktop-login-exchange',
-  controller.googleDesktopLoginExchange.bind(controller),
-);
 authRouter.post(
   '/google/mobile-exchange',
   controller.googleMobileExchange.bind(controller),

@@ -24,7 +24,7 @@ test('e11-c6: main catches rejected start and publishes current/changed failure 
   const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = '/fixture'; } });
   await module.link(async (name) => {
     let values;
-    if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: {}, dialog: { showErrorBox: (...args) => dialogs.push(args), showMessageBox: async () => ({ response: 1 }) } };
+    if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: {}, dialog: { showErrorBox: (...args) => dialogs.push(args), showMessageBox: async (options) => { dialogs.push([options.title, options.message, options.buttons]); return { response: 1 }; } } };
     else if (name === './agent-server.mjs') values = { AgentServerService: Server, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:4001', AGENT_SERVER_ENGINE_PORT: 4096, electronDbPath: () => '/fixture/electron.db', legacyFlutterDbPath: () => '/fixture/legacy.db' };
     else if (name === './hermes-server.mjs') values = { createHermesSupervisor: () => ({ getStatus: () => ({ state: 'disabled', port: 9121, url: 'http://127.0.0.1:9121' }), onStatus() {}, async start() {}, async stop() {} }) };
     else if (name === './production-api-config.mjs') values = { createProductionApiConfig: () => ({ load: () => 'https://example.invalid' }), createProductionApiSetHandler: () => () => {} };
@@ -39,7 +39,7 @@ test('e11-c6: main catches rejected start and publishes current/changed failure 
   assert.equal(handlers.get('rhythm:agent-server:status')().failureReason, 'startupFailed');
   assert.ok(sent.some(([channel, snapshot]) => channel === 'rhythm:agent-server:status-changed' && snapshot.failureReason === 'startupFailed'));
   service.listener(service.status);
-  assert.ok(dialogs.some(([, message]) => /Reopen/.test(message)), 'failure must be visible without a web product page change');
+  assert.ok(dialogs.some(([, message, buttons]) => /Reopen/.test(message) && buttons?.join(',') === 'Retry,Close'), 'failure must be visible with a retry action');
 });
 
 const tick = () => new Promise((done) => setImmediate(done));

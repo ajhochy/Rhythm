@@ -1,4 +1,16 @@
+<!-- Current local repair: 2026-09-19 -->
+> Signed local repair now starts API/engine and opens the authenticated workspace; user accepted local behavior. Fresh Electron checks: 177 passed, typecheck passed; focused OAuth API: 5 passed. Fresh mega-branch packaging is underway. Full campaign and approval-flow qualification remain open. See [startup repair](runs/2026-09-19-electron-runtime-startup-repair.md). No push.
+
 # Rhythm — Project State
+
+## Recent coding-agent runs
+
+### 2026-09-19 — restore original desktop Google login
+- Files modified: Electron OAuth client/core/tests and sign-in copy; API auth routes/controller, Google token persistence and tests; auth-session restore. See [run record](runs/2026-09-19-desktop-login-revert.md).
+- Checks run: Electron 174 passed; focused API 5 passed; Electron/web typecheck and API build passed; `ai-workflow checks --level issue` passed.
+- Decisions made: remove the unrequested login-only protocol and restore the pre-`aa07b491` desktop login behavior without changing Messages or Automations.
+- Deviations from spec: none.
+- Concerns: old deployed exchange can replace existing Google integration tokens; installed Electron remains blocked by the native signer. A local source launch persisted a hosted session; subsequent read-only hosted check found Calendar and Gmail connected, no reauthorization needed, with the same seven scopes as before.
 
 ## Focus and branches
 
