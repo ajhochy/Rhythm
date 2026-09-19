@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { openFixture } from './helpers';
+import { selectRow } from './helpers/list-inspector';
 
 async function expectTrace(page: Page, value: string) {
   await expect(page.getByTestId('tool-trace')).toContainText(value);
@@ -92,8 +93,9 @@ test('exercises every secondary Tool path with exact endpoint-ledger receipts', 
   await expect(page).toHaveURL(/#\/projects/);
 
   await openFixture(page, '#/tools/agent-settings');
-  await page.getByRole('button', { name: /Desktop endpoint/ }).click();
+  await selectRow(page, 'Runtime / OpenCode server');
+  await page.getByRole('button', { name: 'Desktop endpoint', exact: true }).click();
   await expectTrace(page, 'fixture://agent-settings/connection');
-  await page.getByRole('button', { name: /Offline buffering/ }).click();
+  await page.getByRole('button', { name: 'Offline buffering', exact: true }).click();
   await expectTrace(page, 'fixture://agent-settings/offline-buffer');
 });

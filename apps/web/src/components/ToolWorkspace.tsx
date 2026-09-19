@@ -10,13 +10,12 @@ import type { CookbookRecipe } from '../gateway/cookbook';
 import type { ResearchProject as LiveResearchProject, ResearchProjectRun } from '../gateway/research';
 import type { AgentDesign } from '../gateway/designs';
 import type { SkillEntry } from '../gateway/skills';
-import type { Profile } from '../types';
 import { Icon } from '../icons';
 import { useFixtures } from '../store';
 import { FocusDialog } from './FocusDialog';
 import { ListInspector, useSelectedId } from './ListInspector';
-import { profileAvatarLabel } from './Profiles';
 import { navigate } from './Shell';
+import { FixtureAgentSettingsTool, LiveSettingsTool } from './tools/AgentSettingsTool';
 
 // Parses a JSON array field defensively — live rows always carry these as JSON text
 // (see apps/api_server/src/repositories/agent_memory_repository.ts:9-30), never as
@@ -1053,52 +1052,9 @@ function GalleryTool() {
   </ToolFrame>;
 }
 
-function SettingsTool() {
-  const [trace, setTrace] = useState<Trace>({ method: 'LOCAL', route: 'fixture://agent-settings', detail: 'Local runtime defaults loaded' });
-  return <ToolFrame slug="agent-settings" title="Agent settings" description="Execution defaults for local Agents sessions." trace={trace}><div className="tool-list"><button className="tool-row-main settings-row" type="button" onClick={() => setTrace({ method: 'LOCAL', route: 'fixture://agent-settings/connection', detail: 'Desktop endpoint is local' })}><span><strong>Desktop endpoint</strong><small>Fixture preview · not connected</small></span><Icon name="chevronRight" size={14} /></button><button className="tool-row-main settings-row" type="button" onClick={() => setTrace({ method: 'LOCAL', route: 'fixture://agent-settings/offline-buffer', detail: 'Offline buffering is local UI state until reconnect' })}><span><strong>Offline buffering</strong><small>Local only · no remote queue</small></span><Icon name="chevronRight" size={14} /></button></div></ToolFrame>;
-}
-
-function AutoPromotionSettings() {
-  const gateway = useGateway(); const [state, setState] = useState<Awaited<ReturnType<NonNullable<typeof gateway.domains.autoPromotion>['get']>> | null>(null);
-  const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [confirm, setConfirm] = useState(false); const [submitting, setSubmitting] = useState(false);
-  const load = async (clearError = true) => { setLoading(true); if (clearError) setError(''); try { setState(await gateway.domains.autoPromotion!.get()); } catch (err) { setError(err instanceof Error ? err.message : 'Auto-promotion state could not be loaded'); } finally { setLoading(false); } };
-  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const enabled = state?.state.autoPromotionEnabled ?? false; const canEnable = Boolean(state?.availability && state.state.autoPromotionEligible && state.state.totalRegressions === 0);
-  const submit = async () => { setConfirm(false); setSubmitting(true); setError(''); let failed = false; try { await gateway.domains.autoPromotion!.setEnabled(!enabled); } catch (err) { failed = true; setError(err instanceof Error ? err.message : 'Auto-promotion update failed'); } await load(!failed); setSubmitting(false); };
-  return <section className="auto-promotion-card" aria-label="Auto-promotion" data-testid="auto-promotion"><header><div><h2>Auto-promotion</h2><p>Verified changes may be promoted automatically only when the organization is eligible.</p></div><span className={`kind-badge ${enabled ? 'active' : ''}`}>{enabled ? 'Enabled' : 'Disabled'}</span></header>{loading && <p role="status">Loading auto-promotion state…</p>}{error && <p role="alert">{error} <button className="text-button" type="button" onClick={() => void load()}>Retry</button></p>}{state && <dl className="property-list"><div><dt>Availability</dt><dd>{state.availability ? 'Available' : 'Unavailable'}</dd></div><div><dt>Eligibility</dt><dd>{state.state.autoPromotionEligible ? 'Eligible' : 'Not eligible'}</dd></div><div><dt>Verified changes</dt><dd>{state.state.totalVerified} / {state.state.trustThreshold}</dd></div><div><dt>Regressions</dt><dd>{state.state.totalRegressions}</dd></div>{state.state.enabledAt && <div><dt>Enabled</dt><dd>{state.state.enabledAt}</dd></div>}</dl>}<footer><button className={enabled ? 'danger-button' : 'primary-button'} type="button" disabled={submitting || loading || !enabled && !canEnable} title={!enabled && !canEnable ? 'Requires availability, eligibility, and zero regressions.' : undefined} onClick={() => setConfirm(true)} data-testid="auto-promotion-toggle">{enabled ? 'Disable' : 'Enable'}</button></footer><FocusDialog open={confirm} onClose={() => setConfirm(false)} title={enabled ? 'Disable auto-promotion?' : 'Enable auto-promotion?'} description={enabled ? 'Disable is an emergency stop. The server requires your explicit acknowledgement.' : 'Verified changes may be promoted automatically when eligibility is maintained.'} testId="auto-promotion-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setConfirm(false)} data-testid="auto-promotion-cancel">Cancel</button><button className={enabled ? 'danger-button' : 'primary-button'} type="button" onClick={() => void submit()} data-testid="auto-promotion-confirm">Confirm</button></div></FocusDialog></section>;
-}
-
-function LiveSettingsTool() {
-  const gateway = useGateway();
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-configs', detail: 'Loading live agent configuration' });
-
-  const load = async () => {
-    setError(null);
-    setLoading(true);
-    try {
-      const next = await gateway.domains.sessions!.profiles();
-      setProfiles(next);
-      setTrace({ method: 'GET', route: '/agent-configs', detail: `${next.length} agent profiles loaded` });
-    } catch (err) { setError(err instanceof Error ? err.message : 'Agent settings failed to load'); }
-    finally { setLoading(false); }
-  };
-  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  return <ToolFrame slug="agent-settings" title="Agent settings" description="Live execution defaults from the configured agent profiles." trace={trace} actions={<button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="agent-settings-refresh"><Icon name="refresh" size={14} />Refresh</button>}>
-    {error && <section className="tool-state-panel error" role="alert" data-testid="agent-settings-error"><span className="tool-state-code">Error</span><p>{error}</p></section>}
-    {loading && <p role="status">Loading agent settings…</p>}
-    {!loading && !error && profiles.length === 0 && <EmptyState title="No agent profiles configured">Create an agent profile before starting a configured session.</EmptyState>}
-    <div className="tool-list">{profiles.map((profile) => <article className="tool-row settings-row" key={profile.id} data-testid={`agent-setting-${profile.id}`}><span className="profile-avatar" aria-label={`${profile.label} icon`}>{profileAvatarLabel(profile)}</span><span><strong>{profile.label}</strong><small>{profile.enabled ? 'Enabled' : 'Disabled'} · {profile.provider} · {profile.model}</small></span>{profile.isDefault && <span className="kind-badge">Default</span>}</article>)}</div>
-    <AutoPromotionSettings />
-  </ToolFrame>;
-}
-
 export function ToolWorkspace({ slug }: { slug: string }) {
   const { sessionGatewayMode } = useFixtures();
   const live = sessionGatewayMode === 'live';
-  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': live ? <LiveResearchTool /> : <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: <WebhooksTool />, skills: live ? <LiveSkillsTool /> : <ManagedCatalog key="skills" kind="skills" />, playbooks: live ? <LivePlaybooksTool /> : <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: live ? <LiveCookbookTool /> : <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: <EmailTool />, gallery: live ? <LiveGalleryTool /> : <GalleryTool />, 'agent-settings': live ? <LiveSettingsTool /> : <SettingsTool /> };
+  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': live ? <LiveResearchTool /> : <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: <WebhooksTool />, skills: live ? <LiveSkillsTool /> : <ManagedCatalog key="skills" kind="skills" />, playbooks: live ? <LivePlaybooksTool /> : <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: live ? <LiveCookbookTool /> : <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: <EmailTool />, gallery: live ? <LiveGalleryTool /> : <GalleryTool />, 'agent-settings': live ? <LiveSettingsTool Frame={ToolFrame} /> : <FixtureAgentSettingsTool Frame={ToolFrame} /> };
   return <div key={slug} className="tool-route-boundary">{tools[slug] ?? (live ? <LiveBrainTool /> : <FixtureBrainTool />)}</div>;
 }
