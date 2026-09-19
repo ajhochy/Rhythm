@@ -12,7 +12,8 @@ shipping client; this does not change the Electron replacement/release gates.
 
 - `codex/electron-session-opening`, isolated from the original dirty checkout,
   based on `2350a500fe87f4acdc429be4c181997f251ce4e3` (`origin/main`).
-- Draft PR publication pending; no merge authorized.
+- Draft [PR #1538](https://github.com/ajhochy/Rhythm/pull/1538), implementation
+  commit `3f08c4d9`; no merge authorized.
 - Evidence and exact commands: [run record](runs/2026-09-18-electron-session-opening.md).
 
 ## In progress
@@ -52,6 +53,6 @@ shipping client; this does not change the Electron replacement/release gates.
 
 ## Next step
 
-Open the scoped draft PR and preserve human review before merge. Resolve the
+Review scoped draft #1538 before merge. Resolve the
 separate broad-gate failures before claiming a repository-wide green gate.
 Signed/installable Electron qualification remains separate work.

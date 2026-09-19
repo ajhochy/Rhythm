@@ -2,7 +2,7 @@
 date: 2026-09-18
 repo: Rhythm
 branch: codex/electron-session-opening
-pr: null
+pr: 1538
 issues: []
 status: partial
 tags: [run, rhythm]
@@ -10,6 +10,9 @@ index: "[[Rhythm]]"
 ---
 
 # Exact-session opening in source Electron
+
+Draft: [#1538](https://github.com/ajhochy/Rhythm/pull/1538), implementation commit
+`3f08c4d9`. No merge performed.
 
 ## Files changed
 
