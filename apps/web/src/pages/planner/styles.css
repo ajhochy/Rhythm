@@ -34,7 +34,7 @@
 .pg-planner .backlog-lane h2 { margin: 2px 0 0; font-size: 16px; }
 .pg-planner .backlog-lane > p { margin: 5px 0 12px; color: var(--muted); font-size: 10px; line-height: 1.5; }
 .pg-planner .count-badge { min-width: 24px; height: 24px; display: grid; place-items: center; padding: 0 7px; border-radius: var(--r-pill); color: var(--accent-on); background: var(--accent); font-family: var(--font-mono); font-size: 9px; font-weight: 700; }
-.pg-planner .days-grid { min-width: 1176px; display: grid; grid-template-columns: repeat(7, minmax(168px, 1fr)); min-height: 100%; }
+.pg-planner .days-grid { display: grid; min-height: 100%; }
 .pg-planner .day-lane { min-width: 0; padding: 0 6px 6px; border-inline-start: 1px solid var(--border-soft); }
 .pg-planner .day-lane:first-child { border-inline-start: 0; }
 .pg-planner .day-lane.today { background: color-mix(in oklab, var(--accent), transparent 95%); box-shadow: inset 0 2px var(--accent); }

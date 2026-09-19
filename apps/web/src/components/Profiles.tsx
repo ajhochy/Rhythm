@@ -10,6 +10,7 @@ import { emptyLiveProfile, useFixtures } from '../store';
 import type { IdentityProfile } from '../gateway/sessions';
 import type { Profile } from '../types';
 import { FocusDialog } from './FocusDialog';
+import { Splitter } from './Splitter';
 import { navigate } from './Shell';
 
 function parseNameList(raw: string | null | undefined): string[] {
@@ -125,6 +126,7 @@ export function Profiles() {
   const dirty = draftSignature(draft) !== baseline;
   const [pendingNavigation, setPendingNavigation] = useState<ProfileNavigation | null>(null);
   const [capabilityFilter, setCapabilityFilter] = useState('');
+  const [profileRailWidth, setProfileRailWidth] = useState(260);
   const requestedState = live ? 'ready' : new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('state') ?? 'ready';
   const supportedStates = ['ready', 'loading', 'empty', 'first-use', 'no-results', 'failure', 'forbidden', 'read-only', 'unavailable'];
   const [fixtureState, setFixtureState] = useState(supportedStates.includes(requestedState) ? requestedState : 'ready');
@@ -217,7 +219,7 @@ export function Profiles() {
     return <section className="profiles-workspace profiles-state-workspace" aria-label="Agent profiles" data-testid="profiles-workspace"><button className="text-button profiles-state-back" type="button" onClick={() => navigate('/agents')}><Icon name="chevronRight" className="rotate-180" size={14} />Back to Agents</button><div className="tool-state-panel" role={fixtureState === 'failure' || fixtureState === 'forbidden' || fixtureState === 'unavailable' ? 'alert' : 'status'} aria-busy={waiting || undefined} data-testid={`tool-state-${fixtureState}`}><Icon name={waiting ? 'refresh' : fixtureState === 'forbidden' ? 'background' : 'profile'} className={waiting ? 'spin' : ''} size={26} /><h1>{waiting ? `${fixtureState === 'retrying' ? 'Retrying' : 'Loading'} Profiles` : fixtureState === 'first-use' ? 'Set up Profiles' : fixtureState === 'no-results' ? 'No matching profiles' : fixtureState === 'empty' ? 'No profiles yet' : fixtureState === 'forbidden' ? 'Access denied' : 'Profiles unavailable'}</h1><p>{fixtureState === 'forbidden' ? 'This workspace cannot manage profile policy.' : retryable ? 'The profile service did not return usable data.' : waiting ? 'Waiting for profile data.' : 'No profiles match this view.'}</p>{recoverable && <button className="secondary-button" type="button" onClick={() => setFixtureState('ready')} data-testid="tool-state-restore">Load profiles</button>}{retryable && <button className="primary-button" type="button" onClick={() => { setFixtureState('retrying'); retryTimer.current = window.setTimeout(() => setFixtureState('ready'), 240); }} data-testid="tool-state-retry">Retry</button>}</div></section>;
   }
   return (
-    <section className="profiles-workspace" aria-label="Agent profiles" aria-describedby={fixtureState === 'read-only' ? 'profiles-readonly' : undefined} data-od-id="profiles-workspace" data-testid="profiles-workspace">
+    <section className="profiles-workspace profiles-resizable" style={{ '--profile-rail-width': `${profileRailWidth}px` } as React.CSSProperties} aria-label="Agent profiles" aria-describedby={fixtureState === 'read-only' ? 'profiles-readonly' : undefined} data-od-id="profiles-workspace" data-testid="profiles-workspace">
       <aside className="profile-rail" aria-label="Profile list">
         <header><button className="icon-button small" type="button" onClick={() => requestNavigation({ kind: 'back' })} disabled={saving} aria-label="Back to Agents" data-testid="profiles-back"><Icon name="chevronRight" className="rotate-180" /></button><div><h1>Profiles</h1><small>Agent identity &amp; policy</small></div></header>
         <button className="primary-button full" type="button" onClick={() => requestNavigation({ kind: 'create' })} disabled={readOnly || saving} data-testid="profile-create"><Icon name="plus" size={15} />Create profile</button>
@@ -225,6 +227,7 @@ export function Profiles() {
         <label className="sort-label">Sort profiles<select value={sort} onChange={(event) => setSort(event.target.value)} data-testid="profile-sort"><option value="name">Name</option><option value="updated">Updated</option><option value="provider">Provider</option></select></label>
         <div className="profile-list">{visible.map((profile) => <button className={`profile-row ${selectedId === profile.id ? 'selected' : ''}`} type="button" key={profile.id} onClick={() => requestNavigation({ kind: 'select', id: profile.id })} disabled={saving} data-testid={`profile-${profile.id}`}><ProfileAvatar profile={profile} /><span><strong>{profile.label}</strong><small>{profile.modelProvider ?? 'Configured'} · {profile.modelId ?? 'Configured model'}</small></span>{profile.isDefault && <em>Default</em>}{!profile.enabled && <em>Disabled</em>}</button>)}</div>
       </aside>
+      <Splitter orientation="vertical" storageKey="layout.profiles.rail" min={240} max={420} defaultSize={260} onResize={setProfileRailWidth} ariaLabel="Resize Profiles list" testId="profiles-rail-resizer" />
       {!selected.id && <p role="status">No profiles configured. Create a profile to begin.</p>}
       <fieldset className="profile-editor profile-editor-fieldset" aria-labelledby="profile-editor-title" disabled={readOnly || !selected.id || saving} aria-busy={saving}>
         <div className="profile-editor-layout">
