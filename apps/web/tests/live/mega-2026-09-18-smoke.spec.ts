@@ -28,6 +28,7 @@ import {
   selectRow,
 } from '../helpers/list-inspector';
 import { liveEnvironment } from '../live-environment';
+import { ownsMegaSmokeRow } from '../helpers/mega-smoke-ownership';
 
 const environment = liveEnvironment({
   ...process.env,
@@ -90,7 +91,7 @@ function rowsFrom(value: unknown): JsonRow[] {
 }
 
 function isMarked(row: JsonRow) {
-  return JSON.stringify(row).includes(markerPrefix);
+  return ownsMegaSmokeRow(row, marker);
 }
 
 function markHostedUnavailable() {
@@ -586,7 +587,6 @@ test.describe('Reading comfort — #1509', () => {
     const row = page.locator('[data-testid^="task-row-"]').first();
     test.skip(await row.count() === 0, 'No live task row is available for computed typography checks.');
     const title = row.getByTestId('task-title');
-    const meta = row.locator('.task-meta');
     const completion = row.locator('.task-completion');
     const metrics = await title.evaluate((element) => {
       const style = getComputedStyle(element);
@@ -594,7 +594,11 @@ test.describe('Reading comfort — #1509', () => {
     });
     expect(metrics.size).toBeGreaterThanOrEqual(14);
     expect(metrics.weight).toBeLessThanOrEqual(450);
-    expect(await meta.evaluate((element) => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(11);
+    // #1509 removes metadata when the grouping already communicates all of it.
+    // Every meaningful metadata line that remains must keep the readable scale.
+    for (const metadata of await page.locator('.task-meta').all()) {
+      expect(await metadata.evaluate((element) => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(11);
+    }
     const hit = await completion.evaluate((element) => ({ width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height }));
     expect(hit.width).toBeGreaterThanOrEqual(44);
     expect(hit.height).toBeGreaterThanOrEqual(44);

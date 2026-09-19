@@ -338,6 +338,42 @@ describe('Track 7 contract — artifacts + presence', () => {
     expect(second!.headers.get('content-type')).toContain('image/png');
   });
 
+  it('issue-1373-c6: relay cache failure logs no host path or upstream body', async () => {
+    const relay = await startRelay(fixture);
+    cleanups.push(() => relay.close());
+    writeFileSync(join(relay.storageDir, 'relay-artifacts'), 'blocked');
+    const { logger } = await import('../utils/logger');
+    const warnings: string[] = [];
+    const warn = vi.spyOn(logger, 'warn').mockImplementation((message) => {
+      warnings.push(String(message));
+    });
+    cleanups.push(() => warn.mockRestore());
+    const mac = await connectFakeMac(relay.wsUrl);
+    cleanups.push(() => mac.close());
+    const answering = (async () => {
+      const req = await mac.waitFor(
+        (frame): frame is RpcReqFrame => frame.ch === 'rpc' && frame.t === 'req',
+      );
+      mac.send({
+        ch: 'rpc', t: 'res', id: req.id, status: 200,
+        headers: {
+          'content-type': 'image/png',
+          'x-rhythm-artifact-owner-id': String(fixture.userId),
+          'x-rhythm-artifact-project-id': PROJECT_ID,
+          'x-rhythm-artifact-session-id': 'session-artifact-owner',
+        },
+        bodyB64: PNG_BYTES.toString('base64'),
+      });
+    })();
+    const response = await getArtifact(relay, 'art_cache_failure_1373');
+    await answering;
+    expect(response.status).toBe(200);
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(PNG_BYTES);
+    expect(warnings.join('\n')).toContain('failed to cache artifact art_cache_failure_1373');
+    expect(warnings.join('\n')).not.toContain(relay.storageDir);
+    expect(warnings.join('\n')).not.toContain('blocked');
+  });
+
   it('404s mac_offline for unknown artifacts with no Mac, 400s invalid ids', async () => {
     const relay = await startRelay(fixture);
     cleanups.push(() => relay.close());

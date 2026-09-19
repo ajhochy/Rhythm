@@ -480,7 +480,7 @@ function FixtureSchedulesTool() {
 // than the fixture's synthetic `/agent-sessions?scheduledTaskId=` query.
 function LiveSchedulesTool() {
   const gateway = useGateway();
-  const { notify } = useFixtures();
+  const { notify, selectLiveSession } = useFixtures();
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
   const [selectedId, setSelectedId] = useSelectedId('scheduleId');
   const [loading, setLoading] = useState(true);
@@ -531,6 +531,7 @@ function LiveSchedulesTool() {
     if (!run.rootSessionId) return;
     try {
       await gateway.domains.schedules!.rootSession(run.rootSessionId);
+      await selectLiveSession(run.rootSessionId);
       setTrace({ method: 'GET', route: `/agent-sessions/${run.rootSessionId}`, detail: 'Opened linked run session' });
       navigate('/agents');
     } catch (err) { notify(err instanceof Error ? err.message : 'Could not open the linked session'); }

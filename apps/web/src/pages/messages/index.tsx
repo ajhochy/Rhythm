@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { FocusDialog } from '../../components/FocusDialog';
-import { ListInspector, useSelectedId } from '../../components/ListInspector';
+import { ListInspector } from '../../components/ListInspector';
+import { navigate } from '../../components/Shell';
 import { Icon } from '../../icons';
 import { useFixtures } from '../../store';
 import { useGateway } from '../../gateway/context';
@@ -46,8 +47,8 @@ function threadIdForTitle(title: string) {
   return `thread-${slug || 'new-conversation'}`;
 }
 
-function StatePanel({ state, onRetry }: { state: Exclude<MessagesSurfaceState, 'ready' | 'readonly' | 'loading'>; onRetry(): void }) {
-  if (state === 'empty') return <div className="messages-state" data-testid="page-state-empty"><span className="messages-state-mark" aria-hidden="true">＋</span><span className="eyebrow">A quiet inbox</span><h3>No conversations</h3><p>Start a direct message or gather a group around the next handoff.</p></div>;
+function StatePanel({ state, onRetry, onNew }: { state: Exclude<MessagesSurfaceState, 'ready' | 'readonly' | 'loading'>; onRetry(): void; onNew(): void }) {
+  if (state === 'empty') return <div className="messages-state" data-testid="page-state-empty"><span className="messages-state-mark" aria-hidden="true">＋</span><span className="eyebrow">A quiet inbox</span><h3>No conversations</h3><p>Start a direct message or gather a group around the next handoff.</p><button className="primary-button" type="button" onClick={onNew} data-testid="messages-empty-new-thread">New conversation</button></div>;
   if (state === 'server-error') return <div className="messages-state danger" data-testid="page-state-server-error"><span className="messages-state-code">503</span><span className="eyebrow">Retryable server error</span><h3>Messages could not be loaded</h3><p>The seeded adapter returned an error. Any open dialog and draft are preserved for recovery.</p><button className="primary-button" type="button" onClick={onRetry} data-testid="page-retry">Retry</button></div>;
   if (state === 'forbidden') return <div className="messages-state warning" data-testid="page-state-forbidden"><span className="messages-state-code">403</span><span className="eyebrow">Membership required</span><h3>Messages are restricted</h3><p>Authenticated workspace membership is required to inspect conversations.</p></div>;
   return <div className="messages-state warning" data-testid="page-state-unavailable"><span className="messages-state-mark" aria-hidden="true">◇</span><span className="eyebrow">Desktop prerequisite</span><h3>Messages are unavailable</h3><p>Reconnect the local Rhythm API before loading or changing conversations.</p></div>;
@@ -98,8 +99,8 @@ function FixtureMessagesPage({ route }: { route: string }) {
   const { notify, setUnreadThreads } = useFixtures();
   const [surfaceState, setSurfaceState] = useState<MessagesSurfaceState>(initialSurfaceState);
   const [threads, setThreads] = useState<MessageThreadFixture[]>(cloneSeededMessageThreads);
-  const [storedSelectedId, setStoredSelectedId] = useSelectedId('threadId');
-  const selectedId = storedSelectedId ?? threadIdFromRoute(route);
+  const [selectedId, setSelectedId] = useState<string | null>(() => threadIdFromRoute(route));
+  const [search, setSearch] = useState('');
   const [receipts, setReceipts] = useState<string[]>(() => surfaceState === 'server-error' ? ['GET /message-threads → 503'] : [...initialMessageReceipts]);
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const [threadType, setThreadType] = useState<MessageThreadType>('direct');
@@ -116,8 +117,11 @@ function FixtureMessagesPage({ route }: { route: string }) {
   const [mutationMode, setMutationMode] = useState<MutationMode>('success');
   const transcriptRef = useRef<HTMLDivElement>(null);
   const replyRef = useRef<HTMLTextAreaElement>(null);
+  const hydratedRouteRef = useRef<string | null>(null);
 
   const selectedThread = threads.find((thread) => thread.id === selectedId) ?? null;
+  const requestedThreadId = threadIdFromRoute(route);
+  const invalidThread = Boolean(requestedThreadId && !selectedThread);
   const renameTarget = threads.find((thread) => thread.id === renameTargetId) ?? null;
   const deleteTarget = threads.find((thread) => thread.id === deleteTargetId) ?? null;
   const readonly = surfaceState === 'readonly';
@@ -146,11 +150,27 @@ function FixtureMessagesPage({ route }: { route: string }) {
     notify('Conversation marked as unread');
   };
 
-  const selectThread = (id: string) => {
-    setStoredSelectedId(id);
+  const hydrateThread = (id: string, shouldNavigate: boolean) => {
+    if (!threads.some((thread) => thread.id === id)) return;
+    if (shouldNavigate) hydratedRouteRef.current = id;
+    setSelectedId(id);
+    setThreads((current) => current.map((thread) => thread.id === id ? { ...thread, unreadCount: 0 } : thread));
+    appendReceipt(`POST /message-threads/${id}/read → 204`);
+    appendReceipt(`GET /message-threads/${id}/messages → 200`);
+    appendReceipt('GET /message-threads → 200');
     setReply('');
     setReplyError('');
+    if (shouldNavigate) navigate(`/messages/${encodeURIComponent(id)}`);
   };
+
+  useEffect(() => {
+    const nextId = threadIdFromRoute(route);
+    setSelectedId(nextId);
+    if (nextId && threads.some((thread) => thread.id === nextId) && hydratedRouteRef.current !== nextId) {
+      hydratedRouteRef.current = nextId;
+      hydrateThread(nextId, false);
+    }
+  }, [route]);
 
   useLayoutEffect(() => {
     if (!transcriptRef.current) return;
@@ -189,11 +209,20 @@ function FixtureMessagesPage({ route }: { route: string }) {
     if (!deleteTarget) return;
     const targetId = deleteTarget.id;
     const targetTitle = deleteTarget.title;
-    setThreads((current) => current.filter((thread) => thread.id !== targetId));
+    const targetIndex = threads.findIndex((thread) => thread.id === targetId);
+    const remaining = threads.filter((thread) => thread.id !== targetId);
+    const fallback = selectedId === targetId ? remaining[Math.min(Math.max(targetIndex, 0), remaining.length - 1)] ?? null : selectedThread;
+    setThreads(remaining);
     setDeleteTargetId(null);
     if (selectedId === targetId) {
+      setSelectedId(fallback?.id ?? null);
+      hydratedRouteRef.current = fallback?.id ?? null;
       setReply('');
       setReplyError('');
+      navigate(fallback ? `/messages/${encodeURIComponent(fallback.id)}` : '/messages');
+      requestAnimationFrame(() => {
+        document.querySelector<HTMLElement>(fallback ? '[data-testid="messages-selected-thread-actions"]' : '[data-testid="messages-thread-search"]')?.focus({ preventScroll: true });
+      });
     }
     notify(`${targetTitle} deleted`);
   };
@@ -246,7 +275,9 @@ function FixtureMessagesPage({ route }: { route: string }) {
     appendReceipt(`POST /message-threads/${id}/read → 204`);
     appendReceipt(`GET /message-threads/${id}/messages → 200`);
     appendReceipt('GET /message-threads → 200');
-    setStoredSelectedId(id);
+    setSelectedId(id);
+    hydratedRouteRef.current = id;
+    navigate(`/messages/${encodeURIComponent(id)}`);
     setNewThreadOpen(false);
     setThreadType('direct');
     setThreadTitle('');
@@ -282,9 +313,9 @@ function FixtureMessagesPage({ route }: { route: string }) {
     notify('Messages reconnected');
   };
 
-  const listThreads = surfaceState === 'empty' ? [] : threads;
+  const listThreads = surfaceState === 'empty' ? [] : threads.filter((thread) => thread.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
   const inspectorError = surfaceState === 'server-error' || surfaceState === 'forbidden' || surfaceState === 'unavailable'
-    ? <StatePanel state={surfaceState} onRetry={recover} />
+    ? <StatePanel state={surfaceState} onRetry={recover} onNew={openNewThread} />
     : undefined;
   const mutationsDisabled = readonly || (surfaceState !== 'ready' && surfaceState !== 'empty');
 
@@ -299,34 +330,36 @@ function FixtureMessagesPage({ route }: { route: string }) {
 
     {readonly && <div className="messages-readonly" id="messages-readonly-reason" role="status" data-testid="page-state-readonly"><strong>Read-only workspace.</strong> Conversations remain inspectable; workspace edit permission is required to send, rename, delete, or change unread state.</div>}
 
-    <div className="messages-workspace" data-testid="messages-responsive-primary">
+    <div className="messages-workspace" data-testid={surfaceState === 'loading' ? 'page-state-loading' : 'messages-responsive-primary'}>
       <div className="messages-list-inspector-host" data-testid="messages-thread-list">
         <ListInspector
           className="messages-list-inspector"
           label="Conversations"
-          items={listThreads.map((thread) => ({
+          items={(surfaceState === 'empty' ? [] : threads).map((thread) => ({
             id: `messages-thread-${thread.id}`,
             title: thread.title,
             subtitle: thread.lastMessage || 'No messages yet',
             meta: timeLabel(thread.updatedAt),
             badge: thread.unreadCount > 0 ? `${thread.unreadCount} unread` : undefined,
           }))}
-          selectedId={selectedId ? `messages-thread-${selectedId}` : null}
-          onSelect={(rowId) => selectThread(rowId.slice('messages-thread-'.length))}
+          selectedId={selectedId && !invalidThread ? `messages-thread-${selectedId}` : null}
+          onSelect={(rowId) => hydrateThread(rowId.slice('messages-thread-'.length), true)}
+          filterItem={(item) => item.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())}
           toolbar={<div className="messages-list-toolbar">
             <div className="messages-rail-summary"><div><strong data-testid="messages-unread-total">{unreadTotal} unread {unreadTotal === 1 ? 'thread' : 'threads'}</strong><span data-testid="messages-visible-count">{listThreads.length} {listThreads.length === 1 ? 'conversation' : 'conversations'}</span></div><span aria-hidden="true">{String(unreadTotal).padStart(2, '0')}</span></div>
+            <label className="search-field messages-search"><Icon name="search" size={14} /><span className="sr-only">Search conversations by title</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search conversations" data-testid="messages-thread-search" /></label>
             <fieldset className="messages-header-mutations" disabled={mutationsDisabled} aria-disabled={mutationsDisabled ? 'true' : undefined} data-testid="messages-mutations">
               <legend className="sr-only">Conversation mutations</legend>
               <button className="primary-button" type="button" onClick={openNewThread} aria-describedby={readonly ? 'messages-readonly-reason' : undefined} data-testid="messages-new-thread"><Icon name="plus" size={15} />New conversation</button>
             </fieldset>
           </div>}
-          searchable
-          searchPlaceholder="Search conversations"
           loading={surfaceState === 'loading'}
           error={inspectorError}
-          emptyState={<StatePanel state="empty" onRetry={recover} />}
+          emptyState={<StatePanel state="empty" onRetry={recover} onNew={openNewThread} />}
+          noResultsState={<div className="messages-no-results" data-testid="messages-no-results"><h3>No matching conversations</h3><p>Try a shorter title or clear the search.</p><button className="secondary-button" type="button" onClick={() => setSearch('')} data-testid="messages-clear-search">Clear search</button></div>}
           inspector={(item) => {
             const thread = item ? threads.find((candidate) => `messages-thread-${candidate.id}` === item.id) ?? null : null;
+            if (invalidThread) return <div className="messages-selection-state" data-testid="messages-thread-not-found"><span className="messages-state-mark" aria-hidden="true">?</span><h3>Conversation not found</h3><p>This link does not match a conversation in the current workspace.</p><button className="secondary-button" type="button" onClick={() => navigate('/messages')} data-testid="messages-back-to-conversations">Back to conversations</button></div>;
             if (!thread) return <div className="messages-selection-state" data-testid="messages-empty-selection"><span className="messages-state-mark" aria-hidden="true">↗</span><h3>Select a conversation</h3><p>Choose a thread to read its participants and transcript.</p></div>;
             return <div className="messages-conversation" role="region" aria-label="Selected conversation">
               <header className="messages-conversation-header">

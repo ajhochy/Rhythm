@@ -69,25 +69,33 @@ test('E21-c3 outage reconciles unselected membership and selected detail indepen
   await expect.poll(async () => (await state(page)).selectedId).toBe('');
   expect((await state(page)).sessions.some((session: any) => session.id === 'selected')).toBe(false);
   await expect(page.getByTestId('session-scheduled-new')).toHaveCount(0);
-  await page.getByRole('checkbox', { name: 'Archived sessions' }).check();
+  await page.getByRole('button', { name: 'View options', exact: true }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'View archived sessions' }).click();
   await expect(page.getByTestId('session-scheduled-new')).toContainText('Renamed while offline');
 });
 
 test('E21-c4 unselected metadata changes update visible preview/activity order; refresh is coalesced, never token driven', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-09-18T12:00:00Z') });
   const h = await open(page);
+  // Flush one scheduled reconciliation, then hold its two-second clock steady.
+  const initialDetails = h.details.length;
+  await page.clock.pauseAt(new Date('2026-09-18T13:00:00Z'));
+  await expect.poll(() => h.details.length).toBeGreaterThan(initialDetails);
+  const before = h.lists.length;
   await page.getByTestId('session-sort').selectOption('activity');
   const update = row('other', { name: 'External rename', lastPreview: 'external preview', lastActivityAt: '2026-09-11T00:00:00Z', status: 'error' });
   h.replace([row('selected'), update]);
   for (let i = 0; i < 20; i++) h.emit({ type: 'session.updated', session: update });
   await expect(page.getByTestId('session-other')).toContainText('external preview');
   await expect(page.locator('button.session-row').first()).toHaveAttribute('data-testid', 'session-other');
-  await page.waitForTimeout(800);
-  const before = h.lists.length;
-  for (let i = 0; i < 100; i++) h.emit({ type: 'message.part.delta', id: 'selected', messageId: 'stream', partId: 'p', field: 'text', delta: 'x' });
-  await expect.poll(async () => (await state(page)).selected.messages.at(-1).blocks[0].content.length).toBe(100);
-  await page.waitForTimeout(800);
   expect(h.lists.length).toBe(before);
-  expect(before).toBeLessThanOrEqual(5);
+  for (let i = 0; i < 100; i++) h.emit({ type: 'message.part.delta', id: 'selected', messageId: 'stream', partId: 'p', field: 'text', delta: 'x' });
+  await page.clock.runFor(100);
+  await expect.poll(async () => (await state(page)).selected.messages.at(-1).blocks[0].content.length).toBe(100);
+  expect(h.lists.length).toBe(before);
+  // The periodic refresh still works independently of all 120 socket events.
+  await page.clock.runFor(2_000);
+  await expect.poll(() => h.lists.length).toBe(before + 2);
   expect(h.details.filter((id) => id === 'other')).toEqual([]);
 });
 

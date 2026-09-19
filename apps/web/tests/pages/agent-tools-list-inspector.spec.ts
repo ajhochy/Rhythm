@@ -126,6 +126,9 @@ test('issue-1513-c7: edge states remain accessible at narrow width and 200 perce
 
   await openFixture(page, '#/tools/gallery');
   await atZoom200(page);
+  // The preceding narrow case keeps the 640px viewport. At 200% the gallery
+  // correctly shows its inspector first; use its visible pane navigation.
+  await page.getByRole('button', { name: 'Back to list', exact: true }).click();
   await selectRow(page, selectableTools[8].second);
   await expectInspectorHeading(page, selectableTools[8].second);
   await expectListInspectorAxeClean(page);

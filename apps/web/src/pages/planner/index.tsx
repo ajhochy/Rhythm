@@ -139,12 +139,14 @@ function CalendarEvent({ event, onInspect }: { event: PlannerEvent; onInspect(ev
 }
 
 // Page-local state shared by the two real render sites; breakpoints measure the pane, not the window.
+const defaultPlannerDayWidth = 184;
+
 function usePlannerLayout() {
   const root = useRef<HTMLElement>(null);
   const backlogTrigger = useRef<HTMLButtonElement>(null);
   const [narrow, setNarrow] = useState(false);
   const [view, setView] = useState<'week' | 'agenda' | null>(null);
-  const [dayWidths, setDayWidths] = useState(() => Array.from({ length: 6 }, () => 168));
+  const [dayWidths, setDayWidths] = useState(() => Array.from({ length: 6 }, () => defaultPlannerDayWidth));
   const [backlogOpen, setBacklogOpen] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   useEffect(() => {
@@ -157,8 +159,8 @@ function usePlannerLayout() {
   const agenda = view ? view === 'agenda' : narrow;
   const setDayWidth = (index: number, size: number) => setDayWidths((current) => current[index] === size ? current : current.map((width, widthIndex) => widthIndex === index ? size : width));
   const dayGridStyle = agenda ? undefined : {
-    minWidth: `${dayWidths.reduce((total, width) => total + width, 168 + dayWidths.length * 8)}px`,
-    gridTemplateColumns: `${dayWidths.map((width) => `${width}px 8px`).join(' ')} minmax(168px, 1fr)`,
+    minWidth: `${dayWidths.reduce((total, width) => total + width, defaultPlannerDayWidth + dayWidths.length * 8)}px`,
+    gridTemplateColumns: `${dayWidths.map((width) => `${width}px 8px`).join(' ')} minmax(${defaultPlannerDayWidth}px, 1fr)`,
   };
   const closeBacklog = () => { setBacklogOpen(false); backlogTrigger.current?.focus(); };
   const focusToday = () => requestAnimationFrame(() => root.current?.querySelector<HTMLElement>('.day-lane.today > header')?.scrollIntoView({ block: 'start', inline: 'nearest' }));
@@ -393,7 +395,7 @@ function FixturePlannerPage({ route }: { route: string }) {
                   <div className="event-list">{events.map((event) => <CalendarEvent key={event.id} event={event} onInspect={(item) => setInspector({ kind: 'event', id: item.id })} />)}</div>
                   <div className="lane-list">{dayTasks.map((task) => <TaskCard key={task.id} task={task} readonly={readonly} selectionMode={layout.selectionMode} selected={selectedIds.includes(task.id)} onInspect={(item) => setInspector({ kind: 'task', id: item.id })} onComplete={toggleComplete} onSelect={toggleSelected} onDragStart={onDragStart} />)}</div>
                   <button className="text-button add-control" type="button" disabled={readonly} aria-describedby={readonly ? 'planner-readonly-reason' : undefined} onClick={() => setInspector({ kind: 'create', scheduledDate: day.date })} data-testid={`planner-add-task-${day.date}`}>+ Add task</button>
-                </section>{!layout.agenda && index < days.length - 1 && <Splitter orientation="vertical" storageKey={`layout.planner.day-${index + 1}`} min={144} max={320} defaultSize={168} onResize={(size) => layout.setDayWidth(index, size)} ariaLabel={`Resize ${day.weekday} and ${days[index + 1]!.weekday}`} testId={`planner-day-resizer-${index + 1}`} />}</Fragment>;
+                </section>{!layout.agenda && index < days.length - 1 && <Splitter orientation="vertical" storageKey={`layout.planner.day-${index + 1}`} min={144} max={320} defaultSize={defaultPlannerDayWidth} onResize={(size) => layout.setDayWidth(index, size)} ariaLabel={`Resize ${day.weekday} and ${days[index + 1]!.weekday}`} testId={`planner-day-resizer-${index + 1}`} />}</Fragment>;
               })}
             </div>
           </section>
@@ -824,7 +826,7 @@ function LivePlannerPage({ route }: { route: string }) {
                   <header tabIndex={-1}><h2 id={`planner-day-title-${day.date}`}>{day.weekday} {Number(day.date.slice(-2))} · {dayTasks.filter(task => !isCalendarShadow(task) && task.status !== 'done' && task.status !== 'deferred').length} open</h2>{day.isToday && <em>Today</em>}</header>
                   <div className="lane-list">{dayTasks.map((task) => <LiveTaskCard key={task.id} task={task} selectionMode={layout.selectionMode} pending={mutationPending} selected={selectedIds.includes(task.id)} onInspect={(item) => void openInspector(item)} onComplete={(item) => void toggleComplete(item)} onSelect={toggleSelected} onDragStart={onDragStart} />)}</div>
                   <button className="text-button add-control" type="button" disabled={mutationPending} onClick={() => { setCreateScheduledDate(day.date); setCreateOpen(true); }} data-testid={`planner-add-task-${day.date}`}>+ Add task</button>
-                </section>{!layout.agenda && index < days.length - 1 && <Splitter orientation="vertical" storageKey={`layout.planner.day-${index + 1}`} min={144} max={320} defaultSize={168} onResize={(size) => layout.setDayWidth(index, size)} ariaLabel={`Resize ${day.weekday} and ${days[index + 1]!.weekday}`} testId={`planner-day-resizer-${index + 1}`} />}</Fragment>;
+                </section>{!layout.agenda && index < days.length - 1 && <Splitter orientation="vertical" storageKey={`layout.planner.day-${index + 1}`} min={144} max={320} defaultSize={defaultPlannerDayWidth} onResize={(size) => layout.setDayWidth(index, size)} ariaLabel={`Resize ${day.weekday} and ${days[index + 1]!.weekday}`} testId={`planner-day-resizer-${index + 1}`} />}</Fragment>;
               })}
             </div>
           </section>

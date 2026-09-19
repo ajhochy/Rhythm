@@ -137,15 +137,25 @@ export function SettingsPage() {
   };
 
   const saveKeyboardPreferences = () => {
-    setSavedKeyboard(sendKey);
-    writeLocalUserPreferences(preferenceUserId, { sendKey });
+    try {
+      writeLocalUserPreferences(preferenceUserId, { sendKey });
+      setSavedKeyboard(sendKey);
+      setActionError('');
+    } catch {
+      setActionError('Device preference could not be saved. Allow device storage and retry.');
+    }
   };
 
   const resetLocalPreferences = () => {
-    resetLocalUserPreferences(preferenceUserId);
-    setTheme(DEFAULT_LOCAL_USER_PREFERENCES.theme);
-    setSendKey(DEFAULT_LOCAL_USER_PREFERENCES.sendKey);
-    setSavedKeyboard(DEFAULT_LOCAL_USER_PREFERENCES.sendKey);
+    try {
+      resetLocalUserPreferences(preferenceUserId);
+      setTheme(DEFAULT_LOCAL_USER_PREFERENCES.theme);
+      setSendKey(DEFAULT_LOCAL_USER_PREFERENCES.sendKey);
+      setSavedKeyboard(DEFAULT_LOCAL_USER_PREFERENCES.sendKey);
+      setActionError('');
+    } catch {
+      setActionError('Device preference could not be saved. Allow device storage and retry.');
+    }
   };
 
   const facilitiesManagers = members.filter((member) => member.isFacilitiesManager).length;
@@ -181,8 +191,13 @@ export function SettingsPage() {
           <label className="settings-field">Theme
             <select value={theme} onChange={(event) => {
               const next = event.target.value as 'dark' | 'light';
-              setTheme(next);
-              writeLocalUserPreferences(preferenceUserId, { theme: next });
+              try {
+                writeLocalUserPreferences(preferenceUserId, { theme: next });
+                setTheme(next);
+                setActionError('');
+              } catch {
+                setActionError('Device preference could not be saved. Allow device storage and retry.');
+              }
             }}>
               <option value="dark">Dark</option>
               <option value="light">Light</option>

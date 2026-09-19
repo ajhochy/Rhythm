@@ -80,6 +80,8 @@ test('Hermes readiness accepts only a 2xx Hermes health JSON payload', async (t)
 
 for (const code of [401, 404, 503]) test(`Hermes readiness rejects HTTP ${code} until the deadline and reports the status`, async (t) => {
   let requests = 0;
+  let now = 0;
+  const delays = [];
   const f = fixture(t, {
     fetch: async () => {
       requests += 1;
@@ -87,16 +89,21 @@ for (const code of [401, 404, 503]) test(`Hermes readiness rejects HTTP ${code} 
     },
     readyTimeoutMs: 15,
     pollMs: 2,
+    readinessNow: () => now,
+    readinessDelay: async (ms) => { delays.push(ms); now += ms; },
   });
   const status = await f.supervisor.start();
   assert.equal(status.state, 'failed');
   assert.match(status.reason, new RegExp(String(code)));
   assert.ok(requests > 1, 'a non-2xx response must remain starting and retry until the deadline');
+  assert.equal(now, 15, 'retries must exhaust the injected deadline');
+  assert.deepEqual(delays, [2, 2, 2, 2, 2, 2, 2, 1]);
   assert.equal(f.snapshots.some((snapshot) => snapshot.state === 'ready'), false);
 });
 
 test('Hermes readiness rejects a 2xx response whose JSON is not the Hermes health shape', async (t) => {
   let requests = 0;
+  let now = 0;
   const f = fixture(t, {
     fetch: async () => {
       requests += 1;
@@ -104,10 +111,13 @@ test('Hermes readiness rejects a 2xx response whose JSON is not the Hermes healt
     },
     readyTimeoutMs: 15,
     pollMs: 2,
+    readinessNow: () => now,
+    readinessDelay: async (ms) => { now += ms; },
   });
   const status = await f.supervisor.start();
   assert.equal(status.state, 'failed');
   assert.ok(requests > 1, 'an invalid body must remain starting and retry until the deadline');
+  assert.equal(now, 15, 'invalid health must be rejected until the injected deadline');
   assert.equal(f.snapshots.some((snapshot) => snapshot.state === 'ready'), false);
 });
 

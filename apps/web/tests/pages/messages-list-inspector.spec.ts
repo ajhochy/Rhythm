@@ -13,43 +13,46 @@ import {
 const weekendThreadId = 'thread-weekend-team';
 const longTitle = 'Facilities handoff and access planning for the late summer gathering';
 
-test('Messages selects conversations with mouse and keyboard without mutating unread state', async ({ page }) => {
+test('Messages selects conversations with mouse and keyboard and hydrates their read state', async ({ page }) => {
   await openPage(page, 'messages');
   await expect(page.getByTestId('messages-unread-total')).toHaveText('6 unread threads');
 
   await selectRow(page, 'Weekend Team');
   await expectInspectorHeading(page, 'Weekend Team');
   await expect(page.getByTestId('messages-transcript')).toContainText('Final volunteer positions are ready.');
-  await expect(page.getByTestId('messages-unread-total')).toHaveText('6 unread threads');
+  await expect(page.getByTestId('messages-unread-total')).toHaveText('5 unread threads');
 
   await selectRow(page, longTitle);
   await expectInspectorHeading(page, longTitle);
   await expect(page.getByTestId('messages-transcript')).toContainText('Facilities access code');
+  await expect(page.getByTestId('messages-unread-total')).toHaveText('4 unread threads');
 
   await keyboardSelect(page, { fromTitle: 'Weekend Team', presses: ['ArrowDown', 'Enter'] });
   await expectSelected(page, longTitle);
   await expectInspectorHeading(page, longTitle);
 });
 
-test('Messages restores selection and uses the shared missing state after deletion', async ({ page }) => {
+test('Messages restores selection and chooses a safe fallback after deletion', async ({ page }) => {
   await openPage(page, `messages/${weekendThreadId}`);
   await expectInspectorHeading(page, 'Weekend Team');
   await page.reload();
   await expectInspectorHeading(page, 'Weekend Team');
 
   await selectRow(page, longTitle);
-  await expect(page).toHaveURL(/threadId=thread-facilities-handoff/);
+  await expect(page).toHaveURL(/#\/messages\/thread-facilities-handoff(?:\?|$)/);
   await page.reload();
   await expectInspectorHeading(page, longTitle);
 
   await page.getByTestId('messages-selected-thread-actions').click();
   await page.getByTestId('messages-thread-delete-thread-facilities-handoff').click();
   await page.getByTestId('messages-delete-thread-confirm').click();
-  await expectInspectorHeading(page, 'Item not found');
-  await expect(page.getByTestId('list-inspector-detail').getByRole('status')).toContainText('no longer available');
+  await expectInspectorHeading(page, 'Care coordinators');
+  await expect(page).toHaveURL(/#\/messages\/thread-care-coordinators(?:\?|$)/);
+  await expect(page.getByTestId('messages-subject')).toHaveText('Care coordinators');
 
-  await openPage(page, 'messages', '?threadId=deleted-conversation');
-  await expectInspectorHeading(page, 'Item not found');
+  await openPage(page, 'messages/deleted-conversation');
+  await expect(page.getByTestId('messages-thread-not-found')).toContainText('Conversation not found');
+  await expect(page.getByTestId('messages-back-to-conversations')).toBeVisible();
 });
 
 test('Messages exposes empty, loading, error, and read-only states in the shared frame', async ({ page }) => {
@@ -75,13 +78,14 @@ test('Messages exposes empty, loading, error, and read-only states in the shared
 test('Messages keeps every item action and the composer inside the inspector', async ({ page }) => {
   await openPage(page, 'messages');
   await selectRow(page, 'Weekend Team');
+  await expect(page.getByTestId('messages-unread-total')).toHaveText('5 unread threads');
 
   await page.getByTestId('messages-selected-thread-actions').click();
   await page.getByTestId(`messages-thread-toggle-${weekendThreadId}`).click();
-  await expect(page.getByTestId('messages-unread-total')).toHaveText('5 unread threads');
+  await expect(page.getByTestId('messages-unread-total')).toHaveText('6 unread threads');
   await page.getByTestId('messages-selected-thread-actions').click();
   await page.getByTestId(`messages-thread-toggle-${weekendThreadId}`).click();
-  await expect(page.getByTestId('messages-unread-total')).toHaveText('6 unread threads');
+  await expect(page.getByTestId('messages-unread-total')).toHaveText('5 unread threads');
 
   await page.getByTestId('messages-selected-thread-actions').click();
   await page.getByTestId(`messages-thread-rename-${weekendThreadId}`).click();

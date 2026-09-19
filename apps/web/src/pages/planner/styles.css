@@ -53,7 +53,7 @@
 .pg-planner .planner-task.project-step { border-inline-start: 2px solid var(--warning); }
 .pg-planner .planner-task[data-status="done"] { opacity: .72; }
 .pg-planner .planner-task[data-status="done"] strong { color: var(--muted); text-decoration: line-through; }
-.pg-planner .task-main { min-width: 0; min-height: 62px; display: grid; align-content: center; gap: 1px; padding: 5px 3px; border: 0; color: var(--fg); background: transparent; cursor: pointer; text-align: start; }
+.pg-planner .task-main { min-width: 0; min-height: 62px; display: grid; align-content: center; gap: 1px; padding: 2px 3px; border: 0; color: var(--fg); background: transparent; cursor: pointer; text-align: start; }
 .pg-planner .task-main[draggable="true"] { cursor: grab; }
 .pg-planner .task-main[draggable="true"] strong::before { content: '⠿'; color: var(--muted); margin-inline-end: 2px; }
 .pg-planner .planner-task[data-source-type="calendar_shadow_event"], .pg-planner .planner-task[data-source-type="prod_mirror"] { grid-template-columns: minmax(0, 1fr); }

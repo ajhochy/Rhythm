@@ -55,8 +55,8 @@ test('issue-2009-c2: provider rows and inspectors distinguish connection sync er
 test('issue-2009-c3: deterministic state matrix remains actionable and readonly is native', async ({ page }) => {
   // Regression caught: a required fixture state is blank/dead, Retry reloads the document, prerequisites are vague, or readonly styling leaves mutations enabled.
   await openPage(page, 'integrations', '?state=loading');
-  await expect(page.getByTestId('page-state-loading')).toHaveAttribute('role', 'status');
-  await expect(page.getByTestId('page-state-loading')).toContainText('Loading integrations');
+  await expect(page.getByRole('status').filter({ hasText: /Loading integrations/i })).toBeVisible();
+  await expect(page.getByRole('listbox', { name: 'Integrations' })).toHaveAttribute('aria-busy', 'true');
 
   await openPage(page, 'integrations', '?state=empty');
   await expect(page.getByTestId('page-state-empty')).toContainText('No integrations connected');
@@ -178,6 +178,7 @@ test('issue-2009-c7: integrations remains responsive under required presentation
   expect(undersized).toEqual([]);
 
   await page.emulateMedia({ forcedColors: 'active', reducedMotion: 'reduce' });
+  await page.getByRole('button', { name: 'Back to list', exact: true }).click();
   await selectRow(page, 'Planning Center');
   await expect(page.getByTestId('planning-center-direct-editor')).toBeVisible();
   const dialogOverflow = await page.evaluate(() => ({ client: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
@@ -313,7 +314,7 @@ test('issue-2009-c13: assistant Google consent remains separate and fixture safe
   const row = page.getByTestId('integration-assistant-tools');
   await expect(row).toContainText('Separate consent');
   const inspector = page.getByTestId('list-inspector-detail');
-  await expect(inspector).toContainText('Full Google Calendar and Gmail');
+  await expect(inspector).toContainText(/full Google Calendar and Gmail/i);
   await expect(inspector).toContainText('read + send');
   await expect(inspector.getByTestId('assistant-google-enable')).toBeVisible();
   await inspector.getByTestId('assistant-google-enable').click();

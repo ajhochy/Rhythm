@@ -27,3 +27,16 @@ test('issue-1521: the selected composer shortcut matches only its advertised cho
   assert.equal(matchesSendMessageKey(key({ ctrlKey: true }), 'Meta+Enter'), true);
   assert.equal(matchesSendMessageKey(key({ altKey: true, metaKey: true }), 'Meta+Enter'), false);
 });
+
+test('issue-1521: sandboxed storage access falls back before preferences are read', (t) => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    get() { throw new DOMException('Storage is unavailable in this sandbox', 'SecurityError'); },
+  });
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, 'localStorage', original);
+    else delete globalThis.localStorage;
+  });
+  assert.deepEqual(readLocalUserPreferences('sandbox'), DEFAULT_LOCAL_USER_PREFERENCES);
+});

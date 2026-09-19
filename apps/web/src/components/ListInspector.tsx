@@ -37,7 +37,7 @@ export function useSelectedId(key: string): [string | null, (id: string | null) 
   return [selectedId, select];
 }
 
-export function ListInspector({ label, items, groups, selectedId, onSelect, toolbar, inspector, emptyState, loading = false, error, searchable = false, searchPlaceholder, className, listWidth, listFooter }: {
+export function ListInspector({ label, items, groups, selectedId, onSelect, toolbar, inspector, emptyState, noResultsState, loadingState, filterItem, loading = false, error, searchable = false, searchPlaceholder, className, listWidth, listFooter }: {
   label: string;
   items: ListInspectorItem[];
   groups?: { id: string; label: string }[];
@@ -46,6 +46,9 @@ export function ListInspector({ label, items, groups, selectedId, onSelect, tool
   toolbar?: ReactNode;
   inspector: (item: ListInspectorItem | null) => ReactNode;
   emptyState?: ReactNode;
+  noResultsState?: ReactNode;
+  loadingState?: ReactNode;
+  filterItem?: (item: ListInspectorItem) => boolean;
   loading?: boolean;
   error?: ReactNode;
   searchable?: boolean;
@@ -74,6 +77,7 @@ export function ListInspector({ label, items, groups, selectedId, onSelect, tool
   const showList = loading || hasError || selectedId === null || listForId === selectedId;
   const terms = searchable ? query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean) : [];
   const visible = items.filter((item) => {
+    if (filterItem && !filterItem(item)) return false;
     const searchableText = [item.title, item.subtitle, item.meta, item.badge].filter(Boolean).join(' ').toLocaleLowerCase();
     return terms.every((term) => searchableText.includes(term));
   });
@@ -174,10 +178,10 @@ export function ListInspector({ label, items, groups, selectedId, onSelect, tool
             </div>)}
           </div>)}
         </div>
-        {loading ? <div className="list-inspector-state" role="status" aria-live="polite" aria-atomic="true">Loading {label}…</div>
+        {loading ? <div className="list-inspector-state" role="status" aria-live="polite" aria-atomic="true">{loadingState ?? `Loading ${label}…`}</div>
           : hasError ? <div className="list-inspector-state" role="alert">{error}</div>
           : !items.length ? <div className="list-inspector-state" role="status" aria-live="polite" aria-atomic="true">{emptyState ?? 'No items yet.'}</div>
-          : !visible.length ? <div className="list-inspector-state" role="status" aria-live="polite" aria-atomic="true">No results match your search.</div> : null}
+          : !visible.length ? <div className="list-inspector-state" role="status" aria-live="polite" aria-atomic="true">{terms.length ? 'No results match your search.' : noResultsState ?? 'No results match your search.'}</div> : null}
         {listFooter && <div className="list-inspector-footer">{listFooter}</div>}
       </aside>
       <Splitter orientation="vertical" storageKey={`layout.list-inspector.${layoutSlug(label)}`} min={240} max={Math.max(520, defaultListWidth)} defaultSize={defaultListWidth} onResize={setListPaneWidth} ariaLabel={`Resize ${label} list`} className="list-inspector-splitter" />

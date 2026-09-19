@@ -38,7 +38,8 @@ export function hermesInstallDir(binaryPath, home) {
  * showConsent?: (options: import('electron').MessageBoxOptions) => Promise<{response: number}>,
  * installLogPath?: string, checkPort?: (port: number) => Promise<boolean>,
  * hasBuiltWeb?: (binaryPath: string) => boolean,
- * graceMs?: number, readyTimeoutMs?: number, pollMs?: number, commandTimeoutMs?: number
+ * graceMs?: number, readyTimeoutMs?: number, pollMs?: number, commandTimeoutMs?: number,
+ * readinessNow?: () => number, readinessDelay?: (ms: number, signal: AbortSignal) => Promise<void>
  * }} [options]
  */
 export function createHermesSupervisor({
@@ -46,6 +47,7 @@ export function createHermesSupervisor({
   resolveBinary, showConsent = async () => ({ response: 0 }), installLogPath,
   checkPort = portAvailable, hasBuiltWeb,
   graceMs = 3_000, readyTimeoutMs = 60_000, pollMs = 500, commandTimeoutMs = 5_000,
+  readinessNow = Date.now, readinessDelay = (ms, signal) => delay(ms, undefined, { signal }),
 } = {}) {
   const enabled = env.RHYTHM_HERMES_ENABLED !== '0';
   const port = Number(env.RHYTHM_HERMES_PORT ?? '9121');
@@ -213,12 +215,12 @@ export function createHermesSupervisor({
         failed(reason, { binaryPath, version });
       }
     });
-    const deadline = Date.now() + readyTimeoutMs;
+    const deadline = readinessNow() + readyTimeoutMs;
     /** @type {number | undefined} */
     let lastHttpStatus;
-    while (active(current) && server === child && status.state === 'starting' && Date.now() < deadline) {
+    while (active(current) && server === child && status.state === 'starting' && readinessNow() < deadline) {
       try {
-        const response = await fetch(`${url}/api/health`, { method: 'GET', redirect: 'manual', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(Math.max(1, Math.min(2_000, deadline - Date.now())))]) });
+        const response = await fetch(`${url}/api/health`, { method: 'GET', redirect: 'manual', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(Math.max(1, Math.min(2_000, deadline - readinessNow())))]) });
         if (!response.ok || response.status < 200 || response.status >= 300) {
           lastHttpStatus = response.status;
           void response.body?.cancel().catch(() => {});
@@ -231,7 +233,7 @@ export function createHermesSupervisor({
           if (validHealth && active(current) && server === child && status.state === 'starting') return publish('ready', details);
         }
       } catch { /* Retry until the wall-clock budget expires. */ }
-      if (active(current)) await delay(Math.max(1, Math.min(pollMs, deadline - Date.now())), undefined, { signal: abort.signal }).catch(() => {});
+      if (active(current)) await readinessDelay(Math.max(1, Math.min(pollMs, deadline - readinessNow())), abort.signal).catch(() => {});
     }
     if (active(current) && server === child && status.state === 'starting') {
       const reason = `readiness-timeout${lastHttpStatus === undefined ? '' : ` (last HTTP status ${lastHttpStatus})`}${tail() ? `\n${tail()}` : ''}`;

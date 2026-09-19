@@ -1,0 +1,43 @@
+TAP version 13
+# Subtest: issue-1521: invalid persisted composer shortcuts fall back to Enter
+ok 1 - issue-1521: invalid persisted composer shortcuts fall back to Enter
+  ---
+  duration_ms: 1.400958
+  type: 'test'
+  ...
+# Subtest: issue-1521: the selected composer shortcut matches only its advertised chord
+ok 2 - issue-1521: the selected composer shortcut matches only its advertised chord
+  ---
+  duration_ms: 0.15825
+  type: 'test'
+  ...
+# Subtest: issue-1521: sandboxed storage access falls back before preferences are read
+not ok 3 - issue-1521: sandboxed storage access falls back before preferences are read
+  ---
+  duration_ms: 0.389084
+  type: 'test'
+  location: '/Users/ajhochhalter/Documents/Rhythm/.mega-wt/integration/apps/web/tests/settings-behavior-1521.test.mjs:31:1'
+  failureType: 'testCodeFailure'
+  error: ''
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    new DOMException (node:internal/per_context/domexception:76:18)
+    get (file:///Users/ajhochhalter/Documents/Rhythm/.mega-wt/integration/apps/web/tests/settings-behavior-1521.test.mjs:35:19)
+    readLocalUserPreferences (file:///Users/ajhochhalter/Documents/Rhythm/.mega-wt/integration/apps/web/src/gateway/user-preferences.ts:29:39)
+    TestContext.<anonymous> (file:///Users/ajhochhalter/Documents/Rhythm/.mega-wt/integration/apps/web/tests/settings-behavior-1521.test.mjs:41:20)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 2
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 82.69

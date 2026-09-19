@@ -113,8 +113,11 @@ test('E22-c6 policy controls round-trip canonical values, preserving pattern rul
   await expect(page.getByTestId('profile-auto-approve')).toBeChecked(); await expect(page.getByTestId('delegate-beta')).toBeChecked();
   await expect(page.getByTestId('profile-account')).toHaveValue('account-22');
   await expect(page.getByTestId('skill-skill-two')).toBeChecked();
-  await page.getByTestId('profile-permissions').fill('not JSON'); await page.getByTestId('profile-save').click();
-  await expect(page.getByRole('alert').filter({ hasText: 'Invalid permission policy' })).toBeVisible();
+  await page.getByText('Advanced (JSON)', { exact: true }).click();
+  await page.getByTestId('profile-permissions').fill('not JSON');
+  await expect(page.getByTestId('profile-save')).toBeDisabled();
+  await expect(page.getByTestId('profile-permissions')).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.getByRole('alert').filter({ hasText: 'Fix the permission JSON before saving.' })).toBeVisible();
   expect(h.profiles().find(p => p.id === 'alpha').corePermissionsJson).toBe('{"bash":{"*":"ask","git status":"allow"}}');
 });
 

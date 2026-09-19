@@ -20,9 +20,10 @@
     {
       "criterion_id": "issue-1509-c3",
       "text": "Redundant status/date text is omitted where the grouping already communicates it, while meaningful exceptions and accessible task context remain available.",
-      "mode": "manual",
-      "status": "pending",
-      "reason": "UNVERIFIED: no automated test authored in this run; the redundant metadata renderer was not changed."
+      "mode": "ui",
+      "test_file": "apps/web/tests/reading-comfort-1509.spec.ts",
+      "test_id": "dark: grouped open tasks omit repeated status and date while preserving meaningful metadata",
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1509-c4",
@@ -89,5 +90,5 @@
     }
   ],
   "stack": "typescript",
-  "not_tested": ["issue-1509-c2", "issue-1509-c3", "issue-1509-c10"]
+  "not_tested": ["issue-1509-c2", "issue-1509-c10"]
 }

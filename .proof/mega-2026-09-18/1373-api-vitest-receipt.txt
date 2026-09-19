@@ -1,0 +1,10 @@
+#1373 API suite receipt — 2026-09-18
+Branch: mega/2026-09-18-mobile-electron-hermes
+Checked HEAD: 86bfd1a7c5c37fa469a606b5f0614d49a3c5a47f (with uncommitted #1373 changes)
+Command: cd apps/api_server && npx vitest run --maxWorkers=2 --silent
+Exit: 0
+Files: 660 passed, 130 skipped, 790 total
+Tests: 6180 passed, 250 skipped, 6430 total
+Start: 23:19:05 America/Los_Angeles
+Duration: 707.36s
+The complete test stream was inspected in the tool session; this receipt records only the final counts and no credentials or fixture contents.

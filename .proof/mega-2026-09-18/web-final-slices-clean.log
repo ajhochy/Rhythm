@@ -1,0 +1,413 @@
+
+> rhythm-desktop-agents@1.0.0 test:electron-slices
+> node tests/run-electron-slices.mjs
+
+[WebServer] (node:77764) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:77810) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+
+Running 3 tests using 1 worker
+
+(node:77825) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/3] tests/gateway/electron-e13-automation.spec.ts:4:3 › e13-c4-builder: name-only renderer request retains canonical config, disabled state and explicit title clear
+[2/3] tests/gateway/electron-e13-automation.spec.ts:4:3 › e13-c4-inspector: name-only renderer request retains canonical config, disabled state and explicit title clear
+[3/3] tests/gateway/electron-e13-automation.spec.ts:42:1 › E35: live automation uses the integration account and complete typed action fields
+  3 passed (9.6s)
+[WebServer] (node:78245) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+
+Running 10 tests using 1 worker
+
+(node:78264) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/10] tests/electron-e14-task-planner.spec.ts:70:1 › e14-c1: local operative dates classify instead of sending every dated task to week
+[2/10] tests/electron-e14-task-planner.spec.ts:100:1 › e14-c2: complete edit and drag address two canonical step IDs, not their shared instance
+[3/10] tests/electron-e14-task-planner.spec.ts:136:1 › e14-c3: manual endpoints and calendar read-only behavior remain unchanged
+[4/10] tests/electron-e14-task-planner.spec.ts:160:1 › E32: Planner bulk completion, within-day ordering, and calendar times use canonical data
+[5/10] tests/electron-e14-task-planner.spec.ts:184:1 › planner-redesign-c5 live: status-only writes survive failure, refresh failure, reopen and dirty close
+[6/10] tests/electron-e14-task-planner.spec.ts:235:1 › planner-redesign-c6 live: native Move preserves manual deadline and canonical step IDs
+[7/10] tests/electron-e14-task-planner.spec.ts:253:1 › planner-redesign-c7: shared completion stays enabled while source-owned and People writes stay unavailable
+[8/10] tests/electron-e14-task-planner.spec.ts:271:1 › planner-redesign-c1 live: bulk partial failure retains only the failed selections
+[9/10] tests/electron-e14-task-planner.spec.ts:287:1 › planner-redesign-c7: failed week navigation remains retryable after a successful initial load
+[10/10] tests/electron-e14-task-planner.spec.ts:303:1 › planner-redesign-c7 sandbox: real API completion and Move preserve the dirty editor and persisted deadline
+  1 skipped
+  9 passed (16.1s)
+[WebServer] (node:78967) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+
+Running 4 tests using 1 worker
+
+(node:78979) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/4] tests/electron-e15-facilities-safety.spec.ts:49:1 › e15: facility and reservation deletion require confirmation and preserve failed records
+[2/4] tests/electron-e15-facilities-safety.spec.ts:74:1 › E31: rooms and reservations edit, and multi-room create submits exact facilities
+[3/4] tests/electron-e15-facilities-safety.spec.ts:100:1 › e15: automation cleanup shows and confirms the exact preview
+[4/4] tests/electron-e15-facilities-safety.spec.ts:118:1 › e15: a delayed preview cannot cross facility scope
+  4 passed (8.6s)
+[WebServer] (node:79195) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+
+Running 7 tests using 1 worker
+
+(node:79208) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/7] tests/electron-e16-agents-safety.spec.ts:79:1 › e16-c1: bulk Cancel deselects without stopping either working agent
+[2/7] tests/electron-e16-agents-safety.spec.ts:94:1 › e16-c2: A files and delayed mention remain with A across A → B → A
+[3/7] tests/electron-e16-agents-safety.spec.ts:122:1 › e16-c3: ephemeral child cannot compose to parent and rail selection exits child
+[4/7] tests/electron-e16-agents-safety.spec.ts:137:1 › e16-c3-race: delayed child response cannot replace another rail session
+[5/7] tests/electron-e16-agents-safety.spec.ts:147:1 › e16-c4-policy: edited permission/delegates override stale raw JSON and survive reload
+[6/7] tests/electron-e16-agents-safety.spec.ts:169:1 › e16-c4-account: canonical account ID edit and clear survive reload
+[7/7] tests/electron-e16-agents-safety.spec.ts:186:1 › e16-c4-unsupported: managed skills cannot claim to save; canonical auto-approve stays opt-in
+  7 passed (13.9s)
+[WebServer] (node:79637) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+
+Running 30 tests using 1 worker
+
+(node:79736) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/30] tests/electron-e20-session-ordering.spec.ts:20:1 › E20-c1 canonical DTO fields are not replaced by presentation defaults
+[2/30] tests/electron-e20-session-ordering.spec.ts:30:1 › E20-c6 closed stays active, archived and resumable remain distinct
+[3/30] tests/electron-e20-session-ordering.spec.ts:36:1 › E20-c2-status full rank and equal-status activity/ID ties never depend on input order
+[4/30] tests/electron-e20-session-ordering.spec.ts:44:1 › E20-c10 legacy trees and separate resumable response survive paging adapter
+[5/30] tests/electron-e20-session-ordering.spec.ts:111:3 › E20-c2-newest parsed deterministic root ordering
+[6/30] tests/electron-e20-session-ordering.spec.ts:111:3 › E20-c2-oldest parsed deterministic root ordering
+[7/30] tests/electron-e20-session-ordering.spec.ts:111:3 › E20-c2-name parsed deterministic root ordering
+[8/30] tests/electron-e20-session-ordering.spec.ts:111:3 › E20-c2-activity parsed deterministic root ordering
+[9/30] tests/electron-e20-session-ordering.spec.ts:111:3 › E20-c2-status parsed deterministic root ordering
+[10/30] tests/electron-e20-session-ordering.spec.ts:119:1 › E20-c3 same comparator orders children, explicit bounded root and child continuation
+[11/30] tests/electron-e20-session-ordering.spec.ts:142:1 › subagent-tree-c1 loaded nested children have independent keyboard disclosures without hiding paging or project headings
+[12/30] tests/electron-e20-session-ordering.spec.ts:174:1 › subagent-disclosure-repair distinguishes equal-count controls and indents nested controls without narrow overflow
+tests/electron-e20-session-ordering.spec.ts:174:1 › subagent-disclosure-repair distinguishes equal-count controls and indents nested controls without narrow overflow
+subagent disclosure evidence {
+  headingX: 20,
+  desktop: [
+    {
+      name: 'alpha: 164 subagents · 38 running',
+      x: 177.359375,
+      right: 241,
+      width: 63.640625
+    },
+    { name: 'Able: 60 subagents', x: 241, right: 285, width: 44 }
+  ],
+  narrow: [
+    {
+      name: 'alpha: 164 subagents · 38 running',
+      x: 223.359375,
+      right: 287,
+      height: 44
+    },
+    { name: 'Able: 60 subagents', x: 287, right: 331, height: 44 },
+    {
+      name: 'alpha: 164 subagents · 38 running',
+      x: 153.359375,
+      right: 217,
+      height: 44
+    },
+    { name: 'Able: 60 subagents', x: 217, right: 261, height: 44 }
+  ]
+}
+
+[13/30] tests/electron-e20-session-ordering.spec.ts:231:1 › subagent-overflow-hit-area overflow actions keep 44px targets beside disclosures and on plain rows
+[14/30] tests/electron-e20-session-ordering.spec.ts:263:1 › subagent-overflow-focus-stability keyboard focus keeps the actions button inside its own row
+[15/30] tests/electron-e20-session-ordering.spec.ts:290:1 › subagent-disclosure-density inline counts stay unclipped without starving session names
+tests/electron-e20-session-ordering.spec.ts:290:1 › subagent-disclosure-density inline counts stay unclipped without starving session names
+subagent disclosure density [
+  {
+    width: 1280,
+    wrapWidth: 265,
+    rowWidth: 157.359375,
+    clipped: false,
+    text: '164 · 38',
+    wrapBackground: 'rgb(50, 55, 53)',
+    wrapShadow: 'rgb(105, 117, 113) 0px 0px 0px 1px inset',
+    rowBackground: 'rgba(0, 0, 0, 0)'
+  },
+  {
+    width: 390,
+    wrapWidth: 317,
+    rowWidth: 209.359375,
+    clipped: false,
+    text: '164 · 38',
+    wrapBackground: 'rgb(50, 55, 53)',
+    wrapShadow: 'rgb(105, 117, 113) 0px 0px 0px 1px inset',
+    rowBackground: 'rgba(0, 0, 0, 0)'
+  },
+  {
+    width: 320,
+    wrapWidth: 247,
+    rowWidth: 139.359375,
+    clipped: false,
+    text: '164 · 38',
+    wrapBackground: 'rgb(50, 55, 53)',
+    wrapShadow: 'rgb(105, 117, 113) 0px 0px 0px 1px inset',
+    rowBackground: 'rgba(0, 0, 0, 0)'
+  }
+]
+
+[16/30] tests/electron-e20-session-ordering.spec.ts:328:1 › subagent-counts-c3 old servers never present a bounded preview as an exact total
+[17/30] tests/electron-e20-session-ordering.spec.ts:338:1 › subagent-disclosure-collision shared first-eight IDs use shortest stable unique prefixes while visible labels stay concise
+[18/30] tests/electron-e20-session-ordering.spec.ts:386:1 › E20-c4 scope and archived controls query canonical E26 filters
+[19/30] tests/electron-e20-session-ordering.spec.ts:407:1 › project-headings-c1 removes the duplicate project dropdown
+[20/30] tests/electron-e20-session-ordering.spec.ts:413:1 › project-headings-c2 canonical project identities and No project counts
+[21/30] tests/electron-e20-session-ordering.spec.ts:422:1 › project-headings-c3 project trees replace Agents and status disclosures
+[22/30] tests/electron-e20-session-ordering.spec.ts:437:1 › project-headings-c4 delayed live list preserves loading status and clears busy on resolution
+[23/30] tests/electron-e20-session-ordering.spec.ts:467:1 › project-headings-c5 Tab reaches each heading with a visible keyboard focus outline
+[24/30] tests/electron-e20-session-ordering.spec.ts:496:1 › project-headings-c5 independent keyboard collapse retains accessible selection
+[25/30] tests/electron-e20-session-ordering.spec.ts:522:1 › project-headings-repair-c2 equal-name equal-count projects have stable visible names and independent collapse
+[26/30] tests/electron-e20-session-ordering.spec.ts:545:1 › E20-c5 project identity and canonical labels, not synthetic workspace
+[27/30] tests/electron-e20-session-ordering.spec.ts:559:1 › E20-c7 trimmed server search discovers child beyond first100 with context and preview
+[28/30] tests/electron-e20-session-ordering.spec.ts:573:1 › E20-c9 density is usable without inventing persisted cross-account preferences
+[29/30] tests/electron-e20-session-ordering.spec.ts:598:1 › E20-c8 expired continuation offers explicit reset, never loops fetching
+[30/30] tests/electron-e20-session-ordering.spec.ts:609:1 › E54: fixed session and transcript transformations stay inside the interaction budget
+tests/electron-e20-session-ordering.spec.ts:609:1 › E54: fixed session and transcript transformations stay inside the interaction budget
+E54 fixed transform baseline: sessions=17.27ms transcript=2.96ms
+
+  30 passed (30.4s)
+[WebServer] (node:80558) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+
+Running 7 tests using 1 worker
+
+(node:80578) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/7] tests/electron-e21-reconciliation.spec.ts:30:1 › E21-c1 canonical create/update upserts every metadata field without losing transcript or transient draft state
+[2/7] tests/electron-e21-reconciliation.spec.ts:44:1 › E21-c2 selected removal clears identity; input cannot fall through to first surviving row
+[3/7] tests/electron-e21-reconciliation.spec.ts:57:1 › E21-c3 outage reconciles unselected membership and selected detail independently, including current scope
+[4/7] tests/electron-e21-reconciliation.spec.ts:77:1 › E21-c4 unselected metadata changes update visible preview/activity order; refresh is coalesced, never token driven
+[5/7] tests/electron-e21-reconciliation.spec.ts:102:1 › subagent-tree-c3 bounded reconciliation preserves one event-created child until explicit removal
+[6/7] tests/electron-e21-reconciliation.spec.ts:133:1 › subagent-counts-c3 exact totals update during reconciliation without resetting collapse
+[7/7] tests/electron-e21-reconciliation.spec.ts:149:1 › subagent-tree-c4 complete active and archived snapshots remove an absent event-created child
+  7 passed (14.6s)
+[WebServer] (node:81025) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+
+Running 6 tests using 1 worker
+
+(node:81038) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/6] tests/electron-e22-identity.spec.ts:40:1 › E22-c1 live catalogs replace fixture choices and empty profiles remain usable
+[2/6] tests/electron-e22-identity.spec.ts:54:1 › E22-c2 profile duplicate is a POST draft with canonical nested policy; create/edit/delete readback
+[3/6] tests/electron-e22-identity.spec.ts:69:1 › E22-c3 persisted session settings use canonical profile/model/budget/mode and survive readback
+[4/6] tests/electron-e22-identity.spec.ts:85:1 › E22-c4 agent/model override is explicit exactly once, then persisted defaults, never profile fallback
+[5/6] tests/electron-e22-identity.spec.ts:101:1 › E22-c6 policy controls round-trip canonical values, preserving pattern rules; managed skills explicitly unavailable
+[6/6] tests/electron-e22-identity.spec.ts:124:1 › E22-c5 default is used for instant create; advanced submits real account/task/worktree values
+  6 passed (11.4s)
+[WebServer] (node:81327) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+
+Running 18 tests using 1 worker
+
+(node:81339) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/18] tests/electron-e23-lifecycle.spec.ts:4:1 › E23-c5 Prepare project cannot report success without an init request
+[2/18] tests/electron-e23-lifecycle.spec.ts:72:1 › E23-c1 archive and restore consume persisted group, not closed/resumable guesses
+[3/18] tests/electron-e23-lifecycle.spec.ts:87:1 › E23-c2/c10 transcript and inspector adopt server revert/restore outcome
+[4/18] tests/electron-e23-lifecycle.spec.ts:103:1 › E23-c3 fork carries clicked boundary and consumes returned child detail
+[5/18] tests/electron-e23-lifecycle.spec.ts:112:91 › E23-c4/c10 session-compact consumes summarize readback
+[6/18] tests/electron-e23-lifecycle.spec.ts:112:91 › E23-c4/c10 session-actions-compact consumes summarize readback
+[7/18] tests/electron-e23-lifecycle.spec.ts:112:91 › E23-c4/c10 summarize-answer-1 consumes summarize readback
+[8/18] tests/electron-e23-lifecycle.spec.ts:123:69 › E23-c5/c10 prepare-project consumes init readback
+[9/18] tests/electron-e23-lifecycle.spec.ts:123:69 › E23-c5/c10 session-actions-prepare consumes init readback
+[10/18] tests/electron-e23-lifecycle.spec.ts:131:200 › E23-c6 empty starter Review project context sends actual live input
+[11/18] tests/electron-e23-lifecycle.spec.ts:131:200 › E23-c6 empty starter Summarize changes sends actual live input
+[12/18] tests/electron-e23-lifecycle.spec.ts:137:1 › E23-c7 copy writes actual message text and rejection never reports success
+[13/18] tests/electron-e23-lifecycle.spec.ts:147:1 › E23-c8 410 start-fresh creates intended profile/cwd and selects new identity
+[14/18] tests/electron-e23-lifecycle.spec.ts:157:1 › E23-c9 reconnect cannot claim success when reconciliation fails
+[15/18] tests/electron-e23-lifecycle.spec.ts:176:80 › E23-c10 rejected revert-answer-1 preserves transcript and reports failure
+[16/18] tests/electron-e23-lifecycle.spec.ts:176:80 › E23-c10 rejected session-compact preserves transcript and reports failure
+[17/18] tests/electron-e23-lifecycle.spec.ts:176:80 › E23-c10 rejected prepare-project preserves transcript and reports failure
+[18/18] tests/electron-e23-lifecycle.spec.ts:185:1 › E23-c11 real sandbox archive/restore through workspace with persisted readback
+  1 skipped
+  17 passed (21.4s)
+[WebServer] (node:81913) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+
+Running 40 tests using 1 worker
+
+(node:81931) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/40] tests/electron-e21-reconciliation.spec.ts:30:1 › E21-c1 canonical create/update upserts every metadata field without losing transcript or transient draft state
+[2/40] tests/electron-e21-reconciliation.spec.ts:44:1 › E21-c2 selected removal clears identity; input cannot fall through to first surviving row
+[3/40] tests/electron-e21-reconciliation.spec.ts:57:1 › E21-c3 outage reconciles unselected membership and selected detail independently, including current scope
+[4/40] tests/electron-e21-reconciliation.spec.ts:77:1 › E21-c4 unselected metadata changes update visible preview/activity order; refresh is coalesced, never token driven
+[5/40] tests/electron-e21-reconciliation.spec.ts:102:1 › subagent-tree-c3 bounded reconciliation preserves one event-created child until explicit removal
+[6/40] tests/electron-e21-reconciliation.spec.ts:133:1 › subagent-counts-c3 exact totals update during reconciliation without resetting collapse
+[7/40] tests/electron-e21-reconciliation.spec.ts:149:1 › subagent-tree-c4 complete active and archived snapshots remove an absent event-created child
+[8/40] tests/electron-e23-lifecycle.spec.ts:4:1 › E23-c5 Prepare project cannot report success without an init request
+[9/40] tests/electron-e23-lifecycle.spec.ts:72:1 › E23-c1 archive and restore consume persisted group, not closed/resumable guesses
+[10/40] tests/electron-e23-lifecycle.spec.ts:87:1 › E23-c2/c10 transcript and inspector adopt server revert/restore outcome
+[11/40] tests/electron-e23-lifecycle.spec.ts:103:1 › E23-c3 fork carries clicked boundary and consumes returned child detail
+[12/40] tests/electron-e23-lifecycle.spec.ts:112:91 › E23-c4/c10 session-compact consumes summarize readback
+[13/40] tests/electron-e23-lifecycle.spec.ts:112:91 › E23-c4/c10 session-actions-compact consumes summarize readback
+[14/40] tests/electron-e23-lifecycle.spec.ts:112:91 › E23-c4/c10 summarize-answer-1 consumes summarize readback
+[15/40] tests/electron-e23-lifecycle.spec.ts:123:69 › E23-c5/c10 prepare-project consumes init readback
+[16/40] tests/electron-e23-lifecycle.spec.ts:123:69 › E23-c5/c10 session-actions-prepare consumes init readback
+[17/40] tests/electron-e23-lifecycle.spec.ts:131:200 › E23-c6 empty starter Review project context sends actual live input
+[18/40] tests/electron-e23-lifecycle.spec.ts:131:200 › E23-c6 empty starter Summarize changes sends actual live input
+[19/40] tests/electron-e23-lifecycle.spec.ts:137:1 › E23-c7 copy writes actual message text and rejection never reports success
+[20/40] tests/electron-e23-lifecycle.spec.ts:147:1 › E23-c8 410 start-fresh creates intended profile/cwd and selects new identity
+[21/40] tests/electron-e23-lifecycle.spec.ts:157:1 › E23-c9 reconnect cannot claim success when reconciliation fails
+[22/40] tests/electron-e23-lifecycle.spec.ts:176:80 › E23-c10 rejected revert-answer-1 preserves transcript and reports failure
+[23/40] tests/electron-e23-lifecycle.spec.ts:176:80 › E23-c10 rejected session-compact preserves transcript and reports failure
+[24/40] tests/electron-e23-lifecycle.spec.ts:176:80 › E23-c10 rejected prepare-project preserves transcript and reports failure
+[25/40] tests/electron-e23-lifecycle.spec.ts:185:1 › E23-c11 real sandbox archive/restore through workspace with persisted readback
+[26/40] tests/electron-e24-decisions.spec.ts:3:1 › E24-c5 persisted local child accepts input addressed only to its local identity
+[27/40] tests/electron-e24-decisions.spec.ts:69:1 › E24-c1 concurrent canonical requests survive duplicate and unrelated resolved events
+[28/40] tests/electron-e24-decisions.spec.ts:84:1 › E24-c2 selection and reconnect consume both pending lists and remove only resolved IDs
+[29/40] tests/electron-e24-decisions.spec.ts:100:65 › E24-c3 permission failure retains card and answer, reenables retry, success removes only acknowledged ID
+[30/40] tests/electron-e24-decisions.spec.ts:100:65 › E24-c3 answer failure retains card and answer, reenables retry, success removes only acknowledged ID
+[31/40] tests/electron-e24-decisions.spec.ts:100:65 › E24-c3 reject failure retains card and answer, reenables retry, success removes only acknowledged ID
+[32/40] tests/electron-e24-decisions.spec.ts:118:1 › E24-c4 rail and workspace waiting reflect live collections independently of session status
+[33/40] tests/electron-e24-decisions.spec.ts:128:1 › E24-c5 SDK child link resolves persisted local row without losing parent metadata
+[34/40] tests/electron-e24-decisions.spec.ts:138:1 › E24-c6 ephemeral child exposes read-only transcript and no composer
+[35/40] tests/electron-e24-decisions.spec.ts:147:1 › E24-c7 nested child hop and back pop one level at a time
+[36/40] tests/electron-e24-decisions.spec.ts:160:1 › E24-c8 rail selection and back invalidate pending child loads
+[37/40] tests/electron-e24-decisions.spec.ts:175:43 › E24-c9 closed with valid SDK permits recovery input without claiming permanent loss
+[38/40] tests/electron-e24-decisions.spec.ts:175:43 › E24-c9 error with valid SDK permits recovery input without claiming permanent loss
+[39/40] tests/electron-e24-decisions.spec.ts:183:1 › E24-c2 an older reconnect snapshot cannot replace a newer selection read
+[40/40] tests/electron-e24-decisions.spec.ts:202:1 › E24-c8 loading a child immediately removes parent-target input and back cancels the load
+  1 skipped
+  39 passed (46.2s)
+[WebServer] (node:83657) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+
+Running 8 tests using 1 worker
+
+(node:83670) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/8] tests/electron-e25a-transcript.spec.ts:17:1 › E25A-c1 REST and message.updated preserve role/cost/all token fields without erasing parts
+[2/8] tests/electron-e25a-transcript.spec.ts:25:1 › E25A-c2 removed message disappears and ws error preserves readable transcript
+[3/8] tests/electron-e25a-transcript.spec.ts:33:1 › E25A-c3 tool details show actual arguments/output/metadata/error, never fabricated success
+[4/8] tests/electron-e25a-transcript.spec.ts:38:1 › E25A-c4 canonical MCP envelopes/resources survive gateway consumption
+[5/8] tests/electron-e25a-transcript.spec.ts:43:1 › E25A-c5 safe semantic markdown and disabled external link, no HTML execution
+[6/8] tests/electron-e25a-transcript.spec.ts:53:1 › E25A-c6 copies canonical markdown and fenced code exactly
+[7/8] tests/electron-e25a-transcript.spec.ts:61:1 › E25A-c5/c6 ephemeral child uses the same safe renderer and canonical copy
+[8/8] tests/electron-e25a-transcript.spec.ts:72:1 › E25A-c7 full part replaces deltas without duplicate content and metadata keeps blocks
+  8 passed (10.5s)
+[WebServer] (node:84000) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+
+Running 8 tests using 1 worker
+
+(node:84013) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/8] tests/electron-e25b-inspector.spec.ts:8:3 › E25B-empty-identity: empty startup never mounts session requests or stale panels
+[2/8] tests/electron-e25b-inspector.spec.ts:8:3 › E25B-empty-identity: removed selected session never mounts session requests or stale panels
+[3/8] tests/electron-e25b-inspector.spec.ts:87:1 › E25B-c4: composing AgentsWorkspace renders API todos and provenance, not fixture claims
+[4/8] tests/electron-e25b-inspector.spec.ts:93:1 › E25B-c5: exact server-sanitized selection, authoritative recipients, list/read/revoke
+[5/8] tests/electron-e25b-inspector.spec.ts:116:1 › E25B-c6: conflict invalidates confirmation and requires a new review, never auto-retries
+[6/8] tests/electron-e25b-inspector.spec.ts:130:1 › E25B-c7: MCP resource comes from call-bound route, with a non-executable isolated preview
+[7/8] tests/electron-e25b-inspector.spec.ts:142:1 › E25B-c7: earlier structured history yields one stable artifact and consumes real detail/render routes
+[8/8] tests/electron-e25b-inspector.spec.ts:153:1 › E25B-c8: unavailable services surface errors, never fixture resources or false sharing success
+  8 passed (9.0s)
+[WebServer] (node:84237) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+
+Running 6 tests using 1 worker
+
+[1/6] tests/electron-e27-pty-live.spec.ts:11:1 › E27-c7 live: nonce/cwd/resize/interrupt use the real synthetic PTY
+(node:84252) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[2/6] tests/electron-e27-pty.spec.ts:43:1 › E27-c1 selected local session creates a real gateway PTY, not fixture output
+[3/6] tests/electron-e27-pty.spec.ts:51:1 › E27-c2 xterm consumes ANSI, sends input/Ctrl-C and resizes the PTY
+[4/6] tests/electron-e27-pty.spec.ts:63:1 › E27-c3 tab/collapse/session changes preserve the terminal and isolate output
+[5/6] tests/electron-e27-pty.spec.ts:75:1 › E27-c4 failure/retry and exit/New produce usable terminals
+[6/6] tests/electron-e27-pty.spec.ts:82:1 › E27-c5 Close deletes PTY and disposes socket, New starts clean
+  1 skipped
+  5 passed (9.6s)
+[WebServer] (node:84490) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+
+Running 3 tests using 1 worker
+
+(node:84504) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/3] tests/electron-e50-shared-interactions.spec.ts:4:1 › skip link keeps the current route and focuses main content
+[2/3] tests/electron-e50-shared-interactions.spec.ts:13:1 › dialog contains focus and restores a surviving trigger or main fallback
+[3/3] tests/electron-e50-shared-interactions.spec.ts:30:1 › selected focus and repeated reduced-motion toasts remain visible
+  3 passed (8.6s)
+[WebServer] (node:84809) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+
+Running 3 tests using 1 worker
+
+(node:84831) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/3] tests/electron-e51-composer-transcript.spec.ts:5:1 › IME composition never sends and ordinary Enter sends once
+[2/3] tests/electron-e51-composer-transcript.spec.ts:19:1 › composer exposes and dismisses each suggestion list
+[3/3] tests/electron-e51-composer-transcript.spec.ts:32:1 › activity status announces a decision and moves focus to it
+  3 passed (7.2s)
+[WebServer] (node:85014) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+
+Running 5 tests using 1 worker
+
+(node:85030) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/5] tests/electron-e52a-transcript.spec.ts:60:1 › E52A-c1 pinned reader follows both streamed growth and appended output
+[2/5] tests/electron-e52a-transcript.spec.ts:70:1 › E52A-c2 scrolled reader keeps viewport/focus; visible jump repins without live tokens
+[3/5] tests/electron-e52a-transcript.spec.ts:93:1 › E52A-c3 prepend preserves first visible message offset and keyboard focus
+[4/5] tests/electron-e52a-transcript.spec.ts:111:1 › E52A-c4 older request is pending/disabled, single-flight, and recoverable on failure
+[5/5] tests/electron-e52a-transcript.spec.ts:130:1 › E52A-c5 session and read-only child return restore independent reader positions
+  5 passed (10.2s)
+[WebServer] (node:85341) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+
+Running 1 test using 1 worker
+
+(node:85357) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/1] tests/electron-e16-agents-fixture.spec.ts:3:1 › E16 fixture separation: Cancel and attachments stay local; profile fixture controls still work
+  1 passed (4.6s)

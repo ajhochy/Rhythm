@@ -105,7 +105,7 @@ test.describe('Facilities shared list and inspector', () => {
     await expect(page.getByTestId('facility-reservation-direct-editor')).toHaveCount(0);
 
     await openPage(page, 'facilities', '?state=empty');
-    await expect(page.getByTestId('page-state-empty')).toContainText('No reservations in this range');
+    await expect(page.getByTestId('page-state-empty')).toContainText('No facilities yet');
     await expect(page.getByRole('listbox', { name: 'Facility reservations' }).getByRole('option')).toHaveCount(0);
 
     await openPage(page, 'facilities', '?state=server-error');
@@ -118,6 +118,18 @@ test.describe('Facilities shared list and inspector', () => {
     await expect(page.getByTestId('facility-reservation-title')).toBeDisabled();
     await expect(page.getByTestId('facility-reservation-delete')).toBeDisabled();
     await expectListInspectorAxeClean(page);
+  });
+
+  test('distinguishes an empty reservation range from a search with no matches', async ({ page }) => {
+    await openPage(page, 'facilities');
+    await page.getByTestId('facilities-room-filter').selectOption('104');
+    await expect(page.getByRole('listbox', { name: 'Facility reservations' }).getByRole('option')).toHaveCount(0);
+    await expect(page.locator('.list-inspector-state[role="status"]')).toContainText('No reservations in this range');
+
+    await page.getByTestId('facilities-room-filter').selectOption('');
+    await page.getByPlaceholder('Search reservations').fill('missing reservation title');
+    await expect(page.getByRole('listbox', { name: 'Facility reservations' }).getByRole('option')).toHaveCount(0);
+    await expect(page.locator('.list-inspector-state[role="status"]')).toContainText('No results match your search.');
   });
 
   test('keeps long room names and inspector controls reachable at narrow width and 200% zoom', async ({ page }) => {

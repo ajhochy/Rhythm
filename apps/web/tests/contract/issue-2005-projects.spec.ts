@@ -366,7 +366,8 @@ test('issue-2005-c13: projects remains responsive at required widths text scale 
     document.documentElement.dir = 'rtl';
     document.documentElement.lang = 'ar';
   });
-  await expect(page.getByText('إطلاق خدمة المجتمع - 准备礼拜 🎵', { exact: true })).toBeVisible();
+  await expect(page.getByRole('option', { name: 'إطلاق خدمة المجتمع - 准备礼拜 🎵', exact: true })).toBeVisible();
+  await expectInspectorHeading(page, 'إطلاق خدمة المجتمع - 准备礼拜 🎵');
   const resilientOverflow = await page.evaluate(() => ({ client: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
   expect(resilientOverflow.scroll).toBeLessThanOrEqual(resilientOverflow.client + 1);
   await expect(page.getByTestId('project-start')).toBeVisible();

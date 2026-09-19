@@ -26,10 +26,10 @@ export function localUserPreferencesKey(userId: string | number | undefined) {
 
 export function readLocalUserPreferences(
   userId: string | number | undefined,
-  storage: Pick<Storage, 'getItem'> = localStorage,
+  storage?: Pick<Storage, 'getItem'>,
 ): LocalUserPreferences {
   try {
-    const value = JSON.parse(storage.getItem(localUserPreferencesKey(userId)) ?? '{}') as Partial<LocalUserPreferences>;
+    const value = JSON.parse((storage ?? localStorage).getItem(localUserPreferencesKey(userId)) ?? '{}') as Partial<LocalUserPreferences>;
     return {
       theme: value.theme === 'light' ? 'light' : 'dark',
       sendKey: value.sendKey === 'Meta+Enter' ? 'Meta+Enter' : 'Enter',

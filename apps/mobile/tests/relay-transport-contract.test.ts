@@ -3,8 +3,8 @@
  * (docs/ai/contracts/relay-t3-phone-transport.md, plan S1.10–S1.11).
  *
  * Pins: relay URL validation, pairing-payload relayUrl handling, relay-first
- * base selection, path-prefix-safe client URL building, and PTY staying on
- * the direct .ts.net origin. Implementation must make these pass without
+ * base selection, path-prefix-safe client URL building, and PTY following
+ * the selected relay/direct origin. Implementation must make these pass without
  * modifying this file.
  */
 import type { FetchFn } from '@/lib/transport/types';
@@ -116,6 +116,23 @@ describe('Track 3 contract — relay URL validation', () => {
     );
     expect(effectiveGatewayBase({ gatewayUrl: TSNET })).toBe(TSNET);
   });
+
+  it('issue-1373-c5: relay kill switch keeps the saved pairing and routes PTY direct', () => {
+    const previous = process.env.EXPO_PUBLIC_RHYTHM_RELAY_DISABLED;
+    const host = { gatewayUrl: TSNET, relayUrl: RELAY_BASE };
+    try {
+      process.env.EXPO_PUBLIC_RHYTHM_RELAY_DISABLED = '1';
+      const client = new PairedMacClient({
+        baseUrl: effectiveGatewayBase(host),
+        getDeviceToken: async () => 'device-token',
+      } as never);
+      expect(client.ptyUrl('pty_1').startsWith('wss://rhythm-mac.tail1234.ts.net/')).toBe(true);
+      expect(host).toEqual({ gatewayUrl: TSNET, relayUrl: RELAY_BASE });
+    } finally {
+      if (previous === undefined) delete process.env.EXPO_PUBLIC_RHYTHM_RELAY_DISABLED;
+      else process.env.EXPO_PUBLIC_RHYTHM_RELAY_DISABLED = previous;
+    }
+  });
 });
 
 describe('Track 3 contract — PairedMacClient with a path-bearing base', () => {
@@ -147,12 +164,12 @@ describe('Track 3 contract — PairedMacClient with a path-bearing base', () => 
     expect(calls[0]!.url).toBe(`${RELAY_BASE}/mobile-gateway/health`);
   });
 
-  it('ptyUrl uses the direct .ts.net base, never the relay', async () => {
+  it('issue-1373-c1: ptyUrl uses the selected relay even when a direct address exists', async () => {
     const { client } = await makeClient({ directBaseUrl: TSNET });
     const url = client.ptyUrl('pty_1');
-    expect(url.startsWith('wss://rhythm-mac.tail1234.ts.net/')).toBe(true);
+    expect(url.startsWith('wss://api.vcrcapps.com/relay/')).toBe(true);
     expect(url).toContain('/mobile-gateway/pty/pty_1/connect');
-    expect(url).not.toContain('/relay');
+    expect(url).not.toContain('.ts.net');
   });
 
   it('ptyUrl falls back to baseUrl when no direct base exists (legacy pairing)', async () => {

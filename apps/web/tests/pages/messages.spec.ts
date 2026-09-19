@@ -19,11 +19,14 @@ test('Messages click-through covers search, unread state, reply, incoming notice
   await search.fill('weekend');
   await expect(page.getByTestId(`messages-thread-${weekendThreadId}`)).toBeVisible();
   await search.fill('missing title');
-  await expect(page.getByText('No results match your search.')).toBeVisible();
+  await expect(page.getByTestId('messages-no-results')).toContainText('No matching conversations');
   await search.fill('');
 
   await selectRow(page, 'Weekend Team');
   await expectInspectorHeading(page, 'Weekend Team');
+  await expect(page.getByTestId('messages-unread-total')).toHaveText('5 unread threads');
+  await page.getByTestId('messages-selected-thread-actions').click();
+  await page.getByRole('menuitem', { name: 'Mark as unread' }).click();
   await expect(page.getByTestId('messages-unread-total')).toHaveText('6 unread threads');
   await page.getByTestId('messages-selected-thread-actions').click();
   await page.getByRole('menuitem', { name: 'Mark as read' }).click();
@@ -41,7 +44,7 @@ test('Messages click-through covers search, unread state, reply, incoming notice
 
   await page.getByTestId('messages-new-thread').click();
   const dialog = page.getByTestId('messages-new-thread-dialog');
-  await dialog.getByTestId('messages-thread-type-group').check();
+  await dialog.getByTestId('messages-thread-type-group').click();
   await dialog.getByTestId('messages-new-thread-title').fill('Care coordination');
   await dialog.getByTestId('messages-recipient-morgan-lee').check();
   await expect(dialog.getByTestId('messages-create-thread')).toBeDisabled();
@@ -65,7 +68,7 @@ test('Messages mutation failures preserve reply and create drafts for truthful r
 
   await page.getByTestId('messages-new-thread').click();
   const dialog = page.getByTestId('messages-new-thread-dialog');
-  await dialog.getByTestId('messages-thread-type-group').check();
+  await dialog.getByTestId('messages-thread-type-group').click();
   await dialog.getByTestId('messages-new-thread-title').fill('Preserved group draft');
   await dialog.getByTestId('messages-recipient-morgan-lee').check();
   await dialog.getByTestId('messages-recipient-riley-chen').check();

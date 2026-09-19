@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { FocusDialog } from '../../components/FocusDialog';
 import { ListInspector, useSelectedId, type ListInspectorItem } from '../../components/ListInspector';
+import { navigate } from '../../components/Shell';
 import { Icon } from '../../icons';
 import { useFixtures } from '../../store';
 import { useGateway } from '../../gateway/context';
@@ -267,9 +268,9 @@ function FixtureFacilitiesPage({ route }: { route: string }) {
   const selectedReservationId = effectiveSelectedItemId?.startsWith('reservation-') ? effectiveSelectedItemId.slice('reservation-'.length) : null;
   const selectedRoom = facilities.find((facility) => facility.id === selectedRoomId) ?? null;
   const selectedReservation = reservations.find((reservation) => reservation.id === selectedReservationId) ?? null;
-  const listedReservations = selectedReservation && !filteredReservations.some((reservation) => reservation.id === selectedReservation.id)
-    ? [...filteredReservations, selectedReservation]
-    : filteredReservations;
+  const invalidRoom = Boolean(requestedRoomId && !selectedRoom);
+  const invalidReservation = Boolean(requestedReservationId && !selectedReservation);
+  const visibleReservationIds = new Set(filteredReservations.map((reservation) => reservation.id));
   const roomItems: ListInspectorItem[] = groupedFacilities.flatMap((group) => group.facilities.map((facility) => {
     const upcoming = reservations.filter((reservation) => reservation.facilityId === facility.id && !reservation.automation).length;
     return {
@@ -280,7 +281,7 @@ function FixtureFacilitiesPage({ route }: { route: string }) {
       group: `building-${slug(group.building ?? 'unassigned')}`,
     };
   }));
-  const reservationItems: ListInspectorItem[] = listedReservations.map((reservation) => {
+  const reservationItems: ListInspectorItem[] = reservations.filter((reservation) => !reservation.automation).map((reservation) => {
     const facility = facilities.find((item) => item.id === reservation.facilityId);
     return {
       id: `reservation-${reservation.id}`,
@@ -291,7 +292,7 @@ function FixtureFacilitiesPage({ route }: { route: string }) {
       group: `date-${dateOnly(reservation.start)}`,
     };
   });
-  const reservationGroups = [...new Set(listedReservations.map((reservation) => dateOnly(reservation.start)))].sort().map((date) => ({ id: `date-${date}`, label: displayDate(`${date}T00:00:00`) }));
+  const reservationGroups = [...new Set(reservations.filter((reservation) => !reservation.automation).map((reservation) => dateOnly(reservation.start)))].sort().map((date) => ({ id: `date-${date}`, label: displayDate(`${date}T00:00:00`) }));
 
   useEffect(() => {
     if (selectedItemId === null && effectiveSelectedItemId !== null) setSelectedItemId(effectiveSelectedItemId);
@@ -574,6 +575,14 @@ function FixtureFacilitiesPage({ route }: { route: string }) {
         </div>
       </section>}
 
+      {mode === 'overview' && <dl className="facilities-metrics" aria-label="Reservation indicators">
+        <div><dt>Reservations</dt><dd>{filteredReservations.length}</dd></div>
+        <div><dt>Rooms in use</dt><dd>{new Set(filteredReservations.map((item) => item.facilityId)).size}</dd></div>
+        <div><dt>Setup</dt><dd data-testid="facilities-metric-setup-notes">{filteredReservations.filter((item) => item.notes).length}</dd></div>
+        <div><dt>Conflicts</dt><dd data-testid="facilities-metric-conflicts">{filteredReservations.filter((item) => item.conflicted).length}</dd></div>
+        <div className="sr-only"><dt>External changes</dt><dd data-testid="facilities-metric-external">{filteredReservations.filter((item) => item.external).length}</dd></div>
+      </dl>}
+
       <ListInspector
         className="facilities-list-inspector"
         label={mode === 'rooms' ? 'Facility rooms' : 'Facility reservations'}
@@ -581,15 +590,17 @@ function FixtureFacilitiesPage({ route }: { route: string }) {
         groups={mode === 'rooms'
           ? groupedFacilities.map((group) => ({ id: `building-${slug(group.building ?? 'unassigned')}`, label: group.building ?? 'Unassigned' }))
           : reservationGroups}
-        selectedId={surfaceState === 'empty' ? null : effectiveSelectedItemId}
+        selectedId={surfaceState === 'empty' || invalidRoom || invalidReservation ? null : effectiveSelectedItemId}
         onSelect={setSelectedItemId}
+        filterItem={mode === 'overview' ? (item) => visibleReservationIds.has(item.id.slice('reservation-'.length)) : undefined}
         loading={surfaceState === 'loading'}
+        loadingState={<span data-testid="page-state-loading">Loading Facility reservations</span>}
         error={!readyLike && surfaceState !== 'loading' && surfaceState !== 'empty'
           ? <StatePanel state={surfaceState} onRetry={() => { chooseSurfaceState('ready'); setFacilities(cloneSeededFacilities()); setReservations(cloneSeededReservations()); setReceipts([...initialFacilityReceipts]); }} onAdd={() => openFacilityEditor()} />
           : undefined}
         searchable
         searchPlaceholder={mode === 'rooms' ? 'Search rooms' : 'Search reservations'}
-        toolbar={<fieldset className="facilities-list-toolbar" disabled={(!readyLike && surfaceState !== 'empty') || readonly} aria-disabled={(!readyLike && surfaceState !== 'empty') || readonly ? 'true' : 'false'} aria-describedby={readonly ? 'facilities-readonly-reason' : undefined}>
+        toolbar={<fieldset className="facilities-list-toolbar" disabled={(!readyLike && surfaceState !== 'empty') || readonly} aria-disabled={(!readyLike && surfaceState !== 'empty') || readonly ? 'true' : 'false'} aria-describedby={readonly ? 'facilities-readonly-reason' : undefined} data-testid="facilities-mutations">
           <legend className="sr-only">{mode === 'rooms' ? 'Room actions' : 'Reservation actions'}</legend>
           {surfaceState === 'empty'
             ? <button className="primary-button" type="button" onClick={() => openFacilityEditor()} data-testid="facilities-empty-add-space">Add Space</button>
@@ -597,9 +608,11 @@ function FixtureFacilitiesPage({ route }: { route: string }) {
             ? <button className="primary-button" type="button" onClick={() => openFacilityEditor()} data-testid="facility-add-space">Add Space</button>
             : <button className="primary-button" type="button" onClick={() => openReservationEditor()} data-testid="facilities-reserve-space">Reserve Space</button>}
         </fieldset>}
-        listFooter={<span className="facilities-list-count">{mode === 'rooms' ? `${roomItems.length} spaces` : `${reservationItems.length} reservations in range`}</span>}
-        emptyState={<div className="facilities-local-empty" role="status" data-testid="page-state-empty"><h3>{mode === 'rooms' ? 'No facilities yet' : 'No reservations in this range'}</h3><p>{mode === 'rooms' ? 'Add the first space to make room reservations available.' : 'Change the date range or clear a room filter to inspect another part of the schedule.'}</p></div>}
+        listFooter={<span className="facilities-list-count">{mode === 'rooms' ? `${roomItems.length} spaces` : `${filteredReservations.length} reservations in range`}</span>}
+        emptyState={<div className="facilities-local-empty" role="status" data-testid="page-state-empty"><h3>{surfaceState === 'empty' || mode === 'rooms' ? 'No facilities yet' : 'No reservations in this range'}</h3><p>{surfaceState === 'empty' || mode === 'rooms' ? 'Add the first space to make room reservations available.' : 'Change the date range or clear a room filter to inspect another part of the schedule.'}</p></div>}
+        noResultsState={mode === 'overview' ? <div className="facilities-local-empty" role="status"><h3>No reservations in this range</h3><p>Change the date range or clear a room filter to inspect another part of the schedule.</p></div> : undefined}
         inspector={(item) => {
+          if (invalidReservation || invalidRoom) return <section className="facilities-not-found" role="status" data-testid={invalidReservation ? 'facility-reservation-not-found' : 'facility-room-not-found'}><h3>{invalidReservation ? 'Reservation' : 'Room'} not found</h3><p>The requested {invalidReservation ? 'reservation' : 'room'} is not in the current workspace.</p><button className="secondary-button" type="button" onClick={() => navigate(invalidReservation ? '/facilities' : '/facilities/rooms')} data-testid="facilities-back">Back to facilities</button></section>;
           if (!item) return <div className="facilities-inspector-empty"><span>Select an item</span><p>Choose a compact row to inspect its details and actions.</p></div>;
           if (item.id.startsWith('reservation-')) {
             const reservation = reservations.find((entry) => `reservation-${entry.id}` === item.id);
@@ -614,7 +627,7 @@ function FixtureFacilitiesPage({ route }: { route: string }) {
                 <div><dt>Room</dt><dd>{facility?.name}</dd></div><div><dt>Date</dt><dd>{displayDate(reservation.start)}</dd></div>
                 <div><dt>Time</dt><dd>{displayTime(reservation.start)}-{displayTime(reservation.end)}</dd></div><div><dt>Requester</dt><dd>{reservation.requesterName}</dd></div>
                 <div className="span-all"><dt>Setup notes</dt><dd>{reservation.notes || 'No setup notes'}</dd></div>
-                {reservation.conflicted && <div className="span-all facilities-conflict-note" role="status"><dt>Availability</dt><dd>Conflict detected for this reservation.</dd></div>}
+                {reservation.conflicted && <div className="span-all facilities-conflict-note"><dt>Availability</dt><dd aria-live="polite">Conflict detected for this reservation.</dd></div>}
               </dl>
               <form className="facilities-reservation-form facilities-direct-editor" onSubmit={submitReservation} data-testid="facility-reservation-direct-editor"><fieldset disabled={readonly} aria-describedby={readonly ? 'facilities-readonly-reason' : undefined}><legend className="sr-only">Reservation details</legend><div className="facilities-form-grid"><label className="field span-2">Title<input value={reservationTitle} onChange={(event) => setReservationTitle(event.target.value)} data-testid="facility-reservation-title" /></label><label className="field span-2">Requester<input value={requesterName} onChange={(event) => setRequesterName(event.target.value)} readOnly={!manager} data-testid="facility-reservation-requester" /></label><label className="field">Date<input type="date" value={reservationDate} onChange={(event) => setReservationDate(event.target.value)} data-testid="facility-reservation-date" /></label><label className="field">Start time<input type="time" value={reservationStart} onChange={(event) => setReservationStart(event.target.value)} data-testid="facility-reservation-start" /></label><label className="field">End time<input type="time" value={reservationEnd} onChange={(event) => setReservationEnd(event.target.value)} data-testid="facility-reservation-end" /></label><label className="field span-2">Setup notes<textarea rows={3} value={reservationNotes} onChange={(event) => setReservationNotes(event.target.value)} data-testid="facility-reservation-notes" /></label></div><section className={`facilities-availability ${selectedConflicts.length ? 'conflict' : ''}`} aria-live="polite"><div><h3>Availability</h3><strong data-testid="facility-availability-status">{reservationStart && reservationEnd ? selectedConflicts.length ? `${selectedConflicts.length} reservation overlaps the selected slot` : 'Selected slot is open' : 'Choose a start and end time'}</strong></div></section><footer className="dialog-actions"><button className="primary-button" type="submit" data-testid="facility-reservation-submit">Save changes</button></footer></fieldset></form>
             </section>;

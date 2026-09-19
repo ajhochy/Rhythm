@@ -119,6 +119,28 @@ async function expectReadingMeasure(page: Page) {
 }
 
 for (const theme of ['dark', 'light'] as const) {
+  test(`${theme}: grouped open tasks omit repeated status and date while preserving meaningful metadata`, async ({ page }) => {
+    // Regression caught: an ordinary Open task repeats its group's Past due/Today
+    // context in every row, drowning out priority and exceptional status.
+    await openTasks(page, theme);
+    for (const [id, group, repeatedDate] of [
+      ['density-2026-08-10-01', 'past-due', 'Past due'],
+      ['density-2026-08-12-01', 'today', 'Today'],
+    ]) {
+      const row = page.getByTestId(`task-group-${group}`).getByTestId(`task-row-${id}`);
+      await expect(row).toBeVisible();
+      const metadata = await row.locator('.task-meta').innerText();
+      expect(metadata).not.toContain('Open');
+      expect(metadata).not.toContain(repeatedDate);
+      expect(metadata).toContain('P1');
+      await expect(row.getByRole('checkbox')).toHaveAccessibleName(/Complete/);
+      await expect(row.getByTestId(`task-select-${id}`)).toHaveAccessibleName(new RegExp(`Open · ${repeatedDate} · P1`));
+    }
+    const exceptional = page.getByTestId(`task-row-${taskId}`);
+    await expect(exceptional.locator('.task-meta')).toContainText('Waiting for reply');
+    await expect(exceptional.locator('.task-meta')).toContainText('P2');
+  });
+
   test(`${theme}: task typography, contrast and distinct interaction states`, async ({ page }) => {
     await openTasks(page, theme);
     const row = page.getByTestId(`task-row-${taskId}`);

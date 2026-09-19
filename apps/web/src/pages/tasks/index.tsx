@@ -519,9 +519,17 @@ export function TasksPage({ route }: { route: string }) {
   const renderTaskRow = (task: TaskFixture) => {
     const isOwner = task.isShared === undefined ? task.ownerId === currentUserId : !task.isShared;
     const ownerReason = isOwner ? undefined : ownerOnlyReasonId;
+    const date = dateLabel(task);
+    const rowMetadata = [
+      ...(isSourceReadonly(task) ? ['Read only', 'update in source'] : []),
+      task.sourceName,
+      task.status !== 'open' ? taskStatusLabels[task.status] : undefined,
+      ['past-due', 'today', 'no-due'].includes(task.bucket) ? undefined : date,
+      task.priority ? `P${task.priority}` : undefined,
+    ].filter(Boolean).join(' · ');
     return <article className="task-row" role="row" aria-selected={selectedId === task.id} data-status={task.status} data-testid={`task-row-${task.id}`} key={task.id}>
       <span className="task-cell complete-cell" role="gridcell"><input className="task-completion" type="checkbox" aria-label={`${task.status === 'done' ? 'Reopen' : 'Complete'} ${task.title}`} checked={task.status === 'done'} disabled={isReadonly || isSourceReadonly(task) || mutationPending} aria-describedby={isReadonly || isSourceReadonly(task) ? readonlyReasonId : undefined} onChange={(event) => { void changeStatus(task, event.target.checked ? 'done' : 'open'); }} data-testid={`task-complete-${task.id}`} /></span>
-      <span className="task-cell main-cell" role="gridcell"><button className="task-row-main" type="button" onClick={() => openInspector(task)} data-testid={`task-select-${task.id}`}><span className="task-row-copy"><h3 data-testid="task-title">{task.title}</h3><span className="task-meta">{isSourceReadonly(task) ? 'Read only · update in source · ' : ''}{task.sourceName ?? taskStatusLabels[task.status]} · {dateLabel(task)}{task.priority ? ` · P${task.priority}` : ''}</span></span><span className="task-tags" aria-label={task.tags.length ? `Tags: ${task.tags.join(', ')}` : 'No tags'}>{task.tags.slice(0, 2).map((item) => <span key={item}>{item}</span>)}</span></button></span>
+      <span className="task-cell main-cell" role="gridcell"><button className="task-row-main" type="button" aria-label={`Inspect ${task.title} · ${taskStatusLabels[task.status]} · ${date}${task.sourceName ? ` · ${task.sourceName}` : ''}${isSourceReadonly(task) ? ' · Read only, update in source' : ''}${task.priority ? ` · P${task.priority}` : ''}`} onClick={() => openInspector(task)} data-testid={`task-select-${task.id}`}><span className="task-row-copy"><h3 data-testid="task-title">{task.title}</h3>{rowMetadata && <span className="task-meta">{rowMetadata}</span>}</span><span className="task-tags" aria-label={task.tags.length ? `Tags: ${task.tags.join(', ')}` : 'No tags'}>{task.tags.slice(0, 2).map((item) => <span key={item}>{item}</span>)}</span></button></span>
       <span className="task-cell menu-cell" role="gridcell"><TaskMenu task={task} ownerOnlyReasonId={ownerReason ?? ownerOnlyReasonId} readonlyReasonId={readonlyReasonId} readonly={isReadonly || isSourceReadonly(task) || mutationPending} isOwner={isOwner} onInspect={() => openInspector(task)} onDelete={() => setDeleteTarget(task)} /></span>
     </article>;
   };

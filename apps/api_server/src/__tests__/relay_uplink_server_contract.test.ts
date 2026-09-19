@@ -12,7 +12,10 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import http from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import WebSocket from 'ws';
 
@@ -20,6 +23,7 @@ import {
   parseUplinkFrame,
   serializeUplinkFrame,
   type CtrlResyncFrame,
+  type PtyFrame,
   type RpcReqFrame,
   type UplinkFrame,
 } from '../services/relay_uplink_protocol';
@@ -163,6 +167,10 @@ interface RelayHarness {
 async function startRelay(
   options: {
     validBearer?: string;
+    userId?: number;
+    bearerValidator?: (token: string) => Promise<{ userId: number } | null>;
+    credentialRecheckIntervalMs?: number;
+    credentialRecheckTimeoutMs?: number;
     ownershipMap?: Record<string, { userId: number; directory: string }>;
   } = {},
 ): Promise<RelayHarness> {
@@ -186,8 +194,10 @@ async function startRelay(
 
   const validBearer = options.validBearer ?? 'mac-bearer';
   const uplink = new RelayUplinkServer({
-    bearerValidator: async (token: string) =>
-      token === validBearer ? { userId: 999 } : null,
+    bearerValidator: options.bearerValidator ?? (async (token: string) =>
+      token === validBearer ? { userId: options.userId ?? 999 } : null),
+    credentialRecheckIntervalMs: options.credentialRecheckIntervalMs,
+    credentialRecheckTimeoutMs: options.credentialRecheckTimeoutMs,
   });
 
   const app = express();
@@ -235,7 +245,7 @@ interface FakeMac {
     predicate: (frame: UplinkFrame) => frame is T,
     timeoutMs?: number,
   ): Promise<T>;
-  helloAndSync(health?: unknown): Promise<void>;
+  helloAndSync(health?: unknown, hostId?: string, userId?: number): Promise<void>;
   close(): void;
 }
 
@@ -279,12 +289,12 @@ function connectFakeMac(
               .join(', ')}`,
           );
         },
-        helloAndSync: async (health = HEALTH) => {
+        helloAndSync: async (health = HEALTH, hostId = 'mac-1', userId = 999) => {
           mac.send({
             ch: 'ctrl',
             t: 'hello',
-            userId: 999,
-            machineId: 'mac-1',
+            userId,
+            machineId: hostId,
             health,
           });
           const resync = await mac.waitFor(
@@ -398,11 +408,15 @@ describe('Track 2 contract — RelayUplinkServer + relay phone surface', () => {
   async function relayWithDevices(
     ownershipMap?: Record<string, { userId: number; directory: string }>,
   ): Promise<{ relay: RelayHarness; mac: FakeMac }> {
-    const relay = await startRelay({ ownershipMap });
+    const relay = await startRelay({ ownershipMap, userId: fixture.userId });
     cleanups.push(() => relay.close());
     const mac = await connectFakeMac(relay.wsUrl, 'mac-bearer');
     cleanups.push(() => mac.close());
-    await mac.helloAndSync();
+    await mac.helloAndSync(
+      HEALTH,
+      String(fixture.deviceRows[0].host_id),
+      fixture.userId,
+    );
     mac.send({ ch: 'repl', t: 'devices', devices: fixture.deviceRows });
     // Wait until the replicated device authenticates.
     const deadline = Date.now() + 5_000;
@@ -411,7 +425,14 @@ describe('Track 2 contract — RelayUplinkServer + relay phone surface', () => {
         `${relay.baseUrl}/relay/mobile-gateway/pty/x/connect`,
         { headers: { Authorization: `Device ${fixture.deviceToken}` } },
       );
-      if (probe.status === 501) break;
+      if (probe.status === 426) break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    const onlineDeadline = Date.now() + 5_000;
+    while (Date.now() < onlineDeadline) {
+      const response = await fetch(`${relay.baseUrl}/relay/health`);
+      const health = (await response.json()) as { macOnline: boolean };
+      if (health.macOnline) break;
       await new Promise((r) => setTimeout(r, 25));
     }
     return { relay, mac };
@@ -505,7 +526,7 @@ describe('Track 2 contract — RelayUplinkServer + relay phone surface', () => {
       `${relay.baseUrl}/relay/mobile-gateway/pty/x/connect`,
       { headers: { Authorization: `Device ${fixture.deviceToken}` } },
     );
-    expect(ok.status).toBe(501); // authenticated, then PTY is 501 by contract
+    expect(ok.status).toBe(426); // authenticated, then WebSocket upgrade is required
 
     const bad = await fetch(
       `${relay.baseUrl}/relay/mobile-gateway/pty/x/connect`,
@@ -769,5 +790,312 @@ describe('Track 2 contract — RelayUplinkServer + relay phone surface', () => {
     expect(((await health.json()) as { macOnline: boolean }).macOnline).toBe(
       true,
     );
+  });
+
+  it('issue-1373-c1: an owned PTY carries text in both directions over the relay', async () => {
+    // Regression caught: the relay can accept an upgrade but drops terminal
+    // input or output instead of preserving the existing PTY stream contract.
+    const { relay, mac } = await relayWithDevices({
+      pty_mine: { userId: fixture.userId, directory: PROJECT_ROOT },
+    });
+    const socket = new WebSocket(
+      relay.baseUrl.replace('http:', 'ws:') +
+        '/relay/mobile-gateway/pty/pty_mine/connect?ticket=synthetic-ticket-123456789',
+      {
+        headers: {
+          Authorization: `Device ${fixture.deviceToken}`,
+          'X-Rhythm-Project-ID': PROJECT_ID,
+        },
+      },
+    );
+    cleanups.push(() => socket.terminate());
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('PTY upgrade timed out')), 1_000);
+      socket.once('open', () => { clearTimeout(timeout); resolve(); });
+      socket.once('unexpected-response', (_request, response) => {
+        clearTimeout(timeout);
+        reject(new Error(`PTY upgrade rejected: ${response.statusCode}`));
+      });
+      socket.once('error', (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+    });
+    const open = await mac.waitFor(
+      (frame): frame is Extract<PtyFrame, { t: 'open' }> =>
+        frame.ch === 'pty' && frame.t === 'open',
+    );
+    expect(open).toMatchObject({
+      ptyId: 'pty_mine', projectId: PROJECT_ID,
+      deviceToken: fixture.deviceToken,
+      ticket: 'synthetic-ticket-123456789',
+    });
+    mac.send({ ch: 'pty', t: 'ready', id: open.id });
+    socket.send('input-from-phone');
+    const input = await mac.waitFor(
+      (frame): frame is Extract<PtyFrame, { t: 'data' }> =>
+        frame.ch === 'pty' && frame.t === 'data' && frame.id === open.id,
+    );
+    expect(Buffer.from(input.dataB64, 'base64').toString()).toBe('input-from-phone');
+    const output = new Promise<string>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('PTY output timed out')), 1_000);
+      socket.once('message', (data) => {
+        clearTimeout(timeout);
+        resolve(String(data));
+      });
+    });
+    mac.send({
+      ch: 'pty', t: 'data', id: open.id,
+      dataB64: Buffer.from('output-from-mac').toString('base64'),
+      binary: false,
+    });
+    expect(await output).toBe('output-from-mac');
+  });
+
+  it('issue-1373-c1: pre-ready phone input is bounded and closes before overflow', async () => {
+    const { relay, mac } = await relayWithDevices();
+    const phone = new WebSocket(
+      relay.baseUrl.replace('http:', 'ws:') +
+        '/relay/mobile-gateway/pty/pty_buffer/connect?ticket=synthetic-ticket-123456789',
+      { headers: {
+        Authorization: `Device ${fixture.deviceToken}`,
+        'X-Rhythm-Project-ID': PROJECT_ID,
+      } },
+    );
+    cleanups.push(() => phone.terminate());
+    await new Promise<void>((resolve, reject) => {
+      phone.once('open', () => resolve());
+      phone.once('error', reject);
+    });
+    const open = await mac.waitFor(
+      (frame): frame is Extract<PtyFrame, { t: 'open' }> =>
+        frame.ch === 'pty' && frame.t === 'open',
+    );
+    const closed = new Promise<number>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('unbounded PTY queue')), 2_000);
+      phone.once('close', (code) => { clearTimeout(timeout); resolve(code); });
+    });
+    phone.send(Buffer.alloc(600_000), { binary: true });
+    phone.send(Buffer.alloc(600_000), { binary: true });
+    expect(await closed).toBe(1009);
+    expect(mac.frames.some((frame) => frame.ch === 'pty' &&
+      frame.t === 'data' && frame.id === open.id)).toBe(false);
+  });
+
+  it('issue-1373-c2: revoking an established uplink bearer takes the Mac offline', async () => {
+    // Regression caught: validating only at upgrade lets a revoked credential
+    // keep driving RPC and events indefinitely on the existing socket.
+    let valid = true;
+    const relay = await startRelay({
+      bearerValidator: async (token) =>
+        valid && token === 'mac-bearer' ? { userId: 999 } : null,
+      credentialRecheckIntervalMs: 50,
+      credentialRecheckTimeoutMs: 200,
+    });
+    cleanups.push(() => relay.close());
+    const mac = await connectFakeMac(relay.wsUrl, 'mac-bearer');
+    cleanups.push(() => mac.close());
+    await mac.helloAndSync();
+    const onlineDeadline = Date.now() + 1_000;
+    while (Date.now() < onlineDeadline) {
+      const health = await fetch(`${relay.baseUrl}/relay/health`);
+      if (((await health.json()) as { macOnline: boolean }).macOnline) break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    const onlineHealth = (await (await fetch(`${relay.baseUrl}/relay/health`))
+      .json()) as { macOnline: boolean };
+    expect(onlineHealth.macOnline).toBe(true);
+    valid = false;
+    const deadline = Date.now() + 3_000;
+    let offline = false;
+    while (Date.now() < deadline) {
+      const health = await fetch(`${relay.baseUrl}/relay/health`);
+      offline = !((await health.json()) as { macOnline: boolean }).macOnline;
+      if (offline) break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(offline).toBe(true);
+  });
+
+  it('issue-1373-c7: revoking a paired device closes its established PTY stream', async () => {
+    const { relay, mac } = await relayWithDevices();
+    const phone = new WebSocket(
+      relay.baseUrl.replace('http:', 'ws:') +
+        '/relay/mobile-gateway/pty/pty_mine/connect?ticket=synthetic-ticket-123456789',
+      { headers: {
+        Authorization: `Device ${fixture.deviceToken}`,
+        'X-Rhythm-Project-ID': PROJECT_ID,
+      } },
+    );
+    cleanups.push(() => phone.terminate());
+    await new Promise<void>((resolve, reject) => {
+      phone.once('open', () => resolve());
+      phone.once('error', reject);
+    });
+    const open = await mac.waitFor(
+      (frame): frame is Extract<PtyFrame, { t: 'open' }> =>
+        frame.ch === 'pty' && frame.t === 'open',
+    );
+    mac.send({ ch: 'pty', t: 'ready', id: open.id });
+    const closed = new Promise<number>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('revoked PTY stayed open')), 2_000);
+      phone.once('close', (code) => {
+        clearTimeout(timeout);
+        resolve(code);
+      });
+    });
+    relay.db.prepare('UPDATE mobile_devices SET revoked_at = ? WHERE id = ?')
+      .run(new Date().toISOString(), fixture.deviceRows[0].id);
+    expect(await closed).toBe(4401);
+    const ptyData = mac.frames.filter((frame) => frame.ch === 'pty' && frame.t === 'data');
+    expect(ptyData).toHaveLength(0);
+  });
+
+  it('issue-1373-c2: a stalled credential recheck cannot hold an uplink open', async () => {
+    // Regression caught: an identity provider that never answers leaves the
+    // previously authorized WebSocket serving indefinitely.
+    let stall = false;
+    const relay = await startRelay({
+      bearerValidator: async () => stall
+        ? new Promise<{ userId: number }>(() => undefined)
+        : { userId: 999 },
+      credentialRecheckIntervalMs: 50,
+      credentialRecheckTimeoutMs: 200,
+    });
+    cleanups.push(() => relay.close());
+    const mac = await connectFakeMac(relay.wsUrl, 'mac-bearer');
+    cleanups.push(() => mac.close());
+    await mac.helloAndSync();
+    const onlineDeadline = Date.now() + 1_000;
+    while (Date.now() < onlineDeadline) {
+      const body = (await (await fetch(`${relay.baseUrl}/relay/health`)).json()) as
+        { macOnline: boolean };
+      if (body.macOnline) break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    stall = true;
+    const deadline = Date.now() + 3_000;
+    let offline = false;
+    while (Date.now() < deadline) {
+      const body = (await (await fetch(`${relay.baseUrl}/relay/health`)).json()) as
+        { macOnline: boolean };
+      offline = !body.macOnline;
+      if (offline) break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(offline).toBe(true);
+  });
+
+  it('issue-1373-c7: a second user on the paired host cannot reach its PTY uplink', async () => {
+    // Regression caught: device authentication succeeds but the relay sends
+    // a second user's PTY traffic to the first user's established Mac uplink.
+    const { relay, mac } = await relayWithDevices();
+    const secondUserId = fixture.userId + 1_000;
+    relay.db.prepare(
+      `INSERT INTO users (id, name, email, google_sub) VALUES (?, ?, ?, ?)`,
+    ).run(secondUserId, 'Second Relay User', `second-${randomUUID()}@example.test`, randomUUID());
+    const secondToken = randomUUID();
+    const row = fixture.deviceRows[0];
+    relay.db.prepare(
+      `INSERT INTO mobile_devices
+         (id, host_id, user_id, name, token_verifier, revoked_at, created_at)
+       VALUES (?, ?, ?, ?, ?, NULL, ?)`,
+    ).run(
+      randomUUID(), row.host_id, secondUserId, 'Second User iPhone',
+      createHash('sha256').update(secondToken).digest('hex'),
+      new Date().toISOString(),
+    );
+    const before = mac.frames.filter((frame) => frame.ch === 'pty').length;
+    const status = await new Promise<number>((resolve, reject) => {
+      const phone = new WebSocket(
+        relay.baseUrl.replace('http:', 'ws:') +
+          '/relay/mobile-gateway/pty/pty_foreign/connect?ticket=synthetic-ticket-123456789',
+        { headers: {
+          Authorization: `Device ${secondToken}`,
+          'X-Rhythm-Project-ID': PROJECT_ID,
+        } },
+      );
+      phone.once('unexpected-response', (_request, response) => {
+        phone.terminate();
+        resolve(response.statusCode ?? 0);
+      });
+      phone.once('open', () => { phone.terminate(); reject(new Error('foreign PTY upgraded')); });
+      phone.once('error', reject);
+    });
+    expect(status).toBe(503);
+    expect(mac.frames.filter((frame) => frame.ch === 'pty')).toHaveLength(before);
+  });
+
+  it('issue-1373-c7: Mac project denial closes the phone with an actionable code', async () => {
+    // Regression caught: the local project/ownership rejection is converted
+    // to a normal close, leaving the phone silently idle after a false open.
+    const { relay, mac } = await relayWithDevices();
+    const phone = new WebSocket(
+      relay.baseUrl.replace('http:', 'ws:') +
+        '/relay/mobile-gateway/pty/pty_mine/connect?ticket=synthetic-ticket-123456789',
+      { headers: {
+        Authorization: `Device ${fixture.deviceToken}`,
+        'X-Rhythm-Project-ID': 'foreign_project',
+      } },
+    );
+    cleanups.push(() => phone.terminate());
+    await new Promise<void>((resolve, reject) => {
+      phone.once('open', () => resolve());
+      phone.once('error', reject);
+      phone.once('unexpected-response', (_request, response) =>
+        reject(new Error(`project upgrade rejected: ${response.statusCode}`)));
+    });
+    const request = await mac.waitFor(
+      (frame): frame is Extract<PtyFrame, { t: 'open' }> =>
+        frame.ch === 'pty' && frame.t === 'open' && frame.projectId === 'foreign_project',
+    );
+    const closed = new Promise<number>((resolve) =>
+      phone.once('close', (code) => resolve(code)));
+    mac.send({ ch: 'pty', t: 'close', id: request.id, code: 4403 });
+    expect(await closed).toBe(4403);
+  });
+
+  it('issue-1373-c6: storage failures expose a sanitized relay diagnostic', async () => {
+    // Regression caught: an artifact write exception prints an absolute host
+    // path into operator logs while the relay remains connected.
+    const secretRoot = mkdtempSync(join(tmpdir(), 'relay-secret-path-'));
+    const blockedRoot = join(secretRoot, 'private-host-path');
+    writeFileSync(blockedRoot, 'not a directory');
+    vi.stubEnv('LIVE_ARTIFACT_STORAGE_DIR', blockedRoot);
+    const { relay, mac } = await relayWithDevices();
+    const { logger } = await import('../utils/logger');
+    const warnings: string[] = [];
+    const warn = vi.spyOn(logger, 'warn').mockImplementation((message) => {
+      warnings.push(String(message));
+    });
+    cleanups.push(() => {
+      warn.mockRestore();
+      rmSync(secretRoot, { recursive: true, force: true });
+    });
+    mac.send({
+      ch: 'file',
+      t: 'artifact',
+      artifactId: 'artifact1373',
+      meta: { ownerUserId: fixture.userId, projectId: PROJECT_ID },
+      dataB64: 'YQ==',
+    });
+    const deadline = Date.now() + 1_000;
+    while (warnings.length === 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(warnings.length).toBeGreaterThan(0);
+    expect(warnings.join('\n')).toMatch(/artifact|storage/i);
+    expect(warnings.join('\n')).not.toContain(blockedRoot);
+    expect(warnings.join('\n')).not.toContain(secretRoot);
+    const warningCount = warnings.length;
+    const oversizedId = 'a'.repeat(10_000);
+    mac.send({
+      ch: 'file', t: 'artifact', artifactId: oversizedId,
+      meta: { ownerUserId: fixture.userId, projectId: PROJECT_ID },
+      dataB64: 'YQ==',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(warnings).toHaveLength(warningCount);
+    expect(warnings.join('\n')).not.toContain(oversizedId);
   });
 });

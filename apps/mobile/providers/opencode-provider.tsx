@@ -2094,9 +2094,19 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         setTerminalConnection('error');
         if (!opened) reject(new Error('Could not connect to the terminal.'));
       };
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         if (generation !== terminalOpenGenerationRef.current) return;
-        if (terminalSocketRef.current === socket && opened) setTerminalConnection('idle');
+        if (terminalSocketRef.current === socket && opened) {
+          if (event.code === 1000) {
+            setTerminalConnection('idle');
+          } else {
+            setTerminalConnection('error');
+            const guidance = [1008, 4401, 4403].includes(event.code)
+              ? 'Terminal access was denied. Check the paired device and project, then select the terminal again.'
+              : 'Terminal connection was lost. Select the terminal again to reconnect.';
+            setTerminalOutput((current) => `${current}\n${guidance}`.trim());
+          }
+        }
         if (!opened) reject(new Error('The terminal connection closed before it was ready.'));
       };
     });

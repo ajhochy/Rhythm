@@ -708,3 +708,10 @@
 - **Criteria affected**: mega-visual-c1 through mega-visual-c10.
 - **Root cause**: the control inventory listed the running Electron process, but app selection for Electron and Finder returned `Computer Use was not approved`, preventing UI observations and screenshots.
 - **Suggested fix**: preflight computer-use grants for the already-running Electron process and Finder before visual-smoke dispatch, then rerun all ten criteria without substituting static evidence for rendered behavior.
+
+## 2026-09-18 — Mega PR native smoke prerequisite mismatch
+
+- Result: native smoke blocked, no overall verification pass claimed.
+- Category: C5 environment configuration.
+- Root cause: process lacks the handoff bearer and public Google client configuration; requested local services are absent.
+- Follow-up: keep PR1544 open and distinguish startup health from authenticated native/hosted behavior.

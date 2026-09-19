@@ -53,14 +53,22 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
     setArchivedOnly(preferences.archivedOnly);
     setCompact(preferences.compact);
   }, [preferenceUserId]);
+  const saveViewPreference = (patch: Parameters<typeof writeLocalUserPreferences>[1], apply: () => void) => {
+    try {
+      writeLocalUserPreferences(preferenceUserId, patch);
+      apply();
+    } catch {
+      notify('View preference could not be saved. Allow device storage and retry.');
+    }
+  };
   const setSortPreference = (value: SessionSort) => {
-    setSort(value); writeLocalUserPreferences(preferenceUserId, { sessionSort: value });
+    saveViewPreference({ sessionSort: value }, () => setSort(value));
   };
   const setArchivedOnlyPreference = (value: boolean) => {
-    setArchivedOnly(value); writeLocalUserPreferences(preferenceUserId, { archivedOnly: value });
+    saveViewPreference({ archivedOnly: value }, () => setArchivedOnly(value));
   };
   const setCompactPreference = (value: boolean) => {
-    setCompact(value); writeLocalUserPreferences(preferenceUserId, { compact: value });
+    saveViewPreference({ compact: value }, () => setCompact(value));
   };
   const [viewOptionsOpen, setViewOptionsOpen] = useState(false);
   const viewOptionsRef = useRef<HTMLDivElement>(null);
