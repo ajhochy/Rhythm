@@ -286,6 +286,21 @@ test.describe('Agent Tools — #1513/#1515–#1519/#1521/#1514', () => {
       const writes = recordPageWrites(page);
       await openLive(page, `/tools/${slug}`);
       await expect(page.getByTestId(`tool-page-${slug}`)).toBeVisible();
+      if (slug === 'webhooks') {
+        const unavailable = page.getByTestId('webhooks-live-unavailable');
+        await expect(unavailable).toContainText('Not available for live sessions yet');
+        await expect(unavailable).toContainText('Webhook management needs a live gateway');
+        expect(writes, 'The unavailable Webhooks surface must not mutate live data').toEqual([]);
+        return;
+      }
+      if (slug === 'deep-research') {
+        const list = await listIsReady(page, label);
+        const count = await list.getByRole('option').count();
+        if (count === 0) {
+          await expect(page.locator('.list-inspector-state:not([role="alert"])')).toBeVisible();
+          test.skip(true, 'No live research projects exist in the isolated sandbox; inert selection requires at least two live rows.');
+        }
+      }
       await verifyListInspectorSelection(page, label, writes, `${slug} has fewer than two live records`);
     });
   }
@@ -500,7 +515,9 @@ test.describe('Agents rail — #1511/#1512/#1522', () => {
     const id = await createdId(await pending);
     const group = page.getByTestId(`group-project-${id}`);
     await expect(group).toContainText(name);
-    await rail.getByRole('button', { name: new RegExp(`Select project\\s+${marker}`) }).click();
+    const projectControl = rail.getByRole('button', { name: `Selected project ${name}`, exact: true });
+    await expect(projectControl).toHaveAttribute('aria-pressed', 'true');
+    await projectControl.click();
     await expect(page.getByTestId('selected-agent-project')).toContainText(name);
     await directDelete(request, environment.apiBase, `/projects/${encodeURIComponent(id)}`, id, true);
     await page.reload();
@@ -629,10 +646,12 @@ test.describe('Advanced session directory fallback — #1496', () => {
 test.describe('Persistent splitters — #1524', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
+      if (sessionStorage.getItem('mega-splitter-tests-initialized') === 'true') return;
       for (let index = localStorage.length - 1; index >= 0; index -= 1) {
         const key = localStorage.key(index);
         if (key?.startsWith('layout.')) localStorage.removeItem(key);
       }
+      sessionStorage.setItem('mega-splitter-tests-initialized', 'true');
     });
   });
 
