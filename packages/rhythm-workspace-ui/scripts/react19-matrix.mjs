@@ -24,7 +24,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const REACT19_VERSION = '19.2.0';
 const keepFixture = process.argv.includes('--keep');
 
-const FIXTURE_ENTRIES = ['src', 'tests', 'package.json', 'tsconfig.json', 'vitest.config.ts'];
+const FIXTURE_ENTRIES = ['src', 'tests', 'scripts', 'package.json', 'tsconfig.json', 'tsup.config.ts', 'vitest.config.ts'];
 
 function copyFixture(workdir) {
   for (const entry of FIXTURE_ENTRIES) {
@@ -81,6 +81,9 @@ try {
   if (!reactDomVersion.startsWith('19.')) throw new Error(`expected react-dom@19.x, installed ${reactDomVersion}`);
   assertNoDuplicateReact(workdir);
   console.log(`[react19-matrix] installed react@${reactVersion}, react-dom@${reactDomVersion} in an isolated tree`);
+
+  // The bundle contract inspects fresh artifacts built with this host's React types.
+  execFileSync('npm', ['run', 'build'], { cwd: workdir, stdio: 'inherit' });
 
   const vitestBin = join(workdir, 'node_modules', '.bin', 'vitest');
   vitestOutput = execFileSync(vitestBin, ['run', '--config', 'vitest.config.ts'], {

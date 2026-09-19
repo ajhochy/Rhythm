@@ -26,6 +26,7 @@
     "build": "tsup && node ./scripts/copy-styles.mjs",
     "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit",
+    "pretest": "npm run build",
     "test": "vitest run --config vitest.config.ts",
     "test:react19": "node ./scripts/react19-matrix.mjs",
     "test:all": "npm run test && npm run test:react19"
