@@ -2,7 +2,7 @@
 date: 2026-09-18
 repo: Rhythm
 branch: mega/2026-09-18-mobile-electron-hermes
-pr: TBD
+pr: https://github.com/ajhochy/Rhythm/pull/1544
 issues: [1373, 1496, 1509, 1510, 1511, 1512, 1513, 1514, 1515, 1516, 1517, 1518, 1519, 1520, 1521, 1522, 1523, 1524, 1540, 1541, 1542, 1543]
 status: draft-pr
 tags: [run, rhythm]
