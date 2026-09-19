@@ -209,8 +209,8 @@ test('bucket-a-rendered-settings: fixture honesty and live loading/error/empty s
     return true;
   });
   await page.goto('http://127.0.0.1:4181/#/tools/agent-settings');
-  await expect(page.getByText('Loading agent settings…')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'No agent profiles configured' })).toHaveCount(0);
+  await expect(page.getByText('Loading Agent settings sections…')).toBeVisible();
+  await expect(page.getByText('No agent profiles configured', { exact: true })).toHaveCount(0);
   const setting = page.getByTestId(`agent-setting-${profile.id}`);
   await expect(setting.locator('.profile-avatar')).toHaveText('AP');
   await expect(setting).not.toContainText(assetIcon);
@@ -219,11 +219,66 @@ test('bucket-a-rendered-settings: fixture honesty and live loading/error/empty s
   mode = 'rejected';
   await page.reload();
   await expect(page.getByTestId('agent-settings-error')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'No agent profiles configured' })).toHaveCount(0);
+  await expect(page.getByText('No agent profiles configured', { exact: true })).toHaveCount(0);
   mode = 'empty';
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'No agent profiles configured' })).toBeVisible();
+  await expect(page.getByText('No agent profiles configured', { exact: true })).toBeVisible();
   await expect(page.getByTestId('agent-settings-error')).toHaveCount(0);
+});
+
+test('bucket-a-rendered-settings-actions: account and MCP selection is inert until an inspector action is pressed', async ({ page }) => {
+  const mutations: string[] = [];
+  let servers = [
+    { name: 'planning', status: 'disconnected', error: null, requiredEnv: [], needsCredentials: false, source: 'curated', tools: ['plan'] },
+    { name: 'rhythm', status: 'connected', error: null, requiredEnv: [], needsCredentials: false, source: 'rhythm', tools: ['tasks'] },
+  ];
+  await installLiveRoutes(page, async (route, url) => {
+    if (url.pathname === '/opencode/auth/accounts') {
+      await fulfillJson(route, { accounts: [{ id: 'acct-1', label: 'Work account', status: 'connected' }] });
+      return true;
+    }
+    if (url.pathname === '/opencode/mcp' && route.request().method() === 'GET') {
+      await fulfillJson(route, servers);
+      return true;
+    }
+    const match = /^\/opencode\/mcp\/([^/]+)\/(connect|disconnect)$/.exec(url.pathname);
+    if (match && route.request().method() === 'POST') {
+      const [, name, action] = match;
+      mutations.push(`${action}:${name}`);
+      servers = servers.map((server) => server.name === name ? { ...server, status: action === 'connect' ? 'connected' : 'disconnected' } : server);
+      await fulfillJson(route, action === 'connect' ? { ok: true, authorizationUrl: null } : { ok: true });
+      return true;
+    }
+    const remove = /^\/opencode\/mcp\/([^/]+)$/.exec(url.pathname);
+    if (remove && route.request().method() === 'DELETE') {
+      mutations.push(`remove:${remove[1]}`);
+      servers = servers.filter((server) => server.name !== remove[1]);
+      await route.fulfill({ status: 204, body: '' });
+      return true;
+    }
+    return false;
+  });
+
+  await page.goto('http://127.0.0.1:4181/#/tools/agent-settings');
+  await page.getByRole('option', { name: 'Accounts', exact: true }).click();
+  await expect(page.getByTestId('list-inspector-detail')).toContainText('Work account');
+  await expect(page.getByTestId('list-inspector-detail')).toContainText('Desktop local');
+  expect(mutations).toEqual([]);
+
+  await page.getByRole('option', { name: 'MCP servers', exact: true }).click();
+  await expect(page.getByTestId('agent-settings-mcp-planning')).toContainText('disconnected');
+  expect(mutations).toEqual([]);
+  await page.getByTestId('agent-settings-mcp-connect-planning').click();
+  await expect.poll(() => mutations).toContain('connect:planning');
+  await page.getByTestId('agent-settings-mcp-disconnect-rhythm').click();
+  await expect.poll(() => mutations).toContain('disconnect:rhythm');
+  await page.getByTestId('agent-settings-mcp-remove-planning').click();
+  await page.getByTestId('agent-settings-mcp-remove-confirm').click();
+  await expect.poll(() => mutations).toContain('remove:planning');
+  await expect(page.getByTestId('agent-settings-mcp-planning')).toHaveCount(0);
+  await page.reload();
+  await page.getByRole('option', { name: 'MCP servers', exact: true }).click();
+  await expect(page.getByTestId('agent-settings-mcp-planning')).toHaveCount(0);
 });
 
 test('self-improvement-review-live: closed tool safety, conditional confirmation, history, and server failures stay truthful', async ({ page }) => {
@@ -347,6 +402,7 @@ test('self-improvement-auto-promotion-live: default-off gating and explicit clou
     return false;
   });
   await page.goto('http://127.0.0.1:4181/#/tools/agent-settings');
+  await page.getByRole('option', { name: 'Auto-promotion', exact: true }).click();
   await expect(page.getByTestId('auto-promotion')).toContainText('Disabled');
   expect(calls[0].confirmation).toBeNull();
   await page.getByTestId('auto-promotion-toggle').click();
@@ -374,6 +430,7 @@ test('self-improvement-auto-promotion-errors: admin denial and stale eligibility
     await fulfillJson(route, { availability: true, state: { autoPromotionEnabled: false, enabledAt: null, autoPromotionEligible: true, totalVerified: 5, totalRegressions: 0, trustThreshold: 5 } }); return true;
   });
   await page.goto('http://127.0.0.1:4181/#/tools/agent-settings');
+  await page.getByRole('option', { name: 'Auto-promotion', exact: true }).click();
   await expect(page.getByTestId('auto-promotion')).toContainText('Admin/system access required');
   mode = 'ready';
   await page.getByTestId('auto-promotion').getByRole('button', { name: 'Retry' }).click();
