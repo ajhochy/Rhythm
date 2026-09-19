@@ -83,7 +83,7 @@ test('exercises every secondary Tool path with exact endpoint-ledger receipts', 
   await openFixture(page, '#/tools/email');
   await page.getByTestId('email-refresh').click();
   await expectTrace(page, '/integrations/gmail-signals');
-  await page.getByTestId('email-signal-email-relay').click();
+  await selectRow(page, 'Relay recovery notes');
   await expect(page.getByRole('heading', { name: 'Relay recovery notes' })).toBeVisible();
 
   await openFixture(page, '#/tools/gallery');

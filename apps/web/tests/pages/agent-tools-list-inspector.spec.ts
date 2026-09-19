@@ -117,6 +117,7 @@ test('issue-1513-c7: edge states remain accessible at narrow width and 200 perce
 
   await page.getByTestId('tool-state-select').selectOption('ready');
   await atNarrow(page);
+  await page.getByRole('button', { name: 'Back to list', exact: true }).click();
   await expect(page.getByRole('option', { name: selectableTools[0].second }).locator('strong')).toHaveAttribute('title', selectableTools[0].second);
   await selectRow(page, selectableTools[0].second);
   await expectInspectorHeading(page, selectableTools[0].second);

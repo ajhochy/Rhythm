@@ -355,7 +355,7 @@ code, pre { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .attachment-feedback.error { border-color: color-mix(in oklab, var(--danger), var(--border) 42%); }
 .attachment-feedback .text-button { min-height: 24px; font-size: 9px; }
 .attachment-picker-anchor { position: relative; flex: 0 0 auto; }
-.attachment-picker { top: auto; right: 0; bottom: calc(100% + 7px); z-index: 100; width: min(390px, calc(100vw - 32px)); max-height: min(360px, 60vh); overflow: auto; }
+.attachment-picker { top: auto; right: auto; bottom: calc(100% + 7px); left: 0; z-index: 100; width: min(390px, calc(100vw - 32px)); max-height: min(360px, 60vh); overflow: auto; }
 .attachment-picker .menu-item { align-items: center; }
 .composer-suggestions { position: absolute; bottom: calc(100% - 4px); left: 12px; z-index: 12; width: min(480px, calc(100% - 24px)); max-height: 210px; overflow: auto; padding: 6px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-raised); box-shadow: var(--shadow); }
 .composer-suggestions button { width: 100%; min-height: 42px; display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 5px 8px; border: 0; border-radius: 8px; color: var(--fg-2); background: transparent; cursor: pointer; text-align: left; }
