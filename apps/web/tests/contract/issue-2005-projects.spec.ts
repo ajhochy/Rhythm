@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { openPage } from '../helpers';
+import { expectInspectorHeading, expectSelected, selectRow } from '../helpers/list-inspector';
 
 const templateId = 'template-sunday-service';
 const instanceId = 'instance-sunday-service-2026-08-16';
@@ -16,14 +17,14 @@ test('issue-2005-c1: projects route and deep links render distinct real surfaces
   // Regression caught: #/projects keeps rendering ModulePlaceholder or deep links lose the chosen template/instance surface.
   await openPage(page, 'projects');
   await expectProjectsPage(page);
-  await expect(page.getByTestId('projects-mode-active')).toHaveAttribute('aria-pressed', 'true');
+  await expectSelected(page, 'Sunday Service - August 16');
   await expect(page.getByTestId('page-trace')).toContainText('GET /project-templates → 200');
   await expect(page.getByTestId('page-trace')).toContainText('GET /project-instances → 200');
 
   await openPage(page, `projects/templates/${templateId}`);
   await expectProjectsPage(page);
-  await expect(page.getByTestId('projects-mode-templates')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId(`project-template-${templateId}`)).toHaveAttribute('aria-selected', 'true');
+  await expectInspectorHeading(page, 'Sunday Service Launch');
   await expect(page.getByTestId('project-template-steps-panel')).toBeVisible();
 
   await openPage(page, `projects/templates/${templateId}/instances`);
@@ -31,7 +32,7 @@ test('issue-2005-c1: projects route and deep links render distinct real surfaces
   await expect(page.getByTestId('page-trace')).toContainText(`GET /project-instances?templateId=${templateId} → 200`);
 
   await openPage(page, `projects/instances/${instanceId}`);
-  await expect(page.getByTestId(`project-instance-${instanceId}`)).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByTestId(`project-instance-${instanceId}`)).toHaveAttribute('aria-selected', 'true');
 });
 
 test('issue-2005-c2: template create edit and delete validate and receipt exactly', async ({ page }) => {
@@ -51,13 +52,13 @@ test('issue-2005-c2: template create edit and delete validate and receipt exactl
   await expect(created).toContainText('Community meal launch');
   await expect(page.getByTestId('page-trace')).toContainText('POST /project-templates {name,description} → 201');
 
-  await created.getByTestId('project-template-edit-template-community-meal-launch').click();
+  await page.getByTestId('project-template-edit-template-community-meal-launch').click();
   await page.getByTestId('project-template-name').fill('Community meal launch — revised');
   await page.getByTestId('project-template-submit').click();
   await expect(created).toContainText('Community meal launch — revised');
   await expect(page.getByTestId('page-trace')).toContainText('PATCH /project-templates/template-community-meal-launch {name,description} → 200');
 
-  await created.getByTestId('project-template-delete-template-community-meal-launch').click();
+  await page.getByTestId('project-template-delete-template-community-meal-launch').click();
   const confirm = page.getByTestId('project-template-delete-dialog');
   await expect(confirm).toContainText('Community meal launch — revised');
   await confirm.getByTestId('project-template-delete-confirm').click();
@@ -233,7 +234,7 @@ test('issue-2005-c9: active project delete removes only its instance with exact 
   await expect(page.getByTestId(`project-instance-${instanceId}`)).toHaveCount(0);
   await expect(page.getByTestId('projects-instance-count')).toHaveText(String(countBefore - 1));
   await expect(page.getByTestId('page-trace')).toContainText(`DELETE /project-instances/${instanceId} → 204`);
-  await page.getByTestId('projects-mode-templates').click();
+  await selectRow(page, 'Sunday Service Launch');
   await expect(page.getByTestId(`project-template-${templateId}`)).toBeAttached();
   await expect(page.getByTestId('project-instance-archive')).toHaveCount(0);
   await expect(page.getByTestId('project-instance-status-edit')).toHaveCount(0);
@@ -242,7 +243,7 @@ test('issue-2005-c9: active project delete removes only its instance with exact 
 test('issue-2005-c10: projects state matrix exposes recovery empties and prerequisites', async ({ page }) => {
   // Regression caught: a state is blank/dead, Retry requires reload, or readonly styling leaves a mutation enabled.
   await openPage(page, 'projects', '?state=loading');
-  await expect(page.getByTestId('page-state-loading')).toContainText('Loading projects');
+  await expect(page.locator('.list-inspector-state[role="status"]')).toContainText('Loading Projects');
 
   await openPage(page, 'projects/templates', '?state=empty');
   await expect(page.getByTestId('page-state-empty')).toContainText('No templates yet');
@@ -286,8 +287,7 @@ test('issue-2005-c11: enabled controls are live identifiable and receipt honest'
 
   const traceBefore = await page.getByTestId('page-trace').textContent();
   await page.getByTestId('projects-show-completed').click();
-  await page.getByTestId('projects-mode-templates').click();
-  await page.getByTestId(`project-template-${templateId}`).click();
+  await selectRow(page, 'Sunday Service Launch');
   await expect(page.getByTestId('page-trace')).toHaveText(traceBefore ?? '');
   await expect(page.getByTestId('project-milestone-update')).toHaveCount(0);
   await expect(page.getByTestId('project-instance-goal')).toHaveCount(0);
@@ -354,11 +354,13 @@ test('issue-2005-c13: projects remains responsive at required widths text scale 
     await expectProjectsPage(page);
     const overflow = await page.evaluate(() => ({ client: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
     expect(overflow.scroll, `${width}px ${JSON.stringify(overflow)}`).toBeLessThanOrEqual(overflow.client + 1);
-    await expect(page.getByTestId('projects-mode-active')).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Active projects', includeHidden: true })).toBeAttached();
     await expect(page.getByTestId('project-start')).toBeVisible();
     await expect(page.getByTestId('project-step-add')).toBeVisible();
   }
 
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await selectRow(page, 'إطلاق خدمة المجتمع - 准备礼拜 🎵');
   await page.evaluate(() => {
     document.documentElement.style.fontSize = '200%';
     document.documentElement.dir = 'rtl';
@@ -394,19 +396,17 @@ test('issue-2005-c15: active projects use a persistent list and synchronized det
   await openPage(page, 'projects');
   await expectProjectsPage(page);
 
-  const list = page.getByTestId('projects-list-pane');
-  const inspector = page.getByTestId('project-inspector');
+  const list = page.getByRole('listbox', { name: 'Projects' });
+  const inspector = page.getByTestId('list-inspector-detail');
   await expect(list).toBeVisible();
   await expect(inspector).toBeVisible();
   await expect(inspector).toContainText('Sunday Service - August 16');
-  await expect(page.getByTestId(`project-instance-expand-${instanceId}`)).toHaveAttribute('aria-pressed', 'true');
+  await expectSelected(page, 'Sunday Service - August 16');
 
-  const weekendId = 'instance-weekend-service-2026-08-23';
-  await page.getByTestId(`project-instance-expand-${weekendId}`).click();
+  await selectRow(page, 'Weekend Service - August 23');
   await expect(list).toBeVisible();
-  await expect(inspector).toContainText('Weekend Service - August 23');
-  await expect(page.getByTestId(`project-instance-expand-${weekendId}`)).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByTestId(`project-instance-expand-${instanceId}`)).toHaveAttribute('aria-pressed', 'false');
+  await expectInspectorHeading(page, 'Weekend Service - August 23');
+  await expectSelected(page, 'Weekend Service - August 23');
   await expect(inspector).toContainText('Project owner');
   await expect(inspector).toContainText('Milestones and steps');
 });
