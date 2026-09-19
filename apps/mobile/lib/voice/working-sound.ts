@@ -15,6 +15,23 @@ const PEAK_VOLUME = 0.12;
 let audioModulePromise: Promise<ExpoAudioModule | null> | null = null;
 let loadedVariant: WorkingSoundVariant | undefined;
 let sound: AudioSound | undefined;
+let playing = false;
+let playbackGeneration = 0;
+let playbackQueue: Promise<unknown> = Promise.resolve();
+
+function queuePlayback<T>(operation: () => Promise<T>): Promise<T> {
+  const next = playbackQueue.then(operation);
+  playbackQueue = next.catch(() => undefined);
+  return next;
+}
+
+async function releaseSoundAsync() {
+  if (!sound) return;
+  await sound.unloadAsync();
+  sound = undefined;
+  loadedVariant = undefined;
+  playing = false;
+}
 
 async function getAudioModuleAsync() {
   if (!audioModulePromise) {
@@ -110,57 +127,66 @@ async function ensureWorkingSoundFileAsync(variant: WorkingSoundVariant) {
   return file.uri;
 }
 
-export async function startWorkingSoundAsync(variant: WorkingSoundVariant, volume: number) {
-  const audioModule = await getAudioModuleAsync();
-  if (!audioModule) {
-    return false;
-  }
+export function startWorkingSoundAsync(variant: WorkingSoundVariant, volume: number) {
+  const generation = ++playbackGeneration;
+  return queuePlayback(async () => {
+    if (generation !== playbackGeneration) return false;
+    const audioModule = await getAudioModuleAsync();
+    if (!audioModule || generation !== playbackGeneration) return false;
 
-  await initializeVoiceAudioAsync();
+    try {
+      await initializeVoiceAudioAsync();
+      if (generation !== playbackGeneration) return false;
+      if (sound && loadedVariant !== variant) await releaseSoundAsync();
+      if (generation !== playbackGeneration) return false;
 
-  if (sound && loadedVariant !== variant) {
-    await sound.unloadAsync().catch(() => undefined);
-    sound = undefined;
-    loadedVariant = undefined;
-  }
+      if (!sound) {
+        const uri = await ensureWorkingSoundFileAsync(variant);
+        if (generation !== playbackGeneration) return false;
+        const created = await audioModule.Audio.Sound.createAsync(
+          { uri },
+          {
+            isLooping: true,
+            progressUpdateIntervalMillis: 1000,
+            shouldPlay: false,
+            volume: clamp(volume, 0, 1),
+          },
+        );
+        sound = created.sound;
+        loadedVariant = variant;
+      }
 
-  if (!sound) {
-    const uri = await ensureWorkingSoundFileAsync(variant);
-    const created = await audioModule.Audio.Sound.createAsync(
-      { uri },
-      {
-        isLooping: true,
-        progressUpdateIntervalMillis: 1000,
-        shouldPlay: false,
-        volume: clamp(volume, 0, 1),
-      },
-    );
-
-    sound = created.sound;
-    loadedVariant = variant;
-  }
-
-  await sound.setIsLoopingAsync(true);
-  await sound.setVolumeAsync(clamp(volume, 0, 1));
-  await sound.playAsync();
-  return true;
+      // Stop/unmount invalidates in-flight loads before they can begin playback.
+      if (generation !== playbackGeneration) return false;
+      await sound.setVolumeAsync(clamp(volume, 0, 1));
+      if (generation !== playbackGeneration) return false;
+      if (!playing) {
+        playing = true;
+        await sound.playAsync();
+      }
+      return generation === playbackGeneration;
+    } catch (error) {
+      await releaseSoundAsync().catch(() => undefined);
+      throw error;
+    }
+  });
 }
 
-export async function stopWorkingSoundAsync() {
-  if (!sound) {
-    return;
-  }
-
-  await sound.pauseAsync().catch(() => undefined);
-  await sound.setPositionAsync(0).catch(() => undefined);
+export function stopWorkingSoundAsync() {
+  playbackGeneration += 1;
+  return queuePlayback(async () => {
+    if (!sound || !playing) return;
+    try {
+      await sound.pauseAsync();
+      playing = false;
+      await sound.setPositionAsync(0);
+    } catch {
+      await releaseSoundAsync();
+    }
+  });
 }
 
-export async function unloadWorkingSoundAsync() {
-  if (!sound) {
-    return;
-  }
-
-  await sound.unloadAsync().catch(() => undefined);
-  sound = undefined;
-  loadedVariant = undefined;
+export function unloadWorkingSoundAsync() {
+  playbackGeneration += 1;
+  return queuePlayback(releaseSoundAsync);
 }

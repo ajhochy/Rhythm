@@ -238,3 +238,26 @@ test('E44: update capability opens only the fixed Rhythm Releases page', async (
   await bridge.updates.openDownloadPage();
   assert.deepEqual(h.opened, ['https://github.com/ajhochy/Rhythm/releases']);
 });
+
+test('issue-1510: dismissing a pending approval does not repeat its native alert on re-sync', async (t) => {
+  const shown = [];
+  class Notification extends EventEmitter {
+    static isSupported() { return true; }
+    constructor(options) { super(); this.options = options; this.closed = false; }
+    show() { shown.push(this); }
+    close() { this.closed = true; this.emit('close'); }
+  }
+  const h = await host(t, false, Notification);
+  const approval = { id: 'approval-1510', sessionId: 'session-1510', status: 'pending' };
+  const sync = (rows) => h.listeners.get('rhythm:approval-notifications:sync')(h.event(), rows);
+  sync([approval, approval]);
+  assert.equal(shown.length, 1);
+  assert.notEqual(shown[0].options.silent, true, 'the first actionable approval keeps its configured OS alert');
+  shown[0].close();
+  for (let index = 0; index < 5; index += 1) sync([{ ...approval }]);
+  assert.equal(shown.length, 1, 'a dismissed pending ID must stay deduplicated across repeated snapshots');
+  sync([approval, { ...approval, id: 'approval-1510-next' }]);
+  assert.equal(shown.length, 2, 'new actionable approvals still alert');
+  sync([]);
+  assert.equal(shown[1].closed, true, 'resolved approvals are withdrawn');
+});
