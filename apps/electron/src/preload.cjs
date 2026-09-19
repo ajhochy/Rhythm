@@ -50,6 +50,7 @@ const hermes = Object.freeze({
     ipcRenderer.on('hermes:status', listener);
     return () => ipcRenderer.removeListener('hermes:status', listener);
   },
+});
 // B3 owns this key independently of B2's `hermes` supervisor bridge. Keep the
 // native attachment capability private so a stale document cannot reuse it.
 let hermesViewEpoch = 0;

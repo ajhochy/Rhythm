@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { hermesReadyOrigin, parseHermesBounds, parseHermesIntent } from './hermes-protocol.mjs';
 import { loadHermesTheme } from './hermes-theme.mjs';
 
-/** @typedef {{getStatus: () => unknown | Promise<unknown>, onStatus?: (callback: (status: unknown) => void) => (() => void)}} Supervisor */
+/** @typedef {{getStatus: () => unknown | Promise<unknown>, getSessionToken: () => string | undefined, onStatus?: (callback: (status: unknown) => void) => (() => void)}} Supervisor */
 /** @type {Supervisor | undefined} */
 let boundSupervisor;
 /** @type {Set<() => void>} */
@@ -25,7 +25,7 @@ export function bindHermesViewSupervisor(supervisor) {
 }
 
 /** @param {{ipcMain: Electron.IpcMain, getWindow: () => Electron.BrowserWindow | undefined,
- * getStatus?: () => unknown | Promise<unknown>,
+ * getStatus?: () => unknown | Promise<unknown>, getSessionToken?: () => string | undefined,
  * electron?: Pick<typeof import('electron'), 'WebContentsView' | 'MessageChannelMain'>,
  * enabled?: () => boolean, themeCss?: string}} options
  */
@@ -33,8 +33,16 @@ export function registerHermesView(options) {
   const { ipcMain, getWindow } = options;
   const enabled = options.enabled ?? (() => !['0', 'false'].includes((process.env.RHYTHM_HERMES_ENABLED ?? '').toLowerCase()));
   const getStatus = options.getStatus ?? (() => boundSupervisor?.getStatus());
-  const currentOrigin = async () => {
-    try { return enabled() ? hermesReadyOrigin(await getStatus()) : null; }
+  const getSessionToken = options.getSessionToken ?? (() => boundSupervisor?.getSessionToken());
+  const currentDashboard = async () => {
+    try {
+      if (!enabled()) return null;
+      const origin = hermesReadyOrigin(await getStatus());
+      const sessionToken = getSessionToken();
+      return origin && typeof sessionToken === 'string' && /^[A-Za-z0-9_-]{20,128}$/.test(sessionToken)
+        ? { origin, sessionToken }
+        : null;
+    }
     catch { return null; }
   };
   /** @param {string} url @param {string} origin */
@@ -43,7 +51,7 @@ export function registerHermesView(options) {
   };
   const channels = ['hermes:view:attach', 'hermes:view:bounds', 'hermes:view:detach', 'hermes:intent'];
   /** @type {{view: Electron.WebContentsView, win: Electron.BrowserWindow, attachment: string,
-   * origin: string, frame: Electron.WebFrameMain, generation?: string,
+   * origin: string, sessionToken: string, frame: Electron.WebFrameMain, generation?: string,
    * port?: Electron.MessagePortMain, ready: boolean, cleanups: (() => void)[]} | undefined} */
   let active;
   /** @type {(() => void) | undefined} */
@@ -87,8 +95,8 @@ export function registerHermesView(options) {
   const checkStatus = async () => {
     const record = active;
     if (!record) return;
-    const origin = await currentOrigin();
-    if (active === record && origin !== record.origin) detach();
+    const dashboard = await currentDashboard();
+    if (active === record && (dashboard?.origin !== record.origin || dashboard.sessionToken !== record.sessionToken)) detach();
   };
   const supervisorChanged = () => {
     if (!active) { detach(); return; }
@@ -115,8 +123,9 @@ export function registerHermesView(options) {
       win.removeListener('closed', detach);
     };
     try {
-      const origin = await currentOrigin();
-      if (!origin || !enabled() || epoch !== requestEpoch || !ownsHost(event)) return { ok: false, reason: 'not-ready' };
+      const dashboard = await currentDashboard();
+      if (!dashboard || !enabled() || epoch !== requestEpoch || !ownsHost(event)) return { ok: false, reason: 'not-ready' };
+      const { origin, sessionToken } = dashboard;
       // Lazy import keeps the controller unit-testable without launching Electron.
       const runtime = options.electron ?? await import('electron');
       if (disposed || !enabled() || epoch !== requestEpoch || !ownsHost(event)) return { ok: false, reason: 'unavailable' };
@@ -126,7 +135,10 @@ export function registerHermesView(options) {
         sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true,
         partition: 'persist:rhythm-hermes',
       } });
-      const record = { view, win, attachment: randomUUID(), origin, frame: event.senderFrame,
+      // The token never enters a URL, IPC payload, preload, or page injection here. The owned
+      // dashboard child received it through its environment and injects it into its own HTML.
+      // Retaining the generation in main only prevents a restarted backend from reusing this view.
+      const record = { view, win, attachment: randomUUID(), origin, sessionToken, frame: event.senderFrame,
         ready: false, cleanups: /** @type {(() => void)[]} */ ([]),
         generation: /** @type {string | undefined} */ (undefined), port: /** @type {Electron.MessagePortMain | undefined} */ (undefined) };
       active = record;

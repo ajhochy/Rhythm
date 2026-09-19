@@ -17,13 +17,16 @@ createHermesSupervisor({
   resolveBinary,
   showConsent,
 })
-// => { start, stop, getStatus, onStatus, install, restart }
+// => { start, stop, getStatus, getSessionToken, onStatus, install, restart }
 ```
 
 - `start(): Promise<Status>`, `restart(): Promise<Status>`,
   `install(): Promise<Status>`, `stop(): Promise<void>`.
 - `getStatus(): Status`; `onStatus(callback): () => void` unsubscribes.
   Snapshots are copies; subscribe and fetch the current status when mounting.
+- `getSessionToken(): string | undefined` is a main-process-only generation
+  handle for `hermes-view.mjs`. It is never part of `Status`, IPC, preload,
+  a URL, or a log.
 - `RHYTHM_HERMES_ENABLED` defaults ON. Only the literal `"0"` disables it:
   no binary lookup, spawn, installer, or consent dialog; every operation returns
   the disabled status. B3 must hide its sidebar entry when `hermes.enabled` is false.
@@ -34,23 +37,30 @@ createHermesSupervisor({
 - Binary discovery runs `/bin/zsh -l -c 'command -v hermes'`, then checks
   `~/.local/bin/hermes`. No binary yields `absent`. `hermes --version` contributes
   its first line when available; failure to obtain version is nonfatal.
-- Launch is exactly `hermes serve --port <port> --host 127.0.0.1`.
-  `--skip-build` is appended only if `<install-dir>/web/dist/index.html` exists.
+- Launch is exactly `hermes dashboard --port <port> --host 127.0.0.1 --no-open`.
+  `--skip-build` is appended only if
+  `<install-dir>/hermes_cli/web_dist/index.html` exists.
   Resolve symlinks and the official quoted `exec ".../bin/hermes"` wrapper,
   then find the ancestor containing `hermes_cli`; fallback is
-  `~/.hermes/hermes-agent`. **This flag does not enable a dashboard on the
-  installed Hermes version; see the source finding below.**
-- Poll `GET http://127.0.0.1:<port>` at 500 ms intervals, bounded by a 60 s
+  `~/.hermes/hermes-agent`.
+- Poll `GET http://127.0.0.1:<port>/api/health` at 500 ms intervals, bounded by a 60 s
   wall-clock budget. Any HTTP response means listening, including 401/403,
-  redirects, 404, and 5xx. Redirects are not followed. `ready` means an owned
-  child is listening, not that a dashboard page or authenticated session works.
+  redirects, 404, and 5xx. Redirects are not followed. `ready` means the owned
+  dashboard child is listening; view attachment additionally requires the
+  matching in-memory token generation.
+- Immediately before each dashboard child spawn, mint
+  `crypto.randomBytes(32).toString('base64url')`. Remove any inherited
+  `HERMES_DASHBOARD_SESSION_TOKEN` from other child environments and pass the
+  minted value only to the dashboard child as that environment variable.
+  Hermes injects the same value into its own served HTML as
+  `window.__HERMES_SESSION_TOKEN__`; Rhythm never copies it across IPC/preload.
 - Timeout terminates the owned child and reports `readiness-timeout` plus the
   last 50 stderr lines (bounded and with credential-like diagnostics redacted).
   Unexpected exit/spawn failures also become `failed`. No automatic restart.
 - Stop/quit cancels pending startup/consent, sends SIGTERM to owned children,
   waits 3 s, then SIGKILL if still alive. Wait up to another 3 s for confirmed
   exit; retain ownership and report `stop-failed` if exit is not observed.
-  Never invoke `hermes serve --stop`, which stops other Hermes servers too.
+  Never invoke Hermes's global `--stop` command, which stops other Hermes servers too.
 - Repeated starts/installs/restarts are deduplicated. Restart stops the owned
   child and re-resolves the binary. Explicit `--smoke` and `--interactive-smoke`
   sessions do not start, install, restart, or own Hermes; their status stays
@@ -119,11 +129,12 @@ URL-fetch/proxy capability, filesystem capability, or Electron event objects
 cross the Hermes bridge. `before-quit` waits for both existing agent-server
 shutdown and Hermes shutdown; shutdown disables further install/restart intents.
 
-## Installed Hermes source finding — B3 integration dependency
+## Installed Hermes source evidence
 
-Read-only source inspection on 2026-09-18 found that **`hermes serve` does not
-serve the dashboard, even when a built web dist exists**. The launch contract
-above is preserved exactly; switching to `dashboard` was not silently done.
+Read-only source inspection and orchestrator probes on 2026-09-18 established
+that the supervisor must use `hermes dashboard`: `hermes serve` is a headless
+backend and returns 404 at `/`, while the dashboard command serves the SPA and
+public health/status endpoints.
 
 Evidence under `~/.hermes/hermes-agent/`:
 
@@ -132,15 +143,13 @@ Evidence under `~/.hermes/hermes-agent/`:
 - `hermes_cli/main.py:12132–12137`: headless startup unconditionally sets
   `HERMES_SERVE_HEADLESS=1`, skipping the UI build.
 - `hermes_cli/web_server.py:17902–17913`: headless mode mounts a catch-all
-  returning **404 JSON** explaining the UI is disabled. Thus this supervisor's
-  URL, **http://127.0.0.1:9121/**, is the backend root, not a dashboard URL on
-  this installation. Prebuilding `web/dist` alone cannot change that.
-- `hermes_cli/web_server.py:139`: actual dashboard default assets come from
-  **`hermes_cli/web_dist`**, or explicit `HERMES_WEB_DIST`; this differs from
-  the brief's `web/dist` existence condition. B2 retains that condition.
-- For a separately launched `hermes dashboard --no-open --port <port>
-  --host 127.0.0.1`, the browser UI is at **http://127.0.0.1:<port>/**
-  (`web_server.py:18050–18073`). It must not share B2's occupied port.
+  returning **404 JSON** explaining the UI is disabled. A `serve` process would
+  therefore remain unusable for the view regardless of prebuilt assets.
+- `hermes_cli/web_server.py:139`: dashboard assets come from
+  **`hermes_cli/web_dist`**, or explicit `HERMES_WEB_DIST`; the supervisor's
+  skip-build predicate uses that real installed path.
+- For `hermes dashboard --port <port> --host 127.0.0.1 --no-open`, the browser
+  UI is at **http://127.0.0.1:<port>/** (`web_server.py:18050–18073`).
 
 Authentication is also **not “none on loopback”**:
 
@@ -155,11 +164,10 @@ Authentication is also **not “none on loopback”**:
   provider's cookie/session flow applies instead; the legacy token is not
   injected (`web_server.py:772–786, 19553–19560, 17953–17969`).
 
-B3 must not label a successful root HTTP probe as dashboard availability or
-copy an injected Hermes token into Rhythm's renderer/bridge. A dashboard
-embedding/authentication approach needs a revised joint contract; this worker
-adds no proxy and exports no credentials. These findings are source evidence,
-not a live dashboard/browser verification; this worker cannot launch servers.
+B3 never copies the token into Rhythm's renderer bridge. It requires both the
+`ready` status and the supervisor's matching main-only token generation, then
+loads the clean dashboard URL. Hermes's own HTML performs the browser handoff.
+There is no proxy and no Rhythm credential export.
 
 ## Verification boundary
 
@@ -173,38 +181,36 @@ socket binds and Electron launches and must run outside this worker's restrictio
 
 ## View + intents
 
-<!-- B3 appends the view and intent contract here. -->
-## View + intents
-
 ### Native integration with B2
 
 `main.mjs` registers B3 exactly once with
 `registerHermesView({ ipcMain, getWindow: () => mainWindow })`. B3 does not
 implement or replace `rhythmShell.hermes` or supervise a process.
 
-**Required merge wiring:** after creating B2's supervisor, bind its native
-status source to B3 (adapt B2's native names; the renderer contract stays unchanged):
+After creating the supervisor, main binds that exact native instance to the
+view controller; the renderer contract stays unchanged:
 
 ```js
 import { bindHermesViewSupervisor } from './hermes-view.mjs';
 bindHermesViewSupervisor({
   getStatus: () => hermesSupervisor.getStatus(),
+  getSessionToken: () => hermesSupervisor.getSessionToken(),
   onStatus: (callback) => hermesSupervisor.onStatus(callback),
 });
 ```
 
-The getter may return a snapshot or a promise. `onStatus` returns an unsubscribe
+The status getter may return a snapshot or a promise. `getSessionToken()` is
+synchronous and main-only. `onStatus` returns an unsubscribe
 function and must publish failed/stopped/disabled transitions, including a port
 change. No renderer can bind this source. Until B2 is bound, attach returns
-`{ ok: false, reason: 'not-ready' }` and creates no view. Tests inject a native
-getter; they do not claim this unmerged integration has run.
+`{ ok: false, reason: 'not-ready' }` and creates no view. Tests inject the
+native boundaries and verify that main binds the created supervisor instance.
 
-Only `state: 'ready'` with an HTTP root URL at `127.0.0.1`, with exactly the
-supervisor's numeric port, permits attachment. The supervisor must start
-**`hermes dashboard`**, not `hermes serve`: the latter deliberately serves no
-SPA. Keep `HERMES_WEB_DIST` unset unless the selected distribution is explicitly
-qualified against this contract; the native Desktop distribution has a different
-router. B2 owns runtime health, installation consent, restart and version.
+Only `state: 'ready'` with an HTTP root URL at `127.0.0.1`, exactly the
+supervisor's numeric port, and a current in-memory session token permits
+attachment. Keep `HERMES_WEB_DIST` unset unless the selected distribution is
+explicitly qualified against this contract. B2 owns runtime health,
+installation consent, restart, token generation and version.
 
 ### Authentication evidence (read-only inspection, 2026-09-18)
 
@@ -225,7 +231,7 @@ The installed runtime at `~/.hermes/hermes-agent` implements:
   that same injected token. Its token-discovery helper is not needed when loading
   the server's own HTML directly.
 
-Therefore **load the ready dashboard URL directly in the dedicated view**.
+Therefore **load `status.url` directly in the dedicated view**.
 Do not read local credential files, copy cookies, inject a Rhythm bearer, scrape
 tokens into the parent, or invent an auth proxy. Loopback is not tokenless:
 Hermes's HTML bootstrap performs the existing browser handoff. A remotely gated
@@ -319,17 +325,12 @@ zoom/clipping, navigation restrictions and CSS insertion. Browser specs cover
 all UI states, the one bounded action, transitions/teardown and narrow RTL/a11y.
 The worker is prohibited from sockets and launching Electron/Playwright;
 real pinned-runtime behavior and rendered evidence remain orchestrator checks.
-When merging B2/B3, extend the closed bridge-key allowlists in
-`src/security-smoke-receipt.mjs` and `test/electron-shell.test.mjs` to include
-both `hermes` and `hermesView`, add the corresponding nested key/frozen receipts
-in main's security-smoke diagnostics and tests, and include the two B3 node
-test files in the canonical test script. Until updated, the full native security
-smoke rejects the additional bridge key. B3 leaves these shared edits to the
-orchestrator, consistent with the brief's registration-only main edit and named
-file ownership, to avoid racing B2's bridge changes.
+The closed bridge-key allowlists include both `hermes` and `hermesView`, with
+separate nested key/frozen receipts in the source and packaged security smokes.
+The canonical Electron test script includes both B3 node suites.
 
-Packaging also has an explicit support-file copy list in
-`apps/electron/scripts/package-mac.mjs:104–114`. The orchestrator must add
+Packaging has an explicit support-file copy list in
+`apps/electron/scripts/package-mac.mjs`. It includes `hermes-server.mjs` plus
 `hermes-view.mjs`, `hermes-view-preload.cjs`, `hermes-protocol.mjs`,
-`hermes-theme.mjs` and `hermes-theme.css` to that list alongside B2's supervisor
-files. Without that merge edit, a packaged app cannot resolve the new main import.
+`hermes-theme.mjs` and `hermes-theme.css`, so packaged main/preload imports
+resolve without falling back to workspace files.

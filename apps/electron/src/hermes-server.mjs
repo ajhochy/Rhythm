@@ -1,4 +1,5 @@
 import { spawn as nodeSpawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdir, open } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -50,6 +51,8 @@ export function createHermesSupervisor({
   const port = Number(env.RHYTHM_HERMES_PORT ?? '9121');
   const home = env.HOME || homedir();
   const url = `http://127.0.0.1:${port}`;
+  const childBaseEnv = { ...env };
+  delete childBaseEnv.HERMES_DASHBOARD_SESSION_TOKEN;
   /** @type {Status} */
   let status = { state: enabled ? 'stopped' : 'disabled', port, url };
   /** @type {Set<(snapshot: Status) => void>} */
@@ -65,7 +68,12 @@ export function createHermesSupervisor({
   let generation = 0;
   let abort = new AbortController();
   let stderr = '';
+  /** @type {string | undefined} */
+  let sessionToken;
+  /** Retained only to redact late buffered output after a child exits. @type {string | undefined} */
+  let redactionToken;
   const getStatus = () => ({ ...status });
+  const getSessionToken = () => sessionToken;
   /** @param {Status['state']} state @param {Partial<Status>} [details] */
   const publish = (state, details = {}) => {
     status = { port, url, ...details, state };
@@ -78,6 +86,7 @@ export function createHermesSupervisor({
   /** @param {string} value */
   const safeText = (value) => {
     let result = value.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
+    if (redactionToken) result = result.split(redactionToken).join('[redacted]');
     for (const [key, secret] of Object.entries(env)) {
       if (/token|secret|password|api.?key|authorization/i.test(key) && secret) result = result.split(secret).join('[redacted]');
     }
@@ -89,9 +98,9 @@ export function createHermesSupervisor({
   /** @param {number} current */
   const active = (current) => current === generation && !abort.signal.aborted;
 
-  /** @param {string} binary @param {string[]} args */
-  const launch = (binary, args) => {
-    const child = spawn(binary, args, { env: { ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+  /** @param {string} binary @param {string[]} args @param {NodeJS.ProcessEnv} [childEnv] */
+  const launch = (binary, args, childEnv = childBaseEnv) => {
+    const child = spawn(binary, args, { env: { ...childEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
     owned.add(child);
     const release = () => { owned.delete(child); };
     child.once('exit', release);
@@ -175,24 +184,40 @@ export function createHermesSupervisor({
     if (!active(current)) return getStatus();
     // A timed-out discovery child must exit before another process can be owned.
     if (owned.size) return failed('command-stop-failed', { binaryPath, version });
-    const args = ['serve', '--port', String(port), '--host', '127.0.0.1'];
-    if (hasBuiltWeb ? hasBuiltWeb(binaryPath) : existsSync(join(hermesInstallDir(binaryPath, home), 'web/dist/index.html'))) args.push('--skip-build');
-    const child = launch(binaryPath, args);
+    const args = ['dashboard', '--port', String(port), '--host', '127.0.0.1', '--no-open'];
+    if (hasBuiltWeb ? hasBuiltWeb(binaryPath) : existsSync(join(hermesInstallDir(binaryPath, home), 'hermes_cli/web_dist/index.html'))) args.push('--skip-build');
+    sessionToken = randomBytes(32).toString('base64url');
+    redactionToken = sessionToken;
+    let child;
+    try { child = launch(binaryPath, args, { ...childBaseEnv, HERMES_DASHBOARD_SESSION_TOKEN: sessionToken }); }
+    catch (error) {
+      sessionToken = undefined;
+      throw error;
+    }
     server = child;
     const details = { binaryPath, version, pid: child.pid };
     publish('starting', details);
     child.stderr?.on('data', (chunk) => { stderr = (stderr + String(chunk)).split('\n').slice(-51).join('\n').slice(-110_000); });
     child.stdout?.on('data', (chunk) => { log(safeText(String(chunk))); });
-    child.once('error', () => { if (active(current)) failed('spawn-failed', { binaryPath, version }); });
+    child.once('error', () => {
+      if (active(current)) {
+        sessionToken = undefined;
+        failed('spawn-failed', { binaryPath, version });
+      }
+    });
     child.once('exit', (code) => {
       if (server === child) server = undefined;
-      if (active(current)) failed(/address already in use|EADDRINUSE|port.in.use/i.test(stderr) ? 'port-in-use' : `process-exited-${code}${tail() ? `\n${tail()}` : ''}`, { binaryPath, version });
+      if (active(current)) {
+        const reason = /address already in use|EADDRINUSE|port.in.use/i.test(stderr) ? 'port-in-use' : `process-exited-${code}${tail() ? `\n${tail()}` : ''}`;
+        sessionToken = undefined;
+        failed(reason, { binaryPath, version });
+      }
     });
     const deadline = Date.now() + readyTimeoutMs;
     while (active(current) && server === child && status.state === 'starting' && Date.now() < deadline) {
       try {
-        const response = await fetch(url, { method: 'GET', redirect: 'manual', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(Math.max(1, Math.min(2_000, deadline - Date.now())))]) });
-        // Any HTTP response proves listening, including the current headless serve root's 404.
+        const response = await fetch(`${url}/api/health`, { method: 'GET', redirect: 'manual', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(Math.max(1, Math.min(2_000, deadline - Date.now())))]) });
+        // Any HTTP response proves listening; readiness does not depend on a particular body or status.
         void response.body?.cancel().catch(() => {});
         if (active(current) && server === child && status.state === 'starting') return publish('ready', details);
       } catch { /* Retry until the wall-clock budget expires. */ }
@@ -203,6 +228,7 @@ export function createHermesSupervisor({
       // Suppress late exit/readiness updates while shutting down this failed attempt.
       const timeoutGeneration = ++generation;
       await stopOwned();
+      sessionToken = undefined;
       if (timeoutGeneration !== generation) return getStatus();
       return failed(reason, { binaryPath, version });
     }
@@ -215,7 +241,10 @@ export function createHermesSupervisor({
     abort.abort();
     stopping = stopOwned().then(() => {
       if (owned.size) failed('stop-failed');
-      else publish(enabled ? 'stopped' : 'disabled');
+      else {
+        sessionToken = undefined;
+        publish(enabled ? 'stopped' : 'disabled');
+      }
     }).finally(() => { stopping = undefined; });
     return stopping;
   };
@@ -283,7 +312,7 @@ export function createHermesSupervisor({
     return startRun(current);
   });
   return {
-    start, stop, getStatus, install, restart,
+    start, stop, getStatus, getSessionToken, install, restart,
     /** @param {(snapshot: Status) => void} callback */
     onStatus(callback) { listeners.add(callback); return () => { listeners.delete(callback); }; },
   };

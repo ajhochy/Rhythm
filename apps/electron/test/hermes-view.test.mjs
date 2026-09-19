@@ -8,7 +8,7 @@ import { bindHermesViewSupervisor, registerHermesView } from '../src/hermes-view
 const READY = { state: 'ready', port: 9121, url: 'http://127.0.0.1:9121' };
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
-function fixture(t, { status = READY, bound = false, delayedLoad = false } = {}) {
+function fixture(t, { status = READY, token = 'main-only-hermes-token', bound = false, delayedLoad = false } = {}) {
   const handlers = new Map(), views = [], ports = [];
   const ipcMain = Object.assign(new EventEmitter(), { handle: (key, fn) => handlers.set(key, fn), removeHandler: key => handlers.delete(key) });
   const mainFrame = { url: 'rhythm://app/index.html#/hermes' };
@@ -55,11 +55,14 @@ function fixture(t, { status = READY, bound = false, delayedLoad = false } = {})
     setBounds(bounds) { this.bounds = bounds; }
   }
   let currentStatus = status;
+  let currentToken = token;
+  let tokenReads = 0;
   let enabled = true;
   let statusListener;
-  if (bound) bindHermesViewSupervisor({ getStatus: () => currentStatus, onStatus: fn => { statusListener = fn; return () => {}; } });
+  const getSessionToken = () => { tokenReads += 1; return currentToken; };
+  if (bound) bindHermesViewSupervisor({ getStatus: () => currentStatus, getSessionToken, onStatus: fn => { statusListener = fn; return () => {}; } });
   const dispose = registerHermesView({ ipcMain, getWindow: () => win, ...(bound ? {} : { getStatus: () => currentStatus }),
-    enabled: () => enabled, electron: { WebContentsView, MessageChannelMain } });
+    ...(bound ? {} : { getSessionToken }), enabled: () => enabled, electron: { WebContentsView, MessageChannelMain } });
   t.after(dispose);
   const event = { sender: host, senderFrame: mainFrame };
   const call = (name, value, sender = event) => value === undefined ? handlers.get(name)(sender) : handlers.get(name)(sender, value);
@@ -69,6 +72,8 @@ function fixture(t, { status = READY, bound = false, delayedLoad = false } = {})
   };
   return { views, ports, children, handlers, event, host, win, call, acknowledge, dispose,
     setStatus: value => { currentStatus = value; statusListener?.(value); },
+    setToken: value => { currentToken = value; statusListener?.(currentStatus); },
+    tokenReads: () => tokenReads,
     setEnabled: value => { enabled = value; },
   };
 }
@@ -107,6 +112,31 @@ test('Hermes view is sandboxed, separately partitioned, zoomed and themed on dom
   for (const [url, cancel] of [['http://127.0.0.1:9121/api/status', false], ['ws://127.0.0.1:9121/api/ws', false], ['http://127.0.0.1:4001/api', true], ['https://evil.test', true], ['file:///etc/passwd', true]]) {
     let result; contents.request({ url }, value => { result = value; }); assert.deepEqual(result, { cancel });
   }
+});
+
+test('issue-1542-c8: Hermes view requires the main-only token but loads only the clean ready URL for server HTML bootstrap', async t => {
+  const token = 'private-session-token';
+  const f = fixture(t, { token });
+  const result = await f.call('hermes:view:attach');
+  assert.equal(result.ok, true);
+  assert.equal(typeof result.attachment, 'string');
+  assert.ok(f.tokenReads() > 0, 'native attach must bind the supervisor token generation');
+  assert.deepEqual(f.views[0].webContents.loads, [`${READY.url}/`]);
+  assert.doesNotMatch(JSON.stringify({ result, options: f.views[0].options, loads: f.views[0].webContents.loads }), new RegExp(token));
+
+  const missing = fixture(t, { token: null });
+  assert.deepEqual(await missing.call('hermes:view:attach'), { ok: false, reason: 'not-ready' });
+  assert.deepEqual(missing.views, []);
+});
+
+test('issue-1542-c9: Hermes token rotation revokes a view tied to the prior dashboard start', async t => {
+  const f = fixture(t, { bound: true });
+  await f.call('hermes:view:attach');
+  const contents = f.views[0].webContents;
+  f.setToken('next-dashboard-token');
+  await tick();
+  assert.equal(contents.destroyed, true);
+  assert.equal(f.children.size, 0);
 });
 
 test('Hermes foreign frames, absent acknowledgement, and malformed intents cause zero navigation', async t => {
@@ -315,4 +345,17 @@ test('Hermes view preload gives the page no native API and closes old ports', as
   assert.deepEqual(sent, [['hermes:view:document-ready', 'doc-one'], ['hermes:view:document-ready', 'doc-two']]);
   assert.equal(window.rhythmShell, undefined);
   window.emit('pagehide'); assert.equal(second.closed, true);
+});
+
+test('issue-1542-c10: packaged main stages every Hermes view support file', async () => {
+  const packageSource = await readFile(new URL('../scripts/package-mac.mjs', import.meta.url), 'utf8');
+  for (const file of ['hermes-view.mjs', 'hermes-view-preload.cjs', 'hermes-protocol.mjs', 'hermes-theme.mjs', 'hermes-theme.css']) {
+    assert.match(packageSource, new RegExp(`src/${file.replaceAll('.', '\\.')}`), `${file} is missing from the explicit package manifest`);
+  }
+});
+
+test('issue-1542-c11: canonical Electron tests include both B3 suites', async () => {
+  const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.match(manifest.scripts.test, /test\/hermes-protocol\.test\.mjs/);
+  assert.match(manifest.scripts.test, /test\/hermes-view\.test\.mjs/);
 });

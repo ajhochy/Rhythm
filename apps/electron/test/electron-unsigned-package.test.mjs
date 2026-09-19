@@ -190,7 +190,7 @@ test('slice-7-c5: packaged binary preserves renderer isolation and fail-closed p
   await assertPackagedBundle('slice-7-c5');
   const receipt = await packagedSmoke(['--smoke', '--security-smoke']);
   assert.equal(receipt.bridge?.nodeExposed, false, 'slice-7-c5: Node is exposed in the packaged renderer');
-  assert.deepEqual(receipt.bridge?.keys, ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory', 'hermes'], 'slice-7-c5: packaged preload exposes capabilities beyond the approved closed surface');
+  assert.deepEqual(receipt.bridge?.keys, ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory', 'hermes', 'hermesView'], 'slice-7-c5: packaged preload exposes capabilities beyond the approved closed surface');
   assert.equal(receipt.bridge?.frozen, true, 'slice-7-c5: packaged lifecycle object is not frozen');
   assert.deepEqual(receipt.bridge?.gateway?.keys, ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase'], 'slice-7-c5: packaged preload gateway configuration differs from the approved runtime values');
   assert.equal(receipt.bridge?.gateway?.frozen, true, 'slice-7-c5: packaged gateway metadata is not frozen');
@@ -207,6 +207,8 @@ test('slice-7-c5: packaged binary preserves renderer isolation and fail-closed p
   assert.equal(receipt.bridge?.updates?.frozen, true, 'slice-7-c5: packaged update surface is not frozen');
   assert.deepEqual(receipt.bridge?.hermes?.keys, ['enabled', 'getStatus', 'install', 'restart', 'onStatus']);
   assert.equal(receipt.bridge?.hermes?.frozen, true);
+  assert.deepEqual(receipt.bridge?.hermesView?.keys, ['attach', 'setBounds', 'detach', 'sendIntent']);
+  assert.equal(receipt.bridge?.hermesView?.frozen, true);
   assert.equal(Number.isInteger(receipt.bridge?.value?.version), true, 'slice-7-c5: packaged lifecycle object has no integer version');
   assert.deepEqual(receipt.denials, {
     navigation: true,

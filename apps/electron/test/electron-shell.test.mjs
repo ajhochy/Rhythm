@@ -113,7 +113,7 @@ test('directory-picker: actual preload adds only a no-payload selectDirectory ca
     process: { argv: [], env: {}, platform: 'darwin' },
     window: { addEventListener() {} },
   });
-  assert.deepEqual(Object.keys(bridge), ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory']);
+  assert.deepEqual(Object.keys(bridge), ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory', 'hermes', 'hermesView']);
   assert.equal(Object.isFrozen(bridge), true);
   assert.equal(await bridge.selectDirectory({ properties: ['openFile'] }), '/selected/project');
   assert.deepEqual(calls, [['shell:select-directory']]);
@@ -196,7 +196,7 @@ test('slice-5-c3: actual Electron launch loads the local agents route', async ()
 test('slice-5-c4: actual preload exposes only frozen versioned lifecycle, gateway configuration, Google auth, human-approval signing, and agent-server status', async () => {
   const result = await smoke();
   assert.deepEqual(result.runtime, { apiBase: 'http://127.0.0.1:4001', engineBase: 'http://127.0.0.1:4096', testOverride: false });
-  assert.deepEqual(result.bridge.keys, ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory', 'hermes']);
+  assert.deepEqual(result.bridge.keys, ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory', 'hermes', 'hermesView']);
   assert.equal(result.bridge.frozen, true);
   assert.deepEqual(result.bridge.gateway.keys, ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase']);
   assert.equal(result.bridge.gateway.frozen, true);
@@ -220,6 +220,8 @@ test('slice-5-c4: actual preload exposes only frozen versioned lifecycle, gatewa
   assert.equal(result.bridge.updates.frozen, true);
   assert.deepEqual(result.bridge.hermes.keys, ['enabled', 'getStatus', 'install', 'restart', 'onStatus']);
   assert.equal(result.bridge.hermes.frozen, true);
+  assert.deepEqual(result.bridge.hermesView.keys, ['attach', 'setBounds', 'detach', 'sendIntent']);
+  assert.equal(result.bridge.hermesView.frozen, true);
   assert.equal(result.bridge.hermes.enabled, process.env.RHYTHM_HERMES_ENABLED !== '0');
   assert.equal(result.bridge.hermes.status.state, process.env.RHYTHM_HERMES_ENABLED === '0' ? 'disabled' : 'stopped');
   assert.equal(result.bridge.hermes.status.url, `http://127.0.0.1:${process.env.RHYTHM_HERMES_PORT ?? '9121'}`);
