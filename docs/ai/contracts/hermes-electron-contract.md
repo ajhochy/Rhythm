@@ -65,9 +65,10 @@ createHermesSupervisor({
   exit; retain ownership and report `stop-failed` if exit is not observed.
   Never invoke Hermes's global `--stop` command, which stops other Hermes servers too.
 - Repeated starts/installs/restarts are deduplicated. Restart stops the owned
-  child and re-resolves the binary. Explicit `--smoke` and `--interactive-smoke`
-  sessions do not start, install, restart, or own Hermes; their status stays
-  stopped (or disabled), matching the existing non-owning runtime boundary.
+  child and re-resolves the binary. Explicit `--smoke` and `--missing-dist`
+  self-tests do not start, install, restart, or own Hermes. Interactive smoke
+  leaves the external agent runtime unowned but supervises Hermes whenever
+  `RHYTHM_HERMES_ENABLED !== '0'`.
 
 ```ts
 type Status = {
@@ -182,7 +183,8 @@ proxy or Rhythm credential export, and detach clears the ephemeral session.
 ## Verification boundary
 
 Socket-free fake-OS lifecycle, real-filesystem installer-log/path, real-preload
-VM, and real-main VM tests live in `apps/electron/test/hermes-server.test.mjs`.
+VM, and real-main VM tests live in `apps/electron/test/hermes-server.test.mjs`
+and `apps/electron/test/main-runtime.test.mjs`.
 Existing Electron rendered/preload and packaged-security receipt checks now
 include the closed Hermes bridge. They are written for the orchestrator to run;
 this worker does not launch Electron, Playwright, or Hermes. Production and

@@ -375,12 +375,18 @@ test('Hermes main flag off does not start and returns disabled', async () => {
   assert.equal(f.handlers.get('hermes:get-status')(f.event).state, 'disabled');
 });
 
-test('Hermes interactive smoke remains non-owning even for install/restart intents', async () => {
+test('Hermes interactive smoke owns only Hermes, including install/restart and shutdown', async () => {
   const f = await mainFixture({ argv: ['--interactive-smoke'] });
-  assert.deepEqual(f.calls, ['register-hermes-view', 'bind-hermes-view']);
-  for (const channel of ['hermes:get-status', 'hermes:install', 'hermes:restart']) assert.equal((await f.handlers.get(channel)(f.event)).state, 'stopped');
-  f.app.emit('before-quit', { preventDefault: () => assert.fail('non-owning smoke must not delay quit') });
-  assert.deepEqual(f.calls, ['register-hermes-view', 'bind-hermes-view']);
+  assert.deepEqual(f.calls, ['register-hermes-view', 'bind-hermes-view', 'start-hermes']);
+  for (const channel of ['hermes:install', 'hermes:restart']) await f.handlers.get(channel)(f.event);
+  assert.ok(f.calls.includes('install-hermes'));
+  assert.ok(f.calls.includes('restart-hermes'));
+  let prevented = false;
+  f.app.emit('before-quit', { preventDefault: () => { prevented = true; } });
+  assert.equal(prevented, true);
+  assert.ok(f.calls.includes('stop-hermes'));
+  assert.ok(!f.calls.includes('stop-agent'));
+  f.release(); await tick(); assert.equal(f.calls.at(-1), 'quit');
 });
 
 test('Hermes failed installer does not start a server and retains output', async (t) => {

@@ -64,17 +64,24 @@ async function interactiveRuntime(argv, userData = '/fixture/interactive-user-da
 
 test('interactive-runtime-c1: interactive smoke keeps the visible normal route', async () => {
   const result = await interactiveRuntime(['--interactive-smoke', '--allow-test-runtime-ports']);
-  assert.deepEqual(result.calls, [['lock', '/fixture/interactive-user-data']]);
+  assert.deepEqual(result.calls[0], ['lock', '/fixture/interactive-user-data']);
+  assert.ok(result.calls.includes('prevent-quit'));
+  assert.ok(result.calls.includes('quit'));
   assert.equal(result.windows.length, 1);
   assert.equal(result.windows[0].options.show, true);
   assert.equal(result.windows[0].url, 'rhythm://app/index.html#/agents');
 });
 
-test('interactive-runtime-c2: interactive smoke never owns or stops the external runtime', async () => {
+test('interactive-runtime-c2: interactive smoke leaves the external runtime unowned while Hermes has shutdown hooks', async () => {
   const result = await interactiveRuntime(['--interactive-smoke', '--allow-test-runtime-ports']);
-  assert.deepEqual(result.calls, [['lock', '/fixture/interactive-user-data']]);
-  assert.equal(result.processBoundary.listenerCount('SIGINT'), 0);
-  assert.equal(result.processBoundary.listenerCount('SIGTERM'), 0);
+  assert.deepEqual(result.calls[0], ['lock', '/fixture/interactive-user-data']);
+  assert.ok(!result.calls.includes('construct'));
+  assert.ok(!result.calls.includes('start'));
+  assert.ok(!result.calls.includes('stop'));
+  assert.ok(result.calls.includes('prevent-quit'));
+  assert.ok(result.calls.includes('quit'));
+  assert.equal(result.processBoundary.listenerCount('SIGINT'), 1);
+  assert.equal(result.processBoundary.listenerCount('SIGTERM'), 1);
   assert.equal(result.handlers.get('rhythm:agent-server:status')().status, 'stopped');
 });
 
