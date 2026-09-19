@@ -9,6 +9,7 @@ import type { MessageThread } from './gateway/messages';
 import { ApprovalGatewayError, type PendingApproval } from './gateway/approvals';
 import { signApprovalDecision } from './security/humanApprovalSigner';
 import { isSessionOffline } from './sessionState';
+import { agentSessionLinkFromHash } from './agentSessionLink';
 import { addPermission, addQuestion, clearPendingDecisions, rehydrateDecisions, removeDecision } from './pending-decisions';
 import type { ComposerAttachment, DemoState, FixtureFile, InspectorTab, Profile, Session, SessionScope, Theme, TodoItem, TranscriptMessage } from './types';
 
@@ -212,6 +213,8 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       // gets from LIVE_SELECTED_SESSION_KEY, needed for c1b's created-session round trip.
       try { return window.localStorage.getItem(FIXTURE_SELECTED_SESSION_KEY) ?? 'session-sunday-handoff'; } catch { return 'session-sunday-handoff'; }
     }
+    const link = agentSessionLinkFromHash(window.location.hash);
+    if (link) return 'sessionId' in link ? link.sessionId : '';
     try { return window.localStorage.getItem(LIVE_SELECTED_SESSION_KEY) ?? ''; } catch { return ''; }
   });
   const [scope, setScope] = useState<SessionScope>('chats');
@@ -355,6 +358,25 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     if (!live) return;
     const sessionGateway = gateway.domains.sessions!;
     let active = true;
+    let sessionListReady = false;
+    const openSessionLink = async () => {
+      const link = agentSessionLinkFromHash(window.location.hash);
+      if (!link) return false;
+      if ('error' in link) {
+        rememberLiveSelection('');
+        setLiveSessionError(link.error);
+        return true;
+      }
+      // A direct local ID is authoritative even when it is outside the first list page.
+      // selectLiveSession reads details; it never resumes a turn or rewrites the session.
+      await selectLiveSession(link.sessionId);
+      return true;
+    };
+    const onSessionLink = () => {
+      // Initial hydration consumes the latest hash after its list request settles.
+      if (sessionListReady) void openSessionLink();
+    };
+    window.addEventListener('hashchange', onSessionLink);
     stableEngineRef.current = new Promise((resolve) => window.setTimeout(resolve, 2_200))
       .then(() => gateway.health.engine())
       .then(() => undefined);
@@ -385,8 +407,12 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       });
       const id = selectedIdRef.current;
       if (!id) return;
-      try { replaceLiveSession(await sessionGateway.detail(id)); }
+      try {
+        const detail = await sessionGateway.detail(id);
+        if (active && selectedIdRef.current === id) replaceLiveSession(detail);
+      }
       catch (error) {
+        if (!active || selectedIdRef.current !== id) return;
         if (error instanceof SessionGatewayError && error.status === 404) {
           setSessions((current) => current.filter((session) => session.id !== id));
           rememberLiveSelection('');
@@ -603,7 +629,10 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       const keepLiveFields = (incoming: Session, existing: Session | undefined) =>
         existing && liveTouched.has(incoming.id) ? { ...incoming, status: existing.status, retry: existing.retry } : incoming;
       setSessions((current) => nextSessions.map((incoming) => keepLiveFields(incoming, current.find((session) => session.id === incoming.id))));
-      const chosen = nextSessions.some((session) => session.id === selectedId) ? selectedId : nextSessions[0]?.id ?? '';
+      sessionListReady = true;
+      if (await openSessionLink()) return;
+      const selectedNow = selectedIdRef.current;
+      const chosen = nextSessions.some((session) => session.id === selectedNow) ? selectedNow : nextSessions[0]?.id ?? '';
       rememberLiveSelection(chosen);
       if (chosen) {
         const detail = await sessionGateway.detail(chosen);
@@ -618,6 +647,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       sessionSocketRef.current = null;
       streamedPartsRef.current.clear();
       reconcileLiveSessionsRef.current = null;
+      window.removeEventListener('hashchange', onSessionLink);
       window.removeEventListener('focus', reconcileOnFocus);
       document.removeEventListener('visibilitychange', reconcileOnVisibility);
       window.clearInterval(reconcileTimer);
@@ -702,8 +732,13 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     setLiveChildView(null);
     rememberLiveSelection(id);
     setLiveSessionError(null);
-    try { replaceLiveSession(await gateway.domains.sessions!.detail(id)); }
-    catch { setLiveSessionError('Session could not be loaded'); }
+    try {
+      const session = await gateway.domains.sessions!.detail(id);
+      replaceLiveSession(session);
+      if (selectedIdRef.current === id) setScope(session.scope);
+    } catch {
+      if (selectedIdRef.current === id) setLiveSessionError('Requested session could not be loaded');
+    }
   };
 
   const refreshLiveSessions = async () => {

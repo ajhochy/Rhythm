@@ -692,3 +692,11 @@
 - **Criteria affected**: issue-1392-c19 passed; issue-1392-c17/c18 remain contract-tested
 - **Root cause**: Bell notifications previously had multiple delivery paths, and most never called the native notification service.
 - **Suggested fix**: Keep native delivery centralized in `NotificationsController` with startup baselining and ID deduplication.
+
+## 2026-09-18 — Session opening — warm renderer handoff
+
+- **Result**: smoke PASS after one renderer Reload and normal sign-in.
+- **Category**: none; process issue: warm-renderer-handoff.
+- **Criteria affected**: session-opening-c1, session-opening-c2, session-opening-native.
+- **Root cause**: hash-only navigation preserves the old loaded document after generated asset replacement; full navigation deliberately clears auth.
+- **Suggested fix**: retain the refresh/sign-in handoff step and verify two exact live targets after it.
