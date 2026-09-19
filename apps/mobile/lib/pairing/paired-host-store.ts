@@ -162,6 +162,14 @@ const CONFIGURED_RELAY_BASE =
   (process.env.EXPO_PUBLIC_RHYTHM_RELAY_URL ?? '').trim() ||
   'https://api.vcrcapps.com/relay';
 
+// Expo embeds this flag at build time. Disabling never erases the saved pairing.
+function relayDisabled(): boolean {
+  return process.env.EXPO_PUBLIC_RHYTHM_RELAY_DISABLED === '1';
+}
+
+const RELAY_DISABLED_MESSAGE =
+  'The relay is disabled. Use an existing direct pairing with Tailscale, or restore a relay-enabled app build. Your saved pairing is unchanged.';
+
 export function safeRelayUrl(value: unknown): string {
   if (typeof value !== 'string') {
     throw new PairedHostError('invalidPayload', 'This relay URL is invalid.');
@@ -204,10 +212,18 @@ export function effectiveGatewayBase(host: {
   gatewayUrl: string;
   relayUrl?: string | null;
 }): string {
+  if (relayDisabled()) {
+    try {
+      return safeGatewayUrl(host.gatewayUrl);
+    } catch {
+      throw new PairedHostError('request', RELAY_DISABLED_MESSAGE);
+    }
+  }
   return host.relayUrl ?? host.gatewayUrl;
 }
 
 function relayUrlFromHealth(value: unknown): string | null {
+  if (relayDisabled()) return null;
   try {
     return safeRelayUrl(value);
   } catch {
@@ -443,7 +459,9 @@ export class PairedHostStore {
     return {
       state: this.state,
       bootstrapState: this.bootstrapState,
-      host: this.host,
+      host: relayDisabled() && this.host
+        ? { ...this.host, relayUrl: null }
+        : this.host,
       message: this.message,
       environments: [...this.environments],
     };
@@ -506,8 +524,14 @@ export class PairedHostStore {
     ) {
       return null;
     }
+    let baseUrl: string;
+    try {
+      baseUrl = effectiveGatewayBase(host);
+    } catch {
+      return null;
+    }
     return new PairedMacClient({
-      baseUrl: this.resolvedGatewayUrl(effectiveGatewayBase(host)),
+      baseUrl: this.resolvedGatewayUrl(baseUrl),
       directBaseUrl: this.resolvedGatewayUrl(host.gatewayUrl),
       getDeviceToken: async () => {
         const token = await this.getCredential(PAIRED_DEVICE_SECURE_KEY);
@@ -571,6 +595,7 @@ export class PairedHostStore {
     token: string,
     signal?: AbortSignal,
   ): Promise<{ host: PairedHost; health: HealthResponse } | null> {
+    if (relayDisabled()) return null;
     let relayBase: string;
     try {
       relayBase = safeRelayUrl(CONFIGURED_RELAY_BASE);
@@ -621,6 +646,7 @@ export class PairedHostStore {
     signal?: AbortSignal,
   ): Promise<PairedHostSnapshot> {
     const operation = ++this.operation;
+    if (relayDisabled()) return this.apply('unhealthy', RELAY_DISABLED_MESSAGE);
     this.bootstrapState = 'discovering';
     this.apply(
       'unpaired',
@@ -691,6 +717,7 @@ export class PairedHostStore {
     input: { userId: number; deviceName: string },
     signal?: AbortSignal,
   ): Promise<PairedHostSnapshot> {
+    if (relayDisabled()) return this.apply('unhealthy', RELAY_DISABLED_MESSAGE);
     const environment = this.environments.find((item) => item.id === environmentId);
     if (!environment) {
       throw new PairedHostError('invalidPayload', 'Choose an authorized computer.');
@@ -931,13 +958,16 @@ export class PairedHostStore {
       );
       return this.apply(
         'connected',
-        usingRelay || relayUrl != null
+        !relayDisabled() && (usingRelay || relayUrl != null)
           ? 'Connected securely to your Mac through Rhythm Cloud Gateway.'
           : 'Connected securely to your Mac.',
         refreshedHost,
       );
     } catch (error) {
       if (operation !== this.operation) return this.snapshot();
+      if (relayDisabled() && error instanceof PairedHostError) {
+        return this.apply('unhealthy', error.message);
+      }
       if (error instanceof ApiError && error.status === 401) {
         try {
           await this.neutralizeDeviceToken();
@@ -962,7 +992,7 @@ export class PairedHostStore {
             'This iPhone is offline. Your paired Mac is still saved.',
           );
         }
-        if (this.state === 'connected' && this.host?.relayUrl != null) {
+        if (!relayDisabled() && this.state === 'connected' && this.host?.relayUrl != null) {
           // Prompt traffic can briefly delay the independent relay health RPC.
           // Keep an active transport through one miss; the next bounded probe
           // still surfaces a sustained outage on the normal five-second cadence.
@@ -987,7 +1017,7 @@ export class PairedHostStore {
     rawPayload: string,
     input: { userId: number; deviceName: string; replaceExisting?: boolean },
   ): Promise<PairedHostSnapshot> {
-    const previous = this.snapshot();
+    const previous = { ...this.snapshot(), host: this.host };
     const operation = ++this.operation;
     this.apply('pairing', 'Pairing securely with your Mac…');
     let payload: PairingPayload = {
@@ -1007,6 +1037,8 @@ export class PairedHostStore {
       }
       const existing = this.host ?? (await this.loadHost());
       if (existing) {
+        // Check rollback/revocation reachability before issuing a replacement.
+        effectiveGatewayBase(existing);
         existingDeviceToken = await this.getCredential(
           PAIRED_DEVICE_SECURE_KEY,
         );
@@ -1289,7 +1321,7 @@ export class PairedHostStore {
       }
       return this.apply(
         'connected',
-        host.relayUrl
+        !relayDisabled() && host.relayUrl
           ? 'Connected securely to your Mac through Rhythm Cloud Gateway.'
           : 'Connected securely to your Mac.',
         host,

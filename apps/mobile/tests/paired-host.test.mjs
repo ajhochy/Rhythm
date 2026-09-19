@@ -1143,4 +1143,68 @@ async function secureWriteReplacement({
   assert.equal(store.snapshot().bootstrapState, 'idle');
 }
 
-console.log('Paired-host security and state-machine tests passed (24 scenarios)');
+await test('issue-1373: relay kill switch preserves pairing and selects only the direct path', async (t) => {
+  const previous = process.env.EXPO_PUBLIC_RHYTHM_RELAY_DISABLED;
+  t.after(() => {
+    if (previous === undefined) delete process.env.EXPO_PUBLIC_RHYTHM_RELAY_DISABLED;
+    else process.env.EXPO_PUBLIC_RHYTHM_RELAY_DISABLED = previous;
+  });
+  delete process.env.EXPO_PUBLIC_RHYTHM_RELAY_DISABLED;
+  __reset();
+  const store = await pairedStore();
+  const RELAY = 'https://api.vcrcapps.com/relay';
+  __setMacHandler(async () => ({ ...healthResponse, relayUrl: RELAY }));
+  await store.refresh();
+  const saved = JSON.parse(__async().get(PAIRED_HOST_META_KEY));
+  assert.equal(saved.relayUrl, RELAY);
+
+  process.env.EXPO_PUBLIC_RHYTHM_RELAY_DISABLED = '1';
+  __macRequests().length = 0;
+  const restored = new PairedHostStore();
+  restored.setAccountUserId(7);
+  const result = await restored.restore();
+  assert.equal(result.state, 'connected');
+  assert.equal(result.host.relayUrl, null, 'provider must not enable relay-only mirror behavior');
+  assert.doesNotMatch(result.message, /Cloud Gateway/);
+  await restored.client().request('/mobile-gateway/projects', { method: 'GET' });
+  assert.equal(__macRequests().length, 2);
+  assert.ok(__macRequests().every((call) => call.baseUrl === saved.gatewayUrl && call.token === TOKEN));
+  assert.deepEqual(JSON.parse(__async().get(PAIRED_HOST_META_KEY)), saved);
+  assert.equal(__secure().get(PAIRED_DEVICE_SECURE_KEY), TOKEN);
+
+  // Legacy pairings must not probe/adopt the relay while disabled either.
+  __async().set(PAIRED_HOST_META_KEY, JSON.stringify({ ...saved, relayUrl: null }));
+  __macRequests().length = 0;
+  const legacy = new PairedHostStore();
+  legacy.setAccountUserId(7);
+  assert.equal((await legacy.restore()).state, 'connected');
+  assert.equal(__macRequests().length, 1);
+  assert.equal(__macRequests()[0].baseUrl, saved.gatewayUrl);
+  assert.equal(JSON.parse(__async().get(PAIRED_HOST_META_KEY)).relayUrl, null);
+
+  // A relay-only cloud grant has no direct fallback: preserve it and fail closed.
+  const relayOnly = { ...saved, gatewayUrl: RELAY };
+  __async().set(PAIRED_HOST_META_KEY, JSON.stringify(relayOnly));
+  __macRequests().length = 0;
+  const blocked = new PairedHostStore();
+  blocked.setAccountUserId(7);
+  assert.equal((await blocked.restore()).state, 'unhealthy');
+  assert.match(blocked.snapshot().message, /relay is disabled.*direct pairing/i);
+  assert.equal(blocked.client(), null);
+  assert.equal(__macRequests().length, 0);
+  assert.deepEqual(JSON.parse(__async().get(PAIRED_HOST_META_KEY)), relayOnly);
+  assert.equal(__secure().get(PAIRED_DEVICE_SECURE_KEY), TOKEN);
+  const cloudCalls = [];
+  const cloud = { request: async (...args) => { cloudCalls.push(args); return {}; } };
+  await blocked.discoverAccountEnvironments(cloud, { userId: 7, deviceName: 'iPhone' });
+  await blocked.connectEnvironment(cloud, 'host-1', { userId: 7, deviceName: 'iPhone' });
+  assert.deepEqual(cloudCalls, []);
+
+  delete process.env.EXPO_PUBLIC_RHYTHM_RELAY_DISABLED;
+  assert.equal((await blocked.refresh()).state, 'connected');
+  assert.equal(blocked.snapshot().host.deviceId, saved.deviceId);
+  assert.equal(__macRequests().at(-1).baseUrl, RELAY);
+  assert.equal(__secure().get(PAIRED_DEVICE_SECURE_KEY), TOKEN);
+});
+
+console.log('Paired-host security and state-machine tests passed');
