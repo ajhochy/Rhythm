@@ -44,10 +44,13 @@ createHermesSupervisor({
   then find the ancestor containing `hermes_cli`; fallback is
   `~/.hermes/hermes-agent`.
 - Poll `GET http://127.0.0.1:<port>/api/health` at 500 ms intervals, bounded by a 60 s
-  wall-clock budget. Any HTTP response means listening, including 401/403,
-  redirects, 404, and 5xx. Redirects are not followed. `ready` means the owned
-  dashboard child is listening; view attachment additionally requires the
-  matching in-memory token generation.
+  wall-clock budget. Redirects are not followed. `ready` requires a 2xx response
+  whose JSON contains `ok: true`, a non-empty string `version`, and boolean
+  `auth_required`. Non-2xx and malformed responses keep the supervisor in
+  `starting`; timeout reports the last non-2xx status without a response body.
+  The requested 2026-09-18 loopback probe on port 9122 was unavailable; the
+  installed `hermes_cli/web_server.py:get_health` handler defines this shape as
+  `{ "ok": true, "version": <string>, "auth_required": <boolean> }`.
 - Immediately before each dashboard child spawn, mint
   `crypto.randomBytes(32).toString('base64url')`. Remove any inherited
   `HERMES_DASHBOARD_SESSION_TOKEN` from other child environments and pass the
@@ -166,8 +169,15 @@ Authentication is also **not “none on loopback”**:
 
 B3 never copies the token into Rhythm's renderer bridge. It requires both the
 `ready` status and the supervisor's matching main-only token generation, then
-loads the clean dashboard URL. Hermes's own HTML performs the browser handoff.
-There is no proxy and no Rhythm credential export.
+loads the clean dashboard URL in a unique in-memory partition. Main replaces any
+page-authored Authorization header with its own Bearer only for that dashboard's
+HTTP origin. Hermes's own HTML bootstrap
+remains necessary because loopback `_ws_auth_reason` accepts browser WebSockets
+only through `?token=...`, and the SPA refuses chat without its served
+`window.__HERMES_SESSION_TOKEN__`. Hermes Desktop likewise extracts the served
+global for local mode. No accepted loopback cookie handoff exists: the cookies
+and single-use WS tickets in `dashboard_auth` apply to gated auth. There is no
+proxy or Rhythm credential export, and detach clears the ephemeral session.
 
 ## Verification boundary
 
@@ -243,8 +253,12 @@ The manifest requires Electron `^33.2.0`; the installed lockfile dependency is
 33.4.11. Its bundled declarations expose `WebContentsView`, `MessageChannelMain`,
 `WebContents.postMessage` and `WebContents.close`. B3 uses a WebContentsView with
 sandbox, context isolation and web security enabled, Node integration disabled,
-and partition `persist:rhythm-hermes`. There are no additional arguments, shared
-parent session, Node/page API, cookie copies or CSP bypasses.
+and a unique in-memory partition named `rhythm-hermes-<generation>` for every
+attach. The name never uses `persist:` and is never reused. There are no
+additional arguments, shared parent session, Node/page API, cookie copies or
+CSP bypasses. Detach unregisters request hooks and permission/download handlers,
+clears storage and cache, closes connections, removes view listeners, and closes
+the view so no session state survives the attachment.
 
 Only the owned `rhythm://app/index.html#/hermes` main frame can attach. Bounds
 and intents also require a native attachment handle, held privately in the
@@ -287,14 +301,17 @@ The dashboard served by `hermes dashboard` is **not** `apps/desktop`:
 `/chat?resume=<encoded-id>`; B3 mirrors that exact route via main-process
 `loadURL`. This resumes the chat surface without sending a prompt.
 
-**Reduction permitted by the worker brief:** no safe client-side draft hook
-exists in the inspected dashboard. Its `web/src/pages/ChatPage.tsx:1238–1256`
-`?learn=` hook sends a terminal command plus carriage return, starting a turn.
-B3 does not use it, mutate React internals, inject JavaScript, or type into a PTY.
-`new-chat` is validated but returns `{ ok: false, reason: 'unsupported-draft' }`
-with zero navigation or submission. The toolbar remains the single intent
-affordance and reports the limitation. It sends a labelled fixed summary of less than 4 KiB because dashboard/task counts are page-local, not in the shared store.
-It never includes task titles, message bodies, session credentials or a URL.
+The inspected dashboard has no query parameter that safely prefills without
+sending: `web/src/pages/ChatPage.tsx:1238–1256` shows `?learn=` appends a carriage
+return and starts a turn. B3 therefore sends the validated `new-chat` DTO only
+over the current document-bound MessagePort. The isolated preload navigates the
+BrowserRouter to `/chat`, polls for
+`.hermes-chat-xterm-host .xterm-helper-textarea`, normalizes CR/LF/tab runs to
+spaces, and dispatches one bubbling, cancellable `input` event after setting the
+editable value. It never dispatches Enter, a key event, or submit. The toolbar
+sends a labelled fixed summary of less than 4 KiB because dashboard/task counts
+are page-local, not in the shared store. It never includes task titles, message
+bodies, session credentials or a URL.
 
 ### Public B3 preload API
 

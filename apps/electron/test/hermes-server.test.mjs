@@ -25,7 +25,11 @@ function fixture(t, options = {}) {
   const supervisor = createHermesSupervisor({
     env: {}, spawn, resolveBinary: async () => '/fixture/hermes',
     checkPort: async (port) => { probes.push(port); return true; },
-    fetch: async () => ({ status: 200 }), hasBuiltWeb: () => false,
+    fetch: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true, version: '0.test', auth_required: true }),
+    }), hasBuiltWeb: () => false,
     log: (text) => logs.push(text),
     graceMs: 10, readyTimeoutMs: 70, pollMs: 2, commandTimeoutMs: 100,
     ...options,
@@ -61,12 +65,50 @@ for (const built of [false, true]) test(`issue-1542-c1: Hermes uses exact pinned
   assert.deepEqual(f.calls[1].settings.stdio, ['ignore', 'pipe', 'pipe']);
 });
 
-for (const code of [200, 302, 401, 403, 404, 503]) test(`issue-1542-c4: Hermes health HTTP ${code} is listening without redirect following`, async (t) => {
+test('Hermes readiness accepts only a 2xx Hermes health JSON payload', async (t) => {
+  const requests = [];
   const f = fixture(t, { fetch: async (url, options) => {
-    assert.equal(url, 'http://127.0.0.1:9122/api/health'); assert.equal(options.method, 'GET'); assert.equal(options.redirect, 'manual');
-    return { status: code };
+    requests.push({ url, options });
+    return { ok: true, status: 200, json: async () => ({ ok: true, version: '0.test', auth_required: true }) };
   }, env: { RHYTHM_HERMES_PORT: '9122' } });
   assert.equal((await f.supervisor.start()).state, 'ready');
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, 'http://127.0.0.1:9122/api/health');
+  assert.equal(requests[0].options.method, 'GET');
+  assert.equal(requests[0].options.redirect, 'manual');
+});
+
+for (const code of [401, 404, 503]) test(`Hermes readiness rejects HTTP ${code} until the deadline and reports the status`, async (t) => {
+  let requests = 0;
+  const f = fixture(t, {
+    fetch: async () => {
+      requests += 1;
+      return { ok: false, status: code, json: async () => ({ ok: true, version: '0.test', auth_required: true }) };
+    },
+    readyTimeoutMs: 15,
+    pollMs: 2,
+  });
+  const status = await f.supervisor.start();
+  assert.equal(status.state, 'failed');
+  assert.match(status.reason, new RegExp(String(code)));
+  assert.ok(requests > 1, 'a non-2xx response must remain starting and retry until the deadline');
+  assert.equal(f.snapshots.some((snapshot) => snapshot.state === 'ready'), false);
+});
+
+test('Hermes readiness rejects a 2xx response whose JSON is not the Hermes health shape', async (t) => {
+  let requests = 0;
+  const f = fixture(t, {
+    fetch: async () => {
+      requests += 1;
+      return { ok: true, status: 200, json: async () => ({ ok: true, version: 12, auth_required: 'yes' }) };
+    },
+    readyTimeoutMs: 15,
+    pollMs: 2,
+  });
+  const status = await f.supervisor.start();
+  assert.equal(status.state, 'failed');
+  assert.ok(requests > 1, 'an invalid body must remain starting and retry until the deadline');
+  assert.equal(f.snapshots.some((snapshot) => snapshot.state === 'ready'), false);
 });
 
 test('issue-1542-c3: Hermes mints a main-only token per child and redacts it from diagnostics', async (t) => {

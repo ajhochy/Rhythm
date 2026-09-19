@@ -19,8 +19,10 @@ function fixture(t, { status = READY, token = 'main-only-hermes-token', bound = 
     contentView: { addChildView: view => children.add(view), removeChildView: view => children.delete(view) } });
   class Port extends EventEmitter {
     closed = false;
+    messages = [];
     close() { if (this.closed) return; this.closed = true; this.emit('close'); }
     start() { this.started = true; }
+    postMessage(value) { this.messages.push(value); }
   }
   class MessageChannelMain {
     constructor() { this.port1 = new Port(); this.port2 = new Port(); ports.push(this); }
@@ -30,6 +32,7 @@ function fixture(t, { status = READY, token = 'main-only-hermes-token', bound = 
       this.options = options; views.push(this);
       const contents = Object.assign(new EventEmitter(), {
         mainFrame: { url: 'about:blank' }, destroyed: false, loads: [], css: [], messages: [],
+        sessionTeardown: [], cookieWrites: [], headerHooks: [],
         isDestroyed: () => contents.destroyed,
         close: () => { contents.destroyed = true; children.delete(this); },
         getURL: () => contents.mainFrame.url,
@@ -47,7 +50,16 @@ function fixture(t, { status = READY, token = 'main-only-hermes-token', bound = 
         session: Object.assign(new EventEmitter(), {
           setPermissionRequestHandler: fn => { contents.permission = fn; },
           setPermissionCheckHandler: fn => { contents.permissionCheck = fn; },
-          webRequest: { onBeforeRequest: fn => { contents.request = fn; } },
+          clearStorageData: async () => { contents.sessionTeardown.push('clearStorageData'); },
+          clearCache: async () => { contents.sessionTeardown.push('clearCache'); },
+          closeAllConnections: async () => { contents.sessionTeardown.push('closeAllConnections'); },
+          cookies: { set: async (details) => { contents.cookieWrites.push(details); } },
+          webRequest: {
+            onBeforeRequest: fn => { contents.request = fn; },
+            onBeforeSendHeaders: (...args) => {
+              contents.headerHooks.push({ filter: args.length === 2 ? args[0] : undefined, listener: args.at(-1) });
+            },
+          },
         }),
       });
       this.webContents = contents;
@@ -92,7 +104,8 @@ test('Hermes view is sandboxed, separately partitioned, zoomed and themed on dom
   const { attachment } = await f.call('hermes:view:attach');
   const view = f.views[0], contents = view.webContents;
   assert.deepEqual(Object.keys(view.options.webPreferences).sort(), ['contextIsolation', 'nodeIntegration', 'partition', 'preload', 'sandbox', 'webSecurity'].sort());
-  assert.equal(view.options.webPreferences.partition, 'persist:rhythm-hermes');
+  assert.match(view.options.webPreferences.partition, /^rhythm-hermes-[a-zA-Z0-9-]+$/);
+  assert.doesNotMatch(view.options.webPreferences.partition, /^persist:/);
   for (const key of ['contextIsolation', 'sandbox', 'webSecurity']) assert.equal(view.options.webPreferences[key], true);
   assert.equal(view.options.webPreferences.nodeIntegration, false);
   assert.match(view.options.webPreferences.preload, /hermes-view-preload.cjs$/);
@@ -114,6 +127,24 @@ test('Hermes view is sandboxed, separately partitioned, zoomed and themed on dom
   }
 });
 
+test('Hermes detach destroys its ephemeral session and the next attach cannot reuse it', async t => {
+  const f = fixture(t);
+  const first = await f.call('hermes:view:attach');
+  const firstView = f.views[0];
+  const firstPartition = firstView.options.webPreferences.partition;
+  assert.doesNotMatch(firstPartition, /^persist:/);
+  assert.equal(await f.call('hermes:view:detach', { attachment: first.attachment }), true);
+  assert.equal(firstView.webContents.destroyed, true);
+  assert.equal(f.children.has(firstView), false);
+  assert.deepEqual(firstView.webContents.sessionTeardown, ['clearStorageData', 'clearCache', 'closeAllConnections']);
+
+  const second = await f.call('hermes:view:attach');
+  assert.equal(second.ok, true);
+  const secondPartition = f.views[1].options.webPreferences.partition;
+  assert.doesNotMatch(secondPartition, /^persist:/);
+  assert.notEqual(secondPartition, firstPartition);
+});
+
 test('issue-1542-c8: Hermes view requires the main-only token but loads only the clean ready URL for server HTML bootstrap', async t => {
   const token = 'private-session-token';
   const f = fixture(t, { token });
@@ -122,11 +153,40 @@ test('issue-1542-c8: Hermes view requires the main-only token but loads only the
   assert.equal(typeof result.attachment, 'string');
   assert.ok(f.tokenReads() > 0, 'native attach must bind the supervisor token generation');
   assert.deepEqual(f.views[0].webContents.loads, [`${READY.url}/`]);
-  assert.doesNotMatch(JSON.stringify({ result, options: f.views[0].options, loads: f.views[0].webContents.loads }), new RegExp(token));
+  assert.doesNotMatch(JSON.stringify({
+    result,
+    options: f.views[0].options,
+    loads: f.views[0].webContents.loads,
+    messages: f.views[0].webContents.messages,
+  }), new RegExp(token));
 
   const missing = fixture(t, { token: null });
   assert.deepEqual(await missing.call('hermes:view:attach'), { ok: false, reason: 'not-ready' });
   assert.deepEqual(missing.views, []);
+});
+
+test('Hermes auth is a main-only Bearer header on the approved ephemeral session, never a cookie or renderer value', async t => {
+  const token = 'main-only-hermes-token';
+  const f = fixture(t, { token });
+  const result = await f.call('hermes:view:attach');
+  const view = f.views[0], contents = view.webContents;
+
+  assert.equal(contents.headerHooks.length, 1);
+  const [{ filter, listener }] = contents.headerHooks;
+  assert.deepEqual(filter, { urls: [`${READY.url}/*`] });
+  let update;
+  listener({
+    url: `${READY.url}/api/health`,
+    requestHeaders: { Accept: 'application/json', authorization: 'Bearer renderer-controlled' },
+  }, (value) => { update = value; });
+  assert.deepEqual(update, { requestHeaders: { Accept: 'application/json', Authorization: `Bearer ${token}` } });
+  assert.deepEqual(contents.cookieWrites, [], 'Hermes loopback auth does not accept a cookie handoff');
+  assert.doesNotMatch(JSON.stringify({
+    result,
+    options: view.options,
+    loads: contents.loads,
+    messages: contents.messages,
+  }), new RegExp(token));
 });
 
 test('issue-1542-c9: Hermes token rotation revokes a view tied to the prior dashboard start', async t => {
@@ -162,13 +222,15 @@ test('Hermes foreign frames, absent acknowledgement, and malformed intents cause
   assert.equal(f.views.length, 1);
 });
 
-test('Hermes navigates only to its dashboard session route and refuses unsafe draft emulation', async t => {
+test('issue-1542-c4: Hermes forwards a validated new-chat draft without submitting and navigates requested sessions', async t => {
   const f = fixture(t);
   const { attachment } = await f.call('hermes:view:attach'); f.acknowledge();
   const contents = f.views[0].webContents;
-  assert.deepEqual(await f.call('hermes:intent', { attachment, intent: { v: 1, type: 'new-chat', context: 'Rhythm dashboard counts unavailable' } }), { ok: false, reason: 'unsupported-draft' });
+  const draft = { v: 1, type: 'new-chat', context: 'Rhythm dashboard counts unavailable' };
+  assert.deepEqual(await f.call('hermes:intent', { attachment, intent: draft }), { ok: true });
   assert.deepEqual(contents.loads, ['http://127.0.0.1:9121/']);
   const port = f.ports[0].port2;
+  assert.deepEqual(port.messages, [draft]);
   assert.deepEqual(await f.call('hermes:intent', { attachment, intent: { v: 1, type: 'navigate-session', sessionId: 'abc-123' } }), { ok: true });
   assert.deepEqual(contents.loads, ['http://127.0.0.1:9121/', 'http://127.0.0.1:9121/chat?resume=abc-123']);
   assert.equal(port.closed, true);
@@ -345,6 +407,70 @@ test('Hermes view preload gives the page no native API and closes old ports', as
   assert.deepEqual(sent, [['hermes:view:document-ready', 'doc-one'], ['hermes:view:document-ready', 'doc-two']]);
   assert.equal(window.rhythmShell, undefined);
   window.emit('pagehide'); assert.equal(second.closed, true);
+});
+
+test('Hermes view preload opens an editable xterm draft without dispatching submit', async () => {
+  const ipc = new EventEmitter(), sent = [], window = new EventEmitter();
+  ipc.send = (...args) => sent.push(args);
+  window.addEventListener = window.on.bind(window);
+  window.dispatchEvent = (event) => window.emit(event.type, event);
+  const location = { href: 'http://127.0.0.1:9121/sessions', pathname: '/sessions' };
+  const history = {
+    pushState(_state, _title, path) {
+      const next = new URL(path, location.href);
+      location.href = next.href;
+      location.pathname = next.pathname;
+    },
+  };
+  const selectors = [], events = [];
+  class FakeTextArea {
+    value = '';
+    dispatchEvent(event) { events.push(event); return true; }
+    focus() { this.focused = true; }
+  }
+  const textarea = new FakeTextArea();
+  const document = {
+    querySelector(selector) {
+      selectors.push(selector);
+      return selector === '.hermes-chat-xterm-host .xterm-helper-textarea' ? textarea : null;
+    },
+  };
+  class FakeEvent { constructor(type, init = {}) { this.type = type; Object.assign(this, init); } }
+  class FakeInputEvent extends FakeEvent {}
+  const port = {
+    closed: false,
+    listeners: new Map(),
+    close() { this.closed = true; },
+    start() { this.started = true; },
+    postMessage() {},
+    addEventListener(type, callback) { this.listeners.set(type, callback); },
+    deliver(data) {
+      const event = { data };
+      this.onmessage?.(event);
+      this.listeners.get('message')?.(event);
+    },
+  };
+  runInNewContext(await readFile(new URL('../src/hermes-view-preload.cjs', import.meta.url), 'utf8'), {
+    require: name => { assert.equal(name, 'electron'); return { ipcRenderer: ipc }; },
+    process: { isMainFrame: true }, window, document, history, location, URL,
+    Event: FakeEvent, InputEvent: FakeInputEvent, PopStateEvent: FakeEvent,
+    setTimeout: (callback) => { callback(); return 1; }, clearTimeout() {},
+  });
+  ipc.emit('hermes:port', { ports: [port] }, 'doc-one');
+  const draft = { v: 1, type: 'new-chat', context: 'Rhythm dashboard summary\r\nUntrusted\tcontext:\ntasks=3' };
+  const editableDraft = 'Rhythm dashboard summary Untrusted context: tasks=3';
+  port.deliver(draft);
+
+  assert.equal(location.pathname, '/chat');
+  assert.ok(selectors.includes('.hermes-chat-xterm-host .xterm-helper-textarea'));
+  assert.equal(textarea.value, editableDraft);
+  assert.equal(textarea.focused, true);
+  assert.deepEqual(events.map((event) => event.type), ['input']);
+  assert.equal(events[0].bubbles, true);
+  assert.equal(events[0].data, editableDraft);
+  assert.doesNotMatch(events[0].data, /[\r\n\t]/);
+  assert.equal(events.some((event) => ['submit', 'keydown', 'keypress', 'keyup'].includes(event.type)), false);
+  assert.deepEqual(sent, [['hermes:view:document-ready', 'doc-one']]);
 });
 
 test('issue-1542-c10: packaged main stages every Hermes view support file', async () => {

@@ -15,7 +15,8 @@
       "mode": "ui",
       "test_file": "apps/web/tests/pages/hermes.spec.ts",
       "test_id": "Hermes disabled bridge hides the destination even if a stale status says ready",
-      "status": "pending"
+      "status": "pending",
+      "reason": "Rendered Playwright execution was prohibited for this no-socket repair run."
     },
     {
       "criterion_id": "issue-1542-c3",
@@ -29,8 +30,8 @@
       "text": "**HRM-B3-AC4:** Valid typed intents navigate to the requested session or open an editable draft with bounded, labelled Rhythm context; neither sends a message nor creates a legacy Rhythm agent session.",
       "mode": "integration",
       "test_file": "apps/electron/test/hermes-view.test.mjs",
-      "test_id": "Hermes navigates only to its dashboard session route and refuses unsafe draft emulation",
-      "status": "pending"
+      "test_id": "issue-1542-c4: Hermes forwards a validated new-chat draft without submitting and navigates requested sessions",
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1542-c5",
@@ -38,7 +39,7 @@
       "mode": "unit",
       "test_file": "apps/electron/test/hermes-protocol.test.mjs",
       "test_id": "Hermes protocol rejects unknown versions/types, malformed DTOs and URL injection",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1542-c6",
@@ -46,7 +47,7 @@
       "mode": "unit",
       "test_file": "apps/electron/test/hermes-view.test.mjs",
       "test_id": "Hermes reload revokes old generation; only the current main frame can reactivate",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1542-c7",
@@ -54,9 +55,10 @@
       "mode": "ui",
       "test_file": "apps/web/tests/pages/hermes.spec.ts",
       "test_id": "Hermes ready is accessible at narrow RTL and enlarged text",
-      "status": "pending"
+      "status": "pending",
+      "reason": "Rendered Playwright execution was prohibited for this no-socket repair run."
     }
   ],
   "stack": "typescript",
-  "not_tested": ["issue-1542-c1", "issue-1542-c3"]
+  "not_tested": ["issue-1542-c1", "issue-1542-c2", "issue-1542-c3", "issue-1542-c7"]
 }

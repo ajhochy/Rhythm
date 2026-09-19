@@ -26,7 +26,7 @@ async function mockHermes(page: Page, state: HermesStatus['state'], options: { e
           attach: async () => { calls.push({ action: 'attach' }); return { ok: !options.rejectAttach }; },
           setBounds: async (bounds: unknown) => { calls.push({ action: 'bounds', payload: bounds }); return true; },
           detach: async () => { calls.push({ action: 'detach' }); return true; },
-          sendIntent: async (intent: unknown) => { calls.push({ action: 'intent', payload: intent }); return { ok: false, reason: 'unsupported-draft' }; },
+          sendIntent: async (intent: unknown) => { calls.push({ action: 'intent', payload: intent }); return { ok: true }; },
         },
       },
     });
@@ -115,7 +115,7 @@ test('Hermes changing the ready origin remounts its native host', async ({ page 
   expect((await receipts(page, 'detach')).length).toBeGreaterThan(0);
 });
 
-test('Hermes asks only on click, sends a labelled bounded summary, and reports unsupported drafts', async ({ page }) => {
+test('Hermes asks only on click, sends a labelled bounded summary, and confirms the editable draft', async ({ page }) => {
   await mockHermes(page, 'ready');
   await openPage(page, '/hermes');
   const ask = page.getByRole('button', { name: 'Ask Hermes about my dashboard' });
@@ -129,7 +129,7 @@ test('Hermes asks only on click, sends a labelled bounded summary, and reports u
   expect(intent.v).toBe(1); expect(intent.type).toBe('new-chat');
   expect(intent.context).toMatch(/^Rhythm dashboard summary\n/);
   expect(Buffer.byteLength(intent.context, 'utf8')).toBeLessThanOrEqual(4096);
-  await expect(page.getByRole('status').filter({ hasText: 'does not support opening a draft' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Draft requested. Review it in Hermes before sending.' })).toBeVisible();
 });
 
 for (const options of [{ rejectStatus: true }, { rejectAttach: true }]) {

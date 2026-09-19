@@ -130,14 +130,16 @@ export function registerHermesView(options) {
       const runtime = options.electron ?? await import('electron');
       if (disposed || !enabled() || epoch !== requestEpoch || !ownsHost(event)) return { ok: false, reason: 'unavailable' };
       if (!event.senderFrame) return { ok: false, reason: 'unavailable' };
+      const partitionName = `rhythm-hermes-${randomUUID()}`;
       const view = new runtime.WebContentsView({ webPreferences: {
         preload: fileURLToPath(new URL('./hermes-view-preload.cjs', import.meta.url)),
         sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true,
-        partition: 'persist:rhythm-hermes',
+        partition: partitionName,
       } });
-      // The token never enters a URL, IPC payload, preload, or page injection here. The owned
-      // dashboard child received it through its environment and injects it into its own HTML.
-      // Retaining the generation in main only prevents a restarted backend from reusing this view.
+      // The token never enters a Rhythm URL, IPC payload, preload, or injected script. The owned
+      // dashboard child still injects its native loopback bootstrap into its own HTML because its
+      // browser WebSocket path accepts only ?token=...; the unique memory partition bounds that
+      // unavoidable page-held value to this attachment and is discarded on detach.
       const record = { view, win, attachment: randomUUID(), origin, sessionToken, frame: event.senderFrame,
         ready: false, cleanups: /** @type {(() => void)[]} */ ([]),
         generation: /** @type {string | undefined} */ (undefined), port: /** @type {Electron.MessagePortMain | undefined} */ (undefined) };
@@ -162,21 +164,40 @@ export function registerHermesView(options) {
         } catch { /* fail closed */ }
         callback({ cancel: !allowed });
       });
+      partition.webRequest.onBeforeSendHeaders({ urls: [`${origin}/*`] }, (details, callback) => {
+        const requestHeaders = Object.fromEntries(Object.entries(details.requestHeaders)
+          .filter(([name]) => name.toLowerCase() !== 'authorization'));
+        callback({ requestHeaders: { ...requestHeaders, Authorization: `Bearer ${sessionToken}` } });
+      });
+      record.cleanups.push(() => {
+        partition.webRequest.onBeforeRequest(null);
+        partition.webRequest.onBeforeSendHeaders(null);
+        partition.setPermissionRequestHandler(null);
+        partition.setPermissionCheckHandler(null);
+        void partition.clearStorageData().catch(() => undefined);
+        void partition.clearCache().catch(() => undefined);
+        void partition.closeAllConnections().catch(() => undefined);
+      });
       contents.setWindowOpenHandler(() => ({ action: 'deny' }));
-      contents.on('will-navigate', (navigation, url) => {
+      /** @param {string} name @param {(...args: any[]) => void} listener */
+      const listen = (name, listener) => {
+        contents.on(/** @type {any} */ (name), listener);
+        record.cleanups.push(() => contents.removeListener(/** @type {any} */ (name), listener));
+      };
+      listen('will-navigate', (navigation, url) => {
         if (!sameOrigin(url, origin)) navigation.preventDefault();
       });
-      contents.on('will-redirect', (navigation, url) => {
+      listen('will-redirect', (navigation, url) => {
         if (!sameOrigin(url, origin)) navigation.preventDefault();
       });
-      contents.on('will-frame-navigate', (navigation) => {
+      listen('will-frame-navigate', (navigation) => {
         if (!navigation.isMainFrame || !sameOrigin(navigation.url, origin)) navigation.preventDefault();
       });
-      contents.on('will-attach-webview', (navigation) => navigation.preventDefault());
-      contents.on('did-start-navigation', (_navigation, _url, _inPlace, isMainFrame) => {
+      listen('will-attach-webview', (navigation) => navigation.preventDefault());
+      listen('did-start-navigation', (_navigation, _url, _inPlace, isMainFrame) => {
         if (isMainFrame) revoke(record);
       });
-      contents.on('render-process-gone', () => { if (active === record) detach(); });
+      listen('render-process-gone', () => { if (active === record) detach(); });
       const bindDocument = () => {
         if (active !== record || !enabled() || !sameOrigin(contents.getURL(), origin)) return;
         revoke(record);
@@ -189,12 +210,12 @@ export function registerHermesView(options) {
         port2.on('close', () => { if (record.port === port2) revoke(record); });
         contents.postMessage('hermes:port', record.generation, [port1]);
       };
-      contents.on('dom-ready', () => {
+      listen('dom-ready', () => {
         bindDocument();
         if (active !== record || !enabled() || !sameOrigin(contents.getURL(), origin)) return;
         void contents.insertCSS(options.themeCss ?? loadHermesTheme(), { cssOrigin: 'user' }).catch(() => undefined);
       });
-      contents.on('did-navigate-in-page', (_navigation, _url, isMainFrame) => { if (isMainFrame) bindDocument(); });
+      listen('did-navigate-in-page', (_navigation, _url, isMainFrame) => { if (isMainFrame) bindDocument(); });
       view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
       win.contentView.addChildView(view);
       try {
@@ -246,7 +267,10 @@ export function registerHermesView(options) {
     const generation = record.generation;
     await checkStatus();
     if (active !== record || !record.ready || generation !== record.generation || !ownsAttachment(event, value)) return { ok: false, reason: 'unavailable' };
-    if (intent.type === 'new-chat') return { ok: false, reason: 'unsupported-draft' };
+    if (intent.type === 'new-chat') {
+      record.port?.postMessage(intent);
+      return { ok: true };
+    }
     revoke(record);
     try {
       await record.view.webContents.loadURL(`${record.origin}/chat?resume=${encodeURIComponent(intent.sessionId)}`);
