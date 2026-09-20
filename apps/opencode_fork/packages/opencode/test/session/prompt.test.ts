@@ -1566,6 +1566,7 @@ unix(
       const { dir, llm } = yield* useServerConfig(providerCfg)
       const prompt = yield* SessionPrompt.Service
       const sessions = yield* Session.Service
+      const readyFile = path.join(dir, "interrupted-bash-output-ready")
       const chat = yield* sessions.create({
         title: "Interrupted bash truncation",
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
@@ -1580,7 +1581,7 @@ unix(
 
       yield* llm.tool("bash", {
         command:
-          'i=0; while [ "$i" -lt 4000 ]; do printf "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx %05d\\n" "$i"; i=$((i + 1)); done; sleep 30',
+          'i=0; while [ "$i" -lt 4000 ]; do printf "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx %05d\\n" "$i"; i=$((i + 1)); done; touch interrupted-bash-output-ready; sleep 30',
         description: "Print many lines",
         timeout: 30_000,
         workdir: path.resolve(dir),
@@ -1588,7 +1589,8 @@ unix(
 
       const run = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
       yield* llm.wait(1)
-      yield* Effect.sleep(150)
+      // The model test double has accepted the tool request, but the shell may still be initializing.
+      yield* waitForShellProcess(readyFile)
       yield* prompt.cancel(chat.id)
 
       const exit = yield* Fiber.await(run)
