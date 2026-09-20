@@ -43,8 +43,8 @@
       "text": "Reuse compatible authenticated Hermes services; stop only services owned by this embedding.",
       "mode": "integration",
       "status": "partial",
-      "reason": "Real owned app quit exited all 38 recorded descendants; real Rhythm API/engine reuse test 1/1. Borrowed Hermes ownership/authentication has boundary tests, but live standalone coexistence was not qualified.",
-      "test_file": "apps/desktop/electron/embedded-host.test.ts",
+      "reason": "Real owned candidate quits cleanly; boundary tests pass. Borrowed backend probe passed once, then repeatedly hung at renderer-load, including the final production BrowserWindow/WebContentsView layout. Stable reuse/disposal remains unqualified; probe cleanup completed without touching the open candidate.",
+      "test_file": "apps/electron/test/hermes-desktop-ownership-live.test.mjs",
       "test_id": "issue-1542-desktop-c5"
     },
     {
@@ -94,7 +94,7 @@
   ],
   "evidence_run": "docs/ai/runs/2026-09-19-hermes-desktop-replacement.md",
   "qualification_limits": [
-    "Live borrowed standalone Hermes coexistence",
+    "Stable borrowed Hermes backend reuse/disposal and full standalone UI coexistence matrix",
     "Physical microphone/voice and every remote/auxiliary Desktop path",
     "Fresh self-contained pinned Python distribution and notarization",
     "Original mega hosted ACP/write/device/icon acceptance; global marker absence not rechecked"

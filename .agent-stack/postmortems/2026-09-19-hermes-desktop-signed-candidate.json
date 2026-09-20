@@ -36,7 +36,9 @@
   "process_issues": [
     "Hidden probe did not exercise Rhythm network guard; signed app test caught stylesheet failure.",
     "Remote guest test covered HTTP(S) initial URLs but missed actual Desktop Browser about:blank bootstrap.",
-    "Review found random in-memory main partition would lose drafts/preferences on full app quit; added real two-phase restart proof before final claim."
+    "Review found random in-memory main partition would lose drafts/preferences on full app quit; added real two-phase restart proof before final claim.",
+    "Removing module-level await of app readiness allowed one ownership-probe pass, but repeated renderer-load hangs mean the cause of the remaining failure is unknown.",
+    "Parent repeat exposed orphan cleanup through the Electron CLI wrapper. The final probe uses direct executable and owned group reaping, but still hangs with production BrowserWindow/WebContentsView geometry; C5 remains partial."
   ],
   "resolution": "Font resource policy, actual about:blank bootstrap/navigation guard, ready-state test waits and stable main renderer partition repaired; signed local candidate rebuilt and tested before push.",
   "streaming_proof": {
@@ -51,7 +53,9 @@
     "owned_process_cleanup": "38/38 exited on each of two quits",
     "header": "removed, native screenshot inspected",
     "browser": "controlled HTTP page rendered through actual Desktop Browser",
-    "log": "/tmp/rhythm-hermes-native-persistent-tests.log"
+    "log": "/tmp/rhythm-hermes-native-persistent-tests.log",
+    "borrowed_hermes_backend": "Inconclusive: initial 1/1 followed by repeated renderer-load hangs. Final production-shaped probe failed after 102.5 seconds; probe group cleaned up, candidate untouched. Log /tmp/rhythm-hermes-ownership-wcv-final.log.",
+    "whole_repository_gate": "Issue gate passed. PR gate failed: one OpenCode cancellation timeout and three mobile workspace-menu failures; focused engine reproduction instead failed the truncated metadata assertion."
   },
   "workflow_adherence": {
     "expected_chain": [
