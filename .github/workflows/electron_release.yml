@@ -58,12 +58,42 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.x'
+          node-version: '22.22.0'
           architecture: ${{ matrix.arch }}
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.11'
 
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.13'
+
+      - name: Check out pinned Hermes Desktop source
+        run: |
+          set -euo pipefail
+          HERMES_DESKTOP_SOURCE_COMMIT="$(node --input-type=module -e "import('./apps/electron/src/hermes-desktop-config.mjs').then(({ PINNED_HERMES_DESKTOP_SOURCE_COMMIT }) => process.stdout.write(PINNED_HERMES_DESKTOP_SOURCE_COMMIT))")"
+          [[ "${HERMES_DESKTOP_SOURCE_COMMIT}" =~ ^[0-9a-f]{40}$ ]]
+          HERMES_DESKTOP_ROOT="${RUNNER_TEMP}/hermes-rhythm-plugin"
+          git init "${HERMES_DESKTOP_ROOT}"
+          git -C "${HERMES_DESKTOP_ROOT}" remote add origin https://github.com/ajhochy/hermes-rhythm-plugin.git
+          git -C "${HERMES_DESKTOP_ROOT}" fetch --depth=1 origin "${HERMES_DESKTOP_SOURCE_COMMIT}"
+          git -C "${HERMES_DESKTOP_ROOT}" checkout --detach FETCH_HEAD
+          test "$(git -C "${HERMES_DESKTOP_ROOT}" rev-parse HEAD)" = "${HERMES_DESKTOP_SOURCE_COMMIT}"
+          echo "HERMES_DESKTOP_ROOT=${HERMES_DESKTOP_ROOT}" >> "$GITHUB_ENV"
+          echo "HERMES_DESKTOP_SOURCE_COMMIT=${HERMES_DESKTOP_SOURCE_COMMIT}" >> "$GITHUB_ENV"
+
+      - name: Build pinned Hermes Desktop artifact
+        run: |
+          set -euo pipefail
+          test "$(git -C "${HERMES_DESKTOP_ROOT}" rev-parse HEAD)" = "${HERMES_DESKTOP_SOURCE_COMMIT}"
+          test "$(node -p 'process.arch')" = "${RHYTHM_PACKAGE_ARCH}"
+          export npm_config_python="$(command -v python3)"
+          npm ci --prefix "${HERMES_DESKTOP_ROOT}"
+          GITHUB_SHA= GITHUB_REF_NAME= GITHUB_HEAD_REF= npm --prefix "${HERMES_DESKTOP_ROOT}/apps/desktop" run build:rhythm-embedded
+          ARTIFACT_ROOT="${HERMES_DESKTOP_ROOT}/apps/desktop/build/rhythm-embedded"
+          test -f "${ARTIFACT_ROOT}/manifest.json"
+          echo "RHYTHM_HERMES_DESKTOP_ARTIFACT_DIR=${ARTIFACT_ROOT}" >> "$GITHUB_ENV"
 
       - name: Install vendored fork dependencies
         working-directory: apps/opencode_fork

@@ -12,15 +12,18 @@ const decision = { approvalId: 'approval-1', status: 'approved', decisionNonce: 
 const tick = () => new Promise((r) => setImmediate(r));
 
 // Real main + config + preload; fake only Electron, OAuth browser interaction, signer and I/O.
-async function host(t, immediateLogin = false, Notification = { isSupported: () => false }) {
+async function host(t, immediateLogin = false, Notification = { isSupported: () => false }, onInitialBridge) {
   const directory = await mkdtemp(join(tmpdir(), 'rhythm-e12a-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const handlers = new Map(), listeners = new Map(), protocols = new Map();
   const windows = [], logins = [], requests = [], signed = [], opened = [];
-  let quits = 0;
+  /** Resolves only after the actual preload bridge has been installed. */
+  let resolveInitialBridge;
+  const initialBridgeReady = new Promise((resolve) => { resolveInitialBridge = resolve; });
+  let quits = 0, exits = 0;
   const app = Object.assign(new EventEmitter(), {
     getPath: () => directory, requestSingleInstanceLock: () => true, isReady: () => false,
-    whenReady: async () => {}, getVersion: () => 'test', quit() { quits += 1; }, exit(code) { throw new Error(`startup ${code}`); },
+    whenReady: async () => {}, getVersion: () => 'test', quit() { quits += 1; }, exit() { exits += 1; },
   });
   const preload = await readFile(new URL('../src/preload.cjs', import.meta.url), 'utf8');
   class Window {
@@ -29,7 +32,13 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
       if (Notification.isSupported()) { this.isMinimized = () => false; this.focus = () => {}; }
       this.webContents = Object.assign(new EventEmitter(), {
         mainFrame: { url: '' }, getURL: () => this.webContents.mainFrame.url,
-        isDestroyed: () => this.destroyed, send() {}, setWindowOpenHandler() {}, executeJavaScript: async () => {},
+        isDestroyed: () => this.destroyed, send() {}, setWindowOpenHandler() {},
+        executeJavaScript: async (source) => {
+          if (source === 'globalThis.Notification.requestPermission()') {
+            resolveInitialBridge?.();
+            resolveInitialBridge = undefined;
+          }
+        },
       });
       windows.push(this);
     }
@@ -46,6 +55,11 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
           invoke: (key, ...args) => handlers.get(key)(event(), ...args), on() {}, removeListener() {},
         },
       }) }));
+      if (onInitialBridge && windows.length === 1) {
+        await onInitialBridge(this.bridge);
+        resolveInitialBridge?.();
+        resolveInitialBridge = undefined;
+      }
       this.webContents.emit('did-finish-load');
     }
   }
@@ -66,9 +80,9 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
   });
   await module.evaluate();
-  for (let index = 0; index < 20 && !windows.at(-1)?.bridge; index += 1) await tick();
+  await initialBridgeReady;
   return {
-    windows, logins, requests, signed, opened, handlers, listeners, quits: () => quits,
+    windows, logins, requests, signed, opened, handlers, listeners, quits: () => quits, exits: () => exits,
     current: () => windows.at(-1),
     event: () => ({ sender: windows.at(-1).webContents, senderFrame: windows.at(-1).webContents.mainFrame }),
     artifact: () => protocols.get('rhythm-artifact')({ url: 'rhythm-artifact://app/00000000-0000-4000-8000-000000000801', method: 'GET' }),
@@ -231,6 +245,15 @@ test('E42: current session is main-owned and logout clears it before rebuilding'
   await first.bridge.auth.logout();
   assert.equal(first.destroyed, true);
   assert.equal(await h.current().bridge.auth.currentSession(), null);
+});
+
+test('initial-load logout cannot make the old window fail startup after its replacement begins', async (t) => {
+  const h = await host(t, false, undefined, async (bridge) => bridge.auth.logout());
+  await tick();
+  assert.equal(h.windows.length, 2);
+  assert.equal(h.windows[0].destroyed, true);
+  assert.equal(h.current().destroyed, false);
+  assert.equal(h.exits(), 0);
 });
 
 test('issue-1542-c6 / E44: update capability opens only the fixed Rhythm Releases page', async (t) => {

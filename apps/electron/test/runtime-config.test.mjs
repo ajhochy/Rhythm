@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { promisify } from 'node:util';
 
 import { resolveGoogleDesktopClientId } from '../src/runtime-config.mjs';
+
+const run = promisify(execFile);
 
 test('local dev can supply the public Google desktop client ID at runtime', () => {
   assert.equal(
@@ -44,13 +48,37 @@ test('web build declares Node types as a required root dependency', async () => 
 
 test('Electron release installs every package dependency and builds assets before shell smoke', async () => {
   const workflow = await readFile(new URL('../../../.github/workflows/electron_release.yml', import.meta.url), 'utf8');
-  assert.match(workflow, /node-version:\s*['"]22\.x['"]/);
+  assert.match(workflow, /node-version:\s*['"]22\.22\.0['"]/);
   assert.doesNotMatch(workflow, /node-version:\s*['"](?:24|26)\.x['"]/);
   for (const workspace of ['apps/web', 'apps/api_server', 'apps/electron']) {
     assert.match(workflow, new RegExp(`npm --prefix ${workspace.replace('/', '\\/')} ci`));
     assert.doesNotMatch(workflow, new RegExp(`npm --prefix ${workspace.replace('/', '\\/')} install`));
   }
   assert.match(workflow, /npm run test:package/);
+  assert.match(workflow, /actions\/setup-python@[a-f0-9]{40}/);
+  assert.match(workflow, /python-version:\s*['"]3\.11['"]/);
+  assert.match(workflow, /https:\/\/github\.com\/ajhochy\/hermes-rhythm-plugin\.git/);
+  assert.match(workflow, /PINNED_HERMES_DESKTOP_SOURCE_COMMIT/);
+  const sourceCommitValidation = workflow.split(/\r?\n/).find((line) => line.includes('HERMES_DESKTOP_SOURCE_COMMIT') && line.includes('=~'))?.trim();
+  assert.ok(sourceCommitValidation, 'Electron release must validate the extracted Hermes source commit before fetching it');
+  await run('bash', ['-c', sourceCommitValidation], {
+    env: { ...process.env, HERMES_DESKTOP_SOURCE_COMMIT: 'a'.repeat(40) },
+  });
+  await assert.rejects(
+    run('bash', ['-c', sourceCommitValidation], { env: { ...process.env, HERMES_DESKTOP_SOURCE_COMMIT: 'not-a-full-sha' } }),
+    /Command failed/,
+  );
+  assert.match(workflow, /git(?: -C "\$\{HERMES_DESKTOP_ROOT\}")? fetch --depth=1 origin "\$\{HERMES_DESKTOP_SOURCE_COMMIT\}"/);
+  assert.match(workflow, /git(?: -C "\$\{HERMES_DESKTOP_ROOT\}")? checkout --detach FETCH_HEAD/);
+  assert.match(workflow, /npm ci\s+--prefix "\$\{HERMES_DESKTOP_ROOT\}"/);
+  assert.match(workflow, /test "\$\(node -p 'process\.arch'\)" = "\$\{RHYTHM_PACKAGE_ARCH\}"/);
+  assert.match(workflow, /GITHUB_SHA= GITHUB_REF_NAME= GITHUB_HEAD_REF= npm --prefix "\$\{HERMES_DESKTOP_ROOT\}\/apps\/desktop" run build:rhythm-embedded/);
+  assert.match(workflow, /npm --prefix "\$\{HERMES_DESKTOP_ROOT\}\/apps\/desktop" run build:rhythm-embedded/);
+  assert.match(workflow, /RHYTHM_HERMES_DESKTOP_ARTIFACT_DIR=.*GITHUB_ENV/);
+  assert.ok(
+    workflow.indexOf('RHYTHM_HERMES_DESKTOP_ARTIFACT_DIR=') < workflow.indexOf('npm run test:package'),
+    'Electron release must export the verified embedded Desktop artifact before package contracts run',
+  );
   assert.ok(
     workflow.indexOf('npm run test:package') < workflow.indexOf('npm run package:mac'),
     'Electron release must run unsigned package contracts before rebuilding the final artifact',

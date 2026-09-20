@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
-import { buildRhythmIcns, stageRhythmIcon } from '../scripts/package-mac.mjs';
+import { buildRhythmIcns, stageMacPrivacy, stageRhythmIcon } from '../scripts/package-mac.mjs';
 
 const run = promisify(execFile);
 const artwork = resolve(import.meta.dirname, '../../desktop_flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset');
@@ -19,6 +19,20 @@ const standardIcons = [
   ['icon_512x512.png', 512], ['icon_512x512@2x.png', 1024],
 ];
 const standardNames = standardIcons.map(([name]) => name);
+
+test('Hermes voice: packaged macOS metadata declares audio input only', async (t) => {
+  const root = await temporary(t);
+  const infoPlist = resolve(root, 'Contents/Info.plist');
+  await mkdir(resolve(root, 'Contents'), { recursive: true });
+  await writeFile(infoPlist, '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict/></plist>');
+  const entitlements = resolve(import.meta.dirname, '../entitlements/mac.plist');
+  await stageMacPrivacy({ infoPlist, entitlementsPath: entitlements });
+  const metadata = JSON.parse((await run('plutil', ['-convert', 'json', '-o', '-', infoPlist])).stdout);
+  assert.equal(metadata.NSMicrophoneUsageDescription, 'Rhythm uses the microphone for Hermes voice input and voice conversations.');
+  const granted = JSON.parse((await run('plutil', ['-convert', 'json', '-o', '-', entitlements])).stdout);
+  assert.equal(granted['com.apple.security.device.audio-input'], true);
+  assert.equal(Object.hasOwn(granted, 'com.apple.security.device.camera'), false);
+});
 
 async function iconutilSkipReason() {
   const iconutil = spawnSync('iconutil', ['--help']);

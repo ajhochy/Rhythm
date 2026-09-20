@@ -108,7 +108,7 @@ async function hermesRuntimeFixture({ argv = ['--interactive-smoke'], enabled = 
     if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: {}, dialog: { showErrorBox() {}, showMessageBox: async () => ({ response: 1 }) } };
     else if (name === './agent-server.mjs') values = { AgentServerService: Server, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:4001', AGENT_SERVER_ENGINE_PORT: 4096, electronDbPath: () => '/fixture/electron.db', legacyFlutterDbPath: () => '/fixture/legacy.db' };
     else if (name === './hermes-server.mjs') values = { createHermesSupervisor: (value) => { options = value; return supervisor; } };
-    else if (name === './hermes-view.mjs') values = { registerHermesView() {}, bindHermesViewSupervisor() {} };
+    else if (name === './hermes-view.mjs') values = { registerHermesView() { return { disposeCurrent: async () => {}, dispose: async () => {} }; }, bindHermesViewSupervisor() {} };
     else if (name === './production-api-config.mjs') values = { createProductionApiConfig: () => ({ load: () => 'https://example.invalid' }), createProductionApiSetHandler: () => () => {} };
     else { values = { ...await import(name.startsWith('.') ? new URL(name, file).href : name) }; if (name === 'node:fs') values.existsSync = () => true; }
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
@@ -124,14 +124,14 @@ async function hermesRuntimeFixture({ argv = ['--interactive-smoke'], enabled = 
   };
 }
 
-test('issue-1541-c4: feature flag starts Hermes in attached mode and not explicit self-test modes', async () => {
+test('issue-1542-desktop-c5: feature flag never starts the retired dashboard sidecar', async () => {
   const attached = await hermesRuntimeFixture();
-  assert.ok(attached.calls.includes('start-hermes'), 'attached mode must own and start the Hermes sidecar');
+  assert.ok(!attached.calls.includes('start-hermes'), 'Desktop host, not the shell, owns Hermes service discovery and startup');
   assert.ok(!attached.calls.includes('construct-agent'), 'attached mode must not take ownership of the Flutter runtime');
   await attached.handlers.get('hermes:install')(attached.event);
   await attached.handlers.get('hermes:restart')(attached.event);
-  assert.ok(attached.calls.includes('install-hermes'));
-  assert.ok(attached.calls.includes('restart-hermes'));
+  assert.ok(!attached.calls.includes('install-hermes'));
+  assert.ok(!attached.calls.includes('restart-hermes'));
   let prevented = false;
   attached.app.emit('before-quit', { preventDefault: () => { prevented = true; } });
   assert.equal(prevented, true);
@@ -157,8 +157,5 @@ test('issue-1541-c4: feature flag starts Hermes in attached mode and not explici
 test('Hermes supervisor output and lifecycle states reach the main-process stdout', async () => {
   const fixture = await hermesRuntimeFixture();
   fixture.publish({ state: 'failed', port: 9121, url: 'http://127.0.0.1:9121', reason: 'port-in-use' });
-  assert.match(fixture.stdout.join(''), /hermes child output\n/);
-  assert.match(fixture.stdout.join(''), /hermes: starting\n/);
-  assert.match(fixture.stdout.join(''), /hermes: ready\n/);
   assert.match(fixture.stdout.join(''), /hermes: failed port-in-use\n/);
 });

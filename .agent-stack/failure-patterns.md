@@ -723,3 +723,10 @@
 - **Criteria affected**: desktop OAuth, M3, native workspace and hosted smoke.
 - **Root cause**: legacy login overwrote integration credentials; browser origin was rejected; protected native Keychain persistence did not finish.
 - **Suggested fix**: deploy separately capability-checked login-only OAuth, preserve existing provider rows, rerun actual native/signed and hosted behavior.
+
+## 2026-09-19 — #1542 actual Desktop signed integration
+
+- **Result**: selected signed native smoke PASS after repair; broader release/standalone compatibility remains open.
+- **Category**: C1 missing runtime contracts.
+- **Root cause**: hidden startup probes omitted outer request policy, real Browser inert bootstrap and full-process persistence.
+- **Repair**: real signed read/draft/native-tools suite, actual Browser navigation and two-phase typed-draft quit/relaunch proof.

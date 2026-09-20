@@ -22,6 +22,8 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { hardenElectronFuses } from './harden-electron-fuses.mjs';
+import { PINNED_HERMES_DESKTOP_SOURCE_COMMIT } from '../src/hermes-desktop-config.mjs';
+import { refreshHermesDesktopArtifactIntegrity, resolveHermesDesktopArtifact } from '../src/hermes-desktop-artifact.mjs';
 
 const run = promisify(execFile);
 const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -114,6 +116,14 @@ for (const target of targets) {
 }
 await run('codesign', ['--verify', '--strict', approvalHelper]);
 await run('codesign', ['--verify', '--strict', engine]);
+const hermesDesktopArtifact = resolve(contentsDir, 'Resources/hermes-desktop');
+await refreshHermesDesktopArtifactIntegrity({ artifactRoot: hermesDesktopArtifact });
+await resolveHermesDesktopArtifact({
+  artifactRoot: hermesDesktopArtifact,
+  expectedElectronMajor: 40,
+  expectedSourceCommit: PINNED_HERMES_DESKTOP_SOURCE_COMMIT,
+  allowDirty: false,
+});
 await codesign(artifact, { deep: false });
 
 const verify = await run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', artifact]).catch((error) => error);

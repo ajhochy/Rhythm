@@ -16,5 +16,9 @@
        loopback HTTP/WebSocket, which network.client covers without full sandbox machinery. -->
   <key>com.apple.security.network.client</key>
   <true/>
+  <!-- Hermes Desktop voice input uses microphone audio only. Camera capture is
+       intentionally absent because the embedded renderer does not expose it. -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
 </dict>
 </plist>

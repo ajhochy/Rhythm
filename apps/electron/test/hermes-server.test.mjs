@@ -340,7 +340,7 @@ async function mainFixture({ enabled = '1', argv = [] } = {}) {
     else if (name === './agent-server.mjs') values = { AgentServerService: Server, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:4001', AGENT_SERVER_ENGINE_PORT: 4096, electronDbPath: () => '/fixture/electron.db', legacyFlutterDbPath: () => '/fixture/legacy.db' };
     else if (name === './hermes-server.mjs') values = { createHermesSupervisor: (value) => { options = value; return supervisor; } };
     else if (name === './hermes-view.mjs') values = {
-      registerHermesView: () => { calls.push('register-hermes-view'); },
+      registerHermesView: () => { calls.push('register-hermes-view'); return { disposeCurrent: async () => {}, dispose: async () => {} }; },
       bindHermesViewSupervisor: (value) => { boundSupervisor = value; calls.push('bind-hermes-view'); },
     };
     else if (name === './production-api-config.mjs') values = { createProductionApiConfig: () => ({ load: () => 'https://example.invalid' }), createProductionApiSetHandler: () => () => {} };
@@ -352,18 +352,18 @@ async function mainFixture({ enabled = '1', argv = [] } = {}) {
   return { calls, windows, handlers, app, options, dialogs, event, publish: (value) => listener(value), extraWindow: () => new Window(), release: () => releaseStop(), boundSupervisor: () => boundSupervisor, supervisor };
 }
 
-test('issue-1542-c7: Hermes main binds the native supervisor, authorizes IPC, broadcasts status, and awaits shutdown', async () => {
+test('issue-1542-desktop-c5: Hermes main retains a status seam but never starts the legacy dashboard supervisor', async () => {
   const f = await mainFixture();
   assert.equal(f.boundSupervisor(), f.supervisor);
   assert.equal(f.boundSupervisor().getSessionToken(), 'main-only-hermes-token');
-  assert.deepEqual(f.calls, ['register-hermes-view', 'bind-hermes-view', 'start-hermes']);
+  assert.deepEqual(f.calls, ['register-hermes-view', 'bind-hermes-view']);
   assert.equal(f.options.installLogPath, '/fixture/hermes-install.log');
   for (const channel of ['hermes:get-status', 'hermes:install', 'hermes:restart']) {
     const handler = f.handlers.get(channel);
     assert.throws(() => handler({ sender: {}, senderFrame: f.event.senderFrame }), /Privileged IPC denied/);
     assert.throws(() => handler({ sender: f.event.sender, senderFrame: { url: 'http://127.0.0.1:9121' } }), /Privileged IPC denied/);
     assert.throws(() => handler(f.event, { command: 'arbitrary' }), /Invalid IPC payload/);
-    assert.equal((await handler(f.event)).state, 'ready');
+    assert.equal((await handler(f.event)).state, 'stopped');
   }
   const second = f.extraWindow(); const snapshot = { state: 'failed', port: 9121, url: 'http://127.0.0.1:9121', reason: 'port-in-use' };
   f.publish(snapshot);
@@ -385,12 +385,12 @@ test('Hermes main flag off does not start and returns disabled', async () => {
   assert.equal(f.handlers.get('hermes:get-status')(f.event).state, 'disabled');
 });
 
-test('Hermes interactive smoke owns only Hermes, including install/restart and shutdown', async () => {
+test('Hermes interactive smoke never launches the retired dashboard service', async () => {
   const f = await mainFixture({ argv: ['--interactive-smoke'] });
-  assert.deepEqual(f.calls, ['register-hermes-view', 'bind-hermes-view', 'start-hermes']);
+  assert.deepEqual(f.calls, ['register-hermes-view', 'bind-hermes-view']);
   for (const channel of ['hermes:install', 'hermes:restart']) await f.handlers.get(channel)(f.event);
-  assert.ok(f.calls.includes('install-hermes'));
-  assert.ok(f.calls.includes('restart-hermes'));
+  assert.ok(!f.calls.includes('install-hermes'));
+  assert.ok(!f.calls.includes('restart-hermes'));
   let prevented = false;
   f.app.emit('before-quit', { preventDefault: () => { prevented = true; } });
   assert.equal(prevented, true);

@@ -1,0 +1,74 @@
+{
+  "run_id": "2026-09-19-hermes-desktop-signed-candidate",
+  "date": "2026-09-19",
+  "issue": 1542,
+  "smoke_result": "pass",
+  "verification_claimed": "Native startup/read probe passed; full signed acceptance pending",
+  "divergence": false,
+  "smoke_notes": "Final selected native suite 6/6, real signed restart draft restored, and real Browser page rendered. Earlier failed checkpoints retained below. Full release and borrowed standalone coexistence are not qualified.",
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1542-desktop-c3",
+      "smoke_status": "pass",
+      "notes": "Actual typed unsent draft survived Dashboard to Hermes tab navigation."
+    },
+    {
+      "criterion_id": "issue-1542-desktop-c4",
+      "smoke_status": "fail",
+      "notes": "Actual context reached composer; console reported blocked fonts.googleapis.com stylesheet. Fix narrows permissions to intended stylesheet/font resources."
+    },
+    {
+      "criterion_id": "issue-1542-desktop-c2",
+      "smoke_status": "fail",
+      "notes": "Profiles appears after gateway readiness. Harness must await visible ready state, retaining usability assertions."
+    },
+    {
+      "criterion_id": "issue-1542-desktop-c10",
+      "smoke_status": "fail",
+      "notes": "History assertion ran before sidebar loaded; actual read API later returned matching visible saved sessions."
+    },
+    {
+      "criterion_id": "issue-1542-desktop-c8",
+      "smoke_status": "fail",
+      "notes": "Actual native file picker, file preview, Git diff and isolated PTY/file/git/camera-denial test passed. Browser started at about:blank, which host rejected before guest attachment; entering controlled loopback page produced dom-ready error. Native bootstrap and navigation guards are being repaired."
+    }
+  ],
+  "process_issues": [
+    "Hidden probe did not exercise Rhythm network guard; signed app test caught stylesheet failure.",
+    "Remote guest test covered HTTP(S) initial URLs but missed actual Desktop Browser about:blank bootstrap.",
+    "Review found random in-memory main partition would lose drafts/preferences on full app quit; added real two-phase restart proof before final claim."
+  ],
+  "resolution": "Font resource policy, actual about:blank bootstrap/navigation guard, ready-state test waits and stable main renderer partition repaired; signed local candidate rebuilt and tested before push.",
+  "streaming_proof": {
+    "session": "20260919_164541_10d847",
+    "workspace": "rhythm-hermes-visible-ekl45k8b",
+    "result": "Visible RHYTHM_STREAM_OK response survived Dashboard-to-Hermes navigation. Clicking Stop returned normal composer controls with a partial response."
+  },
+  "final_evidence": {
+    "native_tests": "6/6",
+    "restart_draft": "prepare 1/1; real quit/relaunch; visible restore 1/1",
+    "runtime_reuse": "1/1",
+    "owned_process_cleanup": "38/38 exited on each of two quits",
+    "header": "removed, native screenshot inspected",
+    "browser": "controlled HTTP page rendered through actual Desktop Browser",
+    "log": "/tmp/rhythm-hermes-native-persistent-tests.log"
+  },
+  "workflow_adherence": {
+    "expected_chain": [
+      "workflow-orchestrator",
+      "planning-agent",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "verification-gate",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": [],
+    "overall_score": "partial",
+    "notes": "This final checkpoint directly records verification and postmortem work; earlier plan/contract/Terra actions are evidenced by files and agent receipts, without reconstructing named skill invocations. Initial signed tests and review found gaps missed by startup probes; repairs were tested before push."
+  }
+}

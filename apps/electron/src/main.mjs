@@ -50,6 +50,9 @@ if (hasSingleInstanceLock) {
   protocol.registerSchemesAsPrivileged([
     { scheme: 'rhythm', privileges: { standard: true, secure: true, supportFetchAPI: true } },
     { scheme: 'rhythm-artifact', privileges: { standard: true, secure: true, supportFetchAPI: true } },
+    // Hermes registers the handler on the isolated embedded session; Chromium
+    // still requires this privilege declaration before app readiness.
+    { scheme: 'hermes-media', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } },
   ]);
   const registeredBeforeReady = !app.isReady();
 
@@ -65,7 +68,7 @@ if (hasSingleInstanceLock) {
 
   /** @type {BrowserWindow | undefined} */
   let mainWindow;
-  registerHermesView({ ipcMain, getWindow: () => mainWindow });
+  const hermesView = registerHermesView({ ipcMain, getWindow: () => mainWindow, getUserDataPath: () => app.getPath('userData'), openExternal: (url) => shell.openExternal(url) });
   /** @type {string | null} */
   let pendingDeepLink = deepLinkFromArgv(process.argv);
   /** @type {Map<string, Notification>} */
@@ -243,10 +246,12 @@ if (hasSingleInstanceLock) {
       if (!rebuildMainWindow) throw new Error('Production API update denied before window ready');
       changingServer = true;
       invalidateAuthentication();
+      const hermesDispose = hermesView.disposeCurrent();
       // Destroy, not a renderer notification: no old gateway, bearer or pending callback survives.
       mainWindow?.destroy();
       mainWindow = undefined;
       try {
+        await hermesDispose;
         const serverUrl = await productionApiConfig.save(value);
         productionApiBase = serverUrl;
         process.env.RHYTHM_PRODUCTION_API_URL = serverUrl;
@@ -269,7 +274,7 @@ if (hasSingleInstanceLock) {
   });
   ipcMain.handle('rhythm:auth:logout', async (event, ...args) => {
     requireOwnedDocument(event); requireNoPayload(args);
-    invalidateAuthentication(); await clearStoredAuthentication();
+    invalidateAuthentication(); await hermesView.disposeCurrent(); await clearStoredAuthentication();
     if (rebuildMainWindow) { mainWindow?.destroy(); mainWindow = undefined; await rebuildMainWindow(); }
   });
   ipcMain.handle('rhythm:updates:open-download', async (event, ...args) => {
@@ -294,7 +299,6 @@ if (hasSingleInstanceLock) {
   // Interactive smoke renders normally, but the manager owns the external sandbox lifecycle.
   const agentServer = isInteractiveSmoke ? undefined : new AgentServerService();
   const isHermesSelfTest = isSmoke || isMissingDistSmoke;
-  const managesHermesRuntime = !isHermesSelfTest;
   /** @param {string} text */
   const writeHermesLog = (text) => process.stdout?.write?.(text.endsWith('\n') ? text : `${text}\n`);
   const hermes = createHermesSupervisor({
@@ -306,8 +310,11 @@ if (hasSingleInstanceLock) {
   bindHermesViewSupervisor(hermes);
   for (const [channel, action] of /** @type {const} */ ([
     ['hermes:get-status', () => hermes.getStatus()],
-    ['hermes:install', () => managesHermesRuntime && !shuttingDown ? hermes.install() : hermes.getStatus()],
-    ['hermes:restart', () => managesHermesRuntime && !shuttingDown ? hermes.restart() : hermes.getStatus()],
+    // The legacy dashboard supervisor remains a status compatibility seam only.
+    // Embedded Desktop owns its own supported backend lifecycle, so shell IPC
+    // cannot start a second dashboard service.
+    ['hermes:install', () => hermes.getStatus()],
+    ['hermes:restart', () => hermes.getStatus()],
   ])) {
     ipcMain.handle(channel, (event, ...args) => {
       requireOwnedDocument(event); requireNoPayload(args);
@@ -368,14 +375,14 @@ if (hasSingleInstanceLock) {
   // normal app quit, and OS SIGINT/SIGTERM (main.dart:182-192; SIGTERM is skipped on Windows there
   // because it isn't catchable — not a concern here since this Electron build targets macOS only).
   let shuttingDown = false;
-  const stopRuntimes = async () => { await Promise.all([agentServer?.stopGracefully(), hermes.stop()]); };
+  const stopRuntimes = async () => { await Promise.all([agentServer?.stopGracefully(), hermes.stop(), hermesView.dispose()]); };
   app.on('before-quit', (event) => {
-    if (isHermesSelfTest || (!agentServer && !managesHermesRuntime) || shuttingDown) return;
+    if (isHermesSelfTest || shuttingDown) return;
     shuttingDown = true;
     event.preventDefault();
     void stopRuntimes().catch((error) => process.stderr.write(`Runtime shutdown failed: ${error}\n`)).finally(() => app.quit());
   });
-  if (!isHermesSelfTest && (agentServer || managesHermesRuntime)) {
+  if (!isHermesSelfTest) {
     for (const signal of ['SIGINT', 'SIGTERM']) {
       process.on(signal, () => { shuttingDown = true; void stopRuntimes().then(() => process.exit(0), (error) => { process.stderr.write(`Runtime shutdown failed: ${error}\n`); process.exit(1); }); });
     }
@@ -410,7 +417,8 @@ if (hasSingleInstanceLock) {
 
     // Initial workspace requests must not race local API startup and cache connection errors.
     if (!isSmoke && agentServer) await agentServer.start().catch((error) => agentServer.reportStartupFailure(error));
-    if (managesHermesRuntime && !shuttingDown && process.env.RHYTHM_HERMES_ENABLED !== '0') void hermes.start();
+    // Hermes Desktop's embedded host owns compatible backend discovery and any
+    // service it starts. Do not also launch the legacy dashboard supervisor.
 
     protocol.handle('rhythm', (request) => {
       const url = new URL(request.url);
@@ -522,7 +530,7 @@ if (hasSingleInstanceLock) {
     }
 
     rebuildMainWindow = async () => {
-    mainWindow = new BrowserWindow({
+    const window = new BrowserWindow({
       width: 1280,
       height: 800,
       show: !isSmoke,
@@ -535,7 +543,8 @@ if (hasSingleInstanceLock) {
         additionalArguments: [`--rhythm-shell-version=${app.getVersion()}`],
       },
     });
-    mainWindow.webContents.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
+    mainWindow = window;
+    window.webContents.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
       if (isMainFrame && !isInPlace && rendererReady) {
         if (/^rhythm:\/\/app\/index\.html(?:#.*)?$/.test(url)) {
           // Revoke pending work from the old document, but a trusted reload is not logout.
@@ -545,11 +554,11 @@ if (hasSingleInstanceLock) {
         } else invalidateAuthentication();
       }
     });
-    mainWindow.webContents.on('will-navigate', (event) => {
+    window.webContents.on('will-navigate', (event) => {
       denials.navigation = true;
       event.preventDefault();
     });
-    mainWindow.webContents.on('will-frame-navigate', (event) => {
+    window.webContents.on('will-frame-navigate', (event) => {
       if (event.isMainFrame) return;
       const currentUrl = event.frame?.url;
       const targetUrl = event.url;
@@ -560,27 +569,33 @@ if (hasSingleInstanceLock) {
         event.preventDefault();
       }
     });
-    mainWindow.webContents.setWindowOpenHandler(() => {
+    window.webContents.setWindowOpenHandler(() => {
       denials.popup = true;
       return { action: 'deny' };
     });
-    mainWindow.webContents.on('did-finish-load', () => {
+    window.webContents.on('did-finish-load', () => {
       rendererReady = true;
-      mainWindow?.webContents.send('rhythm:agent-server:status-changed', agentServer?.status ?? externalRuntimeStatus);
-      mainWindow?.webContents.send('hermes:status', hermes.getStatus());
+      window.webContents.send('rhythm:agent-server:status-changed', agentServer?.status ?? externalRuntimeStatus);
+      window.webContents.send('hermes:status', hermes.getStatus());
       for (const activation of pendingNativeNotificationActivations.splice(0)) {
         routeNativeNotificationActivation(activation);
       }
     });
-    await mainWindow.loadURL(pendingDeepLink ?? 'rhythm://app/index.html#/agents');
-    await mainWindow.webContents.executeJavaScript('globalThis.Notification.requestPermission()');
+    await window.loadURL(pendingDeepLink ?? 'rhythm://app/index.html#/agents');
+    if (mainWindow !== window || window.isDestroyed()) return;
+    await window.webContents.executeJavaScript('globalThis.Notification.requestPermission()');
+    if (mainWindow !== window || window.isDestroyed()) return;
     pendingDeepLink = null;
     };
     const windowOptions = {
       webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true },
     };
     await rebuildMainWindow();
-    if (!mainWindow) throw new Error('Rhythm window unavailable');
+    // A renderer can synchronously request logout/server replacement during
+    // its first load. The old load may have returned after a replacement was
+    // already started, so it must not turn that normal lifecycle transition
+    // into a fatal startup error.
+    if (!mainWindow) return;
 
     if (isArtifactFrameSmoke) {
       artifactFrame = await mainWindow.webContents.executeJavaScript(`new Promise((resolve, reject) => {

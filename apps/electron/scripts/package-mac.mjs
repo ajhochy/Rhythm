@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { buildAndStageApprovalHelper } from './build-approval-helper.mjs';
 import { hardenElectronFuses } from './harden-electron-fuses.mjs';
+import { PINNED_HERMES_DESKTOP_SOURCE_COMMIT } from '../src/hermes-desktop-config.mjs';
+import { refreshHermesDesktopArtifactIntegrity, resolveHermesDesktopArtifact } from '../src/hermes-desktop-artifact.mjs';
 
 const run = promisify(execFile);
 
@@ -73,6 +75,15 @@ export async function stageRhythmIcon({ appiconsetDir, resources, infoPlist, run
   return result;
 }
 
+/** Stages the macOS privacy declaration required by Hermes Desktop voice input. */
+export async function stageMacPrivacy({ infoPlist, entitlementsPath, run: execute = run }) {
+  const entitlements = JSON.parse((await execute('plutil', ['-convert', 'json', '-o', '-', entitlementsPath])).stdout);
+  if (entitlements['com.apple.security.device.audio-input'] !== true || Object.hasOwn(entitlements, 'com.apple.security.device.camera')) {
+    throw new Error('Rhythm macOS entitlements must grant audio input only for Hermes voice.');
+  }
+  await execute('plutil', ['-replace', 'NSMicrophoneUsageDescription', '-string', 'Rhythm uses the microphone for Hermes voice input and voice conversations.', infoPlist]);
+}
+
 export async function buildAndStageFork({ electronRoot, resources, run: execute = run }) {
   const arch = process.env.RHYTHM_PACKAGE_ARCH || process.arch;
   if (process.platform !== 'darwin' || !['arm64', 'x64'].includes(arch) || arch !== process.arch) {
@@ -104,6 +115,30 @@ export async function buildAndStageFork({ electronRoot, resources, run: execute 
   const destination = resolve(resources, 'opencode_bin/opencode');
   await mkdir(dirname(destination), { recursive: true });
   await cp(source, destination);
+}
+
+/** Stage only a verified artifact created by the pinned Hermes fork builder.
+ * It deliberately has no ~/.hermes/PATH fallback. */
+export async function stageHermesDesktopArtifact({ resources, artifactRoot = process.env.RHYTHM_HERMES_DESKTOP_ARTIFACT_DIR }) {
+  if (typeof artifactRoot !== 'string' || !artifactRoot) {
+    throw new Error('Hermes Desktop artifact is required for packaging. Build the pinned Hermes fork artifact and set RHYTHM_HERMES_DESKTOP_ARTIFACT_DIR.');
+  }
+  const artifact = await resolveHermesDesktopArtifact({
+    artifactRoot,
+    expectedElectronMajor: 40,
+    expectedSourceCommit: PINNED_HERMES_DESKTOP_SOURCE_COMMIT,
+    allowDirty: false,
+  });
+  const destination = resolve(resources, 'hermes-desktop');
+  await rm(destination, { recursive: true, force: true });
+  await cp(artifact.root, destination, { recursive: true, verbatimSymlinks: true });
+  await resolveHermesDesktopArtifact({
+    artifactRoot: destination,
+    expectedElectronMajor: 40,
+    expectedSourceCommit: PINNED_HERMES_DESKTOP_SOURCE_COMMIT,
+    allowDirty: false,
+  });
+  return destination;
 }
 
 // Importing the assembly boundary for controlled-input tests must not build the app.
@@ -160,11 +195,13 @@ await run('npm', ['--prefix', '../web', 'run', 'build'], {
 });
 await run('npm', ['--prefix', '../api_server', 'run', 'build'], { cwd: electronRoot });
 await cp(sourceApp, stagingArtifact, { recursive: true, verbatimSymlinks: true });
+await stageHermesDesktopArtifact({ resources });
 await stageRhythmIcon({
   appiconsetDir: resolve(electronRoot, '../desktop_flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset'),
   resources,
   infoPlist,
 });
+await stageMacPrivacy({ infoPlist, entitlementsPath: resolve(electronRoot, 'entitlements/mac.plist') });
 await buildAndStageApprovalHelper({ electronRoot, resources });
 await mkdir(resolve(packagedApp, 'src'), { recursive: true });
 await mkdir(packagedShared, { recursive: true });
@@ -182,6 +219,8 @@ await Promise.all([
   cp(resolve(electronRoot, 'src/agent-server.mjs'), resolve(packagedApp, 'src/agent-server.mjs')),
   cp(resolve(electronRoot, 'src/hermes-server.mjs'), resolve(packagedApp, 'src/hermes-server.mjs')),
   cp(resolve(electronRoot, 'src/hermes-view.mjs'), resolve(packagedApp, 'src/hermes-view.mjs')),
+  cp(resolve(electronRoot, 'src/hermes-desktop-artifact.mjs'), resolve(packagedApp, 'src/hermes-desktop-artifact.mjs')),
+  cp(resolve(electronRoot, 'src/hermes-desktop-config.mjs'), resolve(packagedApp, 'src/hermes-desktop-config.mjs')),
   cp(resolve(electronRoot, 'src/hermes-view-preload.cjs'), resolve(packagedApp, 'src/hermes-view-preload.cjs')),
   cp(resolve(electronRoot, 'src/hermes-protocol.mjs'), resolve(packagedApp, 'src/hermes-protocol.mjs')),
   cp(resolve(electronRoot, 'src/hermes-theme.mjs'), resolve(packagedApp, 'src/hermes-theme.mjs')),
@@ -253,6 +292,17 @@ await hardenElectronFuses(resolve(stagingArtifact, 'Contents/MacOS/Rhythm'));
 await run('codesign', ['--force', '--identifier', 'com.rhythm.desktop.approval-signer', '--sign', '-', approvalHelper]);
 await run('codesign', ['--verify', '--strict', approvalHelper]);
 await run('codesign', ['--force', '--deep', '--sign', '-', stagingArtifact]);
+const stagedHermesArtifact = resolve(resources, 'hermes-desktop');
+await refreshHermesDesktopArtifactIntegrity({ artifactRoot: stagedHermesArtifact });
+await resolveHermesDesktopArtifact({
+  artifactRoot: stagedHermesArtifact,
+  expectedElectronMajor: 40,
+  expectedSourceCommit: PINNED_HERMES_DESKTOP_SOURCE_COMMIT,
+  allowDirty: false,
+});
+// The deep pass has sealed nested native binaries. The manifest refresh above
+// changes a resource, so re-seal only the outer app without re-signing it.
+await run('codesign', ['--force', '--sign', '-', stagingArtifact]);
 await rename(stagingArtifact, artifact);
 process.stdout.write(`Packaged ${artifact} with an ad-hoc signature.\n`);
 } finally {
