@@ -21,13 +21,14 @@ import {
   type Request,
   type Route,
 } from '@playwright/test';
-import { nativeElectronTransport, test } from './electron-native-test';
+import { isExpectedNativeLiveRoute, nativeElectronTransport, test } from './electron-native-test';
 import {
   expectInspectorHeading,
   expectListInspectorAxeClean,
   keyboardSelect,
   selectRow,
 } from '../helpers/list-inspector';
+import { reservationIdFromCreateResponse, stableResponseId } from '../helpers/facilities-smoke-response';
 import { liveEnvironment } from '../live-environment';
 import { ownsMegaSmokeRow, permitsMegaSmokeWrite } from '../helpers/mega-smoke-ownership';
 
@@ -197,7 +198,7 @@ async function openLive(page: Page, route: string) {
   const hash = `#${route.startsWith('/') ? route : `/${route}`}`;
   if (nativeElectronTransport) {
     await page.evaluate((nextHash) => { window.location.hash = nextHash; }, hash);
-    await expect(page).toHaveURL(`rhythm://app/index.html${hash}`);
+    await expect(page).toHaveURL((url) => isExpectedNativeLiveRoute(url.toString(), route));
   } else {
     await page.goto(`/${hash}`);
   }
@@ -238,10 +239,9 @@ async function verifyListInspectorSelection(page: Page, label: string, writes: W
 
 async function createdId(response: JsonResponse) {
   const body = await checkedJson(response, 'create request');
-  const id = body && typeof body === 'object' ? rowId(body as JsonRow) : null;
-  expect(id, 'create response must return an id used by the cleanup guard').not.toBeNull();
-  allowedDeleteUrls.add(`${response.url().replace(/\/$/, '')}/${encodeURIComponent(String(id))}`);
-  return String(id);
+  const id = stableResponseId(body && typeof body === 'object' ? rowId(body as JsonRow) : null, 'create response');
+  allowedDeleteUrls.add(`${response.url().replace(/\/$/, '')}/${encodeURIComponent(id)}`);
+  return id;
 }
 
 async function dragBy(page: Page, splitter: Locator, deltaX: number, deltaY: number) {
@@ -358,39 +358,49 @@ test.describe('Facilities — #1515', () => {
   test('creates, reads back, and deletes a marked room and reservation', async ({ page }) => {
     test.skip(!hostedAvailable, hostedSkipReason);
     recordPageWrites(page);
-    await openLive(page, '/facilities');
-    await expect(page.getByTestId('facilities-add-room')).toBeEnabled();
     const roomName = `${marker}-ROOM`;
     const reservationName = `${marker}-RESERVATION`;
 
-    await page.getByTestId('facilities-add-room').click();
-    await page.getByTestId('facilities-room-name').fill(roomName);
-    await page.getByTestId('facilities-room-building').fill(`${marker}-BUILDING`);
-    const roomPending = page.waitForResponse((response) => response.request().method() === 'POST' && response.url() === `${environment.productionApiBase}/facilities`);
-    await page.getByTestId('facilities-room-save').click();
-    const roomId = await createdId(await roomPending);
-    await selectRow(page, roomName);
-    await expectInspectorHeading(page, roomName);
-
-    await page.getByTestId('facilities-room-reserve').click();
-    await page.getByTestId('facilities-reservation-title').fill(reservationName);
-    await page.getByTestId('facilities-reservation-requester').fill(marker);
-    await page.getByTestId('facilities-reservation-start').fill('2099-09-18T09:00');
-    await page.getByTestId('facilities-reservation-end').fill('2099-09-18T10:00');
-    const reservationPending = page.waitForResponse((response) => response.request().method() === 'POST' && response.url().includes(`/facilities/${roomId}/reservations`));
-    await page.getByTestId('facilities-reservation-save').click();
-    const reservationId = await createdId(await reservationPending);
-    await selectRow(page, reservationName);
-    await expectInspectorHeading(page, reservationName);
-
-    await page.getByTestId(`facilities-reservation-delete-${reservationId}`).click();
-    await expect(page.getByTestId('facilities-delete-dialog')).toBeVisible();
-    await page.getByTestId('facilities-delete-confirm').click();
-    await expect(page.getByRole('option', { name: reservationName, exact: true })).toHaveCount(0);
-    await selectRow(page, roomName);
-    await page.getByTestId(`facilities-room-delete-${roomId}`).click();
-    await page.getByTestId('facilities-delete-confirm').click();
-    await expect(page.getByRole('option', { name: roomName, exact: true })).toHaveCount(0);
+    await test.step('open facilities and wait for room controls', async () => {
+      await openLive(page, '/facilities');
+      await expect(page.getByTestId('facilities-add-room')).toBeEnabled();
+    });
+    const roomId = await test.step('create and select the marked room', async () => {
+      await page.getByTestId('facilities-add-room').click();
+      await page.getByTestId('facilities-room-name').fill(roomName);
+      await page.getByTestId('facilities-room-building').fill(`${marker}-BUILDING`);
+      const roomPending = page.waitForResponse((response) => response.request().method() === 'POST' && response.url() === `${environment.productionApiBase}/facilities`);
+      await page.getByTestId('facilities-room-save').click();
+      const id = await createdId(await roomPending);
+      await selectRow(page, roomName);
+      await expectInspectorHeading(page, roomName);
+      return id;
+    });
+    const reservationId = await test.step('create and select the marked reservation', async () => {
+      await page.getByTestId('facilities-room-reserve').click();
+      await page.getByTestId('facilities-reservation-title').fill(reservationName);
+      await page.getByTestId('facilities-reservation-requester').fill(marker);
+      await page.getByTestId('facilities-reservation-start').fill('2099-09-18T09:00');
+      await page.getByTestId('facilities-reservation-end').fill('2099-09-18T10:00');
+      const reservationPending = page.waitForResponse((response) => response.request().method() === 'POST' && response.url().includes(`/facilities/${roomId}/reservations`));
+      await page.getByTestId('facilities-reservation-save').click();
+      const reservationResponse = await reservationPending;
+      const id = reservationIdFromCreateResponse(await checkedJson(reservationResponse, 'create reservation'), { facilityId: roomId, title: reservationName });
+      allowedDeleteUrls.add(`${environment.productionApiBase}/facilities/${encodeURIComponent(roomId)}/reservations/${encodeURIComponent(id)}`);
+      await selectRow(page, reservationName);
+      await expectInspectorHeading(page, reservationName);
+      return id;
+    });
+    await test.step('delete the marked reservation and room', async () => {
+      await page.getByTestId(`facilities-reservation-delete-${reservationId}`).click();
+      await expect(page.getByTestId('facilities-delete-dialog')).toBeVisible();
+      await page.getByTestId('facilities-delete-confirm').click();
+      await expect(page.getByRole('option', { name: reservationName, exact: true })).toHaveCount(0);
+      await selectRow(page, roomName);
+      await page.getByTestId(`facilities-room-delete-${roomId}`).click();
+      await page.getByTestId('facilities-delete-confirm').click();
+      await expect(page.getByRole('option', { name: roomName, exact: true })).toHaveCount(0);
+    });
   });
 });
 
@@ -486,6 +496,8 @@ test.describe('Automations — #1518', () => {
     const capability = await request.delete(probeUrl, { headers: authHeaders() });
     const capabilityBody = capability.headers()['content-type']?.includes('application/json') ? await capability.json() as JsonRow : null;
     test.skip(capability.status() !== 404 || (capabilityBody?.error as JsonRow | undefined)?.code !== 'NOT_FOUND' || (capabilityBody?.error as JsonRow | undefined)?.message !== 'AutomationRule not found', 'Hosted automation DELETE route is unavailable; no rule was created.');
+    await page.getByTestId('nav-dashboard').click();
+    await expect(page.getByTestId('page-dashboard')).toBeVisible();
     const name = `${marker}-PAUSED-RULE`;
     const input = { name, source: 'rhythm', triggerKey: 'rhythm.task_due', actionType: 'create_task', enabled: false };
     const createUrl = `${environment.productionApiBase}/automation-rules`;
@@ -524,8 +536,11 @@ test.describe('Integrations — #1519', () => {
     await selectRow(page, 'AI Import');
     await page.getByTestId('open-ai-import').click();
     await expect(page.getByTestId('ai-import-dialog')).toBeVisible();
+    await page.getByTestId('ai-import-next').click();
+    await expect(page.getByTestId('ai-import-json')).toBeVisible();
     await page.getByTestId('ai-import-cancel').click();
     await expect(page.getByTestId('ai-import-dialog')).toHaveCount(0);
+    expect(writes).toEqual([]);
   });
 });
 

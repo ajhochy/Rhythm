@@ -2,6 +2,8 @@
 // process under a disposable HERMES_HOME, then exercises the final embedded
 // artifact in a real Electron 40 renderer. The parent application's process
 // and the user's Hermes home are never inspected, written, or signalled.
+// It intentionally does not qualify painted UI or externally hosted assets;
+// those are covered by the signed native Desktop smoke suite.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { access, chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -229,7 +231,7 @@ test('issue-1542-desktop-c5: final native host reuses a published backend and le
         let childView;
         const closeChild = () => {
           if (!childView || childView.webContents.isDestroyed()) return;
-          try { hostWindow?.contentView.removeChildView(childView); } catch { /* The outer window may already be closing. */ }
+          hostWindow?.contentView.removeChildView(childView);
           childView.webContents.close();
         };
       const step = async (name, promise) => {
@@ -246,6 +248,10 @@ test('issue-1542-desktop-c5: final native host reuses a published backend and le
         }
         };
         try {
+        // The disposable user-data directory must not trigger a real macOS
+        // Keychain authorization sheet. This does not alter the signed app;
+        // it keeps the isolated runner from blocking Electron's main thread.
+        app.commandLine.appendSwitch('use-mock-keychain');
         app.setPath('userData', userData);
         app.setPath('sessionData', join(userData, 'session-data'));
         await step('app-ready', app.whenReady());
@@ -291,9 +297,13 @@ test('issue-1542-desktop-c5: final native host reuses a published backend and le
         if (host) await host.dispose().catch(() => undefined);
         if (hostWindow && !hostWindow.isDestroyed()) hostWindow.destroy();
         app.quit();
-        }
       }
-      void run();
+      }
+      void run().catch(error => {
+        console.error('ownership-runner:unhandled', error);
+        process.exitCode = 1;
+        app.quit();
+      });
     `);
 
     try {

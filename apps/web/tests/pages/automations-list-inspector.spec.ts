@@ -99,6 +99,17 @@ test.describe('Automations shared list and inspector', () => {
     await expectListInspectorAxeClean(page);
   });
 
+  test('unmounts Automation rules before a later navigation needs a fresh live list', async ({ page }) => {
+    await openPage(page, 'automations');
+    await expect(page.getByTestId('page-automations')).toBeVisible();
+    await page.getByTestId('nav-dashboard').click();
+    await expect(page.getByTestId('page-dashboard')).toBeVisible();
+    await expect(page.getByTestId('page-automations')).toHaveCount(0);
+    await page.getByTestId('nav-automations').click();
+    await expect(page.getByTestId('page-automations')).toBeVisible();
+    await expect(page.getByRole('listbox', { name: 'Automation rules' })).toBeVisible();
+  });
+
   test('keeps loading, empty, error, and read-only states inside the shared surface', async ({ page }) => {
     await openPage(page, 'automations', '?state=loading');
     await expect(page.getByTestId('page-state-loading')).toContainText('Loading Automation rules');

@@ -7,8 +7,8 @@ import test from 'node:test';
 import { portAvailable } from '../src/agent-server.mjs';
 
 // Real service, fake OS boundaries only: never probe or signal the desktop runtime.
-async function fixture({ occupied = [], healthy = true, mkdirError = false, spawnError = false, graceful = true } = {}) {
-  const signals = [], probes = [], commands = [], snapshots = [];
+async function fixture({ occupied = [], healthy = true, mkdirError = false, spawnError = false, graceful = true, relayConfigurationProvider } = {}) {
+  const signals = [], probes = [], commands = [], snapshots = [], spawnOptions = [];
   const child = new EventEmitter();
   child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
   child.kill = (signal) => { signals.push(signal); if (graceful || signal === 'SIGKILL') child.emit('exit', 0); return true; };
@@ -22,7 +22,7 @@ async function fixture({ occupied = [], healthy = true, mkdirError = false, spaw
       exports = { ...await import(name) };
       if (name === 'node:child_process') Object.assign(exports, {
         execFile: (cmd, args, cb) => { commands.push(cmd); cb(null, '', ''); },
-        spawn: () => { spawns++; if (spawnError) setImmediate(() => child.emit('error', new Error('ENOENT'))); return child; },
+        spawn: (_command, _args, options) => { spawns++; spawnOptions.push(options); if (spawnError) setImmediate(() => child.emit('error', new Error('ENOENT'))); return child; },
       });
       if (name === 'node:fs') exports.existsSync = () => true;
       if (name === 'node:fs/promises') exports.mkdir = async () => { if (mkdirError) throw new Error('EACCES'); };
@@ -36,10 +36,25 @@ async function fixture({ occupied = [], healthy = true, mkdirError = false, spaw
     return new SyntheticModule(Object.keys(exports), function () { for (const [key, value] of Object.entries(exports)) this.setExport(key, value); });
   });
   await module.evaluate();
-  const service = new module.namespace.AgentServerService();
+  const service = new module.namespace.AgentServerService({ relayConfigurationProvider });
   service.onStatusChange((s) => snapshots.push(s));
-  return { service, child, signals, probes, commands, snapshots, healthy, spawns: () => spawns };
+  return { service, child, signals, probes, commands, snapshots, spawnOptions, healthy, spawns: () => spawns };
 }
+
+test('relay restoration: an owned local runtime receives the restored cloud session without exposing it through status', async (t) => {
+  const f = await fixture({
+    relayConfigurationProvider: async () => ({ token: 'fixture-restored-session', productionApiBase: 'https://team.example/tenant' }),
+  });
+  t.mock.method(globalThis, 'fetch', async (url) => ({ ok: true, json: async () => String(url).endsWith('/global/health') ? { healthy: true, version: 'test' } : { status: 'ok', service: 'rhythm-api-server' } }));
+
+  assert.equal((await f.service.start()).status, 'ready');
+  const env = f.spawnOptions.at(-1)?.env;
+  assert.equal(env?.RHYTHM_RELAY_URLS, 'wss://team.example/tenant/relay/uplink');
+  assert.equal(env?.RHYTHM_RELAY_BEARER, 'fixture-restored-session');
+  assert.doesNotMatch(env?.RHYTHM_RELAY_URLS ?? '', /vcrcapps\.com/);
+  assert.doesNotMatch(JSON.stringify(f.snapshots), /fixture-restored-session/);
+  await f.service.stopGracefully();
+});
 
 for (const healthy of [false, true]) for (const port of [4001, 4096]) {
   test(`e11-c1: occupied ${port}, foreign health=${healthy}, is never adopted or signaled`, async (t) => {

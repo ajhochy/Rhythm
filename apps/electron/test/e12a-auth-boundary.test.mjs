@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createContext, SourceTextModule, SyntheticModule, runInContext } from 'node:vm';
@@ -12,7 +12,7 @@ const decision = { approvalId: 'approval-1', status: 'approved', decisionNonce: 
 const tick = () => new Promise((r) => setImmediate(r));
 
 // Real main + config + preload; fake only Electron, OAuth browser interaction, signer and I/O.
-async function host(t, immediateLogin = false, Notification = { isSupported: () => false }, onInitialBridge) {
+async function host(t, immediateLogin = false, Notification = { isSupported: () => false }, onInitialBridge, initialSession) {
   const directory = await mkdtemp(join(tmpdir(), 'rhythm-e12a-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const handlers = new Map(), listeners = new Map(), protocols = new Map();
@@ -25,6 +25,9 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
     getPath: () => directory, requestSingleInstanceLock: () => true, isReady: () => false,
     whenReady: async () => {}, getVersion: () => 'test', quit() { quits += 1; }, exit() { exits += 1; },
   });
+  if (initialSession) {
+    await writeFile(join(directory, 'auth-session.bin'), Buffer.from(JSON.stringify({ productionApiBase: A, sessionToken: initialSession, user: { id: 1 } })));
+  }
   const preload = await readFile(new URL('../src/preload.cjs', import.meta.url), 'utf8');
   class Window {
     constructor() {
@@ -63,7 +66,14 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
       this.webContents.emit('did-finish-load');
     }
   }
-  class Server { status = { status: 'ready' }; onStatusChange() {} async start() {} }
+  let agentServerOptions;
+  const starts = [];
+  class Server {
+    constructor(options) { this.options = options; agentServerOptions = options; }
+    status = { status: 'ready' };
+    onStatusChange() {}
+    async start() { starts.push(this.options?.relayConfigurationProvider?.()); }
+  }
   const context = createContext({ process: Object.assign(new EventEmitter(), { argv: [], env: { RHYTHM_PRODUCTION_API_URL: A }, cwd: () => directory, stderr: { write(message) { throw new Error(message); } } }), URL, Response, Headers, console,
     fetch: async (url, init) => { requests.push({ url, bearer: new Headers(init?.headers).get('authorization') }); return new Response('<html></html>'); },
   });
@@ -82,12 +92,35 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
   await module.evaluate();
   await initialBridgeReady;
   return {
-    windows, logins, requests, signed, opened, handlers, listeners, quits: () => quits, exits: () => exits,
+    windows, logins, requests, signed, opened, handlers, listeners, agentServerOptions, starts, quits: () => quits, exits: () => exits,
     current: () => windows.at(-1),
     event: () => ({ sender: windows.at(-1).webContents, senderFrame: windows.at(-1).webContents.mainFrame }),
     artifact: () => protocols.get('rhythm-artifact')({ url: 'rhythm-artifact://app/00000000-0000-4000-8000-000000000801', method: 'GET' }),
   };
 }
+
+test('relay restoration: main supplies the persisted cloud session only at owned runtime startup', async (t) => {
+  const h = await host(t, false, undefined, undefined, 'persisted-session');
+  assert.equal(typeof h.agentServerOptions?.relayConfigurationProvider, 'function');
+  let relayConfiguration = h.agentServerOptions.relayConfigurationProvider();
+  assert.equal(relayConfiguration.token, 'persisted-session');
+  assert.equal(relayConfiguration.productionApiBase, A);
+  assert.deepEqual(h.starts.map(({ token, productionApiBase }) => ({ token, productionApiBase })), [{ token: 'persisted-session', productionApiBase: A }]);
+
+  await h.current().bridge.auth.logout();
+  relayConfiguration = h.agentServerOptions.relayConfigurationProvider();
+  assert.equal(relayConfiguration.token, undefined);
+  assert.equal(relayConfiguration.productionApiBase, A);
+  assert.equal(h.starts.length, 1);
+
+  const login = h.current().bridge.auth.signInWithGoogle();
+  h.logins[0].resolve({ sessionToken: 'new-session', user: { id: 1 } });
+  await login;
+  relayConfiguration = h.agentServerOptions.relayConfigurationProvider();
+  assert.equal(relayConfiguration.token, 'new-session');
+  assert.equal(relayConfiguration.productionApiBase, A);
+  assert.equal(h.starts.length, 1);
+});
 
 test('e12a-c1: selected server reaches the real desktop token/session exchange, not the build default', async (t) => {
   const h = await host(t);

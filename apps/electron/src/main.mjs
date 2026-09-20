@@ -297,7 +297,9 @@ if (hasSingleInstanceLock) {
   // canonical 4001/4096 boundary: healthy Rhythm services are reused without ownership.
   // Alternate ports exist only behind an explicit smoke-only flag.
   // Interactive smoke renders normally, but the manager owns the external sandbox lifecycle.
-  const agentServer = isInteractiveSmoke ? undefined : new AgentServerService();
+  const agentServer = isInteractiveSmoke ? undefined : new AgentServerService({
+    relayConfigurationProvider: () => ({ token: productionSessionToken, productionApiBase }),
+  });
   const isHermesSelfTest = isSmoke || isMissingDistSmoke;
   /** @param {string} text */
   const writeHermesLog = (text) => process.stdout?.write?.(text.endsWith('\n') ? text : `${text}\n`);

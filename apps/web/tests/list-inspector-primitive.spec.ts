@@ -89,10 +89,8 @@ test.describe('shared list and inspector through Agents → Tasks', () => {
     const list = page.getByRole('listbox', { name: 'Scheduled agent jobs', includeHidden: true });
     await expectInspectorHeading(page, digest);
     await expect(list).toBeHidden();
-    await page.getByRole('button', { name: 'Back to list', exact: true }).click();
-    await expect(list).toBeVisible();
-    await expect(page.getByTestId('list-inspector-detail')).toBeHidden();
-    await expect(list.getByRole('option', { name: digest, exact: true })).toBeFocused();
+    // `selectRow` follows the same visible Back to list control a user has to
+    // use before changing the selection in the one-pane composition.
     await selectRow(page, health);
     await expectInspectorHeading(page, health);
     await expect(list).toBeHidden();
@@ -102,6 +100,39 @@ test.describe('shared list and inspector through Agents → Tasks', () => {
     await expectSelected(page, health);
     await expect(list.getByRole('option', { name: health, exact: true })).toBeFocused();
     await expectListInspectorAxeClean(page);
+  });
+
+  test('waits for an asynchronously mounted selected row before returning to the narrow list', async ({ page }) => {
+    await page.setContent(`
+      <div class="list-inspector">
+        <button id="back" type="button" style="display:none">Back to list</button>
+        <div id="rail" role="listbox" aria-label="Synthetic rows" style="display:none"></div>
+      </div>
+    `);
+    await page.evaluate(() => {
+      const rail = document.getElementById('rail')!;
+      const back = document.getElementById('back')!;
+      back.addEventListener('click', () => {
+        rail.style.display = 'block';
+        rail.firstElementChild!.setAttribute('style', 'display:block');
+        back.setAttribute('style', 'display:none');
+      });
+      setTimeout(() => {
+        const item = document.createElement('div');
+        item.setAttribute('role', 'option');
+        item.setAttribute('aria-label', 'Synthetic selected row');
+        item.setAttribute('aria-selected', 'true');
+        item.setAttribute('tabindex', '0');
+        item.className = 'selected';
+        item.style.display = 'none';
+        item.textContent = 'Synthetic selected row';
+        rail.append(item);
+        back.setAttribute('style', 'display:block');
+      }, 50);
+    });
+
+    await selectRow(page, 'Synthetic selected row');
+    await expect(page.getByRole('option', { name: 'Synthetic selected row', exact: true })).toBeVisible();
   });
 
   test('keeps long titles and controls usable at 200% zoom and in RTL', async ({ page }) => {

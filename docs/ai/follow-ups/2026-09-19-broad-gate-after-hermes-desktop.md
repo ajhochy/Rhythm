@@ -8,6 +8,12 @@ tags: [follow-up, testing, rhythm]
 
 # Broad gate failures after local Hermes Desktop validation
 
+## Current September 19 result
+
+The recorded engine, mobile-menu and C5 probe failures below have focused/full-suite repairs: engine396pass/5skip/1todo, mobile71pass/1skip, borrowed Hermes1/1. Electron relay restoration was built, signed, launched and exercised through the connected phone. The final repository PR gate passed all 16 stages, zero failures. The final native hosted rerun passes Automations but still fails Facilities marked-row visibility; no complete native write-cycle pass is claimed. See [current device/relay receipt](../runs/2026-09-19-connected-phone-relay.md).
+
+The following sections preserve the original failing evidence; they are not the current diagnosis.
+
 Priority P2. These failures prevent an all-repository verification claim. No mobile or OpenCode source files changed in the Desktop replacement (`git diff 25c5f4b2..6ed3ba03 -- apps/mobile apps/opencode_fork` is empty). Their cause has not been attributed to this change or proven pre-existing by a clean-baseline execution.
 
 ## Reproduction and evidence

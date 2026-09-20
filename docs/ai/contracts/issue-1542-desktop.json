@@ -42,8 +42,8 @@
       "criterion_id": "issue-1542-desktop-c5",
       "text": "Reuse compatible authenticated Hermes services; stop only services owned by this embedding.",
       "mode": "integration",
-      "status": "partial",
-      "reason": "Real owned candidate quits cleanly; boundary tests pass. Borrowed backend probe passed once, then repeatedly hung at renderer-load, including the final production BrowserWindow/WebContentsView layout. Stable reuse/disposal remains unqualified; probe cleanup completed without touching the open candidate.",
+      "status": "pass",
+      "reason": "Root live borrowed-backend probe passed1/1 after a test-only mock Keychain switch removed the isolated authorization-sheet deadlock. Actual preload endpoint, authenticated read and borrowed process survival are asserted. Real candidate quit exited all37 owned descendants while standalone Hermes stayed alive. Full standalone UI/remote/auxiliary qualification remains separate.",
       "test_file": "apps/electron/test/hermes-desktop-ownership-live.test.mjs",
       "test_id": "issue-1542-desktop-c5"
     },

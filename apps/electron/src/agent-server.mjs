@@ -15,6 +15,7 @@ import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { normalizeRemoteProductionApiBase } from '../../shared/production-api-base.mjs';
 import { capabilityMaterial } from './human-approval-main-signer.mjs';
 
 const run = promisify(execFile);
@@ -83,13 +84,21 @@ export function electronDbPath() {
 }
 export function legacyFlutterDbPath() { return join(homedir(), 'Library/Application Support/Rhythm/rhythm.db'); }
 
+/** @param {unknown} value */
+export function relayUplinkUrlForProductionApiBase(value) {
+  const base = new URL(normalizeRemoteProductionApiBase(value));
+  base.protocol = 'wss:';
+  base.pathname = `${base.pathname.replace(/\/+$/, '')}/relay/uplink`;
+  return base.toString();
+}
+
 /**
- * api_server_service.dart:46-92 field-for-field, adapted to this build's optional params (memory
- * vault / relay bearer sourcing does not exist yet in apps/electron — passed through baseEnv only,
- * never fabricated).
- * @param {{ baseEnv: NodeJS.ProcessEnv, port: number, enginePort: number, dbPathValue: string, humanApprovalPublicKey: string, humanApprovalCapabilitySha256: string, mcpRolesDir: string | undefined }} options
+ * api_server_service.dart:46-92 field-for-field, adapted to Electron's persisted main-process
+ * session. The restored session is paired with only the validated selected API base; explicit relay
+ * configuration, including an intentional empty value, never receives it automatically.
+ * @param {{ baseEnv: NodeJS.ProcessEnv, port: number, enginePort: number, dbPathValue: string, humanApprovalPublicKey: string, humanApprovalCapabilitySha256: string, mcpRolesDir: string | undefined, relaySessionToken?: string | undefined, relayProductionApiBase?: string | undefined }} options
  */
-export function buildEnvironment({ baseEnv, port, enginePort, dbPathValue, humanApprovalPublicKey, humanApprovalCapabilitySha256, mcpRolesDir }) {
+export function buildEnvironment({ baseEnv, port, enginePort, dbPathValue, humanApprovalPublicKey, humanApprovalCapabilitySha256, mcpRolesDir, relaySessionToken, relayProductionApiBase }) {
   /** @type {NodeJS.ProcessEnv} */
   const env = { ...baseEnv };
   for (const key of Object.keys(env)) if (key.startsWith('HUMAN_APPROVAL_')) delete env[key];
@@ -101,6 +110,15 @@ export function buildEnvironment({ baseEnv, port, enginePort, dbPathValue, human
   env.HUMAN_APPROVAL_PUBLIC_KEY = humanApprovalPublicKey;
   env.HUMAN_APPROVAL_CAPABILITY_SHA256 = humanApprovalCapabilitySha256;
   if (mcpRolesDir && !env.MCP_ROLES_DIR) env.MCP_ROLES_DIR = mcpRolesDir;
+  const hasExplicitRelayConfiguration = Object.hasOwn(baseEnv, 'RHYTHM_RELAY_URLS') || Object.hasOwn(baseEnv, 'RHYTHM_RELAY_BEARER');
+  if (!hasExplicitRelayConfiguration && typeof relaySessionToken === 'string' && relaySessionToken.length > 0 && typeof relayProductionApiBase === 'string') {
+    try {
+      env.RHYTHM_RELAY_URLS = relayUplinkUrlForProductionApiBase(relayProductionApiBase);
+      env.RHYTHM_RELAY_BEARER = relaySessionToken;
+    } catch {
+      // Invalid persisted config disables only the relay; the local runtime still starts.
+    }
+  }
   return env;
 }
 
@@ -168,6 +186,13 @@ export class AgentServerService {
   #errorMessage;
   /** @type {Set<(status: AgentServerStatus) => void>} */
   #listeners = new Set();
+  /** @type {(() => Promise<{ token?: string, productionApiBase?: string } | undefined> | { token?: string, productionApiBase?: string } | undefined) | undefined} */
+  #relayConfigurationProvider;
+
+  /** @param {{ relayConfigurationProvider?: (() => Promise<{ token?: string, productionApiBase?: string } | undefined> | { token?: string, productionApiBase?: string } | undefined) | undefined }} [options] */
+  constructor({ relayConfigurationProvider } = {}) {
+    this.#relayConfigurationProvider = relayConfigurationProvider;
+  }
 
   /** @returns {AgentServerStatus} */
   get status() { return { status: this.#status, failureReason: this.#failureReason ?? null, stderrTail: this.#stderrTail(), errorMessage: this.#errorMessage ?? null }; }
@@ -265,6 +290,15 @@ export class AgentServerService {
     }
     if (generation !== this.#generation) return this.status;
 
+    let relayConfiguration;
+    try {
+      relayConfiguration = await this.#relayConfigurationProvider?.();
+    } catch {
+      // A failed secure-store/config read leaves the uplink disabled; never log bearer material.
+      relayConfiguration = undefined;
+    }
+    if (generation !== this.#generation) return this.status;
+
     const env = buildEnvironment({
       baseEnv: process.env,
       port: AGENT_SERVER_PORT,
@@ -273,6 +307,8 @@ export class AgentServerService {
       humanApprovalPublicKey: material.humanApprovalPublicKey,
       humanApprovalCapabilitySha256: material.humanApprovalCapabilitySha256,
       mcpRolesDir: serverInfo.mcpRolesDir,
+      relaySessionToken: relayConfiguration?.token,
+      relayProductionApiBase: relayConfiguration?.productionApiBase,
     });
 
     try {

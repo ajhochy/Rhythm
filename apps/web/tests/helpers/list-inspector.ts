@@ -4,8 +4,31 @@ import { expect, type Page } from '@playwright/test';
 const roots = (page: Page) => page.locator('.list-inspector');
 const row = (page: Page, title: string) => roots(page).getByRole('option', { name: title, exact: true, includeHidden: true });
 
+export function usesNativeAxeLegacyMode(rawUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    return url.protocol === 'rhythm:' && url.hostname === 'app' && url.pathname === '/index.html';
+  } catch {
+    return false;
+  }
+}
+
 export async function selectRow(page: Page, title: string) {
-  await row(page, title).click();
+  const target = row(page, title);
+  const back = roots(page).getByRole('button', { name: 'Back to list', exact: true });
+  // A live mutation can resolve before React commits its selected row. Wait
+  // for that row to exist before deciding whether its rail is hidden.
+  await expect(target).toHaveCount(1);
+  // A narrow ListInspector intentionally presents either the inspector or the
+  // rail. Follow its visible Back to list affordance before selecting another
+  // row; never force a click through the hidden rail.
+  if (!await target.isVisible()) {
+    if (await back.isVisible()) {
+      await back.click();
+      await expect(target).toBeVisible();
+    }
+  }
+  await target.click();
   await expectSelected(page, title);
 }
 
@@ -55,7 +78,11 @@ export async function expectListInspectorAxeClean(page: Page) {
     if (focusStops.selectable > 0) expect(focusStops.tabStops, 'The list must have one roving row tab stop').toBe(1);
     await expect(root.locator('div[aria-label]:not([role]), span[aria-label]:not([role])')).toHaveCount(0);
   }
-  const result = await new AxeBuilder({ page }).include('.list-inspector').analyze();
+  const axe = new AxeBuilder({ page }).include('.list-inspector');
+  // Electron's CDP transport cannot create Axe's temporary finishRun target.
+  // ListInspector has no cross-origin frames, so legacy mode retains this scope's full rule set.
+  if (usesNativeAxeLegacyMode(page.url())) axe.setLegacyMode(true);
+  const result = await axe.analyze();
   expect(result.violations, result.violations.map((violation) => `${violation.id}: ${violation.help}`).join('\n')).toEqual([]);
 }
 

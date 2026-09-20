@@ -1,5 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { lstatSync, readFileSync, realpathSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { chromium, test as browserTest, type Page } from '@playwright/test';
 import { liveEnvironment } from '../live-environment';
@@ -22,7 +24,157 @@ export function assertCandidateProcessIdentity(
   }
 }
 
-function ownedCandidate(): string {
+export function assertDisposableUserDataRoot(root: string): void {
+  if (!root.startsWith('/private/tmp/') && !root.startsWith('/private/var/folders/')) {
+    throw new Error('Native live smoke requires disposable userData under /private/tmp or /private/var/folders');
+  }
+}
+
+export function isExpectedNativeLiveRoute(rawUrl: string, route: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== 'rhythm:' || url.hostname !== 'app' || url.port || url.pathname !== '/index.html'
+        || url.search || url.username || url.password || !url.hash.startsWith('#/')) return false;
+    const hashRoute = new URL(url.hash.slice(1), 'https://rhythm-live-route.invalid');
+    const expectedPath = route.startsWith('/') ? route : `/${route}`;
+    return hashRoute.origin === 'https://rhythm-live-route.invalid'
+      && hashRoute.pathname === expectedPath && !hashRoute.hash;
+  } catch {
+    return false;
+  }
+}
+
+const sourceBearingRoots = [
+  'Contents/Resources/app/src',
+  'Contents/Resources/app/web/dist',
+] as const;
+
+const hermesSourceExtensions = new Set(['.cjs', '.css', '.html', '.js', '.mjs']);
+const embeddedElectronMajor = 40;
+const hermesArtifactResolverUrl = new URL('../../../electron/src/hermes-desktop-artifact.mjs', import.meta.url);
+
+function payloadHash(filePath: string): string {
+  const info = lstatSync(filePath);
+  if (!info.isFile() || info.isSymbolicLink() || info.uid !== process.getuid()) {
+    throw new Error('Native live smoke candidate payload must contain owned, non-symlink regular files');
+  }
+  return createHash('sha256').update(readFileSync(filePath)).digest('hex');
+}
+
+function sourceFileInventory(root: string, include = (_relativePath: string) => true): Map<string, string> {
+  const files = new Map<string, string>();
+  const visit = (directory: string, relativeDirectory: string) => {
+    const directoryInfo = lstatSync(directory);
+    if (!directoryInfo.isDirectory() || directoryInfo.isSymbolicLink() || directoryInfo.uid !== process.getuid()) {
+      throw new Error('Native live smoke candidate payload must contain owned, non-symlink directories');
+    }
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+      const filePath = path.join(directory, entry.name);
+      const relativePath = path.posix.join(relativeDirectory, entry.name);
+      const info = lstatSync(filePath);
+      if (info.isSymbolicLink()) {
+        throw new Error('Native live smoke candidate payload must not contain symlinks');
+      }
+      if (info.isDirectory()) visit(filePath, relativePath);
+      else if (info.isFile()) {
+        if (include(relativePath)) files.set(relativePath, payloadHash(filePath));
+      } else throw new Error('Native live smoke candidate payload contains an unsupported filesystem entry');
+    }
+  };
+  visit(root, '');
+  return files;
+}
+
+function assertMatchingSourcePayload(candidateApp: string, worktreeApp: string, relativeRoot: string): void {
+  const candidateFiles = sourceFileInventory(path.join(candidateApp, relativeRoot));
+  const worktreeFiles = sourceFileInventory(path.join(worktreeApp, relativeRoot));
+  if (candidateFiles.size !== worktreeFiles.size) {
+    throw new Error('Native live smoke installed candidate payload does not match this worktree package');
+  }
+  for (const [relativePath, worktreeHash] of worktreeFiles) {
+    if (candidateFiles.get(relativePath) !== worktreeHash) {
+      throw new Error('Native live smoke installed candidate payload does not match this worktree package');
+    }
+  }
+}
+
+function canonicalManifestFiles(files: Record<string, unknown>): string {
+  return JSON.stringify(Object.entries(files).sort(([left], [right]) => left.localeCompare(right)));
+}
+
+async function validateHermesArtifactManifest(artifactRoot: string, expectedSourceCommit?: string): Promise<string> {
+  const { resolveHermesDesktopArtifact } = await import(hermesArtifactResolverUrl.href) as {
+    resolveHermesDesktopArtifact: (options: {
+      artifactRoot: string;
+      expectedElectronMajor: number;
+      expectedSourceCommit?: string;
+    }) => Promise<{ manifest: Record<string, unknown> }>;
+  };
+  const artifact = await resolveHermesDesktopArtifact({
+    artifactRoot,
+    expectedElectronMajor: embeddedElectronMajor,
+    expectedSourceCommit,
+  });
+  const manifest = artifact.manifest;
+  return JSON.stringify({
+    electronMajor: manifest.electronMajor,
+    files: canonicalManifestFiles(manifest.files as Record<string, unknown>),
+    product: manifest.product,
+    schemaVersion: manifest.schemaVersion,
+    sourceCommit: manifest.sourceCommit,
+  });
+}
+
+export function assertCandidateExecutablePath(candidateBinary: string, worktreeBinary: string, installedCandidateBinary: string): void {
+  const candidate = path.resolve(candidateBinary);
+  if (candidate !== path.resolve(worktreeBinary) && candidate !== path.resolve(installedCandidateBinary)) {
+    throw new Error('Native live smoke executable must be this worktree package or the exact installed qualification candidate');
+  }
+}
+
+/**
+ * Allows either this worktree's packaged binary or the exact installed
+ * qualification candidate, but only when its source-bearing payload is byte
+ * identical to the worktree package being reviewed.
+ */
+export async function assertCandidatePayloadIdentity(
+  candidateBinary: string,
+  worktreeBinary: string,
+  installedCandidateBinary?: string,
+): Promise<void> {
+  const candidate = realpathSync(candidateBinary);
+  const worktree = realpathSync(worktreeBinary);
+
+  if (candidate === worktree) return;
+  const installed = installedCandidateBinary ? realpathSync(installedCandidateBinary) : undefined;
+  if (!installed || candidate !== installed) {
+    throw new Error('Native live smoke executable must be this worktree package or the exact installed qualification candidate');
+  }
+
+  const candidateApp = path.resolve(candidate, '../../..');
+  const worktreeApp = path.resolve(worktree, '../../..');
+  for (const relativeRoot of sourceBearingRoots) {
+    assertMatchingSourcePayload(candidateApp, worktreeApp, relativeRoot);
+  }
+  const worktreeManifest = await validateHermesArtifactManifest(path.join(worktreeApp, 'Contents/Resources/hermes-desktop'));
+  const expectedSourceCommit = JSON.parse(worktreeManifest).sourceCommit as string;
+  if (await validateHermesArtifactManifest(path.join(candidateApp, 'Contents/Resources/hermes-desktop'), expectedSourceCommit) !== worktreeManifest) {
+    throw new Error('Native live smoke installed candidate manifest does not match this worktree package');
+  }
+  const isHermesSourceFile = (relativePath: string) => hermesSourceExtensions.has(path.extname(relativePath));
+  const candidateHermesSources = sourceFileInventory(path.join(candidateApp, 'Contents/Resources/hermes-desktop'), isHermesSourceFile);
+  const worktreeHermesSources = sourceFileInventory(path.join(worktreeApp, 'Contents/Resources/hermes-desktop'), isHermesSourceFile);
+  if (candidateHermesSources.size !== worktreeHermesSources.size) {
+    throw new Error('Native live smoke installed candidate Hermes source payload does not match this worktree package');
+  }
+  for (const [relativePath, worktreeHash] of worktreeHermesSources) {
+    if (candidateHermesSources.get(relativePath) !== worktreeHash) {
+      throw new Error('Native live smoke installed candidate Hermes source payload does not match this worktree package');
+    }
+  }
+}
+
+async function ownedCandidate(): Promise<string> {
   const userData = process.env.RHYTHM_LIVE_ELECTRON_USER_DATA;
   const executable = process.env.RHYTHM_LIVE_ELECTRON_EXECUTABLE;
   const cdpUrl = process.env.RHYTHM_LIVE_ELECTRON_CDP_URL;
@@ -35,18 +187,17 @@ function ownedCandidate(): string {
     throw new Error('Native live smoke requires absolute userData/executable paths, loopback CDP URL, and candidate PID');
   }
   const root = realpathSync(userData);
-  if (!root.startsWith('/private/tmp/') && !root.startsWith('/var/folders/')) {
-    throw new Error('Native live smoke requires disposable userData under /private/tmp or /var/folders');
-  }
+  assertDisposableUserDataRoot(root);
   const info = lstatSync(userData);
   if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== process.getuid()) {
     throw new Error('Native live smoke userData must be an owned, non-symlink directory');
   }
+  const expectedBinaryPath = path.resolve(import.meta.dirname, '../../../electron/dist/Rhythm.app/Contents/MacOS/Rhythm');
+  const installedCandidate = path.resolve(homedir(), 'Applications', 'Rhythm Mega Desktop Candidate.app', 'Contents', 'MacOS', 'Rhythm');
+  assertCandidateExecutablePath(executable, expectedBinaryPath, installedCandidate);
   const binary = realpathSync(executable);
-  const expectedBinary = realpathSync(path.resolve(import.meta.dirname, '../../../electron/dist/Rhythm.app/Contents/MacOS/Rhythm'));
-  if (binary !== expectedBinary) {
-    throw new Error('Native live smoke executable must be the packaged candidate from this worktree');
-  }
+  const expectedBinary = realpathSync(expectedBinaryPath);
+  await assertCandidatePayloadIdentity(binary, expectedBinary, installedCandidate);
   const endpoint = new URL(cdpUrl);
   if (endpoint.protocol !== 'http:' || endpoint.hostname !== '127.0.0.1' ||
       !endpoint.port || endpoint.pathname !== '/' || endpoint.search || endpoint.hash ||
@@ -75,7 +226,7 @@ function ownedCandidate(): string {
 
 const electronTest = browserTest.extend<{ page: Page }, { nativePage: Page }>({
   nativePage: [async ({}, use) => {
-    const endpoint = ownedCandidate();
+    const endpoint = await ownedCandidate();
     // This is a parent-owned process. Do not call browser.close()/context.close()/page.close().
     // The worker's process exit releases its CDP socket without closing Electron.
     const connection = await chromium.connectOverCDP(endpoint, { timeout: 10_000 });

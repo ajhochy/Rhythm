@@ -1,5 +1,9 @@
 # Rhythm mega PR native visual smoke
 
+## Current September 19 desktop/phone checkpoint
+
+The login/Keychain blockers in the historical sections below are superseded: the current Developer ID candidate95306 restores its existing login and signer, runs API/engine and actual Hermes Desktop, and restores the cloud relay. Current native Desktop read checks pass2/2; the phone receives a reply through its existing pairing. This candidate is not notarized. The nine original visual steps are still not all qualified. The final hosted cycle passes Automations and fails Facilities room visibility; only scoped collection marker cleanup is established. See [current receipt](../../docs/ai/runs/2026-09-19-connected-phone-relay.md).
+
 ## September 19 follow-up
 
 The public desktop client ID, authorized process bearer and Flutter-owned local services are available. Fresh-profile startup is repaired, but the authenticated candidate blocked at protected Keychain persistence. The final client source additionally requires the new login-only API, which is not deployed. The nine authenticated workspace steps therefore remain **BLOCKED**. Finder/Get Info now also **PASS** on the exact-source signed/notarized ARM candidate installed separately as version0.18.65; Dock and Command-Tab remain unverified.
