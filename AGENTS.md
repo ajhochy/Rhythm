@@ -83,10 +83,24 @@ a project-state update, a handoff message, or a commit), you must:
    sandbox and run the test against it:
 
    ```bash
+   # Replace fixture paths with an approved, operator-sanitized fixture.
+   export RHYTHM_APPROVED_FIXTURE_ROOT=/path/to/sanitized/fixtures
+   export RHYTHM_LIVE_DB_PATH="$RHYTHM_APPROVED_FIXTURE_ROOT/rhythm.db"
+   export RHYTHM_SANDBOX_OPENCODE_CONFIG="$RHYTHM_APPROVED_FIXTURE_ROOT/opencode-config"
+   export RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-dev-sandbox
    tools/dev/sandbox.sh up       # API 4098 + engine 4097, temp HOME, copied DB
    tools/dev/sandbox.sh status
    tools/dev/sandbox.sh down
    ```
+
+   All four variables are required by `up`; there is no default fixture.
+   The source DB and config must be read-only, under the approved fixture
+   root and outside the sandbox directory; the config needs a non-empty
+   `mcp` map. Copied-data mode requires `DB_CLIENT=sqlite` and
+   `RHYTHM_OPTIMIZER_MODE=shadow` (both default to these values).
+   Keep the same sandbox directory and port overrides for later commands.
+   To recover only the engine while preserving api_server, use
+   `tools/dev/sandbox.sh restart-engine`; it checks recorded process ownership.
 
    See `docs/ai/testing-guide.md` "Isolated dev sandbox" and "Running the fork
    engine in dev" for the launch commands.
