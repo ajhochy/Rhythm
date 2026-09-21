@@ -144,6 +144,23 @@ export async function runningRhythmRuntime(signal = AbortSignal.timeout(2_000)) 
   } catch { return false; }
 }
 
+/** Why the readiness probe is failing, for the give-up log line. Only runs once, on timeout:
+ * the health probe itself is a boolean by design and a failure used to name neither half. */
+export async function describeRuntimeProbe(signal = AbortSignal.timeout(2_000)) {
+  const describe = async (/** @type {string} */ url) => {
+    try {
+      const response = await fetch(url, { signal });
+      if (!response.ok) return `HTTP ${response.status}`;
+      return JSON.stringify(await response.json()).slice(0, 200);
+    } catch (error) { return `unreachable (${error instanceof Error ? error.message : String(error)})`; }
+  };
+  const [api, engine] = await Promise.all([
+    describe(`${AGENT_SERVER_BASE_URL}/health`),
+    describe(`http://127.0.0.1:${AGENT_SERVER_ENGINE_PORT}/global/health`),
+  ]);
+  return `api :${AGENT_SERVER_PORT} -> ${api}; engine :${AGENT_SERVER_ENGINE_PORT} -> ${engine}`;
+}
+
 /** Bind rather than HTTP-probe: even a non-HTTP listener is a conflict. No PID discovery.
  * @param {number} port @returns {Promise<boolean>} */
 export async function portAvailable(port) {
@@ -178,6 +195,11 @@ export class AgentServerService {
   /** @type {Promise<void> | undefined} */
   #stopping;
   #generation = 0;
+  /** A freshly installed, freshly signed bundle's FIRST launch is far slower than a warm one
+   * (Gatekeeper scan, Keychain ACL prompts, cold Chromium network service). 8s killed a runtime
+   * that was in fact healthy 5s before the deadline — see
+   * docs/ai/runs/2026-09-21-desktop-agents-never-start.md. Env override exists for tests. */
+  #readyBudgetMs = Number(process.env.RHYTHM_AGENT_READY_BUDGET_MS) || 45_000;
   #abort = new AbortController();
   #release = () => {};
   /** @type {AgentServerFailureReason | undefined} */
@@ -352,8 +374,9 @@ export class AgentServerService {
     const ready = await this.#waitForReady();
     if (generation !== this.#generation || this.#process !== proc || this.#status !== 'starting') return this.status;
     if (!ready) {
+      this.#appendStderr(`health probe at give-up: ${await describeRuntimeProbe().catch((error) => String(error))}`);
       await this.stopGracefully();
-      this.#setFailed('healthCheckTimeout', 'The local runtime did not respond within 8 seconds. Quit and reopen Rhythm to retry.');
+      this.#setFailed('healthCheckTimeout', `The local runtime did not respond within ${Math.round(this.#readyBudgetMs / 1000)} seconds. Quit and reopen Rhythm to retry.`);
       return this.status;
     }
     this.#status = 'ready';
@@ -361,10 +384,10 @@ export class AgentServerService {
     return this.status;
   }
 
-  /** 8s wall-clock health budget, including requests (previous 40 x (200ms + 2s) could take 88s).
-   * Owned-child shutdown can add up to 4s after timeout. No automatic restart. */
+  /** Bounded wall-clock health budget, including requests (a naive 40 x (200ms + 2s) could take
+   * 88s). Owned-child shutdown can add up to 4s after timeout. No automatic restart. */
   async #waitForReady() {
-    const deadline = Date.now() + 8_000;
+    const deadline = Date.now() + this.#readyBudgetMs;
     while (this.#process && this.#status === 'starting' && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, Math.min(200, deadline - Date.now())));
       const remaining = deadline - Date.now();

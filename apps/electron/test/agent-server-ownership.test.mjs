@@ -4,6 +4,9 @@ import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { SourceTextModule, SyntheticModule } from 'node:vm';
 import test from 'node:test';
+
+// Keep this suite's timeout case fast; production defaults to a first-launch-tolerant budget.
+process.env.RHYTHM_AGENT_READY_BUDGET_MS = '8000';
 import { portAvailable } from '../src/agent-server.mjs';
 
 // Real service, fake OS boundaries only: never probe or signal the desktop runtime.
@@ -122,7 +125,7 @@ test('e11-c7: repeated start owns one child; timeout is bounded, stops child, ne
   const [first, second] = await Promise.all([f.service.start(), f.service.start()]);
   assert.equal(first.failureReason, 'healthCheckTimeout');
   assert.equal(second.failureReason, 'healthCheckTimeout');
-  assert.ok(Date.now() - began < 9_000, '8s wall deadline, not 40 * (2s fetch + 200ms)');
+  assert.ok(Date.now() - began < 12_000, 'bounded wall deadline (budget + one diagnostic probe), not 40 * (2s fetch + 200ms)');
   assert.equal(f.spawns(), 1);
   assert.deepEqual(f.signals, ['SIGTERM']);
   await new Promise((r) => setTimeout(r, 250));
