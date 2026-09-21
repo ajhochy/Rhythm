@@ -36,6 +36,14 @@ export type SessionWireEvent = {
   callId?: string;
   questions?: unknown[];
   rejected?: boolean;
+  // session.spillover — apps/api_server/src/services/turn_redispatch.ts
+  // (cross-provider cascade hop) and routes/opencode_spillover_routes.ts
+  // (same-provider Anthropic account failover). `reason` is shared above.
+  fromAccountId?: string | null;
+  toAccountId?: string | null;
+  toProvider?: string;
+  toModel?: string;
+  toTier?: string;
 };
 export type SessionSocket = { send(frame: unknown): void; close(): void };
 export type TranscriptPageInfo = { nextCursor: string | null; hasMore: boolean };

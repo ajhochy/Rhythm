@@ -56,8 +56,11 @@ export type ProviderErrorClass = 'rate_limit' | 'auth' | 'other';
 
 /**
  * Classify a provider HTTP response status (+ optional body) into the
- * category that drives fallback decisions. Only 'rate_limit' triggers a
- * fallback chain hop; 'auth' and 'other' are surfaced as normal errors.
+ * category that drives fallback decisions. 'rate_limit' AND 'auth' both
+ * trigger a fallback chain hop (a dead credential is exactly as fatal to the
+ * current tier as a spent quota — see turn_redispatch.onSessionError, which
+ * bounds both to at most one attempt per tier). 'other' is surfaced as a
+ * normal error.
  *
  * Mirrors the existing (informal) classifier in the vendored
  * rhythm-anthropic-accounts plugin (`status === 429 || status === 529`),
@@ -97,6 +100,18 @@ export function classifyProviderError(error: unknown, body?: string): ProviderEr
     )
   ) {
     return 'rate_limit';
+  }
+  // Credential failures frequently reach us as a thrown Error with NO status:
+  // the vendored anthropic plugin throws outright when every account in the
+  // store is unusable (status !== 'ok'), and the keychain path throws when the
+  // cached credentials expired. Those are auth failures of the active tier and
+  // must hop, not finalize.
+  if (
+    /no usable .*account|credentials are unavailable or expired|unauthoriz|authentication[_ -]?error|invalid[_ -]?api[_ -]?key|invalid bearer|oauth token (?:has )?expired|permission[_ -]?denied|needs[_ -]?relogin/.test(
+      text,
+    )
+  ) {
+    return 'auth';
   }
   return 'other';
 }
