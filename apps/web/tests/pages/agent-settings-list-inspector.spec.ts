@@ -172,6 +172,139 @@ test.describe('Agent Settings live persistence', () => {
     await expect(page.getByTestId('agent-settings-account-default-personal')).toHaveCount(0);
   });
 
+  test('re-authorizes an expired default account in place without removing it', async ({ page }) => {
+    const defaultAccountId = 'personal';
+    let accounts = [
+      { id: 'team', label: 'Team', status: 'ok' },
+      { id: 'personal', label: 'Personal', status: 'needs_relogin' },
+    ];
+    const mutations: string[] = [];
+
+    await openInterceptedLiveApp(page, '/#/tools/agent-settings?settingsSection=accounts', {
+      handleApi: async (route, request) => {
+        if (request.pathname === '/opencode/auth/accounts' && request.method === 'GET') {
+          await fulfillJson(route, 200, { accounts, defaultAccountId });
+          return true;
+        }
+        if (request.pathname === '/opencode/auth/accounts/login-start' && request.method === 'POST') {
+          const body = request.body as { accountId: string; label: string };
+          mutations.push(`start:${body.accountId}:${body.label}`);
+          await fulfillJson(route, 200, { authorizeUrl: 'https://example.test/anthropic-reauthorize' });
+          return true;
+        }
+        if (request.pathname === '/opencode/auth/accounts/login-complete' && request.method === 'POST') {
+          const body = request.body as { accountId: string; code: string };
+          mutations.push(`complete:${body.accountId}:${body.code}`);
+          accounts = accounts.map((account) => (account.id === body.accountId ? { ...account, status: 'ok' } : account));
+          await fulfillJson(route, 200, { account: accounts.find((account) => account.id === body.accountId) });
+          return true;
+        }
+        if (request.pathname === '/opencode/mcp') {
+          await fulfillJson(route, 200, []);
+          return true;
+        }
+        return false;
+      },
+    });
+
+    const row = page.getByTestId('agent-settings-account-personal');
+    await expect(row).toContainText('Default');
+    await expect(page.getByTestId('agent-settings-account-attention-personal')).toBeVisible();
+    await expect(page.getByTestId('agent-settings-account-attention-team')).toHaveCount(0);
+    await expect(page.getByRole('option', { name: 'Accounts', exact: true })).toContainText('1 need re-authorization');
+
+    await page.getByTestId('agent-settings-account-relogin-personal').click();
+    await expect(page.getByTestId('agent-settings-account-authorizing')).toContainText('Personal');
+    await expect(page.getByTestId('agent-settings-account-authorization-link')).toHaveAttribute('href', 'https://example.test/anthropic-reauthorize');
+    await page.getByTestId('agent-settings-account-code').fill('fresh-code#state');
+    await page.getByTestId('agent-settings-account-complete').click();
+
+    await expect(page.getByTestId('agent-settings-account-attention-personal')).toHaveCount(0);
+    await expect(row).toContainText('Default');
+    await expect(page.getByTestId('agent-settings-account-team')).toBeVisible();
+    expect(mutations).toEqual(['start:personal:Personal', 'complete:personal:fresh-code#state']);
+  });
+
+  test('connects OpenAI by paste-back, Google by re-check, and OpenCode/OpenRouter by API key', async ({ page }) => {
+    let providers: string[] = [];
+    const mutations: string[] = [];
+
+    await openInterceptedLiveApp(page, '/#/tools/agent-settings?settingsSection=accounts', {
+      handleApi: async (route, request) => {
+        if (request.pathname === '/opencode/auth/accounts') {
+          await fulfillJson(route, 200, { accounts: [], defaultAccountId: null });
+          return true;
+        }
+        if (request.pathname === '/opencode/auth' && request.method === 'GET') {
+          await fulfillJson(route, 200, { providers, ready: true });
+          return true;
+        }
+        const authorize = request.pathname.match(/^\/opencode\/auth\/([^/]+)\/authorize$/);
+        if (authorize) {
+          mutations.push(`authorize:${authorize[1]}${request.search}`);
+          await fulfillJson(route, 200, { authUrl: `https://example.test/${authorize[1]}-oauth`, instructions: `Sign in to ${authorize[1]}.` });
+          return true;
+        }
+        const callback = request.pathname.match(/^\/opencode\/auth\/([^/]+)\/callback$/);
+        if (callback) {
+          mutations.push(`callback:${callback[1]}${request.search}`);
+          providers = [...providers, callback[1]];
+          await fulfillJson(route, 200, { success: true });
+          return true;
+        }
+        const apiKey = request.pathname.match(/^\/opencode\/auth\/([^/]+)$/);
+        if (apiKey && request.method === 'POST') {
+          const body = request.body as { apiKey: string };
+          mutations.push(`key:${apiKey[1]}:${body.apiKey}`);
+          providers = [...providers, apiKey[1]];
+          await fulfillJson(route, 200, { success: true });
+          return true;
+        }
+        if (request.pathname === '/opencode/mcp') {
+          await fulfillJson(route, 200, []);
+          return true;
+        }
+        return false;
+      },
+    });
+
+    for (const id of ['openai', 'google', 'opencode', 'openrouter']) {
+      await expect(page.getByTestId(`agent-settings-provider-status-${id}`)).toHaveText('Not connected');
+    }
+
+    // OpenAI must use the paste-back method (method=1), not the in-process default.
+    await page.getByTestId('agent-settings-provider-authorize-openai').click();
+    await expect(page.getByTestId('agent-settings-provider-authorization-link')).toHaveAttribute('href', 'https://example.test/openai-oauth');
+    await page.getByTestId('agent-settings-provider-code').fill('http://localhost:1455/auth/callback?code=abc');
+    await page.getByTestId('agent-settings-provider-complete').click();
+    await expect(page.getByTestId('agent-settings-provider-status-openai')).toHaveText('Connected');
+
+    // Google completes out of band (method=0): the UI only re-reads the authorized list.
+    await page.getByTestId('agent-settings-provider-authorize-google').click();
+    await expect(page.getByTestId('agent-settings-provider-flow-google')).toBeVisible();
+    await page.getByTestId('agent-settings-provider-check').click();
+    await expect(page.getByTestId('agent-settings-provider-status-google')).toHaveText('Not connected');
+    providers = [...providers, 'google'];
+    await page.getByTestId('agent-settings-provider-check').click();
+    await expect(page.getByTestId('agent-settings-provider-status-google')).toHaveText('Connected');
+    await expect(page.getByTestId('agent-settings-provider-flow-google')).toHaveCount(0);
+
+    await page.getByTestId('agent-settings-provider-key-opencode').fill('oc-key');
+    await page.getByTestId('agent-settings-provider-key-save-opencode').click();
+    await expect(page.getByTestId('agent-settings-provider-status-opencode')).toHaveText('Connected');
+    await page.getByTestId('agent-settings-provider-key-openrouter').fill('or-key');
+    await page.getByTestId('agent-settings-provider-key-save-openrouter').click();
+    await expect(page.getByTestId('agent-settings-provider-status-openrouter')).toHaveText('Connected');
+
+    expect(mutations).toEqual([
+      'authorize:openai?method=1',
+      'callback:openai?code=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback%3Fcode%3Dabc&method=1',
+      'authorize:google?method=0',
+      'key:opencode:oc-key',
+      'key:openrouter:or-key',
+    ]);
+  });
+
   test('saves MCP server, credential, and OAuth changes and restores them after reload', async ({ page }) => {
     type Server = { name: string; status: string; error: null; requiredEnv: string[]; needsCredentials: boolean; source: 'curated' | 'adhoc'; tools: string[] };
     let servers: Server[] = [

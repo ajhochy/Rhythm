@@ -148,3 +148,37 @@
     flex-wrap: wrap;
   }
 }
+
+.agent-settings-records article.agent-settings-account {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.agent-settings-records article.agent-settings-account .agent-settings-actions {
+  margin-block: 0;
+  justify-content: flex-end;
+}
+
+.agent-settings-records article.needs-relogin {
+  border-color: var(--warning);
+}
+
+.agent-settings-records article.needs-relogin .kind-badge {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.agent-settings-subhead {
+  margin: 22px 0 0;
+}
+
+.agent-settings-subhead-note {
+  margin: 4px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.agent-settings-records article.agent-settings-account > form {
+  grid-column: 1 / -1;
+  margin-block: 10px 0;
+}

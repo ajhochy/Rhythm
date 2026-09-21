@@ -113,6 +113,11 @@ export interface SessionGateway {
   completeAccountLogin?(input: { accountId: string; code: string }): Promise<void>;
   setDefaultAccount?(accountId: string): Promise<void>;
   removeAccount?(accountId: string): Promise<void>;
+  // Provider auth — apps/api_server/src/routes/opencode_auth_routes.ts:17-105.
+  authProviders?(): Promise<string[]>;
+  authorizeProvider?(provider: string, method: number): Promise<{ authUrl: string; instructions: string }>;
+  completeProviderAuth?(provider: string, code: string, method: number): Promise<void>;
+  saveProviderApiKey?(provider: string, apiKey: string): Promise<void>;
   patchSettings?(localId: string, input: SessionSettings): Promise<Session>;
   archive?(localId: string, archived: boolean): Promise<void>;
   fork?(localId: string, messageId: string): Promise<Session>;
@@ -454,6 +459,16 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
     completeAccountLogin: async (input) => { await response<unknown>('Complete account authorization', request('/opencode/auth/accounts/login-complete', { method: 'POST', body: JSON.stringify(input) })); },
     setDefaultAccount: async (accountId) => { await response<unknown>('Set default account', request('/opencode/auth/accounts/default', { method: 'PATCH', body: JSON.stringify({ accountId }) })); },
     removeAccount: async (accountId) => { await response<unknown>('Remove account', request(`/opencode/auth/accounts/${encodeURIComponent(accountId)}`, { method: 'DELETE' })); },
+    authProviders: async () => {
+      const body = await response<{ providers?: unknown[] }>('Load provider authorizations', request('/opencode/auth'));
+      return (body.providers ?? []).map((entry) => string(entry));
+    },
+    authorizeProvider: async (provider, method) => {
+      const body = await response<{ authUrl?: string; instructions?: string }>('Start provider authorization', request(`/opencode/auth/${encodeURIComponent(provider)}/authorize?method=${method}`));
+      return { authUrl: string(body.authUrl), instructions: string(body.instructions, '') };
+    },
+    completeProviderAuth: async (provider, code, method) => { await response<unknown>('Complete provider authorization', request(`/opencode/auth/${encodeURIComponent(provider)}/callback?code=${encodeURIComponent(code)}&method=${method}`)); },
+    saveProviderApiKey: async (provider, apiKey) => { await response<unknown>('Save provider API key', request(`/opencode/auth/${encodeURIComponent(provider)}`, { method: 'POST', body: JSON.stringify({ apiKey }) })); },
     patchSettings: async (id, input) => {
       await response<unknown>('Save session settings', request(`/agent-sessions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(input) }));
       const body = await response<{ session: unknown; messages?: unknown[]; transcriptPage?: unknown }>('Read session settings', request(`/agent-sessions/${encodeURIComponent(id)}?transcriptLimit=50`));

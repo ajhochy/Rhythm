@@ -47,6 +47,18 @@ function SectionIntro({ scope, children }: { scope: string; children: ReactNode 
   return <div className="agent-settings-intro"><ScopeLabel>{scope}</ScopeLabel><p>{children}</p></div>;
 }
 
+// Ported from apps/desktop_flutter/.../ai_account_section.dart — same endpoints and
+// method indexes. method 1 = paste-back (openai); method 0 = the plugin's own local
+// listener completes the exchange (google), so the UI only re-checks the provider list.
+const providerCatalog = [
+  { id: 'openai', label: 'OpenAI / Codex', kind: 'oauth' as const, method: 1, detail: 'Sign in with ChatGPT, then paste the callback URL or code back here.' },
+  { id: 'google', label: 'Google / Gemini', kind: 'oauth' as const, method: 0, detail: 'Sign in with Google; the local listener finishes the exchange, then re-check below.' },
+  { id: 'opencode', label: 'OpenCode', kind: 'key' as const, method: 0, detail: 'Paste an OpenCode API key.' },
+  { id: 'openrouter', label: 'OpenRouter', kind: 'key' as const, method: 0, detail: 'Last-resort tier of the model fallback chain. Paste an OpenRouter API key.' },
+];
+
+const accountNeedsRelogin = (account: AccountChoice) => !/^(ok|connected|active|authorized)$/i.test(account.status);
+
 function useSettingsSelection() {
   const [selectedId, setSelectedId] = useSelectedId('settingsSection');
   useEffect(() => {
@@ -134,6 +146,9 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const [removingAccount, setRemovingAccount] = useState<AccountChoice | null>(null);
   const [accountDraft, setAccountDraft] = useState({ accountId: '', label: '', code: '' });
   const [accountAuthorizationUrl, setAccountAuthorizationUrl] = useState('');
+  const [authProviders, setAuthProviders] = useState<string[]>([]);
+  const [providerFlow, setProviderFlow] = useState<{ id: string; authUrl: string; instructions: string; method: number } | null>(null);
+  const [providerDraft, setProviderDraft] = useState<{ code: string; apiKey: Record<string, string> }>({ code: '', apiKey: {} });
   const [mcpDraft, setMcpDraft] = useState({ name: '', kind: 'remote' as 'remote' | 'local', value: '' });
   const [mcpCredentials, setMcpCredentials] = useState<Record<string, Record<string, string>>>({});
   const [mcpAuthorization, setMcpAuthorization] = useState<{ name: string; url: string } | null>(null);
@@ -141,11 +156,13 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
 
   const load = async () => {
     setError(null); setAccountsError(''); setMcpError(''); setLoading(true);
-    const [profileResult, accountResult, mcpResult] = await Promise.allSettled([
+    const [profileResult, accountResult, mcpResult, providerResult] = await Promise.allSettled([
       sessions.profiles(),
       sessions.accounts?.() ?? Promise.resolve([]),
       mcp.list(),
+      sessions.authProviders?.() ?? Promise.resolve([]),
     ]);
+    setAuthProviders(providerResult.status === 'fulfilled' ? providerResult.value : []);
     if (profileResult.status === 'fulfilled') setProfiles(profileResult.value);
     else setError(profileResult.reason instanceof Error ? profileResult.reason.message : 'Agent settings failed to load');
     if (accountResult.status === 'fulfilled') setAccounts(accountResult.value);
@@ -162,17 +179,87 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     setAccounts(await (sessions.accounts?.() ?? Promise.resolve([])));
   };
 
-  const startAccountLogin = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!sessions.startAccountLogin) return;
-    setPendingAction('account-start'); setAccountsError(''); setActionNotice('');
+  const reloadProviders = async () => {
+    setAuthProviders(await (sessions.authProviders?.() ?? Promise.resolve([])));
+  };
+
+  const startProviderAuth = async (provider: typeof providerCatalog[number]) => {
+    if (!sessions.authorizeProvider) return;
+    setPendingAction(`provider-start-${provider.id}`); setAccountsError(''); setActionNotice('');
+    setProviderFlow(null); setProviderDraft((current) => ({ ...current, code: '' }));
     try {
-      const result = await sessions.startAccountLogin({ accountId: accountDraft.accountId.trim(), label: accountDraft.label.trim() || accountDraft.accountId.trim() });
+      const result = await sessions.authorizeProvider(provider.id, provider.method);
+      setProviderFlow({ id: provider.id, authUrl: result.authUrl, instructions: result.instructions, method: provider.method });
+      setActionNotice(`Authorization started for ${provider.label}. Open the provider page to sign in.`);
+      setTrace({ method: 'GET', route: `/opencode/auth/${provider.id}/authorize`, detail: `Authorization started for ${provider.id}` });
+    } catch (err) { setAccountsError(err instanceof Error ? err.message : 'Provider authorization could not be started'); }
+    finally { setPendingAction(''); }
+  };
+
+  const completeProviderAuth = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!providerFlow || !sessions.completeProviderAuth) return;
+    const flow = providerFlow;
+    setPendingAction(`provider-complete-${flow.id}`); setAccountsError(''); setActionNotice('');
+    try {
+      await sessions.completeProviderAuth(flow.id, providerDraft.code.trim(), flow.method);
+      await reloadProviders();
+      setProviderFlow(null); setProviderDraft((current) => ({ ...current, code: '' }));
+      setActionNotice(`${flow.id} connected.`);
+      setTrace({ method: 'GET', route: `/opencode/auth/${flow.id}/callback`, detail: `${flow.id} authorization completed` });
+    } catch (err) { setAccountsError(err instanceof Error ? err.message : 'Provider authorization could not be completed'); }
+    finally { setPendingAction(''); }
+  };
+
+  // method 0 providers are finished by the engine plugin's own listener, so the UI
+  // only needs to re-read the authorized list instead of exchanging a code itself.
+  const checkProviderAuth = async () => {
+    if (!providerFlow) return;
+    const flow = providerFlow;
+    setPendingAction(`provider-check-${flow.id}`); setAccountsError('');
+    try {
+      const providers = await (sessions.authProviders?.() ?? Promise.resolve([]));
+      setAuthProviders(providers);
+      const connected = providers.includes(flow.id);
+      if (connected) setProviderFlow(null);
+      setActionNotice(connected ? `${flow.id} connected.` : `${flow.id} is not connected yet. Finish the browser sign-in, then check again.`);
+      setTrace({ method: 'GET', route: '/opencode/auth', detail: `${flow.id} is ${connected ? 'connected' : 'not connected yet'}` });
+    } catch (err) { setAccountsError(err instanceof Error ? err.message : 'Provider status could not be read'); }
+    finally { setPendingAction(''); }
+  };
+
+  const saveProviderApiKey = async (event: FormEvent, provider: typeof providerCatalog[number]) => {
+    event.preventDefault();
+    if (!sessions.saveProviderApiKey) return;
+    setPendingAction(`provider-key-${provider.id}`); setAccountsError(''); setActionNotice('');
+    try {
+      await sessions.saveProviderApiKey(provider.id, providerDraft.apiKey[provider.id] ?? '');
+      await reloadProviders();
+      setProviderDraft((current) => ({ ...current, apiKey: { ...current.apiKey, [provider.id]: '' } }));
+      setActionNotice(`${provider.label} connected.`);
+      setTrace({ method: 'POST', route: `/opencode/auth/${provider.id}`, detail: `${provider.id} API key stored` });
+    } catch (err) { setAccountsError(err instanceof Error ? err.message : 'Provider API key could not be saved'); }
+    finally { setPendingAction(''); }
+  };
+
+  // Re-authorizing an existing account is the same login-start/login-complete
+  // pair as a new one — the server upserts by id and keeps the default set.
+  const beginAccountLogin = async (accountId: string, label: string) => {
+    if (!sessions.startAccountLogin || !accountId) return;
+    setPendingAction('account-start'); setAccountsError(''); setActionNotice(''); setAccountAuthorizationUrl('');
+    setAccountDraft({ accountId, label, code: '' });
+    try {
+      const result = await sessions.startAccountLogin({ accountId, label: label || accountId });
       setAccountAuthorizationUrl(result.authorizationUrl);
       setActionNotice('Authorization started. Open the provider page, then paste the returned code.');
-      setTrace({ method: 'POST', route: '/opencode/auth/accounts/login-start', detail: `Authorization started for ${accountDraft.accountId.trim()}` });
+      setTrace({ method: 'POST', route: '/opencode/auth/accounts/login-start', detail: `Authorization started for ${accountId}` });
     } catch (err) { setAccountsError(err instanceof Error ? err.message : 'Account authorization could not be started'); }
     finally { setPendingAction(''); }
+  };
+
+  const startAccountLogin = async (event: FormEvent) => {
+    event.preventDefault();
+    await beginAccountLogin(accountDraft.accountId.trim(), accountDraft.label.trim() || accountDraft.accountId.trim());
   };
 
   const completeAccountLogin = async (event: FormEvent) => {
@@ -311,11 +398,12 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   };
 
   const defaultProfile = profiles.find((profile) => profile.isDefault);
-  const connectedAccounts = accounts.filter((account) => /^(ok|connected|active|authorized)$/i.test(account.status)).length;
+  const connectedAccounts = accounts.filter((account) => !accountNeedsRelogin(account)).length;
+  const staleAccounts = accounts.length - connectedAccounts;
   const connectedMcp = mcpServers.filter((server) => server.status === 'connected').length;
   const items = baseItems({
     profiles: profiles.length ? `${profiles.length} configured${defaultProfile ? ` · default ${defaultProfile.label}` : ''}` : 'No profiles configured',
-    accounts: accountsError || `${connectedAccounts} connected · ${accounts.length} available`,
+    accounts: accountsError || `${connectedAccounts} connected · ${accounts.length} available${staleAccounts ? ` · ${staleAccounts} need re-authorization` : ''}`,
     behavior: 'Configure in Flutter Agent settings',
     keybindings: 'Configure in Flutter Agent settings',
     runtime: gateway.environment ? `API :${gateway.environment.apiPort} · engine :${gateway.environment.enginePort}` : 'Local runtime unavailable',
@@ -324,13 +412,13 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
 
   const profilesInspector = () => <><SectionIntro scope="Agent / profile">Profiles own identity, model defaults, delegation, skills, MCP access, and protected-action policy. Editing stays in the dedicated profile surface.</SectionIntro>{profiles.length === 0 ? <div className="agent-settings-empty"><strong>No agent profiles configured</strong><p>Create a profile before starting a configured session.</p></div> : <div className="agent-settings-records">{profiles.map((profile) => <article key={profile.id} data-testid={`agent-setting-${profile.id}`}><span className="profile-avatar" aria-hidden="true">{profileAvatarLabel(profile)}</span><span><strong>{profile.label}</strong><small>{profile.enabled ? 'Enabled' : 'Disabled'} · {profile.provider} · {profile.model}{profile.isDefault ? ' · Default' : ''}</small></span></article>)}</div>}<button className="primary-button" type="button" onClick={() => navigate('/profiles')} data-testid="agent-settings-open-profiles">Open profile editor</button></>;
   const accountsInspector = () => <>
-    <SectionIntro scope="Desktop local">Anthropic account authorization is saved by the local OpenCode account service.</SectionIntro>
+    <SectionIntro scope="Desktop local">Anthropic accounts and every other model provider are authorized against the local OpenCode runtime.</SectionIntro>
     {accountsError && <p role="alert">{accountsError}</p>}
-    {pendingAction.startsWith('account-') && <p role="status">Saving account configuration…</p>}
+    {(pendingAction.startsWith('account-') || pendingAction.startsWith('provider-')) && <p role="status">Saving account configuration…</p>}
     {actionNotice && <p role="status">{actionNotice}</p>}
     {!accountsError && accounts.length === 0 && <div className="agent-settings-empty"><strong>No provider accounts reported</strong><p>Authorize an account below.</p></div>}
     <div className="agent-settings-records">
-      {accounts.map((account) => <article key={account.id} data-testid={`agent-settings-account-${account.id}`}><span><strong>{account.label}</strong><small>{account.status}{account.isDefault ? ' · Default' : ''}</small></span><div className="agent-settings-actions">{!account.isDefault && <button className="secondary-button" type="button" disabled={Boolean(pendingAction)} onClick={() => void setDefaultAccount(account)} data-testid={`agent-settings-account-default-${account.id}`}>Make default</button>}<button className="text-danger-button" type="button" disabled={Boolean(pendingAction)} onClick={() => setRemovingAccount(account)} data-testid={`agent-settings-account-remove-${account.id}`}>Remove</button></div></article>)}
+      {accounts.map((account) => <article key={account.id} className={`agent-settings-account${accountNeedsRelogin(account) ? ' needs-relogin' : ''}`} data-testid={`agent-settings-account-${account.id}`} data-account-status={account.status}><span><strong>{account.label}</strong><small>{account.status}{account.isDefault ? ' · Default' : ''}</small>{accountNeedsRelogin(account) && <span className="kind-badge" data-testid={`agent-settings-account-attention-${account.id}`}>Needs re-authorization</span>}</span><div className="agent-settings-actions">{accountNeedsRelogin(account) && <button className="primary-button" type="button" disabled={Boolean(pendingAction)} onClick={() => void beginAccountLogin(account.id, account.label)} data-testid={`agent-settings-account-relogin-${account.id}`}>Re-authorize</button>}{!account.isDefault && <button className="secondary-button" type="button" disabled={Boolean(pendingAction)} onClick={() => void setDefaultAccount(account)} data-testid={`agent-settings-account-default-${account.id}`}>Make default</button>}<button className="text-danger-button" type="button" disabled={Boolean(pendingAction)} onClick={() => setRemovingAccount(account)} data-testid={`agent-settings-account-remove-${account.id}`}>Remove</button></div></article>)}
     </div>
     <form className="agent-settings-form" onSubmit={startAccountLogin}>
       <h4>Authorize Anthropic account</h4>
@@ -338,7 +426,13 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
       <label>Label<input value={accountDraft.label} onChange={(event) => setAccountDraft((current) => ({ ...current, label: event.target.value }))} data-testid="agent-settings-account-label" /></label>
       <button className="primary-button" type="submit" disabled={Boolean(pendingAction)} data-testid="agent-settings-account-start">Start authorization</button>
     </form>
-    {accountAuthorizationUrl && <form className="agent-settings-form" onSubmit={completeAccountLogin}><a href={accountAuthorizationUrl} target="_blank" rel="noreferrer" data-testid="agent-settings-account-authorization-link">Open Anthropic authorization</a><label>Authorization code<input required value={accountDraft.code} onChange={(event) => setAccountDraft((current) => ({ ...current, code: event.target.value }))} data-testid="agent-settings-account-code" /></label><button className="primary-button" type="submit" disabled={Boolean(pendingAction)} data-testid="agent-settings-account-complete">Save account</button></form>}
+    {accountAuthorizationUrl && <form className="agent-settings-form" onSubmit={completeAccountLogin}><h4 data-testid="agent-settings-account-authorizing">Authorizing {accountDraft.label || accountDraft.accountId}</h4><a href={accountAuthorizationUrl} target="_blank" rel="noreferrer" data-testid="agent-settings-account-authorization-link">Open Anthropic authorization</a><label>Authorization code<input required value={accountDraft.code} onChange={(event) => setAccountDraft((current) => ({ ...current, code: event.target.value }))} data-testid="agent-settings-account-code" /></label><button className="primary-button" type="submit" disabled={Boolean(pendingAction)} data-testid="agent-settings-account-complete">Save account</button></form>}
+    <h4 className="agent-settings-subhead">Model providers</h4>
+    <p className="agent-settings-subhead-note">OAuth and API-key providers are stored by the local OpenCode runtime, the same as in the Flutter settings screen.</p>
+    <div className="agent-settings-records">
+      {providerCatalog.map((provider) => { const connected = authProviders.includes(provider.id); return <article key={provider.id} className={`agent-settings-account${connected ? '' : ' needs-relogin'}`} data-testid={`agent-settings-provider-${provider.id}`}><span><strong>{provider.label}</strong><small>{provider.detail}</small><span className="kind-badge" data-testid={`agent-settings-provider-status-${provider.id}`}>{connected ? 'Connected' : 'Not connected'}</span></span>{provider.kind === 'oauth' && <div className="agent-settings-actions"><button className={connected ? 'secondary-button' : 'primary-button'} type="button" disabled={Boolean(pendingAction)} onClick={() => void startProviderAuth(provider)} data-testid={`agent-settings-provider-authorize-${provider.id}`}>{connected ? 'Reconnect' : 'Connect'}</button></div>}{provider.kind === 'key' && <form className="agent-settings-form" onSubmit={(event) => void saveProviderApiKey(event, provider)}><label>API key<input required type="password" autoComplete="off" value={providerDraft.apiKey[provider.id] ?? ''} onChange={(event) => { const value = event.target.value; setProviderDraft((current) => ({ ...current, apiKey: { ...current.apiKey, [provider.id]: value } })); }} data-testid={`agent-settings-provider-key-${provider.id}`} /></label><button className="primary-button" type="submit" disabled={Boolean(pendingAction)} data-testid={`agent-settings-provider-key-save-${provider.id}`}>{connected ? 'Replace key' : 'Save key'}</button></form>}</article>; })}
+    </div>
+    {providerFlow && <div className="agent-settings-form" data-testid={`agent-settings-provider-flow-${providerFlow.id}`}><h4>Authorizing {providerFlow.id}</h4>{providerFlow.instructions && <p>{providerFlow.instructions}</p>}<p><a href={providerFlow.authUrl} target="_blank" rel="noreferrer" data-testid="agent-settings-provider-authorization-link">Open {providerFlow.id} authorization</a></p>{providerFlow.method === 1 ? <form className="agent-settings-form" onSubmit={completeProviderAuth}><label>Callback URL or code<input required value={providerDraft.code} onChange={(event) => { const value = event.target.value; setProviderDraft((current) => ({ ...current, code: value })); }} data-testid="agent-settings-provider-code" /></label><button className="primary-button" type="submit" disabled={Boolean(pendingAction)} data-testid="agent-settings-provider-complete">Finish connecting</button></form> : <button className="primary-button" type="button" disabled={Boolean(pendingAction)} onClick={() => void checkProviderAuth()} data-testid="agent-settings-provider-check">I finished sign-in — check connection</button>}</div>}
   </>;
   const runtimeInspector = () => <><SectionIntro scope="Desktop local">Rhythm uses a local API and OpenCode engine supplied by the trusted desktop host.</SectionIntro><dl className="property-list"><div><dt>Local API</dt><dd>{gateway.environment ? `127.0.0.1:${gateway.environment.apiPort}` : 'Unavailable'} · {runtimeStatus.api}</dd></div><div><dt>OpenCode engine</dt><dd>{gateway.environment ? `127.0.0.1:${gateway.environment.enginePort}` : 'Unavailable'} · {runtimeStatus.engine}</dd></div></dl>{pendingAction.startsWith('runtime-') && <p role="status">Checking the local runtime…</p>}<div className="agent-settings-actions"><button className="secondary-button" type="button" disabled={Boolean(pendingAction)} onClick={() => void runRuntimeCheck('api')} data-testid="agent-settings-check-api">Check local API</button><button className="secondary-button" type="button" disabled={Boolean(pendingAction)} onClick={() => void runRuntimeCheck('engine')} data-testid="agent-settings-check-engine">Check OpenCode engine</button></div><GapNotice place="Flutter Agent settings → OpenCode server">Changing or restarting the runtime requires GET and PATCH /opencode/runtime plus POST /opencode/runtime/restart; those endpoints do not exist.</GapNotice></>;
   const mcpInspector = () => <>
