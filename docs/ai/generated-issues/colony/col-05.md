@@ -10,7 +10,11 @@ Milestone: Colony M2 — Rhythm-native UI and menus
 
 ## Dependencies
 
-#1527, #1529
+#1527, #1529, #1534
+
+## Approach note (revised 2026-09-21)
+
+Now also depends on #1534 so the tab is built against the artifact that is actually staged into the package, rather than against a standalone fixture contract. This is the Hermes ordering: the build foundation lands before the UI that consumes it.
 
 ## Likely files
 

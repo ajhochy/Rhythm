@@ -34,12 +34,13 @@
   "issues": [
     {
       "id": "COL-01",
-      "title": "[COL-01] Adopt pinned Bot Crossing source and asset provenance",
+      "title": "[COL-01] Pin upstream Colony source and emit a sealed embedded artifact",
       "milestone": "M1",
       "deps": [],
       "labels": [
         "enhancement",
-        "infrastructure"
+        "infrastructure",
+        "colony"
       ],
       "goal": "Create a reproducible, reviewable source boundary for Colony in the Rhythm repository while retaining the working standalone data model and read-only harness behavior.",
       "files": [
@@ -66,18 +67,20 @@
       ],
       "file": "docs/ai/generated-issues/colony/col-01.md",
       "number": 1526,
-      "url": "https://github.com/ajhochy/Rhythm/issues/1526"
+      "url": "https://github.com/ajhochy/Rhythm/issues/1526",
+      "order": 1
     },
     {
       "id": "COL-02",
-      "title": "[COL-02] Add embedded service and scene contracts with an isolated bridge",
+      "title": "[COL-02] Verify the Colony artifact and add the isolated embedded bridge",
       "milestone": "M1",
       "deps": [
         "COL-01"
       ],
       "labels": [
         "enhancement",
-        "infrastructure"
+        "infrastructure",
+        "colony"
       ],
       "goal": "Expose the existing Colony data operations and 3D scene through explicit embedded contracts, without a public local HTTP server or broad native privileges.",
       "files": [
@@ -106,7 +109,8 @@
       ],
       "file": "docs/ai/generated-issues/colony/col-02.md",
       "number": 1527,
-      "url": "https://github.com/ajhochy/Rhythm/issues/1527"
+      "url": "https://github.com/ajhochy/Rhythm/issues/1527",
+      "order": 2
     },
     {
       "id": "COL-03",
@@ -117,7 +121,8 @@
       ],
       "labels": [
         "enhancement",
-        "infrastructure"
+        "infrastructure",
+        "colony"
       ],
       "goal": "Let Electron lazily start, supervise and stop one Colony scanner while preserving the ownership of every existing Rhythm and harness process.",
       "files": [
@@ -145,7 +150,8 @@
       ],
       "file": "docs/ai/generated-issues/colony/col-03.md",
       "number": 1528,
-      "url": "https://github.com/ajhochy/Rhythm/issues/1528"
+      "url": "https://github.com/ajhochy/Rhythm/issues/1528",
+      "order": 3
     },
     {
       "id": "COL-04",
@@ -154,7 +160,8 @@
       "deps": [],
       "labels": [
         "enhancement",
-        "ui-overhaul"
+        "ui-overhaul",
+        "colony"
       ],
       "goal": "Produce a concrete UI and menu design that makes Colony feel native to Rhythm Electron while retaining the 3D world and multi-harness clarity.",
       "files": [
@@ -181,7 +188,8 @@
       ],
       "file": "docs/ai/generated-issues/colony/col-04.md",
       "number": 1529,
-      "url": "https://github.com/ajhochy/Rhythm/issues/1529"
+      "url": "https://github.com/ajhochy/Rhythm/issues/1529",
+      "order": 4
     },
     {
       "id": "COL-05",
@@ -189,11 +197,13 @@
       "milestone": "M2",
       "deps": [
         "COL-02",
-        "COL-04"
+        "COL-04",
+        "COL-09"
       ],
       "labels": [
         "enhancement",
-        "ui-overhaul"
+        "ui-overhaul",
+        "colony"
       ],
       "goal": "Implement the approved Colony workspace inside Rhythm using existing React UI conventions and the embedded scene contract.",
       "files": [
@@ -220,7 +230,8 @@
       ],
       "file": "docs/ai/generated-issues/colony/col-05.md",
       "number": 1530,
-      "url": "https://github.com/ajhochy/Rhythm/issues/1530"
+      "url": "https://github.com/ajhochy/Rhythm/issues/1530",
+      "order": 7
     },
     {
       "id": "COL-06",
@@ -232,7 +243,8 @@
       ],
       "labels": [
         "enhancement",
-        "integration"
+        "integration",
+        "colony"
       ],
       "goal": "Make Colony menu actions open the exact intended task and use consistent Rhythm labels, keyboard behavior and failure feedback.",
       "files": [
@@ -260,7 +272,8 @@
       ],
       "file": "docs/ai/generated-issues/colony/col-06.md",
       "number": 1531,
-      "url": "https://github.com/ajhochy/Rhythm/issues/1531"
+      "url": "https://github.com/ajhochy/Rhythm/issues/1531",
+      "order": 8
     },
     {
       "id": "COL-07",
@@ -272,7 +285,8 @@
       ],
       "labels": [
         "enhancement",
-        "infrastructure"
+        "infrastructure",
+        "colony"
       ],
       "goal": "Give each desktop profile explicit control of local scanning and preserve Colony state safely across restarts, imports and upgrades.",
       "files": [
@@ -299,7 +313,8 @@
       ],
       "file": "docs/ai/generated-issues/colony/col-07.md",
       "number": 1532,
-      "url": "https://github.com/ajhochy/Rhythm/issues/1532"
+      "url": "https://github.com/ajhochy/Rhythm/issues/1532",
+      "order": 9
     },
     {
       "id": "COL-08",
@@ -311,7 +326,8 @@
         "COL-07"
       ],
       "labels": [
-        "enhancement"
+        "enhancement",
+        "colony"
       ],
       "goal": "Keep Colony responsive and usable with large inventories, hidden tabs, limited GPUs and failed local sources.",
       "files": [
@@ -338,20 +354,21 @@
       ],
       "file": "docs/ai/generated-issues/colony/col-08.md",
       "number": 1533,
-      "url": "https://github.com/ajhochy/Rhythm/issues/1533"
+      "url": "https://github.com/ajhochy/Rhythm/issues/1533",
+      "order": 10
     },
     {
       "id": "COL-09",
-      "title": "[COL-09] Bundle a self-contained Colony payload in the Mac app",
+      "title": "[COL-09] Stage the sealed Colony artifact in the Mac package",
       "milestone": "M3",
       "deps": [
-        "COL-03",
-        "COL-07",
-        "COL-08"
+        "COL-02",
+        "COL-03"
       ],
       "labels": [
         "enhancement",
-        "infrastructure"
+        "infrastructure",
+        "colony"
       ],
       "goal": "Make the installed Rhythm app contain the Colony renderer, scanner, assets and compatible runtime without requiring development tooling.",
       "files": [
@@ -380,11 +397,12 @@
       ],
       "file": "docs/ai/generated-issues/colony/col-09.md",
       "number": 1534,
-      "url": "https://github.com/ajhochy/Rhythm/issues/1534"
+      "url": "https://github.com/ajhochy/Rhythm/issues/1534",
+      "order": 5
     },
     {
       "id": "COL-10",
-      "title": "[COL-10] Extend arm64/x64 signing and release CI for Colony",
+      "title": "[COL-10] Make release CI the Colony artifact producer",
       "milestone": "M3",
       "deps": [
         "COL-09"
@@ -392,7 +410,8 @@
       "labels": [
         "enhancement",
         "infrastructure",
-        "release"
+        "release",
+        "colony"
       ],
       "goal": "Build and verify Colony through the existing architecture-specific Electron signing/notarization pipeline.",
       "files": [
@@ -419,7 +438,8 @@
       ],
       "file": "docs/ai/generated-issues/colony/col-10.md",
       "number": 1535,
-      "url": "https://github.com/ajhochy/Rhythm/issues/1535"
+      "url": "https://github.com/ajhochy/Rhythm/issues/1535",
+      "order": 6
     },
     {
       "id": "COL-11",
@@ -432,7 +452,8 @@
       ],
       "labels": [
         "enhancement",
-        "release"
+        "release",
+        "colony"
       ],
       "goal": "Prove that real users can install, enable and use Colony from the distributed signed apps on both supported Mac architectures.",
       "files": [
@@ -459,7 +480,8 @@
       ],
       "file": "docs/ai/generated-issues/colony/col-11.md",
       "number": 1536,
-      "url": "https://github.com/ajhochy/Rhythm/issues/1536"
+      "url": "https://github.com/ajhochy/Rhythm/issues/1536",
+      "order": 11
     },
     {
       "id": "COL-12",
@@ -471,7 +493,8 @@
       "labels": [
         "enhancement",
         "release",
-        "documentation"
+        "documentation",
+        "colony"
       ],
       "goal": "Prepare a supportable opt-in Colony release for all Rhythm Electron users while retaining the host app release and cutover boundaries.",
       "files": [
@@ -497,7 +520,8 @@
       ],
       "file": "docs/ai/generated-issues/colony/col-12.md",
       "number": 1537,
-      "url": "https://github.com/ajhochy/Rhythm/issues/1537"
+      "url": "https://github.com/ajhochy/Rhythm/issues/1537",
+      "order": 12
     }
   ],
   "epic": {
@@ -507,5 +531,6 @@
   },
   "publication_verified": true,
   "planning_pr": "https://github.com/ajhochy/Rhythm/pull/1539",
-  "dashboard_revision": 4228
+  "dashboard_revision": 4228,
+  "revised": "2026-09-21: realigned to the Hermes Desktop adoption shape; issues updated in place, no duplicates filed."
 }
