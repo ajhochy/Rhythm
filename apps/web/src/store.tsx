@@ -441,6 +441,25 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
         if (selectedIdRef.current === event.id) rememberLiveSelection('');
         return;
       }
+      // Workstream C: the #930 cross-provider fallback cascade is entirely
+      // server-side, but it announces each hop with a `session.spillover`
+      // frame (apps/api_server/src/services/turn_redispatch.ts notifyDecision
+      // + routes/opencode_spillover_routes.ts). Flutter has rendered this
+      // since the dual-account work; the Electron renderer ignored it
+      // completely, so a cascade that DID run looked like nothing happened.
+      // The new provider/model itself still arrives on the `session.updated`
+      // that follows — this branch only makes the hop visible.
+      if (event.type === 'session.spillover') {
+        const target = event.toTier || event.toProvider || event.toAccountId;
+        if (target) {
+          notify(
+            event.reason === 'auth_cross_provider'
+              ? `Switched to ${target} — the previous account needs re-authentication`
+              : `Switched to ${target} — the previous account hit its limit`,
+          );
+        }
+        return;
+      }
       if ((event.type === 'session.created' || event.type === 'session.updated') && event.session && typeof event.session === 'object') {
         const wire = event.session as Record<string, unknown>;
         if (typeof wire.id === 'string') {

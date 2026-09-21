@@ -147,3 +147,40 @@ test('subagent-tree-c4 complete active and archived snapshots remove an absent e
   await expect.poll(async () => (await state(page)).sessions.some((session: any) => session.id === 'stale-child'), { timeout: 5_000 }).toBe(false);
   await expect(page.getByTestId('subagents-selected')).toHaveCount(0);
 });
+
+// Workstream C — the #930 cross-provider fallback cascade is server-side, but
+// it announces every hop with `session.spillover`
+// (apps/api_server/src/services/turn_redispatch.ts advanceFallbackCascade →
+// notifyDecision). The Electron renderer previously ignored that frame
+// entirely, so a cascade that DID run was invisible and read as "fallback
+// doesn't work on Electron". These assert the user-visible outcome.
+test('fallback-c1 a rate-limit cascade hop is announced to the user with its destination tier', async ({ page }) => {
+  const h = await open(page);
+  h.emit({
+    v: 1, type: 'session.spillover', sessionId: 'selected',
+    fromAccountId: 'team', toAccountId: null, reason: 'rate_limit_cross_provider',
+    toProvider: 'openai', toModel: 'gpt-5.6-sol', toTier: 'Codex',
+  });
+  await expect.poll(async () => (await state(page)).toast?.message).toContain('Codex');
+  expect((await state(page)).toast.message).toContain('limit');
+});
+
+test('fallback-c2 an auth cascade hop says re-authentication, not rate limit', async ({ page }) => {
+  const h = await open(page);
+  h.emit({
+    v: 1, type: 'session.spillover', sessionId: 'selected',
+    fromAccountId: 'personal', toAccountId: null, reason: 'auth_cross_provider',
+    toProvider: 'openai', toModel: 'gpt-5.6-sol', toTier: 'Codex',
+  });
+  await expect.poll(async () => (await state(page)).toast?.message).toContain('re-authentication');
+  expect((await state(page)).toast.message).not.toContain('limit');
+});
+
+test('fallback-c3 a same-provider Anthropic account failover names the destination account', async ({ page }) => {
+  const h = await open(page);
+  h.emit({
+    v: 1, type: 'session.spillover', sessionId: 'selected',
+    fromAccountId: 'personal', toAccountId: 'team', reason: 'rate_limited',
+  });
+  await expect.poll(async () => (await state(page)).toast?.message).toContain('team');
+});
