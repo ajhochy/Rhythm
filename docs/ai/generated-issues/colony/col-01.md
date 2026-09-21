@@ -1,6 +1,6 @@
 ## Goal
 
-Create a reproducible, reviewable source boundary for Colony in the Rhythm repository while retaining the working standalone data model and read-only harness behavior.
+Pin an exact upstream Bot Crossing revision and have that upstream project emit a sealed, integrity-verified embedded artifact that Rhythm can consume. Rhythm holds a pinned commit constant and nothing else — no vendored source tree.
 
 Parent: #1525
 
@@ -12,31 +12,40 @@ Milestone: Colony M1 — Foundation and local runtime
 
 None within this plan.
 
+## Approach note (revised 2026-09-21)
+
+This follows the Hermes Desktop precedent (`6ed3ba03`; `apps/electron/src/hermes-desktop-config.mjs`, `src/hermes-desktop-artifact.mjs`). The earlier draft of this issue vendored a source copy into `apps/colony/` with `UPSTREAM.json` and import tooling. That is replaced: upstream stays upstream, and the integration surface is a build artifact, not a codebase. It removes the merge/drift burden and the duplicate test suite, and it is what made the Hermes integration go smoothly.
+
 ## Likely files
 
-- Proposed apps/colony/ source, package.json and lockfile
-- Proposed apps/colony/UPSTREAM.json and THIRD_PARTY_NOTICES.md
-- Proposed scripts/update-colony-source.mjs
-- Existing Bot Crossing package.json, LICENSE, tools/build-assets.mjs, public/assets, server and test directories as import inputs
+- Bot Crossing (upstream): `apps/desktop`-equivalent `build:rhythm-embedded` script and its own test
+- Bot Crossing (upstream): notice/licence staging into the artifact output
+- Rhythm: new `apps/electron/src/colony-desktop-config.mjs` exporting `PINNED_COLONY_SOURCE_COMMIT`
+- Rhythm: `docs/ai/plans/2026-09-18-electron-colony.md` pinned build inputs
 
 ## Requirements
 
-- Review the exact Bot fork revision and its draft stack before adoption; candidate 36d2c29989f567de0ac4d30a957610163cfc4d86 includes ajhochy/bot-crossing#4. Record source URLs, commit, import manifest and patch/update process.
-- Vendor a minimal pinned source/payload boundary under apps/colony; do not depend on a sibling checkout or git submodule being initialized at application launch.
-- Inventory source/artwork/icon licensing from the actual shipped inputs and preserve notices. Exclude data/*.json, local native-openers configuration, .env, transcripts, private screenshots, user audio and development credentials.
+- Review the exact Bot fork revision and its draft stack before pinning; candidate `36d2c29989f567de0ac4d30a957610163cfc4d86` includes ajhochy/bot-crossing#4. Do not track a moving branch.
+- Add `build:rhythm-embedded` upstream. It emits `build/rhythm-embedded/` containing the renderer entry, the scanner host entry, the preload entry, all required third-party notices, and `manifest.json`.
+- `manifest.json` schema: `schemaVersion` (1), `product` (`colony`), `sourceCommit` (40-hex), `electronMajor`, `dirty`/`sourceDirty` booleans, `files` mapping the required entry points (`renderer`, `host`, `preload`) to artifact-relative paths, and `integrity` mapping **every** file in the tree to a `sha256-<base64>` SRI digest.
+- The builder refuses to emit a clean manifest from a dirty working tree, and records the source revision it actually built. It writes no symlinks and no absolute paths.
+- Rhythm stores only `PINNED_COLONY_SOURCE_COMMIT`. There is no `apps/colony/` source tree, no import script, no submodule and no sibling-checkout requirement.
+- Record the pinned build inputs in the plan: source revision, Electron major, exact Node patch (with `node:sqlite` support) and minimum macOS version. The Electron major is decided here, not discovered downstream — Hermes found Electron 33 shipped Node 20 without global WebSocket and had to move Rhythm to 40.10.2.
+- Exclude `data/*.json`, local native-openers configuration, `.env`, transcripts, private screenshots, user audio and development credentials from the artifact.
 
 ## Acceptance criteria
 
-- [ ] **COL-01-AC1:** A clean checkout can install from lockfiles, run the imported adapter/state tests and build the scene without an adjacent Bot Crossing checkout; the manifest identifies the exact imported commit.
-- [ ] **COL-01-AC2:** Running the documented import/build twice with the same pinned inputs produces the same tracked source/asset inventory or explicitly documented nondeterministic build fields.
-- [ ] **COL-01-AC3:** The imported fixture suite preserves task IDs, parent/worker relationships, repository/checkout grouping and local archive/viewed state; before/after source-store evidence shows no harness writes.
-- [ ] **COL-01-AC4:** The staged payload inventory includes applicable notices and zero developer state, auth material or private session evidence; a missing/unlicensed asset is a build failure.
+- [ ] **COL-01-AC1:** A clean upstream checkout at the pinned revision runs `build:rhythm-embedded` and emits an artifact whose `manifest.json` names that exact revision, the agreed `electronMajor`, and the three required entry points; no adjacent Rhythm checkout is needed.
+- [ ] **COL-01-AC2:** Running the builder twice on the same pinned inputs produces identical `integrity` digests, or the nondeterministic fields are explicitly documented and excluded from the seal.
+- [ ] **COL-01-AC3:** Building from a dirty working tree either fails or sets `dirty: true`; every file in the emitted tree appears in `integrity`, and the tree contains no symlink, no absolute path and no excluded developer/user data.
+- [ ] **COL-01-AC4:** The artifact contains the applicable MIT/CC0/Apache-2.0 notices for the shipped inventory, covered by `integrity` so they cannot drift from the code; a missing or unlicensed asset fails the build. Asset size baseline is recorded for later package comparison.
+- [ ] **COL-01-AC5:** The upstream adapter/state test suite still passes at the pinned revision, preserving task IDs, parent/worker relationships, repository/checkout grouping and local archive/viewed state; before/after source-store evidence shows no harness writes.
 
 ## Required tests / evaluation
 
-- Run the adopted Node test suite and production build from apps/colony; retain existing synthetic regression coverage rather than replacing it with import-path assertions.
-- Add an import manifest/inventory check and a negative fixture containing forbidden user-data files.
-- Record asset size baseline and hash input manifest for later package comparison.
+- Upstream: a builder test asserting manifest shape, full integrity coverage, dirty-tree refusal and the excluded-path denylist (Hermes analogue: `build-embedded-artifact.test.mjs`).
+- Upstream: run the existing adapter/state suite and production build at the pinned revision; retain the synthetic regression coverage rather than replacing it with build-path assertions.
+- Record the artifact file count, asset size baseline and hash input manifest for later package comparison.
 
 ## Safety and scope
 
