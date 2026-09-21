@@ -26,6 +26,7 @@ import { env } from '../config/env';
 import * as AgentRunner from './agent_runner';
 import { resolveProfileScope } from './agent_profile_scope';
 import { opencodeClient } from './opencode_engine';
+import { pushAgentNotification } from './agent_notifications';
 import { AgentResearchRepository, type ResearchProjectRun } from '../repositories/agent_research_repository';
 import { ResearchProjectOrchestrator } from './research_project_orchestrator';
 import {
@@ -557,6 +558,50 @@ async function recordRunHistory(opts: {
   }
 }
 
+/**
+ * Categories where the run failed for a reason the USER must fix — a dead MCP
+ * server, an expired credential, a broken configuration. The agent cannot
+ * repair these and the next run will fail identically.
+ *
+ * This exists because a run failure was, until now, visible only in a run-history
+ * row nobody opens and a log line nobody tails. On 2026-09-18 a deleted Python
+ * venv took the pco-services MCP down; five daily/weekly schedules then failed
+ * silently for three days. One notification would have caught it the first
+ * morning.
+ */
+const USER_ACTIONABLE_FAILURE_CATEGORIES: ReadonlySet<string> = new Set([
+  'required_mcp_unavailable',
+  'authentication',
+  'permission',
+  'infra_config',
+]);
+
+/**
+ * Notify on the FIRST run that fails this way, and again only if the cause
+ * changes — a daily schedule broken for a week is one notice, not seven.
+ * `previousError` is the task's stored last_error from before this run.
+ *
+ * ponytail: dedupe is "same message as last time", which re-notifies if the
+ * error string carries a varying detail (e.g. an elapsed-ms count). Compare on
+ * the category alone if that turns out to be noisy in practice.
+ */
+export function notifyInfraFailureOnce(
+  taskName: string,
+  previousError: string | null,
+  currentError: string | undefined,
+  category: string | undefined,
+): void {
+  if (!currentError || !category) return;
+  if (!USER_ACTIONABLE_FAILURE_CATEGORIES.has(category)) return;
+  if (previousError === currentError) return;
+
+  try {
+    pushAgentNotification(`Scheduled task failed: ${taskName}`, currentError);
+  } catch (err) {
+    logger.warn(`[AgentScheduler] Could not raise failure notification for "${taskName}": ${String(err)}`);
+  }
+}
+
 async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
   let dueTasks: Awaited<ReturnType<typeof repo.findDueAsync>>;
   try {
@@ -705,6 +750,7 @@ async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
             logger.warn(`[AgentScheduler] Task "${task.name}" deferred for capacity. Retry: ${resultNextRun}`);
           } else {
             logger.error(`[AgentScheduler] Task "${task.name}" failed: ${errMsg}`);
+            notifyInfraFailureOnce(task.name, task.lastError, errMsg, failure?.category);
           }
         }).catch(async (err) => {
           const errMsg = formatAgentRunFailure({ error: err });

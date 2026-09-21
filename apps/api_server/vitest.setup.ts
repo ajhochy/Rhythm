@@ -35,4 +35,12 @@ if (process.env.RHYTHM_LIVE_E2E !== '1') {
   process.env.PORT = '0';
   process.env.RHYTHM_TREATMENT_V2_ENABLED = 'false';
   process.env.RHYTHM_CALIBRATION_ENABLED = 'false';
+  // Same leak, credential edition: without this the suite reads the developer's
+  // real ~/Library/Application Support/Rhythm/anthropic-accounts.json. Harmless
+  // while nothing on the run path consulted it — but AgentRunner's account
+  // preflight does, so a developer whose own account happens to be expired
+  // would watch every agent_runner test fail for a reason that has nothing to
+  // do with their change. Points at a path inside runRoot that does not exist,
+  // which the store reads as "no accounts" and the preflight fails open on.
+  process.env.RHYTHM_ACCOUNTS_FILE = path.join(runRoot, 'anthropic-accounts.json');
 }
