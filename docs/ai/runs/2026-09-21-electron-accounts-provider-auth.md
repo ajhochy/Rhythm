@@ -1,10 +1,10 @@
 ---
 date: 2026-09-21
 repo: Rhythm
-branch: ws-b-accounts-relogin
-pr: TBD
+branch: mega/2026-09-18-mobile-electron-hermes
+pr: https://github.com/ajhochy/Rhythm/pull/1546
 issues: []
-status: draft-pr
+status: landed
 tags: [run, rhythm]
 ---
 
@@ -34,7 +34,17 @@ No `apps/api_server` change was required.
 - `npm run typecheck` (apps/web) — pass
 - `npm run build` (apps/web) — pass
 - `RHYTHM_LIVE_E2E=1 npx playwright test --config tests/agent-settings-accounts-playwright.config.ts` — 4 passed
-- `npx playwright test` (default fixture suite) — see PR body
+- `npx playwright test` (default fixture suite) — 466 passed, 49 skipped, 1 failed:
+  `tests/splitter.spec.ts` › Hermes bounded separator. Confirmed pre-existing — it fails
+  identically with this run's four files reverted to 3641f303.
+- Mobile CI on PR #1546 — `foundation` pass (6m23s)
+
+## Landing
+
+The user asked for this to go straight onto the branch his running desktop candidate is
+built from, so commit `05ca632c` was pushed directly to
+`mega/2026-09-18-mobile-electron-hermes`. Nothing was merged to `main`. PR #1546 was opened
+as a draft first and GitHub auto-closed it as merged once the commit landed on its base.
 
 ## Notes
 
