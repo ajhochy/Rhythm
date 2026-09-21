@@ -2,7 +2,7 @@
 date: 2026-09-21
 repo: Rhythm
 branch: fix/agent-schedule-infra-preflight
-pr: TBD
+pr: 1548
 issues: []
 status: draft-pr-open
 tags: [run, Rhythm]
