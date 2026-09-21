@@ -5,7 +5,8 @@ branch: fix/agent-schedule-infra-preflight
 pr: 1548
 issues: []
 status: draft-pr-open
-tags: [run, Rhythm]
+tags: [run, rhythm]
+index: "[[Rhythm]]"
 ---
 
 # Workstream A — scheduled agent tasks failing

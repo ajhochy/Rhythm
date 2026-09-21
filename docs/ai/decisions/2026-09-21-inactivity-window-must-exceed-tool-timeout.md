@@ -1,6 +1,8 @@
 ---
 date: 2026-09-21
-tags: [decision, Rhythm]
+repo: Rhythm
+tags: [decision, rhythm]
+index: "[[Rhythm]]"
 ---
 
 # The run inactivity window must exceed the engine's max tool timeout
