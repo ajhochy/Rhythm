@@ -21,3 +21,20 @@ Updated 2026-09-21. Focus: mega-branch desktop/mobile runtime repairs and qualif
   Colony planning docs, the shared-UI plan, the AGENTS.md sandbox-fixture section
   (in its later rescued revision) and the PR-#1508 records. Details:
   [run log](runs/2026-09-21-branch-consolidation.md).
+
+- 2026-09-21 memory vault default repointed: the api_server default vault was the
+  stale `~/Documents/Memory-Vault` (89 notes) at both `config/env.ts:83` and `:613`,
+  so the running Electron desktop client scanned it instead of the 376-note
+  `~/Documents/Obsidian Vault/AGENT-MEMORY`. #885 wired the env vars into the
+  **Flutter** launch path only; the Electron shell
+  (`apps/electron/src/agent-server.mjs`) never got them — verified on the live
+  :4001 process, which had `AGENT_LOCAL`/`PORT` but no vault vars. Fixed at the
+  default instead of adding a second wiring site, so every spawner is covered;
+  `MEMORY_VAULT_SUBDIR` now defaults to `''` only when `MEMORY_VAULT_PATH` is
+  unset, keeping `memory` back-compat for the whole test suite. Two genuine
+  unique notes were migrated into AGENT-MEMORY (376→378); the other 78 legacy
+  notes are kind-less research archives that belong in the main vault and were
+  left alone; `~/Documents/Memory-Vault` is untouched as a backup.
+  **The packaged app needs a rebuild to pick this up.**
+  [issue1571](https://github.com/ajhochy/Rhythm/issues/1571),
+  [run log](runs/2026-09-21-memory-vault-path-fix.md).
