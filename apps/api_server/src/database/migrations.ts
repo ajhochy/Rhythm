@@ -3697,7 +3697,7 @@ If someone asks for creative work that needs a local capability:
       task_id TEXT NOT NULL REFERENCES agent_scheduled_tasks(id) ON DELETE CASCADE,
       started_at TEXT NOT NULL,
       ended_at TEXT NOT NULL,
-      status TEXT NOT NULL,       -- 'success' | 'error' | 'blocked_on_approval' | 'completed_no_op'
+      status TEXT NOT NULL,       -- 'success' | 'error' | 'blocked_on_approval' | 'completed_no_op' | 'skipped_stale'
       error TEXT,
       root_session_id TEXT,
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))

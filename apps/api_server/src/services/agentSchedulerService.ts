@@ -17,8 +17,13 @@
 
 import cron from 'node-cron';
 import { randomUUID } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { logger } from '../utils/logger';
-import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
+import {
+  AgentScheduledTasksRepository,
+  type AgentScheduledTask,
+} from '../repositories/agent_scheduled_tasks_repository';
 import { AgentScheduledTaskRunsRepository } from '../repositories/agent_scheduled_task_runs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { getDb, getPostgresPool } from '../database/db';
@@ -318,6 +323,122 @@ export async function waitForScheduledEngineReady(
   }
 }
 
+// -- Staleness: a missed run only fires while it is still within its period --
+//
+// The wake gate means a run missed overnight fires when the lid opens. Without
+// a bound that is unconditional: close the lid Friday, open it Sunday night,
+// and Saturday's 6am briefing runs at 9pm Sunday, hours after it was useful.
+//
+// The bound derives from the schedule itself rather than from a new setting: a
+// missed occurrence is stale once its OWN next occurrence has also passed. A
+// daily schedule is therefore stale after about a day, a weekly after about a
+// week, and a cron after its own interval -- no configuration, and nothing to
+// keep in sync with the schedule the user actually edited.
+//
+// This also subsumes coalescing into one condition: at most one run per task
+// per wake, and only while that run is still inside its own period.
+export function isMissedRunStale(
+  task: Pick<
+    AgentScheduledTask,
+    | 'scheduleType'
+    | 'scheduledTime'
+    | 'scheduledDay'
+    | 'cronExpression'
+    | 'runAt'
+    | 'timezone'
+    | 'nextRunAt'
+  >,
+  now: Date = new Date(),
+): boolean {
+  // A one-off has no following occurrence to measure against, and it is a
+  // specific thing the user asked for that has never happened. It always runs
+  // on wake, however late, rather than being silently dropped.
+  if (task.scheduleType === 'once') return false;
+  if (!task.nextRunAt) return false;
+
+  const missedAt = new Date(task.nextRunAt);
+  if (Number.isNaN(missedAt.getTime())) return false;
+
+  const followingOccurrence = computeNextRun({
+    scheduleType: task.scheduleType,
+    scheduledTime: task.scheduledTime,
+    scheduledDay: task.scheduledDay,
+    cronExpression: task.cronExpression,
+    runAt: task.runAt,
+    timezone: task.timezone,
+    after: missedAt,
+  });
+
+  // Unknown following occurrence (unparseable cron, malformed schedule) ->
+  // fail-open and run it. Losing a run silently is the worse failure.
+  if (!followingOccurrence) return false;
+
+  return new Date(followingOccurrence) <= now;
+}
+
+// -- Wake gate -------------------------------------------------------------
+//
+// macOS wakes a lid-closed laptop for ~45-second "DarkWake" maintenance
+// windows. The scheduler tick fires inside one of those windows, dispatches a
+// run, and the machine freezes mid-tool-call ~15 seconds later; the run's
+// wall-clock inactivity timer then kills it long before the next wake. Two
+// confirmed failures (2026-09-18 and 2026-09-21, different tools) both ended to
+// the second on the following DarkWake event in `pmset -g log`.
+//
+// The fix is not to force the machine awake -- that was explicitly rejected --
+// it is to not dispatch at all unless a person is actually at the machine.
+// `pmset -g assertions` reports the system-wide `UserIsActive` assertion, which
+// macOS holds only while the display is on for user activity; it reads 0 during
+// DarkWake and during sleep. One shell-out, no new dependency, and -- unlike
+// Electron's powerMonitor -- it works no matter which shell spawned this server
+// (Electron and the Flutter desktop client both reach this same code).
+//
+// Nothing is skipped when the gate closes: checkDueTasks returns without
+// touching `next_run_at`, so every due task stays due and fires on the first
+// tick after wake. Coalescing is inherent to the existing model --
+// `findDueAsync` returns one row per task however far overdue it is, and
+// `computeNextRun({ after: new Date() })` re-anchors the schedule to now -- so a
+// laptop shut for a week produces exactly one catch-up run per schedule.
+
+const _execFileAsync = promisify(execFile);
+
+async function _readPowerAssertions(): Promise<string> {
+  const { stdout } = await _execFileAsync('pmset', ['-g', 'assertions'], {
+    timeout: 5_000,
+  });
+  return stdout;
+}
+
+export interface MachineAwakeDeps {
+  platform?: string;
+  readAssertions?: () => Promise<string>;
+}
+
+/**
+ * True when a person is actually at this machine (display on, not DarkWake).
+ *
+ * ponytail: fail-open. A probe that errors, times out, or runs on a non-macOS
+ * host returns true -- an unknown power state must behave exactly like today's
+ * scheduler rather than silently stopping every schedule forever.
+ */
+export async function isMachineAwake(deps: MachineAwakeDeps = {}): Promise<boolean> {
+  // Escape hatch: an operator whose machine reports power state oddly (or a
+  // test suite that must not depend on whether this Mac's display is on right
+  // now) can pin the gate open. Unset means "consult the real power state".
+  if (process.env.AGENT_SCHEDULER_IGNORE_POWER_STATE === '1') return true;
+  const platform = deps.platform ?? process.platform;
+  if (platform !== 'darwin') return true;
+  try {
+    const stdout = await (deps.readAssertions ?? _readPowerAssertions)();
+    return /^\s*UserIsActive\s+[1-9]/m.test(stdout);
+  } catch (err) {
+    logger.warn(
+      `[AgentScheduler] Power-state probe failed, assuming awake (non-fatal): ${String(err)}`,
+    );
+    return true;
+  }
+}
+
 // ── Trigger insertion ─────────────────────────────────────────────────────
 
 /**
@@ -611,6 +732,16 @@ async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
     return;
   }
 
+  // Wake gate -- hold everything (without advancing next_run_at) while the
+  // machine is asleep or in a background DarkWake window. See the note above.
+  if (dueTasks.length > 0 && !(await isMachineAwake())) {
+    logger.info(
+      `[AgentScheduler] ${dueTasks.length} task(s) due but this Mac is asleep or dark-waking - ` +
+        `holding them until it is awake and in use`,
+    );
+    return;
+  }
+
   if (env.agentLocal && dueTasks.length > 0) {
     const engineReady =
       knownEngineReady ?? (await _probeScheduledEngineReadiness());
@@ -647,6 +778,41 @@ async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
 
   for (const task of dueTasks) {
     const runStart = new Date().toISOString();
+
+    // A run the machine slept through is only worth firing while it is still
+    // inside its own period. Skipping is expected behaviour, not a failure, so
+    // it raises no notification -- but it must never be silent: it advances the
+    // schedule, stamps `skipped_stale`, and writes a run-history row.
+    if (isMissedRunStale(task)) {
+      const skipNote =
+        `Skipped: scheduled for ${task.nextRunAt} but the machine was asleep past ` +
+        `the next occurrence of this schedule.`;
+      const nextRun = computeNextRun({
+        scheduleType: task.scheduleType,
+        scheduledTime: task.scheduledTime,
+        scheduledDay: task.scheduledDay,
+        cronExpression: task.cronExpression,
+        runAt: task.runAt,
+        timezone: task.timezone,
+        after: new Date(),
+      });
+      logger.info(`[AgentScheduler] Task "${task.name}" ${skipNote} Next run: ${nextRun ?? 'none'}`);
+      try {
+        await repo.updateNextRunAsync(task.id, nextRun, runStart, 'skipped_stale', skipNote);
+      } catch (err) {
+        logger.warn(
+          `[AgentScheduler] Could not record stale skip for "${task.name}": ${String(err)}`,
+        );
+      }
+      await recordRunHistory({
+        taskId: task.id,
+        startedAt: runStart,
+        status: 'skipped_stale',
+        error: skipNote,
+      });
+      continue;
+    }
+
     logger.info(`[AgentScheduler] Firing task "${task.name}" (${task.id})`);
 
     try {
