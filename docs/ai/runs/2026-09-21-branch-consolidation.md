@@ -42,9 +42,32 @@ net diff is documentation plus one `AGENTS.md` refinement.
 - `docs/ai/runs/2026-09-21-scheduled-agent-task-failures.md` — kept mega's
   `landed-on-mega` frontmatter; the #1548 branch's `draft-pr-open` status is stale.
 
+## Late catch-up
+
+`codex/colony-integration-plan` moved while this consolidation was running — a
+parallel session pushed `f633bd9e` (realigning the Colony plan to the Hermes
+Desktop adoption shape: pinned upstream revision, sealed artifact + SRI
+resolver, `RHYTHM_COLONY_ARTIFACT_DIR` seam, packaging slices reordered ahead of
+the UI slices). It was cherry-picked on top. That session's worktree at
+`~/Documents/Rhythm-colony-plan` was clean and fully pushed before removal, so
+nothing was lost — but any *further* commits it pushes to
+`origin/codex/colony-integration-plan` will need folding in again.
+
 ## Checks
 
-See the Checks section appended below.
+| Check | Result |
+|---|---|
+| `apps/api_server` `npx tsc --noEmit` | PASS |
+| `apps/api_server` `npx vitest run` | PASS — 6205 passed, 0 failed, 252 skipped (665 of 797 files) |
+| `apps/web` `npm run build` (`tsc -b` + `vite build`) | PASS |
+| `apps/electron` `npm run typecheck` | PASS |
+| `apps/electron` `npm test` | 166/168 first pass; both failures were `electron-shell` asserting on a not-yet-built `apps/web/dist`. 15/15 on re-run after the web build. |
+
+The diff of this consolidation against the pre-consolidation mega head
+(`1963bf42`) restricted to `apps/` is empty: no product code changed.
+Spot-checks confirmed the 45s `RHYTHM_AGENT_READY_BUDGET_MS` in
+`apps/electron/src/agent-server.mjs` and the async chunked `countSkillToolUses`
+in `apps/api_server/src/services/skill_usage_tracker.ts`.
 
 ## Notes
 
