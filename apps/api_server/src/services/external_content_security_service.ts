@@ -47,6 +47,7 @@ export const SECURITY_ACTIONS = [
   'delegation.start',
   'delegation.start-async',
   'delegation.cancel',
+  'session.prompt',
   'notification.send',
   'scheduled-task.create',
   'scheduled-task.cancel',

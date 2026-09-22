@@ -32,7 +32,9 @@ import {
 import { estimateToolSurface } from '../services/tool_surface_estimator';
 import { streamBridge } from '../services/opencode_stream_bridge';
 import { anthropicAccountsService } from '../services/anthropic_accounts_service';
-import { broadcastSessionUpdated, broadcastSessionRemoved } from '../services/ws_gateway';
+import { broadcastSessionUpdated, broadcastSessionRemoved, handleInputFrame } from '../services/ws_gateway';
+import { AgentPromptInjectionsRepository } from '../repositories/agent_prompt_injections_repository';
+import { resolveCallerSessionId } from './agent_delegation_controller';
 import { logger } from '../utils/logger';
 import { getCuratorExtractStatus } from '../services/skill_extractor';
 import { getCuratorRefineStatus } from '../services/skill_refiner';
@@ -1697,6 +1699,133 @@ export class AgentSessionsController {
       const updated = repo.findById(session.id)!;
       broadcastSessionUpdated(updated);
       res.json(updated);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * #1577 — POST /agent-sessions/:id/prompt
+   *
+   * Push a prompt into an EXISTING session, exactly as if it had been typed
+   * into the app composer. Until this existed the only way in was the WS
+   * gateway, which only the desktop UI drives: `POST /agent-sessions` creates
+   * a new session, `/:id/resume` takes no prompt, and `/message-threads` is
+   * the human messaging system. So an external caller could spawn children
+   * under an orchestrator but could not instruct the orchestrator itself.
+   *
+   * Local agent server only (:4001). The engine, the session map and the
+   * SQLite session rows are all in this process — production (api.vcrcapps.com,
+   * behind Cloudflare) holds none of them, so there is nothing for a
+   * Cloudflare-side route to prompt.
+   *
+   * Implementation: delegate to `handleInputFrame`, the WS gateway's own
+   * `session.input` handler, with a shim that captures the error frames it
+   * would have written back to a socket. That handler is ~400 lines of
+   * per-turn behaviour — profile scope, MCP/skill allowlists, model
+   * resolution, auto-resume, memory/skill prefaces, experiment enrollment.
+   * Re-implementing any of it here would guarantee the two paths drift.
+   *
+   * AUTH: intentionally flat. Any session is promptable by any holder of the
+   * Rhythm API key; there is no parentage check, because the main use case is
+   * a caller prompting a session it did not create. The audit row below is
+   * the compensating control — see the table comment in migrations.ts.
+   *
+   * 202 on accept (the turn is enqueued, not finished).
+   */
+  async prompt(req: Request, res: Response, next: NextFunction): Promise<void> {
+    const audit = new AgentPromptInjectionsRepository();
+    let auditId: number | null = null;
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const text = typeof body.prompt === 'string' ? body.prompt.trim() : '';
+      if (!text) throw AppError.badRequest('prompt is required in the request body');
+
+      const callerSdkSessionId =
+        typeof body.callerSdkSessionId === 'string' && body.callerSdkSessionId.trim() !== ''
+          ? body.callerSdkSessionId.trim()
+          : null;
+      // Shared with the delegation path: prefers the engine session id from
+      // the MCP layer's trusted context over any model-supplied session id.
+      const callerSessionId = resolveCallerSessionId(body) || null;
+
+      auditId = audit.record({
+        targetSessionId: session.id,
+        callerSessionId,
+        callerSdkSessionId,
+        callerUserId: req.auth?.user.id ?? null,
+        source: callerSdkSessionId ? 'mcp' : 'http',
+        prompt: text,
+      });
+
+      // ponytail: capture the gateway's error frames instead of duplicating
+      // its logic. handleInputFrame only ever writes `{type:'error'}` frames.
+      const errors: string[] = [];
+      const socketShim = {
+        send(raw: string): void {
+          try {
+            const frame = JSON.parse(raw) as { type?: string; message?: unknown };
+            if (frame.type === 'error' && typeof frame.message === 'string') {
+              errors.push(frame.message);
+            }
+          } catch {
+            errors.push(raw);
+          }
+        },
+      };
+
+      await handleInputFrame(socketShim as unknown as Parameters<typeof handleInputFrame>[0], {
+        type: 'session.input',
+        id: session.id,
+        data: text,
+        // Optional per-turn passthroughs, same names the composer sends.
+        ...(typeof body.agent === 'string' ? { agent: body.agent } : {}),
+        ...(body.modelOverride ? { modelOverride: body.modelOverride } : {}),
+        ...(body.thinking ? { thinking: body.thinking } : {}),
+        ...(typeof body.fastMode === 'boolean' ? { fastMode: body.fastMode } : {}),
+      });
+
+      if (errors.length > 0) {
+        audit.settle(auditId, false, errors[0]);
+        throw new AppError(502, 'PROMPT_DISPATCH_FAILED', errors[0]);
+      }
+
+      audit.settle(auditId, true);
+      logger.info(
+        `[AgentSessionsController] prompt injected into session ${session.id} by ` +
+          `${callerSessionId ?? callerSdkSessionId ?? 'unattributed caller'} (audit #${auditId})`,
+      );
+      res.status(202).json({
+        sessionId: session.id,
+        accepted: true,
+        auditId,
+      });
+    } catch (err) {
+      if (auditId !== null && !(err instanceof AppError && err.statusCode === 502)) {
+        try {
+          audit.settle(auditId, false, String(err));
+        } catch {
+          /* audit settle must never mask the original failure */
+        }
+      }
+      next(err);
+    }
+  }
+
+  /** #1577 — GET /agent-sessions/:id/prompt-log. Who prompted this session. */
+  async promptLog(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const limitRaw = Number(req.query.limit);
+      const injections = new AgentPromptInjectionsRepository().listForSession(
+        session.id,
+        Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 50,
+      );
+      res.json({ sessionId: session.id, injections });
     } catch (err) {
       next(err);
     }

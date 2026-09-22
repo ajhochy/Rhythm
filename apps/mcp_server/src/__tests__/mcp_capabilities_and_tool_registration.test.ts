@@ -101,7 +101,7 @@ const REGISTRARS_IN_INDEX_ORDER: Registrar[] = [
  * guards nothing.
  */
 const EXPECTED_REGISTRAR_CALLS = 25;
-const EXPECTED_TOOL_NAMES = 102;
+const EXPECTED_TOOL_NAMES = 103;
 
 /** Builds a fresh McpServer, applies `registrars` in order, and returns it. */
 function buildServer(registrars: Registrar[]): McpServer {
