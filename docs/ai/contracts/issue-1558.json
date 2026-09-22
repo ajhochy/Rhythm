@@ -1,0 +1,64 @@
+{
+	"issue": 1558,
+	"date": "2026-09-21",
+	"branch": "qwen/issue-1558-collapsed-projects",
+	"test_command": "npx playwright test tests/contract/issue-1558-collapsed-projects.spec.ts",
+	"run_detectable_command": "node --test apps/web/tests/contract/issue-1558-collapsed-projects.test.mjs",
+	"waiver": null,
+	"criteria": [
+		{
+			"criterion_id": "issue-1558-c1",
+			"text": "Fresh load defaults all project groups collapsed.",
+			"mode": "ui",
+			"test": "tests/contract/issue-1558-collapsed-projects.spec.ts",
+			"status": "UNVERIFIED",
+			"reason": "Implemented (SessionRail.tsx readOpenProjects default + isOpen). Node mirror ok 1/1; authoritative Playwright runtime BLOCKED — apps/web/node_modules empty in this worktree."
+		},
+		{
+			"criterion_id": "issue-1558-c2",
+			"text": "The selected session's project group expands on fresh load.",
+			"mode": "ui",
+			"test": "tests/contract/issue-1558-collapsed-projects.spec.ts",
+			"status": "UNVERIFIED",
+			"reason": "Implemented via isOpen = id === selected.projectId || projectsOpen.has(id). Node mirror ok 2/2; authoritative Playwright runtime BLOCKED."
+		},
+		{
+			"criterion_id": "issue-1558-c3",
+			"text": "A manual group toggle survives remount/restart using the existing localStorage pattern.",
+			"mode": "ui",
+			"test": "tests/contract/issue-1558-collapsed-projects.spec.ts",
+			"status": "UNVERIFIED",
+			"reason": "Implemented via toggleProject persisting to rhythm-agents-projects-open and readOpenProjects on mount. Node mirror ok 3/3; authoritative Playwright runtime BLOCKED."
+		},
+		{
+			"criterion_id": "issue-1558-c4",
+			"text": "Collapsed state is per project id; a newly appearing project defaults collapsed without disturbing existing per-project state.",
+			"mode": "ui",
+			"test": "tests/contract/issue-1558-collapsed-projects.spec.ts",
+			"status": "UNVERIFIED",
+			"reason": "State keyed per id (Set of open ids; open-projects model so a new id is simply absent and reads closed). Node mirror ok 4/4; authoritative Playwright runtime BLOCKED."
+		},
+		{
+			"criterion_id": "issue-1558-c5",
+			"text": "Corrupt or unavailable storage falls back safely (default collapse, no crash, bad data ignored).",
+			"mode": "ui",
+			"test": "tests/contract/issue-1558-collapsed-projects.spec.ts",
+			"status": "UNVERIFIED",
+			"reason": "readOpenProjects wraps getItem+JSON.parse in try/catch and filters to a string[] via Array.isArray; corrupt => new Set(). Node mirror ok 5/5; authoritative Playwright runtime BLOCKED."
+		},
+		{
+			"criterion_id": "issue-1558-c6",
+			"text": "Existing chevron and aria-expanded behavior remains and toggles both directions in sync.",
+			"mode": "ui",
+			"test": "tests/contract/issue-1558-collapsed-projects.spec.ts",
+			"status": "UNVERIFIED",
+			"reason": "Chevron/aria-expanded untouched (still bind to expanded = isOpen(id)). Node mirror ok 6/6; authoritative Playwright runtime BLOCKED."
+		}
+	],
+	"not_tested": [],
+	"runtime": {
+		"authoritative_playwright": "BLOCKED",
+		"reason": "apps/web/node_modules is empty in worktree rhythm-qwen-1558; Playwright/Vite cannot run. No live services contacted or started (sandbox guard not triggered). Node mirror (issue-1558-collapsed-projects.test.mjs) passed 6/6. TypeScript: 0 errors in SessionRail.tsx via a sibling worktree's tsc (395 cascading 'Cannot find module react' errors are environmental, not this change).",
+		"conflicts_flagged": "tests/sessions.spec.ts (scope-switch asserts non-selected group rows visible) and tests/electron-e20-session-ordering.spec.ts (open() waits for session-z/p1 visible; project-headings-c2/c3/c5 assert aria-expanded=true on unselected groups) both assume a default-expanded rail and will need to open the relevant group before asserting. Outside this issue's owned file set — flagged to the merge owner."
+	}
+}

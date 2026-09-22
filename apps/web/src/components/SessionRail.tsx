@@ -26,6 +26,29 @@ const tools: { key: string; label: string; description: string; icon: IconName }
 const accounts = ['Rhythm workspace', 'Research account'];
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
+const OPEN_PROJECTS_STORAGE_KEY = 'rhythm-agents-projects-open';
+
+// #1558: the rail keeps the *open* project ids (default = all closed). Per-id, so a new
+// project simply reads as closed until explicitly opened. Same try/catch shape as the
+// localStorage pattern in store.tsx; corrupt/unavailable storage returns an empty set.
+function readOpenProjects(): Set<string> {
+  try {
+    const raw = window.localStorage.getItem(OPEN_PROJECTS_STORAGE_KEY);
+    const parsed = raw === null ? [] : JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function persistOpenProjects(ids: string[]) {
+  try {
+    window.localStorage.setItem(OPEN_PROJECTS_STORAGE_KEY, JSON.stringify(ids));
+  } catch {
+    // Sandboxed Studio previews intentionally run without storage access.
+  }
+}
+
 export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onToggle(): void }) {
   const fixtures = useFixtures();
   const gateway = useGateway();
@@ -110,8 +133,13 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [rowMenuId, setRowMenuId] = useState<string | null>(null);
-  const [toolsHeight, setToolsHeight] = useState(224);
-  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => new Set());
+   const [toolsHeight, setToolsHeight] = useState(224);
+   // #1558: a group is open if it was explicitly opened (loaded from storage on mount) or it
+   // holds the currently selected session, so the selection is never hidden on a returning user's
+   // fresh load. State is per project id; a newly appearing project is simply absent from the
+   // stored set and reads as closed.
+   const [projectsOpen, setProjectsOpen] = useState<Set<string>>(() => readOpenProjects());
+   const isOpen = (id: string) => id === selected.projectId || projectsOpen.has(id);
   const [collapsedParents, setCollapsedParents] = useState<Set<string>>(() => new Set());
 
   const [name, setName] = useState('');
@@ -259,7 +287,15 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
     await deleteLiveSession(id);
     setRefresh((value) => value + 1);
   };
-  const openTool = (key: string) => navigate(key === 'profiles' ? '/profiles' : `/tools/${key}`);
+   const openTool = (key: string) => navigate(key === 'profiles' ? '/profiles' : `/tools/${key}`);
+   // #1558: toggle a project group open/closed and persist per-id; the selected session's
+   // group always re-derives open via isOpen regardless of what is stored.
+   const toggleProject = (id: string) => {
+    const next = new Set(projectsOpen);
+     if (isOpen(id)) next.delete(id); else next.add(id);
+    setProjectsOpen(next);
+    persistOpenProjects([...next]);
+    };
 
   if (collapsed) return <aside className="session-rail collapsed" aria-label="Agents collapsed" data-od-id="sessions-tools-rail"><button className="icon-button collapse-control" type="button" onClick={onToggle} aria-label="Expand Agents" data-testid="rail-expand"><Icon name="expand" /></button><button className="rail-glyph selected" type="button" onClick={() => changeScope('chats')} aria-label="Chats"><Icon name="agents" /></button><button className="rail-glyph" type="button" onClick={() => openTool('profiles')} aria-label="Profiles"><Icon name="profile" /></button><button className="rail-glyph" type="button" onClick={() => navigate('/tools/agent-settings')} aria-label="Agent settings"><Icon name="settings" /></button></aside>;
 
@@ -324,11 +360,11 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
     {selectedRows.length > 0 && <div className="bulk-bar" role="toolbar" aria-label="Selected session actions"><strong>{selectedRows.length} selected</strong><button type="button" onClick={() => setSelectedRows([])}>Cancel</button><button type="button" onClick={() => setBulkDeleteOpen(true)}>Delete</button></div>}
     <div className="session-list" aria-label={`${scope} sessions`} aria-busy={liveHistory && (!currentPage || currentPage.busy)}>
       {[...projectGroups].map(([id, group]) => {
-        const expanded = !collapsedProjects.has(id);
+        const expanded = isOpen(id);
         const name = id ? projects.get(id)! : 'No project';
         const label = id && (projectNameCounts.get(name) ?? 0) > 1 ? `${name} (${id})` : name;
         return <section className="session-group" key={id}>
-          <button className="group-toggle" type="button" aria-expanded={expanded} onClick={() => setCollapsedProjects((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} data-testid={`group-project-${id}`}><Icon name={expanded ? 'chevronDown' : 'chevronRight'} size={13} /><span>{label}</span><small>{group.count}</small></button>
+          <button className="group-toggle" type="button" aria-expanded={expanded} onClick={() => toggleProject(id)} data-testid={`group-project-${id}`}><Icon name={expanded ? 'chevronDown' : 'chevronRight'} size={13} /><span>{label}</span><small>{group.count}</small></button>
           {expanded && <div>{group.roots.map((session) => sessionTree(session))}</div>}
         </section>;
       })}

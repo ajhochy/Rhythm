@@ -1,0 +1,60 @@
+{
+   "issue": 1552,
+   "date": "2026-09-21",
+   "test_command": "cd apps/web && npx playwright test tests/contract/issue-1552-child-chip.spec.ts --workers=1",
+   "waiver": null,
+   "criteria": [
+      {
+        "criterion_id": "issue-1552-c1",
+        "text": "child-session title uses meaningful card width at 1440/1024/780",
+        "mode": "ui",
+        "test": "apps/web/tests/contract/issue-1552-child-chip.spec.ts",
+        "status": "pass",
+        "reason": "GREEN: c3 measures real computed chip width (>200px) and title-container width (>80px) at 1440/1024/780 from the real app + real styles.css; c1 asserts the two-track columns declaration with no 8px track. Both pass after the fix; both failed RED when the 3-track/8px rule was in place."
+      },
+      {
+        "criterion_id": "issue-1552-c2",
+        "text": "title and meta are separated",
+        "mode": "ui",
+        "test": "apps/web/tests/contract/issue-1552-child-chip.spec.ts",
+        "status": "pass",
+        "reason": "GREEN: c2 asserts the content span is computed display:grid (the independent discriminator for the run-together defect) and that meta renders on a row below the title; RED when nth-child(2) left the span non-grid."
+      },
+      {
+        "criterion_id": "issue-1552-c3",
+        "text": "chevron is flush right and vertically centered",
+        "mode": "ui",
+        "test": "apps/web/tests/contract/issue-1552-child-chip.spec.ts",
+        "status": "pass",
+        "reason": "GREEN: c4 asserts the chevron right edge is within 12px of the chip right edge and its vertical center is within 4px of the chip center, at all three viewports; RED while the chevron floated in the 1fr track."
+      },
+      {
+        "criterion_id": "issue-1552-c4",
+        "text": "grid has two tracks for two children",
+        "mode": "ui",
+        "test": "apps/web/tests/contract/issue-1552-child-chip.spec.ts",
+        "status": "pass",
+        "reason": "GREEN: c5 asserts computed grid-template-columns has exactly 2 tracks with a wide (title) first track; c1 asserts the 2-track/14px source declaration and no nth-child(2); RED when tracked 3 tracks with an 8px placeholder."
+      },
+      {
+        "criterion_id": "issue-1552-c5",
+        "text": "rendered-width regression test exists",
+        "mode": "ui",
+        "test": "apps/web/tests/contract/issue-1552-child-chip.spec.ts",
+        "status": "pass",
+        "reason": "The rendered-width regression is c5 (with c3): it measures real computed grid-template-columns/width from the actual rendered app and guards the 3-track/8px regression. Present, executable, and green post-fix; it failed RED on the buggy CSS."
+      },
+      {
+        "criterion_id": "issue-1552-c6",
+        "text": "Electron renderer evidence is recorded",
+        "mode": "manual",
+        "test": null,
+        "status": "UNVERIFIED",
+        "reason": "Blocker: starting the isolated runtime sandbox (sandbox.sh up) builds and launches live engines and would use the stock /Users/ajhochhalter/.local/bin/opencode (not the built fork) — the degraded/guard-degraded state the dispatch says to preserve, not bypass. Per guidance, no live services/contact were started; runtime renderer evidence is BLOCKED. Renderer layout evidence instead comes from the deterministic fixture-mode Playwright render (issue-1552-child-chip.spec.ts, Desktop Chromium) which writes docs/ai/runs/artifacts/issue-1552/evidence/child-chip-1440.png. sandbox_guard_test.sh = 19 passed (guard validates the copied-data/identity inputs without launching a service)."
+      }
+   ],
+   "not_tested": [
+      "issue-1552-c6"
+   ],
+   "notes": "RED capture (pre-fix, buggy styles.css:289-290): `5 failed` via test_command with RHYTHM_E2E_PORT=4973 — c1 (2-track/8px source), c2 (span not grid), c3 (title container <=8px), c4 (chevron not flush-right/centered), c5 (trackCount 3). GREEN capture (post-fix): `5 passed` and a rendered screenshot written to docs/ai/runs/artifacts/issue-1552/evidence/child-chip-1440.png. Fresh synthetic fixture generated at /private/tmp/rhythm-1552-fixture-run2 (read-only rhythm.db + opencode.json). Isolated sandbox guard: sandbox_guard_test.sh = 19 passed, 0 failed (no service). sandbox_bootstrap_test.py FAILED (environment degraded: stock ~/.local/bin/opencode shadows the not-yet-built fork engine) — preserved, not bypassed; live sandbox `up` not run."
+}
