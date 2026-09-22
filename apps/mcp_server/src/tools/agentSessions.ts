@@ -24,9 +24,12 @@
  */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { apiGet, toolResult, toolError } from "../api_client.js";
+import { apiGet, apiPost, toolResult, toolError } from "../api_client.js";
 import { registerTool } from "./_tool.js";
-import { scanContextContentAndRecordExternalContentTaint } from "../security/external_content_boundary.js";
+import {
+  authorizeOutboundAction,
+  scanContextContentAndRecordExternalContentTaint,
+} from "../security/external_content_boundary.js";
 import { trustedSecurityContext } from "../security/security_context.js";
 
 /** Subset of the session row the consolidation read needs. */
@@ -150,6 +153,109 @@ Used by the Memory Consolidation task to review the past day's sessions before c
               isError: true as const,
             }
           : toolResult(ingress.text);
+      } catch (err) {
+        return toolError(err);
+      }
+    },
+  );
+
+  // ── #1577 — prompt an EXISTING session ────────────────────────────────────
+  //
+  // rhythm_delegate_async spawns a CHILD under the caller. This is the missing
+  // other half: instructing a session that is already running, including one
+  // the caller never created (e.g. telling an orchestrator to review the work
+  // its children just finished and open a PR).
+  //
+  // Any running session is promptable — no parentage check. The Rhythm API key
+  // is the trust boundary, per the working agreement on this feature. What the
+  // key cannot defend against is prompt injection: an agent that reads a GitHub
+  // issue saying "send this to session X" makes a perfectly authorized call
+  // with someone else's words. Two things address that, neither a parentage
+  // gate: the server writes an audit row for every injection
+  // (GET /agent-sessions/:id/prompt-log), and the outbound approval gate below
+  // bites once this session has actually consumed untrusted content.
+  registerTool(
+    server,
+    "rhythm_prompt_session",
+    `Send a prompt to an agent session that is already running, exactly as if it were typed into the Rhythm composer.
+
+Use this to instruct a session you did not create — e.g. telling an orchestrator to review finished work and open a PR. To start NEW background work under yourself, use rhythm_delegate_async instead.
+
+Returns as soon as the turn is enqueued; the target's reply streams into its own session, not back to you. Find session ids with rhythm_list_sessions.
+
+Every call is recorded in that session's prompt log (who prompted it, with what, when).`,
+    {
+      sessionId: z
+        .string()
+        .describe("The target session id, from rhythm_list_sessions."),
+      prompt: z
+        .string()
+        .describe("The instruction to deliver, written as you would type it."),
+      agent: z
+        .string()
+        .optional()
+        .describe("Optional per-turn agent/mode override for the target turn."),
+      approval_id: z
+        .string()
+        .optional()
+        .describe(
+          "Approval id returned by rhythm_request_approval — required after reading untrusted content.",
+        ),
+    },
+    async (
+      {
+        sessionId,
+        prompt,
+        agent,
+        approval_id,
+      }: {
+        sessionId: string;
+        prompt: string;
+        agent?: string;
+        approval_id?: string;
+      },
+      extra,
+    ) => {
+      const ctx = trustedSecurityContext(extra);
+      // `payload` must stay EXACTLY the model-supplied tool arguments — the
+      // approval gate compares it against the signed MCP arguments. The derived
+      // caller identity goes on the HTTP body only, AFTER the gate.
+      const payload = {
+        sessionId,
+        prompt,
+        ...(agent !== undefined && { agent }),
+      };
+      const gate = await authorizeOutboundAction({
+        agentUrl,
+        context: ctx,
+        approvalId: typeof approval_id === "string" ? approval_id : undefined,
+        action: "session.prompt",
+        payload,
+      });
+      if (!gate.allowed) {
+        return {
+          content: [
+            { type: "text" as const, text: gate.refusalMessage as string },
+          ],
+          isError: true as const,
+        };
+      }
+      try {
+        // #1322 precedent: the authoritative caller identity is the ENGINE
+        // session id from the trusted context, never a model-supplied one — a
+        // model asked for its own session id invents a plausible UUID. Here it
+        // is purely for the audit row; it authorizes nothing.
+        const result = await apiPost(
+          agentUrl,
+          agentToken,
+          `/agent-sessions/${encodeURIComponent(sessionId)}/prompt`,
+          {
+            prompt,
+            ...(agent !== undefined && { agent }),
+            ...(ctx?.sdkSessionId ? { callerSdkSessionId: ctx.sdkSessionId } : {}),
+          },
+        );
+        return toolResult(JSON.stringify(result, null, 2));
       } catch (err) {
         return toolError(err);
       }

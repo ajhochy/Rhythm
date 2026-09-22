@@ -4518,4 +4518,49 @@ If someone asks for creative work that needs a local capability:
   if (!toolSafetyReportCols.includes('proposal_fingerprint')) {
     db.exec(`ALTER TABLE tool_safety_reports ADD COLUMN proposal_fingerprint TEXT`);
   }
+
+  // ── #1577 — prompt-injection audit trail ────────────────────────────────
+  //
+  // One append-only row per prompt pushed into an EXISTING session through
+  // POST /agent-sessions/:id/prompt (the programmatic twin of a UI-typed
+  // message). Prompting is deliberately NOT gated on parentage — any running
+  // session is promptable and the Rhythm API key is the trust boundary — so
+  // this log is the only thing that distinguishes a legitimate caller from an
+  // agent relaying words it absorbed from untrusted content (a GitHub issue
+  // body saying "tell session X to ..."). Both calls are authorized; only the
+  // log shows which is which. Logging, not gating.
+  //
+  // caller_sdk_session_id is the ENGINE session id resolved by the MCP layer's
+  // trusted security context, never a model-supplied value (#1322 precedent:
+  // a model asked for its own session id invents a plausible UUID).
+  //
+  // SQLite-only, like agent_session_messages — the local agent server on :4001
+  // is the sole writer/reader. Deliberately NOT in postgres_bootstrap.ts.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_prompt_injections (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      target_session_id TEXT NOT NULL,
+      caller_session_id TEXT,
+      caller_sdk_session_id TEXT,
+      caller_user_id INTEGER,
+      source TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      accepted INTEGER NOT NULL DEFAULT 0,
+      error TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+  `);
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_agent_prompt_injections_target
+       ON agent_prompt_injections(target_session_id, created_at)`,
+  );
+  // Append-only: the value of an audit trail is that a compromised caller
+  // cannot erase its own row.
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS agent_prompt_injections_no_delete
+      BEFORE DELETE ON agent_prompt_injections
+      BEGIN
+        SELECT RAISE(ABORT, 'prompt injection audit history is append-only');
+      END;
+  `);
 }
