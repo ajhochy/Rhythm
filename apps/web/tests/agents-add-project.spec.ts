@@ -4,9 +4,9 @@ import { createLiveSessionsGateway } from '../src/gateway/sessions';
 const row = (id: string, extra: Record<string, unknown> = {}) => ({ id, name: id, status: 'idle', category: 'chat', profileId: 'profile', cwd: '/fixture/existing', projectId: 'existing-project', createdAt: '2026-09-18T00:00:00Z', ...extra });
 const pageOf = (sessions: unknown[]) => ({ sessions, ancestors: [], pageInfo: { nextCursor: null, hasMore: false } });
 
-async function open(page: Page, options: { empty?: boolean; picker?: string | null; failSave?: boolean; holdSave?: boolean } = {}) {
+async function open(page: Page, options: { empty?: boolean; picker?: string | null; failSave?: boolean; holdSave?: boolean; other?: boolean } = {}) {
   const projects: Record<string, unknown>[] = [];
-  const sessions = options.empty ? [] : [row('existing')];
+  const sessions = options.empty ? [] : [row('existing'), ...(options.other ? [row('other', { projectId: 'other-project', cwd: '/fixture/other' })] : [])];
   const writes: { path: string; body: Record<string, unknown> }[] = [];
   let release = () => {};
   const held = new Promise<void>(resolve => { release = resolve; });
@@ -58,10 +58,11 @@ async function open(page: Page, options: { empty?: boolean; picker?: string | nu
     const {composeGateway} = await import('/src/gateway/index.ts');
     const {GatewayProvider} = await import('/src/gateway/context.tsx');
     const {AgentsWorkspace} = await import('/src/components/AgentsWorkspace.tsx');
+    const {Shell} = await import('/src/components/Shell.tsx');
     await import('/src/styles.css');
     const h = React.createElement;
     const gateway = composeGateway({mode:'live',apiBase:'http://127.0.0.1:65534',expectedApiBase:'http://127.0.0.1:65534',engineBase:'http://127.0.0.1:65533',expectedEngineBase:'http://127.0.0.1:65533',productionApiBase:'https://project-fixture.invalid',taskToken:'public-fixture-only'});
-    function Probe() { const state = useFixtures(); return h('main', {style:{height:'100vh',display:'grid',gridTemplateRows:'auto minmax(0,1fr)'}}, h('output', {'data-testid':'selection'}, state.selectedId), h(AgentsWorkspace)); }
+    function Probe() { const state = useFixtures(); return h('main', {style:{height:'100vh',display:'grid',gridTemplateRows:'auto minmax(0,1fr)'}}, h('output', {'data-testid':'selection'}, state.selectedId), h(Shell,{route:'/agents'},h(AgentsWorkspace))); }
     createRoot(document.getElementById('root')).render(h(GatewayProvider,{gateway},h(FixtureProvider,null,h(Probe))));
   </script></body></html>` }));
   await page.goto('/tests/add-project-fixture.html');
@@ -89,11 +90,16 @@ test('add an empty project, reload, select it and create a correctly bound sessi
   fixture.release();
   await expect(page.getByTestId('selected-agent-project')).toContainText('Research');
   await expect(page.getByTestId('selected-agent-project')).toContainText('/fixture/research');
+  await expect(page.getByTestId('add-project-dialog')).toHaveCount(0);
+  await expect(page.getByTestId('toast-status')).toContainText('Project Research created');
+  await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(page.getByTestId('group-project-project-1')).toContainText('Research');
-  await expect(page.getByRole('button', { name: 'Selected project Research' })).toHaveAttribute('aria-pressed', 'true');
+  // Regression caught: a genuinely new id inherits a stale open state after creation.
+  await expect(page.getByTestId('group-project-project-1')).toHaveAttribute('aria-expanded', 'false');
   expect(fixture.writes.map(write => write.path)).toEqual(['/projects']);
   await page.reload();
   await expect(page.getByTestId('group-project-project-1')).toBeVisible();
+  await page.getByTestId('group-project-project-1').click();
   await page.getByRole('button', { name: 'Select project Research' }).click();
   await expect(page.getByTestId('selected-agent-project')).toContainText('/fixture/research');
   await page.getByTestId('new-chat-instant').click();
@@ -103,6 +109,30 @@ test('add an empty project, reload, select it and create a correctly bound sessi
     { path: '/projects', body: { name: 'Research', cwd: '/fixture/research/' } },
     { path: '/agent-sessions', body: { name: '', cwd: '/fixture/research', projectId: 'project-1', profileId: 'profile', isolateWorktree: false } },
   ]);
+});
+
+// Regression caught (#1558 c4): creation rewrites another project's explicit state,
+// auto-opens the new empty group, or closes the selected session's origin group.
+test('creating a project preserves another project’s state and keeps the new group closed', async ({ page }) => {
+  await open(page, { other: true });
+  const other = page.getByTestId('group-project-other-project');
+  await expect(other).toHaveAttribute('aria-expanded', 'false');
+  await other.click();
+  await expect(page.getByTestId('session-other')).toBeVisible();
+  const stored = () => page.evaluate(() => localStorage.getItem('rhythm-agents-projects-open'));
+  expect(await stored()).toBe(JSON.stringify({ 'other-project': true }));
+  await fillProject(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await expect(page.getByTestId('toast-status')).toContainText('Project Research created');
+  await expect(page.getByTestId('group-project-project-1')).toHaveAttribute('aria-expanded', 'false');
+  await expect(other).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByTestId('session-other')).toBeVisible();
+  await expect(page.getByTestId('group-project-existing-project')).toHaveAttribute('aria-expanded', 'true');
+  expect(await stored()).toBe(JSON.stringify({ 'other-project': true }));
+  await page.reload();
+  await expect(page.getByTestId('group-project-project-1')).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByTestId('group-project-other-project')).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByTestId('session-other')).toBeVisible();
 });
 
 test('manual validation, duplicate directory, backend path error and failed save stay in the form and preserve selection', async ({ page }) => {

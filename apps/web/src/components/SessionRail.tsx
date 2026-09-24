@@ -28,6 +28,31 @@ const tools: { key: string; label: string; description: string; icon: IconName }
   { key: 'gallery', label: 'Gallery', description: 'Artifacts', icon: 'gallery' },
 ];
 const accounts = ['Rhythm workspace', 'Research account'];
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const OPEN_PROJECTS_STORAGE_KEY = 'rhythm-agents-projects-open';
+
+// #1558: absent state uses the selected-group default; explicit booleans preserve either
+// user choice. Same try/catch shape as store.tsx for unavailable sandbox storage.
+function readOpenProjects(): Record<string, boolean> {
+  try {
+    const raw = window.localStorage.getItem(OPEN_PROJECTS_STORAGE_KEY);
+    const parsed: unknown = raw === null ? {} : JSON.parse(raw);
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') return {};
+    return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, boolean] => typeof entry[1] === 'boolean'));
+  } catch {
+    return {};
+  }
+}
+
+function persistOpenProjects(states: Record<string, boolean>) {
+  try {
+    window.localStorage.setItem(OPEN_PROJECTS_STORAGE_KEY, JSON.stringify(states));
+  } catch {
+    // Sandboxed Studio previews intentionally run without storage access.
+  }
+}
+
 export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProject }: { collapsed: boolean; onToggle(): void; selectedProject: AgentProject | null; onSelectProject(project: AgentProject | null): void }) {
   const fixtures = useFixtures();
   const gateway = useGateway();
@@ -247,7 +272,6 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
       // Keep the successful response visible even if the subsequent catalog refresh fails.
       setProjectLabels((value) => ({ gateway, rows: [...(value?.gateway === gateway ? value.rows.filter((row) => row.id !== project.id) : []), project] }));
       setProjectRefresh((value) => value + 1);
-      setCollapsedProjects((value) => { const next = new Set(value); next.delete(project.id); return next; });
       setSearch(''); setArchivedOnlyPreference(false); setScope('chats'); setSelectedRows([]);
       onSelectProject(project);
       setProjectFormOpen(false);
@@ -286,7 +310,19 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [rowMenuId, setRowMenuId] = useState<string | null>(null);
   const [toolsHeight, setToolsHeight] = useState(224);
-  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => new Set());
+  // #1558: only explicit user toggles persist; selection overrides are per-mount only.
+  const [projectsOpen, setProjectsOpen] = useState<Record<string, boolean>>(() => readOpenProjects());
+  const [selectionOpenProjects, setSelectionOpenProjects] = useState<Set<string>>(() => selected.id ? new Set([selected.projectId]) : new Set());
+  useLayoutEffect(() => {
+    if (!selected.id) return;
+    setSelectionOpenProjects((current) => {
+      if (projectsOpen[selected.projectId] === true || current.has(selected.projectId)) return current;
+      return new Set(current).add(selected.projectId);
+    });
+    // Only a selected-session change adds an override; an explicit collapse must stay closed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected.id, selected.projectId]);
+  const isOpen = (id: string) => selectionOpenProjects.has(id) || projectsOpen[id] === true;
   const [collapsedParents, setCollapsedParents] = useState<Set<string>>(() => new Set());
 
   const [name, setName] = useState('');
@@ -427,6 +463,21 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
     setRefresh((value) => value + 1);
   };
   const openTool = (key: string) => navigate(key === 'profiles' ? '/profiles' : `/tools/${key}`);
+  // #1558: an explicit toggle consumes this mount's selection override and persists normally.
+  const toggleProject = (id: string) => {
+    const open = isOpen(id);
+    setSelectionOpenProjects((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+    setProjectsOpen((current) => {
+      const next = { ...current, [id]: !open };
+      persistOpenProjects(next);
+      return next;
+    });
+  };
 
   if (collapsed) return <aside className="session-rail collapsed" aria-label="Agents collapsed" data-od-id="sessions-tools-rail"><button className="icon-button collapse-control" type="button" onClick={onToggle} aria-label="Expand Agents" data-testid="rail-expand"><Icon name="expand" /></button><button className="rail-glyph selected" type="button" onClick={() => changeScope('chats')} aria-label="Chats"><Icon name="agents" /></button><button className="rail-glyph" type="button" onClick={() => openTool('profiles')} aria-label="Profiles"><Icon name="profile" /></button><button className="rail-glyph" type="button" onClick={() => navigate('/tools/agent-settings')} aria-label="Agent settings"><Icon name="settings" /></button></aside>;
 
@@ -511,12 +562,12 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
     {selectedRows.length > 0 && <div className="bulk-bar" role="toolbar" aria-label="Selected session actions"><strong>{selectedRows.length} selected</strong><button type="button" onClick={() => setSelectedRows([])}>Cancel</button><button type="button" onClick={() => setBulkDeleteOpen(true)}>Delete</button></div>}
     <div ref={sessionListRef} className={`session-list${compact ? ' rail-compact' : ''}`} role="region" tabIndex={0} aria-label={`${scope} sessions`} aria-busy={liveHistory && (!currentPage || currentPage.busy)}>
       {[...projectGroups].map(([id, group]) => {
-        const expanded = !collapsedProjects.has(id);
+        const expanded = isOpen(id);
         const name = id ? projects.get(id)! : 'No project';
         const label = id && (projectNameCounts.get(name) ?? 0) > 1 ? `${name} (${id})` : name;
         const project = projectCatalog.find((item) => item.id === id);
         return <section className="session-group" key={id}>
-          <button className="group-toggle" type="button" aria-expanded={expanded} onClick={() => setCollapsedProjects((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} data-testid={`group-project-${id}`}><Icon name={expanded ? 'chevronDown' : 'chevronRight'} size={13} /><span>{label}</span><small>{group.count}</small></button>
+          <button className="group-toggle" type="button" aria-expanded={expanded} onClick={() => toggleProject(id)} data-testid={`group-project-${id}`}><Icon name={expanded ? 'chevronDown' : 'chevronRight'} size={13} /><span>{label}</span><small>{group.count}</small></button>
           {expanded && <div>{group.roots.map((session) => sessionTree(session))}{group.count === 0 && project?.cwd && <div className="rail-empty-project">
             <p>{currentPage?.pages['']?.hasMore ? 'No sessions loaded.' : 'No active sessions.'}</p><p className="rail-project-path" title={project.cwd}>{project.cwd}</p>
             <button className="rail-project-select" type="button" aria-pressed={selectedProject?.id === id} onClick={() => { onSelectProject(project); setSelectedRows([]); }}>{selectedProject?.id === id ? 'Selected project' : 'Select project'}<span className="sr-only"> {label}</span></button>

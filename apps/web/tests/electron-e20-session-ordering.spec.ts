@@ -416,6 +416,8 @@ test('project-headings-c2 canonical project identities and No project counts', a
   await expect(page.getByTestId('group-project-p2')).toHaveAccessibleName('Same label (p2) 1');
   await expect(page.getByTestId('group-project-')).toHaveAccessibleName('No project 1');
   await expect(page.locator('.session-group')).toHaveCount(3);
+  await expect(page.getByTestId('group-project-')).toHaveAttribute('aria-expanded', 'false');
+  await page.getByTestId('group-project-').click();
   await expect(page.locator('.session-group').filter({ has: page.getByTestId('group-project-') }).getByTestId('session-unassigned')).toBeVisible();
 });
 
@@ -474,11 +476,11 @@ test('project-headings-c5 Tab reaches each heading with a visible keyboard focus
   await page.keyboard.press('Tab');
   await expect(page.getByRole('region', { name: 'chats sessions' })).toBeFocused();
   // A tabindex=-1 heading or removed/transparent focus outline must fail, unlike .focus().
-  for (const id of ['p2', 'p1']) {
+  for (const [id, initial, toggled] of [['p2', 'false', 'true'], ['p1', 'true', 'false']]) {
     await page.keyboard.press('Tab');
     const heading = page.getByTestId(`group-project-${id}`);
     await expect(heading).toBeFocused();
-    await expect(heading).toHaveAttribute('aria-expanded', 'true');
+    await expect(heading).toHaveAttribute('aria-expanded', initial);
     const focus = await heading.evaluate((element) => {
       const style = getComputedStyle(element);
       return { visible: element.matches(':focus-visible'), style: style.outlineStyle, width: parseFloat(style.outlineWidth), color: style.outlineColor };
@@ -488,7 +490,11 @@ test('project-headings-c5 Tab reaches each heading with a visible keyboard focus
     expect(focus.width).toBeGreaterThanOrEqual(2);
     expect(focus.color).not.toMatch(/^(transparent|rgba\([^)]*,\s*0\))$/);
     await page.keyboard.press('Enter');
-    await expect(heading).toHaveAttribute('aria-expanded', 'false');
+    await expect(heading).toHaveAttribute('aria-expanded', toggled);
+    // Restore before tabbing: opening p2 inserts session rows into the tab order.
+    await page.keyboard.press('Enter');
+    await expect(heading).toHaveAttribute('aria-expanded', initial);
+    await expect(heading).toBeFocused();
   }
   expect(unexpected).toEqual([]);
 });
@@ -499,7 +505,10 @@ test('project-headings-c5 independent keyboard collapse retains accessible selec
   const first = page.getByTestId('group-project-p1');
   const second = page.getByTestId('group-project-p2');
   await expect(first).toHaveAttribute('aria-expanded', 'true');
+  await expect(second).toHaveAttribute('aria-expanded', 'false');
+  await second.focus(); await second.press('Enter');
   await expect(second).toHaveAttribute('aria-expanded', 'true');
+  await expect(first).toHaveAttribute('aria-expanded', 'true');
   await first.focus(); await first.press('Enter');
   await expect(first).toBeFocused();
   await expect(first).toHaveAttribute('aria-expanded', 'false');
@@ -528,6 +537,8 @@ test('project-headings-repair-c2 equal-name equal-count projects have stable vis
   await expect(first.locator('span')).toHaveText('Same label (p1)');
   await expect(second.locator('span')).toHaveText('Same label (p2)');
   await expect(page.getByTestId('group-project-p3')).toHaveAccessibleName('Unique project 1');
+  await expect(second).toHaveAttribute('aria-expanded', 'false');
+  await second.click();
   await first.click();
   await expect(page.getByTestId('session-z')).toHaveCount(0);
   await expect(page.getByTestId('session-a')).toBeVisible();
@@ -545,6 +556,7 @@ test('project-headings-repair-c2 equal-name equal-count projects have stable vis
 test('E20-c5 project identity and canonical labels, not synthetic workspace', async ({ page }) => {
   const { requests, unexpected } = await open(page);
   await expect(page.getByTestId('session-z')).toContainText('Same label');
+  await page.getByTestId('group-project-p2').click();
   await page.getByTestId('group-project-p1').click();
   await expect(page.getByTestId('session-a')).toBeVisible();
   await expect(page.getByTestId('session-z')).toHaveCount(0);
@@ -558,6 +570,7 @@ test('E20-c5 project identity and canonical labels, not synthetic workspace', as
 
 test('E20-c7 trimmed server search discovers child beyond first100 with context and preview', async ({ page }) => {
   const { requests, unexpected } = await open(page, { hundred: true });
+  await page.getByTestId('group-project-p2').click();
   await expect(page.locator('button.session-row')).toHaveCount(100);
   await page.getByTestId('session-search-toggle').click();
   await page.getByTestId('session-search').fill('  needle  ');

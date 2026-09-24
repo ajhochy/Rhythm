@@ -1,0 +1,66 @@
+{
+  "issue": 1558,
+  "date": "2026-09-24",
+  "branch": "mega/2026-09-18-mobile-electron-hermes",
+  "test_command": "RHYTHM_E2E_PORT=5473 npx playwright test tests/sessions.spec.ts tests/agents-add-project.spec.ts tests/contract/issue-1558-collapsed-projects.spec.ts --workers=1",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1558-c1",
+      "text": "Fresh load defaults every non-selected project group collapsed.",
+      "mode": "ui",
+      "test": "tests/contract/issue-1558-collapsed-projects.spec.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1558-c2",
+      "text": "The group containing the currently selected session is expanded on load.",
+      "mode": "ui",
+      "test": "tests/contract/issue-1558-collapsed-projects.spec.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1558-c2b",
+      "text": "Moving selection must not collapse a project group that held a real selected session since load, unless explicitly closed.",
+      "mode": "ui",
+      "test": "tests/contract/issue-1558-collapsed-projects.spec.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1558-c3",
+      "text": "An explicit false closes the selected group immediately and remains stored through document remount; the selected group reopens on each mount without rewriting that preference.",
+      "mode": "ui",
+      "test": "tests/contract/issue-1558-collapsed-projects.spec.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1558-c3b",
+      "text": "Explicit true and false project choices survive browser-process close and relaunch on the same persistent profile.",
+      "mode": "ui",
+      "test": "tests/contract/issue-1558-collapsed-projects.spec.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1558-c4",
+      "text": "Explicit per-project state preserves a manually opened non-selected group, while a genuinely created project defaults closed without disturbing it.",
+      "mode": "ui",
+      "test": "tests/contract/issue-1558-collapsed-projects.spec.ts; tests/agents-add-project.spec.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1558-c5",
+      "text": "Throwing storage reads and writes fall back safely without crashing the rail.",
+      "mode": "ui",
+      "test": "tests/contract/issue-1558-collapsed-projects.spec.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1558-c6",
+      "text": "Rendered Lucide right/down chevrons and aria-expanded toggle together.",
+      "mode": "ui",
+      "test": "tests/contract/issue-1558-collapsed-projects.spec.ts",
+      "status": "pass"
+    }
+  ],
+  "not_tested": []
+}

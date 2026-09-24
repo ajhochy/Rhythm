@@ -15,6 +15,7 @@ test('E16 fixture separation: Cancel and attachments stay local; profile fixture
   await expect(page.getByTestId('session-session-sunday-handoff')).toHaveAttribute('aria-pressed', 'false');
   await page.getByTestId('composer-attach').click();
   await page.getByTestId('attachment-option-allowed').click();
+  await page.getByTestId('group-project-project-rhythm-desktop').click();
   await page.getByTestId('session-session-permission').click();
   await expect(page.locator('.attachment-chip')).toHaveCount(0);
   await page.getByTestId('session-session-sunday-handoff').click();
