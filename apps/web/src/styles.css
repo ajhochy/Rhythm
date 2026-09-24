@@ -73,6 +73,7 @@ button:disabled, input:disabled, textarea:disabled, select:disabled { cursor: no
 .app-canvas { position: relative; height: 100dvh; min-width: 0; display: flex; flex-direction: column; gap: 0; padding: 12px; background: var(--bg); }
 .app-header { flex: 0 0 var(--app-navigation-height, 48px); min-width: 0; display: flex; align-items: center; gap: 10px; }
 .destination-nav { flex: 1; min-width: 0; display: flex; align-items: stretch; gap: 2px; overflow: hidden; }
+.destination-nav:has(.nav-overflow) { overflow: visible; }
 .destination { position: relative; flex: 0 0 auto; min-height: 44px; display: inline-flex; align-items: center; gap: 5px; padding: 0 7px; border: 0; border-radius: var(--r-sm); color: var(--muted); background: transparent; cursor: pointer; font-size: 12.5px; font-weight: 520; letter-spacing: .02em; }
 .destination::after { content: ""; position: absolute; right: 7px; bottom: 1px; left: 7px; height: 2px; border-radius: var(--r-pill); background: transparent; }
 .destination:hover { color: var(--fg); background: color-mix(in oklab, var(--surface), transparent 34%); }
@@ -97,11 +98,12 @@ button:disabled, input:disabled, textarea:disabled, select:disabled { cursor: no
 .compact-button:hover { color: var(--fg); border-color: var(--border); }
 
 .menu-popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; width: 270px; display: grid; gap: 3px; padding: 8px; border: 1px solid var(--border); border-radius: var(--r-md); color: var(--fg); background: var(--surface-raised); box-shadow: var(--shadow); }
-.nav-overflow { right: auto; left: 0; width: 190px; }
+.nav-overflow { right: auto; left: 0; width: 190px; max-height: calc(100vh - 100px); overflow-y: auto; }
 .demo-menu { width: 240px; max-height: min(520px, calc(100vh - 100px)); overflow: auto; }
 .menu-heading { min-height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 8px 5px; border-bottom: 1px solid var(--border-soft); font-weight: 600; }
 .menu-heading small { color: var(--muted); font-family: var(--font-mono); font-size: 10px; }
 .menu-item, .activity-row { width: 100%; min-height: 40px; display: flex; align-items: center; gap: 9px; padding: 7px 9px; border: 0; border-radius: 8px; color: var(--fg-2); background: transparent; cursor: pointer; text-align: left; }
+.nav-overflow .menu-item { min-height: 44px; }
 .menu-item:hover, .activity-row:hover { color: var(--fg); background: color-mix(in oklab, var(--surface-raised), var(--fg) 8%); }
 .menu-item.stacked, .activity-row { align-items: flex-start; }
 .menu-item.stacked > *, .activity-row > span:last-child { display: grid; }

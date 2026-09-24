@@ -1,0 +1,16 @@
+{
+  "issue": 1581,
+  "date": "2026-09-24",
+  "test_command": "cd apps/web && env -u RHYTHM_LIVE_E2E -u RHYTHM_OPENCODE_ENGINE_PORT -u RHYTHM_MOBILE_GATEWAY_PORT RHYTHM_E2E_PORT=4581 RHYTHM_DIST_PORT=4582 npx playwright test tests/contract/issue-1581.spec.ts --workers=1",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "issue-1581-c1", "text": "More visible only when routes overflow; contains exactly currently hidden destinations at >1320, 901-1320, <=900 without duplicates/omissions", "mode": "ui", "test": "apps/web/tests/contract/issue-1581.spec.ts", "status": "pass" },
+    { "criterion_id": "issue-1581-c2", "text": "Opens visibly above content in packaged-compatible renderer; no clipping/overflow at narrow widths", "mode": "ui", "test": "apps/web/tests/contract/issue-1581.spec.ts", "status": "pass" },
+    { "criterion_id": "issue-1581-c3", "text": "Active destination marked; selection navigates/closes", "mode": "ui", "test": "apps/web/tests/contract/issue-1581.spec.ts", "status": "pass" },
+    { "criterion_id": "issue-1581-c4", "text": "Escape/outside close and restore trigger focus; Up/Down/Home/End/Enter/Space semantics", "mode": "ui", "test": "apps/web/tests/contract/issue-1581.spec.ts", "status": "pass" },
+    { "criterion_id": "issue-1581-c5", "text": "Resize while open closes/recomputes safely", "mode": "ui", "test": "apps/web/tests/contract/issue-1581.spec.ts", "status": "pass" },
+    { "criterion_id": "issue-1581-c6", "text": "Accessibility/axe at responsive widths", "mode": "ui", "test": "apps/web/tests/contract/issue-1581.spec.ts", "status": "pass" },
+    { "criterion_id": "issue-1581-c7", "text": "Packaged Electron host menu parity with the tested bundled renderer", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "No isolated packaged Electron host or sanitized fixture was supplied; built Vite dist Chromium is verified but cannot establish packaged host parity. Manual smoke target: open packaged host at 1100 and 390, compare exact destinations, panel visibility, keyboard Settings reachability, and screenshot against issue-1581 captures." }
+  ],
+  "not_tested": ["issue-1581-c7"]
+}

@@ -80,17 +80,19 @@ export function Shell({ route, children }: { route: string; children: React.Reac
   const openPushNotification = () => navigate('/agents');
   const [demoOpen, setDemoOpen] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
-  const [compactNav, setCompactNav] = useState(() => window.matchMedia('(max-width: 900px)').matches);
+  const [navTier, setNavTier] = useState(() => window.matchMedia('(max-width: 900px)').matches ? 2 : window.matchMedia('(max-width: 1320px)').matches ? 1 : 0);
   const [navigationHeight, setNavigationHeight] = useState(48);
   const activeKey = route.startsWith('/profiles') || route.startsWith('/endpoint-map') || route.startsWith('/tools/') ? 'agents' : route.split('/')[1] || 'agents';
   const activeLabel = activeKey.charAt(0).toUpperCase() + activeKey.slice(1);
 
   useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
   useEffect(() => {
-    const query = window.matchMedia('(max-width: 900px)');
-    const change = (event: MediaQueryListEvent) => setCompactNav(event.matches);
-    query.addEventListener('change', change);
-    return () => query.removeEventListener('change', change);
+    const compact = window.matchMedia('(max-width: 900px)');
+    const overflow = window.matchMedia('(max-width: 1320px)');
+    const change = () => setNavTier(compact.matches ? 2 : overflow.matches ? 1 : 0);
+    compact.addEventListener('change', change);
+    overflow.addEventListener('change', change);
+    return () => { compact.removeEventListener('change', change); overflow.removeEventListener('change', change); };
   }, []);
   useEffect(() => {
     if (toast.id === 0) return;
@@ -120,8 +122,8 @@ export function Shell({ route, children }: { route: string; children: React.Reac
       <header className="app-header" data-od-id="rhythm-global-header">
         <nav className="destination-nav" aria-label="Product destinations">
           {visibleDestinations.map((destination) => destinationButton(destination))}
-          <Menu label="More destinations" icon="chevronDown" testId="nav-more" className="more-nav" popoverClassName="nav-overflow" triggerClassName="destination" triggerContent={<>More <Icon name="chevronDown" size={14} /></>}>
-            {(compactNav ? visibleDestinations.filter((destination) => !['Dashboard', 'Agents'].includes(destination)) : [...optional].filter((destination) => visibleDestinations.includes(destination))).map((destination) => destinationButton(destination, true))}
+          <Menu key={navTier} label="More destinations" icon="chevronDown" testId="nav-more" className="more-nav" popoverClassName="nav-overflow" triggerClassName="destination" triggerContent={<>More <Icon name="chevronDown" size={14} /></>}>
+            {(navTier === 2 ? visibleDestinations.filter((destination) => !['Dashboard', 'Agents'].includes(destination)) : [...optional].filter((destination) => visibleDestinations.includes(destination))).map((destination) => destinationButton(destination, true))}
           </Menu>
         </nav>
         <div className="global-actions">
