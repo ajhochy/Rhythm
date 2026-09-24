@@ -593,6 +593,8 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       ON agent_scheduled_tasks(next_run_at)
       WHERE enabled = TRUE AND next_run_at IS NOT NULL
   `);
+  // Cloud and relay both read this nullable profile via the trigger queue.
+  await pool.query(`ALTER TABLE agent_scheduled_tasks ADD COLUMN IF NOT EXISTS agent_config_id TEXT`);
 
   // Extend pending_claude_triggers with scheduler context columns (additive,
   // all nullable). PROD-OWNED: the cloud role enqueues scheduled triggers into
@@ -1465,10 +1467,6 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       ON agent_config_security_events(agent_config_id, created_at)
   `);
 
-  // agent_config_id: logical FK from scheduled tasks to agent_configs.id.
-  await pool.query(`
-    ALTER TABLE agent_scheduled_tasks ADD COLUMN IF NOT EXISTS agent_config_id TEXT;
-  `);
 
   // Per-task model override (the model-override change): nullable provider/model that, when
   // both set, override the bound profile's model for that scheduled run.

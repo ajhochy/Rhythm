@@ -516,6 +516,33 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets(
+      'issue-1491-c3 macOS: webhook target title, profile label and editable draft',
+      (tester) async {
+    final repo = _FakeAgentsRepository();
+    final controller = _makeController(repo);
+    await controller.initialize();
+    await controller.handleIncomingTrigger({
+      'id': 1491,
+      'taskTitle': 'Inspect PCO changes',
+      'scheduledTaskId': 'scheduled-1491',
+      'webhookEndpointId': 'endpoint-1491',
+      'profileId': 'claude-code',
+      'prompt': 'UNTRUSTED EXTERNAL DATA: Service changed',
+    });
+    await tester.pumpWidget(await _buildHarness(agentsController: controller));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Inspect PCO changes'), findsWidgets);
+    expect(find.text('Start Claude Code'), findsOneWidget);
+    await tester.tap(find.text('Start Claude Code'));
+    await tester.pumpAndSettle();
+    expect(repo._store.single.name, 'Inspect PCO changes');
+    expect(find.textContaining('UNTRUSTED EXTERNAL DATA: Service changed'),
+        findsWidgets);
+    expect(controller.pendingTriggers, isEmpty);
+    controller.dispose();
+  });
+
+  testWidgets(
     '#602 composer redesign — model + permission + effort + fast-mode + attach all render',
     (tester) async {
       final repo = _FakeAgentsRepository();

@@ -11,10 +11,12 @@ export interface PendingClaudeTrigger {
   taskTitle: string | null;
   taskNotes: string | null;
   taskOwnerId: number | null;
+  profileId: string | null;
   /** Populated for scheduler / webhook / research triggers */
   prompt: string | null;
   scheduledTaskId: string | null;
   webhookEndpointId: string | null;
+  webhookEndpointName: string | null;
   allowedMcps: string[] | null;
   allowedSkills: string[] | null;
   modelProvider: string | null;
@@ -30,15 +32,19 @@ const SELECT_SQL = `
          pct.prompt,
          pct.scheduled_task_id,
          pct.webhook_endpoint_id,
+         awe.name AS webhook_endpoint_name,
          pct.allowed_mcps_json,
          pct.allowed_skills_json,
          pct.model_provider,
          pct.model_id,
-         t.title    AS task_title,
+          COALESCE(t.title, st.name, awe.name, CAST(awe.id AS TEXT)) AS task_title,
+          st.agent_config_id AS profile_id,
          t.notes    AS task_notes,
          t.owner_id AS task_owner_id
   FROM pending_claude_triggers pct
   LEFT JOIN tasks t ON t.id = pct.task_id
+  LEFT JOIN agent_scheduled_tasks st ON st.id = pct.scheduled_task_id
+  LEFT JOIN agent_webhook_endpoints awe ON awe.id = pct.webhook_endpoint_id
 `;
 
 export class ClaudeTriggersRepository {
@@ -133,9 +139,11 @@ export class ClaudeTriggersRepository {
       taskTitle: row.task_title ?? null,
       taskNotes: row.task_notes ?? null,
       taskOwnerId: row.task_owner_id ?? null,
+      profileId: row.profile_id ?? null,
       prompt: row.prompt ?? null,
       scheduledTaskId: row.scheduled_task_id ?? null,
       webhookEndpointId: row.webhook_endpoint_id ?? null,
+      webhookEndpointName: row.webhook_endpoint_name ?? null,
       allowedMcps,
       allowedSkills,
       modelProvider: row.model_provider ?? null,

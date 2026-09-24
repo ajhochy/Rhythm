@@ -37,6 +37,14 @@ const agentSessionColumns = [
   'project_id',
   'mcp_role',
   'category',
+  'provider_id',
+  'model_id',
+  'agent_mode',
+  'archived_at',
+  'permission_mode',
+  'approval_bypass_explicit',
+  'thinking_budget',
+  'fast_mode',
 ] as const;
 
 const agentSessionIndexes = [
@@ -44,6 +52,7 @@ const agentSessionIndexes = [
   'idx_agent_sessions_category',
   'idx_agent_sessions_is_system',
   'idx_agent_sessions_owner_activity',
+  'idx_agent_sessions_archived',
 ] as const;
 
 async function withFreshSchema(
@@ -193,6 +202,31 @@ liveDescribe('Postgres bootstrap live contract', () => {
         await runBootstrap();
         await runBootstrap();
         await expectProductionTablesOnly(pool);
+      });
+    },
+    60_000,
+  );
+
+  it.each<BootstrapRole>(['cloud', 'relay'])(
+    'issue-1491-c1: %s restores a missing nullable profile column without losing scheduler data',
+    async (role) => {
+      await withFreshSchema(role, async ({ pool, runBootstrap }) => {
+        await runBootstrap();
+        await pool.query('ALTER TABLE agent_scheduled_tasks ADD COLUMN IF NOT EXISTS agent_config_id TEXT; ALTER TABLE agent_scheduled_tasks DROP COLUMN agent_config_id');
+        const id = `issue1491-${randomUUID()}`;
+        await pool.query('INSERT INTO agent_scheduled_tasks (id, name, schedule_type, prompt) VALUES ($1, $2, $3, $4)', [id, 'Sentinel', 'manual', 'Retained prompt']);
+        await runBootstrap();
+        await pool.query('UPDATE agent_scheduled_tasks SET agent_config_id = $1 WHERE id = $2', ['worship-profile', id]);
+        await runBootstrap();
+        expect((await pool.query('SELECT name, prompt, agent_config_id FROM agent_scheduled_tasks WHERE id = $1', [id])).rows).toEqual([{ name: 'Sentinel', prompt: 'Retained prompt', agent_config_id: 'worship-profile' }]);
+        await pool.query('INSERT INTO pending_claude_triggers (scheduled_task_id, prompt) VALUES ($1, $2)', [id, 'Inspect update']);
+        vi.stubEnv('DB_CLIENT', 'postgres');
+        vi.resetModules();
+        vi.doMock('../database/db', () => ({ getPostgresPool: () => pool }));
+        try {
+          const { ClaudeTriggersRepository } = await import('../repositories/claude_triggers_repository');
+          expect(await new ClaudeTriggersRepository().listAllAsync()).toMatchObject([{ taskTitle: 'Sentinel', profileId: 'worship-profile', prompt: 'Inspect update' }]);
+        } finally { vi.doUnmock('../database/db'); }
       });
     },
     60_000,

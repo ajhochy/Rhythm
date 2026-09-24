@@ -2,6 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:rhythm_desktop/app/core/agents/agent_server_controller.dart';
@@ -12,6 +15,20 @@ import 'package:rhythm_desktop/app/core/server/api_server_service.dart';
 import 'package:rhythm_desktop/app/core/services/server_config_service.dart';
 import 'package:rhythm_desktop/app/core/notifications/local_notification_service.dart';
 import 'package:rhythm_desktop/features/agents/controllers/agents_controller.dart';
+import 'package:rhythm_desktop/features/agents/views/agents_view.dart';
+import 'package:rhythm_desktop/features/agent_configs/controllers/agent_configs_controller.dart';
+import 'package:rhythm_desktop/features/agent_configs/data/agent_configs_data_source.dart';
+import 'package:rhythm_desktop/features/agent_configs/models/agent_config.dart';
+import 'package:rhythm_desktop/features/agent_configs/repositories/agent_configs_repository.dart';
+import 'package:rhythm_desktop/features/agent_projects/controllers/agent_projects_controller.dart';
+import 'package:rhythm_desktop/features/agent_projects/data/agent_projects_remote_data_source.dart';
+import 'package:rhythm_desktop/features/agent_projects/models/agent_project.dart';
+import 'package:rhythm_desktop/features/agent_projects/repositories/agent_projects_repository.dart';
+import 'package:rhythm_desktop/features/tasks/controllers/tasks_controller.dart';
+import 'package:rhythm_desktop/features/tasks/data/tasks_local_data_source.dart';
+import 'package:rhythm_desktop/features/tasks/models/task.dart';
+import 'package:rhythm_desktop/features/tasks/repositories/tasks_repository.dart';
+import 'package:rhythm_desktop/features/settings/services/destructive_modal_service.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session_message.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_ws_message.dart';
@@ -65,6 +82,16 @@ class _FakeAgentsRepository implements AgentsRepository {
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
+  final List<
+      ({
+        String sessionId,
+        String? agentId,
+        String? profileId,
+        String? taskId,
+        String name,
+      })> creates = [];
+  final List<Map<String, dynamic>> sentMessages = [];
+  bool failNextCreate = false;
 
   @override
   Stream<AgentWsMessage> get messages => _msgController.stream;
@@ -85,7 +112,10 @@ class _FakeAgentsRepository implements AgentsRepository {
   }
 
   @override
-  bool send(Map<String, dynamic> msg) => true;
+  bool send(Map<String, dynamic> msg) {
+    sentMessages.add(msg);
+    return true;
+  }
 
   @override
   Future<List<AgentSession>> listSessions({
@@ -128,9 +158,21 @@ class _FakeAgentsRepository implements AgentsRepository {
     bool isolateWorktree = false,
     String? worktreeName,
   }) async {
+    final sessionId = 'new-${creates.length + 1}';
+    creates.add((
+      sessionId: sessionId,
+      agentId: agentId,
+      profileId: profileId,
+      taskId: taskId,
+      name: name,
+    ));
+    if (failNextCreate) {
+      failNextCreate = false;
+      throw StateError('temporary create failure');
+    }
     final now = DateTime.now();
     return AgentSession(
-      id: 'new',
+      id: sessionId,
       agentId: agentId ?? '__pending__',
       status: AgentSessionStatus.starting,
       cwd: cwd,
@@ -293,6 +335,35 @@ class _FakeAgentsRepository implements AgentsRepository {
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class _Configs extends AgentConfigsDataSource {
+  _Configs({this.loaded = true});
+  bool loaded;
+
+  @override
+  Future<List<AgentConfig>> list() async => loaded
+      ? [
+          AgentConfig(
+              id: 'worship-profile',
+              label: 'Worship Assistant',
+              icon: 'assets/icons/claude_code.png',
+              enabled: true,
+              isAgent: true,
+              ocAgent: 'worship-agent',
+              sortOrder: 0),
+        ]
+      : [];
+}
+
+class _Projects extends AgentProjectsRemoteDataSource {
+  @override
+  Future<List<AgentProject>> list({bool includeArchived = false}) async => [];
+}
+
+class _Tasks extends TasksLocalDataSource {
+  @override
+  Future<List<Task>> fetchAll() async => [];
+}
+
 class _FakeLocalNotificationService extends LocalNotificationService {
   @override
   Future<void> showMessageNotification({
@@ -399,6 +470,438 @@ void main() {
   // --------------------------------------------------------------------------
 
   group('when authenticated and agent server is ready', () {
+    testWidgets(
+        'issue-1491-c3: banner starts configured profile and stages one editable draft',
+        (tester) async {
+      tester.view.physicalSize = const Size(1600, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final repo = _FakeAgentsRepository();
+      final controller = AgentsController(repo, agentServerController,
+          _FakeLocalNotificationService(), _FakeNotificationsController());
+      final configs =
+          AgentConfigsController(AgentConfigsRepository(_Configs()));
+      await configs.refresh();
+      addTearDown(controller.dispose);
+      await controller.handleIncomingTrigger({
+        'id': 1491,
+        'taskId': null,
+        'taskTitle': 'Inspect PCO changes',
+        'scheduledTaskId': 'scheduled-1491',
+        'webhookEndpointId': 'endpoint-1491',
+        'webhookEndpointName': 'PCO callback',
+        'profileId': 'worship-profile',
+        'prompt': 'untrusted external webhook data: Service changed',
+      });
+      await tester.pumpWidget(MultiProvider(providers: [
+        ChangeNotifierProvider<AgentServerController>.value(
+            value: agentServerController),
+        ChangeNotifierProvider<AgentConfigsController>.value(value: configs),
+        ChangeNotifierProvider<AgentsController>.value(value: controller),
+        ChangeNotifierProvider<TasksController>.value(
+            value: TasksController(TasksRepository(_Tasks()))),
+        ChangeNotifierProvider<AgentProjectsController>.value(
+            value:
+                AgentProjectsController(AgentProjectsRepository(_Projects()))),
+        ChangeNotifierProvider<DestructiveModalService>(
+            create: (_) => DestructiveModalService()),
+      ], child: const MaterialApp(home: Scaffold(body: AgentsView()))));
+      await tester.pump();
+      expect(find.textContaining('Inspect PCO changes'), findsWidgets);
+      expect(find.text('Start Worship Assistant'), findsOneWidget);
+      Focus.of(tester.element(find.text('Start Worship Assistant')))
+          .requestFocus();
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      await tester.pump();
+      expect(repo.creates, hasLength(1));
+      expect(repo.creates.single, (
+        sessionId: 'new-1',
+        agentId: 'worship-agent',
+        profileId: 'worship-profile',
+        taskId: null,
+        name: 'Webhook: PCO callback',
+      ));
+      expect(
+          find.textContaining(
+              'untrusted external webhook data: Service changed'),
+          findsWidgets);
+      expect(controller.consumeComposerDraft('new-1'), isNull);
+      expect(repo.sentMessages.toString(),
+          isNot(contains('untrusted external webhook data')),
+          reason:
+              'External content must remain a draft, not an automatic turn');
+      expect(controller.pendingTriggers, isEmpty);
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    });
+
+    testWidgets(
+        'issue-1491-c3: two webhook banners retain independent identity after sequential starts',
+        (tester) async {
+      tester.view.physicalSize = const Size(1600, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final repo = _FakeAgentsRepository();
+      final controller = AgentsController(repo, agentServerController,
+          _FakeLocalNotificationService(), _FakeNotificationsController());
+      final configs =
+          AgentConfigsController(AgentConfigsRepository(_Configs()));
+      await configs.refresh();
+      addTearDown(controller.dispose);
+      for (final id in [1, 2]) {
+        await controller.handleIncomingTrigger({
+          'id': id,
+          'taskTitle': 'Event $id',
+          'webhookEndpointId': 'endpoint-$id',
+          'webhookEndpointName': 'Endpoint $id',
+          'profileId': 'worship-profile',
+          'prompt': 'draft $id'
+        });
+      }
+      await tester.pumpWidget(MultiProvider(providers: [
+        ChangeNotifierProvider<AgentServerController>.value(
+            value: agentServerController),
+        ChangeNotifierProvider<AgentConfigsController>.value(value: configs),
+        ChangeNotifierProvider<AgentsController>.value(value: controller),
+        ChangeNotifierProvider<TasksController>.value(
+            value: TasksController(TasksRepository(_Tasks()))),
+        ChangeNotifierProvider<AgentProjectsController>.value(
+            value:
+                AgentProjectsController(AgentProjectsRepository(_Projects()))),
+        ChangeNotifierProvider<DestructiveModalService>(
+            create: (_) => DestructiveModalService()),
+      ], child: const MaterialApp(home: Scaffold(body: AgentsView()))));
+      await tester.pump();
+      expect(find.text('Start Worship Assistant'), findsNWidgets(2));
+      await tester.tap(find.text('Start Worship Assistant').first);
+      await tester.pump();
+      await tester.pump();
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const ValueKey('agent-composer-input')),
+            )
+            .controller!
+            .text,
+        'draft 1',
+      );
+      expect(controller.pendingTriggers.map((e) => e.taskTitle), ['Event 2']);
+      await tester.tap(find.text('Start Worship Assistant'));
+      await tester.pump();
+      await tester.pump();
+      expect(repo.creates, hasLength(2));
+      expect(repo.creates.map((create) => create.sessionId), [
+        'new-1',
+        'new-2',
+      ]);
+      expect(repo.creates.map((create) => create.name), [
+        'Webhook: Endpoint 1',
+        'Webhook: Endpoint 2',
+      ]);
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const ValueKey('agent-composer-input')),
+            )
+            .controller!
+            .text,
+        'draft 2',
+      );
+      await controller.selectSession('new-1');
+      await tester.pump();
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const ValueKey('agent-composer-input')),
+            )
+            .controller!
+            .text,
+        'draft 1',
+      );
+      expect(controller.pendingTriggers, isEmpty);
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    });
+
+    testWidgets(
+        'issue-1491-c3: occupied composer keeps a webhook draft '
+        'pending until empty', (tester) async {
+      tester.view.physicalSize = const Size(1600, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final repo = _FakeAgentsRepository();
+      final controller = AgentsController(repo, agentServerController,
+          _FakeLocalNotificationService(), _FakeNotificationsController());
+      final configs =
+          AgentConfigsController(AgentConfigsRepository(_Configs()));
+      await configs.refresh();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(MultiProvider(providers: [
+        ChangeNotifierProvider<AgentServerController>.value(
+            value: agentServerController),
+        ChangeNotifierProvider<AgentConfigsController>.value(value: configs),
+        ChangeNotifierProvider<AgentsController>.value(value: controller),
+        ChangeNotifierProvider<TasksController>.value(
+            value: TasksController(TasksRepository(_Tasks()))),
+        ChangeNotifierProvider<AgentProjectsController>.value(
+            value:
+                AgentProjectsController(AgentProjectsRepository(_Projects()))),
+        ChangeNotifierProvider<DestructiveModalService>(
+            create: (_) => DestructiveModalService()),
+      ], child: const MaterialApp(home: Scaffold(body: AgentsView()))));
+
+      final session = await controller.createSession(
+        agentId: 'worship-agent',
+        profileId: 'worship-profile',
+        cwd: '/tmp',
+      );
+      await controller.selectSession(session!.id);
+      await tester.pump();
+      await tester.enterText(
+        find.byKey(const ValueKey('agent-composer-input')),
+        'Keep my existing note',
+      );
+      controller.setComposerDraft(session.id, 'pending webhook draft');
+      await tester.pump();
+      await tester.pump();
+
+      expect(controller.hasComposerDraft(session.id), isTrue);
+      expect(find.byKey(const ValueKey('pending-composer-draft-banner')),
+          findsOneWidget);
+      expect(find.text('Keep my existing note'), findsOneWidget);
+      expect(repo.sentMessages.toString(), isNot(contains('pending webhook')));
+
+      // Regression: when the post-frame prefill sees an occupied composer, a
+      // setState here used to rebuild and schedule the same callback forever.
+      // Bounded pumps expose that loop without pumpAndSettle hanging.
+      for (var frame = 0; frame < 6; frame++) {
+        await tester.pump(const Duration(milliseconds: 1));
+      }
+      // The transcript's normal scroll animation lasts 200 ms. Let it finish
+      // before checking for the occupied-draft rebuild loop.
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(tester.binding.hasScheduledFrame, isFalse,
+          reason: 'an occupied composer must not perpetually schedule frames');
+      expect(controller.hasComposerDraft(session.id), isTrue,
+          reason: 'the incoming webhook draft stays pending');
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const ValueKey('agent-composer-input')),
+            )
+            .controller!
+            .text,
+        'Keep my existing note',
+        reason: 'the pending draft must not overwrite the user draft',
+      );
+
+      await tester.enterText(
+        find.byKey(const ValueKey('agent-composer-input')),
+        '',
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(controller.hasComposerDraft(session.id), isFalse);
+      expect(find.text('pending webhook draft'), findsOneWidget);
+      expect(repo.sentMessages.toString(), isNot(contains('pending webhook')));
+      expect(controller.consumeComposerDraft(session.id), isNull,
+          reason: 'the webhook draft is consumed exactly once');
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    });
+
+    testWidgets(
+        'issue-1491-c3: scheduled trigger with profile metadata still starts Secretary without draft',
+        (tester) async {
+      tester.view.physicalSize = const Size(1600, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final repo = _FakeAgentsRepository();
+      final controller = AgentsController(repo, agentServerController,
+          _FakeLocalNotificationService(), _FakeNotificationsController());
+      final configs =
+          AgentConfigsController(AgentConfigsRepository(_Configs()));
+      await configs.refresh();
+      addTearDown(controller.dispose);
+      await controller.handleIncomingTrigger({
+        'id': 7,
+        'taskId': 'task-7',
+        'taskTitle': 'Scheduled',
+        'profileId': 'worship-profile',
+        'prompt': 'should not draft'
+      });
+      await tester.pumpWidget(MultiProvider(providers: [
+        ChangeNotifierProvider<AgentServerController>.value(
+            value: agentServerController),
+        ChangeNotifierProvider<AgentConfigsController>.value(value: configs),
+        ChangeNotifierProvider<AgentsController>.value(value: controller),
+        ChangeNotifierProvider<TasksController>.value(
+            value: TasksController(TasksRepository(_Tasks()))),
+        ChangeNotifierProvider<AgentProjectsController>.value(
+            value:
+                AgentProjectsController(AgentProjectsRepository(_Projects()))),
+        ChangeNotifierProvider<DestructiveModalService>(
+            create: (_) => DestructiveModalService()),
+      ], child: const MaterialApp(home: Scaffold(body: AgentsView()))));
+      await tester.pump();
+      await tester.tap(find.text('Start Secretary'));
+      await tester.pump();
+      await tester.pump();
+      expect(repo.creates.single, (
+        sessionId: 'new-1',
+        agentId: 'secretary',
+        profileId: 'secretary',
+        taskId: 'task-7',
+        name: 'Scheduled',
+      ));
+      expect(controller.consumeComposerDraft('new-1'), isNull);
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    });
+
+    testWidgets(
+        'issue-1491-c3: late profile load changes webhook label and a failed start retries',
+        (tester) async {
+      tester.view.physicalSize = const Size(1600, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final repo = _FakeAgentsRepository()..failNextCreate = true;
+      final controller = AgentsController(repo, agentServerController,
+          _FakeLocalNotificationService(), _FakeNotificationsController());
+      final source = _Configs(loaded: false);
+      final configs = AgentConfigsController(AgentConfigsRepository(source));
+      await configs.refresh();
+      addTearDown(controller.dispose);
+      await controller.handleIncomingTrigger({
+        'id': 30,
+        'taskTitle': '',
+        'webhookEndpointId': 'endpoint-30',
+        'profileId': 'worship-profile',
+        'prompt': 'draft 30'
+      });
+      await tester.pumpWidget(MultiProvider(providers: [
+        ChangeNotifierProvider<AgentServerController>.value(
+            value: agentServerController),
+        ChangeNotifierProvider<AgentConfigsController>.value(value: configs),
+        ChangeNotifierProvider<AgentsController>.value(value: controller),
+        ChangeNotifierProvider<TasksController>.value(
+            value: TasksController(TasksRepository(_Tasks()))),
+        ChangeNotifierProvider<AgentProjectsController>.value(
+            value:
+                AgentProjectsController(AgentProjectsRepository(_Projects()))),
+        ChangeNotifierProvider<DestructiveModalService>(
+            create: (_) => DestructiveModalService()),
+      ], child: const MaterialApp(home: Scaffold(body: AgentsView()))));
+      await tester.pump();
+      expect(find.textContaining('endpoint-30'), findsWidgets);
+      expect(find.text('Start worship-profile'), findsOneWidget);
+      source.loaded = true;
+      await configs.refresh();
+      await tester.pump();
+      expect(find.text('Start Worship Assistant'), findsOneWidget);
+      await tester.tap(find.text('Start Worship Assistant'));
+      await tester.pump();
+      expect(controller.pendingTriggers, hasLength(1));
+      await tester.tap(find.text('Start Worship Assistant'));
+      await tester.pump();
+      await tester.pump();
+      expect(repo.creates, hasLength(2));
+      expect(repo.creates.last.agentId, 'worship-agent');
+      expect(repo.creates.last.name, 'Webhook: endpoint-30');
+      expect(controller.pendingTriggers, isEmpty);
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    });
+
+    testWidgets(
+        'issue-1491-c3: webhook without profile selects Secretary but still stages draft',
+        (tester) async {
+      tester.view.physicalSize = const Size(1600, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final repo = _FakeAgentsRepository();
+      final controller = AgentsController(repo, agentServerController,
+          _FakeLocalNotificationService(), _FakeNotificationsController());
+      final configs =
+          AgentConfigsController(AgentConfigsRepository(_Configs()));
+      await configs.refresh();
+      addTearDown(controller.dispose);
+      await controller.handleIncomingTrigger({
+        'id': 31,
+        'taskTitle': 'Incoming',
+        'webhookEndpointId': 'endpoint-31',
+        'webhookEndpointName': 'Incoming webhook',
+        'prompt': 'draft 31'
+      });
+      await tester.pumpWidget(MultiProvider(providers: [
+        ChangeNotifierProvider<AgentServerController>.value(
+            value: agentServerController),
+        ChangeNotifierProvider<AgentConfigsController>.value(value: configs),
+        ChangeNotifierProvider<AgentsController>.value(value: controller),
+        ChangeNotifierProvider<TasksController>.value(
+            value: TasksController(TasksRepository(_Tasks()))),
+        ChangeNotifierProvider<AgentProjectsController>.value(
+            value:
+                AgentProjectsController(AgentProjectsRepository(_Projects()))),
+        ChangeNotifierProvider<DestructiveModalService>(
+            create: (_) => DestructiveModalService()),
+      ], child: const MaterialApp(home: Scaffold(body: AgentsView()))));
+      await tester.pump();
+      await tester.tap(find.text('Start Secretary'));
+      await tester.pump();
+      await tester.pump();
+      expect(repo.creates.single, (
+        sessionId: 'new-1',
+        agentId: 'secretary',
+        profileId: 'secretary',
+        taskId: null,
+        name: 'Webhook: Incoming webhook',
+      ));
+      expect(find.textContaining('draft 31'), findsWidgets);
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    });
+
+    test(
+        'issue-1491-c3: webhook poll preserves target and untrusted draft exactly once',
+        () async {
+      final trigger = {
+        'id': 1491,
+        'taskId': null,
+        'taskTitle': 'Inspect PCO changes',
+        'scheduledTaskId': 'scheduled-1491',
+        'webhookEndpointId': 'endpoint-1491',
+        'webhookEndpointName': 'PCO callback',
+        'profileId': 'worship-profile',
+        'prompt':
+            'Summarize the PCO change\n\nUntrusted external webhook event: updated',
+      };
+      final client = MockClient((request) async => request.method == 'GET'
+          ? http.Response(jsonEncode([trigger]), 200)
+          : http.Response('', 204));
+      final watcher = AgentTriggerWatcher(
+        serverConfigService: serverConfigService,
+        authSessionService: _StubAuthSessionService(token: 'tok-abc'),
+        agentServerController: agentServerController,
+        agentsController: agentsController,
+        interval: const Duration(milliseconds: 50),
+        httpClient: client,
+      );
+      addTearDown(watcher.dispose);
+      watcher.start();
+      await Future<void>.delayed(const Duration(milliseconds: 110));
+      expect(agentsController.pendingTriggers, hasLength(1));
+      final pending = agentsController.pendingTriggers.single;
+      expect(pending.taskTitle, 'Inspect PCO changes');
+      expect((pending as dynamic).profileId, 'worship-profile');
+      expect((pending as dynamic).prompt, trigger['prompt']);
+      expect((pending as dynamic).scheduledTaskId, 'scheduled-1491');
+      expect((pending as dynamic).webhookEndpointName, 'PCO callback');
+    });
+
     test('polls GET /claude-triggers and adds pending trigger', () async {
       final trigger = {
         'id': 'tr-1',

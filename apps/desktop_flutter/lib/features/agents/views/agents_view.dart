@@ -511,7 +511,7 @@ class _TranscriptPanel extends StatefulWidget {
 class _TranscriptPanelState extends State<_TranscriptPanel> {
   static const _headlessPollInterval = Duration(seconds: 4);
 
-  final _inputController = TextEditingController();
+  final Map<String, TextEditingController> _inputControllersBySession = {};
   final _scrollController = ScrollController();
   Timer? _headlessPollTimer;
   String? _headlessPollSessionId;
@@ -533,15 +533,32 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
   /// ListView at offset 0). One-shot — does NOT re-enable always-follow.
   bool _wasShowingChild = false;
 
-  /// Issue #653: track which session ids have already had their composer
-  /// draft consumed in this widget instance. Drafts are stored in
-  /// AgentsController and consumed once on session selection.
-  final Set<String> _draftConsumedForSession = <String>{};
+  final Set<String> _draftConsumeScheduledForSession = <String>{};
 
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+  }
+
+  TextEditingController _inputControllerFor(String sessionId) {
+    return _inputControllersBySession.putIfAbsent(sessionId, () {
+      final inputController = TextEditingController();
+      inputController.addListener(() => _onComposerTextChanged(sessionId));
+      return inputController;
+    });
+  }
+
+  void _onComposerTextChanged(String sessionId) {
+    if (!mounted) return;
+    final controller = context.read<AgentsController>();
+    if (controller.selectedSessionId != sessionId ||
+        _inputControllerFor(sessionId).text.isNotEmpty ||
+        !controller.hasComposerDraft(sessionId) ||
+        _draftConsumeScheduledForSession.contains(sessionId)) {
+      return;
+    }
+    setState(() {});
   }
 
   void _onScroll() {
@@ -554,7 +571,9 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
   void dispose() {
     _headlessPollTimer?.cancel();
     _scrollController.removeListener(_onScroll);
-    _inputController.dispose();
+    for (final inputController in _inputControllersBySession.values) {
+      inputController.dispose();
+    }
     _scrollController.dispose();
     super.dispose();
   }
@@ -611,24 +630,31 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
   ) {
     if (selected == null) return;
     final sessionId = selected.id;
-    if (_draftConsumedForSession.contains(sessionId)) return;
     final controller = context.read<AgentsController>();
-    if (!controller.hasComposerDraft(sessionId)) return;
+    if (!controller.hasComposerDraft(sessionId) ||
+        _draftConsumeScheduledForSession.contains(sessionId)) {
+      return;
+    }
     // Issue #656: do NOT consume (mutate controller state) or touch the input
-    // controller synchronously during build. Mark this session handled now
-    // (local State set, no notify) and defer the actual consume + prefill to a
-    // post-frame callback. This guarantees no controller mutation happens in
-    // the build phase, keeping transcript reactivity intact.
-    _draftConsumedForSession.add(sessionId);
+    // controller synchronously during build. Defer the actual prefill to a
+    // post-frame callback, and remove the staged draft only after it has been
+    // placed into this session's empty composer.
+    _draftConsumeScheduledForSession.add(sessionId);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final draft = controller.consumeComposerDraft(sessionId);
+      _draftConsumeScheduledForSession.remove(sessionId);
+      if (!mounted || controller.selectedSessionId != sessionId) return;
+      final inputController = _inputControllerFor(sessionId);
+      if (inputController.text.isNotEmpty) {
+        return;
+      }
+      final draft = controller.composerDraftFor(sessionId);
       if (draft == null || draft.isEmpty) return;
-      if (_inputController.text.isNotEmpty) return; // user already typed
-      _inputController.value = TextEditingValue(
+      inputController.value = TextEditingValue(
         text: draft,
         selection: TextSelection.collapsed(offset: draft.length),
       );
+      controller.consumeComposerDraft(sessionId);
+      setState(() {});
     });
   }
 
@@ -636,7 +662,8 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
     final controller = context.read<AgentsController>();
     final id = controller.selectedSessionId;
     if (id == null) return;
-    final text = _inputController.text.trim();
+    final inputController = _inputControllerFor(id);
+    final text = inputController.text.trim();
     if (text.isEmpty) return;
 
     // OPC-M3-4: if the text starts with '/' and the command name (the first
@@ -653,14 +680,14 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
       final knownCommands = controller.slashCommandsFor(id);
       if (cmdName.isNotEmpty && knownCommands.any((c) => c.name == cmdName)) {
         controller.sendCommand(id, cmdName, cmdArgs);
-        _inputController.clear();
+        inputController.clear();
         _scrollToBottom();
         return;
       }
     }
 
     controller.sendInput(id, '$text\n');
-    _inputController.clear();
+    inputController.clear();
     _scrollToBottom();
   }
 
@@ -735,7 +762,8 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
         // Pending trigger banners
         if (controller.pendingTriggers.isNotEmpty)
           for (final trigger in controller.pendingTriggers)
-            _PendingTriggerBanner(trigger: trigger),
+            _PendingTriggerBanner(
+                key: ValueKey(trigger.taskId), trigger: trigger),
         Expanded(
           child: Container(
             decoration: BoxDecoration(
@@ -796,8 +824,40 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
                               ),
                             ),
                           _PendingPermissionArea(session: selected),
+                          if (controller.hasComposerDraft(selected.id) &&
+                              _inputControllerFor(selected.id).text.isNotEmpty)
+                            Container(
+                              key: const ValueKey(
+                                'pending-composer-draft-banner',
+                              ),
+                              margin: const EdgeInsets.fromLTRB(18, 10, 18, 0),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: context.rhythm.warning.withValues(
+                                  alpha: 0.12,
+                                ),
+                                borderRadius:
+                                    BorderRadius.circular(RhythmRadius.lg),
+                                border: Border.all(
+                                  color: context.rhythm.warning.withValues(
+                                    alpha: 0.3,
+                                  ),
+                                ),
+                              ),
+                              child: Text(
+                                'A draft is waiting. Send or clear the '
+                                'current message to load it.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: context.rhythm.textPrimary,
+                                ),
+                              ),
+                            ),
                           _InputArea(
-                            inputController: _inputController,
+                            inputController: _inputControllerFor(selected.id),
                             onSend: () => _sendInput(context),
                           ),
                         ],
@@ -2996,13 +3056,30 @@ class _AgentLessSessionPrompt extends StatelessWidget {
 // Pending trigger banner
 // ---------------------------------------------------------------------------
 
-class _PendingTriggerBanner extends StatelessWidget {
-  const _PendingTriggerBanner({required this.trigger});
+class _PendingTriggerBanner extends StatefulWidget {
+  const _PendingTriggerBanner({super.key, required this.trigger});
 
   final PendingTrigger trigger;
 
   @override
+  State<_PendingTriggerBanner> createState() => _PendingTriggerBannerState();
+}
+
+class _PendingTriggerBannerState extends State<_PendingTriggerBanner> {
+  bool _starting = false;
+
+  @override
   Widget build(BuildContext context) {
+    final trigger = widget.trigger;
+    final triggerTitle = trigger.taskTitle.isNotEmpty
+        ? trigger.taskTitle
+        : trigger.webhookEndpointId ?? 'Webhook event';
+    final profileId =
+        trigger.webhookEndpointId == null ? null : trigger.profileId;
+    final profile = profileId == null
+        ? null
+        : context.watch<AgentConfigsController>().byId(profileId);
+    final agentId = profile?.ocAgent ?? profileId ?? 'secretary';
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Container(
@@ -3021,7 +3098,7 @@ class _PendingTriggerBanner extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                "Task '${trigger.taskTitle}' is waiting for an agent.",
+                "Task '$triggerTitle' is waiting for an agent.",
                 style: TextStyle(
                   fontSize: 12.5,
                   fontWeight: FontWeight.w600,
@@ -3031,9 +3108,12 @@ class _PendingTriggerBanner extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             _TriggerActionButton(
-              label: 'Start Secretary',
+              label: profileId == null
+                  ? 'Start Secretary'
+                  : 'Start ${profile?.label ?? profileId}',
               color: const Color(0xFF6B46C1),
-              onPressed: () => _startAgent(context, 'secretary', trigger),
+              onPressed: () =>
+                  _startAgent(context, agentId, profileId, trigger),
             ),
             const SizedBox(width: 6),
             TextButton(
@@ -3057,18 +3137,34 @@ class _PendingTriggerBanner extends StatelessWidget {
   Future<void> _startAgent(
     BuildContext context,
     String agentId,
+    String? profileId,
     PendingTrigger trigger,
   ) async {
+    if (_starting) return;
+    setState(() => _starting = true);
     final controller = context.read<AgentsController>();
+    final endpointName = trigger.webhookEndpointName?.trim();
+    final endpointIdentity = endpointName != null && endpointName.isNotEmpty
+        ? endpointName
+        : trigger.webhookEndpointId ?? 'Webhook event';
     final session = await controller.createSession(
       agentId: agentId,
-      taskId: trigger.taskId,
+      profileId: profileId,
+      taskId: trigger.webhookEndpointId == null ? trigger.taskId : null,
       cwd: Platform.environment['HOME'] ?? '/',
-      name: trigger.taskTitle,
+      name: trigger.webhookEndpointId == null
+          ? trigger.taskTitle
+          : 'Webhook: $endpointIdentity',
     );
     if (session != null) {
+      // Untrusted data is an editable draft, never an automatic agent turn.
+      if (trigger.webhookEndpointId != null && trigger.prompt != null) {
+        controller.setComposerDraft(session.id, trigger.prompt!);
+      }
       controller.dismissTrigger(trigger.taskId);
       controller.selectSession(session.id);
+    } else if (mounted) {
+      setState(() => _starting = false);
     }
   }
 }
