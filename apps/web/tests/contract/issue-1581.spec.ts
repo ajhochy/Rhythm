@@ -4,6 +4,9 @@ import { openFixture, openPage } from '../helpers';
 
 const destinations = ['Dashboard', 'Planner', 'Tasks', 'Rhythms', 'Projects', 'Messages', 'Facilities', 'Automations', 'Integrations', 'Agents', 'Settings'];
 const optional = ['Facilities', 'Automations', 'Integrations', 'Settings'];
+// Same gate as issue-1552: only refresh the committed evidence PNGs on request, so a
+// routine suite run never dirties tracked artifacts with byte-identical-looking rewrites.
+const evidence = (name: string) => process.env.RHYTHM_CAPTURE_EVIDENCE === '1' ? `../../docs/ai/runs/artifacts/${name}` : `test-results/${name}`;
 
 for (const [width, hidden] of [[1440, []], [1321, []], [1320, optional], [1100, optional], [901, optional], [900, destinations.filter((name) => !['Dashboard', 'Agents'].includes(name))], [780, destinations.filter((name) => !['Dashboard', 'Agents'].includes(name))], [390, destinations.filter((name) => !['Dashboard', 'Agents'].includes(name))]] as const) {
   test(`issue-1581-c1/c2: ${width}px More contains exactly the hidden destinations and stays on screen`, async ({ page }) => {
@@ -19,12 +22,12 @@ for (const [width, hidden] of [[1440, []], [1321, []], [1320, optional], [1100, 
     }
     if (hidden.length) await expect(more).toBeVisible();
     else await expect(more).toBeHidden();
-    await page.screenshot({ path: `../../docs/ai/runs/artifacts/issue-1581-${width}-closed.png` });
+    await page.screenshot({ path: evidence(`issue-1581-${width}-closed.png`) });
     if (!hidden.length) return;
     await more.click();
     const menu = nav.getByRole('menu', { name: 'More destinations' });
     await expect(menu).toBeVisible();
-    await page.screenshot({ path: `../../docs/ai/runs/artifacts/issue-1581-${width}-open.png` });
+    await page.screenshot({ path: evidence(`issue-1581-${width}-open.png`) });
     expect(await menu.getByRole('menuitem').evaluateAll((items) => items.map((item) => item.getAttribute('data-testid')))).toEqual(hidden.map((name) => `nav-${name.toLowerCase()}-overflow`));
     const rect = await menu.boundingBox();
     expect(rect).not.toBeNull();
@@ -186,7 +189,7 @@ test('issue-1581-c2: built renderer shows the panel above the workspace', async 
     const bounds = element.getBoundingClientRect();
     return element.contains(document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2));
   })).toBe(true);
-  await page.screenshot({ path: '../../docs/ai/runs/artifacts/issue-1581-dist-1100-open.png' });
+  await page.screenshot({ path: evidence('issue-1581-dist-1100-open.png') });
 });
 
 test('issue-1581-c2: header menus stay above expanded Agents rail and inspector at 780', async ({ page }) => {
