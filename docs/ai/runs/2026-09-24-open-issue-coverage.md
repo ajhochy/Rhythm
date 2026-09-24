@@ -10,16 +10,16 @@ tags: [run, rhythm]
 
 # Rhythm mega PR: all open issue coverage
 
-Snapshot: 2026-09-24; 91 open issues from live GitHub. PR #1544 remote head `d0669ca47f92749a9a8f8f3a8cf0bee15e2005ea`. Local branch now includes additional fixes through `13cbacf3`, awaiting its running combined gate and push. Remote CI has one server-test failure, addressed locally by #1500; the other displayed checks pass.
+Snapshot: 2026-09-24; 91 open issues from live GitHub. PR #1544 remote head `d0669ca47f92749a9a8f8f3a8cf0bee15e2005ea`. Local branch includes additional fixes through `5416d49e`; new-head CI is pending. The latest combined gate had one engine cancellation timeout, followed by a passing exact-stage replay; S1/S5 scoped checks passed. Remote CI has one server-test failure, addressed locally by #1500; the other displayed checks pass.
 
 **This PR does not yet complete all 91 issues.** The labels below distinguish included source from full acceptance. All work is now requested for the mega PR, but authorization is not implementation. “Not mapped” means no accepted implementation or active task was identified; it does not claim the repository has no related code.
 
 | State | Issues |
 |---|---:|
 | Implemented in PR and marked to close | 12 |
-| Implementation exists; partial acceptance or completion not yet established | 26 |
+| Implementation exists; partial acceptance or completion not yet established | 27 |
 | Active repair, not yet integrated | 2 |
-| Concrete plan or queued repair; not implemented in PR | 14 |
+| Concrete plan or queued repair; not implemented in PR | 13 |
 | Not currently mapped to an accepted implementation or active slice | 37 |
 
 The 12 formal closing references describe the PR author’s completion intent, not a fresh installed-app qualification. The PR remains draft. Shared named agents/settings and two-way Hermes/Rhythm delegation are newly requested scope outside these 91 existing issue titles; the native Hermes execution plan is recorded in `docs/ai/plans/2026-09-24-native-hermes-shared-agents.md`.
@@ -70,14 +70,15 @@ The 12 formal closing references describe the PR author’s completion intent, n
 | [#1468](https://github.com/ajhochy/Rhythm/issues/1468) | Gemini requests rejected: >512 function declarations sent (19 dead sessions since 2026-07-02) | Existing Gemini deferred-tool fix supported by synthetic 605-tool capture; no new change or Google-account proof. |
 | [#1373](https://github.com/ajhochy/Rhythm/issues/1373) | OCU-35B/use-case-1: Cloudflare relay for Tailscale-free mobile session connectivity | Relay implemented with earlier connected-phone evidence; current build/off-LAN qualification remains. |
 | [#1574](https://github.com/ajhochy/Rhythm/issues/1574) | Engraph backend leaks processes: 21 stray 'engraph serve' instances accumulated over a week | Local integrated commit efe77109: 59 focused tests and 2 real-process fixture tests pass; real Engraph/native qualification remains. |
-| [#1500](https://github.com/ajhochy/Rhythm/issues/1500) | Flaky: workflow_failure_signal_extractor stale-redo test fails on same-tick createdAt (issue-933-c7) | Local integrated commit b9c6150b: deterministic same-timestamp ordering; 66 focused tests pass. Combined gate and new-head CI pending. |
+| [#1500](https://github.com/ajhochy/Rhythm/issues/1500) | Flaky: workflow_failure_signal_extractor stale-redo test fails on same-tick createdAt (issue-933-c7) | Local integrated commit b9c6150b: deterministic same-timestamp ordering; 66 focused tests pass. Backend gate passed; new-head CI pending. |
+| [#1569](https://github.com/ajhochy/Rhythm/issues/1569) | Hermes + Rhythm: share credentials and memory behind one AI settings screen | S1 credential reader and S5 memory safety are locally integrated (180 Electron tests, 314 memory tests, builds/typecheck passed). Grants, IPC/UI, shared-memory access and final live qualification remain unfinished. |
 
 ## Active repair, not yet integrated
 
 | Issue | Title | Current evidence / remaining work |
 |---|---|---|
-| [#1569](https://github.com/ajhochy/Rhythm/issues/1569) | Hermes + Rhythm: share credentials and memory behind one AI settings screen | S1 credential reader passed 12 independent synthetic tests after security repair; S5 memory safety is under final review; S3 host environment contract is being authored. Not yet integrated. |
-| [#1526](https://github.com/ajhochy/Rhythm/issues/1526) | [COL-01] Pin upstream Colony source and emit a sealed embedded artifact | Upstream artifact implementation is active against four failing builder contracts. Rhythm pin and working tab still pending. |
+| [#1526](https://github.com/ajhochy/Rhythm/issues/1526) | [COL-01] Pin upstream Colony source and emit a sealed embedded artifact | Upstream artifact builder passed parent replay (4 builder plus 185 existing tests). Candidate remains dirty/unpinned; private IPC host and Rhythm tab still pending. |
+| [#1527](https://github.com/ajhochy/Rhythm/issues/1527) | [COL-02] Verify the Colony artifact and add the isolated embedded bridge | Artifact resolver implementation active against 33 contract cases. Private child IPC, scene isolation, native-frame and chunk/state behavior remain pending. |
 
 ## Concrete plan or queued repair; not implemented in PR
 
@@ -95,7 +96,6 @@ The 12 formal closing references describe the PR author’s completion intent, n
 | [#1530](https://github.com/ajhochy/Rhythm/issues/1530) | [COL-05] Build the native Colony tab, task rail and inspector | Original Colony implementation plan exists; embedded artifact, bridge/tab/packaging or release slice remains. |
 | [#1529](https://github.com/ajhochy/Rhythm/issues/1529) | [COL-04] Design the Rhythm-native Colony workspace and menu system | Original Colony implementation plan exists; embedded artifact, bridge/tab/packaging or release slice remains. |
 | [#1528](https://github.com/ajhochy/Rhythm/issues/1528) | [COL-03] Manage the owned local scanner and source discovery | Original Colony implementation plan exists; embedded artifact, bridge/tab/packaging or release slice remains. |
-| [#1527](https://github.com/ajhochy/Rhythm/issues/1527) | [COL-02] Verify the Colony artifact and add the isolated embedded bridge | Original Colony implementation plan exists; embedded artifact, bridge/tab/packaging or release slice remains. |
 | [#1525](https://github.com/ajhochy/Rhythm/issues/1525) | [Colony] Rhythm-native workspace and packaged macOS rollout | Original Colony implementation plan exists; embedded artifact, bridge/tab/packaging or release slice remains. |
 
 ## Not currently mapped to an accepted implementation or active slice

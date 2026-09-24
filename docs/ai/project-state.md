@@ -1,30 +1,28 @@
 # Rhythm — Project State
 
-## Current focus
+## Focus
 
-All eight requested fourth-repair revalidations were approved and attempted. Four scoped implementations are integrated; two candidates remain excluded after verification. No new full-issue completion or release claim.
+Complete the remaining Rhythm issue scope in draft mega PR #1544, including Colony inside Rhythm, shared memory, shared canonical agents/settings, native Hermes execution, and two-way delegation. AJ explicitly chose Hermes itself as the execution engine for shared agents launched there. One final combined smoke; no merge, deployment or release publication.
 
-## Active branch / PR
+## Branch and included changes
 
-`mega/2026-09-18-mobile-electron-hermes`, `.mega-wt/integration`, draft [PR #1544](https://github.com/ajhochy/Rhythm/pull/1544). Added #1565 `3c1e493c`, existing-session prompting PR #1578 `5908bf6f`, #1491 `8c0cecd4`, transcript S1 #1582 `a28bcbb4`, and timestamp test configuration `9bd0dc32`. Prior #1558/#1579 and other integrated slices remain. No merge or deployment.
+`mega/2026-09-18-mobile-electron-hermes`, `.mega-wt/integration`, [PR #1544](https://github.com/ajhochy/Rhythm/pull/1544). Earlier timestamp, existing-session prompt, webhook and transcript slices remain. Resumed additions: Engraph ownership `efe77109`, workflow ordering #1500 `b9c6150b`, real-API timestamp harness `13cbacf3`, native-agent plan/coverage `0c186d89`, credential reader foundation `20f9c8da`, and vault conflict safety `5416d49e`.
+
+## Verification
+
+The resumed 16-stage gate completed with 15 stages passing and one engine cancellation timeout. Exact failed-stage replay passed 396 tests (5 skipped, 1 todo), without a source change; cause remains unproven. This is not an all-green aggregate gate claim. New reader: Electron 180/180, portable reader 12/12, source check 1/1, typecheck pass. New vault slice: 36 files / 314 tests and API build pass; independent review replay 29/29. No configured ESLint implementation exists in API (lint script is a placeholder). Timestamp real-API browser 2/2; Engraph 59 focused plus 2 synthetic real-process tests; workflow ordering 66/66.
 
 ## In progress
 
-#1569 S0 independently reviewed and frozen at `50b8a46d`. Previously authorized implementation branches prepared: `/private/tmp/rhythm-1569-s1`, `/private/tmp/rhythm-1569-s5`, `/private/tmp/hermes-1569-s3` (fork base `8ea642db`). Implementation remains pending. No credential-store changes.
+- Hermes S3 clean child environment/callback candidate: `/private/tmp/hermes-1569-s3`; 19 focused tests reported passed, parent review/typecheck pending. S1/S5 are included foundations; credential grants/IPC/UI and live combined sharing remain unfinished.
+- Native session policy: `/private/tmp/hermes-shared-agent-policy`; generic mandatory enforcement and session propagation in progress. HIGH security impact; helper tests alone do not establish native execution parity.
+- Colony upstream builder: `/private/tmp/bot-crossing-colony-artifact`; parent replay 4/4 builder and 185/185 existing tests. Dirty/unpinned candidate; current HTTP host must become private IPC under COL-02. Resolver implementation: `/private/tmp/rhythm-colony-private-bridge`. No functional Rhythm tab yet.
+- #1572 direct-provider usability, #1573 semantic memory search, and remaining backlog retain open acceptance. See [91-issue coverage](runs/2026-09-24-open-issue-coverage.md) and [native-agent plan](plans/2026-09-24-native-hermes-shared-agents.md).
 
-## Risks / known issues
+## Remaining acceptance and safety
 
-- #1574/#1573 excluded: final test left a stale ownership marker after index shutdown (58/59); exact patch and candidate retained.
-- #1572 excluded: preserve-alternative repair passes focused tests, but real direct-provider usability remains unresolved.
-- #1468 already integrated: synthetic 605-tool fork capture succeeds; no new source change and no real Google-account qualification.
-- #1565 live timestamp probe fails at guarded production-origin routing before timestamps; fixture tests pass. Remaining timestamp surfaces and installed behavior stay open.
-- Prompt reattachment/security/skill-use, real-engine transcript history/compaction and installed Flutter handoff remain partial. Prior Facilities, physical audio/iOS, signed/notarized package and credentialed provider gates stay open.
+No real credential store or vault was modified. New memory checks are synthetic; live API/Hermes qualification remains. External edits after the final digest check remain a documented race. Native Facilities rendering, physical audio/iOS, provider/account behavior, both architectures and signing/notarization remain separate open gates. The unexplained engine test timeout remains recorded. Preserve unrelated dirty September 21 documents.
 
-## Test status
+## Evidence
 
-`ai-workflow checks --level pr`: all 16 configured stages passed, exit 0, source `9bd0dc32`. Pushed-head CI pending.
-Focused evidence: API22/22, MCP13/13, Flutter watchers18/18 with format/analyze, timestamp unit15/15 and fixture browser2/2, transcript unit34/34 and browser3/3, notification browser5/5, web build. Fresh isolated API/engine synthetic prompt+webhook2/2; sandbox shut down and exact synthetic threads cleaned. No overall native/release PASS.
-
-## Next step
-
-Keep draft PR and partial acceptance visible. Repair the deferred cleanup and test-routing problems in a separately bounded follow-up; qualify remaining account/device flows before release. Unrelated dirty integration documents are preserved. See [revalidation record](runs/2026-09-24-repair4-revalidation.md); durable evidence at `/Users/ajhochhalter/Documents/rhythm-orchestration-evidence/2026-09-24-repair4/`.
+Individual September 24 run notes contain commands and limits. Durable evidence: `/Users/ajhochhalter/Documents/rhythm-orchestration-evidence/2026-09-24-repair4/`. Continue candidate review/integration and new-head CI; prepare the final combined smoke after the feature work is implemented.
