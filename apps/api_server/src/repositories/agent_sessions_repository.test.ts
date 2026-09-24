@@ -157,6 +157,46 @@ describe('AgentSessionsRepository', () => {
     expect(repo.listAll()).toHaveLength(2);
   });
 
+  it('issue-1575: repeated child upsert preserves child-owned worktree metadata', () => {
+    const parent = repo.insert({
+      agentKind: 'manager' as never,
+      taskId: null,
+      cwd: '/repo/manager',
+      name: 'Manager',
+    });
+    repo.setSdkSessionId(parent.id, 'sdk-parent-1575');
+    repo.setWorktree(parent.id, {
+      name: 'manager-worktree',
+      path: '/repo/manager',
+      branch: 'manager-branch',
+    });
+    const child = repo.upsertChildSession(
+      'sdk-child-1575',
+      'sdk-parent-1575',
+      'Async delegation: specialist (@specialist subagent)',
+      '/repo/.worktrees/issue-1575-child',
+    )!;
+    repo.setWorktree(child.id, {
+      name: 'issue-1575-child',
+      path: '/repo/.worktrees/issue-1575-child',
+      branch: 'agent/issue-1575-child',
+    });
+
+    const repeated = repo.upsertChildSession(
+      'sdk-child-1575',
+      'sdk-parent-1575',
+      'Async delegation: specialist (@specialist subagent)',
+      '/repo/manager',
+    );
+
+    expect(repeated).toMatchObject({
+      id: child.id,
+      worktreeName: 'issue-1575-child',
+      worktreePath: '/repo/.worktrees/issue-1575-child',
+      worktreeBranch: 'agent/issue-1575-child',
+    });
+  });
+
   // USO A1 (#1024) / B1 (#1028) — scope-aware listAll.
   describe('listAll scope', () => {
     function seedScheduledTask(id: string) {

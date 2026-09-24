@@ -191,6 +191,11 @@ export function registerAgentDelegationTools(
         .describe(
           "Optional manager context to prepend to the delegated prompt.",
         ),
+      isolateWorktree: z
+        .boolean()
+        .optional()
+        .describe("Create the child in an isolated worktree from the trusted parent session directory."),
+      worktreeName: z.string().optional().describe("Optional isolated worktree name."),
       model: z.object({ providerID: z.string(), modelID: z.string() }).optional(),
       approval_id: z
         .string()
@@ -205,6 +210,8 @@ export function registerAgentDelegationTools(
         prompt,
         callerSessionId,
         context,
+        isolateWorktree,
+        worktreeName,
         model,
         approval_id,
       },
@@ -221,6 +228,8 @@ export function registerAgentDelegationTools(
         prompt,
         ...(callerSessionId !== undefined && { callerSessionId }),
         ...(context !== undefined && { context }),
+        ...(isolateWorktree !== undefined && { isolateWorktree }),
+        ...(worktreeName !== undefined && { worktreeName }),
         ...(model !== undefined && { model }),
       };
       // #1322 follow-up: the authoritative caller identity. A model cannot know

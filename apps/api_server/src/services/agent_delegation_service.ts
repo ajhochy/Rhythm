@@ -18,6 +18,8 @@ export interface AgentDelegationInput {
   callerSessionId: string;
   context?: string | null;
   cwd?: string | null;
+  isolateWorktree?: boolean;
+  worktreeName?: string;
   model?: unknown;
 }
 
@@ -304,9 +306,22 @@ export async function delegateToAgentAsync(
     ? `${input.context.trim()}\n\n${prompt}`
     : prompt;
   const childTitle = `Async delegation: ${target.label} (@${targetId} subagent)`;
+  let effectiveCwd = callerSession.cwd;
+  let worktree: { name: string; path: string; branch: string | null } | null = null;
+  if (input.isolateWorktree === true) {
+    const created = await opencodeClient.createWorktree(callerSession.cwd, {
+      name: input.worktreeName,
+    });
+    effectiveCwd = created.directory;
+    worktree = {
+      name: created.name,
+      path: created.directory,
+      branch: created.branch ?? null,
+    };
+  }
   const childSession = await opencodeClient.createSession(
     childTitle,
-    callerSession.cwd,
+    effectiveCwd,
     profileScope.mcpRoleConfig ?? undefined,
     skillNames,
     runModel.providerID,
@@ -320,12 +335,13 @@ export async function delegateToAgentAsync(
     childSession.id,
     parentSdkSessionId,
     childTitle,
-    callerSession.cwd,
+    effectiveCwd,
     profileScope.mcpRoleConfig?.allowedToolsJson ?? null,
   );
   if (!childRow) {
     throw AppError.internal('failed to persist async delegated child session');
   }
+  if (worktree) sessionRepo.setWorktree(childRow.id, worktree);
 
   opencodeSessionMap.set(childRow.id, childSession.id);
   sessionRepo.updatePermissionMode(childRow.id, 'bypassPermissions');
@@ -344,7 +360,7 @@ export async function delegateToAgentAsync(
     // Subscribe before enqueue so a very fast child cannot finish before the
     // bridge has a route for its first message/status event.
     const { streamBridge } = await import('./opencode_stream_bridge');
-    await streamBridge.streamSession(childRow.id, childSession.id, callerSession.cwd);
+    await streamBridge.streamSession(childRow.id, childSession.id, effectiveCwd);
 
     // This is the actual execution boundary. Re-read both profiles after the
     // awaited stream subscription so a lock applied during setup wins.
@@ -364,12 +380,13 @@ export async function delegateToAgentAsync(
       childSession.id,
       scopedPrompt,
       runModel,
-      callerSession.cwd,
+      effectiveCwd,
       promptOpts,
     );
     if (!enqueued) {
       throw AppError.internal('failed to enqueue async delegated prompt');
     }
+    if (worktree) sessionRepo.setWorktree(childRow.id, worktree);
   } catch (error) {
     const failure = dispatchFailureMessage(error);
     if (delegationPersisted) {

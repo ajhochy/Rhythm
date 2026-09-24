@@ -457,8 +457,9 @@ export class AgentSessionsRepository {
 
     if (existingRow) {
       // A repeated stream event is also a repair opportunity. Parent scope is
-      // authoritative, while an already-persisted child MCP allowlist wins
-      // over a missing/replayed event payload.
+      // authoritative, except that child-owned worktree metadata must survive
+      // a late/replayed event. An already-persisted child MCP allowlist also
+      // wins over a missing/replayed event payload.
       db.prepare(
         `UPDATE agent_sessions
             SET task_id = ?,
@@ -471,9 +472,9 @@ export class AgentSessionsRepository {
                 owner_user_id = ?,
                 delegation_depth = ?,
                 category = ?,
-                worktree_name = ?,
-                worktree_path = ?,
-                worktree_branch = ?,
+                worktree_name = COALESCE(worktree_name, ?),
+                worktree_path = COALESCE(worktree_path, ?),
+                worktree_branch = COALESCE(worktree_branch, ?),
                 mcp_allowed_tools_json =
                   COALESCE(mcp_allowed_tools_json, ?),
                 updated_at = ?

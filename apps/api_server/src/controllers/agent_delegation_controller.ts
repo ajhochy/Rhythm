@@ -83,6 +83,19 @@ export class AgentDelegationController {
       if (!authenticatedUserId) {
         throw AppError.unauthorized('Authenticated user is required for delegation');
       }
+      if (
+        body.worktreeName !== undefined &&
+        body.worktreeName !== null &&
+        typeof body.worktreeName !== 'string'
+      ) {
+        throw AppError.badRequest('worktreeName must be a string');
+      }
+      if (
+        body.isolateWorktree !== undefined &&
+        typeof body.isolateWorktree !== 'boolean'
+      ) {
+        throw AppError.badRequest('isolateWorktree must be a boolean');
+      }
       const result = await delegateToAgentAsync({
         authenticatedUserId,
         callerAgentConfigId:
@@ -92,6 +105,8 @@ export class AgentDelegationController {
         prompt: typeof body.prompt === 'string' ? body.prompt : '',
         callerSessionId,
         context: typeof body.context === 'string' ? body.context : null,
+        isolateWorktree: body.isolateWorktree === true,
+        worktreeName: typeof body.worktreeName === 'string' ? body.worktreeName : undefined,
         model: body.model,
       });
       res.status(202).json(result);
