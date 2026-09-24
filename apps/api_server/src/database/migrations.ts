@@ -4518,4 +4518,37 @@ If someone asks for creative work that needs a local capability:
   if (!toolSafetyReportCols.includes('proposal_fingerprint')) {
     db.exec(`ALTER TABLE tool_safety_reports ADD COLUMN proposal_fingerprint TEXT`);
   }
+
+  // #1576 B1 — local agent-server dispatch attempts only. No historical
+  // inference: existing sessions start with zero attempts. FK enforces both
+  // deletion cascade and refusal of late events after a session is removed.
+  // Deliberately absent from the hosted Postgres bootstrap.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_turn_dispatches (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+      sdk_session_id TEXT,
+      sdk_user_message_id TEXT,
+      origin TEXT NOT NULL,
+      requested_source TEXT NOT NULL,
+      requested_provider_id TEXT,
+      requested_model_id TEXT,
+      requested_tier TEXT,
+      resolved_provider_id TEXT,
+      resolved_model_id TEXT,
+      resolved_tier TEXT,
+      override_applied INTEGER NOT NULL DEFAULT 0 CHECK (override_applied IN (0,1)),
+      downgraded INTEGER NOT NULL DEFAULT 0 CHECK (downgraded IN (0,1)),
+      route_authed INTEGER CHECK (route_authed IN (0,1)),
+      final_provider_id TEXT,
+      final_model_id TEXT,
+      reason_code TEXT,
+      predecessor_id TEXT,
+      outcome TEXT NOT NULL DEFAULT 'pending' CHECK (outcome IN ('pending','accepted','rejected','unknown')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_turn_dispatches_session_order
+      ON agent_turn_dispatches(session_id, created_at, id);
+  `);
 }
