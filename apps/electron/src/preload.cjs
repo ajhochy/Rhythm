@@ -85,6 +85,29 @@ window.addEventListener('rhythm:approval-notifications', (event) => {
   if (!(event instanceof CustomEvent)) return;
   ipcRenderer.send('rhythm:approval-notifications:sync', event.detail);
 });
+// ponytail: validate again in main; an owned document is not proof of a trusted component.
+window.addEventListener('rhythm:agent-notifications', (event) => {
+  if (!(event instanceof CustomEvent)) return;
+  const detail = event.detail;
+  if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return;
+  const keys = Object.keys(detail).sort().join(',');
+  /** @param {unknown} value */
+  const id = (value) => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
+  try { if (JSON.stringify(detail).length >= 2048 || detail.v !== 1) return; } catch { return; }
+  if (detail.type === 'ready' && keys === 'type,v'
+    || detail.type === 'viewing' && keys === 'displayed,sessionId,type,v' && typeof detail.displayed === 'boolean' && (detail.sessionId === null || id(detail.sessionId))
+    || detail.type === 'arm' && keys === 'sessionId,type,v' && id(detail.sessionId)
+    || detail.type === 'completion' && keys === 'sessionId,type,v' && id(detail.sessionId)
+    || (detail.type === 'ask' || detail.type === 'resolve') && keys === 'family,requestId,sessionId,type,v' && ['permission', 'question'].includes(detail.family) && id(detail.sessionId) && id(detail.requestId)) {
+    ipcRenderer.send('rhythm:agent-notifications:sync', detail);
+  }
+});
+ipcRenderer.on('rhythm:agent-notifications:permission', (_event, detail) => {
+  if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return;
+  if (Object.keys(detail).sort().join(',') !== 'status,v' || detail.v !== 1
+    || !['granted', 'denied', 'unknown', 'unsupported'].includes(detail.status)) return;
+  window.dispatchEvent(new CustomEvent('rhythm:agent-notifications:permission', { detail: { v: 1, status: detail.status } }));
+});
 contextBridge.exposeInMainWorld('rhythmShell', Object.freeze({
   version: 6,
   appVersion,

@@ -36,12 +36,7 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
       this.webContents = Object.assign(new EventEmitter(), {
         mainFrame: { url: '' }, getURL: () => this.webContents.mainFrame.url,
         isDestroyed: () => this.destroyed, send() {}, setWindowOpenHandler() {},
-        executeJavaScript: async (source) => {
-          if (source === 'globalThis.Notification.requestPermission()') {
-            resolveInitialBridge?.();
-            resolveInitialBridge = undefined;
-          }
-        },
+        executeJavaScript: async () => {},
       });
       windows.push(this);
     }
@@ -64,6 +59,8 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
         resolveInitialBridge = undefined;
       }
       this.webContents.emit('did-finish-load');
+      resolveInitialBridge?.();
+      resolveInitialBridge = undefined;
     }
   }
   let agentServerOptions;

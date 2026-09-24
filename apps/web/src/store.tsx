@@ -10,7 +10,8 @@ import { ApprovalGatewayError, type PendingApproval } from './gateway/approvals'
 import { signApprovalDecision } from './security/humanApprovalSigner';
 import { isSessionOffline } from './sessionState';
 import { agentSessionLinkFromHash } from './agentSessionLink';
-import { addPermission, addQuestion, clearPendingDecisions, rehydrateDecisions, removeDecision } from './pending-decisions';
+import { addPermission, addQuestion, clearPendingDecisions, getSnapshot, rehydrateDecisions, removeDecision, subscribe } from './pending-decisions';
+import { emitAgentNotification } from './agentNotifications';
 import type { ComposerAttachment, DemoState, FixtureFile, InspectorTab, Profile, Session, SessionScope, Theme, TodoItem, TranscriptMessage } from './types';
 
 // c4c: a live agent push notification — apps/api_server/src/controllers/notifications_agent_controller.ts:6-32.
@@ -97,6 +98,8 @@ interface FixtureContextValue {
   // Notifications bell (same GET /agent-approvals?status=pending boundary Review Queue reads).
   pendingApprovals: PendingApproval[];
   decideApproval(id: string, status: 'approved' | 'rejected'): Promise<void>;
+  isCompletionArmed(sessionId: string, messageId: string): boolean;
+  toggleCompletionArm(sessionId: string, messageId: string): void;
 }
 
 const FixtureContext = createContext<FixtureContextValue | null>(null);
@@ -237,6 +240,20 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
   const pushSeenIdsRef = useRef(new Set<number>());
   const sessionSocketRef = useRef<SessionSocket | null>(null);
+  const armedCompletions = useRef(new Map<string, Set<string>>());
+  const [armedKeys, setArmedKeys] = useState<Set<string>>(() => new Set());
+  const workingSessions = useRef(new Set<string>());
+  const isCompletionArmed = (sessionId: string, messageId: string) => armedKeys.has(JSON.stringify([sessionId, messageId]));
+  const toggleCompletionArm = (sessionId: string, messageId: string) => {
+    if (!live || !window.rhythmShell?.gateway || !sessionId || !messageId) return;
+    const messages = armedCompletions.current.get(sessionId) ?? new Set<string>();
+    const arming = !messages.has(messageId);
+    if (arming) messages.add(messageId); else messages.delete(messageId);
+    if (messages.size) armedCompletions.current.set(sessionId, messages); else armedCompletions.current.delete(sessionId);
+    const key = JSON.stringify([sessionId, messageId]);
+    setArmedKeys((current) => { const next = new Set(current); if (messages.has(messageId)) next.add(key); else next.delete(key); return next; });
+    if (arming) emitAgentNotification({ v: 1, type: 'arm', sessionId }, live);
+  };
   const streamedPartsRef = useRef(new Set<string>());
   const stableEngineRef = useRef<Promise<void>>(Promise.resolve());
   const selectedIdRef = useRef(selectedId);
@@ -259,6 +276,32 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     clearPendingDecisions();
     return clearPendingDecisions;
   }, [gateway, accountId]);
+  useEffect(() => {
+    armedCompletions.current.clear(); workingSessions.current.clear(); setArmedKeys(new Set());
+    if (!live || !window.rhythmShell?.gateway) return;
+    let previous = new Set<string>();
+    const sync = () => {
+      const current = new Set<string>();
+      for (const [sessionId, pending] of getSnapshot()) {
+        for (const requestId of pending.permissions.keys()) {
+          const key = JSON.stringify(['permission', sessionId, requestId]); current.add(key);
+          if (!previous.has(key)) emitAgentNotification({ v: 1, type: 'ask', family: 'permission', sessionId, requestId }, live);
+        }
+        for (const requestId of pending.questions.keys()) {
+          const key = JSON.stringify(['question', sessionId, requestId]); current.add(key);
+          if (!previous.has(key)) emitAgentNotification({ v: 1, type: 'ask', family: 'question', sessionId, requestId }, live);
+        }
+      }
+      for (const key of previous) if (!current.has(key)) {
+        const [family, sessionId, requestId] = JSON.parse(key) as ['permission' | 'question', string, string];
+        emitAgentNotification({ v: 1, type: 'resolve', family, sessionId, requestId }, live);
+      }
+      previous = current;
+    };
+    const unsubscribe = subscribe(sync);
+    sync();
+    return unsubscribe;
+  }, [gateway, live, accountId]);
   useEffect(() => {
     childViewRequestRef.current++;
     childStack.current = [];
@@ -437,6 +480,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     const onEvent = (event: SessionWireEvent) => {
       if (!active) return;
       if (event.type === 'session.removed' && event.id) {
+        armedCompletions.current.delete(event.id); workingSessions.current.delete(event.id);
         setSessions((current) => current.filter((session) => session.id !== event.id));
         if (selectedIdRef.current === event.id) rememberLiveSelection('');
         return;
@@ -537,6 +581,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       if (event.type === 'error' && event.id) {
+        workingSessions.current.delete(event.id);
         liveTouched.add(event.id);
         setSessions(current => current.map(session => session.id === event.id ? { ...session, status: 'error', retry: undefined, statusMessage: typeof event.message === 'string' ? event.message : 'Session request failed' } : session));
         return;
@@ -551,7 +596,14 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
           setSessions((current) => current.map((session) => session.id === event.id ? { ...session, retry: { attempt, reason } } : session));
           return;
         }
+        if (event.working !== true && event.working !== false) return;
         const working = event.working === true;
+        if (working) workingSessions.current.add(event.id);
+        else if (workingSessions.current.delete(event.id) && armedCompletions.current.has(event.id)) {
+          armedCompletions.current.delete(event.id);
+          setArmedKeys(new Set([...armedCompletions.current].flatMap(([sessionId, messages]) => [...messages].map(messageId => JSON.stringify([sessionId, messageId])))));
+          emitAgentNotification({ v: 1, type: 'completion', sessionId: event.id }, live);
+        }
         setSessions((current) => current.map((session) => session.id === event.id ? { ...session, status: working ? 'working' : 'idle', retry: undefined } : session));
         if (!working) {
           for (const key of streamedPartsRef.current) if (key.startsWith(`${event.id}:`)) streamedPartsRef.current.delete(key);
@@ -635,6 +687,8 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       onReconnect();
       void rehydrateDecisions(gateway, pendingSessionRef.current).catch(onError);
     });
+    // The hash listener above is installed before main flushes a pre-ready native click.
+    emitAgentNotification({ v: 1, type: 'ready' }, live);
     setLoading(true);
     setLiveSessionError(null);
     void Promise.all([sessionGateway.profiles(), sessionGateway.list()]).then(async ([nextProfiles, nextSessions]) => {
@@ -647,7 +701,13 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       // already `working` (or has a retry banner) back to a stale idle/no-retry state.
       const keepLiveFields = (incoming: Session, existing: Session | undefined) =>
         existing && liveTouched.has(incoming.id) ? { ...incoming, status: existing.status, retry: existing.retry } : incoming;
-      setSessions((current) => nextSessions.map((incoming) => keepLiveFields(incoming, current.find((session) => session.id === incoming.id))));
+      const hydrateWorkingState = (incoming: Session, existing: Session | undefined) => {
+        const hydrated = keepLiveFields(incoming, existing);
+        if (hydrated.status === 'working') workingSessions.current.add(hydrated.id);
+        else workingSessions.current.delete(hydrated.id);
+        return hydrated;
+      };
+      setSessions((current) => nextSessions.map((incoming) => hydrateWorkingState(incoming, current.find((session) => session.id === incoming.id))));
       sessionListReady = true;
       if (await openSessionLink()) return;
       const selectedNow = selectedIdRef.current;
@@ -655,13 +715,14 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       rememberLiveSelection(chosen);
       if (chosen) {
         const detail = await sessionGateway.detail(chosen);
-        if (active) setSessions((current) => current.map((session) => session.id === chosen ? keepLiveFields(detail, session) : session));
+        if (active) setSessions((current) => current.map((session) => session.id === chosen ? hydrateWorkingState(detail, session) : session));
         rehydratePendingPermission(chosen);
       }
     }).catch(onError).finally(() => { if (active) setLoading(false); });
 
     return () => {
       active = false;
+      workingSessions.current.clear();
       sessionSocketRef.current?.close();
       sessionSocketRef.current = null;
       streamedPartsRef.current.clear();
@@ -1158,7 +1219,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   };
 
   const notificationUnreadCount = notifications.length + pushNotifications.length;
-  const value = useMemo<FixtureContextValue>(() => ({ prepareLiveSession, startFreshSession, reconnectLiveSession, models, accounts, catalogError, turnOverride: turnOverrides.current[selectedId] ?? {}, stageTurnOverride, saveSessionSettings, sessions, profiles, todos, files: seedFiles, diff: seedDiff, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, setUnreadThreads, liveMessageThreads, setLiveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, selectSession, setScope, setTheme, setInspectorTab, setDemo, notify, createSession, updateSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, forkSession, revertSession, unrevertSession, summarizeSession, loadOlder, replyPermission, answerQuestion, rejectQuestion, sendInput, reconnect, runShell, setActiveFile, resetWorktree, removeWorktree, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, resetFixtures, sessionGatewayMode: gateway.mode, liveSessionError, createLiveSession, deleteLiveSession, refreshLiveSessions, selectLiveSession, sendLiveInput, sendLiveCommand, resumeGone, dismissResumeGone, liveChildView, openLiveChildSession, closeLiveChildView, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, replyLivePermission, replyLiveQuestion, rejectLiveQuestion, updatePermissionMode, pendingApprovals, decideApproval }), [models, accounts, catalogError, overrideVersion, sessions, profiles, todos, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, liveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, gateway.mode, liveSessionError, resumeGone, liveChildView, notifications, pushNotifications, notificationUnreadCount, pendingApprovals]);
+  const value = useMemo<FixtureContextValue>(() => ({ prepareLiveSession, startFreshSession, reconnectLiveSession, models, accounts, catalogError, turnOverride: turnOverrides.current[selectedId] ?? {}, stageTurnOverride, saveSessionSettings, sessions, profiles, todos, files: seedFiles, diff: seedDiff, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, setUnreadThreads, liveMessageThreads, setLiveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, selectSession, setScope, setTheme, setInspectorTab, setDemo, notify, createSession, updateSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, forkSession, revertSession, unrevertSession, summarizeSession, loadOlder, replyPermission, answerQuestion, rejectQuestion, sendInput, reconnect, runShell, setActiveFile, resetWorktree, removeWorktree, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, resetFixtures, sessionGatewayMode: gateway.mode, liveSessionError, createLiveSession, deleteLiveSession, refreshLiveSessions, selectLiveSession, sendLiveInput, sendLiveCommand, resumeGone, dismissResumeGone, liveChildView, openLiveChildSession, closeLiveChildView, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, replyLivePermission, replyLiveQuestion, rejectLiveQuestion, updatePermissionMode, pendingApprovals, decideApproval, isCompletionArmed, toggleCompletionArm }), [models, accounts, catalogError, overrideVersion, sessions, profiles, todos, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, liveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, gateway.mode, liveSessionError, resumeGone, liveChildView, notifications, pushNotifications, notificationUnreadCount, pendingApprovals, armedKeys]);
   return <FixtureContext.Provider value={value}>{children}</FixtureContext.Provider>;
 }
 

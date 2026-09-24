@@ -76,6 +76,88 @@ if (hasSingleInstanceLock) {
   /** @type {Array<{ family: 'approval', sessionId: string, approvalId: string }>} */
   const pendingNativeNotificationActivations = [];
   let rendererReady = false;
+  /** @typedef {{ key: string, family?: 'permission' | 'question', sessionId: string, generation: number, created: number, valid: boolean, notification?: Notification, queued?: boolean, retireAfterActivation?: boolean, retireTimer?: ReturnType<typeof setTimeout> }} AgentTarget */
+  /** @type {Map<string, AgentTarget>} */
+  const agentTargets = new Map();
+  /** @type {Map<string, number>} */
+  const completionCycles = new Map();
+  /** @type {Map<string, number>} */
+  const retiredCompletions = new Map();
+  let agentReady = false;
+  /** @type {{ sessionId: string | null, displayed: boolean }} */
+  let agentViewing = { sessionId: null, displayed: false };
+  /** @type {AgentTarget | undefined} */
+  let queuedAgentActivation;
+  let activationSequence = 0;
+  let activeLookups = 0;
+  /** @type {AgentTarget[]} */
+  const waitingLookups = [];
+  /** @type {number[]} */
+  const admissionTimes = [];
+  /** @type {'granted' | 'denied' | 'unknown' | 'unsupported'} */
+  let agentNotificationPermission = 'unknown';
+  let agentNotificationPermissionPrimed = false;
+  /** @type {Notification | undefined} */
+  let agentNotificationPermissionPrimer;
+  const reportAgentNotificationPermission = () => {
+    const contents = mainWindow?.webContents;
+    if (!contents || contents.isDestroyed()) return;
+    try { contents.send('rhythm:agent-notifications:permission', { v: 1, status: agentNotificationPermission }); } catch {}
+  };
+  /** @param {'granted' | 'denied' | 'unknown' | 'unsupported'} status */
+  const recordAgentNotificationPermission = (status) => {
+    agentNotificationPermission = status;
+    reportAgentNotificationPermission();
+  };
+  const primeAgentNotificationPermission = () => {
+    if (agentNotificationPermissionPrimed) { reportAgentNotificationPermission(); return; }
+    agentNotificationPermissionPrimed = true;
+    try {
+      if (!Notification.isSupported()) { recordAgentNotificationPermission('unsupported'); return; }
+    } catch { recordAgentNotificationPermission('unknown'); return; }
+    // Electron has no main-process requestPermission API. On macOS the first show() is the
+    // explicit OS permission trigger; on other supported platforms this is only a best-effort
+    // presentation probe. A show event is observable as granted. A permission-specific failure
+    // is denied; silence or any other platform error remains unknown rather than overclaiming.
+    recordAgentNotificationPermission('unknown');
+    try {
+      const primer = new Notification({
+        title: 'Rhythm notifications',
+        body: 'Agent completion and question alerts are enabled.',
+      });
+      agentNotificationPermissionPrimer = primer;
+      primer.once('show', () => {
+        if (agentNotificationPermissionPrimer !== primer) return;
+        recordAgentNotificationPermission('granted');
+        agentNotificationPermissionPrimer = undefined;
+      });
+      primer.once('failed', (_event, error) => {
+        if (agentNotificationPermissionPrimer !== primer) return;
+        agentNotificationPermissionPrimer = undefined;
+        recordAgentNotificationPermission(/permission|denied/i.test(String(error)) ? 'denied' : 'unknown');
+      });
+      primer.once('close', () => { if (agentNotificationPermissionPrimer === primer) agentNotificationPermissionPrimer = undefined; });
+      primer.show();
+    } catch (error) {
+      agentNotificationPermissionPrimer = undefined;
+      recordAgentNotificationPermission(/permission|denied/i.test(String(error)) ? 'denied' : 'unknown');
+    }
+  };
+  const clearAgentNotifications = () => {
+    agentReady = false;
+    admissionTimes.length = 0;
+    waitingLookups.length = 0;
+    queuedAgentActivation = undefined;
+    agentViewing = { sessionId: null, displayed: false };
+    for (const entry of agentTargets.values()) {
+      entry.valid = false;
+      if (entry.retireTimer) clearTimeout(entry.retireTimer);
+      try { entry.notification?.close(); } catch {}
+    }
+    agentTargets.clear();
+    completionCycles.clear();
+    retiredCompletions.clear();
+  };
   /** @type {Promise<import('./google-oauth-core.mjs').DesktopAuthLoginResponse> | undefined} */
   let googleSignInInFlight;
   let authGeneration = 0;
@@ -101,6 +183,7 @@ if (hasSingleInstanceLock) {
   let rebuildMainWindow;
   const invalidateAuthentication = () => {
     authGeneration += 1;
+    clearAgentNotifications();
     googleSignInInFlight = undefined;
     productionSessionToken = undefined;
     productionSessionUser = undefined;
@@ -202,6 +285,221 @@ if (hasSingleInstanceLock) {
       notification.show();
     }
   };
+
+  /** @param {unknown} value @returns {{ v: 1, type: 'ready' | 'viewing' | 'arm' | 'completion' | 'ask' | 'resolve', family?: 'permission' | 'question', sessionId?: string | null, requestId?: string, displayed?: boolean } | null} */
+  const agentEvent = (value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const item = /** @type {Record<string, unknown>} */ (value);
+    try { if (JSON.stringify(value).length >= 2048) return null; } catch { return null; }
+    if (item.v !== 1) return null;
+    const keys = Object.keys(item).sort().join(',');
+    if (item.type === 'ready' && keys === 'type,v') return { v: 1, type: 'ready' };
+    if (item.type === 'viewing' && keys === 'displayed,sessionId,type,v' && typeof item.displayed === 'boolean' && (item.sessionId === null || safeNotificationId(item.sessionId))) return { v: 1, type: 'viewing', displayed: item.displayed, sessionId: /** @type {string | null} */ (item.sessionId) };
+    if (item.type === 'arm' && keys === 'sessionId,type,v' && safeNotificationId(item.sessionId)) return { v: 1, type: 'arm', sessionId: /** @type {string} */ (item.sessionId) };
+    if (item.type === 'completion' && keys === 'sessionId,type,v' && safeNotificationId(item.sessionId)) return { v: 1, type: 'completion', sessionId: /** @type {string} */ (item.sessionId) };
+    if ((item.type === 'ask' || item.type === 'resolve') && keys === 'family,requestId,sessionId,type,v' && (item.family === 'permission' || item.family === 'question') && safeNotificationId(item.sessionId) && safeNotificationId(item.requestId)) return { v: 1, type: item.type, family: item.family, sessionId: /** @type {string} */ (item.sessionId), requestId: /** @type {string} */ (item.requestId) };
+    return null;
+  };
+  /** @param {AgentTarget} entry */
+  const isAgentEntry = (entry) => Boolean(entry.valid && entry.generation === authGeneration && agentTargets.get(entry.key) === entry && mainWindow && !mainWindow.isDestroyed());
+  /** @param {AgentTarget} entry */
+  const withdrawAgentEntry = (entry) => {
+    entry.valid = false;
+    if (entry.retireTimer) { clearTimeout(entry.retireTimer); entry.retireTimer = undefined; }
+    if (entry.queued) {
+      const index = waitingLookups.indexOf(entry);
+      if (index !== -1) waitingLookups.splice(index, 1);
+      entry.queued = false;
+    }
+    if (queuedAgentActivation === entry) queuedAgentActivation = undefined;
+    try { entry.notification?.close(); } catch {}
+    entry.notification = undefined;
+  };
+  /** @param {AgentTarget} entry @param {boolean} [close] */
+  const retireCompletionEntry = (entry, close = false) => {
+    if (entry.family || (!entry.valid && agentTargets.get(entry.key) !== entry)) return;
+    entry.valid = false;
+    if (entry.retireTimer) { clearTimeout(entry.retireTimer); entry.retireTimer = undefined; }
+    if (entry.queued) {
+      const index = waitingLookups.indexOf(entry);
+      if (index !== -1) waitingLookups.splice(index, 1);
+      entry.queued = false;
+    }
+    if (queuedAgentActivation === entry) queuedAgentActivation = undefined;
+    const notification = entry.notification;
+    entry.notification = undefined;
+    if (agentTargets.get(entry.key) === entry) agentTargets.delete(entry.key);
+    retiredCompletions.set(entry.key, Date.now());
+    if (close) { try { notification?.close(); } catch {} }
+  };
+  /** @param {AgentTarget} entry */
+  const activateAgentEntry = (entry) => {
+    if (!isAgentEntry(entry) || !entry.notification || !mainWindow) return false;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show(); mainWindow.focus();
+    if (!agentReady) { queuedAgentActivation = entry; return false; }
+    const url = new URL('rhythm://app/index.html');
+    url.hash = `/agents?sessionId=${encodeURIComponent(entry.sessionId)}&activation=${++activationSequence}`;
+    void mainWindow.loadURL(url.toString());
+    return true;
+  };
+  /** @param {AgentTarget} entry @param {string} title @param {string} body */
+  const showAgentEntry = (entry, title, body) => {
+    if (!isAgentEntry(entry) || !mainWindow) return;
+    try { if (!Notification.isSupported()) return; } catch { return; }
+    if (entry.family && agentViewing.displayed && agentViewing.sessionId === entry.sessionId
+      && mainWindow.isFocused() && mainWindow.isVisible() && !mainWindow.isMinimized()) {
+      agentTargets.delete(entry.key); entry.valid = false; return;
+    }
+    try {
+      const notification = new Notification({ title, body });
+      notification.on('click', () => {
+        if (!isAgentEntry(entry) || entry.notification !== notification) return;
+        const activated = activateAgentEntry(entry);
+        if (!entry.family) {
+          if (activated) retireCompletionEntry(entry);
+          else entry.retireAfterActivation = true;
+        }
+      });
+      if (!entry.family) {
+        notification.on('close', () => {
+          if (entry.retireAfterActivation && queuedAgentActivation === entry) return;
+          retireCompletionEntry(entry);
+        });
+        const timer = setTimeout(() => retireCompletionEntry(entry, true), 300_000);
+        timer.unref?.();
+        entry.retireTimer = timer;
+      }
+      entry.notification = notification;
+      notification.show();
+    } catch {
+      if (entry.family) withdrawAgentEntry(entry); else retireCompletionEntry(entry);
+    }
+  };
+  /** @param {unknown} payload */
+  const syncAgentNotifications = (payload) => {
+    const event = agentEvent(payload);
+    if (!event) return;
+    if (event.type === 'ready') {
+      agentReady = true;
+      const entry = queuedAgentActivation;
+      queuedAgentActivation = undefined;
+      if (entry) {
+        const activated = activateAgentEntry(entry);
+        if (activated && entry.retireAfterActivation && !entry.family) retireCompletionEntry(entry);
+      }
+      return;
+    }
+    if (event.type === 'viewing') { agentViewing = { sessionId: event.sessionId ?? null, displayed: event.displayed === true }; return; }
+    if (event.type === 'arm') {
+      if (!event.sessionId) return;
+      primeAgentNotificationPermission();
+      completionCycles.set(event.sessionId, (completionCycles.get(event.sessionId) ?? 0) + 1);
+      for (const entry of agentTargets.values()) {
+        if (!entry.family && entry.sessionId === event.sessionId) retireCompletionEntry(entry, true);
+      }
+      return;
+    }
+    if (event.type === 'resolve') {
+      if (!event.family || !event.sessionId || !event.requestId) return;
+      const key = `${authGeneration}:${event.family}:${event.sessionId}:${event.requestId}`;
+      const entry = agentTargets.get(key);
+      if (entry) withdrawAgentEntry(entry); // Retain a tombstone: OS dismissal is not a fresh ask.
+      else {
+        const now = Date.now();
+        for (const [oldKey, old] of agentTargets) if (!old.valid && now - old.created > 300_000) agentTargets.delete(oldKey);
+        while (admissionTimes[0] < now - 60_000) admissionTimes.shift();
+        if (admissionTimes.length >= 20) return;
+        admissionTimes.push(now);
+        if (agentTargets.size >= 100) return;
+        agentTargets.set(key, { key, sessionId: event.sessionId, family: event.family, generation: authGeneration, valid: false, created: Date.now() });
+      }
+      return;
+    }
+    if (!productionSessionToken?.trim() || !event.sessionId) return;
+    const key = event.type === 'completion'
+      ? `${authGeneration}:completion:${event.sessionId}:${completionCycles.get(event.sessionId) ?? 0}`
+      : `${authGeneration}:${event.family}:${event.sessionId}:${event.requestId}`;
+    if (event.type === 'ask' && agentTargets.has(key)) return;
+    const now = Date.now();
+    for (const [oldKey, retiredAt] of retiredCompletions) if (now - retiredAt > 300_000) retiredCompletions.delete(oldKey);
+    if (event.type === 'completion' && (agentTargets.has(key) || retiredCompletions.has(key))) return;
+    // Only tombstones expire; live/queued entries remain pending until resolution or invalidation.
+    for (const [oldKey, old] of agentTargets) if (!old.valid && now - old.created > 300_000) agentTargets.delete(oldKey);
+    while (admissionTimes[0] < now - 60_000) admissionTimes.shift();
+    if (admissionTimes.length >= 20) return;
+    admissionTimes.push(now);
+    while (agentTargets.size >= 100) {
+      const tombstone = [...agentTargets].find(([, value]) => !value.valid);
+      if (!tombstone) return; // Never evict a visible or pending ask to accept a new one.
+      agentTargets.delete(tombstone[0]);
+    }
+    /** @type {AgentTarget} */
+    const entry = { key, family: event.family, sessionId: event.sessionId, generation: authGeneration, created: now, valid: true, notification: undefined };
+    agentTargets.set(key, entry); // Reserve before the asynchronous ownership lookup.
+    if (activeLookups >= 4) { entry.queued = true; waitingLookups.push(entry); return; }
+    startAgentLookup(entry);
+  };
+  /** @param {AgentTarget} entry */
+  const startAgentLookup = (entry) => {
+    if (!isAgentEntry(entry)) return;
+    entry.queued = false;
+    activeLookups++;
+    // ponytail: signed-in main is the local gate; the localhost API route is an existence check,
+    // not a cloud ownership proof. Never forward a hosted bearer to the local server.
+    const apiBase = process.env.RHYTHM_LIVE_API_URL ?? AGENT_SERVER_BASE_URL;
+    let localApi;
+    try {
+      localApi = new URL(apiBase);
+      if (localApi.protocol !== 'http:' || !['127.0.0.1', '[::1]'].includes(localApi.hostname)
+        || localApi.username || localApi.password || !['', '/'].includes(localApi.pathname)
+        || localApi.search || localApi.hash) throw new Error('Local API required');
+    } catch {
+      withdrawAgentEntry(entry);
+      activeLookups--;
+      return;
+    }
+    void globalThis.fetch(`${localApi.origin}/agent-sessions/${encodeURIComponent(entry.sessionId)}?transcriptLimit=0`, {
+      redirect: 'error', signal: AbortSignal.timeout(1500),
+    }).then(async (response) => {
+      if (!isAgentEntry(entry) || !response.ok || Number(response.headers.get('content-length') ?? 0) > 65536) {
+        await response.body?.cancel(); withdrawAgentEntry(entry); return;
+      }
+      const reader = response.body?.getReader();
+      if (!reader) { withdrawAgentEntry(entry); return; }
+      const chunks = [];
+      let size = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > 65536 || !isAgentEntry(entry)) { await reader.cancel(); withdrawAgentEntry(entry); return; }
+        chunks.push(value);
+      }
+      const text = new TextDecoder().decode(Buffer.concat(chunks));
+      if (text.length > 65536 || !isAgentEntry(entry)) { withdrawAgentEntry(entry); return; }
+      const data = JSON.parse(text);
+      if (!data || !Array.isArray(data.messages) || !data.transcriptPage || Array.isArray(data.transcriptPage)
+        || typeof data.transcriptPage !== 'object' || typeof data.transcriptPage.hasMore !== 'boolean'
+        || !(data.transcriptPage.nextCursor === null || typeof data.transcriptPage.nextCursor === 'string')
+        || data.session?.id !== entry.sessionId) { withdrawAgentEntry(entry); return; }
+      const name = typeof data.session.name === 'string' ? Array.from(data.session.name.replace(/[\p{Cc}\p{Cf}]/gu, ' ').trim()).slice(0, 60).join('') : '';
+      if (!entry.family) showAgentEntry(entry, 'Agent finished', 'Your agent has finished working.');
+      else {
+        const title = `${name || 'Agent session'} — ${entry.family === 'permission' ? 'Permission requested' : 'Question'}`;
+        showAgentEntry(entry, title, entry.family === 'permission' ? 'An agent is waiting for your permission.' : 'An agent is waiting for your answer.');
+      }
+    }).catch(() => { withdrawAgentEntry(entry); }).finally(() => {
+      activeLookups--;
+      while (activeLookups < 4 && waitingLookups.length) {
+        const next = waitingLookups.shift();
+        if (next && isAgentEntry(next)) startAgentLookup(next);
+      }
+    });
+  };
+  ipcMain.on('rhythm:agent-notifications:sync', (event, payload, ...args) => {
+    if (!args.length && ownsDocument(event)) syncAgentNotifications(payload);
+  });
 
   ipcMain.on('rhythm:approval-notifications:sync', (event, payload) => {
     if (!ownsDocument(event)) return;
@@ -489,11 +787,16 @@ if (hasSingleInstanceLock) {
     });
 
     const denials = { navigation: false, popup: false, permission: false, download: false };
+    /** @param {Electron.WebContents | null} webContents @param {string} permission */
+    const allowOwnedClipboardWrite = (webContents, permission) =>
+      permission === 'clipboard-sanitized-write' && !!webContents && webContents === mainWindow?.webContents
+        && !webContents.isDestroyed() && /^rhythm:\/\/app\/index\.html(?:#.*)?$/.test(webContents.mainFrame?.url ?? '');
     session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-      const notificationPermission = permission === 'notifications' && webContents === mainWindow?.webContents;
-      if (!notificationPermission) denials.permission = true;
-      callback(notificationPermission);
+      const allowed = allowOwnedClipboardWrite(webContents, permission);
+      if (!allowed) denials.permission = true;
+      callback(allowed);
     });
+    session.defaultSession.setPermissionCheckHandler?.((webContents, permission) => allowOwnedClipboardWrite(webContents, permission));
     session.defaultSession.on('will-download', (event) => {
       denials.download = true;
       event.preventDefault();
@@ -551,6 +854,7 @@ if (hasSingleInstanceLock) {
         if (/^rhythm:\/\/app\/index\.html(?:#.*)?$/.test(url)) {
           // Revoke pending work from the old document, but a trusted reload is not logout.
           authGeneration += 1;
+          clearAgentNotifications();
           googleSignInInFlight = undefined;
           rendererReady = false;
         } else invalidateAuthentication();
@@ -577,15 +881,15 @@ if (hasSingleInstanceLock) {
     });
     window.webContents.on('did-finish-load', () => {
       rendererReady = true;
+      if (agentNotificationPermissionPrimed) reportAgentNotificationPermission();
       window.webContents.send('rhythm:agent-server:status-changed', agentServer?.status ?? externalRuntimeStatus);
       window.webContents.send('hermes:status', hermes.getStatus());
       for (const activation of pendingNativeNotificationActivations.splice(0)) {
         routeNativeNotificationActivation(activation);
       }
     });
+    window.on?.('closed', () => { if (mainWindow === window) clearAgentNotifications(); });
     await window.loadURL(pendingDeepLink ?? 'rhythm://app/index.html#/agents');
-    if (mainWindow !== window || window.isDestroyed()) return;
-    await window.webContents.executeJavaScript('globalThis.Notification.requestPermission()');
     if (mainWindow !== window || window.isDestroyed()) return;
     pendingDeepLink = null;
     };

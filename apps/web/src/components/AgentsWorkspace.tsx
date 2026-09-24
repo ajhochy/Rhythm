@@ -11,6 +11,7 @@ import { Splitter } from './Splitter';
 import { Transcript } from './Transcript';
 import { usePendingDecisions } from '../pending-decisions';
 import type { AgentProject } from '../gateway/sessions';
+import { emitAgentNotification } from '../agentNotifications';
 
 export function AgentsWorkspace() {
   const { selected, sessions, profiles, models, accounts, sessionGatewayMode, saveSessionSettings, connectionMessage: fixtureConnectionMessage, liveSessionError, loading, summarizeSession, prepareLiveSession, startFreshSession, reconnectLiveSession, updateSession: updateFixtureSession, archiveSession, resumeSession, selectSession, notify, resumeGone, liveChildView, closeLiveChildView } = useFixtures();
@@ -31,6 +32,13 @@ export function AgentsWorkspace() {
   const [sessionSettings, setSessionSettings] = useState(false);
   const [prepareOpen, setPrepareOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<AgentProject | null>(null);
+  useEffect(() => {
+    const sync = () => emitAgentNotification({ v: 1, type: 'viewing', sessionId: selected.id || null,
+      displayed: Boolean(selected.id && !loading && !selectedProject && !liveChildView && window.location.hash.startsWith('#/agents')) }, live);
+    sync();
+    window.addEventListener('hashchange', sync);
+    return () => { window.removeEventListener('hashchange', sync); emitAgentNotification({ v: 1, type: 'viewing', sessionId: null, displayed: false }, live); };
+  }, [selected.id, loading, selectedProject, liveChildView, live]);
   useEffect(() => { setSelectedProject(null); }, [selected.id]);
   const [retrying, setRetrying] = useState(false);
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
