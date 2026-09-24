@@ -97,45 +97,55 @@
       "text": "The effective identity is server origin + Rhythm user + default profile + canonical Hermes home + source/capability + auth generation; grants apply only to the matching identity and default profile.",
       "mode": "unit",
       "test": "apps/electron/test/hermes-credential-broker.test.mjs",
-      "test_command": "cd apps/electron && npm test && npm run typecheck",
+      "test_command": "cd apps/electron && node --test test/hermes-credential-broker.test.mjs",
       "status": "pending",
-      "reason": "Implementation not started; test not yet authored."
+      "reason": "S2 broker seam passed synthetic identity and static-key tests; real Electron host wiring remains pending.",
+      "test_file": "apps/electron/test/hermes-credential-broker.test.mjs",
+      "test_id": "issue-1569-s2-c1: identity-scoped grants resolve only approved static keys"
     },
     {
       "criterion_id": "issue-1569-s2-c2",
       "text": "Logout, server-origin change, or Rhythm-user change revokes in-memory application and disposes the owned backend before a different identity can use it; grants take effect at next owned start, and borrowed/non-default backends receive no injection.",
       "mode": "integration",
       "test": "apps/electron/test/hermes-credential-broker.test.mjs",
-      "test_command": "cd apps/electron && npm test && npm run typecheck",
+      "test_command": "cd apps/electron && node --test test/hermes-credential-broker.test.mjs",
       "status": "pending",
-      "reason": "Implementation not started; test not yet authored."
+      "reason": "Broker lifecycle contract authored; real owned-backend lifecycle wiring remains unverified.",
+      "test_file": "apps/electron/test/hermes-credential-broker.test.mjs",
+      "test_id": "issue-1569-s2-c2: identity changes dispose the owned child before new identity use"
     },
     {
       "criterion_id": "issue-1569-s2-c3",
       "text": "Grant changes and key rotation/removal do not claim to erase a key from an already-running child; status and consent disclose pending-next-start behavior and residual secret lifetime until disposal.",
       "mode": "unit",
       "test": "apps/electron/test/hermes-credential-broker.test.mjs",
-      "test_command": "cd apps/electron && npm test && npm run typecheck",
+      "test_command": "cd apps/electron && node --test test/hermes-credential-broker.test.mjs",
       "status": "pending",
-      "reason": "Implementation not started; test not yet authored."
+      "reason": "S2 broker seam passed synthetic next-start and residual-lifetime tests; owned-backend integration remains pending.",
+      "test_file": "apps/electron/test/hermes-credential-broker.test.mjs",
+      "test_id": "issue-1569-s2-c3: revocation reports pending-next-start and residual child lifetime"
     },
     {
       "criterion_id": "issue-1569-s2-c4",
       "text": "S1/S2 tests reject grant IPC from a non-owning sender, subframe, untrusted or mismatched origin, unauthenticated session, malformed or extra-key payload, and any enable/disable mutation not confirmed by a native main-owned dialog bound to that exact mutation; these tests are mandatory even when the optional S6 memory UI/capability remains disabled.",
       "mode": "integration",
-      "test": "apps/electron/test/hermes-accounts.test.mjs; apps/electron/test/hermes-credential-broker.test.mjs",
-      "test_command": "cd apps/electron && node --test test/hermes-accounts.test.mjs test/hermes-credential-broker.test.mjs && npm run typecheck",
+      "test": "apps/electron/test/hermes-credential-broker.test.mjs",
+      "test_command": "cd apps/electron && node --test test/hermes-credential-broker.test.mjs",
       "status": "pending",
-      "reason": "Implementation not started; tests not yet authored."
+      "reason": "Automated test targets the proposed host-adapter seam only; real Electron IPC owning-main-frame/origin/authentication and native-dialog binding remain pending because production wiring is absent.",
+      "test_file": "apps/electron/test/hermes-credential-broker.test.mjs",
+      "test_id": "issue-1569-s2-c4: unsafe sender, payload, or mismatched native confirmation is rejected"
     },
     {
       "criterion_id": "issue-1569-s2-c5",
       "text": "Grant-store writes use a validated temporary file plus atomic rename, set the file to mode 0600 inside a mode 0700 directory, and never expose a partial file. A malformed or corrupt grants file is rejected fail-closed: no grants are applied, status is malformed, and the existing file is never silently replaced.",
       "mode": "unit",
       "test": "apps/electron/test/hermes-credential-broker.test.mjs",
-      "test_command": "cd apps/electron && node --test test/hermes-credential-broker.test.mjs && npm run typecheck",
+      "test_command": "cd apps/electron && node --test test/hermes-credential-broker.test.mjs",
       "status": "pending",
-      "reason": "Implementation not started; atomic-write, permission, and malformed-store tests not yet authored."
+      "reason": "S2 grant-store seam passed synthetic atomic/private/corrupt-store tests; native host integration remains pending.",
+      "test_file": "apps/electron/test/hermes-credential-broker.test.mjs",
+      "test_id": "issue-1569-s2-c5: grants are atomic, private, reference-only, and corrupt stores are preserved"
     },
     {
       "criterion_id": "issue-1569-s3-c1",
