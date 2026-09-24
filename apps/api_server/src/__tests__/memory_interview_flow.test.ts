@@ -140,7 +140,7 @@ describe('simulated interview answers converge via merge-on-capture (#859c AC4)'
         if (ent.isDirectory()) walk(full);
         else if (
           ent.name.endsWith('.md') &&
-          !['index.md', 'log.md'].includes(ent.name.toLowerCase())
+          !['index.md', 'log.md', 'readme.md'].includes(ent.name.toLowerCase())
         ) {
           noteFiles.push(full);
         }

@@ -127,7 +127,7 @@ describe('update resolves by the DB row id the list returns (#886, clean layout)
     expect(rows[0].content).toContain('Edited standing instruction.');
   });
 
-  it('edits a synced note WITHOUT a frontmatter id (pre-#803 note) and backfills a ULID', async () => {
+  it('refuses to edit a synced note without a managed frontmatter id', async () => {
     process.env.MEMORY_VAULT_SUBDIR = '';
     const memoryDir = tempRoot;
 
@@ -139,21 +139,19 @@ describe('update resolves by the DB row id the list returns (#886, clean layout)
       { kind: 'person', tags: [], content: 'AJ Hochhalter (person)' },
     );
 
-    const result = await agentMemoryService.update(
+    const before = readFileSync(path.join(memoryDir, relPath), 'utf8');
+    await expect(agentMemoryService.update(
       dbId,
       { content: 'AJ Hochhalter — worship director at Visalia CRC.' },
       { memoryDir, index },
-    );
-    expect(result).not.toBeNull();
+    )).rejects.toThrow('MEMORY_NOTE_UNMANAGED');
 
-    const onDisk = readFileSync(path.join(memoryDir, relPath), 'utf8');
-    expect(onDisk).toContain('AJ Hochhalter — worship director at Visalia CRC.');
-    // The rewrite must have backfilled a real ULID frontmatter id.
-    expect(onDisk).toMatch(/^id: [0-9A-HJKMNP-TV-Z]{26}$/m);
+    expect(readFileSync(path.join(memoryDir, relPath), 'utf8')).toBe(before);
 
     const rows = await repo.listAsync(undefined, undefined, 100);
     expect(rows).toHaveLength(1);
     expect(rows[0].sourceId).toBe(relPath);
+    expect(rows[0].content).toBe('AJ Hochhalter (person)');
   });
 
   it('unknown id still returns null (404 path preserved)', async () => {
