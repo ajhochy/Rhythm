@@ -730,3 +730,11 @@
 - **Category**: C1 missing runtime contracts.
 - **Root cause**: hidden startup probes omitted outer request policy, real Browser inert bootstrap and full-process persistence.
 - **Repair**: real signed read/draft/native-tools suite, actual Browser navigation and two-phase typed-draft quit/relaunch proof.
+
+## 2026-09-24 — Issue 1558 — Takeover fixture smoke
+
+- Result: fixture smoke pass; packaged runtime not checked.
+- Category: none; zero correctness divergences.
+- Criteria checked manually: c1, c2, c3, c6.
+- Process: wrong initial E16/E20 config corrected; dedicated suites pass.
+- Follow-up: preserve runtime qualification boundaries.

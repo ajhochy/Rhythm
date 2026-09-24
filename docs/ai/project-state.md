@@ -2,69 +2,28 @@
 
 ## Current focus
 
-Open-issue swarm resume on the mega branch: every preserved candidate worktree was
-re-inspected by an independent Codex ledger, each diff was reviewed by the orchestrator, and
-only slices that passed their contract plus fresh verification were integrated, one squashed
-commit per slice. Flutter remains the shipping client; nothing here changes the Electron
-replacement, signed-package, or release gates.
+Claude orchestration takeover completed candidate review after the authorized third repair. Two slices integrated; eight remain excluded. The repair cap is reached. No fourth repair or credential implementation branch starts without AJ revalidating intent.
 
-## Active branch / PR
+## Branch / PR
 
-- `mega/2026-09-18-mobile-electron-hermes` in `.mega-wt/integration`, draft
-  [PR #1544](https://github.com/ajhochy/Rhythm/pull/1544); no merge authorized.
-- Integrated this run (after `e93eac6e` #1547): `9d225f41` #1568 OpenAI usage,
-  `d1662eee` #1552 child-chip CSS, `bcf29c84` #1576 B1 provenance ledger, `ac3faa39` #1581
-  More menu, `810e0b91` #1559 Agent Settings isolation, `0ce3db89` #1575 isolated delegation
-  worktrees, `adfd5c41` 1581 evidence-capture gate. None closes its issue outright.
-- Ledger, evidence and every deferral reason:
-  [run record](runs/2026-09-24-open-issue-swarm-resume.md).
+`mega/2026-09-18-mobile-electron-hermes`, `.mega-wt/integration`, draft [PR #1544](https://github.com/ajhochy/Rhythm/pull/1544). Latest source commits: `2a9855d4` #1558 project-collapse behavior; `76cb29a6` #1579 U1/U2 notification validation/lifecycle. Earlier six swarm slices and #1547 remain intact. No merge or deployment.
 
-## In progress
+## Review outcome
 
-- Deferred candidates are preserved as WIP commits on their own branches (not integrated):
-  #1558 (`37d1bef8`), #1577/PR #1578 (`5e0e93ae`, profile-scope bypass in `prompt()`),
-  #1574/#1573 (`61718027`), #1565 (`18f39c11`), #1491 (`957c73c7`), #1579 (`61d4c171`),
-  #1582 (`f28f2f1b`/`bbf5c65e`), #1572 (`858f7fc2`), #1468 (`932f87cc`), #1569 S0
-  (`08bd238f`, Astra re-review FAIL on five coverage items). Each has its repair cap reached;
-  AJ must revalidate product intent before another repair.
-- #1569 S1/S3/S5 were not branched because S0 is not frozen.
-- Bot Crossing auto-archive candidate untouched (`/private/tmp/bot-crossing-auto-archive`).
+- #1558: selected group expands on mount while preserving stored choices; 49 browser tests passed, 1 live-only skipped. Fixture screenshots reviewed; packaged runtime not qualified.
+- #1579 U1/U2: 53 host and 5 browser tests passed; typecheck/build passed. Native U3/banner/sound/click/OS settings remain untested.
+- Excluded WIP: #1577 `dd8717ad` (invalid engine agent), #1574 `a2581505` (old-port inventory/index-parent-death gaps), #1565 `db4e90a1` (rendered Time unavailable), #1582 `a47ef221` (StrictMode delta duplication), #1572 `9f1b5da2` (valid OpenRouter route suppressed), #1468 `e7a45256` (S1 evidence overclaim), #1569 `c192c8fe` (two contract omissions; S0 unfrozen).
+- #1491 retained dirty on prior `957c73c7`, with durable patch: occupied-composer frame loop and failed Flutter formatting. No Flutter WIP commit because format gate failed.
+- No #1569 S1/S3/S5 branches. Separate #1582 evidence `bbf5c65e` unchanged. Bot Crossing candidate untouched.
 
-## Risks / known issues
+## Evidence and risks
 
-- Manual gates remain for every integrated slice: #1568 G1/G2, #1552 c6 and #1581 c7
-  (packaged Electron renderer), #1575 c4 (child-reported cwd needs a provider credential),
-  #1547 real Google consent + exact PostgreSQL 16.
-- `agent_sessions.upsertResolvedChildSession` now COALESCEs worktree metadata; GitNexus rates
-  the method HIGH impact (resume/fork/create). Repository suite is green; watch child-session
-  resume/fork behaviour in manual smoke.
-- `agent_turn_dispatches` (#1576) is SQLite-only with an FK cascade; no Postgres DDL.
-- Pre-existing failures unrelated to this run: web `splitter.spec.ts:71` (Hermes separator
-  persistence) and four bucket-a rendered cases fail on base too.
-- Environment: never run `npm ci`/`npm install` inside a Rhythm worktree whose `node_modules`
-  are symlinks into the main checkout — it empties the main checkout's tree. Mega now owns a
-  real install; other app dirs in mega still symlink to main.
+Canonical PR gate: all 16 stages passed, exit 0. Standard Electron suite: 168/168 after test-only mock correction `c6cee9e4`. Fresh web build/Electron typecheck and focused suites above passed. Canonical isolated sandbox health ok; engine ready/bridgeLive; runtime shut down. #1574 existing live serving-parent-death test passed, but missing acceptance cases keep it excluded.
 
-## Test status
+No global verification PASS or release qualification. Prior native Facilities render failure, physical audio/iOS, signed/notarized package, provider-backed #1575, #1568 G1/G2, and #1547 real Google/Postgres16 gates remain open. See [prior run](runs/2026-09-24-open-issue-swarm-resume.md) and [takeover ledger](runs/2026-09-24-codex-orchestration-takeover.md) for exact checks, findings, and preserved worktrees.
 
-- Integrated gate on mega `adfd5c41` (`ai-workflow checks --level pr`, 16 stages): 15 ✓ —
-  flutter analyze, dart format, api/mcp tsc, flutter test, api lint, api build, mcp vitest, mcp
-  build, fork typecheck, fork session tests, mobile static/contract/fake-server/web e2e. 1 ✗:
-  api_server serial vitest (6267 passed / 1 failed / 258 skipped) fails only `context_scanner.test.ts › repo self-check` on the untracked,
-  preserved `docs/ai/current-plan-1569.md` (19/19 without it; local-only, CI unaffected) — triaged
-  OUT OF SCOPE, [issue](issues/2026-09-24-context-scanner-self-check-untracked-plan.md).
-- Web on mega: build ✓; default Playwright 486 passed / 1 failed (pre-existing
-  `splitter.spec.ts:71`, fails on base too) / 86 skipped; bucket-a 11/15 (same 4 fail on base);
-  Electron renderer slices 25 passed / 1 skipped; 1581 contract 15/15; 1559 contract 37/37.
-- Live (sandbox from mega, synthetic fixture): #1568 credential-envelope test ✓ on a dedicated
-  :6098 sandbox; #1575 non-git rejection ✓, child-reports-cwd timed out (no provider credential),
-  server-side worktree creation visible in the sandbox log. `/health` ok, `/opencode/health`
-  ready + bridgeLive.
-- Focused suites: 1568 32/32, 1576 13/13, 1575 7/7 + repository 28/28, mcp 1/1, 1582 reducer 33/33
-  and 1565 10/10 (both deferred anyway).
+Unrelated dirty integration docs remain untouched. The moved #1569 plan remains untracked until a future approved S0 freeze. Evidence is retained at `/Users/ajhochhalter/Documents/rhythm-orchestration-evidence/2026-09-24-takeover/`.
 
-## Next step
+## Next checkpoint
 
-Manual smoke of the draft PR candidate (checklist in the PR body and
-`docs/testing/manual-smoke.md`), then AJ decides which deferred candidates get a revalidated
-repair. Merge is manual only.
+Accepted slices passed local gates and are being published to the draft PR; pushed-head CI is tracked there. AJ revalidates any fourth repair and separately authorizes native qualification. Worktree cleanup and merge remain manual.
