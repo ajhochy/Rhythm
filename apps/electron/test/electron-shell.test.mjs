@@ -114,7 +114,7 @@ test('directory-picker: actual preload adds only a no-payload selectDirectory ca
       assert.equal(name, 'electron');
       return {
         contextBridge: { exposeInMainWorld: (key, value) => { assert.equal(key, 'rhythmShell'); bridge = value; } },
-        ipcRenderer: { sendSync: () => 'https://example.invalid', invoke: async (...args) => { calls.push(args); return '/selected/project'; } },
+        ipcRenderer: { on() {}, sendSync: () => 'https://example.invalid', invoke: async (...args) => { calls.push(args); return '/selected/project'; } },
       };
     },
     process: { argv: [], env: {}, platform: 'darwin' },
