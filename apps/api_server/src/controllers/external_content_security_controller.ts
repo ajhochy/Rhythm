@@ -120,6 +120,7 @@ export const SECURITY_ACTION_TOOLS = new Map<string, string>([
   ['delegation.start', 'rhythm_delegate'],
   ['delegation.start-async', 'rhythm_delegate_async'],
   ['delegation.cancel', 'rhythm_delegation_cancel'],
+  ['session.prompt', 'rhythm_prompt_session'],
   ['notification.send', 'rhythm_notify'],
   ['scheduled-task.create', 'rhythm_create_scheduled_task'],
   ['scheduled-task.cancel', 'rhythm_cancel_scheduled_task'],

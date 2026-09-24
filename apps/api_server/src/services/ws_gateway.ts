@@ -330,6 +330,7 @@ export async function handleCommandFrame(
 export async function handleInputFrame(
   ws: WebSocket,
   msg: Record<string, unknown>,
+  trustedTurn?: { agent?: string | null },
 ): Promise<void> {
   const id = msg.id as string | undefined;
 
@@ -404,6 +405,13 @@ export async function handleInputFrame(
   // to the named agent. Absent → SDK uses its default (build).
   const perTurnAgent = typeof msg.agent === 'string' && msg.agent.length > 0
     ? msg.agent
+    : null;
+  // Server-only scope override for callers that already resolved a stored
+  // Rhythm profile. This is deliberately separate from the client frame so a
+  // request cannot self-assert trusted profile scope or replace engine
+  // identity.
+  const trustedScopeAgent = typeof trustedTurn?.agent === 'string' && trustedTurn.agent.length > 0
+    ? trustedTurn.agent
     : null;
 
   if (!id || typeof data !== 'string') {
@@ -499,7 +507,7 @@ export async function handleInputFrame(
   // happen BEFORE any createSession call so the mcpRoleConfig is available for
   // init-time scoping. Non-fatal: a missing/unknown profile id returns null
   // mcpRoleConfig (no restriction).
-  const scopeAgentId = perTurnAgent ?? agentKind ?? null;
+  const scopeAgentId = trustedScopeAgent ?? perTurnAgent ?? agentKind ?? null;
   if (scopeAgentId) {
     try {
       const configsRepo = new AgentConfigsRepository();
@@ -535,7 +543,7 @@ export async function handleInputFrame(
     try {
       const { resolveModelForSessionTurn } = await import('./agent_model_resolver');
       resolvedTurnModel = await resolveModelForSessionTurn({
-        agentId: agentKind,
+        agentId: trustedScopeAgent ?? agentKind,
         sessionProviderId,
         sessionModelId,
         perTurnOverride,
@@ -844,7 +852,9 @@ export async function handleInputFrame(
         `[ws_gateway] session ${id}: enabling reasoning via reasoningConfig.budgetTokens=${effectiveThinkingBudget}`,
       );
     }
-    // P2: Resolve `agent` with precedence: per-turn override > profile ocAgent > none.
+    // P2: Resolve the OpenCode engine `agent` independently from profile scope.
+    // A client per-turn override still wins. Both ordinary and server-trusted
+    // profile turns use ocAgent; the row's provider kind is not an engine mode.
     // Per docs/ai/decisions/2026-06-24-sdk-per-session-system-prompt.md:
     //   profile.ocAgent is an opencode *mode* ('build'/'plan'/etc.), NOT the Rhythm
     //   provider kind — forwarding it is safe and different from the #738 guardrail.
@@ -1068,6 +1078,10 @@ export async function handleInputFrame(
       // (illegal_transition, ignored) when the hook already committed
       // reserved -> dispatched.
       await markRunEnrollmentPreDispatchFailed(perTurnRunEpisodeId!).catch(() => {});
+    }
+    if (!promptOk) {
+      ws.send(JSON.stringify({ v: 1, type: 'error', id, message: 'Could not enqueue prompt in Opencode engine.' }));
+      return;
     }
 
     // #929 — evaluateHarvestedDrafts() is NOT called here. `promptFn`

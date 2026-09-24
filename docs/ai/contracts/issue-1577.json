@@ -1,0 +1,100 @@
+{
+  "issue": 1577,
+  "date": "2026-09-24",
+  "test_command": "npx vitest run src/__tests__/issue_1577_prompt_existing_session.test.ts src/__tests__/issue_1577_agent_local_auth.test.ts src/__tests__/issue_1577_audit_legacy_outcome.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1577-c1",
+      "text": "Plain authenticated HTTP ignores callerSdkSessionId/callerSessionId/source claims and records source=http, null caller sessions, and req.auth user.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1577_prompt_existing_session.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1577-c2",
+      "text": "POST prompt and GET prompt-log require authentication even under AGENT_LOCAL.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1577_agent_local_auth.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1577-c3",
+      "text": "MCP forwards signed trustedCall without agent and API derives attribution only from a verified rhythm_prompt_session proof bound to route and arguments.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1577_prompt_existing_session.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1577-c4",
+      "text": "Present but invalid, null, route-mismatched, or replayed MCP proof is rejected with 403; an absent trustedCall is ordinary authenticated HTTP.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1577_prompt_existing_session.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1577-c5",
+      "text": "Agent prompt injection attempts are immutable for UPDATE and DELETE; a settlement is inserted only once and is readable.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1577_prompt_existing_session.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1577-c6",
+      "text": "promptAsync false emits the compatible gateway error, returns 502, and records a rejected outcome.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1577_prompt_existing_session.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1577-c7",
+      "text": "The env-gated live E2E covers real MCP attribution and delivery, HTTP override rejection, profile persistence, and a deleted-engine 502 with immutable rejected outcome; resumable reattach, signed malicious override through real MCP, and live skill-use measurement remain required sub-scenarios.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/issue_1577_prompt_existing_session_live_e2e.test.ts",
+      "status": "UNVERIFIED",
+      "reason": "Repair4 real MCP/API/engine test passed signed delivery, restricted profile/SDK preservation, forged HTTP attribution and immutable engine rejection. UNVERIFIED: resumable reattachment, signed malicious override via real MCP, live skill-use measurement."
+    },
+    {
+      "criterion_id": "issue-1577-c8",
+      "text": "MCP exposes exactly approval_id,prompt,sessionId, forwards its signed no-agent envelope and sends no request when trusted context is missing.",
+      "mode": "unit",
+      "test": "apps/mcp_server/src/__tests__/agentSessions_tool.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1577-c9",
+      "text": "With distinct stored profileId and opencodeAgentId values, signed and HTTP agent overrides are rejected before audit or dispatch; a no-agent prompt applies the stored profile's empty MCP and skill scopes while dispatching with the stored profile's valid OpenCode mode and unchanged SDK session.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1577_prompt_existing_session.test.ts",
+      "status": "pass",
+      "reason": "Repair4: valid stored ocAgent and configured model regression RED then GREEN; focused13pass; real MCP/API/engine signed delivery and restricted profile/SDK preservation pass. See 2026-09-24-pr1578-repair4.md."
+    },
+    {
+      "criterion_id": "issue-1577-c10",
+      "text": "False promptAsync returns 502 with immutable rejected outcome and matching skill uses 0; positive accepted control increments uses to 1.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1577_prompt_existing_session.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1577-c11",
+      "text": "Settlement returns a typed conflict for accepted or errored legacy rows that lack an outcomes-table row, inserts no contradictory outcome, and listForSession preserves the legacy terminal value.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/issue_1577_audit_legacy_outcome.test.ts",
+      "status": "pass",
+      "reason": ""
+    }
+  ],
+  "not_tested": [
+    "issue-1577-c7"
+  ],
+  "tracking_note": "Legacy filename retained; describes prompt-session PR #1578, not frontend PR #1577."
+}

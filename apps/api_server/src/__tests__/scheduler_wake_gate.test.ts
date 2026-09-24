@@ -124,6 +124,17 @@ const DAILY_TASK = {
 describe('scheduler wake gate', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Pin the clock. The cases below build `nextRunAt` as "now minus N" against
+    // DAILY_TASK's 06:00 America/Los_Angeles schedule, so on a real clock they
+    // straddle that boundary between 06:00 and 06:20 PT: the occurrence
+    // FOLLOWING the missed one is then already in the past, isMissedRunStale
+    // returns true, and the run is correctly skipped — failing assertions that
+    // expect it to fire. That is a 20-minute window in which this file fails
+    // every day on any branch (observed on CI at 06:08 PT, 2026-09-22); the
+    // scheduler logic under test is fine. Only Date is faked — the job's own
+    // setInterval must keep running for `job.boot` to settle.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-22T20:00:00.000Z')); // 13:00 PDT
     mockRun.mockResolvedValue({ status: 'done', sessionId: 'ses_1' });
     mockListMcp.mockResolvedValue({});
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });

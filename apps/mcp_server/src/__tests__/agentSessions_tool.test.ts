@@ -67,6 +67,9 @@ function makeFetchSpy(body: unknown) {
         json: async () => ({ taintId: "test-taint" }),
       });
     }
+    if (url.endsWith("/agent-approvals/consume")) {
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ allowed: true }) });
+    }
     calls.push(url);
     return Promise.resolve({ ok: true, status: 200, json: async () => body });
   });
@@ -93,6 +96,27 @@ const SECURITY_EXTRA = {
       turnId: "turn-session-tool-test",
       agentName: "org-optimizer",
       toolCallId: "call-session-tool-test",
+    },
+  },
+};
+
+const SIGNED_SECURITY_EXTRA = {
+  _meta: {
+    [RHYTHM_SECURITY_CONTEXT_META_KEY]: {
+      sdkSessionId: "sdk-session-tool-test",
+      turnId: "turn-session-tool-test",
+      agentName: "org-optimizer",
+      toolCallId: "call-session-tool-test",
+      proof: {
+        version: 1 as const,
+        algorithm: "Ed25519" as const,
+        keyId: "fixture-key",
+        issuedAt: Date.now(),
+        nonce: "fixture-nonce",
+        toolName: "rhythm_prompt_session",
+        argumentsHash: "fixture-hash",
+        signature: "fixture-signature",
+      },
     },
   },
 };
@@ -287,5 +311,41 @@ describe("issue-806: rhythm_list_sessions lists sessions from the local agent ba
     // But no approval-gate taint was recorded for this read.
     expect(taintCalls).toHaveLength(0);
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe("issue-1577: rhythm_prompt_session trusted envelope", () => {
+  beforeEach(() => vi.unstubAllGlobals());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("issue-1577-c8: forwards the current signed envelope and never sends a prompt without trusted context", async () => {
+    // Regression: sending bare model args makes the API treat untrusted data as
+    // an MCP identity; missing context must fail closed before any HTTP request.
+    const { fn, calls } = makeFetchSpy({ accepted: true });
+    vi.stubGlobal("fetch", fn);
+    const { server, tools } = makeStubServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerAgentSessionTools(server as any, AGENT_URL, AGENT_TOKEN);
+    const args = { sessionId: "target-session", prompt: "signed instruction", approval_id: "approved" };
+    // Regression: an agent override in the public tool schema bypasses the target's stored profile.
+    expect(Object.keys(tools.get("rhythm_prompt_session")!.shape).sort()).toEqual(["approval_id", "prompt", "sessionId"]);
+
+    const signed = await tools.get("rhythm_prompt_session")!.handler(args, SIGNED_SECURITY_EXTRA);
+    expect(signed.isError).toBeUndefined();
+    expect(calls).toHaveLength(1);
+    const request = (fn.mock.calls.find(([url]) => url.endsWith('/agent-sessions/target-session/prompt'))![1] as RequestInit);
+    expect(JSON.parse(String(request.body))).toEqual({
+      trustedCall: expect.objectContaining({
+        context: expect.objectContaining({ sdkSessionId: "sdk-session-tool-test" }),
+        arguments: args,
+      }),
+    });
+
+    calls.length = 0;
+    const fetchCount = fn.mock.calls.length;
+    const missing = await tools.get("rhythm_prompt_session")!.handler(args, undefined);
+    expect(missing.isError).toBe(true);
+    expect(calls).toHaveLength(0);
+    expect(fn).toHaveBeenCalledTimes(fetchCount);
   });
 });
