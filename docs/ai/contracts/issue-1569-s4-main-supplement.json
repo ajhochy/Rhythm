@@ -1,0 +1,134 @@
+{
+  "issue": 1569,
+  "contract_id": "issue-1569-s4-main-supplement",
+  "generated": "2026-09-24",
+  "parent_contract": "docs/ai/contracts/issue-1569.json",
+  "original_criteria_count": 28,
+  "original_contract_sha256": "e855ea99936536158412e7881e54b41fac94715f2d671721518cf38dc2ded749",
+  "scope": "Main broker/adapter/auth lifecycle S4-W1-W4,W6,W7 only; production main/view/preload wiring and fork/UI/live campaign remain required separately.",
+  "criteria": [
+    {
+      "criterion_id": "S4-W1a",
+      "text": "actual Rhythm document is accepted without pretending it is the API origin",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-main-contract.test.mjs",
+      "test_id": "S4-W1a actual Rhythm document is accepted without pretending it is the API origin",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-W2a",
+      "text": "stale sender copies do not substitute for fresh post-dialog authority",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-main-contract.test.mjs",
+      "test_id": "S4-W2a stale sender copies do not substitute for fresh post-dialog authority",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-W1b",
+      "text": "main adapter rejects non-owning documents and closed-payload violations",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-main-contract.test.mjs",
+      "test_id": "S4-W1b main adapter rejects non-owning documents and closed-payload violations",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-W2b",
+      "text": "navigation or auth change during native confirmation leaves consent unchanged",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-main-contract.test.mjs",
+      "test_id": "S4-W2b navigation or auth change during native confirmation leaves consent unchanged",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-W4",
+      "text": "provider statuses distinguish consent from observed child application without secrets",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-main-contract.test.mjs",
+      "test_id": "S4-W4 provider statuses distinguish consent from observed child application without secrets",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-W6a",
+      "text": "attempts accept only their own successful names and clear applied state on exit",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-main-contract.test.mjs",
+      "test_id": "S4-W6a attempts accept only their own successful names and clear applied state on exit",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-W6b",
+      "text": "expired attempts cannot rearm through late environment resolution",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-main-contract.test.mjs",
+      "test_id": "S4-W6b expired attempts cannot rearm through late environment resolution",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-W7a",
+      "text": "revocation reports retention until the owned child exits",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-main-contract.test.mjs",
+      "test_id": "S4-W7a revocation reports retention until the owned child exits",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-W7b",
+      "text": "identity disposal can await exit receipts without a broker queue deadlock",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-main-contract.test.mjs",
+      "test_id": "S4-W7b identity disposal can await exit receipts without a broker queue deadlock",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-W7c",
+      "text": "disposal failure blocks new starts rather than claiming revocation",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-main-contract.test.mjs",
+      "test_id": "S4-W7c disposal failure blocks new starts rather than claiming revocation",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-W7d",
+      "text": "identity change blocks in-flight starts until owned disposal settles",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-main-contract.test.mjs",
+      "test_id": "S4-W7d identity change blocks in-flight starts until owned disposal settles",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-W3a",
+      "text": "auth generation survives document reload and validated encrypted session restore",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-auth-contract.test.mjs",
+      "test_id": "S4-W3a auth generation survives document reload and validated encrypted session restore",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-W3b",
+      "text": "restored invalid auth and fresh login cannot reuse prior consent generation",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-auth-contract.test.mjs",
+      "test_id": "S4-W3b restored invalid auth and fresh login cannot reuse prior consent generation",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-W3c",
+      "text": "restore refuses another server and cannot derive generation from session token",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-auth-contract.test.mjs",
+      "test_id": "S4-W3c restore refuses another server and cannot derive generation from session token",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-W3d",
+      "text": "no encryption or corrupt stored bytes cannot restore sharing authority",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-auth-contract.test.mjs",
+      "test_id": "S4-W3d no encryption or corrupt stored bytes cannot restore sharing authority",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [],
+  "verification_boundary": "Supplemental helper/adapter tests passed using real S1/S2 and synthetic boundaries. Actual main.mjs/view/preload wiring, fork receipt provenance, Accounts UI and packaged live S7 remain unverified. Original 28 criteria are unchanged; supplemental pass does not close them."
+}

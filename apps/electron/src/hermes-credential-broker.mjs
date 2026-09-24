@@ -136,19 +136,23 @@ function mutationShape(payload) {
 }
 
 /** Main-owned IPC adapter seam. The caller must supply verified sender facts and a native dialog. */
-/** @param {{sender:any,payload:any,context:any,confirmNative:(mutation:any)=>Promise<boolean>}} request */
-export async function validateGrantMutationRequest({ sender, payload, context, confirmNative }) {
+/** @param {{sender:any,payload:any,context:any,confirmNative:(mutation:any)=>Promise<boolean>,trustedDocumentUrl?:string,revalidate?:()=>boolean}} request */
+export async function validateGrantMutationRequest({ sender, payload, context, confirmNative, trustedDocumentUrl, revalidate }) {
   try {
+    const validDocument = trustedDocumentUrl === undefined
+      ? new URL(sender?.senderUrl).origin === context?.serverOrigin
+      : trustedDocumentUrl === 'rhythm://app/index.html' &&
+        /^rhythm:\/\/app\/index\.html(?:#.*)?$/.test(sender?.senderUrl ?? '')
     if (!sender?.authenticated || !sender.ownsDocument || !sender.isMainFrame ||
         !mutationShape(payload) || !identity(context) || typeof confirmNative !== 'function' ||
         typeof sender.senderUrl !== 'string' || sender.senderUrl.length > 2048 ||
         sender.trustedOrigin !== context.serverOrigin ||
-        new URL(sender.senderUrl).origin !== context.serverOrigin) return { accepted: false }
+        !validDocument || (revalidate !== undefined && (typeof revalidate !== 'function' || !revalidate()))) return { accepted: false }
     const initialIdentity = identityKey(context)
     const initialSender = JSON.stringify(sender)
     const exact = Object.freeze({ action: payload.action, source: payload.source, provider: payload.provider })
     const confirmed = (await confirmNative(exact)) === true
-    const accepted = confirmed && mutationShape(payload) &&
+    const accepted = confirmed && (revalidate === undefined || revalidate()) && mutationShape(payload) &&
       payload.action === exact.action && payload.source === exact.source && payload.provider === exact.provider &&
       identityKey(context) === initialIdentity && JSON.stringify(sender) === initialSender
     return accepted ? { accepted: true, mutation: exact } : { accepted: false }
@@ -197,7 +201,9 @@ export function createHermesCredentialBroker({ grantsPath, osHome, hermesHome, g
     const store = readStore(grantsPath)
     const key = identityKey(context)
     const configured = Boolean(matches(context) && store.grants.some((grant) => JSON.stringify(grant.identity) === key))
-    return { grants: { state: store.state }, lifecycle: applied === key &&
+    return { grants: { state: store.state }, providers: Object.fromEntries(Object.keys(PROVIDERS).map((provider) => [provider, {
+      grantEnabled: Boolean(matches(context) && store.grants.some((grant) => JSON.stringify(grant.identity) === key && grant.provider === provider)),
+    }])), lifecycle: applied === key &&
       (mayRetain || appliedGeneration !== generation) ? 'pending-next-start' :
       applied === key && configured ? 'applied' : configured ? 'configured' : 'absent',
     childMayRetainCredential: mayRetain && applied === key }
@@ -246,7 +252,8 @@ export function createHermesCredentialBroker({ grantsPath, osHome, hermesHome, g
         const env = {}
         for (const grant of selected) {
           const name = PROVIDERS[/** @type {keyof typeof PROVIDERS} */ (grant.provider)]
-          if (typeof keys[name] === 'string' && readiness.sources.hermesAuth.state !== 'unknown' &&
+          if (typeof keys[name] === 'string' && ['present', 'absent'].includes(readiness.sources.hermesAuth.state) &&
+              ['present', 'absent'].includes(readiness.sources.hermesEnv.state) &&
               !['present', 'shadowed'].includes(readiness.providers[grant.provider]?.state)) env[name] = keys[name]
         }
         if (Object.keys(env).length) pending = { identity: key, generation }
