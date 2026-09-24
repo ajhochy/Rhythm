@@ -22,4 +22,4 @@ Candidate ownership/manager/routes tests: 62 passed; API build passed. Parent in
 
 ## Notes
 
-Tests use disposable fake Engraph executables and actual OS child processes. They do not qualify the installed Engraph binary or the complete native feature. A full integrated API rerun is still required; the previous aggregate failure must not be relabeled as passed solely from focused results.
+Tests use disposable fake Engraph executables and actual OS child processes. They do not qualify the installed Engraph binary or the complete native feature. The subsequent full integrated `npm test` passed 6329 tests, with 264 skipped, across 676 passing files (137 skipped), in 173.26 seconds. Parent API build passed. Log: `engraph-probe-integrated-api-full.log` in the repair4 evidence directory. This is a new passing aggregate receipt, not a reinterpretation of the earlier failure. GitNexus staged detection returned no changes despite the staged files, so its stale index did not establish affected scope.

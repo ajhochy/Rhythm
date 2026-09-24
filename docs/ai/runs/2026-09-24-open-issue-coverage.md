@@ -10,15 +10,15 @@ tags: [run, rhythm]
 
 # Rhythm mega PR: all open issue coverage
 
-Snapshot: 2026-09-24; 91 open issues from live GitHub. PR #1544 remote head `d0669ca47f92749a9a8f8f3a8cf0bee15e2005ea`. Local branch includes additional fixes through `5416d49e`; new-head CI is pending. The latest combined gate had one engine cancellation timeout, followed by a passing exact-stage replay; S1/S5 scoped checks passed. Remote CI has one server-test failure, addressed locally by #1500; the other displayed checks pass.
+Snapshot: 2026-09-24; 91 open issues from the GitHub inventory taken during this run. PR #1544 remote head `dcbc9e43`; local branch includes the Colony artifact resolver `b4b24d56`, Hermes grant broker foundation `98550b60`, and memory CI compatibility repair `3584d7dc`. Remote server CI failed three memory tests; all three pass in the latest integrated API run, which has one separate Engraph identity failure (6325 passed, 264 skipped). Its repair is now integrated in `4893d12b`; the subsequent full API suite passed 6329 tests with 264 skipped. The prior combined gate remains 15/16, with the failed engine stage passing on replay; this is not full-gate acceptance.
 
 **This PR does not yet complete all 91 issues.** The labels below distinguish included source from full acceptance. All work is now requested for the mega PR, but authorization is not implementation. “Not mapped” means no accepted implementation or active task was identified; it does not claim the repository has no related code.
 
 | State | Issues |
 |---|---:|
 | Implemented in PR and marked to close | 12 |
-| Implementation exists; partial acceptance or completion not yet established | 27 |
-| Active repair, not yet integrated | 2 |
+| Implementation exists; partial acceptance or completion not yet established | 28 |
+| Active repair, not yet integrated | 1 |
 | Concrete plan or queued repair; not implemented in PR | 13 |
 | Not currently mapped to an accepted implementation or active slice | 37 |
 
@@ -52,7 +52,7 @@ The 12 formal closing references describe the PR author’s completion intent, n
 | [#1575](https://github.com/ajhochy/Rhythm/issues/1575) | Async delegation: child sessions inherit the manager cwd; worktree is prose-only, so correctness depends on model judgment | Child worktree isolation integrated; provider-backed child cwd proof remains. |
 | [#1571](https://github.com/ajhochy/Rhythm/issues/1571) | memory: api_server default vault still points at the stale ~/Documents/Memory-Vault — Electron spawn path never got #885's env wiring | Vault default changed in 788e7ccc; existing implementation. |
 | [#1568](https://github.com/ajhochy/Rhythm/issues/1568) | OpenAI usage budget is reachable: Codex plan windows come from GET /backend-api/wham/usage, not the platform API | Usage backend integrated; real account/UI qualification remains. |
-| [#1565](https://github.com/ajhochy/Rhythm/issues/1565) | Timestamps render as raw UTC ISO strings across the Electron renderer; no shared formatter | Local formatter integrated; new local-API browser proxy now passes 2/2, not yet committed; other surfaces/native remain. |
+| [#1565](https://github.com/ajhochy/Rhythm/issues/1565) | Timestamps render as raw UTC ISO strings across the Electron renderer; no shared formatter | Local formatter integrated; local-API browser proxy committed in 13cbacf3 and passes 2/2; other surfaces/native remain. |
 | [#1559](https://github.com/ajhochy/Rhythm/issues/1559) | Electron Agent Settings: one failed request hides all seven sections, including the offline-capable ones | Per-section failures isolated; keyboard/screen-reader follow-up remains. |
 | [#1558](https://github.com/ajhochy/Rhythm/issues/1558) | Electron Agents: project groups should load collapsed and remember their state | Project expand/persistence fix integrated; installed smoke remains. |
 | [#1552](https://github.com/ajhochy/Rhythm/issues/1552) | Transcript: delegated-task card wraps its title one word per line (child-chip grid has 3 columns, markup has 2) | Child-card grid fixed; installed smoke remains. |
@@ -69,16 +69,16 @@ The 12 formal closing references describe the PR author’s completion intent, n
 | [#1491](https://github.com/ajhochy/Rhythm/issues/1491) | Webhook triggers lose payload and only offer Start Secretary | Draft-preserving webhook handoff integrated; installed Flutter smoke remains. Current CI Postgres bootstrap passed. |
 | [#1468](https://github.com/ajhochy/Rhythm/issues/1468) | Gemini requests rejected: >512 function declarations sent (19 dead sessions since 2026-07-02) | Existing Gemini deferred-tool fix supported by synthetic 605-tool capture; no new change or Google-account proof. |
 | [#1373](https://github.com/ajhochy/Rhythm/issues/1373) | OCU-35B/use-case-1: Cloudflare relay for Tailscale-free mobile session connectivity | Relay implemented with earlier connected-phone evidence; current build/off-LAN qualification remains. |
-| [#1574](https://github.com/ajhochy/Rhythm/issues/1574) | Engraph backend leaks processes: 21 stray 'engraph serve' instances accumulated over a week | Local integrated commit efe77109: 59 focused tests and 2 real-process fixture tests pass; real Engraph/native qualification remains. |
+| [#1574](https://github.com/ajhochy/Rhythm/issues/1574) | Engraph backend leaks processes: 21 stray 'engraph serve' instances accumulated over a week | Ownership cleanup efe77109 plus startup proof repair 4893d12b: 62 focused tests, API build and full API suite (6329 passed/264 skipped) passed; real Engraph/native qualification remains. |
 | [#1500](https://github.com/ajhochy/Rhythm/issues/1500) | Flaky: workflow_failure_signal_extractor stale-redo test fails on same-tick createdAt (issue-933-c7) | Local integrated commit b9c6150b: deterministic same-timestamp ordering; 66 focused tests pass. Backend gate passed; new-head CI pending. |
-| [#1569](https://github.com/ajhochy/Rhythm/issues/1569) | Hermes + Rhythm: share credentials and memory behind one AI settings screen | S1 credential reader and S5 memory safety are locally integrated (180 Electron tests, 314 memory tests, builds/typecheck passed). Grants, IPC/UI, shared-memory access and final live qualification remain unfinished. |
+| [#1569](https://github.com/ajhochy/Rhythm/issues/1569) | Hermes + Rhythm: share credentials and memory behind one AI settings screen | S1 reader, S2 grant broker and S5 memory safety/CI repair are integrated foundations (latest Electron 232/232; focused memory 329/329). S3 child environment is accepted locally in companion fork d14e280dbf. Main IPC, Accounts UI, actual credential consumption, shared-memory access and final live qualification remain unfinished. |
+| [#1527](https://github.com/ajhochy/Rhythm/issues/1527) | [COL-02] Verify the Colony artifact and add the isolated embedded bridge | Resolver foundation integrated in b4b24d56: 37 focused cases passed. Private service candidate has 11 passing cases; shared standalone extraction, child IPC, scene/frame isolation and actual tab remain unfinished. |
 
 ## Active repair, not yet integrated
 
 | Issue | Title | Current evidence / remaining work |
 |---|---|---|
 | [#1526](https://github.com/ajhochy/Rhythm/issues/1526) | [COL-01] Pin upstream Colony source and emit a sealed embedded artifact | Upstream artifact builder passed parent replay (4 builder plus 185 existing tests). Candidate remains dirty/unpinned; private IPC host and Rhythm tab still pending. |
-| [#1527](https://github.com/ajhochy/Rhythm/issues/1527) | [COL-02] Verify the Colony artifact and add the isolated embedded bridge | Artifact resolver implementation active against 33 contract cases. Private child IPC, scene isolation, native-frame and chunk/state behavior remain pending. |
 
 ## Concrete plan or queued repair; not implemented in PR
 
