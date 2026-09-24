@@ -1,0 +1,13 @@
+{
+  "issue": 1574,
+  "date": "2026-09-24",
+  "test_command": "cd apps/api_server && TMPDIR=/private/tmp/rhythm-repair4-engraph-test npx vitest run --maxWorkers=1 src/__tests__/engraph_manager.test.ts src/__tests__/issue_1574_engraph_ownership.test.ts && npx tsc --noEmit -p tsconfig.json && npm run build",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "issue-1574-c1", "text": "manager startup reuses only the current verified owner, transfers to owned startup after that owner stops, refuses unmarked verified strays, and never signals a foreign or unmarked process", "mode": "integration", "test": "apps/api_server/src/__tests__/issue_1574_engraph_ownership.test.ts", "status": "pass" },
+    { "criterion_id": "issue-1574-c2", "text": "serve and index children are recorded and supervised by detached relays; reservations remain while recorded children are live; clean shutdown reaps the exact owned process group", "mode": "live", "test": "apps/api_server/src/__tests__/live_e2e_issue_1574_engraph_process.test.ts", "status": "UNVERIFIED", "reason": "The env-gated fake-CLI test verified index parent-death cleanup; real API/engine/sandbox/native qualification remains outside this acceptance-only run" },
+    { "criterion_id": "issue-1574-c3", "text": "status reports every discovered live backend, including unhealthy owned and verified foreign/legacy strays, with per-entry classification and action", "mode": "integration", "test": "apps/api_server/src/__tests__/issue_1574_engraph_ownership.test.ts", "status": "pass" },
+    { "criterion_id": "issue-1574-c4", "text": "document a safe diagnostic/cleanup command rather than executing cleanup on AJ's machine", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "Documentation wording and no real cleanup execution require review" }
+  ],
+  "not_tested": ["issue-1574-c2", "issue-1574-c4"]
+}

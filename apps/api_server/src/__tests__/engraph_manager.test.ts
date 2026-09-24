@@ -260,7 +260,11 @@ describe('EngraphManager — process ownership + command construction', () => {
     rmSync(vaultDir, { recursive: true, force: true });
   });
 
-  function makeManager(overrides: Partial<{ execFileImpl: ReturnType<typeof vi.fn>; fetchImpl: ReturnType<typeof vi.fn> }> = {}) {
+  function makeManager(overrides: Partial<{
+    execFileImpl: ReturnType<typeof vi.fn>;
+    fetchImpl: ReturnType<typeof vi.fn>;
+    processListSync: ReturnType<typeof vi.fn>;
+  }> = {}) {
     const configStore = new EngraphManagerConfigStore(join(dir, 'config.json'));
     const spawned: FakeChildProcess[] = [];
     const spawnFn = vi.fn(() => {
@@ -274,6 +278,7 @@ describe('EngraphManager — process ownership + command construction', () => {
       configStore, spawnFn: spawnFn as unknown as typeof import('node:child_process').spawn,
       execFileImpl: execFileImpl as unknown as EngraphManagerDeps['execFileImpl'],
       fetchImpl: fetchImpl as unknown as typeof fetch,
+      processListSync: overrides.processListSync as unknown as EngraphManagerDeps['processListSync'],
       homeDir: join(dir, 'engraph-home'),
     });
     return { manager, configStore, spawnFn, execFileImpl, fetchImpl, spawned };
@@ -400,11 +405,38 @@ describe('EngraphManager — process ownership + command construction', () => {
     expect(result.ok).toBe(false);
     expect(configStore.read().lastFailureCategory).toBe('permission_denied');
   });
+
+  it('getStatus() reads the process table exactly once', () => {
+    const processListSync = vi.fn().mockReturnValue([]);
+    const { manager } = makeManager({ processListSync });
+    manager.getStatus();
+    expect(processListSync).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('anti-#1124 structural guarantee', () => {
-  it('engraph_manager.ts never calls process.kill (only ever kills its own tracked ChildProcess handle)', () => {
+  it('engraph_manager.ts allows only verified owned process-group escalation', () => {
     const source = readFileSync(join(__dirname, '..', 'services', 'engraph_manager.ts'), 'utf8');
-    expect(source).not.toMatch(/\bprocess\.kill\(/);
+    // Blanket guard: an OS-level kill target must be either a liveness-only
+    // probe or one of the marker-gated identities. A future exact-list update
+    // must not be able to bless an arbitrary PID variable or literal.
+    const globalKillTargets = [...source.matchAll(/\bprocess\.kill\(\s*([^,\n)]+)/g)]
+      .map((match) => match[1].trim());
+    expect(globalKillTargets.filter((target) => ![
+      'expected.pid',
+      '-marker.relay!.pid',
+      'marker.child!.pid',
+      '-child.pid!',
+    ].includes(target))).toEqual([]);
+    expect(source).not.toMatch(/\b(?:execFileSync|execFile|spawn)\(\s*['"`]\/?(?:usr\/)?bin\/kill\b/);
+    expect(source.match(/\bprocess\.kill\([^)]*\)/g)).toEqual([
+      'process.kill(expected.pid, 0)',
+      "process.kill(-marker.relay!.pid, 'SIGTERM')",
+      "process.kill(marker.child!.pid, 'SIGTERM')",
+      "process.kill(-marker.relay!.pid, 'SIGKILL')",
+      "process.kill(marker.child!.pid, 'SIGKILL')",
+      "process.kill(-child.pid!, 'SIGKILL')",
+      "process.kill(marker.child!.pid, 'SIGKILL')",
+    ]);
   });
 });
