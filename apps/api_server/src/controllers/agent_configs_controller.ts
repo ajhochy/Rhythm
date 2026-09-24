@@ -427,6 +427,25 @@ export class AgentConfigsController {
       if (!existing) throw AppError.notFound('AgentConfig');
 
       const body = req.body as Record<string, unknown>;
+      const revisioned = Object.prototype.hasOwnProperty.call(body, 'expectedRevision');
+      const expectedRevision = revisioned ? body.expectedRevision : undefined;
+      if (revisioned) {
+        if (typeof expectedRevision !== 'number' || !Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
+          throw AppError.badRequest('expectedRevision must be a non-negative safe integer');
+        }
+        // Closed revisioned edit DTO; older clients retain their existing
+        // permissive handling when they omit expectedRevision.
+        const editableFields = new Set([
+          'expectedRevision', 'label', 'icon', 'enabled', 'isAgent', 'isManager',
+          'systemPrompt', 'allowedMcpsJson', 'allowedSkillsJson', 'corePermissionsJson',
+          'allowedDelegatesJson', 'modelProvider', 'modelId', 'ocAgent', 'sessionSelectable',
+          'schedulable', 'imageGenerationEnabled', 'modelTierHint', 'defaultAnthropicAccountId',
+          'reasoningEffort', 'autoApproveActions',
+        ]);
+        if (Object.keys(body).some((key) => !editableFields.has(key))) {
+          throw AppError.badRequest('Unknown or protected field in revisioned agent config edit');
+        }
+      }
       const suppliedSecurityFields = Object.keys(body).filter((field) =>
         SECURITY_STATE_FIELDS.has(field),
       );
@@ -491,8 +510,13 @@ export class AgentConfigsController {
       // Legacy CLI fields (#581) — accept on the wire for back-compat
       // with old payloads but never propagate to the repository layer.
 
-      const updated = repo.update(req.params.id, patch);
-      if (!updated) throw AppError.notFound('AgentConfig');
+      const updated = repo.update(req.params.id, patch, expectedRevision as number | undefined);
+      if (!updated) {
+        if (revisioned && repo.getById(req.params.id)) {
+          throw AppError.conflict('Agent config changed; reload before saving');
+        }
+        throw AppError.notFound('AgentConfig');
+      }
       // Re-project the updated profile to its opencode agent file — or delete
       // it when the profile just became disabled (#1135: a disabled profile's
       // stale .md must not remain live/loadable by the engine). Non-fatal.
