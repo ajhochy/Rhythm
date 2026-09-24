@@ -1,8 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, net, Notification, protocol, safeStorage, session, shell } from 'electron';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { AGENT_SERVER_BASE_URL, AGENT_SERVER_ENGINE_PORT, AgentServerService, electronDbPath, legacyFlutterDbPath } from './agent-server.mjs';
@@ -15,6 +15,8 @@ import { deepLinkFromArgv, resolveAsset, validateRequest, webDist } from './poli
 import { createProductionApiConfig, createProductionApiSetHandler } from './production-api-config.mjs';
 import { resolveGoogleDesktopClientId } from './runtime-config.mjs';
 import { validateSecuritySmokeReceipt } from './security-smoke-receipt.mjs';
+import { createAccountsAuthState } from './hermes-accounts-auth.mjs';
+import { createHermesAccountsMain } from './hermes-accounts-main.mjs';
 import { bindHermesViewSupervisor, registerHermesView } from './hermes-view.mjs';
 
 export { deepLinkFromArgv } from './policy.mjs';
@@ -68,7 +70,7 @@ if (hasSingleInstanceLock) {
 
   /** @type {BrowserWindow | undefined} */
   let mainWindow;
-  const hermesView = registerHermesView({ ipcMain, getWindow: () => mainWindow, getUserDataPath: () => app.getPath('userData'), openExternal: (url) => shell.openExternal(url) });
+  const hermesView = registerHermesView({ ipcMain, getWindow: () => mainWindow, getUserDataPath: () => app.getPath('userData'), getBackendCredentialOptions: () => credentialHostOptions(), openExternal: (url) => shell.openExternal(url) });
   /** @type {string | null} */
   let pendingDeepLink = deepLinkFromArgv(process.argv);
   /** @type {Map<string, Notification>} */
@@ -164,10 +166,74 @@ if (hasSingleInstanceLock) {
   /** @type {import('./google-oauth-core.mjs').DesktopAuthLoginResponse['user'] | undefined} */
   let productionSessionUser;
   const clearStoredAuthentication = () => rm(authSessionPath, { force: true }).catch(() => undefined);
+  const accountsAuth = createAccountsAuthState({
+    safeStorage, loadEncrypted: () => readFile(authSessionPath),
+    saveEncrypted: async (bytes) => { await mkdir(dirname(authSessionPath), { recursive: true }); await writeFile(authSessionPath, bytes, { mode: 0o600 }); },
+    clearEncrypted: clearStoredAuthentication,
+    // Reuse the existing main session policy: successful OAuth or a validated
+    // encrypted offline envelope. Accounts does not add a network login gate.
+    validateSession: (session) => session.serverOrigin === productionApiBase && session.sessionToken === productionSessionToken && session.userId === String(productionSessionUser?.id),
+  });
+  /** @type {ReturnType<typeof createHermesAccountsMain> | undefined} */
+  let accountsMain;
+  /** @type {string | undefined} */
+  let accountsHermesHome;
+  let accountsBlocked = false;
+  let accountsTransition = Promise.resolve();
+  const getAccountsMain = () => {
+    if (accountsBlocked || !accountsAuth.getSnapshot().authenticated) return undefined;
+    if (accountsMain) return accountsMain;
+    try {
+      const osHome = realpathSync(userInfo().homedir);
+      const hermesHome = realpathSync(resolve(osHome, '.hermes'));
+      accountsHermesHome = hermesHome;
+      accountsMain = createHermesAccountsMain({ osHome, hermesHome,
+        grantsPath: resolve(app.getPath('userData'), 'hermes-credential-grants.json'),
+        getAuthState: () => accountsAuth.getSnapshot(),
+        getDocumentState: () => ({ contents: mainWindow?.webContents, frame: mainWindow?.webContents.mainFrame,
+          url: mainWindow?.webContents.mainFrame.url, epoch: accountsAuth.getSnapshot().documentEpoch }),
+        confirmNative: async (mutation) => {
+          const win = mainWindow;
+          if (!win || win.isDestroyed()) return false;
+          const result = await dialog.showMessageBox(win, { type: 'question', buttons: ['Confirm', 'Cancel'], defaultId: 1, cancelId: 1,
+            title: 'Hermes account sharing', message: `${mutation.action === 'enable' ? 'Share' : 'Stop sharing'} the ${mutation.provider} API key with Hermes?`,
+            detail: 'Applies to the next Hermes backend start. Existing running work may retain a previously shared key until it stops.' });
+          return result.response === 0;
+        },
+        disposeOwnedBackend: () => hermesView.disposeCurrent(),
+      });
+    } catch { return undefined; }
+    return accountsMain;
+  };
+  const credentialHostOptions = () => {
+    if (accountsBlocked) throw new Error('Previous Hermes backend disposal has not completed');
+    const adapter = getAccountsMain(), auth = accountsAuth.getSnapshot();
+    if (!adapter || !auth.authenticated) return undefined;
+    /** @type {ReturnType<typeof adapter.createBackendAttempt> | undefined} */
+    let attempt;
+    /** @type {string | undefined} */
+    let attemptId;
+    return {
+      hermesHome: accountsHermesHome,
+      backendEnvContext: Object.freeze({ serverOrigin: auth.serverOrigin, rhythmUserId: auth.userId, authGeneration: auth.authGeneration }),
+      backendEnv: (/** @type {any} */ request) => attempt?.backendEnv(request) ?? Promise.resolve({}),
+      onOwnedBackendAttempt: (/** @type {any} */ event) => {
+        if (event.phase === 'starting') {
+          if (attempt || accountsBlocked || accountsAuth.getSnapshot().authGeneration !== auth.authGeneration) throw new Error('Stale credential attempt denied');
+          attemptId = event.attemptId;
+          attempt = adapter.createBackendAttempt({ attemptId: event.attemptId, profile: event.profile });
+          return;
+        }
+        const accepted = event.attemptId === attemptId && attempt?.record({ phase: event.phase === 'accepted' ? 'spawned' : event.cause === 'exited' ? 'exited' : 'failed', owned: true, acceptedEnvNames: event.acceptedEnvNames });
+        if (event.phase === 'accepted' && !accepted) throw new Error('Invalid credential spawn receipt');
+        if (event.phase === 'retired' && event.attemptId === attemptId) attempt = undefined;
+      },
+    };
+  };
   const persistAuthentication = async () => {
-    if (!productionSessionToken || !productionSessionUser || !safeStorage.isEncryptionAvailable()) return;
-    await mkdir(dirname(authSessionPath), { recursive: true });
-    await writeFile(authSessionPath, safeStorage.encryptString(JSON.stringify({ productionApiBase, sessionToken: productionSessionToken, user: productionSessionUser })), { mode: 0o600 });
+    if (!productionSessionToken || !productionSessionUser) return;
+    await accountsAuth.signIn({ serverOrigin: productionApiBase, userId: String(productionSessionUser.id), sessionToken: productionSessionToken,
+      envelope: { productionApiBase, sessionToken: productionSessionToken, user: productionSessionUser } });
   };
   const restoreAuthentication = async () => {
     if (isSmoke || !safeStorage.isEncryptionAvailable()) return;
@@ -175,6 +241,7 @@ if (hasSingleInstanceLock) {
       const stored = JSON.parse(safeStorage.decryptString(await readFile(authSessionPath)));
       if (stored.productionApiBase !== productionApiBase || typeof stored.sessionToken !== 'string' || !stored.user || typeof stored.user.id !== 'number') throw new Error('invalid stored session');
       productionSessionToken = stored.sessionToken; productionSessionUser = stored.user;
+      await accountsAuth.restore({ serverOrigin: productionApiBase });
     } catch { await clearStoredAuthentication(); }
   };
   let changingServer = false;
@@ -182,12 +249,17 @@ if (hasSingleInstanceLock) {
   /** @type {(() => Promise<void>) | undefined} */
   let rebuildMainWindow;
   const invalidateAuthentication = () => {
+    accountsBlocked = true;
+    const authInvalidation = accountsAuth.invalidate();
+    const brokerInvalidation = accountsMain?.identityChanged();
+    const previous = accountsTransition;
+    accountsTransition = Promise.all([previous, authInvalidation, brokerInvalidation, hermesView.disposeCurrent()]).then(() => { accountsBlocked = false; });
+    void accountsTransition.catch(() => {});
     authGeneration += 1;
     clearAgentNotifications();
     googleSignInInFlight = undefined;
     productionSessionToken = undefined;
     productionSessionUser = undefined;
-    void clearStoredAuthentication();
     rendererReady = false;
     pendingNativeNotificationActivations.length = 0;
     for (const notification of nativeNotificationRegistry.values()) notification.close();
@@ -506,10 +578,20 @@ if (hasSingleInstanceLock) {
     syncNativeApprovalNotifications(payload);
   });
 
+  ipcMain.handle('rhythm:ai-accounts:status', (event, ...args) => {
+    const adapter = getAccountsMain();
+    return adapter ? adapter.getStatus(event, ...args) : { version: 1, availability: 'unavailable', childMayRetainCredential: accountsBlocked, memory: { state: 'disabled' } };
+  });
+  ipcMain.handle('rhythm:ai-accounts:set-grant', (event, payload, ...args) => {
+    const adapter = getAccountsMain();
+    return adapter ? adapter.setGrant(event, payload, ...args) : { accepted: false };
+  });
+
   ipcMain.handle('rhythm:auth:google-sign-in', (event, ...args) => {
     requireOwnedDocument(event);
     requireNoPayload(args);
     // No account-replacement API yet: never silently replace an authenticated renderer's identity.
+    if (accountsBlocked) throw new Error('Previous Hermes backend disposal has not completed');
     if (productionSessionToken) throw new Error('Account replacement denied; restart to sign in again');
     if (!googleSignInInFlight) {
       const generation = authGeneration;
@@ -544,7 +626,7 @@ if (hasSingleInstanceLock) {
       if (!rebuildMainWindow) throw new Error('Production API update denied before window ready');
       changingServer = true;
       invalidateAuthentication();
-      const hermesDispose = hermesView.disposeCurrent();
+      const hermesDispose = accountsTransition;
       // Destroy, not a renderer notification: no old gateway, bearer or pending callback survives.
       mainWindow?.destroy();
       mainWindow = undefined;
@@ -572,7 +654,7 @@ if (hasSingleInstanceLock) {
   });
   ipcMain.handle('rhythm:auth:logout', async (event, ...args) => {
     requireOwnedDocument(event); requireNoPayload(args);
-    invalidateAuthentication(); await hermesView.disposeCurrent(); await clearStoredAuthentication();
+    invalidateAuthentication(); await accountsTransition;
     if (rebuildMainWindow) { mainWindow?.destroy(); mainWindow = undefined; await rebuildMainWindow(); }
   });
   ipcMain.handle('rhythm:updates:open-download', async (event, ...args) => {
@@ -854,6 +936,7 @@ if (hasSingleInstanceLock) {
         if (/^rhythm:\/\/app\/index\.html(?:#.*)?$/.test(url)) {
           // Revoke pending work from the old document, but a trusted reload is not logout.
           authGeneration += 1;
+          accountsAuth.documentChanged();
           clearAgentNotifications();
           googleSignInInFlight = undefined;
           rendererReady = false;
@@ -974,6 +1057,10 @@ if (hasSingleInstanceLock) {
     hermesView: {
       keys: Object.keys(window.rhythmShell?.hermesView || {}),
       frozen: Object.isFrozen(window.rhythmShell?.hermesView),
+    },
+    aiAccounts: {
+      keys: Object.keys(window.rhythmShell?.aiAccounts || {}),
+      frozen: Object.isFrozen(window.rhythmShell?.aiAccounts),
     },
     agentServer: {
       keys: Object.keys(window.rhythmShell?.agentServer || {}),

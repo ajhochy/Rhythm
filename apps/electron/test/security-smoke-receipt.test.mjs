@@ -5,7 +5,7 @@ import { validateSecuritySmokeReceipt } from '../src/security-smoke-receipt.mjs'
 
 const validReceipt = {
   bridge: {
-    keys: ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory', 'hermes', 'hermesView'],
+    keys: ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory', 'hermes', 'hermesView', 'aiAccounts'],
     frozen: true,
     gateway: {
       keys: ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase'],
@@ -16,6 +16,7 @@ const validReceipt = {
     agentServer: { keys: ['status', 'onStatusChange'], frozen: true },
     hermes: { keys: ['enabled', 'getStatus', 'install', 'restart', 'onStatus'], frozen: true },
     hermesView: { keys: ['attach', 'setBounds', 'detach', 'sendIntent'], frozen: true },
+    aiAccounts: { keys: ['getStatus', 'setGrant'], frozen: true },
     updates: { keys: ['openDownloadPage'], frozen: true },
     nodeExposed: false,
     value: { version: 6 },
@@ -69,4 +70,12 @@ test('signed security smoke rejects every unsafe bridge and denial invariant', (
     assert.equal(typeof result.reason, 'string');
   }
   assert.equal(validateSecuritySmokeReceipt(null).ok, false);
+});
+
+test('Accounts receipt requires the exact frozen metadata-only bridge', () => {
+  for (const accounts of [undefined, { keys: ['getStatus', 'setGrant'], frozen: false }, { keys: ['getStatus', 'setGrant', 'readKey'], frozen: true }]) {
+    const receipt = structuredClone(validReceipt);
+    receipt.bridge.aiAccounts = accounts;
+    assert.equal(validateSecuritySmokeReceipt(receipt).ok, false);
+  }
 });

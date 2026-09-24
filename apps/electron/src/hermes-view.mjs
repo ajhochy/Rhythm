@@ -24,7 +24,7 @@ function publicFailure(message) {
 
 /** @param {{ipcMain: Electron.IpcMain, getWindow: () => Electron.BrowserWindow | undefined,
  * electron?: Pick<typeof import('electron'), 'WebContentsView'>,
- * enabled?: () => boolean, getArtifactRoot?: () => string | undefined,
+ * getBackendCredentialOptions?: () => any, enabled?: () => boolean, getArtifactRoot?: () => string | undefined,
  * getUserDataPath?: () => string | undefined, expectedElectronMajor?: number,
  * resolveArtifact?: (options: {artifactRoot: string, expectedElectronMajor: number}) => Promise<any>,
  * importHost?: (path: string) => Promise<any>, openExternal?: (url: string) => Promise<void> | void}} options
@@ -69,10 +69,21 @@ export function registerHermesView(options) {
     if (win && !win.isDestroyed()) win.contentView.removeChildView(view);
     if (!view.webContents.isDestroyed()) view.webContents.close({ waitForBeforeUnload: false });
   };
+  /** Every host teardown, including attachment failure before active publication,
+   * must preserve unresolved ownership as a future disposal/attach barrier.
+   * @param {{dispose?: () => Promise<void>} | undefined} host */
+  const stopOwnedHost = async (host) => {
+    try { await host?.dispose?.(); }
+    catch (error) {
+      disposal = Promise.reject(error);
+      void disposal.catch(() => undefined);
+      throw error;
+    }
+  };
   /** @param {NonNullable<typeof active>} record */
   const disposeRecord = async (record) => {
     closeOwnedView(record.view, record.win);
-    await record.host.dispose().catch(() => undefined);
+    await stopOwnedHost(record.host);
     for (const cleanup of record.cleanups.splice(0)) cleanup();
     await Promise.all([...record.guestSessions].map((session) => session.clearStorageData().catch(() => undefined)));
   };
@@ -84,7 +95,10 @@ export function registerHermesView(options) {
     active = undefined;
     if (!record) { await disposal; return; }
     const current = disposal.then(() => disposeRecord(record));
-    disposal = current.catch(() => undefined);
+    // Retain failed ownership teardown as a barrier to every later attach or
+    // identity transition. Observing rejection must not turn it into success.
+    disposal = current;
+    void current.catch(() => undefined);
     await current;
   };
   /** @param {Electron.IpcMainInvokeEvent} event @param {unknown} value */
@@ -112,10 +126,10 @@ export function registerHermesView(options) {
       const inPlace = typeof details?.isSameDocument === 'boolean' ? details.isSameDocument : legacyInPlace;
       const isMainFrame = typeof details?.isMainFrame === 'boolean' ? details.isMainFrame : legacyIsMainFrame;
       if (!isMainFrame) return;
-      if (!inPlace) { void disposeCurrent(); return; }
+      if (!inPlace) { void disposeCurrent().catch(() => undefined); return; }
       if (!/^rhythm:\/\/app\/index\.html#\/hermes(?:\?.*)?$/.test(url ?? '') && active) active.view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
     };
-    const windowClosed = () => { void disposeCurrent(); };
+    const windowClosed = () => { void disposeCurrent().catch(() => undefined); };
     win.webContents.on('did-start-navigation', hostNavigation);
     win.once('closed', windowClosed);
     pendingHostCleanup = () => {
@@ -148,6 +162,7 @@ export function registerHermesView(options) {
       const contents = view.webContents;
       const host = await module.createEmbeddedHermesHost({
         hostWindow: win, webContents: contents, assetRoot: artifact.root, userDataPath,
+        ...options.getBackendCredentialOptions?.(),
         ...(options.openExternal ? { openExternal: options.openExternal } : {}),
         log: (/** @type {string} */ message) => process.stdout?.write?.(`hermes-desktop: ${String(message)}\n`),
       });
@@ -157,7 +172,7 @@ export function registerHermesView(options) {
         || typeof host.handlePermissionRequest !== 'function' || typeof host.handleWillAttachWebview !== 'function'
         || typeof host.handleGuestWindowOpen !== 'function' || typeof host.handleGuestNavigation !== 'function') {
         closeOwnedView(view, win);
-        await host?.dispose?.().catch(() => undefined);
+        await stopOwnedHost(host);
         pendingHost = undefined;
         pendingView = undefined;
         return { ok: false, reason: 'Hermes Desktop artifact host is incomplete. Rebuild the pinned artifact.' };
@@ -179,7 +194,7 @@ export function registerHermesView(options) {
       replaceApprovedOrigins(await host.getAllowedOrigins());
       if (disposed || !enabled() || epoch !== requestEpoch || !ownsHost(event)) {
         closeOwnedView(view, win);
-        await host.dispose().catch(() => undefined);
+        await stopOwnedHost(host);
         pendingHost = undefined;
         pendingView = undefined;
         return { ok: false, reason: 'Hermes Desktop attachment was revoked.' };
@@ -323,7 +338,7 @@ export function registerHermesView(options) {
         });
         record.guestSessions.add(guestSession);
       });
-      listen('render-process-gone', () => { if (active === record) void detach(); });
+      listen('render-process-gone', () => { if (active === record) void detach().catch(() => undefined); });
       view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
       win.contentView.addChildView(view);
       try {
@@ -340,7 +355,7 @@ export function registerHermesView(options) {
       pendingHost = undefined;
       pendingView = undefined;
       closeOwnedView(view, win);
-      await host?.dispose?.().catch(() => undefined);
+      await stopOwnedHost(host);
       if (active) await detach();
       return { ok: false, reason: publicFailure(error instanceof Error ? error.message : undefined) };
     } finally {
@@ -368,9 +383,9 @@ export function registerHermesView(options) {
     active.view.setBounds({ x, y, width: right - x, height: bottom - y });
     return true;
   });
-  ipcMain.handle('hermes:view:detach', (event, value) => {
+  ipcMain.handle('hermes:view:detach', async (event, value) => {
     if (!ownsAttachment(event, value)) return false;
-    detach();
+    await detach();
     return true;
   });
   ipcMain.handle('hermes:intent', async (event, value) => {

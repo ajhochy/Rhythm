@@ -108,6 +108,10 @@ ipcRenderer.on('rhythm:agent-notifications:permission', (_event, detail) => {
     || !['granted', 'denied', 'unknown', 'unsupported'].includes(detail.status)) return;
   window.dispatchEvent(new CustomEvent('rhythm:agent-notifications:permission', { detail: { v: 1, status: detail.status } }));
 });
+const aiAccounts = Object.freeze({
+  getStatus: () => ipcRenderer.invoke('rhythm:ai-accounts:status'),
+  setGrant: (/** @type {unknown} */ mutation) => ipcRenderer.invoke('rhythm:ai-accounts:set-grant', mutation),
+});
 contextBridge.exposeInMainWorld('rhythmShell', Object.freeze({
   version: 6,
   appVersion,
@@ -120,4 +124,5 @@ contextBridge.exposeInMainWorld('rhythmShell', Object.freeze({
   selectDirectory: () => ipcRenderer.invoke('shell:select-directory'),
   hermes,
   hermesView,
+  aiAccounts,
 }));

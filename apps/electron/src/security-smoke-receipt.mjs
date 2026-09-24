@@ -1,4 +1,4 @@
-const BRIDGE_KEYS = ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory', 'hermes', 'hermesView'];
+const BRIDGE_KEYS = ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory', 'hermes', 'hermesView', 'aiAccounts'];
 const GATEWAY_KEYS = ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase'];
 const AUTH_KEYS = ['signInWithGoogle', 'currentSession', 'logout'];
 const HUMAN_APPROVAL_KEYS = ['capability', 'signDecision'];
@@ -47,6 +47,7 @@ export function validateSecuritySmokeReceipt(receipt) {
     [['bridge', 'updates', 'keys'], UPDATE_KEYS],
     [['bridge', 'hermes', 'keys'], HERMES_KEYS],
     [['bridge', 'hermesView', 'keys'], HERMES_VIEW_KEYS],
+    [['bridge', 'aiAccounts', 'keys'], ['getStatus', 'setGrant']],
   ];
   for (const [path, expected] of exactArrays) {
     const keys = /** @type {string[]} */ (path);
@@ -65,6 +66,7 @@ export function validateSecuritySmokeReceipt(receipt) {
     ['bridge', 'updates', 'frozen'],
     ['bridge', 'hermes', 'frozen'],
     ['bridge', 'hermesView', 'frozen'],
+    ['bridge', 'aiAccounts', 'frozen'],
   ]) {
     if (valueAt(receipt, path) !== true) return { ok: false, reason: `${path.join('.')} must be true` };
   }
