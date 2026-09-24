@@ -10,7 +10,9 @@
 .transcript .message:not(.user) { border-bottom: 0; }
 .transcript .message > header { flex-wrap: wrap; }
 .transcript .message-role { color: var(--fg-2); font-size: 12px; font-weight: 500; }
+.transcript .message :is(time, [data-timestamp-fallback]) { color: var(--muted); font-family: var(--font-mono); }
 .transcript .message time { font-size: 11px; }
+.transcript .message [data-timestamp-fallback] { font-size: 8px; }
 .transcript .markdown-copy { color: var(--fg); font-size: 14px; font-weight: 400; line-height: 1.6; }
 
 .transcript .markdown-copy :is(h1, h2, h3, h4, h5, h6) {

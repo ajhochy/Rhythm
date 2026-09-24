@@ -30,7 +30,7 @@
 .pg-messages .messages-thread-copy strong, .pg-messages .messages-thread-copy small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pg-messages .messages-thread-copy strong { color: var(--fg); font-size: 11px; font-weight: 580; }
 .pg-messages .messages-thread-copy small { color: var(--muted); font-size: 9px; }
-.pg-messages .messages-thread-row time { align-self: end; color: var(--muted); font-family: var(--font-mono); font-size: 8px; }
+.pg-messages .messages-thread-row :is(time, [data-timestamp-fallback]) { align-self: end; color: var(--muted); font-family: var(--font-mono); font-size: 8px; }
 .pg-messages .messages-row-unread { min-width: 20px; height: 20px; display: grid; align-self: start; place-items: center; border-radius: var(--r-pill); color: var(--accent-on); background: var(--accent); font-family: var(--font-mono); font-size: 8px; font-weight: 700; }
 .pg-messages .messages-thread-menu-anchor { position: relative; }
 .pg-messages .messages-thread-actions { width: 44px; height: 44px; border-color: transparent; background: transparent; }
@@ -56,7 +56,7 @@
 .pg-messages .messages-message.own { align-self: flex-end; border-color: color-mix(in oklab, var(--accent), var(--border-soft) 65%); border-radius: var(--r-md) 4px var(--r-md) var(--r-md); background: var(--surface-warm); }
 .pg-messages .messages-message header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .pg-messages .messages-message strong { font-size: 10px; font-weight: 620; }
-.pg-messages .messages-message time { color: var(--muted); font-family: var(--font-mono); font-size: 8px; white-space: nowrap; }
+.pg-messages .messages-message :is(time, [data-timestamp-fallback]) { color: var(--muted); font-family: var(--font-mono); font-size: 8px; white-space: nowrap; }
 .pg-messages .messages-message p { margin: 5px 0 0; color: var(--fg-2); line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
 .pg-messages .messages-transcript-empty { flex: 1; display: grid; place-items: center; color: var(--muted); text-align: center; }
 .pg-messages .messages-composer-fieldset { padding: 10px 16px 13px; border-top: 1px solid var(--border-soft); background: var(--surface); }

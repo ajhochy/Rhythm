@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { FocusDialog } from '../../components/FocusDialog';
+import { Timestamp } from '../../components/Timestamp';
+import { formatTimestamp, wallClockInstant } from '../../timestamps';
 import { ListInspector, useSelectedId, type ListInspectorItem } from '../../components/ListInspector';
 import { navigate } from '../../components/Shell';
 import { Icon } from '../../icons';
@@ -46,9 +48,7 @@ function timeOnly(value: string) {
 }
 
 function displayTime(value: string) {
-  const [hourText, minute] = timeOnly(value).split(':');
-  const hour = Number(hourText);
-  return `${hour % 12 || 12}:${minute} ${hour >= 12 ? 'PM' : 'AM'}`;
+  return formatTimestamp(wallClockInstant(value)?.toISOString())?.label ?? 'Time unavailable';
 }
 
 function displayDate(value: string) {
@@ -625,7 +625,7 @@ function FixtureFacilitiesPage({ route }: { route: string }) {
                 : <button className="text-danger-button" type="button" disabled={readonly} onClick={() => setDeleteReservationTarget(reservation)} data-testid="facility-reservation-delete">{reservation.groupId ? 'Delete reservation group' : 'Delete reservation'}</button>}</div></div>
               <dl className="facilities-detail-grid">
                 <div><dt>Room</dt><dd>{facility?.name}</dd></div><div><dt>Date</dt><dd>{displayDate(reservation.start)}</dd></div>
-                <div><dt>Time</dt><dd>{displayTime(reservation.start)}-{displayTime(reservation.end)}</dd></div><div><dt>Requester</dt><dd>{reservation.requesterName}</dd></div>
+                <div><dt>Time</dt><dd><Timestamp value={wallClockInstant(reservation.start)?.toISOString()} />–<Timestamp value={wallClockInstant(reservation.end)?.toISOString()} /></dd></div><div><dt>Requester</dt><dd>{reservation.requesterName}</dd></div>
                 <div className="span-all"><dt>Setup notes</dt><dd>{reservation.notes || 'No setup notes'}</dd></div>
                 {reservation.conflicted && <div className="span-all facilities-conflict-note"><dt>Availability</dt><dd aria-live="polite">Conflict detected for this reservation.</dd></div>}
               </dl>
@@ -639,7 +639,7 @@ function FixtureFacilitiesPage({ route }: { route: string }) {
             <span className="sr-only">{room.name}</span>
             <div className="facilities-detail-heading"><div><span>{room.building ?? 'Unassigned'}</span><p>{room.description}</p></div><div className="facilities-detail-actions"><button className="primary-button" type="button" disabled={readonly} onClick={() => openReservationEditor(room.id)} data-testid="facility-room-reserve">Reserve this room</button>{!readonly && manager && <ActionMenu label={`Manage ${room.name}`} testId={`facility-room-actions-${room.id}`}><button className="menu-item danger-item" role="menuitem" type="button" onClick={() => setDeleteFacilityTarget(room)} data-testid={`facility-room-delete-${room.id}`}>Delete room</button></ActionMenu>}</div></div>
             <form className="facilities-editor-form facilities-direct-editor" onSubmit={submitFacility} data-testid="facility-room-direct-editor"><fieldset disabled={readonly} aria-describedby={readonly ? 'facilities-readonly-reason' : undefined}><legend className="sr-only">Room details</legend><label className="field">Room name<input value={facilityName} onChange={(event) => { setFacilityName(event.target.value); setFacilityNameError(''); }} data-testid="facility-name" /></label><label className="field">Building<select value={facilityBuilding} onChange={(event) => setFacilityBuilding(event.target.value)} data-testid="facility-building"><option value="">Unassigned</option>{[...new Set(facilities.map((facility) => facility.building).filter(Boolean))].map((building) => <option key={building} value={building ?? ''}>{building}</option>)}</select></label><label className="field">Description<textarea rows={4} value={facilityDescription} onChange={(event) => setFacilityDescription(event.target.value)} data-testid="facility-description" /></label><footer className="dialog-actions"><button className="primary-button" type="submit" data-testid="facility-editor-submit">Save changes</button></footer></fieldset></form>
-            <div className="facilities-room-preview"><div className="facilities-inspector-section-heading"><h3>Upcoming reservations</h3><span>{upcoming.length}</span></div>{upcoming.slice(0, 5).map((reservation) => <button type="button" key={reservation.id} data-reservation-preview="true" onClick={() => { setMode('overview'); setSelectedItemId(`reservation-${reservation.id}`); }}><strong>{reservation.title}</strong><span>{displayDate(reservation.start)} · {displayTime(reservation.start)}</span></button>)}</div>
+            <div className="facilities-room-preview"><div className="facilities-inspector-section-heading"><h3>Upcoming reservations</h3><span>{upcoming.length}</span></div>{upcoming.slice(0, 5).map((reservation) => <button type="button" key={reservation.id} data-reservation-preview="true" onClick={() => { setMode('overview'); setSelectedItemId(`reservation-${reservation.id}`); }}><strong>{reservation.title}</strong><span><Timestamp value={wallClockInstant(reservation.start)?.toISOString()} /></span></button>)}</div>
             <button className="secondary-button" type="button" disabled={readonly} onClick={openAutomation} data-testid="facility-automation-manage">Manage automation reservations</button>
           </section>;
         }}

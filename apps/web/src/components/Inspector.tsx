@@ -8,6 +8,7 @@ import { useFixtures } from '../store';
 import type { FixtureFile, InspectorTab, Session } from '../types';
 import { FocusDialog } from './FocusDialog';
 import { navigate } from './Shell';
+import { Timestamp } from './Timestamp';
 import { Terminal } from '@xterm/xterm';
 import type { PtyGateway } from '../gateway/pty';
 import '@xterm/xterm/css/xterm.css';
@@ -45,7 +46,7 @@ function ContextPanel() {
   return <section className="inspector-panel" aria-label="Session context" data-testid="context-panel">
     <div className="context-path"><Icon name="worktree" /><div><strong>{selected.cwd}</strong><small>{selected.isolateWorktree ? 'Isolated worktree' : 'Project workspace'} · {selected.dirtyCount} changed</small></div></div>
     <div className="token-gauge" aria-label={`${pct}% of context budget used`}><div><strong>{total.toLocaleString()}</strong><small>of {selected.totalBudget.toLocaleString()} tokens</small></div><span><i style={{ width: `${pct}%` }} /></span><em>{pct}%</em></div>
-    <dl className="property-list"><div><dt>Provider</dt><dd>{profile?.modelProvider ?? selected.providerId ?? 'Configured'}</dd></div><div><dt>Agent</dt><dd>{profile?.label ?? selected.profileId}</dd></div><div><dt>Model</dt><dd>{selected.modelId ?? profile?.modelId ?? selected.model}</dd></div><div><dt>Usage budget</dt><dd>$2.00 session cap</dd></div><div><dt>Total cost</dt><dd>${selected.cost.toFixed(3)}</dd></div><div><dt>Input</dt><dd>{selected.inputTokens.toLocaleString()}</dd></div><div><dt>Output</dt><dd>{selected.outputTokens.toLocaleString()}</dd></div><div><dt>Cached</dt><dd>{selected.cachedTokens.toLocaleString()}</dd></div><div><dt>Created</dt><dd>Aug 12 · {selected.createdAt.slice(11, 16)}</dd></div><div><dt>Updated</dt><dd>Aug 12 · {selected.updatedAt.slice(11, 16)}</dd></div><div><dt>Messages</dt><dd>{selected.messages.length}</dd></div><div><dt>Worktree</dt><dd>{selected.isolateWorktree ? 'Isolated' : 'Current workspace'}</dd></div>
+    <dl className="property-list"><div><dt>Provider</dt><dd>{profile?.modelProvider ?? selected.providerId ?? 'Configured'}</dd></div><div><dt>Agent</dt><dd>{profile?.label ?? selected.profileId}</dd></div><div><dt>Model</dt><dd>{selected.modelId ?? profile?.modelId ?? selected.model}</dd></div><div><dt>Usage budget</dt><dd>$2.00 session cap</dd></div><div><dt>Total cost</dt><dd>${selected.cost.toFixed(3)}</dd></div><div><dt>Input</dt><dd>{selected.inputTokens.toLocaleString()}</dd></div><div><dt>Output</dt><dd>{selected.outputTokens.toLocaleString()}</dd></div><div><dt>Cached</dt><dd>{selected.cachedTokens.toLocaleString()}</dd></div><div><dt>Created</dt><dd><Timestamp value={selected.createdAt} /></dd></div><div><dt>Updated</dt><dd><Timestamp value={selected.updatedAt} /></dd></div><div><dt>Messages</dt><dd>{selected.messages.length}</dd></div><div><dt>Worktree</dt><dd>{selected.isolateWorktree ? 'Isolated' : 'Current workspace'}</dd></div>
       {/* post-m1-phase-6 c3b: the resolved isolated-worktree branch — never defaulted to 'main'. */}
       {selected.worktreeBranch && <div><dt>Worktree branch</dt><dd>{selected.worktreeBranch}</dd></div>}
     </dl>
@@ -137,7 +138,7 @@ function SharePanel({ sessionId }: { sessionId: string }) {
     <button type="button" className="text-button" disabled={busy} onClick={() => void refresh()}>Refresh shares</button>
     {error && <p role="alert">{error}</p>}{listError && <p role="alert">{listError}</p>}
     {shares.length === 0 && !listError && <p>No shared snapshots for this session.</p>}
-    {shares.map(share => <article key={share.id} data-testid={`share-${share.id}`}><code>{share.id}</code><p>Recipients: {share.recipientUserIds.join(', ')} · Expires {share.expiresAt}</p>
+    {shares.map(share => <article key={share.id} data-testid={`share-${share.id}`}><code>{share.id}</code><p>Recipients: {share.recipientUserIds.join(', ')} · Expires <Timestamp value={share.expiresAt} /></p>
       {share.revokedAt ? <p>Revoked</p> : new Date(share.expiresAt).getTime() <= Date.now() ? <p>Expired</p> : <><button type="button" onClick={() => void read(share.id)}>View snapshot</button>{share.ownerUserId === actor?.id && <button type="button" disabled={busy} onClick={() => void revoke(share.id)}>Revoke</button>}</>}
     </article>)}
     <FocusDialog open={Boolean(prepared)} title="Share reviewed transcript" description="Only checked content below will be published. This preview is sanitized by the server." testId="transcript-share-review" onClose={() => { if (!busy) { sequence.current += 1; setPrepared(null); } }} wide>

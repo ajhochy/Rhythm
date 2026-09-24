@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { FocusDialog } from '../../components/FocusDialog';
+import { Timestamp } from '../../components/Timestamp';
 import { ListInspector, useSelectedId, type ListInspectorItem } from '../../components/ListInspector';
 import { navigate } from '../../components/Shell';
 import { Icon } from '../../icons';
@@ -90,8 +91,7 @@ function writeState(route: string, state: SurfaceState) {
 }
 
 function dateTimeLabel(value: string | null) {
-  if (!value) return 'Never';
-  return value.slice(0, 16).replace('T', ' ');
+  return value ? <Timestamp value={value} /> : 'Never';
 }
 
 function suggestedName(source: AutomationSource) {

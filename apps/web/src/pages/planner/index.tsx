@@ -29,6 +29,7 @@ type InspectorState =
   | null;
 
 const supportedStates: PlannerSurfaceState[] = ['ready', 'loading', 'empty', 'server-error', 'forbidden', 'unavailable', 'readonly'];
+// These format date-only planner values; UTC prevents viewer offsets from shifting calendar days.
 const dayFormatter = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'UTC' });
 const monthDayFormatter = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 const weekFormatter = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
@@ -491,7 +492,7 @@ function LiveTaskCard({ task, selected, selectionMode, pending, onInspect, onCom
   const readonly = isCalendarShadow(task) || task.sourceType === 'prod_mirror';
   const sourceLabel = isProjectStep(task) ? task.sourceName ?? 'Project step' : `${task.energy ?? '-'} Task`;
   const eventTime = isCalendarShadow(task) && task.startsAt
-    ? `${new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(task.startsAt))}${task.endsAt ? `–${new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(task.endsAt))}` : ''}`
+    ? `${new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(task.startsAt))}${task.endsAt ? `–${new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(task.endsAt))}` : ''}`
     : null;
   // data-source-id is the task's own canonical id, not task.sourceId (the owning instance for
   // project steps) — apps/api_server/src/repositories/project_instances_repository.ts:106-129

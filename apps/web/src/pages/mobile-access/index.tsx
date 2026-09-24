@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
+import { Timestamp } from '../../components/Timestamp';
 import { useGateway } from '../../gateway/context';
 import {
   MobileAccessGatewayError,
@@ -286,7 +287,7 @@ export function MobileAccessPage() {
         <ul data-testid="mobile-access-devices" style={{ listStyle: 'none', padding: 0, display: 'grid', gap: 8 }}>
           {devices.map((device) => (
             <li key={device.id} data-testid={`mobile-access-device-${device.id}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-              <span><strong>{device.name}</strong> <small data-testid={`mobile-access-device-created-${device.id}`}>{device.createdAt}</small></span>
+              <span><strong>{device.name}</strong> <small data-testid={`mobile-access-device-created-${device.id}`}><Timestamp value={device.createdAt} /></small></span>
               {device.revokedAt
                 ? <span data-testid={`mobile-access-device-revoked-${device.id}`}>Revoked</span>
                 : <button className="text-button" type="button" onClick={() => void revokeDevice(device.id)} disabled={revokingId === device.id} data-testid={`mobile-access-device-revoke-${device.id}`}>{revokingId === device.id ? 'Revoking…' : 'Revoke'}</button>}

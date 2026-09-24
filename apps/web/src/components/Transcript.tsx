@@ -7,6 +7,7 @@ import type { PendingApproval } from '../gateway/approvals';
 import type { LivePermissionRequest, LiveQuestionRequest, LiveQuestionItem, TranscriptMessage } from '../types';
 import { useDecisionReply, usePendingDecisions } from '../pending-decisions';
 import { SafeMarkdown } from './SafeMarkdown';
+import { Timestamp } from './Timestamp';
 import { blockSource, canonicalText, type RichTranscriptBlock, type RichTranscriptMessage } from '../gateway/sessions';
 
 function MarkdownText({ content }: { content: string }) {
@@ -338,7 +339,7 @@ export function Transcript() {
       {(selected.permission?.status === 'pending' || selected.question?.status === 'pending') && <div className="pending-trigger-banner" role="status"><span className="status-dot waiting" />Agent paused · {selected.permission?.status === 'pending' ? 'permission required before the tool can continue' : 'answer required before the plan can continue'}</div>}
       {selected.revertedMessageId && <div className="reverted-banner" role="status" data-testid="reverted-banner"><Icon name="undo" /><span>History is reverted at message {selected.revertedMessageId}. The retained transcript remains readable; restore to use it again.</span><button className="secondary-button" type="button" onClick={() => void unrevertSession(selected.id)} data-testid="unrevert">Restore history</button></div>}
       {selected.messages.map((message) => <article id={`agent-message-${message.id}`} className={`message ${message.role}`} key={message.id} data-message-id={message.id} tabIndex={-1} data-testid={`message-${message.id}`}>
-        <header><span className="message-role">{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Rhythm agent' : 'Session'}</span><time dateTime={message.createdAt}>{message.createdAt}</time></header>
+        <header><span className="message-role">{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Rhythm agent' : 'Session'}</span><Timestamp value={message.createdAt} /></header>
         <div className="message-blocks">{message.blocks.map((block) => <RichBlock block={block} onOpenChild={openChild} key={block.id} />)}</div>
         <MessageUsage message={message} />
         {message.attachments && message.attachments.length > 0 && <div className="message-attachments">{message.attachments.map((attachment) => <span key={attachment.id}><Icon name={attachment.type === 'file' ? 'command' : 'file'} size={13} />{attachment.filename}{attachment.truncated ? ' · first 100 KB' : ''}</span>)}</div>}
@@ -346,7 +347,7 @@ export function Transcript() {
         {message.id === 'msg-assistant-handoff' && <div className="compaction-divider"><span>Context compacted · 8,420 tokens retained</span></div>}
         <footer className="message-actions"><button type="button" onClick={() => void copyMessage(message)} data-testid={`copy-${message.id}`}><Icon name="copy" size={13} />Copy</button>{sessionGatewayMode === 'live' && window.rhythmShell?.gateway && <button type="button" aria-pressed={isCompletionArmed(selected.id, message.id)} aria-label={isCompletionArmed(selected.id, message.id) ? 'Notification armed — tap to cancel' : 'Notify when session finishes'} title={isCompletionArmed(selected.id, message.id) ? 'Notification armed — tap to cancel' : 'Notify when session finishes'} onClick={() => toggleCompletionArm(selected.id, message.id)} data-testid={`notify-${message.id}`}><Icon name="bell" size={13} /></button>}{message.role === 'assistant' && !selected.parentId && <><button type="button" disabled={sessionGatewayMode === 'live' && selected.status === 'working'} onClick={() => void revertSession(selected.id, message.id)} data-testid={`revert-${message.id}`}><Icon name="undo" size={13} />Revert</button><button type="button" disabled={sessionGatewayMode === 'live' && selected.status === 'working'} onClick={() => forkSession(selected.id, message.id)} data-testid={`fork-${message.id}`}><Icon name="fork" size={13} />Fork</button><button type="button" disabled={sessionGatewayMode === 'live' && selected.status === 'working'} onClick={() => void summarizeSession(selected.id)} data-testid={`summarize-${message.id}`}><Icon name="spark" size={13} />Compact</button></>}</footer>
       </article>)}
-      {selected.queuedDraft && <article className="message user queued-message" aria-label="Queued local draft"><header><span className="message-role">You · queued locally</span><time>Not sent</time></header><p>{selected.queuedDraft}</p><small>Waiting for the direct desktop connection. Rhythm has not told the server this message exists.</small></article>}
+      {selected.queuedDraft && <article className="message user queued-message" aria-label="Queued local draft"><header><span className="message-role">You · queued locally</span><span>Not sent</span></header><p>{selected.queuedDraft}</p><small>Waiting for the direct desktop connection. Rhythm has not told the server this message exists.</small></article>}
       {sessionGatewayMode === 'live' && <PendingApprovalBanner sessionId={selected.id} />}
       {sessionGatewayMode !== 'live' && <PermissionCard />}
       {sessionGatewayMode !== 'live' && <QuestionCard />}

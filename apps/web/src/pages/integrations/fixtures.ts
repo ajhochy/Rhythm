@@ -36,9 +36,9 @@ export type PlanningTeam = {
 export const FIXTURE_TIMESTAMP = '2026-08-12T15:48:00-07:00';
 
 export const readyAccounts: IntegrationAccount[] = [
-  { id: 'google-calendar', name: 'Google Calendar', monogram: 'GC', status: 'connected', identity: 'aj@example.test', lastSyncedAt: 'Today at 3:32 PM' },
-  { id: 'gmail', name: 'Gmail', monogram: 'GM', status: 'connected', identity: 'aj@example.test', lastSyncedAt: 'Today at 3:35 PM' },
-  { id: 'planning-center', name: 'Planning Center', monogram: 'PC', status: 'connected', identity: 'Rhythm Community Church', lastSyncedAt: 'Today at 3:21 PM' },
+  { id: 'google-calendar', name: 'Google Calendar', monogram: 'GC', status: 'connected', identity: 'aj@example.test', lastSyncedAt: '2026-08-12T15:32:00-07:00' },
+  { id: 'gmail', name: 'Gmail', monogram: 'GM', status: 'connected', identity: 'aj@example.test', lastSyncedAt: '2026-08-12T15:35:00-07:00' },
+  { id: 'planning-center', name: 'Planning Center', monogram: 'PC', status: 'connected', identity: 'Rhythm Community Church', lastSyncedAt: '2026-08-12T15:21:00-07:00' },
 ];
 
 export const accountStateAccounts: IntegrationAccount[] = [

@@ -1,0 +1,13 @@
+{
+  "issue": 1565,
+  "date": "2026-09-24",
+  "test_command": "node --test tests/contract/issue-1565*.test.mjs",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "issue-1565-c1", "text": "Add a dependency-free pure formatTimestamp(); strict zoned/zoneless-UTC/calendar/offset/fraction/numeric/epoch sentinel semantics; explicit 12-hour compact labels and full accessible text.", "mode": "unit", "test": "apps/web/tests/contract/issue-1565.test.mjs", "status": "pass" },
+    { "criterion_id": "issue-1565-c2", "text": "Valid markup is <time dateTime={iso} title={full}> with an aria-hidden compact label and screen-reader full text; invalid/missing input renders ordinary Time unavailable.", "mode": "unit", "test": "apps/web/tests/contract/issue-1565.test.mjs", "status": "pass" },
+    { "criterion_id": "issue-1565-c3", "text": "Migrate owned Transcript/ToolWorkspace and Messages/Facilities/Mobile/Integrations/Automations/LiveArtifacts displays; preserve caller Never/Unknown/null and date-only/input behavior.", "mode": "manual", "test": "apps/web/tests/contract/issue-1565.test.mjs", "status": "UNVERIFIED", "reason": "The focused contract tests and deterministic fixture browser checks passed across the eight named surfaces. Live gateway data, packaged Electron, LiveArtifacts browser behavior, and manual UI evidence remain unverified." },
+    { "criterion_id": "issue-1565-c4", "text": "Use installed TypeScript parser to reject raw timestamp JSX displays with narrow deferred ledger; qualify via pinned Playwright, screenshots, dist smoke and sanitized sandbox.", "mode": "manual", "test": "apps/web/tests/contract/issue-1565-guard.test.mjs", "status": "UNVERIFIED", "reason": "The repo-wide source guard and both pinned Playwright fixture tests passed on ports 6821/6822; screenshots were saved for eight surfaces and Kolkata under /private/tmp/rhythm-repair4/1565. Dist smoke, sanitized sandbox/live runtime, and manual/native evidence remain unverified." }
+  ],
+  "not_tested": ["issue-1565-c3", "issue-1565-c4"]
+}

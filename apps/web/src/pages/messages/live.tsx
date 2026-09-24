@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { FocusDialog } from '../../components/FocusDialog';
+import { Timestamp } from '../../components/Timestamp';
+import { formatTimestamp } from '../../timestamps';
 import { ListInspector, useSelectedId } from '../../components/ListInspector';
 import { useAuthUser } from '../../gateway/auth';
 import { useGateway } from '../../gateway/context';
@@ -34,9 +36,7 @@ function threadIdFromRoute(route: string): number | null {
 }
 
 function timeLabel(timestamp: string): string {
-  const value = new Date(timestamp);
-  if (Number.isNaN(value.getTime())) return '';
-  return value.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return formatTimestamp(timestamp)?.label ?? 'Time unavailable';
 }
 
 function LiveThreadActions({ thread, onRead, onUnread, testId }: {
@@ -265,7 +265,7 @@ export function LiveMessagesPage({ route }: { route: string }) {
                 </header>
                 <div className="messages-transcript" ref={transcriptRef} role="log" tabIndex={0} aria-label={`${thread.title} transcript`} aria-live="polite" data-testid="messages-transcript">
                   {messages.length === 0 ? <div className="messages-transcript-empty"><p>No messages yet. Start the conversation below.</p></div> : messages.map((message) => (
-                    <article className={`messages-message ${message.senderId === authUser?.user.id ? 'own' : ''}`} key={message.id} data-message-row="true"><header><strong>{message.senderName}</strong><time dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time></header><p>{message.body}</p></article>
+                    <article className={`messages-message ${message.senderId === authUser?.user.id ? 'own' : ''}`} key={message.id} data-message-row="true"><header><strong>{message.senderName}</strong><Timestamp value={message.createdAt} /></header><p>{message.body}</p></article>
                   ))}
                 </div>
                 <fieldset className="messages-composer-fieldset"><legend className="sr-only">Reply to {thread.title}</legend><div className="messages-composer">

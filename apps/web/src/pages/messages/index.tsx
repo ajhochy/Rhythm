@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { FocusDialog } from '../../components/FocusDialog';
+import { Timestamp } from '../../components/Timestamp';
+import { formatTimestamp } from '../../timestamps';
 import { ListInspector } from '../../components/ListInspector';
 import { navigate } from '../../components/Shell';
 import { Icon } from '../../icons';
@@ -37,9 +39,7 @@ function threadIdFromRoute(route: string) {
 }
 
 function timeLabel(timestamp: string) {
-  const time = timestamp.slice(11, 16);
-  const hour = Number(time.slice(0, 2));
-  return `${hour % 12 || 12}:${time.slice(3)} ${hour >= 12 ? 'PM' : 'AM'}`;
+  return formatTimestamp(timestamp)?.label ?? 'Time unavailable';
 }
 
 function threadIdForTitle(title: string) {
@@ -368,7 +368,7 @@ function FixtureMessagesPage({ route }: { route: string }) {
               </header>
               {incomingVisible && thread.id === 'thread-weekend-team' && <div className="messages-incoming" role="status"><span><strong>New from Morgan</strong> · Volunteer coverage is current.</span><button className="text-button" type="button" onClick={() => setIncomingVisible(false)} data-testid="messages-incoming-dismiss">Dismiss</button></div>}
               <div className="messages-transcript" ref={transcriptRef} role="log" tabIndex={0} aria-label={`${thread.title} transcript`} aria-live="polite" data-testid="messages-transcript">
-                {thread.messages.length === 0 ? <div className="messages-transcript-empty"><p>No messages yet. Start the conversation below.</p></div> : thread.messages.map((message) => <article className={`messages-message ${message.senderId === currentMessageUser.id ? 'own' : ''}`} key={message.id} data-message-row="true"><header><strong>{message.senderName}</strong><time dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time></header><p>{message.body}</p></article>)}
+                {thread.messages.length === 0 ? <div className="messages-transcript-empty"><p>No messages yet. Start the conversation below.</p></div> : thread.messages.map((message) => <article className={`messages-message ${message.senderId === currentMessageUser.id ? 'own' : ''}`} key={message.id} data-message-row="true"><header><strong>{message.senderName}</strong><Timestamp value={message.createdAt} /></header><p>{message.body}</p></article>)}
               </div>
               <fieldset className="messages-composer-fieldset" disabled={readonly} aria-disabled={readonly ? 'true' : undefined}>
                 <legend className="sr-only">Reply to {thread.title}</legend>
