@@ -776,7 +776,9 @@ export class EngraphManager {
         return { ok: false, category: 'health_check_failed', message: 'malformed search response', latencyMs };
       }
       if (this.startAbort?.signal.aborted) return { ok: false, category: 'health_check_failed', message: 'start cancelled' };
-      this.ready = true;
+      // Health alone does not authorize a backend whose process identity is
+      // still being verified by the startup path.
+      if (this.reservation?.state !== 'starting') this.ready = true;
       this.store.write({ lastHealthyAt: new Date().toISOString() });
       return { ok: true, latencyMs };
     } catch (err) {
@@ -1002,14 +1004,36 @@ export class EngraphManager {
     }
     if (cancelled()) { await this.stopOwnedChild(); return stopped(); }
     if (this.reservation) {
-      const marker = markerAt(lock);
-      if (!marker || marker.nonce !== this.reservation.nonce || !matches(marker.relay, marker.nonce) ||
-          !matches(marker.child, cfg.executablePath) || marker.configHash !== this.reservation.configHash) {
-        await this.stopOwnedChild();
-        return this._fail('spawn_failed', 'managed backend identity could not be verified');
+      const verify = (): { marker?: OwnerMarker; reason: string; retryable: boolean } => {
+        const marker = markerAt(lock);
+        if (!marker) return { reason: 'marker_unavailable', retryable: true };
+        if (marker.nonce !== this.reservation!.nonce) return { reason: 'marker_nonce_mismatch', retryable: false };
+        if (marker.configHash !== this.reservation!.configHash) return { reason: 'config_hash_mismatch', retryable: false };
+        if (!marker.relay || !marker.child) return { reason: 'marker_incomplete', retryable: true };
+        let processes: Identity[];
+        try { processes = this.processListSync(); }
+        catch { return { reason: 'os_probe_unavailable', retryable: true }; }
+        if (!fromSnapshot(marker.relay, processes)) return { reason: 'relay_probe_unavailable', retryable: true };
+        if (!matchesSnapshot(marker.relay, marker.nonce, processes)) return { reason: 'relay_identity_mismatch', retryable: false };
+        if (!fromSnapshot(marker.child, processes)) return { reason: 'child_probe_unavailable', retryable: true };
+        if (!matchesSnapshot(marker.child, cfg.executablePath!, processes)) return { reason: 'child_identity_mismatch', retryable: false };
+        return { marker, reason: 'verified', retryable: false };
+      };
+      let proof = verify();
+      for (let attempt = 1; !proof.marker && proof.retryable && attempt < 3; attempt++) {
+        if (cancelled() || !this.child || this.child.exitCode !== null) break;
+        await new Promise((resolve) => setTimeout(resolve, 75));
+        if (cancelled()) break;
+        proof = verify();
       }
-      this.reservation = { ...marker, state: 'serving' };
+      if (cancelled()) { await this.stopOwnedChild(); return stopped(); }
+      if (!proof.marker) {
+        await this.stopOwnedChild();
+        return this._fail('spawn_failed', `managed backend identity could not be verified (${proof.reason})`);
+      }
+      this.reservation = { ...proof.marker, state: 'serving' };
       publish(lock, this.reservation, false);
+      this.ready = true;
     }
     this.store.write({ state: 'ready', lastFailureCategory: null, lastFailureMessage: null });
     managedByHome.set(home, this);

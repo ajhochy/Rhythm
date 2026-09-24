@@ -1,5 +1,5 @@
 import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -48,6 +48,14 @@ async function waitFor<T>(read: () => T, accept: (value: T) => boolean, timeoutM
 function pidAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true; }
   catch (err) { return (err as NodeJS.ErrnoException).code !== 'ESRCH'; }
+}
+
+function osProcessList() {
+  const output = execFileSync('/bin/ps', ['-axo', 'pid=,ppid=,pgid=,lstart=,command='], { encoding: 'utf8' });
+  return output.split('\n').flatMap((line) => {
+    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+\s+\S+\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.+)$/);
+    return match ? [{ pid: Number(match[1]), ppid: Number(match[2]), pgid: Number(match[3]), start: match[4], command: match[5] }] : [];
+  });
 }
 
 async function allocateLoopbackPort(): Promise<number> {
@@ -192,6 +200,68 @@ it('issue-1574-c1: racing same-process managers wait for one real backend', asyn
   expect(new Set([first.getStatus().backendOwnership, second.getStatus().backendOwnership])).toEqual(new Set(['owned', 'reused']));
   await second.disable();
   expect(first.getStatus().backendCount).toBe(0);
+});
+
+it('issue-1574-c1: one unavailable OS identity probe after authenticated health does not discard the owned backend', async () => {
+  dir = mkdtempSync(join(tmpdir(), 'issue-1574-probe-'));
+  process.env.MEMORY_VAULT_PATH = join(dir, 'vault');
+  process.env.MEMORY_VAULT_SUBDIR = 'AGENT-MEMORY';
+  mkdirSync(join(dir, 'vault', 'AGENT-MEMORY'), { recursive: true });
+  const home = join(dir, 'home');
+  const lock = join(home, '.engraph', 'serve.owner');
+  const store = new EngraphManagerConfigStore(join(dir, 'config-probe.json'));
+  store.write({ enabled: true, executablePath: binary });
+  let probeMisses = 0;
+  const first = new EngraphManager({ configStore: store, homeDir: home, processListSync: () => {
+    if (existsSync(lock)) {
+      const marker = JSON.parse(readFileSync(lock, 'utf8')) as { relay?: { pid: number }; child?: { pid: number } };
+      if (marker.relay && marker.child && probeMisses++ === 0) return [];
+    }
+    return osProcessList();
+  } });
+  managers.push(first);
+  const second = manager(home);
+  expect(await Promise.all([first.enable(), second.enable()])).toEqual([{ ok: true }, { ok: true }]);
+  expect(probeMisses).toBeGreaterThanOrEqual(1);
+  expect(new Set([first.getStatus().backendOwnership, second.getStatus().backendOwnership])).toEqual(new Set(['owned', 'reused']));
+});
+
+it('issue-1574-c1: persistently unavailable OS identity remains unowned and fails closed', async () => {
+  dir = mkdtempSync(join(tmpdir(), 'issue-1574-probe-'));
+  process.env.MEMORY_VAULT_PATH = join(dir, 'vault');
+  process.env.MEMORY_VAULT_SUBDIR = 'AGENT-MEMORY';
+  mkdirSync(join(dir, 'vault', 'AGENT-MEMORY'), { recursive: true });
+  const store = new EngraphManagerConfigStore(join(dir, 'config.json'));
+  store.write({ enabled: true, executablePath: binary });
+  const instance = new EngraphManager({ configStore: store, homeDir: join(dir, 'home'), processListSync: () => [] });
+  managers.push(instance);
+  expect(await instance.enable()).toEqual({ ok: false, reason: 'spawn_failed' });
+  expect(instance.getStatus()).toMatchObject({ state: 'error', backendOwnership: 'none', lastFailureCategory: 'spawn_failed',
+    lastFailureMessage: 'managed backend identity could not be verified (relay_probe_unavailable)' });
+});
+
+it('issue-1574-c1: a conflicting child start identity fails immediately without retrying', async () => {
+  dir = mkdtempSync(join(tmpdir(), 'issue-1574-mismatch-'));
+  process.env.MEMORY_VAULT_PATH = join(dir, 'vault');
+  process.env.MEMORY_VAULT_SUBDIR = 'AGENT-MEMORY';
+  mkdirSync(join(dir, 'vault', 'AGENT-MEMORY'), { recursive: true });
+  const home = join(dir, 'home');
+  const lock = join(home, '.engraph', 'serve.owner');
+  const store = new EngraphManagerConfigStore(join(dir, 'config.json'));
+  store.write({ enabled: true, executablePath: binary });
+  let finalProbes = 0;
+  const instance = new EngraphManager({ configStore: store, homeDir: home, processListSync: () => {
+    const processes = osProcessList();
+    if (!existsSync(lock)) return processes;
+    const marker = JSON.parse(readFileSync(lock, 'utf8')) as { relay?: { pid: number }; child?: { pid: number } };
+    if (!marker.relay || !marker.child) return processes;
+    finalProbes++;
+    return processes.map((process) => process.pid === marker.child!.pid ? { ...process, start: 'wrong-start' } : process);
+  } });
+  managers.push(instance);
+  expect(await instance.enable()).toEqual({ ok: false, reason: 'spawn_failed' });
+  expect(finalProbes).toBe(1);
+  expect(instance.getStatus().lastFailureMessage).toBe('managed backend identity could not be verified (child_identity_mismatch)');
 });
 
 it('issue-1574-c1: a reuser becomes the current owner after the old owner stops and disable reaps its child', async () => {
