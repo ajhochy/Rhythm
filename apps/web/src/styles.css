@@ -290,8 +290,8 @@ code, pre { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .inline-plan > span { display: flex; align-items: center; gap: 8px; color: var(--fg-2); }
 .inline-plan i { width: 16px; height: 16px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 50%; }
 .inline-plan i.done { color: var(--accent-on); background: var(--success); border-color: var(--success); }
-.child-chip { width: 100%; min-height: 48px; display: grid; grid-template-columns: 8px minmax(0, 1fr) 14px; align-items: center; gap: 9px; padding: 7px 10px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); color: var(--fg-2); background: var(--surface); cursor: pointer; text-align: left; }
-.child-chip > span:nth-child(2) { display: grid; }
+.child-chip { width: 100%; min-height: 48px; display: grid; grid-template-columns: minmax(0, 1fr) 14px; align-items: center; gap: 9px; padding: 7px 10px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); color: var(--fg-2); background: var(--surface); cursor: pointer; text-align: left; }
+.child-chip > span:nth-child(1) { display: grid; }
 .child-chip small { color: var(--muted); font-size: 9px; }
 .cost-line { display: flex; align-items: center; gap: 7px; color: var(--muted); font-family: var(--font-mono); font-size: 9px; }
 .cost-line small { margin-left: auto; }
