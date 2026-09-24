@@ -111,6 +111,14 @@ disposable macOS account and normal packaged lifecycle/architecture qualificatio
 belong at their first relevant integration/release checkpoints. None is qualified
 by bootstrap guards. See `docs/ai/runs/2026-09-10-electron-e02-harness.md`.
 
+> ⚠️ **Worktree `node_modules` are often symlinks into the main checkout** (root,
+> `apps/api_server`, `apps/mcp_server`, `apps/web`, `apps/opencode_fork`). Never run
+> `npm ci` / `npm install` inside such a worktree: the root `package.json` declares
+> `apps/api_server` as a workspace, so npm reifies the root tree *through the symlink* and empties
+> the main checkout's `node_modules` (observed 2026-09-24). Either use `npx tsc` / `npx vitest`,
+> which resolve package bins without `.bin` links, or `rm` the symlinks first and install a real
+> tree. `sandbox.sh up` needs `apps/api_server/node_modules/.bin/tsc` because it runs `npm run build`.
+
 Use `tools/dev/sandbox.sh` to run a second local api_server without touching
 the live app's ports, database, HOME-relative Opencode files, live-artifact
 storage, or run slots.

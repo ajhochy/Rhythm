@@ -1,40 +1,70 @@
 # Rhythm — Project State
 
-Updated 2026-09-21. Focus: mega-branch desktop/mobile runtime repairs and qualification, now consolidated onto a single branch and a single PR.
+## Current focus
 
-- Branch `mega/2026-09-18-mobile-electron-hermes`, draft [PR1544](https://github.com/ajhochy/Rhythm/pull/1544); Hermes fork draft [PR17](https://github.com/ajhochy/hermes-rhythm-plugin/pull/17), pinned `8ea642dbb6a8b8d65868c3e7a468c471914f037b`. No merge/deployment/release publication.
-- Developer ID candidate open at `/Users/ajhochhalter/Applications/Rhythm Mega Desktop Candidate.app` (PID95306), preserving the existing login/approval identity. It starts/reuses API and engine; owned-child relay configuration now restores the saved session to its validated production origin. No OAuth/account changes or auth-transition service restart.
-- Public relay is online and matches the local gateway identity/fingerprint; live correlation test1/1. Actual phone, driven through iPhone Mirroring, loads current branch JavaScript, connects through Rhythm Cloud Gateway, creates a synthetic chat, receives a reply and survives background/reopen. Exact synthetic chat deleted. Tools safe-area and overflow controls visibly exercised.
-- Phone uses an existing signed development client. Xcode26.5 compiler probes stall before compilation; fresh native build and TestFlight remain blocked. Mirroring intermittently disconnects during scrolling. Working-sound off persistence was observed; audible behavior and final restored-toggle read-back remain incomplete.
-- Local suites: engine396pass/5skip/1todo; mobile71pass/1skip; Electron168/168; borrowed Hermes1/1; current signed Desktop read checks2/2; final web parser/layout fixtures17/17. Relevant typechecks passed. Final `ai-workflow checks --level pr` passed all 16 stages, zero failures.
-- Hosted native suite remains incomplete: last full run7pass/3skip/2fail; final focused run Automationspassed/Facilitiesfailed. Facilities POST creates the marked room but its row can remain absent; cleanup succeeds. Messages write-cycle needs the deployed DELETE route. [Facilities UI follow-up1545](https://github.com/ajhochy/Rhythm/issues/1545) filed at AJ's request.
-- Final six-collection hosted audit found zero campaign markers at2026-09-20T02:33:21Z. This is not database-global absence. Nine-step native visual acceptance, matched comfort, separate plugin M3/ACP, physical audio, current notarization/icon matrix, NAS/off-LAN and complete signed-device release acceptance remain open.
-- Evidence and exact commands: [device/relay run](runs/2026-09-19-connected-phone-relay.md), [plan](plans/2026-09-19-device-and-remaining-repairs.md), [engine readiness](runs/2026-09-19-engine-cancellation-readiness.md). Previous incomplete C5/mobile/engine findings are superseded only by their explicit new receipts.
+Open-issue swarm resume on the mega branch: every preserved candidate worktree was
+re-inspected by an independent Codex ledger, each diff was reviewed by the orchestrator, and
+only slices that passed their contract plus fresh verification were integrated, one squashed
+commit per slice. Flutter remains the shipping client; nothing here changes the Electron
+replacement, signed-package, or release gates.
 
-- 2026-09-21 branch consolidation: every outstanding work branch was folded into
-  `mega/2026-09-18-mobile-electron-hermes`, leaving `main` plus that one branch and
-  draft [PR1544](https://github.com/ajhochy/Rhythm/pull/1544) as the only open PR.
-  PRs #1508, #1548 and #1539 were closed into it. `fix/agent-server-health-flap`
-  and `fix/agent-schedule-infra-preflight` had already been cherry-picked onto mega
-  (`481f5549`, `052b2520`), and `mega/fix-web-round7` was fully superseded by later
-  mega web commits — those three contributed no product code. The net addition is
-  Colony planning docs, the shared-UI plan, the AGENTS.md sandbox-fixture section
-  (in its later rescued revision) and the PR-#1508 records. Details:
-  [run log](runs/2026-09-21-branch-consolidation.md).
+## Active branch / PR
 
-- 2026-09-21 memory vault default repointed: the api_server default vault was the
-  stale `~/Documents/Memory-Vault` (89 notes) at both `config/env.ts:83` and `:613`,
-  so the running Electron desktop client scanned it instead of the 376-note
-  `~/Documents/Obsidian Vault/AGENT-MEMORY`. #885 wired the env vars into the
-  **Flutter** launch path only; the Electron shell
-  (`apps/electron/src/agent-server.mjs`) never got them — verified on the live
-  :4001 process, which had `AGENT_LOCAL`/`PORT` but no vault vars. Fixed at the
-  default instead of adding a second wiring site, so every spawner is covered;
-  `MEMORY_VAULT_SUBDIR` now defaults to `''` only when `MEMORY_VAULT_PATH` is
-  unset, keeping `memory` back-compat for the whole test suite. Two genuine
-  unique notes were migrated into AGENT-MEMORY (376→378); the other 78 legacy
-  notes are kind-less research archives that belong in the main vault and were
-  left alone; `~/Documents/Memory-Vault` is untouched as a backup.
-  **The packaged app needs a rebuild to pick this up.**
-  [issue1571](https://github.com/ajhochy/Rhythm/issues/1571),
-  [run log](runs/2026-09-21-memory-vault-path-fix.md).
+- `mega/2026-09-18-mobile-electron-hermes` in `.mega-wt/integration`, draft
+  [PR #1544](https://github.com/ajhochy/Rhythm/pull/1544); no merge authorized.
+- Integrated this run (after `e93eac6e` #1547): `9d225f41` #1568 OpenAI usage,
+  `d1662eee` #1552 child-chip CSS, `bcf29c84` #1576 B1 provenance ledger, `ac3faa39` #1581
+  More menu, `810e0b91` #1559 Agent Settings isolation, `0ce3db89` #1575 isolated delegation
+  worktrees, `adfd5c41` 1581 evidence-capture gate. None closes its issue outright.
+- Ledger, evidence and every deferral reason:
+  [run record](runs/2026-09-24-open-issue-swarm-resume.md).
+
+## In progress
+
+- Deferred candidates are preserved as WIP commits on their own branches (not integrated):
+  #1558 (`37d1bef8`), #1577/PR #1578 (`5e0e93ae`, profile-scope bypass in `prompt()`),
+  #1574/#1573 (`61718027`), #1565 (`18f39c11`), #1491 (`957c73c7`), #1579 (`61d4c171`),
+  #1582 (`f28f2f1b`/`bbf5c65e`), #1572 (`858f7fc2`), #1468 (`932f87cc`), #1569 S0
+  (`08bd238f`, Astra re-review FAIL on five coverage items). Each has its repair cap reached;
+  AJ must revalidate product intent before another repair.
+- #1569 S1/S3/S5 were not branched because S0 is not frozen.
+- Bot Crossing auto-archive candidate untouched (`/private/tmp/bot-crossing-auto-archive`).
+
+## Risks / known issues
+
+- Manual gates remain for every integrated slice: #1568 G1/G2, #1552 c6 and #1581 c7
+  (packaged Electron renderer), #1575 c4 (child-reported cwd needs a provider credential),
+  #1547 real Google consent + exact PostgreSQL 16.
+- `agent_sessions.upsertResolvedChildSession` now COALESCEs worktree metadata; GitNexus rates
+  the method HIGH impact (resume/fork/create). Repository suite is green; watch child-session
+  resume/fork behaviour in manual smoke.
+- `agent_turn_dispatches` (#1576) is SQLite-only with an FK cascade; no Postgres DDL.
+- Pre-existing failures unrelated to this run: web `splitter.spec.ts:71` (Hermes separator
+  persistence) and four bucket-a rendered cases fail on base too.
+- Environment: never run `npm ci`/`npm install` inside a Rhythm worktree whose `node_modules`
+  are symlinks into the main checkout — it empties the main checkout's tree. Mega now owns a
+  real install; other app dirs in mega still symlink to main.
+
+## Test status
+
+- Integrated gate on mega `adfd5c41` (`ai-workflow checks --level pr`, 16 stages): 15 ✓ —
+  flutter analyze, dart format, api/mcp tsc, flutter test, api lint, api build, mcp vitest, mcp
+  build, fork typecheck, fork session tests, mobile static/contract/fake-server/web e2e. 1 ✗:
+  api_server serial vitest (6267 passed / 1 failed / 258 skipped) fails only `context_scanner.test.ts › repo self-check` on the untracked,
+  preserved `docs/ai/current-plan-1569.md` (19/19 without it; local-only, CI unaffected) — triaged
+  OUT OF SCOPE, [issue](issues/2026-09-24-context-scanner-self-check-untracked-plan.md).
+- Web on mega: build ✓; default Playwright 486 passed / 1 failed (pre-existing
+  `splitter.spec.ts:71`, fails on base too) / 86 skipped; bucket-a 11/15 (same 4 fail on base);
+  Electron renderer slices 25 passed / 1 skipped; 1581 contract 15/15; 1559 contract 37/37.
+- Live (sandbox from mega, synthetic fixture): #1568 credential-envelope test ✓ on a dedicated
+  :6098 sandbox; #1575 non-git rejection ✓, child-reports-cwd timed out (no provider credential),
+  server-side worktree creation visible in the sandbox log. `/health` ok, `/opencode/health`
+  ready + bridgeLive.
+- Focused suites: 1568 32/32, 1576 13/13, 1575 7/7 + repository 28/28, mcp 1/1, 1582 reducer 33/33
+  and 1565 10/10 (both deferred anyway).
+
+## Next step
+
+Manual smoke of the draft PR candidate (checklist in the PR body and
+`docs/testing/manual-smoke.md`), then AJ decides which deferred candidates get a revalidated
+repair. Merge is manual only.
