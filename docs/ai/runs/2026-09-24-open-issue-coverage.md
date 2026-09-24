@@ -78,13 +78,13 @@ The 12 formal closing references describe the PR author’s completion intent, n
 
 | Issue | Title | Current evidence / remaining work |
 |---|---|---|
-| [#1526](https://github.com/ajhochy/Rhythm/issues/1526) | [COL-01] Pin upstream Colony source and emit a sealed embedded artifact | Upstream artifact builder passed parent replay (4 builder plus 185 existing tests). Candidate remains dirty/unpinned; private IPC host and Rhythm tab still pending. |
+| [#1526](https://github.com/ajhochy/Rhythm/issues/1526) | [COL-01] Pin upstream Colony source and emit a sealed embedded artifact | Upstream foundation857c8b0 is in companion draft Bot Crossing PR5; full213 tests/build pass. Clean41-file artifact passes the Rhythm resolver. Packaged pin, private IPC and actual tab remain pending. |
 
 ## Concrete plan or queued repair; not implemented in PR
 
 | Issue | Title | Current evidence / remaining work |
 |---|---|---|
-| [#1573](https://github.com/ajhochy/Rhythm/issues/1573) | Memory injection only ever uses the FTS lane; Engraph semantic search never fires despite reporting healthy | Queued after Engraph ownership cleanup; semantic-search behavior still unqualified. |
+| [#1573](https://github.com/ajhochy/Rhythm/issues/1573) | Memory injection only ever uses the FTS lane; Engraph semantic search never fires despite reporting healthy | Source diagnosis found July30 relevance gate requires explicit backend confidence AND lexical overlap; this contradicts nonlexical retrieval. Degradation provenance and trustworthy semantic relevance repair remain planned; original runtime cause not freshly reproduced. |
 | [#1572](https://github.com/ajhochy/Rhythm/issues/1572) | Unify model-picker visibility and availability filtering across providers | Preserved candidate; direct-provider usability unresolved, targeted repair planned. |
 | [#1537](https://github.com/ajhochy/Rhythm/issues/1537) | [COL-12] Document and gate the all-user opt-in Colony release | Original Colony implementation plan exists; embedded artifact, bridge/tab/packaging or release slice remains. |
 | [#1536](https://github.com/ajhochy/Rhythm/issues/1536) | [COL-11] Qualify installed signed Colony on Apple Silicon and Intel | Original Colony implementation plan exists; embedded artifact, bridge/tab/packaging or release slice remains. |
@@ -143,3 +143,5 @@ The 12 formal closing references describe the PR author’s completion intent, n
 ## Evidence
 
 Live open-issue list: `/private/tmp/rhythm-all-open-issues.json`. PR closing references: `/private/tmp/rhythm-pr1544-state.json`. Full local branch history: `/private/tmp/rhythm-mega-commits.txt`. Integration revalidation: `docs/ai/runs/2026-09-24-repair4-revalidation.md`. Colony inspection: `/private/tmp/rhythm-finish-all-tab-inventory.md`. This snapshot will be updated as accepted slices land.
+
+September24 integration update: private Accounts helper760dbb47 passed48 parent focused tests/typecheck, with253 candidate Electron tests. Pre-slice27c61758 passed all six remote checks. Review identified actual Hermes startup bypassing the new credential host path; repair remains in progress. Colony protocol/scene transport has234 candidate tests and passing parent focused tests, but a metadata collision found in review is being repaired before commit. Counts and closing references above remain unchanged.
