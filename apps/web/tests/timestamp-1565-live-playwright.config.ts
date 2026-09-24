@@ -13,7 +13,7 @@ export default defineConfig({
   use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:4175', locale: 'en-US', timezoneId: 'America/Los_Angeles', serviceWorkers: 'block' },
   webServer: {
     command: 'npm run dev -- --host 127.0.0.1 --port 4175 --strictPort',
-    env: { VITE_RHYTHM_GATEWAY_MODE: 'live', VITE_RHYTHM_API_BASE: api, VITE_RHYTHM_ENGINE_BASE: engine, VITE_RHYTHM_EXPECTED_API_BASE: api, VITE_RHYTHM_EXPECTED_ENGINE_BASE: engine, VITE_RHYTHM_PRODUCTION_API_BASE: api, VITE_RHYTHM_LIVE_TOKEN: token },
+    env: { VITE_RHYTHM_GATEWAY_MODE: 'live', VITE_RHYTHM_API_BASE: api, VITE_RHYTHM_ENGINE_BASE: engine, VITE_RHYTHM_EXPECTED_API_BASE: api, VITE_RHYTHM_EXPECTED_ENGINE_BASE: engine, VITE_RHYTHM_PRODUCTION_API_BASE: 'https://timestamp-test.invalid', VITE_RHYTHM_LIVE_TOKEN: token },
     url: 'http://127.0.0.1:4175', reuseExistingServer: false, timeout: 30_000,
   },
 });
