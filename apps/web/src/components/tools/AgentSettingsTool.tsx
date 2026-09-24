@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentType, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ComponentType, type FormEvent, type ReactNode } from 'react';
 import type { McpServer } from '../../gateway/mcp';
 import type { AccountChoice } from '../../gateway/sessions';
 import type { Profile } from '../../types';
@@ -11,6 +11,7 @@ import { navigate } from '../Shell';
 import './AgentSettingsTool.css';
 
 type Trace = { method: string; route: string; detail: string };
+type LoadSection = 'profiles' | 'accounts' | 'mcp' | 'providers';
 
 export type AgentSettingsFrameProps = {
   slug: string;
@@ -136,9 +137,19 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const [accounts, setAccounts] = useState<AccountChoice[]>([]);
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState('');
   const [accountsError, setAccountsError] = useState('');
   const [mcpError, setMcpError] = useState('');
+  const [providerError, setProviderError] = useState('');
+  const [accountActionError, setAccountActionError] = useState('');
+  const [mcpActionError, setMcpActionError] = useState('');
+  const [retrying, setRetrying] = useState<Partial<Record<LoadSection, boolean>>>({});
+  const [retryStatus, setRetryStatus] = useState<Partial<Record<LoadSection, string>>>({});
+  const retryInFlight = useRef(new Set<LoadSection>());
+  const statusRefs = useRef<Partial<Record<LoadSection, HTMLParagraphElement | null>>>({});
+  const sectionGeneration = useRef<Record<LoadSection, number>>({ profiles: 0, accounts: 0, mcp: 0, providers: 0 });
+  const loadGeneration = useRef(0);
+  const traceGeneration = useRef(0);
   const [runtimeStatus, setRuntimeStatus] = useState<Record<'api' | 'engine', string>>({ api: 'Not checked', engine: 'Not checked' });
   const [pendingAction, setPendingAction] = useState('');
   const [actionNotice, setActionNotice] = useState('');
@@ -146,7 +157,8 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const [removingAccount, setRemovingAccount] = useState<AccountChoice | null>(null);
   const [accountDraft, setAccountDraft] = useState({ accountId: '', label: '', code: '' });
   const [accountAuthorizationUrl, setAccountAuthorizationUrl] = useState('');
-  const [authProviders, setAuthProviders] = useState<string[]>([]);
+  const [authProviders, setAuthProviders] = useState<string[] | null>(null);
+  const [providersCurrent, setProvidersCurrent] = useState(false);
   const [providerFlow, setProviderFlow] = useState<{ id: string; authUrl: string; instructions: string; method: number } | null>(null);
   const [providerDraft, setProviderDraft] = useState<{ code: string; apiKey: Record<string, string> }>({ code: '', apiKey: {} });
   const [mcpDraft, setMcpDraft] = useState({ name: '', kind: 'remote' as 'remote' | 'local', value: '' });
@@ -154,45 +166,105 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const [mcpAuthorization, setMcpAuthorization] = useState<{ name: string; url: string } | null>(null);
   const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-configs', detail: 'Loading live agent configuration' });
 
+  const routes: Record<LoadSection, string> = { profiles: '/agent-configs', accounts: '/opencode/auth/accounts', mcp: '/opencode/mcp', providers: '/opencode/auth' };
+  const readSection = async (section: LoadSection, kind: 'load' | 'retry' | 'action' = 'load') => {
+    const generation = ++sectionGeneration.current[section];
+    const current = () => generation === sectionGeneration.current[section];
+    const retry = kind === 'retry';
+    // ponytail: one owner per section also owns its pending indicator and announcement.
+    if (retry) retryInFlight.current.add(section); else retryInFlight.current.delete(section);
+    setRetrying((state) => ({ ...state, [section]: retry }));
+    setRetryStatus((state) => ({ ...state, [section]: retry ? `Retrying ${section}…` : '' }));
+    if (section === 'providers') setProvidersCurrent(false);
+    try {
+      let result: number | string[] | undefined;
+      if (section === 'profiles') {
+        const value = await sessions.profiles();
+        if (current()) { setProfiles(value); setProfileError(''); }
+        result = value.length;
+      } else if (section === 'accounts') {
+        const value = await (sessions.accounts?.() ?? Promise.resolve([]));
+        if (current()) { setAccounts(value); setAccountsError(''); }
+      } else if (section === 'mcp') {
+        const value = await mcp.list();
+        if (current()) { setMcpServers(value); setMcpError(''); }
+      } else {
+        const value = await (sessions.authProviders?.() ?? Promise.resolve([]));
+        if (current()) { setAuthProviders(value); setProviderError(''); setProvidersCurrent(true); }
+        result = value;
+      }
+      if (current()) {
+        retryInFlight.current.delete(section);
+        setRetrying((state) => ({ ...state, [section]: false }));
+        if (retry) setRetryStatus((state) => ({ ...state, [section]: `${section} loaded` }));
+      }
+      return result;
+    } catch (err) {
+      if (current()) {
+        retryInFlight.current.delete(section);
+        setRetrying((state) => ({ ...state, [section]: false }));
+        if (retry) setRetryStatus((state) => ({ ...state, [section]: `${section} still unavailable` }));
+      }
+      if (kind !== 'action' && current()) {
+        const message = err instanceof Error ? err.message : `${section} could not be loaded`;
+        if (section === 'profiles') setProfileError(message);
+        if (section === 'accounts') setAccountsError(message);
+        if (section === 'mcp') setMcpError(message);
+        if (section === 'providers') setProviderError(message);
+      }
+      throw err;
+    }
+  };
   const load = async () => {
-    setError(null); setAccountsError(''); setMcpError(''); setLoading(true);
-    const [profileResult, accountResult, mcpResult, providerResult] = await Promise.allSettled([
-      sessions.profiles(),
-      sessions.accounts?.() ?? Promise.resolve([]),
-      mcp.list(),
-      sessions.authProviders?.() ?? Promise.resolve([]),
-    ]);
-    setAuthProviders(providerResult.status === 'fulfilled' ? providerResult.value : []);
-    if (profileResult.status === 'fulfilled') setProfiles(profileResult.value);
-    else setError(profileResult.reason instanceof Error ? profileResult.reason.message : 'Agent settings failed to load');
-    if (accountResult.status === 'fulfilled') setAccounts(accountResult.value);
-    else setAccountsError(accountResult.reason instanceof Error ? accountResult.reason.message : 'Accounts could not be loaded');
-    if (mcpResult.status === 'fulfilled') setMcpServers(mcpResult.value);
-    else setMcpError(mcpResult.reason instanceof Error ? mcpResult.reason.message : 'MCP servers could not be loaded');
-    const profileCount = profileResult.status === 'fulfilled' ? profileResult.value.length : 0;
-    setTrace({ method: 'GET', route: '/agent-configs · /opencode/auth/accounts · /opencode/mcp', detail: `${profileCount} agent profiles loaded` });
+    const run = ++loadGeneration.current;
+    const traceRun = ++traceGeneration.current;
+    const results = await Promise.allSettled((['profiles', 'accounts', 'mcp', 'providers'] as LoadSection[]).map((section) => readSection(section)));
+    if (run !== loadGeneration.current) return;
+    if (traceRun === traceGeneration.current) {
+      const failed = results.flatMap((result, index) => result.status === 'rejected' ? [['profiles', 'accounts', 'MCP servers', 'providers'][index]] : []);
+      setTrace({ method: 'GET', route: '/agent-configs · /opencode/auth/accounts · /opencode/mcp · /opencode/auth', detail: failed.length ? `${failed.join(', ')} failed to load` : `${results[0].status === 'fulfilled' ? results[0].value : 0} agent profiles loaded` });
+    }
     setLoading(false);
   };
   useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const retrySection = async (section: LoadSection, origin: HTMLElement) => {
+    if (retryInFlight.current.has(section)) return;
+    const traceRun = ++traceGeneration.current;
+    const generation = sectionGeneration.current[section] + 1;
+    try {
+      await readSection(section, 'retry');
+      // A removed Retry falls back to body; explicit focus moves remain the user's choice.
+      if (generation === sectionGeneration.current[section] && (document.activeElement === origin || (!origin.isConnected && document.activeElement === document.body))) statusRefs.current[section]?.focus();
+      if (traceRun === traceGeneration.current && generation === sectionGeneration.current[section]) setTrace({ method: 'GET', route: routes[section], detail: `${section} loaded` });
+    } catch {
+      if (traceRun === traceGeneration.current && generation === sectionGeneration.current[section]) setTrace({ method: 'GET', route: routes[section], detail: `${section} failed to load` });
+    }
+  };
+
+  const retryControl = (section: LoadSection, error: string, label: string) => <>
+    {error && <p role="alert">{error} <button className="text-button agent-settings-retry" type="button" aria-disabled={Boolean(retrying[section])} aria-busy={Boolean(retrying[section])} onClick={(event) => void retrySection(section, event.currentTarget)}>{label}</button></p>}
+    <p role="status" tabIndex={-1} data-testid={`agent-settings-${section}-status`} ref={(element) => { statusRefs.current[section] = element; }}>{retryStatus[section] ?? ''}</p>
+  </>;
+
   const reloadAccounts = async () => {
-    setAccounts(await (sessions.accounts?.() ?? Promise.resolve([])));
+    await readSection('accounts', 'action');
   };
 
   const reloadProviders = async () => {
-    setAuthProviders(await (sessions.authProviders?.() ?? Promise.resolve([])));
+    await readSection('providers', 'action');
   };
 
   const startProviderAuth = async (provider: typeof providerCatalog[number]) => {
     if (!sessions.authorizeProvider) return;
-    setPendingAction(`provider-start-${provider.id}`); setAccountsError(''); setActionNotice('');
+    setPendingAction(`provider-start-${provider.id}`); setAccountActionError(''); setActionNotice('');
     setProviderFlow(null); setProviderDraft((current) => ({ ...current, code: '' }));
     try {
       const result = await sessions.authorizeProvider(provider.id, provider.method);
       setProviderFlow({ id: provider.id, authUrl: result.authUrl, instructions: result.instructions, method: provider.method });
       setActionNotice(`Authorization started for ${provider.label}. Open the provider page to sign in.`);
       setTrace({ method: 'GET', route: `/opencode/auth/${provider.id}/authorize`, detail: `Authorization started for ${provider.id}` });
-    } catch (err) { setAccountsError(err instanceof Error ? err.message : 'Provider authorization could not be started'); }
+    } catch (err) { setAccountActionError(err instanceof Error ? err.message : 'Provider authorization could not be started'); }
     finally { setPendingAction(''); }
   };
 
@@ -200,14 +272,14 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     event.preventDefault();
     if (!providerFlow || !sessions.completeProviderAuth) return;
     const flow = providerFlow;
-    setPendingAction(`provider-complete-${flow.id}`); setAccountsError(''); setActionNotice('');
+    setPendingAction(`provider-complete-${flow.id}`); setAccountActionError(''); setActionNotice('');
     try {
       await sessions.completeProviderAuth(flow.id, providerDraft.code.trim(), flow.method);
       await reloadProviders();
       setProviderFlow(null); setProviderDraft((current) => ({ ...current, code: '' }));
       setActionNotice(`${flow.id} connected.`);
       setTrace({ method: 'GET', route: `/opencode/auth/${flow.id}/callback`, detail: `${flow.id} authorization completed` });
-    } catch (err) { setAccountsError(err instanceof Error ? err.message : 'Provider authorization could not be completed'); }
+    } catch (err) { setAccountActionError(err instanceof Error ? err.message : 'Provider authorization could not be completed'); }
     finally { setPendingAction(''); }
   };
 
@@ -216,29 +288,31 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const checkProviderAuth = async () => {
     if (!providerFlow) return;
     const flow = providerFlow;
-    setPendingAction(`provider-check-${flow.id}`); setAccountsError('');
+    setPendingAction(`provider-check-${flow.id}`); setAccountActionError('');
+    const generation = sectionGeneration.current.providers + 1;
+    const current = () => generation === sectionGeneration.current.providers;
     try {
-      const providers = await (sessions.authProviders?.() ?? Promise.resolve([]));
-      setAuthProviders(providers);
+      const providers = await readSection('providers', 'action') as string[];
+      if (!current()) return;
       const connected = providers.includes(flow.id);
       if (connected) setProviderFlow(null);
       setActionNotice(connected ? `${flow.id} connected.` : `${flow.id} is not connected yet. Finish the browser sign-in, then check again.`);
       setTrace({ method: 'GET', route: '/opencode/auth', detail: `${flow.id} is ${connected ? 'connected' : 'not connected yet'}` });
-    } catch (err) { setAccountsError(err instanceof Error ? err.message : 'Provider status could not be read'); }
+    } catch (err) { if (current()) setAccountActionError(err instanceof Error ? err.message : 'Provider status could not be read'); }
     finally { setPendingAction(''); }
   };
 
   const saveProviderApiKey = async (event: FormEvent, provider: typeof providerCatalog[number]) => {
     event.preventDefault();
     if (!sessions.saveProviderApiKey) return;
-    setPendingAction(`provider-key-${provider.id}`); setAccountsError(''); setActionNotice('');
+    setPendingAction(`provider-key-${provider.id}`); setAccountActionError(''); setActionNotice('');
     try {
       await sessions.saveProviderApiKey(provider.id, providerDraft.apiKey[provider.id] ?? '');
       await reloadProviders();
       setProviderDraft((current) => ({ ...current, apiKey: { ...current.apiKey, [provider.id]: '' } }));
       setActionNotice(`${provider.label} connected.`);
       setTrace({ method: 'POST', route: `/opencode/auth/${provider.id}`, detail: `${provider.id} API key stored` });
-    } catch (err) { setAccountsError(err instanceof Error ? err.message : 'Provider API key could not be saved'); }
+    } catch (err) { setAccountActionError(err instanceof Error ? err.message : 'Provider API key could not be saved'); }
     finally { setPendingAction(''); }
   };
 
@@ -246,14 +320,14 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   // pair as a new one — the server upserts by id and keeps the default set.
   const beginAccountLogin = async (accountId: string, label: string) => {
     if (!sessions.startAccountLogin || !accountId) return;
-    setPendingAction('account-start'); setAccountsError(''); setActionNotice(''); setAccountAuthorizationUrl('');
+    setPendingAction('account-start'); setAccountActionError(''); setActionNotice(''); setAccountAuthorizationUrl('');
     setAccountDraft({ accountId, label, code: '' });
     try {
       const result = await sessions.startAccountLogin({ accountId, label: label || accountId });
       setAccountAuthorizationUrl(result.authorizationUrl);
       setActionNotice('Authorization started. Open the provider page, then paste the returned code.');
       setTrace({ method: 'POST', route: '/opencode/auth/accounts/login-start', detail: `Authorization started for ${accountId}` });
-    } catch (err) { setAccountsError(err instanceof Error ? err.message : 'Account authorization could not be started'); }
+    } catch (err) { setAccountActionError(err instanceof Error ? err.message : 'Account authorization could not be started'); }
     finally { setPendingAction(''); }
   };
 
@@ -265,7 +339,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const completeAccountLogin = async (event: FormEvent) => {
     event.preventDefault();
     if (!sessions.completeAccountLogin) return;
-    setPendingAction('account-complete'); setAccountsError(''); setActionNotice('');
+    setPendingAction('account-complete'); setAccountActionError(''); setActionNotice('');
     try {
       await sessions.completeAccountLogin({ accountId: accountDraft.accountId.trim(), code: accountDraft.code.trim() });
       await reloadAccounts();
@@ -273,31 +347,31 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
       setAccountAuthorizationUrl('');
       setActionNotice('Account authorized and saved.');
       setTrace({ method: 'POST', route: '/opencode/auth/accounts/login-complete', detail: 'Account authorization completed' });
-    } catch (err) { setAccountsError(err instanceof Error ? err.message : 'Account authorization could not be completed'); }
+    } catch (err) { setAccountActionError(err instanceof Error ? err.message : 'Account authorization could not be completed'); }
     finally { setPendingAction(''); }
   };
 
   const setDefaultAccount = async (account: AccountChoice) => {
     if (!sessions.setDefaultAccount) return;
-    setPendingAction(`account-default-${account.id}`); setAccountsError(''); setActionNotice('');
+    setPendingAction(`account-default-${account.id}`); setAccountActionError(''); setActionNotice('');
     try {
       await sessions.setDefaultAccount(account.id);
       await reloadAccounts();
       setActionNotice(`${account.label} is now the default account.`);
       setTrace({ method: 'PATCH', route: '/opencode/auth/accounts/default', detail: `${account.id} set as default` });
-    } catch (err) { setAccountsError(err instanceof Error ? err.message : 'Default account could not be saved'); }
+    } catch (err) { setAccountActionError(err instanceof Error ? err.message : 'Default account could not be saved'); }
     finally { setPendingAction(''); }
   };
 
   const removeSelectedAccount = async () => {
     if (!removingAccount || !sessions.removeAccount) return;
-    const account = removingAccount; setRemovingAccount(null); setPendingAction(`account-remove-${account.id}`); setAccountsError(''); setActionNotice('');
+    const account = removingAccount; setRemovingAccount(null); setPendingAction(`account-remove-${account.id}`); setAccountActionError(''); setActionNotice('');
     try {
       await sessions.removeAccount(account.id);
       await reloadAccounts();
       setActionNotice(`${account.label} removed.`);
       setTrace({ method: 'DELETE', route: `/opencode/auth/accounts/${encodeURIComponent(account.id)}`, detail: `${account.id} removed` });
-    } catch (err) { setAccountsError(err instanceof Error ? err.message : 'Account could not be removed'); }
+    } catch (err) { setAccountActionError(err instanceof Error ? err.message : 'Account could not be removed'); }
     finally { setPendingAction(''); }
   };
 
@@ -314,12 +388,11 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   };
 
   const reloadMcp = async () => {
-    const next = await mcp.list();
-    setMcpServers(next);
+    await readSection('mcp', 'action');
   };
 
   const runMcpAction = async (server: McpServer, action: 'connect' | 'disconnect') => {
-    setPendingAction(`${action}-${server.name}`); setMcpError(''); setActionNotice('');
+    setPendingAction(`${action}-${server.name}`); setMcpActionError(''); setActionNotice('');
     try {
       if (action === 'connect') {
         const result = await mcp.connect(server.name);
@@ -331,69 +404,69 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
       }
       await reloadMcp();
       setTrace({ method: 'POST', route: `/opencode/mcp/${encodeURIComponent(server.name)}/${action}`, detail: `${server.name} ${action} request completed` });
-    } catch (err) { setMcpError(err instanceof Error ? err.message : `MCP ${action} failed`); }
+    } catch (err) { setMcpActionError(err instanceof Error ? err.message : `MCP ${action} failed`); }
     finally { setPendingAction(''); }
   };
 
   const removeMcp = async () => {
     if (!removing) return;
-    const server = removing; setRemoving(null); setPendingAction(`remove-${server.name}`); setMcpError(''); setActionNotice('');
+    const server = removing; setRemoving(null); setPendingAction(`remove-${server.name}`); setMcpActionError(''); setActionNotice('');
     try {
       await mcp.remove(server.name);
       await reloadMcp();
       setActionNotice(`${server.name} removed.`);
       setTrace({ method: 'DELETE', route: `/opencode/mcp/${encodeURIComponent(server.name)}`, detail: `${server.name} removed` });
-    } catch (err) { setMcpError(err instanceof Error ? err.message : 'MCP server removal failed'); }
+    } catch (err) { setMcpActionError(err instanceof Error ? err.message : 'MCP server removal failed'); }
     finally { setPendingAction(''); }
   };
 
   const addMcp = async (event: FormEvent) => {
     event.preventDefault();
-    setPendingAction('mcp-add'); setMcpError(''); setActionNotice('');
+    setPendingAction('mcp-add'); setMcpActionError(''); setActionNotice('');
     try {
       await mcp.add({ name: mcpDraft.name.trim(), ...(mcpDraft.kind === 'remote' ? { url: mcpDraft.value.trim() } : { command: mcpDraft.value.trim() }) });
       await reloadMcp();
       setActionNotice(`${mcpDraft.name.trim()} added and saved.`);
       setTrace({ method: 'POST', route: '/opencode/mcp', detail: `${mcpDraft.name.trim()} added` });
       setMcpDraft({ name: '', kind: 'remote', value: '' });
-    } catch (err) { setMcpError(err instanceof Error ? err.message : 'MCP server could not be added'); }
+    } catch (err) { setMcpActionError(err instanceof Error ? err.message : 'MCP server could not be added'); }
     finally { setPendingAction(''); }
   };
 
   const saveMcpCredentials = async (event: FormEvent, server: McpServer) => {
     event.preventDefault();
-    setPendingAction(`mcp-credentials-${server.name}`); setMcpError(''); setActionNotice('');
+    setPendingAction(`mcp-credentials-${server.name}`); setMcpActionError(''); setActionNotice('');
     try {
       await mcp.setCredentials(server.name, mcpCredentials[server.name] ?? {});
       await reloadMcp();
       setMcpCredentials((current) => ({ ...current, [server.name]: {} }));
       setActionNotice(`${server.name} credentials saved.`);
       setTrace({ method: 'POST', route: `/opencode/mcp/${encodeURIComponent(server.name)}/credentials`, detail: `${server.name} credentials saved` });
-    } catch (err) { setMcpError(err instanceof Error ? err.message : 'MCP credentials could not be saved'); }
+    } catch (err) { setMcpActionError(err instanceof Error ? err.message : 'MCP credentials could not be saved'); }
     finally { setPendingAction(''); }
   };
 
   const startMcpOAuth = async (server: McpServer) => {
-    setPendingAction(`mcp-oauth-${server.name}`); setMcpError(''); setActionNotice('');
+    setPendingAction(`mcp-oauth-${server.name}`); setMcpActionError(''); setActionNotice('');
     try {
       const result = await mcp.startOAuth(server.name);
       setMcpAuthorization({ name: server.name, url: result.authorizationUrl });
       setActionNotice(`Authorization started for ${server.name}.`);
       setTrace({ method: 'POST', route: `/opencode/mcp/${encodeURIComponent(server.name)}/oauth/start`, detail: `${server.name} OAuth started` });
-    } catch (err) { setMcpError(err instanceof Error ? err.message : 'MCP authorization could not be started'); }
+    } catch (err) { setMcpActionError(err instanceof Error ? err.message : 'MCP authorization could not be started'); }
     finally { setPendingAction(''); }
   };
 
   const checkMcpOAuth = async () => {
     if (!mcpAuthorization) return;
-    setPendingAction(`mcp-oauth-status-${mcpAuthorization.name}`); setMcpError('');
+    setPendingAction(`mcp-oauth-status-${mcpAuthorization.name}`); setMcpActionError('');
     try {
       const result = await mcp.oauthStatus(mcpAuthorization.name);
       await reloadMcp();
       setActionNotice(`${mcpAuthorization.name} authorization status: ${result.status}.`);
       setTrace({ method: 'GET', route: `/opencode/mcp/${encodeURIComponent(mcpAuthorization.name)}/oauth/status`, detail: `${mcpAuthorization.name} OAuth status is ${result.status}` });
       if (/connected|authorized|complete/i.test(result.status)) setMcpAuthorization(null);
-    } catch (err) { setMcpError(err instanceof Error ? err.message : 'MCP authorization status could not be loaded'); }
+    } catch (err) { setMcpActionError(err instanceof Error ? err.message : 'MCP authorization status could not be loaded'); }
     finally { setPendingAction(''); }
   };
 
@@ -402,7 +475,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const staleAccounts = accounts.length - connectedAccounts;
   const connectedMcp = mcpServers.filter((server) => server.status === 'connected').length;
   const items = baseItems({
-    profiles: profiles.length ? `${profiles.length} configured${defaultProfile ? ` · default ${defaultProfile.label}` : ''}` : 'No profiles configured',
+    profiles: profileError || (profiles.length ? `${profiles.length} configured${defaultProfile ? ` · default ${defaultProfile.label}` : ''}` : 'No profiles configured'),
     accounts: accountsError || `${connectedAccounts} connected · ${accounts.length} available${staleAccounts ? ` · ${staleAccounts} need re-authorization` : ''}`,
     behavior: 'Configure in Flutter Agent settings',
     keybindings: 'Configure in Flutter Agent settings',
@@ -410,10 +483,11 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     mcp: mcpError || `${connectedMcp} connected · ${mcpServers.length} configured`,
   });
 
-  const profilesInspector = () => <><SectionIntro scope="Agent / profile">Profiles own identity, model defaults, delegation, skills, MCP access, and protected-action policy. Editing stays in the dedicated profile surface.</SectionIntro>{profiles.length === 0 ? <div className="agent-settings-empty"><strong>No agent profiles configured</strong><p>Create a profile before starting a configured session.</p></div> : <div className="agent-settings-records">{profiles.map((profile) => <article key={profile.id} data-testid={`agent-setting-${profile.id}`}><span className="profile-avatar" aria-hidden="true">{profileAvatarLabel(profile)}</span><span><strong>{profile.label}</strong><small>{profile.enabled ? 'Enabled' : 'Disabled'} · {profile.provider} · {profile.model}{profile.isDefault ? ' · Default' : ''}</small></span></article>)}</div>}<button className="primary-button" type="button" onClick={() => navigate('/profiles')} data-testid="agent-settings-open-profiles">Open profile editor</button></>;
+  const profilesInspector = () => <><SectionIntro scope="Agent / profile">Profiles own identity, model defaults, delegation, skills, MCP access, and protected-action policy. Editing stays in the dedicated profile surface.</SectionIntro>{retryControl('profiles', profileError, 'Retry profiles')}{!profileError && (profiles.length === 0 ? <div className="agent-settings-empty"><strong>No agent profiles configured</strong><p>Create a profile before starting a configured session.</p></div> : <div className="agent-settings-records">{profiles.map((profile) => <article key={profile.id} data-testid={`agent-setting-${profile.id}`}><span className="profile-avatar" aria-hidden="true">{profileAvatarLabel(profile)}</span><span><strong>{profile.label}</strong><small>{profile.enabled ? 'Enabled' : 'Disabled'} · {profile.provider} · {profile.model}{profile.isDefault ? ' · Default' : ''}</small></span></article>)}</div>)}<button className="primary-button" type="button" onClick={() => navigate('/profiles')} data-testid="agent-settings-open-profiles">Open profile editor</button></>;
   const accountsInspector = () => <>
     <SectionIntro scope="Desktop local">Anthropic accounts and every other model provider are authorized against the local OpenCode runtime.</SectionIntro>
-    {accountsError && <p role="alert">{accountsError}</p>}
+    {retryControl('accounts', accountsError, 'Retry accounts')}
+    {accountActionError && <p role="alert">{accountActionError}</p>}
     {(pendingAction.startsWith('account-') || pendingAction.startsWith('provider-')) && <p role="status">Saving account configuration…</p>}
     {actionNotice && <p role="status">{actionNotice}</p>}
     {!accountsError && accounts.length === 0 && <div className="agent-settings-empty"><strong>No provider accounts reported</strong><p>Authorize an account below.</p></div>}
@@ -421,27 +495,29 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
       {accounts.map((account) => <article key={account.id} className={`agent-settings-account${accountNeedsRelogin(account) ? ' needs-relogin' : ''}`} data-testid={`agent-settings-account-${account.id}`} data-account-status={account.status}><span><strong>{account.label}</strong><small>{account.status}{account.isDefault ? ' · Default' : ''}</small>{accountNeedsRelogin(account) && <span className="kind-badge" data-testid={`agent-settings-account-attention-${account.id}`}>Needs re-authorization</span>}</span><div className="agent-settings-actions">{accountNeedsRelogin(account) && <button className="primary-button" type="button" disabled={Boolean(pendingAction)} onClick={() => void beginAccountLogin(account.id, account.label)} data-testid={`agent-settings-account-relogin-${account.id}`}>Re-authorize</button>}{!account.isDefault && <button className="secondary-button" type="button" disabled={Boolean(pendingAction)} onClick={() => void setDefaultAccount(account)} data-testid={`agent-settings-account-default-${account.id}`}>Make default</button>}<button className="text-danger-button" type="button" disabled={Boolean(pendingAction)} onClick={() => setRemovingAccount(account)} data-testid={`agent-settings-account-remove-${account.id}`}>Remove</button></div></article>)}
     </div>
     <form className="agent-settings-form" onSubmit={startAccountLogin}>
-      <h4>Authorize Anthropic account</h4>
+      <h3>Authorize Anthropic account</h3>
       <label>Account ID<input required pattern="[a-z0-9-]{1,32}" value={accountDraft.accountId} onChange={(event) => setAccountDraft((current) => ({ ...current, accountId: event.target.value }))} data-testid="agent-settings-account-id" /></label>
       <label>Label<input value={accountDraft.label} onChange={(event) => setAccountDraft((current) => ({ ...current, label: event.target.value }))} data-testid="agent-settings-account-label" /></label>
       <button className="primary-button" type="submit" disabled={Boolean(pendingAction)} data-testid="agent-settings-account-start">Start authorization</button>
     </form>
-    {accountAuthorizationUrl && <form className="agent-settings-form" onSubmit={completeAccountLogin}><h4 data-testid="agent-settings-account-authorizing">Authorizing {accountDraft.label || accountDraft.accountId}</h4><a href={accountAuthorizationUrl} target="_blank" rel="noreferrer" data-testid="agent-settings-account-authorization-link">Open Anthropic authorization</a><label>Authorization code<input required value={accountDraft.code} onChange={(event) => setAccountDraft((current) => ({ ...current, code: event.target.value }))} data-testid="agent-settings-account-code" /></label><button className="primary-button" type="submit" disabled={Boolean(pendingAction)} data-testid="agent-settings-account-complete">Save account</button></form>}
-    <h4 className="agent-settings-subhead">Model providers</h4>
+    {accountAuthorizationUrl && <form className="agent-settings-form" onSubmit={completeAccountLogin}><h3 data-testid="agent-settings-account-authorizing">Authorizing {accountDraft.label || accountDraft.accountId}</h3><a href={accountAuthorizationUrl} target="_blank" rel="noreferrer" data-testid="agent-settings-account-authorization-link">Open Anthropic authorization</a><label>Authorization code<input required value={accountDraft.code} onChange={(event) => setAccountDraft((current) => ({ ...current, code: event.target.value }))} data-testid="agent-settings-account-code" /></label><button className="primary-button" type="submit" disabled={Boolean(pendingAction)} data-testid="agent-settings-account-complete">Save account</button></form>}
+    <h3 className="agent-settings-subhead">Model providers</h3>
     <p className="agent-settings-subhead-note">OAuth and API-key providers are stored by the local OpenCode runtime, the same as in the Flutter settings screen.</p>
+    {retryControl('providers', providerError, 'Retry providers')}
     <div className="agent-settings-records">
-      {providerCatalog.map((provider) => { const connected = authProviders.includes(provider.id); return <article key={provider.id} className={`agent-settings-account${connected ? '' : ' needs-relogin'}`} data-testid={`agent-settings-provider-${provider.id}`}><span><strong>{provider.label}</strong><small>{provider.detail}</small><span className="kind-badge" data-testid={`agent-settings-provider-status-${provider.id}`}>{connected ? 'Connected' : 'Not connected'}</span></span>{provider.kind === 'oauth' && <div className="agent-settings-actions"><button className={connected ? 'secondary-button' : 'primary-button'} type="button" disabled={Boolean(pendingAction)} onClick={() => void startProviderAuth(provider)} data-testid={`agent-settings-provider-authorize-${provider.id}`}>{connected ? 'Reconnect' : 'Connect'}</button></div>}{provider.kind === 'key' && <form className="agent-settings-form" onSubmit={(event) => void saveProviderApiKey(event, provider)}><label>API key<input required type="password" autoComplete="off" value={providerDraft.apiKey[provider.id] ?? ''} onChange={(event) => { const value = event.target.value; setProviderDraft((current) => ({ ...current, apiKey: { ...current.apiKey, [provider.id]: value } })); }} data-testid={`agent-settings-provider-key-${provider.id}`} /></label><button className="primary-button" type="submit" disabled={Boolean(pendingAction)} data-testid={`agent-settings-provider-key-save-${provider.id}`}>{connected ? 'Replace key' : 'Save key'}</button></form>}</article>; })}
+      {providerCatalog.map((provider) => { const connected = authProviders?.includes(provider.id) ?? false; const confirmed = providersCurrent && authProviders !== null; const badge = authProviders === null ? 'Status unknown' : `${confirmed ? '' : 'Last known '}${connected ? 'Connected' : 'Not connected'}`; return <article key={provider.id} className={`agent-settings-account${confirmed && !connected ? ' needs-relogin' : ''}`} data-testid={`agent-settings-provider-${provider.id}`}><span><strong>{provider.label}</strong><small>{provider.detail}</small><span className={`kind-badge${authProviders === null ? ' agent-settings-status-unknown' : ''}`} data-testid={`agent-settings-provider-status-${provider.id}`}>{badge}</span></span>{provider.kind === 'oauth' && <div className="agent-settings-actions"><button className={connected ? 'secondary-button' : 'primary-button'} type="button" disabled={Boolean(pendingAction)} onClick={() => void startProviderAuth(provider)} data-testid={`agent-settings-provider-authorize-${provider.id}`}>{connected ? 'Reconnect' : 'Connect'}</button></div>}{provider.kind === 'key' && <form className="agent-settings-form" onSubmit={(event) => void saveProviderApiKey(event, provider)}><label>API key<input required type="password" autoComplete="off" value={providerDraft.apiKey[provider.id] ?? ''} onChange={(event) => { const value = event.target.value; setProviderDraft((current) => ({ ...current, apiKey: { ...current.apiKey, [provider.id]: value } })); }} data-testid={`agent-settings-provider-key-${provider.id}`} /></label><button className="primary-button" type="submit" disabled={Boolean(pendingAction)} data-testid={`agent-settings-provider-key-save-${provider.id}`}>{connected ? 'Replace key' : 'Save key'}</button></form>}</article>; })}
     </div>
-    {providerFlow && <div className="agent-settings-form" data-testid={`agent-settings-provider-flow-${providerFlow.id}`}><h4>Authorizing {providerFlow.id}</h4>{providerFlow.instructions && <p>{providerFlow.instructions}</p>}<p><a href={providerFlow.authUrl} target="_blank" rel="noreferrer" data-testid="agent-settings-provider-authorization-link">Open {providerFlow.id} authorization</a></p>{providerFlow.method === 1 ? <form className="agent-settings-form" onSubmit={completeProviderAuth}><label>Callback URL or code<input required value={providerDraft.code} onChange={(event) => { const value = event.target.value; setProviderDraft((current) => ({ ...current, code: value })); }} data-testid="agent-settings-provider-code" /></label><button className="primary-button" type="submit" disabled={Boolean(pendingAction)} data-testid="agent-settings-provider-complete">Finish connecting</button></form> : <button className="primary-button" type="button" disabled={Boolean(pendingAction)} onClick={() => void checkProviderAuth()} data-testid="agent-settings-provider-check">I finished sign-in — check connection</button>}</div>}
+    {providerFlow && <div className="agent-settings-form" data-testid={`agent-settings-provider-flow-${providerFlow.id}`}><h3>Authorizing {providerFlow.id}</h3>{providerFlow.instructions && <p>{providerFlow.instructions}</p>}<p><a href={providerFlow.authUrl} target="_blank" rel="noreferrer" data-testid="agent-settings-provider-authorization-link">Open {providerFlow.id} authorization</a></p>{providerFlow.method === 1 ? <form className="agent-settings-form" onSubmit={completeProviderAuth}><label>Callback URL or code<input required value={providerDraft.code} onChange={(event) => { const value = event.target.value; setProviderDraft((current) => ({ ...current, code: value })); }} data-testid="agent-settings-provider-code" /></label><button className="primary-button" type="submit" disabled={Boolean(pendingAction)} data-testid="agent-settings-provider-complete">Finish connecting</button></form> : <button className="primary-button" type="button" disabled={Boolean(pendingAction)} onClick={() => void checkProviderAuth()} data-testid="agent-settings-provider-check">I finished sign-in — check connection</button>}</div>}
   </>;
   const runtimeInspector = () => <><SectionIntro scope="Desktop local">Rhythm uses a local API and OpenCode engine supplied by the trusted desktop host.</SectionIntro><dl className="property-list"><div><dt>Local API</dt><dd>{gateway.environment ? `127.0.0.1:${gateway.environment.apiPort}` : 'Unavailable'} · {runtimeStatus.api}</dd></div><div><dt>OpenCode engine</dt><dd>{gateway.environment ? `127.0.0.1:${gateway.environment.enginePort}` : 'Unavailable'} · {runtimeStatus.engine}</dd></div></dl>{pendingAction.startsWith('runtime-') && <p role="status">Checking the local runtime…</p>}<div className="agent-settings-actions"><button className="secondary-button" type="button" disabled={Boolean(pendingAction)} onClick={() => void runRuntimeCheck('api')} data-testid="agent-settings-check-api">Check local API</button><button className="secondary-button" type="button" disabled={Boolean(pendingAction)} onClick={() => void runRuntimeCheck('engine')} data-testid="agent-settings-check-engine">Check OpenCode engine</button></div><GapNotice place="Flutter Agent settings → OpenCode server">Changing or restarting the runtime requires GET and PATCH /opencode/runtime plus POST /opencode/runtime/restart; those endpoints do not exist.</GapNotice></>;
   const mcpInspector = () => <>
     <SectionIntro scope="Workspace">MCP servers provide tools to profiles. Changes are saved through the workspace MCP service.</SectionIntro>
-    {mcpError && <p role="alert">{mcpError}</p>}
+    {retryControl('mcp', mcpError, 'Retry MCP servers')}
+    {mcpActionError && <p role="alert">{mcpActionError}</p>}
     {pendingAction.startsWith('mcp-') && <p role="status">Saving MCP configuration…</p>}
     {actionNotice && <p role="status">{actionNotice}</p>}
     <form className="agent-settings-form" onSubmit={addMcp}>
-      <h4>Add MCP server</h4>
+      <h3>Add MCP server</h3>
       <label>Name<input required value={mcpDraft.name} onChange={(event) => setMcpDraft((current) => ({ ...current, name: event.target.value }))} data-testid="agent-settings-mcp-add-name" /></label>
       <label>Connection type<select value={mcpDraft.kind} onChange={(event) => setMcpDraft((current) => ({ ...current, kind: event.target.value as 'remote' | 'local' }))} data-testid="agent-settings-mcp-add-kind"><option value="remote">Remote URL</option><option value="local">Local command</option></select></label>
       <label>{mcpDraft.kind === 'remote' ? 'URL' : 'Command'}<input required type={mcpDraft.kind === 'remote' ? 'url' : 'text'} value={mcpDraft.value} onChange={(event) => setMcpDraft((current) => ({ ...current, value: event.target.value }))} data-testid="agent-settings-mcp-add-value" /></label>
@@ -467,7 +543,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   };
 
   return <Frame slug="agent-settings" title="Agent settings" description="Agent, desktop-local, and workspace configuration in one place." trace={trace}>
-    <ListInspector label="Agent settings sections" items={items} selectedId={selectedId} onSelect={setSelectedId} loading={loading} error={error ? <span data-testid="agent-settings-error">{error}</span> : null} toolbar={<button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="agent-settings-refresh"><Icon name="refresh" size={14} />Refresh</button>} inspector={inspector} emptyState={<p>No configuration sections are available.</p>} />
+    <ListInspector label="Agent settings sections" items={items} selectedId={selectedId} onSelect={setSelectedId} loading={loading} toolbar={<button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="agent-settings-refresh"><Icon name="refresh" size={14} />Refresh</button>} inspector={inspector} emptyState={<p>No configuration sections are available.</p>} />
     <FocusDialog open={Boolean(removing)} onClose={() => setRemoving(null)} title="Remove MCP server?" description={removing ? `${removing.name} will be removed from this local workspace configuration.` : ''} testId="agent-settings-mcp-remove-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setRemoving(null)}>Cancel</button><button className="danger-button" type="button" onClick={() => void removeMcp()} data-testid="agent-settings-mcp-remove-confirm">Remove</button></div></FocusDialog>
     <FocusDialog open={Boolean(removingAccount)} onClose={() => setRemovingAccount(null)} title="Remove account?" description={removingAccount ? `${removingAccount.label} will be removed from the local OpenCode account store.` : ''} testId="agent-settings-account-remove-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setRemovingAccount(null)}>Cancel</button><button className="danger-button" type="button" onClick={() => void removeSelectedAccount()} data-testid="agent-settings-account-remove-confirm">Remove</button></div></FocusDialog>
   </Frame>;

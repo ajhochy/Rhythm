@@ -300,7 +300,8 @@ test('bucket-a-rendered-settings: fixture honesty and live loading/error/empty s
 
   mode = 'rejected';
   await page.reload();
-  await expect(page.getByTestId('agent-settings-error')).toBeVisible();
+  await expect(page.getByTestId('list-inspector-detail').getByRole('alert')).toContainText('settings denied');
+  await expect(page.getByRole('listbox', { name: 'Agent settings sections' }).getByRole('option')).toHaveCount(7);
   await expect(page.getByText('No agent profiles configured', { exact: true })).toHaveCount(0);
   mode = 'empty';
   await page.reload();

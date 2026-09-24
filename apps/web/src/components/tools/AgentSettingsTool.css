@@ -58,6 +58,16 @@
   white-space: normal;
 }
 
+.list-inspector .agent-settings-retry {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* Global badge capitalization must not rewrite the unknown provider copy. */
+.kind-badge.agent-settings-status-unknown {
+  text-transform: none;
+}
+
 .agent-settings-records,
 .agent-settings-mcp-list {
   display: grid;
@@ -106,9 +116,15 @@
   background: var(--surface);
 }
 
-.agent-settings-form h4,
+.agent-settings-form h3,
 .agent-settings-form p {
   margin: 0;
+}
+
+/* The semantic h3 follows the inspector h2 without changing its former h4 size. */
+.agent-settings-form h3,
+.agent-settings-subhead {
+  font-size: 1em;
 }
 
 .agent-settings-form label {

@@ -108,7 +108,7 @@ test('task-bucket-a-ui-repair-c2: live list loading status is distinct from genu
       assert.match(section, /emptyState=\{<EmptyState/);
     } else {
       assert.match(section, /loading=\{loading\}/);
-      assert.match(section, /error=\{error/);
+      assert.doesNotMatch(section, /<ListInspector[^>]*\berror=/, 'Settings section failures must not become a fatal ListInspector error');
       assert.match(section, /emptyState=/);
     }
   }
