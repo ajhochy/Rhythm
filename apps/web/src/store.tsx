@@ -2,7 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { FIXED_NOW, seedDiff, seedFiles, seedProfiles, seedSessions, seedTodos } from './fixtures';
 import { useGateway } from './gateway/context';
 import type { GatewayMode } from './gateway';
-import { mapPart, reconcileMessageInfo, SessionGatewayError, toSessionViewModel, type ProfileMutation, type SessionSocket, type SessionWireEvent, type IdentityProfile, type ModelChoice, type AccountChoice, type SessionSettings, type TurnOverride } from './gateway/sessions';
+import { SessionGatewayError, toSessionViewModel, type ProfileMutation, type RichTranscriptMessage, type SessionSocket, type SessionWireEvent, type IdentityProfile, type ModelChoice, type AccountChoice, type SessionSettings, type TurnOverride } from './gateway/sessions';
+import { applyTranscriptEvent, emptyTranscript, mergeTranscriptPage, type TranscriptPageOptions, type TranscriptState } from './gateway/transcript-reducer';
 import { useAuthUser } from './gateway/auth';
 import type { DomainNotification } from './gateway/notifications';
 import type { MessageThread } from './gateway/messages';
@@ -109,6 +110,7 @@ const THEME_STORAGE_KEY = 'rhythm-agents-theme';
 const FIXTURE_SESSIONS_STORAGE_KEY = 'rhythm-agents-fixture-sessions';
 const FIXTURE_SELECTED_SESSION_KEY = 'rhythm-agents-fixture-selected-session';
 const LIVE_SELECTED_SESSION_KEY = 'rhythm-agents-live-selected-session';
+const TRANSCRIPT_EVENT_TYPES = new Set(['message.updated', 'message.part.updated', 'message.part.delta', 'message.removed', 'message.part.removed']);
 
 const emptyLiveSession = (): Session => ({
   id: '', name: 'Live sessions', scope: 'chats', group: 'active', status: 'idle', connectionState: 'online', profileId: '',
@@ -255,6 +257,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     if (arming) emitAgentNotification({ v: 1, type: 'arm', sessionId }, live);
   };
   const streamedPartsRef = useRef(new Set<string>());
+  const transcriptStatesRef = useRef(new Map<string, TranscriptState>());
   const stableEngineRef = useRef<Promise<void>>(Promise.resolve());
   const selectedIdRef = useRef(selectedId);
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
@@ -360,17 +363,42 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     }
   }, [live, selectedId]);
 
+  const mergeSessionTranscript = (session: Session, page: RichTranscriptMessage[], options: TranscriptPageOptions): TranscriptState => {
+    const stored = transcriptStatesRef.current.get(session.id) ?? emptyTranscript();
+    const seeded = mergeTranscriptPage(stored, session.messages as RichTranscriptMessage[], {
+      mode: 'merge', hasMore: session.transcriptHasMore ?? false, nextCursor: session.transcriptCursor,
+    });
+    const next = mergeTranscriptPage(seeded, page, options);
+    transcriptStatesRef.current.set(session.id, next);
+    return next;
+  };
+
+  const reduceSessionTranscript = (session: Session, event: SessionWireEvent): TranscriptState => {
+    const seeded = mergeSessionTranscript(session, [], {
+      mode: 'merge', hasMore: session.transcriptHasMore ?? false, nextCursor: session.transcriptCursor,
+    });
+    const next = applyTranscriptEvent(seeded, event);
+    transcriptStatesRef.current.set(session.id, next);
+    return next;
+  };
+
   const replaceLiveSession = (incoming: Session) => {
-    setSessions((current) => current.some((session) => session.id === incoming.id)
-      ? current.map((session) => session.id === incoming.id ? {
-        ...session, ...incoming,
-        messages: incoming.messages.length ? incoming.messages : session.messages,
-        artifacts: incoming.artifacts.length ? incoming.artifacts : session.artifacts,
-        queuedDraft: session.queuedDraft, queuedAttachments: session.queuedAttachments, pendingAttachments: session.pendingAttachments,
-        retry: session.retry, permission: session.permission, question: session.question,
-        livePermission: session.livePermission, liveQuestion: session.liveQuestion, revertedMessageId: session.revertedMessageId,
-      } : session)
-      : [incoming, ...current]);
+    setSessions((current) => {
+      const existing = current.find((session) => session.id === incoming.id);
+      const prior = existing ?? { ...incoming, messages: [] };
+      const transcript = mergeSessionTranscript(prior, incoming.messages as RichTranscriptMessage[], {
+        mode: 'merge', hasMore: incoming.transcriptHasMore ?? false, nextCursor: incoming.transcriptCursor,
+      });
+      const merged: Session = {
+        ...prior, ...incoming,
+        messages: transcript.messages,
+        artifacts: incoming.artifacts.length ? incoming.artifacts : prior.artifacts,
+        queuedDraft: prior.queuedDraft, queuedAttachments: prior.queuedAttachments, pendingAttachments: prior.pendingAttachments,
+        retry: prior.retry, permission: prior.permission, question: prior.question,
+        livePermission: prior.livePermission, liveQuestion: prior.liveQuestion, revertedMessageId: prior.revertedMessageId,
+      };
+      return existing ? current.map((session) => session.id === incoming.id ? merged : session) : [merged, ...current];
+    });
   };
 
   const saveSessionSettings = (id: string, input: SessionSettings): Promise<void> => {
@@ -481,6 +509,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       if (!active) return;
       if (event.type === 'session.removed' && event.id) {
         armedCompletions.current.delete(event.id); workingSessions.current.delete(event.id);
+        transcriptStatesRef.current.delete(event.id);
         setSessions((current) => current.filter((session) => session.id !== event.id));
         if (selectedIdRef.current === event.id) rememberLiveSelection('');
         return;
@@ -517,67 +546,18 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
         }
         return;
       }
-      if (event.type === 'message.part.delta' && event.id && event.messageId && event.partId && event.field === 'text' && typeof event.delta === 'string') {
-        // c2b: accumulate every delta onto the same part instead of keeping only the first
-        // fragment. The previous `streamedPartsRef` gate below dropped every delta after the
-        // first for a given (session, message, part) triple, so partial output never grew.
-        const { id: sessionId, messageId, partId, delta } = event;
+      if (event.id && TRANSCRIPT_EVENT_TYPES.has(event.type)) {
+        const sessionId = event.id;
         liveTouched.add(sessionId);
         setSessions((current) => current.map((session) => {
           if (session.id !== sessionId) return session;
-          const existing = session.messages.find((message) => message.id === messageId);
-          if (existing) {
-            return { ...session, status: 'working', retry: undefined, messages: session.messages.map((message) => message.id === messageId ? {
-              ...message,
-              blocks: message.blocks.some((block) => block.id === partId)
-                ? message.blocks.map((block) => block.id === partId ? { ...block, content: `${block.content}${delta}` } : block)
-                : [...message.blocks, { id: partId, kind: 'markdown', content: delta }],
-            } : message) };
-          }
-          return { ...session, status: 'working', retry: undefined, messages: [...session.messages, {
-            id: messageId, role: 'assistant', createdAt: new Date().toISOString(),
-            blocks: [{ id: partId, kind: 'markdown', content: delta }],
-          }] };
+          const transcript = reduceSessionTranscript(session, event);
+          return {
+            ...session,
+            ...(event.type === 'message.part.delta' ? { status: 'working' as const, retry: undefined } : {}),
+            messages: transcript.messages,
+          };
         }));
-        return;
-      }
-      if (event.type === 'message.part.updated' && event.id && event.messageId && event.partId && event.part && typeof event.part === 'object') {
-        // c2d: a full part supersedes any delta-built placeholder and carries its real
-        // canonical type (reasoning/tool/file/agent/...) via the shared `mapPart` mapper,
-        // instead of the delta path's plain-markdown fragments.
-        const { id: sessionId, messageId, partId, part } = event;
-        liveTouched.add(sessionId);
-        const block = mapPart(part as Record<string, unknown>, partId);
-        setSessions((current) => current.map((session) => {
-          if (session.id !== sessionId) return session;
-          const existing = session.messages.find((message) => message.id === messageId);
-          if (existing) {
-            return { ...session, messages: session.messages.map((message) => message.id === messageId ? {
-              ...message,
-              blocks: message.blocks.some((item) => item.id === partId)
-                ? message.blocks.map((item) => item.id === partId ? block : item)
-                : [...message.blocks, block],
-            } : message) };
-          }
-          return { ...session, messages: [...session.messages, { id: messageId, role: 'assistant', createdAt: new Date().toISOString(), blocks: [block] }] };
-        }));
-        return;
-      }
-      if (event.type === 'message.updated' && event.id) {
-        const info = event.info && typeof event.info === 'object' ? event.info as Record<string, unknown> : {};
-        if (typeof info.id !== 'string' || !info.id) return;
-        liveTouched.add(event.id);
-        setSessions(current => current.map(session => {
-          if (session.id !== event.id) return session;
-          const existing = session.messages.find(message => message.id === info.id);
-          const message = reconcileMessageInfo(existing, info);
-          return { ...session, messages: existing ? session.messages.map(item => item.id === message.id ? message : item) : [...session.messages, message] };
-        }));
-        return;
-      }
-      if (event.type === 'message.removed' && event.id && event.messageId) {
-        liveTouched.add(event.id);
-        setSessions(current => current.map(session => session.id === event.id ? { ...session, messages: session.messages.filter(message => message.id !== event.messageId) } : session));
         return;
       }
       if (event.type === 'error' && event.id) {
@@ -604,7 +584,11 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
           setArmedKeys(new Set([...armedCompletions.current].flatMap(([sessionId, messages]) => [...messages].map(messageId => JSON.stringify([sessionId, messageId])))));
           emitAgentNotification({ v: 1, type: 'completion', sessionId: event.id }, live);
         }
-        setSessions((current) => current.map((session) => session.id === event.id ? { ...session, status: working ? 'working' : 'idle', retry: undefined } : session));
+        setSessions((current) => current.map((session) => {
+          if (session.id !== event.id) return session;
+          const transcript = reduceSessionTranscript(session, event);
+          return { ...session, status: working ? 'working' : 'idle', retry: undefined, messages: transcript.messages };
+        }));
         if (!working) {
           for (const key of streamedPartsRef.current) if (key.startsWith(`${event.id}:`)) streamedPartsRef.current.delete(key);
           void sessionGateway.detail(event.id).then((detail) => { if (active) replaceLiveSession(detail); }).catch(onError);
@@ -726,6 +710,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       sessionSocketRef.current?.close();
       sessionSocketRef.current = null;
       streamedPartsRef.current.clear();
+      transcriptStatesRef.current.clear();
       reconcileLiveSessionsRef.current = null;
       window.removeEventListener('hashchange', onSessionLink);
       window.removeEventListener('focus', reconcileOnFocus);
@@ -850,6 +835,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     if (!live) return;
     setLiveSessionError(null);
     await gateway.domains.sessions!.hardDelete(id);
+    transcriptStatesRef.current.delete(id);
     setSessions((current) => {
       const remaining = current.filter((session) => session.id !== id);
       if (selectedIdRef.current === id) rememberLiveSelection('');
@@ -1061,12 +1047,13 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       const cursor = target?.transcriptCursor;
       if (!cursor) return;
       await gateway.domains.sessions!.pageOlder(id, cursor).then((page) => {
-        setSessions((current) => current.map((session) => session.id === id ? {
-          ...session,
-          messages: [...page.messages, ...session.messages],
-          transcriptCursor: page.pageInfo.nextCursor,
-          transcriptHasMore: page.pageInfo.hasMore,
-        } : session));
+        setSessions((current) => current.map((session) => {
+          if (session.id !== id) return session;
+          const transcript = mergeSessionTranscript(session, page.messages as RichTranscriptMessage[], {
+            mode: 'merge', older: true, hasMore: page.pageInfo.hasMore, nextCursor: page.pageInfo.nextCursor,
+          });
+          return { ...session, messages: transcript.messages, transcriptCursor: page.pageInfo.nextCursor, transcriptHasMore: page.pageInfo.hasMore };
+        }));
       });
       return;
     }

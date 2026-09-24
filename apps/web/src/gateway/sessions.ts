@@ -268,7 +268,7 @@ export type CanonicalTool = {
   name: string; callId: string; status: string; input?: unknown; output?: unknown; error?: unknown;
   metadata?: Record<string, unknown> & { content?: McpContent[] };
 };
-export type RichTranscriptBlock = TranscriptBlock & { tool?: CanonicalTool };
+export type RichTranscriptBlock = TranscriptBlock & { tool?: CanonicalTool; streaming?: boolean; terminal?: boolean };
 export type RichTranscriptMessage = TranscriptMessage & {
   cost?: number; tokens?: { input?: number; output?: number; reasoning?: number; cache?: { read?: number; write?: number } };
 };
@@ -284,20 +284,21 @@ export function mapPart(raw: Record<string, unknown>, id: string): RichTranscrip
   } : undefined;
   if (raw.type === 'tool' && raw.tool === 'task') {
     const match = TASK_ID_PATTERN.exec(string(state.output));
-    return { id, kind: 'children', content: string(state.title, 'Child session'), meta: string(state.status), childSessionId: match?.[1], tool };
+    const terminal = state.status === 'completed' || state.status === 'error';
+    return { id, kind: 'children', content: string(state.title, 'Child session'), meta: string(state.status), childSessionId: match?.[1], tool, terminal, streaming: !terminal };
   }
   // post-m1-phase-4 c2d: preserve every other canonical part type instead of collapsing it to
   // markdown. Field vocabulary from apps/api_server/src/services/opencode_stream_bridge.ts:1250-1339.
-  if (raw.type === 'reasoning') return { id, kind: 'reasoning', title: 'Reasoning', content: string(raw.text) };
+  if (raw.type === 'reasoning') return { id, kind: 'reasoning', title: 'Reasoning', content: raw.text === '[REDACTED]' ? '' : string(raw.text), terminal: typeof record(raw.time).end === 'number', streaming: typeof record(raw.time).end !== 'number' };
   if (raw.type === 'tool') {
-    return { id, kind: 'tool', title: string(state.title, string(raw.tool, 'Tool')), content: canonicalText(state.output), meta: tool?.status, tool };
+    return { id, kind: 'tool', title: string(state.title, string(raw.tool, 'Tool')), content: canonicalText(state.output), meta: state.status === 'error' && record(state.metadata).interrupted === true ? 'Interrupted' : tool?.status, tool, terminal: state.status === 'completed' || state.status === 'error' };
   }
   if (raw.type === 'step-start') return { id, kind: 'step-start', content: string(raw.snapshot) };
   if (raw.type === 'step-finish') return { id, kind: 'step-finish', content: string(raw.snapshot), meta: string(raw.reason) };
   if (raw.type === 'compaction') return { id, kind: 'compaction', content: raw.auto === true ? 'Context compacted automatically' : 'Context compacted' };
   if (raw.type === 'file') return { id, kind: 'file', title: string(raw.filename), content: string(raw.url), meta: string(raw.mime) };
   if (raw.type === 'agent') { const source = record(raw.source); return { id, kind: 'agent', title: string(raw.name, 'Agent'), content: string(source.value) }; }
-  return { id, kind: 'markdown', content: string(raw.text, string(raw.content)) };
+  return { id, kind: 'markdown', content: string(raw.text, string(raw.content)), terminal: typeof record(raw.time).end === 'number', streaming: raw.type === 'text' && typeof record(raw.time).end !== 'number' };
 }
 
 export function mapMessage(value: unknown): RichTranscriptMessage {
@@ -314,6 +315,7 @@ export function mapMessage(value: unknown): RichTranscriptMessage {
     role: ['user', 'assistant', 'system'].includes(role) ? role as TranscriptMessage['role'] : 'system',
     createdAt: typeof record(info.time).created === 'number' && Number.isFinite(record(info.time).created) && Math.abs(record(info.time).created as number) <= 8640000000000000
       ? new Date(record(info.time).created as number).toISOString() : string(source.createdAt, new Date(0).toISOString()),
+    interrupted: record(info.error).name === 'MessageAbortedError',
     ...messageMetadata({ ...source, ...info }),
     blocks: parts.map((part, index) => mapPart(record(part), string(record(part).id, `${id}-${index}`))),
   };

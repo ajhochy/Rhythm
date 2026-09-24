@@ -31,6 +31,8 @@ export interface TranscriptBlock {
   content: string;
   meta?: string;
   childSessionId?: string;
+  streaming?: boolean;
+  terminal?: boolean;
 }
 
 export interface ComposerAttachment {
@@ -56,6 +58,8 @@ export interface TranscriptMessage {
   blocks: TranscriptBlock[];
   attachments?: ComposerAttachment[];
   reverted?: boolean;
+  interrupted?: boolean;
+  uiKey?: string;
 }
 
 export interface PermissionRequest {
