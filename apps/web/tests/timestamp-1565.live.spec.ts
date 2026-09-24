@@ -24,6 +24,17 @@ async function visit(page: Page, route: string, name: string, outputPath: (name:
   const unexpected: string[] = [];
   await page.route('**/*', async routeRequest => {
     const url = new URL(routeRequest.request().url());
+    // The production-routed gateway remains real. Only this reserved test origin
+    // is forwarded to the isolated API; no DNS or network request reaches it.
+    if (url.origin === 'https://timestamp-test.invalid') {
+      const response = await routeRequest.fetch({
+        url: `${api}${url.pathname}${url.search}`,
+        headers: { ...routeRequest.request().headers(), ...headers },
+        maxRedirects: 0,
+      });
+      expect(response.status(), 'sandbox forwarding must not redirect').toBeLessThan(300);
+      return routeRequest.fulfill({ response });
+    }
     if (!['http:', 'ws:'].includes(url.protocol) || url.hostname !== '127.0.0.1' || !['4175', '6597', '6598', '6599'].includes(url.port)) {
       unexpected.push(url.href);
       return routeRequest.abort('blockedbyclient');
@@ -32,7 +43,7 @@ async function visit(page: Page, route: string, name: string, outputPath: (name:
   });
   await page.goto(`/#/${route}`);
   await expect(page.locator('#main-content')).toBeVisible();
-  expect(unexpected, 'no external or production origin').toEqual([]);
+  expect(unexpected, 'no request outside the isolated API or reserved test proxy').toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${name} overflow`).toBe(true);
   const axe = await new AxeBuilder({ page }).analyze();
   expect(axe.violations.filter(v => v.impact === 'critical'), `${name} critical accessibility violations`).toEqual([]);
@@ -64,7 +75,7 @@ test('issue-1565-c3/c4: real sandbox messages populated, invalid and empty times
   const rows = await fetchRows<{ id: number; createdAt: string }>(request, `/message-threads/${thread.id}/messages`);
   expect(rows.find(row => row.id === firstId)?.createdAt).toBe('2026-09-24T20:01:05Z');
   expect(rows.find(row => row.id === secondId)?.createdAt).toBe('1970-01-01T00:00:00Z');
-  await visit(page, `messages/${thread.id}`, 'messages', info.outputPath);
+  await visit(page, `messages/${thread.id}`, 'messages', name => info.outputPath(name));
   const valid = page.locator('.messages-message', { hasText: 'Z instant' }).locator('time');
   await expect(valid).toHaveAttribute('datetime', '2026-09-24T20:01:05.000Z');
   await expect(valid).toHaveAttribute('title', /2026.*1:01:05 PM.*PDT/);
@@ -83,7 +94,7 @@ test.describe('second timezone', () => {
     const rows = await fetchRows<{ id: number; title: string }>(request, '/message-threads');
     const thread = rows.find(row => row.title === '1565 synthetic thread');
     expect(thread).toBeDefined();
-    await visit(page, `messages/${thread!.id}`, 'kolkata-messages', info.outputPath);
+    await visit(page, `messages/${thread!.id}`, 'kolkata-messages', name => info.outputPath(name));
     const time = page.locator('.messages-message', { hasText: 'Z instant' }).locator('time');
     await expect(time).toHaveAttribute('datetime', '2026-09-24T20:01:05.000Z');
     await expect(time.locator('[aria-hidden="true"]')).toContainText('1:31 AM');
