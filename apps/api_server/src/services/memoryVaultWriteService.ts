@@ -907,6 +907,8 @@ export async function rememberToVault(
     relPath = path.join(kind, `${slug}.md`);
     // Reuse the existing note's id + created if the slug file already exists.
     const abs = resolveWithinMemoryDir(memoryDir, relPath);
+    // Refuse a symlinked destination before reading its target for dedup.
+    await validatedVaultDestination(memoryDir, abs);
     const exact = await readNoteFull(abs);
     if (exact.raw !== undefined) assertManagedNote(exact.raw);
     if (exact.id) {
