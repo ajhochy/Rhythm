@@ -10,7 +10,7 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: { '@ajhochy/rhythm-workspace-ui': fileURLToPath(new URL('../../packages/rhythm-workspace-ui/src', import.meta.url)) },
-    dedupe: ['react', 'react-dom'],
+    dedupe: ['react', 'react-dom', 'lucide-react'],
   },
   server: { host: '127.0.0.1', port: 4173, strictPort: true },
   preview: { host: '127.0.0.1', port: 4173, strictPort: true },
