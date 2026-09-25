@@ -19,13 +19,41 @@ function ToolDetails({ block }: { block: RichTranscriptBlock }) {
   return <details className="tool-block"><summary><code>{tool?.name ?? block.title}</code><small>{tool?.status ?? block.meta ?? 'Status unavailable'}</small></summary>{tool ? <dl>{(['input', 'output', 'metadata', 'error'] as const).map(field => tool[field] !== undefined && <Fragment key={field}><dt>{field}</dt><dd><pre tabIndex={0}>{canonicalText(tool[field])}</pre></dd></Fragment>)}</dl> : <pre tabIndex={0}>{block.content || 'Tool details unavailable'}</pre>}</details>;
 }
 
+function formatCost(cost: number): string {
+  const maximumFractionDigits = Math.max(2, Math.min(8, Math.ceil(-Math.log10(cost)) + 2));
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits }).format(cost);
+}
+
 function MessageUsage({ message }: { message: RichTranscriptMessage }) {
-  return message.cost !== undefined || message.tokens ? <small className="cost-line">{message.cost !== undefined && `Cost $${message.cost} · `}{message.tokens && `Input ${message.tokens.input ?? 'unknown'} · Output ${message.tokens.output ?? 'unknown'} · Cache read ${message.tokens.cache?.read ?? 'unknown'} · Cache write ${message.tokens.cache?.write ?? 'unknown'}`}</small> : null;
+  const counts = [message.tokens?.input, message.tokens?.output, message.tokens?.cache?.read, message.tokens?.cache?.write];
+  const hasTokens = counts.some(value => typeof value === 'number' && value > 0);
+  const hasCost = typeof message.cost === 'number' && Number.isFinite(message.cost) && message.cost > 0;
+  if (!hasTokens && !hasCost) return null;
+  const parts = [
+    hasCost ? `Cost ${formatCost(message.cost!)}` : '',
+    hasTokens ? `Input ${message.tokens?.input ?? 'unknown'} · Output ${message.tokens?.output ?? 'unknown'} · Cache read ${message.tokens?.cache?.read ?? 'unknown'} · Cache write ${message.tokens?.cache?.write ?? 'unknown'}` : '',
+  ].filter(Boolean);
+  return <small className="cost-line">{parts.join(' · ')}</small>;
+}
+
+function reasoningLabel(content: string): string {
+  const bold = /^\s*\*\*([^\n]+?)\*\*/.exec(content)?.[1];
+  const firstLine = content.split('\n').find(line => line.trim()) ?? '';
+  const label = (bold ?? firstLine)
+    .replace(/^\s{0,3}(?:#{1,6}\s+|>\s*|[-*+]\s+|\d+\.\s+)/, '')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/<[^>]+>/g, '')
+    .replace(/(?:\*\*|__|~~|`+|\*|_)/g, '')
+    .replace(/\s+/g, ' ')
+    .trim() || 'Reasoning';
+  const limit = 80;
+  return label.length > limit ? `${label.slice(0, limit - 1).trimEnd()}…` : label;
 }
 
 function RichBlock({ block, onOpenChild }: { block: RichTranscriptBlock; onOpenChild(id: string, title: string): void }) {
   if (block.kind === 'markdown') return <MarkdownText content={block.content} />;
-  if (block.kind === 'reasoning') return <details className="reasoning-block"><summary><Icon name="spark" size={14} />{block.title}<span>{block.meta}</span></summary><p>{block.content}</p></details>;
+  if (block.kind === 'reasoning') return block.content.trim() ? <details className="reasoning-block"><summary><Icon name="spark" size={14} />{reasoningLabel(block.content)}<span>{block.meta}</span></summary><SafeMarkdown content={block.content} /></details> : null;
   if (block.kind === 'tool') return <ToolDetails block={block} />;
   if (block.kind === 'diff') return <details className="tool-block" open><summary><Icon name="diff" size={14} /><strong>{block.title}</strong><small>{block.meta}</small></summary><pre className="diff-code" tabIndex={0}>{block.content}</pre></details>;
   if (block.kind === 'terminal') return <details className="tool-block"><summary><Icon name="terminal" size={14} /><strong>{block.title}</strong><small>{block.meta}</small></summary><pre tabIndex={0}>{block.content}</pre></details>;

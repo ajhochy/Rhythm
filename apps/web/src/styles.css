@@ -282,7 +282,9 @@ code, pre { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .reasoning-block summary, .tool-block summary { min-height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 9px; color: var(--fg-2); cursor: pointer; list-style: none; font-size: 11px; }
 .reasoning-block summary::-webkit-details-marker, .tool-block summary::-webkit-details-marker { display: none; }
 .reasoning-block summary span, .tool-block summary small { margin-left: auto; color: var(--muted); font-family: var(--font-mono); font-size: 9px; }
-.reasoning-block p { margin: 0; padding: 0 9px 10px; color: var(--muted); }
+.reasoning-block > .markdown-copy { max-width: none; padding: 0 9px 10px; color: var(--muted); }
+.reasoning-block > .markdown-copy > :first-child { margin-top: 0; }
+.reasoning-block > .markdown-copy > :last-child { margin-bottom: 0; }
 .tool-block pre, .diff-code { max-height: 320px; margin: 0; overflow: auto; padding: 10px 12px; border-top: 1px solid var(--border-soft); color: var(--fg-2); background: color-mix(in oklab, var(--bg), transparent 3%); font-size: 10px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 .tool-state { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
 .block-content-inline { min-width: 0; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }

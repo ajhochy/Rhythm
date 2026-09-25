@@ -41,7 +41,9 @@
 .transcript :is(.reasoning-block, .tool-block) summary { min-height: 44px; flex-wrap: wrap; padding-block: 6px; color: var(--muted); font-size: 12px; }
 .transcript :is(.reasoning-block, .tool-block) summary strong { font-weight: 500; }
 .transcript :is(.reasoning-block, .tool-block) summary :is(span, small) { font-size: 11px; }
-.transcript .reasoning-block p { color: var(--fg-2); line-height: 1.6; }
+.transcript .reasoning-block > .markdown-copy { max-width: none; padding: 0 9px 10px; color: var(--fg-2); line-height: 1.6; }
+.transcript .reasoning-block > .markdown-copy > :first-child { margin-top: 0; }
+.transcript .reasoning-block > .markdown-copy > :last-child { margin-bottom: 0; }
 .transcript .tool-block pre { font-size: 12px; line-height: 1.6; }
 .transcript .tool-block dd { min-width: 0; margin-inline: 9px; }
 .transcript :is(.cost-line, .compaction-divider, .step-divider, .file-block small, .child-chip small, .inline-plan > div small, .message-attachments span) { font-size: 11px; }
