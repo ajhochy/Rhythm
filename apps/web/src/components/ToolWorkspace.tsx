@@ -1000,6 +1000,7 @@ function LiveReviewTool() {
   const [items, setItems] = useState<OrgProposal[]>([]); const [status, setStatus] = useState('proposed');
   const [selectedId, setSelectedId] = useSelectedId('proposalId');
   const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<{ proposal: OrgProposal; action: 'approve' | 'conditional' | 'reject' | 'revert' } | null>(null);
   const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-org-proposals?status=proposed', detail: 'Loading organization proposals' });
   const effectiveId = selectedId ?? items[0]?.id ?? null;
@@ -1010,7 +1011,7 @@ function LiveReviewTool() {
   const approveable = (proposal: OrgProposal) => proposal.kind === 'tool-install' ? proposal.status === 'sandbox-vetted' : proposal.status === 'proposed' || proposal.status === 'failed';
   const rejectable = (proposal: OrgProposal) => proposal.kind === 'tool-install' ? proposal.status === 'sandbox-vetted' || proposal.status === 'pending' : proposal.status === 'proposed';
   const canApprove = (proposal: OrgProposal) => proposal.kind !== 'tool-install' || proposal.toolSafety?.state === 'ready' && ['safe', 'conditional'].includes(proposal.toolSafety.verdict);
-  const mutate = async () => { if (!confirmation) return; const { proposal, action } = confirmation; setConfirmation(null); let failed = false; try { if (action === 'approve' || action === 'conditional') await gateway.domains.orgProposals!.approve(proposal.id, action === 'conditional'); if (action === 'reject') await gateway.domains.orgProposals!.reject(proposal.id); if (action === 'revert') await gateway.domains.orgProposals!.revert(proposal.id); } catch (err) { failed = true; setError(err instanceof Error ? err.message : 'Proposal update failed'); } await load(status, !failed); };
+  const mutate = async () => { if (!confirmation) return; const { proposal, action } = confirmation; setConfirmation(null); setActionError(null); let failed = false; try { if (action === 'approve' || action === 'conditional') await gateway.domains.orgProposals!.approve(proposal.id, action === 'conditional'); if (action === 'reject') await gateway.domains.orgProposals!.reject(proposal.id); if (action === 'revert') await gateway.domains.orgProposals!.revert(proposal.id); } catch (err) { failed = true; setActionError(err instanceof Error ? err.message : 'Proposal update failed'); } await load(status, !failed); };
   const title = confirmation?.action === 'conditional' ? 'Approve conditional tool install?' : confirmation?.action === 'approve' ? 'Approve proposal?' : confirmation?.action === 'reject' ? 'Reject proposal?' : 'Revert applied change?';
   const description = confirmation?.action === 'conditional' ? 'This tool install is conditional. Confirm that you explicitly approve the closed safety review above.' : 'The server remains authoritative. The queue will refresh after this decision.';
   return <ToolFrame slug="review" title="Review Queue" description="Review organization proposals and their applied-change history." trace={trace}>
@@ -1022,7 +1023,7 @@ function LiveReviewTool() {
       loading={loading}
       error={error ? <section className="tool-state-panel error" data-testid="review-error"><span className="tool-state-code">Error</span><p>{error}</p></section> : undefined}
       toolbar={<><label>Status<select value={status} onChange={(event) => setStatus(event.target.value)} data-testid="review-filter">{reviewStatuses.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="review-refresh"><Icon name="refresh" size={14} />Refresh</button></>}
-      listFooter={appliedStatuses.has(status) ? <p className="tool-notice"><strong>Applied Changes</strong> · deployment history remains separate from measured outcome.</p> : undefined}
+      listFooter={<>{actionError && <p className="tool-notice error" role="alert" data-testid="review-action-error">{actionError}</p>}{appliedStatuses.has(status) && <p className="tool-notice"><strong>Applied Changes</strong> · deployment history remains separate from measured outcome.</p>}</>}
       emptyState={<EmptyState title="Nothing waiting for review">Choose a proposal status to inspect its review or applied-change history.</EmptyState>}
           inspector={(item) => item && selected ? <article className="proposal-card" data-testid={`proposal-${selected.id}-details`}><header><span className="kind-badge">{selected.kind}</span><span className={`risk-badge ${selected.risk}`}>{selected.risk} risk</span></header><p>{selected.rationale ?? 'No rationale provided.'}</p><dl className="proposal-statuses"><div><dt>Deployment</dt><dd>{`Deployment: ${selected.status}`}</dd></div><div><dt>Outcome</dt><dd>{`Outcome: ${selected.outcomeStatus}`}</dd></div><div><dt>Created</dt><dd>{selected.createdAt ? <Timestamp value={selected.createdAt} /> : 'Unknown'}</dd></div><div><dt>Updated</dt><dd>{selected.updatedAt ? <Timestamp value={selected.updatedAt} /> : 'Unknown'}</dd></div></dl>{selected.experimentSummary && <div className="tool-notice experiment-summary"><strong>{selected.experimentSummary.collectingProgress === 'no_experiment' ? 'No experiment' : selected.experimentSummary.collectingProgress[0].toUpperCase() + selected.experimentSummary.collectingProgress.slice(1)} · {selected.experimentSummary.eligibleCount} eligible · {selected.experimentSummary.missingCount} missing</strong><span>Integrity: {selected.experimentSummary.treatmentIntegrity} · Guardrails: {selected.experimentSummary.guardrailStatus}</span>{selected.experimentSummary.terminalReason && <span>Decision: {selected.experimentSummary.terminalReason}</span>}{selected.experimentSummary.staleBeforeApplyConflict && <span role="alert">Candidate is stale before apply.</span>}</div>}{selected.kind === 'tool-install' && <ToolSafetyDetails proposal={selected} />}<footer>{rejectable(selected) && <button className="secondary-button" type="button" onClick={() => setConfirmation({ proposal: selected, action: 'reject' })} data-testid={`proposal-reject-${selected.id}`}>Reject</button>}{approveable(selected) && <button className="primary-button" type="button" disabled={!canApprove(selected)} title={!canApprove(selected) ? 'A safe or conditionally safe closed tool-safety projection is required.' : undefined} onClick={() => setConfirmation({ proposal: selected, action: selected.kind === 'tool-install' && selected.toolSafety?.verdict === 'conditional' ? 'conditional' : 'approve' })} data-testid={`proposal-approve-${selected.id}`}>Approve</button>}{selected.status === 'active' && <button className="danger-button" type="button" onClick={() => setConfirmation({ proposal: selected, action: 'revert' })} data-testid={`proposal-revert-${selected.id}`}>Revert</button>}</footer></article> : <p>Select a proposal to inspect its evidence and available review actions.</p>}
     />
@@ -1121,21 +1122,45 @@ function LiveReportCardTool() {
   </ToolFrame>;
 }
 
-type EmailSignal = { id: string; from: string; email: string; subject: string; snippet: string; unread: boolean; received: string };
-function EmailTool() {
+type EmailSignal = { id: string; from: string; email: string; subject: string; snippet: string; unread: boolean; received: string; receivedAt?: string };
+type EmailToolProps = {
+  signals: EmailSignal[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  onRefresh: () => void;
+  onLaunch: () => void;
+  loading?: boolean;
+  error?: string | null;
+  untrusted?: boolean;
+};
+
+function EmailTool({ signals, selectedId, onSelect, onRefresh, onLaunch, loading = false, error = null, untrusted = false }: EmailToolProps) {
+  const selected = signals.find((signal) => signal.id === selectedId) ?? null;
+  return <ListInspector
+    label="Email signals"
+    items={signals.map((signal) => ({ id: `email-${signal.id}`, title: signal.subject, subtitle: `${signal.from} · ${signal.received}`, meta: signal.email, badge: signal.unread ? 'Unread' : 'Read' }))}
+    selectedId={selectedId === null ? null : `email-${selectedId}`}
+    onSelect={(rowId) => onSelect(rowId.slice('email-'.length))}
+    loading={loading}
+    error={error ? <section className="tool-state-panel error" data-testid="email-error"><span className="tool-state-code">Error</span><p>{error}</p></section> : undefined}
+    toolbar={<button className="secondary-button compact" type="button" onClick={onRefresh} data-testid="email-refresh"><Icon name="refresh" size={14} />Refresh</button>}
+    emptyState={<EmptyState title="No Gmail signals">New work signals will appear here when the connected mailbox identifies one.</EmptyState>}
+    inspector={(item) => item && selected ? <article className="email-detail">
+      <span className="eyebrow">{selected.receivedAt ? <Timestamp value={selected.receivedAt} /> : selected.received}</span>
+      <p>From {selected.from} &lt;{selected.email}&gt;</p>
+      <div className="email-body">{selected.snippet}</div>
+      <div className="tool-notice"><Icon name="mail" size={15} /><span>{untrusted ? 'This untrusted external preview' : 'This surface'} is read-only. Replies happen through the launched agent session.</span></div>
+      <div className="row-actions"><button className="primary-button" type="button" onClick={onLaunch} data-testid="email-launch"><Icon name="mail" size={14} />Launch email assistant</button></div>
+    </article> : <p>Select an email signal to inspect its context.</p>}
+  />;
+}
+
+function FixtureEmailTool() {
   const { notify, createSession, updateSession } = useFixtures(); const signals: EmailSignal[] = [{ id: 'email-handoff', from: 'Morgan Lee', email: 'morgan@example.org', subject: 'Sunday handoff owner', snippet: 'I can cover the livestream fallback if the run sheet is updated.', unread: true, received: 'Aug 12, 3:36 PM' }, { id: 'email-relay', from: 'Rhythm Ops', email: 'ops@example.org', subject: 'Relay recovery notes', snippet: 'The direct pairing check passed after reconnect.', unread: false, received: 'Aug 12, 2:18 PM' }]; const [selectedId, setSelectedId] = useSelectedId('emailId'); const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/integrations/gmail-signals', detail: 'Authenticated Gmail signals loaded into fixture state' }); const effectiveId = selectedId ?? signals[0]?.id ?? null; const selected = signals.find((item) => item.id === effectiveId) ?? null; const record = (method: string, route: string, detail: string) => { setTrace({ method, route, detail }); notify(detail); };
   useEffect(() => { if (selectedId === null && signals[0]) setSelectedId(signals[0].id); }, [selectedId, setSelectedId]);
   const launch = () => { if (!selected) return; const id = createSession({ name: 'Email Assistant', cwd: '/workspace/rhythm' }); updateSession(id, { status: 'resumable', messages: [{ id: 'msg-email-context', role: 'system', createdAt: FIXED_NOW, blocks: [{ id: 'block-email-context', kind: 'markdown', content: `Seeded Gmail context: ${selected.from} - ${selected.subject}\n${selected.snippet}` }] }] }); record('POST', '/agent-sessions', 'Email Assistant session created with mcpRole email-assistant and seeded signal context'); navigate('/agents'); };
   return <ToolFrame slug="email" title="Email" description="Review Gmail signals and launch a focused Email Assistant session with the selected signal as context." trace={trace}>
-    <ListInspector
-      label="Email signals"
-      items={signals.map((signal) => ({ id: `email-${signal.id}`, title: signal.subject, subtitle: `${signal.from} · ${signal.received}`, meta: signal.email, badge: signal.unread ? 'Unread' : 'Read' }))}
-      selectedId={effectiveId === null ? null : `email-${effectiveId}`}
-      onSelect={(rowId) => setSelectedId(rowId.slice('email-'.length))}
-      toolbar={<button className="secondary-button compact" type="button" onClick={() => record('GET', '/integrations/gmail-signals', 'Gmail signals refreshed')} data-testid="email-refresh"><Icon name="refresh" size={14} />Refresh</button>}
-      emptyState={<EmptyState title="No Gmail signals">New work signals will appear here when the connected mailbox identifies one.</EmptyState>}
-      inspector={(item) => item && selected ? <article className="email-detail"><span className="eyebrow">{selected.received}</span><p>From {selected.from} &lt;{selected.email}&gt;</p><div className="email-body">{selected.snippet}</div><div className="tool-notice"><Icon name="mail" size={15} /><span>This surface is read-only. Replies happen through the launched agent session.</span></div><div className="row-actions"><button className="primary-button" type="button" onClick={launch} data-testid="email-launch"><Icon name="mail" size={14} />Launch email assistant</button></div></article> : <p>Select an email signal to inspect its context.</p>}
-    />
+    <EmailTool signals={signals} selectedId={effectiveId} onSelect={setSelectedId} onRefresh={() => record('GET', '/integrations/gmail-signals', 'Gmail signals refreshed')} onLaunch={launch} />
   </ToolFrame>;
 }
 
@@ -1195,28 +1220,24 @@ function LiveEmailTool() {
   };
 
   return <ToolFrame slug="email" title="Email" description="Review Gmail signals and launch a focused Email Assistant session with the selected signal as context." trace={trace}>
-    <ListInspector
-      label="Email signals"
-      items={signals.map((signal) => ({
-        id: `email-${signal.id}`,
-        title: signal.subject?.trim() || '(No subject)',
-        subtitle: `${signal.fromName?.trim() || signal.fromEmail?.trim() || 'Unknown sender'} · ${formatTimestamp(signal.receivedAt || signal.createdAt)?.label ?? 'Time unavailable'}`,
-        meta: signal.fromEmail || undefined,
-        badge: signal.isUnread ? 'Unread' : 'Read',
+    <EmailTool
+      signals={signals.map((signal) => ({
+        id: signal.id,
+        from: signal.fromName?.trim() || signal.fromEmail?.trim() || 'Unknown sender',
+        email: signal.fromEmail || 'unknown',
+        subject: signal.subject?.trim() || '(No subject)',
+        snippet: signal.snippet || 'No preview available.',
+        unread: signal.isUnread,
+        received: formatTimestamp(signal.receivedAt || signal.createdAt)?.label ?? 'Time unavailable',
+        receivedAt: signal.receivedAt || signal.createdAt,
       }))}
-      selectedId={effectiveId === null ? null : `email-${effectiveId}`}
-      onSelect={(rowId) => setSelectedId(rowId.slice('email-'.length))}
+      selectedId={effectiveId}
+      onSelect={setSelectedId}
+      onRefresh={() => void load()}
+      onLaunch={() => void launch()}
       loading={loading}
-      error={error ? <section className="tool-state-panel error" data-testid="email-error"><span className="tool-state-code">Error</span><p>{error}</p></section> : undefined}
-      toolbar={<button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="email-refresh"><Icon name="refresh" size={14} />Refresh</button>}
-      emptyState={<EmptyState title="No Gmail signals">New work signals will appear here when the connected mailbox identifies one.</EmptyState>}
-      inspector={(item) => item && selected ? <article className="email-detail">
-        <span className="eyebrow"><Timestamp value={selected.receivedAt || selected.createdAt} /></span>
-        <p>From {selected.fromName || 'Unknown sender'} &lt;{selected.fromEmail || 'unknown'}&gt;</p>
-        <div className="email-body">{selected.snippet || 'No preview available.'}</div>
-        <div className="tool-notice"><Icon name="mail" size={15} /><span>This untrusted external preview is read-only. Replies happen through the launched agent session.</span></div>
-        <div className="row-actions"><button className="primary-button" type="button" onClick={() => void launch()} data-testid="email-launch"><Icon name="mail" size={14} />Launch email assistant</button></div>
-      </article> : <p>Select an email signal to inspect its context.</p>}
+      error={error}
+      untrusted
     />
   </ToolFrame>;
 }
@@ -1316,6 +1337,6 @@ function GalleryTool() {
 export function ToolWorkspace({ slug }: { slug: string }) {
   const { sessionGatewayMode } = useFixtures();
   const live = sessionGatewayMode === 'live';
-  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': live ? <LiveResearchTool /> : <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: live ? <LiveWebhooksUnavailable /> : <WebhooksTool />, skills: live ? <LiveSkillsTool /> : <ManagedCatalog key="skills" kind="skills" />, playbooks: live ? <LivePlaybooksTool /> : <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: live ? <LiveCookbookTool /> : <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: live ? <LiveEmailTool /> : <EmailTool />, gallery: live ? <LiveGalleryTool /> : <GalleryTool />, 'agent-settings': live ? <LiveSettingsTool Frame={ToolFrame} /> : <FixtureAgentSettingsTool Frame={ToolFrame} />, 'shared-agents': <SharedAgentsTool /> };
+  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': live ? <LiveResearchTool /> : <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: live ? <LiveWebhooksUnavailable /> : <WebhooksTool />, skills: live ? <LiveSkillsTool /> : <ManagedCatalog key="skills" kind="skills" />, playbooks: live ? <LivePlaybooksTool /> : <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: live ? <LiveCookbookTool /> : <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: live ? <LiveEmailTool /> : <FixtureEmailTool />, gallery: live ? <LiveGalleryTool /> : <GalleryTool />, 'agent-settings': live ? <LiveSettingsTool Frame={ToolFrame} /> : <FixtureAgentSettingsTool Frame={ToolFrame} />, 'shared-agents': <SharedAgentsTool />  };
   return <div key={slug} className="tool-route-boundary">{tools[slug] ?? (live ? <LiveBrainTool /> : <FixtureBrainTool />)}</div>;
 }

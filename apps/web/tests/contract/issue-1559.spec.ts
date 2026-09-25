@@ -9,7 +9,16 @@ const names = ['Profiles overview', 'Auto-promotion', 'Accounts', 'Behavior', 'K
 
 async function openSettings(page: Page, failed: Set<string>, override?: (route: Route, path: string, count: number) => Promise<boolean>) {
   const counts: Record<string, number> = Object.fromEntries(paths.map((path) => [path, 0]));
-  await page.route('http://127.0.0.1:5697/**', (route) => route.fulfill({ status: 200, json: {} }));
+  await page.route('https://api.vcrcapps.com/**', (route) => {
+    const request = route.request();
+    const pathname = new URL(request.url()).pathname;
+    const headers = { 'access-control-allow-origin': request.headers().origin ?? '*', 'access-control-allow-headers': 'authorization,content-type', 'access-control-allow-methods': 'GET,POST,OPTIONS' };
+    if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
+    if (pathname === '/optimizer/auto-promotion') return route.fulfill({ status: 200, headers, json: { availability: true, state: { autoPromotionEnabled: false, enabledAt: null, autoPromotionEligible: true, totalVerified: 5, totalRegressions: 0, trustThreshold: 5 } } });
+    // FixtureProvider also reads production-backed collections during app startup.
+    return route.fulfill({ status: 200, headers, json: [] });
+  });
+  await page.route('http://127.0.0.1:5697/**', (route) => route.fulfill({ status: 200, json: { healthy: true, status: 'ready' } }));
   await page.route('http://127.0.0.1:5698/**', async (route: Route) => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
@@ -17,11 +26,15 @@ async function openSettings(page: Page, failed: Set<string>, override?: (route: 
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
     if (paths.includes(pathname)) counts[pathname]++;
     if (override && await override(route, pathname, counts[pathname] ?? 0)) return;
+    if (pathname === '/health') return route.fulfill({ status: 200, headers, json: { healthy: true, status: 'ready' } });
     return route.fulfill({ status: failed.has(pathname) ? 503 : 200, headers, json: failed.has(pathname) ? { error: `${pathname} offline` } : pathname === '/opencode/auth/accounts' ? { accounts: [] } : [] });
   });
   await page.goto('/#/tools/agent-settings');
   await expect.poll(() => paths.every((path) => counts[path] > 0)).toBe(true);
-  await expect(page.getByRole('listbox', { name: 'Agent settings sections' })).toHaveAttribute('aria-busy', 'false');
+  // CSS removes the responsive rail from the accessibility tree while its detail pane is active.
+  // Assert the rendered ARIA contract directly; visible role/keyboard behavior is checked after Back to list.
+  const renderedList = page.locator('[role="listbox"][aria-label="Agent settings sections"]');
+  await expect(renderedList).toHaveAttribute('aria-busy', 'false');
   return counts;
 }
 
@@ -31,8 +44,20 @@ const deferred = () => {
   return { gate, release };
 };
 
+async function showSectionList(page: Page) {
+  const list = page.locator('[role="listbox"][aria-label="Agent settings sections"]');
+  if (!await list.isVisible()) await page.getByRole('button', { name: 'Back to list' }).click();
+  await expect(list).toBeVisible();
+  return list;
+}
+
+async function selectSection(page: Page, name: string) {
+  const list = await showSectionList(page);
+  await list.getByRole('option', { name, exact: true }).click();
+}
+
 async function rowsRemainAccessible(page: Page) {
-  const list = page.getByRole('listbox', { name: 'Agent settings sections' });
+  const list = await showSectionList(page);
   await expect(list.getByRole('option')).toHaveCount(7);
   for (const name of names) await expect(list.getByRole('option', { name, exact: true })).toBeVisible();
   await list.getByRole('option', { name: 'Profiles overview' }).focus();
@@ -48,7 +73,7 @@ test('issue-1559-c1: rejected profiles stays in its overview while all seven sec
   await expect(page.getByTestId('tool-trace')).toContainText('failed');
   await expect(page.getByTestId('tool-trace')).not.toContainText('0 agent profiles loaded');
   await rowsRemainAccessible(page);
-  await page.getByRole('option', { name: 'Profiles overview' }).click();
+  await selectSection(page, 'Profiles overview');
   await expect(page.getByTestId('list-inspector-detail').getByRole('alert')).toContainText('offline');
   await expect(page.getByTestId('agent-settings-error')).toHaveCount(0);
 });
@@ -58,7 +83,7 @@ test('issue-1559-c2: all four rejected loads keep seven rows and offline-only se
   await openSettings(page, new Set(paths));
   await rowsRemainAccessible(page);
   for (const name of ['Runtime / OpenCode server', 'Behavior', 'Keybindings']) {
-    await page.getByRole('option', { name, exact: true }).click();
+    await selectSection(page, name);
     await expect(page.getByTestId('list-inspector-detail')).toContainText(name === 'Behavior' ? 'destructive-action' : name === 'Keybindings' ? 'Shortcuts cover' : 'Local API');
   }
   await expect(page.getByTestId('tool-trace')).toContainText('failed');
@@ -86,7 +111,7 @@ test('issue-1559-c3: each section-local retry calls only its own failed request'
     ['Accounts', '/opencode/auth', 'Retry providers'],
     ['MCP servers', '/opencode/mcp', 'Retry MCP servers'],
   ]) {
-    await page.getByRole('option', { name: section, exact: true }).click();
+    await selectSection(page, section);
     failed.delete(path);
     const before = { ...counts };
     await page.getByTestId('list-inspector-detail').getByRole('button', { name: label }).click();
@@ -112,9 +137,9 @@ test('issue-1559-c4: in-flight retries ignore duplicate activation and keep sibl
   await expect(retry).toHaveAttribute('aria-busy', 'true');
   await retry.dispatchEvent('click');
   await expect.poll(() => counts['/agent-configs']).toBe(before + 1);
-  await page.getByRole('option', { name: 'MCP servers' }).click();
+  await selectSection(page, 'MCP servers');
   await expect(page.getByRole('button', { name: 'Retry MCP servers' })).toHaveAttribute('aria-disabled', 'false');
-  await page.getByRole('option', { name: 'Runtime / OpenCode server' }).click();
+  await selectSection(page, 'Runtime / OpenCode server');
   await expect(page.getByTestId('list-inspector-detail')).toContainText('Local API');
   wait.release();
 });
@@ -204,7 +229,7 @@ test('issue-1559-c7: provider badges distinguish unknown, last known and confirm
     if (path === '/opencode/auth' && providerOnline) { await route.fulfill({ status: 200, json: { providers: providerIds } }); return true; }
     return false;
   });
-  await page.getByRole('option', { name: 'Accounts' }).click();
+  await selectSection(page, 'Accounts');
   const badge = page.getByTestId('agent-settings-provider-status-openai');
   await expect(badge).toHaveText('Status unknown');
   await expect(page.getByTestId('agent-settings-provider-openai')).not.toHaveClass(/needs-relogin/);
@@ -234,7 +259,7 @@ test('issue-1559-c8: mutation failures never become load failures or show a load
     if (path === '/opencode/mcp' && route.request().method() === 'POST') { await route.fulfill({ status: 503, json: { error: 'cannot add server' } }); return true; }
     return false;
   });
-  await page.getByRole('option', { name: 'MCP servers' }).click();
+  await selectSection(page, 'MCP servers');
   await page.getByTestId('agent-settings-mcp-add-disclosure').locator('summary').click();
   await page.getByTestId('agent-settings-mcp-add-name').fill('example');
   await page.getByTestId('agent-settings-mcp-add-value').fill('https://example.test/mcp');
@@ -261,7 +286,7 @@ for (const s of sections) {
       return false;
     });
     armed = true;
-    await page.getByRole('option', { name: s.option, exact: true }).click();
+    await selectSection(page, s.option);
     for (const state of ['error', 'retrying'] as const) {
       if (state === 'retrying') { await page.setViewportSize(viewports[0]); await page.getByRole('button', { name: s.label }).click(); await expect(page.getByTestId(`agent-settings-${s.key}-status`)).toHaveText(`Retrying ${s.key}…`); }
       for (const viewport of viewports) {
@@ -292,7 +317,7 @@ for (const s of sections) {
       await route.fulfill({ status: 503, json: { error: 'refresh still offline' } }); return true;
     });
     armed = true;
-    await page.getByRole('option', { name: s.option, exact: true }).click();
+    await selectSection(page, s.option);
     const retry = page.getByRole('button', { name: s.label });
     await retry.click();
     await expect(page.getByTestId(`agent-settings-${s.key}-status`)).toHaveText(`Retrying ${s.key}…`);
@@ -316,7 +341,7 @@ for (const s of sections) {
         return false;
       });
       armed = true;
-      await page.getByRole('option', { name: s.option, exact: true }).click();
+      await selectSection(page, s.option);
       const retry = page.getByRole('button', { name: s.label });
       await retry.focus(); await page.keyboard.press('Enter');
       await expect(retry).toHaveAttribute('aria-busy', 'true');
@@ -338,7 +363,7 @@ test('issue-1559-c12: stale provider check cannot dismiss flow or contradict new
     if (++started === 1) { await slow.gate; await route.fulfill({ status: 200, json: { providers: ['google'] } }); return true; }
     await route.fulfill({ status: 200, json: { providers: [] } }); return true;
   });
-  await page.getByRole('option', { name: 'Accounts', exact: true }).click();
+  await selectSection(page, 'Accounts');
   await page.getByTestId('agent-settings-provider-authorize-google').click();
   await expect(page.getByTestId('agent-settings-provider-flow-google')).toBeVisible();
   armed = true;
@@ -355,7 +380,7 @@ for (const s of sections.filter((entry) => entry.key === 'mcp' || entry.key === 
     // Regression: successful mutation reload leaves a contradictory retry-failure announcement.
     const failed = new Set([s.path]);
     await openSettings(page, failed);
-    await page.getByRole('option', { name: s.option, exact: true }).click();
+    await selectSection(page, s.option);
     await page.getByRole('button', { name: s.label }).click();
     await expect(page.getByTestId(`agent-settings-${s.key}-status`)).toHaveText(`${s.key} still unavailable`);
     failed.delete(s.path);
@@ -382,7 +407,7 @@ test('issue-1559-c12: stale failed provider check cannot announce action error a
     if (++started === 1) { await slow.gate; await route.fulfill({ status: 503, json: { error: 'old check offline' } }); return true; }
     await route.fulfill({ status: 200, json: { providers: ['google'] } }); return true;
   });
-  await page.getByRole('option', { name: 'Accounts', exact: true }).click();
+  await selectSection(page, 'Accounts');
   await page.getByTestId('agent-settings-provider-authorize-google').click();
   armed = true;
   await page.getByTestId('agent-settings-provider-check').click();
@@ -399,7 +424,7 @@ for (const s of sections) {
     // Regression: a successful retry leaves a contradictory loaded announcement beside a newer failure.
     const failed = new Set([s.path]);
     await openSettings(page, failed);
-    await page.getByRole('option', { name: s.option, exact: true }).click();
+    await selectSection(page, s.option);
     failed.delete(s.path);
     await page.getByRole('button', { name: s.label }).click();
     await expect(page.getByTestId(`agent-settings-${s.key}-status`)).toHaveText(`${s.key} loaded`);
@@ -413,7 +438,7 @@ for (const s of sections) {
 test('issue-1559-c13: unread provider badge displays exact Status unknown', async ({ page }) => {
   // Regression: the unknown badge is abbreviated or globally capitalized.
   await openSettings(page, new Set(['/opencode/auth']));
-  await page.getByRole('option', { name: 'Accounts', exact: true }).click();
+  await selectSection(page, 'Accounts');
   for (const id of ['openai', 'google', 'opencode', 'openrouter']) {
     const badge = page.getByTestId(`agent-settings-provider-status-${id}`);
     await expect(badge).toHaveText('Status unknown');
@@ -437,7 +462,7 @@ test('1559-action-reload-section-retry:1 MCP action reload failure exposes secti
     }
     return false;
   });
-  await page.getByRole('option', { name: 'MCP servers', exact: true }).click();
+  await selectSection(page, 'MCP servers');
   await page.getByTestId('agent-settings-mcp-disconnect-propresenter').click();
   await expect(page.getByRole('button', { name: 'Retry MCP servers' })).toBeVisible();
   failReload = false;
@@ -462,7 +487,7 @@ test('1559-action-reload-section-retry:2 account default reload failure exposes 
     }
     return false;
   });
-  await page.getByRole('option', { name: 'Accounts', exact: true }).click();
+  await selectSection(page, 'Accounts');
   await page.getByTestId('agent-settings-account-default-work').click();
   await expect(page.getByRole('button', { name: 'Retry accounts' })).toBeVisible();
   failReload = false;
@@ -487,7 +512,7 @@ test('1559-action-reload-section-retry:3 provider save reload failure exposes se
     }
     return false;
   });
-  await page.getByRole('option', { name: 'Accounts', exact: true }).click();
+  await selectSection(page, 'Accounts');
   await page.getByTestId('agent-settings-provider-key-opencode').fill('test-key');
   await page.getByTestId('agent-settings-provider-key-save-opencode').click();
   await expect(page.getByRole('button', { name: 'Retry providers' })).toBeVisible();

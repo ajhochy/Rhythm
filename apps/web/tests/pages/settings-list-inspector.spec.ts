@@ -194,8 +194,13 @@ test('issue-1521-c8: loading error empty missing and unsaved states are explicit
   await expect(page.getByLabel('Theme')).toHaveCount(0);
 
   await openSettings(page, '?state=error');
-  await expect(page.getByRole('alert')).toContainText('Settings could not be loaded');
-  await expect(page.getByLabel('Theme')).toHaveCount(0);
+  await expect(page.getByRole('listbox', { name: 'Settings sections' }).getByRole('option')).toHaveCount(13);
+  await expect(page.getByLabel('Theme')).toBeVisible();
+  await selectRow(page, 'Workspace');
+  await expect(page.getByTestId('settings-workspace-error')).toContainText('Settings could not be loaded');
+  await expect(page.getByTestId('settings-workspace-error').getByRole('button', { name: 'Try again' })).toBeVisible();
+  await selectRow(page, 'Keyboard & safety');
+  await expect(page.getByLabel('Send message key')).toBeVisible();
 
   await openSettings(page, '?state=empty', 'members');
   await expectInspectorHeading(page, 'Members & roles');

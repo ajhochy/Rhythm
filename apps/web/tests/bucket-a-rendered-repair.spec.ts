@@ -26,6 +26,11 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
 
 async function installLiveRoutes(page: Page, override?: (route: Route, url: URL) => Promise<boolean>) {
   await page.route('http://127.0.0.1:4097/**', (route) => fulfillJson(route, { healthy: true }));
+  await page.route('https://api.vcrcapps.com/**', async (route) => {
+    const url = new URL(route.request().url());
+    if (override && await override(route, url)) return;
+    await fulfillJson(route, { error: 'not found' }, 404);
+  });
   await page.route(`${apiBase}/**`, async (route) => {
     const url = new URL(route.request().url());
     if (override && await override(route, url)) return;
@@ -410,7 +415,10 @@ test('self-improvement-review-mutation-error: failed decisions stay visible afte
   await page.goto('http://127.0.0.1:4181/#/tools/review');
   await page.getByTestId('proposal-approve-proposal-1').click();
   await page.getByTestId('proposal-confirm').click();
-  await expect(page.getByTestId('review-error')).toContainText('current state');
+  await expect(page.getByTestId('review-action-error')).toContainText('current state');
+  await expect(page.getByRole('option', { name: 'Refine skill', exact: true })).toBeVisible();
+  await expect(page.getByTestId('proposal-proposal-1-details')).toBeVisible();
+  await expect(page.getByTestId('review-error')).toHaveCount(0);
 });
 
 test('self-improvement-run-feedback-live: outcome loads, posts an explicit verdict, refreshes, and disappears for 404', async ({ page }) => {
@@ -485,7 +493,7 @@ test('self-improvement-auto-promotion-live: default-off gating and explicit clou
   });
   await page.goto('http://127.0.0.1:4181/#/tools/agent-settings');
   await page.getByRole('option', { name: 'Auto-promotion', exact: true }).click();
-  await expect(page.getByTestId('auto-promotion')).toContainText('Disabled');
+  await expect(page.getByTestId('auto-promotion-settings')).toContainText('Disabled');
   expect(calls[0].confirmation).toBeNull();
   await page.getByTestId('auto-promotion-toggle').click();
   await expect(page.getByTestId('auto-promotion-dialog')).toBeVisible();
@@ -495,12 +503,12 @@ test('self-improvement-auto-promotion-live: default-off gating and explicit clou
   await page.getByTestId('auto-promotion-confirm').click();
   await expect.poll(() => calls.filter((call) => call.method === 'POST')).toHaveLength(1);
   expect(calls.at(-1)).toMatchObject({ authorization: 'Bearer bucket-a-rendered-disposable', confirmation: 'enable-auto-promotion', body: { enabled: true } });
-  await expect(page.getByTestId('auto-promotion')).toContainText('Enabled');
+  await expect(page.getByTestId('auto-promotion-settings')).toContainText('Enabled');
   await page.getByTestId('auto-promotion-toggle').click();
   await page.getByTestId('auto-promotion-confirm').click();
   await expect.poll(() => calls.filter((call) => call.method === 'POST')).toHaveLength(2);
   expect(calls.at(-1)).toMatchObject({ body: { enabled: false } });
-  await expect(page.getByTestId('auto-promotion')).toContainText('Disabled');
+  await expect(page.getByTestId('auto-promotion-settings')).toContainText('Disabled');
 });
 
 test('self-improvement-auto-promotion-errors: admin denial and stale eligibility remain explicit', async ({ page }) => {
@@ -513,11 +521,11 @@ test('self-improvement-auto-promotion-errors: admin denial and stale eligibility
   });
   await page.goto('http://127.0.0.1:4181/#/tools/agent-settings');
   await page.getByRole('option', { name: 'Auto-promotion', exact: true }).click();
-  await expect(page.getByTestId('auto-promotion')).toContainText('Admin/system access required');
+  await expect(page.getByTestId('auto-promotion-settings')).toContainText('Admin/system access required');
   mode = 'ready';
-  await page.getByTestId('auto-promotion').getByRole('button', { name: 'Retry' }).click();
+  await page.getByTestId('auto-promotion-settings').getByRole('button', { name: 'Retry' }).click();
   await page.getByTestId('auto-promotion-toggle').click();
   mode = 'conflict';
   await page.getByTestId('auto-promotion-confirm').click();
-  await expect(page.getByTestId('auto-promotion')).toContainText('eligibility changed');
+  await expect(page.getByTestId('auto-promotion-settings')).toContainText('eligibility changed');
 });

@@ -12,9 +12,16 @@ import { formatCost, Transcript } from './Transcript';
 import { usePendingDecisions } from '../pending-decisions';
 import type { AgentProject, RichTranscriptMessage } from '../gateway/sessions';
 import { emitAgentNotification } from '../agentNotifications';
+import { useAuthUser } from '../gateway/auth';
+import {
+  matchSwitchSessionKey, matchesCancelTurnKey, matchesNewSessionKey,
+  readLocalUserPreferences, USER_PREFERENCES_CHANGED_EVENT,
+} from '../gateway/user-preferences';
 
 export function AgentsWorkspace() {
-  const { selected, sessions, profiles, models, accounts, sessionGatewayMode, saveSessionSettings, connectionMessage: fixtureConnectionMessage, liveSessionError, loading, summarizeSession, prepareLiveSession, startFreshSession, reconnectLiveSession, updateSession: updateFixtureSession, archiveSession, resumeSession, selectSession, notify, resumeGone, liveChildView, closeLiveChildView } = useFixtures();
+  const { selected, sessions, profiles, models, accounts, sessionGatewayMode, saveSessionSettings, connectionMessage: fixtureConnectionMessage, liveSessionError, loading, summarizeSession, prepareLiveSession, startFreshSession, reconnectLiveSession, updateSession: updateFixtureSession, archiveSession, resumeSession, selectSession, createSession, createLiveSession, selectLiveSession, cancelSession, notify, resumeGone, liveChildView, closeLiveChildView } = useFixtures();
+  const auth = useAuthUser();
+  const preferenceUserId = auth?.user.id ?? 'fixture';
   const live = sessionGatewayMode === 'live';
   const sessionCost = selected.messages.reduce((total, message) => {
     const cost = (message as RichTranscriptMessage).cost;
@@ -36,6 +43,52 @@ export function AgentsWorkspace() {
   const [sessionSettings, setSessionSettings] = useState(false);
   const [prepareOpen, setPrepareOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<AgentProject | null>(null);
+  const [shortcutRevision, setShortcutRevision] = useState(0);
+  useEffect(() => {
+    const sync = () => setShortcutRevision((value) => value + 1);
+    window.addEventListener('storage', sync);
+    window.addEventListener(USER_PREFERENCES_CHANGED_EVENT, sync);
+    return () => { window.removeEventListener('storage', sync); window.removeEventListener(USER_PREFERENCES_CHANGED_EVENT, sync); };
+  }, []);
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
+      const target = event.target as HTMLElement | null;
+      const editing = target?.matches('input, textarea, select, [contenteditable="true"]') && target.dataset.testid !== 'composer-input';
+      if (editing) return;
+      const preferences = readLocalUserPreferences(preferenceUserId);
+      if (matchesNewSessionKey(event, preferences.newSessionKey)) {
+        event.preventDefault();
+        if (live) {
+          const profileId = profiles.find((profile) => profile.enabled && profile.selectable && profile.isDefault)?.id
+            ?? profiles.find((profile) => profile.enabled && profile.selectable)?.id;
+          if (profileId) void createLiveSession({ name: '', cwd: selectedProject?.cwd ?? selected.cwd, ...(selectedProject ? { projectId: selectedProject.id } : {}), profileId, isolateWorktree: false })
+            .catch((error) => notify(error instanceof Error ? error.message : 'Session creation failed'));
+        } else createSession();
+        return;
+      }
+      if (matchesCancelTurnKey(event, preferences.cancelTurnKey)) {
+        if (selected.status !== 'working') return;
+        event.preventDefault();
+        cancelSession(selected.id);
+        return;
+      }
+      const direction = matchSwitchSessionKey(event, preferences.switchSessionKey);
+      if (!direction) return;
+      const sessionIds = new Set(sessions.map((session) => session.id));
+      const railOrder = [...document.querySelectorAll<HTMLElement>('button[data-testid^="session-"]')]
+        .map((node) => node.dataset.testid?.slice('session-'.length) ?? '')
+        .filter((id) => sessionIds.has(id));
+      const current = railOrder.indexOf(selected.id);
+      if (current < 0 || railOrder.length < 2) return;
+      event.preventDefault();
+      const offset = direction === 'previous' ? -1 : 1;
+      const nextId = railOrder[(current + offset + railOrder.length) % railOrder.length];
+      if (nextId) { if (live) void selectLiveSession(nextId); else selectSession(nextId); }
+    };
+    document.addEventListener('keydown', keydown);
+    return () => document.removeEventListener('keydown', keydown);
+  }, [cancelSession, createLiveSession, createSession, live, notify, preferenceUserId, profiles, selectLiveSession, selectSession, selected.cwd, selected.id, selected.status, selectedProject, sessions, shortcutRevision]);
   useEffect(() => {
     const sync = () => emitAgentNotification({ v: 1, type: 'viewing', sessionId: selected.id || null,
       displayed: Boolean(selected.id && !loading && !selectedProject && !liveChildView && window.location.hash.startsWith('#/agents')) }, live);

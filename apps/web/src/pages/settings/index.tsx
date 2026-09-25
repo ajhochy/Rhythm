@@ -11,6 +11,7 @@ import {
   resetLocalUserPreferences,
   SEND_MESSAGE_KEY_OPTIONS,
   sendMessageKeyLabel,
+  USER_PREFERENCES_CHANGED_EVENT,
   writeLocalUserPreferences,
   type SendMessageKey,
 } from '../../gateway/user-preferences';
@@ -91,6 +92,18 @@ export function SettingsPage() {
     setSavedKeyboard(next.sendKey);
     setEmailEnabled(auth?.user.emailNotificationsEnabled ?? true);
   }, [auth?.user.emailNotificationsEnabled, preferenceUserId, setTheme]);
+
+  useEffect(() => {
+    const sync = () => {
+      if (keyboardDirty) return;
+      const next = readLocalUserPreferences(preferenceUserId).sendKey;
+      setSendKey(next);
+      setSavedKeyboard(next);
+    };
+    window.addEventListener('storage', sync);
+    window.addEventListener(USER_PREFERENCES_CHANGED_EVENT, sync);
+    return () => { window.removeEventListener('storage', sync); window.removeEventListener(USER_PREFERENCES_CHANGED_EVENT, sync); };
+  }, [keyboardDirty, preferenceUserId]);
 
   useEffect(() => {
     void Promise.all([gateway.health.api(), gateway.health.engine()])
@@ -184,6 +197,9 @@ export function SettingsPage() {
 
   const renderInspector = (item: ListInspectorItem | null): ReactNode => {
     if (!item) return <p className="settings-empty">Select a settings section to inspect its current values and actions.</p>;
+
+    const workspaceDependent = ['workspace', 'members', 'join-code', 'facilities-access'].includes(item.id);
+    const workspaceError = workspaceDependent && loadError ? <div className="settings-load-error" role="alert" data-testid="settings-workspace-error"><p>{loadError}</p><button className="secondary-button" type="button" onClick={() => void loadWorkspace(true)}>Try again</button></div> : null;
 
     let content: ReactNode;
     switch (item.id) {
@@ -334,7 +350,7 @@ export function SettingsPage() {
         content = <p className="settings-section-intro">This settings destination opens in its own workspace.</p>;
     }
 
-    return <div className="settings-inspector-content">{inspectorFeedback}{content}</div>;
+    return <div className="settings-inspector-content">{inspectorFeedback}{workspaceError}{content}</div>;
   };
 
   return <section className="page-shell settings-page" aria-labelledby="settings-title" data-testid="page-settings">
@@ -350,7 +366,6 @@ export function SettingsPage() {
       selectedId={selectedId}
       onSelect={selectSetting}
       loading={loading}
-      error={loadError ? <div className="settings-load-error"><p>{loadError}</p><button className="secondary-button" type="button" onClick={() => void loadWorkspace(true)}>Try again</button></div> : undefined}
       emptyState={<p>No settings sections are available.</p>}
       inspector={renderInspector}
       className="settings-list-inspector"

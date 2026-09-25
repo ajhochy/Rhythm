@@ -1,9 +1,17 @@
 import { useEffect, useRef, useState, type ComponentType, type FormEvent, type ReactNode } from 'react';
 import type { McpServer } from '../../gateway/mcp';
 import type { AccountChoice } from '../../gateway/sessions';
+import type { AutoPromotion } from '../../gateway/auto-promotion';
 import type { Profile } from '../../types';
 import { Icon } from '../../icons';
 import { useGateway } from '../../gateway/context';
+import { useAuthUser } from '../../gateway/auth';
+import {
+  CANCEL_TURN_KEY_OPTIONS, DEFAULT_LOCAL_USER_PREFERENCES, NEW_SESSION_KEY_OPTIONS,
+  readLocalUserPreferences, SEND_MESSAGE_KEY_OPTIONS, sendMessageKeyLabel,
+  SWITCH_SESSION_KEY_OPTIONS, USER_PREFERENCES_CHANGED_EVENT, writeLocalUserPreferences,
+  type LocalUserPreferences,
+} from '../../gateway/user-preferences';
 import { FocusDialog } from '../FocusDialog';
 import { ListInspector, useSelectedId, type ListInspectorItem } from '../ListInspector';
 import { profileAvatarLabel } from '../Profiles';
@@ -15,6 +23,7 @@ type Trace = { method: string; route: string; detail: string };
 type LoadSection = 'profiles' | 'accounts' | 'mcp' | 'providers';
 type ActionScope = 'accounts' | 'providers' | 'mcp' | 'runtime';
 type PendingAction = { scope: ActionScope; key: string };
+type RuntimeHealthState = { state: 'checking' | 'healthy' | 'failed' };
 
 export type AgentSettingsFrameProps = {
   slug: string;
@@ -49,6 +58,80 @@ function GapNotice({ place, children }: { place: string; children: ReactNode }) 
 
 function SectionIntro({ scope, children }: { scope: string; children: ReactNode }) {
   return <div className="agent-settings-intro"><ScopeLabel>{scope}</ScopeLabel><p>{children}</p></div>;
+}
+
+function useDestructiveModalPreference() {
+  const auth = useAuthUser();
+  const userId = auth?.user.id ?? 'fixture';
+  const [enabled, setEnabled] = useState(() => readLocalUserPreferences(userId).requireDestructiveModal);
+  useEffect(() => {
+    const sync = () => setEnabled(readLocalUserPreferences(userId).requireDestructiveModal);
+    sync();
+    window.addEventListener('storage', sync);
+    window.addEventListener(USER_PREFERENCES_CHANGED_EVENT, sync);
+    return () => {
+      window.removeEventListener('storage', sync);
+      window.removeEventListener(USER_PREFERENCES_CHANGED_EVENT, sync);
+    };
+  }, [userId]);
+  const update = (next: boolean) => {
+    writeLocalUserPreferences(userId, { requireDestructiveModal: next });
+    setEnabled(next);
+  };
+  return [enabled, update] as const;
+}
+
+function BehaviorSettings({ enabled, onChange }: { enabled: boolean; onChange(value: boolean): void }) {
+  return <section className="agent-settings-local-preference" aria-labelledby="destructive-modal-label">
+    <label>
+      <span><strong id="destructive-modal-label">Destructive-tool confirmation dialog</strong><small>When enabled, Bash, write, edit, and patch approvals open a focused confirmation dialog. Other approvals stay inline.</small></span>
+      <input type="checkbox" role="switch" aria-label="Destructive-tool confirmation dialog" checked={enabled} onChange={(event) => onChange(event.target.checked)} />
+    </label>
+    <ScopeLabel>This device · Account scoped</ScopeLabel>
+  </section>;
+}
+
+function useKeybindingPreferences() {
+  const auth = useAuthUser();
+  const userId = auth?.user.id ?? 'fixture';
+  const [preferences, setPreferences] = useState(() => readLocalUserPreferences(userId));
+  useEffect(() => {
+    const sync = () => setPreferences(readLocalUserPreferences(userId));
+    sync();
+    window.addEventListener('storage', sync);
+    window.addEventListener(USER_PREFERENCES_CHANGED_EVENT, sync);
+    return () => { window.removeEventListener('storage', sync); window.removeEventListener(USER_PREFERENCES_CHANGED_EVENT, sync); };
+  }, [userId]);
+  const update = (patch: Partial<LocalUserPreferences>) => setPreferences(writeLocalUserPreferences(userId, patch));
+  const reset = () => update({
+    sendKey: DEFAULT_LOCAL_USER_PREFERENCES.sendKey,
+    newSessionKey: DEFAULT_LOCAL_USER_PREFERENCES.newSessionKey,
+    cancelTurnKey: DEFAULT_LOCAL_USER_PREFERENCES.cancelTurnKey,
+    switchSessionKey: DEFAULT_LOCAL_USER_PREFERENCES.switchSessionKey,
+  });
+  return [preferences, update, reset] as const;
+}
+
+function KeybindingsSettings({ preferences, update, reset }: {
+  preferences: LocalUserPreferences;
+  update(patch: Partial<LocalUserPreferences>): void;
+  reset(): void;
+}) {
+  const fields = [
+    ['Send message', 'sendKey', SEND_MESSAGE_KEY_OPTIONS],
+    ['New session', 'newSessionKey', NEW_SESSION_KEY_OPTIONS],
+    ['Cancel turn', 'cancelTurnKey', CANCEL_TURN_KEY_OPTIONS],
+    ['Switch session', 'switchSessionKey', SWITCH_SESSION_KEY_OPTIONS],
+  ] as const;
+  return <section className="agent-settings-local-preference agent-settings-keybindings">
+    <div className="agent-settings-keybinding-fields">{fields.map(([label, key, options]) => <label key={key}>{label}
+      <select value={preferences[key]} onChange={(event) => update({ [key]: event.target.value } as Partial<LocalUserPreferences>)} aria-label={`${label} shortcut`}>
+        {options.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
+      </select>
+    </label>)}</div>
+    <div className="agent-settings-actions"><button className="secondary-button" type="button" onClick={reset}>Reset shortcuts</button></div>
+    <ScopeLabel>This device · Account scoped</ScopeLabel>
+  </section>;
 }
 
 // Ported from apps/desktop_flutter/.../ai_account_section.dart — same endpoints and
@@ -88,10 +171,10 @@ function useSettingsSelection() {
   return [selectedId, setSelectedId] as const;
 }
 
-function baseItems(status: Partial<Record<keyof typeof sectionIds, string>> = {}): ListInspectorItem[] {
+function baseItems(status: Partial<Record<keyof typeof sectionIds, string>> = {}, badges: Partial<Record<keyof typeof sectionIds, string>> = {}): ListInspectorItem[] {
   return [
     { id: sectionIds.profiles, title: 'Profiles overview', subtitle: status.profiles ?? 'Agent identities, defaults, and model assignments' },
-    { id: sectionIds.autoPromotion, title: 'Auto-promotion', subtitle: status.autoPromotion ?? 'Workspace eligibility and confirmation gates' },
+    { id: sectionIds.autoPromotion, title: 'Auto-promotion', subtitle: status.autoPromotion ?? 'Workspace eligibility and confirmation gates', badge: badges.autoPromotion },
     { id: sectionIds.accounts, title: 'Accounts', subtitle: status.accounts ?? 'Authorized model provider accounts' },
     { id: sectionIds.behavior, title: 'Behavior', subtitle: status.behavior ?? 'Destructive-tool confirmation policy' },
     { id: sectionIds.keybindings, title: 'Keybindings', subtitle: status.keybindings ?? 'Desktop keyboard shortcuts' },
@@ -100,25 +183,67 @@ function baseItems(status: Partial<Record<keyof typeof sectionIds, string>> = {}
   ];
 }
 
-export function AutoPromotionSettings() {
-  const gateway = useGateway(); const [state, setState] = useState<Awaited<ReturnType<NonNullable<typeof gateway.domains.autoPromotion>['get']>> | null>(null);
-  const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [confirm, setConfirm] = useState(false); const [submitting, setSubmitting] = useState(false);
-  const load = async (clearError = true) => { setLoading(true); if (clearError) setError(''); try { setState(await gateway.domains.autoPromotion!.get()); } catch (err) { setError(err instanceof Error ? err.message : 'Auto-promotion state could not be loaded'); } finally { setLoading(false); } };
-  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const enabled = state?.state.autoPromotionEnabled ?? false; const canEnable = Boolean(state?.availability && state.state.autoPromotionEligible && state.state.totalRegressions === 0);
-  const submit = async () => { setConfirm(false); setSubmitting(true); setError(''); let failed = false; try { await gateway.domains.autoPromotion!.setEnabled(!enabled); } catch (err) { failed = true; setError(err instanceof Error ? err.message : 'Auto-promotion update failed'); } await load(!failed); setSubmitting(false); };
-  return <div className="auto-promotion-card" data-testid="auto-promotion"><header><div><p>Verified changes may be promoted automatically only when the organization is eligible.</p></div><span className={`kind-badge ${enabled ? 'active' : ''}`}>{enabled ? 'Enabled' : 'Disabled'}</span></header>{loading && <p role="status">Loading auto-promotion state…</p>}{error && <p role="alert">{error} <button className="text-button" type="button" onClick={() => void load()}>Retry</button></p>}{state && <dl className="property-list"><div><dt>Availability</dt><dd>{state.availability ? 'Available' : 'Unavailable'}</dd></div><div><dt>Eligibility</dt><dd>{state.state.autoPromotionEligible ? 'Eligible' : 'Not eligible'}</dd></div><div><dt>Verified changes</dt><dd>{state.state.totalVerified} / {state.state.trustThreshold}</dd></div><div><dt>Regressions</dt><dd>{state.state.totalRegressions}</dd></div>{state.state.enabledAt && <div><dt>Enabled</dt><dd>{state.state.enabledAt}</dd></div>}</dl>}<footer><button className={enabled ? 'danger-button' : 'primary-button'} type="button" disabled={submitting || loading || !enabled && !canEnable} title={!enabled && !canEnable ? 'Requires availability, eligibility, and zero regressions.' : undefined} onClick={() => setConfirm(true)} data-testid="auto-promotion-toggle">{enabled ? 'Disable' : 'Enable'}</button></footer><FocusDialog open={confirm} onClose={() => setConfirm(false)} title={enabled ? 'Disable auto-promotion?' : 'Enable auto-promotion?'} description={enabled ? 'Disable is an emergency stop. The server requires your explicit acknowledgement.' : 'Verified changes may be promoted automatically when eligibility is maintained.'} testId="auto-promotion-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setConfirm(false)} data-testid="auto-promotion-cancel">Cancel</button><button className={enabled ? 'danger-button' : 'primary-button'} type="button" onClick={() => void submit()} data-testid="auto-promotion-confirm">Confirm</button></div></FocusDialog></div>;
+type AutoPromotionSettingsProps = {
+  state: AutoPromotion | null;
+  loading: boolean;
+  error: string;
+  reload: (clearError?: boolean) => Promise<void>;
+  reportError: (message: string) => void;
+};
+
+export function AutoPromotionSettings({ state, loading, error, reload, reportError }: AutoPromotionSettingsProps) {
+  const gateway = useGateway();
+  const [confirm, setConfirm] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const enabled = state?.state.autoPromotionEnabled ?? false;
+  const canEnable = Boolean(state?.availability && state.state.autoPromotionEligible && state.state.totalRegressions === 0);
+  const unavailable = Boolean(error && !state);
+  const badge = unavailable ? 'Unavailable' : !state ? 'Checking' : enabled ? 'Enabled' : 'Disabled';
+  const blockedTitle = unavailable
+    ? 'Auto-promotion service is unreachable. Retry the service check.'
+    : !state
+      ? 'Checking the auto-promotion service.'
+      : !state.availability
+        ? 'Auto-promotion is unavailable for this workspace.'
+        : !state.state.autoPromotionEligible
+          ? 'This workspace is not eligible for auto-promotion.'
+          : state.state.totalRegressions > 0
+            ? 'Resolve recorded regressions before enabling auto-promotion.'
+            : undefined;
+  const submit = async () => {
+    setConfirm(false);
+    setSubmitting(true);
+    let failed = false;
+    try {
+      await gateway.domains.autoPromotion!.setEnabled(!enabled);
+    } catch (err) {
+      failed = true;
+      reportError(err instanceof Error ? err.message : 'Auto-promotion update failed');
+    }
+    await reload(!failed);
+    setSubmitting(false);
+  };
+  return <div className="auto-promotion-card" data-testid="auto-promotion-settings">
+    <header><div><p>Verified changes may be promoted automatically only when the organization is eligible.</p></div><span className={`kind-badge${enabled ? ' active' : ''}${unavailable ? ' unavailable' : ''}`}>{badge}</span></header>
+    {loading && !state && <p role="status">Checking auto-promotion state…</p>}
+    {error && <div className="auto-promotion-error" role="alert"><span aria-hidden="true">!</span><p>{error}</p><button className="secondary-button" type="button" onClick={() => void reload()}>Retry</button></div>}
+    {state && <dl className="agent-settings-property-list"><div><dt>Availability</dt><dd>{state.availability ? 'Available' : 'Unavailable'}</dd></div><div><dt>Eligibility</dt><dd>{state.state.autoPromotionEligible ? 'Eligible' : 'Not eligible'}</dd></div><div><dt>Verified changes</dt><dd>{state.state.totalVerified} / {state.state.trustThreshold}</dd></div><div><dt>Regressions</dt><dd>{state.state.totalRegressions}</dd></div>{state.state.enabledAt && <div><dt>Enabled</dt><dd>{state.state.enabledAt}</dd></div>}</dl>}
+    <footer><button className={enabled ? 'danger-button' : 'primary-button'} type="button" disabled={submitting || loading || !enabled && !canEnable} title={!enabled && !canEnable ? blockedTitle : undefined} onClick={() => setConfirm(true)} data-testid="auto-promotion-toggle">{enabled ? 'Disable' : 'Enable'}</button></footer>
+    <FocusDialog open={confirm} onClose={() => setConfirm(false)} title={enabled ? 'Disable auto-promotion?' : 'Enable auto-promotion?'} description={enabled ? 'Disable is an emergency stop. The server requires your explicit acknowledgement.' : 'Verified changes may be promoted automatically when eligibility is maintained.'} testId="auto-promotion-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setConfirm(false)} data-testid="auto-promotion-cancel">Cancel</button><button className={enabled ? 'danger-button' : 'primary-button'} type="button" onClick={() => void submit()} data-testid="auto-promotion-confirm">Confirm</button></div></FocusDialog>
+  </div>;
 }
 
 export function FixtureAgentSettingsTool({ Frame }: AgentSettingsToolProps) {
   const [selectedId, setSelectedId] = useSettingsSelection();
+  const [requireDestructiveModal, setRequireDestructiveModal] = useDestructiveModalPreference();
+  const [keybindings, updateKeybindings, resetKeybindings] = useKeybindingPreferences();
   const [trace, setTrace] = useState<Trace>({ method: 'LOCAL', route: 'fixture://agent-settings', detail: 'Local runtime defaults loaded' });
   const items = baseItems({
     profiles: 'Use the Profiles tool for profile editing',
     autoPromotion: 'Live workspace status required',
     accounts: 'Live local runtime required',
-    behavior: 'Configure in Flutter Agent settings',
-    keybindings: 'Configure in Flutter Agent settings',
+    behavior: `${requireDestructiveModal ? 'Full dialog' : 'Inline approval'} · This device`,
+    keybindings: `${sendMessageKeyLabel(keybindings.sendKey)} to send · This device`,
     runtime: 'Fixture preview · not connected',
     mcp: 'Live local runtime required',
   });
@@ -132,9 +257,9 @@ export function FixtureAgentSettingsTool({ Frame }: AgentSettingsToolProps) {
       case sectionIds.accounts:
         return <><SectionIntro scope="Desktop local">Provider authorization is stored by the local OpenCode runtime.</SectionIntro><GapNotice place="a signed-in live workspace">The fixture cannot call the existing account authorization endpoints.</GapNotice><HermesAccountsSettings /></>;
       case sectionIds.behavior:
-        return <><SectionIntro scope="Desktop local">Destructive tools can require a full confirmation dialog before they run.</SectionIntro><GapNotice place="Flutter Agent settings → Behavior">Saving this in Electron requires GET and PATCH /agent-settings/behavior; those endpoints do not exist.</GapNotice></>;
+        return <><SectionIntro scope="Desktop local">Destructive tools can require a full confirmation dialog before they run.</SectionIntro><BehaviorSettings enabled={requireDestructiveModal} onChange={setRequireDestructiveModal} /></>;
       case sectionIds.keybindings:
-        return <><SectionIntro scope="Desktop local">Keyboard shortcuts control send, new session, cancel turn, and session switching.</SectionIntro><GapNotice place="Flutter Agent settings → Keybindings">Saving shortcuts in Electron requires GET and PATCH /agent-settings/keybindings; those endpoints do not exist.</GapNotice></>;
+        return <><SectionIntro scope="Desktop local">Keyboard shortcuts control send, new session, cancel turn, and session switching.</SectionIntro><KeybindingsSettings preferences={keybindings} update={updateKeybindings} reset={resetKeybindings} /></>;
       case sectionIds.runtime:
         return <><SectionIntro scope="Desktop local">The fixture is intentionally disconnected and does not claim a live runtime.</SectionIntro><div className="agent-settings-actions"><button className="secondary-button" type="button" onClick={() => setTrace({ method: 'LOCAL', route: 'fixture://agent-settings/connection', detail: 'Desktop endpoint is local' })}>Desktop endpoint</button><button className="secondary-button" type="button" onClick={() => setTrace({ method: 'LOCAL', route: 'fixture://agent-settings/offline-buffer', detail: 'Offline buffering is local UI state until reconnect' })}>Offline buffering</button></div><GapNotice place="Flutter Agent settings → OpenCode server">Changing or restarting the runtime requires GET and PATCH /opencode/runtime plus POST /opencode/runtime/restart; those endpoints do not exist.</GapNotice></>;
       case sectionIds.mcp:
@@ -153,9 +278,14 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const sessions = gateway.domains.sessions!;
   const mcp = gateway.domains.mcp!;
   const [selectedId, setSelectedId] = useSettingsSelection();
+  const [requireDestructiveModal, setRequireDestructiveModal] = useDestructiveModalPreference();
+  const [keybindings, updateKeybindings, resetKeybindings] = useKeybindingPreferences();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [accounts, setAccounts] = useState<AccountChoice[]>([]);
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
+  const [autoPromotionState, setAutoPromotionState] = useState<AutoPromotion | null>(null);
+  const [autoPromotionLoading, setAutoPromotionLoading] = useState(true);
+  const [autoPromotionError, setAutoPromotionError] = useState('');
   const [loading, setLoading] = useState(true);
   const [profileError, setProfileError] = useState('');
   const [accountsError, setAccountsError] = useState('');
@@ -170,7 +300,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const sectionGeneration = useRef<Record<LoadSection, number>>({ profiles: 0, accounts: 0, mcp: 0, providers: 0 });
   const loadGeneration = useRef(0);
   const traceGeneration = useRef(0);
-  const [runtimeStatus, setRuntimeStatus] = useState<Record<'api' | 'engine', string>>({ api: 'Not checked', engine: 'Not checked' });
+  const [runtimeStatus, setRuntimeStatus] = useState<Record<'api' | 'engine', RuntimeHealthState>>({ api: { state: 'checking' }, engine: { state: 'checking' } });
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [actionNotices, setActionNotices] = useState<Partial<Record<ActionScope, string>>>({});
   const [removing, setRemoving] = useState<McpServer | null>(null);
@@ -194,7 +324,23 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     [scope]: notice,
   }));
 
+  const loadAutoPromotion = async (clearError = true) => {
+    setAutoPromotionLoading(true);
+    if (clearError) setAutoPromotionError('');
+    try {
+      const value = await gateway.domains.autoPromotion!.get();
+      setAutoPromotionState(value);
+      if (clearError) setAutoPromotionError('');
+    } catch (err) {
+      setAutoPromotionState(null);
+      setAutoPromotionError(err instanceof Error ? err.message : 'Auto-promotion service unavailable');
+    } finally {
+      setAutoPromotionLoading(false);
+    }
+  };
+
   useEffect(() => { setActionNotices({}); }, [selectedId]);
+  useEffect(() => { void loadAutoPromotion(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const routes: Record<LoadSection, string> = { profiles: '/agent-configs', accounts: '/opencode/auth/accounts', mcp: '/opencode/mcp', providers: '/opencode/auth' };
   const readSection = async (section: LoadSection, kind: 'load' | 'retry' | 'action' = 'load') => {
@@ -405,17 +551,19 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     finally { setRemovingAccount(null); setPendingAction(null); }
   };
 
-  const runRuntimeCheck = async (service: 'api' | 'engine') => {
-    setPendingAction({ scope: 'runtime', key: service }); setActionNotice('runtime', '');
+  const runRuntimeCheck = async (service: 'api' | 'engine', interactive = true) => {
+    if (interactive) { setPendingAction({ scope: 'runtime', key: service }); setActionNotice('runtime', ''); }
+    setRuntimeStatus((current) => ({ ...current, [service]: { state: 'checking' } }));
     try {
       await gateway.health[service]();
-      setRuntimeStatus((current) => ({ ...current, [service]: 'Healthy' }));
-      setTrace({ method: 'GET', route: service === 'api' ? '/health' : '/global/health', detail: `${service === 'api' ? 'Local API' : 'OpenCode engine'} is healthy` });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Health check failed';
-      setRuntimeStatus((current) => ({ ...current, [service]: message }));
-    } finally { setPendingAction(null); }
+      setRuntimeStatus((current) => ({ ...current, [service]: { state: 'healthy' } }));
+      if (interactive) setTrace({ method: 'GET', route: service === 'api' ? '/health' : '/global/health', detail: `${service === 'api' ? 'Local API' : 'OpenCode engine'} is healthy` });
+    } catch {
+      setRuntimeStatus((current) => ({ ...current, [service]: { state: 'failed' } }));
+      if (interactive) setTrace({ method: 'GET', route: service === 'api' ? '/health' : '/global/health', detail: `${service === 'api' ? 'Local API' : 'OpenCode engine'} health check failed` });
+    } finally { if (interactive) setPendingAction(null); }
   };
+  useEffect(() => { void runRuntimeCheck('api', false); void runRuntimeCheck('engine', false); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const reloadMcp = async () => {
     await readSection('mcp', 'action');
@@ -511,14 +659,20 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const visibleProfiles = profiles.filter((profile) => `${profile.label} ${profile.provider} ${profile.model}`.toLocaleLowerCase().includes(profileSearch.trim().toLocaleLowerCase()));
   const enabledProfiles = visibleProfiles.filter((profile) => profile.enabled);
   const disabledProfiles = visibleProfiles.filter((profile) => !profile.enabled);
+  const autoPromotionSummary = autoPromotionError
+    ? 'Unavailable'
+    : autoPromotionState
+      ? `${autoPromotionState.state.autoPromotionEnabled ? 'Enabled' : 'Disabled'} · ${autoPromotionState.state.autoPromotionEligible ? 'Eligible' : 'Not eligible'}`
+      : 'Checking status…';
   const items = baseItems({
     profiles: profileError || (profiles.length ? `${profiles.length} configured${defaultProfile ? ` · default ${defaultProfile.label}` : ''}` : 'No profiles configured'),
+    autoPromotion: autoPromotionSummary,
     accounts: accountsError || `${connectedAccounts} connected · ${accounts.length} available${staleAccounts ? ` · ${staleAccounts} need re-authorization` : ''}`,
-    behavior: 'Configure in Flutter Agent settings',
-    keybindings: 'Configure in Flutter Agent settings',
+    behavior: `${requireDestructiveModal ? 'Full dialog' : 'Inline approval'} · This device`,
+    keybindings: `${sendMessageKeyLabel(keybindings.sendKey)} to send · This device`,
     runtime: gateway.environment ? `API :${gateway.environment.apiPort} · engine :${gateway.environment.enginePort}` : 'Local runtime unavailable',
     mcp: mcpError || `${connectedMcp} connected · ${mcpServers.length} configured`,
-  });
+  }, { autoPromotion: autoPromotionError ? 'Error' : undefined });
 
   const profileRows = (rows: Profile[]) => rows.map((profile) => <button className={`agent-settings-profile-row${profile.enabled ? '' : ' disabled'}`} type="button" key={profile.id} onClick={() => navigate(`/profiles?profile=${encodeURIComponent(profile.id)}`)} data-testid={`agent-setting-${profile.id}`}><span className="profile-avatar" aria-hidden="true">{profileAvatarLabel(profile)}</span><span><strong>{profile.label}</strong><small>{profile.provider} · {profile.model}{profile.isDefault ? ' · Default' : ''}</small></span>{!profile.enabled && <em>Disabled</em>}</button>);
   const profilesInspector = () => <><SectionIntro scope="Agent / profile">Profiles own identity, model defaults, delegation, skills, MCP access, and protected-action policy. Editing stays in the dedicated profile surface.</SectionIntro>{retryControl('profiles', profileError, 'Retry profiles')}<button className="primary-button" type="button" onClick={() => navigate('/profiles')} data-testid="agent-settings-open-profiles">Open profile editor</button>{!profileError && (profiles.length === 0 ? <div className="agent-settings-empty"><strong>No agent profiles configured</strong><p>Create a profile before starting a configured session.</p></div> : <><label className="list-inspector-search agent-settings-profile-search"><span className="sr-only">Search profiles overview</span><input type="search" value={profileSearch} onChange={(event) => setProfileSearch(event.target.value)} placeholder="Search profiles" /></label><div className="agent-settings-profile-groups">{enabledProfiles.length > 0 && <section aria-labelledby="agent-settings-enabled-heading"><h3 id="agent-settings-enabled-heading">Enabled profiles</h3><div className="agent-settings-profile-list">{profileRows(enabledProfiles)}</div></section>}{disabledProfiles.length > 0 && <section aria-labelledby="agent-settings-disabled-heading" data-testid="agent-settings-disabled-profiles"><h3 id="agent-settings-disabled-heading">Disabled profiles</h3><div className="agent-settings-profile-list">{profileRows(disabledProfiles)}</div></section>}{visibleProfiles.length === 0 && <div className="agent-settings-empty" role="status"><strong>No matching profiles</strong><p>Try a label, provider, or model.</p></div>}</div></>)}</>;
@@ -548,7 +702,19 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     </div>
     {providerFlow && <div className="agent-settings-form" data-testid={`agent-settings-provider-flow-${providerFlow.id}`}><h3>Authorizing {providerFlow.id}</h3>{providerFlow.instructions && <p>{providerFlow.instructions}</p>}<p><a href={providerFlow.authUrl} target="_blank" rel="noreferrer" data-testid="agent-settings-provider-authorization-link">Open {providerFlow.id} authorization</a></p>{providerFlow.method === 1 ? <form className="agent-settings-form" onSubmit={completeProviderAuth}><label>Callback URL or code<input required value={providerDraft.code} onChange={(event) => { const value = event.target.value; setProviderDraft((current) => ({ ...current, code: value })); }} data-testid="agent-settings-provider-code" /></label><button className="primary-button" type="submit" disabled={actionPending('providers')} data-testid="agent-settings-provider-complete">Finish connecting</button></form> : <button className="primary-button" type="button" disabled={actionPending('providers')} onClick={() => void checkProviderAuth()} data-testid="agent-settings-provider-check">I finished sign-in — check connection</button>}</div>}
   </>;
-  const runtimeInspector = () => <><SectionIntro scope="Desktop local">Rhythm uses a local API and OpenCode engine supplied by the trusted desktop host.</SectionIntro><dl className="property-list"><div><dt>Local API</dt><dd>{gateway.environment ? `127.0.0.1:${gateway.environment.apiPort}` : 'Unavailable'} · {runtimeStatus.api}</dd></div><div><dt>OpenCode engine</dt><dd>{gateway.environment ? `127.0.0.1:${gateway.environment.enginePort}` : 'Unavailable'} · {runtimeStatus.engine}</dd></div></dl>{actionPending('runtime') && <p role="status">Checking the local runtime…</p>}<div className="agent-settings-actions"><button className="secondary-button" type="button" disabled={actionPending('runtime', 'api')} aria-busy={actionPending('runtime', 'api')} onClick={() => void runRuntimeCheck('api')} data-testid="agent-settings-check-api">{actionPending('runtime', 'api') ? 'Checking local API…' : 'Check local API'}</button><button className="secondary-button" type="button" disabled={actionPending('runtime', 'engine')} aria-busy={actionPending('runtime', 'engine')} onClick={() => void runRuntimeCheck('engine')} data-testid="agent-settings-check-engine">{actionPending('runtime', 'engine') ? 'Checking OpenCode engine…' : 'Check OpenCode engine'}</button></div><GapNotice place="Flutter Agent settings → OpenCode server">Changing or restarting the runtime requires GET and PATCH /opencode/runtime plus POST /opencode/runtime/restart; those endpoints do not exist.</GapNotice></>;
+  const runtimeValue = (service: 'api' | 'engine', label: string) => {
+    const status = runtimeStatus[service];
+    const statusLabel = status.state === 'healthy' ? 'Healthy' : status.state === 'failed' ? 'Failed' : 'Checking';
+    const port = service === 'api' ? gateway.environment?.apiPort : gateway.environment?.enginePort;
+    return <dd className={`agent-settings-runtime-value status-${status.state}`}>
+      <span>{port ? `127.0.0.1:${port}` : 'Unavailable'}</span>
+      <span className="agent-settings-runtime-state" data-testid={`runtime-status-${service}`}>
+        <strong className="agent-settings-status-indicator"><i aria-hidden="true" />{statusLabel}</strong>
+        {status.state === 'failed' && <span className="agent-settings-runtime-error" role="alert">{label} is unavailable. Re-check the service or review the desktop runtime.</span>}
+      </span>
+    </dd>;
+  };
+  const runtimeInspector = () => <><SectionIntro scope="Desktop local">Rhythm uses a local API and OpenCode engine supplied by the trusted desktop host.</SectionIntro><dl className="agent-settings-property-list"><div><dt>Local API</dt>{runtimeValue('api', 'Local API')}</div><div><dt>OpenCode engine</dt>{runtimeValue('engine', 'OpenCode engine')}</div></dl>{actionPending('runtime') && <p role="status">Checking the local runtime…</p>}<div className="agent-settings-actions"><button className="secondary-button" type="button" disabled={actionPending('runtime', 'api')} aria-busy={actionPending('runtime', 'api')} onClick={() => void runRuntimeCheck('api')} data-testid="agent-settings-check-api">{actionPending('runtime', 'api') ? 'Checking local API…' : 'Check local API'}</button><button className="secondary-button" type="button" disabled={actionPending('runtime', 'engine')} aria-busy={actionPending('runtime', 'engine')} onClick={() => void runRuntimeCheck('engine')} data-testid="agent-settings-check-engine">{actionPending('runtime', 'engine') ? 'Checking OpenCode engine…' : 'Check OpenCode engine'}</button></div><GapNotice place="Flutter Agent settings → OpenCode server">Changing or restarting the runtime requires GET and PATCH /opencode/runtime plus POST /opencode/runtime/restart; those endpoints do not exist.</GapNotice></>;
   const mcpInspector = () => <>
     <SectionIntro scope="Workspace">MCP servers provide tools to profiles. Changes are saved through the workspace MCP service.</SectionIntro>
     {retryControl('mcp', mcpError, 'Retry MCP servers')}
@@ -584,10 +750,10 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     if (!item) return <p>Select a configuration section.</p>;
     switch (item.id) {
       case sectionIds.profiles: return profilesInspector();
-      case sectionIds.autoPromotion: return <><SectionIntro scope="Workspace">The server enforces administrator access, eligibility, regression checks, and explicit confirmation.</SectionIntro><AutoPromotionSettings /></>;
+      case sectionIds.autoPromotion: return <><SectionIntro scope="Workspace">The server enforces administrator access, eligibility, regression checks, and explicit confirmation.</SectionIntro><AutoPromotionSettings state={autoPromotionState} loading={autoPromotionLoading} error={autoPromotionError} reload={loadAutoPromotion} reportError={setAutoPromotionError} /></>;
       case sectionIds.accounts: return accountsInspector();
-      case sectionIds.behavior: return <><SectionIntro scope="Desktop local">This policy controls whether Bash, write, and edit tool calls use a full destructive-action confirmation dialog.</SectionIntro><GapNotice place="Flutter Agent settings → Behavior">Saving this in Electron requires GET and PATCH /agent-settings/behavior; those endpoints do not exist, so no no-op switch is shown.</GapNotice></>;
-      case sectionIds.keybindings: return <><SectionIntro scope="Desktop local">Shortcuts cover send message, new session, cancel turn, and switch session.</SectionIntro><GapNotice place="Flutter Agent settings → Keybindings">Saving shortcuts in Electron requires GET and PATCH /agent-settings/keybindings; those endpoints do not exist, so no temporary editor is shown.</GapNotice></>;
+      case sectionIds.behavior: return <><SectionIntro scope="Desktop local">This policy controls whether Bash, write, edit, and patch tool calls use a full destructive-action confirmation dialog.</SectionIntro><BehaviorSettings enabled={requireDestructiveModal} onChange={setRequireDestructiveModal} /></>;
+      case sectionIds.keybindings: return <><SectionIntro scope="Desktop local">Shortcuts cover send message, new session, cancel turn, and switch session.</SectionIntro><KeybindingsSettings preferences={keybindings} update={updateKeybindings} reset={resetKeybindings} /></>;
       case sectionIds.runtime: return runtimeInspector();
       case sectionIds.mcp: return mcpInspector();
       default: return null;

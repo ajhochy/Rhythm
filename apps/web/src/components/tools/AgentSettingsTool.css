@@ -46,6 +46,46 @@
   margin-block: 14px;
 }
 
+.agent-settings-local-preference {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  margin-block: 16px;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.agent-settings-local-preference > label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  cursor: pointer;
+}
+
+.agent-settings-keybinding-fields { display: grid; gap: 12px; max-width: 420px; margin-bottom: 14px; }
+.agent-settings-keybinding-fields label { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(180px, 1.35fr); gap: 12px; align-items: center; color: var(--fg-2); font-size: 13px; }
+.agent-settings-keybinding-fields select { min-width: 0; }
+
+.agent-settings-local-preference > label > span {
+  display: grid;
+  gap: 4px;
+}
+
+.agent-settings-local-preference small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.agent-settings-local-preference input[role="switch"] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
+}
+
 .agent-settings-actions > button,
 .agent-settings-records + button,
 .auto-promotion-card footer button,
@@ -313,10 +353,143 @@
   margin: 0;
 }
 
+.agent-settings-property-list {
+  display: grid;
+  gap: 10px;
+  margin-block: 14px;
+}
+
+.agent-settings-property-list > div {
+  display: grid;
+  grid-template-columns: minmax(112px, max-content) minmax(0, 1fr);
+  align-items: start;
+  justify-content: start;
+  gap: 8px 16px;
+}
+
+.agent-settings-property-list dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.agent-settings-property-list dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px 10px;
+  min-width: 0;
+  margin: 0;
+  color: var(--fg-2);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+
+.agent-settings-status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.agent-settings-runtime-state {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-settings-runtime-value.status-healthy .agent-settings-runtime-state {
+  color: var(--success);
+}
+
+.agent-settings-runtime-value.status-checking .agent-settings-runtime-state {
+  color: var(--warning);
+}
+
+.agent-settings-runtime-value.status-failed .agent-settings-runtime-state {
+  color: var(--danger);
+}
+
+.agent-settings-status-indicator i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.agent-settings-runtime-value.status-healthy .agent-settings-status-indicator {
+  color: var(--success);
+}
+
+.agent-settings-runtime-value.status-checking .agent-settings-status-indicator {
+  color: var(--warning);
+}
+
+.agent-settings-runtime-value.status-failed .agent-settings-status-indicator,
+.agent-settings-runtime-error {
+  color: var(--danger);
+}
+
+.agent-settings-runtime-error {
+  flex-basis: 100%;
+  font-weight: 600;
+}
+
+.auto-promotion-card .kind-badge.unavailable {
+  border-color: var(--danger);
+  color: var(--danger);
+  text-transform: none;
+}
+
+.auto-promotion-error {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-block: 14px;
+  padding: 12px;
+  border: 1px solid color-mix(in oklab, var(--danger), var(--border) 45%);
+  border-radius: var(--r-md);
+  color: color-mix(in oklab, var(--danger), white 18%);
+  background: color-mix(in oklab, var(--danger), var(--surface) 94%);
+}
+
+.auto-promotion-error > span {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-weight: 800;
+}
+
+.auto-promotion-error p {
+  margin: 0;
+}
+
+.auto-promotion-error button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.auto-promotion-card footer {
+  margin-block-start: 14px;
+}
+
 @container list-inspector (width < 720px) {
   .agent-settings-mcp-list article header,
   .auto-promotion-card > header {
     flex-wrap: wrap;
+  }
+
+  .agent-settings-property-list > div,
+  .auto-promotion-error {
+    grid-template-columns: 1fr;
   }
 }
 

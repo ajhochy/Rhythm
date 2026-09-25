@@ -6,17 +6,38 @@ export const SEND_MESSAGE_KEY_OPTIONS = [
   { value: 'Meta+Enter', label: 'Cmd/Ctrl+Enter' },
 ] as const;
 
+export const NEW_SESSION_KEY_OPTIONS = [
+  { value: 'Meta+N', label: 'Cmd/Ctrl+N' },
+  { value: 'Meta+Shift+N', label: 'Cmd/Ctrl+Shift+N' },
+] as const;
+export const CANCEL_TURN_KEY_OPTIONS = [
+  { value: 'Escape', label: 'Esc' },
+  { value: 'Meta+Period', label: 'Cmd/Ctrl+.' },
+] as const;
+export const SWITCH_SESSION_KEY_OPTIONS = [
+  { value: 'Meta+BracketLeft/Right', label: 'Cmd/Ctrl+[ / ]' },
+  { value: 'Alt+ArrowUp/Down', label: 'Alt+Up / Down' },
+] as const;
+
 export type SendMessageKey = typeof SEND_MESSAGE_KEY_OPTIONS[number]['value'];
+export type NewSessionKey = typeof NEW_SESSION_KEY_OPTIONS[number]['value'];
+export type CancelTurnKey = typeof CANCEL_TURN_KEY_OPTIONS[number]['value'];
+export type SwitchSessionKey = typeof SWITCH_SESSION_KEY_OPTIONS[number]['value'];
 export type LocalUserPreferences = {
   theme: 'dark' | 'light';
   sendKey: SendMessageKey;
   sessionSort: SessionSort;
   archivedOnly: boolean;
   compact: boolean;
+  requireDestructiveModal: boolean;
+  newSessionKey: NewSessionKey;
+  cancelTurnKey: CancelTurnKey;
+  switchSessionKey: SwitchSessionKey;
 };
 
 export const DEFAULT_LOCAL_USER_PREFERENCES: LocalUserPreferences = {
-  theme: 'dark', sendKey: 'Enter', sessionSort: 'newest', archivedOnly: false, compact: false,
+  theme: 'dark', sendKey: 'Enter', sessionSort: 'newest', archivedOnly: false, compact: false, requireDestructiveModal: false,
+  newSessionKey: 'Meta+N', cancelTurnKey: 'Escape', switchSessionKey: 'Meta+BracketLeft/Right',
 };
 export const USER_PREFERENCES_CHANGED_EVENT = 'rhythm:user-preferences-changed';
 
@@ -36,6 +57,10 @@ export function readLocalUserPreferences(
       sessionSort: ['newest', 'oldest', 'name', 'activity', 'status'].includes(value.sessionSort ?? '') ? value.sessionSort! : 'newest',
       archivedOnly: value.archivedOnly === true,
       compact: value.compact === true,
+      requireDestructiveModal: value.requireDestructiveModal === true,
+      newSessionKey: value.newSessionKey === 'Meta+Shift+N' ? 'Meta+Shift+N' : 'Meta+N',
+      cancelTurnKey: value.cancelTurnKey === 'Meta+Period' ? 'Meta+Period' : 'Escape',
+      switchSessionKey: value.switchSessionKey === 'Alt+ArrowUp/Down' ? 'Alt+ArrowUp/Down' : 'Meta+BracketLeft/Right',
     };
   } catch {
     return DEFAULT_LOCAL_USER_PREFERENCES;
@@ -72,6 +97,38 @@ export function matchesSendMessageKey(
 
 export function sendMessageKeyLabel(sendKey: SendMessageKey) {
   return SEND_MESSAGE_KEY_OPTIONS.find((option) => option.value === sendKey)?.label ?? 'Enter';
+}
+
+type ShortcutEvent = Pick<KeyboardEvent, 'key' | 'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey'>;
+const primaryModifier = (event: ShortcutEvent) => (event.metaKey || event.ctrlKey) && !event.altKey;
+
+export function matchesNewSessionKey(event: ShortcutEvent, shortcut: NewSessionKey) {
+  if (event.key.toLocaleLowerCase() !== 'n' || !primaryModifier(event)) return false;
+  return shortcut === 'Meta+Shift+N' ? event.shiftKey : !event.shiftKey;
+}
+
+export function matchesCancelTurnKey(event: ShortcutEvent, shortcut: CancelTurnKey) {
+  if (shortcut === 'Escape') return event.key === 'Escape' && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
+  return event.key === '.' && primaryModifier(event) && !event.shiftKey;
+}
+
+export function matchSwitchSessionKey(event: ShortcutEvent, shortcut: SwitchSessionKey): 'previous' | 'next' | null {
+  if (shortcut === 'Meta+BracketLeft/Right') {
+    if (!primaryModifier(event) || event.shiftKey) return null;
+    if (event.key === '[') return 'previous';
+    if (event.key === ']') return 'next';
+    return null;
+  }
+  if (!event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return null;
+  if (event.key === 'ArrowUp') return 'previous';
+  if (event.key === 'ArrowDown') return 'next';
+  return null;
+}
+
+const destructivePermissionTools = new Set(['bash', 'write', 'edit', 'patch']);
+
+export function shouldEscalatePermission(enabled: boolean, tool: string) {
+  return enabled && destructivePermissionTools.has(tool.trim().toLocaleLowerCase());
 }
 
 export interface UserPreferencesGateway {

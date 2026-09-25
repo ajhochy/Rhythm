@@ -3,12 +3,15 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Icon } from '../icons';
 import { useFixtures } from '../store';
 import { useGateway } from '../gateway/context';
+import { useAuthUser } from '../gateway/auth';
+import { readLocalUserPreferences, shouldEscalatePermission, USER_PREFERENCES_CHANGED_EVENT } from '../gateway/user-preferences';
 import type { PendingApproval } from '../gateway/approvals';
 import type { LivePermissionRequest, LiveQuestionRequest, LiveQuestionItem, TranscriptMessage } from '../types';
 import { useDecisionReply, usePendingDecisions } from '../pending-decisions';
 import { SafeMarkdown } from './SafeMarkdown';
 import { Timestamp } from './Timestamp';
 import { blockSource, canonicalText, type RichTranscriptBlock, type RichTranscriptMessage } from '../gateway/sessions';
+import { FocusDialog } from './FocusDialog';
 
 function MarkdownText({ content }: { content: string }) {
   return <SafeMarkdown content={content} />;
@@ -121,12 +124,25 @@ function QuestionCard() {
 // (registerPermission's `permission.asked` frame). Each card owns only its reply state;
 // pending-decisions holds canonical requests independently of the legacy Session fields.
 function LivePermissionCard({ sessionId, permission }: { sessionId: string; permission: LivePermissionRequest }) {
+  const auth = useAuthUser();
+  const preferenceUserId = auth?.user.id ?? 'fixture';
+  const [requireDestructiveModal, setRequireDestructiveModal] = useState(() => readLocalUserPreferences(preferenceUserId).requireDestructiveModal);
   const [reason, setReason] = useState('');
   const { sending, error, send: reply } = useDecisionReply(sessionId, 'permissions', permission.permissionID);
+  useEffect(() => {
+    const sync = () => setRequireDestructiveModal(readLocalUserPreferences(preferenceUserId).requireDestructiveModal);
+    sync();
+    window.addEventListener('storage', sync);
+    window.addEventListener(USER_PREFERENCES_CHANGED_EVENT, sync);
+    return () => {
+      window.removeEventListener('storage', sync);
+      window.removeEventListener(USER_PREFERENCES_CHANGED_EVENT, sync);
+    };
+  }, [preferenceUserId]);
   const send = (decision: 'once' | 'always' | 'reject') => {
     void reply(gateway => gateway.reply(sessionId, permission.permissionID, decision, decision === 'reject' ? reason : undefined));
   };
-  return (
+  const card = (
     <section data-agent-decision="true" className="decision-card permission-card" aria-labelledby={`permission-${sessionId}-${permission.permissionID}`} tabIndex={-1} data-testid="permission-card">
       <div className="decision-icon"><Icon name="command" /></div>
       <div className="decision-main">
@@ -143,6 +159,15 @@ function LivePermissionCard({ sessionId, permission }: { sessionId: string; perm
       </div>
     </section>
   );
+  if (!shouldEscalatePermission(requireDestructiveModal, permission.tool)) return card;
+  return <FocusDialog
+    open
+    onClose={() => {}}
+    dismissible={false}
+    title={permission.title || 'Destructive tool confirmation'}
+    description="Review this destructive tool request before allowing or denying it. A decision is required to continue."
+    testId={`permission-dialog-${permission.permissionID}`}
+  >{card}</FocusDialog>;
 }
 
 // post-m1-phase-5 c1d: live-mode question card — renders the full canonical `questions` array

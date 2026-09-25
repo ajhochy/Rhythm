@@ -50,6 +50,7 @@ export function ListInspector({ label, items, groups, selectedId, onSelect, tool
   loadingState?: ReactNode;
   filterItem?: (item: ListInspectorItem) => boolean;
   loading?: boolean;
+  /** Fatal only: use when the list itself cannot be built. Rows, selection, and keyboard navigation are intentionally unavailable. */
   error?: ReactNode;
   searchable?: boolean;
   searchPlaceholder?: string;

@@ -5,6 +5,7 @@ import test from 'node:test';
 const source = await readFile(new URL('./ToolWorkspace.tsx', import.meta.url), 'utf8');
 const profilesSource = await readFile(new URL('./Profiles.tsx', import.meta.url), 'utf8');
 const agentSettingsSource = await readFile(new URL('./tools/AgentSettingsTool.tsx', import.meta.url), 'utf8');
+const settingsPageSource = await readFile(new URL('../pages/settings/index.tsx', import.meta.url), 'utf8');
 const inventorySource = await readFile(new URL('../../../../docs/ai/runs/2026-09-18-issue-1513-agent-tools-inventory.md', import.meta.url), 'utf8');
 
 const toolSection = (start, end) => source.slice(source.indexOf(start), source.indexOf(end));
@@ -140,4 +141,13 @@ test('task-bucket-a-ui-repair-c6: profile initials take a Unicode code point, no
   // Regression caught: emoji and supplementary characters render as an unpaired surrogate.
   assert.match(profilesSource, /Array\.from\(part\)\[0\]/);
   assert.doesNotMatch(profilesSource, /part\[0\]/);
+});
+
+test('issue-1559-followup: partial settings and Review mutations do not use the fatal list error', () => {
+  const review = toolSection('function LiveReviewTool', 'function FixtureReviewTool');
+  const mutate = review.slice(review.indexOf('const mutate'), review.indexOf('const title'));
+  assert.doesNotMatch(mutate, /setError\(/, 'Review mutation errors must stay inline');
+  assert.match(review, /actionError/);
+  assert.doesNotMatch(settingsPageSource, /<ListInspector[\s\S]*?error=\{loadError/, 'workspace failure is partial, not fatal');
+  assert.match(settingsPageSource, /settings-workspace-error/);
 });
