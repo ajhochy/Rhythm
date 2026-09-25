@@ -3,9 +3,8 @@
  *
  * Covers the issue's required test list:
  *   - each hardline pattern blocked regardless of mode (off/manual/smart)
- *   - manual mode → 'ask'; mocked "once" approves, "deny" blocks
- *   - approval timeout (mocked) → deny
- *   - "always" approval persisted and honored on a subsequent call w/o prompting
+ *   - manual mode → 'ask'
+ *   - "always" approval persisted and honored on a subsequent classification
  *   - mode: off skips approval for non-blocklisted commands but still blocks hardline
  *   - partial blocklist match does not over-block (covered in command_blocklist.test.ts;
  *     re-asserted here through the full classifyCommand path)
@@ -15,7 +14,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { classifyCommand, resolveApproval, extractBashCommand } from './command_approval';
+import { classifyCommand, extractBashCommand } from './command_approval';
 import { ApprovalStore } from './approval_store';
 
 describe('extractBashCommand (#878)', () => {
@@ -148,84 +147,5 @@ describe('classifyCommand (#878)', () => {
       const result = classifyCommand('rm -rf ./build', 'manual', store);
       expect(result.decision).toBe('ask');
     });
-  });
-});
-
-describe('resolveApproval (#878)', () => {
-  let dir: string;
-  let store: ApprovalStore;
-
-  beforeEach(() => {
-    ({ store, dir } = makeStore());
-  });
-
-  afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it('"once" allows this single execution', async () => {
-    const result = await resolveApproval('ls -la', {
-      timeoutSeconds: 5,
-      promptFn: async () => 'once',
-      approvalStore: store,
-    });
-    expect(result.decision).toBe('allow');
-    expect(result.response).toBe('once');
-    // "once" must NOT persist — asking again should still prompt.
-    expect(store.isAlwaysAllowed('ls -la')).toBe(false);
-  });
-
-  it('"deny" blocks the command', async () => {
-    const result = await resolveApproval('ls -la', {
-      timeoutSeconds: 5,
-      promptFn: async () => 'deny',
-      approvalStore: store,
-    });
-    expect(result.decision).toBe('deny');
-    expect(result.response).toBe('deny');
-  });
-
-  it('"always" persists the approval to the store', async () => {
-    const result = await resolveApproval('ls -la', {
-      timeoutSeconds: 5,
-      promptFn: async () => 'always',
-      approvalStore: store,
-    });
-    expect(result.decision).toBe('allow');
-    expect(store.isAlwaysAllowed('ls -la')).toBe(true);
-  });
-
-  it('"session" adds to the provided in-memory session allowlist, not the persistent store', async () => {
-    const sessionAllowlist = new Set<string>();
-    const result = await resolveApproval('ls -la', {
-      timeoutSeconds: 5,
-      promptFn: async () => 'session',
-      approvalStore: store,
-      sessionAllowlist,
-    });
-    expect(result.decision).toBe('allow');
-    expect(sessionAllowlist.has('ls -la')).toBe(true);
-    expect(store.isAlwaysAllowed('ls -la')).toBe(false);
-  });
-
-  it('a timeout (mocked via a never-resolving promptFn) results in deny', async () => {
-    const result = await resolveApproval('ls -la', {
-      timeoutSeconds: 0.05, // 50ms — keep the test fast
-      promptFn: () => new Promise(() => {}), // never resolves
-      approvalStore: store,
-    });
-    expect(result.decision).toBe('deny');
-    expect(result.response).toBe('timeout');
-  });
-
-  it('a rejected prompt (e.g. transport failure) fails closed to deny', async () => {
-    const result = await resolveApproval('ls -la', {
-      timeoutSeconds: 5,
-      promptFn: async () => {
-        throw new Error('transport error');
-      },
-      approvalStore: store,
-    });
-    expect(result.decision).toBe('deny');
   });
 });

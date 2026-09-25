@@ -1405,22 +1405,9 @@ export class AgentSessionsController {
         throw AppError.notFound('Permission request');
       }
 
-      // Keep the pre-#1340 reply route self-contained: existing Flutter clients
-      // depend on this route's canonical broadcast even when the newer pending-
-      // permission bridge state is unavailable (for example after a restart).
-      streamBridge.clearPendingPermission(session.id, permissionId);
-      const { broadcast } = await import('../services/ws_gateway');
-      broadcast({
-        v: 1,
-        type: 'permission.replied',
-        sessionId: session.id,
-        permissionID: permissionId,
-        directory: session.cwd,
-        tool: '',
-        patterns: [],
-        title: '',
-        createdAt: new Date().toISOString(),
-      });
+      // Keep legacy clients on the same cleanup/dedup path as the canonical
+      // reply route so pending metadata is preserved in the broadcast.
+      streamBridge.markPermissionReplied(session.id, permissionId);
 
       res.status(204).end();
     } catch (err) {

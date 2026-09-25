@@ -241,6 +241,21 @@ export interface PendingPermission {
   sdkSessionId: string;
 }
 
+type PermissionRequest = {
+  id?: string;
+  permissionID?: string;
+  type?: string;
+  toolName?: string;
+  sessionID?: string;
+  title?: string;
+  summary?: string;
+  metadata?: Record<string, unknown>;
+  args?: Record<string, unknown>;
+  patterns?: unknown[];
+  permission?: string;
+  tool?: { messageID?: string; callID?: string };
+};
+
 /**
  * Shape of a pending `question` (AskUserQuestion) tool call stored in-memory.
  *
@@ -364,6 +379,7 @@ export class OpencodeStreamBridge {
   // Cleared when the user (or auto-logic) resolves the permission.
   private pendingPermissions = new Map<string, PendingPermission>();
   private repliedPermissions = new Set<string>();
+  private resolvingPermissions = new Set<string>();
 
   /** Return the pending permission for a session+permissionId, or undefined. */
   getPendingPermission(localSessionId: string, permissionId: string): PendingPermission | undefined {
@@ -410,10 +426,22 @@ export class OpencodeStreamBridge {
   ): boolean {
     if (this.stoppedSessions.has(localSessionId)) return false;
     const key = `${localSessionId}:${entry.permissionId}`;
-    if (this.pendingPermissions.has(key)) return false;
+    if (
+      this.pendingPermissions.has(key) ||
+      this.repliedPermissions.has(key) ||
+      this.resolvingPermissions.has(key)
+    ) return false;
+    let directory = entry.directory;
+    if (directory === undefined) {
+      try {
+        directory = this.sessionsRepo.findById(localSessionId)?.cwd ?? '';
+      } catch {
+        directory = '';
+      }
+    }
     const normalized: PendingPermission = {
       ...entry,
-      directory: entry.directory ?? this.sessionsRepo.findById(localSessionId)?.cwd ?? '',
+      directory,
       patterns: entry.patterns ?? [],
       title: entry.title ?? entry.summary,
       createdAt: entry.createdAt ?? new Date().toISOString(),
@@ -431,6 +459,237 @@ export class OpencodeStreamBridge {
       createdAt: normalized.createdAt,
     });
     return true;
+  }
+
+  /** Start one automatic engine reply, retrying on a later poll if it fails. */
+  private beginPermissionReply(
+    localSessionId: string,
+    permissionId: string,
+    reply: () => Promise<boolean>,
+  ): boolean {
+    const key = `${localSessionId}:${permissionId}`;
+    if (
+      this.stoppedSessions.has(localSessionId) ||
+      this.repliedPermissions.has(key) ||
+      this.resolvingPermissions.has(key)
+    ) return false;
+
+    this.resolvingPermissions.add(key);
+    void reply()
+      .then((ok) => {
+        if (ok && !this.stoppedSessions.has(localSessionId)) {
+          this.pendingPermissions.delete(key);
+          this.repliedPermissions.add(key);
+        }
+      })
+      .catch((err) => {
+        logger.warn(
+          `[OpencodeStreamBridge] Automatic permission reply failed (session=${localSessionId}, permission=${permissionId}): ${String(err)}`,
+        );
+      })
+      .finally(() => {
+        this.resolvingPermissions.delete(key);
+      });
+    return true;
+  }
+
+  /**
+   * #1382-D — Apply the complete permission policy to one engine ask.
+   *
+   * Both the live SSE handler and GET /permission recovery must pass through
+   * this method. Security gates intentionally precede every autonomy shortcut:
+   * role allowlist (#736), hardline bash classification (#878/#1322), then
+   * plan/bypass/headless/scheduled mode handling, and finally a visible card.
+   */
+  private decidePermission(
+    localSessionId: string,
+    sdkSessionId: string,
+    perm: PermissionRequest,
+    directory?: string,
+  ): void {
+    if (this.stoppedSessions.has(localSessionId)) return;
+    const permissionId = perm.permissionID ?? perm.id;
+    if (!permissionId) return;
+    const permissionKey = `${localSessionId}:${permissionId}`;
+    if (
+      this.repliedPermissions.has(permissionKey) ||
+      this.resolvingPermissions.has(permissionKey)
+    ) return;
+
+    const toolName = perm.toolName ?? perm.type ?? perm.permission ?? '';
+    const args = perm.args ?? perm.metadata ?? {};
+    const summary = perm.summary ?? perm.title ?? toolName;
+
+    const isToolScopedPermission = !NON_TOOL_PERMISSION_SCOPES.has(toolName);
+    if (
+      toolName &&
+      isToolScopedPermission &&
+      !this.isToolAllowedForSession(localSessionId, toolName)
+    ) {
+      const dir = directory ?? (() => {
+        try {
+          return this.sessionsRepo.findById(localSessionId)?.cwd;
+        } catch {
+          return undefined;
+        }
+      })();
+      const started = this.beginPermissionReply(localSessionId, permissionId, () =>
+        opencodeClient.replyToPermission(
+          permissionId,
+          'reject',
+          `Tool '${toolName}' is not in this session's allowlist.`,
+          dir,
+          sdkSessionId,
+        ));
+      if (!started) return;
+      broadcast({
+        v: 1,
+        type: 'permission.resolved',
+        sessionId: localSessionId,
+        permissionId,
+        decision: 'deny',
+      });
+      this.broadcastToolDenied(localSessionId, localSessionId, toolName);
+      return;
+    }
+
+    let permissionMode: PermissionMode = 'default';
+    let dbSession: ReturnType<AgentSessionsRepository['findById']> | undefined;
+    try {
+      dbSession = this.sessionsRepo.findById(localSessionId);
+      permissionMode = (dbSession?.permissionMode ?? 'default') as PermissionMode;
+    } catch (err) {
+      logger.error('[OpencodeStreamBridge] Failed to load session for permission mode:', err);
+    }
+
+    const shouldAutoDeny = permissionMode === 'plan';
+    const isDelegatedChild = dbSession?.parentSessionId != null;
+    const isHeadless = !shouldAutoDeny && isDelegatedChild;
+    const isScheduledRun = Boolean(dbSession?.isSystem && dbSession?.scheduledTaskId);
+    const isUnattended = Boolean(dbSession?.parentSessionId) || isScheduledRun;
+
+    if (toolName.toLowerCase() === 'bash') {
+      const toolInput =
+        perm.tool?.messageID && perm.tool?.callID
+          ? this.messagesRepo.findToolPartInput(
+              localSessionId,
+              perm.tool.messageID,
+              perm.tool.callID,
+            )
+          : null;
+      const commands = extractBashCommands(args, perm.patterns, toolInput);
+      const classification = commands.length
+        ? classifyCommands(commands, resolveApprovalsMode())
+        : null;
+      if (classification) {
+        if (classification.decision === 'deny') {
+          const dir = directory ?? dbSession?.cwd;
+          const started = this.beginPermissionReply(localSessionId, permissionId, () =>
+            opencodeClient.replyToPermission(
+              permissionId,
+              'reject',
+              `Command blocked: ${classification.detail} (reason: ${classification.reason})`,
+              dir,
+              sdkSessionId,
+            ));
+          if (!started) return;
+          broadcast({
+            v: 1,
+            type: 'permission.resolved',
+            sessionId: localSessionId,
+            permissionId,
+            decision: 'deny',
+          });
+          broadcast({
+            v: 1,
+            type: 'tool.denied',
+            id: localSessionId,
+            sessionId: localSessionId,
+            tool: toolName,
+            message: `Command blocked: ${classification.detail} (reason: ${classification.reason})`,
+          });
+          logger.warn(
+            `[OpencodeStreamBridge] #878 denied bash command (reason=${classification.reason}): ${classification.detail}`,
+          );
+          return;
+        }
+        if (
+          classification.decision === 'ask' &&
+          permissionMode !== 'bypassPermissions' &&
+          !isUnattended
+        ) {
+          this.registerPermission(localSessionId, {
+            permissionId,
+            toolName,
+            args,
+            summary: `${summary} — ${classification.detail}`,
+            sdkSessionId,
+            directory,
+            patterns: Array.isArray(perm.patterns)
+              ? perm.patterns.filter((pattern): pattern is string => typeof pattern === 'string')
+              : [],
+            title: perm.title ?? perm.summary ?? summary,
+          });
+          return;
+        }
+        if (classification.decision === 'ask') {
+          logger.warn(
+            `[OpencodeStreamBridge] #878 auto-allowing an 'ask' bash command in a ` +
+              `${permissionMode === 'bypassPermissions' ? 'bypass' : 'unattended'} session ` +
+              `(reason=${classification.reason}, ` +
+              `permissionMode=${permissionMode}, headless=${isHeadless}): ` +
+              `${classification.detail}`,
+          );
+        }
+      }
+    }
+
+    const editTools = new Set(['write', 'edit', 'patch']);
+    const shouldAutoAccept =
+      permissionMode === 'bypassPermissions' ||
+      (permissionMode === 'acceptEdits' && editTools.has(toolName.toLowerCase())) ||
+      isHeadless ||
+      (!shouldAutoDeny && isScheduledRun);
+
+    if (shouldAutoAccept || shouldAutoDeny) {
+      const decision = shouldAutoAccept ? 'accept' : 'deny';
+      const dir = directory ?? dbSession?.cwd;
+      const started = this.beginPermissionReply(localSessionId, permissionId, () =>
+        opencodeClient.replyToPermission(
+          permissionId,
+          shouldAutoAccept ? 'once' : 'reject',
+          shouldAutoDeny
+            ? 'Auto-denied: session is in plan mode (read-only).'
+            : undefined,
+          dir,
+          sdkSessionId,
+        ));
+      if (!started) return;
+      broadcast({
+        v: 1,
+        type: 'permission.resolved',
+        sessionId: localSessionId,
+        permissionId,
+        decision,
+      });
+      if (shouldAutoAccept && toolName.toLowerCase() === 'glob') {
+        this.armGlobWatchdog(localSessionId, sdkSessionId, dir);
+      }
+      return;
+    }
+
+    this.registerPermission(localSessionId, {
+      permissionId,
+      toolName,
+      args,
+      summary,
+      sdkSessionId,
+      directory,
+      patterns: Array.isArray(perm.patterns)
+        ? perm.patterns.filter((pattern): pattern is string => typeof pattern === 'string')
+        : [],
+      title: perm.title ?? perm.summary ?? summary,
+    });
   }
 
   /** Per-call `glob` timeout (ms). Deliberately much shorter than the 600s
@@ -526,23 +785,15 @@ export class OpencodeStreamBridge {
         }
       }
       if (!localSessionId) continue;
-      const toolName = p.permission ?? '';
-      this.registerPermission(localSessionId, {
-        permissionId: p.id,
-        toolName,
-        args: (p.metadata as Record<string, unknown>) ?? {},
-        summary: toolName,
-        sdkSessionId: p.sessionID,
-        directory,
-        patterns: Array.isArray(p.patterns) ? p.patterns : [],
-        title: typeof p.title === 'string' ? p.title : toolName,
-      });
+      this.decidePermission(localSessionId, p.sessionID, p, directory);
     }
   }
 
   // In-memory map of pending questions. Key = `${localSessionId}:${requestId}`.
   // Cleared when opencode emits question.replied/rejected (or on explicit reply).
   private pendingQuestions = new Map<string, PendingQuestion>();
+  private resolvedQuestions = new Set<string>();
+  private resolvingQuestions = new Set<string>();
 
   /** Return the pending question for a session+requestId, or undefined. */
   getPendingQuestion(
@@ -569,7 +820,9 @@ export class OpencodeStreamBridge {
 
   /** Remove a pending question after it is resolved. */
   clearPendingQuestion(localSessionId: string, requestId: string): void {
-    this.pendingQuestions.delete(`${localSessionId}:${requestId}`);
+    const key = `${localSessionId}:${requestId}`;
+    this.pendingQuestions.delete(key);
+    this.resolvedQuestions.add(key);
   }
 
   /**
@@ -585,7 +838,11 @@ export class OpencodeStreamBridge {
   ): boolean {
     if (this.stoppedSessions.has(localSessionId)) return false;
     const key = `${localSessionId}:${entry.requestId}`;
-    if (this.pendingQuestions.has(key)) return false;
+    if (
+      this.pendingQuestions.has(key) ||
+      this.resolvedQuestions.has(key) ||
+      this.resolvingQuestions.has(key)
+    ) return false;
     this.pendingQuestions.set(key, entry);
     broadcast({
       v: 1,
@@ -596,6 +853,61 @@ export class OpencodeStreamBridge {
       questions: entry.questions,
     });
     return true;
+  }
+
+  /**
+   * #1382-G — Route a question through the same attended/unattended rule for
+   * both live SSE delivery and recovery. Only a persisted scheduled system-run
+   * marker can auto-reject; delegated children remain answerable in desktop UI.
+   */
+  private decideQuestion(
+    localSessionId: string,
+    entry: PendingQuestion,
+    directory?: string,
+  ): void {
+    if (this.stoppedSessions.has(localSessionId)) return;
+    const key = `${localSessionId}:${entry.requestId}`;
+    if (this.resolvedQuestions.has(key) || this.resolvingQuestions.has(key)) return;
+
+    let session: AgentSession | null = null;
+    try {
+      session = this.sessionsRepo.findById(localSessionId);
+    } catch (err) {
+      logger.error('[OpencodeStreamBridge] Failed to load session for question policy:', err);
+    }
+    // Delegated children remain answerable because the desktop can open their
+    // persisted session and render its question cards. Only scheduled system
+    // runs have positive evidence that no human is watching the session.
+    const isScheduledRun = Boolean(session?.isSystem && session?.scheduledTaskId);
+    if (!isScheduledRun) {
+      this.registerQuestion(localSessionId, entry);
+      return;
+    }
+
+    const dir = directory ?? session?.cwd;
+    this.resolvingQuestions.add(key);
+    void opencodeClient.rejectQuestion(entry.requestId, dir)
+      .then((ok) => {
+        if (ok && !this.stoppedSessions.has(localSessionId)) {
+          this.pendingQuestions.delete(key);
+          this.resolvedQuestions.add(key);
+        }
+      })
+      .catch((err) => {
+        logger.warn(
+          `[OpencodeStreamBridge] Automatic question rejection failed (session=${localSessionId}, request=${entry.requestId}): ${String(err)}`,
+        );
+      })
+      .finally(() => {
+        this.resolvingQuestions.delete(key);
+      });
+    broadcast({
+      v: 1,
+      type: 'question.resolved',
+      sessionId: localSessionId,
+      requestId: entry.requestId,
+      rejected: true,
+    });
   }
 
   /**
@@ -634,12 +946,12 @@ export class OpencodeStreamBridge {
         }
       }
       if (!localSessionId) continue;
-      this.registerQuestion(localSessionId, {
+      this.decideQuestion(localSessionId, {
         requestId: q.id,
         callId: q.tool?.callID ?? '',
         sdkSessionId: q.sessionID,
         questions: Array.isArray(q.questions) ? q.questions : [],
-      });
+      }, directory);
     }
   }
 
@@ -2201,320 +2513,12 @@ export class OpencodeStreamBridge {
 
       case 'permission.asked':
       case 'permission.updated': {
-        const perm = event.properties as {
-          id?: string;
-          permissionID?: string;
-          type?: string;
-          toolName?: string;
-          sessionID?: string;
-          title?: string;
-          summary?: string;
-          metadata?: Record<string, unknown>;
-          args?: Record<string, unknown>;
-          // The engine's real payload for a shell permission. It sends NO
-          // `args`/`command` — the command text lives here, one entry per
-          // parsed command node. See extractBashCommands.
-          patterns?: unknown[];
-          /** Permission id ('bash' | 'edit' | 'webfetch' | 'external_directory'). */
-          permission?: string;
-          /** Points at the tool part carrying the real, unsplit arguments. */
-          tool?: { messageID?: string; callID?: string };
-        };
-        const permissionId = perm.permissionID ?? perm.id;
-        if (!permissionId || !localSessionId) break;
-
-        const sdkSessionId = opencodeSessionId ?? '';
-        // The engine's Permission.Request carries the permission id in
-        // `permission` — NOT `toolName` and NOT `type` (neither field exists on
-        // it; `type` here only ever matched the outer envelope in tests). A real
-        // ask looks like:
-        //   {"permission":"bash","patterns":["git push --force …"],"metadata":{}}
-        // so this resolved to '' for every engine permission, which silently
-        // disabled BOTH the #736 allowlist backstop below and the #878 command
-        // gate — a hardline `curl … | sh` reached the shell with no card.
-        const toolName = perm.toolName ?? perm.type ?? perm.permission ?? '';
-        const args = perm.args ?? perm.metadata ?? {};
-        const summary = perm.summary ?? perm.title ?? toolName;
-
-        // #736 — Layer 2 dispatch backstop (pre-execution gate). opencode blocks
-        // the tool until this permission is answered, so denying here stops the
-        // tool BEFORE it executes — the Odysseus `_execute_tool_block_impl`
-        // analog. If the tool is outside a role-scoped session's allowlist,
-        // auto-DENY it (reject) and surface a denied result instead of forwarding
-        // the permission card or auto-accepting. Non-role sessions pass through.
-        //
-        // Several engine permission ids are SCOPES, not tools. Now that toolName
-        // resolves from `perm.permission`, any of them can land here, and matching
-        // one against a tool allowlist would deny it for every role-scoped session
-        // — silently breaking doom-loop detection, plan transitions and questions.
-        // Enumerated from the engine's own defaults in agent/agent.ts.
-        const isToolScopedPermission = !NON_TOOL_PERMISSION_SCOPES.has(toolName);
-        if (toolName && isToolScopedPermission && !this.isToolAllowedForSession(localSessionId, toolName)) {
-          const dir = (() => {
-            try {
-              return this.sessionsRepo.findById(localSessionId)?.cwd;
-            } catch {
-              return undefined;
-            }
-          })();
-          void opencodeClient.replyToPermission(
-            permissionId,
-            'reject',
-            `Tool '${toolName}' is not in this session's allowlist.`,
-            dir,
-            sdkSessionId,
-          );
-          broadcast({
-            v: 1,
-            type: 'permission.resolved',
-            sessionId: localSessionId,
-            permissionId,
-            decision: 'deny',
-          });
-          this.broadcastToolDenied(localSessionId, localSessionId, toolName);
-          break;
-        }
-
-        // Consult the session's permission_mode to decide whether to
-        // auto-respond or forward to the user.
-        //
-        // Resolved HERE, above the #878 bash gate, because #878's `ask` branch
-        // needs to know whether anyone is actually listening. See the
-        // `isUnattended` note in that branch.
-        let permissionMode: PermissionMode = 'default';
-        let dbSession: ReturnType<AgentSessionsRepository['findById']> | undefined;
-        try {
-          dbSession = this.sessionsRepo.findById(localSessionId);
-          permissionMode = (dbSession?.permissionMode ?? 'default') as PermissionMode;
-        } catch (err) {
-          logger.error('[OpencodeStreamBridge] Failed to load session for permission mode:', err);
-        }
-
-        // #1156 — Delegated subagent/child sessions (spawned via the engine's
-        // `task` tool) get a local row via upsertChildSession with
-        // permission_mode left NULL (-> 'default'), and there is no Flutter UI
-        // watching a headless child to answer a forwarded permission.asked —
-        // the write hung indefinitely. A row is "headless" when it has a
-        // non-null parentSessionId (delegated child — the sole writer of that
-        // column is upsertChildSession) or when no row resolves at all (the
-        // create-vs-permission race: the child row hasn't been upserted yet).
-        // An interactive/UI session ALWAYS resolves to a row with
-        // parentSessionId===NULL (POST /agent-sessions never sets it), so this
-        // never widens auto-accept for a real interactive prompt (c5 guard).
-        // ponytail: heuristic keyed on parent-id-presence, not a full
-        // isHeadless field — cheapest signal that already distinguishes every
-        // known case; revisit if a headless session type ever gets a null
-        // parent id.
-        // plan-mode auto-deny must stay authoritative over the new headless
-        // auto-accept — a child explicitly placed in plan mode must not run.
-        // Computed first so `isHeadless` below can defer to it.
-        const shouldAutoDeny = permissionMode === 'plan';
-        const isDelegatedChild = !dbSession || dbSession.parentSessionId != null;
-        const isHeadless = !shouldAutoDeny && isDelegatedChild;
-
-        // True when NOTHING is watching this session for an approval answer.
-        //
-        // NOT the same thing as `bypassPermissions`. A bypass session may still
-        // be interactive, but its explicit contract is that non-hardline asks
-        // auto-resolve without surfacing. `isUnattended` remains the separate
-        // signal used for default/acceptEdits sessions with no possible viewer.
-        //
-        // The two shapes where no human can possibly answer:
-        //   • a delegated child (#1156 — no UI watches a subagent)
-        //   • a scheduler-originated system run (`is_system` + a scheduled task
-        //     id; the same discriminator the unattended auto-approve path uses)
-        //
-        // Deliberately NOT guarded on `shouldAutoDeny`: a plan-mode unattended
-        // session must also skip registering a card (nobody would answer it),
-        // and instead fall through to the auto-DENY below, where plan mode
-        // stays authoritative. Gating this on !shouldAutoDeny would re-create
-        // the hang for exactly that combination.
-        const isScheduledRun = Boolean(dbSession?.isSystem && dbSession?.scheduledTaskId);
-
-        // POSITIVE EVIDENCE ONLY. `isDelegatedChild` above is true when NO row
-        // resolves at all (`!dbSession`) — deliberate for #1156's auto-accept,
-        // which covers the transient create-vs-permission race. It must NOT
-        // qualify a session as unattended for the #878 branch below: an unknown
-        // session is exactly the case where we CANNOT prove no human is
-        // watching, and a session created directly against the engine has no
-        // Rhythm row at all. Requiring a real parent id (or a scheduler run)
-        // means only provable unattendedness skips the approval card.
-        //
-        // Found by smoke test 2026-08-04 (E2): a session created straight on
-        // the engine under bypassPermissions ran `git push --force` with no card,
-        // because `!dbSession` had made it "unattended".
-        const isUnattended = Boolean(dbSession?.parentSessionId) || isScheduledRun;
-
-        // #878 — command-approval classification for bash. bypassPermissions
-        // sessions deliberately keep a later engine-side bash:ask rule so this
-        // handler remains reachable; the earlier wildcard allow still covers
-        // read/edit/external_directory without depending on SSE. Hardline denies
-        // remain absolute once the ask reaches this handler.
-        // Low-risk / explicitly-allowed commands fall through unchanged to the
-        // existing permissionMode logic (no behavior change for safe commands).
-        if (toolName.toLowerCase() === 'bash') {
-          // `args` is empty for engine-issued shell permissions, and `patterns`
-          // holds each parsed command NODE rather than the command line — so a
-          // pipeline reaches us pre-split and `curl URL | sh` loses its pipe.
-          // The full line is on the tool part the permission points at, so pull
-          // that too and classify every candidate (#1322). A missing part (the
-          // permission can beat message.part.updated) just falls back to
-          // patterns, exactly as before.
-          const toolInput =
-            perm.tool?.messageID && perm.tool?.callID
-              ? this.messagesRepo.findToolPartInput(
-                  localSessionId,
-                  perm.tool.messageID,
-                  perm.tool.callID,
-                )
-              : null;
-          const commands = extractBashCommands(args, perm.patterns, toolInput);
-          const classification = commands.length
-            ? classifyCommands(commands, resolveApprovalsMode())
-            : null;
-          if (classification) {
-            if (classification.decision === 'deny') {
-              const dir = (() => {
-                try {
-                  return this.sessionsRepo.findById(localSessionId)?.cwd;
-                } catch {
-                  return undefined;
-                }
-              })();
-              void opencodeClient.replyToPermission(
-                permissionId,
-                'reject',
-                `Command blocked: ${classification.detail} (reason: ${classification.reason})`,
-                dir,
-                sdkSessionId,
-              );
-              broadcast({
-                v: 1,
-                type: 'permission.resolved',
-                sessionId: localSessionId,
-                permissionId,
-                decision: 'deny',
-              });
-              broadcast({
-                v: 1,
-                type: 'tool.denied',
-                id: localSessionId,
-                sessionId: localSessionId,
-                tool: toolName,
-                message: `Command blocked: ${classification.detail} (reason: ${classification.reason})`,
-              });
-              logger.warn(
-                `[OpencodeStreamBridge] #878 denied bash command (reason=${classification.reason}): ${classification.detail}`,
-              );
-              break;
-            }
-            if (
-              classification.decision === 'ask' &&
-              permissionMode !== 'bypassPermissions' &&
-              !isUnattended
-            ) {
-              // Force this to the pending/broadcast path below regardless of
-              // permissionMode — a manual-mode or smart-uncertain command must
-              // surface an approval ask even under acceptEdits.
-              this.registerPermission(localSessionId, {
-                permissionId,
-                toolName,
-                args,
-                summary: `${summary} — ${classification.detail}`,
-                sdkSessionId,
-                patterns: Array.isArray(perm.patterns)
-                  ? perm.patterns.filter((pattern): pattern is string => typeof pattern === 'string')
-                  : [],
-                title: perm.title ?? perm.summary ?? summary,
-              });
-              break;
-            }
-            if (classification.decision === 'ask') {
-              // Registering a permission card here is a guaranteed hang for an
-              // unattended session and contradicts the explicit autonomy
-              // contract for bypassPermissions. `resolveApprovalsMode()`
-              // defaults to 'manual', where every escalated command classifies
-              // as ask; only the hardline deny branch above remains absolute.
-              //
-              // Falling through is safe because it does NOT weaken the parts of
-              // #878 that actually protect anything: the hardline blocklist and
-              // 'deny' classification are handled above and still break out
-              // unconditionally. Only the "uncertain, ask a human" case is
-              // downgraded to allow, and only where there is provably no human.
-              logger.warn(
-                `[OpencodeStreamBridge] #878 auto-allowing an 'ask' bash command in a ` +
-                  `${permissionMode === 'bypassPermissions' ? 'bypass' : 'unattended'} session ` +
-                  `(reason=${classification.reason}, ` +
-                  `permissionMode=${permissionMode}, headless=${isHeadless}): ` +
-                  `${classification.detail}`,
-              );
-              // fall through to the auto-accept path below
-            }
-            // classification.decision === 'allow' — fall through unchanged.
-          }
-        }
-
-        const editTools = new Set(['write', 'edit', 'patch']);
-        const shouldAutoAccept =
-          permissionMode === 'bypassPermissions' ||
-          (permissionMode === 'acceptEdits' && editTools.has(toolName.toLowerCase())) ||
-          isHeadless ||
-          // A scheduler-originated ROOT run has no parent, so `isHeadless` does
-          // not cover it. In practice agent_runner sets its permission mode to
-          // `bypassPermissions`, but depending on that left the whole
-          // no-human-is-watching class one missed assignment away from hanging
-          // again — children were found sitting at 'default' for exactly that
-          // reason. Plan-guarded so an explicit plan-mode run still auto-denies.
-          (!shouldAutoDeny && isScheduledRun);
-
-        if (shouldAutoAccept || shouldAutoDeny) {
-          const decision = shouldAutoAccept ? 'accept' : 'deny';
-          // Pass the session cwd as directory — opencode scopes permissions per
-          // directory; without it the auto-response doesn't unblock the tool.
-          const dir = this.sessionsRepo.findById(localSessionId)?.cwd;
-          // Auto-resolve via the modern reply endpoint. Plan-mode auto-deny
-          // sends a reject classification message the agent sees next turn.
-          void opencodeClient.replyToPermission(
-            permissionId,
-            shouldAutoAccept ? 'once' : 'reject',
-            shouldAutoDeny
-              ? "Auto-denied: session is in plan mode (read-only)."
-              : undefined,
-            dir,
-            sdkSessionId,
-          );
-          // Broadcast a permission.resolved so Flutter can update its UI.
-          broadcast({
-            v: 1,
-            type: 'permission.resolved',
-            sessionId: localSessionId,
-            permissionId,
-            decision,
-          });
-          // C2: glob has no timeout of its own — arm a short watchdog now
-          // that the tool is about to actually run, so a hang fails fast
-          // (see armGlobWatchdog) instead of riding out the full run
-          // inactivity window.
-          if (shouldAutoAccept && toolName.toLowerCase() === 'glob') {
-            this.armGlobWatchdog(localSessionId, sdkSessionId, dir);
-          }
-          break;
-        }
-
-        // Default / acceptEdits-but-non-edit path: register + broadcast.
-        // registerPermission dedups against a permissionId already surfaced by
-        // the GET /permission recovery poll (OCU-03 #1044).
-        this.registerPermission(localSessionId, {
-          permissionId,
-          toolName,
-          args,
-          summary,
-          sdkSessionId,
-          patterns: Array.isArray(perm.patterns)
-            ? perm.patterns.filter((pattern): pattern is string => typeof pattern === 'string')
-            : [],
-          title: perm.title ?? perm.summary ?? summary,
-        });
+        if (!localSessionId) break;
+        this.decidePermission(
+          localSessionId,
+          opencodeSessionId ?? '',
+          event.properties as PermissionRequest,
+        );
         break;
       }
 
@@ -2536,7 +2540,7 @@ export class OpencodeStreamBridge {
         };
         const requestId = q.id ?? q.requestID;
         if (!requestId || !localSessionId) break;
-        this.registerQuestion(localSessionId, {
+        this.decideQuestion(localSessionId, {
           requestId,
           callId: q.tool?.callID ?? '',
           sdkSessionId: opencodeSessionId ?? '',
@@ -2604,8 +2608,23 @@ export class OpencodeStreamBridge {
     // Drop any pending questions for this session so the recovery poll cannot
     // resurface a card for a session the user has closed.
     const prefix = `${localSessionId}:`;
+    for (const key of this.pendingPermissions.keys()) {
+      if (key.startsWith(prefix)) this.pendingPermissions.delete(key);
+    }
+    for (const key of this.repliedPermissions) {
+      if (key.startsWith(prefix)) this.repliedPermissions.delete(key);
+    }
+    for (const key of this.resolvingPermissions) {
+      if (key.startsWith(prefix)) this.resolvingPermissions.delete(key);
+    }
     for (const key of this.pendingQuestions.keys()) {
       if (key.startsWith(prefix)) this.pendingQuestions.delete(key);
+    }
+    for (const key of this.resolvedQuestions) {
+      if (key.startsWith(prefix)) this.resolvedQuestions.delete(key);
+    }
+    for (const key of this.resolvingQuestions) {
+      if (key.startsWith(prefix)) this.resolvingQuestions.delete(key);
     }
   }
 
@@ -2659,7 +2678,10 @@ export class OpencodeStreamBridge {
     this.pendingStructuredMessageIds.clear();
     this.pendingPermissions.clear();
     this.repliedPermissions.clear();
+    this.resolvingPermissions.clear();
     this.pendingQuestions.clear();
+    this.resolvedQuestions.clear();
+    this.resolvingQuestions.clear();
     this.pendingRunEpisodeId.clear();
   }
 }
