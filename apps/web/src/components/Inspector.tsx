@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Icon } from '../icons';
 import { useGateway } from '../gateway/context';
 import { useAuthUser } from '../gateway/auth';
@@ -143,6 +143,10 @@ function SharePanel({ sessionId }: { sessionId: string }) {
   const confirmButton = useRef<HTMLButtonElement>(null);
   const refresh = async () => { if (!api) return; const [shareResult, directoryResult] = await Promise.allSettled([api.shares(), api.recipients()]); if (shareResult.status === 'fulfilled') { setShares(shareResult.value.filter(share => share.sourceSessionId === null || share.sourceSessionId === sessionId)); setListError(''); } else setListError('Share list unavailable.'); if (directoryResult.status === 'fulfilled') setMembers(directoryResult.value.filter(member => member.userId !== actor?.id)); };
   useEffect(() => { void refresh(); return () => { sequence.current += 1; }; }, [api, sessionId, actor?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ponytail: a bare requestAnimationFrame here raced FocusDialog's own rAF-driven autofocus/containment
+  // (flaky toBeFocused failures on error). useLayoutEffect runs after the busy-disabled DOM commit but
+  // before any paint/rAF, so it always wins deterministically.
+  useLayoutEffect(() => { if (confirming && error) confirmButton.current?.focus(); }, [error, confirming]);
   const review = async () => {
     if (!api || busy) return; const current = ++sequence.current;
     setBusy(true); setError(''); setPrepared(null); setRecipients([]); setConfirming(false); setExpiryDays(90);
@@ -169,7 +173,7 @@ function SharePanel({ sessionId }: { sessionId: string }) {
       setPrepared(null); setConfirming(false); await refresh();
     } catch (failure) {
       if (failure instanceof InspectorGatewayError && failure.status === 409) { setPrepared(null); setRecipients([]); setError('Transcript changed. Review again before sharing.'); }
-      else { setError('Share creation unavailable. No success confirmed.'); requestAnimationFrame(() => confirmButton.current?.focus()); }
+      else { setError('Share creation unavailable. No success confirmed.'); }
     } finally { setBusy(false); }
   };
   const revoke = async (id: string) => { if (!api || busy) return; setBusy(true); setError(''); try { await api.revoke(id); await refresh(); window.dispatchEvent(new Event(transcriptSharesChanged)); } catch { setError('Share revoke unavailable.'); } finally { setBusy(false); } };
