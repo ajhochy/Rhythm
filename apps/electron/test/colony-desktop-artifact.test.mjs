@@ -45,6 +45,7 @@ async function makeArtifact(root, overrides = {}) {
     'renderer/index.html': '<main id="colony">synthetic renderer</main>\n',
     'host/colony-host.mjs': 'globalThis.__rhythmColonyArtifactImportCount = (globalThis.__rhythmColonyArtifactImportCount ?? 0) + 1\nglobalThis.__rhythmColonyNativeActionCount = (globalThis.__rhythmColonyNativeActionCount ?? 0) + 1\nglobalThis.__rhythmColonyStateWriteCount = (globalThis.__rhythmColonyStateWriteCount ?? 0) + 1\nexport const host = "synthetic"\n',
     'preload/colony-preload.cjs': 'module.exports = {}\n',
+    'server/embedded-worker.mjs': 'export const syntheticWorker = true\n',
     'assets/scene.glb': 'synthetic scene bytes\n',
   }
   for (const [entry, contents] of Object.entries(files)) {
@@ -64,6 +65,7 @@ async function makeArtifact(root, overrides = {}) {
       renderer: 'renderer/index.html',
       host: 'host/colony-host.mjs',
       preload: 'preload/colony-preload.cjs',
+      worker: 'server/embedded-worker.mjs',
     },
     integrity: Object.fromEntries(Object.entries(files).map(([entry, contents]) => [entry, digest(contents)])),
   }
@@ -160,6 +162,7 @@ test('issue-1527-c1: resolves a sealed synthetic artifact and exposes only verif
     assert.equal(artifact.rendererPath, path.join(root, 'renderer/index.html'))
     assert.equal(artifact.hostPath, path.join(root, 'host/colony-host.mjs'))
     assert.equal(artifact.preloadPath, path.join(root, 'preload/colony-preload.cjs'))
+    assert.equal(artifact.workerPath, path.join(root, 'server/embedded-worker.mjs'))
   } finally {
     await import('node:fs/promises').then(({ rm }) => rm(root, { recursive: true, force: true }))
   }

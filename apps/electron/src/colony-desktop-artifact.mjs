@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url'
 const LIMIT_MANIFEST = 1024 * 1024
 const LIMIT_ENTRIES = 20000
 const LIMIT_BYTES = 1024 * 1024 * 1024
-const REQUIRED = ['renderer', 'host', 'preload']
+const REQUIRED = ['renderer', 'host', 'preload', 'worker']
 const SHA = /^[0-9a-f]{40}$/i
 const SRI = /^sha256-[A-Za-z0-9+/]{43}=$/
 /** @param {string} reason */
@@ -221,7 +221,7 @@ export async function resolveColonyArtifact({ artifactRoot, expectedElectronMajo
   const manifest = await readManifest(root)
   checkManifest(manifest, expectedElectronMajor, expectedSourceCommit, allowDirty)
   const { paths } = await verify(root, manifest)
-  return Object.freeze({ root, manifest: Object.freeze(manifest), rendererPath: paths.renderer, hostPath: paths.host, preloadPath: paths.preload, rendererUrl: `${pathToFileURL(paths.renderer).href}?embedded=1` })
+  return Object.freeze({ root, manifest: Object.freeze(manifest), rendererPath: paths.renderer, hostPath: paths.host, preloadPath: paths.preload, workerPath: paths.worker, rendererUrl: `${pathToFileURL(paths.renderer).href}?embedded=1` })
 }
 
 /** @param {{artifactRoot: string}} options */
