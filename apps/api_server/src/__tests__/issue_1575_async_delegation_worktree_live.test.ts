@@ -1,26 +1,33 @@
 /** Live issue #1575 contract; run only against the isolated sandbox. */
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import Database from 'better-sqlite3';
 import { assertLiveE2EIsolation } from './_live_e2e_guard';
-import { setDb } from '../database/db';
-import { UsersRepository } from '../repositories/users_repository';
-import { SessionsRepository } from '../repositories/sessions_repository';
 
 const LIVE = process.env.RHYTHM_LIVE_E2E === '1';
-const BASE = process.env.RHYTHM_LIVE_URL ?? 'http://127.0.0.1:4998';
+const BASE = process.env.RHYTHM_LIVE_URL ?? 'http://127.0.0.1:7420';
+const ENGINE = process.env.RHYTHM_LIVE_ENGINE_URL ?? 'http://127.0.0.1:7421';
+const PROVIDER_PORT = Number(process.env.RHYTHM_1575_PROVIDER_PORT ?? '7423');
+const PROVIDER_BASE = `http://127.0.0.1:${PROVIDER_PORT}`;
+const PROVIDER_ID = 'issue1575';
+const MODEL_ID = 'cwd-scripted';
+const SYNTHETIC_TOKEN = 'e02-synthetic-session-not-a-secret';
 const describeLive = LIVE ? describe : describe.skip;
 let agentIds: string[] = [];
 let sessionIds: string[] = [];
 let tempDirs: string[] = [];
-let authHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+let provider: ChildProcess | null = null;
+let providerStderr = '';
+const authHeaders: Record<string, string> = {
+  Authorization: `Bearer ${SYNTHETIC_TOKEN}`,
+  'Content-Type': 'application/json',
+};
 
 async function api(path: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(`${BASE}${path}`, {
+  return fetch(path.startsWith('http://') ? path : `${BASE}${path}`, {
     ...init,
     headers: { ...authHeaders, ...(init.headers ?? {}) },
   });
@@ -51,35 +58,54 @@ afterEach(async () => {
   agentIds = [];
   sessionIds = [];
   tempDirs = [];
-  authHeaders = { 'Content-Type': 'application/json' };
 });
 
-async function authenticate(suffix: string): Promise<void> {
-  const dbPath = process.env.RHYTHM_LIVE_DB_PATH;
-  if (!dbPath) throw new Error('RHYTHM_LIVE_DB_PATH is required for live auth');
-  const db = new Database(dbPath);
-  db.pragma('foreign_keys = ON');
-  setDb(db);
-  const user = new UsersRepository().create({
-    name: `Issue 1575 ${suffix}`,
-    email: `issue-1575-${suffix}@rhythm.test`,
+async function startProvider(): Promise<void> {
+  provider = spawn(
+    process.execPath,
+    [join(__dirname, 'fixtures', 'scripted_openai_provider_1575.mjs')],
+    {
+      env: { ...process.env, RHYTHM_1575_PROVIDER_PORT: String(PROVIDER_PORT) },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    },
+  );
+  provider.stderr?.on('data', (chunk: Buffer) => {
+    providerStderr += chunk.toString('utf8');
   });
-  const session = await new SessionsRepository().createAsync(user.id);
-  authHeaders = { Authorization: `Bearer ${session.token}`, 'Content-Type': 'application/json' };
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if (provider.exitCode !== null) {
+      throw new Error(`scripted provider exited before readiness: ${providerStderr || provider.exitCode}`);
+    }
+    if (await fetch(`${PROVIDER_BASE}/_1575/status`).then((response) => response.ok).catch(() => false)) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`scripted provider did not start: ${providerStderr || 'readiness timeout'}`);
 }
 
 describeLive('issue #1575 live async delegation worktree contract', () => {
   beforeAll(async () => {
     assertLiveE2EIsolation();
+    expect(PROVIDER_PORT).toBeGreaterThanOrEqual(7420);
+    expect(PROVIDER_PORT).toBeLessThanOrEqual(7429);
+    await startProvider();
     expect((await api('/health')).ok).toBe(true);
     expect(await json<{ status: string }>('/opencode/health')).toMatchObject({ status: 'ready' });
+  }, 30_000);
+
+  afterAll(async () => {
+    if (!provider || provider.exitCode !== null) return;
+    const exited = new Promise<void>((resolve) => provider?.once('exit', () => resolve()));
+    provider.kill('SIGTERM');
+    await exited;
   });
 
   it('issue-1575-c4: a real child reports its server-created worktree cwd and persisted metadata matches it', async () => {
     // Regression caught: a child receives the manager cwd even though a worktree
     // row exists; the child-reported pwd and every persisted worktree field fail.
     const suffix = randomUUID().slice(0, 8);
-    await authenticate(suffix);
     const repo = mkdtempSync(join(tmpdir(), 'rhythm-1575-git-'));
     tempDirs.push(repo);
     execFileSync('git', ['init', '-b', 'main'], { cwd: repo });
@@ -91,8 +117,8 @@ describeLive('issue #1575 live async delegation worktree contract', () => {
     const managerId = `live-1575-manager-${suffix}`;
     const specialistId = `live-1575-specialist-${suffix}`;
     for (const profile of [
-      { id: managerId, label: managerId, isAgent: true, isManager: true, enabled: true, sessionSelectable: true, modelProvider: 'google', modelId: 'gemini-2.5-pro', ocAgent: managerId, allowedDelegatesJson: JSON.stringify([specialistId]), corePermissionsJson: JSON.stringify({ rhythm_delegate_async: 'allow' }) },
-      { id: specialistId, label: specialistId, isAgent: true, enabled: true, sessionSelectable: true, modelProvider: 'google', modelId: 'gemini-2.5-pro', ocAgent: specialistId, systemPrompt: 'Use the shell to run pwd, then reply with exactly CWD:<the pwd output> and nothing else.' },
+      { id: managerId, label: managerId, isAgent: true, isManager: true, enabled: true, sessionSelectable: true, modelProvider: PROVIDER_ID, modelId: MODEL_ID, ocAgent: managerId, allowedDelegatesJson: JSON.stringify([specialistId]), corePermissionsJson: JSON.stringify({ rhythm_delegate_async: 'allow' }) },
+      { id: specialistId, label: specialistId, isAgent: true, enabled: true, sessionSelectable: true, modelProvider: PROVIDER_ID, modelId: MODEL_ID, ocAgent: specialistId, systemPrompt: 'Run pwd and report the observed directory.' },
     ]) {
       agentIds.push((await json<{ id: string }>('/agent-configs', { method: 'POST', body: JSON.stringify(profile) })).id);
     }
@@ -105,7 +131,7 @@ describeLive('issue #1575 live async delegation worktree contract', () => {
     const { sessionId } = await dispatched.json() as { sessionId: string };
     sessionIds.push(sessionId);
     const snapshot = await waitFor(
-      () => json<{ session: { cwd: string; worktreeName: string | null; worktreePath: string | null; worktreeBranch: string | null; status: string }; messages: Array<{ rawText: string }> }>(`/agent-sessions/${sessionId}`),
+      () => json<{ session: { cwd: string; sdkSessionId: string; worktreeName: string | null; worktreePath: string | null; worktreeBranch: string | null; status: string }; messages: Array<{ rawText: string }> }>(`/agent-sessions/${sessionId}`),
       (value) => value.session.status === 'idle' && value.messages.some((message) => message.rawText.includes('CWD:')),
     );
     const report = snapshot.messages.map((message) => message.rawText).join('\n');
@@ -114,13 +140,23 @@ describeLive('issue #1575 live async delegation worktree contract', () => {
     expect(snapshot.session.worktreeBranch).toBeTruthy();
     expect(report).toContain(`CWD:${snapshot.session.cwd}`);
     expect(snapshot.session.cwd).not.toBe(repo);
+    const providerStatus = await json<{
+      requests: number;
+      pwdToolResult: string | null;
+    }>(`${PROVIDER_BASE}/_1575/status`);
+    expect(providerStatus.requests).toBeGreaterThanOrEqual(3);
+    expect(providerStatus.pwdToolResult).toBe(snapshot.session.cwd);
+    const engineSession = await json<{ directory: string }>(
+      `${ENGINE}/session/${encodeURIComponent(snapshot.session.sdkSessionId)}?directory=${encodeURIComponent(snapshot.session.cwd)}`,
+    );
+    expect(engineSession.directory).toBe(snapshot.session.worktreePath);
+    expect(existsSync(join(snapshot.session.cwd, 'issue-1575-owned-dirty-marker.txt'))).toBe(true);
   }, 240_000);
 
   it('issue-1575-c6: a real git-worktree creation failure preserves a dirty marker and persists no child', async () => {
     // Regression caught: failed isolation deletes/cleans caller files or creates
     // a child row with invented worktree metadata before git rejects the cwd.
     const suffix = randomUUID().slice(0, 8);
-    await authenticate(suffix);
     const nonGitDir = mkdtempSync(join(tmpdir(), 'rhythm-1575-not-git-'));
     const marker = join(nonGitDir, 'dirty-marker.txt');
     tempDirs.push(nonGitDir);
@@ -128,8 +164,8 @@ describeLive('issue #1575 live async delegation worktree contract', () => {
     const managerId = `live-1575-fail-manager-${suffix}`;
     const specialistId = `live-1575-fail-specialist-${suffix}`;
     for (const profile of [
-      { id: managerId, label: managerId, isAgent: true, isManager: true, enabled: true, sessionSelectable: true, modelProvider: 'google', modelId: 'gemini-2.5-pro', ocAgent: managerId, allowedDelegatesJson: JSON.stringify([specialistId]), corePermissionsJson: JSON.stringify({ rhythm_delegate_async: 'allow' }) },
-      { id: specialistId, label: specialistId, isAgent: true, enabled: true, sessionSelectable: true, modelProvider: 'google', modelId: 'gemini-2.5-pro', ocAgent: specialistId },
+      { id: managerId, label: managerId, isAgent: true, isManager: true, enabled: true, sessionSelectable: true, modelProvider: PROVIDER_ID, modelId: MODEL_ID, ocAgent: managerId, allowedDelegatesJson: JSON.stringify([specialistId]), corePermissionsJson: JSON.stringify({ rhythm_delegate_async: 'allow' }) },
+      { id: specialistId, label: specialistId, isAgent: true, enabled: true, sessionSelectable: true, modelProvider: PROVIDER_ID, modelId: MODEL_ID, ocAgent: specialistId },
     ]) agentIds.push((await json<{ id: string }>('/agent-configs', { method: 'POST', body: JSON.stringify(profile) })).id);
     await json('/system/refresh', { method: 'POST' });
     const parent = await json<{ id: string }>('/agent-sessions', { method: 'POST', body: JSON.stringify({ agentId: managerId, name: managerId, cwd: nonGitDir }) });

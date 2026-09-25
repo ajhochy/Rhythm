@@ -650,14 +650,16 @@ async function applyMobileSessionCreateScope(
   if (permission !== undefined) scopedBody.permission = permission;
 
   if (scope.mcpRoleConfig) {
+    const toolCounts = toolCountsForRoleConfig(scope.mcpRoleConfig.mcpServers);
     const expanded = applySelectiveDeferral(
       expandMcpAllowlist(scope.mcpRoleConfig),
-      toolCountsForRoleConfig(scope.mcpRoleConfig.mcpServers),
+      toolCounts,
       scope.model.providerID,
     );
     const capped = capMcpAllowlistForProvider(
       expanded,
       scope.model.providerID,
+      toolCounts,
     );
     if (capped.trimmed) {
       logger.warn(capped.warning ?? '[GeminiToolCap] allowlist trimmed');

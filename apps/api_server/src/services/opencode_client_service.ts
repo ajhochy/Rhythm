@@ -1210,14 +1210,15 @@ export class OpencodeClientService {
     } | undefined;
     if (mcpRoleConfig) {
       try {
+        const toolCounts = toolCountsForRoleConfig(mcpRoleConfig.mcpServers);
         mcpAllowlist = applySelectiveDeferral(
           expandMcpAllowlist(mcpRoleConfig),
-          toolCountsForRoleConfig(mcpRoleConfig.mcpServers),
+          toolCounts,
           providerId,
         );
         // #884 — trim to Gemini's function-declaration cap when this session's
         // turn is routed to `google`. No-op for every other provider.
-        const capResult = capMcpAllowlistForProvider(mcpAllowlist, providerId);
+        const capResult = capMcpAllowlistForProvider(mcpAllowlist, providerId, toolCounts);
         mcpAllowlist = capResult.allowlist;
         if (capResult.trimmed) {
           logger.warn(capResult.warning ?? '[GeminiToolCap] allowlist trimmed');
@@ -1399,12 +1400,13 @@ export class OpencodeClientService {
               null)
             : null;
       } else {
+        const toolCounts = toolCountsForRoleConfig(mcpRoleConfig.mcpServers);
         mcpAllowlist = applySelectiveDeferral(
           expandMcpAllowlist(mcpRoleConfig),
-          toolCountsForRoleConfig(mcpRoleConfig.mcpServers),
+          toolCounts,
           providerId,
         );
-        const capResult = capMcpAllowlistForProvider(mcpAllowlist, providerId);
+        const capResult = capMcpAllowlistForProvider(mcpAllowlist, providerId, toolCounts);
         mcpAllowlist = capResult.allowlist;
         if (capResult.trimmed) {
           logger.warn(capResult.warning ?? '[GeminiToolCap] allowlist trimmed');

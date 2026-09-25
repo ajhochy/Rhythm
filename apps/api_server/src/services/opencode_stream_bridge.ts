@@ -162,6 +162,32 @@ type DirectoryStream = {
  * and fed an uncapped compact -> continue -> compact loop.
  */
 const TOOL_PAIRING_ERROR_PATTERN = /tool_use.*ids were found without.*tool_result|unexpected tool_use_id/i;
+const GEMINI_FUNCTION_DECLARATION_CAP_ERROR_PATTERN =
+  /At most\s+512\s+function declarations|Gemini function-declaration cap:\s*\d+\s*>\s*512/i;
+
+function actionableGeminiDeclarationCapError(
+  message: string,
+  errorInfo: unknown,
+): string | null {
+  if (!GEMINI_FUNCTION_DECLARATION_CAP_ERROR_PATTERN.test(message)) return null;
+
+  const serialized = (() => {
+    try {
+      return JSON.stringify(errorInfo);
+    } catch {
+      return '';
+    }
+  })();
+  const count =
+    message.match(/Gemini function-declaration cap:\s*(\d+)\s*>\s*512/i)?.[1] ??
+    serialized.match(/"(?:actualCount|offeredCount|declarationCount|estimatedCount)"\s*:\s*(\d+)/i)?.[1] ??
+    'unknown count';
+
+  return (
+    `Gemini rejected the tool surface at its 512 function-declaration cap ` +
+    `(offered ${count}). Narrow the agent's MCP allowlist or enable deferred MCP tools, then retry.`
+  );
+}
 
 /**
  * Best-effort message extraction from the opencode session.error payload.
@@ -2393,7 +2419,11 @@ export class OpencodeStreamBridge {
         // UI can tell it apart from a generic API error, instead of showing
         // the raw "tool_use ids were found without tool_result..." string.
         const isToolPairingError = TOOL_PAIRING_ERROR_PATTERN.test(message);
-        if (isToolPairingError) {
+        const geminiCapMessage = actionableGeminiDeclarationCapError(message, errorInfo);
+        const isGeminiDeclarationCapError = geminiCapMessage !== null;
+        if (isGeminiDeclarationCapError) {
+          message = geminiCapMessage;
+        } else if (isToolPairingError) {
           message =
             'Conversation history became inconsistent (tool call/result pairing). Send a new message to continue.';
         }
@@ -2442,7 +2472,11 @@ export class OpencodeStreamBridge {
           type: 'error',
           id: eventId,
           message,
-          ...(isToolPairingError ? { errorClass: 'tool_pairing' } : {}),
+          ...(isGeminiDeclarationCapError
+            ? { errorClass: 'gemini_function_declaration_cap' }
+            : isToolPairingError
+              ? { errorClass: 'tool_pairing' }
+              : {}),
         });
         // OPC-M1-4: Persist error state on the DB row (status='error',
         // status_message=message). This replaces the old in-memory
