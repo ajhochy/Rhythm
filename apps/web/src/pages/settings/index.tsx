@@ -29,6 +29,7 @@ const settingsGroups = [
 
 const relatedDestinations: Record<string, string> = {
   'agent-settings': '/tools/agent-settings',
+  'shared-agents': '/tools/shared-agents',
   integrations: '/integrations',
   'mobile-access': '/mobile-access',
   memory: '/tools/brain',
@@ -170,6 +171,7 @@ export function SettingsPage() {
     { id: 'accounts', title: 'Accounts & access', subtitle: auth?.user.email ?? 'No signed-in account', group: 'account' },
     { id: 'runtime', title: 'Runtime & updates', subtitle: `API ${runtime.api} · Engine ${runtime.engine}`, group: 'account' },
     { id: 'agent-settings', title: 'Agent Settings', subtitle: 'AI accounts, profiles, and tool access', group: 'related' },
+    { id: 'shared-agents', title: 'Shared Agents', subtitle: 'Canonical agents across OpenCode and Hermes', group: 'related' },
     { id: 'integrations', title: 'Integrations', subtitle: 'Google, Gmail, and Planning Center', group: 'related' },
     { id: 'mobile-access', title: 'Mobile Access', subtitle: 'Connect a phone to this desktop', group: 'related' },
     { id: 'memory', title: 'Memory', subtitle: 'Semantic memory and memory vault', group: 'related' },

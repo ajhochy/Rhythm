@@ -1,7 +1,8 @@
 // Host-adapter contracts. A host (Electron renderer today, a Hermes plugin shell later)
 // implements this to lend the workspace its theme, viewport class, and current-user display
 // info. There is deliberately no field here for credentials, navigation into an agent
-// surface, session creation, or approvals — see tests/forbidden-imports.test.ts.
+// surface, session creation, or approvals. The governed shared-agent screen uses its own
+// explicit host-neutral port instead of widening this adapter — see tests/forbidden-imports.test.ts.
 
 export type RhythmThemeMode = 'light' | 'dark';
 

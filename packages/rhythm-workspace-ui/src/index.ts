@@ -103,3 +103,28 @@ export { ListInspector } from './components/ListInspector';
 export type { ListInspectorItem, ListInspectorProps } from './components/ListInspector';
 export { Splitter } from './components/Splitter';
 export type { SplitterOrientation, SplitterProps, SplitterResizeEdge } from './components/Splitter';
+
+export { SharedAgentsScreen } from './agents/SharedAgentsScreen';
+export type { SharedAgentsScreenProps } from './agents/SharedAgentsScreen';
+export {
+  CANONICAL_FIELDS,
+  CONFIRMED_EDIT_FIELDS,
+  PRESENTATION_EDIT_FIELDS,
+  SHARED_AGENT_CATALOG_SCHEMA,
+  SHARED_AGENT_SCHEMA,
+} from './agents/types';
+export type {
+  SharedAgent,
+  SharedAgentCanonical,
+  SharedAgentCanonicalField,
+  SharedAgentCatalog,
+  SharedAgentChanges,
+  SharedAgentEditableField,
+  SharedAgentFieldApplicability,
+  SharedAgentReadiness,
+  SharedAgentReason,
+  SharedAgentReasonCode,
+  SharedAgentRuntime,
+  SharedAgentRuntimeProjection,
+  SharedAgentsPort,
+} from './agents/types';

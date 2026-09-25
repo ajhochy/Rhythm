@@ -11,6 +11,11 @@
     "forceConsistentCasingInFileNames": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "baseUrl": ".",
+    "paths": {
+      "@ajhochy/rhythm-workspace-ui": ["../../packages/rhythm-workspace-ui/src/index.ts"],
+      "@ajhochy/rhythm-workspace-ui/*": ["../../packages/rhythm-workspace-ui/src/*"]
+    },
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,

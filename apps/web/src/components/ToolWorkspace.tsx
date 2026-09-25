@@ -19,6 +19,7 @@ import { FocusDialog } from './FocusDialog';
 import { ListInspector, useSelectedId } from './ListInspector';
 import { navigate } from './Shell';
 import { FixtureAgentSettingsTool, LiveSettingsTool } from './tools/AgentSettingsTool';
+import { SharedAgentsTool } from './tools/SharedAgentsTool';
 import './ToolWorkspace.css';
 
 // Parses a JSON array field defensively — live rows always carry these as JSON text
@@ -47,6 +48,7 @@ const toolStateCopy: Record<string, ToolStateCopy> = {
   email: { endpoint: '/integrations/gmail-signals', emptyTitle: 'No Gmail signals', emptyDescription: 'New work signals will appear here when the connected mailbox identifies one.' },
   gallery: { endpoint: '/agent-designs', emptyTitle: 'No creative artifacts yet', emptyDescription: 'Generated images, documents, and interactive artifacts will collect here.' },
   'agent-settings': { endpoint: 'fixture://agent-settings', emptyTitle: 'No local defaults configured', emptyDescription: 'Runtime defaults will appear after this desktop has a local agent connection.' },
+  'shared-agents': { endpoint: '/shared-agents/v1/catalog', emptyTitle: 'No shared agents configured', emptyDescription: 'Canonical Rhythm agents will appear here when they are available to this account.' },
 };
 
 const toolStateLabels: Record<ToolSurfaceState, string> = {
@@ -1314,6 +1316,6 @@ function GalleryTool() {
 export function ToolWorkspace({ slug }: { slug: string }) {
   const { sessionGatewayMode } = useFixtures();
   const live = sessionGatewayMode === 'live';
-  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': live ? <LiveResearchTool /> : <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: live ? <LiveWebhooksUnavailable /> : <WebhooksTool />, skills: live ? <LiveSkillsTool /> : <ManagedCatalog key="skills" kind="skills" />, playbooks: live ? <LivePlaybooksTool /> : <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: live ? <LiveCookbookTool /> : <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: live ? <LiveEmailTool /> : <EmailTool />, gallery: live ? <LiveGalleryTool /> : <GalleryTool />, 'agent-settings': live ? <LiveSettingsTool Frame={ToolFrame} /> : <FixtureAgentSettingsTool Frame={ToolFrame} /> };
+  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': live ? <LiveResearchTool /> : <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: live ? <LiveWebhooksUnavailable /> : <WebhooksTool />, skills: live ? <LiveSkillsTool /> : <ManagedCatalog key="skills" kind="skills" />, playbooks: live ? <LivePlaybooksTool /> : <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: live ? <LiveCookbookTool /> : <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: live ? <LiveEmailTool /> : <EmailTool />, gallery: live ? <LiveGalleryTool /> : <GalleryTool />, 'agent-settings': live ? <LiveSettingsTool Frame={ToolFrame} /> : <FixtureAgentSettingsTool Frame={ToolFrame} />, 'shared-agents': <SharedAgentsTool /> };
   return <div key={slug} className="tool-route-boundary">{tools[slug] ?? (live ? <LiveBrainTool /> : <FixtureBrainTool />)}</div>;
 }

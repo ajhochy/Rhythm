@@ -36,6 +36,7 @@ export interface GatewayDomainContracts {
   autoPromotion?: AutoPromotionGateway;
   workspaceMembers?: ReturnType<typeof createLiveWorkspaceMembersGateway>;
   settings?: ReturnType<typeof createLiveSettingsGateway>;
+  sharedAgents?: SharedAgentsPort;
 }
 
 export interface GatewayHealth {
@@ -184,6 +185,7 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
       autoPromotion: createLiveAutoPromotionGateway(productionApiBase, config.taskToken, fetcher),
       workspaceMembers: createLiveWorkspaceMembersGateway(productionApiBase, config.taskToken, fetcher),
       settings: createLiveSettingsGateway(productionApiBase, config.taskToken, fetcher),
+      sharedAgents: createLiveSharedAgentsPort(apiBase, config.taskToken, createLiveSessionsGateway(apiBase, config.taskToken, localFetcher), fetcher),
     },
     health: {
       api: () => check('api', `${apiBase}/health`),
@@ -242,3 +244,5 @@ import { createLiveRunOutcomesGateway, type RunOutcomesGateway } from './run-out
 import { createLiveAutoPromotionGateway, type AutoPromotionGateway } from './auto-promotion';
 import { createLiveWorkspaceMembersGateway } from './workspace-members';
 import { createLiveSettingsGateway } from './settings';
+import { createLiveSharedAgentsPort } from './shared-agents';
+import type { SharedAgentsPort } from '@ajhochy/rhythm-workspace-ui';

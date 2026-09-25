@@ -620,63 +620,81 @@
       "text": "- **UI-1.** Readiness chips and reasons render, and duplicate labels are disambiguated by id.",
       "mode": "ui",
       "test_id": "UI-1",
-      "status": "pending"
+      "status": "pass",
+      "test_file": "packages/rhythm-workspace-ui/tests/shared-agents.screen.test.ts",
+      "evidence": "npm test: 23 files, 255 tests passed"
     },
     {
       "criterion_id": "UI-2",
       "text": "- **UI-2.** Save sends only the changed fields plus `expectedRevision`, and untouched raw JSON stays byte-identical.",
       "mode": "ui",
       "test_id": "UI-2",
-      "status": "pending"
+      "status": "pass",
+      "test_file": "packages/rhythm-workspace-ui/tests/shared-agents.screen.test.ts",
+      "evidence": "npm test: 23 files, 255 tests passed"
     },
     {
       "criterion_id": "UI-3",
       "text": "- **UI-3.** A conflict keeps the draft.",
       "mode": "ui",
       "test_id": "UI-3",
-      "status": "pending"
+      "status": "pass",
+      "test_file": "packages/rhythm-workspace-ui/tests/shared-agents.screen.test.ts",
+      "evidence": "npm test: 23 files, 255 tests passed"
     },
     {
       "criterion_id": "UI-4",
       "text": "- **UI-4.** A change of `catalog.scope` clears state.",
       "mode": "ui",
       "test_id": "UI-4",
-      "status": "pending"
+      "status": "pass",
+      "test_file": "packages/rhythm-workspace-ui/tests/shared-agents.screen.test.ts",
+      "evidence": "npm test: 23 files, 255 tests passed"
     },
     {
       "criterion_id": "UI-5",
       "text": "- **UI-5.** Launch is gated by `hostRuntime` readiness and the interactive kind, and calls `launch(id, revision)`.",
       "mode": "ui",
       "test_id": "UI-5",
-      "status": "pending"
+      "status": "pass",
+      "test_file": "packages/rhythm-workspace-ui/tests/shared-agents.screen.test.ts",
+      "evidence": "npm test: 23 files, 255 tests passed"
     },
     {
       "criterion_id": "UI-6",
       "text": "- **UI-6.** Keyboard use, focus trap, read-only mode and the compact layout all work.",
       "mode": "ui",
       "test_id": "UI-6",
-      "status": "pending"
+      "status": "pass",
+      "test_file": "packages/rhythm-workspace-ui/tests/shared-agents.screen.test.ts",
+      "evidence": "npm test: 23 files, 255 tests passed"
     },
     {
       "criterion_id": "UI-7",
       "text": "- **UI-7.** The public-API test and the forbidden-terms sweep stay green.",
       "mode": "ui",
       "test_id": "UI-7",
-      "status": "pending"
+      "status": "pass",
+      "test_file": "packages/rhythm-workspace-ui/tests/public-api.test.ts; packages/rhythm-workspace-ui/tests/forbidden-imports.test.ts",
+      "evidence": "npm test: 23 files, 255 tests passed"
     },
     {
       "criterion_id": "UI-8",
       "text": "- **UI-8.** `onConfirmationRequired` shows the waiting state, and a `forbidden` rejection keeps the draft.",
       "mode": "ui",
       "test_id": "UI-8",
-      "status": "pending"
+      "status": "pass",
+      "test_file": "packages/rhythm-workspace-ui/tests/shared-agents.screen.test.ts",
+      "evidence": "npm test: 23 files, 255 tests passed"
     },
     {
       "criterion_id": "UI-WEB-1",
       "text": "- **UI-WEB-1.** The adapter calls the §5.2 routes; a 409 becomes `RhythmGatewayError('conflict')` and a 401 becomes `'forbidden'`.",
       "mode": "ui",
       "test_id": "UI-WEB-1",
-      "status": "pending"
+      "status": "fail",
+      "test_file": "apps/web/tests/pages/shared-agents.spec.ts",
+      "evidence": "Relay round 2 proved the real adapter loaded, but the production app page's CSP blocked the intercepted 4098 boundary before Playwright routing. The repaired spec uses the existing CSP-free Vite test page and retains exact route, bearer, PATCH body, 409 conflict and 401 forbidden assertions; parent rerun required."
     },
     {
       "criterion_id": "HD-1",

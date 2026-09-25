@@ -2,7 +2,7 @@
   "name": "@ajhochy/rhythm-workspace-ui",
   "version": "0.2.0",
   "private": false,
-  "description": "Host-neutral Rhythm collaborative workspace screens (non-agent) for embedding in any React 18.3/19.2 host shell.",
+  "description": "Host-neutral Rhythm collaborative workspace and governed shared-agent screens for any React 18.3/19.2 host shell.",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

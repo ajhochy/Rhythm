@@ -15,6 +15,13 @@ const NON_AGENT_SCREEN_EXPORTS = [
 ] as const;
 
 describe('package public API surface (src/index.ts)', () => {
+  it('UI-7: exports the governed shared-agent screen and its host-neutral primitives', () => {
+    expect(typeof api.SharedAgentsScreen).toBe('function');
+    expect(typeof api.ListInspector).toBe('function');
+    expect(typeof api.Splitter).toBe('function');
+    expect(typeof api.FocusDialog).toBe('function');
+  });
+
   it('exports exactly the ten specified non-agent screens as components', () => {
     for (const name of NON_AGENT_SCREEN_EXPORTS) {
       expect(typeof api[name], `expected "${name}" to be exported as a function component`).toBe('function');
