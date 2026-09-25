@@ -9,6 +9,7 @@ import { ListInspector, useSelectedId, type ListInspectorItem } from '../ListIns
 import { profileAvatarLabel } from '../Profiles';
 import { navigate } from '../Shell';
 import './AgentSettingsTool.css';
+import { HermesAccountsSettings } from './HermesAccountsSettings';
 
 type Trace = { method: string; route: string; detail: string };
 type LoadSection = 'profiles' | 'accounts' | 'mcp' | 'providers';
@@ -110,7 +111,7 @@ export function FixtureAgentSettingsTool({ Frame }: AgentSettingsToolProps) {
       case sectionIds.autoPromotion:
         return <><SectionIntro scope="Workspace">Auto-promotion is controlled by workspace eligibility and always requires an explicit confirmation.</SectionIntro><GapNotice place="a signed-in live workspace">This fixture cannot read or change auto-promotion.</GapNotice></>;
       case sectionIds.accounts:
-        return <><SectionIntro scope="Desktop local">Provider authorization is stored by the local OpenCode runtime.</SectionIntro><GapNotice place="a signed-in live workspace">The fixture cannot call the existing account authorization endpoints.</GapNotice></>;
+        return <><SectionIntro scope="Desktop local">Provider authorization is stored by the local OpenCode runtime.</SectionIntro><GapNotice place="a signed-in live workspace">The fixture cannot call the existing account authorization endpoints.</GapNotice><HermesAccountsSettings /></>;
       case sectionIds.behavior:
         return <><SectionIntro scope="Desktop local">Destructive tools can require a full confirmation dialog before they run.</SectionIntro><GapNotice place="Flutter Agent settings → Behavior">Saving this in Electron requires GET and PATCH /agent-settings/behavior; those endpoints do not exist.</GapNotice></>;
       case sectionIds.keybindings:
@@ -485,6 +486,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
 
   const profilesInspector = () => <><SectionIntro scope="Agent / profile">Profiles own identity, model defaults, delegation, skills, MCP access, and protected-action policy. Editing stays in the dedicated profile surface.</SectionIntro>{retryControl('profiles', profileError, 'Retry profiles')}{!profileError && (profiles.length === 0 ? <div className="agent-settings-empty"><strong>No agent profiles configured</strong><p>Create a profile before starting a configured session.</p></div> : <div className="agent-settings-records">{profiles.map((profile) => <article key={profile.id} data-testid={`agent-setting-${profile.id}`}><span className="profile-avatar" aria-hidden="true">{profileAvatarLabel(profile)}</span><span><strong>{profile.label}</strong><small>{profile.enabled ? 'Enabled' : 'Disabled'} · {profile.provider} · {profile.model}{profile.isDefault ? ' · Default' : ''}</small></span></article>)}</div>)}<button className="primary-button" type="button" onClick={() => navigate('/profiles')} data-testid="agent-settings-open-profiles">Open profile editor</button></>;
   const accountsInspector = () => <>
+    <HermesAccountsSettings />
     <SectionIntro scope="Desktop local">Anthropic accounts and every other model provider are authorized against the local OpenCode runtime.</SectionIntro>
     {retryControl('accounts', accountsError, 'Retry accounts')}
     {accountActionError && <p role="alert">{accountActionError}</p>}

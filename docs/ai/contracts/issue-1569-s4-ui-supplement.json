@@ -1,0 +1,88 @@
+{
+  "issue": 1569,
+  "contract_id": "issue-1569-s4-ui-supplement",
+  "generated": "2026-09-24",
+  "parent_contract": "docs/ai/contracts/issue-1569.json",
+  "original_criteria_count": 28,
+  "original_contract_sha256": "e855ea99936536158412e7881e54b41fac94715f2d671721518cf38dc2ded749",
+  "criteria": [
+    {
+      "criterion_id": "S4-U1",
+      "text": "live and fixture settings compose sharing inside the existing Accounts inspector",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agent-settings-hermes-accounts.spec.ts",
+      "test_id": "S4-U1: live and fixture settings compose sharing inside the existing Accounts inspector",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-U2",
+      "text": "configured applied and pending receipts have distinct honest labels",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agent-settings-hermes-accounts.spec.ts",
+      "test_id": "S4-U2: configured applied and pending receipts have distinct honest labels",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-U3",
+      "text": "native precedence and OAuth source never offer enable",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agent-settings-hermes-accounts.spec.ts",
+      "test_id": "S4-U3: native precedence and OAuth source never offer enable",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-U4",
+      "text": "enable waits for native confirmation then refreshes metadata",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agent-settings-hermes-accounts.spec.ts",
+      "test_id": "S4-U4: enable waits for native confirmation then refreshes metadata",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-U5",
+      "text": "rejected native consent keeps prior state without success",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agent-settings-hermes-accounts.spec.ts",
+      "test_id": "S4-U5: rejected native consent keeps prior state without success",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-U6",
+      "text": "disable reports a retained running key until restart",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agent-settings-hermes-accounts.spec.ts",
+      "test_id": "S4-U6: disable reports a retained running key until restart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-U7",
+      "text": "unavailable or missing desktop bridge exposes no grant actions",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agent-settings-hermes-accounts.spec.ts",
+      "test_id": "S4-U7: unavailable or missing desktop bridge exposes no grant actions",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-U8",
+      "text": "refresh clears old grants when the desktop identity becomes unavailable",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agent-settings-hermes-accounts.spec.ts",
+      "test_id": "S4-U8: refresh clears old grants when the desktop identity becomes unavailable",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-U9",
+      "text": "real styles preserve desktop narrow keyboard access and existing Accounts selection",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agent-settings-hermes-accounts.spec.ts",
+      "test_id": "S4-U9: real styles preserve desktop narrow keyboard access and existing Accounts selection",
+      "status": "pass"
+    }
+  ],
+  "metadata_contract": {
+    "test_file": "apps/electron/test/hermes-accounts-eligibility-contract.test.mjs",
+    "test_count": 13,
+    "status": "pass"
+  },
+  "visual_command": "cd apps/web && RHYTHM_ACCOUNTS_VISUAL=1 npx playwright test --config tests/agent-settings-hermes-accounts.config.ts --grep S4-U9"
+}

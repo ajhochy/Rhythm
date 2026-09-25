@@ -92,7 +92,7 @@ function staticEntries(entries) {
   for (const [provider, envName] of Object.entries(API_KEY_NAMES)) {
     const entry = entries[provider]
     if (entry && typeof entry === 'object' && !Array.isArray(entry) &&
-        entry.type === 'api' && typeof entry.key === 'string' && entry.key.length > 0 && entry.key.length <= 4096) {
+        entry.type === 'api' && typeof entry.key === 'string' && entry.key.length > 0 && entry.key.length <= 4096 && !/[\x00-\x1f\x7f]/.test(entry.key)) {
       selected[envName] = entry.key
     }
   }
@@ -105,7 +105,7 @@ function staticProviderNames(entries) {
   return /** @type {(keyof typeof API_KEY_NAMES)[]} */ (Object.keys(API_KEY_NAMES)).filter((provider) => {
     const entry = entries[provider]
     return entry && typeof entry === 'object' && !Array.isArray(entry) &&
-      entry.type === 'api' && typeof entry.key === 'string' && entry.key.length > 0 && entry.key.length <= 4096
+      entry.type === 'api' && typeof entry.key === 'string' && entry.key.length > 0 && entry.key.length <= 4096 && !/[\x00-\x1f\x7f]/.test(entry.key)
   })
 }
 
@@ -165,12 +165,23 @@ export function inspectHermesAccounts({ osHome, hermesHome, grantsPath }) {
   const hermesAuth = hermesAuthState(hermesHome)
   const env = envNames(hermesHome)
   const staticNames = staticProviderNames(opencode.entries).map((provider) => API_KEY_NAMES[provider])
-  const providers = Object.fromEntries(Object.entries(API_KEY_NAMES).map(([provider, name]) => [provider, {
-    state: env.names.includes(name) && staticNames.includes(name) ? 'shadowed' :
-      env.names.includes(name) ? 'configured' :
-        hermesAuth.providers.includes(provider) ? 'present' :
-        staticNames.includes(name) ? 'configured' : 'absent',
-  }]))
+  const providers = Object.fromEntries(Object.entries(API_KEY_NAMES).map(([provider, name]) => {
+    const entry = opencode.entries?.[provider]
+    const rhythmSourceState = !['present', 'absent'].includes(opencode.state) ? 'unknown' :
+      entry === undefined ? 'absent' : staticNames.includes(name) ? 'static-api-key' :
+        entry && typeof entry === 'object' && !Array.isArray(entry) && entry.type === 'oauth' ? 'oauth' : 'unknown'
+    const nativePresent = env.names.includes(name) || hermesAuth.providers.includes(provider)
+    const hermesSourceState = nativePresent ? 'present' :
+      !['present', 'absent'].includes(env.state) || !['present', 'absent'].includes(hermesAuth.state) ? 'unknown' : 'absent'
+    const sharingEligibility = hermesSourceState === 'present' ? 'hermes-owned' :
+      hermesSourceState === 'unknown' || rhythmSourceState === 'unknown' ? 'source-unavailable' :
+        rhythmSourceState === 'static-api-key' ? 'eligible' : rhythmSourceState === 'oauth' ? 'oauth-not-shareable' : 'source-missing'
+    return [provider, {
+      state: env.names.includes(name) && staticNames.includes(name) ? 'shadowed' :
+        env.names.includes(name) ? 'configured' : hermesAuth.providers.includes(provider) ? 'present' : staticNames.includes(name) ? 'configured' : 'absent',
+      rhythmSourceState, hermesSourceState, sharingEligibility,
+    }]
+  }))
   return {
     sources: {
       opencode: { state: opencode.state },

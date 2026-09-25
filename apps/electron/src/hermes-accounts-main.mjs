@@ -97,6 +97,9 @@ export function createHermesAccountsMain(options) {
       const applied = [...attempts.values()].filter(attempt => !attempt.terminal && attempt.accepted && attempt.identity === selectedKey && attempt.names.includes(name))
       const changed = applied.some(attempt => attempt.generations[provider] !== providerGenerations[provider]) || applied.length > 0 && !grantEnabled
       return [provider, { sourceState: readiness.providers[provider]?.state ?? 'unknown', grantEnabled,
+        rhythmSourceState: readiness.providers[provider]?.rhythmSourceState ?? 'unknown',
+        hermesSourceState: readiness.providers[provider]?.hermesSourceState ?? 'unknown',
+        sharingEligibility: readiness.providers[provider]?.sharingEligibility ?? 'source-unavailable',
         applicationState: changed ? 'pending-next-start' : applied.length ? 'applied' : grantEnabled ? 'configured' : 'absent' }]
     }))
     const pending = Object.values(providers).some(provider => provider.applicationState === 'pending-next-start')

@@ -12,6 +12,9 @@ export type AiAccountsStatus = {
   memory: { state: 'disabled' };
   providers?: Record<AiAccountProvider, {
     sourceState: string;
+    rhythmSourceState: 'static-api-key' | 'oauth' | 'absent' | 'unknown';
+    hermesSourceState: 'present' | 'absent' | 'unknown';
+    sharingEligibility: 'eligible' | 'hermes-owned' | 'oauth-not-shareable' | 'source-missing' | 'source-unavailable';
     grantEnabled: boolean;
     applicationState: 'absent' | 'configured' | 'applied' | 'pending-next-start';
   }>;

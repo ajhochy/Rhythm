@@ -198,3 +198,12 @@
   grid-column: 1 / -1;
   margin-block: 10px 0;
 }
+
+.hermes-accounts-settings { margin-block: 0 28px; }
+.hermes-accounts-settings > header { margin-block-end: 20px; }
+.hermes-accounts-settings h3 { margin: 0 0 8px; }
+.hermes-accounts-settings p { max-width: 70ch; line-height: 1.5; margin: 6px 0; }
+.hermes-account-row { min-width: 0; margin: 0 0 16px; padding: 12px 0 16px; border: 0; border-bottom: 1px solid var(--border); }
+.hermes-account-row legend { padding: 0; font-weight: 650; }
+.hermes-account-row button { margin-top: 8px; }
+.hermes-accounts-memory { color: var(--muted); }
