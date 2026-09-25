@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 
 import Database from 'better-sqlite3';
@@ -175,7 +176,7 @@ beforeAll(async () => {
   vi.stubEnv('AGENT_LOCAL', 'true');
   vi.stubEnv('DB_CLIENT', 'sqlite');
   vi.stubEnv('RHYTHM_AGENT_BRIDGE_REGISTRAR_SHA256', sha256(registrarSecret));
-  fixtureRoot = await fs.mkdtemp('/private/tmp/rhythm-sa-mem-');
+  fixtureRoot = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'rhythm-sa-mem-')));
   vaultRoot = path.join(fixtureRoot, 'vault');
   retiredVaultRoot = path.join(fixtureRoot, 'retired-vault');
   await fs.mkdir(vaultRoot, { recursive: true });

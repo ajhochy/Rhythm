@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 import http from 'node:http';
+import { realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 import Database from 'better-sqlite3';
 import express from 'express';
@@ -20,7 +22,7 @@ import { OpencodeEventHub } from '../services/opencode_event_hub';
 import { logger } from '../utils/logger';
 
 let nextHarnessPort = 7431;
-const PROJECT = { id: 'project-1374', root: '/private/tmp' };
+const PROJECT = { id: 'project-1374', root: realpathSync(tmpdir()) };
 const SESSION_ID = 'ses_remote_1374';
 const DEVICE_TOKEN = 'desktop-device-token-synthetic';
 
