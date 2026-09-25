@@ -94,7 +94,7 @@ describe('MessagesScreen', () => {
     mounted.unmount();
   });
 
-  it('opens a thread, marks it read, and shows the transcript and participants', async () => {
+  it('opens a thread without changing unread state and shows the transcript and participants', async () => {
     const messagesGateway = fixtureMessagesGateway();
     const mounted = mountMessages({ messages: messagesGateway });
     await flush();
@@ -103,7 +103,7 @@ describe('MessagesScreen', () => {
     expect(mounted.byTestId('messages-subject')?.textContent).toContain('Weekend Team');
     expect(mounted.byTestId('messages-transcript')?.textContent).toContain('Final volunteer positions are ready.');
     const threads = await messagesGateway.list();
-    expect(threads.find((thread) => thread.id === 'thread-weekend-team')?.unreadCount).toBe(0);
+    expect(threads.find((thread) => thread.id === 'thread-weekend-team')?.unreadCount).toBe(1);
     mounted.unmount();
   });
 
@@ -140,7 +140,7 @@ describe('MessagesScreen', () => {
     await flush();
     await actClick(mounted.byTestId('messages-thread-thread-budget-review')!);
     await flush();
-    const trigger = mounted.byTestId('messages-thread-actions-thread-budget-review') as HTMLButtonElement;
+    const trigger = mounted.byTestId('messages-selected-thread-actions') as HTMLButtonElement;
     trigger.focus();
     await actClick(trigger);
     await flush();
@@ -158,7 +158,9 @@ describe('MessagesScreen', () => {
   it('closes the thread action menu on Escape and restores focus to the trigger', async () => {
     const mounted = mountMessages();
     await flush();
-    const trigger = mounted.byTestId('messages-thread-actions-thread-weekend-team') as HTMLButtonElement;
+    await actClick(mounted.byTestId('messages-thread-thread-weekend-team')!);
+    await flush();
+    const trigger = mounted.byTestId('messages-selected-thread-actions') as HTMLButtonElement;
     trigger.focus();
     await actClick(trigger);
     await flush();
@@ -173,7 +175,9 @@ describe('MessagesScreen', () => {
     const messagesGateway = fixtureMessagesGateway();
     const mounted = mountMessages({ messages: messagesGateway });
     await flush();
-    const trigger = mounted.byTestId('messages-thread-actions-thread-weekend-team') as HTMLButtonElement;
+    await actClick(mounted.byTestId('messages-thread-thread-weekend-team')!);
+    await flush();
+    const trigger = mounted.byTestId('messages-selected-thread-actions') as HTMLButtonElement;
     trigger.focus();
     await actClick(trigger);
     await flush();
@@ -197,7 +201,9 @@ describe('MessagesScreen', () => {
   it('restores focus to the explicit action trigger when Escape closes Rename after its menu unmounts', async () => {
     const mounted = mountMessages();
     await flush();
-    const trigger = mounted.byTestId('messages-thread-actions-thread-weekend-team') as HTMLButtonElement;
+    await actClick(mounted.byTestId('messages-thread-thread-weekend-team')!);
+    await flush();
+    const trigger = mounted.byTestId('messages-selected-thread-actions') as HTMLButtonElement;
     await actClick(trigger);
     await flush();
     await actClick(mounted.byTestId('messages-thread-rename-thread-weekend-team')!);
@@ -215,7 +221,7 @@ describe('MessagesScreen', () => {
     await flush();
     await actClick(mounted.byTestId('messages-thread-thread-budget-review')!);
     await flush();
-    const trigger = mounted.byTestId('messages-thread-actions-thread-budget-review') as HTMLButtonElement;
+    const trigger = mounted.byTestId('messages-selected-thread-actions') as HTMLButtonElement;
     trigger.focus();
     await actClick(trigger);
     await flush();

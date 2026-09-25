@@ -165,7 +165,7 @@ describe('ProjectsScreen', () => {
     ['projects.create-instance', 'project-start', 'project-template-new'],
     ['projects.create-milestone', 'project-milestone-add', 'project-step-complete-step-final-run-sheet'],
     ['projects.create-step', 'project-template-step-add', 'project-template-new'],
-    ['projects.update-template-step', 'project-template-step-edit-template-step-volunteer-plan', 'project-step-complete-step-final-run-sheet'],
+    ['projects.update-template-step', 'project-template-step-edit-template-step-volunteer-plan', 'project-template-step-add'],
     ['projects.delete-step', 'project-template-step-delete-template-step-volunteer-plan', 'project-template-step-add'],
   ] as const)('enables only the named narrow project family control for %s', async (capability, enabledId, disabledId) => {
     const mounted = mountProjects({}, { currentUser: { id: 'workspace-user-1', displayName: 'Hermes', initials: 'H', capabilities: capability.includes('step') ? [capability, 'projects.update-template'] : [capability] } });
@@ -173,6 +173,8 @@ describe('ProjectsScreen', () => {
     await actClick(mounted.byTestId('project-instance-expand-instance-sunday-service-2026-08-16')!);
     await flush();
     if (capability.includes('step')) {
+      await actClick(mounted.byTestId('project-template-select-template-sunday-service')!);
+      await flush();
       await actClick(mounted.byTestId('project-template-edit-template-sunday-service')!);
       await flush();
     }
@@ -204,6 +206,8 @@ describe('ProjectsScreen', () => {
     resolveConfirmation(true);
     await flush();
     expect(updateStep).not.toHaveBeenCalled();
+    await actClick(mounted.byTestId('project-instance-expand-instance-sunday-service-2026-08-16')!);
+    await flush();
     await actClick(mounted.byTestId('project-step-complete-step-final-run-sheet')!);
     await actClick(mounted.byTestId('project-operation-confirm')!);
     resolveConfirmation(true);
@@ -392,6 +396,8 @@ describe('ProjectsScreen', () => {
     const projectsGateway = fixtureProjectsGateway();
     const confirmWorkspaceOperation = vi.fn(async () => true);
     const mounted = mountProjects({ projects: projectsGateway }, { confirmWorkspaceOperation });
+    await flush();
+    await actClick(mounted.byTestId('project-template-select-template-empty')!);
     await flush();
     await actClick(mounted.byTestId('project-template-edit-template-empty')!);
     await flush();

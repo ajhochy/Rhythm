@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useRhythmDomainGateway, useRhythmHost } from '../context';
 import { ScreenRoot } from './ScreenRoot';
 import { FocusDialog } from '../components/FocusDialog';
+import { ListInspector, type ListInspectorItem } from '../components/ListInspector';
 import { RhythmGatewayError, type RhythmProject, type RhythmProjectStep, type RhythmProjectTemplate, type RhythmProjectTemplateStep, type RhythmWorkspaceMember } from '../domain/types';
 import type { RhythmWorkspaceOperationConfirmation } from '../host/types';
 
@@ -40,6 +41,7 @@ export function ProjectsScreen() {
   const capabilities = host.currentUser.capabilities ?? [];
   const can = (operation: ProjectOperation) => capabilities.includes('projects.write') || capabilities.includes(operation);
   const isOwner = (ownerId: string) => Boolean(host.currentUser.id && host.currentUser.id === ownerId);
+  const identityKey = host.currentUser.id ?? host.currentUser.displayName;
   const [surfaceState, setSurfaceState] = useState<ProjectsSurfaceState>('loading');
   const [templates, setTemplates] = useState<RhythmProjectTemplate[]>([]);
   const [instances, setInstances] = useState<RhythmProject[]>([]);
@@ -84,12 +86,25 @@ export function ProjectsScreen() {
     }
   };
 
-  useEffect(() => { void load(); return () => { loadGeneration.current += 1; }; }, [gateway]);
+  useEffect(() => {
+    setSelectedTemplateId(null);
+    setSelectedInstanceId(null);
+    setInspector(null);
+    setInspectorDraft(null);
+    setStartOpen(false);
+    setMilestoneOpen(false);
+    setInstanceDelete(null);
+    setTemplateEditor(null);
+    setTemplateStepEditor(null);
+    closeOperation();
+    void load();
+    return () => { loadGeneration.current += 1; };
+  }, [gateway, identityKey]);
   useEffect(() => () => { mounted.current = false; operationEpoch.current += 1; }, []);
 
   const showsWorkspace = surfaceState === 'ready';
   const visibleInstances = useMemo(() => instances.filter((instance) => showCompleted || derivedStatus(instance) !== 'Done'), [instances, showCompleted]);
-  const selectedInstance = visibleInstances.find((instance) => instance.id === selectedInstanceId) ?? visibleInstances[0] ?? null;
+  const selectedInstance = visibleInstances.find((instance) => instance.id === selectedInstanceId) ?? null;
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) ?? templates[0] ?? null;
   const inspectorInstance = inspector ? instances.find((instance) => instance.id === inspector.instanceId) ?? null : null;
   const inspectorStep = inspector && inspectorInstance ? inspectorInstance.steps.find((step) => step.id === inspector.stepId) ?? null : null;
@@ -277,6 +292,19 @@ export function ProjectsScreen() {
     </article>
   );
 
+  const templateRowId = (id: string) => `template:${id}`;
+  const instanceRowId = (id: string) => `instance:${id}`;
+  const projectItems: ListInspectorItem[] = [
+    ...templates.map((template) => ({ id: templateRowId(template.id), title: template.name, subtitle: `${template.steps.length} steps · ${template.anchorType}`, group: 'templates', testId: `project-template-${template.id}`, testAliases: [`project-template-select-${template.id}`] })),
+    ...visibleInstances.map((instance) => ({ id: instanceRowId(instance.id), title: instance.name, subtitle: `${instance.steps.filter((step) => step.status === 'done').length}/${instance.steps.length} steps`, meta: instance.anchorDate, badge: derivedStatus(instance), badgeTestId: `project-instance-status-${instance.id}`, group: 'active-projects', testId: `project-instance-${instance.id}`, testAliases: [`project-instance-expand-${instance.id}`] })),
+  ];
+  const selectedProjectRowId = selectedInstanceId ? instanceRowId(selectedInstanceId) : selectedTemplateId ? templateRowId(selectedTemplateId) : null;
+  const selectProjectRow = (id: string) => {
+    closeOperation();
+    if (id.startsWith('template:')) { setSelectedTemplateId(id.slice('template:'.length)); setSelectedInstanceId(null); }
+    else { setSelectedInstanceId(id.slice('instance:'.length)); setSelectedTemplateId(null); }
+  };
+
   return (
     <ScreenRoot screenName="Projects" testId="rhythm-projects-screen">
       <section className="page-shell pg-projects" aria-busy={surfaceState === 'loading'}>
@@ -289,48 +317,22 @@ export function ProjectsScreen() {
           {!showsWorkspace && <StatePanel state={surfaceState} onRetry={() => void load()} />}
           {showsWorkspace && (
             <>
-              <section className="templates-rail" aria-labelledby="project-templates-title">
-                <header><h2 id="project-templates-title">Templates</h2><span>{templates.length}</span><button className="secondary-button" type="button" disabled={!can('projects.create-template')} title={!can('projects.create-template') ? 'This host grants inspection only.' : undefined} onClick={() => setTemplateEditor('new')} data-testid="project-template-new">New template</button></header>
-                <div className="template-list" role="grid" aria-label="Project templates" data-testid="project-templates-list">
-                  {templates.map((template) => (
-                    <div className="template-row" role="row" aria-selected={template.id === selectedTemplate?.id ? 'true' : 'false'} key={template.id} data-testid={`project-template-${template.id}`}>
-                      <div role="gridcell">
-                          <button className="template-select" type="button" onClick={() => { closeOperation(); setSelectedTemplateId(template.id); }} data-testid={`project-template-select-${template.id}`}>
-                          <strong>{template.name}</strong><span>{template.steps.length} steps · {template.anchorType}</span>
-                        </button>
-                        <button className="text-button" type="button" disabled={!(can('projects.update-template') || can('projects.create-step') || can('projects.update-step') || can('projects.delete-step'))} onClick={() => setTemplateEditor(template)} data-testid={`project-template-edit-${template.id}`}>Edit</button>
-                        <button className="text-danger-button" type="button" disabled={!can('projects.delete-template')} onClick={() => void deleteTemplate(template)} data-testid={`project-template-delete-${template.id}`}>Delete</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                {selectedTemplate && (
-                  <button className="primary-button" type="button" disabled={!can('projects.create-instance')} title={!can('projects.create-instance') ? 'This host grants inspection only.' : undefined} onClick={() => setStartOpen(true)} data-testid="project-start">Start Project</button>
-                )}
-              </section>
-
-              <section className="active-projects" aria-labelledby="active-projects-title">
-                <header className="active-toolbar">
-                  <h2 id="active-projects-title">Active projects</h2>
+              <span className="sr-only" data-testid="project-templates-list">{templates.length} templates</span>
+              <ListInspector
+                label="Projects"
+                groups={[{ id: 'templates', label: 'Templates' }, { id: 'active-projects', label: 'Active projects' }]}
+                items={projectItems}
+                selectedId={selectedProjectRowId}
+                onSelect={selectProjectRow}
+                identityKey={identityKey}
+                toolbar={<>
+                  <button className="secondary-button" type="button" disabled={!can('projects.create-template')} title={!can('projects.create-template') ? 'This host grants inspection only.' : undefined} onClick={() => setTemplateEditor('new')} data-testid="project-template-new">New template</button>
+                  <button className="primary-button" type="button" disabled={!selectedTemplate || !can('projects.create-instance')} title={!can('projects.create-instance') ? 'This host grants inspection only.' : undefined} onClick={() => setStartOpen(true)} data-testid="project-start">Start Project</button>
                   <button className="secondary-button" type="button" aria-pressed={showCompleted} onClick={() => setShowCompleted((value) => !value)} data-testid="projects-show-completed">{showCompleted ? 'Hide completed' : 'Show completed'}</button>
-                </header>
-                <div className="project-board">
-                  <section className="project-list-pane" aria-label="Active project list">
-                    <div className="instance-list">
-                      {visibleInstances.map((instance) => (
-                        <article className={`instance-row${selectedInstance?.id === instance.id ? ' selected' : ''}`} key={instance.id} data-testid={`project-instance-${instance.id}`}>
-                          <button className="instance-expand" type="button" aria-pressed={selectedInstance?.id === instance.id} onClick={() => { closeOperation(); setSelectedInstanceId(instance.id); }} data-testid={`project-instance-expand-${instance.id}`}>
-                            <span className="instance-date">{instance.anchorDate}</span>
-                            <span className="instance-row-copy"><strong>{instance.name}</strong><small>{instance.steps.filter((step) => step.status === 'done').length}/{instance.steps.length} steps</small></span>
-                            <span className="status-badge" data-testid={`project-instance-status-${instance.id}`}>{derivedStatus(instance)}</span>
-                          </button>
-                        </article>
-                      ))}
-                      {visibleInstances.length === 0 && <p className="inline-empty" data-testid="projects-no-active">No active projects yet. Start one from a template above.</p>}
-                    </div>
-                  </section>
-
-                  {selectedInstance ? (
+                </>}
+                listFooter={visibleInstances.length === 0 ? <p className="inline-empty" data-testid="projects-no-active">No active projects yet. Start one from a template above.</p> : undefined}
+                emptySelection={<aside className="project-inspector empty" aria-label="Selected project" data-testid="project-inspector"><h3>Select a template or project</h3><p>Project details, people, milestones, and steps appear here.</p></aside>}
+                inspector={() => selectedInstance ? (
                     <aside className="project-inspector" aria-label="Selected project" data-testid="project-inspector">
                       <header className="project-inspector-header">
                         <div><h2>{selectedInstance.name}</h2><p>{selectedInstance.anchorDate} · {derivedStatus(selectedInstance)}</p></div>
@@ -367,11 +369,15 @@ export function ProjectsScreen() {
                         </section>
                       </div>
                     </aside>
-                  ) : (
-                    <aside className="project-inspector empty" aria-label="Selected project" data-testid="project-inspector"><h2>Select a project</h2><p>Project details, people, milestones, and steps appear here.</p></aside>
-                  )}
-                </div>
-              </section>
+                  ) : selectedTemplate ? (
+                    <section className="template-detail" data-testid="project-template-inspector">
+                      <header><div><h3>{selectedTemplate.name}</h3><p>{selectedTemplate.description}</p><span>{selectedTemplate.steps.length} steps · {selectedTemplate.anchorType}</span></div><div className="row-actions">
+                        <button className="text-button" type="button" disabled={!(can('projects.update-template') || can('projects.create-step') || can('projects.update-step') || can('projects.delete-step'))} onClick={() => setTemplateEditor(selectedTemplate)} data-testid={`project-template-edit-${selectedTemplate.id}`}>Edit</button>
+                        <button className="text-danger-button" type="button" disabled={!can('projects.delete-template')} onClick={() => void deleteTemplate(selectedTemplate)} data-testid={`project-template-delete-${selectedTemplate.id}`}>Delete</button>
+                      </div></header>
+                    </section>
+                  ) : null}
+              />
             </>
           )}
         </div>

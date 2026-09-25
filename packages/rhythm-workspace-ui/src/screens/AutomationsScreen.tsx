@@ -3,11 +3,12 @@
 // and resync ports retain a useful fallback view when a consuming host does not expose the live
 // operations. Async responses are generation-scoped so a closed/reopened preview cannot render
 // stale details.
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useRhythmDomainGateway, useRhythmHost } from '../context';
 import { ScreenRoot } from './ScreenRoot';
 import { Icon } from '../components/Icon';
 import { FocusDialog } from '../components/FocusDialog';
+import { ListInspector, type ListInspectorItem } from '../components/ListInspector';
 import {
   RhythmGatewayError,
   type AutomationCatalog,
@@ -215,40 +216,10 @@ function BuilderDialog({ open, editing, catalog, canMutate, onClose, onSubmit }:
   );
 }
 
-function AutomationRuleRow({ rule, onSelect, onToggle, onPreview, onEdit, onDelete, canMutate, canWrite }: {
-  rule: RhythmAutomation;
-  onSelect(): void;
-  onToggle(enabled: boolean): void;
-  onPreview(): void;
-  onEdit(): void;
-  onDelete(): void;
-  canMutate: boolean;
-  canWrite: boolean;
-}) {
-  const labelId = useId();
-  return (
-    <section className="automation-rule" data-testid={`automation-rule-${rule.id}`}>
-      <button className="rule-select" type="button" onClick={onSelect} data-testid={`automation-select-${rule.id}`}>
-        <span className="rule-title-line"><strong>{rule.name}</strong><span className={`rule-status ${rule.enabled ? 'active' : ''}`}>{rule.enabled ? 'Enabled' : 'Paused'}</span></span>
-        <small>{rule.triggerLabel} → {rule.actionLabel}</small>
-        <em>{rule.accountLabel}</em>
-      </button>
-      <div className="rule-actions">
-        <label className="automation-toggle">
-          <span className="sr-only" id={labelId}>{rule.enabled ? 'Disable' : 'Enable'} {rule.name}</span>
-          <input type="checkbox" disabled={!canWrite} checked={rule.enabled} aria-labelledby={labelId} onChange={(event) => onToggle(event.target.checked)} data-testid={`automation-toggle-${rule.id}`} />
-        </label>
-        <button className="secondary-button" type="button" disabled={!canWrite} onClick={onEdit} data-testid={`automation-edit-${rule.id}`}>Edit</button>
-        <button className="icon-button danger-control" type="button" disabled={!canMutate} aria-label={`Delete ${rule.name}`} onClick={onDelete} data-testid={`automation-delete-${rule.id}`}><Icon name="delete" size={15} /></button>
-      </div>
-      <button className="rule-inspect" type="button" onClick={onPreview} data-testid={`automation-preview-${rule.id}`}><Icon name="search" size={14} />Preview history</button>
-    </section>
-  );
-}
-
 export function AutomationsScreen() {
   const { automations: gateway } = useRhythmDomainGateway();
   const host = useRhythmHost();
+  const identityKey = host.currentUser.id ?? host.currentUser.displayName;
   const [surfaceState, setSurfaceState] = useState<SurfaceState>('loading');
   const [rules, setRules] = useState<RhythmAutomation[]>([]);
   const [selectedRuleId, setSelectedRuleId] = useState<string | null>(null);
@@ -289,20 +260,35 @@ export function AutomationsScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     mountedRef.current = true;
+    setSelectedRuleId(null);
+    setBuilderOpen(false);
+    setEditingRule(null);
+    setPreviewRuleId(null);
+    setDeleteTarget(null);
     void load();
     return () => { mountedRef.current = false; listGeneration.current += 1; previewGeneration.current += 1; };
-  }, [gateway]);
+  }, [gateway, identityKey]);
   useEffect(() => {
     if (!gateway.catalog) return;
     let active = true;
     void gateway.catalog().then((loaded) => { if (active) { setCatalog(loaded); setCatalogStatus(loaded.providers.some((provider) => provider.status === 'stale') ? 'A provider catalog is stale; reconnect or resync before changing dependent rules.' : ''); } }).catch(() => { if (active) setCatalogStatus('Catalog unavailable. Existing rules remain available to inspect.'); });
     return () => { active = false; };
-  }, [gateway]);
+  }, [gateway, identityKey]);
 
   const showsRules = surfaceState === 'ready';
   const groupedRules = sourceOrder.map((source) => ({ source, rules: rules.filter((rule) => rule.source === source) })).filter((group) => group.rules.length);
   const enabledCount = rules.filter((rule) => rule.enabled).length;
   const inspectorRule = rules.find((rule) => rule.id === selectedRuleId) ?? null;
+  const inspectorItems: ListInspectorItem[] = rules.map((rule) => ({
+    id: rule.id,
+    title: rule.name,
+    subtitle: `${rule.triggerLabel} → ${rule.actionLabel}`,
+    meta: rule.accountLabel,
+    badge: rule.enabled ? 'Enabled' : 'Paused',
+    group: rule.source,
+    testId: `automation-rule-${rule.id}`,
+    testAliases: [`automation-select-${rule.id}`],
+  }));
   const previewRule = rules.find((rule) => rule.id === previewRuleId) ?? null;
   const providerReady = (source: AutomationSource) => {
     const provider = catalog.providers.find((item) => item.source === source);
@@ -418,31 +404,17 @@ export function AutomationsScreen() {
             </section>
 
             <div className="automation-workspace" aria-label="Automation rules and inspector">
-              <div className="automation-groups" tabIndex={0} aria-label="Automation rule groups">
-                {groupedRules.map((group) => (
-                  <section className="automation-group" key={group.source} data-testid={`automation-group-${group.source}`} aria-labelledby={`automation-group-${group.source}-title`}>
-                    <header><h2 id={`automation-group-${group.source}-title`}>{sourceLabels[group.source]}</h2><span>{group.rules.length} {group.rules.length === 1 ? 'rule' : 'rules'}</span></header>
-                    <div className="automation-rule-list">
-                      {group.rules.map((rule) => (
-                        <AutomationRuleRow
-                          key={rule.id}
-                          rule={rule}
-                          onSelect={() => setSelectedRuleId(rule.id)}
-                          onToggle={(enabled) => void toggleRule(rule, enabled)}
-                          onPreview={() => openPreview(rule)}
-                          onEdit={() => openBuilder(rule)}
-                          onDelete={() => setDeleteTarget(rule)}
-                          canMutate={canMutate}
-                          canWrite={canMutate && providerReady(rule.source)}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                ))}
-              </div>
-
-              <aside className="automation-inspector" aria-label="Automation inspector" data-testid="automation-inspector">
-                {inspectorRule ? (
+              {groupedRules.map((group) => <span className="sr-only" key={group.source} data-testid={`automation-group-${group.source}`}>{sourceLabels[group.source]}</span>)}
+              <ListInspector
+                label="Automations"
+                items={inspectorItems}
+                groups={sourceOrder.map((source) => ({ id: source, label: sourceLabels[source] }))}
+                selectedId={selectedRuleId}
+                onSelect={setSelectedRuleId}
+                identityKey={identityKey}
+                emptySelection={<div className="automation-inspector-empty"><strong>Select an automation</strong><p>Choose a rule to inspect its trigger, action, account, and latest match evidence.</p></div>}
+                inspector={() => inspectorRule ? (
+                  <aside className="automation-inspector" aria-label="Automation inspector" data-testid="automation-inspector">
                   <div className="automation-inspector-content">
                     <header><span>{sourceLabels[inspectorRule.source]}</span><h2>{inspectorRule.name}</h2><p>{inspectorRule.previewSummary}</p></header>
                     <dl>
@@ -455,13 +427,18 @@ export function AutomationsScreen() {
                       <div><dt>Last matched</dt><dd>{dateTimeLabel(inspectorRule.lastMatchedAt)}</dd></div>
                     </dl>
                     {catalog.providers.find((provider) => provider.source === inspectorRule.source)?.status === 'stale' && <p role="alert" data-testid="automation-provider-stale">This provider is stale. Reconnect it before depending on new matches.</p>}
+                    <div className="row-actions">
+                      <label className="automation-toggle"><span className="sr-only">{inspectorRule.enabled ? 'Disable' : 'Enable'} {inspectorRule.name}</span><input type="checkbox" disabled={!canMutate || !providerReady(inspectorRule.source)} checked={inspectorRule.enabled} onChange={(event) => void toggleRule(inspectorRule, event.target.checked)} data-testid={`automation-toggle-${inspectorRule.id}`} /></label>
+                      <button className="secondary-button" type="button" onClick={() => openPreview(inspectorRule)} data-testid={`automation-preview-${inspectorRule.id}`}>Preview history</button>
+                      <button className="secondary-button" type="button" disabled={!canMutate || !providerReady(inspectorRule.source)} onClick={() => openBuilder(inspectorRule)} data-testid={`automation-edit-${inspectorRule.id}`}>Edit</button>
+                      <button className="danger-button" type="button" disabled={!canMutate} onClick={() => setDeleteTarget(inspectorRule)} data-testid={`automation-delete-${inspectorRule.id}`}>Delete</button>
+                    </div>
                     {gateway.resync && <button className="secondary-button" type="button" disabled={!canMutate || mutationPending || resyncPending} onClick={() => void resyncRule(inspectorRule)} data-testid="automation-resync">Resync rule</button>}
                     {resyncStatus && <p role="status" aria-live="polite" data-testid="automation-resync-status">{resyncStatus}</p>}
                   </div>
-                ) : (
-                  <div className="automation-inspector-empty"><strong>Select an automation</strong><p>Choose a rule to inspect its trigger, action, account, and latest match evidence.</p></div>
-                )}
-              </aside>
+                  </aside>
+                ) : null}
+              />
             </div>
           </>
         )}

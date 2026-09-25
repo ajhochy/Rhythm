@@ -33,6 +33,9 @@ describe('issue #4 operations corrective contract', () => {
     expect(facilities.byTestId('facilities-read-only')?.getAttribute('role')).toBe('status');
     expect((facilities.byTestId('facilities-reserve-space') as HTMLButtonElement).disabled).toBe(true);
     await actClick(facilities.byTestId('facilities-mode-rooms')!);
+    await flush();
+    await actClick(facilities.byTestId('facility-room-open-101')!);
+    await flush();
     for (const id of ['facility-room-reserve-101', 'facility-automation-manage', 'facility-add-space']) {
       const control = facilities.byTestId(id) as HTMLButtonElement;
       expect(control.matches(':disabled'), id).toBe(true);
@@ -43,6 +46,8 @@ describe('issue #4 operations corrective contract', () => {
     await flush();
     expect(automations.byTestId('automations-read-only')).toBeTruthy();
     expect((automations.byTestId('automations-new') as HTMLButtonElement).disabled).toBe(true);
+    await actClick(automations.byTestId('automation-select-rule-rhythm-due-reminder')!);
+    await flush();
     for (const id of ['automation-toggle-rule-rhythm-due-reminder', 'automation-edit-rule-rhythm-due-reminder', 'automation-delete-rule-rhythm-due-reminder']) expect((automations.byTestId(id) as HTMLButtonElement).disabled, id).toBe(true);
     automations.unmount();
     const integrations = wrap(createElement(IntegrationsScreen), gateway);
@@ -190,7 +195,7 @@ describe('issue #4 operations corrective contract', () => {
     facilities.deleteGroup = vi.fn(async () => ({ deletedCount: 3 }));
     const host = { ...readonlyHost, currentUser: { ...readonlyHost.currentUser, id: 'manager', capabilities: ['facilities.manage'] as const } };
     const mounted = mount(createElement(RhythmWorkspaceProvider, { gateway: { ...fixtureDomainGateway(), facilities }, host, children: createElement(FacilitiesScreen) }));
-    await flush(); await actClick(mounted.byTestId('facility-reservation-menu-group-a')!); await actClick(mounted.byTestId('facility-reservation-menu-edit-group-a')!); await flush();
+    await flush(); await actClick(mounted.byTestId('facility-reservation-open-group-a')!); await flush(); await actClick(mounted.byTestId('facility-reservation-menu-group-a')!); await actClick(mounted.byTestId('facility-reservation-menu-edit-group-a')!); await flush();
     await actSetValue(mounted.byTestId('facility-form-requester') as HTMLInputElement, 'Updated requester'); await actClick(mounted.byTestId('facility-form-submit')!); await flush(); await actClick(mounted.byTestId('facility-operation-confirm')!); await flush();
     expect(facilities.updateGroup).toHaveBeenCalledWith('linked-team', expect.objectContaining({ requesterName: 'Updated requester' }));
     await actClick(mounted.byTestId('facility-reservation-open-group-a')!); await actClick(mounted.byTestId('facility-inspector-delete')!); await actClick(mounted.byTestId('facility-group-delete-confirm')!); await flush(); await actClick(mounted.byTestId('facility-operation-confirm')!); await flush();
@@ -206,10 +211,10 @@ describe('issue #4 operations corrective contract', () => {
     ];
     const host = { ...readonlyHost, currentUser: { ...readonlyHost.currentUser, id: 'creator', capabilities: ['facilities.reserve'] as const } };
     const mounted = mount(createElement(RhythmWorkspaceProvider, { gateway: { ...fixtureDomainGateway(), facilities }, host, children: createElement(FacilitiesScreen) }));
-    await flush(); await actClick(mounted.byTestId('facility-reservation-menu-own-group')!);
+    await flush(); await actClick(mounted.byTestId('facility-reservation-open-own-group')!); await flush(); await actClick(mounted.byTestId('facility-reservation-menu-own-group')!);
     expect((mounted.byTestId('facility-reservation-menu-edit-own-group') as HTMLButtonElement).disabled).toBe(false);
     expect((mounted.byTestId('facility-reservation-menu-delete-own-group') as HTMLButtonElement).disabled).toBe(false);
-    await actClick(mounted.byTestId('facility-reservation-menu-other-group')!);
+    await actClick(mounted.byTestId('facility-reservation-open-other-group')!); await flush(); await actClick(mounted.byTestId('facility-reservation-menu-other-group')!);
     expect((mounted.byTestId('facility-reservation-menu-edit-other-group') as HTMLButtonElement).disabled).toBe(true);
     expect((mounted.byTestId('facility-reservation-menu-delete-other-group') as HTMLButtonElement).disabled).toBe(true);
     mounted.unmount();
@@ -232,7 +237,7 @@ describe('issue #4 operations corrective contract', () => {
     await actSetValue(mounted.byTestId('automation-source') as HTMLSelectElement, 'rhythm'); await flush();
     await actClick(mounted.byTestId('automation-builder-submit')!); await flush();
     expect((await automations.list()).some((rule) => rule.source === 'rhythm')).toBe(true);
-    await actClick(mounted.byTestId('automation-preview-rule-rhythm-due-reminder')!); await flush();
+    await actClick(mounted.byTestId('automation-select-rule-rhythm-due-reminder')!); await flush(); await actClick(mounted.byTestId('automation-preview-rule-rhythm-due-reminder')!); await flush();
     expect(mounted.byTestId('automation-preview-summary')?.textContent).toBe('Fetched provider preview');
     await actKeyDown(document, 'Escape'); await actClick(mounted.byTestId('automation-select-rule-rhythm-due-reminder')!); await flush();
     expect(mounted.byTestId('automation-provider-stale')).toBeNull();
@@ -251,7 +256,7 @@ describe('issue #4 operations corrective contract', () => {
     automations.resync = vi.fn(() => new Promise<RhythmAutomation>((resolve) => { resolveResync = resolve; }));
     const host = { ...readonlyHost, currentUser: { ...readonlyHost.currentUser, capabilities: ['automations.write'] as const } };
     const mounted = mount(createElement(RhythmWorkspaceProvider, { gateway: { ...fixtureDomainGateway(), automations }, host, children: createElement(AutomationsScreen) }));
-    await flush(); await actClick(mounted.byTestId('automation-preview-rule-rhythm-due-reminder')!); await actClick(mounted.byTestId('automation-preview-close')!); await actClick(mounted.byTestId('automation-preview-rule-rhythm-due-reminder')!);
+    await flush(); await actClick(mounted.byTestId('automation-select-rule-rhythm-due-reminder')!); await flush(); await actClick(mounted.byTestId('automation-preview-rule-rhythm-due-reminder')!); await actClick(mounted.byTestId('automation-preview-close')!); await actClick(mounted.byTestId('automation-preview-rule-rhythm-due-reminder')!);
     resolveSecondPreview({ summary: 'Fresh preview', matchedAt: null, matchCount: 2 }); await flush();
     resolveFirstPreview({ summary: 'Stale preview', matchedAt: null, matchCount: 1 }); await flush();
     expect(mounted.byTestId('automation-preview-summary')?.textContent).toBe('Fresh preview');

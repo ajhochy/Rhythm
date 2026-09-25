@@ -82,6 +82,8 @@ describe('AutomationsScreen', () => {
   it('opens a preview dialog with match history for a rule', async () => {
     const mounted = mountAutomations();
     await flush();
+    await actClick(mounted.byTestId('automation-select-rule-rhythm-due-reminder')!);
+    await flush();
     await actClick(mounted.byTestId('automation-preview-rule-rhythm-due-reminder')!);
     await flush();
     const dialog = mounted.byTestId('automation-preview-dialog');
@@ -97,6 +99,8 @@ describe('AutomationsScreen', () => {
     const automationsGateway = fixtureAutomationsGateway();
     const mounted = mountAutomations({ automations: automationsGateway });
     await flush();
+    await actClick(mounted.byTestId('automation-select-rule-rhythm-due-reminder')!);
+    await flush();
     const toggle = mounted.byTestId('automation-toggle-rule-rhythm-due-reminder') as HTMLInputElement;
     expect(toggle.checked).toBe(true);
     await actClick(toggle);
@@ -109,6 +113,8 @@ describe('AutomationsScreen', () => {
   it('deletes a rule through a confirmation dialog and the gateway', async () => {
     const automationsGateway = fixtureAutomationsGateway();
     const mounted = mountAutomations({ automations: automationsGateway });
+    await flush();
+    await actClick(mounted.byTestId('automation-select-rule-pco-volunteer-decline')!);
     await flush();
     await actClick(mounted.byTestId('automation-delete-rule-pco-volunteer-decline')!);
     await flush();
@@ -162,6 +168,8 @@ describe('AutomationsScreen', () => {
   it('edits an existing rule through the builder dialog, pre-filled with its current source/trigger/action', async () => {
     const automationsGateway = fixtureAutomationsGateway();
     const mounted = mountAutomations({ automations: automationsGateway });
+    await flush();
+    await actClick(mounted.byTestId('automation-select-rule-rhythm-due-reminder')!);
     await flush();
     await actClick(mounted.byTestId('automation-edit-rule-rhythm-due-reminder')!);
     await flush();

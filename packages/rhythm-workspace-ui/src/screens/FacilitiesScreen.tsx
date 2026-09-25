@@ -10,6 +10,7 @@ import { useRhythmDomainGateway, useRhythmHost } from '../context';
 import { ScreenRoot } from './ScreenRoot';
 import { Icon } from '../components/Icon';
 import { FocusDialog } from '../components/FocusDialog';
+import { ListInspector, type ListInspectorItem } from '../components/ListInspector';
 import { RhythmGatewayError, type RhythmFacility, type RhythmReservation } from '../domain/types';
 import type { RhythmWorkspaceOperationConfirmation } from '../host/types';
 
@@ -141,6 +142,7 @@ function StatePanel({ state, onRetry }: { state: Exclude<SurfaceState, 'ready'>;
 export function FacilitiesScreen() {
   const { facilities: gateway } = useRhythmDomainGateway();
   const host = useRhythmHost();
+  const identityKey = host.currentUser.id ?? host.currentUser.displayName;
   const [surfaceState, setSurfaceState] = useState<SurfaceState>('loading');
   const [facilities, setFacilities] = useState<RhythmFacility[]>([]);
   const [reservations, setReservations] = useState<RhythmReservation[]>([]);
@@ -241,11 +243,17 @@ export function FacilitiesScreen() {
   };
 
   useEffect(() => {
+    setSelectedReservationId(null);
+    setSelectedRoomId(null);
+    setReservationDialogOpen(false);
+    setFacilityEditorOpen(false);
+    setAutomationOpen(false);
+    cancelOperation();
     void load(currentRange);
     return () => { requestGeneration.current += 1; };
   // currentRange's primitive inputs deliberately define the request generation.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gateway, rangeMode, rangeOffset]);
+  }, [gateway, rangeMode, rangeOffset, identityKey]);
 
   const showsWorkspace = surfaceState === 'ready';
 
@@ -273,6 +281,30 @@ export function FacilitiesScreen() {
     building,
     facilities: facilities.filter((facility) => facility.building === building).sort((left, right) => left.name.localeCompare(right.name)),
   })).filter((group) => group.facilities.length > 0);
+  const reservationItems: ListInspectorItem[] = visibleReservations.map((reservation) => {
+    const facility = facilities.find((item) => item.id === reservation.facilityId);
+    return {
+      id: reservation.id,
+      title: reservation.title,
+      subtitle: `${facility?.name ?? 'Unknown room'} · ${reservation.requesterName}`,
+      meta: `${displayTime(reservation.start)}–${displayTime(reservation.end)}`,
+      badge: reservation.conflicted ? 'Conflict' : reservation.seriesId ? 'Series' : reservation.groupId ? 'Group' : undefined,
+      testId: `facility-reservation-${reservation.id}`,
+      testAliases: [`facility-reservation-open-${reservation.id}`],
+    };
+  });
+  const roomItems: ListInspectorItem[] = groupedFacilities.flatMap((group) => group.facilities.map((facility) => {
+    const upcoming = reservations.filter((reservation) => reservation.facilityId === facility.id && !reservation.automation).length;
+    return {
+      id: facility.id,
+      title: facility.name,
+      subtitle: facility.description,
+      badge: upcoming ? `${upcoming} upcoming` : 'Available',
+      group: group.building ?? 'unassigned',
+      testId: `facility-room-${facility.id}`,
+      testAliases: [`facility-room-open-${facility.id}`],
+    };
+  }));
 
   const clearFilters = () => {
     setRangeMode('week');
@@ -476,8 +508,15 @@ export function FacilitiesScreen() {
 
             {mode === 'overview' ? (
               <div className="facilities-split-shell">
-                <div className="facilities-list-pane">
-                  <section className="facilities-command-deck" aria-label="Schedule range and filters">
+                <ListInspector
+                  label="Reservations"
+                  items={reservationItems}
+                  selectedId={selectedReservationId}
+                  onSelect={setSelectedReservationId}
+                  identityKey={identityKey}
+                  listTestId="facilities-overview-results"
+                  toolbar={<>
+                    <section className="facilities-command-deck" aria-label="Schedule range and filters">
                     <div className="facilities-range-controls">
                       <div className="facilities-segmented" aria-label="Schedule range">
                         {(['day', 'week', 'month'] as RangeMode[]).map((range) => (
@@ -506,54 +545,18 @@ export function FacilitiesScreen() {
                         </select>
                       </label>
                     </div>
-                  </section>
-
-                  <dl className="facilities-metrics" aria-label="Reservation indicators">
+                    </section>
+                    <dl className="facilities-metrics" aria-label="Reservation indicators">
                     <div><dt>Reservations</dt><dd data-testid="facilities-metric-reservations">{visibleReservations.length}</dd></div>
                     <div><dt>Rooms in use</dt><dd data-testid="facilities-metric-rooms-in-use">{roomsInUse}</dd></div>
                     <div><dt>Setup</dt><dd data-testid="facilities-metric-setup-notes">{setupNotesCount}</dd></div>
                     <div><dt>Conflicts</dt><dd data-testid="facilities-metric-conflicts">{conflictsCount}</dd></div>
-                  </dl>
-
-                  <section className="facilities-schedule" aria-labelledby="facilities-schedule-title">
-                    <header><h2 id="facilities-schedule-title">Schedule</h2><p>{visibleReservations.length} visible reservation{visibleReservations.length === 1 ? '' : 's'}</p></header>
-                    <div className="facilities-reservation-list" data-testid="facilities-overview-results">
-                      {visibleReservations.length ? visibleReservations.map((reservation) => {
-                        const facility = facilities.find((item) => item.id === reservation.facilityId);
-                        return (
-                          <article className="facilities-reservation-row" key={reservation.id} aria-current={selectedReservationId === reservation.id ? 'true' : undefined} data-testid={`facility-reservation-${reservation.id}`}>
-                            <button className="facilities-reservation-open" type="button" onClick={() => setSelectedReservationId(reservation.id)} data-testid={`facility-reservation-open-${reservation.id}`}>
-                              <time dateTime={reservation.start}><strong>{displayTime(reservation.start)}</strong><span>{displayTime(reservation.end)}</span></time>
-                              <span className="facilities-reservation-copy"><strong>{reservation.title}</strong><small>{facility?.name} · {facility?.building ?? 'Unassigned'} · {reservation.requesterName}</small></span>
-                              <span className="facilities-badges">
-                                {reservation.seriesId && <em>Series</em>}
-                                {reservation.groupId && <em>Group</em>}
-                                {reservation.notes && <em>Setup</em>}
-                                {reservation.external && <em>External</em>}
-                                {reservation.conflicted && <em className="danger">Conflict</em>}
-                              </span>
-                            </button>
-                            <ActionMenu label={`Actions for ${reservation.title}`} testId={`facility-reservation-menu-${reservation.id}`}>
-                              <button className="menu-item" role="menuitem" type="button" disabled={!canEditReservation(reservation, reservation.groupId ? 'facilities.update-group' : 'facilities.update-reservation')} onClick={() => openReservationEditor(reservation)} data-testid={`facility-reservation-menu-edit-${reservation.id}`}>{reservation.groupId ? 'Edit linked group' : 'Edit reservation'}</button>
-                              <button className="menu-item danger-item" role="menuitem" type="button" disabled={reservation.seriesId ? !can('facilities.delete-series') : !canEditReservation(reservation, reservation.groupId ? 'facilities.delete-group' : 'facilities.delete-reservation')} onClick={() => (reservation.seriesId ? setDeleteSeriesTarget(reservation) : reservation.groupId ? setDeleteGroupTarget(reservation) : setDeleteReservationTarget(reservation))} data-testid={`facility-reservation-menu-delete-${reservation.id}`}>
-                                {reservation.seriesId ? 'Delete series' : reservation.groupId ? 'Delete linked group' : 'Delete reservation'}
-                              </button>
-                            </ActionMenu>
-                          </article>
-                        );
-                      }) : (
-                        <div className="facilities-local-empty" role="status" data-testid="facilities-no-results">
-                          <h3>No reservations in this range</h3>
-                          <p>Change the date range or clear a filter to inspect another part of the schedule.</p>
-                          <button className="secondary-button" type="button" onClick={clearFilters} data-testid="facilities-clear-filters">Reset range and filters</button>
-                        </div>
-                      )}
-                    </div>
-                  </section>
-                </div>
-
-                <aside className="facilities-inspector" aria-label="Reservation inspector" data-testid="facility-inspector">
-                  {selectedReservation ? (
+                    </dl>
+                  </>}
+                  emptyState={<div className="facilities-local-empty" role="status" data-testid="facilities-no-results"><h3>No reservations in this range</h3><p>Change the date range or clear a filter to inspect another part of the schedule.</p><button className="secondary-button" type="button" onClick={clearFilters} data-testid="facilities-clear-filters">Reset range and filters</button></div>}
+                  emptySelection={<div className="facilities-inspector-empty"><span>Select a reservation</span><p>Choose a schedule row to inspect its room, timing, requester, and setup notes.</p></div>}
+                  inspector={() => selectedReservation ? (
+                    <aside className="facilities-inspector" aria-label="Reservation inspector" data-testid="facility-inspector">
                     <section className="facilities-detail-sheet" aria-labelledby="facility-reservation-detail-title">
                       <div className="facilities-detail-heading">
                         <div>
@@ -568,15 +571,18 @@ export function FacilitiesScreen() {
                         <div className="span-all"><dt>Setup notes</dt><dd>{selectedReservation.notes || 'No setup notes'}</dd></div>
                       </dl>
                       <div className="facilities-detail-actions">
+                        <ActionMenu key={selectedReservation.id} label={`Actions for ${selectedReservation.title}`} testId={`facility-reservation-menu-${selectedReservation.id}`}>
+                          <button className="menu-item" role="menuitem" type="button" disabled={!canEditReservation(selectedReservation, selectedReservation.groupId ? 'facilities.update-group' : 'facilities.update-reservation')} onClick={() => openReservationEditor(selectedReservation)} data-testid={`facility-reservation-menu-edit-${selectedReservation.id}`}>{selectedReservation.groupId ? 'Edit linked group' : 'Edit reservation'}</button>
+                          <button className="menu-item danger-item" role="menuitem" type="button" disabled={selectedReservation.seriesId ? !can('facilities.delete-series') : !canEditReservation(selectedReservation, selectedReservation.groupId ? 'facilities.delete-group' : 'facilities.delete-reservation')} onClick={() => (selectedReservation.seriesId ? setDeleteSeriesTarget(selectedReservation) : selectedReservation.groupId ? setDeleteGroupTarget(selectedReservation) : setDeleteReservationTarget(selectedReservation))} data-testid={`facility-reservation-menu-delete-${selectedReservation.id}`}>{selectedReservation.seriesId ? 'Delete series' : selectedReservation.groupId ? 'Delete linked group' : 'Delete reservation'}</button>
+                        </ActionMenu>
                         <button className="text-danger-button" type="button" disabled={mutationPending || (selectedReservation.seriesId ? !can('facilities.delete-series') : !canEditReservation(selectedReservation, selectedReservation.groupId ? 'facilities.delete-group' : 'facilities.delete-reservation'))} onClick={() => (selectedReservation.seriesId ? setDeleteSeriesTarget(selectedReservation) : selectedReservation.groupId ? setDeleteGroupTarget(selectedReservation) : setDeleteReservationTarget(selectedReservation))} data-testid="facility-inspector-delete">
                           {selectedReservation.seriesId ? 'Delete entire series' : selectedReservation.groupId ? 'Delete linked group' : 'Delete reservation'}
                         </button>
                       </div>
                     </section>
-                  ) : (
-                    <div className="facilities-inspector-empty"><span>Select a reservation</span><p>Choose a schedule row to inspect its room, timing, requester, and setup notes.</p></div>
-                  )}
-                </aside>
+                    </aside>
+                  ) : null}
+                />
               </div>
             ) : (
               <div className="facilities-rooms">
@@ -589,32 +595,18 @@ export function FacilitiesScreen() {
                   </fieldset>
                 </div>
                 <div className="facilities-split-shell facilities-room-split">
-                  <div className="facilities-list-pane facilities-building-list" data-testid="facilities-rooms-list">
-                    {groupedFacilities.map((group) => (
-                      <section className="facilities-building" key={group.building ?? 'unassigned'} data-testid={`facility-building-${slug(group.building ?? 'unassigned')}`}>
-                        <header><h2>{group.building ?? 'Unassigned'}</h2><span>{group.facilities.length} space{group.facilities.length === 1 ? '' : 's'}</span></header>
-                        <div>
-                          {group.facilities.map((facility) => {
-                            const upcoming = reservations.filter((reservation) => reservation.facilityId === facility.id && !reservation.automation).length;
-                            return (
-                              <article className="facilities-room-row" key={facility.id} aria-current={selectedRoomId === facility.id ? 'true' : undefined} data-testid={`facility-room-${facility.id}`}>
-                                <button className="facilities-room-open" type="button" onClick={() => setSelectedRoomId(facility.id)} data-testid={`facility-room-open-${facility.id}`}>
-                                  <span className="facilities-room-copy"><strong>{facility.name}</strong><small>{facility.description}</small></span>
-                                  <span className="facilities-room-status">{upcoming ? `${upcoming} upcoming` : 'Available'}</span>
-                                </button>
-                                <button className="secondary-button" type="button" disabled={mutationPending || !canReserve} onClick={() => openReservationEditor(null, facility.id)} data-testid={`facility-room-reserve-${facility.id}`}>Reserve</button>
-                                <ActionMenu label={`Manage ${facility.name}`} testId={`facility-room-menu-${facility.id}`}>
-                                  <button className="menu-item danger-item" role="menuitem" type="button" disabled={!can('facilities.delete-facility')} onClick={() => setDeleteFacilityTarget(facility)} data-testid={`facility-room-menu-delete-${facility.id}`}>Delete room</button>
-                                </ActionMenu>
-                              </article>
-                            );
-                          })}
-                        </div>
-                      </section>
-                    ))}
-                  </div>
-                  <aside className="facilities-inspector" aria-label="Room inspector">
-                    {selectedRoom ? (
+                  {groupedFacilities.map((group) => <span className="sr-only" key={group.building ?? 'unassigned'} data-testid={`facility-building-${slug(group.building ?? 'unassigned')}`}>{group.building ?? 'Unassigned'}</span>)}
+                  <ListInspector
+                    label="Rooms"
+                    items={roomItems}
+                    groups={groupedFacilities.map((group) => ({ id: group.building ?? 'unassigned', label: group.building ?? 'Unassigned' }))}
+                    selectedId={selectedRoomId}
+                    onSelect={setSelectedRoomId}
+                    identityKey={identityKey}
+                    listTestId="facilities-rooms-list"
+                    emptySelection={<div className="facilities-inspector-empty"><span>Select a room</span><p>Choose a room to inspect its description and upcoming reservations.</p></div>}
+                    inspector={() => selectedRoom ? (
+                      <aside className="facilities-inspector" aria-label="Room inspector">
                       <section className="facilities-detail-sheet" aria-labelledby="facility-room-detail-title">
                         <div className="facilities-detail-heading"><div><span>{selectedRoom.building ?? 'Unassigned'}</span><h2 id="facility-room-detail-title">{selectedRoom.name}</h2><p>{selectedRoom.description}</p></div></div>
                         <div className="facilities-room-preview">
@@ -625,13 +617,14 @@ export function FacilitiesScreen() {
                         </div>
                         <div className="facilities-detail-actions">
                           <button className="primary-button" type="button" disabled={mutationPending || !canReserve} onClick={() => openReservationEditor(null, selectedRoom.id)} data-testid="facility-room-inspector-reserve">Reserve this room</button>
+                          <button className="secondary-button" type="button" disabled={mutationPending || !canReserve} onClick={() => openReservationEditor(null, selectedRoom.id)} data-testid={`facility-room-reserve-${selectedRoom.id}`}>Reserve</button>
                           <button className="secondary-button" type="button" disabled={mutationPending || !can('facilities.update-facility')} onClick={() => openFacilityEditor(selectedRoom)} data-testid="facility-room-inspector-edit">Edit space</button>
+                          <ActionMenu key={selectedRoom.id} label={`Manage ${selectedRoom.name}`} testId={`facility-room-menu-${selectedRoom.id}`}><button className="menu-item danger-item" role="menuitem" type="button" disabled={!can('facilities.delete-facility')} onClick={() => setDeleteFacilityTarget(selectedRoom)} data-testid={`facility-room-menu-delete-${selectedRoom.id}`}>Delete room</button></ActionMenu>
                         </div>
                       </section>
-                    ) : (
-                      <div className="facilities-inspector-empty"><span>Select a room</span><p>Choose a room to inspect its description and upcoming reservations.</p></div>
-                    )}
-                  </aside>
+                      </aside>
+                    ) : null}
+                  />
                 </div>
               </div>
             )}

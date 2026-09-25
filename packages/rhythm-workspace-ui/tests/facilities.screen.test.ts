@@ -156,6 +156,8 @@ describe('FacilitiesScreen', () => {
   it('opens the reservation action menu with roving focus and closes on Escape, restoring focus to the trigger', async () => {
     const mounted = mountFacilities();
     await flush();
+    await actClick(mounted.byTestId('facility-reservation-open-501')!);
+    await flush();
     const trigger = mounted.byTestId('facility-reservation-menu-501') as HTMLButtonElement;
     await actClick(trigger);
     await flush();
@@ -206,6 +208,8 @@ describe('FacilitiesScreen', () => {
     const facilitiesGateway = fixtureFacilitiesGateway();
     const mounted = mountFacilities({ facilities: facilitiesGateway });
     await flush();
+    await actClick(mounted.byTestId('facility-reservation-open-501')!);
+    await flush();
     await actClick(mounted.byTestId('facility-reservation-menu-501')!);
     await flush();
     await actClick(mounted.byTestId('facility-reservation-menu-edit-501')!);
@@ -225,6 +229,8 @@ describe('FacilitiesScreen', () => {
     const facilitiesGateway = fixtureFacilitiesGateway();
     const mounted = mountFacilities({ facilities: facilitiesGateway });
     await flush();
+    await actClick(mounted.byTestId('facility-reservation-open-502')!);
+    await flush();
     await actClick(mounted.byTestId('facility-reservation-menu-502')!);
     await flush();
     await actClick(mounted.byTestId('facility-reservation-menu-delete-502')!);
@@ -241,6 +247,8 @@ describe('FacilitiesScreen', () => {
   it('deletes an entire recurring series (every occurrence sharing the seriesId) through the gateway', async () => {
     const facilitiesGateway = fixtureFacilitiesGateway();
     const mounted = mountFacilities({ facilities: facilitiesGateway });
+    await flush();
+    await actClick(mounted.byTestId('facility-reservation-open-503')!);
     await flush();
     await actClick(mounted.byTestId('facility-reservation-menu-503')!);
     await flush();
@@ -309,6 +317,8 @@ describe('FacilitiesScreen', () => {
     const mounted = mountFacilities({ facilities: facilitiesGateway });
     await flush();
     await actClick(mounted.byTestId('facilities-mode-rooms')!);
+    await flush();
+    await actClick(mounted.byTestId('facility-room-open-103')!);
     await flush();
     await actClick(mounted.byTestId('facility-room-menu-103')!);
     await flush();

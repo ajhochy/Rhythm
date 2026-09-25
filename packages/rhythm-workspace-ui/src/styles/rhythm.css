@@ -8,6 +8,7 @@
 @import './screens/dashboard.css';
 /* This is the supported public stylesheet exported as ./styles.css. */
 @import './collaboration.css';
+@import './list-inspector.css';
 @import './operations.css';
 
 .rhythm-workspace-root {

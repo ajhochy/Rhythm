@@ -99,3 +99,7 @@ export { TaskCreateForm } from './components/TaskCreateForm';
 export type { TaskCreateMember } from './components/TaskCreateForm';
 export { quickActionPresets } from './components/quickActions';
 export type { QuickActionPresetId, QuickActionPreset } from './components/quickActions';
+export { ListInspector } from './components/ListInspector';
+export type { ListInspectorItem, ListInspectorProps } from './components/ListInspector';
+export { Splitter } from './components/Splitter';
+export type { SplitterOrientation, SplitterProps, SplitterResizeEdge } from './components/Splitter';

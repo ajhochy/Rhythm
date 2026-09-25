@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRhythmDomainGateway, useRhythmHost } from '../context';
 import { ScreenRoot } from './ScreenRoot';
 import { FocusDialog } from '../components/FocusDialog';
+import { ListInspector, type ListInspectorItem } from '../components/ListInspector';
 import { RhythmGatewayError, type IntegrationProviderId, type RhythmCalendarSource, type RhythmGmailSignal, type RhythmIntegrationAccount } from '../domain/types';
 
 type SurfaceState = 'loading' | 'ready' | 'empty' | 'forbidden' | 'unavailable' | 'server_error';
@@ -49,6 +50,7 @@ function StatePanel({ state, onRetry, onConnect }: { state: Exclude<SurfaceState
 export function IntegrationsScreen() {
   const { integrations: gateway } = useRhythmDomainGateway();
   const host = useRhythmHost();
+  const identityKey = host.currentUser.id ?? host.currentUser.displayName;
   const [surfaceState, setSurfaceState] = useState<SurfaceState>('loading');
   const [accounts, setAccounts] = useState<RhythmIntegrationAccount[]>([]);
   const [calendarSources, setCalendarSources] = useState<RhythmCalendarSource[]>([]);
@@ -65,6 +67,7 @@ export function IntegrationsScreen() {
   const [mutationPending, setMutationPending] = useState(false);
   const canMutate = host.currentUser.capabilities?.includes('integrations.write') ?? false;
   const mountedRef = useRef(true);
+  const loadGeneration = useRef(0);
 
   const account = (id: IntegrationProviderId) => accounts.find((item) => item.id === id) ?? { id, name: PROVIDER_NAMES[id], monogram: '', status: 'disconnected' as const };
   const connectedCount = accounts.filter((item) => item.status === 'connected').length;
@@ -75,26 +78,40 @@ export function IntegrationsScreen() {
   };
 
   const load = async () => {
+    const generation = ++loadGeneration.current;
     setSurfaceState('loading');
     try {
       const [loadedAccounts, loadedCalendarSources] = await Promise.all([gateway.accounts(), gateway.calendarSources()]);
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || generation !== loadGeneration.current) return;
       setAccounts(loadedAccounts);
       setCalendarSources(loadedCalendarSources);
       setCalendarSelection(loadedCalendarSources.filter((source) => source.selected).map((source) => source.id));
       setSurfaceState(loadedAccounts.every((item) => item.status === 'disconnected') ? 'empty' : 'ready');
     } catch (error) {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || generation !== loadGeneration.current) return;
       handleError(error);
     }
   };
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { mountedRef.current = true; void load(); return () => { mountedRef.current = false; }; }, [gateway]);
+  useEffect(() => {
+    mountedRef.current = true;
+    setSelectedSection('google-calendar');
+    setCalendarSaveStatus('');
+    setCalendarSelection([]);
+    setGmailSignals([]);
+    setProviderStatus({});
+    setSyncAllStatus('');
+    setHandoff(null);
+    setDisconnectTarget(null);
+    void load();
+    return () => { mountedRef.current = false; loadGeneration.current += 1; };
+  }, [gateway, identityKey]);
 
   useEffect(() => {
     if (selectedSection === 'gmail' && account('gmail').status === 'connected' && !gmailSignals.length) {
-      void gateway.gmailSignals().then((signals) => { if (mountedRef.current) setGmailSignals(signals); }).catch(() => { if (mountedRef.current) setProviderStatus((current) => ({ ...current, gmail: 'Gmail signals could not load. Retry syncing Gmail.' })); });
+      const generation = loadGeneration.current;
+      void gateway.gmailSignals().then((signals) => { if (mountedRef.current && generation === loadGeneration.current) setGmailSignals(signals); }).catch(() => { if (mountedRef.current && generation === loadGeneration.current) setProviderStatus((current) => ({ ...current, gmail: 'Gmail signals could not load. Retry syncing Gmail.' })); });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSection, accounts]);
@@ -182,6 +199,13 @@ export function IntegrationsScreen() {
   const calendar = account('google-calendar');
   const gmail = account('gmail');
   const planningCenter = account('planning-center');
+  const integrationItems: ListInspectorItem[] = [
+    ...PROVIDER_IDS.map((id) => {
+      const item = account(id);
+      return { id, title: item.name, subtitle: item.identity ?? 'No account identity available', badge: statusLabel(item), testId: `integration-${id}`, testAliases: [`integration-select-${id}`] };
+    }),
+    { id: 'assistant-tools', title: 'Assistant access', subtitle: 'Full Google Calendar and Gmail access for agent actions.', testId: 'integration-assistant-tools', testAliases: ['integration-select-assistant-tools'] },
+  ];
 
   return (
     <ScreenRoot screenName="Integrations" testId="rhythm-integrations-screen">
@@ -197,36 +221,26 @@ export function IntegrationsScreen() {
 
         {showsWorkspace && (
           <div className="integrations-workspace">
-            <div className="integrations-provider-list" aria-label="Providers">
-              {PROVIDER_IDS.map((id) => {
+            {PROVIDER_IDS.map((id) => <span className="sr-only" key={id} data-testid={`integration-status-${id}`}>{statusLabel(account(id))}</span>)}
+            <ListInspector
+              label="Providers"
+              items={integrationItems}
+              selectedId={selectedSection}
+              onSelect={(id) => setSelectedSection(id as Section)}
+              identityKey={identityKey}
+              inspector={() => <aside className="integrations-provider-inspector" aria-label="Provider inspector" data-testid="integration-inspector">
+              {selectedSection !== 'assistant-tools' && (() => {
+                const id = selectedSection as IntegrationProviderId;
                 const item = account(id);
-                return (
-                  <section className="integrations-provider-row" key={id} aria-current={selectedSection === id ? 'true' : undefined} data-testid={`integration-${id}`}>
-                    <button className="integrations-provider-select" type="button" onClick={() => setSelectedSection(id)} data-testid={`integration-select-${id}`}>
-                      <span><strong>{item.name}</strong><small>{item.identity ?? 'No account identity available'}</small>{item.errorMessage && <em>{item.errorMessage}</em>}</span>
-                      <span className="integrations-status" data-testid={`integration-status-${id}`}>{statusLabel(item)}</span>
-                    </button>
-                    <div className="integrations-provider-actions">
-                      {item.status === 'connected' && <button className="secondary-button" type="button" disabled={providerBusy !== null || !canMutate} onClick={() => void syncProvider(id)} data-testid={`integration-sync-${id}`}>{providerBusy === id ? 'Syncing…' : 'Sync'}</button>}
-                      {item.status === 'disconnected'
-                        ? <button className="secondary-button" type="button" disabled={!canMutate} onClick={() => requestConnect(id)} data-testid={`integration-connect-${id}`}>Connect</button>
-                        : <button className="secondary-button" type="button" disabled={!canMutate} onClick={() => requestConnect(id)} data-testid={`integration-reconnect-${id}`}>Reconnect</button>}
-                      {item.status !== 'disconnected' && <button className="text-danger-button" type="button" disabled={!canMutate} onClick={() => setDisconnectTarget(id)} data-testid={`integration-disconnect-${id}`}>Disconnect</button>}
-                    </div>
-                    <p role="status" aria-live="polite" className="integrations-provider-live" data-testid={`integration-sync-status-${id}`}>{providerStatus[id]}</p>
-                  </section>
-                );
-              })}
-              <div className="integrations-utility-list">
-                <section data-testid="integration-assistant-tools">
-                  <button type="button" onClick={() => setSelectedSection('assistant-tools')} data-testid="integration-select-assistant-tools">
-                    <span>Assistant access</span><small>Full Google Calendar and Gmail access for agent actions, including read + send.</small>
-                  </button>
-                </section>
-              </div>
-            </div>
-
-            <aside className="integrations-provider-inspector" aria-label="Provider inspector" data-testid="integration-inspector">
+                return <div className="integrations-provider-actions">
+                  {item.status === 'connected' && <button className="secondary-button" type="button" disabled={providerBusy !== null || !canMutate} onClick={() => void syncProvider(id)} data-testid={`integration-sync-${id}`}>{providerBusy === id ? 'Syncing…' : 'Sync'}</button>}
+                  {item.status === 'disconnected'
+                    ? <button className="secondary-button" type="button" disabled={!canMutate} onClick={() => requestConnect(id)} data-testid={`integration-connect-${id}`}>Connect</button>
+                    : <button className="secondary-button" type="button" disabled={!canMutate} onClick={() => requestConnect(id)} data-testid={`integration-reconnect-${id}`}>Reconnect</button>}
+                  {item.status !== 'disconnected' && <button className="text-danger-button" type="button" disabled={!canMutate} onClick={() => setDisconnectTarget(id)} data-testid={`integration-disconnect-${id}`}>Disconnect</button>}
+                  <p role="status" aria-live="polite" className="integrations-provider-live" data-testid={`integration-sync-status-${id}`}>{providerStatus[id]}</p>
+                </div>;
+              })()}
               {selectedSection === 'google-calendar' && (
                 <section aria-labelledby="google-calendar-title">
                   <header><h2 id="google-calendar-title">Google Calendar</h2><p>{calendar.identity ?? 'No account identity available'} · {statusLabel(calendar)}</p></header>
@@ -300,7 +314,8 @@ export function IntegrationsScreen() {
                   <button className="secondary-button" type="button" onClick={() => requestFollowUp('Enable assistant Google tools', 'assistant-google-enable')} data-testid="integration-assistant-enable">Enable</button>
                 </section>
               )}
-            </aside>
+              </aside>}
+            />
           </div>
         )}
 

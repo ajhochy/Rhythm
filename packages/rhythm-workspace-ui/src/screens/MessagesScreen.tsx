@@ -12,6 +12,7 @@ import { useRhythmDomainGateway, useRhythmHost } from '../context';
 import { ScreenRoot } from './ScreenRoot';
 import { FocusDialog } from '../components/FocusDialog';
 import { Icon } from '../components/Icon';
+import { ListInspector, type ListInspectorItem } from '../components/ListInspector';
 import { RhythmGatewayError, type MessageThreadType, type RhythmMessageThread, type RhythmWorkspaceMember } from '../domain/types';
 
 type MessagesSurfaceState = 'loading' | 'ready' | 'empty' | 'forbidden' | 'unavailable' | 'server_error';
@@ -96,6 +97,7 @@ export function MessagesScreen() {
   const loadGeneration = useRef(0);
   const renameReturnTarget = useRef<HTMLElement | null>(null);
   const canWrite = host.currentUser.collaborationCapability === 'write';
+  const identityKey = host.currentUser.id ?? host.currentUser.displayName;
 
   const handleError = (error: unknown) => {
     const kind = error instanceof RhythmGatewayError ? error.kind : 'server_error';
@@ -116,7 +118,17 @@ export function MessagesScreen() {
     }
   };
 
-  useEffect(() => { void load(); return () => { loadGeneration.current += 1; }; }, [gateway]);
+  useEffect(() => {
+    setSelectedId(null);
+    setSearch('');
+    setReply('');
+    setReplyError('');
+    setNewThreadOpen(false);
+    setRenameTargetId(null);
+    setDeleteTargetId(null);
+    void load();
+    return () => { loadGeneration.current += 1; };
+  }, [gateway, identityKey]);
 
   const showsWorkspace = surfaceState === 'ready';
   const selectedThread = threads.find((thread) => thread.id === selectedId) ?? null;
@@ -133,16 +145,10 @@ export function MessagesScreen() {
     transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
   }, [selectedThread?.messages.length]);
 
-  const openThread = async (id: string) => {
+  const openThread = (id: string) => {
     setSelectedId(id);
-    if (canWrite && threads.find((thread) => thread.id === id)?.unreadCount) {
-      try {
-        await gateway.markRead(id);
-        setThreads((current) => current.map((thread) => (thread.id === id ? { ...thread, unreadCount: 0 } : thread)));
-      } catch (error) {
-        handleError(error);
-      }
-    }
+    setReply('');
+    setReplyError('');
   };
 
   const markRead = async (id: string) => {
@@ -258,6 +264,16 @@ export function MessagesScreen() {
     }
   };
 
+  const threadItems: ListInspectorItem[] = visibleThreads.map((thread) => ({
+    id: thread.id,
+    testId: `messages-thread-${thread.id}`,
+    title: thread.title,
+    subtitle: thread.lastMessage,
+    meta: timeLabel(thread.updatedAt),
+    badge: thread.unreadCount > 0 ? `${thread.unreadCount} unread` : undefined,
+    badgeTestId: thread.unreadCount > 0 ? `messages-thread-unread-${thread.id}` : undefined,
+  }));
+
   return (
     <ScreenRoot screenName="Messages" testId="rhythm-messages-screen">
       <section className="page-shell pg-messages" aria-busy={surfaceState === 'loading'}>
@@ -269,36 +285,28 @@ export function MessagesScreen() {
         {!showsWorkspace && <StatePanel state={surfaceState} onRetry={() => void load()} onNew={openNewThread} />}
         {showsWorkspace && (
           <div className={`messages-workspace ${selectedThread ? 'has-selection' : ''}`}>
-            <aside className="messages-thread-rail" aria-label="Conversations">
-              <div className="messages-rail-summary">
-                <strong data-testid="messages-unread-total">{unreadTotal} unread {unreadTotal === 1 ? 'thread' : 'threads'}</strong>
-                <span data-testid="messages-visible-count">{visibleThreads.length} {visibleThreads.length === 1 ? 'conversation' : 'conversations'}</span>
-              </div>
-              <label className="search-field messages-search">
-                <Icon name="search" size={14} />
-                <span className="sr-only">Search conversations by title</span>
-                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search conversations" data-testid="messages-thread-search" />
-              </label>
-              <div className="messages-thread-list" role="grid" aria-label="Conversation list" data-testid="messages-thread-list">
-                {visibleThreads.map((thread) => (
-                  <div key={thread.id} className="messages-thread-item" role="row">
-                    <div className="messages-thread-row" role="gridcell" tabIndex={0} aria-selected={selectedId === thread.id} onClick={() => void openThread(thread.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void openThread(thread.id); } }} data-testid={`messages-thread-${thread.id}`}>
-                      <span className="messages-thread-avatar" aria-hidden="true">{thread.participants[0]?.initials ?? 'R'}</span>
-                      <span className="messages-thread-copy"><strong>{thread.title}</strong><small>{thread.lastMessage}</small></span>
-                      <time dateTime={thread.updatedAt}>{timeLabel(thread.updatedAt)}</time>
-                      {thread.unreadCount > 0 && <span className="messages-row-unread" aria-label={`${thread.unreadCount} unread message`} data-testid={`messages-thread-unread-${thread.id}`}>{thread.unreadCount}</span>}
-                    </div>
-                    <div role="gridcell"><ThreadActions thread={thread} canWrite={canWrite} onRead={() => void markRead(thread.id)} onUnread={() => void markUnread(thread.id)} onRename={(target) => openRenameThread(thread, target)} onDelete={() => openDeleteThread(thread)} /></div>
-                  </div>
-                ))}
-              </div>
-              {visibleThreads.length === 0 && <div className="messages-no-results" data-testid="messages-no-results"><h2>No matching conversations</h2><p>Try a shorter title or clear the search.</p><button className="secondary-button" type="button" onClick={() => setSearch('')} data-testid="messages-clear-search">Clear search</button></div>}
-            </aside>
-
-            <section className="messages-conversation" aria-label="Selected conversation">
-              {!selectedThread ? (
-                <div className="messages-selection-state" data-testid="messages-empty-selection"><h2>Select a conversation</h2><p>Choose a thread to read its participants and transcript.</p></div>
-              ) : (
+            <ListInspector
+              className="messages-list-inspector"
+              label="Conversations"
+              items={threadItems}
+              selectedId={selectedId}
+              onSelect={openThread}
+              identityKey={identityKey}
+              listTestId="messages-thread-list"
+              toolbar={<>
+                <div className="messages-rail-summary">
+                  <strong data-testid="messages-unread-total">{unreadTotal} unread {unreadTotal === 1 ? 'thread' : 'threads'}</strong>
+                  <span data-testid="messages-visible-count">{visibleThreads.length} {visibleThreads.length === 1 ? 'conversation' : 'conversations'}</span>
+                </div>
+                <label className="search-field messages-search">
+                  <Icon name="search" size={14} />
+                  <span className="sr-only">Search conversations by title</span>
+                  <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search conversations" data-testid="messages-thread-search" />
+                </label>
+              </>}
+              emptyState={search ? <div className="messages-no-results" data-testid="messages-no-results"><h3>No matching conversations</h3><p>Try a shorter title or clear the search.</p><button className="secondary-button" type="button" onClick={() => setSearch('')} data-testid="messages-clear-search">Clear search</button></div> : undefined}
+              emptySelection={<div className="messages-selection-state" data-testid="messages-empty-selection"><h3>Select a conversation</h3><p>Choose a thread to read its participants and transcript.</p></div>}
+              inspector={() => selectedThread ? (
                 <>
                   <header className="messages-conversation-header">
                     <div className="messages-conversation-heading">
@@ -334,8 +342,8 @@ export function MessagesScreen() {
                     {replyError && <p id="messages-reply-error" role="alert" data-testid="messages-reply-error">{replyError}</p>}
                   </div>
                 </>
-              )}
-            </section>
+              ) : null}
+            />
           </div>
         )}
 
