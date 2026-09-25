@@ -5,6 +5,8 @@ import path from 'node:path'
 import { resolveColonyArtifact } from './colony-desktop-artifact.mjs'
 import { validateColonyRequest, validateColonyResponse } from './colony-channel.mjs'
 
+const CAPABILITIES = ['inventory-v1', 'state-v1', 'host-intents-v1', 'state-mark-v1', 'import-v1']
+
 /** @param {{isPackaged:boolean,resourcesPath:string,developmentNodePath?:string}} options */
 export async function resolveColonyNode({ isPackaged, resourcesPath, developmentNodePath }) {
   const target = isPackaged ? path.join(resourcesPath, 'node/bin/node') : developmentNodePath
@@ -47,7 +49,7 @@ export function createColonyService(options) {
   let reason = ''
   const pending = new Map()
   const status = () => ({ state: ready ? 'ready' : blocked ? 'failed' : child ? 'starting' : 'unavailable', pid: child?.pid ?? null, reason,
-    capabilities: ready ? ['inventory-v1', 'state-v1'] : [] })
+    capabilities: ready ? [...CAPABILITIES] : [] })
   const revoke = () => {
     ready = false
     for (const entry of pending.values()) { clearTimeout(entry.timer); entry.reject(Object.assign(new Error('Colony document revoked'), { code: 'revoked' })) }
@@ -121,7 +123,7 @@ export function createColonyService(options) {
               const match = typeof runtime?.node === 'string' && /^(\d{1,3})\.(\d{1,3})\.(\d{1,6})$/.exec(runtime.node)
               const nodeOkay = match && (Number(match[1]) > 22 || (Number(match[1]) === 22 && Number(match[2]) >= 13))
               if (Buffer.byteLength(JSON.stringify(message)) > 64 * 1024 || message?.type !== 'colony:ready' || message.v !== 1 || message.product !== 'colony' || message.documentId !== documentId ||
-                !Array.isArray(message.capabilities) || message.capabilities.length !== 2 || !message.capabilities.includes('inventory-v1') || !message.capabilities.includes('state-v1') ||
+                !Array.isArray(message.capabilities) || message.capabilities.length !== CAPABILITIES.length || message.capabilities.some((/** @type {unknown} */ value, /** @type {number} */ index) => value !== CAPABILITIES[index]) ||
                 !runtime || Object.keys(runtime).length !== 2 || !nodeOkay || runtime.sqlite !== true || Object.keys(message).length !== 6) {
                 fail(new Error('Colony runtime version/capability handshake failed')); return
               }

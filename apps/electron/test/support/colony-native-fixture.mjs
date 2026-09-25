@@ -5,7 +5,7 @@ export const sourceCommit = 'a'.repeat(40)
 export const workerSource = `
 process.on('disconnect', () => process.exit(0));
 process.on('message', message => {
-  if (message.type === 'colony:init') process.send({type:'colony:ready',v:1,product:'colony',documentId:message.documentId,capabilities:['inventory-v1','state-v1'],runtime:{node:process.versions.node,sqlite:true}});
+  if (message.type === 'colony:init') process.send({type:'colony:ready',v:1,product:'colony',documentId:message.documentId,capabilities:['inventory-v1','state-v1','host-intents-v1','state-mark-v1','import-v1'],runtime:{node:process.versions.node,sqlite:true}});
   else if (message.type === 'colony:dispose') process.exit(0);
   else process.send({v:1,documentId:message.documentId,id:message.id,ok:true,result:{version:3,archived:[],updatedAt:0}});
 });

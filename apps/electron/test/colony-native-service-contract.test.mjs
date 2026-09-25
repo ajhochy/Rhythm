@@ -85,7 +85,7 @@ test('startup capability mismatch fails before accepting inventory and disposes 
       await assert.rejects(service.start({ documentId: 'owned-document' }), /capabilit|handshake/i)
       assert.equal(service.status().pid, null)
     } finally { await service.dispose() }
-  }, workerSource.replace("['inventory-v1','state-v1']", "['state-v1']"))
+  }, workerSource.replace("['inventory-v1','state-v1','host-intents-v1','state-mark-v1','import-v1']", "['state-v1']"))
 })
 
 test('silent startup has a deadline and crash attempts stop at the documented bound', async () => {
@@ -131,7 +131,7 @@ test('unconfirmed child disposal is sticky and forbids a replacement launch', as
     let launches = 0
     const child = new EventEmitter()
     Object.assign(child, { pid: 99999999, connected: true, exitCode: null, signalCode: null, kill() { return true },
-      send(message) { if (message.type === 'colony:init') queueMicrotask(() => child.emit('message', { type: 'colony:ready', v: 1, product: 'colony', documentId: message.documentId, capabilities: ['inventory-v1', 'state-v1'], runtime: { node: process.versions.node, sqlite: true } })) }, disconnect() {} })
+      send(message) { if (message.type === 'colony:init') queueMicrotask(() => child.emit('message', { type: 'colony:ready', v: 1, product: 'colony', documentId: message.documentId, capabilities: ['inventory-v1', 'state-v1', 'host-intents-v1', 'state-mark-v1', 'import-v1'], runtime: { node: process.versions.node, sqlite: true } })) }, disconnect() {} })
     const service = create({ ...options, spawnChild: () => { launches++; return child } })
     await service.start({ documentId: 'owned-document' })
     await assert.rejects(service.stop(), /exit|stop|ownership|terminat/i)

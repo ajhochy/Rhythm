@@ -28,7 +28,7 @@ try {
   assert.equal(Number(process.versions.electron.split('.')[0]), 40)
   protocol.handle('rhythm', () => new Response('<!doctype html><title>Isolated Colony owner</title><main>Owner</main>', { headers: { 'content-type': 'text/html' } }))
   const preload = path.join(root, 'owner-preload.cjs')
-  await fs.writeFile(preload, `const {contextBridge,ipcRenderer}=require('electron'); contextBridge.exposeInMainWorld('nativeTest',{attach:()=>ipcRenderer.invoke('colony:view:attach'),detach:(attachment)=>ipcRenderer.invoke('colony:view:detach',{attachment})});`)
+  await fs.writeFile(preload, `const {contextBridge,ipcRenderer}=require('electron'); contextBridge.exposeInMainWorld('nativeTest',{attach:()=>ipcRenderer.invoke('colony:view:attach'),bounds:(attachment,bounds)=>ipcRenderer.invoke('colony:view:bounds',{attachment,bounds}),detach:(attachment)=>ipcRenderer.invoke('colony:view:detach',{attachment}),intent:(attachment,event,payload)=>{ipcRenderer.send('colony:view:intent',{attachment,event,payload});return true}});`)
   win = new BrowserWindow({ show: false, webPreferences: { preload, sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true } })
   process.stderr.write('colony-fixture:owner-load\n')
   await win.loadURL('rhythm://app/index.html#/colony')
@@ -44,23 +44,31 @@ try {
   const attached = await win.webContents.executeJavaScript('window.nativeTest.attach()')
   process.stderr.write('colony-fixture:attached\n')
   assert.equal(attached.ok, true, attached.reason)
+  assert.equal(await win.webContents.executeJavaScript(`window.nativeTest.bounds(${JSON.stringify(attached.attachment)},{x:0,y:0,width:800,height:600})`), true)
+  process.stderr.write('colony-fixture:bounded\n')
   const scene = win.contentView.children.find(child => child.webContents && child.webContents !== win.webContents)?.webContents
   assert.ok(scene, 'Actual WebContentsView scene is absent')
   assert.equal(scene.getURL(), 'rhythm-colony://app/index.html')
+  // The synthetic owner is hidden. Match the real shell's visibility contract so the
+  // scene pauses animation while the fixture drives explicit protocol checks.
+  assert.equal(await win.webContents.executeJavaScript(`window.nativeTest.intent(${JSON.stringify(attached.attachment)},'host.visibility',{hidden:true})`), true)
+  await new Promise(resolve => setTimeout(resolve, 250))
+  process.stderr.write('colony-fixture:hidden\n')
   await check('asset-and-private-state', async () => {
-    const receipt = await scene.executeJavaScript(`(async()=>{
-      const bridge=window.colonyEmbedded;
-      const page=await bridge.request('inventory.page',{collection:'threads',limit:250});
-      await bridge.request('inventory.cancel',{generation:page.generation});
-      const state=await bridge.request('state.read',{});
-      const saved=await bridge.request('state.write',{state:{...state,archived:['native-fixture-only']},baseUpdatedAt:state.updatedAt});
-      const asset=await fetch('./assets/crew.glb');
-      return {ids:page.records.map(row=>row.id), archived:saved.archived, asset:asset.status, bytes:(await asset.arrayBuffer()).byteLength};
-    })()`)
-    assert.ok(receipt.ids.includes('hermes:main:native-fixture'))
-    assert.deepEqual(receipt.archived, ['native-fixture-only'])
-    assert.equal(receipt.asset, 200)
-    assert.ok(receipt.bytes > 1024)
+    const page = await scene.executeJavaScript("window.colonyEmbedded.request('inventory.page',{generation:'native-fixture-generation',collection:'threads',limit:250})")
+    process.stderr.write('colony-fixture:inventory-page\n')
+    assert.ok(page.records.map(row => row.id).includes('hermes:main:native-fixture'))
+    await scene.executeJavaScript(`window.colonyEmbedded.request('inventory.cancel',{generation:${JSON.stringify(page.generation)}})`)
+    process.stderr.write('colony-fixture:inventory-cancel\n')
+    const state = await scene.executeJavaScript("window.colonyEmbedded.request('state.read',{})")
+    process.stderr.write('colony-fixture:state-read\n')
+    const saved = await scene.executeJavaScript(`window.colonyEmbedded.request('state.write',{state:{...${JSON.stringify(state)},archived:['native-fixture-only']},baseUpdatedAt:${JSON.stringify(state.updatedAt)}})`)
+    process.stderr.write('colony-fixture:state-write\n')
+    assert.deepEqual(saved.archived, ['native-fixture-only'])
+    const asset = await scene.executeJavaScript("fetch('./assets/crew.glb').then(async response=>({status:response.status,bytes:(await response.arrayBuffer()).byteLength}))")
+    process.stderr.write('colony-fixture:asset\n')
+    assert.equal(asset.status, 200)
+    assert.ok(asset.bytes > 1024)
   })
   await check('sandbox-and-network', async () => {
     const prefs = scene.getLastWebPreferences()
@@ -73,7 +81,7 @@ try {
         worker:await attempt('/server/embedded-worker.mjs'), file:await attempt('file:///etc/passwd')};
     })()`)
     assert.equal(receipt.node, 'undefined'); assert.equal(receipt.require, 'undefined'); assert.equal(receipt.hostBridge, 'undefined')
-    assert.deepEqual(receipt.keys, ['electronMajor', 'product', 'protocolVersion', 'request'])
+    assert.deepEqual(receipt.keys, ['electronMajor', 'onHostEvent', 'product', 'protocolVersion', 'request'])
     assert.equal(receipt.remote, false); assert.equal(receipt.worker, false); assert.equal(receipt.file, false)
   })
   await check('foreign-actual-frame', async () => {

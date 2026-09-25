@@ -41,7 +41,7 @@ async function viewFixture(t) {
     launches++
     const child = Object.assign(new EventEmitter(), { pid: 7100 + launches, connected: true, exitCode: null, signalCode: null, stderr: { resume() {} }, kill() {},
       send(message) {
-        if (message.type === 'colony:init') queueMicrotask(() => child.emit('message', { type: 'colony:ready', v: 1, product: 'colony', documentId: message.documentId, capabilities: ['inventory-v1', 'state-v1'], runtime: { node: process.versions.node, sqlite: true } }))
+        if (message.type === 'colony:init') queueMicrotask(() => child.emit('message', { type: 'colony:ready', v: 1, product: 'colony', documentId: message.documentId, capabilities: ['inventory-v1', 'state-v1', 'host-intents-v1', 'state-mark-v1', 'import-v1'], runtime: { node: process.versions.node, sqlite: true } }))
         if (message.type === 'colony:dispose') queueMicrotask(() => { child.exitCode = 0; child.emit('exit', 0, null) })
       } })
     return child
@@ -88,7 +88,7 @@ test('1528:main-wiring:6 actual preload exposes one frozen exact Colony bridge',
     window: { addEventListener() {}, dispatchEvent() {} },
     CustomEvent: class {},
   })
-  assert.deepEqual(Object.keys(bridge.colonyView), ['getStatus', 'discoverSources', 'setEnabled', 'setSource', 'attach', 'setBounds', 'detach'])
+  assert.deepEqual(Object.keys(bridge.colonyView), ['getStatus', 'discoverSources', 'setEnabled', 'setSource', 'attach', 'setBounds', 'inventoryPage', 'inventoryCancel', 'sendIntent', 'onEvent', 'detach'])
   assert.equal(Object.isFrozen(bridge.colonyView), true)
   assert.equal(JSON.stringify(bridge.colonyView).includes('path'), false)
   assert.equal(JSON.stringify(bridge.colonyView).includes('port'), false)

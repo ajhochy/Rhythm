@@ -177,7 +177,7 @@ async function lifecycleFixture(run) {
     send(message) {
       if (message.type === 'colony:init') queueMicrotask(() => child.emit('message', {
         type: 'colony:ready', v: 1, product: 'colony', documentId: message.documentId,
-        capabilities: ['inventory-v1', 'state-v1'], runtime: { node: process.versions.node, sqlite: true },
+        capabilities: ['inventory-v1', 'state-v1', 'host-intents-v1', 'state-mark-v1', 'import-v1'], runtime: { node: process.versions.node, sqlite: true },
       }))
     },
   })

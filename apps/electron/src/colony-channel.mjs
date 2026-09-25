@@ -12,9 +12,10 @@ const bytes = value => Buffer.byteLength(JSON.stringify(value))
 /** @param {string} code @param {string} message @returns {never} */
 const fail = (code, message) => { throw Object.assign(new Error(message), { code }) }
 /** @type {Record<string, [string[], string[]]>} */
-const schemas = {
+export const COLONY_REQUEST_SCHEMAS = {
   'state.read': [[], []],
   'state.write': [['state', 'baseUpdatedAt'], []],
+  'state.mark': [['threadId'], ['archived', 'viewedAt']],
   'state.begin': [['baseUpdatedAt', 'totalBytes', 'sha256'], []],
   'state.chunk': [['transferId', 'index', 'data'], []],
   'state.commit': [['transferId'], []],
@@ -23,6 +24,15 @@ const schemas = {
   'state.readCancel': [['transferId'], []],
   'inventory.page': [[], ['generation', 'cursor', 'collection', 'limit']],
   'inventory.cancel': [['generation'], []],
+  'scene.select': [['threadId'], []],
+  'scene.status': [['webgl'], []],
+}
+/** @type {Record<string, [string[], string[]]>} */
+export const COLONY_HOST_EVENT_SCHEMAS = {
+  'host.select': [['threadId'], []],
+  'host.filter': [[], ['query', 'harness', 'activity', 'includeHistorical']],
+  'host.view': [[], ['quality', 'sound', 'motion', 'resetCamera', 'focusSelection']],
+  'host.visibility': [['hidden'], []],
 }
 
 /** @param {any} value */
@@ -53,10 +63,10 @@ export function validateColonyRequest(message, documentId) {
   if (message.v !== 1) fail('unsupported_version', 'Unsupported Colony protocol version')
   if (!id(message.id) || !id(message.documentId)) fail('invalid_request', 'Invalid request identity')
   if (message.documentId !== documentId) fail('revoked', 'Colony document was revoked')
-  if (typeof message.method !== 'string' || !Object.hasOwn(schemas, message.method)) fail('unsupported_method', 'Unsupported Colony method')
+  if (typeof message.method !== 'string' || !Object.hasOwn(COLONY_REQUEST_SCHEMAS, message.method)) fail('unsupported_method', 'Unsupported Colony method')
   if (bytes(message) > (message.method === 'state.chunk' ? FRAME_BYTES : CONTROL_BYTES)) fail('oversize', 'Colony request exceeds its frame limit')
   const payload = message.payload
-  const [required, optional] = schemas[message.method]
+  const [required, optional] = COLONY_REQUEST_SCHEMAS[message.method]
   if (!object(payload) || required.some(key => !Object.hasOwn(payload, key)) || Object.keys(payload).some(key => !required.includes(key) && !optional.includes(key))) fail('invalid_request', 'Invalid Colony method fields')
   for (const key of ['transferId', 'generation']) if (Object.hasOwn(payload, key) && !id(payload[key])) fail('invalid_request', 'Invalid transfer identity')
   for (const key of ['baseUpdatedAt', 'index', 'offset']) if (Object.hasOwn(payload, key) && !integer(payload[key])) fail('invalid_request', 'Invalid state position')
@@ -67,6 +77,32 @@ export function validateColonyRequest(message, documentId) {
   if (Object.hasOwn(payload, 'limit') && (!integer(payload.limit) || payload.limit < 1 || payload.limit > 250)) fail('invalid_request', 'Invalid inventory page limit')
   if (Object.hasOwn(payload, 'cursor') && (typeof payload.cursor !== 'string' || !/^(0|[1-9][0-9]{0,8})$/.test(payload.cursor))) fail('invalid_request', 'Invalid inventory cursor')
   if (Object.hasOwn(payload, 'collection') && !['threads', 'projects', 'warnings'].includes(payload.collection)) fail('invalid_request', 'Invalid inventory collection')
+  if (Object.hasOwn(payload, 'threadId') && (typeof payload.threadId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$/.test(payload.threadId))) fail('invalid_request', 'Invalid thread identity')
+  if (Object.hasOwn(payload, 'webgl') && !['ready', 'lost'].includes(payload.webgl)) fail('invalid_request', 'Invalid WebGL status')
+  if (message.method === 'state.mark' && !Object.hasOwn(payload, 'archived') && !Object.hasOwn(payload, 'viewedAt')) fail('invalid_request', 'State mark requires a change')
+  if (Object.hasOwn(payload, 'archived') && typeof payload.archived !== 'boolean') fail('invalid_request', 'Invalid archive mark')
+  if (Object.hasOwn(payload, 'viewedAt') && !integer(payload.viewedAt)) fail('invalid_request', 'Invalid viewed timestamp')
+}
+
+/** @param {any} message @param {string} documentId */
+export function validateColonyHostEvent(message, documentId) {
+  jsonOnly(message)
+  if (!object(message) || Object.keys(message).length !== 4 || message.v !== 1 || message.documentId !== documentId ||
+    typeof message.event !== 'string' || !Object.hasOwn(COLONY_HOST_EVENT_SCHEMAS, message.event)) fail('invalid_request', 'Invalid Colony host event')
+  if (bytes(message) > CONTROL_BYTES) fail('oversize', 'Colony host event exceeds its frame limit')
+  const [required, optional] = COLONY_HOST_EVENT_SCHEMAS[message.event]
+  const payload = message.payload
+  if (!object(payload) || required.some(key => !Object.hasOwn(payload, key)) || Object.keys(payload).some(key => !required.includes(key) && !optional.includes(key))) fail('invalid_request', 'Invalid Colony host event fields')
+  if (Object.hasOwn(payload, 'threadId') && (typeof payload.threadId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$/.test(payload.threadId))) fail('invalid_request', 'Invalid thread identity')
+  if (Object.hasOwn(payload, 'query') && (typeof payload.query !== 'string' || payload.query.length > 512)) fail('invalid_request', 'Invalid host query')
+  const allowedHarness = ['hermes', 'codex', 'rhythm', 'opencode', 'kilocode', 'claude-code', 'cursor', 'antigravity']
+  const allowedActivity = ['working', 'waiting', 'blocked', 'celebrating', 'idle', 'unknown']
+  if (Object.hasOwn(payload, 'harness') && (!Array.isArray(payload.harness) || payload.harness.length > allowedHarness.length || new Set(payload.harness).size !== payload.harness.length || payload.harness.some((/** @type {string} */ value) => !allowedHarness.includes(value)))) fail('invalid_request', 'Invalid harness filter')
+  if (Object.hasOwn(payload, 'activity') && (!Array.isArray(payload.activity) || payload.activity.length > allowedActivity.length || new Set(payload.activity).size !== payload.activity.length || payload.activity.some((/** @type {string} */ value) => !allowedActivity.includes(value)))) fail('invalid_request', 'Invalid activity filter')
+  for (const key of ['includeHistorical', 'sound', 'resetCamera', 'focusSelection', 'hidden']) if (Object.hasOwn(payload, key) && typeof payload[key] !== 'boolean') fail('invalid_request', `Invalid ${key} setting`)
+  if (Object.hasOwn(payload, 'quality') && !['auto', 'high', 'balanced', 'low'].includes(payload.quality)) fail('invalid_request', 'Invalid quality setting')
+  if (Object.hasOwn(payload, 'motion') && !['full', 'reduced'].includes(payload.motion)) fail('invalid_request', 'Invalid motion setting')
+  if (message.event === 'host.view' && Object.keys(payload).length === 0) fail('invalid_request', 'Host view requires a change')
 }
 
 /** @param {any} message @param {string} documentId */

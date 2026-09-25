@@ -100,6 +100,23 @@ const colonyView = Object.freeze({
   },
   /** @param {{x:number,y:number,width:number,height:number}} bounds */
   setBounds: (bounds) => ipcRenderer.invoke('colony:view:bounds', { attachment: colonyViewAttachment, bounds }),
+  /** @param {{generation?:string,cursor?:string,collection?:'threads'|'projects'|'warnings',limit?:number}} page */
+  inventoryPage: (page) => ipcRenderer.invoke('colony:inventory:page', { attachment: colonyViewAttachment, page }),
+  /** @param {string} generation */
+  inventoryCancel: (generation) => ipcRenderer.invoke('colony:inventory:cancel', { attachment: colonyViewAttachment, generation }),
+  /** @param {{event:string,payload:unknown}} intent */
+  sendIntent: (intent) => ipcRenderer.send('colony:view:intent', { attachment: colonyViewAttachment, ...intent }),
+  /** @param {(message:{event:string,payload:unknown}) => void} callback */
+  onEvent: (callback) => {
+    const listener = (/** @type {unknown} */ _event, /** @type {any} */ message) => {
+      if (!message || typeof message !== 'object' || Array.isArray(message) || Object.keys(message).length !== 3 ||
+        message.attachment !== colonyViewAttachment || !['scene.select', 'scene.status'].includes(message.event) ||
+        !message.payload || typeof message.payload !== 'object' || Array.isArray(message.payload)) return;
+      callback({ event: message.event, payload: JSON.parse(JSON.stringify(message.payload)) });
+    };
+    ipcRenderer.on('colony:view:event', listener);
+    return () => ipcRenderer.removeListener('colony:view:event', listener);
+  },
   detach: () => {
     ++colonyViewEpoch;
     const attachment = colonyViewAttachment;

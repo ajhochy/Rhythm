@@ -5,10 +5,10 @@ import net from 'node:net'
 import path from 'node:path'
 import test from 'node:test'
 
+import { PINNED_COLONY_SOURCE_COMMIT } from '../src/colony-desktop-config.mjs'
 import { createColonyService } from '../src/colony-service.mjs'
 import { createMultiSourceFixture } from './support/colony-multisource-fixture.mjs'
 
-const SOURCE_COMMIT = 'a30b4c924be4344d444f1826e1dec88fb138a4ad'
 const DOCUMENT = 'multisource-contract'
 
 function request(service, id, payload) {
@@ -54,7 +54,7 @@ test('1528:multisource-contract:1 actual worker keeps healthy rows and names eac
   t.after(() => fixture.cleanup())
   const service = createColonyService({
     artifactRoot,
-    expectedSourceCommit: SOURCE_COMMIT,
+    expectedSourceCommit: PINNED_COLONY_SOURCE_COMMIT,
     expectedElectronMajor: 40,
     isPackaged: false,
     resourcesPath: path.join(fixture.root, 'Resources'),
@@ -81,7 +81,7 @@ test('1528:multisource-contract:2 disabled sources are not opened', async (t) =>
   assert.ok(artifactRoot && path.isAbsolute(artifactRoot))
   const fixture = await createMultiSourceFixture()
   t.after(() => fixture.cleanup())
-  const service = createColonyService({ artifactRoot, expectedSourceCommit: SOURCE_COMMIT, expectedElectronMajor: 40,
+  const service = createColonyService({ artifactRoot, expectedSourceCommit: PINNED_COLONY_SOURCE_COMMIT, expectedElectronMajor: 40,
     isPackaged: false, resourcesPath: path.join(fixture.root, 'Resources'), developmentNodePath: process.execPath,
     dataDir: path.join(fixture.root, 'owned-state'), sources: fixture.sources, enabled: () => true })
   t.after(() => service.dispose().catch(() => {}))
@@ -98,13 +98,13 @@ test('1528:multisource-contract:3 only owned workers die through crash retries a
   const artifactRoot = process.env.COLONY_NATIVE_ARTIFACT
   assert.ok(artifactRoot && path.isAbsolute(artifactRoot))
   const fixture = await createMultiSourceFixture()
-  const sentinel = await startSentinel(7140)
+  const sentinel = await startSentinel(7289)
   const sentinelPid = sentinel.pid
   t.after(async () => {
     if (sentinel.exitCode === null && sentinel.signalCode === null) await new Promise((resolve) => { sentinel.once('exit', resolve); sentinel.kill('SIGTERM') })
     await fixture.cleanup()
   })
-  const service = createColonyService({ artifactRoot, expectedSourceCommit: SOURCE_COMMIT, expectedElectronMajor: 40,
+  const service = createColonyService({ artifactRoot, expectedSourceCommit: PINNED_COLONY_SOURCE_COMMIT, expectedElectronMajor: 40,
     isPackaged: false, resourcesPath: path.join(fixture.root, 'Resources'), developmentNodePath: process.execPath,
     dataDir: path.join(fixture.root, 'owned-state'), sources: fixture.sources, enabled: () => true, maxRestarts: 2 })
   t.after(() => service.dispose().catch(() => {}))
@@ -118,11 +118,11 @@ test('1528:multisource-contract:3 only owned workers die through crash retries a
     assert.equal(sentinel.pid, sentinelPid)
     assert.equal(sentinel.exitCode, null)
     process.kill(sentinelPid, 0)
-    assert.equal(await probe(7140), 'sentinel')
+    assert.equal(await probe(7289), 'sentinel')
   }
   await assert.rejects(service.start({ documentId: DOCUMENT }), /retry|limit|exhausted/i)
   assert.equal(sentinel.pid, sentinelPid)
-  assert.equal(await probe(7140), 'sentinel')
+  assert.equal(await probe(7289), 'sentinel')
 })
 
 test('1528:multisource-contract:4 every synthetic fixture store is byte-identical after scanning', async (t) => {
@@ -131,7 +131,7 @@ test('1528:multisource-contract:4 every synthetic fixture store is byte-identica
   assert.ok(artifactRoot && path.isAbsolute(artifactRoot))
   const fixture = await createMultiSourceFixture()
   t.after(() => fixture.cleanup())
-  const service = createColonyService({ artifactRoot, expectedSourceCommit: SOURCE_COMMIT, expectedElectronMajor: 40,
+  const service = createColonyService({ artifactRoot, expectedSourceCommit: PINNED_COLONY_SOURCE_COMMIT, expectedElectronMajor: 40,
     isPackaged: false, resourcesPath: path.join(fixture.root, 'Resources'), developmentNodePath: process.execPath,
     dataDir: path.join(fixture.root, 'owned-state'), sources: fixture.sources, enabled: () => true })
   t.after(() => service.dispose().catch(() => {}))

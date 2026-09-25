@@ -93,6 +93,17 @@ Sources: [security](https://www.electronjs.org/docs/latest/tutorial/security),
 Do not depend on newly documented APIs absent from the pinned runtime (for example a newer
 protocol request field) without a separate reviewed runtime upgrade.
 
+## Pinned build inputs
+
+- Bot Crossing source: `c5163e4d0f7dfcec5e45a09b442096ed35a891d3`
+- Electron 40.10.2 (`electronMajor: 40`)
+- Node 22.22.0, matching the Electron release packager and providing `node:sqlite`
+- Minimum macOS 12.0
+
+These values are one qualified input set. Release CI must build the exact source revision with
+the exact packaged Node patch and must reject an artifact whose manifest reports different input
+versions.
+
 Research was performed in this thread using existing source and primary documentation because
 the requested research subagent could not start: the session's agent-thread limit was reached.
 No broad external solution search or new dependency is required for the proposed architecture.

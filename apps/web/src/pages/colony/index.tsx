@@ -1,5 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { Splitter } from '../../components/Splitter';
 import { colonyShell, type ColonySourceChoice, type ColonyStatus } from './bridge';
+import { ColonyInspector } from './inspector';
+import { buildColonyRailModel, reconcileColonySelection, type ColonyFilters, type ColonyThread } from './model';
+import { ColonyRail } from './rail';
 import './styles.css';
 
 const labels: Record<string, string> = {
@@ -11,13 +15,14 @@ function overlayOpen() {
   return Boolean(document.querySelector('.menu-popover, [role="dialog"], .toast[data-visible="true"]'));
 }
 
-function ColonyHost({ onError }: { onError(message: string): void }) {
+function ColonyHost({ onError, onAttached, onSceneSelect }: { onError(message: string): void; onAttached(): void; onSceneSelect(threadId: string): void }) {
   const host = useRef<HTMLDivElement>(null);
   const active = useRef(false);
   const attached = useRef(false);
   const attachment = useRef<Promise<void> | null>(null);
   const detachTimer = useRef<number>();
   const reportCurrentBounds = useRef<() => void>(() => {});
+  const visibility = useRef<boolean | null>(null);
   useEffect(() => {
     const bridge = colonyShell()?.colonyView;
     active.current = true;
@@ -28,7 +33,12 @@ function ColonyHost({ onError }: { onError(message: string): void }) {
       frame = requestAnimationFrame(() => {
         if (!active.current || !attached.current) return;
         const rect = host.current?.getBoundingClientRect();
-        const bounds = overlayOpen() || !rect
+        const hidden = overlayOpen() || !rect || rect.width <= 0 || rect.height <= 0;
+        if (visibility.current !== hidden) {
+          visibility.current = hidden;
+          bridge?.sendIntent?.({ event: 'host.visibility', payload: { hidden } });
+        }
+        const bounds = hidden
           ? { x: 0, y: 0, width: 0, height: 0 }
           : { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
         void bridge?.setBounds(bounds).catch(() => { if (active.current) onError('Bot Crossing could not resize. Retry the local view.'); });
@@ -49,11 +59,15 @@ function ColonyHost({ onError }: { onError(message: string): void }) {
           return;
         }
         attached.current = true;
+        onAttached();
         reportCurrentBounds.current();
       }).catch(() => {
         if (active.current) onError('Bot Crossing could not open. Rebuild the pinned artifact and retry.');
       });
     }
+    const unsubscribe = bridge?.onEvent?.((message) => {
+      if (message.event === 'scene.select' && typeof message.payload.threadId === 'string') onSceneSelect(message.payload.threadId);
+    });
     return () => {
       active.current = false;
       cancelAnimationFrame(frame);
@@ -61,6 +75,7 @@ function ColonyHost({ onError }: { onError(message: string): void }) {
       overlays.disconnect();
       window.removeEventListener('scroll', reportBounds, true);
       window.removeEventListener('resize', reportBounds);
+      unsubscribe?.();
       // StrictMode immediately replays mount effects. Deferring disposal one task
       // lets that replay reuse the in-flight attachment while real route departure
       // still tears down exactly once.
@@ -74,7 +89,7 @@ function ColonyHost({ onError }: { onError(message: string): void }) {
         });
       }, 0);
     };
-  }, [onError]);
+  }, [onAttached, onError, onSceneSelect]);
   return <div ref={host} className="colony-host" data-colony-host role="region" aria-label="Bot Crossing scene" tabIndex={0} />;
 }
 
@@ -104,6 +119,15 @@ export function ColonyPage() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [threads, setThreads] = useState<ColonyThread[]>([]);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [inventoryError, setInventoryError] = useState('');
+  const [inventoryLoaded, setInventoryLoaded] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(() => {
+    try { return window.localStorage.getItem('colony.selection'); } catch { return null; }
+  });
+  const [filters, setFilters] = useState<ColonyFilters>({ query: '', harness: [], activity: [], includeHistorical: false });
+  const [inspectorWidth, setInspectorWidth] = useState(336);
   const handleError = useCallback((message: string) => setError(message), []);
 
   useEffect(() => {
@@ -120,6 +144,58 @@ export function ColonyPage() {
     }).catch(() => { if (alive) setError('Bot Crossing settings are unavailable. Rebuild the Rhythm package.'); });
     return () => { alive = false; };
   }, [attempt, bridge]);
+
+  const loadInventory = useCallback(async () => {
+    if (!bridge?.inventoryPage) return;
+    setInventoryLoading(true);
+    setInventoryError('');
+    let generation: string | undefined;
+    const nextThreads: ColonyThread[] = [];
+    try {
+      for (const collection of ['threads', 'projects', 'warnings'] as const) {
+        let cursor: string | undefined;
+        do {
+          const page = await bridge.inventoryPage({ collection, limit: 250, ...(generation ? { generation } : {}), ...(cursor ? { cursor } : {}) });
+          if (generation && page.generation !== generation) throw new Error('Inventory generation changed');
+          generation = page.generation;
+          if (collection === 'threads') nextThreads.push(...page.records as ColonyThread[]);
+          cursor = page.nextCursor ?? undefined;
+        } while (cursor);
+      }
+      setThreads(nextThreads);
+      setSelectedId((current) => reconcileColonySelection(current, nextThreads));
+      setInventoryLoaded(true);
+    } catch {
+      setInventoryError('Bot Crossing inventory could not be read. Retry the local view.');
+    } finally {
+      if (generation) await bridge.inventoryCancel?.(generation).catch(() => undefined);
+      setInventoryLoading(false);
+    }
+  }, [bridge]);
+
+  useEffect(() => {
+    try {
+      if (selectedId) window.localStorage.setItem('colony.selection', selectedId);
+      else window.localStorage.removeItem('colony.selection');
+    } catch { /* Profile-local layout state is best effort. */ }
+  }, [selectedId]);
+
+  const model = useMemo(() => buildColonyRailModel(threads, filters), [filters, threads]);
+  useEffect(() => {
+    if (inventoryLoaded && selectedId && !model.visible.some((row) => row.thread.id === selectedId)) setSelectedId(null);
+  }, [inventoryLoaded, model.visible, selectedId]);
+
+  useEffect(() => {
+    if (!status?.enabled) return;
+    bridge?.sendIntent?.({ event: 'host.filter', payload: { query: filters.query, harness: filters.harness, activity: filters.activity, includeHistorical: filters.includeHistorical } });
+  }, [bridge, filters, status?.enabled]);
+
+  const selectThread = useCallback((threadId: string) => {
+    setSelectedId(threadId);
+    bridge?.sendIntent?.({ event: 'host.select', payload: { threadId } });
+  }, [bridge]);
+  const sceneSelect = useCallback((threadId: string) => setSelectedId(threadId), []);
+  const attached = useCallback(() => { void loadInventory(); }, [loadInventory]);
 
   const toggle = async (id: string, enabled: boolean) => {
     if (!bridge) return;
@@ -152,6 +228,11 @@ export function ColonyPage() {
     {error ? <div className="colony-state colony-error"><p className="eyebrow">Local view unavailable</p><h1>Bot Crossing could not open</h1><p role="alert">{error}</p><div className="colony-state-actions"><button type="button" className="primary-button" onClick={() => { setError(''); setAttempt((value) => value + 1); }}>Retry</button></div></div>
       : !status ? <div className="colony-state" role="status"><p>Loading Bot Crossing settings…</p></div>
         : !status.enabled ? <Enablement sources={sources} busy={busy} onToggle={(id, enabled) => void toggle(id, enabled)} onEnable={() => void enable()} />
-          : <div className="colony-enabled"><header className="colony-toolbar"><div><strong>Bot Crossing</strong><span>Local read-only sources</span></div><button type="button" className="secondary-button compact" disabled={busy} onClick={() => void disable()}>Disable</button></header><ColonyHost key={attempt} onError={handleError} /></div>}
+          : <div className="colony-enabled"><header className="colony-toolbar"><div><strong>Bot Crossing</strong><span>Local read-only sources</span></div><button type="button" className="secondary-button compact" disabled={busy} onClick={() => void disable()}>Disable</button></header>
+            <ColonyRail threads={threads} filters={filters} selectedId={selectedId} loading={inventoryLoading} error={inventoryError || undefined} onFilters={setFilters} onSelect={selectThread} detail={(thread) => <div className={`colony-stage${thread ? ' has-inspector' : ''}`} style={{ '--colony-inspector-width': `${inspectorWidth}px` } as CSSProperties}>
+              <ColonyHost key={attempt} onError={handleError} onAttached={attached} onSceneSelect={sceneSelect} />
+              {thread && <><Splitter orientation="vertical" storageKey="layout.colony.inspector" min={288} max={440} defaultSize={336} resizeEdge="end" onResize={setInspectorWidth} ariaLabel="Resize Bot Crossing inspector" testId="colony-inspector-splitter" /><ColonyInspector thread={thread} /></>}
+            </div>} />
+          </div>}
   </section>;
 }

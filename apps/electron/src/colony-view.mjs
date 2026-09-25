@@ -4,7 +4,7 @@ import { open, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { createColonyService } from './colony-service.mjs'
 import { resolveColonyArtifact } from './colony-desktop-artifact.mjs'
-import { validateColonyRequest, validateColonyResponse } from './colony-channel.mjs'
+import { validateColonyHostEvent, validateColonyRequest, validateColonyResponse } from './colony-channel.mjs'
 const ENTRY = 'rhythm-colony://app/index.html'
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
 const types = /** @type {Record<string,string>} */ ({ '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.json':'application/json', '.png':'image/png', '.svg':'image/svg+xml', '.glb':'model/gltf-binary', '.hdr':'application/octet-stream', '.woff2':'font/woff2' })
@@ -40,7 +40,8 @@ export function createColonyAssetHandler(artifact) {
 
 /** Exact native frame/epoch boundary, also exercised by real Electron hostile-frame fixtures.
  * @param {any} options */
-export function bindColonySceneChannel({ ipcMain, contents, frame, documentId, service, MessageChannelMain }) {
+export function bindColonySceneChannel(options) {
+  const { ipcMain, contents, frame, documentId, service, MessageChannelMain } = options
   let expectedFrame = typeof frame === 'function' ? null : frame
   let committed = contents.getURL() === ENTRY && !contents.isLoadingMainFrame()
   let readyEvent = /** @type {any} */ (null)
@@ -62,7 +63,19 @@ export function bindColonySceneChannel({ ipcMain, contents, frame, documentId, s
     contents.removeListener('did-start-navigation', onNavigation)
     contents.removeListener('render-process-gone', dispose)
     contents.removeListener('destroyed', dispose)
+    ipcMain.removeListener('colony:view:intent', onHostIntent)
     return disposal
+  }
+  function onHostIntent(/** @type {any} */ event, /** @type {any} */ value) {
+    if (revoked || !port || !options.hostContents || !options.hostFrame || event.sender !== options.hostContents ||
+      event.senderFrame !== options.hostFrame || options.hostContents.mainFrame !== options.hostFrame ||
+      !value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== 3 ||
+      value.attachment !== options.attachment || typeof value.event !== 'string') return
+    const message = { v: 1, documentId, event: value.event, payload: value.payload }
+    try {
+      validateColonyHostEvent(message, documentId)
+      port.postMessage(JSON.parse(JSON.stringify(message)))
+    } catch {}
   }
   const flush = () => {
     const current = contents.mainFrame
@@ -76,7 +89,16 @@ export function bindColonySceneChannel({ ipcMain, contents, frame, documentId, s
     port?.on('message', async (event) => {
       if (revoked) return
       try {
+        if (!event.data || typeof event.data !== 'object' || !/^request-\d{1,9}$/.test(event.data.id)) throw new Error('Invalid Colony scene request identity')
         validateColonyRequest(event.data, documentId)
+        if (event.data.method.startsWith('scene.')) {
+          const knownSelection = event.data.method !== 'scene.select' || options.ownsThreadId?.(event.data.payload.threadId) === true
+          if (knownSelection) options.onSceneEvent?.(event.data.method, JSON.parse(JSON.stringify(event.data.payload)))
+          const response = { v: 1, documentId, id: event.data.id, ok: true, result: null }
+          validateColonyResponse(response, documentId)
+          if (!revoked) port?.postMessage(response)
+          return
+        }
         const response = await service.request(event.data)
         validateColonyResponse(response, documentId)
         if (!revoked) port?.postMessage(response)
@@ -105,6 +127,7 @@ export function bindColonySceneChannel({ ipcMain, contents, frame, documentId, s
     }
   }
   ipcMain.on('colony:scene-ready', onReady)
+  ipcMain.on('colony:view:intent', onHostIntent)
   contents.on('did-finish-load', onLoad)
   contents.on('did-start-navigation', onNavigation)
   contents.on('render-process-gone', dispose)
@@ -158,7 +181,7 @@ export function registerColonyView(options) {
     const win = getWindow()
     const dataDir = options.getDataDir?.()
     if (!dataDir || !path.isAbsolute(dataDir)) return { ok:false, reason:'Bot Crossing requires an active local profile.' }
-    let service
+    let service = /** @type {any} */ (null)
     let view
     try {
       const config = { artifactRoot:options.getArtifactRoot(), expectedSourceCommit:options.expectedSourceCommit, expectedElectronMajor:options.expectedElectronMajor ?? 40 }
@@ -186,8 +209,13 @@ export function registerColonyView(options) {
       contents.on('will-navigate', (/** @type {any} */ navigation) => navigation.preventDefault())
       contents.on('will-redirect', (/** @type {any} */ navigation) => navigation.preventDefault())
       contents.on('will-frame-navigate', (/** @type {any} */ navigation) => navigation.preventDefault())
-      const record = { win, view, partition, service, attachment:randomUUID(), channel:/** @type {ReturnType<typeof bindColonySceneChannel> | null} */(null), cleanups:/** @type {(() => void)[]} */ ([]) }
-      record.channel = bindColonySceneChannel({ ipcMain, contents, frame:() => contents.mainFrame, documentId, service, MessageChannelMain:electron.MessageChannelMain })
+      const record = { win, view, partition, service, documentId, attachment:randomUUID(), channel:/** @type {ReturnType<typeof bindColonySceneChannel> | null} */(null), cleanups:/** @type {(() => void)[]} */ ([]) }
+      record.channel = bindColonySceneChannel({ ipcMain, contents, frame:() => contents.mainFrame, documentId, service, MessageChannelMain:electron.MessageChannelMain,
+        attachment:record.attachment, hostContents:win.webContents, hostFrame:event.senderFrame,
+        ownsThreadId:(/** @type {string} */ threadId) => options.ownsThreadId?.(threadId) === true,
+        onSceneEvent:(/** @type {string} */ sceneEvent, /** @type {any} */ payload) => {
+          if (current === record && !disposed) win.webContents.send('colony:view:event', { attachment:record.attachment, event:sceneEvent, payload })
+        } })
       current = record
       const hostNavigation = () => { if (!ownsHost(event)) void disposeCurrent().catch(() => {}) }
       win.webContents.on('did-navigate-in-page', hostNavigation)
@@ -230,7 +258,16 @@ export function registerColonyView(options) {
     if (!current || !ownsHost(event) || value?.attachment !== current.attachment) return false
     await disposeCurrent(); return true
   })
-  return { disposeCurrent, async dispose() {
+  return { disposeCurrent,
+    async requestHost(/** @type {any} */ value) {
+      if (disposed || !current || !enabled() || !value || typeof value !== 'object' || Array.isArray(value) ||
+        Object.keys(value).length !== 4 || value.attachment !== current.attachment || !/^host-\d{1,9}$/.test(value.id) ||
+        typeof value.method !== 'string' || !value.payload || typeof value.payload !== 'object' || Array.isArray(value.payload)) {
+        throw new Error('Bot Crossing inventory document is unavailable')
+      }
+      return current.service.request({ v:1, documentId:current.documentId, id:value.id, method:value.method, payload:value.payload })
+    },
+    async dispose() {
     disposed = true
     let failure = /** @type {unknown} */ (null)
     for (const work of [() => disposeCurrent(), () => transition, () => disposeCurrent()]) {

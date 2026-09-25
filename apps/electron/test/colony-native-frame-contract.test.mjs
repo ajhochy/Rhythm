@@ -32,14 +32,16 @@ before(async () => {
   let stderr = ''
   child.stderr.on('data', data => { stderr = (stderr + data).slice(-8192) })
   await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { child.kill('SIGKILL') }, 45000)
+    // The five real-frame cases include two bounded document-revocation waits.
+    // Preserve a separate hard ceiling while allowing loaded CI hosts to finish cleanup and write the receipt.
+    const timer = setTimeout(() => { child.kill('SIGKILL') }, 90000)
     child.once('error', error => { clearTimeout(timer); reject(error) })
     child.once('exit', code => { clearTimeout(timer); code === 0 ? resolve() : reject(new Error(`Native fixture exit ${code}: ${stderr}`)) })
   })
   receipt = JSON.parse(await fs.readFile(path.join(root, 'receipt.json'), 'utf8'))
   assert.equal(hash(await fs.readFile(database)), before, 'Read-only harness source changed')
   assert.deepEqual(await fs.readdir(path.join(root, 'hermes')), ['state.db'])
-}, { timeout: 50000 })
+}, { timeout: 100000 })
 after(async () => { if (root) await fs.rm(root, { recursive: true, force: true }) })
 for (const name of ['asset-and-private-state', 'sandbox-and-network', 'foreign-actual-frame', 'navigation-revokes-document', 'sibling-and-stale-actual-frame']) {
   test(`native Electron ${name}`, () => {

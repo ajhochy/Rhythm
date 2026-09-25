@@ -229,7 +229,7 @@ test('slice-5-c4: actual preload exposes only frozen versioned lifecycle, gatewa
   assert.equal(result.bridge.hermes.frozen, true);
   assert.deepEqual(result.bridge.hermesView.keys, ['attach', 'setBounds', 'detach', 'sendIntent']);
   assert.equal(result.bridge.hermesView.frozen, true);
-  assert.deepEqual(result.bridge.colonyView.keys, ['getStatus', 'discoverSources', 'setEnabled', 'setSource', 'attach', 'setBounds', 'detach']);
+  assert.deepEqual(result.bridge.colonyView.keys, ['getStatus', 'discoverSources', 'setEnabled', 'setSource', 'attach', 'setBounds', 'inventoryPage', 'inventoryCancel', 'sendIntent', 'onEvent', 'detach']);
   assert.equal(result.bridge.colonyView.frozen, true);
   assert.equal(result.bridge.hermes.enabled, process.env.RHYTHM_HERMES_ENABLED !== '0');
   assert.equal(result.bridge.hermes.status.state, process.env.RHYTHM_HERMES_ENABLED === '0' ? 'disabled' : 'stopped');
