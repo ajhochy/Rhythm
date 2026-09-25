@@ -237,6 +237,7 @@ if (hasSingleInstanceLock) {
           return result.response === 0;
         },
         disposeOwnedBackend: () => hermesView.disposeCurrent(),
+        bridgeHost,
       });
     } catch { return undefined; }
     return accountsMain;
@@ -631,6 +632,10 @@ if (hasSingleInstanceLock) {
   ipcMain.handle('rhythm:ai-accounts:set-grant', (event, payload, ...args) => {
     const adapter = getAccountsMain();
     return adapter ? adapter.setGrant(event, payload, ...args) : { accepted: false };
+  });
+  ipcMain.handle('rhythm:ai-accounts:set-memory-consent', (event, payload, ...args) => {
+    const adapter = getAccountsMain();
+    return adapter ? adapter.setMemorySearchConsent(event, payload, ...args) : { accepted: false };
   });
 
   ipcMain.handle('rhythm:auth:google-sign-in', (event, ...args) => {

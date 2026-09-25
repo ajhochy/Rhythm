@@ -13,7 +13,7 @@ const decision = { approvalId: 'approval-1', status: 'approved', decisionNonce: 
 const tick = () => new Promise((r) => setImmediate(r));
 
 // Executes real main, preload, config and view. Only Electron, OAuth, agent supervisor and the external fork host are fixtures. No mocked Accounts behavior; all account files are synthetic. Fork real hermes:connection-to-spawn proof belongs to its companion contract.
-async function host(t, { initialSession, missingHome = false, confirm, failDisposal = false, failAttachment = false } = {}) {
+async function host(t, { initialSession, missingHome = false, confirm, failDisposal = false, failAttachment = false, bridgeFixture = false } = {}) {
   const immediateLogin = false, Notification = { isSupported: () => false }, onInitialBridge = undefined;
   const directory = await realpath(await mkdtemp(join(tmpdir(), 'rhythm-e12a-')));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -21,7 +21,27 @@ async function host(t, { initialSession, missingHome = false, confirm, failDispo
   await mkdir(join(osHome, '.local/share/opencode'), { recursive: true, mode: 0o700 });
   if (!missingHome) await mkdir(hermesHome, { mode: 0o700 });
   await writeFile(join(osHome, '.local/share/opencode/auth.json'), JSON.stringify({ openai: { type: 'api', key: SECRET } }), { mode: 0o600 });
-  const hostCalls = [], dialogs = [], ipcResults = [];
+  const hostCalls = [], dialogs = [], ipcResults = [], bridgeCalls = [], bridgeGrants = [];
+  let bridgeOptions;
+  const bridgeHost = Object.freeze({
+    mintForAttempt(input) {
+      bridgeCalls.push(['mintForAttempt', input]);
+      void Promise.resolve(bridgeOptions.getMemoryConsent({
+        serverOrigin: input.serverOrigin,
+        profile: input.profile,
+        runtimeGeneration: input.attemptId,
+        memoryVaultId: 'b'.repeat(64),
+      })).then((consent) => bridgeGrants.push({
+        consent,
+        scopes: consent.granted === true ? ['memory.search'] : [],
+      }));
+      return {};
+    },
+    retire: async attemptId => { bridgeCalls.push(['retire', attemptId]); },
+    revokeAll: async () => { bridgeCalls.push(['revokeAll']); },
+    revokeScope: async scope => { bridgeCalls.push(['revokeScope', scope]); },
+    onRegistrarReady: async () => { bridgeCalls.push(['onRegistrarReady']); },
+  });
   let releaseDispose, disposalStarted = false;
   let disposal = Promise.resolve();
   const handlers = new Map(), listeners = new Map(), protocols = new Map();
@@ -98,6 +118,7 @@ async function host(t, { initialSession, missingHome = false, confirm, failDispo
     else if (name === './hermes-view.mjs') values = { bindHermesViewSupervisor, registerHermesView: options => { const controller = registerHermesView({ ...options, getArtifactRoot: () => directory, electron: { WebContentsView }, resolveArtifact: async () => ({ root: directory, rendererUrl: 'file://' + directory + '/index.html', hostPath: directory + '/embedded-host.mjs', preloadPath: directory + '/preload.cjs' }), importHost: async () => ({ createEmbeddedHermesHost: async hostOptions => { hostCalls.push(hostOptions); return { async dispose() { disposalStarted = true; await disposal; if (failDisposal) throw new Error('Fixture owned child could not stop'); }, async handleIntent() { return { ok: true }; }, async getAllowedOrigins() { if (failAttachment) { hostOptions.onOwnedBackendAttempt({ attemptId: 'pending-host', phase: 'starting', profile: 'default', acceptedEnvNames: [] }); await hostOptions.backendEnv({ ...hostOptions.backendEnvContext, hermesHome, profile: 'default', source: 'opencode-auth-json' }); hostOptions.onOwnedBackendAttempt({ attemptId: 'pending-host', phase: 'accepted', profile: 'default', acceptedEnvNames: ['OPENAI_API_KEY'] }); throw new Error('Fixture readiness failed after owned start'); } return []; }, onAllowedOrigins() { return () => {}; }, async handlePermissionRequest() { return false; }, handleWillAttachWebview() { return false; }, async handleGuestWindowOpen() { return false; }, handleGuestNavigation() { return false; } }; } }) }); t.after(async () => { releaseDispose?.(); await controller.dispose().catch(() => {}); }); return controller; } };
     else if (name === './agent-server.mjs') values = { AgentServerService: Server, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:4001', AGENT_SERVER_ENGINE_PORT: 4096, electronDbPath: () => join(directory, 'electron.db'), legacyFlutterDbPath: () => join(directory, 'legacy.db') };
     else if (name === './hermes-server.mjs') values = { createHermesSupervisor: () => ({ getStatus: () => ({ state: 'disabled', port: 9121, url: 'http://127.0.0.1:9121' }), onStatus() {}, async start() {}, async stop() {} }) };
+    else if (name === './hermes-agent-bridge.mjs' && bridgeFixture) values = { createAgentBridgeHost: options => { bridgeOptions = options; return bridgeHost; } };
     else if (name === './desktop-google-oauth.mjs') values = { runDesktopGoogleOAuth: (options) => new Promise((resolve) => { logins.push({ options, resolve }); if (immediateLogin) resolve({ sessionToken: 'unexpected', user: { id: 1 } }); }) };
     else if (name === './human-approval-main-signer.mjs') values = { capability: async () => 'capability', signDecision: async (value) => { signed.push(value); return { signature: 'signature' }; } };
     else { values = { ...await import(name.startsWith('.') ? new URL(name, file).href : name) }; if (name === 'node:fs') { const exists = values.existsSync; values.existsSync = path => String(path).endsWith('dist/index.html') || exists(path); } if (name === 'node:os') { values.homedir = () => osHome; values.userInfo = () => ({ homedir: osHome, username: 'fixture' }); } }
@@ -106,7 +127,7 @@ async function host(t, { initialSession, missingHome = false, confirm, failDispo
   await module.evaluate();
   await Promise.race([initialBridgeReady, new Promise((_, reject) => { const timer = setTimeout(() => reject(new Error('Main failed to initialize fixture')), 2000); timer.unref(); })]);
   return {
-    directory, osHome, hermesHome, hostCalls, dialogs, ipcResults, holdDisposal: () => { disposal = new Promise(resolve => { releaseDispose = resolve; }); }, releaseDisposal: () => releaseDispose?.(), disposalStarted: () => disposalStarted, windows, logins, requests, signed, opened, handlers, listeners, agentServerOptions, starts, quits: () => quits, exits: () => exits,
+    directory, osHome, hermesHome, hostCalls, dialogs, ipcResults, bridgeCalls, bridgeGrants, holdDisposal: () => { disposal = new Promise(resolve => { releaseDispose = resolve; }); }, releaseDisposal: () => releaseDispose?.(), disposalStarted: () => disposalStarted, windows, logins, requests, signed, opened, handlers, listeners, agentServerOptions, starts, quits: () => quits, exits: () => exits,
     current: () => windows.at(-1),
     event: () => ({ sender: windows.at(-1).webContents, senderFrame: windows.at(-1).webContents.mainFrame }),
     artifact: () => protocols.get('rhythm-artifact')({ url: 'rhythm-artifact://app/00000000-0000-4000-8000-000000000801', method: 'GET' }),
@@ -204,6 +225,40 @@ test('S4-I5: current frame only; confirmation returning after document replaceme
   resolveConfirmation({ response: 0 });
   assert.equal((await pending).accepted, false);
   assert.equal((await accounts(h).getStatus()).providers.openai.grantEnabled, false);
+});
+
+test('1569-S6 wire: consent IPC is frame-bound and controls memory scope on bridge grants', async t => {
+  // Regression caught: preload exposes consent, but main omits the handler or fails to bind Accounts to the live bridge host.
+  const h = await host(t, { bridgeFixture: true }); await login(h);
+  const api = accounts(h);
+  const handler = h.handlers.get('rhythm:ai-accounts:set-memory-consent');
+  assert.equal(typeof handler, 'function');
+
+  const first = await attach(h);
+  first.onOwnedBackendAttempt({ attemptId: 'memory-attempt-1', phase: 'starting', profile: 'default', acceptedEnvNames: [] });
+  await first.backendEnv({ ...first.backendEnvContext, profile: 'default', hermesHome: h.hermesHome, source: 'opencode-auth-json' });
+  for (let i = 0; i < 30 && h.bridgeGrants.length < 1; i++) await tick();
+  assert.equal(h.bridgeGrants[0].consent.granted, false);
+  assert.deepEqual(h.bridgeGrants[0].scopes, []);
+
+  const current = h.event();
+  for (const event of [
+    { sender: {}, senderFrame: current.senderFrame },
+    { ...current, senderFrame: { url: current.senderFrame.url } },
+  ]) assert.deepEqual(await handler(event, { action: 'enable', capability: 'memory.search' }), { accepted: false });
+  assert.equal(h.dialogs.length, 0);
+  assert.deepEqual(await api.setMemorySearchConsent({ action: 'enable', capability: 'memory.search' }), { accepted: true });
+
+  first.onOwnedBackendAttempt({ attemptId: 'memory-attempt-1', phase: 'retired', profile: 'default', acceptedEnvNames: [], cause: 'exited' });
+  first.onOwnedBackendAttempt({ attemptId: 'memory-attempt-2', phase: 'starting', profile: 'default', acceptedEnvNames: [] });
+  await first.backendEnv({ ...first.backendEnvContext, profile: 'default', hermesHome: h.hermesHome, source: 'opencode-auth-json' });
+  for (let i = 0; i < 30 && h.bridgeGrants.length < 2; i++) await tick();
+  assert.equal(h.bridgeGrants[1].consent.granted, true);
+  assert.equal(h.bridgeGrants[1].consent.memoryVaultId, 'b'.repeat(64));
+  assert.deepEqual(h.bridgeGrants[1].scopes, ['memory.search']);
+
+  assert.deepEqual(await api.setMemorySearchConsent({ action: 'disable', capability: 'memory.search' }), { accepted: true });
+  assert.ok(h.bridgeCalls.some(([name, scope]) => name === 'revokeScope' && scope === 'memory.search'));
 });
 
 test('S4-I6: actual logout waits for owned host disposal and blocks old broker callbacks', async t => {

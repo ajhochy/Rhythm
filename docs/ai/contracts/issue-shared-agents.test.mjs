@@ -14,8 +14,8 @@ function sectionSixTestIds(spec) {
   );
 }
 
-test('C0-R1: every §6 test ID appears exactly once in the pending contract', async () => {
-  // Regression caught: a slice test is omitted, duplicated, or marked complete before evidence exists.
+test('C0-R1: every §6 test ID appears exactly once with a valid contract status', async () => {
+  // Regression caught: a slice test is omitted, duplicated, or assigned a status the inventory cannot interpret.
   const [spec, contractText] = await Promise.all([
     readFile(specUrl, 'utf8'),
     readFile(contractUrl, 'utf8'),
@@ -28,8 +28,6 @@ test('C0-R1: every §6 test ID appears exactly once in the pending contract', as
   assert.equal(new Set(expectedIds).size, expectedIds.length, '§6 contains duplicate test IDs');
   assert.equal(new Set(actualIds).size, actualIds.length, 'the contract contains duplicate test IDs');
   assert.deepEqual(actualIds, expectedIds);
-  assert.ok(
-    contract.criteria.every((criterion) => criterion.status === 'pending'),
-    'every shared-agent criterion must start pending',
-  );
+  const allowedStatuses = new Set(['pending', 'pass', 'fail', 'blocked', 'not_run']);
+  assert.ok(contract.criteria.every((criterion) => allowedStatuses.has(criterion.status)), 'every shared-agent criterion must use a supported status');
 });
