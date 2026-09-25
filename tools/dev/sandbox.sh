@@ -143,9 +143,16 @@ PY
 validate_node() {
   [[ "$NODE_BIN" = /* && -f "$NODE_BIN" && -x "$NODE_BIN" ]] ||
     fail 'RHYTHM_SANDBOX_NODE_BIN (or command -v node) must resolve to an absolute executable file'
-  # Loading the JS wrapper alone is lazy: require the native addon, without a DB.
+  # Construct and query a database so better-sqlite3 loads its N-API prebuild.
+  # Resolve from API_DIR instead of reaching through the package exports map.
   env -i "${runtime_env[@]}" "$NODE_BIN" -e '
-    require(require.resolve("better-sqlite3/build/Release/better_sqlite3.node", {paths: [process.argv[1]]}));
+    const { createRequire } = require("node:module");
+    const requireFromApi = createRequire(process.argv[1] + "/package.json");
+    const Database = requireFromApi("better-sqlite3");
+    const db = new Database(":memory:");
+    const row = db.prepare("select 1 as x").get();
+    db.close();
+    if (row.x !== 1) process.exit(1);
   ' "$API_DIR" || fail "Node $NODE_BIN cannot load installed api_server better-sqlite3; select a compatible RHYTHM_SANDBOX_NODE_BIN"
 }
 listener() { lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true; }

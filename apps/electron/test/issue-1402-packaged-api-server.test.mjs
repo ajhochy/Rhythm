@@ -30,7 +30,7 @@ test('issue-1402-c1: package:mac includes the complete api_server runtime shape'
     'api_server/package.json',
     'api_server/package-lock.json',
     'api_server/node_modules/better-sqlite3/package.json',
-    'api_server/node_modules/better-sqlite3/build/Release/better_sqlite3.node',
+    `api_server/node_modules/better-sqlite3/prebuilds/darwin-${process.arch}.node`,
     'api_server/node_modules/node-pty/package.json',
     'api_server/.mcp-roles/secretary.mcp.json',
     'node/bin/node',
@@ -41,14 +41,17 @@ test('issue-1402-c1: package:mac includes the complete api_server runtime shape'
       `packaged resource is missing: Contents/Resources/${relativePath}`,
     );
   }
-  for (const rebuildOnlyPath of [
-    'api_server/node_modules/better-sqlite3/build/Makefile',
-    'api_server/node_modules/better-sqlite3/build/config.gypi',
+  for (const forbiddenPrebuildPath of [
+    ...['arm64', 'x64']
+      .filter((arch) => arch !== process.arch)
+      .map((arch) => `api_server/node_modules/better-sqlite3/prebuilds/darwin-${arch}.node`),
+    ...['linux', 'linuxmusl', 'win32'].flatMap((platform) =>
+      ['arm64', 'x64'].map((arch) => `api_server/node_modules/better-sqlite3/prebuilds/${platform}-${arch}.node`)),
   ]) {
     await assert.rejects(
-      access(resolve(resources, rebuildOnlyPath)),
+      access(resolve(resources, forbiddenPrebuildPath)),
       undefined,
-      `${rebuildOnlyPath} is rebuild-only metadata and makes signed package bytes nondeterministic`,
+      `${forbiddenPrebuildPath} must not ship in a darwin-${process.arch} package`,
     );
   }
 
@@ -59,7 +62,7 @@ test('issue-1402-c1: package:mac includes the complete api_server runtime shape'
     "const db=new Database(':memory:');",
     "if(db.prepare('select 1 as x').get().x!==1)process.exit(1);",
   ].join('')], { encoding: 'utf8' });
-  assert.equal(sqliteProbe.status, 0, `bundled Node failed its better-sqlite3 ABI probe\n${sqliteProbe.stderr}`);
+  assert.equal(sqliteProbe.status, 0, `bundled Node failed its better-sqlite3 N-API load probe\n${sqliteProbe.stderr}`);
   const ptyProbe = spawnSync(bundledNode, ['-e', [
     `const root=${JSON.stringify(resolve(resources, 'api_server'))};`,
     "require(root+'/node_modules/node-pty');",

@@ -166,6 +166,13 @@ codesign --force --options runtime --timestamp \
 # bundled in Contents/Resources — Apple requires all native binaries to be
 # signed with Hardened Runtime and a secure timestamp.
 while IFS= read -r -d '' item; do
+  if [[ -f "${item}" ]]; then
+    item_kind="$(file -b "${item}")"
+    if [[ "${item_kind}" != *Mach-O* ]]; then
+      echo "::error::Refusing to codesign non-Mach-O native binary ${item}: ${item_kind}" >&2
+      exit 1
+    fi
+  fi
   codesign --force --options runtime --timestamp \
     --sign "${IDENTITY_SHA}" \
     "${item}"

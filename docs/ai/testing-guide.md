@@ -486,7 +486,10 @@ npm test                  # vitest run — 965 tests (as of #738-fix, 2026-06-23
 node_modules/.bin/tsc --noEmit   # TypeScript type check (no tsc in global PATH)
 ```
 
-Note: `better-sqlite3` has ABI compatibility issues on some development machines. If tests fail with `NODE_MODULE_VERSION` errors, run `npm rebuild better-sqlite3`.
+Note: `better-sqlite3` 13 uses N-API prebuilds across supported Node versions. A
+`NODE_MODULE_VERSION` difference by itself does not require a rebuild. The api_server
+postinstall script runs a package-entry query probe and falls back to a source rebuild
+only if that probe fails.
 
 ### Real-server test harness — avoiding undici socket flakes
 

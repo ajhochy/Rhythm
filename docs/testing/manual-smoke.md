@@ -200,7 +200,10 @@ accepts this complete packaged matrix.
 ```bash
 cd apps/api_server && npm test
 ```
-Ideally all tests pass. If better-sqlite3 ABI mismatch occurs, run `npm rebuild better-sqlite3` and retry.
+Ideally all tests pass. better-sqlite3 13 uses N-API prebuilds, so a
+`NODE_MODULE_VERSION` mismatch alone does not require a rebuild. If its package-entry
+query probe fails, rerun the api_server postinstall script; it falls back to a source
+rebuild only when the prebuild cannot load.
 
 ```bash
 cd apps/desktop_flutter && flutter test

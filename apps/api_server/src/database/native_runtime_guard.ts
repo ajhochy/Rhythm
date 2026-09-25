@@ -23,7 +23,7 @@ export function nativeRuntimeVerdict(
   return 'ok';
 }
 
-/** Fail before constructing a SQLite Database or Statement on an unsafe ABI pair. */
+/** Fail before constructing a SQLite Database or Statement on an unsafe legacy runtime pair. */
 export function assertSafeNativeRuntime(
   nodeVersion = process.versions.node,
   betterSqliteVersion = (require('better-sqlite3/package.json') as { version: string }).version,

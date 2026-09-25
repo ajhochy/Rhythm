@@ -242,11 +242,33 @@ await Promise.all([
   ].join('\n')),
 ]);
 
-// Match the shipping Flutter bundle: install production dependencies in the detached payload,
-// letting api_server's postinstall rebuild better-sqlite3 against this exact Node runtime.
-await run('npm', ['install', '--omit=dev'], { cwd: packagedApiServer });
+// Match the shipping Flutter bundle: install production dependencies in the detached payload.
+// better-sqlite3 13 ships N-API prebuilds, so rebuilding it for this Node is unnecessary.
+await run('npm', ['install', '--omit=dev'], {
+  cwd: packagedApiServer,
+  env: { ...process.env, SKIP_BETTER_SQLITE3_REBUILD: '1' },
+});
 await run('npm', ['install', '--omit=dev'], { cwd: resolve(packagedApiServer, 'config_seeds/tools') });
 await rm(resolve(packagedApiServer, '.node-runtime.json'), { force: true });
+
+const betterSqlitePrebuilds = [
+  'darwin-arm64.node',
+  'darwin-x64.node',
+  'linux-arm64.node',
+  'linux-x64.node',
+  'linuxmusl-arm64.node',
+  'linuxmusl-x64.node',
+  'win32-arm64.node',
+  'win32-x64.node',
+];
+const betterSqlitePrebuildDir = resolve(packagedApiServer, 'node_modules/better-sqlite3/prebuilds');
+const targetBetterSqlitePrebuild = `darwin-${process.arch}.node`;
+await Promise.all(betterSqlitePrebuilds
+  .filter((name) => name !== targetBetterSqlitePrebuild)
+  .map((name) => rm(resolve(betterSqlitePrebuildDir, name), { force: true })));
+await access(resolve(betterSqlitePrebuildDir, targetBetterSqlitePrebuild)).catch((cause) => {
+  throw new Error(`Missing better-sqlite3 prebuild for packaged architecture: ${targetBetterSqlitePrebuild}`, { cause });
+});
 
 await mkdir(dirname(packagedNode), { recursive: true });
 await cp(process.execPath, packagedNode);
@@ -264,14 +286,6 @@ await run(packagedNode, ['-e', [
   `const root=${JSON.stringify(packagedApiServer)};`,
   "require(root+'/node_modules/node-pty');",
 ].join('')]);
-// node-gyp emits rebuild metadata with nondeterministic dependency ordering. The runtime needs the
-// compiled Release addon, not these regeneration inputs; remove them before signing so identical
-// source and Node 22 inputs produce identical bundle bytes.
-await Promise.all([
-  rm(resolve(packagedApiServer, 'node_modules/better-sqlite3/build/Makefile'), { force: true }),
-  rm(resolve(packagedApiServer, 'node_modules/better-sqlite3/build/config.gypi'), { force: true }),
-]);
-
 await rename(
   resolve(stagingArtifact, 'Contents/MacOS/Electron'),
   resolve(stagingArtifact, 'Contents/MacOS/Rhythm'),

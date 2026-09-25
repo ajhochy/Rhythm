@@ -314,7 +314,7 @@ cd apps/desktop_flutter && flutter run -d macos
 
 - **No app-sandbox** — entitlements intentionally remove sandbox to allow `Process.start` (spawning the Node.js server). Non-App-Store distribution only.
 - **Login shell for Node discovery** — GUI apps on macOS strip PATH. Use `/bin/zsh -l -c 'which node'` not `/bin/sh`.
-- **`better-sqlite3` ABI** — Must be compiled with the same Node version the app will use at runtime. `prebuild-install` often downloads wrong binary. Use `node-gyp rebuild` if ABI mismatch.
+- **`better-sqlite3` N-API** — Version 13 ships ABI-stable platform/architecture prebuilds; macOS packages retain only Darwin prebuilds and verify a real query under the bundled Node.
 - **`dart format .`** — Always run before committing. CI fails on format violations (`--set-exit-if-changed`).
 - **`flutter analyze --no-fatal-infos`** — Must pass before opening a PR.
 - **Local agent server auth bypass** — The embedded `api_server` process is started with `AGENT_LOCAL=true` in its environment. This disables JWT validation on agent endpoints. Never expose port 4001 externally; the bypass is intentional and scoped to localhost-only traffic.

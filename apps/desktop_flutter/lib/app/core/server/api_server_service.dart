@@ -202,10 +202,10 @@ Map<String, String> buildApiServerEnvironment({
   return env;
 }
 
-/// Builds the development API-server command with the ABI-selected Node as
-/// the real executable. `npx` uses an `#!/usr/bin/env node` shebang, so
+/// Builds the development API-server command with the selected Node as the
+/// real executable. `npx` uses an `#!/usr/bin/env node` shebang, so
 /// spawning it directly can silently select a different Node from PATH and
-/// load native modules with the wrong ABI.
+/// load native modules under an unintended runtime.
 ({String executable, List<String> args}) buildDevApiServerLaunch({
   required String nodePath,
   required String npxPath,
@@ -216,7 +216,7 @@ Map<String, String> buildApiServerEnvironment({
   );
 }
 
-/// Selects an npx JavaScript entrypoint that can be passed to the ABI-selected
+/// Selects an npx JavaScript entrypoint that can be passed to the selected
 /// Node executable. A bare `npx` name is invalid here: Node treats it as a
 /// relative script path instead of searching PATH.
 String selectNpxScriptPath({
@@ -228,8 +228,17 @@ String selectNpxScriptPath({
   final candidate = shellPath.trim();
   if (candidate.startsWith('/')) return candidate;
   throw StateError(
-    'npx was not found beside the ABI-selected Node or as an absolute login-shell path',
+    'npx was not found beside the selected Node or as an absolute login-shell path',
   );
+}
+
+/// Legacy better-sqlite3 releases require a matching Node module ABI.
+/// Version 13 and later use N-API prebuilds across supported Node versions.
+bool shouldEnforceBetterSqliteNodeAbi(String? installedVersion) {
+  if (installedVersion == null) return true;
+  final match = RegExp(r'^[^0-9]*(\d+)').firstMatch(installedVersion.trim());
+  final major = match == null ? null : int.tryParse(match.group(1)!);
+  return major == null || major < 13;
 }
 
 /// Manages the lifecycle of the local Node.js API server process.
@@ -392,7 +401,7 @@ class ApiServerService {
       return (ok: true, reason: null, stderrTail: null, failureMessage: null);
     }
 
-    // #615 — ABI-aware node discovery.
+    // #615 — Native-runtime-aware Node discovery.
     final nodeResult = await _findNodeWithAbi();
     final node = nodeResult.nodePath;
     if (node == null) {
@@ -729,15 +738,14 @@ class ApiServerService {
     return checkHealth('http://localhost:4001');
   }
 
-  /// Result of [_findNodeWithAbi]: the resolved node path and an optional
+  /// Result of [_findNodeWithAbi]: the resolved Node path and an optional
   /// rich failure message (e.g. a copy-paste rebuild command).
   Future<({String? nodePath, String? failureMessage})>
       _findNodeWithAbi() async {
     // #1023: Prefer the Node runtime bundled inside the app. When present, its
-    // ABI matches the bundled better_sqlite3.node by construction — both are
-    // built from the SAME pinned Node in the release workflow — so no ABI
-    // probing or machine-node discovery is needed. Only dev builds (no bundle)
-    // fall through to the sentinel / ABI-match / login-shell discovery below.
+    // better-sqlite3 13 uses an ABI-stable N-API prebuild, and the packaged
+    // runtime is verified with a real query during release. Only dev builds
+    // (no bundle) fall through to install-time and machine Node discovery.
     final bundledNode = _bundledNodePath();
     if (bundledNode != null) {
       stdout.writeln(
@@ -751,6 +759,7 @@ class ApiServerService {
     final sentinelNodePath = sentinel?['nodePath'];
     final sentinelAbi = sentinel?['abi'];
     final sentinelVersion = sentinel?['nodeVersion'];
+    final betterSqliteVersion = await _readInstalledBetterSqliteVersion();
 
     // (1) Use sentinel nodePath if it exists on disk.
     if (sentinelNodePath is String && File(sentinelNodePath).existsSync()) {
@@ -761,8 +770,11 @@ class ApiServerService {
       return (nodePath: sentinelNodePath, failureMessage: null);
     }
 
-    // (2) If sentinel has an ABI, try to find a candidate whose ABI matches.
-    if (sentinelAbi is String) {
+    // (2) Preserve the legacy ABI-match fallback only for better-sqlite3 12.x
+    // or an unreadable manifest. Version 13+ loads an N-API prebuild, so an
+    // install-time NODE_MODULE_VERSION mismatch is not a startup failure.
+    if (shouldEnforceBetterSqliteNodeAbi(betterSqliteVersion) &&
+        sentinelAbi is String) {
       final targetAbi = int.tryParse(sentinelAbi);
       if (targetAbi != null) {
         final matched = await _findAbiMatchedNode(targetAbi);
@@ -783,6 +795,11 @@ class ApiServerService {
         stderr.writeln('[ApiServerService] $msg');
         return (nodePath: null, failureMessage: msg);
       }
+    } else if (sentinelAbi is String) {
+      stdout.writeln(
+        '[ApiServerService] better-sqlite3 $betterSqliteVersion uses N-API; '
+        'ignoring install-time Node ABI $sentinelAbi.',
+      );
     }
 
     // (3) Fall back to common install paths. Apple Silicon Homebrew lives at
@@ -905,6 +922,41 @@ class ApiServerService {
     }
 
     return null;
+  }
+
+  Future<String?> _readInstalledBetterSqliteVersion() async {
+    Future<String?> readVersion(File manifest) async {
+      if (!await manifest.exists()) return null;
+      try {
+        final data = jsonDecode(await manifest.readAsString());
+        if (data is! Map<String, dynamic>) return null;
+        final version = data['version'];
+        return version is String ? version : null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final exe = Platform.resolvedExecutable;
+    var dir = _dirname(exe);
+    for (var i = 0; i < 12; i++) {
+      final version = await readVersion(
+        File(
+          '$dir/apps/api_server/node_modules/better-sqlite3/package.json',
+        ),
+      );
+      if (version != null) return version;
+      final parent = _dirname(dir);
+      if (parent == dir) break;
+      dir = parent;
+    }
+
+    final resourcesDir = '${_dirname(_dirname(exe))}/Resources';
+    return readVersion(
+      File(
+        '$resourcesDir/api_server/node_modules/better-sqlite3/package.json',
+      ),
+    );
   }
 
   /// #615 — Read `.node-runtime.json` from dev path first, then bundled path.
