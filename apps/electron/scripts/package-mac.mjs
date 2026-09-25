@@ -207,25 +207,12 @@ await mkdir(resolve(packagedApp, 'src'), { recursive: true });
 await mkdir(packagedShared, { recursive: true });
 await mkdir(packagedApiServer, { recursive: true });
 await Promise.all([
-  cp(resolve(electronRoot, 'src/main.mjs'), resolve(packagedApp, 'src/main.mjs')),
-  cp(resolve(electronRoot, 'src/policy.mjs'), resolve(packagedApp, 'src/policy.mjs')),
-  cp(resolve(electronRoot, 'src/production-api-config.mjs'), resolve(packagedApp, 'src/production-api-config.mjs')),
-  cp(resolve(electronRoot, 'src/runtime-config.mjs'), resolve(packagedApp, 'src/runtime-config.mjs')),
-  cp(resolve(electronRoot, 'src/artifact-frame-protocol.mjs'), resolve(packagedApp, 'src/artifact-frame-protocol.mjs')),
-  cp(resolve(electronRoot, 'src/security-smoke-receipt.mjs'), resolve(packagedApp, 'src/security-smoke-receipt.mjs')),
-  cp(resolve(electronRoot, 'src/preload.cjs'), resolve(packagedApp, 'src/preload.cjs')),
-  cp(resolve(electronRoot, 'src/google-oauth-core.mjs'), resolve(packagedApp, 'src/google-oauth-core.mjs')),
-  cp(resolve(electronRoot, 'src/desktop-google-oauth.mjs'), resolve(packagedApp, 'src/desktop-google-oauth.mjs')),
-  cp(resolve(electronRoot, 'src/agent-server.mjs'), resolve(packagedApp, 'src/agent-server.mjs')),
-  cp(resolve(electronRoot, 'src/hermes-server.mjs'), resolve(packagedApp, 'src/hermes-server.mjs')),
-  cp(resolve(electronRoot, 'src/hermes-view.mjs'), resolve(packagedApp, 'src/hermes-view.mjs')),
-  cp(resolve(electronRoot, 'src/hermes-desktop-artifact.mjs'), resolve(packagedApp, 'src/hermes-desktop-artifact.mjs')),
-  cp(resolve(electronRoot, 'src/hermes-desktop-config.mjs'), resolve(packagedApp, 'src/hermes-desktop-config.mjs')),
-  cp(resolve(electronRoot, 'src/hermes-view-preload.cjs'), resolve(packagedApp, 'src/hermes-view-preload.cjs')),
-  cp(resolve(electronRoot, 'src/hermes-protocol.mjs'), resolve(packagedApp, 'src/hermes-protocol.mjs')),
-  cp(resolve(electronRoot, 'src/hermes-theme.mjs'), resolve(packagedApp, 'src/hermes-theme.mjs')),
-  cp(resolve(electronRoot, 'src/hermes-theme.css'), resolve(packagedApp, 'src/hermes-theme.css')),
-  cp(resolve(electronRoot, 'src/human-approval-main-signer.mjs'), resolve(packagedApp, 'src/human-approval-main-signer.mjs')),
+  // Ship every runtime module in src/ (the renderer and main load them by path and import);
+  // a hand-maintained list silently dropped new modules. build-config.mjs is generated below.
+  cp(resolve(electronRoot, 'src'), resolve(packagedApp, 'src'), {
+    recursive: true,
+    filter: (source) => !source.endsWith('.d.mts') && basename(source) !== 'build-config.mjs',
+  }),
   cp(resolve(electronRoot, 'package.json'), resolve(packagedApp, 'package.json')),
   cp(resolve(electronRoot, '../shared/production-api-base.mjs'), resolve(packagedShared, 'production-api-base.mjs')),
   cp(resolve(electronRoot, '../web/dist'), resolve(packagedApp, 'web/dist'), { recursive: true }),
@@ -244,6 +231,9 @@ await Promise.all([
 
 // Match the shipping Flutter bundle: install production dependencies in the detached payload.
 // better-sqlite3 13 ships N-API prebuilds, so rebuilding it for this Node is unnecessary.
+// Fail the build, not the first launch, if any module main/preload reach is missing.
+await assertPackagedModuleGraph(resolve(packagedApp, 'src'), ['main.mjs', 'preload.cjs', 'hermes-view-preload.cjs']);
+
 await run('npm', ['install', '--omit=dev'], {
   cwd: packagedApiServer,
   env: { ...process.env, SKIP_BETTER_SQLITE3_REBUILD: '1' },
@@ -323,3 +313,28 @@ process.stdout.write(`Packaged ${artifact} with an ad-hoc signature.\n`);
   await rm(stagingArtifact, { recursive: true, force: true });
 }
 }
+
+async function assertPackagedModuleGraph(srcDir, entries) {
+  const seen = new Set();
+  const queue = entries.map((entry) => resolve(srcDir, entry));
+  const missing = [];
+  while (queue.length) {
+    const file = queue.pop();
+    if (seen.has(file)) continue;
+    seen.add(file);
+    let text;
+    try {
+      text = await readFile(file, 'utf8');
+    } catch {
+      missing.push(file);
+      continue;
+    }
+    for (const match of text.matchAll(/(?:\bfrom|\bimport\(|\brequire\()\s*['"](\.{1,2}\/[^'"]+)['"]/g)) {
+      queue.push(resolve(dirname(file), match[1]));
+    }
+  }
+  if (missing.length) {
+    throw new Error(`Packaged app is missing runtime modules: ${missing.join(', ')}`);
+  }
+}
+
