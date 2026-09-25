@@ -184,6 +184,16 @@ export function createHermesCredentialBroker({ grantsPath, osHome, hermesHome, g
   let ownedIdentity = null
   let mayRetain = false
   let generation = 0
+  /** External callback failures may contain provider values. Preserve only messages proven value-free. @param {unknown} error */
+  const safeExternalError = (error) => {
+    const message = error instanceof Error ? error.message : ''
+    let values = []
+    try { values = Object.values(extractOpenCodeStaticApiKeys({ osHome })) } catch { /* fail closed below */ }
+    if (!message || values.some(value => typeof value === 'string' && message.includes(value)) || /\b[a-f0-9]{64}\b/i.test(message)) {
+      return new Error('External credential operation failed')
+    }
+    return error instanceof Error ? error : new Error('External credential operation failed')
+  }
   /** @param {() => any} fn */
   const serial = (fn) => {
     const result = queue.then(fn)
@@ -219,7 +229,9 @@ export function createHermesCredentialBroker({ grantsPath, osHome, hermesHome, g
       if (!matches(context)) throw new Error('Invalid grant identity')
       const requested = Object.freeze({ source: SOURCE, provider: mutation.provider, enabled: mutation.enabled })
       const exact = Object.freeze({ action: requested.enabled ? 'enable' : 'disable', source: SOURCE, provider: requested.provider })
-      if ((await confirmMutation(exact)) !== true || key !== currentIdentity() ||
+      let confirmed = false
+      try { confirmed = (await confirmMutation(exact)) === true } catch (error) { throw safeExternalError(error) }
+      if (!confirmed || key !== currentIdentity() ||
           key !== identityKey(context) || !matches(context) || retired ||
           mutation.source !== requested.source || mutation.provider !== requested.provider ||
           mutation.enabled !== requested.enabled || Object.keys(mutation).sort().join(',') !== 'enabled,provider,source') {
@@ -286,7 +298,7 @@ export function createHermesCredentialBroker({ grantsPath, osHome, hermesHome, g
       generation++
       if ((ownedIdentity && ownedIdentity !== next) || (inFlightIdentity && inFlightIdentity !== next)) {
         retired = true
-        await disposeOwnedBackend({ reason: 'identity-changed' })
+        try { await disposeOwnedBackend({ reason: 'identity-changed' }) } catch (error) { throw safeExternalError(error) }
         ownedIdentity = null
         applied = null
         appliedGeneration = null

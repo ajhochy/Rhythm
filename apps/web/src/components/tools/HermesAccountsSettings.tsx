@@ -11,6 +11,12 @@ const sourceLabels = {
   'source-unavailable': 'Credential source status is unknown. Sharing cannot be enabled.',
 };
 const applicationLabels = { absent: 'Not shared', configured: 'Configured for next start', applied: 'Applied to running Hermes', 'pending-next-start': 'Pending next start' };
+const memoryLabels = {
+  disabled: 'Memory search is disabled.',
+  enabled: 'Memory search is enabled for the running Hermes default profile.',
+  'pending-next-start': 'Memory search will be enabled on the next Hermes start.',
+  unavailable: 'Memory search is unavailable until the desktop establishes the current vault identity.',
+};
 
 export function HermesAccountsSettings() {
   const [status, setStatus] = useState<AiAccountsStatus | null>(null);
@@ -46,6 +52,20 @@ export function HermesAccountsSettings() {
       if (current === generation.current) { await refresh(); if (current + 1 === generation.current) setError('Sharing was not changed. Refresh status and try again.'); }
     } finally { submitting.current = false; setPending(false); }
   };
+  const changeMemory = async (action: 'enable' | 'disable') => {
+    const bridge = aiAccountsBridge();
+    if (!bridge || submitting.current) return;
+    const current = generation.current;
+    submitting.current = true; setPending(true); setNotice(''); setError('');
+    try {
+      const result = await bridge.setMemorySearchConsent({ action, capability: 'memory.search' });
+      if (current !== generation.current) return;
+      setNotice(result?.accepted === true ? 'Memory sharing preference saved.' : 'Memory sharing was not changed.');
+      await refresh();
+    } catch {
+      if (current === generation.current) { await refresh(); if (current + 1 === generation.current) setError('Memory sharing was not changed. Refresh status and try again.'); }
+    } finally { submitting.current = false; setPending(false); }
+  };
   return <section className="hermes-accounts-settings" aria-label="Hermes account sharing">
     <header><h3>Hermes account sharing</h3><p>Choose which Rhythm API keys Hermes may use on its next start. Confirmation happens in the desktop app.</p></header>
     {loading && <p role="status">Loading sharing status…</p>}
@@ -61,7 +81,14 @@ export function HermesAccountsSettings() {
         {(entry.grantEnabled || entry.sharingEligibility === 'eligible') && <button type="button" className="secondary-button compact" disabled={loading || pending} onClick={() => void change(provider, entry.grantEnabled ? 'disable' : 'enable')}>{entry.grantEnabled ? 'Stop sharing' : 'Share with Hermes'}</button>}
       </fieldset>;
     })}
-    <p className="hermes-accounts-memory">Memory sharing is disabled.</p>
+    {status && <fieldset className="hermes-account-row hermes-accounts-memory"><legend>Rhythm memory search</legend>
+      <p>{memoryLabels[status.memory.state]}</p>
+      <p>Hermes may search the Rhythm vault read-only from its default profile. Access is revocable.</p>
+      {status.memory.state !== 'unavailable' && <button type="button" className="secondary-button compact" disabled={loading || pending}
+        onClick={() => void changeMemory(status.memory.state === 'disabled' ? 'enable' : 'disable')}>
+        {status.memory.state === 'disabled' ? 'Share memory search' : 'Stop sharing memory search'}
+      </button>}
+    </fieldset>}
     <button type="button" className="secondary-button compact" disabled={loading || pending} onClick={() => void refresh()}>Refresh sharing status</button>
   </section>;
 }

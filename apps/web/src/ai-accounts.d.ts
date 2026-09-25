@@ -5,11 +5,15 @@ export type AiAccountGrantMutation = {
   provider: AiAccountProvider;
   source: 'opencode-auth-json';
 };
+export type AiAccountMemoryConsentMutation = {
+  action: 'enable' | 'disable';
+  capability: 'memory.search';
+};
 export type AiAccountsStatus = {
   version: 1;
   availability: 'available' | 'unavailable';
   childMayRetainCredential: boolean;
-  memory: { state: 'disabled' };
+  memory: { state: 'disabled' | 'enabled' | 'pending-next-start' | 'unavailable' };
   providers?: Record<AiAccountProvider, {
     sourceState: string;
     rhythmSourceState: 'static-api-key' | 'oauth' | 'absent' | 'unknown';
@@ -25,5 +29,6 @@ export type AiAccountsShell = {
   aiAccounts?: {
     getStatus(): Promise<AiAccountsStatus>;
     setGrant(mutation: AiAccountGrantMutation): Promise<{ accepted: boolean }>;
+    setMemorySearchConsent(mutation: AiAccountMemoryConsentMutation): Promise<{ accepted: boolean }>;
   };
 };

@@ -139,6 +139,7 @@ ipcRenderer.on('rhythm:agent-notifications:permission', (_event, detail) => {
 const aiAccounts = Object.freeze({
   getStatus: () => ipcRenderer.invoke('rhythm:ai-accounts:status'),
   setGrant: (/** @type {unknown} */ mutation) => ipcRenderer.invoke('rhythm:ai-accounts:set-grant', mutation),
+  setMemorySearchConsent: (/** @type {unknown} */ mutation) => ipcRenderer.invoke('rhythm:ai-accounts:set-memory-consent', mutation),
 });
 contextBridge.exposeInMainWorld('rhythmShell', Object.freeze({
   version: 6,

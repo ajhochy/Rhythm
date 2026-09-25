@@ -118,7 +118,7 @@ function accounts(h) {
   const bridge = h.current().bridge.aiAccounts;
   assert.ok(bridge, 'Actual preload must expose the closed Accounts bridge');
   assert.equal(Object.isFrozen(bridge), true);
-  assert.deepEqual(Object.keys(bridge).sort(), ['getStatus', 'setGrant']);
+  assert.deepEqual(Object.keys(bridge).sort(), ['getStatus', 'setGrant', 'setMemorySearchConsent']);
   return bridge;
 }
 async function attach(h) {

@@ -7,10 +7,13 @@ export function aiAccountsBridge() {
 
 /** Only recognized metadata reaches UI state; never render bridge errors or arbitrary fields. */
 export function accountStatus(value: unknown): AiAccountsStatus {
-  const unavailable: AiAccountsStatus = { version: 1, availability: 'unavailable', childMayRetainCredential: false, memory: { state: 'disabled' } };
+  const unavailable: AiAccountsStatus = { version: 1, availability: 'unavailable', childMayRetainCredential: false, memory: { state: 'unavailable' } };
   if (!value || typeof value !== 'object') return unavailable;
   const input = value as Record<string, unknown>;
   if (input.version !== 1 || input.availability !== 'available') return { ...unavailable, childMayRetainCredential: input.childMayRetainCredential === true };
+  const memory = input.memory as Record<string, unknown> | null;
+  if (!memory || typeof memory !== 'object' ||
+      !['disabled', 'enabled', 'pending-next-start', 'unavailable'].includes(String(memory.state))) return unavailable;
   const providers = {} as NonNullable<AiAccountsStatus['providers']>;
   if (!input.providers || typeof input.providers !== 'object') return unavailable;
   for (const name of accountProviders) {
@@ -31,5 +34,6 @@ export function accountStatus(value: unknown): AiAccountsStatus {
       sharingEligibility: entry.sharingEligibility as NonNullable<AiAccountsStatus['providers']>[AiAccountProvider]['sharingEligibility'],
     };
   }
-  return { version: 1, availability: 'available', childMayRetainCredential: input.childMayRetainCredential === true, providers, memory: { state: 'disabled' } };
+  return { version: 1, availability: 'available', childMayRetainCredential: input.childMayRetainCredential === true,
+    providers, memory: { state: memory.state as AiAccountsStatus['memory']['state'] } };
 }

@@ -39,8 +39,12 @@ async function open(page: Page, status: unknown, fixture = false, bridge = true)
   await page.route('https://accounts.test/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><html><body><div id="root"></div></body></html>' }));
   await page.goto('https://accounts.test/#/tools/agent-settings?settingsSection=accounts');
   await page.evaluate(({ status, fixture, bridge }) => {
-    const w = window as any; w.__fixture = fixture; w.__status = status; w.__mutations = [];
-    if (bridge) w.rhythmShell = { aiAccounts: Object.freeze({ getStatus: async () => w.__status, setGrant: (payload: unknown) => { w.__mutations.push(payload); return new Promise(resolve => { w.__confirm = resolve; }); } }) };
+    const w = window as any; w.__fixture = fixture; w.__status = status; w.__mutations = []; w.__memoryMutations = [];
+    if (bridge) w.rhythmShell = { aiAccounts: Object.freeze({
+      getStatus: async () => w.__status,
+      setGrant: (payload: unknown) => { w.__mutations.push(payload); return new Promise(resolve => { w.__confirm = resolve; }); },
+      setMemorySearchConsent: (payload: unknown) => { w.__memoryMutations.push(payload); return new Promise(resolve => { w.__memoryConfirm = resolve; }); },
+    }) };
   }, { status, fixture, bridge });
   await page.addScriptTag({ content: bundle });
   if (process.env.RHYTHM_ACCOUNTS_VISUAL === '1') for (const file of ['src/styles.css', 'src/components/ListInspector.css', 'src/components/ToolWorkspace.css', 'src/components/tools/AgentSettingsTool.css']) await page.addStyleTag({ content: readFileSync(resolve(file), 'utf8') });
@@ -119,6 +123,47 @@ test('S4-U8: refresh clears old grants when the desktop identity becomes unavail
   await expect(sharing).toContainText(/unavailable/i);
   await expect(sharing).not.toContainText(/Applied.*running/i);
   await expect(sharing.getByRole('button', { name: /enable|disable|share.*Hermes|stop sharing/i })).toHaveCount(0);
+});
+
+test('1569:s6d-accounts-memory-ui:1 memory states and exact toggle payload remain metadata-only', async ({ page }) => {
+  // Regression caught: the memory row collapses states, sends renderer identity, or renders bridge-provided authority data.
+  const data = await metadata();
+  const states = [
+    ['disabled', /Memory search is disabled/i, /Share memory search/i],
+    ['enabled', /Memory search is enabled/i, /Stop sharing memory search/i],
+    ['pending-next-start', /Memory search.*next.*start/i, /Stop sharing memory search/i],
+    ['unavailable', /Memory search is unavailable/i, null],
+  ] as const;
+  for (const [state, label, action] of states) {
+    const status = { ...data.initial, memory: { state, token: 'synthetic-memory-token-never-render', url: 'https://api.vcrcapps.com/private' } };
+    const sharing = await open(page, status);
+    const row = sharing.getByRole('group', { name: 'Rhythm memory search', exact: true });
+    await expect(row).toContainText(label);
+    if (action) await expect(row.getByRole('button', { name: action })).toBeVisible();
+    else await expect(row.getByRole('button')).toHaveCount(0);
+    await expect(row).not.toContainText('synthetic-memory-token-never-render');
+    await expect(row).not.toContainText('api.vcrcapps.com');
+  }
+  const sharing = await open(page, { ...data.initial, memory: { state: 'disabled' } });
+  await sharing.getByRole('group', { name: 'Rhythm memory search', exact: true }).getByRole('button', { name: /Share memory search/i }).click();
+  await expect(sharing).toContainText('Waiting for desktop confirmation…');
+  expect(await page.evaluate(() => (window as any).__memoryMutations)).toEqual([{ action: 'enable', capability: 'memory.search' }]);
+  await page.evaluate(status => { const w = window as any; w.__status = status; w.__memoryConfirm({ accepted: true }); }, { ...data.initial, memory: { state: 'pending-next-start' } });
+  await expect(sharing.getByRole('group', { name: 'Rhythm memory search', exact: true })).toContainText(/next.*start/i);
+});
+
+test('1569:s6d-accounts-memory-ui:2 memory toggle is keyboard operable, narrow, and axe clean', async ({ page }) => {
+  // Regression caught: the newly interactive row cannot be reached at narrow width or introduces an accessible-name violation.
+  const data = await metadata();
+  const sharing = await open(page, { ...data.initial, memory: { state: 'disabled' } });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const action = sharing.getByRole('group', { name: 'Rhythm memory search', exact: true }).getByRole('button', { name: /Share memory search/i });
+  await action.focus();
+  await expect(action).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(sharing).toContainText('Waiting for desktop confirmation…');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect((await new AxeBuilder({ page }).include('.hermes-accounts-settings').analyze()).violations).toEqual([]);
 });
 
 
