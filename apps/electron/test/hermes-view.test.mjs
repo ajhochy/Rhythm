@@ -11,10 +11,13 @@ const ARTIFACT = Object.freeze({
   preloadPath: '/fixture/hermes-desktop/electron/preload.cjs',
 });
 
-function fixture(t, { artifactError, allowedOrigins, deferHost = false, onHostDispose, permissionResult = false } = {}) {
+function fixture(t, { artifactError, allowedOrigins, deferHost = false, deferRenderer = false, hostImport, onHostDispose, permissionResult = false, resolver, updateStore } = {}) {
   const handlers = new Map(), views = [], children = new Set(), hostCalls = [], intents = [], permissionRequests = [], guestOpens = [], guestNavigations = [];
   let mainStorageClears = 0;
   let publishAllowedOrigins;
+  let releaseRendererLoad;
+  let signalRendererLoadStarted;
+  const rendererLoadStarted = new Promise((resolve) => { signalRendererLoadStarted = resolve; });
   const ipcMain = Object.assign(new EventEmitter(), { handle: (key, fn) => handlers.set(key, fn), removeHandler: (key) => handlers.delete(key) });
   const mainFrame = { url: 'rhythm://app/index.html#/hermes' };
   const hostContents = Object.assign(new EventEmitter(), { mainFrame, isDestroyed: () => false, getZoomFactor: () => 2 });
@@ -31,7 +34,11 @@ function fixture(t, { artifactError, allowedOrigins, deferHost = false, onHostDi
         close: () => { contents.destroyed = true; children.delete(this); },
         setWindowOpenHandler: (handler) => { contents.windowOpenHandler = handler; },
         setZoomFactor: (zoom) => { contents.zoom = zoom; },
-        loadURL: async (url) => { contents.loads.push(url); },
+        loadURL: async (url) => {
+          contents.loads.push(url);
+          signalRendererLoadStarted();
+          if (deferRenderer) await new Promise((resolve) => { releaseRendererLoad = resolve; });
+        },
         session: Object.assign(new EventEmitter(), {
           setPermissionRequestHandler: (fn) => { contents.permission = fn; },
           setPermissionCheckHandler: (fn) => { contents.permissionCheck = fn; },
@@ -45,7 +52,10 @@ function fixture(t, { artifactError, allowedOrigins, deferHost = false, onHostDi
   }
   let disposed = 0;
   let releaseHost;
+  let signalHostStarted;
+  const hostStarted = new Promise((resolve) => { signalHostStarted = resolve; });
   const module = { createEmbeddedHermesHost: async (options) => {
+    signalHostStarted();
     hostCalls.push(options);
     const host = {
       dispose: async () => { disposed += 1; await onHostDispose?.(options.webContents); },
@@ -78,15 +88,81 @@ function fixture(t, { artifactError, allowedOrigins, deferHost = false, onHostDi
     getWindow: () => win,
     getUserDataPath: () => '/fixture/rhythm-user-data',
     getArtifactRoot: () => '/fixture/hermes-desktop',
-    resolveArtifact: async () => { if (artifactError) throw new Error(artifactError); return ARTIFACT; },
-    importHost: async () => module,
+    resolveArtifact: resolver ?? (async () => { if (artifactError) throw new Error(artifactError); return ARTIFACT; }),
+    importHost: hostImport ?? (async () => module),
+    ...(updateStore ? { updateStore } : {}),
     electron: { WebContentsView },
   });
   t.after(() => controller.dispose());
   const event = { sender: hostContents, senderFrame: mainFrame };
   const call = (channel, value, sender = event) => value === undefined ? handlers.get(channel)(sender) : handlers.get(channel)(sender, value);
-  return { call, children, controller, event, handlers, hostCalls, hostContents, intents, permissionRequests, guestOpens, guestNavigations, mainStorageClears: () => mainStorageClears, publishAllowedOrigins: (origins) => publishAllowedOrigins?.(origins), releaseHost: () => releaseHost?.(), views, win, disposed: () => disposed };
+  return { call, children, controller, event, handlers, hostCalls, hostContents, hostStarted, intents, permissionRequests, guestOpens, guestNavigations, mainStorageClears: () => mainStorageClears, publishAllowedOrigins: (origins) => publishAllowedOrigins?.(origins), releaseHost: () => releaseHost?.(), releaseRendererLoad: () => releaseRendererLoad?.(), rendererLoadStarted, views, win, disposed: () => disposed };
 }
+
+for (const failure of ['corrupted', 'wrong-signature', 'unsupported-hostApiVersion', 'import-throws']) {
+  test(`issue-1570-c-c1: ${failure} installed artifact falls back to factory and is never retried`, async (t) => {
+    const bad = new Set();
+    const resolutionRoots = [];
+    const importedRoots = [];
+    const candidates = [
+      { kind: 'installed', root: `/updates/${failure}`, sequence: 7, version: '0.20.7' },
+      { kind: 'factory', root: ARTIFACT.root },
+    ];
+    const updateStore = {
+      beginLaunch: async (candidate) => !bad.has(candidate.version),
+      getLaunchCandidates: async () => candidates.filter((candidate) => candidate.kind !== 'installed' || !bad.has(candidate.version)),
+      markBad: async (candidate) => { bad.add(candidate.version) },
+      markGood: async () => {},
+    };
+    const f = fixture(t, {
+      updateStore,
+      resolver: async ({ artifactRoot }) => {
+        resolutionRoots.push(artifactRoot);
+        if (artifactRoot !== ARTIFACT.root && failure !== 'import-throws') throw new Error(`installed ${failure}`);
+        return artifactRoot === ARTIFACT.root ? ARTIFACT : { ...ARTIFACT, root: artifactRoot, hostPath: `${artifactRoot}/embedded-host.mjs` };
+      },
+      hostImport: async (hostPath) => {
+        importedRoots.push(hostPath);
+        if (failure === 'import-throws' && hostPath.startsWith('/updates/')) throw new Error('installed host import crashed');
+        return {
+          createEmbeddedHermesHost: async () => ({
+            dispose: async () => {}, handleIntent: async () => ({ ok: true }), getAllowedOrigins: async () => [],
+            onAllowedOrigins: () => () => {}, handlePermissionRequest: async () => false,
+            handleWillAttachWebview: () => false, handleGuestWindowOpen: async () => false, handleGuestNavigation: () => false,
+          }),
+        };
+      },
+    });
+
+    assert.equal((await f.call('hermes:view:attach')).ok, true);
+    assert.equal(bad.has('0.20.7'), true);
+    assert.deepEqual(resolutionRoots.slice(0, 2), [`/updates/${failure}`, ARTIFACT.root]);
+    await f.controller.disposeCurrent();
+    const attemptsBeforeRelaunch = resolutionRoots.filter((root) => root.startsWith('/updates/')).length;
+    assert.equal((await f.call('hermes:view:attach')).ok, true);
+    assert.equal(resolutionRoots.filter((root) => root.startsWith('/updates/')).length, attemptsBeforeRelaunch);
+    if (failure === 'import-throws') assert.equal(importedRoots.some((root) => root.startsWith('/updates/')), true);
+  });
+}
+
+test('issue-1570-c-c2: installed version becomes good only after host import and renderer readiness', async (t) => {
+  const candidate = { kind: 'installed', root: '/updates/0.20.7', sequence: 7, version: '0.20.7' };
+  const good = [];
+  const updateStore = {
+    beginLaunch: async () => true,
+    getLaunchCandidates: async () => [candidate, { kind: 'factory', root: ARTIFACT.root }],
+    markBad: async () => {},
+    markGood: async (selected) => { good.push(selected); },
+  };
+  const f = fixture(t, { deferRenderer: true, resolver: async () => ARTIFACT, updateStore });
+
+  const attaching = f.call('hermes:view:attach');
+  await f.rendererLoadStarted;
+  assert.deepEqual(good, []);
+  f.releaseRendererLoad();
+  assert.equal((await attaching).ok, true);
+  assert.deepEqual(good, [candidate]);
+});
 
 test('issue-1542-desktop-c6: mounts the real local Desktop renderer with its packaged preload and host', async (t) => {
   const f = fixture(t);
@@ -141,7 +217,7 @@ test('issue-1542-desktop-c5: terminal disposal waits for a host factory in fligh
     onHostDispose: async (contents) => { lateHostSawClosedRenderer = contents.isDestroyed(); },
   });
   const attaching = f.call('hermes:view:attach');
-  await tick();
+  await f.hostStarted;
   const closing = f.controller.dispose();
   f.releaseHost();
   await Promise.all([attaching, closing]);

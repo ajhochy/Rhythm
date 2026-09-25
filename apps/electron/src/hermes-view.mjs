@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { PINNED_HERMES_DESKTOP_SOURCE_COMMIT } from './hermes-desktop-config.mjs';
 import { parseHermesBounds, parseHermesIntent } from './hermes-protocol.mjs';
 import { resolveHermesDesktopArtifact } from './hermes-desktop-artifact.mjs';
+import { createHermesDesktopUpdateStore } from './hermes-desktop-updates.mjs';
 
 // Kept for the outer shell while Desktop service ownership moves to the host.
 /** @param {unknown} _supervisor */
@@ -27,14 +28,16 @@ function publicFailure(message) {
  * getBackendCredentialOptions?: () => any, enabled?: () => boolean, getArtifactRoot?: () => string | undefined,
  * getUserDataPath?: () => string | undefined, expectedElectronMajor?: number,
  * resolveArtifact?: (options: {artifactRoot: string, expectedElectronMajor: number}) => Promise<any>,
- * importHost?: (path: string) => Promise<any>, openExternal?: (url: string) => Promise<void> | void}} options
+ * importHost?: (path: string) => Promise<any>, openExternal?: (url: string) => Promise<void> | void,
+ * updateStore?: ReturnType<typeof createHermesDesktopUpdateStore>}} options
  */
 export function registerHermesView(options) {
   const { ipcMain, getWindow } = options;
   const enabled = options.enabled ?? (() => !['0', 'false'].includes((process.env.RHYTHM_HERMES_ENABLED ?? '').toLowerCase()));
   const expectedElectronMajor = options.expectedElectronMajor ?? 40;
-  const getArtifactRoot = options.getArtifactRoot ?? (() => process.env.RHYTHM_HERMES_DESKTOP_ARTIFACT_DIR
-    || (typeof process.resourcesPath === 'string' ? join(process.resourcesPath, 'hermes-desktop') : undefined));
+  const getFactoryArtifactRoot = options.getArtifactRoot ?? (() => typeof process.resourcesPath === 'string'
+    ? join(process.resourcesPath, 'hermes-desktop') : undefined);
+  const getDevArtifactRoot = () => process.env.RHYTHM_HERMES_DESKTOP_ARTIFACT_DIR;
   const resolveArtifact = options.resolveArtifact ?? resolveHermesDesktopArtifact;
   const importHost = options.importHost ?? ((path) => import(pathToFileURL(path).href));
   const getUserDataPath = options.getUserDataPath ?? (() => undefined);
@@ -116,9 +119,13 @@ export function registerHermesView(options) {
     await detach();
     const epoch = requestEpoch;
     const win = getWindow();
-    const artifactRoot = getArtifactRoot();
+    const factoryArtifactRoot = getFactoryArtifactRoot();
     const userDataPath = getUserDataPath();
-    if (!win || !artifactRoot || !userDataPath) return { ok: false, reason: 'Hermes Desktop artifact is unavailable. Rebuild the Rhythm package or set RHYTHM_HERMES_DESKTOP_ARTIFACT_DIR for development.' };
+    if (!win || !factoryArtifactRoot || !userDataPath) return { ok: false, reason: 'Hermes Desktop artifact is unavailable. Rebuild the Rhythm package or set RHYTHM_HERMES_DESKTOP_ARTIFACT_DIR for development.' };
+    const updateStore = options.updateStore ?? createHermesDesktopUpdateStore({
+      factoryRoot: factoryArtifactRoot,
+      userDataPath,
+    });
     const hostNavigation = (/** @type {Electron.Event & {url?: unknown, isSameDocument?: unknown, isMainFrame?: unknown}} */ details, /** @type {string | undefined} */ legacyUrl, /** @type {boolean | undefined} */ legacyInPlace, /** @type {boolean | undefined} */ legacyIsMainFrame) => {
       // Tab switches only mutate the hash. Keep drafts/streams until this
       // document is actually revoked or the owning window closes.
@@ -137,17 +144,41 @@ export function registerHermesView(options) {
       win.removeListener('closed', windowClosed);
     };
     try {
-      const artifact = await resolveArtifact({
-        artifactRoot,
-        expectedElectronMajor,
-        expectedSourceCommit: PINNED_HERMES_DESKTOP_SOURCE_COMMIT,
-        // Dirty artifacts are an explicit developer-only local proof. Packaged
-        // resources never take this branch because they do not use the dev path.
-        allowDirty: Boolean(process.env.RHYTHM_HERMES_DESKTOP_ARTIFACT_DIR && process.env.RHYTHM_HERMES_DESKTOP_ALLOW_DIRTY_ARTIFACT === '1'),
-      });
+      /** @type {any} */
+      let artifact;
+      /** @type {any} */
+      let hostModule;
+      /** @type {any} */
+      let selectedCandidate;
+      let fallbackReason;
+      const candidates = await updateStore.getLaunchCandidates({ devOverride: getDevArtifactRoot(), includePending: true });
+      for (const candidate of candidates) {
+        if (!await updateStore.beginLaunch(candidate)) continue;
+        try {
+          artifact = await resolveArtifact({
+            artifactRoot: candidate.root,
+            artifactSource: candidate.kind === 'installed' ? 'installed' : 'factory',
+            expectedElectronMajor,
+            expectedElectronVersion: process.versions.electron,
+            ...(candidate.kind === 'installed' ? {} : { expectedSourceCommit: PINNED_HERMES_DESKTOP_SOURCE_COMMIT }),
+            // Dirty artifacts are an explicit developer-only local proof.
+            allowDirty: candidate.kind === 'dev' && process.env.RHYTHM_HERMES_DESKTOP_ALLOW_DIRTY_ARTIFACT === '1',
+          });
+          hostModule = await importHost(artifact.hostPath);
+          if (typeof hostModule.createEmbeddedHermesHost !== 'function') throw new Error('Hermes Desktop artifact host is incomplete.');
+          selectedCandidate = candidate;
+          break;
+        } catch (error) {
+          if (candidate.kind === 'installed') {
+            await updateStore.markBad(candidate, 'validation-or-import-failed');
+            fallbackReason = `Hermes ${candidate.version} failed to start; running the bundled copy.`;
+            continue;
+          }
+          throw error;
+        }
+      }
+      if (!artifact || !hostModule || !selectedCandidate) throw new Error('Hermes Desktop artifact is unavailable.');
       if (disposed || !enabled() || epoch !== requestEpoch || !ownsHost(event)) return { ok: false, reason: 'Hermes Desktop attachment was revoked.' };
-      const module = await importHost(artifact.hostPath);
-      if (typeof module.createEmbeddedHermesHost !== 'function') return { ok: false, reason: 'Hermes Desktop artifact is incomplete. Rebuild the pinned artifact.' };
       const runtime = options.electron ?? await import('electron');
       if (disposed || !enabled() || epoch !== requestEpoch || !ownsHost(event) || !event.senderFrame) return { ok: false, reason: 'Hermes Desktop attachment was revoked.' };
       const view = new runtime.WebContentsView({ webPreferences: {
@@ -160,7 +191,7 @@ export function registerHermesView(options) {
       } });
       pendingView = view;
       const contents = view.webContents;
-      const host = await module.createEmbeddedHermesHost({
+      const host = await hostModule.createEmbeddedHermesHost({
         hostWindow: win, webContents: contents, assetRoot: artifact.root, userDataPath,
         ...options.getBackendCredentialOptions?.(),
         ...(options.openExternal ? { openExternal: options.openExternal } : {}),
@@ -344,8 +375,15 @@ export function registerHermesView(options) {
       try {
         await contents.loadURL(artifact.rendererUrl);
         if (active !== record) return { ok: false, reason: 'Hermes Desktop attachment was revoked.' };
-        return { ok: true, attachment: record.attachment };
+        await updateStore.markGood(selectedCandidate);
+        return {
+          ok: true,
+          attachment: record.attachment,
+          ...(artifact.manifest?.hermesVersion ? { hermesVersion: artifact.manifest.hermesVersion } : {}),
+          ...(fallbackReason ? { fallbackReason } : {}),
+        };
       } catch {
+        await updateStore.markBad(selectedCandidate, 'renderer-load-failed');
         if (active === record) await detach();
         return { ok: false, reason: 'Hermes Desktop renderer failed to load. Rebuild the pinned artifact and retry.' };
       }

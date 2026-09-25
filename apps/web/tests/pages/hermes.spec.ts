@@ -8,6 +8,7 @@ type AttachOutcome = { ok: boolean; reason?: string } | 'throw';
 type FixtureWindow = Window & {
   __hermesCalls: Receipt[];
   __hermesNativeChildren(): number;
+  __resolveHermesAttach?(): void;
 };
 
 /**
@@ -17,7 +18,7 @@ type FixtureWindow = Window & {
  */
 async function mockHermesDesktop(
   page: Page,
-  options: { attachOutcomes?: AttachOutcome[]; enabled?: boolean; missingHost?: boolean } = {},
+  options: { attachOutcomes?: AttachOutcome[]; attachPending?: boolean; enabled?: boolean; missingHost?: boolean } = {},
 ) {
   await page.addInitScript((options) => {
     const calls: Receipt[] = [];
@@ -25,8 +26,13 @@ async function mockHermesDesktop(
     let attachAttempt = 0;
     let nativeChildren = 0;
 
+    let resolvePendingAttach: (() => void) | undefined;
+    const pendingAttach = options.attachPending
+      ? new Promise<void>((resolve) => { resolvePendingAttach = resolve; })
+      : undefined;
     const attach = async () => {
       calls.push({ action: 'attach' });
+      await pendingAttach;
       const outcome = outcomes[Math.min(attachAttempt++, outcomes.length - 1)];
 
       if (outcome === 'throw') {
@@ -45,6 +51,7 @@ async function mockHermesDesktop(
     Object.assign(window, {
       __hermesCalls: calls,
       __hermesNativeChildren: () => nativeChildren,
+      __resolveHermesAttach: () => resolvePendingAttach?.(),
       rhythmShell: {
         hermes: { enabled: options.enabled ?? true },
         ...(options.missingHost
@@ -71,6 +78,34 @@ async function mockHermesDesktop(
   }, options);
 }
 
+test('a disabled direct route explains that Hermes is off and never invokes the native host', async ({ page }) => {
+  await mockHermesDesktop(page, { enabled: false });
+  await openPage(page, '/hermes');
+
+  await expect(page.getByRole('heading', { name: 'Hermes is turned off in this Rhythm build' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Hermes Desktop workspace' })).toHaveCount(0);
+  expect(await receipts(page, 'attach')).toEqual([]);
+
+  for (const button of await page.locator('.hermes-state').getByRole('button').all()) {
+    if (await button.isVisible()) await button.click();
+  }
+  expect(await receipts(page, 'attach')).toEqual([]);
+});
+
+test('an unresolved native attachment exposes an accessible opening state until it succeeds', async ({ page }) => {
+  await mockHermesDesktop(page, { attachPending: true });
+  await openPage(page, '/hermes');
+
+  const host = page.getByRole('region', { name: 'Hermes Desktop workspace' });
+  const openingStatus = host.getByRole('status');
+  await expect(host).toHaveAttribute('aria-busy', 'true');
+  await expect(openingStatus).toHaveText('Opening Hermes Desktop…');
+
+  await page.evaluate(() => (window as unknown as FixtureWindow).__resolveHermesAttach?.());
+  await expect(host).not.toHaveAttribute('aria-busy', 'true');
+  await expect(openingStatus).toHaveCount(0);
+});
+
 const receipts = (page: Page, action: string) =>
   page.evaluate(
     (action) => (window as unknown as FixtureWindow).__hermesCalls.filter((call) => call.action === action),
@@ -96,7 +131,7 @@ async function expectVisibleBounds(page: Page, host: ReturnType<Page['locator']>
   expect(await lastBounds(page)).toEqual(expected);
 }
 
-test('browser and disabled-shell routes keep Hermes out of navigation and show an actionable host failure', async ({ page }) => {
+test('browser and disabled-shell routes keep Hermes out of navigation and explain their unavailable state', async ({ page }) => {
   await openPage(page, '/hermes');
 
   await expect(page.locator('[data-testid="nav-hermes"], [data-testid="nav-hermes-overflow"]')).toHaveCount(0);
@@ -113,7 +148,9 @@ test('browser and disabled-shell routes keep Hermes out of navigation and show a
   await mockHermesDesktop(page, { enabled: false, missingHost: true });
   await openPage(page, '/hermes');
   await expect(page.locator('[data-testid="nav-hermes"], [data-testid="nav-hermes-overflow"]')).toHaveCount(0);
-  await expect(page.getByRole('alert')).toContainText('does not include the Hermes Desktop host');
+  await expect(page.getByRole('heading', { name: 'Hermes is turned off in this Rhythm build' })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect(await receipts(page, 'attach')).toEqual([]);
 });
 
 test('the Hermes tab attaches the native Desktop child once and reports the exact visible bounds', async ({ page }) => {

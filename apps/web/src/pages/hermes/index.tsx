@@ -4,6 +4,7 @@ import './styles.css';
 
 function HermesHost({ onError }: { onError(message: string): void }) {
   const host = useRef<HTMLDivElement>(null);
+  const [opening, setOpening] = useState(true);
   useEffect(() => {
     let alive = true;
     let attached = false;
@@ -32,6 +33,7 @@ function HermesHost({ onError }: { onError(message: string): void }) {
         if (!alive) return;
         if (result?.ok === false) { onError(result.reason || 'Hermes Desktop could not open. Rebuild the pinned artifact and retry.'); return; }
         attached = true;
+        setOpening(false);
         reportBounds();
       } catch { if (alive) onError('Hermes Desktop could not open. Rebuild the pinned artifact and retry.'); }
     };
@@ -47,15 +49,28 @@ function HermesHost({ onError }: { onError(message: string): void }) {
       if (attached) void hermesShell()?.hermesView?.setBounds({ x: 0, y: 0, width: 0, height: 0 }).catch(() => undefined);
     };
   }, [onError]);
-  return <div ref={host} className="hermes-host" data-hermes-host role="region" aria-label="Hermes Desktop workspace" tabIndex={0} />;
+  return <div
+    ref={host}
+    className="hermes-host"
+    data-hermes-host
+    role="region"
+    aria-label="Hermes Desktop workspace"
+    aria-busy={opening || undefined}
+    tabIndex={0}
+  >
+    {opening ? <p className="hermes-opening" role="status">Opening Hermes Desktop…</p> : null}
+  </div>;
 }
 
 export function HermesPage() {
   const [viewError, setViewError] = useState('');
   const handleError = useCallback((message: string) => setViewError(message), []);
+  const disabled = hermesShell()?.hermes?.enabled === false;
   return <section className="hermes-page" aria-label="Hermes" data-testid="page-hermes">
     <div className="hermes-content">
-      {viewError
+      {disabled
+        ? <div className="hermes-state" tabIndex={0}><h2>Hermes is turned off in this Rhythm build</h2><p>Enable Hermes when building Rhythm to use the embedded Desktop workspace.</p></div>
+        : viewError
         ? <div className="hermes-state" tabIndex={0}><h2>Hermes Desktop could not open</h2><p role="alert">{viewError}</p><button type="button" className="primary-button" onClick={() => setViewError('')}>Retry</button></div>
         : <HermesHost onError={handleError} />}
     </div>

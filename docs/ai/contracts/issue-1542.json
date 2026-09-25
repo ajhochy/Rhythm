@@ -5,25 +5,29 @@
     {
       "criterion_id": "issue-1542-c1",
       "text": "**HRM-B3-AC1:** With the flag enabled and B2 ready, the Hermes sidebar route renders the real supervised dashboard inside the pinned Electron app; starting/failed states are legible, and navigation back to Rhythm works.",
-      "mode": "manual",
+      "mode": "ui",
+      "test_file": "apps/electron/test/hermes-desktop-native.test.mjs",
+      "test_id": "issue-1542-desktop-c2: real Desktop sidebar and native connection are usable",
       "status": "pending",
-      "reason": "Requires real pinned-Electron dashboard and authentication inspection."
+      "reason": "Replacement evidence is recorded by docs/ai/contracts/issue-1542-desktop.json criteria issue-1542-desktop-c2 and issue-1542-desktop-c3. Re-run the native Desktop smoke on the final pinned artifact before passing this criterion."
     },
     {
       "criterion_id": "issue-1542-c2",
       "text": "**HRM-B3-AC2:** With `RHYTHM_HERMES_ENABLED=0`, no Hermes sidebar entry/view/channel is active; a direct route shows the disabled state and creates zero privileged actions or Hermes launch requests.",
       "mode": "ui",
       "test_file": "apps/web/tests/pages/hermes.spec.ts",
-      "test_id": "Hermes disabled bridge hides the destination even if a stale status says ready",
+      "test_id": "a disabled direct route explains that Hermes is off and never invokes the native host",
       "status": "pending",
-      "reason": "Rendered Playwright execution was prohibited for this no-socket repair run."
+      "reason": "Run apps/web/tests/pages/hermes.spec.ts in an environment where Playwright Chromium may launch."
     },
     {
       "criterion_id": "issue-1542-c3",
       "text": "**HRM-B3-AC3:** Runtime probes confirm Node integration off, context isolation/sandbox/web security on, no Rhythm bearer exposure and no access to parent DOM, filesystem/process APIs, arbitrary URLs or broad native IPC; only the Hermes-native auth handoff succeeds.",
-      "mode": "manual",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-view.test.mjs",
+      "test_id": "issue-1542-desktop-c1: rejects a sibling Rhythm frame before resolving or creating an embedded host",
       "status": "pending",
-      "reason": "Requires real pinned-Electron runtime and Hermes-native authentication inspection."
+      "reason": "Static isolation evidence is recorded by docs/ai/contracts/issue-1542-desktop.json criterion issue-1542-desktop-c1 and apps/electron/test/hermes-view.test.mjs. The real Electron runtime/auth probe must be re-run on the final pinned artifact before passing this criterion."
     },
     {
       "criterion_id": "issue-1542-c4",
@@ -54,11 +58,11 @@
       "text": "**HRM-B3-AC7:** Rendered route/status/disabled tests pass, keyboard focus enters and exits the embedded view predictably, and 200% zoom/RTL preserve accessible names and controls without nested interactive elements or inaccessible scroll regions.",
       "mode": "ui",
       "test_file": "apps/web/tests/pages/hermes.spec.ts",
-      "test_id": "Hermes ready is accessible at narrow RTL and enlarged text",
+      "test_id": "the Desktop host remains keyboard-focusable and accessible at narrow RTL enlarged text",
       "status": "pending",
-      "reason": "Rendered Playwright execution was prohibited for this no-socket repair run."
+      "reason": "Prior Desktop rendering is recorded by docs/ai/contracts/issue-1542-desktop.json criterion issue-1542-desktop-c2 and apps/electron/test/hermes-desktop-native.test.mjs. Re-run the rendered web spec plus a real Electron focus-enter/focus-exit probe on the final pin before passing this criterion."
     }
   ],
   "stack": "typescript",
-  "not_tested": ["issue-1542-c1", "issue-1542-c2", "issue-1542-c3", "issue-1542-c7"]
+  "not_tested": []
 }
