@@ -13,9 +13,17 @@
  * reaches a real fetch(), regardless of the host machine's credential state.
  */
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { existsSync, readFileSync } from 'fs';
 import { inspect } from 'util';
+
+// One hoisted module identity: queued doUnmock/doMock operations can resolve
+// out of order in Vitest and silently replace the two-account fixture.
+const anthropicMocks = vi.hoisted(() => ({
+  listRedacted: vi.fn<() => { accounts: Array<{ id: string; label: string; status: string }>; defaultAccountId: string | null }>(),
+  getAccount: vi.fn<(_id: string) => undefined>(),
+}));
+vi.mock('./anthropic_accounts_service', () => ({ anthropicAccountsService: anthropicMocks }));
 
 vi.mock('fs', () => ({
   existsSync: vi.fn().mockReturnValue(false),
@@ -31,6 +39,25 @@ vi.mock('./credentials_bridge_service', () => ({
 }));
 
 import { getUsageBudget } from './usage_budget_service';
+
+const unexpectedFetch = vi.fn(async () => { throw new Error('Unexpected network request in usage-budget fixture'); });
+beforeEach(() => {
+  vi.mocked(existsSync).mockReset().mockReturnValue(false);
+  vi.mocked(readFileSync).mockReset();
+  anthropicMocks.listRedacted.mockReset().mockReturnValue({ accounts: [], defaultAccountId: null });
+  anthropicMocks.getAccount.mockReset().mockReturnValue(undefined);
+  unexpectedFetch.mockClear();
+  vi.stubGlobal('fetch', unexpectedFetch);
+});
+afterEach(() => {
+  try { expect(unexpectedFetch).not.toHaveBeenCalled(); }
+  finally {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  }
+});
 
 describe('getUsageBudget', () => {
   it('returns a snapshot with one entry per known provider, all unavailable with no credentials', async () => {
@@ -83,9 +110,6 @@ describe('issue-1568: Codex usage budget', () => {
 
   async function snapshot(contents: string, response: unknown = body, beforeImport?: () => Promise<void>) {
     vi.resetModules();
-    vi.doMock('./anthropic_accounts_service', () => ({ anthropicAccountsService: {
-      listRedacted: () => ({ accounts: [] }),
-    } }));
     vi.mocked(existsSync).mockReturnValue(true);
     vi.mocked(readFileSync).mockReturnValue(contents);
     fetchMock.mockReset();
@@ -98,14 +122,6 @@ describe('issue-1568: Codex usage budget', () => {
     const result = await getUsageBudget({ force: true });
     return result.providers.find((p) => p.provider === 'openai')!;
   }
-
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
-    vi.doUnmock('./anthropic_accounts_service');
-    vi.resetModules();
-  });
 
   it('A1 exact no-body GET and two ordered windows, without leaking credits or identity', async () => {
     const timeout = vi.spyOn(AbortSignal, 'timeout');
@@ -373,18 +389,13 @@ describe('issue-1568: Codex usage budget', () => {
 describe('getUsageBudget — #907 multiple Anthropic accounts', () => {
   it('returns one unavailable provider entry per stored account, each labeled distinctly', async () => {
     vi.resetModules();
-    vi.doMock('./anthropic_accounts_service', () => ({
-      anthropicAccountsService: {
-        listRedacted: () => ({
-          accounts: [
-            { id: 'acct-personal', label: 'Personal', status: 'needs_relogin' },
-            { id: 'acct-team', label: 'Team', status: 'needs_relogin' },
-          ],
-          defaultAccountId: 'acct-personal',
-        }),
-        getAccount: () => undefined, // no access token → "needs re-login"
-      },
-    }));
+    anthropicMocks.listRedacted.mockReturnValue({
+      accounts: [
+        { id: 'acct-personal', label: 'Personal', status: 'needs_relogin' },
+        { id: 'acct-team', label: 'Team', status: 'needs_relogin' },
+      ],
+      defaultAccountId: 'acct-personal',
+    });
 
     const { getUsageBudget: getUsageBudgetWithMock } = await import('./usage_budget_service');
     const snapshot = await getUsageBudgetWithMock({ force: true });
@@ -403,8 +414,5 @@ describe('getUsageBudget — #907 multiple Anthropic accounts', () => {
       expect(entry.kind).toBe('unavailable');
       expect(entry.reason).toBe('Account needs re-login');
     }
-
-    vi.doUnmock('./anthropic_accounts_service');
-    vi.resetModules();
   });
 });
