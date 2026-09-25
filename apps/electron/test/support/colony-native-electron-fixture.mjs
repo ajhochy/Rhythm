@@ -34,7 +34,7 @@ try {
   await win.loadURL('rhythm://app/index.html#/colony')
   process.stderr.write('colony-fixture:owner-loaded\n')
   viewHost = registerColonyView({ ipcMain, electron: { WebContentsView, MessageChannelMain }, getWindow: () => win,
-    getArtifactRoot: () => path.join(root, 'artifact'), getUserDataPath: () => path.join(root, 'owned-profile'),
+    getArtifactRoot: () => path.join(root, 'artifact'), getDataDir: () => path.join(root, 'owned-profile', 'state'),
     getSources: () => [{ id: 'hermes', enabled: true, paths: { home: path.join(root, 'hermes') } }],
     enabled: () => true, isPackaged: false, resourcesPath: path.join(root, 'Resources'),
     developmentNodePath: process.env.COLONY_NATIVE_NODE, expectedElectronMajor: 40,

@@ -3,10 +3,13 @@ import { Icon, type IconName } from '../icons';
 import { useFixtures } from '../store';
 import type { DemoState } from '../types';
 import { hermesShell } from '../pages/hermes/bridge';
+import { colonyShell } from '../pages/colony/bridge';
 import { Splitter } from './Splitter';
 
 const destinations = ['Dashboard', 'Planner', 'Tasks', 'Rhythms', 'Projects', 'Messages', 'Facilities', 'Automations', 'Integrations', 'Agents', 'Settings'];
-const optional = new Set(['Facilities', 'Automations', 'Integrations', 'Settings', 'Hermes']);
+const optional = new Set(['Facilities', 'Automations', 'Integrations', 'Settings', 'Hermes', 'Bot Crossing']);
+
+const destinationKey = (destination: string) => destination === 'Bot Crossing' ? 'colony' : destination.toLowerCase();
 
 function moveMenuFocus(event: React.KeyboardEvent<HTMLElement>) {
   if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
@@ -65,7 +68,7 @@ const demoLabels: Record<DemoState, string> = {
 };
 
 export function Shell({ route, children }: { route: string; children: React.ReactNode }) {
-  const visibleDestinations = hermesShell()?.hermes?.enabled === true ? [...destinations, 'Hermes'] : destinations;
+  const visibleDestinations = [...destinations, ...(hermesShell()?.hermes?.enabled === true ? ['Hermes'] : []), ...(colonyShell()?.colonyView ? ['Bot Crossing'] : [])];
   const { theme, setTheme, demo, setDemo, toast, resetFixtures, notify, unreadThreads, sessionGatewayMode, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, pendingApprovals, decideApproval } = useFixtures();
   const live = sessionGatewayMode === 'live';
   const entityDestination = (entityType: string, entityId: string) => ({
@@ -107,7 +110,7 @@ export function Shell({ route, children }: { route: string; children: React.Reac
   }, []);
 
   const destinationButton = (destination: string, inMenu = false) => {
-    const key = destination.toLowerCase();
+    const key = destinationKey(destination);
     const selected = key === activeKey;
     return (
       <button key={destination} type="button" role={inMenu ? 'menuitem' : undefined} className={inMenu ? 'menu-item' : `destination ${optional.has(destination) ? 'nav-optional' : ''} ${!['Dashboard', 'Agents'].includes(destination) ? 'nav-compact' : ''} ${selected ? 'selected' : ''}`} aria-current={selected ? 'page' : undefined} onClick={() => navigate(`/${key}`)} data-testid={`nav-${key}${inMenu ? '-overflow' : ''}`}>

@@ -18,7 +18,7 @@ export async function resolveColonyNode({ isPackaged, resourcesPath, development
 }
 
 /** @param {any} sources */
-function validateSources(sources) {
+export function validateSources(sources) {
   const fields = /** @type {Record<string,string[]>} */ ({ hermes:['home'], codex:['home'], rhythm:['database'], opencode:['database'], kilocode:['database'], 'claude-code':['home','desktopSessions'], cursor:['projects'], antigravity:['home'] })
   if (!Array.isArray(sources) || sources.length > 8 || Buffer.byteLength(JSON.stringify(sources)) > 32 * 1024) throw new Error('Invalid Colony source configuration')
   const seen = new Set()

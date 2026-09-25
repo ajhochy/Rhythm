@@ -87,7 +87,7 @@ async function host(t, { initialSession, missingHome = false, confirm, failDispo
     constructor() { this.webContents = Object.assign(new EventEmitter(), { id: 101, isDestroyed: () => false, close() {}, setWindowOpenHandler() {}, setZoomFactor() {}, async loadURL() {}, session: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {}, setPermissionCheckHandler() {}, async clearStorageData() {}, webRequest: { onBeforeRequest() {} } }) }); }
     setBounds() {}
   }
-  const context = createContext({ process: Object.assign(new EventEmitter(), { argv: [], env: { RHYTHM_PRODUCTION_API_URL: A }, cwd: () => directory, stderr: { write(message) { throw new Error(message); } } }), URL, Response, Headers, console,
+  const context = createContext({ process: Object.assign(new EventEmitter(), { argv: [], env: { RHYTHM_PRODUCTION_API_URL: A }, resourcesPath: join(directory, 'Resources'), cwd: () => directory, stderr: { write(message) { throw new Error(message); } } }), URL, Response, Headers, console,
     fetch: async (url, init) => { requests.push({ url, bearer: new Headers(init?.headers).get('authorization') }); return new Response('<html></html>'); },
   });
   const file = new URL('../src/main.mjs', import.meta.url);

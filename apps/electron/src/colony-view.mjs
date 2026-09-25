@@ -156,7 +156,8 @@ export function registerColonyView(options) {
     catch (error) { return { ok:false, reason:error instanceof Error ? error.message : 'Bot Crossing teardown is incomplete.' } }
     const requestEpoch = ++epoch
     const win = getWindow()
-    const dataDir = path.join(options.getUserDataPath(), 'colony')
+    const dataDir = options.getDataDir?.()
+    if (!dataDir || !path.isAbsolute(dataDir)) return { ok:false, reason:'Bot Crossing requires an active local profile.' }
     let service
     let view
     try {

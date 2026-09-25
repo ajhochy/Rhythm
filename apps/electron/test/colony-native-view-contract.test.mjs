@@ -187,7 +187,7 @@ async function lifecycleFixture(run) {
     electron: { WebContentsView, MessageChannelMain: FakeMessageChannelMain },
     getWindow: () => win,
     getArtifactRoot: () => artifactRoot,
-    getUserDataPath: () => path.join(root, 'profile'),
+    getDataDir: () => path.join(root, 'profile', 'state'),
     getSources: () => [],
     enabled: () => true,
     isPackaged: false,

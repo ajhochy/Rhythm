@@ -1,0 +1,30 @@
+.colony-page { height: 100%; min-width: 0; min-height: 0; display: grid; overflow: hidden; background: color-mix(in oklab, var(--bg), transparent 4%); }
+.colony-state { width: min(680px, calc(100% - 32px)); align-self: center; justify-self: center; display: grid; gap: 14px; padding: clamp(22px, 4vw, 40px); border: 1px solid var(--border-soft); border-radius: var(--r-lg); background: var(--surface); box-shadow: 0 18px 60px color-mix(in oklab, var(--bg), transparent 45%); }
+.colony-state h1 { max-width: 18ch; margin: 0; font-size: clamp(24px, 4vw, 38px); line-height: 1.05; letter-spacing: -.035em; }
+.colony-state > p { max-width: 62ch; margin: 0; color: var(--fg-2); }
+.colony-state .eyebrow { color: var(--muted); }
+.colony-state fieldset { min-width: 0; margin: 4px 0 0; padding: 0; border: 0; }
+.colony-state legend { margin-bottom: 8px; color: var(--fg); font-size: 12px; font-weight: 650; }
+.colony-source-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.colony-source { min-width: 0; min-height: 58px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; padding: 9px 11px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); background: color-mix(in oklab, var(--surface), var(--bg) 6%); cursor: pointer; }
+.colony-source:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.colony-source:has(input:disabled) { cursor: not-allowed; opacity: .62; }
+.colony-source input { width: 18px; height: 18px; min-height: 0; margin: 0; accent-color: var(--accent); }
+.colony-source span { min-width: 0; display: grid; }
+.colony-source strong, .colony-source small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.colony-source strong { font-size: 12px; }
+.colony-source small { color: var(--muted); font-size: 10px; }
+.colony-state-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.colony-state-actions .primary-button { min-height: 44px; }
+.colony-state .colony-footnote { color: var(--muted); font-size: 10px; }
+.colony-error { width: min(560px, calc(100% - 32px)); }
+.colony-enabled { min-width: 0; min-height: 0; display: grid; grid-template-rows: 52px minmax(0, 1fr); }
+.colony-toolbar { z-index: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 10px 7px 14px; border-bottom: 1px solid var(--border-soft); background: var(--surface); }
+.colony-toolbar > div { min-width: 0; display: grid; }
+.colony-toolbar strong { font-size: 13px; }
+.colony-toolbar span { color: var(--muted); font-size: 10px; }
+.colony-host { min-width: 0; min-height: 0; background: color-mix(in oklab, var(--bg), black 4%); }
+@media (max-width: 640px) {
+  .colony-state { width: calc(100% - 20px); padding: 20px; }
+  .colony-source-list { grid-template-columns: 1fr; }
+}

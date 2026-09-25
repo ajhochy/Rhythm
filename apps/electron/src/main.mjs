@@ -18,6 +18,7 @@ import { validateSecuritySmokeReceipt } from './security-smoke-receipt.mjs';
 import { createAccountsAuthState } from './hermes-accounts-auth.mjs';
 import { createHermesAccountsMain } from './hermes-accounts-main.mjs';
 import { bindHermesViewSupervisor, registerHermesView } from './hermes-view.mjs';
+import { registerColonyHost } from './colony-host.mjs';
 
 export { deepLinkFromArgv } from './policy.mjs';
 
@@ -52,6 +53,7 @@ if (hasSingleInstanceLock) {
   protocol.registerSchemesAsPrivileged([
     { scheme: 'rhythm', privileges: { standard: true, secure: true, supportFetchAPI: true } },
     { scheme: 'rhythm-artifact', privileges: { standard: true, secure: true, supportFetchAPI: true } },
+    { scheme: 'rhythm-colony', privileges: { standard: true, secure: true, supportFetchAPI: true } },
     // Hermes registers the handler on the isolated embedded session; Chromium
     // still requires this privilege declaration before app readiness.
     { scheme: 'hermes-media', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } },
@@ -70,6 +72,8 @@ if (hasSingleInstanceLock) {
 
   /** @type {BrowserWindow | undefined} */
   let mainWindow;
+  /** @type {ReturnType<typeof registerColonyHost> | undefined} */
+  let colonyHost;
   const hermesView = registerHermesView({ ipcMain, getWindow: () => mainWindow, getUserDataPath: () => app.getPath('userData'), getBackendCredentialOptions: () => credentialHostOptions(), openExternal: (url) => shell.openExternal(url) });
   /** @type {string | null} */
   let pendingDeepLink = deepLinkFromArgv(process.argv);
@@ -253,7 +257,7 @@ if (hasSingleInstanceLock) {
     const authInvalidation = accountsAuth.invalidate();
     const brokerInvalidation = accountsMain?.identityChanged();
     const previous = accountsTransition;
-    accountsTransition = Promise.all([previous, authInvalidation, brokerInvalidation, hermesView.disposeCurrent()]).then(() => { accountsBlocked = false; });
+    accountsTransition = Promise.all([previous, authInvalidation, brokerInvalidation, hermesView.disposeCurrent(), colonyHost?.invalidateProfile()]).then(() => { accountsBlocked = false; });
     void accountsTransition.catch(() => {});
     authGeneration += 1;
     clearAgentNotifications();
@@ -607,6 +611,7 @@ if (hasSingleInstanceLock) {
         productionSessionToken = login.sessionToken;
         productionSessionUser = login.user;
         await persistAuthentication();
+        await colonyHost?.activateProfile({ productionApiBase, userId: String(login.user.id) });
         return login;
       }).finally(() => { if (generation === authGeneration) googleSignInInFlight = undefined; });
     }
@@ -757,7 +762,7 @@ if (hasSingleInstanceLock) {
   // normal app quit, and OS SIGINT/SIGTERM (main.dart:182-192; SIGTERM is skipped on Windows there
   // because it isn't catchable — not a concern here since this Electron build targets macOS only).
   let shuttingDown = false;
-  const stopRuntimes = async () => { await Promise.all([agentServer?.stopGracefully(), hermes.stop(), hermesView.dispose()]); };
+  const stopRuntimes = async () => { await Promise.all([agentServer?.stopGracefully(), hermes.stop(), hermesView.dispose(), colonyHost?.dispose()]); };
   app.on('before-quit', (event) => {
     if (isHermesSelfTest || shuttingDown) return;
     shuttingDown = true;
@@ -791,6 +796,9 @@ if (hasSingleInstanceLock) {
   app.whenReady().then(async () => {
     if (isMissingDistSmoke || !existsSync(webDist)) throw new Error(`Rhythm Electron shell requires built web assets at ${webDist}`);
     await restoreAuthentication();
+    colonyHost = registerColonyHost({ ipcMain, getWindow: () => mainWindow, userDataPath: app.getPath('userData'), resourcesPath: process.resourcesPath,
+      home: userInfo().homedir, isPackaged: app.isPackaged, environment: process.env });
+    if (productionSessionUser) await colonyHost.activateProfile({ productionApiBase, userId: String(productionSessionUser.id) });
     if (!isSmoke && agentServer && !existsSync(electronDbPath()) && existsSync(legacyFlutterDbPath())) {
       const choice = await dialog.showMessageBox({ type: 'question', title: 'Import existing Rhythm data?', message: 'Rhythm found data from the Flutter desktop app.', detail: 'Import copies the database into Electron using SQLite backup. The original remains untouched. Imported schedules start disabled for review.', buttons: ['Import existing data', 'Start fresh', 'Cancel'], defaultId: 0, cancelId: 2 });
       if (choice.response === 2) { app.quit(); return; }
@@ -1057,6 +1065,10 @@ if (hasSingleInstanceLock) {
     hermesView: {
       keys: Object.keys(window.rhythmShell?.hermesView || {}),
       frozen: Object.isFrozen(window.rhythmShell?.hermesView),
+    },
+    colonyView: {
+      keys: Object.keys(window.rhythmShell?.colonyView || {}),
+      frozen: Object.isFrozen(window.rhythmShell?.colonyView),
     },
     aiAccounts: {
       keys: Object.keys(window.rhythmShell?.aiAccounts || {}),

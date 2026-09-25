@@ -71,7 +71,7 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
     onStatusChange() {}
     async start() { starts.push(this.options?.relayConfigurationProvider?.()); }
   }
-  const context = createContext({ process: Object.assign(new EventEmitter(), { argv: [], env: { RHYTHM_PRODUCTION_API_URL: A }, cwd: () => directory, stderr: { write(message) { throw new Error(message); } } }), URL, Response, Headers, console,
+  const context = createContext({ process: Object.assign(new EventEmitter(), { argv: [], env: { RHYTHM_PRODUCTION_API_URL: A }, resourcesPath: join(directory, 'Resources'), cwd: () => directory, stderr: { write(message) { throw new Error(message); } } }), URL, Response, Headers, console,
     fetch: async (url, init) => { requests.push({ url, bearer: new Headers(init?.headers).get('authorization') }); return new Response('<html></html>'); },
   });
   const file = new URL('../src/main.mjs', import.meta.url);

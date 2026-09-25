@@ -79,6 +79,34 @@ const hermesView = Object.freeze({
   /** @param {unknown} intent */
   sendIntent: (intent) => ipcRenderer.invoke('hermes:intent', { attachment: hermesViewAttachment, intent }),
 });
+let colonyViewEpoch = 0;
+/** @type {string | undefined} */
+let colonyViewAttachment;
+const colonyView = Object.freeze({
+  getStatus: () => ipcRenderer.invoke('colony:host:status'),
+  discoverSources: () => ipcRenderer.invoke('colony:host:discover'),
+  setEnabled: (/** @type {boolean} */ enabled) => ipcRenderer.invoke('colony:host:set-enabled', enabled),
+  setSource: (/** @type {string} */ id, /** @type {boolean} */ enabled) => ipcRenderer.invoke('colony:host:set-source', { id, enabled }),
+  attach: async () => {
+    const epoch = ++colonyViewEpoch;
+    colonyViewAttachment = undefined;
+    const result = await ipcRenderer.invoke('colony:view:attach');
+    if (epoch !== colonyViewEpoch) {
+      if (result?.attachment) await ipcRenderer.invoke('colony:view:detach', { attachment: result.attachment });
+      return { ok: false, reason: 'detached' };
+    }
+    if (result?.ok === true && typeof result.attachment === 'string') colonyViewAttachment = result.attachment;
+    return { ok: result?.ok === true, reason: result?.reason };
+  },
+  /** @param {{x:number,y:number,width:number,height:number}} bounds */
+  setBounds: (bounds) => ipcRenderer.invoke('colony:view:bounds', { attachment: colonyViewAttachment, bounds }),
+  detach: () => {
+    ++colonyViewEpoch;
+    const attachment = colonyViewAttachment;
+    colonyViewAttachment = undefined;
+    return ipcRenderer.invoke('colony:view:detach', { attachment });
+  },
+});
 // Renderer code can only reconcile pending approval IDs with the main process. Main validates the
 // closed approval/session target schema and owns all text, presentation, dedupe, and navigation.
 window.addEventListener('rhythm:approval-notifications', (event) => {
@@ -124,5 +152,6 @@ contextBridge.exposeInMainWorld('rhythmShell', Object.freeze({
   selectDirectory: () => ipcRenderer.invoke('shell:select-directory'),
   hermes,
   hermesView,
+  colonyView,
   aiAccounts,
 }));
