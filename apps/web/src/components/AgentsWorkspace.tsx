@@ -8,14 +8,18 @@ import { Inspector } from './Inspector';
 import { ProfileAvatar } from './Profiles';
 import { SessionRail } from './SessionRail';
 import { Splitter } from './Splitter';
-import { Transcript } from './Transcript';
+import { formatCost, Transcript } from './Transcript';
 import { usePendingDecisions } from '../pending-decisions';
-import type { AgentProject } from '../gateway/sessions';
+import type { AgentProject, RichTranscriptMessage } from '../gateway/sessions';
 import { emitAgentNotification } from '../agentNotifications';
 
 export function AgentsWorkspace() {
   const { selected, sessions, profiles, models, accounts, sessionGatewayMode, saveSessionSettings, connectionMessage: fixtureConnectionMessage, liveSessionError, loading, summarizeSession, prepareLiveSession, startFreshSession, reconnectLiveSession, updateSession: updateFixtureSession, archiveSession, resumeSession, selectSession, notify, resumeGone, liveChildView, closeLiveChildView } = useFixtures();
   const live = sessionGatewayMode === 'live';
+  const sessionCost = selected.messages.reduce((total, message) => {
+    const cost = (message as RichTranscriptMessage).cost;
+    return total + (typeof cost === 'number' && Number.isFinite(cost) && cost > 0 ? cost : 0);
+  }, 0);
   const pending = usePendingDecisions(selected.id);
   const [settingsError, setSettingsError] = useState('');
   const [savingSettings, setSavingSettings] = useState(false);
@@ -168,7 +172,7 @@ export function AgentsWorkspace() {
           </div>
           <div className="session-header-actions">
             {(waitingForDecision || latestAssistant) && <button className="text-button compact" type="button" onClick={goToActivity} data-testid="agent-go-to-activity">{waitingForDecision ? 'Go to decision' : 'Go to latest response'}</button>}
-            <span className="session-cost" title="Total session cost">${selected.cost.toFixed(3)}</span>
+            {sessionCost > 0 && <span className="session-cost" title="Total loaded session cost" data-testid="session-cost">{formatCost(sessionCost)}</span>}
             {recoverableConnection && <button className="secondary-button compact" type="button" disabled={retrying} onClick={() => void retryConnection()} data-testid="session-retry"><Icon name="refresh" className={retrying ? 'spin' : ''} size={14} />{retrying ? 'Retrying' : 'Reconnect'}</button>}
             <button className="icon-button small" type="button" disabled={lifecycleDisabled} onClick={() => void compactSession()} aria-label="Compact session" title="Compact session" data-testid="session-compact"><Icon name="spark" size={15} /></button>
             <button className="secondary-button prepare-button" type="button" disabled={lifecycleDisabled} onClick={() => setPrepareOpen(true)} data-testid="prepare-project" aria-label="Prepare project for agents" title="Prepare project for agents"><Icon name="worktree" size={14} /><span>Prepare project</span></button>

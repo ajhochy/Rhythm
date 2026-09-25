@@ -68,7 +68,7 @@ export type SessionListQuery = {
 export type SessionListPage = { sessions: SessionCatalogEntry[]; ancestors: SessionCatalogEntry[]; pageInfo: TranscriptPageInfo };
 export type SessionSort = 'newest' | 'oldest' | 'name' | 'activity' | 'status';
 export type IdentityProfile = Profile & { autoApproveActions?: boolean; reasoningEffort?: string | null };
-export type ModelChoice = { providerId: string; modelId: string; label: string };
+export type ModelChoice = { providerId: string; modelId: string; label: string; contextLimit?: number };
 export type AccountChoice = { id: string; label: string; status: string; isDefault?: boolean };
 export type SessionSettings = { name?: string; profileId?: string | null; providerId?: string | null; modelId?: string | null; thinkingBudget?: number | null; permissionMode?: string; fastMode?: boolean; anthropicAccountId?: string };
 export type TurnOverride = { profileId?: string; modelOverride?: { providerId: string; modelId: string } };
@@ -450,7 +450,7 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
     models: async () => {
       const rows = await response<unknown[]>('Load models', request('/agents/models/catalog'));
       const choices = rows.map(record).filter(row => row.authorized === true && string(row.provider) && string(row.modelId))
-        .map(row => ({ providerId: string(row.provider), modelId: string(row.modelId), label: string(row.displayName, string(row.modelId)) }));
+        .map(row => ({ providerId: string(row.provider), modelId: string(row.modelId), label: string(row.displayName, string(row.modelId)), ...(typeof row.contextLimit === 'number' && Number.isFinite(row.contextLimit) && row.contextLimit > 0 ? { contextLimit: row.contextLimit } : {}) }));
       return [...new Map(choices.map(row => [`${row.providerId}/${row.modelId}`, row])).values()];
     },
     accounts: async () => {

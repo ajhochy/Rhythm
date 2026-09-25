@@ -52,6 +52,7 @@ function displayTime(value: string) {
 }
 
 function displayDate(value: string) {
+  // Date-only reservation value: UTC prevents viewer offsets from shifting the calendar day.
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${dateOnly(value)}T12:00:00Z`));
 }
 
@@ -74,11 +75,13 @@ function rangeFor(mode: RangeMode, offset: number) {
   if (mode === 'day') {
     const day = addDays(anchor, offset);
     const value = isoDay(day);
+    // Date-only range label: UTC preserves the selected facility calendar day.
     return { start: `${value}T00:00:00.000`, end: `${value}T23:59:59.999`, label: new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(day) };
   }
   if (mode === 'week') {
     const monday = addDays(anchor, -2 + (offset * 7));
     const sunday = addDays(monday, 6);
+    // Date-only range labels: UTC preserves the selected facility calendar days.
     const startLabel = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(monday);
     const endLabel = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(sunday);
     return { start: `${isoDay(monday)}T00:00:00.000`, end: `${isoDay(sunday)}T23:59:59.999`, label: `${startLabel} - ${endLabel}` };
@@ -88,6 +91,7 @@ function rangeFor(mode: RangeMode, offset: number) {
   return {
     start: `${isoDay(month)}T00:00:00.000`,
     end: `${isoDay(end)}T23:59:59.999`,
+    // Date-only range label: UTC preserves the selected facility calendar month.
     label: new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(month),
   };
 }

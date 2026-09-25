@@ -26,7 +26,7 @@ test('issue-1558-c1: fresh load collapses every project group except the selecte
   await expect(page.getByTestId(`group-project-${OTHER_PROJECT}`)).toHaveAttribute('aria-expanded', 'false');
   await expect(page.getByTestId(`group-project-${OTHER_PROJECT}`).locator('..').locator('button.session-row')).toHaveCount(0);
    // Exactly one group (the selected one) is the only expanded toggle on this scope.
-  const expandedCount = await page.locator('.session-list > .session-group > .group-toggle[aria-expanded="true"]').count();
+  const expandedCount = await page.locator('.session-list > .session-group > .session-group-heading > .group-toggle[aria-expanded="true"]').count();
   expect(expandedCount).toBe(1);
 });
 

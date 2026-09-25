@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
 
@@ -115,8 +117,39 @@ test('issue-1565-c2: valid transcript timestamps retain 11px text while fallback
   assert.match(source, /\.transcript \.message \[data-timestamp-fallback\] \{ font-size: 8px; \}/);
 });
 
-test('issue-1565-c3: planner documents date-only UTC pins and forces 12-hour live task clocks', () => {
+test('issue-1565-c3: planner documents date-only UTC pins and uses the shared formatter for live task clocks', () => {
   const source = readFileSync(new URL('pages/planner/index.tsx', root), 'utf8');
   assert.match(source, /date-only planner values; UTC prevents viewer offsets from shifting calendar days/);
-  assert.equal((source.match(/hour12: true/g) ?? []).length, 2);
+  assert.match(source, /formatTimestamp\(task\.startsAt/);
+  assert.doesNotMatch(source, /new Intl\.DateTimeFormat\([^\n]+task\.startsAt/);
+});
+
+test('issue-1565-c5: automation overview contains no fabricated sync date or provider count', () => {
+  const source = readFileSync(new URL('pages/automations/index.tsx', root), 'utf8');
+  assert.doesNotMatch(source, /Aug 12 · 15:45/);
+  assert.doesNotMatch(source, /<dt>Latest account sync<\/dt>/);
+  assert.doesNotMatch(source, /data-testid="automations-provider-count">3/);
+});
+
+test('issue-1565-c5: date formatting outside the shared formatter is explicitly date-only or a today label', () => {
+  const srcRoot = fileURLToPath(root);
+  const files = [];
+  const walk = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (/\.(?:ts|tsx)$/.test(entry.name) && entry.name !== 'timestamps.ts') files.push(path);
+    }
+  };
+  walk(srcRoot);
+  const offenders = [];
+  for (const file of files) {
+    const lines = readFileSync(file, 'utf8').split('\n');
+    lines.forEach((line, index) => {
+      if (!/new Intl\.DateTimeFormat|\.toLocale(?:Date|Time)String\(/.test(line)) return;
+      const context = lines.slice(Math.max(0, index - 3), index + 1).join(' ');
+      if (!/(?:date-only|today label)/i.test(context)) offenders.push(`${fileURLToPath(root) === srcRoot ? file.slice(srcRoot.length + 1) : file}:${index + 1}`);
+    });
+  }
+  assert.deepEqual(offenders, []);
 });

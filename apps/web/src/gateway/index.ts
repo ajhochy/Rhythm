@@ -27,6 +27,7 @@ export interface GatewayDomainContracts {
   mobileAccess?: MobileAccessGateway;
   commands?: CommandGateway;
   runQuality?: RunQualityGateway;
+  usageBudget?: UsageBudgetGateway;
   cookbook?: CookbookGateway;
   research?: ResearchGateway;
   designs?: DesignsGateway;
@@ -174,6 +175,7 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
       mobileAccess: createLiveMobileAccessGateway(apiBase, config.taskToken, localFetcher),
       commands: createLiveCommandGateway(apiBase, config.taskToken, localFetcher),
       runQuality: createLiveRunQualityGateway(apiBase, config.taskToken, localFetcher),
+      usageBudget: createLiveUsageBudgetGateway(apiBase, config.taskToken, localFetcher),
       cookbook: createLiveCookbookGateway(apiBase, config.taskToken, localFetcher),
       research: createLiveResearchGateway(apiBase, config.taskToken, localFetcher),
       designs: createLiveDesignsGateway(apiBase, config.taskToken, localFetcher),
@@ -231,6 +233,7 @@ import { createLiveScheduleGateway, type ScheduleGateway } from './schedules';
 import { createLiveMobileAccessGateway, type MobileAccessGateway } from './mobile-access';
 import { createLiveCommandGateway, type CommandGateway } from './commands';
 import { createLiveRunQualityGateway, type RunQualityGateway } from './run-quality';
+import { createLiveUsageBudgetGateway, type UsageBudgetGateway } from './usage-budget';
 import { createLiveCookbookGateway, type CookbookGateway } from './cookbook';
 import { createLiveResearchGateway, type ResearchGateway } from './research';
 import { createLiveDesignsGateway, type DesignsGateway } from './designs';

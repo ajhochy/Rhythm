@@ -41,6 +41,7 @@ async function open(page: Page, options: { empty?: boolean; picker?: string | nu
     if (url.pathname === '/agent-sessions') return send(pageOf(url.searchParams.get('archivedOnly') ? [] : sessions));
     if (url.pathname === '/agent-configs') return send([{ id: 'profile', label: 'Agent', enabled: true, sessionSelectable: true, isDefault: true }]);
     if (url.pathname === '/opencode/auth/accounts') return send({ accounts: [] });
+    if (url.pathname === '/agents/usage-budget') return send({ providers: [] });
     if (url.pathname.endsWith('/branches')) return send({ current: null, local: [], recent: [] });
     if (url.pathname.includes('health')) return send({ healthy: true, status: 'ready' });
     const session = sessions.find(item => url.pathname === `/agent-sessions/${item.id}`);

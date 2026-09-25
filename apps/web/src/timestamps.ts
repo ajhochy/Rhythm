@@ -51,3 +51,16 @@ export function formatTimestamp(value: unknown, { now = new Date(), locale = 'en
   const full = new Intl.DateTimeFormat(locale, { timeZone, dateStyle: 'full', timeStyle: 'long', hour12: true }).format(date);
   return { iso: date.toISOString(), label: sameDay ? time : `${datePart}, ${time}`, full };
 }
+
+export function formatResetIn(value: unknown, options: Pick<TimestampOptions, 'now'> = {}): string | null {
+  const now = options.now ?? new Date();
+  if (Number.isNaN(now.getTime())) throw new RangeError('Invalid now');
+  const formatted = formatTimestamp(value, { now });
+  if (!formatted) return null;
+  const milliseconds = new Date(formatted.iso).getTime() - now.getTime();
+  if (milliseconds <= 0) return 'resets now';
+  const minutes = Math.floor(milliseconds / 60_000);
+  if (minutes >= 60 * 24) return `resets ${Math.floor(minutes / (60 * 24))}d`;
+  if (minutes >= 60) return `resets ${Math.floor(minutes / 60)}h`;
+  return minutes > 0 ? `resets ${minutes}m` : 'resets now';
+}

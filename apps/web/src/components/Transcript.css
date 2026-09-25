@@ -41,9 +41,12 @@
 .transcript :is(.reasoning-block, .tool-block) summary { min-height: 44px; flex-wrap: wrap; padding-block: 6px; color: var(--muted); font-size: 12px; }
 .transcript :is(.reasoning-block, .tool-block) summary strong { font-weight: 500; }
 .transcript :is(.reasoning-block, .tool-block) summary :is(span, small) { font-size: 11px; }
-.transcript .reasoning-block > .markdown-copy { max-width: none; padding: 0 9px 10px; color: var(--fg-2); line-height: 1.6; }
-.transcript .reasoning-block > .markdown-copy > :first-child { margin-top: 0; }
-.transcript .reasoning-block > .markdown-copy > :last-child { margin-bottom: 0; }
+.transcript .reasoning-content { position: relative; overflow: hidden; }
+.transcript .reasoning-content:not(.expanded) { max-height: 14rem; mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5rem), transparent); }
+.transcript .reasoning-content > .markdown-copy { max-width: none; padding: 0 9px 10px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.transcript .reasoning-content > .markdown-copy > :first-child { margin-top: 0; }
+.transcript .reasoning-content > .markdown-copy > :last-child { margin-bottom: 0; }
+.transcript .reasoning-show-more { min-height: 44px; margin: 0 9px 4px; padding: 0; border: 0; color: var(--fg-2); background: transparent; font-size: 11px; cursor: pointer; }
 .transcript .tool-block pre { font-size: 12px; line-height: 1.6; }
 .transcript .tool-block dd { min-width: 0; margin-inline: 9px; }
 .transcript :is(.cost-line, .compaction-divider, .step-divider, .file-block small, .child-chip small, .inline-plan > div small, .message-attachments span) { font-size: 11px; }

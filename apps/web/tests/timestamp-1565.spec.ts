@@ -1,6 +1,51 @@
 import { expect, test } from '@playwright/test';
 import { openFixture, openPage } from './helpers';
 
+test('1565:remaining-literals-and-adhoc-formatters:1 live automation overview has no fabricated date or provider count', async ({ page }) => {
+  await page.route((url) => ['http://127.0.0.1:65534', 'http://127.0.0.1:65533'].includes(url.origin), async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const headers = {
+      'access-control-allow-origin': request.headers().origin ?? '*',
+      'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+      'access-control-allow-headers': 'authorization,content-type',
+    };
+    if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
+    if (url.origin === 'http://127.0.0.1:65533' || url.pathname === '/health') return route.fulfill({ headers, json: { healthy: true, status: 'ready' } });
+    const bodies: Record<string, unknown> = {
+      '/automation-catalog/triggers': [{ key: 'rhythm.task_due', source: 'rhythm', label: 'Task due', configSchema: {} }],
+      '/automation-catalog/actions': [{ key: 'create_task', label: 'Create task', configSchema: {} }],
+      '/automation-catalog/providers': [{ source: 'rhythm', label: 'Rhythm' }, { source: 'gmail', label: 'Gmail' }],
+      '/automation-rules': [],
+      '/integrations/accounts': [],
+      '/agent-sessions': { sessions: [], pageInfo: { hasMore: false, nextCursor: null } },
+      '/agent-configs': [],
+      '/opencode/auth/accounts': { accounts: [] },
+    };
+    await route.fulfill({ headers, json: bodies[url.pathname] ?? [] });
+  });
+  await page.route('**/tests/issue-1565-automations.html', (route) => route.fulfill({ contentType: 'text/html', body: `<!doctype html><html><body><div id="root"></div><script type="module">
+    import RefreshRuntime from '/@react-refresh';
+    RefreshRuntime.injectIntoGlobalHook(window);
+    window.$RefreshReg$ = () => {};
+    window.$RefreshSig$ = () => type => type;
+    window.__vite_plugin_react_preamble_installed__ = true;
+    const { default: React } = await import('/node_modules/.vite/deps/react.js');
+    const { default: { createRoot } } = await import('/node_modules/.vite/deps/react-dom_client.js');
+    const { FixtureProvider } = await import('/src/store.tsx');
+    const { GatewayProvider } = await import('/src/gateway/context.tsx');
+    const { composeGateway } = await import('/src/gateway/index.ts');
+    const { AutomationsPage } = await import('/src/pages/automations/index.tsx');
+    await import('/src/styles.css');
+    const gateway = composeGateway({ mode: 'live', apiBase: 'http://127.0.0.1:65534', expectedApiBase: 'http://127.0.0.1:65534', engineBase: 'http://127.0.0.1:65533', expectedEngineBase: 'http://127.0.0.1:65533', productionApiBase: 'https://automation-fixture.invalid', taskToken: 'synthetic' });
+    createRoot(document.getElementById('root')).render(React.createElement(GatewayProvider, { gateway }, React.createElement(FixtureProvider, null, React.createElement(AutomationsPage, { route: '/automations' }))));
+  </script></body></html>` }));
+  await page.goto('/tests/issue-1565-automations.html');
+  await expect(page.getByLabel('Automation summary')).not.toContainText('Aug 12');
+  await expect(page.getByLabel('Automation summary')).not.toContainText('15:45');
+  await expect(page.getByTestId('automations-provider-count')).toHaveCount(0);
+});
+
 test('issue-1565: transcript and owned fixture surfaces show semantic timestamps without horizontal overflow', async ({ page }, info) => {
   test.setTimeout(90_000);
   const surfaces = [

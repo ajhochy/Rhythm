@@ -28,6 +28,7 @@ interface NewSessionInput {
 interface LiveSessionInput {
   taskId?: string;
   anthropicAccountId?: string;
+  projectId?: string;
   name: string;
   cwd: string;
   profileId: string;
@@ -267,7 +268,12 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   // Fixture mode starts from its six seeded unread threads. Live mode starts unknown/zero and is
   // hydrated only from GET /message-threads — never show fixture unread state in production.
   const [unreadThreads, setUnreadThreads] = useState(() => live ? 0 : 6);
-  const [liveMessageThreads, setLiveMessageThreads] = useState<MessageThread[]>([]);
+  const [liveMessageThreads, setLiveMessageThreadsState] = useState<MessageThread[]>([]);
+  const liveMessageThreadsMutation = useRef(0);
+  const setLiveMessageThreads = useCallback<Dispatch<SetStateAction<MessageThread[]>>>((next) => {
+    liveMessageThreadsMutation.current += 1;
+    setLiveMessageThreadsState(next);
+  }, []);
   const [liveMessagesLoading, setLiveMessagesLoading] = useState(live);
   const [liveMessagesError, setLiveMessagesError] = useState('');
   const liveMessagesRefreshRef = useRef<Promise<void> | null>(null);
@@ -318,10 +324,13 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const refreshLiveMessageThreads = useCallback(() => {
     if (!live || !gateway.domains.messages) return Promise.resolve();
     if (liveMessagesRefreshRef.current) return liveMessagesRefreshRef.current;
+    const mutationAtStart = liveMessageThreadsMutation.current;
     const request = gateway.domains.messages.threads()
       .then((threads) => {
-        setLiveMessageThreads(threads);
-        setUnreadThreads(threads.filter((thread) => thread.unreadCount > 0).length);
+        if (liveMessageThreadsMutation.current === mutationAtStart) {
+          setLiveMessageThreadsState(threads);
+          setUnreadThreads(threads.filter((thread) => thread.unreadCount > 0).length);
+        }
         setLiveMessagesError('');
       })
       .catch(() => { setLiveMessagesError('Messages service unavailable'); })
@@ -382,12 +391,12 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     return next;
   };
 
-  const replaceLiveSession = (incoming: Session) => {
+  const replaceLiveSession = (incoming: Session, options: { transcriptMode?: 'merge' | 'replace'; boundary?: { revertedMessageId?: string } } = {}) => {
     setSessions((current) => {
       const existing = current.find((session) => session.id === incoming.id);
       const prior = existing ?? { ...incoming, messages: [] };
       const transcript = mergeSessionTranscript(prior, incoming.messages as RichTranscriptMessage[], {
-        mode: 'merge', hasMore: incoming.transcriptHasMore ?? false, nextCursor: incoming.transcriptCursor,
+        mode: options.transcriptMode ?? 'merge', hasMore: incoming.transcriptHasMore ?? false, nextCursor: incoming.transcriptCursor,
       });
       const merged: Session = {
         ...prior, ...incoming,
@@ -395,7 +404,8 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
         artifacts: incoming.artifacts.length ? incoming.artifacts : prior.artifacts,
         queuedDraft: prior.queuedDraft, queuedAttachments: prior.queuedAttachments, pendingAttachments: prior.pendingAttachments,
         retry: prior.retry, permission: prior.permission, question: prior.question,
-        livePermission: prior.livePermission, liveQuestion: prior.liveQuestion, revertedMessageId: prior.revertedMessageId,
+        livePermission: prior.livePermission, liveQuestion: prior.liveQuestion,
+        revertedMessageId: options.boundary ? options.boundary.revertedMessageId : prior.revertedMessageId,
       };
       return existing ? current.map((session) => session.id === incoming.id ? merged : session) : [merged, ...current];
     });
@@ -492,6 +502,20 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     };
     let reconcileInFlight: Promise<void> | null = null;
     const requestReconcile = () => reconcileInFlight ??= reconcileMembership().finally(() => { reconcileInFlight = null; });
+    const transcriptReconciliationTimers = new Map<string, number>();
+    const transcriptReconciliations = new Set<string>();
+    const requestTranscriptReconciliation = (sessionId: string) => {
+      if (transcriptReconciliations.has(sessionId)) return;
+      transcriptReconciliations.add(sessionId);
+      const timer = window.setTimeout(() => {
+        transcriptReconciliationTimers.delete(sessionId);
+        void sessionGateway.detail(sessionId)
+          .then((detail) => { if (active) replaceLiveSession(detail, { transcriptMode: 'replace' }); })
+          .catch(onError)
+          .finally(() => { transcriptReconciliations.delete(sessionId); });
+      }, 50);
+      transcriptReconciliationTimers.set(sessionId, timer);
+    };
     reconcileLiveSessionsRef.current = requestReconcile;
     const reconcileOnFocus = () => { void requestReconcile().catch(onError); };
     const reconcileOnVisibility = () => { if (document.visibilityState === 'visible') reconcileOnFocus(); };
@@ -548,10 +572,20 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       }
       if (event.id && TRANSCRIPT_EVENT_TYPES.has(event.type)) {
         const sessionId = event.id;
+        const suppliedReceivedAt = (event as SessionWireEvent & { receivedAt?: unknown }).receivedAt;
+        const transcriptEvent = event.type === 'message.part.delta'
+          ? {
+              ...event,
+              receivedAt: typeof suppliedReceivedAt === 'number' && Number.isFinite(suppliedReceivedAt)
+                ? suppliedReceivedAt
+                : Date.now(),
+            } as SessionWireEvent
+          : event;
         liveTouched.add(sessionId);
         setSessions((current) => current.map((session) => {
           if (session.id !== sessionId) return session;
-          const transcript = reduceSessionTranscript(session, event);
+          const transcript = reduceSessionTranscript(session, transcriptEvent);
+          if (transcript.reconciliationNeeded) requestTranscriptReconciliation(sessionId);
           return {
             ...session,
             ...(event.type === 'message.part.delta' ? { status: 'working' as const, retry: undefined } : {}),
@@ -711,6 +745,9 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       sessionSocketRef.current = null;
       streamedPartsRef.current.clear();
       transcriptStatesRef.current.clear();
+      for (const timer of transcriptReconciliationTimers.values()) window.clearTimeout(timer);
+      transcriptReconciliationTimers.clear();
+      transcriptReconciliations.clear();
       reconcileLiveSessionsRef.current = null;
       window.removeEventListener('hashchange', onSessionLink);
       window.removeEventListener('focus', reconcileOnFocus);
@@ -925,9 +962,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   };
   const readLifecycleSession = async (id: string, boundary?: { revertedMessageId?: string }) => {
     const detail = await gateway.domains.sessions!.detail(id);
-    setSessions(current => current.some(session => session.id === id)
-      ? current.map(session => session.id === id ? { ...session, ...detail, revertedMessageId: boundary ? boundary.revertedMessageId : session.revertedMessageId } : session)
-      : [detail, ...current]);
+    replaceLiveSession(detail, { transcriptMode: 'replace', boundary });
   };
   const archiveSession = (id: string) => {
     if (live) { void liveLifecycle(id, async () => { await gateway.domains.sessions!.archive!(id, true); await readLifecycleSession(id); }, 'Session archived'); return; }

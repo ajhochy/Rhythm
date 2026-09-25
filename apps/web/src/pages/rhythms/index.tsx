@@ -109,6 +109,7 @@ function patternDescription(rule: Pick<RhythmRule, 'frequency' | 'dayOfWeek' | '
 
 function dateDescription(value: string | null) {
   if (!value) return 'Not scheduled';
+  // Date-only recurrence value: noon plus the fixed zone prevents calendar-day rollover.
   return new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' }).format(new Date(`${value}T12:00:00-07:00`));
 }
 

@@ -39,9 +39,16 @@ const reducerSource = compile(new URL('../src/gateway/transcript-reducer.ts', im
 const reducer = await import(dataModule(reducerSource));
 
 const reasoning = (content) => ({ id: 'reasoning', kind: 'reasoning', title: 'Reasoning', content });
-const renderReasoning = (content) => renderToStaticMarkup(createElement(renderer.RichBlock, { block: reasoning(content), onOpenChild() {} }));
+const renderBlock = (block) => renderToStaticMarkup(createElement(renderer.RichBlock, {
+  block,
+  onOpenChild() {},
+  reasoning: { open: Boolean(block.streaming), setOpen() {} },
+}));
+const renderReasoning = (content) => renderBlock(reasoning(content));
 const renderUsage = (message) => renderToStaticMarkup(createElement(renderer.MessageUsage, { message: { id: 'message', role: 'assistant', createdAt: '', blocks: [], ...message } }));
-const summaryText = (markup) => markup.match(/<summary>(.*?)<\/summary>/s)?.[1].replace(/<[^>]+>/g, '') ?? '';
+const summaryText = (markup) => markup.match(/<summary>(.*?)<\/summary>/s)?.[1]
+  .replace(/<span\b[^>]*>.*?<\/span>/gs, '')
+  .replace(/<[^>]+>/g, '') ?? '';
 
 test('1553-empty: empty and whitespace reasoning render no element or click target', () => {
   for (const content of ['', ' \n\t ']) assert.equal(renderReasoning(content), '');
@@ -50,9 +57,9 @@ test('1553-empty: empty and whitespace reasoning render no element or click targ
 test('1553-stream: websocket reasoning becomes renderable and updates its summary as text arrives', () => {
   const start = reducer.emptyTranscript();
   const seeded = reducer.applyTranscriptEvent(start, { type: 'message.part.updated', part: { id: 'part', messageID: 'message', type: 'reasoning', text: '' } });
-  assert.equal(renderToStaticMarkup(createElement(renderer.RichBlock, { block: seeded.messages[0].blocks[0], onOpenChild() {} })), '');
+  assert.equal(renderBlock(seeded.messages[0].blocks[0]), '');
   const streamed = reducer.applyTranscriptEvent(seeded, { type: 'message.part.delta', messageId: 'message', partId: 'part', field: 'text', delta: '**Planning the live update**' });
-  assert.equal(summaryText(renderToStaticMarkup(createElement(renderer.RichBlock, { block: streamed.messages[0].blocks[0], onOpenChild() {} }))), 'Planning the live update');
+  assert.equal(summaryText(renderBlock(streamed.messages[0].blocks[0])), 'Planning the live update');
 });
 
 test('1553-label: collapsed reasoning uses a syntax-free markdown headline or first nonempty line', () => {

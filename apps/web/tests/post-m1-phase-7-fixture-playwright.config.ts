@@ -10,6 +10,8 @@ export default defineConfig({
     'post-m1-phase-7-notifications.redspec.ts',
     'post-m1-phase-7-approvals.redspec.ts',
     'electron-e33-messages-notifications.spec.ts',
+    'issue-1566-usage-budget.spec.ts',
+    'issue-1567-inspector-properties.spec.ts',
   ],
   fullyParallel: false,
   workers: 1,

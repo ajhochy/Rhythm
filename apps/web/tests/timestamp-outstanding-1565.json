@@ -1,6 +1,5 @@
 {
   "deferred": [
-    { "file": "src/components/Inspector.tsx", "owner": 1567, "expressions": ["artifact?.updatedAt?.replace('T', ' · ').slice(0, 18)"] },
     { "file": "src/components/tools/AgentSettingsTool.tsx", "owner": 1559, "expressions": [], "note": "Auto-promotion occurrence is deferred; absent in current checkout, no whole-file exemption." }
   ]
 }

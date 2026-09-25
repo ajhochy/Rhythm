@@ -9,6 +9,7 @@ import { useGateway } from '../../gateway/context';
 import { PlannerGatewayError, type Task, type TaskCollaborator, type WeeklyPlan } from '../../gateway/planner';
 import { launchQuickActionSession, quickActionPresets, type QuickActionTaskContext } from '../../components/quickActions';
 import { useWorkspaceMembers } from '../../components/useWorkspaceMembers';
+import { formatTimestamp } from '../../timestamps';
 import {
   partialLongTask,
   plannerEvents,
@@ -492,7 +493,7 @@ function LiveTaskCard({ task, selected, selectionMode, pending, onInspect, onCom
   const readonly = isCalendarShadow(task) || task.sourceType === 'prod_mirror';
   const sourceLabel = isProjectStep(task) ? task.sourceName ?? 'Project step' : `${task.energy ?? '-'} Task`;
   const eventTime = isCalendarShadow(task) && task.startsAt
-    ? `${new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(task.startsAt))}${task.endsAt ? `–${new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(task.endsAt))}` : ''}`
+    ? `${formatTimestamp(task.startsAt, { now: new Date(task.startsAt) })?.label ?? 'Time unavailable'}${task.endsAt ? `–${formatTimestamp(task.endsAt, { now: new Date(task.endsAt) })?.label ?? 'Time unavailable'}` : ''}`
     : null;
   // data-source-id is the task's own canonical id, not task.sourceId (the owning instance for
   // project steps) — apps/api_server/src/repositories/project_instances_repository.ts:106-129

@@ -19,7 +19,7 @@ function ToolDetails({ block }: { block: RichTranscriptBlock }) {
   return <details className="tool-block"><summary><code>{tool?.name ?? block.title}</code><small>{tool?.status ?? block.meta ?? 'Status unavailable'}</small></summary>{tool ? <dl>{(['input', 'output', 'metadata', 'error'] as const).map(field => tool[field] !== undefined && <Fragment key={field}><dt>{field}</dt><dd><pre tabIndex={0}>{canonicalText(tool[field])}</pre></dd></Fragment>)}</dl> : <pre tabIndex={0}>{block.content || 'Tool details unavailable'}</pre>}</details>;
 }
 
-function formatCost(cost: number): string {
+export function formatCost(cost: number): string {
   const maximumFractionDigits = Math.max(2, Math.min(8, Math.ceil(-Math.log10(cost)) + 2));
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits }).format(cost);
 }
@@ -51,9 +51,21 @@ function reasoningLabel(content: string): string {
   return label.length > limit ? `${label.slice(0, limit - 1).trimEnd()}…` : label;
 }
 
-function RichBlock({ block, onOpenChild }: { block: RichTranscriptBlock; onOpenChild(id: string, title: string): void }) {
+function ReasoningBlock({ block, open, onOpenChange }: { block: RichTranscriptBlock; open: boolean; onOpenChange(open: boolean): void }) {
+  const [showAll, setShowAll] = useState(false);
+  const long = block.content.length > 800;
+  useEffect(() => { if (!long) setShowAll(false); }, [long]);
+  if (!block.content.trim()) return null;
+  return <details className="reasoning-block" open={open} data-streaming={block.streaming ? 'true' : undefined}>
+    <summary onClick={(event) => { event.preventDefault(); onOpenChange(!open); }}><Icon name="spark" size={14} />{reasoningLabel(block.content)}<span>{block.streaming ? 'Thinking…' : block.meta}</span></summary>
+    <div className={`reasoning-content${showAll ? ' expanded' : ''}`}><SafeMarkdown content={block.content} /></div>
+    {long && <button className="reasoning-show-more" type="button" aria-expanded={showAll} onClick={() => setShowAll((value) => !value)}>{showAll ? 'Show less' : 'Show more'}</button>}
+  </details>;
+}
+
+function RichBlock({ block, onOpenChild, reasoning }: { block: RichTranscriptBlock; onOpenChild(id: string, title: string): void; reasoning: { open: boolean; setOpen(open: boolean): void } }) {
   if (block.kind === 'markdown') return <MarkdownText content={block.content} />;
-  if (block.kind === 'reasoning') return block.content.trim() ? <details className="reasoning-block"><summary><Icon name="spark" size={14} />{reasoningLabel(block.content)}<span>{block.meta}</span></summary><SafeMarkdown content={block.content} /></details> : null;
+  if (block.kind === 'reasoning') return <ReasoningBlock block={block} open={reasoning.open} onOpenChange={reasoning.setOpen} />;
   if (block.kind === 'tool') return <ToolDetails block={block} />;
   if (block.kind === 'diff') return <details className="tool-block" open><summary><Icon name="diff" size={14} /><strong>{block.title}</strong><small>{block.meta}</small></summary><pre className="diff-code" tabIndex={0}>{block.content}</pre></details>;
   if (block.kind === 'terminal') return <details className="tool-block"><summary><Icon name="terminal" size={14} /><strong>{block.title}</strong><small>{block.meta}</small></summary><pre tabIndex={0}>{block.content}</pre></details>;
@@ -264,8 +276,11 @@ export function Transcript() {
   const positions = useRef(new Map<string, ReadingPosition>());
   const activeKey = useRef('');
   const key = liveChildView ? `child:${liveChildView.parentId}:${liveChildView.childId}` : `session:${selected.id}`;
+  const reasoningScope = liveChildView ? `${liveChildView.parentId}/${liveChildView.childId}` : selected.id;
   const messages = liveChildView?.messages ?? selected.messages;
   const [newOutput, setNewOutput] = useState(false);
+  const reasoningStates = useRef(new Map<string, boolean>());
+  const [, setReasoningStateVersion] = useState(0);
   const pendingOlder = useRef(new Set<string>());
   const [olderStatus, setOlderStatus] = useState<Record<string, 'pending' | 'error' | undefined>>({});
 
@@ -341,14 +356,23 @@ export function Transcript() {
     if (!child) { notify('Child session is unavailable in this fixture'); return; }
     selectSession(child.id); notify(`Loaded child transcript through GET /agent-sessions/${selected.id}/children/${child.id}/messages`);
   };
+  const richBlock = (block: RichTranscriptBlock) => {
+    const stateKey = `${reasoningScope}:${block.id}`;
+    const stored = reasoningStates.current.get(stateKey);
+    const open = stored ?? Boolean(block.streaming);
+    return <RichBlock block={block} onOpenChild={openChild} reasoning={{ open, setOpen: (next) => {
+      reasoningStates.current.set(stateKey, next);
+      setReasoningStateVersion((version) => version + 1);
+    } }} key={block.id} />;
+  };
   const renderContent = () => {
   // c2j: the child transcript is rendered read-only from its own fetched messages —
   // it is never selected into `sessions`, so the child's SDK id never becomes a local id.
   if (liveChildView) return (
     <section className="transcript" aria-label={`${liveChildView.title} · child transcript`} data-testid="transcript">
       {liveChildView.messages.map((message) => <article className={`message ${message.role}`} key={message.id} data-message-id={message.id} tabIndex={-1} data-testid={`message-${message.id}`}>
-        <header><span className="message-role">{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Rhythm agent' : 'Session'}</span></header>
-        <div className="message-blocks">{message.blocks.map((block) => <RichBlock block={block} onOpenChild={openChild} key={block.id} />)}</div>
+        <header><span className="message-role">{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Rhythm agent' : 'Session'}</span><Timestamp value={message.createdAt} /></header>
+        <div className="message-blocks">{message.blocks.map(richBlock)}</div>
         <MessageUsage message={message} /><button type="button" onClick={() => void copyMessage(message)} data-testid={`copy-${message.id}`}>Copy</button>
       </article>)}
     </section>
@@ -368,7 +392,7 @@ export function Transcript() {
       {selected.revertedMessageId && <div className="reverted-banner" role="status" data-testid="reverted-banner"><Icon name="undo" /><span>History is reverted at message {selected.revertedMessageId}. The retained transcript remains readable; restore to use it again.</span><button className="secondary-button" type="button" onClick={() => void unrevertSession(selected.id)} data-testid="unrevert">Restore history</button></div>}
       {selected.messages.map((message) => <article id={`agent-message-${message.id}`} className={`message ${message.role}`} key={message.id} data-message-id={message.id} tabIndex={-1} data-testid={`message-${message.id}`}>
         <header><span className="message-role">{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Rhythm agent' : 'Session'}</span><Timestamp value={message.createdAt} /></header>
-        <div className="message-blocks">{message.blocks.map((block) => <RichBlock block={block} onOpenChild={openChild} key={block.id} />)}</div>
+        <div className="message-blocks">{message.blocks.map(richBlock)}</div>
         <MessageUsage message={message} />
         {message.attachments && message.attachments.length > 0 && <div className="message-attachments">{message.attachments.map((attachment) => <span key={attachment.id}><Icon name={attachment.type === 'file' ? 'command' : 'file'} size={13} />{attachment.filename}{attachment.truncated ? ' · first 100 KB' : ''}</span>)}</div>}
         {message.id === 'msg-user-handoff' && <div className="message-attachments"><span><Icon name="file" size={13} />run-sheet.md</span><span><Icon name="command" size={13} />/review</span></div>}

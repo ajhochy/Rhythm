@@ -182,6 +182,10 @@ textarea { width: 100%; padding: 10px 12px; resize: vertical; }
 .group-toggle { width: 100%; min-height: 30px; display: grid; grid-template-columns: 16px 1fr auto; align-items: center; gap: 4px; padding: 0 7px; border: 0; color: var(--muted); background: transparent; cursor: pointer; text-align: left; font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
 .group-toggle:hover { color: var(--fg); }
 .group-toggle small { font-family: var(--font-mono); }
+.session-group-heading { display: flex; align-items: center; min-width: 0; }
+.session-group-heading .group-toggle { flex: 1; min-width: 0; width: auto; }
+.session-group-add { display: inline-grid; place-items: center; flex: 0 0 30px; width: 30px; min-height: 30px; padding: 0; border: 0; border-radius: var(--r-sm); color: var(--muted); background: transparent; cursor: pointer; }
+.session-group-add:hover, .session-group-add:focus-visible { color: var(--fg); background: color-mix(in oklab, var(--surface), var(--fg) 7%); }
 .section-disclosure { color: var(--fg-2); letter-spacing: .08em; }
 .session-row-wrap { position: relative; min-width: 0; }
 .session-row, .child-session { width: 100%; min-height: 52px; display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px 46px 6px 9px; border: 0; border-radius: var(--r-sm); color: var(--fg-2); background: transparent; cursor: pointer; text-align: left; }
@@ -387,6 +391,17 @@ code, pre { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .token-gauge > span { grid-column: 1 / -1; height: 6px; overflow: hidden; border-radius: var(--r-pill); background: var(--surface-warm); }
 .token-gauge i { display: block; height: 100%; background: var(--accent); }
 .token-gauge em { font-style: normal; color: var(--muted); font-size: 10px; }
+.token-gauge-empty { grid-template-columns: 1fr; }
+.usage-budget-panel { display: grid; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--border-soft); }
+.usage-budget-panel > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.usage-budget-panel h3, .usage-budget-panel h4 { margin: 0; font-size: 11px; }
+.usage-provider { display: grid; gap: 5px; padding: 8px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); }
+.usage-provider-unavailable { border-style: dashed; color: var(--muted); background: color-mix(in oklab, var(--surface), transparent 45%); }
+.usage-provider p, .usage-budget-panel > p { margin: 0; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
+.usage-budget-item { display: grid; gap: 3px; }
+.usage-budget-item > div { display: flex; justify-content: space-between; gap: 8px; font-size: 10px; }
+.usage-budget-item progress { width: 100%; height: 6px; accent-color: var(--accent); }
+.usage-budget-item small { color: var(--muted); font-size: 9px; }
 .property-list { margin: 0; }
 .property-list div { min-height: 29px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--border-soft); }
 .property-list dt { color: var(--muted); }

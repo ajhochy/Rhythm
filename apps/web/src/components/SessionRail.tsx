@@ -32,6 +32,11 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 
 const OPEN_PROJECTS_STORAGE_KEY = 'rhythm-agents-projects-open';
 
+function isWithinProjectDirectory(cwd: string, projectCwd: string) {
+  const root = projectCwd.replace(/\/+$/, '') || '/';
+  return cwd === root || (root === '/' ? cwd.startsWith('/') : cwd.startsWith(`${root}/`));
+}
+
 // #1558: absent state uses the selected-group default; explicit booleans preserve either
 // user choice. Same try/catch shape as store.tsx for unavailable sandbox storage.
 function readOpenProjects(): Record<string, boolean> {
@@ -305,6 +310,7 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
     });
   }, [sessions, liveHistory, historyIdentity]);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedProject, setAdvancedProject] = useState<AgentProject | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
@@ -352,13 +358,14 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
     return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', key); };
   }, [rowMenuId]);
 
-  const resetAdvanced = () => {
-    setName(''); setTaskId(''); setCwd(selectedProject?.cwd ?? selected.cwd); setIsolateWorktree(false); setWorktreeName('');
-    setBranch(selectedProject ? selectedProject.vcsBranch ?? '' : selected.branch); setNewBranchMode(false); setNewBranch(''); setPendingBranch(null); setStashConfirmed(false);
+  const resetAdvanced = (project: AgentProject | null) => {
+    setName(''); setTaskId(''); setCwd(project?.cwd ?? selected.cwd); setIsolateWorktree(false); setWorktreeName('');
+    setBranch(project ? project.vcsBranch ?? '' : selected.branch); setNewBranchMode(false); setNewBranch(''); setPendingBranch(null); setStashConfirmed(false);
     setAccount(''); setProfileId(defaultProfileId); setSubmitting(false); setSubmitError(null);
   };
-  const openAdvanced = () => { resetAdvanced(); setLiveBranches(null); setAdvancedOpen(true); };
+  const openAdvanced = (project: AgentProject | null) => { setAdvancedProject(project); resetAdvanced(project); setLiveBranches(null); setAdvancedOpen(true); };
   const closeAdvanced = () => { if (!submitting) setAdvancedOpen(false); };
+  const advancedContextProject = advancedProject ?? selectedProject;
   // c3a: fetch the real project branch list once the dialog opens in live mode — never the
   // fixture's hardcoded 'release/desktop'/'main' literals.
   useEffect(() => {
@@ -366,11 +373,11 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
     let active = true;
     setLiveTasks([]); setTasksError('');
     void gateway.domains.tasks!.list().then(rows => { if (active) setLiveTasks(rows.filter(task => task.status !== 'done')); }).catch(() => { if (active) setTasksError('Task catalog unavailable'); });
-    void gateway.domains.sessions!.branches(selectedProject?.id ?? selected.projectId)
+    void gateway.domains.sessions!.branches(advancedContextProject?.id ?? selected.projectId)
       .then((data) => { if (active) setLiveBranches(data); })
       .catch(() => { if (active) setLiveBranches(null); });
     return () => { active = false; };
-  }, [advancedOpen, sessionGatewayMode, selected.projectId, selectedProject?.id, gateway]);
+  }, [advancedOpen, sessionGatewayMode, selected.projectId, advancedContextProject?.id, gateway]);
   const startSession = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!name.trim() || submitting) return;
@@ -378,7 +385,7 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
     try {
       if (sessionGatewayMode === 'live') {
         await createLiveSession({
-          name: name.trim(), cwd, profileId, ...(selectedProject && cwd === selectedProject.cwd ? { projectId: selectedProject.id } : {}), taskId: taskId || undefined, anthropicAccountId: account || undefined, isolateWorktree, worktreeName: isolateWorktree ? worktreeName || undefined : undefined,
+          name: name.trim(), cwd, profileId, ...(advancedContextProject?.cwd && isWithinProjectDirectory(cwd, advancedContextProject.cwd) ? { projectId: advancedContextProject.id } : {}), taskId: taskId || undefined, anthropicAccountId: account || undefined, isolateWorktree, worktreeName: isolateWorktree ? worktreeName || undefined : undefined,
           branch: newBranchMode ? newBranch : branch || undefined, createBranch: newBranchMode, stash: stashConfirmed ? 'stash' : undefined,
         });
       } else {
@@ -399,7 +406,7 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
   };
   const selectBranch = (next: string) => {
     if (next === '__new__') { setNewBranchMode(true); setNewBranch(''); return; }
-    if (!selectedProject && next !== selected.branch && selected.dirtyCount > 0) { setPendingBranch(next); return; }
+    if (!advancedContextProject && next !== selected.branch && selected.dirtyCount > 0) { setPendingBranch(next); return; }
     setBranch(next); setNewBranchMode(false);
   };
   const changeScope = (next: SessionScope) => { setScope(next); setSearch(''); setSelectedRows([]); };
@@ -542,7 +549,7 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
       {searchOpen ? <label className="rail-title-search"><Icon name="search" size={15} /><span className="sr-only">Search sessions</span><input ref={searchRef} value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { setSearch(''); setSearchOpen(false); requestAnimationFrame(() => searchToggleRef.current?.focus()); } }} placeholder="Search agents" data-testid="session-search" /></label> : <h2>Agents</h2>}
       <div className="rail-header-actions"><button ref={searchToggleRef} className="icon-button small" type="button" onClick={() => { if (searchOpen) { setSearch(''); setSearchOpen(false); } else setSearchOpen(true); }} aria-label={searchOpen ? 'Close search' : 'Search agents'} aria-expanded={searchOpen} data-testid="session-search-toggle"><Icon name={searchOpen ? 'close' : 'search'} size={15} /></button><button className="icon-button small" type="button" onClick={() => { if (liveHistory) { setRefresh((value) => value + 1); setProjectRefresh((value) => value + 1); } else notify('Session list refreshed at Aug 12, 3:48 PM'); }} aria-label="Refresh sessions" data-testid="sessions-refresh"><Icon name="refresh" size={15} /></button><button className="icon-button small" type="button" onClick={onToggle} aria-label="Collapse Agents" data-testid="rail-collapse"><Icon name="collapse" size={16} /></button></div>
     </header>
-    <div className="rail-primary-actions"><button className="primary-button" type="button" disabled={liveHistory && (!defaultProfileId || submitting)} onClick={() => { if (liveHistory) { setSubmitting(true); void createLiveSession({ name: '', cwd: selectedProject?.cwd ?? selected.cwd, ...(selectedProject ? { projectId: selectedProject.id } : {}), profileId: defaultProfileId, isolateWorktree: false }).then(() => onSelectProject(null)).catch(error => notify(error instanceof Error ? error.message : 'Session creation failed')).finally(() => setSubmitting(false)); } else createSession(); }} data-testid="new-chat-instant"><Icon name="plus" size={16} />New session</button><button className="icon-button" type="button" onClick={openAdvanced} aria-label="Advanced new agent session" title="Advanced session options" data-testid="new-session-advanced"><Icon name="sliders" /></button></div>
+    <div className="rail-primary-actions"><button className="primary-button" type="button" disabled={liveHistory && (!defaultProfileId || submitting)} onClick={() => { if (liveHistory) { setSubmitting(true); void createLiveSession({ name: '', cwd: selectedProject?.cwd ?? selected.cwd, ...(selectedProject ? { projectId: selectedProject.id } : {}), profileId: defaultProfileId, isolateWorktree: false }).then(() => onSelectProject(null)).catch(error => notify(error instanceof Error ? error.message : 'Session creation failed')).finally(() => setSubmitting(false)); } else createSession(); }} data-testid="new-chat-instant"><Icon name="plus" size={16} />New session</button><button className="icon-button" type="button" onClick={() => openAdvanced(selectedProject)} aria-label="Advanced new agent session" title="Advanced session options" data-testid="new-session-advanced"><Icon name="sliders" /></button></div>
     <button className="rail-add-project" type="button" onClick={openProjectForm} data-testid="rail-add-project"><Icon name="plus" size={14} />Add project</button>
     <div className="scope-tabs" role="tablist" aria-label="Session scopes" onKeyDown={moveScope}>{(['chats', 'scheduled', 'background'] as SessionScope[]).map((item) => <button role="tab" aria-selected={scope === item} tabIndex={scope === item ? 0 : -1} type="button" key={item} onClick={() => changeScope(item)} data-testid={`scope-${item}`}>{item === 'chats' ? 'Chats' : item === 'scheduled' ? 'Scheduled' : 'Background'}</button>)}</div>
     <div className="rail-filters rail-view-controls" ref={viewOptionsRef} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setViewOptionsOpen(false); }}>
@@ -566,8 +573,12 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
         const name = id ? projects.get(id)! : 'No project';
         const label = id && (projectNameCounts.get(name) ?? 0) > 1 ? `${name} (${id})` : name;
         const project = projectCatalog.find((item) => item.id === id);
+        const headingProject: AgentProject | undefined = project ?? (id && group.roots[0]?.cwd ? { id, name, cwd: group.roots[0].cwd, vcsBranch: group.roots[0].branch } : undefined);
         return <section className="session-group" key={id}>
-          <button className="group-toggle" type="button" aria-expanded={expanded} onClick={() => toggleProject(id)} data-testid={`group-project-${id}`}><Icon name={expanded ? 'chevronDown' : 'chevronRight'} size={13} /><span>{label}</span><small>{group.count}</small></button>
+          <div className="session-group-heading">
+            <button className="group-toggle" type="button" aria-expanded={expanded} onClick={() => toggleProject(id)} data-testid={`group-project-${id}`}><Icon name={expanded ? 'chevronDown' : 'chevronRight'} size={13} /><span>{label}</span><small>{group.count}</small></button>
+            {id && headingProject && <button className="session-group-add" type="button" aria-label={`New session in ${label}`} title={`New session in ${label}`} onClick={() => openAdvanced(headingProject)}><Icon name="plus" size={13} /></button>}
+          </div>
           {expanded && <div>{group.roots.map((session) => sessionTree(session))}{group.count === 0 && project?.cwd && <div className="rail-empty-project">
             <p>{currentPage?.pages['']?.hasMore ? 'No sessions loaded.' : 'No active sessions.'}</p><p className="rail-project-path" title={project.cwd}>{project.cwd}</p>
             <button className="rail-project-select" type="button" aria-pressed={selectedProject?.id === id} onClick={() => { onSelectProject(project); setSelectedRows([]); }}>{selectedProject?.id === id ? 'Selected project' : 'Select project'}<span className="sr-only"> {label}</span></button>
@@ -612,9 +623,9 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
         <fieldset className="branch-options span-2"><legend>Branch</legend>{newBranchMode ? <div className="field-with-action"><input value={newBranch} onChange={(event) => setNewBranch(event.target.value)} placeholder="new-branch-name" aria-label="New branch name" data-testid="advanced-new-branch" /><button type="button" onClick={() => { setNewBranchMode(false); setNewBranch(''); }}>Cancel</button></div> : sessionGatewayMode === 'live'
           ? <select value={branch} onChange={(event) => selectBranch(event.target.value)} aria-label="Branch" data-testid="advanced-branch">
               {branch === '' && <option value="">Use cwd's current branch</option>}
-              {cwd === (selectedProject?.cwd ?? selected.cwd) && <><option value={liveBranches?.current ?? (selectedProject ? selectedProject.vcsBranch ?? '' : selected.branch)}>Current · {liveBranches?.current ?? (selectedProject ? selectedProject.vcsBranch ?? '' : selected.branch)}</option>
-              {(liveBranches?.recent ?? []).filter((name) => name !== (liveBranches?.current ?? (selectedProject ? selectedProject.vcsBranch ?? '' : selected.branch))).map((name) => <option value={name} key={`recent-${name}`}>{name} · recent</option>)}
-              {(liveBranches?.local ?? []).filter((name) => name !== (liveBranches?.current ?? (selectedProject ? selectedProject.vcsBranch ?? '' : selected.branch)) && !(liveBranches?.recent ?? []).includes(name)).map((name) => <option value={name} key={`local-${name}`}>{name} · local</option>)}</>}
+              {cwd === (advancedContextProject?.cwd ?? selected.cwd) && <><option value={liveBranches?.current ?? (advancedContextProject ? advancedContextProject.vcsBranch ?? '' : selected.branch)}>Current · {liveBranches?.current ?? (advancedContextProject ? advancedContextProject.vcsBranch ?? '' : selected.branch)}</option>
+              {(liveBranches?.recent ?? []).filter((name) => name !== (liveBranches?.current ?? (advancedContextProject ? advancedContextProject.vcsBranch ?? '' : selected.branch))).map((name) => <option value={name} key={`recent-${name}`}>{name} · recent</option>)}
+              {(liveBranches?.local ?? []).filter((name) => name !== (liveBranches?.current ?? (advancedContextProject ? advancedContextProject.vcsBranch ?? '' : selected.branch)) && !(liveBranches?.recent ?? []).includes(name)).map((name) => <option value={name} key={`local-${name}`}>{name} · local</option>)}</>}
               <option value="__new__">New branch from current</option>
             </select>
           : <select value={branch} onChange={(event) => selectBranch(event.target.value)} aria-label="Branch" data-testid="advanced-branch"><option value={selected.branch}>Current · {selected.branch}</option>{selected.branch !== 'release/desktop' && <option value="release/desktop">release/desktop · recent</option>}{selected.branch !== 'main' && <option value="main">main · local</option>}<option value="__new__">New branch from current</option></select>}</fieldset>

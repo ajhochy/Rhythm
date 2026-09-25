@@ -3,12 +3,13 @@ import { Icon } from '../icons';
 import { useGateway } from '../gateway/context';
 import { useAuthUser } from '../gateway/auth';
 import { InspectorGatewayError, readOnlyResourceDocument, sessionResources, type InspectorTodo, type MemoryProvenance, type PreparedShare, type SessionResource, type TranscriptShare } from '../gateway/inspector';
-import { SessionGatewayError, type SessionFileContent, type SessionFileEntry, type SessionFileStatusEntry } from '../gateway/sessions';
+import { SessionGatewayError, type RichTranscriptMessage, type SessionFileContent, type SessionFileEntry, type SessionFileStatusEntry } from '../gateway/sessions';
 import { useFixtures } from '../store';
 import type { FixtureFile, InspectorTab, Session } from '../types';
 import { FocusDialog } from './FocusDialog';
 import { navigate } from './Shell';
 import { Timestamp } from './Timestamp';
+import { UsageBudgetPanel } from './UsageBudgetPanel';
 import { Terminal } from '@xterm/xterm';
 import type { PtyGateway } from '../gateway/pty';
 import '@xterm/xterm/css/xterm.css';
@@ -39,14 +40,22 @@ function RunFeedback({ sessionId, hidden }: { sessionId: string; hidden: boolean
 }
 
 function ContextPanel() {
-  const { selected, profiles, sessionGatewayMode } = useFixtures();
-  const profile = profiles.find((item) => item.id === selected.profileId);
-  const total = selected.inputTokens + selected.outputTokens + selected.cachedTokens;
-  const pct = selected.totalBudget > 0 ? Math.min(100, Math.round((total / selected.totalBudget) * 100)) : 0;
+  const { selected, models, sessionGatewayMode } = useFixtures();
+  const persistedUsage = [...selected.messages].reverse().map((message) => message as RichTranscriptMessage).find((message) => {
+    const tokens = message.tokens;
+    return (tokens?.input ?? 0) + (tokens?.cache?.read ?? 0) + (tokens?.cache?.write ?? 0) > 0;
+  });
+  const liveTotal = (persistedUsage?.tokens?.input ?? 0) + (persistedUsage?.tokens?.cache?.read ?? 0) + (persistedUsage?.tokens?.cache?.write ?? 0);
+  const catalogBudget = models.find((model) => model.providerId === selected.providerId && model.modelId === selected.modelId)?.contextLimit;
+  const total = sessionGatewayMode === 'live' ? liveTotal : selected.inputTokens + selected.outputTokens + selected.cachedTokens;
+  const budget = sessionGatewayMode === 'live' ? catalogBudget ?? 200_000 : selected.totalBudget;
+  const pct = budget > 0 ? Math.min(100, Math.round((total / budget) * 100)) : 0;
+  const tokenLabel = (value: number) => value >= 1_000 ? `${Number((value / 1_000).toFixed(1))}k` : String(value);
   return <section className="inspector-panel" aria-label="Session context" data-testid="context-panel">
     <div className="context-path"><Icon name="worktree" /><div><strong>{selected.cwd}</strong><small>{selected.isolateWorktree ? 'Isolated worktree' : 'Project workspace'} · {selected.dirtyCount} changed</small></div></div>
-    <div className="token-gauge" aria-label={`${pct}% of context budget used`}><div><strong>{total.toLocaleString()}</strong><small>of {selected.totalBudget.toLocaleString()} tokens</small></div><span><i style={{ width: `${pct}%` }} /></span><em>{pct}%</em></div>
-    <dl className="property-list"><div><dt>Provider</dt><dd>{profile?.modelProvider ?? selected.providerId ?? 'Configured'}</dd></div><div><dt>Agent</dt><dd>{profile?.label ?? selected.profileId}</dd></div><div><dt>Model</dt><dd>{selected.modelId ?? profile?.modelId ?? selected.model}</dd></div><div><dt>Usage budget</dt><dd>$2.00 session cap</dd></div><div><dt>Total cost</dt><dd>${selected.cost.toFixed(3)}</dd></div><div><dt>Input</dt><dd>{selected.inputTokens.toLocaleString()}</dd></div><div><dt>Output</dt><dd>{selected.outputTokens.toLocaleString()}</dd></div><div><dt>Cached</dt><dd>{selected.cachedTokens.toLocaleString()}</dd></div><div><dt>Created</dt><dd><Timestamp value={selected.createdAt} /></dd></div><div><dt>Updated</dt><dd><Timestamp value={selected.updatedAt} /></dd></div><div><dt>Messages</dt><dd>{selected.messages.length}</dd></div><div><dt>Worktree</dt><dd>{selected.isolateWorktree ? 'Isolated' : 'Current workspace'}</dd></div>
+    {sessionGatewayMode === 'live' && !persistedUsage ? <div className="token-gauge token-gauge-empty" data-testid="context-usage-empty"><div><strong>Usage unavailable</strong><small>No persisted context usage yet</small></div></div> : <div className="token-gauge" aria-label={`${pct}% of context budget used`}><div><strong data-testid="context-usage-value">{tokenLabel(total)} / {tokenLabel(budget)}</strong><small>tokens</small></div><span><i style={{ width: `${pct}%` }} /></span><em data-testid="context-usage-percent">{pct}%</em></div>}
+    <UsageBudgetPanel />
+    <dl className="property-list"><div><dt>Created</dt><dd><Timestamp value={selected.createdAt} /></dd></div><div><dt>Updated</dt><dd><Timestamp value={selected.updatedAt} /></dd></div>
       {/* post-m1-phase-6 c3b: the resolved isolated-worktree branch — never defaulted to 'main'. */}
       {selected.worktreeBranch && <div><dt>Worktree branch</dt><dd>{selected.worktreeBranch}</dd></div>}
     </dl>
@@ -617,7 +626,7 @@ function ArtifactsPanel({ trace, setTrace }: { trace: InspectorTrace | null; set
   if (!selected.artifacts.length) return <section className="inspector-panel artifacts-panel" aria-label="Session artifacts" data-testid="artifacts-panel"><div className="inspector-empty"><Icon name="artifact" size={24} /><h3>No artifacts yet</h3><p>Completed session output appears here and on Dashboard.</p></div><button className="text-button" type="button" onClick={() => navigate('/dashboard')} data-testid="artifacts-dashboard-link">Open Dashboard <Icon name="chevronRight" size={13} /></button></section>;
   return <section className="inspector-panel artifacts-panel" aria-label="Session artifacts" data-testid="artifacts-panel">
     <label className="field">Session artifact<select value={artifact?.id ?? ''} onChange={(event) => { setArtifactId(event.target.value); setTrace({ method: 'GET', route: `/live-artifacts/${event.target.value}` }); }} data-testid="artifact-selector">{selected.artifacts.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
-    <div className="artifact-meta"><span><strong>{artifact?.type}</strong><small>{artifact?.updatedAt?.replace('T', ' · ').slice(0, 18)}</small></span><button className="secondary-button" type="button" onClick={() => { notify(`${artifact?.name} opened`); setTrace({ method: 'GET', route: `/live-artifacts/${artifact?.id}` }); }} data-testid={`open-${artifact?.id}`}>Open</button></div>
+    <div className="artifact-meta"><span><strong>{artifact?.type}</strong><small><Timestamp value={artifact?.updatedAt} /></small></span><button className="secondary-button" type="button" onClick={() => { notify(`${artifact?.name} opened`); setTrace({ method: 'GET', route: `/live-artifacts/${artifact?.id}` }); }} data-testid={`open-${artifact?.id}`}>Open</button></div>
     <div className="artifact-preview"><iframe title={`Preview of ${artifact?.name}`} sandbox="" srcDoc={artifactDocument(artifact?.html)} data-testid="artifact-preview" /></div>
     {history === 'error' ? <div className="artifact-history-error" role="status"><span><strong>Earlier history unavailable</strong><small>The first fixture page could not be read.</small></span><button className="secondary-button" type="button" onClick={() => { setHistory('loaded'); setTrace({ method: 'GET', route: `/agent-sessions/${selected.id}/messages?before=msg-user-handoff` }); }} data-testid="artifact-history-retry">Retry</button></div> : <p className="artifact-history-status" role="status">Earlier history loaded · {selected.artifacts.length} unique artifacts</p>}
     <button className="text-button" type="button" onClick={() => navigate('/dashboard')} data-testid="artifacts-dashboard-link">Open Dashboard <Icon name="chevronRight" size={13} /></button>
