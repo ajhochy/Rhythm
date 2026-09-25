@@ -379,6 +379,10 @@ export function registerHermesView(options) {
         return {
           ok: true,
           attachment: record.attachment,
+          // issue-1570-e: always known regardless of manifest schema, unlike hermesVersion below —
+          // lets the renderer state which artifact is live even before the fork builder emits a
+          // version field on factory (schemaVersion 1) manifests.
+          source: selectedCandidate.kind === 'installed' ? 'installed' : 'factory',
           ...(artifact.manifest?.hermesVersion ? { hermesVersion: artifact.manifest.hermesVersion } : {}),
           ...(fallbackReason ? { fallbackReason } : {}),
         };

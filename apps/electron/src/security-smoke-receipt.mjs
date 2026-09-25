@@ -4,7 +4,7 @@ export const AUTH_KEYS = Object.freeze(['signInWithGoogle', 'currentSession', 'l
 export const HUMAN_APPROVAL_KEYS = Object.freeze(['capability', 'signDecision']);
 export const AGENT_SERVER_KEYS = Object.freeze(['status', 'onStatusChange', 'restart']);
 export const HERMES_KEYS = Object.freeze(['enabled', 'getStatus', 'install', 'restart', 'onStatus']);
-export const HERMES_VIEW_KEYS = Object.freeze(['attach', 'setBounds', 'detach', 'sendIntent']);
+export const HERMES_VIEW_KEYS = Object.freeze(['attach', 'setBounds', 'detach', 'sendIntent', 'installUpdate']);
 export const COLONY_VIEW_KEYS = Object.freeze(['getStatus', 'discoverSources', 'setEnabled', 'setSource', 'attach', 'setBounds', 'inventoryPage', 'inventoryCancel', 'runAction', 'previewImport', 'commitImport', 'onReset', 'sendIntent', 'onEvent', 'detach']);
 export const AI_ACCOUNTS_KEYS = Object.freeze(['getStatus', 'setGrant', 'setMemorySearchConsent']);
 // #1374 — the Device token itself never crosses this bridge; only these narrow, opaque-id

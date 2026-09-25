@@ -19,6 +19,7 @@ import { createAccountsAuthState } from './hermes-accounts-auth.mjs';
 import { createHermesAccountsMain } from './hermes-accounts-main.mjs';
 import { createAgentBridgeHost } from './hermes-agent-bridge.mjs';
 import { bindHermesViewSupervisor, registerHermesView } from './hermes-view.mjs';
+import { installHermesDesktopUpdate } from './hermes-desktop-updates.mjs';
 import { registerColonyHost } from './colony-host.mjs';
 import { runColonySmoke } from './colony-smoke.mjs';
 import { createRemoteEnvironmentsCustody, registerRemoteEnvironments } from './remote-environments.mjs';
@@ -746,6 +747,53 @@ if (hasSingleInstanceLock) {
     const { canceled, filePaths } = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'] });
     requireOwnedDocument(event);
     return canceled || !filePaths[0] ? null : String(filePaths[0]);
+  });
+  // issue-1570-e: install an already-verified Hermes Desktop update from a local artifact
+  // directory. No renderer payload, no network feed (deliberately out of scope — see #1570), and a
+  // cancelled dialog performs no filesystem writes. Full verification (signature, sequence,
+  // schema/version gates) happens inside installHermesDesktopUpdate/resolveHermesDesktopArtifact;
+  // this handler only owns dialog custody and the manifest.json entry point.
+  let hermesUpdateInstallInFlight = false;
+  ipcMain.handle('hermes:update:install', async (event, ...args) => {
+    requireOwnedDocument(event); requireNoPayload(args);
+    // A rapid double-click (or two renderer calls racing) must not open a second native dialog
+    // or start a second install for the same version — ignore the duplicate instead of racing
+    // installHermesDesktopUpdate's own mkdtemp/rename against itself.
+    if (hermesUpdateInstallInFlight) return { ok: false, reason: 'A Hermes Desktop update install is already in progress.' };
+    hermesUpdateInstallInFlight = true;
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (!win || win.isDestroyed()) throw new Error('Hermes Desktop update picker owner unavailable');
+      const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+        title: 'Install Hermes Desktop update',
+        properties: ['openFile'],
+        filters: [{ name: 'Hermes Desktop manifest', extensions: ['json'] }],
+      });
+      requireOwnedDocument(event);
+      if (canceled || !filePaths[0]) return { ok: false, cancelled: true };
+      const manifestPath = String(filePaths[0]);
+      if (!/(^|[/\\])manifest\.json$/.test(manifestPath)) {
+        return { ok: false, reason: 'Choose the manifest.json file inside the Hermes Desktop update folder.' };
+      }
+      try {
+        const installed = await installHermesDesktopUpdate({
+          sourceRoot: dirname(manifestPath),
+          userDataPath: app.getPath('userData'),
+          expectedElectronMajor: 40,
+          expectedElectronVersion: process.versions.electron,
+        });
+        return { ok: true, version: installed.version };
+      } catch (error) {
+        // hermes-desktop-updates.mjs/hermes-desktop-artifact.mjs are real modules loaded outside
+        // any sandbox in production, but a cross-realm `instanceof Error` check is unreliable in
+        // the vm module test harness; `.message` access is realm-safe, so read that directly.
+        const reason = error && typeof (/** @type {{message?: unknown}} */ (error).message) === 'string'
+          ? /** @type {{message: string}} */ (error).message : 'Hermes Desktop update could not be installed.';
+        return { ok: false, reason };
+      }
+    } finally {
+      hermesUpdateInstallInFlight = false;
+    }
   });
 
   // Mirrors apps/desktop_flutter/lib/app/core/server/api_server_service.dart +

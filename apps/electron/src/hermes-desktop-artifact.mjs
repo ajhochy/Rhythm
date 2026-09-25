@@ -193,7 +193,15 @@ export async function resolveHermesDesktopArtifact({
   const actualEntries = [];
   await collectArtifactFiles(root, root, actualEntries);
   for (const entry of actualEntries) {
-    if (entry !== 'manifest.json' && !(installed && entry === 'manifest.sig') && !integrityPaths.has(entry)) {
+    // issue-1570-d fix: manifest.sig is exempt for BOTH sources, not only 'installed'. The
+    // release pipeline (scripts/sign-hermes-desktop-manifest.mjs) writes it into the factory
+    // copy too, so that exact signed directory can later be extracted and distributed as a
+    // self-contained installed-update package with no extra assembly step. Factory trust is,
+    // and remains, the outer Developer ID codesign over the whole .app bundle — this validator
+    // never reads or verifies manifest.sig for a factory source, so its presence, absence, or
+    // tampering has no effect on factory loading (unlike 'installed', where it is mandatory and
+    // verified above before any other path is read).
+    if (entry !== 'manifest.json' && entry !== 'manifest.sig' && !integrityPaths.has(entry)) {
       throw new Error(`Hermes Desktop artifact has an unverified file: ${entry}. Rebuild the pinned artifact.`);
     }
   }

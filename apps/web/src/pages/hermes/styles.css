@@ -8,3 +8,6 @@
 .hermes-state p { max-width: 60ch; margin: 0 0 24px; color: var(--muted); overflow-wrap: anywhere; white-space: pre-wrap; }
 .hermes-state code { color: var(--fg); font-family: var(--font-mono); }
 .hermes-state progress { max-width: 100%; accent-color: var(--accent); }
+.hermes-update { display: flex; align-items: center; gap: 12px; padding: 8px clamp(20px, 4vw, 56px) 0; }
+.hermes-update p { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+.hermes-fallback-notice { margin: 8px clamp(20px, 4vw, 56px) 0; color: var(--muted); }

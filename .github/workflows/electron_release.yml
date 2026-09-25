@@ -166,6 +166,14 @@ jobs:
 
       - name: Sign and notarize
         working-directory: apps/electron
+        env:
+          # issue-1570-d: Ed25519 PEM private key signing the embedded Hermes Desktop manifest
+          # after its post-codesign reseal (apps/electron/scripts/sign-hermes-desktop-manifest.mjs).
+          # Scoped to this step only — never present during the earlier third-party Hermes source
+          # checkout/build/npm-ci steps above. AJ must create this secret; the corresponding
+          # public key then goes into apps/electron/src/hermes-desktop-config.mjs
+          # HERMES_DESKTOP_UPDATE_PUBLIC_KEYS.
+          HERMES_DESKTOP_MANIFEST_SIGNING_KEY: ${{ secrets.HERMES_DESKTOP_MANIFEST_SIGNING_KEY }}
         run: npm run sign:mac
 
       - name: Verify signed bundle

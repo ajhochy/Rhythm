@@ -67,7 +67,15 @@ const hermesView = Object.freeze({
       return { ok: false, reason: 'detached' };
     }
     if (result?.ok === true && typeof result.attachment === 'string') hermesViewAttachment = result.attachment;
-    return { ok: result?.ok === true, reason: result?.reason };
+    // issue-1570-e: version/source/fallbackReason let the Hermes page state which artifact is
+    // running and why, when an installed update failed and Rhythm fell back to the bundled copy.
+    return {
+      ok: result?.ok === true,
+      ...(result?.reason ? { reason: result.reason } : {}),
+      ...(typeof result?.hermesVersion === 'string' ? { version: result.hermesVersion } : {}),
+      ...(result?.source === 'installed' || result?.source === 'factory' ? { source: result.source } : {}),
+      ...(typeof result?.fallbackReason === 'string' ? { fallbackReason: result.fallbackReason } : {}),
+    };
   },
   /** @param {{x: number, y: number, width: number, height: number}} bounds */
   setBounds: (bounds) => ipcRenderer.invoke('hermes:view:bounds', { attachment: hermesViewAttachment, bounds }),
@@ -79,6 +87,9 @@ const hermesView = Object.freeze({
   },
   /** @param {unknown} intent */
   sendIntent: (intent) => ipcRenderer.invoke('hermes:intent', { attachment: hermesViewAttachment, intent }),
+  // issue-1570-e: main-owned native file dialog only; no renderer-supplied path ever crosses this
+  // bridge. See hermes:update:install in main.mjs.
+  installUpdate: () => ipcRenderer.invoke('hermes:update:install'),
 });
 let colonyViewEpoch = 0;
 /** @type {string | undefined} */

@@ -26,6 +26,7 @@ import { PINNED_HERMES_DESKTOP_SOURCE_COMMIT } from '../src/hermes-desktop-confi
 import { refreshHermesDesktopArtifactIntegrity, resolveHermesDesktopArtifact } from '../src/hermes-desktop-artifact.mjs';
 import { EXPECTED_COLONY_ELECTRON_MAJOR, PINNED_COLONY_SOURCE_COMMIT } from '../src/colony-desktop-config.mjs';
 import { refreshColonyArtifactIntegrity, resolveColonyArtifact } from '../src/colony-desktop-artifact.mjs';
+import { requireManifestSigningKey, signHermesDesktopManifest } from './sign-hermes-desktop-manifest.mjs';
 import { resolveSigningIdentityWithRunner } from './signing-identity.mjs';
 
 const run = promisify(execFile);
@@ -39,6 +40,16 @@ for (const name of required) {
     process.stderr.write(`Missing ${name} — skipping sign/notarize.\n`);
     process.exit(1);
   }
+}
+// issue-1570-d: fail closed before any codesign work starts, never after — an unsigned Hermes
+// Desktop manifest is a release the installed-artifact verifier will reject anyway, so catching it
+// here saves the notarization round trip instead of discovering it downstream.
+let hermesDesktopManifestSigningKey;
+try {
+  hermesDesktopManifestSigningKey = requireManifestSigningKey();
+} catch (error) {
+  process.stderr.write(`${error instanceof Error ? error.message : error}\n`);
+  process.exit(1);
 }
 if (!existsSync(artifact)) {
   process.stderr.write(`${artifact} not found — run \`npm run package:mac\` first.\n`);
@@ -127,6 +138,9 @@ await resolveHermesDesktopArtifact({
   expectedSourceCommit: PINNED_HERMES_DESKTOP_SOURCE_COMMIT,
   allowDirty: false,
 });
+// Must run after the reseal above (mutating the artifact later invalidates this signature) and
+// before the outer app codesign, so this exact signed manifest ships inside the sealed bundle.
+await signHermesDesktopManifest({ artifactRoot: hermesDesktopArtifact, signingKey: hermesDesktopManifestSigningKey });
 const colonyDesktopArtifact = resolve(contentsDir, 'Resources/colony-desktop');
 await refreshColonyArtifactIntegrity({ artifactRoot: colonyDesktopArtifact });
 await resolveColonyArtifact({

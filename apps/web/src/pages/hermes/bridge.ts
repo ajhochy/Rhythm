@@ -7,6 +7,15 @@ export type HermesStatus = {
 };
 export type HermesIntent = { v: 1; type: 'new-chat'; context: string } | { v: 1; type: 'navigate-session'; sessionId: string };
 export type HermesResult = { ok: boolean; reason?: string };
+// issue-1570-e: version/source/fallbackReason let the page state which Hermes Desktop artifact
+// attached and why, when an installed update failed validation/import and Rhythm fell back to the
+// bundled copy (see resolveHermesDesktopArtifact + createHermesDesktopUpdateStore).
+export type HermesAttachResult = HermesResult & {
+  version?: string;
+  source?: 'installed' | 'factory';
+  fallbackReason?: string;
+};
+export type HermesInstallResult = { ok: boolean; reason?: string; cancelled?: boolean; version?: string };
 export type HermesShell = {
   hermes?: {
     enabled: boolean;
@@ -16,10 +25,13 @@ export type HermesShell = {
     onStatus(callback: (status: HermesStatus) => void): () => void;
   };
   hermesView?: {
-    attach(): Promise<HermesResult | void>;
+    attach(): Promise<HermesAttachResult | void>;
     setBounds(bounds: { x: number; y: number; width: number; height: number }): Promise<boolean | void>;
     detach(): Promise<boolean | void>;
     sendIntent(intent: HermesIntent): Promise<HermesResult | void>;
+    // Main-owned native file dialog only; never a renderer-supplied path. A cancelled dialog
+    // resolves { ok: false, cancelled: true } and performs no filesystem writes.
+    installUpdate(): Promise<HermesInstallResult | void>;
   };
 };
 
