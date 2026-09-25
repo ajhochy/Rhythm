@@ -168,6 +168,39 @@ const aiAccounts = Object.freeze({
   setGrant: (/** @type {unknown} */ mutation) => ipcRenderer.invoke('rhythm:ai-accounts:set-grant', mutation),
   setMemorySearchConsent: (/** @type {unknown} */ mutation) => ipcRenderer.invoke('rhythm:ai-accounts:set-memory-consent', mutation),
 });
+// #1374 — secondary-desktop continuation. The Device token lives only in main
+// (src/remote-environments.mjs); this surface never sees it, only opaque ids and results.
+const remoteEnvironments = Object.freeze({
+  enabled: !['0', 'false'].includes((process.env.RHYTHM_REMOTE_ATTACH ?? '').toLowerCase()),
+  list: () => ipcRenderer.invoke('remote-env:list'),
+  /** @param {string} environmentId */
+  connect: (environmentId) => ipcRenderer.invoke('remote-env:connect', environmentId),
+  disconnect: () => ipcRenderer.invoke('remote-env:disconnect'),
+  /** @param {{method:string,path:string,body?:unknown,headers?:Record<string,string>}} request */
+  request: (request) => ipcRenderer.invoke('remote-env:request', request),
+  /** @param {string} sessionId @param {(chunk: string) => void} onChunk @param {() => void} [onEnd] */
+  subscribe: (sessionId, onChunk, onEnd) => {
+    const chunkListener = (/** @type {unknown} */ _event, /** @type {{sessionId:string,chunk:string}} */ message) => {
+      if (message?.sessionId === sessionId) onChunk(message.chunk);
+    };
+    const endListener = (/** @type {unknown} */ _event, /** @type {{sessionId:string}} */ message) => {
+      if (message?.sessionId !== sessionId) return;
+      ipcRenderer.removeListener('remote-env:sse-chunk', chunkListener);
+      ipcRenderer.removeListener('remote-env:sse-end', endListener);
+      onEnd?.();
+    };
+    ipcRenderer.on('remote-env:sse-chunk', chunkListener);
+    ipcRenderer.on('remote-env:sse-end', endListener);
+    return ipcRenderer.invoke('remote-env:subscribe', sessionId).then((/** @type {{state:string}} */ result) => Object.freeze({
+      ...result,
+      unsubscribe: () => {
+        ipcRenderer.removeListener('remote-env:sse-chunk', chunkListener);
+        ipcRenderer.removeListener('remote-env:sse-end', endListener);
+        return ipcRenderer.invoke('remote-env:unsubscribe', sessionId);
+      },
+    }));
+  },
+});
 contextBridge.exposeInMainWorld('rhythmShell', Object.freeze({
   version: 6,
   appVersion,
@@ -182,4 +215,5 @@ contextBridge.exposeInMainWorld('rhythmShell', Object.freeze({
   hermesView,
   colonyView,
   aiAccounts,
+  remoteEnvironments,
 }));

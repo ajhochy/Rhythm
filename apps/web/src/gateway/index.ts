@@ -38,6 +38,7 @@ export interface GatewayDomainContracts {
   settings?: ReturnType<typeof createLiveSettingsGateway>;
   runtime?: RuntimeGateway;
   sharedAgents?: SharedAgentsPort;
+  remoteSessions?: RemoteSessionsGateway;
 }
 
 export interface GatewayHealth {
@@ -188,6 +189,12 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
       settings: createLiveSettingsGateway(productionApiBase, config.taskToken, fetcher),
       runtime: createLiveRuntimeGateway(apiBase, localFetcher),
       sharedAgents: createLiveSharedAgentsPort(apiBase, config.taskToken, createLiveSessionsGateway(apiBase, config.taskToken, localFetcher), fetcher),
+      // #1374 — undefined outside the Electron shell (plain browser preview, or a build with the
+      // RHYTHM_REMOTE_ATTACH kill switch off); the gateway itself reports `enabled: false` then.
+      remoteSessions: createLiveRemoteSessionsGateway(
+        typeof window === 'undefined' ? undefined
+          : (window as unknown as { rhythmShell?: { remoteEnvironments?: RemoteEnvironmentsBridge } }).rhythmShell?.remoteEnvironments,
+      ),
     },
     health: {
       api: () => check('api', `${apiBase}/health`),
@@ -249,3 +256,4 @@ import { createLiveSettingsGateway } from './settings';
 import { createLiveRuntimeGateway, type RuntimeGateway } from './runtime';
 import { createLiveSharedAgentsPort } from './shared-agents';
 import type { SharedAgentsPort } from '@ajhochy/rhythm-workspace-ui';
+import { createLiveRemoteSessionsGateway, type RemoteEnvironmentsBridge, type RemoteSessionsGateway } from './remote-sessions';

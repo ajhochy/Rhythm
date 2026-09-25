@@ -5,7 +5,7 @@ import { runInNewContext } from 'node:vm';
 
 import {
   AGENT_SERVER_KEYS, AI_ACCOUNTS_KEYS, AUTH_KEYS, BRIDGE_KEYS, COLONY_VIEW_KEYS,
-  GATEWAY_KEYS, HERMES_KEYS, HERMES_VIEW_KEYS, HUMAN_APPROVAL_KEYS, UPDATE_KEYS,
+  GATEWAY_KEYS, HERMES_KEYS, HERMES_VIEW_KEYS, HUMAN_APPROVAL_KEYS, REMOTE_ENVIRONMENTS_KEYS, UPDATE_KEYS,
   validateSecuritySmokeReceipt,
 } from '../src/security-smoke-receipt.mjs';
 
@@ -24,6 +24,7 @@ const validReceipt = {
     hermesView: { keys: HERMES_VIEW_KEYS, frozen: true },
     colonyView: { keys: COLONY_VIEW_KEYS, frozen: true },
     aiAccounts: { keys: AI_ACCOUNTS_KEYS, frozen: true },
+    remoteEnvironments: { keys: REMOTE_ENVIRONMENTS_KEYS, frozen: true },
     updates: { keys: UPDATE_KEYS, frozen: true },
     nodeExposed: false,
     value: { version: 6 },
@@ -62,6 +63,7 @@ async function receiptFromRealPreload() {
       hermesView: keys(bridge.hermesView),
       colonyView: keys(bridge.colonyView),
       aiAccounts: keys(bridge.aiAccounts),
+      remoteEnvironments: keys(bridge.remoteEnvironments),
       updates: keys(bridge.updates),
       nodeExposed: false,
       value: { version: bridge.version },
@@ -115,6 +117,8 @@ test('signed security smoke rejects every unsafe bridge and denial invariant', (
     (receipt) => { receipt.bridge.hermesView.keys.push('token'); },
     (receipt) => { receipt.bridge.hermesView.frozen = false; },
     (receipt) => { receipt.bridge.colonyView.frozen = false; },
+    (receipt) => { receipt.bridge.remoteEnvironments.keys.push('deviceToken'); },
+    (receipt) => { receipt.bridge.remoteEnvironments.frozen = false; },
     (receipt) => { receipt.bridge.updates.keys.push('install'); },
     (receipt) => { receipt.bridge.updates.frozen = false; },
     (receipt) => { receipt.bridge.value.version = '5'; },

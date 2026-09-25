@@ -58,9 +58,11 @@ function persistOpenProjects(states: Record<string, boolean>) {
   }
 }
 
-export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProject }: { collapsed: boolean; onToggle(): void; selectedProject: AgentProject | null; onSelectProject(project: AgentProject | null): void }) {
+export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProject, onOpenRemoteComputers }: { collapsed: boolean; onToggle(): void; selectedProject: AgentProject | null; onSelectProject(project: AgentProject | null): void; onOpenRemoteComputers?(): void }) {
   const fixtures = useFixtures();
   const gateway = useGateway();
+  // #1374 — hidden entirely behind the kill switch: no remote UI, no remote gateway calls.
+  const remoteAttachEnabled = gateway.domains.remoteSessions?.enabled === true;
   const auth = useAuthUser();
   const preferenceUserId = auth?.user.id ?? 'fixture';
   const initialViewPreferences = readLocalUserPreferences(preferenceUserId);
@@ -486,7 +488,7 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
     });
   };
 
-  if (collapsed) return <aside className="session-rail collapsed" aria-label="Agents collapsed" data-od-id="sessions-tools-rail"><button className="icon-button collapse-control" type="button" onClick={onToggle} aria-label="Expand Agents" data-testid="rail-expand"><Icon name="expand" /></button><button className="rail-glyph selected" type="button" onClick={() => changeScope('chats')} aria-label="Chats"><Icon name="agents" /></button><button className="rail-glyph" type="button" onClick={() => openTool('profiles')} aria-label="Profiles"><Icon name="profile" /></button><button className="rail-glyph" type="button" onClick={() => navigate('/tools/agent-settings')} aria-label="Agent settings"><Icon name="settings" /></button></aside>;
+  if (collapsed) return <aside className="session-rail collapsed" aria-label="Agents collapsed" data-od-id="sessions-tools-rail"><button className="icon-button collapse-control" type="button" onClick={onToggle} aria-label="Expand Agents" data-testid="rail-expand"><Icon name="expand" /></button><button className="rail-glyph selected" type="button" onClick={() => changeScope('chats')} aria-label="Chats"><Icon name="agents" /></button><button className="rail-glyph" type="button" onClick={() => openTool('profiles')} aria-label="Profiles"><Icon name="profile" /></button>{remoteAttachEnabled && <button className="rail-glyph" type="button" onClick={onOpenRemoteComputers} aria-label="Remote computers" data-testid="rail-remote-computers-collapsed"><Icon name="worktree" /></button>}<button className="rail-glyph" type="button" onClick={() => navigate('/tools/agent-settings')} aria-label="Agent settings"><Icon name="settings" /></button></aside>;
 
   const childDepth = (session: Session) => {
     let depth = 0; let current: Session | undefined = session;
@@ -590,7 +592,7 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
       {liveHistory && <>{(!currentPage || currentPage.busy) && <p role="status">Loading session history…</p>}{currentPage?.error && <div role="alert"><p>{currentPage.error}</p><button className="secondary-button" type="button" onClick={() => setRefresh((value) => value + 1)}>Reset session history</button></div>}{currentPage?.pages['']?.hasMore && <><p className="rail-empty">Order applies to loaded sessions. Load older history to include more.</p><button className="secondary-button" type="button" disabled={currentPage.busy || !!currentPage.error} onClick={() => void loadHistory(undefined, currentPage.pages[''].nextCursor ?? undefined)}>{normalizedSearch ? 'Load older matches' : 'Load older roots'}</button></>}</>}
     </div>
     <Splitter orientation="horizontal" storageKey="layout.agents.tools" min={120} max={320} defaultSize={224} onResize={setToolsHeight} ariaLabel="Resize Tools panel" resizeEdge="end" className="tools-resizer" testId="tools-resizer" />
-    <nav className="tools-nav" aria-label="Agent tools" style={{ height: `${toolsHeight}px` }}><span className="rail-section-label">Tools</span>{tools.map((tool) => <button type="button" onClick={() => openTool(tool.key)} key={tool.key} data-testid={`tool-${tool.key}`}><Icon name={tool.icon} /><span><strong>{tool.label}</strong><small>{tool.description}</small></span><Icon name="chevronRight" size={14} /></button>)}</nav>
+    <nav className="tools-nav" aria-label="Agent tools" style={{ height: `${toolsHeight}px` }}><span className="rail-section-label">Tools</span>{remoteAttachEnabled && <button type="button" onClick={onOpenRemoteComputers} data-testid="rail-remote-computers"><Icon name="worktree" /><span><strong>Remote computers</strong><small>Continue a session from another Mac</small></span><Icon name="chevronRight" size={14} /></button>}{tools.map((tool) => <button type="button" onClick={() => openTool(tool.key)} key={tool.key} data-testid={`tool-${tool.key}`}><Icon name={tool.icon} /><span><strong>{tool.label}</strong><small>{tool.description}</small></span><Icon name="chevronRight" size={14} /></button>)}</nav>
     <footer className="rail-account"><button type="button" onClick={() => navigate('/tools/agent-settings')} data-testid="rail-agent-settings"><span className="avatar">AJ</span><span><strong>AJ Hochhalter</strong><small>Agent settings</small></span><Icon name="settings" size={15} /></button></footer>
 
     <FocusDialog open={projectFormOpen} onClose={closeProjectForm} title="Add project" description="Give an existing working directory a name so you can start sessions in it." testId="add-project-dialog">

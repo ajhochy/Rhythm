@@ -1,4 +1,4 @@
-export const BRIDGE_KEYS = Object.freeze(['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory', 'hermes', 'hermesView', 'colonyView', 'aiAccounts']);
+export const BRIDGE_KEYS = Object.freeze(['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory', 'hermes', 'hermesView', 'colonyView', 'aiAccounts', 'remoteEnvironments']);
 export const GATEWAY_KEYS = Object.freeze(['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase']);
 export const AUTH_KEYS = Object.freeze(['signInWithGoogle', 'currentSession', 'logout']);
 export const HUMAN_APPROVAL_KEYS = Object.freeze(['capability', 'signDecision']);
@@ -7,6 +7,9 @@ export const HERMES_KEYS = Object.freeze(['enabled', 'getStatus', 'install', 're
 export const HERMES_VIEW_KEYS = Object.freeze(['attach', 'setBounds', 'detach', 'sendIntent']);
 export const COLONY_VIEW_KEYS = Object.freeze(['getStatus', 'discoverSources', 'setEnabled', 'setSource', 'attach', 'setBounds', 'inventoryPage', 'inventoryCancel', 'runAction', 'previewImport', 'commitImport', 'onReset', 'sendIntent', 'onEvent', 'detach']);
 export const AI_ACCOUNTS_KEYS = Object.freeze(['getStatus', 'setGrant', 'setMemorySearchConsent']);
+// #1374 — the Device token itself never crosses this bridge; only these narrow, opaque-id
+// operations do. See src/remote-environments.mjs.
+export const REMOTE_ENVIRONMENTS_KEYS = Object.freeze(['enabled', 'list', 'connect', 'disconnect', 'request', 'subscribe']);
 export const UPDATE_KEYS = Object.freeze(['openDownloadPage']);
 const DENIAL_KEYS = ['navigation', 'popup', 'permission', 'download', 'malformedProtocol'];
 
@@ -51,6 +54,7 @@ export function validateSecuritySmokeReceipt(receipt) {
     [['bridge', 'hermesView', 'keys'], HERMES_VIEW_KEYS],
     [['bridge', 'colonyView', 'keys'], COLONY_VIEW_KEYS],
     [['bridge', 'aiAccounts', 'keys'], AI_ACCOUNTS_KEYS],
+    [['bridge', 'remoteEnvironments', 'keys'], REMOTE_ENVIRONMENTS_KEYS],
   ];
   for (const [path, expected] of exactArrays) {
     const keys = /** @type {string[]} */ (path);
@@ -71,6 +75,7 @@ export function validateSecuritySmokeReceipt(receipt) {
     ['bridge', 'hermesView', 'frozen'],
     ['bridge', 'colonyView', 'frozen'],
     ['bridge', 'aiAccounts', 'frozen'],
+    ['bridge', 'remoteEnvironments', 'frozen'],
   ]) {
     if (valueAt(receipt, path) !== true) return { ok: false, reason: `${path.join('.')} must be true` };
   }

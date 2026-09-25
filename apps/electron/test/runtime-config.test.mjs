@@ -24,9 +24,9 @@ test('packaged builds retain their generated Google desktop client ID', () => {
 
 test('packaging copies every support module imported by main', async () => {
   const packageScript = await readFile(new URL('../scripts/package-mac.mjs', import.meta.url), 'utf8');
-  for (const module of ['runtime-config', 'artifact-frame-protocol']) {
-    assert.match(packageScript, new RegExp(`src\\/${module}\\.mjs`), `${module}.mjs is missing from the packaged app`);
-  }
+  // The whole src/ tree is copied and the build fails if any module main/preload reach is missing.
+  assert.match(packageScript, /cp\(resolve\(electronRoot, 'src'\), resolve\(packagedApp, 'src'\), \{\s*recursive: true/);
+  assert.match(packageScript, /assertPackagedModuleGraph\(resolve\(packagedApp, 'src'\), \['main\.mjs', 'preload\.cjs'/);
 });
 
 test('ordinary Electron tests exclude package-shaped contracts', async () => {

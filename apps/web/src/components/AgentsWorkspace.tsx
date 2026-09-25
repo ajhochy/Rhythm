@@ -6,6 +6,7 @@ import { Composer } from './Composer';
 import { FocusDialog } from './FocusDialog';
 import { Inspector } from './Inspector';
 import { ProfileAvatar } from './Profiles';
+import { RemoteComputers } from './RemoteComputers';
 import { SessionRail } from './SessionRail';
 import { Splitter } from './Splitter';
 import { formatCost, Transcript } from './Transcript';
@@ -28,6 +29,7 @@ export function AgentsWorkspace() {
     return total + (typeof cost === 'number' && Number.isFinite(cost) && cost > 0 ? cost : 0);
   }, 0);
   const pending = usePendingDecisions(selected.id);
+  const [remoteOpen, setRemoteOpen] = useState(false);
   const [settingsError, setSettingsError] = useState('');
   const [savingSettings, setSavingSettings] = useState(false);
   const updateSession: typeof updateFixtureSession = (id, patch) => {
@@ -202,13 +204,18 @@ export function AgentsWorkspace() {
     items[next]?.focus();
   };
 
+  // #1374 — remote attach replaces the whole workspace surface rather than nesting inside the
+  // local conversation-pane grid, so the local session header/transcript/composer rows this
+  // component otherwise renders are entirely untouched by remote mode.
+  if (remoteOpen) return <RemoteComputers onClose={() => setRemoteOpen(false)} />;
+
   return (
     <section className="agents-workspace" aria-label="Agents workspace" style={{
       '--rail-width': railCollapsed ? '48px' : `${railWidth}px`,
       '--inspector-resizer-width': inspectorCollapsed ? '0px' : '8px',
       '--inspector-width': inspectorCollapsed ? 'var(--collapsed-inspector-width)' : `${inspectorWidth}px`,
     } as React.CSSProperties} data-od-id="agents-workspace">
-      <SessionRail collapsed={railCollapsed} onToggle={toggleRail} selectedProject={selectedProject} onSelectProject={setSelectedProject} />
+      <SessionRail collapsed={railCollapsed} onToggle={toggleRail} selectedProject={selectedProject} onSelectProject={setSelectedProject} onOpenRemoteComputers={() => setRemoteOpen(true)} />
       {!railCollapsed && <Splitter orientation="vertical" storageKey="layout.agents.rail" min={228} max={380} defaultSize={280} onResize={resizeRail} ariaLabel="Resize Agents rail" className="rail-resize" testId="rail-resizer" />}
       <section className="conversation-pane" aria-label={selectedProject ? 'Selected agent project' : 'Active agent session'} data-od-id="active-agent-session">
         {selectedProject ? <div className="agent-project-empty" role="status" data-testid="selected-agent-project"><Icon name="worktree" size={28} /><h1>{selectedProject.name}</h1><p className="rail-project-path">{selectedProject.cwd}</p><p>No session selected. Use New session in the Agents rail to start here.</p><button className="secondary-button" type="button" onClick={() => setSelectedProject(null)}>Back to sessions</button></div> : <>

@@ -20,6 +20,7 @@ import { createHermesAccountsMain } from './hermes-accounts-main.mjs';
 import { createAgentBridgeHost } from './hermes-agent-bridge.mjs';
 import { bindHermesViewSupervisor, registerHermesView } from './hermes-view.mjs';
 import { registerColonyHost } from './colony-host.mjs';
+import { createRemoteEnvironmentsCustody, registerRemoteEnvironments } from './remote-environments.mjs';
 
 export { deepLinkFromArgv } from './policy.mjs';
 
@@ -45,6 +46,7 @@ const productionApiConfigPath = resolve(app.getPath('userData'), 'server-config.
 const productionApiConfig = createProductionApiConfig({ configPath: productionApiConfigPath, defaultBase: RHYTHM_AUTH_API_BASE, env: process.env });
 let productionApiBase = productionApiConfig.load();
 const authSessionPath = resolve(app.getPath('userData'), 'auth-session.bin');
+const remoteAttachGrantPath = resolve(app.getPath('userData'), 'remote-attach-grant.bin');
 process.env.RHYTHM_PRODUCTION_API_URL = productionApiBase;
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -76,6 +78,17 @@ if (hasSingleInstanceLock) {
   /** @type {ReturnType<typeof registerColonyHost> | undefined} */
   let colonyHost;
   const hermesView = registerHermesView({ ipcMain, getWindow: () => mainWindow, getUserDataPath: () => app.getPath('userData'), getBackendCredentialOptions: () => credentialHostOptions(), openExternal: (url) => shell.openExternal(url) });
+  // #1374 — secondary-desktop continuation. The Device grant is a distinct secret from the
+  // production session (auth-session.bin) and gets its own encrypted-at-rest file; it is cleared
+  // whenever the production session itself is invalidated (see invalidateAuthentication below).
+  const remoteEnvironmentsCustody = createRemoteEnvironmentsCustody({
+    getProductionApiBase: () => productionApiBase,
+    getSessionToken: () => productionSessionToken,
+    loadEncrypted: () => readFile(remoteAttachGrantPath),
+    saveEncrypted: async (bytes) => { await mkdir(dirname(remoteAttachGrantPath), { recursive: true }); await writeFile(remoteAttachGrantPath, bytes, { mode: 0o600 }); },
+    clearEncrypted: async () => { try { await rm(remoteAttachGrantPath, { force: true }); } catch {} },
+    safeStorage,
+  });
   /** @type {string | null} */
   let pendingDeepLink = deepLinkFromArgv(process.argv);
   /** @type {Map<string, Notification>} */
@@ -308,7 +321,7 @@ if (hasSingleInstanceLock) {
     const authInvalidation = accountsAuth.invalidate();
     const brokerInvalidation = accountsMain?.identityChanged();
     const previous = accountsTransition;
-    accountsTransition = Promise.all([previous, authInvalidation, brokerInvalidation, bridgeHost.revokeAll(), hermesView.disposeCurrent(), colonyHost?.invalidateProfile()]).then(() => { accountsBlocked = false; });
+    accountsTransition = Promise.all([previous, authInvalidation, brokerInvalidation, bridgeHost.revokeAll(), hermesView.disposeCurrent(), colonyHost?.invalidateProfile(), remoteEnvironmentsCustody.disconnect()]).then(() => { accountsBlocked = false; });
     void accountsTransition.catch(() => {});
     authGeneration += 1;
     clearAgentNotifications();
@@ -871,6 +884,7 @@ if (hasSingleInstanceLock) {
       home: userInfo().homedir, isPackaged: app.isPackaged, environment: process.env, app, shell, dialog,
       emitReset: () => mainWindow?.webContents.send('colony:host:reset') });
     if (productionSessionUser) await colonyHost.activateProfile({ productionApiBase, userId: String(productionSessionUser.id) });
+    registerRemoteEnvironments({ ipcMain, getWindow: () => mainWindow, custody: remoteEnvironmentsCustody });
     if (!isSmoke && agentServer && !existsSync(electronDbPath()) && existsSync(legacyFlutterDbPath())) {
       const choice = await dialog.showMessageBox({ type: 'question', title: 'Import existing Rhythm data?', message: 'Rhythm found data from the Flutter desktop app.', detail: 'Import copies the database into Electron using SQLite backup. The original remains untouched. Imported schedules start disabled for review.', buttons: ['Import existing data', 'Start fresh', 'Cancel'], defaultId: 0, cancelId: 2 });
       if (choice.response === 2) { app.quit(); return; }
