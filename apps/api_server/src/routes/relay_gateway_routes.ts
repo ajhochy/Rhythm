@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 
 import {
   env,
@@ -94,6 +95,18 @@ function relayProject(req: Request): { id: string; root: string } {
   // this opaque project id, while `/` prevents host-path shaping from inventing
   // a NAS-local path boundary.
   return { id: projectId, root: '/' };
+}
+
+function recordRelayAttach(req: Request, sessionId: string | null): void {
+  logger.info('[RemoteAttach] lifecycle', {
+    device_id_hash: createHash('sha256')
+      .update(req.mobileDevice!.id)
+      .digest('hex')
+      .slice(0, 16),
+    session_id: sessionId ?? 'none',
+    lifecycle_state: 'attach',
+    reason: 'mirror_authorized',
+  });
 }
 
 function forwardedHeaders(req: Request): Record<string, string> {
@@ -327,6 +340,7 @@ export function createRelayGatewayRouter(
           deviceId: grant.deviceId,
           deviceToken: grant.deviceToken,
           gatewayBaseUrl,
+          capabilities: ['remote-attach-desktop-v1'],
         });
       } catch (error) {
         next(error instanceof AppError ? error : AppError.internal());
@@ -378,17 +392,30 @@ export function createRelayGatewayRouter(
       const authorization = req.header('Authorization') ?? '';
       const token = authorization.match(/^Device\s+(\S+)$/i)?.[1] ?? '';
       const deviceId = req.mobileDevice!.id;
-      liveSseResponses.add(res);
       const removeLiveResponse = () => liveSseResponses.delete(res);
-      res.once('close', removeLiveResponse);
-      res.once('finish', removeLiveResponse);
       try {
+        const project = relayProject(req);
+        const preauthorizedSession = !sessionId || Boolean(
+          ownership.isResourceOwnedBy(
+            'session', sessionId, req.mobileDevice!.userId, project.id,
+          ) || ownership.isSessionOwnedByDesktopCatalog?.(
+            sessionId, req.mobileDevice!.userId, project.id,
+          ),
+        );
+        if (!preauthorizedSession) {
+          res.status(404).json({ error: 'not_found' });
+          return;
+        }
+        liveSseResponses.add(res);
+        res.once('close', removeLiveResponse);
+        res.once('finish', removeLiveResponse);
         await sseProxy.stream({
           request: req,
           response: res,
-          project: relayProject(req),
+          project,
           userId: req.mobileDevice!.userId,
           ...(sessionId ? { sessionId } : {}),
+          preauthorizedSession,
           isDeviceActive: () => {
             const active = getMobilePairingService().authenticateDevice(token);
             return active !== null && active.id === deviceId;
@@ -467,6 +494,7 @@ export function createRelayGatewayRouter(
           await tunnelMirrorMiss(req, res, next);
           return;
         }
+        recordRelayAttach(req, null);
         sendMirrorResponse(
           res,
           page.items,
@@ -533,6 +561,7 @@ export function createRelayGatewayRouter(
           await tunnelMirrorMiss(req, res, next);
           return;
         }
+        recordRelayAttach(req, req.params.id);
         sendMirrorResponse(res, safeValue);
       } catch (error) {
         next(error instanceof AppError ? error : AppError.internal());

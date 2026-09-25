@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer';
+import { createHash, randomBytes } from 'node:crypto';
 import { relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -134,8 +135,25 @@ export interface MobileOpenCodeForwardInput {
   body?: unknown;
   project: MobileProjectScope;
   userId: number;
+  deviceId?: string;
   accept?: string;
   ownerUnscopedDiscovery?: boolean;
+  remoteAttachDesktop?: boolean;
+}
+
+let lastGatewayMessageTimestamp = 0;
+let gatewayMessageCounter = 0;
+function gatewayAscendingMessageId(): string {
+  const timestamp = Date.now();
+  if (timestamp !== lastGatewayMessageTimestamp) {
+    lastGatewayMessageTimestamp = timestamp;
+    gatewayMessageCounter = 0;
+  }
+  gatewayMessageCounter += 1;
+  const encoded = BigInt(timestamp) * 0x1000n + BigInt(gatewayMessageCounter);
+  const alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+  const entropy = [...randomBytes(14)].map(value => alphabet[value % alphabet.length]).join('');
+  return `msg_${encoded.toString(16).padStart(12, '0').slice(-12)}${entropy}`;
 }
 
 export interface MobileOpenCodeProxyResponse {
@@ -835,6 +853,8 @@ export class MobileOpenCodeProxy {
   private readonly preparePromptStream: (
     input: MobilePromptStreamInput,
   ) => Promise<void>;
+  private readonly connectedRemoteDevices = new Set<string>();
+  private readonly promptIdempotency = new Map<string, string>();
 
   constructor(options: MobileOpenCodeProxyOptions = {}) {
     this.baseUrl = (
@@ -864,6 +884,24 @@ export class MobileOpenCodeProxy {
           directory,
         );
       });
+  }
+
+  private recordRemoteLifecycle(
+    input: MobileOpenCodeForwardInput,
+    sessionId: string | null,
+    lifecycleState: 'connect' | 'attach' | 'prompt' | 'abort',
+    reason: string,
+  ): void {
+    if (!input.deviceId) return;
+    logger.info('[RemoteAttach] lifecycle', {
+      device_id_hash: createHash('sha256')
+        .update(input.deviceId)
+        .digest('hex')
+        .slice(0, 16),
+      session_id: sessionId ?? 'none',
+      lifecycle_state: lifecycleState,
+      reason,
+    });
   }
 
   /** Serialize a mirror-served body, enforcing the same size ceiling. */
@@ -1094,10 +1132,20 @@ export class MobileOpenCodeProxy {
       addressedSessionId,
       owner,
     );
-    if (mirrored) return mirrored;
+    if (mirrored) {
+      if (input.deviceId && !this.connectedRemoteDevices.has(input.deviceId)) {
+        this.connectedRemoteDevices.add(input.deviceId);
+        this.recordRemoteLifecycle(input, addressedSessionId, 'connect', 'authorized');
+      }
+      if (operation.operationId === 'experimental.session.list' || operation.operationId === 'session.messages') {
+        this.recordRemoteLifecycle(input, addressedSessionId, 'attach', 'authorized');
+      }
+      return mirrored;
+    }
 
     const url = `${this.baseUrl}${safeForwardPath(input.path)}?${query.toString()}`;
     const acceptsBody = operation.method !== 'GET';
+    let requestBody = input.body;
     const requestBodyLimitBytes = mobileOpenCodeRequestBodyLimitBytes(
       operation.operationId,
       this.requestBodyLimitBytes,
@@ -1171,14 +1219,148 @@ export class MobileOpenCodeProxy {
         requestProject,
         fetchJson,
         input.query,
-        input.body,
+        operation.operationId === 'session.prompt_async' &&
+            input.body &&
+            typeof input.body === 'object' &&
+            !Array.isArray(input.body)
+          ? Object.fromEntries(
+            Object.entries(input.body).filter(([field]) => field !== 'messageID'),
+          )
+          : input.body,
         owner,
         resourceScope,
       );
-      const sanitizedBody = !acceptsBody || input.body === undefined
+      if (input.deviceId && !this.connectedRemoteDevices.has(input.deviceId)) {
+        this.connectedRemoteDevices.add(input.deviceId);
+        this.recordRemoteLifecycle(input, addressedSessionId, 'connect', 'authorized');
+      }
+      if (
+        operation.operationId === 'experimental.session.list' ||
+        operation.operationId === 'session.messages'
+      ) {
+        this.recordRemoteLifecycle(input, addressedSessionId, 'attach', 'authorized');
+      }
+      if (
+        operation.operationId === 'session.prompt_async' &&
+        addressedSessionId
+      ) {
+        const bodyRecord = input.body && typeof input.body === 'object' && !Array.isArray(input.body)
+          ? input.body as Record<string, unknown>
+          : {};
+        const clientMessageId = bodyRecord.messageID;
+        if (
+          clientMessageId !== undefined &&
+          (
+            typeof clientMessageId !== 'string' ||
+            !/^[A-Za-z0-9_-]{1,256}$/.test(clientMessageId)
+          )
+        ) {
+          throw AppError.badRequest('messageID is invalid');
+        }
+        // Capability-gated: shipping phone clients continue to queue while
+        // active. Run this before any idempotency mapping is written, so a
+        // rejected (409) attempt never reserves an engine id. The engine
+        // omits idle sessions from GET /session/status entirely
+        // (session/status.ts deletes idle entries on set(); get() defaults
+        // an absent session to idle) — a missing entry means idle, not busy.
+        if (input.remoteAttachDesktop) {
+          const statuses = await fetchJson('/session/status');
+          const status = recordField(statuses, addressedSessionId);
+          const statusType = typeof status === 'string'
+            ? status
+            : stringRecordField(status, 'type', 'status');
+          if (statusType === 'busy' || statusType === 'retry') {
+            this.recordRemoteLifecycle(input, addressedSessionId, 'prompt', 'session_busy');
+            return {
+              status: 409,
+              contentType: 'application/json',
+              body: Buffer.from(JSON.stringify({ error: 'session_busy' })),
+            };
+          }
+        }
+        if (typeof clientMessageId === 'string') {
+          const idempotencyKey = `${input.userId}\0${input.project.id}\0${addressedSessionId}\0${clientMessageId}`;
+          const proposedMessageId = this.promptIdempotency.get(idempotencyKey) ?? gatewayAscendingMessageId();
+          let messageId = owner.ownership.resolveOrCreatePromptMessageId?.(
+            input.userId,
+            input.project.id,
+            addressedSessionId,
+            clientMessageId,
+            proposedMessageId,
+          ) ?? proposedMessageId;
+          // If this call is the one that just reserved the row, there is
+          // nothing for the engine to have stored yet — a 404 below is
+          // expected, not staleness.
+          const freshlyReserved = messageId === proposedMessageId;
+          this.promptIdempotency.set(idempotencyKey, messageId);
+          requestBody = { ...bodyRecord, messageID: messageId };
+          const existing = await this.fetchFn(
+            `${this.baseUrl}/session/${encodeURIComponent(addressedSessionId)}/message/${encodeURIComponent(messageId)}?${new URLSearchParams({ directory: requestProject.root })}`,
+            {
+              method: 'GET',
+              redirect: 'error',
+              signal: controller.signal,
+              headers: { Accept: 'application/json' },
+            },
+          );
+          if (existing.ok) {
+            const bytes = await readBoundedBody(
+              existing,
+              this.responseBodyLimitBytes,
+            );
+            let value: unknown;
+            try {
+              value = JSON.parse(Buffer.from(bytes).toString('utf8'));
+            } catch {
+              throw new AppError(
+                502,
+                'OPENCODE_INVALID_RESPONSE',
+                'OpenCode returned an invalid mobile response',
+              );
+            }
+            if (
+              stringRecordField(recordField(value, 'info'), 'id') !== messageId ||
+              stringRecordField(recordField(value, 'info'), 'sessionID') !== addressedSessionId ||
+              stringRecordField(recordField(value, 'info'), 'role') !== 'user'
+            ) {
+              throw AppError.notFound('Mobile OpenCode resource');
+            }
+            this.recordRemoteLifecycle(input, addressedSessionId, 'prompt', 'duplicate_accepted');
+            return { status: 204, body: new Uint8Array() };
+          }
+          if (existing.status !== 404) {
+            await existing.body?.cancel();
+            throw mobileScopeCheckStatusFailure(
+              existing.status,
+              'MobileOpenCodeProxy',
+            );
+          }
+          await existing.body?.cancel();
+          if (!freshlyReserved) {
+            // A prior attempt reserved this id but the engine never stored
+            // it (it failed after the gate, e.g. a dropped connection or a
+            // later 4xx). Reusing that id risks sorting behind an assistant
+            // message the engine created in the meantime, which would end
+            // the engine's prompt loop with no reply. Rotate to a fresh,
+            // later id instead of resending the stale one.
+            const rotatedMessageId = gatewayAscendingMessageId();
+            messageId = owner.ownership.rotatePromptMessageId?.(
+              input.userId,
+              input.project.id,
+              addressedSessionId,
+              clientMessageId,
+              messageId,
+              rotatedMessageId,
+            ) ?? rotatedMessageId;
+            this.promptIdempotency.set(idempotencyKey, messageId);
+            requestBody = { ...bodyRecord, messageID: messageId };
+          }
+        }
+      }
+      const sanitizedBody = !acceptsBody || requestBody === undefined
         ? undefined
         : await sanitizeRequestBody(
-          input.body,
+          requestBody,
           operation.operationId,
           requestProject,
           fetchJson,
@@ -1228,6 +1410,12 @@ export class MobileOpenCodeProxy {
         },
         ...(encodedBody !== undefined ? { body: encodedBody } : {}),
       });
+
+      if (operation.operationId === 'session.prompt_async') {
+        this.recordRemoteLifecycle(input, addressedSessionId, 'prompt', response.ok ? 'accepted' : 'rejected');
+      } else if (operation.operationId === 'session.abort') {
+        this.recordRemoteLifecycle(input, addressedSessionId, 'abort', response.ok ? 'accepted' : 'rejected');
+      }
 
       if (!response.ok) {
         if (response.status >= 400 && response.status < 500) {

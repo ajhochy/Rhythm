@@ -641,6 +641,12 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
             headers: { 'Content-Type': 'application/json' },
           });
         }
+        if (url.pathname === '/session/status' && init?.method === 'GET') {
+          // The real engine omits idle sessions from this map entirely.
+          return new Response(JSON.stringify({}), {
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
         calls.push({
           url: String(input),
           body: JSON.parse(String(init?.body)),

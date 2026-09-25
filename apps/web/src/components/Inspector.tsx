@@ -21,6 +21,7 @@ const tabs: { id: InspectorTab; label: string; icon: 'activity' | 'diff' | 'term
 
 type InspectorTrace = { method: 'GET' | 'POST' | 'PATCH' | 'DELETE' | 'WS'; route: string };
 type PtyFixture = { id: string; status: 'connecting' | 'connected' | 'exited' | 'error'; output: string[] };
+const transcriptSharesChanged = 'rhythm-transcript-shares-changed';
 
 function Trace({ trace }: { trace: InspectorTrace | null }) {
   if (!trace) return null;
@@ -100,19 +101,51 @@ function LiveTodos({ sessionId }: { sessionId: string }) {
   </footer>;
 }
 
+export function SharedWithMePanel() {
+  const api = useGateway().domains.inspector; const actorId = useAuthUser()?.user.id;
+  const [shares, setShares] = useState<TranscriptShare[]>([]); const [loading, setLoading] = useState(true);
+  const [unavailable, setUnavailable] = useState(false); const [view, setView] = useState<TranscriptShare | null>(null);
+  const refresh = async () => {
+    if (!api || !actorId) { setShares([]); setLoading(false); return; }
+    setLoading(true);
+    try {
+      const now = Date.now(); const values = await api.shares();
+      setShares(values.filter(share => share.recipientUserIds.includes(actorId) && !share.revokedAt && new Date(share.expiresAt).getTime() > now));
+    } catch { setShares([]); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => {
+    void refresh(); const changed = () => void refresh();
+    window.addEventListener(transcriptSharesChanged, changed);
+    return () => window.removeEventListener(transcriptSharesChanged, changed);
+  }, [api, actorId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const open = async (id: string) => {
+    if (!api) return; setUnavailable(false); setView(null);
+    try { setView(await api.share(id)); } catch { setUnavailable(true); }
+  };
+  return <section className="memory-provenance" aria-label="Shared with me" data-testid="shared-with-me"><header><h2>Shared with me</h2><button className="text-button" type="button" disabled={loading} onClick={() => void refresh()}>Refresh</button></header>
+    <p>Recipient-visible immutable snapshots. Private source sessions stay private.</p>
+    {loading ? <p role="status">Loading shared snapshots…</p> : shares.length === 0 ? <p>No active snapshots shared with you.</p> : shares.map(share => <article key={share.id} data-testid={`shared-with-me-${share.id}`}><strong>Shared snapshot (immutable)</strong><p>Private source session not shown · Expires <Timestamp value={share.expiresAt} /></p><button className="secondary-button" type="button" onClick={() => void open(share.id)}>Open shared snapshot</button></article>)}
+    {unavailable && <p role="alert">Shared snapshot unavailable</p>}
+    <FocusDialog open={Boolean(view)} title="Shared snapshot (immutable)" testId="shared-with-me-snapshot" onClose={() => setView(null)} wide><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(view?.snapshot, null, 2)}</pre><button type="button" onClick={() => setView(null)}>Close</button></FocusDialog>
+  </section>;
+}
+
 function SharePanel({ sessionId }: { sessionId: string }) {
   const api = useGateway().domains.inspector; const actor = useAuthUser()?.user;
   const [prepared, setPrepared] = useState<PreparedShare | null>(null);
   const [members, setMembers] = useState<Array<{ userId: number; name: string }>>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]); const [recipients, setRecipients] = useState<number[]>([]);
+  const [expiryDays, setExpiryDays] = useState<7 | 30 | 90>(90); const [confirming, setConfirming] = useState(false);
   const [shares, setShares] = useState<TranscriptShare[]>([]); const [view, setView] = useState<TranscriptShare | null>(null);
   const [error, setError] = useState(''); const [listError, setListError] = useState(''); const [busy, setBusy] = useState(false);
   const sequence = useRef(0);
-  const refresh = async () => { if (!api) return; try { const values = await api.shares(); setShares(values.filter(share => share.sourceSessionId === null || share.sourceSessionId === sessionId)); setListError(''); } catch { setListError('Share list unavailable.'); } };
-  useEffect(() => { void refresh(); return () => { sequence.current += 1; }; }, [api, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const confirmButton = useRef<HTMLButtonElement>(null);
+  const refresh = async () => { if (!api) return; const [shareResult, directoryResult] = await Promise.allSettled([api.shares(), api.recipients()]); if (shareResult.status === 'fulfilled') { setShares(shareResult.value.filter(share => share.sourceSessionId === null || share.sourceSessionId === sessionId)); setListError(''); } else setListError('Share list unavailable.'); if (directoryResult.status === 'fulfilled') setMembers(directoryResult.value.filter(member => member.userId !== actor?.id)); };
+  useEffect(() => { void refresh(); return () => { sequence.current += 1; }; }, [api, sessionId, actor?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const review = async () => {
     if (!api || busy) return; const current = ++sequence.current;
-    setBusy(true); setError(''); setPrepared(null); setRecipients([]); setMembers([]);
+    setBusy(true); setError(''); setPrepared(null); setRecipients([]); setConfirming(false); setExpiryDays(90);
     try {
       const data = await api.review(sessionId);
       if (current !== sequence.current) return;
@@ -131,31 +164,42 @@ function SharePanel({ sessionId }: { sessionId: string }) {
     try {
       await api.createShare(sessionId, { reviewHash: prepared.reviewHash,
         review: { items: prepared.inclusiveSnapshot.items.filter(item => selectedIds.includes(item.id)) },
-        explicitlyIncludedItemIds: selectedIds.filter(id => !prepared.snapshot.items.some(item => item.id === id)), recipientUserIds: recipients });
-      setPrepared(null); await refresh();
+        explicitlyIncludedItemIds: selectedIds.filter(id => !prepared.snapshot.items.some(item => item.id === id)), recipientUserIds: recipients,
+        ...(expiryDays === 90 ? {} : { expiresAt: new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000).toISOString() }) });
+      setPrepared(null); setConfirming(false); await refresh();
     } catch (failure) {
       if (failure instanceof InspectorGatewayError && failure.status === 409) { setPrepared(null); setRecipients([]); setError('Transcript changed. Review again before sharing.'); }
-      else setError('Share creation unavailable. No success confirmed.');
+      else { setError('Share creation unavailable. No success confirmed.'); requestAnimationFrame(() => confirmButton.current?.focus()); }
     } finally { setBusy(false); }
   };
-  const revoke = async (id: string) => { if (!api || busy) return; setBusy(true); setError(''); try { await api.revoke(id); await refresh(); } catch { setError('Share revoke unavailable.'); } finally { setBusy(false); } };
+  const revoke = async (id: string) => { if (!api || busy) return; setBusy(true); setError(''); try { await api.revoke(id); await refresh(); window.dispatchEvent(new Event(transcriptSharesChanged)); } catch { setError('Share revoke unavailable.'); } finally { setBusy(false); } };
   const read = async (id: string) => { if (!api) return; setError(''); try { setView(await api.share(id)); } catch { setError('Shared snapshot unavailable.'); } };
+  const defaultIncludedIds = new Set(prepared?.snapshot.items.map(item => item.id) ?? []);
+  const excludedByDefault = prepared?.inclusiveSnapshot.items.filter(item => !defaultIncludedIds.has(item.id) && !selectedIds.includes(item.id)) ?? [];
+  const explicitlyIncluded = prepared?.inclusiveSnapshot.items.filter(item => !defaultIncludedIds.has(item.id) && selectedIds.includes(item.id)) ?? [];
+  const excludedCounts = [...excludedByDefault.reduce((counts, item) => counts.set(item.category, (counts.get(item.category) ?? 0) + 1), new Map<string, number>())];
+  const memberName = (userId: number) => userId === actor?.id ? 'You' : members.find(member => member.userId === userId)?.name ?? 'Unavailable recipient';
+  const closeReview = () => { if (!busy) { sequence.current += 1; setPrepared(null); setConfirming(false); } };
   return <section className="memory-provenance" aria-label="Transcript sharing"><h3>Transcript sharing</h3>
     <p>Immutable snapshot · named recipients only. Sensitive items are excluded unless explicitly included; secrets remain redacted.</p>
-    <p>Shared copies remain available until revoked or expired (at most 30 days), even if the local session is deleted. Detached copies from all sessions appear here.</p>
+    <p><strong>Private source session</strong> stays private. A <strong>Shared snapshot (immutable)</strong> remains available until revoked or expired, even if the local session is deleted. Detached copies from all sessions appear here.</p>
     <button type="button" className="secondary-button" disabled={!api || busy} onClick={() => void review()}>Review transcript share</button>
     <button type="button" className="text-button" disabled={busy} onClick={() => void refresh()}>Refresh shares</button>
     {error && <p role="alert">{error}</p>}{listError && <p role="alert">{listError}</p>}
     {shares.length === 0 && !listError && <p>No shared snapshots for this session.</p>}
-    {shares.map(share => <article key={share.id} data-testid={`share-${share.id}`}><code>{share.id}</code><p>Recipients: {share.recipientUserIds.join(', ')} · Expires <Timestamp value={share.expiresAt} /></p>
+    {shares.map(share => <article key={share.id} data-testid={`share-${share.id}`}><code>{share.id}</code><p><strong>Private source session</strong> → <strong>Shared snapshot (immutable)</strong></p><p>Recipients: {share.recipientUserIds.map(memberName).join(', ')} · Expires <Timestamp value={share.expiresAt} /></p>
       {share.revokedAt ? <p>Revoked</p> : new Date(share.expiresAt).getTime() <= Date.now() ? <p>Expired</p> : <><button type="button" onClick={() => void read(share.id)}>View snapshot</button>{share.ownerUserId === actor?.id && <button type="button" disabled={busy} onClick={() => void revoke(share.id)}>Revoke</button>}</>}
     </article>)}
-    <FocusDialog open={Boolean(prepared)} title="Share reviewed transcript" description="Only checked content below will be published. This preview is sanitized by the server." testId="transcript-share-review" onClose={() => { if (!busy) { sequence.current += 1; setPrepared(null); } }} wide>
-      {prepared && <><fieldset disabled={busy}><legend>Exact snapshot selection</legend>
-        {prepared.inclusiveSnapshot.items.map(item => <div key={item.id}><label><input type="checkbox" aria-label={`Include ${item.id}`} checked={selectedIds.includes(item.id)} onChange={event => setSelectedIds(ids => event.target.checked ? [...ids, item.id] : ids.filter(id => id !== item.id))} />{item.id} · {item.category}</label><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(item.content, null, 2)}</pre></div>)}
+    <FocusDialog open={Boolean(prepared) && !confirming} title="Share reviewed transcript" description="Only checked content below will be published. This preview is sanitized by the server." testId="transcript-share-review" onClose={closeReview} wide>
+      {prepared && <><section aria-label="Excluded content summary"><h3>Excluded by default ({excludedByDefault.length})</h3>{excludedCounts.length === 0 ? <p>No sensitive items remain excluded.</p> : <ul>{excludedCounts.map(([category, count]) => <li key={category}>{category.replaceAll('_', ' ')}: {count}</li>)}</ul>}<p>Explicitly included: {explicitlyIncluded.length}</p></section><fieldset disabled={busy}><legend>Exact snapshot selection</legend>
+        {prepared.inclusiveSnapshot.items.map(item => { const excluded = !defaultIncludedIds.has(item.id); const included = selectedIds.includes(item.id); return <div key={item.id} data-testid={`share-item-${item.id}`}><label><input type="checkbox" aria-label={`Include ${item.id}`} checked={included} onChange={event => setSelectedIds(ids => event.target.checked ? [...ids, item.id] : ids.filter(id => id !== item.id))} />{item.id} · {item.category.replaceAll('_', ' ')}{excluded && <em> · {included ? 'Explicitly included' : 'Excluded by default'}</em>}</label><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(item.content, null, 2)}</pre></div>; })}
       </fieldset><fieldset disabled={busy}><legend>Named recipients</legend>{members.length === 0 && <p>No eligible recipients available.</p>}{members.map(member => <label key={member.userId}><input type="checkbox" checked={recipients.includes(member.userId)} onChange={event => setRecipients(ids => event.target.checked ? [...ids, member.userId] : ids.filter(id => id !== member.userId))} />{member.name}</label>)}</fieldset>
+      <label className="field">Expires after<select aria-label="Expires after" value={expiryDays} onChange={event => setExpiryDays(Number(event.target.value) as 7 | 30 | 90)}><option value={7}>7 days</option><option value={30}>30 days</option><option value={90}>90 days</option></select></label>
       {error && <p role="alert">{error}</p>}
-      <button className="primary-button" type="button" disabled={busy || !recipients.length || !selectedIds.length} onClick={() => void create()}>Create immutable share</button></>}
+      <button className="primary-button" type="button" disabled={busy || !recipients.length || !selectedIds.length} onClick={() => setConfirming(true)}>Create immutable share</button></>}
+    </FocusDialog>
+    <FocusDialog open={Boolean(prepared) && confirming} title="Confirm immutable share" description="Confirm the exact recipients, expiration, and content counts before publishing." testId="transcript-share-confirm" onClose={() => { if (!busy) setConfirming(false); }}>
+      {prepared && <><dl className="property-list"><div><dt>Recipients</dt><dd>{recipients.map(memberName).join(', ')}</dd></div><div><dt>Expiration</dt><dd>{expiryDays} days</dd></div><div><dt>Content</dt><dd>{selectedIds.length} included · {prepared.inclusiveSnapshot.items.length - selectedIds.length} excluded</dd></div></dl>{error && <p role="alert">{error}</p>}<div className="dialog-actions"><button className="secondary-button" type="button" disabled={busy} onClick={() => setConfirming(false)}>Cancel</button><button ref={confirmButton} className="primary-button" type="button" disabled={busy} onClick={() => void create()}>Confirm and share</button></div></>}
     </FocusDialog>
     <FocusDialog open={Boolean(view)} title="Shared snapshot" testId="transcript-share-snapshot" onClose={() => setView(null)} wide><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(view?.snapshot, null, 2)}</pre><button type="button" onClick={() => setView(null)}>Close</button></FocusDialog>
   </section>;
@@ -668,7 +712,7 @@ export function Inspector({ collapsed, onToggle }: { collapsed: boolean; onToggl
   return <aside className="inspector" aria-label="Session inspector" data-od-id="session-inspector">
     <header className="inspector-header"><div role="tablist" aria-label="Inspector views" onKeyDown={moveTab}>{tabs.map((tab) => <button role="tab" aria-selected={inspectorTab === tab.id} tabIndex={inspectorTab === tab.id ? 0 : -1} type="button" key={tab.id} onClick={() => { setInspectorTab(tab.id); setTrace(null); }} data-testid={`inspector-${tab.id}`}><Icon name={tab.icon} size={15} /><span>{tab.label}</span></button>)}</div><button ref={collapseControl} className="icon-button small" type="button" onClick={onToggle} aria-label="Collapse Inspector" data-testid="inspector-collapse"><Icon name="collapse" size={16} /></button></header>
     {/* ponytail: gate mounting, not just requests, so every session panel drops stale state. */}
-    <div className="inspector-content" role="region" aria-label={`${tabs.find((tab) => tab.id === inspectorTab)?.label ?? 'Session'} inspector content`} tabIndex={0} data-testid="inspector-content">{selected.id ? panel : <p className="inspector-empty" role="status">Select a session to inspect its details.</p>}</div>
+    <div className="inspector-content" role="region" aria-label={`${tabs.find((tab) => tab.id === inspectorTab)?.label ?? 'Session'} inspector content`} tabIndex={0} data-testid="inspector-content">{live && <SharedWithMePanel />}{selected.id ? panel : <p className="inspector-empty" role="status">Select a session to inspect its details.</p>}</div>
     {selected.id && (live ? <LiveTodos key={identityKey} sessionId={selected.id} /> : <footer className={`todo-footer ${todosCollapsed ? 'collapsed' : ''}`}><button className="todo-title" type="button" onClick={() => setCollapsedTodos((current) => ({ ...current, [selected.id]: !current[selected.id] }))} aria-expanded={!todosCollapsed} data-testid="todo-toggle"><span><Icon name="todo" size={15} /><strong>Session plan</strong></span><small>{todos.filter((todo) => todo.done).length}/{todos.length}</small></button>{!todosCollapsed && <div>{todos.map((todo) => <label key={todo.id}><input type="checkbox" checked={todo.done} disabled readOnly data-testid={`todo-${todo.id}`} /><span>{todo.label}</span></label>)}</div>}</footer>)}
   </aside>;
 }

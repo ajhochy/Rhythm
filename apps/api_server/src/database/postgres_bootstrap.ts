@@ -656,6 +656,17 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
         project_id,
         resource_kind
       );
+
+    CREATE TABLE IF NOT EXISTS mobile_prompt_idempotency (
+      owner_user_id INTEGER NOT NULL
+        REFERENCES users(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      client_message_id TEXT NOT NULL,
+      engine_message_id TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (owner_user_id, project_id, session_id, client_message_id)
+    );
   `);
 
   // #1178 — production-owned transcript sharing is mounted in the cloud role,
