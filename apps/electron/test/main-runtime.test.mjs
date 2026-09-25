@@ -4,20 +4,25 @@ import { readFile } from 'node:fs/promises';
 import { createContext, SourceTextModule, SyntheticModule } from 'node:vm';
 import test from 'node:test';
 
-test('e11-c6: main catches rejected start and publishes current/changed failure through existing bridge', async () => {
+test('e11-c6 / 1555:electron-local-runtime-restart-ipc:6 / review:main.mjs:774 restart IPC fails closed during shutdown', async () => {
   const handlers = new Map(), sent = [], dialogs = [];
   let service;
   class Server {
     constructor() { service = this; this.status = { status: 'starting' }; }
     onStatusChange(fn) { this.listener = fn; }
     async start() { throw new Error('filesystem rejected'); }
+    async restart() {
+      this.listener({ status: 'failed', failureReason: 'startupFailed', errorMessage: 'restart failed' });
+      return { ok: false, reason: 'startup_failed' };
+    }
+    async stopForQuit() { this.stoppedForQuit = true; }
     reportStartupFailure() { this.status = { status: 'failed', failureReason: 'startupFailed', errorMessage: 'Reopen Rhythm to retry.' }; this.listener(this.status); }
   }
   const app = Object.assign(new EventEmitter(), {
     getPath: () => '/fixture', requestSingleInstanceLock: () => true, isReady: () => false,
     whenReady: async () => {}, getVersion: () => 'test', quit() {}, exit() {},
   });
-  const contents = Object.assign(new EventEmitter(), { send: (...args) => sent.push(args), setWindowOpenHandler() {}, executeJavaScript: async () => {} });
+  const contents = Object.assign(new EventEmitter(), { mainFrame: { url: 'rhythm://app/index.html#/agents' }, isDestroyed: () => false, send: (...args) => sent.push(args), setWindowOpenHandler() {}, executeJavaScript: async () => {} });
   class Window { constructor() { this.webContents = contents; } isDestroyed() { return false; } async loadURL() { contents.emit('did-finish-load'); } }
   const context = createContext({ process: Object.assign(new EventEmitter(), { argv: [], env: {}, cwd: () => '/fixture', stderr: { write() {} } }), URL, Response, console });
   const file = new URL('../src/main.mjs', import.meta.url);
@@ -40,6 +45,18 @@ test('e11-c6: main catches rejected start and publishes current/changed failure 
   assert.ok(sent.some(([channel, snapshot]) => channel === 'rhythm:agent-server:status-changed' && snapshot.failureReason === 'startupFailed'));
   service.listener(service.status);
   assert.ok(dialogs.some(([, message, buttons]) => /Reopen/.test(message) && buttons?.join(',') === 'Retry,Close'), 'failure must be visible with a retry action');
+  dialogs.length = 0;
+  const restart = handlers.get('rhythm:agent-server:restart');
+  assert.equal(typeof restart, 'function');
+  assert.deepEqual(await restart({ sender: contents, senderFrame: contents.mainFrame }), { ok: false, reason: 'startup_failed' });
+  assert.deepEqual(dialogs, [], 'intentional restart failures stay in the requesting UI instead of opening Retry');
+  app.emit('before-quit', { preventDefault() {} });
+  assert.deepEqual(JSON.parse(JSON.stringify(await restart({ sender: contents, senderFrame: contents.mainFrame }))), {
+    ok: false,
+    reason: 'shutting_down',
+    code: 'shutting_down',
+  });
+  assert.equal(service.stoppedForQuit, true);
 });
 
 const tick = () => new Promise((done) => setImmediate(done));

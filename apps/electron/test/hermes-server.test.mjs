@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createContext, runInContext, SourceTextModule, SyntheticModule } from 'node:vm';
 import test from 'node:test';
 import { createHermesSupervisor, hermesInstallDir, HERMES_INSTALL_COMMAND } from '../src/hermes-server.mjs';
+import { HERMES_KEYS } from '../src/security-smoke-receipt.mjs';
 
 const tick = () => new Promise((done) => setImmediate(done));
 function fixture(t, options = {}) {
@@ -291,7 +292,7 @@ for (const flag of [undefined, '0', '1']) test(`Hermes frozen preload surface an
   });
   runInContext(await readFile(new URL('../src/preload.cjs', import.meta.url), 'utf8'), context);
   assert.equal(Object.isFrozen(bridge.hermes), true); assert.equal(bridge.hermes.enabled, flag !== '0');
-  assert.deepEqual(Object.keys(bridge.hermes), ['enabled', 'getStatus', 'install', 'restart', 'onStatus']);
+  assert.deepEqual(Object.keys(bridge.hermes), HERMES_KEYS);
   await bridge.hermes.getStatus(); await bridge.hermes.install(); await bridge.hermes.restart();
   assert.deepEqual(calls, [['hermes:get-status'], ['hermes:install'], ['hermes:restart']]);
   const snapshots = []; const off = bridge.hermes.onStatus((status) => snapshots.push(status));
@@ -313,7 +314,7 @@ async function mainFixture({ enabled = '1', argv = [] } = {}) {
     restart: async () => { calls.push('restart-hermes'); return status; },
     stop: () => { calls.push('stop-hermes'); return new Promise((done) => { releaseStop = done; }); },
   };
-  class Server { onStatusChange() {} async start() {} async stopGracefully() { calls.push('stop-agent'); } }
+  class Server { onStatusChange() {} async start() {} async stopForQuit() { calls.push('stop-agent'); } }
   class Window {
     static getAllWindows() { return windows; }
     constructor() {

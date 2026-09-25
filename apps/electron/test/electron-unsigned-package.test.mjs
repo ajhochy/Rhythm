@@ -10,6 +10,10 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { FuseState, FuseV1Options, FuseVersion, getCurrentFuseWire } from '@electron/fuses';
 import { liveEnvironment } from '../../web/tests/live-environment.ts';
+import {
+  AGENT_SERVER_KEYS, AUTH_KEYS, BRIDGE_KEYS, COLONY_VIEW_KEYS, GATEWAY_KEYS,
+  HERMES_KEYS, HERMES_VIEW_KEYS, HUMAN_APPROVAL_KEYS, UPDATE_KEYS,
+} from '../src/security-smoke-receipt.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const electronRoot = resolve(here, '..');
@@ -191,26 +195,26 @@ test('slice-7-c5: packaged binary preserves renderer isolation and fail-closed p
   await assertPackagedBundle('slice-7-c5');
   const receipt = await packagedSmoke(['--smoke', '--security-smoke']);
   assert.equal(receipt.bridge?.nodeExposed, false, 'slice-7-c5: Node is exposed in the packaged renderer');
-  assert.deepEqual(receipt.bridge?.keys, ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory', 'hermes', 'hermesView', 'colonyView', 'aiAccounts'], 'slice-7-c5: packaged preload exposes capabilities beyond the approved closed surface');
+  assert.deepEqual(receipt.bridge?.keys, BRIDGE_KEYS, 'slice-7-c5: packaged preload exposes capabilities beyond the approved closed surface');
   assert.equal(receipt.bridge?.frozen, true, 'slice-7-c5: packaged lifecycle object is not frozen');
-  assert.deepEqual(receipt.bridge?.gateway?.keys, ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase'], 'slice-7-c5: packaged preload gateway configuration differs from the approved runtime values');
+  assert.deepEqual(receipt.bridge?.gateway?.keys, GATEWAY_KEYS, 'slice-7-c5: packaged preload gateway configuration differs from the approved runtime values');
   assert.equal(receipt.bridge?.gateway?.frozen, true, 'slice-7-c5: packaged gateway metadata is not frozen');
-  assert.deepEqual(receipt.bridge?.auth?.keys, ['signInWithGoogle', 'currentSession', 'logout'], 'slice-7-c5: packaged preload auth surface differs from the approved lifecycle');
+  assert.deepEqual(receipt.bridge?.auth?.keys, AUTH_KEYS, 'slice-7-c5: packaged preload auth surface differs from the approved lifecycle');
   assert.equal(receipt.bridge?.auth?.frozen, true, 'slice-7-c5: packaged auth surface is not frozen');
   // post-m1-p7-c4e: a narrow, purpose-built surface only — never an arbitrary-sign primitive
   // (no raw key export, no "sign these bytes" method; only capability() and the fixed-shape
   // signDecision(approvalId, status, decisionNonce, payloadDigest)).
-  assert.deepEqual(receipt.bridge?.humanApproval?.keys, ['capability', 'signDecision'], 'slice-7-c5: packaged preload human-approval surface is broader than capability+signDecision');
+  assert.deepEqual(receipt.bridge?.humanApproval?.keys, HUMAN_APPROVAL_KEYS, 'slice-7-c5: packaged preload human-approval surface is broader than capability+signDecision');
   assert.equal(receipt.bridge?.humanApproval?.frozen, true, 'slice-7-c5: packaged human-approval surface is not frozen');
-  assert.deepEqual(receipt.bridge?.agentServer?.keys, ['status', 'onStatusChange'], 'slice-7-c5: packaged preload agent-server surface is broader than status+onStatusChange');
+  assert.deepEqual(receipt.bridge?.agentServer?.keys, AGENT_SERVER_KEYS, 'slice-7-c5: packaged preload agent-server surface differs from the approved closed surface');
   assert.equal(receipt.bridge?.agentServer?.frozen, true, 'slice-7-c5: packaged agent-server surface is not frozen');
-  assert.deepEqual(receipt.bridge?.updates?.keys, ['openDownloadPage'], 'slice-7-c5: packaged update surface differs from the fixed download capability');
+  assert.deepEqual(receipt.bridge?.updates?.keys, UPDATE_KEYS, 'slice-7-c5: packaged update surface differs from the fixed download capability');
   assert.equal(receipt.bridge?.updates?.frozen, true, 'slice-7-c5: packaged update surface is not frozen');
-  assert.deepEqual(receipt.bridge?.hermes?.keys, ['enabled', 'getStatus', 'install', 'restart', 'onStatus']);
+  assert.deepEqual(receipt.bridge?.hermes?.keys, HERMES_KEYS);
   assert.equal(receipt.bridge?.hermes?.frozen, true);
-  assert.deepEqual(receipt.bridge?.hermesView?.keys, ['attach', 'setBounds', 'detach', 'sendIntent']);
+  assert.deepEqual(receipt.bridge?.hermesView?.keys, HERMES_VIEW_KEYS);
   assert.equal(receipt.bridge?.hermesView?.frozen, true);
-  assert.deepEqual(receipt.bridge?.colonyView?.keys, ['getStatus', 'discoverSources', 'setEnabled', 'setSource', 'attach', 'setBounds', 'detach']);
+  assert.deepEqual(receipt.bridge?.colonyView?.keys, COLONY_VIEW_KEYS);
   assert.equal(receipt.bridge?.colonyView?.frozen, true);
   assert.equal(Number.isInteger(receipt.bridge?.value?.version), true, 'slice-7-c5: packaged lifecycle object has no integer version');
   assert.deepEqual(receipt.denials, {

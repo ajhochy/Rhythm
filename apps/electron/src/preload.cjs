@@ -37,6 +37,7 @@ const agentServer = Object.freeze({
     ipcRenderer.on('rhythm:agent-server:status-changed', listener);
     return () => ipcRenderer.removeListener('rhythm:agent-server:status-changed', listener);
   },
+  restart: () => ipcRenderer.invoke('rhythm:agent-server:restart'),
 });
 const updates = Object.freeze({ openDownloadPage: () => ipcRenderer.invoke('rhythm:updates:open-download') });
 const hermes = Object.freeze({

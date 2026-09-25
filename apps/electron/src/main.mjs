@@ -762,13 +762,26 @@ if (hasSingleInstanceLock) {
       if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('hermes:status', snapshot);
     }
   });
-  const externalRuntimeStatus = { status: 'stopped', failureReason: null, stderrTail: null, errorMessage: null };
+  const externalRuntimeStatus = { status: 'stopped', ownership: 'none', owned: false, failureReason: null, stderrTail: null, errorMessage: null };
   if (!allowTestRuntimePorts) {
     process.env.RHYTHM_LIVE_API_URL = AGENT_SERVER_BASE_URL;
     process.env.RHYTHM_LIVE_ENGINE_URL = `http://127.0.0.1:${AGENT_SERVER_ENGINE_PORT}`;
   }
 
   ipcMain.handle('rhythm:agent-server:status', () => agentServer?.status ?? externalRuntimeStatus);
+  let shuttingDown = false;
+  let intentionalAgentServerRestart = false;
+  ipcMain.handle('rhythm:agent-server:restart', async (event, ...args) => {
+    requireOwnedDocument(event); requireNoPayload(args);
+    if (shuttingDown) return { ok: false, reason: 'shutting_down', code: 'shutting_down' };
+    if (!agentServer) return { ok: false, reason: 'runtime_unowned', code: 'runtime_unowned' };
+    intentionalAgentServerRestart = true;
+    try {
+      return await agentServer.restart();
+    } finally {
+      intentionalAgentServerRestart = false;
+    }
+  });
   ipcMain.handle('rhythm:human-approval:capability', (event, ...args) => {
     requireOwnedDocument(event);
     requireNoPayload(args);
@@ -795,7 +808,7 @@ if (hasSingleInstanceLock) {
     if (snapshot.status === 'ready') void bridgeHost.onRegistrarReady().catch(() => {});
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('rhythm:agent-server:status-changed', snapshot);
     // ponytail: native error dialog keeps failures actionable without expanding E12's renderer UI.
-    if (!isSmoke && snapshot.status === 'failed') {
+    if (!isSmoke && !intentionalAgentServerRestart && snapshot.status === 'failed') {
       void dialog.showMessageBox({ type: 'error', title: 'Rhythm local runtime unavailable',
         message: snapshot.errorMessage ?? 'Rhythm could not start its local runtime.',
         buttons: ['Retry', 'Close'], defaultId: 0, cancelId: 1,
@@ -809,8 +822,7 @@ if (hasSingleInstanceLock) {
   // real exit, SIGKILL if still alive), triggered from the same three places Flutter triggers it:
   // normal app quit, and OS SIGINT/SIGTERM (main.dart:182-192; SIGTERM is skipped on Windows there
   // because it isn't catchable — not a concern here since this Electron build targets macOS only).
-  let shuttingDown = false;
-  const stopRuntimes = async () => { await Promise.all([agentServer?.stopGracefully(), hermes.stop(), hermesView.dispose(), colonyHost?.dispose()]); };
+  const stopRuntimes = async () => { await Promise.all([agentServer?.stopForQuit(), hermes.stop(), hermesView.dispose(), colonyHost?.dispose()]); };
   app.on('before-quit', (event) => {
     if (isHermesSelfTest || shuttingDown) return;
     shuttingDown = true;

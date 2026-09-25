@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createContext, SourceTextModule, SyntheticModule, runInContext } from 'node:vm';
 import test from 'node:test';
 import { exchangeDesktopAuthorizationCode } from '../src/google-oauth-core.mjs';
+import { AUTH_KEYS, GATEWAY_KEYS, UPDATE_KEYS } from '../src/security-smoke-receipt.mjs';
 
 const A = 'https://a.example', B = 'https://b.example';
 const decision = { approvalId: 'approval-1', status: 'approved', decisionNonce: 'nonce-1', payloadDigest: null };
@@ -209,8 +210,8 @@ test('e12a-c5: closed bounded privileged payloads reject before signing or confi
 test('e12a-c6: preload stays frozen and exposes no generic IPC or credential mutation', async (t) => {
   const h = await host(t), bridge = h.current().bridge;
   for (const value of [bridge, bridge.auth, bridge.gateway, bridge.humanApproval]) assert.equal(Object.isFrozen(value), true);
-  assert.deepEqual(Object.keys(bridge.auth), ['signInWithGoogle', 'currentSession', 'logout']);
-  assert.deepEqual(Object.keys(bridge.gateway), ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase']);
+  assert.deepEqual(Object.keys(bridge.auth), AUTH_KEYS);
+  assert.deepEqual(Object.keys(bridge.gateway), GATEWAY_KEYS);
 });
 
 test('e12a-c7: retained A notification click cannot queue or navigate in B; current clicks and cleanup still work', async (t) => {
@@ -288,7 +289,7 @@ test('initial-load logout cannot make the old window fail startup after its repl
 
 test('issue-1542-c6 / E44: update capability opens only the fixed Rhythm Releases page', async (t) => {
   const h = await host(t); const bridge = h.current().bridge;
-  assert.deepEqual(Object.keys(bridge.updates), ['openDownloadPage']);
+  assert.deepEqual(Object.keys(bridge.updates), UPDATE_KEYS);
   await bridge.updates.openDownloadPage();
   assert.deepEqual(h.opened, ['https://github.com/ajhochy/Rhythm/releases']);
 });

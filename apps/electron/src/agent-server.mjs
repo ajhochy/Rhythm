@@ -24,7 +24,8 @@ const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
  * @typedef {'nodeNotFound' | 'bundleNotFound' | 'spawnThrew' | 'healthCheckTimeout' | 'lostConnection' | 'approvalCredentialsUnavailable' | 'portConflict' | 'startupFailed' | 'stopFailed'} AgentServerFailureReason
- * @typedef {{ status: 'starting' | 'ready' | 'failed' | 'stopping' | 'stopped', failureReason: AgentServerFailureReason | null, stderrTail: string | null, errorMessage: string | null }} AgentServerStatus
+ * @typedef {'electron' | 'external' | 'none'} AgentServerOwnership
+ * @typedef {{ status: 'starting' | 'ready' | 'failed' | 'stopping' | 'stopped', ownership: AgentServerOwnership, owned: boolean, failureReason: AgentServerFailureReason | null, stderrTail: string | null, errorMessage: string | null }} AgentServerStatus
  * @typedef {{ executable: string, args: string[], workingDir: string, mcpRolesDir: string | undefined }} ServerEntry
  */
 
@@ -191,6 +192,9 @@ export class AgentServerService {
   /** @type {import('node:child_process').ChildProcess | undefined} */
   #process;
   #usingExisting = false;
+  /** @type {AgentServerOwnership} */
+  #ownership = 'none';
+  #shuttingDown = false;
   /** @type {string[]} */
   #stderrLines = [];
   /** @type {AgentServerStatus['status']} */
@@ -199,6 +203,8 @@ export class AgentServerService {
   #starting;
   /** @type {Promise<void> | undefined} */
   #stopping;
+  /** @type {Promise<{ ok: true } | { ok: false, reason: string, code?: string, status?: AgentServerStatus }> | undefined} */
+  #restarting;
   #generation = 0;
   /** A freshly installed, freshly signed bundle's FIRST launch is far slower than a warm one
    * (Gatekeeper scan, Keychain ACL prompts, cold Chromium network service). 8s killed a runtime
@@ -224,7 +230,7 @@ export class AgentServerService {
   }
 
   /** @returns {AgentServerStatus} */
-  get status() { return { status: this.#status, failureReason: this.#failureReason ?? null, stderrTail: this.#stderrTail(), errorMessage: this.#errorMessage ?? null }; }
+  get status() { return { status: this.#status, ownership: this.#ownership, owned: this.#ownership === 'electron', failureReason: this.#failureReason ?? null, stderrTail: this.#stderrTail(), errorMessage: this.#errorMessage ?? null }; }
 
   bridgeRegistrar() {
     if (this.#usingExisting || this.#status !== 'ready' || !this.#process || !this.#bridgeRegistrarSecret) return undefined;
@@ -253,6 +259,7 @@ export class AgentServerService {
   }
 
   start() {
+    if (this.#shuttingDown) return Promise.resolve(this.status);
     if (this.#starting) return this.#starting;
     if (this.#process || this.#usingExisting || this.#stopping) return Promise.resolve(this.status);
     this.#abort = new AbortController();
@@ -287,6 +294,7 @@ export class AgentServerService {
       if (generation !== this.#generation) return this.status;
       if (healthy) {
         this.#usingExisting = true;
+        this.#ownership = 'external';
         this.#status = 'ready';
         this.#emit();
       } else {
@@ -356,6 +364,7 @@ export class AgentServerService {
         env,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
+      this.#ownership = 'electron';
     } catch (error) {
       this.#appendStderr(error instanceof Error ? error.message : String(error));
       this.#setFailed('spawnThrew', "Couldn't start the local runtime process. Quit and reopen Rhythm to retry. See technical details below.");
@@ -419,6 +428,50 @@ export class AgentServerService {
     if (this.#status === 'ready') this.#setFailed('lostConnection', 'The agent server stopped responding. Restart to bring it back.');
   }
 
+  /** Restart only a child this service spawned; adopted runtimes are never signaled. */
+  restart() {
+    if (this.#restarting) return this.#restarting;
+    if (this.#usingExisting || this.#ownership === 'external') {
+      return Promise.resolve({ ok: false, reason: 'adopted', code: 'runtime_unowned' });
+    }
+    if (this.#shuttingDown) {
+      return Promise.resolve({ ok: false, reason: 'shutting_down', code: 'shutting_down' });
+    }
+    const starting = this.#starting;
+    const hadOwnedChild = Boolean(this.#process);
+    this.#restarting = (async () => {
+      if (hadOwnedChild || starting) await this.stopGracefully();
+      await starting?.catch(() => {});
+      if (this.#shuttingDown) return { ok: false, reason: 'shutting_down', code: 'shutting_down' };
+      if (hadOwnedChild && !await this.#waitForRuntimePortsReleased()) {
+        this.#setFailed('portConflict', 'The previous local runtime is still releasing its ports. Wait a moment, then Retry local runtime.');
+        return { ok: false, reason: 'ports_not_released', code: 'ports_not_released', status: this.status };
+      }
+      if (this.#shuttingDown) return { ok: false, reason: 'shutting_down', code: 'shutting_down' };
+      const status = await this.start();
+      /** @type {{ ok: true } | { ok: false, reason: string, status: AgentServerStatus }} */
+      const result = status.status === 'ready'
+        ? { ok: true }
+        : { ok: false, reason: 'startup_failed', status };
+      return result;
+    })().finally(() => { this.#restarting = undefined; });
+    return this.#restarting;
+  }
+
+  async #waitForRuntimePortsReleased() {
+    const deadline = Date.now() + (Number(process.env.RHYTHM_AGENT_RESTART_PORT_BUDGET_MS) || 5_000);
+    while (Date.now() < deadline) {
+      if (await portAvailable(AGENT_SERVER_PORT) && await portAvailable(AGENT_SERVER_ENGINE_PORT)) return true;
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, Math.min(100, deadline - Date.now())));
+    }
+    return portAvailable(AGENT_SERVER_PORT).then(async (apiFree) => apiFree && await portAvailable(AGENT_SERVER_ENGINE_PORT));
+  }
+
+  stopForQuit() {
+    this.#shuttingDown = true;
+    return this.stopGracefully();
+  }
+
   /** Signal only the exact ChildProcess spawned here; retain ownership until observed exit. */
   stopGracefully() {
     if (this.#stopping) return this.#stopping;
@@ -431,6 +484,7 @@ export class AgentServerService {
     this.#abort.abort();
     if (this.#usingExisting) {
       this.#usingExisting = false;
+      this.#ownership = 'none';
       this.#bridgeRegistrarSecret = undefined;
       this.#status = 'stopped';
       this.#emit();
@@ -459,6 +513,7 @@ export class AgentServerService {
     this.#abort.abort();
     if (this.#usingExisting) {
       this.#usingExisting = false;
+      this.#ownership = 'none';
       this.#bridgeRegistrarSecret = undefined;
       this.#status = 'stopped';
       this.#emit();

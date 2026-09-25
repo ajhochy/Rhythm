@@ -7,6 +7,7 @@ import { readFile } from 'node:fs/promises'
 import { runInNewContext } from 'node:vm'
 import test from 'node:test'
 import { registerColonyView } from '../src/colony-view.mjs'
+import { COLONY_VIEW_KEYS } from '../src/security-smoke-receipt.mjs'
 import { makeArtifact, sourceCommit } from './support/colony-native-fixture.mjs'
 
 class MessageChannelMain {
@@ -88,7 +89,7 @@ test('1528:main-wiring:6 actual preload exposes one frozen exact Colony bridge',
     window: { addEventListener() {}, dispatchEvent() {} },
     CustomEvent: class {},
   })
-  assert.deepEqual(Object.keys(bridge.colonyView), ['getStatus', 'discoverSources', 'setEnabled', 'setSource', 'attach', 'setBounds', 'inventoryPage', 'inventoryCancel', 'sendIntent', 'onEvent', 'detach'])
+  assert.deepEqual(Object.keys(bridge.colonyView), COLONY_VIEW_KEYS)
   assert.equal(Object.isFrozen(bridge.colonyView), true)
   assert.equal(JSON.stringify(bridge.colonyView).includes('path'), false)
   assert.equal(JSON.stringify(bridge.colonyView).includes('port'), false)

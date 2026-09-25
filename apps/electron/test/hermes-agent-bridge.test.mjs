@@ -202,6 +202,7 @@ test('EB-6: memory scope is consent- and vault-bound, and consent revocation rem
   assert.deepEqual(registration.body.scopes, [...DEFAULT_SCOPES, 'memory.search']);
   assert.equal(registration.body.memoryVaultId, MEMORY_VAULT);
   assert.equal(identities[0].memoryVaultId, MEMORY_VAULT);
+  await waitFor(() => host.status().available, 'consented grant did not become available');
   await host.revokeScope('memory.search');
   const revoke = await waitFor(() => f.requests.find((entry) => entry.path.endsWith('/revoke-scopes')), 'scope revocation missing');
   assert.deepEqual(revoke.body, { scopes: ['memory.search'] });

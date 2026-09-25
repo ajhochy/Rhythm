@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createContext, SourceTextModule, SyntheticModule, runInContext } from 'node:vm';
 import test from 'node:test';
 import { registerHermesView, bindHermesViewSupervisor } from '../src/hermes-view.mjs';
+import { AI_ACCOUNTS_KEYS } from '../src/security-smoke-receipt.mjs';
 const SECRET = 'synthetic-s4-integration-key';
 
 const A = 'https://a.example', B = 'https://b.example';
@@ -139,7 +140,7 @@ function accounts(h) {
   const bridge = h.current().bridge.aiAccounts;
   assert.ok(bridge, 'Actual preload must expose the closed Accounts bridge');
   assert.equal(Object.isFrozen(bridge), true);
-  assert.deepEqual(Object.keys(bridge).sort(), ['getStatus', 'setGrant', 'setMemorySearchConsent']);
+  assert.deepEqual(Object.keys(bridge).sort(), [...AI_ACCOUNTS_KEYS].sort());
   return bridge;
 }
 async function attach(h) {

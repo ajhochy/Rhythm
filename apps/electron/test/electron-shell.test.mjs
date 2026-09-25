@@ -8,6 +8,10 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import test from 'node:test';
+import {
+  AGENT_SERVER_KEYS, AUTH_KEYS, BRIDGE_KEYS, COLONY_VIEW_KEYS, GATEWAY_KEYS,
+  HERMES_KEYS, HERMES_VIEW_KEYS, HUMAN_APPROVAL_KEYS, UPDATE_KEYS,
+} from '../src/security-smoke-receipt.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const shellRoot = resolve(here, '..');
@@ -16,7 +20,7 @@ let smokeResult;
 
 // Execute the real main module; replace only host boundaries, never its flag/lifecycle logic.
 // No Electron child, network, screenshot writes, timers, or real runtime ownership in this check.
-async function interactiveRuntime(argv, userData = '/fixture/interactive-user-data', selectDirectory = async () => ({ canceled: true, filePaths: [] })) {
+async function interactiveRuntime(argv, userData = '/fixture/interactive-user-data', selectDirectory = async () => ({ canceled: true, filePaths: [] }), autoQuit = true) {
   const calls = [], windows = [], handlers = new Map(), paths = new Map();
   const processBoundary = Object.assign(new EventEmitter(), {
     argv, env: { RHYTHM_LIVE_API_URL: 'http://127.0.0.1:4098', RHYTHM_LIVE_ENGINE_URL: 'http://127.0.0.1:4097', ...(userData ? { RHYTHM_SHELL_USER_DATA: userData } : {}) },
@@ -32,7 +36,9 @@ async function interactiveRuntime(argv, userData = '/fixture/interactive-user-da
     constructor() { calls.push('construct'); this.status = { status: 'stopped' }; }
     onStatusChange() { calls.push('subscribe'); }
     async start() { calls.push('start'); }
+    async restart() { calls.push('restart-agent'); return { ok: true }; }
     async stopGracefully() { calls.push('stop'); }
+    async stopForQuit() { calls.push('stop'); }
   }
   class Window {
     constructor(options) {
@@ -57,9 +63,11 @@ async function interactiveRuntime(argv, userData = '/fixture/interactive-user-da
   });
   await module.evaluate();
   await new Promise((done) => setImmediate(done));
-  app.emit('before-quit', { preventDefault: () => calls.push('prevent-quit') });
-  await new Promise((done) => setImmediate(done));
-  return { calls, windows, handlers, paths, processBoundary };
+  if (autoQuit) {
+    app.emit('before-quit', { preventDefault: () => calls.push('prevent-quit') });
+    await new Promise((done) => setImmediate(done));
+  }
+  return { app, calls, windows, handlers, paths, processBoundary };
 }
 
 test('interactive-runtime-c1: interactive smoke keeps the visible normal route', async () => {
@@ -106,7 +114,7 @@ test('interactive-runtime-c4: production still owns lifecycle; automated smoke s
   for (const call of ['start', 'stop', 'migration', 'prevent-quit']) assert.ok(!smoke.calls.includes(call), call);
 });
 
-test('directory-picker: actual preload adds only a no-payload selectDirectory capability', async () => {
+test('1555:electron-local-runtime-restart-ipc:5 preload exposes a frozen restart capability', async () => {
   let bridge;
   const calls = [];
   runInNewContext(await readFile(resolve(shellRoot, 'src/preload.cjs'), 'utf8'), {
@@ -120,8 +128,10 @@ test('directory-picker: actual preload adds only a no-payload selectDirectory ca
     process: { argv: [], env: {}, platform: 'darwin' },
     window: { addEventListener() {} },
   });
-  assert.deepEqual(Object.keys(bridge), ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory', 'hermes', 'hermesView', 'colonyView', 'aiAccounts']);
+  assert.deepEqual(Object.keys(bridge), BRIDGE_KEYS);
   assert.equal(Object.isFrozen(bridge), true);
+  assert.deepEqual(Object.keys(bridge.agentServer), AGENT_SERVER_KEYS);
+  assert.equal(Object.isFrozen(bridge.agentServer), true);
   assert.equal(await bridge.selectDirectory({ properties: ['openFile'] }), '/selected/project');
   assert.deepEqual(calls, [['shell:select-directory']]);
 });
@@ -178,6 +188,20 @@ test('directory-picker: navigation during selection cannot receive a stale path'
   await assert.rejects(runtime.handlers.get('shell:select-directory')({ sender: contents, senderFrame: contents.mainFrame }), /denied/);
 });
 
+test('1555:electron-local-runtime-restart-ipc:5 restart IPC accepts only the owned document with no payload', async () => {
+  const runtime = await interactiveRuntime([], undefined, undefined, false);
+  const owner = runtime.windows[0];
+  const event = { sender: owner.webContents, senderFrame: owner.webContents.mainFrame };
+  const handler = runtime.handlers.get('rhythm:agent-server:restart');
+  assert.equal(typeof handler, 'function');
+  assert.deepEqual(await handler(event), { ok: true });
+  assert.ok(runtime.calls.includes('restart-agent'));
+  await assert.rejects(handler({ sender: {}, senderFrame: event.senderFrame }), /denied/);
+  await assert.rejects(handler(event, { force: true }), /Invalid IPC payload/);
+  runtime.app.emit('before-quit', { preventDefault() {} });
+  await new Promise((done) => setImmediate(done));
+});
+
 test('slice-5-c1: resolves only files under the packaged web dist', async () => {
   const { resolveAsset } = await import('../src/policy.mjs');
   assert.equal(resolveAsset('/index.html'), resolve(shellRoot, '../web/dist/index.html'));
@@ -203,9 +227,9 @@ test('slice-5-c3: actual Electron launch loads the local agents route', async ()
 test('slice-5-c4: actual preload exposes only frozen versioned lifecycle, gateway configuration, Google auth, human-approval signing, and agent-server status', async () => {
   const result = await smoke();
   assert.deepEqual(result.runtime, { apiBase: 'http://127.0.0.1:4001', engineBase: 'http://127.0.0.1:4096', testOverride: false });
-  assert.deepEqual(result.bridge.keys, ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory', 'hermes', 'hermesView', 'colonyView', 'aiAccounts']);
+  assert.deepEqual(result.bridge.keys, BRIDGE_KEYS);
   assert.equal(result.bridge.frozen, true);
-  assert.deepEqual(result.bridge.gateway.keys, ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase']);
+  assert.deepEqual(result.bridge.gateway.keys, GATEWAY_KEYS);
   assert.equal(result.bridge.gateway.frozen, true);
   assert.deepEqual(result.bridge.gateway.configured, {
     apiBase: true,
@@ -216,20 +240,20 @@ test('slice-5-c4: actual preload exposes only frozen versioned lifecycle, gatewa
     apiBase: 'http://127.0.0.1:4001',
     engineBase: 'http://127.0.0.1:4096',
   });
-  assert.deepEqual(result.bridge.auth.keys, ['signInWithGoogle', 'currentSession', 'logout']);
+  assert.deepEqual(result.bridge.auth.keys, AUTH_KEYS);
   assert.equal(result.bridge.auth.frozen, true);
   // post-m1-p7-c4e: a narrow, purpose-built surface only — never an arbitrary-sign primitive.
-  assert.deepEqual(result.bridge.humanApproval.keys, ['capability', 'signDecision']);
+  assert.deepEqual(result.bridge.humanApproval.keys, HUMAN_APPROVAL_KEYS);
   assert.equal(result.bridge.humanApproval.frozen, true);
-  assert.deepEqual(result.bridge.agentServer.keys, ['status', 'onStatusChange']);
+  assert.deepEqual(result.bridge.agentServer.keys, AGENT_SERVER_KEYS);
   assert.equal(result.bridge.agentServer.frozen, true);
-  assert.deepEqual(result.bridge.updates.keys, ['openDownloadPage']);
+  assert.deepEqual(result.bridge.updates.keys, UPDATE_KEYS);
   assert.equal(result.bridge.updates.frozen, true);
-  assert.deepEqual(result.bridge.hermes.keys, ['enabled', 'getStatus', 'install', 'restart', 'onStatus']);
+  assert.deepEqual(result.bridge.hermes.keys, HERMES_KEYS);
   assert.equal(result.bridge.hermes.frozen, true);
-  assert.deepEqual(result.bridge.hermesView.keys, ['attach', 'setBounds', 'detach', 'sendIntent']);
+  assert.deepEqual(result.bridge.hermesView.keys, HERMES_VIEW_KEYS);
   assert.equal(result.bridge.hermesView.frozen, true);
-  assert.deepEqual(result.bridge.colonyView.keys, ['getStatus', 'discoverSources', 'setEnabled', 'setSource', 'attach', 'setBounds', 'inventoryPage', 'inventoryCancel', 'sendIntent', 'onEvent', 'detach']);
+  assert.deepEqual(result.bridge.colonyView.keys, COLONY_VIEW_KEYS);
   assert.equal(result.bridge.colonyView.frozen, true);
   assert.equal(result.bridge.hermes.enabled, process.env.RHYTHM_HERMES_ENABLED !== '0');
   assert.equal(result.bridge.hermes.status.state, process.env.RHYTHM_HERMES_ENABLED === '0' ? 'disabled' : 'stopped');

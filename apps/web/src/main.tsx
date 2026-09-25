@@ -18,6 +18,11 @@ declare global {
         productionApiBase?: string;
       };
       auth?: DesktopAuthBridge;
+      agentServer?: {
+        status(): Promise<{ status: string; ownership?: 'electron' | 'external' | 'none'; owned: boolean; errorMessage?: string | null }>;
+        onStatusChange?(callback: (status: { status: string; ownership?: 'electron' | 'external' | 'none'; owned: boolean; errorMessage?: string | null }) => void): () => void;
+        restart(): Promise<{ ok: boolean; reason?: string; code?: string; status?: { errorMessage?: string | null } }>;
+      };
       selectDirectory?: () => Promise<string | null>;
     };
   }

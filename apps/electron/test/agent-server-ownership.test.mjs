@@ -10,11 +10,22 @@ process.env.RHYTHM_AGENT_READY_BUDGET_MS = '8000';
 import { portAvailable } from '../src/agent-server.mjs';
 
 // Real service, fake OS boundaries only: never probe or signal the desktop runtime.
-async function fixture({ occupied = [], healthy = true, mkdirError = false, spawnError = false, graceful = true, relayConfigurationProvider } = {}) {
+async function fixture({ occupied = [], healthy = true, mkdirError = false, spawnError = false, graceful = true, exitDelayMs = 0, lingerEnginePortMs = 0, relayConfigurationProvider } = {}) {
   const signals = [], probes = [], commands = [], snapshots = [], spawnOptions = [];
+  const occupiedPorts = new Set(occupied);
   const child = new EventEmitter();
   child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
-  child.kill = (signal) => { signals.push(signal); if (graceful || signal === 'SIGKILL') child.emit('exit', 0); return true; };
+  child.kill = (signal) => {
+    signals.push(signal);
+    if (graceful || signal === 'SIGKILL') {
+      if (lingerEnginePortMs > 0) {
+        occupiedPorts.add(4096);
+        setTimeout(() => occupiedPorts.delete(4096), lingerEnginePortMs);
+      }
+      setTimeout(() => child.emit('exit', 0), exitDelayMs);
+    }
+    return true;
+  };
   let spawns = 0;
   const source = await readFile(new URL('../src/agent-server.mjs', import.meta.url), 'utf8');
   const module = new SourceTextModule(source, { initializeImportMeta(meta) { meta.url = new URL('../src/agent-server.mjs', import.meta.url).href; } });
@@ -31,7 +42,7 @@ async function fixture({ occupied = [], healthy = true, mkdirError = false, spaw
       if (name === 'node:fs/promises') exports.mkdir = async () => { if (mkdirError) throw new Error('EACCES'); };
       if (name === 'node:net') exports.createServer = () => {
         const server = new EventEmitter();
-        server.listen = ({ port }, cb) => { probes.push(port); queueMicrotask(() => occupied.includes(port) ? server.emit('error', Object.assign(new Error('occupied'), { code: 'EADDRINUSE' })) : cb()); return server; };
+        server.listen = ({ port }, cb) => { probes.push(port); queueMicrotask(() => occupiedPorts.has(port) ? server.emit('error', Object.assign(new Error('occupied'), { code: 'EADDRINUSE' })) : cb()); return server; };
         server.close = (cb) => cb();
         return server;
       };
@@ -41,7 +52,7 @@ async function fixture({ occupied = [], healthy = true, mkdirError = false, spaw
   await module.evaluate();
   const service = new module.namespace.AgentServerService({ relayConfigurationProvider });
   service.onStatusChange((s) => snapshots.push(s));
-  return { service, child, signals, probes, commands, snapshots, spawnOptions, healthy, spawns: () => spawns };
+  return { service, child, signals, probes, commands, snapshots, spawnOptions, healthy, setOccupied: (ports) => { occupiedPorts.clear(); for (const port of ports) occupiedPorts.add(port); }, spawns: () => spawns };
 }
 
 test('relay restoration: an owned local runtime receives the restored cloud session without exposing it through status', async (t) => {
@@ -176,4 +187,132 @@ test('HTTP 200 from unrelated servers is not accepted as Rhythm', async (t) => {
   assert.equal((await f.service.start()).failureReason, 'portConflict');
   assert.equal(f.spawns(), 0);
   assert.deepEqual(f.signals, []);
+});
+
+test('1555:electron-local-runtime-restart-ipc:1 owned restart stops gracefully and starts one replacement without failure', async (t) => {
+  const f = await fixture();
+  t.mock.method(globalThis, 'fetch', async (url) => ({ ok: true, json: async () =>
+    String(url).endsWith('/global/health') ? { healthy: true, version: 'test' } : { status: 'ok', service: 'rhythm-api-server' } }));
+  assert.equal((await f.service.start()).status, 'ready');
+  f.snapshots.length = 0;
+
+  assert.deepEqual(await f.service.restart(), { ok: true });
+  assert.deepEqual(f.signals, ['SIGTERM']);
+  assert.equal(f.spawns(), 2, 'one initial child plus exactly one replacement');
+  assert.deepEqual(f.snapshots.map((snapshot) => snapshot.status), ['stopping', 'stopped', 'starting', 'ready']);
+  assert.equal(f.snapshots.some((snapshot) => snapshot.status === 'failed'), false);
+});
+
+test('1555:electron-local-runtime-restart-ipc:2 adopted runtime restart is refused without mutation', async (t) => {
+  const f = await fixture({ occupied: [4001, 4096] });
+  t.mock.method(globalThis, 'fetch', async (url) => ({ ok: true, json: async () =>
+    String(url).endsWith('/global/health') ? { healthy: true, version: 'test' } : { status: 'ok', service: 'rhythm-api-server' } }));
+  assert.equal((await f.service.start()).status, 'ready');
+  const snapshots = f.snapshots.length;
+
+  assert.deepEqual(await f.service.restart(), {
+    ok: false,
+    reason: 'adopted',
+    code: 'runtime_unowned',
+  });
+  assert.equal(f.service.status.status, 'ready');
+  assert.equal(f.service.status.owned, false);
+  assert.equal(f.snapshots.length, snapshots);
+  assert.deepEqual(f.signals, []);
+  assert.equal(f.spawns(), 0);
+});
+
+test('1555:electron-local-runtime-restart-ipc:3 status reports ownership without leaking relay credentials', async (t) => {
+  const owned = await fixture({
+    relayConfigurationProvider: async () => ({ token: 'never-in-snapshot', productionApiBase: 'https://team.example' }),
+  });
+  t.mock.method(globalThis, 'fetch', async (url) => ({ ok: true, json: async () =>
+    String(url).endsWith('/global/health') ? { healthy: true, version: 'test' } : { status: 'ok', service: 'rhythm-api-server' } }));
+  await owned.service.start();
+  assert.equal(owned.service.status.owned, true);
+  assert.doesNotMatch(JSON.stringify(owned.service.status), /never-in-snapshot/);
+
+  const adopted = await fixture({ occupied: [4001, 4096] });
+  await adopted.service.start();
+  assert.equal(adopted.service.status.owned, false);
+});
+
+test('1555:electron-local-runtime-restart-ipc:4 concurrent restarts share one stop and one replacement', async (t) => {
+  const f = await fixture();
+  t.mock.method(globalThis, 'fetch', async (url) => ({ ok: true, json: async () =>
+    String(url).endsWith('/global/health') ? { healthy: true, version: 'test' } : { status: 'ok', service: 'rhythm-api-server' } }));
+  await f.service.start();
+
+  const [first, second] = await Promise.all([f.service.restart(), f.service.restart()]);
+  assert.deepEqual(first, { ok: true });
+  assert.deepEqual(second, { ok: true });
+  assert.deepEqual(f.signals, ['SIGTERM']);
+  assert.equal(f.spawns(), 2);
+});
+
+test('review:agent-server.mjs:229 failed owned replacement remains retryable and is never called adopted', async (t) => {
+  const f = await fixture();
+  let healthy = true;
+  t.mock.method(globalThis, 'fetch', async (url) => healthy
+    ? { ok: true, json: async () => String(url).endsWith('/global/health') ? { healthy: true, version: 'test' } : { status: 'ok', service: 'rhythm-api-server' } }
+    : { ok: false, json: async () => ({}) });
+  assert.equal((await f.service.start()).status, 'ready');
+
+  healthy = false;
+  f.setOccupied([4001]);
+  const failed = await f.service.restart();
+  assert.equal(failed.ok, false);
+  assert.equal(f.service.status.ownership, 'electron');
+  assert.equal(f.service.status.owned, true);
+
+  healthy = true;
+  f.setOccupied([]);
+  assert.deepEqual(await f.service.restart(), { ok: true });
+  assert.equal(f.spawns(), 2, 'the retry starts one replacement after the failed attempt');
+});
+
+test('review:agent-server.mjs:433 restart during startup waits for the stale start before replacing it', async (t) => {
+  const f = await fixture();
+  let healthy = false;
+  t.mock.method(globalThis, 'fetch', async (url) => healthy
+    ? { ok: true, json: async () => String(url).endsWith('/global/health') ? { healthy: true, version: 'test' } : { status: 'ok', service: 'rhythm-api-server' } }
+    : { ok: false, json: async () => ({}) });
+  const initialStart = f.service.start();
+  while (f.spawns() === 0) await new Promise((resolve) => setImmediate(resolve));
+
+  const restarting = f.service.restart();
+  healthy = true;
+  assert.deepEqual(await restarting, { ok: true });
+  await initialStart;
+  assert.equal(f.spawns(), 2);
+  assert.equal(f.service.status.status, 'ready');
+});
+
+test('review:agent-server.mjs:435 restart waits for the old engine port to be released', async (t) => {
+  const f = await fixture({ lingerEnginePortMs: 40 });
+  let healthy = true;
+  t.mock.method(globalThis, 'fetch', async (url) => healthy
+    ? { ok: true, json: async () => String(url).endsWith('/global/health') ? { healthy: true, version: 'test' } : { status: 'ok', service: 'rhythm-api-server' } }
+    : { ok: false, json: async () => ({}) });
+  assert.equal((await f.service.start()).status, 'ready');
+  healthy = false;
+  setTimeout(() => { healthy = true; }, 60);
+
+  assert.deepEqual(await f.service.restart(), { ok: true });
+  assert.equal(f.spawns(), 2);
+  assert.equal(f.service.status.ownership, 'electron');
+});
+
+test('review:main.mjs:774 quit-time stop cancels an in-flight restart before replacement spawn', async (t) => {
+  const f = await fixture({ exitDelayMs: 25 });
+  t.mock.method(globalThis, 'fetch', async (url) => ({ ok: true, json: async () =>
+    String(url).endsWith('/global/health') ? { healthy: true, version: 'test' } : { status: 'ok', service: 'rhythm-api-server' } }));
+  assert.equal((await f.service.start()).status, 'ready');
+
+  const restarting = f.service.restart();
+  const stopping = f.service.stopForQuit();
+  assert.deepEqual(await restarting, { ok: false, reason: 'shutting_down', code: 'shutting_down' });
+  await stopping;
+  assert.equal(f.spawns(), 1);
+  assert.equal(f.service.status.status, 'stopped');
 });

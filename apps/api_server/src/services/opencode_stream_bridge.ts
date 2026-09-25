@@ -267,6 +267,13 @@ export interface PendingPermission {
   sdkSessionId: string;
 }
 
+export interface PendingPermissionBlocker {
+  sessionId: string;
+  permissionId: string;
+  toolName: string;
+  summary: string;
+}
+
 type PermissionRequest = {
   id?: string;
   permissionID?: string;
@@ -410,6 +417,21 @@ export class OpencodeStreamBridge {
   /** Return the pending permission for a session+permissionId, or undefined. */
   getPendingPermission(localSessionId: string, permissionId: string): PendingPermission | undefined {
     return this.pendingPermissions.get(`${localSessionId}:${permissionId}`);
+  }
+
+  /** Snapshot pending prompts that make an engine restart unsafe. */
+  listPendingPermissions(): PendingPermissionBlocker[] {
+    return [...this.pendingPermissions.entries()].map(([key, permission]) => {
+      const permissionSuffix = `:${permission.permissionId}`;
+      return {
+        sessionId: key.endsWith(permissionSuffix)
+          ? key.slice(0, -permissionSuffix.length)
+          : key,
+        permissionId: permission.permissionId,
+        toolName: permission.toolName,
+        summary: permission.summary,
+      };
+    });
   }
 
   /** Remove a pending permission after it is resolved. */

@@ -18,6 +18,7 @@ import { profileAvatarLabel } from '../Profiles';
 import { navigate } from '../Shell';
 import './AgentSettingsTool.css';
 import { HermesAccountsSettings } from './HermesAccountsSettings';
+import { RuntimeGatewayError, type RuntimeInfo } from '../../gateway/runtime';
 
 type Trace = { method: string; route: string; detail: string };
 type LoadSection = 'profiles' | 'accounts' | 'mcp' | 'providers';
@@ -261,7 +262,7 @@ export function FixtureAgentSettingsTool({ Frame }: AgentSettingsToolProps) {
       case sectionIds.keybindings:
         return <><SectionIntro scope="Desktop local">Keyboard shortcuts control send, new session, cancel turn, and session switching.</SectionIntro><KeybindingsSettings preferences={keybindings} update={updateKeybindings} reset={resetKeybindings} /></>;
       case sectionIds.runtime:
-        return <><SectionIntro scope="Desktop local">The fixture is intentionally disconnected and does not claim a live runtime.</SectionIntro><div className="agent-settings-actions"><button className="secondary-button" type="button" onClick={() => setTrace({ method: 'LOCAL', route: 'fixture://agent-settings/connection', detail: 'Desktop endpoint is local' })}>Desktop endpoint</button><button className="secondary-button" type="button" onClick={() => setTrace({ method: 'LOCAL', route: 'fixture://agent-settings/offline-buffer', detail: 'Offline buffering is local UI state until reconnect' })}>Offline buffering</button></div><GapNotice place="Flutter Agent settings → OpenCode server">Changing or restarting the runtime requires GET and PATCH /opencode/runtime plus POST /opencode/runtime/restart; those endpoints do not exist.</GapNotice></>;
+        return <><SectionIntro scope="Desktop local">The fixture is intentionally disconnected and does not claim a live runtime.</SectionIntro><div className="agent-settings-actions"><button className="secondary-button" type="button" onClick={() => setTrace({ method: 'LOCAL', route: 'fixture://agent-settings/connection', detail: 'Desktop endpoint is local' })}>Desktop endpoint</button><button className="secondary-button" type="button" onClick={() => setTrace({ method: 'LOCAL', route: 'fixture://agent-settings/offline-buffer', detail: 'Offline buffering is local UI state until reconnect' })}>Offline buffering</button></div><div className="agent-settings-empty"><strong>Live runtime controls are unavailable in this fixture</strong><p>Open the signed desktop app to inspect or restart its owned runtime.</p></div></>;
       case sectionIds.mcp:
         return <><SectionIntro scope="Workspace">MCP servers add tool capabilities to configured profiles.</SectionIntro><GapNotice place="Flutter Agent settings → MCP servers">The fixture has no live MCP catalog.</GapNotice></>;
       default:
@@ -301,6 +302,11 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const loadGeneration = useRef(0);
   const traceGeneration = useRef(0);
   const [runtimeStatus, setRuntimeStatus] = useState<Record<'api' | 'engine', RuntimeHealthState>>({ api: { state: 'checking' }, engine: { state: 'checking' } });
+  const [runtimeInfo, setRuntimeInfo] = useState<RuntimeInfo | null>(null);
+  const [runtimeInfoError, setRuntimeInfoError] = useState('');
+  const [runtimeActionError, setRuntimeActionError] = useState('');
+  const [restartEngineConfirm, setRestartEngineConfirm] = useState(false);
+  const [localRuntime, setLocalRuntime] = useState<{ available: boolean; ownership: 'electron' | 'external' | 'none'; owned: boolean; status: string; errorMessage?: string | null }>({ available: false, ownership: 'none', owned: false, status: 'checking' });
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [actionNotices, setActionNotices] = useState<Partial<Record<ActionScope, string>>>({});
   const [removing, setRemoving] = useState<McpServer | null>(null);
@@ -565,6 +571,79 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   };
   useEffect(() => { void runRuntimeCheck('api', false); void runRuntimeCheck('engine', false); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const loadRuntimeInfo = async () => {
+    try {
+      setRuntimeInfo(await gateway.domains.runtime!.get());
+      setRuntimeInfoError('');
+    } catch (err) {
+      setRuntimeInfoError(err instanceof Error ? err.message : 'Runtime details could not be loaded');
+    }
+  };
+  useEffect(() => { void loadRuntimeInfo(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const bridge = window.rhythmShell?.agentServer;
+    if (!bridge) { setLocalRuntime({ available: false, ownership: 'none', owned: false, status: 'unavailable' }); return; }
+    let current = true;
+    const update = (status: { status: string; ownership?: 'electron' | 'external' | 'none'; owned: boolean; errorMessage?: string | null }) => {
+      const ownership = status.ownership ?? (status.owned ? 'electron' : status.status === 'ready' ? 'external' : 'none');
+      if (current) setLocalRuntime({ available: true, ownership, owned: ownership === 'electron', status: status.status, errorMessage: status.errorMessage });
+    };
+    void bridge.status().then(update).catch(() => update({ owned: false, ownership: 'none', status: 'unavailable' }));
+    const unsubscribe = bridge.onStatusChange?.(update);
+    return () => { current = false; unsubscribe?.(); };
+  }, []);
+
+  const reloadEngineConfig = async () => {
+    setPendingAction({ scope: 'runtime', key: 'reload' }); setRuntimeActionError(''); setActionNotice('runtime', '');
+    try {
+      const result = await gateway.domains.skills!.reload();
+      setActionNotice('runtime', `Reloaded ${result.refreshed.join(', ')}.`);
+      setTrace({ method: 'POST', route: '/system/refresh', detail: `Reloaded ${result.refreshed.join(', ')}` });
+    } catch (err) {
+      setRuntimeActionError(err instanceof Error ? err.message : 'Engine config and skills could not be reloaded');
+    } finally { setPendingAction(null); }
+  };
+
+  const restartEngine = async () => {
+    setRestartEngineConfirm(false);
+    setPendingAction({ scope: 'runtime', key: 'restart-engine' }); setRuntimeActionError(''); setActionNotice('runtime', '');
+    try {
+      const result = await gateway.domains.runtime!.restartEngine();
+      setActionNotice('runtime', `OpenCode engine restarted with boot ID ${result.bootId}.`);
+      setTrace({ method: 'POST', route: '/system/restart-engine', detail: `Engine restarted: ${result.bootId}` });
+      await loadRuntimeInfo();
+    } catch (err) {
+      if (err instanceof RuntimeGatewayError && err.status === 409 && err.blockers.length) {
+        setRuntimeActionError(`Restart blocked by ${err.blockers.map((blocker) => blocker.name ?? blocker.permissionId ?? blocker.message ?? blocker.id ?? blocker.type).join(', ')}.`);
+      } else {
+        setRuntimeActionError(err instanceof Error ? err.message : 'Engine restart failed');
+      }
+    } finally { setPendingAction(null); }
+  };
+
+  const restartLocalRuntime = async () => {
+    const bridge = window.rhythmShell?.agentServer;
+    if (!bridge || localRuntime.ownership === 'external') return;
+    setPendingAction({ scope: 'runtime', key: 'restart-local' }); setRuntimeActionError(''); setActionNotice('runtime', '');
+    try {
+      const result = await bridge.restart();
+      if (!result.ok) {
+        const mapped = result.status?.errorMessage
+          ?? (result.code === 'runtime_unowned' ? 'This runtime is owned by another app.'
+            : result.code === 'shutting_down' ? 'Rhythm is shutting down; reopen it before retrying the local runtime.'
+              : result.code === 'ports_not_released' ? 'The previous local runtime is still stopping. Wait a moment, then Retry local runtime.'
+                : 'The local runtime could not restart. Review the error, then Retry local runtime.');
+        throw new Error(mapped);
+      }
+      setActionNotice('runtime', 'Local runtime restarted.');
+      setTrace({ method: 'IPC', route: 'rhythm:agent-server:restart', detail: 'Owned local runtime restarted' });
+      await loadRuntimeInfo();
+      await Promise.all([runRuntimeCheck('api', false), runRuntimeCheck('engine', false)]);
+    } catch (err) {
+      setRuntimeActionError(err instanceof Error ? err.message : 'Local runtime restart failed');
+    } finally { setPendingAction(null); }
+  };
+
   const reloadMcp = async () => {
     await readSection('mcp', 'action');
   };
@@ -705,7 +784,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const runtimeValue = (service: 'api' | 'engine', label: string) => {
     const status = runtimeStatus[service];
     const statusLabel = status.state === 'healthy' ? 'Healthy' : status.state === 'failed' ? 'Failed' : 'Checking';
-    const port = service === 'api' ? gateway.environment?.apiPort : gateway.environment?.enginePort;
+    const port = service === 'api' ? runtimeInfo?.api.port ?? gateway.environment?.apiPort : runtimeInfo?.engine.port ?? gateway.environment?.enginePort;
     return <dd className={`agent-settings-runtime-value status-${status.state}`}>
       <span>{port ? `127.0.0.1:${port}` : 'Unavailable'}</span>
       <span className="agent-settings-runtime-state" data-testid={`runtime-status-${service}`}>
@@ -714,7 +793,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
       </span>
     </dd>;
   };
-  const runtimeInspector = () => <><SectionIntro scope="Desktop local">Rhythm uses a local API and OpenCode engine supplied by the trusted desktop host.</SectionIntro><dl className="agent-settings-property-list"><div><dt>Local API</dt>{runtimeValue('api', 'Local API')}</div><div><dt>OpenCode engine</dt>{runtimeValue('engine', 'OpenCode engine')}</div></dl>{actionPending('runtime') && <p role="status">Checking the local runtime…</p>}<div className="agent-settings-actions"><button className="secondary-button" type="button" disabled={actionPending('runtime', 'api')} aria-busy={actionPending('runtime', 'api')} onClick={() => void runRuntimeCheck('api')} data-testid="agent-settings-check-api">{actionPending('runtime', 'api') ? 'Checking local API…' : 'Check local API'}</button><button className="secondary-button" type="button" disabled={actionPending('runtime', 'engine')} aria-busy={actionPending('runtime', 'engine')} onClick={() => void runRuntimeCheck('engine')} data-testid="agent-settings-check-engine">{actionPending('runtime', 'engine') ? 'Checking OpenCode engine…' : 'Check OpenCode engine'}</button></div><GapNotice place="Flutter Agent settings → OpenCode server">Changing or restarting the runtime requires GET and PATCH /opencode/runtime plus POST /opencode/runtime/restart; those endpoints do not exist.</GapNotice></>;
+  const runtimeInspector = () => <><SectionIntro scope="Desktop local">Rhythm uses a local API and OpenCode engine supplied by the trusted desktop host. Reload configuration first; restart only when reload cannot recover stale state.</SectionIntro><dl className="agent-settings-property-list"><div><dt>Local API</dt>{runtimeValue('api', 'Local API')}</div><div><dt>OpenCode engine</dt>{runtimeValue('engine', 'OpenCode engine')}</div><div><dt>Engine PID</dt><dd>{runtimeInfo?.engine.pid ?? 'Unavailable'}</dd></div><div><dt>Boot ID</dt><dd>{runtimeInfo?.engine.bootId ?? 'Unavailable'}</dd></div><div><dt>Version</dt><dd>{runtimeInfo?.engine.version ?? 'Unavailable'}</dd></div><div><dt>Event bridge</dt><dd>{runtimeInfo ? runtimeInfo.engine.bridgeLive ? 'Live' : 'Unavailable' : 'Checking'}</dd></div><div><dt>Remote override</dt><dd>{runtimeInfo?.remoteOverride ?? 'Not set on this device'}</dd></div></dl>{runtimeInfoError && <p role="alert">{runtimeInfoError}</p>}<div className="agent-settings-actions"><button className="secondary-button" type="button" disabled={actionPending('runtime')} aria-busy={actionPending('runtime', 'api')} onClick={() => void runRuntimeCheck('api')} data-testid="agent-settings-check-api">{actionPending('runtime', 'api') ? 'Checking local API…' : 'Check local API'}</button><button className="secondary-button" type="button" disabled={actionPending('runtime')} aria-busy={actionPending('runtime', 'engine')} onClick={() => void runRuntimeCheck('engine')} data-testid="agent-settings-check-engine">{actionPending('runtime', 'engine') ? 'Checking OpenCode engine…' : 'Check OpenCode engine'}</button></div><div className="agent-settings-runtime-controls" data-testid="runtime-control-actions"><button className="primary-button" type="button" disabled={actionPending('runtime')} aria-busy={actionPending('runtime', 'reload')} onClick={() => void reloadEngineConfig()}>{actionPending('runtime', 'reload') ? 'Reloading…' : 'Reload engine config & skills'}</button><button className="secondary-button" type="button" disabled={actionPending('runtime')} onClick={() => setRestartEngineConfirm(true)}>Restart engine</button><button className="danger-button" type="button" disabled={actionPending('runtime') || !localRuntime.available || localRuntime.ownership === 'external'} onClick={() => void restartLocalRuntime()}>{localRuntime.status === 'failed' ? 'Retry local runtime' : 'Restart local runtime'}</button></div>{localRuntime.ownership === 'external' && <p className="agent-settings-runtime-owner-note">Restart unavailable: this runtime is owned by another app.</p>}{!localRuntime.available && <p className="agent-settings-runtime-owner-note">Restart unavailable outside the signed desktop app.</p>}{actionPending('runtime') && <p role="status">Updating the local runtime…</p>}{actionNotices.runtime && <p role="status">{actionNotices.runtime}</p>}{runtimeActionError && <p role="alert">{runtimeActionError}</p>}</>;
   const mcpInspector = () => <>
     <SectionIntro scope="Workspace">MCP servers provide tools to profiles. Changes are saved through the workspace MCP service.</SectionIntro>
     {retryControl('mcp', mcpError, 'Retry MCP servers')}
@@ -762,6 +841,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
 
   return <Frame slug="agent-settings" title="Agent settings" description="Agent, desktop-local, and workspace configuration in one place." trace={trace}>
     <ListInspector className="agent-settings-list-inspector" label="Agent settings sections" items={items} selectedId={selectedId} onSelect={setSelectedId} loading={loading} toolbar={<button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="agent-settings-refresh"><Icon name="refresh" size={14} />Refresh</button>} inspector={inspector} emptyState={<p>No configuration sections are available.</p>} />
+    <FocusDialog open={restartEngineConfirm} onClose={() => setRestartEngineConfirm(false)} title="Restart OpenCode engine?" description="Restarting drops in-flight turns and open permission prompts. Reload engine config and skills first whenever possible." testId="agent-settings-engine-restart-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setRestartEngineConfirm(false)}>Cancel</button><button className="danger-button" type="button" onClick={() => void restartEngine()}>Restart engine</button></div></FocusDialog>
     <FocusDialog open={Boolean(removing)} onClose={() => { if (!actionPending('mcp')) setRemoving(null); }} title="Remove MCP server?" description={removing ? `${removing.name} will be removed from this local workspace configuration.` : ''} testId="agent-settings-mcp-remove-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" disabled={actionPending('mcp')} onClick={() => setRemoving(null)}>Cancel</button><button className="danger-button" type="button" disabled={actionPending('mcp')} aria-busy={Boolean(removing && actionPending('mcp', `remove:${removing.name}`))} onClick={() => void removeMcp()} data-testid="agent-settings-mcp-remove-confirm">{removing && actionPending('mcp', `remove:${removing.name}`) ? 'Removing…' : 'Remove'}</button></div></FocusDialog>
     <FocusDialog open={Boolean(removingAccount)} onClose={() => { if (!actionPending('accounts')) setRemovingAccount(null); }} title="Remove account?" description={removingAccount ? `${removingAccount.label} will be removed from the local OpenCode account store.` : ''} testId="agent-settings-account-remove-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" disabled={actionPending('accounts')} onClick={() => setRemovingAccount(null)}>Cancel</button><button className="danger-button" type="button" disabled={actionPending('accounts')} aria-busy={Boolean(removingAccount && actionPending('accounts', `remove:${removingAccount.id}`))} onClick={() => void removeSelectedAccount()} data-testid="agent-settings-account-remove-confirm">{removingAccount && actionPending('accounts', `remove:${removingAccount.id}`) ? 'Removing…' : 'Remove'}</button></div></FocusDialog>
   </Frame>;
