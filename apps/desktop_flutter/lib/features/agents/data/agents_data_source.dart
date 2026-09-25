@@ -108,7 +108,7 @@ class AgentsDataSource {
       Uri.parse(
         '$_baseUrl/agent-sessions/${Uri.encodeComponent(sessionId)}/mcp-app-resource/${Uri.encodeComponent(toolCallId)}',
       ),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     assertOk(response);
     return _decodeResponseMap(response);
@@ -122,10 +122,7 @@ class AgentsDataSource {
       Uri.parse(
         '$_baseUrl/agent-sessions/${Uri.encodeComponent(sessionId)}/mcp-app-capability/${Uri.encodeComponent(toolCallId)}',
       ),
-      headers: {
-        ...AuthSessionStore.headers(),
-        'content-type': 'application/json',
-      },
+      headers: AuthSessionStore.localHeaders(json: true),
       body: '{}',
     );
     assertOk(response);
@@ -145,10 +142,7 @@ class AgentsDataSource {
       Uri.parse(
         '$_baseUrl/agent-sessions/${Uri.encodeComponent(sessionId)}/mcp-app-capability/${Uri.encodeComponent(toolCallId)}/request',
       ),
-      headers: {
-        ...AuthSessionStore.headers(),
-        'content-type': 'application/json',
-      },
+      headers: AuthSessionStore.localHeaders(json: true),
       body: encodedRequest,
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -588,7 +582,7 @@ class AgentsDataSource {
       Uri.parse(
         '$_baseUrl/agent-sessions/$sessionId/pending-permissions',
       ),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     assertOk(response);
     final decoded = jsonDecode(response.body);

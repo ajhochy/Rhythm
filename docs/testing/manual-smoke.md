@@ -163,8 +163,18 @@ pass. Record failures, observed output, and follow-up ownership in the run note.
 ### MCP Apps GA packaged matrix (#1356)
 
 Run this matrix in a signed/packaged macOS build, not only Debug. Record the
-build SHA, macOS version, pilot call IDs, human approver, exact observed result,
-and sanitized screenshots in `docs/ai/runs/`. Any fail-open result blocks GA.
+following evidence for every run in `docs/ai/runs/`; any fail-open result blocks
+GA:
+
+- Build SHA
+- macOS version
+- Exact mode per run
+- Pilot session/call IDs for Open Design and `rhythm_get_dashboard`
+- Approver name (required before `interactive`)
+- Exact observed result and sanitized screenshots
+
+Use the packaged launch and three-process inheritance checks in
+`docs/ai/mcp-apps.md` before exercising either pilot.
 
 For each exact `RHYTHM_MCP_APPS_MODE` value below, fully restart the engine,
 API, and packaged desktop app, then exercise both **Open Design** and

@@ -6,7 +6,9 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../../core/agents/agent_server_controller.dart';
+import '../../core/auth/auth_session_store.dart';
 import '../../core/auth/auth_session_service.dart';
+import '../../core/constants/app_constants.dart';
 import '../../core/services/server_config_service.dart';
 import '../../../features/agents/controllers/agents_controller.dart';
 
@@ -107,13 +109,12 @@ void resetSmokeEnvWarnedForTesting() {
   _warnedAboutIgnoredSmokeEnv = false;
 }
 
-/// Polls `GET /claude-triggers` on the production server every [interval]
-/// (default 10 s) when the user is authenticated and the local agent server
-/// is ready.
+/// Polls `GET /claude-triggers` on both the production server and local agent
+/// server every [interval] (default 10 s) once the local server is ready.
 ///
 /// On each successful poll:
 /// 1. Hands each trigger to [AgentsController.handleIncomingTrigger].
-/// 2. Deletes the trigger from production via `DELETE /claude-triggers/:id`.
+/// 2. Deletes the trigger from the same origin via `DELETE /claude-triggers/:id`.
 ///
 /// Failures (network errors, 4xx, 5xx) are logged to stderr and silently
 /// skipped — the next tick will retry.
@@ -196,30 +197,50 @@ class AgentTriggerWatcher extends ChangeNotifier {
   // --------------------------------------------------------------------------
 
   Future<void> _poll() async {
-    final token = _authSessionService.sessionToken;
-    if (token == null) {
-      // Not authenticated — skip this tick.
-      return;
-    }
     if (!_agentServerController.isReady) {
       // Local agent server not ready — no point surfacing a trigger.
       return;
     }
 
-    final baseUrl = _serverConfigService.url;
-
-    try {
-      final getResponse = await _httpClient.get(
-        Uri.parse('$baseUrl/claude-triggers'),
-        headers: {
+    final token = _authSessionService.sessionToken;
+    if (token != null) {
+      await _pollOrigin(
+        baseUrl: _serverConfigService.url,
+        originLabel: 'production',
+        getHeaders: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
         },
+        deleteHeaders: {'Authorization': 'Bearer $token'},
+        namespaceIds: false,
+      );
+    }
+
+    await _pollOrigin(
+      baseUrl: AppConstants.agentLocalBaseUrl,
+      originLabel: 'local',
+      getHeaders: AuthSessionStore.localHeaders(),
+      deleteHeaders: AuthSessionStore.localHeaders(),
+      namespaceIds: true,
+    );
+  }
+
+  Future<void> _pollOrigin({
+    required String baseUrl,
+    required String originLabel,
+    required Map<String, String> getHeaders,
+    required Map<String, String> deleteHeaders,
+    required bool namespaceIds,
+  }) async {
+    try {
+      final getResponse = await _httpClient.get(
+        Uri.parse('$baseUrl/claude-triggers'),
+        headers: getHeaders,
       );
 
       if (getResponse.statusCode != 200) {
         stderr.writeln(
-          '[AgentTriggerWatcher] GET /claude-triggers returned '
+          '[AgentTriggerWatcher] $originLabel GET /claude-triggers returned '
           'HTTP ${getResponse.statusCode}; skipping tick.',
         );
         return;
@@ -228,7 +249,7 @@ class AgentTriggerWatcher extends ChangeNotifier {
       final decoded = jsonDecode(getResponse.body);
       if (decoded is! List) {
         stderr.writeln(
-          '[AgentTriggerWatcher] GET /claude-triggers did not return a JSON '
+          '[AgentTriggerWatcher] $originLabel GET /claude-triggers did not return a JSON '
           'array; skipping tick.',
         );
         return;
@@ -238,13 +259,15 @@ class AgentTriggerWatcher extends ChangeNotifier {
         if (item is! Map<String, dynamic>) continue;
         final id = item['id'];
         if (id == null) continue;
+        final delivered =
+            namespaceIds ? <String, dynamic>{...item, 'id': 'local:$id'} : item;
 
         try {
-          await _agentsController.handleIncomingTrigger(item);
+          await _agentsController.handleIncomingTrigger(delivered);
         } catch (e) {
           stderr.writeln(
-            '[AgentTriggerWatcher] handleIncomingTrigger failed for trigger '
-            '$id: $e — skipping DELETE.',
+            '[AgentTriggerWatcher] $originLabel handleIncomingTrigger failed '
+            'for trigger $id: $e — skipping DELETE.',
           );
           continue;
         }
@@ -252,25 +275,27 @@ class AgentTriggerWatcher extends ChangeNotifier {
         // Delete the trigger so it is not re-delivered on the next poll.
         try {
           final deleteResponse = await _httpClient.delete(
-            Uri.parse('$baseUrl/claude-triggers/$id'),
-            headers: {'Authorization': 'Bearer $token'},
+            Uri.parse(
+              '$baseUrl/claude-triggers/${Uri.encodeComponent(id.toString())}',
+            ),
+            headers: deleteHeaders,
           );
           if (deleteResponse.statusCode != 200 &&
               deleteResponse.statusCode != 204) {
             stderr.writeln(
-              '[AgentTriggerWatcher] DELETE /claude-triggers/$id returned '
+              '[AgentTriggerWatcher] $originLabel DELETE /claude-triggers/$id returned '
               'HTTP ${deleteResponse.statusCode}; trigger will be retried.',
             );
           }
         } catch (e) {
           stderr.writeln(
-            '[AgentTriggerWatcher] DELETE /claude-triggers/$id failed: $e; '
+            '[AgentTriggerWatcher] $originLabel DELETE /claude-triggers/$id failed: $e; '
             'trigger will be retried.',
           );
         }
       }
     } catch (e) {
-      stderr.writeln('[AgentTriggerWatcher] poll error: $e');
+      stderr.writeln('[AgentTriggerWatcher] $originLabel poll error: $e');
     }
   }
 

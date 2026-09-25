@@ -11,6 +11,7 @@ import 'package:rhythm_desktop/app/core/agents/agent_server_controller.dart';
 import 'package:rhythm_desktop/app/core/agents/agent_trigger_watcher.dart';
 import 'package:rhythm_desktop/app/core/auth/auth_data_source.dart';
 import 'package:rhythm_desktop/app/core/auth/auth_session_service.dart';
+import 'package:rhythm_desktop/app/core/constants/app_constants.dart';
 import 'package:rhythm_desktop/app/core/server/api_server_service.dart';
 import 'package:rhythm_desktop/app/core/services/server_config_service.dart';
 import 'package:rhythm_desktop/app/core/notifications/local_notification_service.dart';
@@ -441,10 +442,10 @@ void main() {
   // --------------------------------------------------------------------------
 
   group('without authentication', () {
-    test('does not make any HTTP requests when sessionToken is null', () async {
-      var requestCount = 0;
-      final client = MockClient((_) async {
-        requestCount++;
+    test('polls only the local trigger origin without a cloud token', () async {
+      final requests = <http.Request>[];
+      final client = MockClient((request) async {
+        requests.add(request);
         return http.Response('[]', 200);
       });
 
@@ -461,7 +462,12 @@ void main() {
       watcher.start();
       await Future<void>.delayed(const Duration(milliseconds: 200));
 
-      expect(requestCount, 0);
+      expect(requests, isNotEmpty);
+      for (final request in requests) {
+        expect(request.method, 'GET');
+        expect(request.url.origin, AppConstants.agentLocalBaseUrl);
+        expect(request.headers.containsKey('authorization'), isFalse);
+      }
     });
   });
 
@@ -470,6 +476,175 @@ void main() {
   // --------------------------------------------------------------------------
 
   group('when authenticated and agent server is ready', () {
+    testWidgets(
+        'issue-1491-W1b: local webhook is namespaced, started with its profile, and staged once',
+        (tester) async {
+      tester.view.physicalSize = const Size(1600, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final repo = _FakeAgentsRepository();
+      final controller = AgentsController(repo, agentServerController,
+          _FakeLocalNotificationService(), _FakeNotificationsController());
+      addTearDown(controller.dispose);
+      final deleted = <Uri>[];
+      final client = MockClient((request) async {
+        final isLocal = request.url.origin == AppConstants.agentLocalBaseUrl;
+        if (request.method == 'GET') {
+          return http.Response(
+            jsonEncode(isLocal
+                ? [
+                    {
+                      'id': 42,
+                      'taskTitle': 'Local webhook event',
+                      'webhookEndpointId': 'endpoint-42',
+                      'webhookEndpointName': 'Local endpoint',
+                      'profileId': 'worship-profile',
+                      'prompt': 'local webhook draft',
+                    }
+                  ]
+                : <Object>[]),
+            200,
+          );
+        }
+        if (request.method == 'DELETE') {
+          deleted.add(request.url);
+          return http.Response('', 204);
+        }
+        return http.Response('', 404);
+      });
+      final watcher = AgentTriggerWatcher(
+        serverConfigService: serverConfigService,
+        authSessionService: _StubAuthSessionService(token: null),
+        agentServerController: agentServerController,
+        agentsController: controller,
+        interval: const Duration(milliseconds: 50),
+        httpClient: client,
+      );
+      addTearDown(watcher.dispose);
+      watcher.start();
+      await tester.pump(const Duration(milliseconds: 100));
+      watcher.stop();
+
+      expect(controller.pendingTriggers, hasLength(1));
+      expect(controller.pendingTriggers.single.taskId, 'local:42');
+      expect(
+        deleted,
+        contains(
+            Uri.parse('${AppConstants.agentLocalBaseUrl}/claude-triggers/42')),
+      );
+
+      final configs =
+          AgentConfigsController(AgentConfigsRepository(_Configs()));
+      await configs.refresh();
+      await tester.pumpWidget(MultiProvider(providers: [
+        ChangeNotifierProvider<AgentServerController>.value(
+            value: agentServerController),
+        ChangeNotifierProvider<AgentConfigsController>.value(value: configs),
+        ChangeNotifierProvider<AgentsController>.value(value: controller),
+        ChangeNotifierProvider<TasksController>.value(
+            value: TasksController(TasksRepository(_Tasks()))),
+        ChangeNotifierProvider<AgentProjectsController>.value(
+            value:
+                AgentProjectsController(AgentProjectsRepository(_Projects()))),
+        ChangeNotifierProvider<DestructiveModalService>(
+            create: (_) => DestructiveModalService()),
+      ], child: const MaterialApp(home: Scaffold(body: AgentsView()))));
+      await tester.pump();
+      expect(find.text('Start Worship Assistant'), findsOneWidget);
+      await tester.tap(find.text('Start Worship Assistant'));
+      await tester.pump();
+      await tester.pump();
+      expect(repo.creates, hasLength(1));
+      expect(repo.creates.single.profileId, 'worship-profile');
+      expect(find.textContaining('local webhook draft'), findsWidgets);
+      expect(controller.consumeComposerDraft('new-1'), isNull,
+          reason: 'the local webhook draft is staged exactly once');
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    });
+
+    test('same numeric id is independent across production and local origins',
+        () async {
+      final requests = <http.Request>[];
+      final client = MockClient((request) async {
+        requests.add(request);
+        final isLocal = request.url.origin == AppConstants.agentLocalBaseUrl;
+        if (request.method == 'GET') {
+          return http.Response(
+            jsonEncode([
+              {
+                'id': 7,
+                'taskTitle': isLocal ? 'Local seven' : 'Production seven',
+              }
+            ]),
+            200,
+          );
+        }
+        return http.Response('', 204);
+      });
+      final watcher = AgentTriggerWatcher(
+        serverConfigService: serverConfigService,
+        authSessionService: _StubAuthSessionService(token: 'tok-abc'),
+        agentServerController: agentServerController,
+        agentsController: agentsController,
+        interval: const Duration(milliseconds: 50),
+        httpClient: client,
+      );
+      addTearDown(watcher.dispose);
+      watcher.start();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(agentsController.pendingTriggers.map((item) => item.taskId),
+          containsAll(['7', 'local:7']));
+      final deletes = requests.where((item) => item.method == 'DELETE');
+      expect(
+        deletes.any((item) =>
+            item.url.origin == AppConstants.agentLocalBaseUrl &&
+            item.url.path.endsWith('/7') &&
+            !item.headers.containsKey('authorization')),
+        isTrue,
+      );
+      expect(
+        deletes.any((item) =>
+            item.url.origin == serverConfigService.url &&
+            item.url.path.endsWith('/7') &&
+            item.headers['authorization'] == 'Bearer tok-abc'),
+        isTrue,
+      );
+    });
+
+    test('a local error does not stop the production poll', () async {
+      final client = MockClient((request) async {
+        if (request.method == 'DELETE') return http.Response('', 204);
+        if (request.url.origin == AppConstants.agentLocalBaseUrl) {
+          return http.Response('unauthorized', 401);
+        }
+        return http.Response(
+          jsonEncode([
+            {'id': 'production-trigger', 'taskTitle': 'Production trigger'}
+          ]),
+          200,
+        );
+      });
+      final watcher = AgentTriggerWatcher(
+        serverConfigService: serverConfigService,
+        authSessionService: _StubAuthSessionService(token: 'tok-abc'),
+        agentServerController: agentServerController,
+        agentsController: agentsController,
+        interval: const Duration(milliseconds: 50),
+        httpClient: client,
+      );
+      addTearDown(watcher.dispose);
+      watcher.start();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(
+        agentsController.pendingTriggers
+            .any((item) => item.taskId == 'production-trigger'),
+        isTrue,
+      );
+    });
+
     testWidgets(
         'issue-1491-c3: banner starts configured profile and stages one editable draft',
         (tester) async {
@@ -879,9 +1054,17 @@ void main() {
         'prompt':
             'Summarize the PCO change\n\nUntrusted external webhook event: updated',
       };
-      final client = MockClient((request) async => request.method == 'GET'
-          ? http.Response(jsonEncode([trigger]), 200)
-          : http.Response('', 204));
+      final client = MockClient((request) async {
+        if (request.method == 'GET') {
+          return http.Response(
+            jsonEncode(request.url.origin == AppConstants.agentLocalBaseUrl
+                ? <Object>[]
+                : [trigger]),
+            200,
+          );
+        }
+        return http.Response('', 204);
+      });
       final watcher = AgentTriggerWatcher(
         serverConfigService: serverConfigService,
         authSessionService: _StubAuthSessionService(token: 'tok-abc'),
@@ -915,6 +1098,9 @@ void main() {
       final client = MockClient((request) async {
         if (request.method == 'GET' &&
             request.url.path.endsWith('/claude-triggers')) {
+          if (request.url.origin == AppConstants.agentLocalBaseUrl) {
+            return http.Response('[]', 200);
+          }
           getCount++;
           return http.Response(jsonEncode([trigger]), 200);
         }
@@ -960,6 +1146,9 @@ void main() {
       // Simulate DELETE failing so the trigger keeps reappearing.
       final client = MockClient((request) async {
         if (request.method == 'GET') {
+          if (request.url.origin == AppConstants.agentLocalBaseUrl) {
+            return http.Response('[]', 200);
+          }
           return http.Response(jsonEncode([trigger]), 200);
         }
         // DELETE returns 500 — trigger is not consumed.
@@ -1000,6 +1189,9 @@ void main() {
 
       final client = MockClient((request) async {
         if (request.method == 'GET') {
+          if (request.url.origin == AppConstants.agentLocalBaseUrl) {
+            return http.Response('[]', 200);
+          }
           return http.Response(jsonEncode([trigger]), 200);
         }
         if (request.method == 'DELETE') {

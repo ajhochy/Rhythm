@@ -132,6 +132,23 @@ DELETE /agent-sessions/:id
 ### Auth model
 Per-user AI accounts. Each user signs into their own provider on their machine. No shared credentials. Credentials stored by Opencode SDK in `~/.local/share/opencode/auth.json`.
 
+### Approval lanes
+
+Every approval declares a lane so bypass behavior is predictable in the API
+and visible in the desktop UI.
+
+| Approval class | Lane | Bypass / auto-approve coverage |
+|---|---|---|
+| Engine tool asks and non-hardline #878 command asks | Convenience | May be satisfied by the permission mode, bypass, or profile auto-approve policy. |
+| #878 hardline command deny | Hardline | Never bypassed or auto-approved. |
+| #736 out-of-allowlist deny | Hardline | Never bypassed or auto-approved. |
+| #1134 external-data taint approval | Hardline | Never bypassed or auto-approved; requires the signed human-approval credential. |
+
+The agent-approval API labels taint-bound rows as `hardline` with reason
+`external_data_taint`, other security actions as `hardline` with reason
+`consequential_action`, and ordinary approval gates as `approval` with reason
+`approval_gate`.
+
 ### Provider tiers (Settings UI)
 1. **Subscriptions:** Claude OAuth, ChatGPT OAuth (opens system browser)
 2. **Free API:** Google Gemini (API key), GitHub Copilot (OAuth)
