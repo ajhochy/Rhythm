@@ -15,7 +15,10 @@ const MAX_DEVICE_NAME_LENGTH = 128;
 const MAX_GRANT_BYTES = 64 * 1024;
 const OPAQUE_ID = '[A-Za-z0-9_-]{1,128}';
 const OPAQUE_VALUE = new RegExp(`^${OPAQUE_ID}$`);
+/** @type {Readonly<Record<string, RegExp>>} */
 const NO_QUERY = Object.freeze({});
+
+/** @typedef {{ method: string, pattern: RegExp, query?: Record<string, RegExp> }} AllowedRemoteRoute */
 
 // Every relay route a secondary desktop may reach directly, and — for the one route that needs
 // one — the exact query parameter(s) the relay actually reads for it. `session.messages` paging
@@ -30,6 +33,7 @@ const NO_QUERY = Object.freeze({});
 // token to an unrelated relay route (pairing codes, device revocation, PTY, artifacts, tools, ...)
 // it was never granted for, and cannot smuggle an unexpected query parameter into a route it was
 // granted for.
+/** @type {ReadonlyArray<AllowedRemoteRoute>} */
 const ALLOWED_REQUESTS = Object.freeze([
   { method: 'GET', pattern: new RegExp('^/mobile-gateway/opencode/experimental/session$') },
   { method: 'GET', pattern: new RegExp(`^/mobile-gateway/opencode/session/${OPAQUE_ID}/message$`), query: { before: OPAQUE_VALUE } },
@@ -103,11 +107,14 @@ export function remoteAttachEnabled(env = process.env) {
   return !['0', 'false'].includes((env.RHYTHM_REMOTE_ATTACH ?? '').toLowerCase());
 }
 
-/** @param {unknown} grant @returns {grant is {hostId:string,deviceId:string,deviceToken:string,gatewayBaseUrl:string}} */
+/** @typedef {{ hostId: string, deviceId: string, deviceToken: string, gatewayBaseUrl: string }} RemoteGrant */
+
+/** @param {unknown} grant @returns {grant is RemoteGrant} */
 function validGrant(grant) {
-  return Boolean(grant) && typeof grant === 'object' && !Array.isArray(grant) &&
-    typeof grant.hostId === 'string' && typeof grant.deviceId === 'string' &&
-    typeof grant.deviceToken === 'string' && typeof grant.gatewayBaseUrl === 'string';
+  if (grant === null || typeof grant !== 'object' || Array.isArray(grant)) return false;
+  const candidate = /** @type {Record<string, unknown>} */ (grant);
+  return typeof candidate.hostId === 'string' && typeof candidate.deviceId === 'string' &&
+    typeof candidate.deviceToken === 'string' && typeof candidate.gatewayBaseUrl === 'string';
 }
 
 /**
@@ -124,8 +131,10 @@ function validGrant(grant) {
  * }} options
  */
 export function createRemoteEnvironmentsCustody(options) {
+  /** @type {typeof fetch} */
+  const defaultFetch = (...args) => globalThis.fetch(...args);
   const {
-    fetchFn = (...args) => globalThis.fetch(...args),
+    fetchFn = defaultFetch,
     getProductionApiBase, getSessionToken,
     loadEncrypted, saveEncrypted, clearEncrypted,
     safeStorage, env = process.env,
@@ -135,7 +144,7 @@ export function createRemoteEnvironmentsCustody(options) {
     throw new Error('Invalid remote environments configuration');
   }
   const encrypted = () => safeStorage?.isEncryptionAvailable?.() === true;
-  /** @type {{hostId:string,deviceId:string,deviceToken:string,gatewayBaseUrl:string} | null} */
+  /** @type {RemoteGrant | null} */
   let grant = null;
   let loaded = false;
 
@@ -143,7 +152,7 @@ export function createRemoteEnvironmentsCustody(options) {
     if (loaded) return;
     loaded = true;
     try {
-      if (!encrypted()) return;
+      if (!safeStorage || !encrypted()) return;
       const bytes = await loadEncrypted();
       if (!bytes || !Buffer.isBuffer(bytes) || bytes.length > MAX_GRANT_BYTES) return;
       const candidate = JSON.parse(safeStorage.decryptString(bytes));
@@ -158,7 +167,6 @@ export function createRemoteEnvironmentsCustody(options) {
   };
 
   return {
-    /** @param {string} environmentId */
     async listEnvironments() {
       if (!remoteAttachEnabled(env)) return { state: 'disabled' };
       const base = getProductionApiBase();
@@ -199,12 +207,12 @@ export function createRemoteEnvironmentsCustody(options) {
       }
       grant = candidate;
       loaded = true;
-      if (encrypted()) await saveEncrypted(safeStorage.encryptString(JSON.stringify(grant)));
+      if (safeStorage && encrypted()) await saveEncrypted(safeStorage.encryptString(JSON.stringify(grant)));
       // The device token itself never leaves main: the IPC result carries only its identity.
       return { state: 'connected', environmentId: grant.hostId, deviceId: grant.deviceId };
     },
 
-    /** @param {{method:string,path:string,body?:unknown,headers?:Record<string,string>}} request */
+    /** @param {{method?:string,path?:string,body?:unknown,headers?:Record<string,string>}} request */
     async request({ method, path, body, headers } = {}) {
       if (!remoteAttachEnabled(env)) return { state: 'disabled' };
       if (!isAllowedRemoteGatewayRequest(method, path)) {
@@ -249,9 +257,10 @@ export function createRemoteEnvironmentsCustody(options) {
       if (response.status === 401) { await clearGrant(); return { state: 'revoked' }; }
       if (!response.ok || !response.body) return { state: 'error', status: response.status, stop: () => controller.abort() };
       const decoder = new TextDecoder();
+      const body = response.body;
       (async () => {
         try {
-          for await (const chunk of response.body) onChunk(decoder.decode(chunk, { stream: true }));
+          for await (const chunk of body) onChunk(decoder.decode(chunk, { stream: true }));
         } catch { /* aborted locally, or the relay/uplink dropped the connection */ }
         finally { onEnd?.(); }
       })();
@@ -287,7 +296,7 @@ export function registerRemoteEnvironments({ ipcMain, getWindow, custody }) {
   const stopStream = (sender, sessionId) => {
     const streams = activeStreams.get(sender);
     const stop = streams?.get(sessionId);
-    if (!stop) return;
+    if (!streams || !stop) return;
     streams.delete(sessionId);
     if (streams.size === 0) activeStreams.delete(sender);
     stop();
@@ -328,11 +337,13 @@ export function registerRemoteEnvironments({ ipcMain, getWindow, custody }) {
       },
     );
     if (result.stop) {
-      if (!activeStreams.has(sender)) {
-        activeStreams.set(sender, new Map());
+      let streams = activeStreams.get(sender);
+      if (!streams) {
+        streams = new Map();
+        activeStreams.set(sender, streams);
         sender.once('destroyed', () => stopAllStreams(sender));
       }
-      activeStreams.get(sender).set(sessionId, result.stop);
+      streams.set(sessionId, result.stop);
     }
     return { state: result.state };
   });
