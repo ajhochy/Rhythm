@@ -2398,4 +2398,87 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_tool_safety_reports_proposal
        ON tool_safety_reports(proposal_id)`,
   );
+
+  // #1485 S3a-2 — Postgres twin of the agent_sessions workflow-binding columns.
+  await pool.query(`ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS workflow_run_id TEXT`);
+  await pool.query(`ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS workflow_stage_execution_id TEXT`);
+
+  // #1485 S3a-1 — durable recipe-workflow runs. Postgres twin of
+  // migrations.ts; column set (including the '' item_key/item_id sentinel —
+  // see migrations.ts for why NULL cannot be used there) MUST stay identical.
+  // Execution never actually runs against a hosted/Postgres deployment (see
+  // recipe_workflow_runner.ts), so these rows exist for schema parity only.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS recipe_workflow_runs (
+      id TEXT PRIMARY KEY,
+      recipe_id TEXT NOT NULL REFERENCES agent_cookbook(id) ON DELETE CASCADE,
+      owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      definition_json TEXT NOT NULL,
+      input_json TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'pending',
+      pending_approval_id TEXT,
+      usage_cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
+      usage_tokens INTEGER NOT NULL DEFAULT 0,
+      stage_execution_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      updated_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      cancelled_at TEXT
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_recipe_workflow_runs_recipe
+       ON recipe_workflow_runs(recipe_id, created_at)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_recipe_workflow_runs_status
+       ON recipe_workflow_runs(status, updated_at)`,
+  );
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS recipe_workflow_stage_executions (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL REFERENCES recipe_workflow_runs(id) ON DELETE CASCADE,
+      stage_id TEXT NOT NULL,
+      item_key TEXT NOT NULL DEFAULT '',
+      item_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempt_id TEXT,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      profile_id TEXT,
+      configured_provider_id TEXT,
+      configured_model_id TEXT,
+      observed_provider_id TEXT,
+      observed_model_id TEXT,
+      outcome TEXT,
+      output_json TEXT,
+      item_data_json TEXT,
+      cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
+      tokens INTEGER NOT NULL DEFAULT 0,
+      provisional_session_id TEXT,
+      committed_session_id TEXT,
+      started_at TEXT,
+      completed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      updated_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      UNIQUE(run_id, stage_id, item_key, item_id)
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_recipe_workflow_stage_executions_run
+       ON recipe_workflow_stage_executions(run_id, status)`,
+  );
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS recipe_workflow_loop_usage (
+      run_id TEXT NOT NULL REFERENCES recipe_workflow_runs(id) ON DELETE CASCADE,
+      loop_id TEXT NOT NULL,
+      item_key TEXT NOT NULL DEFAULT '',
+      item_id TEXT NOT NULL DEFAULT '',
+      iterations INTEGER NOT NULL DEFAULT 0,
+      cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
+      tokens INTEGER NOT NULL DEFAULT 0,
+      started_at TEXT NOT NULL,
+      PRIMARY KEY (run_id, loop_id, item_key, item_id)
+    )
+  `);
 }

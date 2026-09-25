@@ -1046,6 +1046,36 @@ export class AgentSessionsRepository {
   }
 
   /**
+   * #1485 S3a-2 — durably marks a freshly-created session as workflow-owned,
+   * atomically and BEFORE any engine work (called from the workflow stage
+   * dispatcher's `onSessionCreated`). `WHERE workflow_run_id IS NULL` makes
+   * this a one-shot write per session row (each dispatch attempt always
+   * creates a brand-new session, so this guards against an unexpected repeat
+   * call rather than a real steady-state race). Returns false when the
+   * binding could not be persisted — callers must fail the dispatch closed
+   * before the model is ever called.
+   */
+  bindWorkflowSession(id: string, workflowRunId: string, workflowStageExecutionId: string): boolean {
+    const changes = this.mutateAndReplicate(id, (db) => db
+      .prepare(
+        `UPDATE agent_sessions
+           SET workflow_run_id = ?, workflow_stage_execution_id = ?, updated_at = ?
+         WHERE id = ? AND workflow_run_id IS NULL`,
+      )
+      .run(workflowRunId, workflowStageExecutionId, new Date().toISOString(), id).changes);
+    return changes > 0;
+  }
+
+  /** #1485 S3b — is this session (or would a completion for it be) workflow-owned? */
+  getWorkflowBinding(id: string): { workflowRunId: string; workflowStageExecutionId: string } | null {
+    const row = getDb()
+      .prepare(`SELECT workflow_run_id, workflow_stage_execution_id FROM agent_sessions WHERE id = ?`)
+      .get(id) as { workflow_run_id: string | null; workflow_stage_execution_id: string | null } | undefined;
+    if (!row?.workflow_run_id || !row.workflow_stage_execution_id) return null;
+    return { workflowRunId: row.workflow_run_id, workflowStageExecutionId: row.workflow_stage_execution_id };
+  }
+
+  /**
    * OPC-M1-4 — Persist error state on the session row.
    * Replaces the in-memory setTimeout sentinel: error is now durable and
    * survives bridge restarts. Clearing happens only on an explicit user action.

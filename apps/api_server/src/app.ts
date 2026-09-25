@@ -58,6 +58,7 @@ import agentMemoryRouter from './routes/agentMemoryRoutes';
 import agentWebhookRouter from './routes/agentWebhookRoutes';
 import agentResearchRouter from './routes/agentResearchRoutes';
 import agentCookbookRouter from './routes/agentCookbookRoutes';
+import agentWorkflowRouter from './routes/agentWorkflowRoutes';
 import orgProposalsRouter from './routes/org_proposals_routes';
 import orgOptimizerRunRouter from './routes/org_optimizer_run_routes';
 import agentDesignsRouter from './routes/agentDesignsRoutes';
@@ -260,6 +261,11 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
     app.use('/agent-webhooks', agentWebhookRouter);
     app.use('/agent-research', agentResearchRouter);
     app.use('/agent-cookbook', agentCookbookRouter);
+    // #1485 S3a-1 — durable recipe-workflow runs, default off behind
+    // env.recipeWorkflowsEnabled (checked inside the runner, not the route
+    // gate here — mirrors agent-cookbook's own pattern of one shared route
+    // surface with an inner capability check).
+    app.use('/agent-workflows', agentWorkflowRouter);
     app.use('/agent-activity', agentActivityRouter);
     // org-optimizer-10 (#826): human-gate review queue — exception path for
     // new-agent + external-adoption/webhook-wiring proposals, plus an

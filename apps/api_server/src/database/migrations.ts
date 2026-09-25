@@ -4609,4 +4609,109 @@ If someone asks for creative work that needs a local capability:
         SELECT RAISE(ABORT, 'prompt injection audit history is append-only');
       END;
   `);
+
+  // #1485 S3a-2 — durably marks a session as workflow-owned BEFORE engine
+  // work starts (see recipe_workflow_runner.ts's provisional-binding
+  // onSessionCreated callback). Nullable/additive; also read by S3b's shared
+  // interactive/scheduled-bypass exclusions (a workflow-marked session is
+  // never eligible for those shortcuts).
+  const agentSessionCols1485 = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map(
+    (c) => c.name,
+  );
+  if (!agentSessionCols1485.includes('workflow_run_id')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN workflow_run_id TEXT`);
+  }
+  if (!agentSessionCols1485.includes('workflow_stage_execution_id')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN workflow_stage_execution_id TEXT`);
+  }
+
+  // #1485 S3a-1 — durable recipe-workflow runs. Default-off behind
+  // env.recipeWorkflowsEnabled; see recipe_workflow_runner.ts. A run snapshots
+  // its recipe's definition_json at start (never re-reads a later edit), and
+  // input_json is the run's own start-time input (RunInput — always strings).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS recipe_workflow_runs (
+      id TEXT PRIMARY KEY,
+      recipe_id TEXT NOT NULL REFERENCES agent_cookbook(id) ON DELETE CASCADE,
+      owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      definition_json TEXT NOT NULL,
+      input_json TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'pending',
+      pending_approval_id TEXT,
+      usage_cost_usd REAL NOT NULL DEFAULT 0,
+      usage_tokens INTEGER NOT NULL DEFAULT 0,
+      stage_execution_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      cancelled_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_recipe_workflow_runs_recipe
+      ON recipe_workflow_runs(recipe_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_recipe_workflow_runs_status
+      ON recipe_workflow_runs(status, updated_at);
+  `);
+
+  // One row per LOGICAL stage occurrence: (run_id, stage_id, item_key,
+  // item_id) — stable across repair-loop re-attempts of the same occurrence
+  // (attempt_id/attempt_count advance in place; see recipe_workflow_runner.ts
+  // "claim" pattern for idempotency under a duplicated tick).
+  //
+  // item_key/item_id are NOT NULL with a '' sentinel for "root scope" rather
+  // than nullable: SQLite (like standard SQL) treats every NULL as distinct
+  // from every other NULL inside a UNIQUE/PRIMARY KEY, so two root-scope rows
+  // for the same stage would NOT collide and idempotent claims would silently
+  // duplicate. The repository translates '' <-> null at its API boundary.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS recipe_workflow_stage_executions (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL REFERENCES recipe_workflow_runs(id) ON DELETE CASCADE,
+      stage_id TEXT NOT NULL,
+      item_key TEXT NOT NULL DEFAULT '',
+      item_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempt_id TEXT,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      profile_id TEXT,
+      configured_provider_id TEXT,
+      configured_model_id TEXT,
+      observed_provider_id TEXT,
+      observed_model_id TEXT,
+      outcome TEXT,
+      output_json TEXT,
+      item_data_json TEXT,
+      cost_usd REAL NOT NULL DEFAULT 0,
+      tokens INTEGER NOT NULL DEFAULT 0,
+      -- #1485 S3a-2 — two-phase session binding. provisional_session_id is
+      -- set atomically by the FIRST onSessionCreated call for this attempt
+      -- (a second call with a different id fails the attempt closed);
+      -- committed_session_id is set only once AgentRunResult.sessionId is
+      -- confirmed to equal the sole provisional session.
+      provisional_session_id TEXT,
+      committed_session_id TEXT,
+      started_at TEXT,
+      completed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(run_id, stage_id, item_key, item_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_recipe_workflow_stage_executions_run
+      ON recipe_workflow_stage_executions(run_id, status);
+  `);
+
+  // Loop-instance usage, keyed exactly as the plan specifies: (loopId,
+  // itemKey [+ itemId for a loop that lives inside a fan-out]). Same ''
+  // sentinel rationale as recipe_workflow_stage_executions above.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS recipe_workflow_loop_usage (
+      run_id TEXT NOT NULL REFERENCES recipe_workflow_runs(id) ON DELETE CASCADE,
+      loop_id TEXT NOT NULL,
+      item_key TEXT NOT NULL DEFAULT '',
+      item_id TEXT NOT NULL DEFAULT '',
+      iterations INTEGER NOT NULL DEFAULT 0,
+      cost_usd REAL NOT NULL DEFAULT 0,
+      tokens INTEGER NOT NULL DEFAULT 0,
+      started_at TEXT NOT NULL,
+      PRIMARY KEY (run_id, loop_id, item_key, item_id)
+    );
+  `);
 }
