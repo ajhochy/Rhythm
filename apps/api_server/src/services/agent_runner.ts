@@ -24,6 +24,7 @@ import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { ProjectsRepository } from '../repositories/projects_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import {
   AgentConfigsRepository,
@@ -87,6 +88,7 @@ function _positiveTimeoutMs(value: string | undefined, fallback: number): number
  * explicit knob.
  */
 export const MAX_ENGINE_TOOL_TIMEOUT_MS = 1_200_000;
+const AGENT_RUNNER_TRANSCRIPT_TAIL_LIMIT = 3;
 
 export function getRunInactivityTimeoutMs(): number {
   return _positiveTimeoutMs(
@@ -301,7 +303,10 @@ async function _recoverPartialResultOnTimeout(
   cwd: string | undefined,
 ): Promise<string> {
   try {
-    const msgs = await opencodeClient.listMessages(sessionId, cwd);
+    const msgs = await opencodeClient.listMessages(sessionId, cwd, {
+      limit: AGENT_RUNNER_TRANSCRIPT_TAIL_LIMIT,
+      caller: 'agent_runner.timeout_recovery',
+    });
     const lastAssistant = [...msgs].reverse().find((m) => m.info.role === 'assistant');
     return _extractText(lastAssistant?.parts as ReadonlyArray<{ type: string }> | undefined);
   } catch {
@@ -624,6 +629,7 @@ function _recordSession(opts: {
   profileId?: string | null;
   opencodeAgentId?: string | null;
   cwd: string;
+  projectId?: string | null;
   taskTitle?: string | null;
   scheduledTaskId?: string | null;
   mcpRole?: string | null;
@@ -647,7 +653,7 @@ function _recordSession(opts: {
       taskTitle: opts.taskTitle ?? null,
       cwd: opts.cwd,
       name: opts.name,
-      projectId: null,
+      projectId: opts.projectId ?? null,
       mcpRole: opts.mcpRole ?? null,
       mcpAllowedToolsJson: opts.mcpAllowedToolsJson ?? null,
       scheduledTaskId: opts.scheduledTaskId ?? null,
@@ -1039,6 +1045,14 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     ? sessionName
     : promptTitle ?? sessionName ?? (scheduledTaskId ? 'Scheduled run' : 'AgentRunner run');
   const projectCwd = cwd ?? process.cwd();
+  let projectId: string | null = null;
+  try {
+    projectId = new ProjectsRepository().findByCwdPrefix(projectCwd)?.id ?? null;
+  } catch (err) {
+    // Session recording is best-effort when AgentRunner is used without an
+    // initialized database (including lightweight consumers and unit tests).
+    logger.warn(`[AgentRunner] project lookup failed (non-fatal): ${String(err)}`);
+  }
   let effectiveCwd = projectCwd;
   let worktree: { name: string; path: string; branch: string | null } | null = null;
   const deadlinePolicy = _createRunDeadlinePolicy();
@@ -1070,6 +1084,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     profileId: isOrgReviewer ? ORG_REVIEWER_PROFILE_ID : null,
     opencodeAgentId: isOrgReviewer ? ORG_REVIEWER_PROFILE_ID : null,
     cwd: effectiveCwd,
+    projectId,
     taskTitle: taskTitle ?? null,
     scheduledTaskId: scheduledTaskId ?? null,
     mcpRole: mcpRole ?? profileScope.mcpRoleConfig?.role ?? null,
@@ -1545,7 +1560,10 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       'prompt',
       async () =>
         _sessionActivityFingerprint(
-          await opencodeClient.listMessages(sessionId, effectiveCwd),
+          await opencodeClient.listMessages(sessionId, effectiveCwd, {
+            limit: AGENT_RUNNER_TRANSCRIPT_TAIL_LIMIT,
+            caller: 'agent_runner.activity_probe',
+          }),
         ),
     );
 
@@ -1584,7 +1602,10 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     // transcript uses) and extract its text.
     if (!resultText) {
       try {
-        const msgs = await opencodeClient.listMessages(sessionId, effectiveCwd);
+        const msgs = await opencodeClient.listMessages(sessionId, effectiveCwd, {
+          limit: AGENT_RUNNER_TRANSCRIPT_TAIL_LIMIT,
+          caller: 'agent_runner.final_text_fallback',
+        });
         const lastAssistant = msgs
           .filter((m) => m.info.role === 'assistant')
           .pop();

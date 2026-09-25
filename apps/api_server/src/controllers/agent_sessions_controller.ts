@@ -196,10 +196,12 @@ function resolveWorktreeEngineDirectory(session: {
   worktreePath: string | null;
 }): string | null {
   if (!session.worktreePath) return null;
+  const primaryWorktreePath = getPrimaryWorktreePath(session.worktreePath);
+  if (primaryWorktreePath) return primaryWorktreePath;
   const projectCwd = session.projectId
     ? new ProjectsRepository().findById(session.projectId)?.cwd
     : null;
-  return projectCwd ?? getPrimaryWorktreePath(session.worktreePath) ?? session.worktreePath;
+  return projectCwd ?? session.worktreePath;
 }
 
 /**
@@ -214,7 +216,10 @@ async function backfillSessionModelFromOpencode(
   sdkSessionId: string,
 ): Promise<void> {
   try {
-    const messages = await opencodeClient.listMessages(sdkSessionId);
+    const messages = await opencodeClient.listMessages(sdkSessionId, undefined, {
+      limit: 20,
+      caller: 'agent_sessions.model_backfill',
+    });
     for (let i = messages.length - 1; i >= 0; i--) {
       // SDK shape is { info, parts }; tolerate a flat shape defensively.
       const m = messages[i] as unknown as Record<string, unknown>;
@@ -943,7 +948,7 @@ export class AgentSessionsController {
         }
         projectId = (raw as string | null) ?? null;
       } else {
-        const match = new ProjectsRepository().findByCwdPrefix(sessionCwd);
+        const match = new ProjectsRepository().findByCwdPrefix(expandedCwd);
         projectId = match?.id ?? null;
       }
 

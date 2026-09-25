@@ -2440,7 +2440,9 @@ export class OpencodeClientService {
   }
 
   /**
-   * POST /experimental/worktree — create a worktree in the project directory.
+   * POST /experimental/worktree — ask the engine to create a worktree for the
+   * project. The engine chooses its own storage location; it is not necessarily
+   * inside the requested project directory.
    * Returns the created worktree Info (name/branch/directory) or throws
    * AppError(502) on failure so the route surfaces worktree.failed cleanly.
    */
@@ -2751,16 +2753,35 @@ export class OpencodeClientService {
   async listMessages(
     sdkId: string,
     directory?: string,
+    options: { limit?: number; caller?: string } = {},
   ): Promise<import('@opencode-ai/sdk').SessionMessage[]> {
     const client = this.requireClient();
     // #861 smoke fix: engine session reads are DIRECTORY-SCOPED — without
     // ?directory=<session cwd> the engine looks in its default instance and
     // reports "Session not found" for sessions created under another cwd
     // (e.g. subagent sessions under $HOME). Same gotcha as respond/abort.
+    const startedAt = Date.now();
     const raw = await client.session.messages({
       path: { id: sdkId },
-      ...(directory ? { query: { directory } } : {}),
+      ...(directory || options.limit !== undefined
+        ? {
+            query: {
+              ...(directory ? { directory } : {}),
+              ...(options.limit !== undefined ? { limit: options.limit } : {}),
+            },
+          }
+        : {}),
     });
+    const elapsedMs = Date.now() - startedAt;
+    const configuredThreshold = Number(process.env.RHYTHM_TRANSCRIPT_FETCH_WARN_MS);
+    const warnThresholdMs = Number.isFinite(configuredThreshold) && configuredThreshold >= 0
+      ? configuredThreshold
+      : 200;
+    if (elapsedMs >= warnThresholdMs) {
+      logger.warn(
+        `[OpencodeClientService] slow transcript fetch caller=${options.caller ?? 'unspecified'} messages=${raw.data?.length ?? 0} elapsedMs=${elapsedMs}`,
+      );
+    }
     if (raw.error) {
       throw new AppError(
         502,
