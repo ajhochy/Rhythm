@@ -8,6 +8,7 @@
 // Hermetic smoke runs remain isolated by their explicit RHYTHM_LIVE_* URLs plus isolated HOME and
 // RHYTHM_SHELL_USER_DATA; main.mjs never starts this service for --smoke runs.
 import { execFile, spawn } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { createServer } from 'node:net';
@@ -96,12 +97,13 @@ export function relayUplinkUrlForProductionApiBase(value) {
  * api_server_service.dart:46-92 field-for-field, adapted to Electron's persisted main-process
  * session. The restored session is paired with only the validated selected API base; explicit relay
  * configuration, including an intentional empty value, never receives it automatically.
- * @param {{ baseEnv: NodeJS.ProcessEnv, port: number, enginePort: number, dbPathValue: string, humanApprovalPublicKey: string, humanApprovalCapabilitySha256: string, mcpRolesDir: string | undefined, relaySessionToken?: string | undefined, relayProductionApiBase?: string | undefined }} options
+ * @param {{ baseEnv: NodeJS.ProcessEnv, port: number, enginePort: number, dbPathValue: string, humanApprovalPublicKey: string, humanApprovalCapabilitySha256: string, bridgeRegistrarSha256?: string | undefined, mcpRolesDir: string | undefined, relaySessionToken?: string | undefined, relayProductionApiBase?: string | undefined }} options
  */
-export function buildEnvironment({ baseEnv, port, enginePort, dbPathValue, humanApprovalPublicKey, humanApprovalCapabilitySha256, mcpRolesDir, relaySessionToken, relayProductionApiBase }) {
+export function buildEnvironment({ baseEnv, port, enginePort, dbPathValue, humanApprovalPublicKey, humanApprovalCapabilitySha256, bridgeRegistrarSha256, mcpRolesDir, relaySessionToken, relayProductionApiBase }) {
   /** @type {NodeJS.ProcessEnv} */
   const env = { ...baseEnv };
   for (const key of Object.keys(env)) if (key.startsWith('HUMAN_APPROVAL_')) delete env[key];
+  for (const key of Object.keys(env)) if (key.startsWith('RHYTHM_AGENT_BRIDGE_')) delete env[key];
   env.PORT = String(port);
   env.RHYTHM_OPENCODE_ENGINE_PORT = String(enginePort);
   env.DB_PATH = dbPathValue;
@@ -109,6 +111,9 @@ export function buildEnvironment({ baseEnv, port, enginePort, dbPathValue, human
   env.RHYTHM_LOCAL_RENDERER_ORIGINS = 'rhythm://app';
   env.HUMAN_APPROVAL_PUBLIC_KEY = humanApprovalPublicKey;
   env.HUMAN_APPROVAL_CAPABILITY_SHA256 = humanApprovalCapabilitySha256;
+  if (typeof bridgeRegistrarSha256 === 'string' && /^[a-f0-9]{64}$/.test(bridgeRegistrarSha256)) {
+    env.RHYTHM_AGENT_BRIDGE_REGISTRAR_SHA256 = bridgeRegistrarSha256;
+  }
   if (mcpRolesDir && !env.MCP_ROLES_DIR) env.MCP_ROLES_DIR = mcpRolesDir;
   const hasExplicitRelayConfiguration = Object.hasOwn(baseEnv, 'RHYTHM_RELAY_URLS') || Object.hasOwn(baseEnv, 'RHYTHM_RELAY_BEARER');
   if (!hasExplicitRelayConfiguration && typeof relaySessionToken === 'string' && relaySessionToken.length > 0 && typeof relayProductionApiBase === 'string') {
@@ -210,6 +215,8 @@ export class AgentServerService {
   #listeners = new Set();
   /** @type {(() => Promise<{ token?: string, productionApiBase?: string } | undefined> | { token?: string, productionApiBase?: string } | undefined) | undefined} */
   #relayConfigurationProvider;
+  /** @type {string | undefined} */
+  #bridgeRegistrarSecret;
 
   /** @param {{ relayConfigurationProvider?: (() => Promise<{ token?: string, productionApiBase?: string } | undefined> | { token?: string, productionApiBase?: string } | undefined) | undefined }} [options] */
   constructor({ relayConfigurationProvider } = {}) {
@@ -218,6 +225,11 @@ export class AgentServerService {
 
   /** @returns {AgentServerStatus} */
   get status() { return { status: this.#status, failureReason: this.#failureReason ?? null, stderrTail: this.#stderrTail(), errorMessage: this.#errorMessage ?? null }; }
+
+  bridgeRegistrar() {
+    if (this.#usingExisting || this.#status !== 'ready' || !this.#process || !this.#bridgeRegistrarSecret) return undefined;
+    return { secret: this.#bridgeRegistrarSecret, baseUrl: AGENT_SERVER_BASE_URL, port: AGENT_SERVER_PORT };
+  }
 
   /** @param {(status: AgentServerStatus) => void} listener */
   onStatusChange(listener) { this.#listeners.add(listener); return () => this.#listeners.delete(listener); }
@@ -263,6 +275,7 @@ export class AgentServerService {
     this.#status = 'starting';
     this.#failureReason = undefined;
     this.#errorMessage = undefined;
+    this.#bridgeRegistrarSecret = undefined;
     this.#emit();
 
     const occupied = [];
@@ -328,6 +341,10 @@ export class AgentServerService {
       dbPathValue: targetDbPath,
       humanApprovalPublicKey: material.humanApprovalPublicKey,
       humanApprovalCapabilitySha256: material.humanApprovalCapabilitySha256,
+      bridgeRegistrarSha256: (() => {
+        this.#bridgeRegistrarSecret = randomBytes(32).toString('base64url');
+        return createHash('sha256').update(this.#bridgeRegistrarSecret).digest('hex');
+      })(),
       mcpRolesDir: serverInfo.mcpRolesDir,
       relaySessionToken: relayConfiguration?.token,
       relayProductionApiBase: relayConfiguration?.productionApiBase,
@@ -366,6 +383,7 @@ export class AgentServerService {
       proc.stdout?.off('data', stdout); proc.stderr?.off('data', stderr);
       proc.off('exit', onExit); proc.off('error', onError);
       if (this.#process === proc) this.#process = undefined;
+      this.#bridgeRegistrarSecret = undefined;
       this.#abort.abort();
     };
     proc.on('error', onError); proc.on('exit', onExit);
@@ -413,6 +431,7 @@ export class AgentServerService {
     this.#abort.abort();
     if (this.#usingExisting) {
       this.#usingExisting = false;
+      this.#bridgeRegistrarSecret = undefined;
       this.#status = 'stopped';
       this.#emit();
       return;
@@ -440,6 +459,7 @@ export class AgentServerService {
     this.#abort.abort();
     if (this.#usingExisting) {
       this.#usingExisting = false;
+      this.#bridgeRegistrarSecret = undefined;
       this.#status = 'stopped';
       this.#emit();
       return;

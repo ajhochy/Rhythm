@@ -17,6 +17,7 @@ import { resolveGoogleDesktopClientId } from './runtime-config.mjs';
 import { validateSecuritySmokeReceipt } from './security-smoke-receipt.mjs';
 import { createAccountsAuthState } from './hermes-accounts-auth.mjs';
 import { createHermesAccountsMain } from './hermes-accounts-main.mjs';
+import { createAgentBridgeHost } from './hermes-agent-bridge.mjs';
 import { bindHermesViewSupervisor, registerHermesView } from './hermes-view.mjs';
 import { registerColonyHost } from './colony-host.mjs';
 
@@ -184,6 +185,37 @@ if (hasSingleInstanceLock) {
   let accountsHermesHome;
   let accountsBlocked = false;
   let accountsTransition = Promise.resolve();
+  /** @type {AgentServerService | undefined} */
+  let agentServer;
+  const bridgeHost = createAgentBridgeHost({
+    getRegistrar: () => agentServer?.bridgeRegistrar?.(),
+    getSessionToken: () => productionSessionToken,
+    getMemoryConsent: async (identity) => {
+      const auth = accountsAuth.getSnapshot();
+      const memorySearchConsent = /** @type {any} */ (accountsMain)?.memorySearchConsent;
+      const consent = await memorySearchConsent?.({
+        ...identity,
+        rhythmUserId: auth.userId,
+        hermesHome: accountsHermesHome,
+      });
+      if (consent === true) return { granted: true, memoryVaultId: identity.memoryVaultId };
+      if (consent && typeof consent === 'object') return consent;
+      return { granted: false };
+    },
+    confirmNative: async (summary) => {
+      const win = mainWindow;
+      if (!win || win.isDestroyed()) return false;
+      const detail = summary.fields.map((field) => `${field.name}: ${String(field.before)} → ${String(field.after)}`).join('\n');
+      const result = await dialog.showMessageBox(win, {
+        type: 'question', buttons: ['Apply', 'Reject'], defaultId: 1, cancelId: 1,
+        title: 'Confirm shared agent change',
+        message: `Allow changes to ${summary.agentLabel} (${summary.agentId})?`,
+        detail,
+      });
+      return result.response === 0;
+    },
+    log: (entry) => process.stderr.write(`agent bridge: ${entry.code}\n`),
+  });
   const getAccountsMain = () => {
     if (accountsBlocked || !accountsAuth.getSnapshot().authenticated) return undefined;
     if (accountsMain) return accountsMain;
@@ -220,7 +252,16 @@ if (hasSingleInstanceLock) {
     return {
       hermesHome: accountsHermesHome,
       backendEnvContext: Object.freeze({ serverOrigin: auth.serverOrigin, rhythmUserId: auth.userId, authGeneration: auth.authGeneration }),
-      backendEnv: (/** @type {any} */ request) => attempt?.backendEnv(request) ?? Promise.resolve({}),
+      backendEnv: async (/** @type {any} */ request) => {
+        const accountEnvironment = await (attempt?.backendEnv(request) ?? Promise.resolve({}));
+        if (!attempt || !attemptId) return accountEnvironment;
+        return { ...accountEnvironment, ...bridgeHost.mintForAttempt({
+          attemptId,
+          profile: request.profile,
+          serverOrigin: String(auth.serverOrigin ?? ''),
+          authGeneration: String(auth.authGeneration ?? ''),
+        }) };
+      },
       onOwnedBackendAttempt: (/** @type {any} */ event) => {
         if (event.phase === 'starting') {
           if (attempt || accountsBlocked || accountsAuth.getSnapshot().authGeneration !== auth.authGeneration) throw new Error('Stale credential attempt denied');
@@ -230,6 +271,7 @@ if (hasSingleInstanceLock) {
         }
         const accepted = event.attemptId === attemptId && attempt?.record({ phase: event.phase === 'accepted' ? 'spawned' : event.cause === 'exited' ? 'exited' : 'failed', owned: true, acceptedEnvNames: event.acceptedEnvNames });
         if (event.phase === 'accepted' && !accepted) throw new Error('Invalid credential spawn receipt');
+        if (event.phase === 'retired') void bridgeHost.retire(event.attemptId).catch(() => {});
         if (event.phase === 'retired' && event.attemptId === attemptId) attempt = undefined;
       },
     };
@@ -257,7 +299,7 @@ if (hasSingleInstanceLock) {
     const authInvalidation = accountsAuth.invalidate();
     const brokerInvalidation = accountsMain?.identityChanged();
     const previous = accountsTransition;
-    accountsTransition = Promise.all([previous, authInvalidation, brokerInvalidation, hermesView.disposeCurrent(), colonyHost?.invalidateProfile()]).then(() => { accountsBlocked = false; });
+    accountsTransition = Promise.all([previous, authInvalidation, brokerInvalidation, bridgeHost.revokeAll(), hermesView.disposeCurrent(), colonyHost?.invalidateProfile()]).then(() => { accountsBlocked = false; });
     void accountsTransition.catch(() => {});
     authGeneration += 1;
     clearAgentNotifications();
@@ -682,7 +724,7 @@ if (hasSingleInstanceLock) {
   // canonical 4001/4096 boundary: healthy Rhythm services are reused without ownership.
   // Alternate ports exist only behind an explicit smoke-only flag.
   // Interactive smoke renders normally, but the manager owns the external sandbox lifecycle.
-  const agentServer = isInteractiveSmoke ? undefined : new AgentServerService({
+  agentServer = isInteractiveSmoke ? undefined : new AgentServerService({
     relayConfigurationProvider: () => ({ token: productionSessionToken, productionApiBase }),
   });
   const isHermesSelfTest = isSmoke || isMissingDistSmoke;
@@ -745,6 +787,7 @@ if (hasSingleInstanceLock) {
     return signature;
   });
   agentServer?.onStatusChange((/** @type {import('./agent-server.mjs').AgentServerStatus} */ snapshot) => {
+    if (snapshot.status === 'ready') void bridgeHost.onRegistrarReady().catch(() => {});
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('rhythm:agent-server:status-changed', snapshot);
     // ponytail: native error dialog keeps failures actionable without expanding E12's renderer UI.
     if (!isSmoke && snapshot.status === 'failed') {
@@ -877,6 +920,11 @@ if (hasSingleInstanceLock) {
     });
 
     const denials = { navigation: false, popup: false, permission: false, download: false };
+    /** @type {((blocked: boolean) => void) | undefined} */
+    let resolveArtifactNavigationDenied;
+    const artifactNavigationDenied = isArtifactFrameSmoke
+      ? new Promise((resolvePromise) => { resolveArtifactNavigationDenied = resolvePromise; })
+      : undefined;
     /** @param {Electron.WebContents | null} webContents @param {string} permission */
     const allowOwnedClipboardWrite = (webContents, permission) =>
       permission === 'clipboard-sanitized-write' && !!webContents && webContents === mainWindow?.webContents
@@ -963,6 +1011,7 @@ if (hasSingleInstanceLock) {
       if (!touchesArtifact) return;
       if (typeof currentUrl !== 'string' || !isAllowedArtifactFrameNavigation(currentUrl, targetUrl)) {
         denials.navigation = true;
+        resolveArtifactNavigationDenied?.(true);
         event.preventDefault();
       }
     });
@@ -995,9 +1044,11 @@ if (hasSingleInstanceLock) {
     if (!mainWindow) return;
 
     if (isArtifactFrameSmoke) {
-      artifactFrame = await mainWindow.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+      const smokeWindow = mainWindow;
+      artifactFrame = await smokeWindow.webContents.executeJavaScript(`new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error('Artifact frame smoke timed out')), 10_000);
         const frame = document.createElement('iframe');
+        frame.id = 'rhythm-artifact-smoke-frame';
         frame.sandbox = 'allow-scripts';
         frame.hidden = true;
         frame.src = 'rhythm-artifact://app/00000000-0000-4000-8000-000000000801';
@@ -1020,16 +1071,22 @@ if (hasSingleInstanceLock) {
           }
           if (event.data?.__artifactSmoke !== true) return;
           const protocol = new URL(frame.src).protocol;
-          setTimeout(() => {
-            clearTimeout(timer);
-            window.removeEventListener('message', onMessage);
-            frame.remove();
-            resolve({ loaded: true, protocol, bridge: event.data.bridge });
-          }, 100);
+          clearTimeout(timer);
+          window.removeEventListener('message', onMessage);
+          resolve({ loaded: true, protocol, bridge: event.data.bridge });
         };
         window.addEventListener('message', onMessage);
         document.body.append(frame);
-      })`).then((receipt) => ({ ...receipt, navigationBlocked: denials.navigation, request: artifactFrameRequest }));
+      })`).then(async (receipt) => {
+        let denialTimeout;
+        const navigationBlocked = await Promise.race([
+          artifactNavigationDenied,
+          new Promise((resolvePromise) => { denialTimeout = setTimeout(() => resolvePromise(false), 10_000); }),
+        ]);
+        clearTimeout(denialTimeout);
+        await smokeWindow.webContents.executeJavaScript("document.getElementById('rhythm-artifact-smoke-frame')?.remove()");
+        return { ...receipt, navigationBlocked, request: artifactFrameRequest };
+      });
     }
 
     if (!isSmoke) return;

@@ -34,6 +34,32 @@ test('post-m1-p7-c4d agent-server: buildEnvironment sets every required var and 
   assert.equal(env.MCP_ROLES_DIR, undefined, 'must not fabricate MCP_ROLES_DIR when none was resolved');
 });
 
+test('EB-1: bridge registrar environment contains only the digest and strips inherited bridge material', () => {
+  const digest = 'a'.repeat(64);
+  const env = buildEnvironment({
+    baseEnv: {
+      RHYTHM_AGENT_BRIDGE_REGISTRAR_SHA256: 'stale-digest',
+      RHYTHM_AGENT_BRIDGE_CAPABILITY: 'must-not-survive',
+      RHYTHM_AGENT_BRIDGE_OTHER: 'must-not-survive',
+      PATH: '/usr/bin',
+    },
+    port: 7330,
+    enginePort: 7331,
+    dbPathValue: '/tmp/rhythm-sa-s2/rhythm.db',
+    humanApprovalPublicKey: 'public-key',
+    humanApprovalCapabilitySha256: 'approval-digest',
+    bridgeRegistrarSha256: digest,
+    mcpRolesDir: undefined,
+  });
+
+  assert.equal(env.RHYTHM_AGENT_BRIDGE_REGISTRAR_SHA256, digest);
+  assert.deepEqual(
+    Object.keys(env).filter((key) => key.startsWith('RHYTHM_AGENT_BRIDGE_')),
+    ['RHYTHM_AGENT_BRIDGE_REGISTRAR_SHA256'],
+  );
+  assert.equal(JSON.stringify(env).includes('must-not-survive'), false);
+});
+
 test('post-m1-p7-c4d agent-server: buildEnvironment never lets an explicit override win for security-critical vars', () => {
   // Unlike MEMORY_VAULT_PATH/MCP_ROLES_DIR (explicit-override-wins, matching Flutter), the
   // HUMAN_APPROVAL_* vars must always be exactly what THIS process's signer just computed — a

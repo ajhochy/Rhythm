@@ -308,63 +308,81 @@
       "text": "- **EB-1.** The env carries only the digest, and inherited `RHYTHM_AGENT_BRIDGE_*` keys are stripped.",
       "mode": "integration",
       "test_id": "EB-1",
-      "status": "pending"
+      "status": "pass",
+      "test_file": "apps/electron/test/agent-server.test.mjs",
+      "evidence": "node --experimental-vm-modules --test --test-concurrency=1 test/hermes-agent-bridge.test.mjs test/agent-server.test.mjs (16/16 pass)"
     },
     {
       "criterion_id": "EB-2",
       "text": "- **EB-2.** On reuse there is no registrar: `mintForAttempt` returns `{}` and status is `runtime_unowned`.",
       "mode": "integration",
       "test_id": "EB-2",
-      "status": "pending"
+      "status": "pass",
+      "test_file": "apps/electron/test/hermes-agent-bridge.test.mjs",
+      "evidence": "node --experimental-vm-modules --test --test-concurrency=1 test/hermes-agent-bridge.test.mjs test/agent-server.test.mjs (16/16 pass)"
     },
     {
       "criterion_id": "EB-3",
       "text": "- **EB-3.** Mint makes no network call before returning, and returns a valid token plus the `http://127.0.0.1:<port>` origin. Registration runs in the background with the retry schedule and the exact body, and the session token is never logged.",
       "mode": "integration",
       "test_id": "EB-3",
-      "status": "pending"
+      "status": "pass",
+      "test_file": "apps/electron/test/hermes-agent-bridge.test.mjs",
+      "evidence": "node --experimental-vm-modules --test --test-concurrency=1 test/hermes-agent-bridge.test.mjs test/agent-server.test.mjs (16/16 pass)"
     },
     {
       "criterion_id": "EB-4",
       "text": "- **EB-4.** Retire sends DELETE. An identity change awaits `revokeAll`, and a failure keeps minting disabled. When the api_server becomes ready again, the same `C` is re-registered.",
       "mode": "integration",
       "test_id": "EB-4",
-      "status": "pending"
+      "status": "pass",
+      "test_file": "apps/electron/test/hermes-agent-bridge.test.mjs",
+      "evidence": "node --experimental-vm-modules --test --test-concurrency=1 test/hermes-agent-bridge.test.mjs test/agent-server.test.mjs (16/16 pass)"
     },
     {
       "criterion_id": "EB-5",
       "text": "- **EB-5.** A non-default profile or an unauthenticated user gets `{}`.",
       "mode": "integration",
       "test_id": "EB-5",
-      "status": "pending"
+      "status": "pass",
+      "test_file": "apps/electron/test/hermes-agent-bridge.test.mjs",
+      "evidence": "node --experimental-vm-modules --test --test-concurrency=1 test/hermes-agent-bridge.test.mjs test/agent-server.test.mjs (16/16 pass)"
     },
     {
       "criterion_id": "EB-6",
       "text": "- **EB-6.** The memory scope and vault id are sent only with consent; revoking consent calls revoke-scopes.",
       "mode": "integration",
       "test_id": "EB-6",
-      "status": "pending"
+      "status": "pass",
+      "test_file": "apps/electron/test/hermes-agent-bridge.test.mjs",
+      "evidence": "node --experimental-vm-modules --test --test-concurrency=1 test/hermes-agent-bridge.test.mjs test/agent-server.test.mjs (16/16 pass)"
     },
     {
       "criterion_id": "EB-7",
       "text": "- **EB-7.** A sentinel scan finds no `C`, `Rg` or session token in IPC returns, the preload or logs.",
       "mode": "integration",
       "test_id": "EB-7",
-      "status": "pending"
+      "status": "pass",
+      "test_file": "apps/electron/test/hermes-agent-bridge.test.mjs",
+      "evidence": "node --experimental-vm-modules --test --test-concurrency=1 test/hermes-agent-bridge.test.mjs test/agent-server.test.mjs (16/16 pass)"
     },
     {
       "criterion_id": "EB-8",
       "text": "- **EB-8.** Confirmation loop: long-poll; the dialog summary lists every field; the decision echoes `changesSha256`; with no window the result is `approve:false`; one dialog at a time.",
       "mode": "integration",
       "test_id": "EB-8",
-      "status": "pending"
+      "status": "pass",
+      "test_file": "apps/electron/test/hermes-agent-bridge.test.mjs",
+      "evidence": "node --experimental-vm-modules --test --test-concurrency=1 test/hermes-agent-bridge.test.mjs test/agent-server.test.mjs (16/16 pass)"
     },
     {
       "criterion_id": "EB-9",
       "text": "- **EB-9.** A `main.mjs` wiring contract test, in the style of `hermes-accounts-wiring-contract.test.mjs`.",
       "mode": "integration",
       "test_id": "EB-9",
-      "status": "pending"
+      "status": "pass",
+      "test_file": "apps/electron/test/hermes-agent-bridge.test.mjs",
+      "evidence": "node --experimental-vm-modules --test --test-concurrency=1 test/hermes-agent-bridge.test.mjs test/agent-server.test.mjs (16/16 pass)"
     },
     {
       "criterion_id": "N1-AC1",
