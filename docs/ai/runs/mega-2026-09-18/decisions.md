@@ -14,7 +14,7 @@
 - B3 intents limited to `navigate-session` and `new-chat` (≤64 KiB), MessageChannelMain per attach, sandboxed WebContentsView on its own partition — rejected any generic postMessage/proxy bridge.
 - Gate cadence: targeted gate (typecheck + build + the workstream's specs + the shared primitive spec) after each merge; full apps/web Playwright suite at checkpoints (after WS-0, after the eight views, final) — rejected the full suite after every merge (15–30 min × ~15 merges does not fit the window).
 - Acceptance contracts: tests are authored test-first by the Codex workers; a Codex assembler emits `docs/ai/contracts/issue-N.json` from worker reports before verification-gate — rejected Claude-authored contract stubs (Codex-only rule).
-- #1510 mobile: working sound default off; a stored `true` that only reflects the old default is migrated to off once; explicit re-enables persist — rejected discarding every saved preference.
+- #1510 mobile: working sound defaults off, but every stored boolean is preserved because an unmarked `true` cannot be distinguished from an intentional opt-in; only a missing choice inherits off — rejected resetting stored preferences based on an unknowable origin.
 - #1522: creates through the existing `ProjectsController.create`; live creation against the running API is left for AJ (isolated data) — rejected mutating the live :4001 database during the run.
 - #1524: one shared `Splitter` integrated through ListInspector, AgentsWorkspace, SessionRail (tools handle) and Shell — rejected per-page splitter edits (conflicts with eight parallel view workers).
 - Issue drafting: no `docs/ai/issue-template.md` exists → #1527/#1534 structure used verbatim; issues filed as #1540–#1543.

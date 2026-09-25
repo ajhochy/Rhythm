@@ -24,6 +24,7 @@ import { promisify } from 'node:util';
 import { hardenElectronFuses } from './harden-electron-fuses.mjs';
 import { PINNED_HERMES_DESKTOP_SOURCE_COMMIT } from '../src/hermes-desktop-config.mjs';
 import { refreshHermesDesktopArtifactIntegrity, resolveHermesDesktopArtifact } from '../src/hermes-desktop-artifact.mjs';
+import { resolveSigningIdentityWithRunner } from './signing-identity.mjs';
 
 const run = promisify(execFile);
 const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -42,7 +43,7 @@ if (!existsSync(artifact)) {
   process.exit(1);
 }
 
-const identity = process.env.APPLE_SIGNING_IDENTITY.trim();
+const identity = await resolveSigningIdentityWithRunner(process.env.APPLE_SIGNING_IDENTITY, { runner: run });
 const teamId = process.env.APPLE_TEAM_ID.trim();
 
 // Mach-O magic numbers (32/64-bit, fat/universal, both endiannesses). Notarization rejected the

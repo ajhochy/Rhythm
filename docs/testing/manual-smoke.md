@@ -423,9 +423,20 @@ credential, or webhook secret.
 
 #### Reviewed session-binding cleanup (#1363 — human-gated)
 
-Run this only against the local-agent SQLite database on the paired Mac. The
-command is dry-run-only unless `--apply` is explicitly present, and output paths
-must not already exist.
+<!-- BEGIN #1377 SESSION-BINDING DATABASE TARGETS -->
+The target is local-agent SQLite, not production Postgres. With both apps quit,
+identify every database currently in use:
+
+- Flutter: `~/Library/Application Support/Rhythm/rhythm.db`
+- Electron: `~/Library/Application Support/Rhythm Electron/rhythm.db`
+
+Electron copies the Flutter database on its first run, but the two files can
+diverge afterward. Each database in use needs its own dry-run, review, and audit
+path. Start with a read-only dry-run against a file copy, keeping the apps quit,
+before generating the candidate report from the in-use database. The command is
+dry-run-only unless `--apply` is explicitly present, and output paths must not
+already exist. Never automate the apply step.
+<!-- END #1377 SESSION-BINDING DATABASE TARGETS -->
 
 - [ ] Build the API CLI: `cd apps/api_server && npm run build`.
 - [ ] Generate the candidate report without mutation:
