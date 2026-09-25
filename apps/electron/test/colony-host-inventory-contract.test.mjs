@@ -15,6 +15,7 @@ test('1530:host-inventory-path-task-rail-and-inspector:1 pages with host ids, st
   const requests = []
   let viewOptions
   const view = {
+    currentAttachment: () => 'attachment-1',
     async disposeCurrent() {},
     async dispose() {},
     async requestHost(value) {

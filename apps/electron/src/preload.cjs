@@ -105,6 +105,15 @@ const colonyView = Object.freeze({
   inventoryPage: (page) => ipcRenderer.invoke('colony:inventory:page', { attachment: colonyViewAttachment, page }),
   /** @param {string} generation */
   inventoryCancel: (generation) => ipcRenderer.invoke('colony:inventory:cancel', { attachment: colonyViewAttachment, generation }),
+  /** @param {'open'|'showParent'|'reveal'|'copyPath'|'archive'|'restore'|'viewed'} kind @param {string} id */
+  runAction: (kind, id) => ipcRenderer.invoke('colony:action:run', { attachment: colonyViewAttachment, kind, id }),
+  previewImport: () => ipcRenderer.invoke('colony:import:preview'),
+  commitImport: () => ipcRenderer.invoke('colony:import:commit'),
+  onReset: (/** @type {() => void} */ callback) => {
+    const listener = () => callback();
+    ipcRenderer.on('colony:host:reset', listener);
+    return () => ipcRenderer.removeListener('colony:host:reset', listener);
+  },
   /** @param {{event:string,payload:unknown}} intent */
   sendIntent: (intent) => ipcRenderer.send('colony:view:intent', { attachment: colonyViewAttachment, ...intent }),
   /** @param {(message:{event:string,payload:unknown}) => void} callback */

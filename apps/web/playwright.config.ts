@@ -45,7 +45,9 @@ export default defineConfig({
       command: `npm run build && RHYTHM_DIST_PORT=${distPort} node tests/serve-dist.mjs`,
       url: `http://127.0.0.1:${distPort}/index.html`,
       reuseExistingServer: false,
-      timeout: 180_000,
+      // tsc + Vite takes about 135s in an otherwise idle worktree and the two
+      // Playwright web servers start concurrently. Leave headroom for CI load.
+      timeout: 300_000,
     },
   ],
 });

@@ -15,8 +15,9 @@ export type ColonyThread = {
   lastActivityAt?: number;
   parentId?: string | null;
   archived?: boolean;
+  navigationReason?: string;
   stale?: boolean;
-  checkout?: { repositoryId?: string; missing?: boolean; kind?: string };
+  checkout?: { repositoryId?: string; path?: string; missing?: boolean; kind?: string };
 };
 
 export type ColonyFilters = {

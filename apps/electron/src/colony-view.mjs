@@ -118,11 +118,23 @@ export function bindColonySceneChannel(options) {
     flush()
   }
   function onLoad() { committed = true; flush() }
+  function revokeNextDocument() {
+    const cleanup = () => {
+      contents.removeListener('did-finish-load', onReloaded)
+      contents.removeListener('destroyed', cleanup)
+    }
+    const onReloaded = () => {
+      cleanup()
+      try { contents.mainFrame?.send('colony:revoke') } catch {}
+    }
+    contents.once('did-finish-load', onReloaded)
+    contents.once('destroyed', cleanup)
+  }
   function onNavigation(/** @type {any} */ event, /** @type {string} */ _url, /** @type {boolean} */ inPlace, /** @type {boolean} */ mainFrame) {
     const main = typeof event.isMainFrame === 'boolean' ? event.isMainFrame : mainFrame
     const same = typeof event.isSameDocument === 'boolean' ? event.isSameDocument : inPlace
     if (main && !same) {
-      if (committed || transferred || expectedFrame !== null) void dispose()
+      if (committed || transferred || expectedFrame !== null) { revokeNextDocument(); void dispose() }
       else readyEvent = null
     }
   }
@@ -153,6 +165,7 @@ export function registerColonyView(options) {
     const record = current
     current = null
     if (!record) return barrier
+    options.onDispose?.(record.attachment)
     barrier = barrier.then(async () => {
       let failure = /** @type {unknown} */ (null)
       const attempt = async (/** @type {() => any} */ work) => {
@@ -259,6 +272,7 @@ export function registerColonyView(options) {
     await disposeCurrent(); return true
   })
   return { disposeCurrent,
+    currentAttachment: () => current?.attachment ?? '',
     async requestHost(/** @type {any} */ value) {
       if (disposed || !current || !enabled() || !value || typeof value !== 'object' || Array.isArray(value) ||
         Object.keys(value).length !== 4 || value.attachment !== current.attachment || !/^host-\d{1,9}$/.test(value.id) ||

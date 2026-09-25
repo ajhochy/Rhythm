@@ -4,10 +4,12 @@ const port = Number(process.env.RHYTHM_E2E_PORT ?? 7280);
 
 export default defineConfig({
   testDir: '.',
-  testMatch: 'colony-rail.spec.ts',
+  testMatch: ['colony-rail.spec.ts', 'colony-actions.spec.ts', 'colony-settings.spec.ts'],
   fullyParallel: false,
   workers: 1,
-  timeout: 20_000,
+  // The first Vite transform is cold in isolated orchestration worktrees.
+  // Keep behavioral expectations at five seconds while allowing navigation to compile once.
+  timeout: 40_000,
   expect: { timeout: 5_000 },
   reporter: [['line']],
   use: {

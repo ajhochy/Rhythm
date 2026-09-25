@@ -857,7 +857,8 @@ if (hasSingleInstanceLock) {
     if (isMissingDistSmoke || !existsSync(webDist)) throw new Error(`Rhythm Electron shell requires built web assets at ${webDist}`);
     await restoreAuthentication();
     colonyHost = registerColonyHost({ ipcMain, getWindow: () => mainWindow, userDataPath: app.getPath('userData'), resourcesPath: process.resourcesPath,
-      home: userInfo().homedir, isPackaged: app.isPackaged, environment: process.env });
+      home: userInfo().homedir, isPackaged: app.isPackaged, environment: process.env, app, shell, dialog,
+      emitReset: () => mainWindow?.webContents.send('colony:host:reset') });
     if (productionSessionUser) await colonyHost.activateProfile({ productionApiBase, userId: String(productionSessionUser.id) });
     if (!isSmoke && agentServer && !existsSync(electronDbPath()) && existsSync(legacyFlutterDbPath())) {
       const choice = await dialog.showMessageBox({ type: 'question', title: 'Import existing Rhythm data?', message: 'Rhythm found data from the Flutter desktop app.', detail: 'Import copies the database into Electron using SQLite backup. The original remains untouched. Imported schedules start disabled for review.', buttons: ['Import existing data', 'Start fresh', 'Cancel'], defaultId: 0, cancelId: 2 });

@@ -48,12 +48,18 @@ export function createColonyService(options) {
   let documentId = ''
   let reason = ''
   const pending = new Map()
+  let controlPending = /** @type {any} */ (null)
   const status = () => ({ state: ready ? 'ready' : blocked ? 'failed' : child ? 'starting' : 'unavailable', pid: child?.pid ?? null, reason,
     capabilities: ready ? [...CAPABILITIES] : [] })
   const revoke = () => {
     ready = false
     for (const entry of pending.values()) { clearTimeout(entry.timer); entry.reject(Object.assign(new Error('Colony document revoked'), { code: 'revoked' })) }
     pending.clear()
+    if (controlPending) {
+      clearTimeout(controlPending.timer)
+      controlPending.reject(Object.assign(new Error('Colony document revoked'), { code: 'revoked' }))
+      controlPending = null
+    }
   }
   const stop = () => {
     revoke()
@@ -132,6 +138,20 @@ export function createColonyService(options) {
               resolve(undefined)
             } else {
               try {
+                if (controlPending) {
+                  const entry = controlPending
+                  if (message?.type === 'colony:error') {
+                    controlPending = null; clearTimeout(entry.timer)
+                    entry.reject(new Error(message?.error?.message || 'Colony parent control failed'))
+                    return
+                  }
+                  if (message?.type !== entry.expected || message.v !== 1 || message.documentId !== documentId ||
+                    Buffer.byteLength(JSON.stringify(message)) > 64 * 1024) throw new Error('Invalid Colony parent control response')
+                  const result = entry.field === 'counts' ? message.counts : message.receipt
+                  if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('Invalid Colony parent control result')
+                  controlPending = null; clearTimeout(entry.timer); entry.resolve(result)
+                  return
+                }
                 validateColonyResponse(message, documentId)
                 const entry = pending.get(message.id)
                 if (!entry) throw new Error('Unexpected Colony response')
@@ -161,6 +181,29 @@ export function createColonyService(options) {
         const timer = setTimeout(() => { void stop().catch(() => {}) }, 60000)
         pending.set(message.id, { resolve, reject, timer })
         try { child?.send(message) } catch { void stop().catch(() => {}) }
+      })
+    },
+    async control(/** @type {any} */ value) {
+      if (!ready || !child || disposed) throw Object.assign(new Error('Colony document revoked'), { code: 'revoked' })
+      if (!value || typeof value !== 'object' || Array.isArray(value) || typeof value.type !== 'string') throw new Error('Invalid Colony parent control')
+      let message
+      let expected
+      let field
+      if (value.type === 'importPreview' || value.type === 'importCommit') {
+        if (Object.keys(value).length !== 2 || typeof value.path !== 'string' || value.path.length > 4096 || value.path.includes('\0') || !path.isAbsolute(value.path)) throw new Error('Invalid absolute Colony import path')
+        message = { type: value.type === 'importPreview' ? 'colony:import-preview' : 'colony:import-commit', v: 1, documentId, path: value.path }
+        expected = value.type === 'importPreview' ? 'colony:import-preview-result' : 'colony:import-commit-result'
+        field = value.type === 'importPreview' ? 'counts' : 'receipt'
+      } else if (value.type === 'backupRestore') {
+        if (Object.keys(value).length !== 2 || typeof value.backup !== 'string' || !/^state-[0-9]+\.json$/.test(value.backup)) throw new Error('Invalid Colony backup identity')
+        message = { type: 'colony:backup-restore', v: 1, documentId, backup: value.backup }
+        expected = 'colony:backup-restore-result'; field = 'receipt'
+      } else throw new Error('Unsupported Colony parent control')
+      if (controlPending) throw new Error('Colony parent control is busy')
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => { if (controlPending?.timer === timer) { controlPending = null; reject(new Error('Colony parent control deadline exceeded')) } }, 60_000)
+        controlPending = { expected, field, resolve, reject, timer }
+        try { child?.send(message) } catch (error) { clearTimeout(timer); controlPending = null; reject(error) }
       })
     },
     async dispose() { disposed = true; await stop(); await launch?.catch(() => {}); await stop() },

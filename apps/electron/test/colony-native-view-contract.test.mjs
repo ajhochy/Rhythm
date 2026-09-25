@@ -38,8 +38,9 @@ function sceneBoundary({ loading = false, deferredFrame = false } = {}) {
     detached: false,
     url: ENTRY,
     messages: [],
+    signals: [],
     postMessage(channel, message, ports) { this.messages.push({ channel, message, ports }) },
-    send() {},
+    send(channel) { this.signals.push(channel) },
   }
   const contents = Object.assign(new EventEmitter(), {
     mainFrame: frame,
@@ -80,9 +81,11 @@ test('committed navigation revokes authority even when Electron preserves the ma
   await boundary.channel.dispose()
   assert.equal(boundary.stops(), 1)
   assert.equal(oldPort.closed, true)
+  assert.deepEqual(boundary.frame.signals, ['colony:revoke'], 'The old document was not revoked')
   boundary.ready()
   boundary.contents.emit('did-finish-load')
   assert.equal(boundary.frame.messages.length, 1, 'A reloaded document received a second port')
+  assert.deepEqual(boundary.frame.signals, ['colony:revoke', 'colony:revoke'], 'The reloaded document was left waiting for a throttled timer')
 })
 
 test('binding after load accepts only the already-committed exact main frame', async () => {
