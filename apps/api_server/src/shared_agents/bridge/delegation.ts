@@ -51,7 +51,16 @@ function handle(error: unknown, res: Response): void {
 }
 
 export function register(router: Router, _deps: BridgeDeps): void {
-  const coordinator = new DelegationCoordinator();
+  // ponytail: lazy singleton — constructing DelegationCoordinator eagerly here
+  // runs at createApp()/router-registration time (before some tests' setDb()
+  // call), and its default AgentBridgeJobsRepository() touches getDb() immediately.
+  let coordinatorInstance: DelegationCoordinator | undefined;
+  const coordinator = (): DelegationCoordinator => {
+    if (!coordinatorInstance) {
+      coordinatorInstance = new DelegationCoordinator();
+    }
+    return coordinatorInstance;
+  };
 
   router.post('/delegations', runtime('delegation.dispatch'), dispatchRateLimit, async (req: Request, res: Response) => {
     const body = record(req.body);
@@ -66,7 +75,7 @@ export function register(router: Router, _deps: BridgeDeps): void {
       return;
     }
     try {
-      const result = await coordinator.dispatchFromHermes(bridgeGrant(res), {
+      const result = await coordinator().dispatchFromHermes(bridgeGrant(res), {
         idempotencyKey: body.idempotencyKey,
         parent: caller,
         targetAgentId: body.targetAgentId,
@@ -85,7 +94,7 @@ export function register(router: Router, _deps: BridgeDeps): void {
       sendBridgeError(res, 400, 'bridge_invalid_request'); return;
     }
     try {
-      res.json({ jobs: coordinator.queryFromHermes(
+      res.json({ jobs: coordinator().queryFromHermes(
         bridgeGrant(res), caller, typeof body.jobId === 'string' ? body.jobId : undefined,
       ) });
     } catch (error) { handle(error, res); }
@@ -102,7 +111,7 @@ export function register(router: Router, _deps: BridgeDeps): void {
     req.once('aborted', onAborted);
     res.once('close', onAborted);
     try {
-      const claimed = await coordinator.claimWithWait(
+      const claimed = await coordinator().claimWithWait(
         bridgeGrant(res),
         Number(body.waitMs),
         abort.signal,
@@ -123,7 +132,7 @@ export function register(router: Router, _deps: BridgeDeps): void {
     if (!body || !caller || !exact(body, ['parent'])) {
       sendBridgeError(res, 400, 'bridge_invalid_request'); return;
     }
-    try { res.json(coordinator.resultFromHermes(bridgeGrant(res), caller, req.params.jobId)); }
+    try { res.json(coordinator().resultFromHermes(bridgeGrant(res), caller, req.params.jobId)); }
     catch (error) { handle(error, res); }
   });
 
@@ -133,7 +142,7 @@ export function register(router: Router, _deps: BridgeDeps): void {
     if (!body || !caller || !exact(body, ['parent'])) {
       sendBridgeError(res, 400, 'bridge_invalid_request'); return;
     }
-    try { res.json({ job: await coordinator.cancelFromHermes(bridgeGrant(res), caller, req.params.jobId) }); }
+    try { res.json({ job: await coordinator().cancelFromHermes(bridgeGrant(res), caller, req.params.jobId) }); }
     catch (error) { handle(error, res); }
   });
 
@@ -156,7 +165,7 @@ export function register(router: Router, _deps: BridgeDeps): void {
       sendBridgeError(res, 400, 'bridge_invalid_request'); return;
     }
     try {
-      res.json(coordinator.report(bridgeGrant(res), req.params.jobId, {
+      res.json(coordinator().report(bridgeGrant(res), req.params.jobId, {
         jobId: req.params.jobId,
         leaseToken: body.leaseToken,
         phase: body.phase as 'running' | 'progress' | 'succeeded' | 'failed' | 'cancelled',

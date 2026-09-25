@@ -27,7 +27,16 @@ interface MemorySearchRequest extends Record<string, unknown> {
   limit?: unknown;
 }
 
-const memorySearchService = new MemorySearchService();
+// ponytail: lazy singleton — constructing MemorySearchService eagerly at
+// module load evaluates its `resolveMemoryVaultPath` default param immediately,
+// which breaks tests that partially mock ../config/env for unrelated routes.
+let memorySearchServiceInstance: MemorySearchService | undefined;
+function getMemorySearchService(): MemorySearchService {
+  if (!memorySearchServiceInstance) {
+    memorySearchServiceInstance = new MemorySearchService();
+  }
+  return memorySearchServiceInstance;
+}
 const memorySearchRateLimit = grantRateLimit(
   'memory.search',
   BRIDGE_RATE_LIMITS.memorySearchPerMinute,
@@ -69,7 +78,7 @@ async function memorySearchHandler(
   }
 
   try {
-    res.json(await memorySearchService.search(
+    res.json(await getMemorySearchService().search(
       bridgeGrant(res),
       req.body.query,
       req.body.limit ?? 5,

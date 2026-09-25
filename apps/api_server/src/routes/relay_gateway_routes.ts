@@ -334,13 +334,21 @@ export function createRelayGatewayRouter(
           throw AppError.internal('Invalid bootstrap grant');
         }
         res.setHeader('Cache-Control', 'no-store');
+        // ponytail: capability is opt-in via the same x-rhythm-client-capability
+        // header the mobile-gateway proxy already reads (mobile_gateway_routes.ts).
+        // The iOS phone contract must stay byte-for-byte unchanged — only a
+        // caller that declares itself a desktop remote-attach client gets it.
+        const isDesktopRemoteAttachClient =
+          req.header('x-rhythm-client-capability') === 'remote-attach-desktop-v1';
         res.status(201).json({
           environmentId: enrollment.hostId,
           hostId: enrollment.hostId,
           deviceId: grant.deviceId,
           deviceToken: grant.deviceToken,
           gatewayBaseUrl,
-          capabilities: ['remote-attach-desktop-v1'],
+          ...(isDesktopRemoteAttachClient
+            ? { capabilities: ['remote-attach-desktop-v1'] }
+            : {}),
         });
       } catch (error) {
         next(error instanceof AppError ? error : AppError.internal());

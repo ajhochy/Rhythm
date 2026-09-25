@@ -122,13 +122,13 @@ async function startRelayHarness(ownershipFactory: (userId: number) => any = own
   app.use('/mac/mobile-gateway', createMobileGatewayRouter({ opencodeProxy: engineProxy }));
   app.use('/relay', createRelayGatewayRouter({ uplink: uplink as never, ownershipRepository: ownershipFactory(user.id), relayPublicUrl: `http://127.0.0.1:${port}`, allowInsecureLoopbackForTests: true })); app.use(errorHandler);
   const server = http.createServer(app); server.listen(port, '127.0.0.1'); await new Promise<void>(resolve => server.once('listening', resolve));
-  const close = async () => { hub.setLive(false); await new Promise<void>(resolve => server.close(() => resolve())); db.close(); resetMobileGatewayRuntimeForTest(); };
+  const close = async () => { hub.setLive(false); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); db.close(); resetMobileGatewayRuntimeForTest(); };
   cleanups.push(close);
   return { baseUrl: `http://127.0.0.1:${port}/relay`, sessionToken: session.token, deviceId, engineRequests, rpcRequests, hub, repository, userId: user.id, close };
 }
 
 async function connectDesktop(harness: RelayContractHarness): Promise<string> {
-  const response = await fetch(`${harness.baseUrl}/mobile-environments/host-1374/connect`, { method: 'POST', headers: { Authorization: `Bearer ${harness.sessionToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceName: 'Secondary desktop' }) });
+  const response = await fetch(`${harness.baseUrl}/mobile-environments/host-1374/connect`, { method: 'POST', headers: { Authorization: `Bearer ${harness.sessionToken}`, 'Content-Type': 'application/json', 'X-Rhythm-Client-Capability': 'remote-attach-desktop-v1' }, body: JSON.stringify({ deviceName: 'Secondary desktop' }) });
   expect(response.status).toBe(201);
   const grant = await response.json() as { deviceToken: string; deviceId: string; capabilities: string[] };
   expect(grant.deviceId).toBe(harness.deviceId);
