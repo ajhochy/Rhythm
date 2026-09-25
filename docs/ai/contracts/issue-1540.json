@@ -55,7 +55,7 @@
     },
     {
       "criterion_id": "issue-1540-c8",
-      "text": "**HRM-B1-AC8:** The approved-module matrix records parity evidence for Dashboard, Planner, Tasks, Rhythms, Projects, Messages, Facilities, Automations, Integrations and shared artifacts; no duplicate Rhythm Agents/Profile/Model/Skill/Schedule/Delegation surface ships, and responsive, keyboard, theme and WCAG 2.1 AA gates pass.",
+      "text": "**HRM-B1-AC8:** The approved-module matrix records parity evidence for Dashboard, Planner, Tasks, Rhythms, Projects, Messages, Facilities, Automations, Integrations and shared artifacts; no duplicate Rhythm Agents/Profile/Model/Skill/Schedule/Delegation surface ships, except the shared-agent catalog/editor governed by issue-shared-agents.json (decision 2026-09-24), and responsive, keyboard, theme and WCAG 2.1 AA gates pass.",
       "mode": "manual",
       "status": "pending",
       "reason": "Requires rendered installed-app parity, responsive, keyboard, theme, and axe verification."
