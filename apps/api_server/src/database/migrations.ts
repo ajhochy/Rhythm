@@ -4565,6 +4565,31 @@ If someone asks for creative work that needs a local capability:
       ON agent_turn_dispatches(session_id, created_at, id);
   `);
 
+  // #1576 S2 — one row per engine step-finish part whose served identity was
+  // captured (a fork stamp S1 has not landed yet; today this stays empty in
+  // production and is exercised in tests against synthetic parts). Append-only,
+  // local-only, identifier columns ONLY — no prompt/response content. The
+  // UNIQUE constraint makes a re-delivered event idempotent (one row survives).
+  // message.removed intentionally does not touch this table: a served-model
+  // record documents what actually ran, independent of the message's later
+  // lifecycle. Deliberately absent from the hosted Postgres bootstrap, like
+  // agent_turn_dispatches above.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_served_steps (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+      sdk_message_id TEXT NOT NULL,
+      sdk_part_id TEXT NOT NULL,
+      request_model_id TEXT,
+      served_model_id TEXT NOT NULL,
+      served_response_id TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE(session_id, sdk_message_id, sdk_part_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_served_steps_session
+      ON agent_served_steps(session_id, id);
+  `);
+
   // ── #1577 — prompt-injection audit trail ────────────────────────────────
   //
   // One append-only row per prompt pushed into an EXISTING session through

@@ -2,7 +2,7 @@ import { broadcast, broadcastSessionUpdated } from './ws_gateway';
 import { opencodeClient } from './opencode_engine';
 import { opencodeSessionMap } from './opencode_engine';
 import { logger } from '../utils/logger';
-import { resolveMediaArtifactStorageRoot } from '../config/env';
+import { resolveMediaArtifactStorageRoot, env } from '../config/env';
 import { resolve } from 'node:path';
 import {
   registerGeneratedMediaPart,
@@ -11,6 +11,7 @@ import {
 import { indexResearchSession } from './specialist_research_indexer';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
+import { ModelProvenanceRepository } from '../repositories/model_provenance_repository';
 import { DeniedToolEventsRepository } from '../repositories/denied_tool_events_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { queueSkillExtraction } from './skill_extractor';
@@ -341,6 +342,8 @@ export class OpencodeStreamBridge {
   // #818 follow-up — used only to validate profile-attribution candidates on
   // the deny branch (never on the allow path).
   private agentConfigsRepo = new AgentConfigsRepository();
+  // #1576 S2 — served-step ledger; see recordServedStep below.
+  private modelProvenanceRepo = new ModelProvenanceRepository();
 
   /** True only while the bridge has a current subscription receiving frames. */
   get isLive(): boolean {
@@ -1612,6 +1615,37 @@ export class OpencodeStreamBridge {
     );
   }
 
+  /**
+   * #1576 S2 — capture a step-finish part's served identity into the local
+   * ledger, when present. The engine does not stamp `served` yet (that is
+   * fork slice S1, not built) — this is a no-op today and activates the
+   * moment a step-finish part carries `served: { modelID, responseID?,
+   * requestModelID? }`, the contract in docs/ai/contracts/issue-1576-b2.json.
+   * Best-effort: never let a malformed/missing served shape, or a Postgres
+   * deployment (ledger is SQLite-only), break the stream.
+   */
+  private recordServedStep(localSessionId: string, part: Record<string, unknown>): void {
+    if (part.type !== 'step-finish' || env.dbClient !== 'sqlite') return;
+    const served = part.served as Record<string, unknown> | undefined;
+    if (!served || typeof served !== 'object') return;
+    const sdkMessageId = part.messageID as string | undefined;
+    const sdkPartId = part.id as string | undefined;
+    const servedModelId = served.modelID;
+    if (!sdkMessageId || !sdkPartId || typeof servedModelId !== 'string') return;
+    try {
+      this.modelProvenanceRepo.insertServedStep({
+        sessionId: localSessionId,
+        sdkMessageId,
+        sdkPartId,
+        requestModelId: typeof served.requestModelID === 'string' ? served.requestModelID : null,
+        servedModelId,
+        servedResponseId: typeof served.responseID === 'string' ? served.responseID : null,
+      });
+    } catch (err) {
+      logger.error('[OpencodeStreamBridge] Failed to record served step:', err);
+    }
+  }
+
   private lastStepFinishReason(parts: unknown[]): string | undefined {
     const finish = [...parts].reverse().find((part) =>
       typeof part === 'object' && part !== null &&
@@ -1774,6 +1808,7 @@ export class OpencodeStreamBridge {
             }
           }
           if (localSessionId) {
+            this.recordServedStep(localSessionId, part);
             try {
               const session = this.sessionsRepo.findById(localSessionId);
               void registerGeneratedMediaPart(part, session).then((artifact) => {

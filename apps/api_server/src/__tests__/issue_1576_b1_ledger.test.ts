@@ -42,7 +42,11 @@ describe('#1576 B1 local dispatch ledger', () => {
     expect(() => runMigrations(db)).not.toThrow();
     expect(db.prepare('SELECT COUNT(*) AS n FROM agent_turn_dispatches').get()).toEqual({ n: 0 });
     expect(db.prepare("SELECT COUNT(*) AS n FROM agent_session_messages WHERE session_id = 'legacy'").get()).toEqual({ n: 1 });
-    expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'agent_served_steps'").get()).toBeUndefined();
+    // #1576 S2 landed the served-step ledger as its own append-only table —
+    // still no historical fabrication (starts empty) and still no column on
+    // agent_sessions itself.
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'agent_served_steps'").get()).toEqual({ name: 'agent_served_steps' });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM agent_served_steps').get()).toEqual({ n: 0 });
     expect((db.pragma('table_info(agent_sessions)') as { name: string }[]).map((column) => column.name)).not.toContain('served_model_id');
   });
 

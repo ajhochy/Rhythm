@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { env } from '../config/env';
 import { getDb } from '../database/db';
-import type { DispatchInput, DispatchOutcome, DispatchRecord } from '../models/model_provenance';
+import type {
+  DispatchInput,
+  DispatchOutcome,
+  DispatchRecord,
+  ServedStepInput,
+  ServedStepRecord,
+} from '../models/model_provenance';
 
 type Row = Record<string, string | number | null>;
 const fields = ['sdkSessionId', 'sdkUserMessageId', 'origin', 'requestedSource', 'requestedProviderId', 'requestedModelId', 'requestedTier', 'resolvedProviderId', 'resolvedModelId', 'resolvedTier', 'finalProviderId', 'finalModelId', 'reasonCode', 'predecessorId'] as const;
@@ -12,9 +18,20 @@ const outcomes = new Set<DispatchOutcome>(['pending', 'accepted', 'rejected', 'u
 // new short code when a caller needs another reason, never copy provider errors.
 const safeCode = /^[a-z][a-z0-9_]{0,63}$/;
 const safeIdentifier = /^[a-zA-Z0-9._:/@+\-]{1,200}$/;
+// #1576 S2 — a provider-reported model/response id is untrusted input, unlike
+// the server-owned fields above. Rather than fail the write closed (losing the
+// whole step's attribution), an out-of-shape value is replaced with this
+// sentinel so a reviewer sees "something served this, shape unrecognized"
+// instead of silence or a thrown error mid-stream.
+const UNRECOGNIZED_MODEL = '<unrecognized>';
 
 function localOnly(): void {
   if (env.dbClient !== 'sqlite') throw new Error('Model provenance unavailable: local SQLite only');
+}
+
+/** Valid identifier, or null — never throws. For provider-supplied strings only. */
+function sanitizeIdentifierOrNull(value: unknown): string | null {
+  return typeof value === 'string' && safeIdentifier.test(value) ? value : null;
 }
 
 function model(row: Row): DispatchRecord {
@@ -41,6 +58,19 @@ function model(row: Row): DispatchRecord {
     outcome: row.outcome as DispatchOutcome,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
+  };
+}
+
+function servedStepModel(row: Row): ServedStepRecord {
+  return {
+    id: row.id as string,
+    sessionId: row.session_id as string,
+    sdkMessageId: row.sdk_message_id as string,
+    sdkPartId: row.sdk_part_id as string,
+    requestModelId: row.request_model_id as string | null,
+    servedModelId: row.served_model_id as string,
+    servedResponseId: row.served_response_id as string | null,
+    createdAt: row.created_at as string,
   };
 }
 
@@ -101,5 +131,54 @@ export class ModelProvenanceRepository {
       WHERE id = ? AND sdk_user_message_id IS NULL AND outcome != 'rejected'`)
       .run(sdkUserMessageId, new Date().toISOString(), id).changes;
     return changed === 1 || this.get(id)?.sdkUserMessageId === sdkUserMessageId;
+  }
+
+  /**
+   * #1576 S2 — record one step-finish's served identity. Idempotent: a
+   * re-delivered event for the same (session, message, part) leaves exactly
+   * one row (UNIQUE constraint + INSERT OR IGNORE). sessionId/sdkMessageId/
+   * sdkPartId are server-owned (the bridge's own ids) and fail closed if
+   * malformed; servedModelId/servedResponseId/requestModelId are provider-
+   * reported and degrade to a sentinel/null rather than throw — losing one
+   * step's attribution shape must never break the stream.
+   */
+  insertServedStep(input: ServedStepInput): ServedStepRecord {
+    localOnly();
+    if (typeof input.sessionId !== 'string' || !safeIdentifier.test(input.sessionId)) throw new Error('Invalid served step metadata');
+    if (typeof input.sdkMessageId !== 'string' || !safeIdentifier.test(input.sdkMessageId)) throw new Error('Invalid served step metadata');
+    if (typeof input.sdkPartId !== 'string' || !safeIdentifier.test(input.sdkPartId)) throw new Error('Invalid served step metadata');
+    const servedModelId = sanitizeIdentifierOrNull(input.servedModelId) ?? UNRECOGNIZED_MODEL;
+    const requestModelId = input.requestModelId == null
+      ? null
+      : (sanitizeIdentifierOrNull(input.requestModelId) ?? UNRECOGNIZED_MODEL);
+    const servedResponseId = sanitizeIdentifierOrNull(input.servedResponseId ?? null);
+    const now = new Date().toISOString();
+    getDb().prepare(`INSERT OR IGNORE INTO agent_served_steps (
+      id, session_id, sdk_message_id, sdk_part_id, request_model_id, served_model_id, served_response_id, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(randomUUID(), input.sessionId, input.sdkMessageId, input.sdkPartId, requestModelId, servedModelId, servedResponseId, now);
+    const row = getDb().prepare(`SELECT * FROM agent_served_steps
+      WHERE session_id = ? AND sdk_message_id = ? AND sdk_part_id = ?`)
+      .get(input.sessionId, input.sdkMessageId, input.sdkPartId) as Row;
+    return servedStepModel(row);
+  }
+
+  /**
+   * Distinct served model ids for a session, in first-seen (insertion) order,
+   * plus whether any step's served identity differed from what was requested.
+   */
+  servedSummary(sessionId: string): { servedModels: string[]; routed: boolean } {
+    localOnly();
+    if (typeof sessionId !== 'string' || !safeIdentifier.test(sessionId)) throw new Error('Invalid session id');
+    const rows = getDb().prepare(`SELECT served_model_id, request_model_id FROM agent_served_steps
+      WHERE session_id = ? ORDER BY rowid ASC`)
+      .all(sessionId) as { served_model_id: string; request_model_id: string | null }[];
+    const servedModels: string[] = [];
+    let routed = false;
+    for (const row of rows) {
+      if (!servedModels.includes(row.served_model_id)) servedModels.push(row.served_model_id);
+      if (row.request_model_id != null && row.request_model_id !== row.served_model_id) routed = true;
+    }
+    return { servedModels, routed };
   }
 }

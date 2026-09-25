@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Icon } from '../icons';
 import { useGateway } from '../gateway/context';
 import { useAuthUser } from '../gateway/auth';
-import { InspectorGatewayError, readOnlyResourceDocument, sessionResources, type InspectorTodo, type MemoryProvenance, type PreparedShare, type SessionResource, type TranscriptShare } from '../gateway/inspector';
+import { InspectorGatewayError, readOnlyResourceDocument, sessionResources, type InspectorTodo, type MemoryProvenance, type ModelProvenance, type PreparedShare, type SessionResource, type TranscriptShare } from '../gateway/inspector';
 import { SessionGatewayError, type RichTranscriptMessage, type SessionFileContent, type SessionFileEntry, type SessionFileStatusEntry } from '../gateway/sessions';
 import { useFixtures } from '../store';
 import type { FixtureFile, InspectorTab, Session } from '../types';
@@ -60,7 +60,7 @@ function ContextPanel() {
       {/* post-m1-phase-6 c3b: the resolved isolated-worktree branch — never defaulted to 'main'. */}
       {selected.worktreeBranch && <div><dt>Worktree branch</dt><dd>{selected.worktreeBranch}</dd></div>}
     </dl>
-    {sessionGatewayMode === 'live' ? <><LiveProvenance sessionId={selected.id} /><SharePanel sessionId={selected.id} /></> : <div className="memory-provenance"><h3>Memory provenance</h3><p>Project memory · services/run-sheet.md</p><p>Session summary · fixed fixture clock</p><p>Profile prompt · {selected.profileId}</p></div>}
+    {sessionGatewayMode === 'live' ? <><LiveProvenance sessionId={selected.id} /><LiveModelProvenance sessionId={selected.id} /><SharePanel sessionId={selected.id} /></> : <div className="memory-provenance"><h3>Memory provenance</h3><p>Project memory · services/run-sheet.md</p><p>Session summary · fixed fixture clock</p><p>Profile prompt · {selected.profileId}</p></div>}
     <RunFeedback sessionId={selected.id} hidden={sessionGatewayMode !== 'live' || Boolean(selected.parentSessionId)} />
   </section>;
 }
@@ -82,6 +82,44 @@ function LiveProvenance({ sessionId }: { sessionId: string }) {
       {data.items.length > 0 && <details><summary>Injection details</summary><pre>{JSON.stringify(data.items, null, 2)}</pre></details>}
     </>}
     <button type="button" className="text-button" onClick={() => refresh(value => value + 1)}>Refresh provenance</button>
+  </section>;
+}
+
+/**
+ * #1576 S4 — "Served by": the model(s) that actually served this session's
+ * steps, as distinct from the requested alias. The engine does not stamp
+ * served identity yet (fork slice S1, not built), so most live sessions today
+ * show the "not recorded" state below — that is the honest, expected result,
+ * never a fabricated model name.
+ */
+export function LiveModelProvenance({ sessionId }: { sessionId: string }) {
+  const api = useGateway().domains.inspector;
+  const [data, setData] = useState<ModelProvenance | null>(null);
+  const [error, setError] = useState(false);
+  const [revision, refresh] = useState(0);
+  useEffect(() => { let active = true; setError(false); setData(null);
+    api?.modelProvenance(sessionId).then(value => { if (active) setData(value); }).catch(() => { if (active) setError(true); });
+    return () => { active = false; };
+  }, [api, sessionId, revision]);
+  return <section className="memory-provenance" aria-label="Model provenance" data-testid="model-provenance">
+    <h3>Served by</h3>
+    {!api || error ? <p role="alert">Served-model provenance unavailable.</p> : !data ? <p role="status">Loading served models…</p> : !data.available ? (
+      // #1576 review follow-up: the hosted/Postgres role has no local ledger to
+      // read — a known, labeled gap, not an error, so no alert role here.
+      <p role="status">Provenance unavailable on this server.</p>
+    ) : data.servedModels.length === 0 ? (
+      // ponytail: never invent a model name — "unattributed" steps are steps the
+      // engine ran before/without a served-identity stamp, not steps with no model.
+      <>
+        <p>{data.steps.unattributed > 0 ? `Not recorded (${data.steps.unattributed} steps before provenance capture)` : 'No served steps recorded yet.'}</p>
+        {data.requestedModelId && <p data-testid="model-provenance-requested">Requested {data.requestedModelId} — unverified</p>}
+      </>
+    ) : <>
+      <ul>{data.servedModels.map(model => <li key={model}>{model}</li>)}</ul>
+      {data.multiModel && <p role="status">Spanned {data.servedModels.length} models</p>}
+      {data.routed && <span className="kind-badge" data-testid="model-provenance-routed">Routed</span>}
+    </>}
+    <button type="button" className="text-button" onClick={() => refresh(value => value + 1)}>Refresh served models</button>
   </section>;
 }
 

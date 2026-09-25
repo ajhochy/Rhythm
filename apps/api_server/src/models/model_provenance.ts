@@ -32,3 +32,35 @@ export interface DispatchRecord extends Required<Omit<DispatchInput, 'routeAuthe
   createdAt: string;
   updatedAt: string;
 }
+
+/**
+ * #1576 S2 — one served-identity stamp per engine step-finish part.
+ *
+ * `servedModelId`/`servedResponseId` are provider-controlled strings, never
+ * trusted verbatim: the repository sanitizes them to a bounded identifier
+ * shape or the `<unrecognized>` sentinel before they ever reach SQL. No
+ * prompt/response content is carried here — see the table comment in
+ * migrations.ts.
+ */
+export interface ServedStepInput {
+  sessionId: string;
+  sdkMessageId: string;
+  sdkPartId: string;
+  /** The alias/model that was actually requested for this step, if known. */
+  requestModelId?: string | null;
+  /** The model that actually served the step, per the engine/provider. */
+  servedModelId: string;
+  /** Upstream generation id (e.g. OpenRouter's), if the provider supplied one. */
+  servedResponseId?: string | null;
+}
+
+export interface ServedStepRecord {
+  id: string;
+  sessionId: string;
+  sdkMessageId: string;
+  sdkPartId: string;
+  requestModelId: string | null;
+  servedModelId: string;
+  servedResponseId: string | null;
+  createdAt: string;
+}

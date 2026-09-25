@@ -1,0 +1,35 @@
+{
+  "issue": 1576,
+  "slice": "1576-S2",
+  "date": "2026-09-25",
+  "test_command": "cd apps/api_server && npx vitest run src/__tests__/issue_1576_projection.test.ts",
+  "waiver": "S1 (fork stamping `served` onto step-finish parts) is blocked on AJ's authorization and out of scope. This slice defines and builds against the synthetic contract below, which S1 must satisfy once approved.",
+  "served_step_finish_part_contract": {
+    "description": "Once S1 lands, an engine step-finish part carries an additional `served` object alongside its existing fields. Until then, `served` is absent and the step is counted unattributed.",
+    "shape": {
+      "type": "step-finish",
+      "id": "<sdk part id>",
+      "messageID": "<sdk message id>",
+      "served": {
+        "modelID": "string — the model that actually served this step (provider-reported, sanitized to '<unrecognized>' if out of shape)",
+        "responseID": "string, optional — upstream generation id if the provider supplied one",
+        "requestModelID": "string, optional — the alias/model that was requested for this step"
+      }
+    }
+  },
+  "criteria": [
+    { "criterion_id": "1576:S2:1", "text": "A step-finish part carrying `served` inserts exactly one agent_served_steps row; a duplicate event is idempotent; message.removed does not delete the row", "mode": "unit", "test": "apps/api_server/src/__tests__/issue_1576_projection.test.ts", "status": "pass" },
+    { "criterion_id": "1576:S2:2", "text": "An out-of-shape served.modelID is stored as '<unrecognized>'; agent_served_steps carries identifier columns only, no content", "mode": "unit", "test": "apps/api_server/src/__tests__/issue_1576_projection.test.ts", "status": "pass" },
+    { "criterion_id": "1576:S2:3", "text": "GET /agent-sessions/:id/model-provenance returns servedModels in first-seen order, multiModel, routed, steps.unattributed; 404 for unknown session; GET /agent-sessions/:id unaffected", "mode": "integration", "test": "apps/api_server/src/__tests__/issue_1576_projection.test.ts", "status": "pass" },
+    { "criterion_id": "1576:S2:4", "text": "Delegation status view includes servedModels per delegation", "mode": "unit", "test": "apps/api_server/src/__tests__/issue_1576_projection.test.ts", "status": "pass" },
+    { "criterion_id": "1576:S2:5", "text": "Under Postgres, repository methods refuse before touching SQLite; skill_schema_parity.test.ts and live_postgres_bootstrap.test.ts pass unchanged", "mode": "integration", "test": "apps/api_server/src/__tests__/issue_1576_projection.test.ts", "status": "pass" }
+  ],
+  "not_tested": [],
+  "caveats": [
+    "S1 has not landed: in production today no step-finish part carries `served`, so agent_served_steps stays empty and every step-finish is 'unattributed'. This slice is exercised only against synthetic parts shaped per the contract above.",
+    "routed/servedModels are read from the local ledger only; steps.unattributed is read from parts_json directly, since an unattributed step never reaches the ledger by definition.",
+    "agent_served_steps is deliberately excluded from postgres_bootstrap.ts and the skill_schema_parity table list, exactly like agent_turn_dispatches (B1) — SQLite-local only.",
+    "No live OpenRouter/loopback-stub proof was run (network/live-provider work is explicitly out of scope for this sandboxed slice); see the issue's 'Live proof' remaining-work item.",
+    "S3 (dispatch-ledger wiring at the prompt/promptAsync choke point) was explicitly optional for this slice and was not built — agent_turn_dispatches (B1) still has zero production callers."
+  ]
+}

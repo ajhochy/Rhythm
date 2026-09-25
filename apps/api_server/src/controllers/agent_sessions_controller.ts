@@ -41,6 +41,7 @@ import { getCuratorExtractStatus } from '../services/skill_extractor';
 import { getCuratorRefineStatus } from '../services/skill_refiner';
 import { getSyncStatus } from '../services/sync_orchestrator_service';
 import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
+import { getModelProvenance } from '../services/model_provenance_service';
 import {
   McpAppCapabilityBroker,
   McpAppCapabilityDenied,
@@ -2183,6 +2184,20 @@ export class AgentSessionsController {
         notePaths: record.notePaths,
         items: record.items,
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * #1576 S2 — GET /:id/model-provenance: which model(s) actually served this
+   * session's steps, distinct from what was requested.
+   */
+  async getModelProvenance(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      res.json(getModelProvenance(session.id, session.modelId));
     } catch (err) {
       next(err);
     }
