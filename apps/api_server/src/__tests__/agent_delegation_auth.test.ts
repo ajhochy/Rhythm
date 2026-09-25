@@ -7,6 +7,7 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 import type { AgentKind } from '../models/agent_session';
 import { delegateToAgent } from '../services/agent_delegation_service';
 import { AgentDelegationController } from '../controllers/agent_delegation_controller';
+import { env } from '../config/env';
 
 const { runMock } = vi.hoisted(() => ({
   runMock: vi.fn(),
@@ -94,6 +95,34 @@ describe('manager delegation authorization contracts', () => {
     listCatalogMock.mockResolvedValue([
       { provider: 'anthropic', modelId: 'claude-sonnet-4-5', authorized: true },
     ]);
+    env.bridgeEnabled = true;
+  });
+
+  it('bounds Hermes prompts and context before resolving or dispatching a caller', async () => {
+    const controller = new AgentDelegationController();
+    for (const [field, value, message] of [
+      ['prompt', 'x'.repeat(32_769), 'prompt'],
+      ['context', 'x'.repeat(16_385), 'context'],
+    ] as const) {
+      const next = vi.fn();
+      const body: Record<string, unknown> = {
+        targetRuntime: 'hermes',
+        callerSdkSessionId: 'unresolved-on-purpose',
+        targetAgentConfigId: 'specialist',
+        idempotencyKey: '10000000-0000-4000-8000-000000000001',
+        prompt: 'bounded',
+        [field]: value,
+      };
+      await controller.delegateAsync(
+        { body, auth: { user: { id: 42 } } } as never,
+        { json: vi.fn(), status: vi.fn().mockReturnThis() } as never,
+        next,
+      );
+      expect(next).toHaveBeenCalledWith(expect.objectContaining({
+        statusCode: 400,
+        message: expect.stringContaining(message),
+      }));
+    }
   });
 
   it('issue-P4-manager-delegation-c3: allowed manager delegation invokes target profile', async () => {

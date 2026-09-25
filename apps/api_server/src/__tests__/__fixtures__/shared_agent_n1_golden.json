@@ -1,0 +1,80 @@
+{
+  "snapshot": {
+    "version": 2,
+    "source": {
+      "agent_id": "golden-agent",
+      "revision": 7,
+      "reference": "golden-projection-reference"
+    },
+    "instructions": "Golden instructions.",
+    "model": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-5",
+      "reasoning": "high"
+    },
+    "allowed_tools": [
+      "read_file"
+    ],
+    "tool_effects": {},
+    "paths": {
+      "root": "/",
+      "boundary": [],
+      "external": "ask",
+      "protected": []
+    },
+    "rules": [
+      {
+        "tool": "read_file",
+        "argument": "path",
+        "pattern": "*",
+        "effect": "ask"
+      },
+      {
+        "tool": "read_file",
+        "argument": "path",
+        "pattern": "*",
+        "effect": "deny"
+      },
+      {
+        "tool": "read_file",
+        "argument": "path",
+        "pattern": "src/**",
+        "effect": "allow"
+      }
+    ],
+    "taint_gate": {
+      "sources": [],
+      "gated": []
+    },
+    "launch": {
+      "kind": "interactive",
+      "cwd": null
+    }
+  },
+  "evaluationVectors": [
+    {
+      "tool": "read_file",
+      "args": {
+        "path": "src/index.ts"
+      },
+      "liveCwd": "/",
+      "expected": "allow"
+    },
+    {
+      "tool": "read_file",
+      "args": {
+        "path": "README.md"
+      },
+      "liveCwd": "/",
+      "expected": "deny"
+    },
+    {
+      "tool": "terminal",
+      "args": {
+        "command": "pwd"
+      },
+      "liveCwd": "/",
+      "expected": "deny"
+    }
+  ]
+}

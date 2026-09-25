@@ -472,6 +472,12 @@ export interface AgentRunOptions {
    * instead of any generated fallback.
    */
   runEpisodeId?: string | null;
+  /**
+   * A Hermes-originated bridge launch. These runs retain the target profile's
+   * ordinary approval policy, never teacher-escalate, and may consume owner
+   * memory only when the bridge grant explicitly carries memory.search.
+   */
+  bridgeOrigin?: { allowMemoryPreface: boolean };
 }
 
 export interface AgentRunResult {
@@ -727,13 +733,21 @@ export function resolveTeacherModel(
  */
 export function shouldEscalate(
   result: Pick<AgentRunResult, 'status' | 'error' | 'errorCode' | 'failureCategory'>,
-  opts: Pick<AgentRunOptions, '_isEscalation'>,
+  opts: Pick<AgentRunOptions, '_isEscalation' | 'bridgeOrigin'>,
   enabled: boolean = env.agentTeacherEscalationEnabled,
 ): boolean {
   if (!enabled) return false;
+  if (opts.bridgeOrigin) return false;
   if (opts._isEscalation) return false; // recursion guard — escalate at most once
   if (result.status !== 'error') return false;
   return classifyAgentRunFailure(result).teacherRetryable;
+}
+
+export function shouldInjectMemoryPreface(
+  opts: Pick<AgentRunOptions, 'bridgeOrigin' | 'category'>,
+): boolean {
+  return opts.category !== 'self_improvement' &&
+    (opts.bridgeOrigin === undefined || opts.bridgeOrigin.allowMemoryPreface);
 }
 
 /** Injectable deps for {@link escalateAndCapture} so tests hit no real model/LLM. */
@@ -883,7 +897,9 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   // schedules and background callers after a profile is locked.
   const effectiveConfigId = agentConfigId ?? agentKind;
   const isOrgReviewer = effectiveConfigId === ORG_REVIEWER_PROFILE_ID;
-  const permissionMode: PermissionMode = isOrgReviewer ? 'default' : 'bypassPermissions';
+  const permissionMode: PermissionMode = isOrgReviewer || opts.bridgeOrigin
+    ? 'default'
+    : 'bypassPermissions';
   if (effectiveConfigId) {
     const config = new AgentConfigsRepository().getById(effectiveConfigId);
     if (config) {
@@ -1018,7 +1034,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     notePaths: (string | null)[];
     items: MemoryProvenanceItem[];
   } | null = null;
-  if (isMemoryInjectionEnabled() && category !== 'self_improvement') {
+  if (isMemoryInjectionEnabled() && shouldInjectMemoryPreface(opts)) {
     try {
       const memPreface = await buildMemoryPreface(prompt, ownerUserId ?? null);
       if (memPreface.text) {

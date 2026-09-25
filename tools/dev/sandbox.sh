@@ -67,6 +67,9 @@ runtime_env=(
   "OPENCODE_DISABLE_EXTERNAL_SKILLS=1"
   "RHYTHM_API_BASE=http://127.0.0.1:$API_PORT"
   "RHYTHM_AGENT_URL=http://127.0.0.1:$API_PORT"
+  # Shared-agent live tests pass only the registrar digest into the isolated
+  # api_server. The registrar secret itself remains in the invoking test.
+  "RHYTHM_AGENT_BRIDGE_REGISTRAR_SHA256=${RHYTHM_SANDBOX_BRIDGE_REGISTRAR_SHA256:-}"
   "MAX_CONCURRENT_AGENT_RUNS=2"
   "AGENT_LOCAL=true"
   # Synthetic harness runs never inherit an operator's promotion opt-in.
@@ -286,6 +289,10 @@ safe_sandbox_path() {
   validate_port RHYTHM_SANDBOX_API_PORT "$API_PORT"
   validate_port RHYTHM_SANDBOX_ENGINE_PORT "$ENGINE_PORT"
   validate_port RHYTHM_SANDBOX_GATEWAY_PORT "$GATEWAY_PORT"
+  if [[ -n "${RHYTHM_SANDBOX_BRIDGE_REGISTRAR_SHA256:-}" &&
+        ! "${RHYTHM_SANDBOX_BRIDGE_REGISTRAR_SHA256}" =~ ^[0-9a-f]{64}$ ]]; then
+    fail "RHYTHM_SANDBOX_BRIDGE_REGISTRAR_SHA256 must be a lowercase sha256 digest"
+  fi
   [[ "$RELAY_ENABLED" == 0 || "$RELAY_ENABLED" == 1 ]] ||
     fail "RHYTHM_SANDBOX_RELAY must be 0 or 1"
   [[ "$API_PORT" != "$ENGINE_PORT" ]] || fail "sandbox API and engine ports must be different"
@@ -444,6 +451,18 @@ wait_in_foreground() {
   return "$wait_status"
 }
 
+build_engine() {
+  if [[ "${RHYTHM_SANDBOX_SKIP_ENGINE_BUILD:-0}" == 1 ]]; then
+    [[ -x "$ENGINE_BIN" ]] ||
+      fail "prebuilt engine is missing or not executable: $ENGINE_BIN"
+    return 0
+  fi
+  [[ "${RHYTHM_SANDBOX_SKIP_ENGINE_BUILD:-0}" == 0 ]] ||
+    fail 'RHYTHM_SANDBOX_SKIP_ENGINE_BUILD must be 0 or 1'
+  (cd "$ENGINE_DIR" && MODELS_DEV_API_JSON="$ROOT/apps/opencode_fork/packages/opencode/test/tool/fixtures/models-api.json" \
+    bun run build --single --skip-install --skip-embed-web-ui) >"$SB/engine-build.log" 2>&1
+}
+
 up() {
   local mode="${1:-background}"
   local api_pid
@@ -475,7 +494,7 @@ up() {
     sqlite3 "$SB/rhythm.db" 'UPDATE agent_scheduled_tasks SET enabled=0;'
   fi
 
-  (cd "$ENGINE_DIR" && MODELS_DEV_API_JSON="$ROOT/apps/opencode_fork/packages/opencode/test/tool/fixtures/models-api.json" bun run build --single --skip-install --skip-embed-web-ui) >"$SB/engine-build.log" 2>&1
+  build_engine
   (cd "$API_DIR" && npm run build)
   # up() builds the local MCP payload here; under `set -e` a failed build aborts
   # the run, so do NOT re-add a pre-build existence guard (it makes up() fail on

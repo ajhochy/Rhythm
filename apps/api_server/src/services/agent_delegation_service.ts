@@ -60,9 +60,17 @@ export interface AsyncAgentDelegationResult {
  *
  *   See docs/ai/decisions/2026-06-25-delegation-depth.md for full rationale.
  */
-const MAX_DELEGATION_DEPTH = 2;
+export const MAX_DELEGATION_DEPTH = 2;
 
-function parseAllowedDelegates(json: string | null): Set<string> {
+export function nextDelegationDepth(parentDepth: number): number {
+  const depth = parentDepth + 1;
+  if (depth > MAX_DELEGATION_DEPTH) {
+    throw AppError.badRequest('delegation depth limit exceeded');
+  }
+  return depth;
+}
+
+export function parseAllowedDelegates(json: string | null): Set<string> {
   if (!json) return new Set();
   try {
     const parsed: unknown = JSON.parse(json);
@@ -75,7 +83,7 @@ function parseAllowedDelegates(json: string | null): Set<string> {
   }
 }
 
-function requireExecutableProfile(
+export function requireExecutableProfile(
   repo: AgentConfigsRepository,
   profileId: string,
   role: 'caller' | 'target',
@@ -148,10 +156,7 @@ export async function delegateToAgent(
   }
 
   if (callerId === targetId) throw AppError.badRequest('self-delegation is not allowed');
-  const childDepth = callerSession.delegationDepth + 1;
-  if (childDepth > MAX_DELEGATION_DEPTH) {
-    throw AppError.badRequest('delegation depth limit exceeded');
-  }
+  const childDepth = nextDelegationDepth(callerSession.delegationDepth);
 
   const repo = new AgentConfigsRepository();
   const caller = requireExecutableProfile(repo, callerId, 'caller');
@@ -271,10 +276,7 @@ export async function delegateToAgentAsync(
     throw AppError.badRequest('caller session is not attached to the engine');
   }
 
-  const childDepth = callerSession.delegationDepth + 1;
-  if (childDepth > MAX_DELEGATION_DEPTH) {
-    throw AppError.badRequest('delegation depth limit exceeded');
-  }
+  const childDepth = nextDelegationDepth(callerSession.delegationDepth);
 
   const configRepo = new AgentConfigsRepository();
   const caller = requireExecutableProfile(configRepo, callerId, 'caller');

@@ -10,6 +10,7 @@ import {
   MEMORY_CONSOLIDATION_REPAIR_KEY,
   MEMORY_CONSOLIDATION_SEED_NAME,
 } from '../services/memory_consolidation_seed';
+import { installAgentBridgeSchema } from '../shared_agents/bridge_schema';
 
 /**
  * W1 corrective-6 package B — monotonic persistence revisions.
@@ -89,6 +90,7 @@ function installRevisionInvariants(db: Database.Database, table: string): void {
 }
 
 export function runMigrations(db: Database.Database): void {
+  installAgentBridgeSchema(db);
   // ── Write-discipline contract ─────────────────────────────────────────
   // runMigrations() runs on EVERY boot (db.ts initDb), not just first
   // install. Every statement here is one of exactly two classes:

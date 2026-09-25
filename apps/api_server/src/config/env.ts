@@ -422,6 +422,12 @@ export const env = {
    */
   agentExecutionEnabled:
     deploymentRole !== 'cloud' && deploymentRole !== 'relay',
+  /** Shared-agent bridge exists only on the owned local SQLite runtime. */
+  bridgeEnabled:
+    deploymentRole !== 'cloud' && deploymentRole !== 'relay' &&
+    agentLocal && dbClientValue === 'sqlite',
+  agentBridgeRegistrarSha256:
+    (process.env.RHYTHM_AGENT_BRIDGE_REGISTRAR_SHA256 ?? '').trim(),
   /** True only for the Synology relay container (RHYTHM_ROLE=relay). */
   isRelayRole: deploymentRole === 'relay',
   /**

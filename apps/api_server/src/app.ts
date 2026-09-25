@@ -78,6 +78,9 @@ import {
   sharedTranscriptsRouter,
   transcriptShareCreationRouter,
 } from './routes/shared_transcripts_routes';
+import { createAgentBridgeRouter } from './routes/agent_bridge_routes';
+import { sharedAgentsCatalogRouter } from './shared_agents/bridge/catalog';
+import { requireLocalOrCloudAuth } from './middleware/auth_middleware';
 
 export function isLoopbackAddress(address: string | undefined): boolean {
   return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
@@ -87,6 +90,9 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
   const app = express();
 
   app.use(localAgentSurfaceGuard);
+  if (env.bridgeEnabled) {
+    app.use('/agent-bridge/v1', createAgentBridgeRouter());
+  }
   app.use(
     cors({
       origin: (origin, callback) => {
@@ -234,6 +240,9 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
     app.use('/agent-run-outcomes', runOutcomeRouter);
     app.use('/agents/models', agentsModelsRouter);
     app.use('/agent-configs', agentConfigsRouter);
+    if (env.bridgeEnabled) {
+      app.use('/shared-agents/v1', requireLocalOrCloudAuth, sharedAgentsCatalogRouter);
+    }
     app.use('/agent-delegation', agentDelegationRouter);
     app.use('/agent-skills', agentSkillsRouter);
     app.use('/agent-schedules', agentSchedulesRouter);
