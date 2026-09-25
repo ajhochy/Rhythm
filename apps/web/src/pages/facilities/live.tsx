@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { FocusDialog } from '../../components/FocusDialog';
 import { Timestamp } from '../../components/Timestamp';
-import { formatTimestamp, wallClockInstant } from '../../timestamps';
+import { wallClockInstant } from '../../timestamps';
 import { ListInspector, useSelectedId, type ListInspectorItem } from '../../components/ListInspector';
 import { useGateway } from '../../gateway/context';
 import { useAuthUser } from '../../gateway/auth';
@@ -55,6 +55,31 @@ function isAutomationPreview(value: unknown): value is AutomationPreview {
     && preview.byFacility.every((item) => Number.isFinite(item.facilityId) && typeof item.facilityName === 'string' && Number.isFinite(item.count));
 }
 
+function compactReservationRange(startValue: string, endValue: string): string {
+  const start = wallClockInstant(startValue);
+  const end = wallClockInstant(endValue);
+  if (!start || !end) return 'Time unavailable';
+  const date = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
+  const time = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  const startDate = date.format(start);
+  const endDate = date.format(end);
+  const startTime = time.format(start);
+  const endTime = time.format(end);
+  const startPeriod = startTime.match(/ (AM|PM)$/)?.[1];
+  const endPeriod = endTime.match(/ (AM|PM)$/)?.[1];
+  const compactStartTime = startPeriod === endPeriod ? startTime.replace(/ (AM|PM)$/, '') : startTime;
+  return startDate === endDate
+    ? `${startDate}, ${compactStartTime}–${endTime}`
+    : `${startDate}, ${startTime}–${endDate}, ${endTime}`;
+}
+
+function roomSubtitle(facility: Facility, reservationCount: number): string {
+  if (facility.description) return facility.description;
+  if (facility.location) return facility.location;
+  if (facility.capacity != null) return `Capacity ${facility.capacity}`;
+  return `${reservationCount} reservation${reservationCount === 1 ? '' : 's'}`;
+}
+
 export function LiveFacilitiesPage({ route }: { route: string }) {
   // apps/web/src/gateway/index.ts:98 — every domain shares the one bearer from the signed-in
   // session; Facilities must not build its own gateway from a build-time/test-only env value.
@@ -71,6 +96,7 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
   const [buildingFilter, setBuildingFilter] = useState('');
   const [selectedItemId, setSelectedItemId] = useSelectedId('facilityItemId');
   const selectedFacilityRef = useRef<number | null>(null);
+  const loadGenerationRef = useRef(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
@@ -125,20 +151,23 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
   }, [effectiveSelectedItemId, selectedItemId, setSelectedItemId]);
 
   const load = async () => {
+    const generation = ++loadGenerationRef.current;
     setLoading(true);
     setLoadError('');
     try {
       const filters = { ...(rangeStart ? { start: rangeStart } : {}), ...(rangeEnd ? { end: rangeEnd } : {}), ...(buildingFilter ? { building: buildingFilter } : {}) };
       const [loadedFacilities, loadedReservations, loadedGroups] = await Promise.all([gateway.facilities(), gateway.reservations(filters), gateway.reservationGroups(filters)]);
       const loadedSeries = (await Promise.all(loadedFacilities.map((facility) => gateway.reservationSeries(facility.id).catch(() => [])))).flat();
-      setFacilities(loadedFacilities);
-      setReservations(loadedReservations);
-      setGroups(loadedGroups);
-      setSeries(loadedSeries);
+      if (generation === loadGenerationRef.current) {
+        setFacilities(loadedFacilities);
+        setReservations(loadedReservations);
+        setGroups(loadedGroups);
+        setSeries(loadedSeries);
+      }
     } catch (error) {
-      setLoadError(boundedMessage(error));
+      if (generation === loadGenerationRef.current) setLoadError(boundedMessage(error));
     } finally {
-      setLoading(false);
+      if (generation === loadGenerationRef.current) setLoading(false);
     }
   };
 
@@ -163,6 +192,8 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
       const saved = editingFacility
         ? await gateway.updateFacility(editingFacility.id, { name, building: facilityBuilding.trim() || null })
         : await gateway.createFacility({ name, building: facilityBuilding.trim() || null });
+      loadGenerationRef.current += 1;
+      setLoading(false);
       setFacilities((current) => editingFacility ? current.map((item) => item.id === saved.id ? saved : item) : [...current, saved]);
       setSelectedItemId(`facilities-room-${saved.id}`);
       setFacilityDialogOpen(false);
@@ -185,13 +216,19 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
     try {
       if (deleteTarget.kind === 'facility') {
         await gateway.deleteFacility(deleteTarget.facility.id);
+        loadGenerationRef.current += 1;
+        setLoading(false);
         setFacilities((current) => current.filter((item) => item.id !== deleteTarget.facility.id));
         setReservations((current) => current.filter((item) => item.facilityId !== deleteTarget.facility.id));
       } else if (deleteTarget.kind === 'reservation') {
         await gateway.deleteReservation(deleteTarget.reservation.facilityId, deleteTarget.reservation.id);
+        loadGenerationRef.current += 1;
+        setLoading(false);
         setReservations((current) => current.filter((item) => item.id !== deleteTarget.reservation.id));
       } else if (deleteTarget.kind === 'series') {
         await gateway.deleteReservationSeries(deleteTarget.series.facilityId, deleteTarget.series.id);
+        loadGenerationRef.current += 1;
+        setLoading(false);
         setSeries((current) => current.filter((item) => item.id !== deleteTarget.series.id));
         setReservations((current) => current.filter((item) => item.seriesId !== deleteTarget.series.id));
       } else {
@@ -240,8 +277,18 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
       const created = editingReservation
         ? await gateway.updateReservation(editingReservation.facilityId, editingReservation.id, input)
         : await gateway.createReservation(selectedFacilityId, input);
-      const reservation = 'reservations' in created ? created.reservations[0] : created;
-      if (reservation) setReservations((current) => editingReservation ? current.map((item) => item.id === reservation.id ? reservation : item) : [...current, reservation]);
+      const savedReservations = 'reservations' in created ? created.reservations : [created];
+      loadGenerationRef.current += 1;
+      setLoading(false);
+      setReservations((current) => {
+        if (editingReservation) {
+          const saved = savedReservations[0];
+          return saved ? current.map((item) => item.id === saved.id ? saved : item) : current;
+        }
+        const merged = new Map(current.map((item) => [item.id, item]));
+        savedReservations.forEach((item) => merged.set(item.id, item));
+        return [...merged.values()];
+      });
       if ('conflicts' in created && created.conflicts.length) {
         setReservationError(`${created.conflicts.length} requested room${created.conflicts.length === 1 ? '' : 's'} conflicted and were not reserved.`);
       } else setReservationDialogOpen(false);
@@ -279,6 +326,8 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
         end_time: seriesEndTime,
         start_date: seriesStartDate,
       });
+      loadGenerationRef.current += 1;
+      setLoading(false);
       setReservations((current) => [...current, ...result.createdReservations]);
       setSeriesDialogOpen(false);
     } catch (error) {
@@ -308,14 +357,14 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
     ...facilities.map((facility) => ({
       id: `facilities-room-${facility.id}`,
       title: facility.name,
-      subtitle: facility.description ?? facility.location ?? 'No room description',
+      subtitle: roomSubtitle(facility, reservations.filter((reservation) => reservation.facilityId === facility.id).length),
       meta: facility.building ?? 'Unassigned',
       group: `building-${(facility.building ?? 'Unassigned').toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
     })),
     ...facilityReservations.map((reservation) => ({
       id: `facilities-reservation-${reservation.id}`,
       title: reservation.title,
-      subtitle: `${formatTimestamp(wallClockInstant(reservation.startTime)?.toISOString())?.label ?? 'Time unavailable'} - ${formatTimestamp(wallClockInstant(reservation.endTime)?.toISOString())?.label ?? 'Time unavailable'}`,
+      subtitle: compactReservationRange(reservation.startTime, reservation.endTime),
       meta: reservation.requesterName,
       badge: reservation.isConflicted ? 'Conflict' : reservation.seriesId ? 'Series' : reservation.groupId ? 'Linked' : undefined,
       group: 'reservations',
@@ -325,11 +374,10 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
   return (
     <section className="page-shell pg-facilities" aria-labelledby="facilities-title" data-testid="page-facilities" {...(selectedReservationId != null ? { 'data-selected-stable-id': selectedReservationId } : {})}>
       <header className="facilities-page-header facilities-header">
-        <div className="facilities-heading"><span className="eyebrow">Rhythm workspace</span><h1 id="facilities-title">Facilities</h1><p>Coordinate rooms, recurring schedules, and setup-sensitive reservations.</p></div>
+        <div className="facilities-heading"><h1 id="facilities-title">Facilities</h1><p>Rooms, schedules, and reservations</p></div>
       </header>
 
       {!canManage && <div className="facilities-readonly" id="facilities-live-readonly" role="status"><strong>Read-only Facilities</strong><span>Inspection remains available for this account.</span></div>}
-      <fieldset className="facilities-filters"><legend>Reservation range</legend><label>Start<input type="date" value={rangeStart} onChange={(event) => setRangeStart(event.target.value)} /></label><label>End<input type="date" value={rangeEnd} onChange={(event) => setRangeEnd(event.target.value)} /></label><label>Building<select value={buildingFilter} onChange={(event) => setBuildingFilter(event.target.value)}><option value="">All buildings</option>{[...new Set(facilities.map((facility) => facility.building).filter(Boolean))].map((building) => <option key={building!} value={building!}>{building}</option>)}</select></label></fieldset>
 
       <ListInspector
         className="facilities-list-inspector facilities-live-inspector"
@@ -342,11 +390,19 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
         error={loadError ? <span data-testid="facilities-live-error">{loadError}</span> : undefined}
         searchable
         searchPlaceholder="Search rooms and reservations"
-        toolbar={<fieldset className="facilities-list-toolbar" disabled={!canManage} aria-describedby={!canManage ? 'facilities-live-readonly' : undefined}>
-          <legend className="sr-only">Facilities creation actions</legend>
-          <button className="secondary-button" type="button" onClick={openFacilityDialog} data-testid="facilities-add-room">Add facility</button>
-          <button className="primary-button" type="button" onClick={openReservationDialog} disabled={!selectedFacilityId} data-testid="facilities-reserve-space">Reserve space</button>
-        </fieldset>}
+        toolbar={<div className="facilities-list-toolbar">
+          <fieldset className="facilities-rail-filters">
+            <legend>Reservation range</legend>
+            <label>Start<input type="date" value={rangeStart} onChange={(event) => setRangeStart(event.target.value)} data-testid="facilities-range-start" /></label>
+            <label>End<input type="date" value={rangeEnd} onChange={(event) => setRangeEnd(event.target.value)} data-testid="facilities-range-end" /></label>
+            <label className="facilities-building-filter">Building<select value={buildingFilter} onChange={(event) => setBuildingFilter(event.target.value)} data-testid="facilities-building-filter"><option value="">All buildings</option>{[...new Set(facilities.map((facility) => facility.building).filter(Boolean))].map((building) => <option key={building!} value={building!}>{building}</option>)}</select></label>
+          </fieldset>
+          <fieldset className="facilities-list-actions" disabled={!canManage} aria-describedby={!canManage ? 'facilities-live-readonly' : undefined}>
+            <legend className="sr-only">Facilities creation actions</legend>
+            <button className="secondary-button compact" type="button" onClick={openFacilityDialog} data-testid="facilities-add-room">Add facility</button>
+            <button className="primary-button compact" type="button" onClick={openReservationDialog} disabled={!selectedFacilityId} data-testid="facilities-reserve-space">Reserve space</button>
+          </fieldset>
+        </div>}
         listFooter={<span className="facilities-list-count">{facilities.length} rooms · {facilityReservations.length} reservations</span>}
         emptyState={<div className="facilities-local-empty" data-testid="facilities-empty"><h3>No facilities yet</h3><p>Add a facility to begin managing room reservations.</p></div>}
         inspector={(item) => {
@@ -371,9 +427,8 @@ export function LiveFacilitiesPage({ route }: { route: string }) {
           const roomSeries = series.filter((entry) => entry.facilityId === facility.id);
           const roomReservations = reservations.filter((entry) => entry.facilityId === facility.id);
           return <section className="facilities-detail-sheet" data-testid="facilities-room-detail">
-            <div className="facilities-detail-heading"><div><span>{facility.building ?? 'Unassigned'}</span><p>{facility.description ?? facility.location ?? 'No room description'}</p></div><div className="facilities-detail-actions"><button className="primary-button" type="button" disabled={!canManage} onClick={openReservationDialog} data-testid="facilities-room-reserve">Reserve this room</button><button className="secondary-button" type="button" disabled={!canManage} onClick={() => editFacility(facility)} data-testid={`facilities-room-edit-${facility.id}`}>Edit facility</button><button className="text-danger-button" type="button" disabled={!canManage} onClick={() => { setDeleteError(''); setDeleteTarget({ kind: 'facility', facility }); }} data-testid={`facilities-room-delete-${facility.id}`}>Delete facility</button></div></div>
+            <div className="facilities-detail-heading"><div><span>{facility.building ?? 'Unassigned'}</span><p>{roomSubtitle(facility, roomReservations.length)}</p></div><div className="facilities-detail-actions"><button className="primary-button compact" type="button" disabled={!canManage} onClick={openReservationDialog} data-testid="facilities-room-reserve">Reserve this room</button><button className="secondary-button compact" type="button" disabled={!canManage} onClick={() => editFacility(facility)} data-testid={`facilities-room-edit-${facility.id}`}>Edit facility</button><button className="secondary-button compact" type="button" disabled={!canManage} onClick={openSeriesDialog} data-testid="facilities-add-series">Recurring series</button><button className="secondary-button compact" type="button" onClick={() => void previewAutomation()} data-testid="facilities-automation-preview">Preview automation reservations</button>{automationPreview !== null && <button className="secondary-button compact" type="button" onClick={() => { setDeleteError(''); setDeleteTarget({ kind: 'automation', preview: automationPreview }); }} disabled={automationPreview.total === 0 || !canManage} data-testid="facilities-automation-clear">Remove automation reservations</button>}<button className="text-danger-button" type="button" disabled={!canManage} onClick={() => { setDeleteError(''); setDeleteTarget({ kind: 'facility', facility }); }} data-testid={`facilities-room-delete-${facility.id}`}>Delete facility</button></div></div>
             <dl className="facilities-detail-grid"><div><dt>Building</dt><dd>{facility.building ?? 'Unassigned'}</dd></div><div><dt>Capacity</dt><dd>{facility.capacity ?? 'Not set'}</dd></div><div><dt>Reservations</dt><dd>{roomReservations.length}</dd></div><div><dt>Availability</dt><dd>{roomReservations.some((reservation) => reservation.isConflicted) ? 'Review conflicts below' : 'No reported conflicts'}</dd></div></dl>
-            <div className="facilities-detail-actions"><button className="secondary-button" type="button" disabled={!canManage} onClick={openSeriesDialog} data-testid="facilities-add-series">Recurring series</button><button className="secondary-button" type="button" onClick={() => void previewAutomation()} data-testid="facilities-automation-preview">Preview automation reservations</button>{automationPreview !== null && <button className="secondary-button" type="button" onClick={() => { setDeleteError(''); setDeleteTarget({ kind: 'automation', preview: automationPreview }); }} disabled={automationPreview.total === 0 || !canManage} data-testid="facilities-automation-clear">Remove automation reservations</button>}</div>
             {automationError && <p role="alert" data-testid="facilities-automation-error">{automationError}</p>}
             {automationPreview && <section className="facilities-automation-preview" aria-label="Automation cleanup preview" data-testid="facilities-automation-preview-result"><div><span>Reservations in scope</span><strong>{automationPreview.total}</strong></div><div><p>{automationPreview.total} automation reservation{automationPreview.total === 1 ? '' : 's'}</p>{automationPreview.byFacility.map((entry) => <p key={entry.facilityId}>{entry.facilityName}: {entry.count}</p>)}</div></section>}
             <section className="facilities-related-section" aria-label="Upcoming reservations"><h3>Upcoming reservations</h3>{roomReservations.length ? roomReservations.map((reservation) => <button type="button" key={reservation.id} onClick={() => setSelectedItemId(`facilities-reservation-${reservation.id}`)}><strong>{reservation.title}</strong><span><Timestamp value={wallClockInstant(reservation.startTime)?.toISOString()} /></span></button>) : <p data-testid="facilities-reservations-empty">No reservations.</p>}</section>
