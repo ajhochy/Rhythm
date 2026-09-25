@@ -27,6 +27,11 @@ import { env } from '../config/env';
 import { opencodeClient } from '../services/opencode_engine';
 import { streamBridge } from '../services/opencode_stream_bridge';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { createHmac, randomBytes } from 'node:crypto';
+import { resetProbeCache } from '../services/provider_catalog_policy';
 
 export const systemRouter = Router();
 const sessionsRepository = new AgentSessionsRepository();
@@ -93,6 +98,126 @@ async function restartEngine(): Promise<RestartResult> {
 
 if (!env.agentLocal) systemRouter.use(requireAuth);
 
+const configDigestKey = randomBytes(32);
+let lastObserved: { config: string; engine: string } | undefined;
+
+// ponytail: only digest trusted provider metadata, not credentials or headers.
+async function providerConfigStatus(): Promise<{
+  restart_required: boolean | null;
+  reason: string;
+}> {
+  let configured: Record<
+    string,
+    {
+      models?: Record<string, unknown>;
+      options?: Record<string, unknown>;
+      whitelist?: string[];
+      blacklist?: string[];
+    }
+  >;
+  let enabled: string[] | undefined;
+  let disabled: string[] = [];
+  try {
+    const snapshot = JSON.parse(
+      readFileSync(
+        join(homedir(), '.config/opencode/opencode.json'),
+        'utf8',
+      ),
+    );
+    configured =
+      snapshot.provider && typeof snapshot.provider === 'object'
+        ? snapshot.provider
+        : {};
+    enabled = Array.isArray(snapshot.enabled_providers)
+      ? snapshot.enabled_providers
+      : undefined;
+    disabled = Array.isArray(snapshot.disabled_providers)
+      ? snapshot.disabled_providers
+      : [];
+  } catch {
+    return { restart_required: null, reason: 'config_unavailable' };
+  }
+  try {
+    const snapshot = await opencodeClient.providerSnapshot();
+    const engine = new Map(
+      snapshot.providers.map((provider) => [
+        provider.id,
+        new Set(provider.models.map((model) => model.id)),
+      ]),
+    );
+    const active = Object.entries(configured).filter(
+      ([id]) => !disabled.includes(id) && (!enabled || enabled.includes(id)),
+    );
+    const configDigest = createHmac('sha256', configDigestKey)
+      .update(
+        JSON.stringify(
+          active
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([id, value]) => [
+              id,
+              Object.keys(value?.models ?? {})
+                .filter(
+                  (model) =>
+                    !value?.whitelist || value.whitelist.includes(model),
+                )
+                .filter((model) => !value?.blacklist?.includes(model))
+                .sort(),
+              value?.options ?? null,
+              value.whitelist ?? null,
+              value.blacklist ?? null,
+            ]),
+        ),
+      )
+      .digest('hex');
+    const engineDigest = createHmac('sha256', configDigestKey)
+      .update(
+        JSON.stringify(
+          snapshot.providers
+            .map(({ id, digest }) => [id, digest])
+            .sort(([a], [b]) => a.localeCompare(b)),
+        ),
+      )
+      .digest('hex');
+    const drift = active.some(
+      ([id, value]) =>
+        !engine.has(id) ||
+        Object.keys(value?.models ?? {})
+          .filter(
+            (model) => !value?.whitelist || value.whitelist.includes(model),
+          )
+          .filter((model) => !value?.blacklist?.includes(model))
+          .some((modelId) => !engine.get(id)?.has(modelId)),
+    );
+    const configChanged =
+      !drift &&
+      lastObserved &&
+      lastObserved.config !== configDigest &&
+      lastObserved.engine === engineDigest;
+    if (!drift && !configChanged) {
+      lastObserved = { config: configDigest, engine: engineDigest };
+    }
+    return {
+      restart_required: Boolean(drift || configChanged),
+      reason: drift
+        ? 'provider_drift'
+        : configChanged
+          ? 'config_changed'
+          : 'in_sync',
+    };
+  } catch {
+    return { restart_required: null, reason: 'engine_unverified' };
+  }
+}
+
+/** Capture the engine-loaded configuration once initialization has completed. */
+export async function captureProviderConfigBaseline(): Promise<void> {
+  await providerConfigStatus();
+}
+
+systemRouter.get('/config/status', async (_req: Request, res: Response) => {
+  res.json(await providerConfigStatus());
+});
+
 systemRouter.post(
   '/refresh',
   async (_req: Request, res: Response, next: NextFunction) => {
@@ -106,10 +231,28 @@ systemRouter.post(
       // Global config cache (Duration.infinity TTL) holds agent profiles merged
       // from disk. Without this invalidate, a Config Doctor edit to an agent
       // file is invisible to new sessions until the engine restarts.
-      await opencodeClient.reloadConfig();
-      refreshed.push('agent-profiles');
+      const configReloaded = await opencodeClient.reloadConfig();
+      resetProbeCache();
+      const configStatus = await providerConfigStatus();
+      const restartRequired =
+        !configReloaded || configStatus.restart_required === true;
+      if (configReloaded) refreshed.push('agent-profiles');
 
-      res.json({ status: 'ok', refreshed });
+      res.json({
+        status: restartRequired
+          ? 'restart_required'
+          : configStatus.restart_required === null
+            ? 'unknown'
+            : 'ok',
+        refreshed,
+        restart_required:
+          restartRequired || configStatus.restart_required === null
+            ? restartRequired
+              ? true
+              : null
+            : false,
+        reason: !configReloaded ? 'reload_failed' : configStatus.reason,
+      });
     } catch (err) {
       next(err);
     }

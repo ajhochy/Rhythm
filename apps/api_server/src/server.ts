@@ -653,6 +653,14 @@ async function main() {
     opencodeClient
       .initialize()
       .then(async () => {
+      // #1572 — preserve the engine-loaded provider options so the first
+      // refresh after an on-disk edit can report restart_required accurately.
+      try {
+        const { captureProviderConfigBaseline } = await import('./routes/system_routes');
+        await captureProviderConfigBaseline();
+      } catch (e) {
+        logger.warn(`[server] provider config baseline failed (non-fatal): ${String(e)}`);
+      }
       // The initial seed can run before the engine exists, when its reload is a
       // no-op. Re-project now that reloadConfig can register `research` before
       // the first page-launched AgentRunner job.

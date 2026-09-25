@@ -93,7 +93,10 @@ describe('manager delegation authorization contracts', () => {
       result: 'delegated result',
     });
     listCatalogMock.mockResolvedValue([
-      { provider: 'anthropic', modelId: 'claude-sonnet-4-5', authorized: true },
+      {
+        provider: 'anthropic', modelId: 'claude-sonnet-4-5', authorized: true,
+        available: 'unknown', visible: true,
+      },
     ]);
     env.bridgeEnabled = true;
   });
@@ -171,6 +174,31 @@ describe('manager delegation authorization contracts', () => {
     }));
   });
 
+  it.each([
+    ['anthropic', 'claude-opus-5-5'],
+    ['opencode', 'north-mini-code-free'],
+  ])('review:review-findings.md:15 accepts a selectable resolver or Zen catalog row: %s/%s', async (providerID, modelID) => {
+    listCatalogMock.mockResolvedValueOnce([{
+      provider: providerID,
+      modelId: modelID,
+      authorized: true,
+      available: 'unknown',
+      visible: true,
+    }]);
+
+    await delegateToAgent({
+      authenticatedUserId: 42,
+      callerSessionId: seedCallerSession('manager'),
+      targetAgentConfigId: 'specialist',
+      prompt: 'Use the catalog-visible route.',
+      model: { providerID, modelID },
+    });
+
+    expect(runMock).toHaveBeenCalledWith(expect.objectContaining({
+      modelOverride: { providerID, modelID },
+    }));
+  });
+
   it('issue-001-c2: omitting model leaves the runner override absent', async () => {
     // Regression caught: an omitted selection is serialized as an override and
     // changes the target profile's normal model-resolution behavior.
@@ -194,6 +222,25 @@ describe('manager delegation authorization contracts', () => {
       prompt: 'Do not silently fall back.',
       model: { providerID: 'unknown', modelID: 'unknown-model' },
     })).rejects.toMatchObject({ statusCode: 400, message: expect.stringContaining('model') });
+    expect(runMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { authorized: false, available: 'unknown', visible: true },
+    { authorized: true, available: false, visible: true },
+    { authorized: true, available: true, visible: false },
+  ])('1572:1572-S1:11 rejects hidden, disconnected, or explicitly unavailable override rows: %o', async (state) => {
+    listCatalogMock.mockResolvedValueOnce([{ provider: 'anthropic', modelId: 'claude-sonnet-4-5', ...state }]);
+    await expect(delegateToAgent({
+      authenticatedUserId: 42,
+      callerSessionId: seedCallerSession('manager'),
+      targetAgentConfigId: 'specialist',
+      prompt: 'Reject unusable selection.',
+      model: { providerID: 'anthropic', modelID: 'claude-sonnet-4-5' },
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringContaining('model override is unknown or unauthorized'),
+    });
     expect(runMock).not.toHaveBeenCalled();
   });
 

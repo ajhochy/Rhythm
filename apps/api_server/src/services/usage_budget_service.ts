@@ -55,6 +55,8 @@ export interface UsageBudgetProvider {
    * account's usage gauges simultaneously, not just the active/default one.
    */
   accountId?: string;
+  /** Account-scoped catalog availability with no credential or account data. */
+  entitledModels?: Record<string, boolean>;
 }
 
 export interface UsageBudgetSnapshot {
@@ -320,6 +322,15 @@ async function fetchOpenAI(auth: Record<string, unknown>): Promise<UsageBudgetPr
     }
     const data: unknown = await res.json();
     if (!isRecord(data) || !isRecord(data.rate_limit)) return unavailable('OpenAI usage response unavailable');
+    const entitledEntries = isRecord(data.model_usage)
+      ? Object.entries(data.model_usage).flatMap(([modelId, value]) =>
+          modelId.length > 0 &&
+          modelId.length <= 256 &&
+          isRecord(value) &&
+          typeof value.available === 'boolean'
+            ? [[modelId, value.available] as const]
+            : [])
+      : [];
     const items: Array<{ seconds: number; item: UsageBudgetItem }> = [];
     for (const key of ['primary_window', 'secondary_window'] as const) {
       const w = data.rate_limit[key];
@@ -345,7 +356,14 @@ async function fetchOpenAI(auth: Record<string, unknown>): Promise<UsageBudgetPr
     }
     if (!items.length) return unavailable('OpenAI usage response unavailable');
     items.sort((a, b) => a.seconds - b.seconds);
-    return { ...base, kind: 'window', items: items.map(({ item }) => item) };
+    return {
+      ...base,
+      kind: 'window',
+      items: items.map(({ item }) => item),
+      ...(entitledEntries.length > 0
+        ? { entitledModels: Object.fromEntries(entitledEntries) }
+        : {}),
+    };
   } catch {
     // ponytail: fixed reason only; provider exceptions may carry credentials or response text.
     return unavailable('OpenAI usage unavailable');
@@ -370,8 +388,18 @@ async function buildSnapshot(): Promise<UsageBudgetSnapshot> {
  * Return a usage-budget snapshot, served from a short-lived cache. Pass
  * `force` to bypass the cache (manual refresh).
  */
-export async function getUsageBudget(opts?: { force?: boolean }): Promise<UsageBudgetSnapshot> {
+export async function getUsageBudget(opts?: {
+  force?: boolean;
+  /** Read the existing cache without causing any provider network request. */
+  cachedOnly?: boolean;
+}): Promise<UsageBudgetSnapshot> {
   const now = Date.now();
+  if (opts?.cachedOnly) {
+    return _cache?.snapshot ?? {
+      providers: [],
+      fetchedAt: new Date(now).toISOString(),
+    };
+  }
   if (!opts?.force && _cache && now - _cache.at < CACHE_TTL_MS) {
     return _cache.snapshot;
   }

@@ -1,655 +1,568 @@
-/**
- * Issue #602 — GET /agents/models/catalog
- *
- * Tests the cross-agent catalog endpoint: shape, authorized/unauthorized
- * partitioning, and visibility-map filtering for OpenRouter rows.
- */
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { createServer } from 'node:http';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { createApp } from '../app';
 import { runMigrations } from '../database/migrations';
-import { setDb } from '../database/db';
+import { getDb, setDb } from '../database/db';
 import { startTestServer } from './helpers/real_server';
 import { UsersRepository } from '../repositories/users_repository';
 import { SessionsRepository } from '../repositories/sessions_repository';
+import { resetProbeCache } from '../services/provider_catalog_policy';
+import { listAgentModelCatalog } from '../routes/agents_models_routes';
+import { resolveModelForAgent } from '../services/agent_model_resolver';
 
-// The runtime config is the filesystem boundary for custom-provider usability.
-const { mockReadFileSync } = vi.hoisted(() => ({
-  mockReadFileSync: vi.fn(() => JSON.stringify({ provider: { 'glm-mesh': {} } })),
+const { snapshot, config, authedProviders } = vi.hoisted(() => ({
+  snapshot: vi.fn(),
+  config: vi.fn(() => JSON.stringify({ provider: {} })),
+  authedProviders: vi.fn().mockResolvedValue([]),
 }));
-
-vi.mock('node:fs', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('node:fs')>()),
-  readFileSync: mockReadFileSync,
-}));
-
-// Provide a controllable authed-providers list.
-const mockAuthedProviders: string[] = [];
-
-vi.mock('../services/opencode_engine', () => {
-  const mockClient = {
-    isReady: true,
-    listModels: vi.fn().mockImplementation((providerId: string) => {
-      const byProvider: Record<string, Array<{ id: string; name?: string; contextLimit?: number }>> = {
-        anthropic: [
-          { id: 'claude-opus-4-7', contextLimit: 200000 },
-          { id: 'claude-opus-4-5', contextLimit: 200000 },
-          { id: 'claude-sonnet-4-6', contextLimit: 200000 },
-          { id: 'claude-haiku-4-5', contextLimit: 200000 },
-        ],
-        openai: [
-          { id: 'gpt-5.3-codex' },
-          { id: 'gpt-5.4' },
-          { id: 'gpt-5.4-mini' },
-        ],
-        openrouter: [
-          { id: 'anthropic/claude-opus-4.7' },
-          { id: 'anthropic/claude-sonnet-4.6' },
-          { id: 'anthropic/claude-haiku-4.5' },
-          { id: 'openai/gpt-5.3-codex' },
-          { id: 'openai/gpt-5.4' },
-          { id: 'openai/gpt-5.4-mini' },
-        ],
-      };
-      return Promise.resolve(byProvider[providerId] ?? []);
-    }),
-    listAuthedProviders: vi.fn().mockImplementation(() =>
-      Promise.resolve(mockAuthedProviders),
-    ),
-    // #1143 — the full live provider catalog. Default: only the static
-    // providers (no custom ones) so existing tests are unaffected; the
-    // custom-provider test overrides this to add e.g. glm-mesh.
-    listProviders: vi.fn().mockResolvedValue([
-      { id: 'anthropic', models: [] },
-      { id: 'openai', models: [] },
-      { id: 'openrouter', models: [] },
-    ]),
-    statusMessage: 'ready',
-    createSession: vi.fn().mockResolvedValue({ id: 'sdk-1' }),
-    setAuth: vi.fn().mockResolvedValue(true),
-    promptAsync: vi.fn().mockResolvedValue(true),
-    subscribeToEvents: vi.fn().mockResolvedValue(null),
-  };
-  return {
-    opencodeClient: mockClient,
-    opencodeSessionMap: new Map<string, string>(),
-  };
+vi.mock('node:fs', async (original) => {
+  const fs = await original<typeof import('node:fs')>();
+  return { ...fs, readFileSync: (path: string, ...args: unknown[]) =>
+    path.endsWith('/.config/opencode/opencode.json') ? config() : (fs.readFileSync as (...args: unknown[]) => unknown)(path, ...args) };
 });
-
-vi.mock('../services/opencode_stream_bridge', () => ({
-  streamBridge: {
-    streamSession: vi.fn().mockResolvedValue(undefined),
-    stopStream: vi.fn(),
-    dispose: vi.fn(),
+vi.mock('../services/opencode_engine', () => ({
+  opencodeClient: {
+    providerSnapshot: snapshot,
+    listAuthedProviders: authedProviders,
+    isReady: true,
+    statusMessage: 'ready',
   },
+  opencodeSessionMap: new Map(),
 }));
+vi.mock('../services/opencode_stream_bridge', () => ({ streamBridge: {
+  streamSession: vi.fn().mockResolvedValue(undefined), stopStream: vi.fn(), dispose: vi.fn(),
+} }));
 
-function makeDb() {
-  const db = new Database(':memory:');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  return db;
+const capable = { input: { text: true }, output: { text: true }, toolcall: true };
+type Model = {
+  id: string;
+  name?: string;
+  apiId?: string;
+  capabilities?: typeof capable;
+  status?: string;
+  contextLimit?: number;
+};
+function provider(id: string, models: Model[], connected = true, endpoint?: string, source?: string) {
+  return {
+    id,
+    models,
+    connected,
+    digest: `${id}-digest`,
+    ...(endpoint ? { endpoint } : {}),
+    ...(source ? { source } : {}),
+  };
+}
+function eligible(id: string, extra: Partial<Model> = {}): Model {
+  return { id, capabilities: capable, ...extra };
 }
 
-describe('GET /agents/models/catalog', () => {
+describe('engine-authoritative model catalog routes', () => {
   let baseUrl: string;
-  let authHeaders: Record<string, string>;
-  let closeServer: () => Promise<void>;
+  let close: () => Promise<void>;
+  let headers: Record<string, string>;
 
   beforeEach(async () => {
-    // Reset authed providers before each test.
-    mockAuthedProviders.length = 0;
-
-    setDb(makeDb());
-
-    const user = new UsersRepository().create({ name: 'Test', email: 'test@example.com' });
+    const db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    runMigrations(db);
+    setDb(db);
+    const user = new UsersRepository().create({ name: 'Catalog', email: 'catalog@example.com' });
     const session = await new SessionsRepository().createAsync(user.id);
-    authHeaders = { Authorization: `Bearer ${session.token}` };
-
-    ({ baseUrl, close: closeServer } = await startTestServer(createApp()));
-  });
-
-  it('returns a non-empty array with the expected shape', async () => {
-    const res = await fetch(`${baseUrl}/agents/models/catalog`, {
-      headers: authHeaders,
-    });
-    expect(res.status).toBe(200);
-    const rows = await res.json() as unknown[];
-    expect(Array.isArray(rows)).toBe(true);
-    expect(rows.length).toBeGreaterThan(0);
-
-    const first = rows[0] as Record<string, unknown>;
-    expect(first).toHaveProperty('agent');
-    expect(first).toHaveProperty('provider');
-    expect(first).toHaveProperty('modelId');
-    expect(first).toHaveProperty('route');
-    expect(first).toHaveProperty('authorized');
-    expect(first).toHaveProperty('authProvider');
-  });
-
-  it('marks rows authorized when provider is in the authed set', async () => {
-    mockAuthedProviders.push('anthropic');
-
-    const res = await fetch(`${baseUrl}/agents/models/catalog`, {
-      headers: authHeaders,
-    });
-    const rows = await res.json() as Array<Record<string, unknown>>;
-
-    const anthropicRows = rows.filter((r) => r.provider === 'anthropic');
-    expect(anthropicRows.length).toBeGreaterThan(0);
-    for (const row of anthropicRows) {
-      expect(row.authorized).toBe(true);
-    }
-
-    const openaiRows = rows.filter((r) => r.provider === 'openai');
-    expect(openaiRows.length).toBeGreaterThan(0);
-    for (const row of openaiRows) {
-      expect(row.authorized).toBe(false);
-    }
-  });
-
-  it('marks all rows unauthorized when no providers are authed', async () => {
-    // mockAuthedProviders is empty (reset in beforeEach)
-    const res = await fetch(`${baseUrl}/agents/models/catalog`, {
-      headers: authHeaders,
-    });
-    const rows = await res.json() as Array<Record<string, unknown>>;
-    for (const row of rows) {
-      expect(row.authorized).toBe(false);
-    }
-  });
-
-  it('includes connectUrl for unauthorized rows', async () => {
-    const res = await fetch(`${baseUrl}/agents/models/catalog`, {
-      headers: authHeaders,
-    });
-    const rows = await res.json() as Array<Record<string, unknown>>;
-    const withConnectUrl = rows.filter((r) => r.connectUrl !== undefined);
-    expect(withConnectUrl.length).toBeGreaterThan(0);
-  });
-
-  it('separates direct and aggregator routes', async () => {
-    const res = await fetch(`${baseUrl}/agents/models/catalog`, {
-      headers: authHeaders,
-    });
-    const rows = await res.json() as Array<Record<string, unknown>>;
-    const direct = rows.filter((r) => r.route === 'direct');
-    const aggregator = rows.filter((r) => r.route === 'aggregator');
-    expect(direct.length).toBeGreaterThan(0);
-    expect(aggregator.length).toBeGreaterThan(0);
-  });
-
-  it('filters out openrouter rows with visible=0 in the visibility table', async () => {
-    const { getDb } = await import('../database/db');
-    const db = getDb();
-    // Seed one visibility=0 row for a known openrouter model.
-    db.prepare(
-      `INSERT OR REPLACE INTO agent_model_visibility (provider, model_id, visible) VALUES ('openrouter', 'anthropic/claude-opus-4.7', 0)`,
-    ).run();
-
-    const res = await fetch(`${baseUrl}/agents/models/catalog`, {
-      headers: authHeaders,
-    });
-    const rows = await res.json() as Array<Record<string, unknown>>;
-    const hidden = rows.find(
-      (r) => r.provider === 'openrouter' && r.modelId === 'anthropic/claude-opus-4.7',
-    );
-    expect(hidden).toBeUndefined();
-  });
-
-  it('includes openrouter rows with visible=1', async () => {
-    const { getDb } = await import('../database/db');
-    const db = getDb();
-    db.prepare(
-      `INSERT OR REPLACE INTO agent_model_visibility (provider, model_id, visible) VALUES ('openrouter', 'anthropic/claude-sonnet-4.6', 1)`,
-    ).run();
-
-    const res = await fetch(`${baseUrl}/agents/models/catalog`, {
-      headers: authHeaders,
-    });
-    const rows = await res.json() as Array<Record<string, unknown>>;
-    const visible = rows.find(
-      (r) => r.provider === 'openrouter' && r.modelId === 'anthropic/claude-sonnet-4.6',
-    );
-    expect(visible).toBeDefined();
-  });
-
-  it('includes curated openrouter models not in the hardcoded fallback list', async () => {
-    mockAuthedProviders.push('openrouter');
-
-    // Extend the OpenRouter mock catalog with a model NOT in ROUTE_FALLBACKS_BY_AGENT.
-    const { opencodeClient } = await import('../services/opencode_engine');
-    const mockListModels = vi.mocked(opencodeClient.listModels);
-    const origImpl = mockListModels.getMockImplementation()!;
-    try {
-      mockListModels.mockImplementation(
-        async (providerId: string) => {
-          const base = (await origImpl(providerId)) as Array<{ id: string }>;
-          if (providerId === 'openrouter') {
-            return [...base, { id: 'custom/qwen-2.5-72b' }];
-          }
-          return base;
-        },
-      );
-
-      const { getDb } = await import('../database/db');
-      getDb().prepare(
-        `INSERT OR REPLACE INTO agent_model_visibility (provider, model_id, visible) VALUES ('openrouter', 'custom/qwen-2.5-72b', 1)`,
-      ).run();
-
-      const res = await fetch(`${baseUrl}/agents/models/catalog`, {
-        headers: authHeaders,
-      });
-      const rows = await res.json() as Array<Record<string, unknown>>;
-      const curated = rows.find(
-        (r) => r.provider === 'openrouter' && r.modelId === 'custom/qwen-2.5-72b',
-      );
-      expect(curated).toBeDefined();
-      expect(curated?.authorized).toBe(true);
-      expect(curated?.route).toBe('aggregator');
-      // Verify it derives the correct agent from the model ID prefix ("custom/" → claude-code default).
-      expect(curated?.agent).toBe('claude-code');
-    } finally {
-      mockListModels.mockImplementation(origImpl);
-    }
-  });
-
-  it('filters out hardcoded fallback rows missing from the live provider catalog', async () => {
-    mockAuthedProviders.push('openai');
-
-    const res = await fetch(`${baseUrl}/agents/models/catalog`, {
-      headers: authHeaders,
-    });
-    const rows = await res.json() as Array<Record<string, unknown>>;
-
-    expect(rows.find((r) => r.provider === 'openai' && r.modelId === 'gpt-5-mini')).toBeUndefined();
-    expect(rows.find((r) => r.provider === 'openai' && r.modelId === 'gpt-5.4-mini')).toBeDefined();
-  });
-
-  it('includes contextLimit for models where the SDK reports a limit', async () => {
-    mockAuthedProviders.push('anthropic');
-
-    const res = await fetch(`${baseUrl}/agents/models/catalog`, {
-      headers: authHeaders,
-    });
-    const rows = await res.json() as Array<Record<string, unknown>>;
-
-    // All anthropic rows should have contextLimit: 200000 per mock.
-    const anthropicRows = rows.filter((r) => r.provider === 'anthropic');
-    expect(anthropicRows.length).toBeGreaterThan(0);
-    for (const row of anthropicRows) {
-      expect(row.contextLimit).toBe(200000);
-    }
-
-    // OpenAI rows have no contextLimit in the mock — field must be absent.
-    const openaiRows = rows.filter((r) => r.provider === 'openai');
-    expect(openaiRows.length).toBeGreaterThan(0);
-    for (const row of openaiRows) {
-      expect(row.contextLimit).toBeUndefined();
-    }
-  });
-
-  it('issue-live-engine-model-catalog-c1: includes live-only direct models with the correct agent mappings', async () => {
-    // CONTRACT TEST — catches the regression where the route starts from
-    // ROUTE_FALLBACKS_BY_AGENT and uses the live inventory only as a filter.
-    mockAuthedProviders.push('anthropic', 'openai', 'google');
-    const { opencodeClient } = await import('../services/opencode_engine');
-    const mockListModels = vi.mocked(opencodeClient.listModels);
-    const original = mockListModels.getMockImplementation()!;
-    try {
-      mockListModels.mockImplementation(async (providerId: string) => {
-        const models = (await original(providerId)) as Array<{ id: string; contextLimit?: number }>;
-        if (providerId === 'anthropic') {
-          return [...models, { id: 'claude-opus-4-8', contextLimit: 1_000_000 }];
-        }
-        if (providerId === 'openai') {
-          return [...models, { id: 'gpt-5.5', contextLimit: 1_000_000 }];
-        }
-        if (providerId === 'google') {
-          return [...models, { id: 'gemini-3.5-flash', contextLimit: 1_048_576 }];
-        }
-        return models;
-      });
-
-      const res = await fetch(`${baseUrl}/agents/models/catalog`, {
-        headers: authHeaders,
-      });
-      expect(res.status).toBe(200);
-      const rows = await res.json() as Array<Record<string, unknown>>;
-
-      expect(rows).toContainEqual(expect.objectContaining({
-        agent: 'claude-code',
-        provider: 'anthropic',
-        modelId: 'claude-opus-4-8',
-        route: 'direct',
-        authorized: true,
-      }));
-      expect(rows).toContainEqual(expect.objectContaining({
-        agent: 'codex',
-        provider: 'openai',
-        modelId: 'gpt-5.5',
-        route: 'direct',
-        authorized: true,
-      }));
-      expect(rows).toContainEqual(expect.objectContaining({
-        agent: 'gemini-cli',
-        provider: 'google',
-        modelId: 'gemini-3.5-flash',
-        route: 'direct',
-        authorized: true,
-      }));
-    } finally {
-      mockListModels.mockImplementation(original);
-    }
-  });
-
-  it('issue-live-engine-model-catalog-c2: keeps hardcoded fallback rows when live catalogs are empty', async () => {
-    // CONTRACT TEST — catches a startup/network regression where dynamic
-    // discovery replaces the fallback list and an empty SDK response empties
-    // the picker.
-    const { opencodeClient } = await import('../services/opencode_engine');
-    const mockListModels = vi.mocked(opencodeClient.listModels);
-    const original = mockListModels.getMockImplementation()!;
-    try {
-      mockListModels.mockResolvedValue([]);
-
-      const res = await fetch(`${baseUrl}/agents/models/catalog`, {
-        headers: authHeaders,
-      });
-      expect(res.status).toBe(200);
-      const rows = await res.json() as Array<Record<string, unknown>>;
-
-      expect(rows).toContainEqual(expect.objectContaining({
-        agent: 'claude-code',
-        provider: 'anthropic',
-        modelId: 'claude-sonnet-4-6',
-        route: 'direct',
-      }));
-      expect(rows).toContainEqual(expect.objectContaining({
-        agent: 'codex',
-        provider: 'openai',
-        modelId: 'gpt-5.4',
-        route: 'direct',
-      }));
-      expect(rows).toContainEqual(expect.objectContaining({
-        agent: 'gemini-cli',
-        provider: 'google',
-        modelId: 'gemini-2.5-pro',
-        route: 'direct',
-      }));
-    } finally {
-      mockListModels.mockImplementation(original);
-    }
-  });
-
-  it('issue-live-engine-model-catalog-c3: dedupes direct rows and preserves direct-auth OpenRouter suppression', async () => {
-    // CONTRACT TEST — catches a naive live-catalog union that duplicates an
-    // existing fallback row or reintroduces the equivalent OpenRouter route.
-    mockAuthedProviders.push('anthropic', 'openrouter');
-
-    const res = await fetch(`${baseUrl}/agents/models/catalog`, {
-      headers: authHeaders,
-    });
-    expect(res.status).toBe(200);
-    const rows = await res.json() as Array<Record<string, unknown>>;
-
-    const direct = rows.filter(
-      (row) =>
-        row.provider === 'anthropic' &&
-        row.modelId === 'claude-opus-4-7' &&
-        row.route === 'direct',
-    );
-    const duplicateAggregator = rows.filter(
-      (row) =>
-        row.provider === 'openrouter' &&
-        row.modelId === 'anthropic/claude-opus-4.7',
-    );
-    expect(direct).toHaveLength(1);
-    expect(duplicateAggregator).toHaveLength(0);
-  });
-
-  it('issue-live-engine-model-catalog-c4: excludes specialized and generated fast models from live discovery', async () => {
-    // CONTRACT TEST — catches an unfiltered live-catalog union that exposes
-    // embedding, TTS, image, or generated -fast rows in the coding picker.
-    mockAuthedProviders.push('anthropic', 'openai', 'google');
-    const { opencodeClient } = await import('../services/opencode_engine');
-    const mockListModels = vi.mocked(opencodeClient.listModels);
-    const original = mockListModels.getMockImplementation()!;
-    try {
-      mockListModels.mockImplementation(async (providerId: string) => {
-        const models = (await original(providerId)) as Array<{ id: string }>;
-        if (providerId === 'anthropic') {
-          return [
-            ...models,
-            { id: 'claude-opus-4-8' },
-            { id: 'claude-opus-4-8-fast' },
-          ];
-        }
-        if (providerId === 'openai') {
-          return [
-            ...models,
-            { id: 'gpt-5.5' },
-            { id: 'gpt-5.5-fast' },
-            { id: 'text-embedding-3-small' },
-          ];
-        }
-        if (providerId === 'google') {
-          return [
-            ...models,
-            { id: 'gemini-3.5-flash' },
-            { id: 'gemini-2.5-flash-preview-tts' },
-            { id: 'gemini-3-pro-image-preview' },
-          ];
-        }
-        return models;
-      });
-
-      const res = await fetch(`${baseUrl}/agents/models/catalog`, {
-        headers: authHeaders,
-      });
-      expect(res.status).toBe(200);
-      const rows = await res.json() as Array<Record<string, unknown>>;
-      const directIds = rows
-        .filter((row) => row.route === 'direct')
-        .map((row) => `${row.provider}/${row.modelId}`);
-
-      // Prove the live inventory was admitted before checking its filter.
-      expect(directIds).toContain('openai/gpt-5.5');
-      expect(directIds).not.toContain('anthropic/claude-opus-4-8-fast');
-      expect(directIds).not.toContain('openai/gpt-5.5-fast');
-      expect(directIds).not.toContain('openai/text-embedding-3-small');
-      expect(directIds).not.toContain('google/gemini-2.5-flash-preview-tts');
-      expect(directIds).not.toContain('google/gemini-3-pro-image-preview');
-    } finally {
-      mockListModels.mockImplementation(original);
-    }
-  });
-
-  it('issue-live-engine-model-catalog-c5: composes the real HTTP route over the opencode inventory boundary', async () => {
-    // CONTRACT TEST — the Express route is real; only the external opencode
-    // inventory/auth boundary is mocked. This catches route composition that
-    // never promotes a live-only provider model.
-    mockAuthedProviders.push('anthropic');
-    const { opencodeClient } = await import('../services/opencode_engine');
-    const mockListModels = vi.mocked(opencodeClient.listModels);
-    const original = mockListModels.getMockImplementation()!;
-    try {
-      mockListModels.mockImplementation(async (providerId: string) => {
-        const models = (await original(providerId)) as Array<{ id: string }>;
-        return providerId === 'anthropic'
-          ? [...models, { id: 'claude-opus-4-8' }]
-          : models;
-      });
-
-      const res = await fetch(`${baseUrl}/agents/models/catalog`, {
-        headers: authHeaders,
-      });
-      expect(res.status).toBe(200);
-      const rows = await res.json() as Array<Record<string, unknown>>;
-      expect(rows).toContainEqual(expect.objectContaining({
-        provider: 'anthropic',
-        modelId: 'claude-opus-4-8',
-        agent: 'claude-code',
-        route: 'direct',
-      }));
-    } finally {
-      mockListModels.mockImplementation(original);
-    }
-  });
-
-  it('issue-live-engine-model-catalog-c6: fails on a missing live-only row after a successful route response', async () => {
-    // CONTRACT TEST — status 200 proves setup and route execution succeeded;
-    // the missing gpt-5.5-pro assertion isolates the current hardcoded-list bug.
-    mockAuthedProviders.push('openai');
-    const { opencodeClient } = await import('../services/opencode_engine');
-    const mockListModels = vi.mocked(opencodeClient.listModels);
-    const original = mockListModels.getMockImplementation()!;
-    try {
-      mockListModels.mockImplementation(async (providerId: string) => {
-        const models = (await original(providerId)) as Array<{ id: string }>;
-        return providerId === 'openai'
-          ? [...models, { id: 'gpt-5.5-pro' }]
-          : models;
-      });
-
-      const res = await fetch(`${baseUrl}/agents/models/catalog`, {
-        headers: authHeaders,
-      });
-      expect(res.status).toBe(200);
-      const rows = await res.json() as Array<Record<string, unknown>>;
-      expect(rows).toContainEqual(expect.objectContaining({
-        provider: 'openai',
-        modelId: 'gpt-5.5-pro',
-        agent: 'codex',
-        route: 'direct',
-      }));
-    } finally {
-      mockListModels.mockImplementation(original);
-    }
-  });
-
-  it('issue-1139-custom-provider-c1: surfaces a custom opencode.json provider (glm-mesh) as an opencode-kind direct row', async () => {
-    // CONTRACT TEST for #1143 — a provider defined only in opencode.json is in
-    // the engine's live catalog (listProviders) but absent from both static
-    // maps, so it never appeared in the picker. It must now surface as a
-    // generic `opencode`-kind direct row, authorized (config-defined = usable).
-    const { opencodeClient } = await import('../services/opencode_engine');
-    const mockListProviders = vi.mocked(opencodeClient.listProviders);
-    const original = mockListProviders.getMockImplementation()!;
-    try {
-      mockListProviders.mockResolvedValue([
-        { id: 'anthropic', models: [] },
-        { id: 'openai', models: [] },
-        { id: 'openrouter', models: [] },
-        { id: 'glm-mesh', models: [{ id: 'glm-4.6', contextLimit: 131072 }] },
-      ]);
-
-      const res = await fetch(`${baseUrl}/agents/models/catalog`, { headers: authHeaders });
-      expect(res.status).toBe(200);
-      const rows = (await res.json()) as Array<Record<string, unknown>>;
-
-      const glm = rows.find((r) => r.provider === 'glm-mesh' && r.modelId === 'glm-4.6');
-      expect(glm).toBeDefined();
-      expect(glm?.agent).toBe('opencode');
-      expect(glm?.route).toBe('direct');
-      expect(glm?.authorized).toBe(true);
-      expect(glm?.contextLimit).toBe(131072);
-    } finally {
-      mockListProviders.mockImplementation(original);
-    }
-  });
-
-  it('issue-001-c6: marks an engine-advertised provider unauthorized when it is absent from auth and opencode.json', async () => {
-    // CONTRACT TEST — catches the false authorization that let a Zen override
-    // pass validation, create a child, and fail later with provider 401.
-    const { opencodeClient } = await import('../services/opencode_engine');
-    const mockListProviders = vi.mocked(opencodeClient.listProviders);
-    const original = mockListProviders.getMockImplementation()!;
-    try {
-      mockListProviders.mockResolvedValue([
-        { id: 'opencode', models: [{ id: 'north-mini-code-free' }] },
-      ]);
-
-      const res = await fetch(`${baseUrl}/agents/models/catalog`, { headers: authHeaders });
-      expect(res.status).toBe(200);
-      const rows = (await res.json()) as Array<Record<string, unknown>>;
-      expect(rows).toContainEqual(expect.objectContaining({
-        provider: 'opencode',
-        modelId: 'north-mini-code-free',
-        authorized: false,
-      }));
-    } finally {
-      mockListProviders.mockImplementation(original);
-    }
-  });
-
-  it('issue-1139-custom-provider-c3: GET /agents/models?agentId=opencode includes the custom provider', async () => {
-    // The per-agent picker endpoint (not just /catalog) must also surface a
-    // custom provider under the generic `opencode` agent kind.
-    const { opencodeClient } = await import('../services/opencode_engine');
-    const mockListProviders = vi.mocked(opencodeClient.listProviders);
-    const original = mockListProviders.getMockImplementation()!;
-    try {
-      mockListProviders.mockResolvedValue([
-        { id: 'glm-mesh', models: [{ id: 'glm-4.6', contextLimit: 131072 }] },
-      ]);
-
-      const res = await fetch(`${baseUrl}/agents/models?agentId=opencode`, { headers: authHeaders });
-      expect(res.status).toBe(200);
-      const rows = (await res.json()) as Array<Record<string, unknown>>;
-      const glm = rows.find((r) => r.providerId === 'glm-mesh' && r.modelId === 'glm-4.6');
-      expect(glm).toBeDefined();
-      expect(glm?.routeKind).toBe('direct');
-    } finally {
-      mockListProviders.mockImplementation(original);
-    }
-  });
-
-  it('issue-1139-custom-provider-c4: a custom provider does NOT leak into a non-opencode agent picker', async () => {
-    // Custom providers map to `opencode` only — asking for claude-code must not
-    // return glm-mesh rows.
-    const { opencodeClient } = await import('../services/opencode_engine');
-    const mockListProviders = vi.mocked(opencodeClient.listProviders);
-    const original = mockListProviders.getMockImplementation()!;
-    try {
-      mockListProviders.mockResolvedValue([
-        { id: 'glm-mesh', models: [{ id: 'glm-4.6', contextLimit: 131072 }] },
-      ]);
-      const res = await fetch(`${baseUrl}/agents/models?agentId=claude-code`, { headers: authHeaders });
-      const rows = (await res.json()) as Array<Record<string, unknown>>;
-      expect(rows.find((r) => r.providerId === 'glm-mesh')).toBeUndefined();
-    } finally {
-      mockListProviders.mockImplementation(original);
-    }
-  });
-
-  it('issue-1139-custom-provider-c2: does not double-emit a provider already in the static maps', async () => {
-    // If listProviders returns a KNOWN provider (anthropic), the custom-merge
-    // must NOT add duplicate rows for it — the static/live-direct loops own it.
-    mockAuthedProviders.push('anthropic');
-    const { opencodeClient } = await import('../services/opencode_engine');
-    const mockListProviders = vi.mocked(opencodeClient.listProviders);
-    const original = mockListProviders.getMockImplementation()!;
-    try {
-      // anthropic reports a model via listProviders too — must not duplicate
-      // the row the live-direct loop already emits from listModels.
-      mockListProviders.mockResolvedValue([
-        { id: 'anthropic', models: [{ id: 'claude-opus-4-7', contextLimit: 200000 }] },
-      ]);
-
-      const res = await fetch(`${baseUrl}/agents/models/catalog`, { headers: authHeaders });
-      const rows = (await res.json()) as Array<Record<string, unknown>>;
-      const dupes = rows.filter(
-        (r) => r.provider === 'anthropic' && r.modelId === 'claude-opus-4-7' && r.route === 'direct',
-      );
-      expect(dupes).toHaveLength(1);
-    } finally {
-      mockListProviders.mockImplementation(original);
-    }
+    headers = { Authorization: `Bearer ${session.token}` };
+    snapshot.mockResolvedValue({ providers: [
+      provider('anthropic', [eligible('claude-sonnet-4-6')]),
+      provider('openai', [eligible('gpt-5.6-sol')], false),
+    ] });
+    config.mockReturnValue(JSON.stringify({ provider: {} }));
+    authedProviders.mockResolvedValue([]);
+    resetProbeCache();
+    ({ baseUrl, close } = await startTestServer(createApp()));
   });
 
   afterEach(async () => {
-    await closeServer();
+    await close();
     vi.clearAllMocks();
+    resetProbeCache();
+  });
+
+  async function rows(path = '/agents/models/catalog/full') {
+    const response = await fetch(`${baseUrl}${path}`, { headers, signal: AbortSignal.timeout(4000) });
+    expect(response.status).toBe(200);
+    return response.json() as Promise<Array<Record<string, unknown>>>;
+  }
+
+  it('issue-1572-c3: empty real snapshot returns no stale fallback routes', async () => {
+    snapshot.mockResolvedValue({ providers: [] });
+    expect((await rows()).filter((row) => row.modelId !== '')).toEqual([]);
+    expect(await rows('/agents/models?agentId=codex')).toEqual([]);
+  });
+
+  it('issue-1572-c7: direct cloud providers expose only explicitly approved current families', async () => {
+    snapshot.mockResolvedValue({ providers: [
+      provider('openai', [
+        eligible('gpt-5.6-luna'), eligible('gpt-5.6-terra'), eligible('gpt-5.6-sol'),
+        eligible('gpt-arbitrary-capable'),
+      ]),
+      provider('anthropic', [
+        eligible('claude-opus-4-7'), eligible('claude-opus-4-7-1m'),
+        eligible('claude-sonnet-4-6'), eligible('claude-haiku-4-5'),
+        eligible('claude-older-capable'),
+      ]),
+      provider('google', [
+        eligible('gemini-2.5-pro'), eligible('gemini-2.5-flash'),
+        eligible('gemini-3.1-pro-preview'), eligible('gemini-3-flash-preview'),
+        eligible('gemini-arbitrary-capable'),
+      ]),
+    ] });
+
+    const result = await rows();
+    const ids = (providerId: string) => result.filter((row) => row.provider === providerId).map((row) => row.modelId);
+    expect(ids('openai')).toEqual(['gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol']);
+    expect(ids('anthropic')).toEqual([
+      'claude-opus-4-7', 'claude-opus-4-7-1m', 'claude-sonnet-4-6', 'claude-haiku-4-5',
+    ]);
+    expect(ids('google')).toEqual([
+      'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3.1-pro-preview', 'gemini-3-flash-preview',
+    ]);
+  });
+
+  it('1572:1572-S1:1 connected curated direct models remain selectable while entitlement is unverified', async () => {
+    snapshot.mockResolvedValue({ providers: [provider('openai', [
+      eligible('gpt-5.6-sol'), eligible('gpt-5.6-terra'), eligible('gpt-4.1'),
+    ])] });
+    expect(await rows()).toContainEqual(expect.objectContaining({
+      provider: 'openai', modelId: 'gpt-5.6-sol', authorized: true,
+      available: 'unknown', availabilityReason: 'account_entitlement_unverified',
+    }));
+    expect(await rows('/agents/models/catalog')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ provider: 'openai', modelId: 'gpt-5.6-sol' }),
+      expect.objectContaining({ provider: 'openai', modelId: 'gpt-5.6-terra' }),
+    ]));
+    expect(await rows('/agents/models?agentId=codex')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ providerId: 'openai', modelId: 'gpt-5.6-sol' }),
+      expect.objectContaining({ providerId: 'openai', modelId: 'gpt-5.6-terra' }),
+    ]));
+    expect((await rows()).some((row) => row.modelId === 'gpt-4.1')).toBe(false);
+  });
+
+  it('issue-1572-c4: configured built-in Ollama is selectable while undeclared models stay hidden', async () => {
+    snapshot.mockResolvedValue({ providers: [provider('ollama', [eligible('local'), eligible('undeclared')])] });
+    config.mockReturnValue(JSON.stringify({ provider: { ollama: { models: { local: {} } } } }));
+    const result = await rows();
+    expect(result).toContainEqual(expect.objectContaining({
+      provider: 'ollama', modelId: 'local', authorized: true, available: true,
+    }));
+    expect(result.some((row) => row.modelId === 'undeclared')).toBe(false);
+  });
+
+  it('issue-1572-c4/c14: configured custom alias maps inventory apiId and remains opencode-selectable', async () => {
+    let authorization: string | string[] | undefined;
+    const inventory = createServer((request, response) => {
+      authorization = request.headers.authorization;
+      expect(request.url).toBe('/v1/models');
+      response.setHeader('content-type', 'application/json');
+      response.end(JSON.stringify({ data: [{ id: 'qwen:latest' }, { id: 'unconfigured' }] }));
+    });
+    await new Promise<void>((resolve) => inventory.listen(0, '127.0.0.1', resolve));
+    try {
+      const address = inventory.address();
+      if (!address || typeof address === 'string') throw new Error('expected inventory port');
+      const origin = `http://127.0.0.1:${address.port}`;
+      snapshot.mockResolvedValue({ providers: [provider('mesh', [
+        eligible('ollama-planner', { apiId: 'qwen:latest', contextLimit: 131072 }),
+        eligible('stale'),
+      ], false, origin)] });
+      config.mockReturnValue(JSON.stringify({ provider: { mesh: {
+        options: { baseURL: `${origin}/v1` }, models: { 'ollama-planner': {} },
+      } } }));
+
+      const result = await rows();
+      expect(result).toContainEqual(expect.objectContaining({
+        agent: 'opencode', provider: 'mesh', modelId: 'ollama-planner', apiId: 'qwen:latest',
+        contextLimit: 131072, authorized: true, available: true,
+      }));
+      expect(result.some((row) => row.modelId === 'stale')).toBe(false);
+      expect(await rows('/agents/models?agentId=opencode')).toContainEqual(expect.objectContaining({
+        providerId: 'mesh', modelId: 'ollama-planner', routeKind: 'direct',
+      }));
+      expect(await rows('/agents/models?agentId=claude-code')).toEqual([]);
+      expect(authorization).toBeUndefined();
+    } finally {
+      await new Promise<void>((resolve) => inventory.close(() => resolve()));
+    }
+  });
+
+  it('1572:1572-S1:18 a models override without baseURL keeps the engine-managed catalog selectable', async () => {
+    snapshot.mockResolvedValue({ providers: [provider('mesh', [eligible('declared'), eligible('stale')])] });
+    config.mockReturnValue(JSON.stringify({ provider: { mesh: { models: { declared: {} } } } }));
+    const result = await rows();
+    expect(result).toContainEqual(expect.objectContaining({
+      provider: 'mesh', modelId: 'declared', authorized: true, available: 'unknown',
+      availabilityReason: 'account_entitlement_unverified',
+    }));
+    expect(result).toContainEqual(expect.objectContaining({
+      provider: 'mesh', modelId: 'stale', authorized: true, available: 'unknown',
+    }));
+  });
+
+  it('issue-1572-c8: per-agent picker shares engine visibility and never resurrects a removed route', async () => {
+    getDb().prepare(`INSERT INTO agent_model_visibility (provider, model_id, visible) VALUES ('openrouter', 'other/chat', 1)`).run();
+    snapshot.mockResolvedValue({ providers: [provider('openrouter', [eligible('other/chat')])] });
+    expect(await rows('/agents/models?agentId=claude-code')).toContainEqual(expect.objectContaining({ modelId: 'other/chat' }));
+    snapshot.mockResolvedValue({ providers: [provider('openrouter', [eligible('different/chat')])] });
+    expect((await rows('/agents/models?agentId=claude-code')).some((row) => row.modelId === 'other/chat')).toBe(false);
+  });
+
+  it('issue-1572-c9: failed inventory yields no guessed model and bounded response', async () => {
+    snapshot.mockRejectedValue(new Error('engine_unverified'));
+    expect(await rows()).toEqual([]);
+  });
+
+  it('issue-1572-c16: full retains unavailable rows while compatibility routes require available=true', async () => {
+    getDb().prepare(`INSERT INTO agent_model_visibility (provider, model_id, visible) VALUES ('openrouter', 'other/chat', 1)`).run();
+    snapshot.mockResolvedValue({ providers: [
+      provider('openai', [{ id: 'gpt-5.6-sol', capabilities: { ...capable, toolcall: false } }]),
+      provider('openrouter', [eligible('other/chat')]),
+    ] });
+    const full = await rows();
+    expect(full).toContainEqual(expect.objectContaining({ modelId: 'gpt-5.6-sol', authorized: true, available: false }));
+    const compatible = await rows('/agents/models/catalog');
+    expect(compatible.map((row) => row.modelId)).not.toContain('gpt-5.6-sol');
+    expect(compatible.map((row) => row.modelId)).toContain('other/chat');
+    expect(await rows('/agents/models?agentId=claude-code')).toContainEqual(expect.objectContaining({
+      modelId: 'other/chat', routeKind: 'aggregator',
+    }));
+  });
+
+  it.each([
+    { toolcall: true, keepsAggregator: false },
+    { toolcall: false, keepsAggregator: true },
+  ])('review:review-findings.md:34 suppresses OpenRouter by direct authorization unless the direct family is unavailable: %o', async ({ toolcall, keepsAggregator }) => {
+    getDb().prepare(`INSERT INTO agent_model_visibility (provider, model_id, visible) VALUES ('openrouter', 'anthropic/claude-opus-4.7', 1)`).run();
+    snapshot.mockResolvedValue({ providers: [
+      provider('anthropic', [{ ...eligible('claude-opus-4-7'), capabilities: { ...capable, toolcall } }]),
+      provider('openrouter', [eligible('anthropic/claude-opus-4.7')]),
+    ] });
+    const result = await rows();
+    expect(result).toContainEqual(expect.objectContaining({ provider: 'anthropic', modelId: 'claude-opus-4-7', available: toolcall ? 'unknown' : false }));
+    for (const catalog of [result, await rows('/agents/models/catalog')]) {
+      expect(catalog.some((row) =>
+        row.provider === 'openrouter' && row.modelId === 'anthropic/claude-opus-4.7'))
+        .toBe(keepsAggregator);
+    }
+    expect((await rows('/agents/models?agentId=claude-code')).some((row) =>
+      row.modelId === 'anthropic/claude-opus-4.7' && row.routeKind === 'aggregator'))
+      .toBe(keepsAggregator);
+  });
+
+  it('issue-1572-c16: a hidden direct row cannot suppress a visible aggregator alternative', async () => {
+    getDb().prepare(`INSERT INTO agent_model_visibility (provider, model_id, visible) VALUES
+      ('anthropic', 'claude-opus-4-7', 0),
+      ('openrouter', 'anthropic/claude-opus-4.7', 1)`).run();
+    snapshot.mockResolvedValue({ providers: [
+      provider('anthropic', [eligible('claude-opus-4-7')]),
+      provider('openrouter', [eligible('anthropic/claude-opus-4.7')]),
+    ] });
+    const result = await rows();
+    expect(result.some((row) => row.provider === 'anthropic')).toBe(false);
+    expect(result).toContainEqual(expect.objectContaining({
+      provider: 'openrouter', modelId: 'anthropic/claude-opus-4.7', available: true,
+    }));
+  });
+
+  it('restores authorization partition and connectUrl coverage on the real route', async () => {
+    snapshot.mockResolvedValue({ providers: [
+      provider('anthropic', [eligible('claude-sonnet-4-6')]),
+      provider('openai', [eligible('gpt-5.6-sol')], false),
+    ] });
+    const result = await rows();
+    expect(result).toContainEqual(expect.objectContaining({
+      provider: 'anthropic', authorized: true,
+      connectUrl: '/opencode/auth/anthropic/authorize',
+    }));
+    expect(result).toContainEqual(expect.objectContaining({
+      provider: 'openai', authorized: false,
+      connectUrl: '/opencode/auth/openai/authorize',
+    }));
+  });
+
+  it('restores contextLimit and single-row duplicate coverage', async () => {
+    snapshot.mockResolvedValue({ providers: [provider('anthropic', [
+      eligible('claude-sonnet-4-6', { contextLimit: 200000 }),
+    ])] });
+    const result = await rows();
+    const matches = result.filter((row) => row.provider === 'anthropic' && row.modelId === 'claude-sonnet-4-6');
+    expect(matches).toHaveLength(1);
+    expect(matches[0]).toEqual(expect.objectContaining({ contextLimit: 200000 }));
+  });
+
+  it('1572:1572-S1:2 probes localhost custom inventory without forwarding authorization', async () => {
+    let authorization: string | string[] | undefined;
+    const inventory = createServer((request, response) => {
+      authorization = request.headers.authorization;
+      expect(request.url).toBe('/v1/models');
+      response.setHeader('content-type', 'application/json');
+      response.end(JSON.stringify({ data: [{ id: 'declared' }] }));
+    });
+    await new Promise<void>((resolve) => inventory.listen(0, 'localhost', resolve));
+    try {
+      const address = inventory.address();
+      if (!address || typeof address === 'string') throw new Error('expected inventory port');
+      const baseURL = `http://localhost:${address.port}/v1`;
+      snapshot.mockResolvedValue({ providers: [provider('local-custom', [eligible('declared')], false, `http://localhost:${address.port}`)] });
+      config.mockReturnValue(JSON.stringify({ provider: {
+        'local-custom': { options: { baseURL }, models: { declared: {} } },
+      } }));
+
+      expect(await rows('/agents/models/catalog')).toContainEqual(expect.objectContaining({
+        provider: 'local-custom', modelId: 'declared', authorized: true, available: true,
+      }));
+      expect(authorization).toBeUndefined();
+    } finally {
+      await new Promise<void>((resolve) => inventory.close(() => resolve()));
+    }
+  });
+
+  it('1572:1572-S1:3 keeps a configured public custom row selectable with unknown availability and makes no provider request', async () => {
+    snapshot.mockResolvedValue({ providers: [provider('public-custom', [eligible('declared')], false, 'https://models.example.test')] });
+    config.mockReturnValue(JSON.stringify({ provider: {
+      'public-custom': { options: { baseURL: 'https://models.example.test/v1' }, models: { declared: {} } },
+    } }));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('provider fetch forbidden'));
+    try {
+      const result = await listAgentModelCatalog();
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(result).toContainEqual(expect.objectContaining({
+        provider: 'public-custom', modelId: 'declared', authorized: true,
+        available: 'unknown', availabilityReason: 'account_entitlement_unverified',
+      }));
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it.each(['//evil.example/v1', '/\\\\evil.example/v1'])(
+    '1572:1572-S1:4 rejects custom base path escape %s without any outbound request',
+    async (pathEscape) => {
+      snapshot.mockResolvedValue({ providers: [provider('escaped-custom', [eligible('declared')], false, 'http://127.0.0.1:7488')] });
+      config.mockReturnValue(JSON.stringify({ provider: {
+        'escaped-custom': {
+          options: { baseURL: `http://127.0.0.1:7488${pathEscape}` },
+          models: { declared: {} },
+        },
+      } }));
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('must not fetch'));
+      try {
+        const result = await listAgentModelCatalog();
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(result).toContainEqual(expect.objectContaining({
+          provider: 'escaped-custom', modelId: 'declared', available: false,
+        }));
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    },
+  );
+
+  it('1572:1572-S1:5 preserves #609 default visibility for confirmed fallback rows and explicit visible=0', async () => {
+    snapshot.mockResolvedValue({ providers: [provider('openrouter', [eligible('anthropic/claude-sonnet-4.6')])] });
+    expect(await rows('/agents/models/catalog')).toContainEqual(expect.objectContaining({
+      provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4.6', available: true,
+    }));
+
+    getDb().prepare(`INSERT INTO agent_model_visibility (provider, model_id, visible)
+      VALUES ('openrouter', 'anthropic/claude-sonnet-4.6', 0)`).run();
+    expect((await rows('/agents/models/catalog')).some((row) =>
+      row.provider === 'openrouter' && row.modelId === 'anthropic/claude-sonnet-4.6')).toBe(false);
+  });
+
+  it('1572:1572-S1:6 suppresses OpenRouter vendor rows per agent when that direct provider is authorized', async () => {
+    getDb().prepare(`INSERT INTO agent_model_visibility (provider, model_id, visible)
+      VALUES ('openrouter', 'anthropic/claude-sonnet-4.6', 1)`).run();
+    snapshot.mockResolvedValue({ providers: [
+      provider('anthropic', [eligible('claude-sonnet-4-6')]),
+      provider('openrouter', [eligible('anthropic/claude-sonnet-4.6')]),
+    ] });
+    const catalog = await rows('/agents/models/catalog');
+    expect(catalog).not.toContainEqual(expect.objectContaining({
+      agent: 'claude-code', provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4.6',
+    }));
+    expect(catalog).toContainEqual(expect.objectContaining({
+      agent: 'opencode', provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4.6',
+    }));
+
+    snapshot.mockResolvedValue({ providers: [
+      provider('ollama', [eligible('local')]),
+      provider('openrouter', [eligible('ollama/local')]),
+    ] });
+    config.mockReturnValue(JSON.stringify({ provider: { ollama: { models: { local: {} } } } }));
+    expect((await rows('/agents/models/catalog')).some((row) =>
+      row.provider === 'openrouter' && row.modelId === 'ollama/local')).toBe(false);
+  });
+
+  it.each([
+    {
+      name: 'config metadata only',
+      source: 'config',
+      providerConfig: { models: { 'gpt-5.6-sol': {} } },
+      authorized: false,
+    },
+    {
+      name: 'options apiKey',
+      source: 'config',
+      providerConfig: { options: { apiKey: 'synthetic-key' } },
+      authorized: true,
+    },
+    {
+      name: 'environment credential',
+      source: 'env',
+      providerConfig: { models: { 'gpt-5.6-sol': {} } },
+      authorized: true,
+    },
+  ])('review:review-findings.md:84 authorizes built-ins only from credential evidence: $name', async ({ source, providerConfig, authorized }) => {
+    snapshot.mockResolvedValue({ providers: [
+      provider('openai', [eligible('gpt-5.6-sol')], false, undefined, source),
+    ] });
+    config.mockReturnValue(JSON.stringify({ provider: { openai: providerConfig } }));
+
+    const result = await rows('/agents/models/catalog/full');
+    expect(result).toContainEqual(expect.objectContaining({
+      provider: 'openai', modelId: 'gpt-5.6-sol', authorized,
+      availabilityReason: authorized ? 'account_entitlement_unverified' : 'not_connected',
+    }));
+    if (!authorized) {
+      expect(result).toContainEqual(expect.objectContaining({
+        provider: 'openai', modelId: '', authorized: false,
+        connectUrl: '/opencode/auth/openai/authorize',
+      }));
+      expect(await rows('/agents/models?agentId=codex')).toEqual([]);
+    }
+  });
+
+  it('review:review-findings.md:115 keeps built-in providers on direct policy when baseURL is overridden', async () => {
+    snapshot.mockResolvedValue({ providers: [provider(
+      'anthropic',
+      [eligible('claude-opus-5-5'), eligible('claude-sonnet-5')],
+      true,
+      'https://proxy.example.test',
+      'api',
+    )] });
+    config.mockReturnValue(JSON.stringify({ provider: { anthropic: {
+      options: { baseURL: 'https://proxy.example.test/v1' },
+    } } }));
+
+    const result = await rows('/agents/models/catalog');
+    expect(result).toEqual(expect.arrayContaining([
+      expect.objectContaining({ agent: 'claude-code', provider: 'anthropic', modelId: 'claude-opus-5-5' }),
+      expect.objectContaining({ agent: 'claude-code', provider: 'anthropic', modelId: 'claude-sonnet-5' }),
+    ]));
+  });
+
+  it.each([
+    ['query-string', 'http://127.0.0.1:7488/v1?api-version=preview', 'http://127.0.0.1:7488'],
+    ['environment substitution', '{env:LAN_LLM_URL}/v1', 'http://192.168.50.10:8000'],
+  ])('review:review-findings.md:2 keeps unprobeable %s custom endpoints selectable as unknown', async (_name, baseURL, endpoint) => {
+    snapshot.mockResolvedValue({ providers: [provider('mesh', [eligible('declared')], false, endpoint)] });
+    config.mockReturnValue(JSON.stringify({ provider: { mesh: {
+      options: { baseURL }, models: { declared: {} },
+    } } }));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('must not probe'));
+    try {
+      expect(await listAgentModelCatalog()).toContainEqual(expect.objectContaining({
+        agent: 'opencode', provider: 'mesh', modelId: 'declared', authorized: true,
+        available: 'unknown', availabilityReason: 'account_entitlement_unverified',
+      }));
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('review:review-findings.md:121 keeps a local custom model selectable when inventory authentication returns 401', async () => {
+    const inventory = createServer((_request, response) => {
+      response.statusCode = 401;
+      response.end();
+    });
+    await new Promise<void>((resolve) => inventory.listen(0, '127.0.0.1', resolve));
+    try {
+      const address = inventory.address();
+      if (!address || typeof address === 'string') throw new Error('expected inventory port');
+      const origin = `http://127.0.0.1:${address.port}`;
+      snapshot.mockResolvedValue({ providers: [provider('mesh', [eligible('declared')], false, origin)] });
+      config.mockReturnValue(JSON.stringify({ provider: { mesh: {
+        options: { baseURL: `${origin}/v1` }, models: { declared: {} },
+      } } }));
+      expect(await rows('/agents/models/catalog')).toContainEqual(expect.objectContaining({
+        provider: 'mesh', modelId: 'declared', available: 'unknown',
+        availabilityReason: 'account_entitlement_unverified',
+      }));
+    } finally {
+      await new Promise<void>((resolve) => inventory.close(() => resolve()));
+    }
+  });
+
+  it('1572:1572-S1:7 keeps options-only and engine-managed providers authorized without shrinking their catalog', async () => {
+    snapshot.mockResolvedValue({ providers: [
+      provider('deepseek', [eligible('deepseek-chat'), eligible('deepseek-reasoner')], false, undefined, 'config'),
+      provider('opencode', [eligible('deepseek-v4-flash-free')], true, undefined, 'custom'),
+      provider('xai', [eligible('grok-chat')], false, undefined, 'env'),
+    ] });
+    config.mockReturnValue(JSON.stringify({ provider: {
+      deepseek: { options: { apiKey: 'synthetic-key' }, models: { 'deepseek-chat': { limit: { context: 1000 } } } },
+    } }));
+
+    const result = await rows('/agents/models/catalog');
+    expect(result).toEqual(expect.arrayContaining([
+      expect.objectContaining({ agent: 'opencode', provider: 'deepseek', modelId: 'deepseek-chat', authorized: true }),
+      expect.objectContaining({ agent: 'opencode', provider: 'deepseek', modelId: 'deepseek-reasoner', authorized: true }),
+      expect.objectContaining({ agent: 'opencode', provider: 'opencode', modelId: 'deepseek-v4-flash-free', authorized: true }),
+      expect.objectContaining({ agent: 'opencode', provider: 'xai', modelId: 'grok-chat', authorized: true }),
+    ]));
+  });
+
+  it('1572:1572-S1:8 emits provider-level Connect rows without stale fallback model IDs', async () => {
+    snapshot.mockResolvedValue({ providers: [] });
+    const result = await rows('/agents/models/catalog/full');
+    expect(result).toEqual(expect.arrayContaining([
+      expect.objectContaining({ provider: 'anthropic', modelId: '', authorized: false }),
+      expect.objectContaining({ provider: 'openai', modelId: '', authorized: false }),
+      expect.objectContaining({ provider: 'google', modelId: '', authorized: false }),
+    ]));
+    expect(result.every((row) => row.modelId === '')).toBe(true);
+    expect(await rows('/agents/models?agentId=codex')).toEqual([]);
+  });
+
+  it.each([
+    ['claude-code', 'anthropic', ['claude-opus-4-7', 'claude-opus-5-5', 'claude-sonnet-5']],
+    ['claude-code', 'github-copilot', ['claude-opus-4.7', 'claude-opus-5.5', 'claude-sonnet-5']],
+    ['codex', 'openai', ['gpt-5.6-sol', 'gpt-5.6-terra']],
+    ['gemini-cli', 'google', ['gemini-2.5-pro', 'gemini-3-flash-preview']],
+    ['opencode', 'openrouter', ['anthropic/claude-sonnet-4.6']],
+    ['opencode', 'ollama', ['qwen3.6-work']],
+  ])('1572:1572-S1:9 resolves %s through %s to a catalog-visible selectable row', async (agent, providerId, modelIds) => {
+    snapshot.mockResolvedValue({ providers: [provider(
+      providerId,
+      modelIds.map((id) => eligible(id)),
+    )] });
+    config.mockReturnValue(JSON.stringify({ provider: providerId === 'ollama'
+      ? { ollama: { models: { 'qwen3.6-work': {} } } }
+      : {} }));
+    authedProviders.mockResolvedValue([providerId]);
+
+    const resolved = await resolveModelForAgent(agent);
+    expect(resolved).toBeDefined();
+    const catalog = await listAgentModelCatalog();
+    expect(catalog).toContainEqual(expect.objectContaining({
+      agent,
+      provider: resolved!.providerID,
+      modelId: resolved!.modelID,
+      authorized: true,
+      visible: true,
+    }));
+    expect(await rows(`/agents/models?agentId=${agent}`)).toContainEqual(expect.objectContaining({
+      providerId: resolved!.providerID,
+      modelId: resolved!.modelID,
+    }));
   });
 });

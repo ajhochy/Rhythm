@@ -143,6 +143,32 @@ describe('issue-1568: Codex usage budget', () => {
     expect(JSON.stringify(entry)).not.toMatch(/SECRET-CREDIT|account-123|plus/);
   });
 
+  it('1572:1572-S2:8 exports only validated boolean model_usage availability', async () => {
+    const entry = await snapshot(auth(valid), {
+      ...body,
+      model_usage: {
+        'gpt-5.6-sol': { available: true },
+        'gpt-5.6-luna': { available: false },
+        malformed: { available: 'yes' },
+        nested: { available: true, token: 'SECRET-MODEL-USAGE' },
+      },
+    });
+    expect(entry.entitledModels).toEqual({
+      'gpt-5.6-sol': true,
+      'gpt-5.6-luna': false,
+      nested: true,
+    });
+    expect(JSON.stringify(entry)).not.toContain('SECRET-MODEL-USAGE');
+  });
+
+  it.each([null, [], { malformed: true }, { model: { available: 'yes' } }])(
+    '1572:1572-S2:9 omits malformed model_usage rather than treating it as denial: %o',
+    async (model_usage) => {
+      const entry = await snapshot(auth(valid), { ...body, model_usage });
+      expect(entry).not.toHaveProperty('entitledModels');
+    },
+  );
+
   it('A2 accepts only a valid primary window and ignores absent secondary', async () => {
     const entry = await snapshot(auth(valid), { rate_limit: { primary_window: body.rate_limit.primary_window } });
     expect(entry.items).toHaveLength(1);

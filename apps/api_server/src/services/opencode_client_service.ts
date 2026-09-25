@@ -1,6 +1,7 @@
 import { homedir } from 'os';
 import { join } from 'path';
 import { readFileSync, existsSync } from 'fs';
+import { createHmac, randomBytes } from 'node:crypto';
 import { promisify } from 'util';
 import type { OpencodeClient, RhythmEvent as Event } from '@opencode-ai/sdk';
 import { logger } from '../utils/logger';
@@ -70,6 +71,30 @@ type EngineStatus = 'uninitialized' | 'ready' | 'error' | 'reloading';
  * credential either, exactly like `ollama`.
  */
 const KEYLESS_PROVIDER_IDS = new Set(['ollama', 'omlx', 'opencode']);
+const providerDigestKey = randomBytes(32);
+
+export type ProviderSnapshot = {
+  providers: Array<{
+    id: string;
+    connected: boolean;
+    source?: 'env' | 'config' | 'custom' | 'api';
+    endpoint?: string;
+    digest: string;
+    models: Array<{
+      id: string;
+      name?: string;
+      apiId?: string;
+      status?: string;
+      contextLimit?: number;
+      capabilities?: {
+        input?: { text?: boolean };
+        output?: { text?: boolean };
+        toolcall?: boolean;
+      };
+    }>;
+  }>;
+  defaults: Record<string, string>;
+};
 
 /** Resolve the engine port once so the SDK, stale-port reclaim, and PTY proxy agree. */
 export function resolveOpencodeEnginePort(): number {
@@ -523,7 +548,8 @@ export class OpencodeClientService {
   private client: OpencodeClient | null = null;
   private server: OpencodeServerHandle | null = null;
   private error: Error | null = null;
-  private authStore = new OpencodeAuthStore();
+  private authStore: Pick<OpencodeAuthStore, 'listAuthedProviders'> = new OpencodeAuthStore();
+  private providerSnapshotPending?: Promise<ProviderSnapshot>;
   /** Set to true by the shutdown handler before dispose() is called. */
   private _shuttingDown = false;
 
@@ -543,6 +569,11 @@ export class OpencodeClientService {
     this.client = client;
     this.status = 'ready';
     this.error = null;
+  }
+
+  /** Test-only seam that prevents provider snapshot tests from reading user auth files. */
+  __setTestAuthedProviders(providers: string[]): void {
+    this.authStore = { listAuthedProviders: () => [...providers] };
   }
 
   /**
@@ -1023,6 +1054,106 @@ export class OpencodeClientService {
   /** True only for a credential recorded by the auth store, never a keyless provider. */
   isProviderInAuthStore(providerId: string): boolean {
     return this.authStore.listAuthedProviders().includes(providerId);
+  }
+
+  /** One bounded engine read per concurrent catalog/status request; never retain failures. */
+  providerSnapshot(): Promise<ProviderSnapshot> {
+    if (this.providerSnapshotPending) return this.providerSnapshotPending;
+    if (!this.client) return Promise.reject(new Error('engine_unverified'));
+    const client = this.client;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 750);
+    const read = async (): Promise<ProviderSnapshot> => {
+      const raw = await client.config.providers({ signal: controller.signal });
+      if (controller.signal.aborted || raw.error || !raw.data || !Array.isArray(raw.data.providers)) {
+        throw new Error('engine_unverified');
+      }
+      const connected = new Set(this.authStore.listAuthedProviders());
+      const providers = raw.data.providers.map((provider) => {
+        const models = Object.entries(provider.models ?? {}).map(([key, value]) => {
+          const model = value as typeof value & {
+            api?: { id?: string; url?: string };
+            status?: string;
+            capabilities?: ProviderSnapshot['providers'][number]['models'][number]['capabilities'];
+          };
+          return {
+            id: model.id ?? key,
+            ...(typeof model.name === 'string' ? { name: model.name } : {}),
+            ...(typeof model.api?.id === 'string' ? { apiId: model.api.id } : {}),
+            ...(typeof model.status === 'string' ? { status: model.status } : {}),
+            ...(typeof model.limit?.context === 'number' ? { contextLimit: model.limit.context } : {}),
+            ...(model.capabilities ? {
+              capabilities: {
+                input: { text: model.capabilities.input?.text === true },
+                output: { text: model.capabilities.output?.text === true },
+                toolcall: model.capabilities.toolcall === true,
+              },
+            } : {}),
+          };
+        });
+        // Engine provider options may carry secrets. Only expose a URL origin
+        // from a model's declared API endpoint when it has no userinfo.
+        const effectiveOptions = (provider as typeof provider & {
+          options?: { baseURL?: unknown; baseUrl?: unknown; [key: string]: unknown };
+          source?: ProviderSnapshot['providers'][number]['source'];
+        }).options ?? null;
+        const rawEndpoint = typeof effectiveOptions?.baseURL === 'string'
+          ? effectiveOptions.baseURL
+          : typeof effectiveOptions?.baseUrl === 'string'
+            ? effectiveOptions.baseUrl
+            : Object.values(provider.models ?? {})[0]?.api?.url;
+        let endpoint: string | undefined;
+        try {
+          if (rawEndpoint) {
+            const url = new URL(rawEndpoint);
+            if (!url.username && !url.password && ['http:', 'https:'].includes(url.protocol)) {
+              endpoint = url.origin;
+            }
+          }
+        } catch {
+          // An invalid endpoint is not public metadata.
+        }
+        const digest = createHmac('sha256', providerDigestKey).update(JSON.stringify({
+          id: provider.id,
+          endpoint,
+          models,
+          options: effectiveOptions,
+        })).digest('hex');
+        const source = (provider as typeof provider & {
+          source?: ProviderSnapshot['providers'][number]['source'];
+        }).source;
+        const configuredApiKey = effectiveOptions?.apiKey;
+        const credentialBacked = ['env', 'api', 'custom'].includes(source ?? '') ||
+          (typeof configuredApiKey === 'string'
+            ? configuredApiKey.trim().length > 0
+            : configuredApiKey != null);
+        return {
+          id: provider.id,
+          connected: connected.has(provider.id) || KEYLESS_PROVIDER_IDS.has(provider.id) || credentialBacked,
+          ...(source
+            ? { source }
+            : {}),
+          ...(endpoint ? { endpoint } : {}),
+          digest,
+          models,
+        };
+      });
+      const defaults = (raw.data as typeof raw.data & { default?: Record<string, string> }).default ?? {};
+      return { providers, defaults };
+    };
+    const pending = Promise.race([
+      read(),
+      new Promise<never>((_, reject) => controller.signal.addEventListener(
+        'abort',
+        () => reject(new Error('engine_unverified')),
+        { once: true },
+      )),
+    ]).finally(() => {
+      clearTimeout(timeout);
+      if (this.providerSnapshotPending === pending) this.providerSnapshotPending = undefined;
+    });
+    this.providerSnapshotPending = pending;
+    return pending;
   }
 
   /** Get available models for a provider */

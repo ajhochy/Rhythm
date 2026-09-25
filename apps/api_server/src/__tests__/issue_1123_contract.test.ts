@@ -14,6 +14,7 @@ const { engineSpies, sessionMap, streamSessionSpy } = vi.hoisted(() => ({
     listAuthedProviders: vi.fn(),
     listModels: vi.fn(),
     listProviders: vi.fn(),
+    providerSnapshot: vi.fn(),
     promptAsync: vi.fn(),
   },
   sessionMap: new Map<string, string>(),
@@ -102,9 +103,15 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
     engineSpies.promptAsync.mockResolvedValue(true);
     engineSpies.listAuthedProviders.mockResolvedValue(['anthropic']);
     engineSpies.listModels.mockImplementation(async (providerId: string) =>
-      providerId === 'anthropic' ? [{ id: 'claude-sonnet-4-5' }] : [],
+      providerId === 'anthropic' ? [{ id: 'claude-sonnet-4-6' }] : [],
     );
     engineSpies.listProviders.mockResolvedValue([]);
+    engineSpies.providerSnapshot.mockResolvedValue({ providers: [{
+      id: 'anthropic', connected: true, digest: 'anthropic-test', models: [{
+        id: 'claude-sonnet-4-6',
+        capabilities: { input: { text: true }, output: { text: true }, toolcall: true },
+      }],
+    }] });
     streamSessionSpy.mockResolvedValue(undefined);
   });
 
@@ -154,7 +161,7 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
     ).toMatchObject({ status: 'dispatched', parentSessionId: parent.id });
   });
 
-  it('issue-001-c4: async uses the supplied override for session creation and prompt', async () => {
+  it('1572:1572-S1:10 accepts a connected direct Anthropic override with unverified entitlement', async () => {
     // Regression caught: async delegation creates the child or enqueues its
     // prompt with the target profile default after accepting an override.
     seedProfile({ id: 'manager', manager: true, delegates: ['specialist'] });
@@ -166,7 +173,7 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
       callerSessionId: parent.id,
       targetAgentConfigId: 'specialist',
       prompt: 'Use the selected model.',
-      model: { providerID: 'anthropic', modelID: 'claude-sonnet-4-5' },
+      model: { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
     });
 
     expect(engineSpies.createSession).toHaveBeenCalledWith(
@@ -174,7 +181,7 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
     );
     expect(engineSpies.promptAsync).toHaveBeenCalledWith(
       'sdk-child-1', 'Use the selected model.',
-      { providerID: 'anthropic', modelID: 'claude-sonnet-4-5' },
+      { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
       '/tmp', expect.any(Object),
     );
   });

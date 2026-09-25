@@ -123,7 +123,8 @@ async function validateModelOverride(input: unknown): Promise<{
   const model = { providerID: providerID.trim(), modelID: modelID.trim() };
   const catalog = await listAgentModelCatalog();
   if (!catalog.some((entry) =>
-    entry.provider === model.providerID && entry.modelId === model.modelID && entry.authorized,
+    entry.provider === model.providerID && entry.modelId === model.modelID &&
+    entry.authorized && entry.available !== false && entry.visible !== false,
   )) {
     throw AppError.badRequest(`model override is unknown or unauthorized: ${model.providerID}/${model.modelID}`);
   }
