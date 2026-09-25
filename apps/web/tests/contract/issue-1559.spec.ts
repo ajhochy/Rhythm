@@ -5,7 +5,8 @@ import AxeBuilder from '@axe-core/playwright';
 test.skip(process.env.RHYTHM_ISSUE_1559_CONTRACT !== '1', 'Run with the issue-1559 live-gateway Playwright config');
 
 const paths = ['/agent-configs', '/opencode/auth/accounts', '/opencode/mcp', '/opencode/auth'];
-const names = ['Profiles overview', 'Auto-promotion', 'Accounts', 'Behavior', 'Keybindings', 'Runtime / OpenCode server', 'MCP servers'];
+// #1580 S2 added the "Models" section between Accounts and Behavior.
+const names = ['Profiles overview', 'Auto-promotion', 'Accounts', 'Models', 'Behavior', 'Keybindings', 'Runtime / OpenCode server', 'MCP servers'];
 
 async function openSettings(page: Page, failed: Set<string>, override?: (route: Route, path: string, count: number) => Promise<boolean>) {
   const counts: Record<string, number> = Object.fromEntries(paths.map((path) => [path, 0]));
@@ -58,7 +59,7 @@ async function selectSection(page: Page, name: string) {
 
 async function rowsRemainAccessible(page: Page) {
   const list = await showSectionList(page);
-  await expect(list.getByRole('option')).toHaveCount(7);
+  await expect(list.getByRole('option')).toHaveCount(8);
   for (const name of names) await expect(list.getByRole('option', { name, exact: true })).toBeVisible();
   await list.getByRole('option', { name: 'Profiles overview' }).focus();
   await page.keyboard.press('End');

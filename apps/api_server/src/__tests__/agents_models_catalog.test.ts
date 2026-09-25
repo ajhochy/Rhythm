@@ -92,6 +92,44 @@ describe('engine-authoritative model catalog routes', () => {
     return response.json() as Promise<Array<Record<string, unknown>>>;
   }
 
+  async function setVisibility(updates: Array<{ provider: string; modelId: string; visible: boolean }>) {
+    const response = await fetch(`${baseUrl}/agent-models/visibility`, {
+      method: 'PATCH',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ updates }),
+      signal: AbortSignal.timeout(4000),
+    });
+    expect(response.status).toBe(200);
+  }
+
+  it('#1580 blocker: hiding a model via the real visibility route still lets /catalog/full find it to re-enable', async () => {
+    snapshot.mockResolvedValue({ providers: [provider('anthropic', [eligible('claude-sonnet-4-6')])] });
+
+    expect(await rows('/agents/models/catalog')).toContainEqual(expect.objectContaining({
+      provider: 'anthropic', modelId: 'claude-sonnet-4-6', visible: true,
+    }));
+
+    await setVisibility([{ provider: 'anthropic', modelId: 'claude-sonnet-4-6', visible: false }]);
+
+    // Hidden: the picker-facing /catalog drops it entirely...
+    expect((await rows('/agents/models/catalog')).some((row) =>
+      row.provider === 'anthropic' && row.modelId === 'claude-sonnet-4-6')).toBe(false);
+    // ...but /catalog/full must still surface it (visible:false) — otherwise the curation panel
+    // can never find a hidden model again to re-enable it.
+    expect(await rows('/agents/models/catalog/full')).toContainEqual(expect.objectContaining({
+      provider: 'anthropic', modelId: 'claude-sonnet-4-6', visible: false,
+    }));
+
+    await setVisibility([{ provider: 'anthropic', modelId: 'claude-sonnet-4-6', visible: true }]);
+
+    // Unhidden: both endpoints agree again.
+    for (const path of ['/agents/models/catalog', '/agents/models/catalog/full']) {
+      expect(await rows(path)).toContainEqual(expect.objectContaining({
+        provider: 'anthropic', modelId: 'claude-sonnet-4-6', visible: true,
+      }));
+    }
+  });
+
   it('issue-1572-c3: empty real snapshot returns no stale fallback routes', async () => {
     snapshot.mockResolvedValue({ providers: [] });
     expect((await rows()).filter((row) => row.modelId !== '')).toEqual([]);
@@ -116,7 +154,9 @@ describe('engine-authoritative model catalog routes', () => {
       ]),
     ] });
 
-    const result = await rows();
+    // #1580 fix: /catalog/full is now genuinely full (includes policy-hidden rows with
+    // visible:false); the picker-facing /catalog is what still enforces curated-family policy.
+    const result = await rows('/agents/models/catalog');
     const ids = (providerId: string) => result.filter((row) => row.provider === providerId).map((row) => row.modelId);
     expect(ids('openai')).toEqual(['gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol']);
     expect(ids('anthropic')).toEqual([
@@ -143,7 +183,10 @@ describe('engine-authoritative model catalog routes', () => {
       expect.objectContaining({ providerId: 'openai', modelId: 'gpt-5.6-sol' }),
       expect.objectContaining({ providerId: 'openai', modelId: 'gpt-5.6-terra' }),
     ]));
-    expect((await rows()).some((row) => row.modelId === 'gpt-4.1')).toBe(false);
+    // #1580 fix: gpt-4.1 is policy-hidden (not the curated family), so it's excluded from the
+    // picker-facing /catalog but still present (visible:false) in the genuinely-full /catalog/full.
+    expect((await rows('/agents/models/catalog')).some((row) => row.modelId === 'gpt-4.1')).toBe(false);
+    expect(await rows()).toContainEqual(expect.objectContaining({ modelId: 'gpt-4.1', visible: false }));
   });
 
   it('issue-1572-c4: configured built-in Ollama is selectable while undeclared models stay hidden', async () => {
@@ -264,8 +307,13 @@ describe('engine-authoritative model catalog routes', () => {
       provider('anthropic', [eligible('claude-opus-4-7')]),
       provider('openrouter', [eligible('anthropic/claude-opus-4.7')]),
     ] });
-    const result = await rows();
+    // #1580 fix: the picker-facing /catalog still hides the explicitly-hidden anthropic row;
+    // /catalog/full (rows() default) now keeps it visible:false instead of dropping it.
+    const result = await rows('/agents/models/catalog');
     expect(result.some((row) => row.provider === 'anthropic')).toBe(false);
+    expect(await rows()).toContainEqual(expect.objectContaining({
+      provider: 'anthropic', modelId: 'claude-opus-4-7', visible: false,
+    }));
     expect(result).toContainEqual(expect.objectContaining({
       provider: 'openrouter', modelId: 'anthropic/claude-opus-4.7', available: true,
     }));

@@ -68,8 +68,21 @@ export type SessionListQuery = {
 export type SessionListPage = { sessions: SessionCatalogEntry[]; ancestors: SessionCatalogEntry[]; pageInfo: TranscriptPageInfo };
 export type SessionSort = 'newest' | 'oldest' | 'name' | 'activity' | 'status';
 export type IdentityProfile = Profile & { autoApproveActions?: boolean; reasoningEffort?: string | null };
-export type ModelChoice = { providerId: string; modelId: string; label: string; contextLimit?: number };
+// needsVerification: mirrors the #1572 catalog contract's available:'unknown' rows — the
+// provider is authorized and the model is not known-unavailable, but entitlement could not
+// be confirmed. Selectable, but the curation UI must show it as unverified rather than solid.
+export type ModelChoice = { providerId: string; modelId: string; label: string; contextLimit?: number; needsVerification?: boolean };
 export type AccountChoice = { id: string; label: string; status: string; isDefault?: boolean };
+export type ModelVisibilityEntry = { provider: string; modelId: string; visible: boolean };
+// #1580 S2 — one row per provider/model from GET /agents/models/catalog/full (unfiltered: includes
+// hidden and unavailable rows, unlike models()/gateway's picker-facing catalog). This is the
+// provider-first curation screen's data source; `visible` here already folds in the persisted
+// agent_model_visibility override, so it doubles as the switch's current on/off state.
+export type ModelCatalogEntry = {
+  provider: string; modelId: string; displayName: string;
+  authorized: boolean; available: boolean | 'unknown'; visible: boolean;
+  availabilityReason: string; connectUrl?: string;
+};
 export type SessionSettings = { name?: string; profileId?: string | null; providerId?: string | null; modelId?: string | null; thinkingBudget?: number | null; permissionMode?: string; fastMode?: boolean; anthropicAccountId?: string };
 export type TurnOverride = { profileId?: string; modelOverride?: { providerId: string; modelId: string } };
 const statusOrder: Record<Session['status'], number> = { working: 0, starting: 1, idle: 2, error: 3, closed: 4, resumable: 5 };
@@ -116,6 +129,13 @@ export interface SessionGateway {
   readonly mode: GatewayMode;
   profiles(): Promise<IdentityProfile[]>;
   models?(): Promise<ModelChoice[]>;
+  // #1580 — GET/PATCH /agent-models/visibility (issue #609 endpoints). The curation screen
+  // reads current per-model visibility and writes it back as an exact {updates:[...]} batch;
+  // callers must re-run models() afterward to refresh every picker (see store.refreshModels).
+  modelVisibility?(): Promise<ModelVisibilityEntry[]>;
+  setModelVisibility?(updates: ModelVisibilityEntry[]): Promise<void>;
+  // #1580 S2 — GET /agents/models/catalog/full for the provider-first curation screen.
+  modelCatalogFull?(): Promise<ModelCatalogEntry[]>;
   accounts?(): Promise<AccountChoice[]>;
   startAccountLogin?(input: { accountId: string; label: string }): Promise<{ authorizationUrl: string }>;
   completeAccountLogin?(input: { accountId: string; code: string }): Promise<void>;
@@ -212,6 +232,17 @@ export interface ProfileMutation {
   sessionSelectable: boolean;
   modelTierHint: string | null;
   defaultAnthropicAccountId: string | null;
+}
+
+// #1580 — discards a response that started before a newer one began (a gateway or account
+// switch mid-flight). Mirrors the `generation` fencing already used by the transcript reducer:
+// begin() hands the caller a token to check with isCurrent() once its request resolves.
+export function createGenerationGuard() {
+  let generation = 0;
+  return {
+    begin: (): number => ++generation,
+    isCurrent: (token: number): boolean => token === generation,
+  };
 }
 
 export class SessionGatewayError extends Error {
@@ -447,11 +478,49 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
       const result = await response<{ ok?: boolean }>('Prepare project', request(`/agent-sessions/${encodeURIComponent(id)}/init`, { method: 'POST' }));
       if (result.ok !== true) throw new Error('Project initialization was not confirmed by the engine');
     },
+    // #1580: a row is selectable only when its provider is authorized AND the model itself
+    // is not known-unavailable — `available` is the #1572 tri-state (true/'unknown'/false).
+    // Previously this only checked `authorized`, so a disconnected or ineligible model still
+    // showed up as choosable; unavailable rows must instead fall through to the '(unavailable)'
+    // fallback option the pickers already render for a stale current selection.
     models: async () => {
       const rows = await response<unknown[]>('Load models', request('/agents/models/catalog'));
-      const choices = rows.map(record).filter(row => row.authorized === true && string(row.provider) && string(row.modelId))
-        .map(row => ({ providerId: string(row.provider), modelId: string(row.modelId), label: string(row.displayName, string(row.modelId)), ...(typeof row.contextLimit === 'number' && Number.isFinite(row.contextLimit) && row.contextLimit > 0 ? { contextLimit: row.contextLimit } : {}) }));
+      const choices = rows.map(record)
+        .filter(row => row.authorized === true && row.available !== false && string(row.provider) && string(row.modelId))
+        .map(row => ({
+          providerId: string(row.provider), modelId: string(row.modelId), label: string(row.displayName, string(row.modelId)),
+          needsVerification: row.available === 'unknown',
+          ...(typeof row.contextLimit === 'number' && Number.isFinite(row.contextLimit) && row.contextLimit > 0 ? { contextLimit: row.contextLimit } : {}),
+        }));
       return [...new Map(choices.map(row => [`${row.providerId}/${row.modelId}`, row])).values()];
+    },
+    modelVisibility: async () => {
+      const rows = await response<unknown[]>('Load model visibility', request('/agent-models/visibility'));
+      return rows.map(record).map(row => ({ provider: string(row.provider), modelId: string(row.modelId), visible: row.visible === true }));
+    },
+    setModelVisibility: async (updates) => {
+      await response<unknown>('Save model visibility', request('/agent-models/visibility', { method: 'PATCH', body: JSON.stringify({ updates }) }));
+    },
+    // #1580 S2: de-duplicated by provider+modelId — the server fans one model out to several
+    // `agent` rows (claude-code/codex/gemini-cli/opencode); the curation screen only needs one
+    // row per actual model.
+    modelCatalogFull: async () => {
+      const rows = await response<unknown[]>('Load full model catalog', request('/agents/models/catalog/full'));
+      const seen = new Map<string, ModelCatalogEntry>();
+      for (const raw of rows.map(record)) {
+        const provider = string(raw.provider);
+        if (!provider) continue;
+        const modelId = string(raw.modelId);
+        const key = `${provider}\0${modelId}`;
+        if (seen.has(key)) continue;
+        seen.set(key, {
+          provider, modelId, displayName: string(raw.displayName, modelId || provider),
+          authorized: raw.authorized === true, available: raw.available === 'unknown' ? 'unknown' : raw.available === true,
+          visible: raw.visible !== false, availabilityReason: string(raw.availabilityReason),
+          ...(typeof raw.connectUrl === 'string' && raw.connectUrl ? { connectUrl: raw.connectUrl } : {}),
+        });
+      }
+      return [...seen.values()];
     },
     accounts: async () => {
       const body = await response<{ accounts?: unknown[]; defaultAccountId?: string }>('Load accounts', request('/opencode/auth/accounts'));

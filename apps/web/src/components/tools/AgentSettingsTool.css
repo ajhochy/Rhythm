@@ -550,3 +550,26 @@
 .hermes-account-row legend { padding: 0; font-weight: 650; }
 .hermes-account-row button { margin-top: 8px; }
 .hermes-accounts-memory { color: var(--muted); }
+
+/* #1580 S2 — provider-first model curation panel. min-width: 0 throughout so a long model id
+   or provider label wraps instead of forcing the list-inspector detail pane to scroll sideways. */
+.model-curation { min-width: 0; display: grid; gap: 12px; }
+.model-curation-search { max-width: 420px; }
+.model-curation-groups { min-width: 0; display: grid; gap: 10px; }
+.model-curation-group { min-width: 0; border: 1px solid var(--border); border-radius: var(--r-sm); overflow: hidden; }
+.model-curation-group-header {
+  width: 100%; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+  border: 0; background: var(--surface-warm); color: var(--fg); font: inherit; text-align: left; cursor: pointer;
+}
+.model-curation-group-header:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.model-curation-group-title { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.model-curation-status-connected { border-color: var(--success); color: var(--success); }
+.model-curation-status-needs-login { border-color: var(--warning); color: var(--warning); }
+.model-curation-status-unavailable { color: var(--muted); }
+.model-curation-group-body { min-width: 0; display: grid; gap: 2px; padding: 4px 12px 12px; }
+.model-curation-all-none { padding-block: 6px; border-bottom: 1px solid var(--border-soft); font-size: 11px; color: var(--muted); }
+.model-curation-row { min-width: 0; padding-block: 6px; }
+.model-curation-row-label { min-width: 0; display: grid; gap: 1px; overflow-wrap: anywhere; }
+.model-curation-row-label small { color: var(--muted); }
+.model-curation-empty { color: var(--muted); font-size: 12px; margin: 6px 0; }
+.model-curation-local-note { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 0; padding: 8px 0 0; color: var(--muted); overflow-wrap: anywhere; }

@@ -179,8 +179,11 @@ function providerAuthorized(
     (!builtIn && Boolean(configuredProvider));
 }
 
-/** Engine-authoritative picker catalog shared by full, compatibility and per-agent routes. */
-export async function listAgentModelCatalog(): Promise<CatalogRow[]> {
+/** Engine-authoritative picker catalog shared by full, compatibility and per-agent routes.
+ * `includeHidden` keeps rows with `visible:false` (for `/catalog/full`'s curation-panel
+ * re-enable flow); every other caller (picker, resolver, delegation) omits it and keeps the
+ * pre-existing visible-only contract, so a hidden model still can never be auto-selected. */
+export async function listAgentModelCatalog(options?: { includeHidden?: boolean }): Promise<CatalogRow[]> {
   try {
     const snapshot = await opencodeClient.providerSnapshot();
     const usage = await getUsageBudget({ cachedOnly: true }).catch(() => null);
@@ -357,7 +360,8 @@ export async function listAgentModelCatalog(): Promise<CatalogRow[]> {
       });
     }
 
-    return suppressOpenRouterDuplicates(rows.filter((row) => row.visible));
+    const visibleRows = options?.includeHidden ? rows : rows.filter((row) => row.visible);
+    return suppressOpenRouterDuplicates(visibleRows);
   } catch (err) {
     console.error('[agents/models/catalog] Unexpected error:', err);
     return [];
@@ -369,8 +373,12 @@ agentsModelsRouter.get('/catalog', async (_req: Request, res: Response) => {
     !entry.authorized || entry.available !== false));
 });
 
+// #1580 fix: /catalog/full must actually be full — includeHidden:true so a model hidden via
+// the curation panel (PATCH /agent-models/visibility) still comes back here (visible:false)
+// and can be found again to re-enable. /catalog (the picker) is unaffected: it still calls
+// listAgentModelCatalog() with no options and keeps filtering hidden rows out.
 agentsModelsRouter.get('/catalog/full', async (_req: Request, res: Response) => {
-  res.json(await listAgentModelCatalog());
+  res.json(await listAgentModelCatalog({ includeHidden: true }));
 });
 
 agentsModelsRouter.get('/', async (req: Request, res: Response) => {

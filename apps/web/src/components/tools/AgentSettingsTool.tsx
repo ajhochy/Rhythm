@@ -18,6 +18,7 @@ import { profileAvatarLabel } from '../Profiles';
 import { navigate } from '../Shell';
 import './AgentSettingsTool.css';
 import { HermesAccountsSettings } from './HermesAccountsSettings';
+import { ModelCurationPanel } from './ModelCurationPanel';
 import { RuntimeGatewayError, type RuntimeInfo } from '../../gateway/runtime';
 
 type Trace = { method: string; route: string; detail: string };
@@ -43,6 +44,7 @@ const sectionIds = {
   profiles: 'profiles',
   autoPromotion: 'auto-promotion',
   accounts: 'accounts',
+  models: 'models',
   behavior: 'behavior',
   keybindings: 'keybindings',
   runtime: 'runtime',
@@ -138,12 +140,44 @@ function KeybindingsSettings({ preferences, update, reset }: {
 // Ported from apps/desktop_flutter/.../ai_account_section.dart — same endpoints and
 // method indexes. method 1 = paste-back (openai); method 0 = the plugin's own local
 // listener completes the exchange (google), so the UI only re-checks the provider list.
-const providerCatalog = [
+export const providerCatalog = [
   { id: 'openai', label: 'OpenAI / Codex', kind: 'oauth' as const, method: 1, detail: 'Sign in with ChatGPT, then paste the callback URL or code back here.' },
   { id: 'google', label: 'Google / Gemini', kind: 'oauth' as const, method: 0, detail: 'Sign in with Google; the local listener finishes the exchange, then re-check below.' },
   { id: 'opencode', label: 'OpenCode', kind: 'key' as const, method: 0, detail: 'Paste an OpenCode API key.' },
   { id: 'openrouter', label: 'OpenRouter', kind: 'key' as const, method: 0, detail: 'Last-resort tier of the model fallback chain. Paste an OpenRouter API key.' },
 ];
+export type ProviderCatalogEntry = typeof providerCatalog[number];
+export type ProviderAuthFlow = { id: string; authUrl: string; instructions: string; method: number };
+
+// #1580 S2: extracted so the new provider-first Models section can render an identical
+// connect card in place, instead of a second hand-rolled OAuth/API-key UI (issue explicitly
+// asks to reuse the existing flows, not fork them).
+export function ProviderConnectCard({ provider, connected, badge, statusKnown, confirmed, apiKeyValue, pending, onApiKeyChange, onAuthorize, onSaveKey }: {
+  // statusKnown: authProviders has ever loaded — drives the "Status unknown" badge styling.
+  // confirmed: that AND the current reload finished (providersCurrent) — drives needs-relogin,
+  // so a stale "Last known Not connected" mid-reload does not flash the warning border/badge.
+  provider: ProviderCatalogEntry; connected: boolean; badge: string; statusKnown: boolean; confirmed: boolean;
+  apiKeyValue: string; pending: boolean; onApiKeyChange(value: string): void; onAuthorize(): void; onSaveKey(event: FormEvent): void;
+}) {
+  return <article className={`agent-settings-account${confirmed && !connected ? ' needs-relogin' : ''}`} data-testid={`agent-settings-provider-${provider.id}`}>
+    <span><strong>{provider.label}</strong><small>{provider.detail}</small><span className={`kind-badge${statusKnown ? '' : ' agent-settings-status-unknown'}`} data-testid={`agent-settings-provider-status-${provider.id}`}>{badge}</span></span>
+    {provider.kind === 'oauth' && <div className="agent-settings-actions"><button className={connected ? 'secondary-button' : 'primary-button'} type="button" disabled={pending} onClick={onAuthorize} data-testid={`agent-settings-provider-authorize-${provider.id}`}>{connected ? 'Reconnect' : 'Connect'}</button></div>}
+    {provider.kind === 'key' && <form className="agent-settings-form" onSubmit={onSaveKey}><label>API key<input required type="password" autoComplete="off" value={apiKeyValue} onChange={(event) => onApiKeyChange(event.target.value)} data-testid={`agent-settings-provider-key-${provider.id}`} /></label><button className="primary-button" type="submit" disabled={pending} data-testid={`agent-settings-provider-key-save-${provider.id}`}>{connected ? 'Replace key' : 'Save key'}</button></form>}
+  </article>;
+}
+
+export function ProviderAuthFlowForm({ flow, code, pending, onCodeChange, onSubmit, onCheck }: {
+  flow: ProviderAuthFlow; code: string; pending: boolean; onCodeChange(value: string): void; onSubmit(event: FormEvent): void; onCheck(): void;
+}) {
+  return <div className="agent-settings-form" data-testid={`agent-settings-provider-flow-${flow.id}`}>
+    <h3>Authorizing {flow.id}</h3>
+    {flow.instructions && <p>{flow.instructions}</p>}
+    <p><a href={flow.authUrl} target="_blank" rel="noreferrer" data-testid="agent-settings-provider-authorization-link">Open {flow.id} authorization</a></p>
+    {flow.method === 1
+      ? <form className="agent-settings-form" onSubmit={onSubmit}><label>Callback URL or code<input required value={code} onChange={(event) => onCodeChange(event.target.value)} data-testid="agent-settings-provider-code" /></label><button className="primary-button" type="submit" disabled={pending} data-testid="agent-settings-provider-complete">Finish connecting</button></form>
+      : <button className="primary-button" type="button" disabled={pending} onClick={onCheck} data-testid="agent-settings-provider-check">I finished sign-in — check connection</button>}
+  </div>;
+}
 
 const accountNeedsRelogin = (account: AccountChoice) => !/^(ok|connected|active|authorized)$/i.test(account.status);
 
@@ -177,6 +211,7 @@ function baseItems(status: Partial<Record<keyof typeof sectionIds, string>> = {}
     { id: sectionIds.profiles, title: 'Profiles overview', subtitle: status.profiles ?? 'Agent identities, defaults, and model assignments' },
     { id: sectionIds.autoPromotion, title: 'Auto-promotion', subtitle: status.autoPromotion ?? 'Workspace eligibility and confirmation gates', badge: badges.autoPromotion },
     { id: sectionIds.accounts, title: 'Accounts', subtitle: status.accounts ?? 'Authorized model provider accounts' },
+    { id: sectionIds.models, title: 'Models', subtitle: status.models ?? 'Provider connections and model curation' },
     { id: sectionIds.behavior, title: 'Behavior', subtitle: status.behavior ?? 'Destructive-tool confirmation policy' },
     { id: sectionIds.keybindings, title: 'Keybindings', subtitle: status.keybindings ?? 'Desktop keyboard shortcuts' },
     { id: sectionIds.runtime, title: 'Runtime / OpenCode server', subtitle: status.runtime ?? 'Desktop-local API and engine endpoints' },
@@ -243,6 +278,7 @@ export function FixtureAgentSettingsTool({ Frame }: AgentSettingsToolProps) {
     profiles: 'Use the Profiles tool for profile editing',
     autoPromotion: 'Live workspace status required',
     accounts: 'Live local runtime required',
+    models: 'Live local runtime required',
     behavior: `${requireDestructiveModal ? 'Full dialog' : 'Inline approval'} · This device`,
     keybindings: `${sendMessageKeyLabel(keybindings.sendKey)} to send · This device`,
     runtime: 'Fixture preview · not connected',
@@ -257,6 +293,8 @@ export function FixtureAgentSettingsTool({ Frame }: AgentSettingsToolProps) {
         return <><SectionIntro scope="Workspace">Auto-promotion is controlled by workspace eligibility and always requires an explicit confirmation.</SectionIntro><GapNotice place="a signed-in live workspace">This fixture cannot read or change auto-promotion.</GapNotice></>;
       case sectionIds.accounts:
         return <><SectionIntro scope="Desktop local">Provider authorization is stored by the local OpenCode runtime.</SectionIntro><GapNotice place="a signed-in live workspace">The fixture cannot call the existing account authorization endpoints.</GapNotice><HermesAccountsSettings /></>;
+      case sectionIds.models:
+        return <><SectionIntro scope="Desktop local">Model curation reads and writes the live provider catalog and visibility store.</SectionIntro><GapNotice place="a signed-in live workspace">The fixture cannot read or curate the live model catalog.</GapNotice></>;
       case sectionIds.behavior:
         return <><SectionIntro scope="Desktop local">Destructive tools can require a full confirmation dialog before they run.</SectionIntro><BehaviorSettings enabled={requireDestructiveModal} onChange={setRequireDestructiveModal} /></>;
       case sectionIds.keybindings:
@@ -747,6 +785,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     profiles: profileError || (profiles.length ? `${profiles.length} configured${defaultProfile ? ` · default ${defaultProfile.label}` : ''}` : 'No profiles configured'),
     autoPromotion: autoPromotionSummary,
     accounts: accountsError || `${connectedAccounts} connected · ${accounts.length} available${staleAccounts ? ` · ${staleAccounts} need re-authorization` : ''}`,
+    models: 'Provider-first curation',
     behavior: `${requireDestructiveModal ? 'Full dialog' : 'Inline approval'} · This device`,
     keybindings: `${sendMessageKeyLabel(keybindings.sendKey)} to send · This device`,
     runtime: gateway.environment ? `API :${gateway.environment.apiPort} · engine :${gateway.environment.enginePort}` : 'Local runtime unavailable',
@@ -777,14 +816,36 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     <p className="agent-settings-subhead-note">OAuth and API-key providers are stored by the local OpenCode runtime, the same as in the Flutter settings screen.</p>
     {retryControl('providers', providerError, 'Retry providers')}
     <div className="agent-settings-records">
-      {providerCatalog.map((provider) => { const connected = authProviders?.includes(provider.id) ?? false; const confirmed = providersCurrent && authProviders !== null; const badge = authProviders === null ? 'Status unknown' : `${confirmed ? '' : 'Last known '}${connected ? 'Connected' : 'Not connected'}`; return <article key={provider.id} className={`agent-settings-account${confirmed && !connected ? ' needs-relogin' : ''}`} data-testid={`agent-settings-provider-${provider.id}`}><span><strong>{provider.label}</strong><small>{provider.detail}</small><span className={`kind-badge${authProviders === null ? ' agent-settings-status-unknown' : ''}`} data-testid={`agent-settings-provider-status-${provider.id}`}>{badge}</span></span>{provider.kind === 'oauth' && <div className="agent-settings-actions"><button className={connected ? 'secondary-button' : 'primary-button'} type="button" disabled={actionPending('providers')} onClick={() => void startProviderAuth(provider)} data-testid={`agent-settings-provider-authorize-${provider.id}`}>{connected ? 'Reconnect' : 'Connect'}</button></div>}{provider.kind === 'key' && <form className="agent-settings-form" onSubmit={(event) => void saveProviderApiKey(event, provider)}><label>API key<input required type="password" autoComplete="off" value={providerDraft.apiKey[provider.id] ?? ''} onChange={(event) => { const value = event.target.value; setProviderDraft((current) => ({ ...current, apiKey: { ...current.apiKey, [provider.id]: value } })); }} data-testid={`agent-settings-provider-key-${provider.id}`} /></label><button className="primary-button" type="submit" disabled={actionPending('providers')} data-testid={`agent-settings-provider-key-save-${provider.id}`}>{connected ? 'Replace key' : 'Save key'}</button></form>}</article>; })}
+      {providerCatalog.map((provider) => {
+        const connected = authProviders?.includes(provider.id) ?? false;
+        const confirmed = providersCurrent && authProviders !== null;
+        const badge = authProviders === null ? 'Status unknown' : `${confirmed ? '' : 'Last known '}${connected ? 'Connected' : 'Not connected'}`;
+        return <ProviderConnectCard key={provider.id} provider={provider} connected={connected} badge={badge} statusKnown={authProviders !== null} confirmed={confirmed} pending={actionPending('providers')}
+          apiKeyValue={providerDraft.apiKey[provider.id] ?? ''}
+          onApiKeyChange={(value) => setProviderDraft((current) => ({ ...current, apiKey: { ...current.apiKey, [provider.id]: value } }))}
+          onAuthorize={() => void startProviderAuth(provider)}
+          onSaveKey={(event) => void saveProviderApiKey(event, provider)} />;
+      })}
     </div>
-    {providerFlow && <div className="agent-settings-form" data-testid={`agent-settings-provider-flow-${providerFlow.id}`}><h3>Authorizing {providerFlow.id}</h3>{providerFlow.instructions && <p>{providerFlow.instructions}</p>}<p><a href={providerFlow.authUrl} target="_blank" rel="noreferrer" data-testid="agent-settings-provider-authorization-link">Open {providerFlow.id} authorization</a></p>{providerFlow.method === 1 ? <form className="agent-settings-form" onSubmit={completeProviderAuth}><label>Callback URL or code<input required value={providerDraft.code} onChange={(event) => { const value = event.target.value; setProviderDraft((current) => ({ ...current, code: value })); }} data-testid="agent-settings-provider-code" /></label><button className="primary-button" type="submit" disabled={actionPending('providers')} data-testid="agent-settings-provider-complete">Finish connecting</button></form> : <button className="primary-button" type="button" disabled={actionPending('providers')} onClick={() => void checkProviderAuth()} data-testid="agent-settings-provider-check">I finished sign-in — check connection</button>}</div>}
+    {providerFlow && <ProviderAuthFlowForm flow={providerFlow} code={providerDraft.code} pending={actionPending('providers')}
+      onCodeChange={(value) => setProviderDraft((current) => ({ ...current, code: value }))}
+      onSubmit={completeProviderAuth} onCheck={() => void checkProviderAuth()} />}
+  </>;
+  const modelsInspector = () => <>
+    <SectionIntro scope="Desktop local">Connect providers, then choose which of their models appear in every session and profile model picker.</SectionIntro>
+    <ModelCurationPanel
+      authProviders={authProviders} providersCurrent={providersCurrent} providerFlow={providerFlow} providerDraft={providerDraft}
+      onApiKeyChange={(providerId, value) => setProviderDraft((current) => ({ ...current, apiKey: { ...current.apiKey, [providerId]: value } }))}
+      onCodeChange={(value) => setProviderDraft((current) => ({ ...current, code: value }))}
+      startProviderAuth={startProviderAuth} completeProviderAuth={completeProviderAuth} checkProviderAuth={checkProviderAuth} saveProviderApiKey={saveProviderApiKey}
+      providerPending={actionPending('providers')} providerActionError={accountActionError} providerNotice={actionNotices.providers ?? ''}
+      onReloadLocalConfig={() => void reloadEngineConfig()} localConfigPending={actionPending('runtime', 'reload')}
+    />
   </>;
   const runtimeValue = (service: 'api' | 'engine', label: string) => {
     const status = runtimeStatus[service];
     const statusLabel = status.state === 'healthy' ? 'Healthy' : status.state === 'failed' ? 'Failed' : 'Checking';
-    const port = service === 'api' ? runtimeInfo?.api.port ?? gateway.environment?.apiPort : runtimeInfo?.engine.port ?? gateway.environment?.enginePort;
+    const port = service === 'api' ? runtimeInfo?.api?.port ?? gateway.environment?.apiPort : runtimeInfo?.engine?.port ?? gateway.environment?.enginePort;
     return <dd className={`agent-settings-runtime-value status-${status.state}`}>
       <span>{port ? `127.0.0.1:${port}` : 'Unavailable'}</span>
       <span className="agent-settings-runtime-state" data-testid={`runtime-status-${service}`}>
@@ -793,7 +854,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
       </span>
     </dd>;
   };
-  const runtimeInspector = () => <><SectionIntro scope="Desktop local">Rhythm uses a local API and OpenCode engine supplied by the trusted desktop host. Reload configuration first; restart only when reload cannot recover stale state.</SectionIntro><dl className="agent-settings-property-list"><div><dt>Local API</dt>{runtimeValue('api', 'Local API')}</div><div><dt>OpenCode engine</dt>{runtimeValue('engine', 'OpenCode engine')}</div><div><dt>Engine PID</dt><dd>{runtimeInfo?.engine.pid ?? 'Unavailable'}</dd></div><div><dt>Boot ID</dt><dd>{runtimeInfo?.engine.bootId ?? 'Unavailable'}</dd></div><div><dt>Version</dt><dd>{runtimeInfo?.engine.version ?? 'Unavailable'}</dd></div><div><dt>Event bridge</dt><dd>{runtimeInfo ? runtimeInfo.engine.bridgeLive ? 'Live' : 'Unavailable' : 'Checking'}</dd></div><div><dt>Remote override</dt><dd>{runtimeInfo?.remoteOverride ?? 'Not set on this device'}</dd></div></dl>{runtimeInfoError && <p role="alert">{runtimeInfoError}</p>}<div className="agent-settings-actions"><button className="secondary-button" type="button" disabled={actionPending('runtime')} aria-busy={actionPending('runtime', 'api')} onClick={() => void runRuntimeCheck('api')} data-testid="agent-settings-check-api">{actionPending('runtime', 'api') ? 'Checking local API…' : 'Check local API'}</button><button className="secondary-button" type="button" disabled={actionPending('runtime')} aria-busy={actionPending('runtime', 'engine')} onClick={() => void runRuntimeCheck('engine')} data-testid="agent-settings-check-engine">{actionPending('runtime', 'engine') ? 'Checking OpenCode engine…' : 'Check OpenCode engine'}</button></div><div className="agent-settings-runtime-controls" data-testid="runtime-control-actions"><button className="primary-button" type="button" disabled={actionPending('runtime')} aria-busy={actionPending('runtime', 'reload')} onClick={() => void reloadEngineConfig()}>{actionPending('runtime', 'reload') ? 'Reloading…' : 'Reload engine config & skills'}</button><button className="secondary-button" type="button" disabled={actionPending('runtime')} onClick={() => setRestartEngineConfirm(true)}>Restart engine</button><button className="danger-button" type="button" disabled={actionPending('runtime') || !localRuntime.available || localRuntime.ownership === 'external'} onClick={() => void restartLocalRuntime()}>{localRuntime.status === 'failed' ? 'Retry local runtime' : 'Restart local runtime'}</button></div>{localRuntime.ownership === 'external' && <p className="agent-settings-runtime-owner-note">Restart unavailable: this runtime is owned by another app.</p>}{!localRuntime.available && <p className="agent-settings-runtime-owner-note">Restart unavailable outside the signed desktop app.</p>}{actionPending('runtime') && <p role="status">Updating the local runtime…</p>}{actionNotices.runtime && <p role="status">{actionNotices.runtime}</p>}{runtimeActionError && <p role="alert">{runtimeActionError}</p>}</>;
+  const runtimeInspector = () => <><SectionIntro scope="Desktop local">Rhythm uses a local API and OpenCode engine supplied by the trusted desktop host. Reload configuration first; restart only when reload cannot recover stale state.</SectionIntro><dl className="agent-settings-property-list"><div><dt>Local API</dt>{runtimeValue('api', 'Local API')}</div><div><dt>OpenCode engine</dt>{runtimeValue('engine', 'OpenCode engine')}</div><div><dt>Engine PID</dt><dd>{runtimeInfo?.engine?.pid ?? 'Unavailable'}</dd></div><div><dt>Boot ID</dt><dd>{runtimeInfo?.engine?.bootId ?? 'Unavailable'}</dd></div><div><dt>Version</dt><dd>{runtimeInfo?.engine?.version ?? 'Unavailable'}</dd></div><div><dt>Event bridge</dt><dd>{runtimeInfo?.engine ? runtimeInfo.engine.bridgeLive ? 'Live' : 'Unavailable' : 'Checking'}</dd></div><div><dt>Remote override</dt><dd>{runtimeInfo?.remoteOverride ?? 'Not set on this device'}</dd></div></dl>{runtimeInfoError && <p role="alert">{runtimeInfoError}</p>}<div className="agent-settings-actions"><button className="secondary-button" type="button" disabled={actionPending('runtime')} aria-busy={actionPending('runtime', 'api')} onClick={() => void runRuntimeCheck('api')} data-testid="agent-settings-check-api">{actionPending('runtime', 'api') ? 'Checking local API…' : 'Check local API'}</button><button className="secondary-button" type="button" disabled={actionPending('runtime')} aria-busy={actionPending('runtime', 'engine')} onClick={() => void runRuntimeCheck('engine')} data-testid="agent-settings-check-engine">{actionPending('runtime', 'engine') ? 'Checking OpenCode engine…' : 'Check OpenCode engine'}</button></div><div className="agent-settings-runtime-controls" data-testid="runtime-control-actions"><button className="primary-button" type="button" disabled={actionPending('runtime')} aria-busy={actionPending('runtime', 'reload')} onClick={() => void reloadEngineConfig()}>{actionPending('runtime', 'reload') ? 'Reloading…' : 'Reload engine config & skills'}</button><button className="secondary-button" type="button" disabled={actionPending('runtime')} onClick={() => setRestartEngineConfirm(true)}>Restart engine</button><button className="danger-button" type="button" disabled={actionPending('runtime') || !localRuntime.available || localRuntime.ownership === 'external'} onClick={() => void restartLocalRuntime()}>{localRuntime.status === 'failed' ? 'Retry local runtime' : 'Restart local runtime'}</button></div>{localRuntime.ownership === 'external' && <p className="agent-settings-runtime-owner-note">Restart unavailable: this runtime is owned by another app.</p>}{!localRuntime.available && <p className="agent-settings-runtime-owner-note">Restart unavailable outside the signed desktop app.</p>}{actionPending('runtime') && <p role="status">Updating the local runtime…</p>}{actionNotices.runtime && <p role="status">{actionNotices.runtime}</p>}{runtimeActionError && <p role="alert">{runtimeActionError}</p>}</>;
   const mcpInspector = () => <>
     <SectionIntro scope="Workspace">MCP servers provide tools to profiles. Changes are saved through the workspace MCP service.</SectionIntro>
     {retryControl('mcp', mcpError, 'Retry MCP servers')}
@@ -831,6 +892,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
       case sectionIds.profiles: return profilesInspector();
       case sectionIds.autoPromotion: return <><SectionIntro scope="Workspace">The server enforces administrator access, eligibility, regression checks, and explicit confirmation.</SectionIntro><AutoPromotionSettings state={autoPromotionState} loading={autoPromotionLoading} error={autoPromotionError} reload={loadAutoPromotion} reportError={setAutoPromotionError} /></>;
       case sectionIds.accounts: return accountsInspector();
+      case sectionIds.models: return modelsInspector();
       case sectionIds.behavior: return <><SectionIntro scope="Desktop local">This policy controls whether Bash, write, edit, and patch tool calls use a full destructive-action confirmation dialog.</SectionIntro><BehaviorSettings enabled={requireDestructiveModal} onChange={setRequireDestructiveModal} /></>;
       case sectionIds.keybindings: return <><SectionIntro scope="Desktop local">Shortcuts cover send message, new session, cancel turn, and switch session.</SectionIntro><KeybindingsSettings preferences={keybindings} update={updateKeybindings} reset={resetKeybindings} /></>;
       case sectionIds.runtime: return runtimeInspector();

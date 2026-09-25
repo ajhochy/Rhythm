@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { FIXED_NOW, seedDiff, seedFiles, seedProfiles, seedSessions, seedTodos } from './fixtures';
 import { useGateway } from './gateway/context';
 import type { GatewayMode } from './gateway';
-import { SessionGatewayError, toSessionViewModel, type ProfileMutation, type RichTranscriptMessage, type SessionSocket, type SessionWireEvent, type IdentityProfile, type ModelChoice, type AccountChoice, type SessionSettings, type TurnOverride } from './gateway/sessions';
+import { SessionGatewayError, toSessionViewModel, createGenerationGuard, type ProfileMutation, type RichTranscriptMessage, type SessionSocket, type SessionWireEvent, type IdentityProfile, type ModelChoice, type AccountChoice, type SessionSettings, type TurnOverride } from './gateway/sessions';
 import { applyTranscriptEvent, emptyTranscript, mergeTranscriptPage, type TranscriptPageOptions, type TranscriptState } from './gateway/transcript-reducer';
 import { useAuthUser } from './gateway/auth';
 import type { DomainNotification } from './gateway/notifications';
@@ -52,6 +52,9 @@ interface LiveChildView {
 interface FixtureContextValue {
   sessions: Session[]; profiles: IdentityProfile[]; todos: TodoItem[]; files: FixtureFile[]; diff: string;
   models: ModelChoice[]; accounts: AccountChoice[]; catalogError: string;
+  // #1580: re-fetches the model catalog on demand (e.g. right after a visibility PATCH) so
+  // every picker reflects curation immediately, without a restart or session switch.
+  refreshModels(): Promise<void>;
   turnOverride: TurnOverride; stageTurnOverride(patch: TurnOverride): void;
   saveSessionSettings(id: string, input: SessionSettings): Promise<void>;
   selectedId: string; selected: Session; scope: SessionScope; theme: Theme; inspectorTab: InspectorTab; demo: DemoState;
@@ -203,14 +206,28 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const [overrideVersion, setOverrideVersion] = useState(0);
   const stageTurnOverride = (patch: TurnOverride) => { const id = selectedIdRef.current; if (!id) return; turnOverrides.current[id] = { ...turnOverrides.current[id], ...patch }; setOverrideVersion(v => v + 1); };
   const settingsWrites = useRef(new Map<string, Promise<void>>());
+  // #1580: begin()/isCurrent() fence model-catalog fetches so a manual refreshModels() call
+  // (e.g. right after a visibility PATCH) and the gateway/account-switch effect below can never
+  // race each other into painting a stale account's rows over the current one.
+  const modelsGuard = useRef(createGenerationGuard());
+  const refreshModels = useCallback(async () => {
+    if (!live) return;
+    const token = modelsGuard.current.begin();
+    try {
+      const rows = await gateway.domains.sessions?.models?.() ?? [];
+      if (modelsGuard.current.isCurrent(token)) setModels(rows);
+    } catch {
+      if (modelsGuard.current.isCurrent(token)) setCatalogError('Model catalog unavailable');
+    }
+  }, [gateway, live]);
   useEffect(() => {
     if (!live) return;
     let active = true;
     setModels([]); setAccounts([]); setCatalogError('');
-    void gateway.domains.sessions?.models?.().then(rows => { if (active) setModels(rows); }).catch(() => { if (active) setCatalogError('Model catalog unavailable'); });
+    void refreshModels();
     void gateway.domains.sessions?.accounts?.().then(rows => { if (active) setAccounts(rows); }).catch(() => { if (active) setCatalogError(value => `${value} Account catalog unavailable`.trim()); });
     return () => { active = false; };
-  }, [gateway, live]);
+  }, [gateway, live, refreshModels]);
   const [todos, setTodos] = useState<TodoItem[]>(() => structuredClone(seedTodos));
   const [selectedId, setSelectedId] = useState(() => {
     if (!live) {
@@ -1241,7 +1258,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   };
 
   const notificationUnreadCount = notifications.length + pushNotifications.length;
-  const value = useMemo<FixtureContextValue>(() => ({ prepareLiveSession, startFreshSession, reconnectLiveSession, models, accounts, catalogError, turnOverride: turnOverrides.current[selectedId] ?? {}, stageTurnOverride, saveSessionSettings, sessions, profiles, todos, files: seedFiles, diff: seedDiff, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, setUnreadThreads, liveMessageThreads, setLiveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, selectSession, setScope, setTheme, setInspectorTab, setDemo, notify, createSession, updateSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, forkSession, revertSession, unrevertSession, summarizeSession, loadOlder, replyPermission, answerQuestion, rejectQuestion, sendInput, reconnect, runShell, setActiveFile, resetWorktree, removeWorktree, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, resetFixtures, sessionGatewayMode: gateway.mode, liveSessionError, createLiveSession, deleteLiveSession, refreshLiveSessions, selectLiveSession, sendLiveInput, sendLiveCommand, resumeGone, dismissResumeGone, liveChildView, openLiveChildSession, closeLiveChildView, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, replyLivePermission, replyLiveQuestion, rejectLiveQuestion, updatePermissionMode, pendingApprovals, decideApproval, isCompletionArmed, toggleCompletionArm }), [models, accounts, catalogError, overrideVersion, sessions, profiles, todos, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, liveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, gateway.mode, liveSessionError, resumeGone, liveChildView, notifications, pushNotifications, notificationUnreadCount, pendingApprovals, armedKeys]);
+  const value = useMemo<FixtureContextValue>(() => ({ prepareLiveSession, startFreshSession, reconnectLiveSession, models, accounts, catalogError, refreshModels, turnOverride: turnOverrides.current[selectedId] ?? {}, stageTurnOverride, saveSessionSettings, sessions, profiles, todos, files: seedFiles, diff: seedDiff, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, setUnreadThreads, liveMessageThreads, setLiveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, selectSession, setScope, setTheme, setInspectorTab, setDemo, notify, createSession, updateSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, forkSession, revertSession, unrevertSession, summarizeSession, loadOlder, replyPermission, answerQuestion, rejectQuestion, sendInput, reconnect, runShell, setActiveFile, resetWorktree, removeWorktree, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, resetFixtures, sessionGatewayMode: gateway.mode, liveSessionError, createLiveSession, deleteLiveSession, refreshLiveSessions, selectLiveSession, sendLiveInput, sendLiveCommand, resumeGone, dismissResumeGone, liveChildView, openLiveChildSession, closeLiveChildView, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, replyLivePermission, replyLiveQuestion, rejectLiveQuestion, updatePermissionMode, pendingApprovals, decideApproval, isCompletionArmed, toggleCompletionArm }), [models, accounts, catalogError, refreshModels, overrideVersion, sessions, profiles, todos, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, liveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, gateway.mode, liveSessionError, resumeGone, liveChildView, notifications, pushNotifications, notificationUnreadCount, pendingApprovals, armedKeys]);
   return <FixtureContext.Provider value={value}>{children}</FixtureContext.Provider>;
 }
 
