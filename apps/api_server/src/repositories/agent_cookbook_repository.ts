@@ -11,6 +11,18 @@ export interface AgentCookbook {
   ownerUserId: number | null;
   createdAt: string;
   updatedAt: string;
+  /** #1485 S1a — additive, nullable. NULL on every row until S3a workflow create ships. */
+  schemaVersion: number | null;
+  /** #1485 S1a — additive, nullable. NULL means legacy prompt recipe. */
+  definitionJson: string | null;
+  /**
+   * #1485 S1a — derived, never stored: 'legacy' when definitionJson is NULL.
+   * `explicit_upgrade_required` is intentionally withheld until S5 ships a
+   * real conversion path (docs/ai/current-plan-recipes-1485.md "Persistence
+   * and compatibility") — surfacing it earlier would be an alarming dead end
+   * for production users with no way to act on it.
+   */
+  format: 'legacy';
 }
 
 export interface CreateAgentCookbookInput {
@@ -23,6 +35,7 @@ export interface CreateAgentCookbookInput {
 }
 
 function rowToModel(row: Record<string, unknown>): AgentCookbook {
+  const definitionJson = (row.definition_json as string | null) ?? null;
   return {
     id: row.id as string,
     title: row.title as string,
@@ -38,6 +51,12 @@ function rowToModel(row: Record<string, unknown>): AgentCookbook {
       typeof row.updated_at === 'string'
         ? row.updated_at
         : (row.updated_at as Date).toISOString(),
+    schemaVersion: (row.schema_version as number | null) ?? null,
+    definitionJson,
+    // ponytail: 'legacy' is the only reachable value pre-S3a (definition_json
+    // is never written yet). See the AgentCookbook.format doc comment for why
+    // 'explicit_upgrade_required' is withheld rather than derived here.
+    format: 'legacy',
   };
 }
 

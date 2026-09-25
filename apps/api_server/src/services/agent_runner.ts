@@ -401,6 +401,15 @@ export interface AgentRunOptions {
    */
   _isEscalation?: boolean;
   /**
+   * #1485 S2 — pinned-provider stages (recipe-workflow contrarian-review /
+   * verdict stages with an explicit provider override) must never silently
+   * re-run on a different (teacher) model: that would invalidate the
+   * cross-provider guarantee the caller asked for. Net-new and public
+   * (unlike the internal `_isEscalation` recursion guard); set by a caller
+   * BEFORE dispatch, never by AgentRunner itself. See {@link shouldEscalate}.
+   */
+  suppressTeacherEscalation?: boolean;
+  /**
    * When set, bypasses resolveRunModel() and forces this run to use the given
    * model. Two callers set it: (1) P4-1 teacher-escalation forces the stronger
    * teacher model on a re-run; (2) the scheduler (the model-override change) forwards a task's
@@ -733,12 +742,13 @@ export function resolveTeacherModel(
  */
 export function shouldEscalate(
   result: Pick<AgentRunResult, 'status' | 'error' | 'errorCode' | 'failureCategory'>,
-  opts: Pick<AgentRunOptions, '_isEscalation' | 'bridgeOrigin'>,
+  opts: Pick<AgentRunOptions, '_isEscalation' | 'bridgeOrigin' | 'suppressTeacherEscalation'>,
   enabled: boolean = env.agentTeacherEscalationEnabled,
 ): boolean {
   if (!enabled) return false;
   if (opts.bridgeOrigin) return false;
   if (opts._isEscalation) return false; // recursion guard — escalate at most once
+  if (opts.suppressTeacherEscalation) return false; // #1485 S2 — pinned provider, never re-run on a different model
   if (result.status !== 'error') return false;
   return classifyAgentRunFailure(result).teacherRetryable;
 }

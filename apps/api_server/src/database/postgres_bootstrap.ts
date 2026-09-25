@@ -1154,6 +1154,11 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_agent_cookbook_created_at ON agent_cookbook(created_at)`,
   );
+  // #1485 S1a — same additive/nullable workflow columns as migrations.ts
+  // (SQLite). NULL definition_json means legacy; no execution runs on
+  // Postgres deployments regardless (see env.recipeWorkflowsEnabled callers).
+  await pool.query(`ALTER TABLE agent_cookbook ADD COLUMN IF NOT EXISTS schema_version INTEGER`);
+  await pool.query(`ALTER TABLE agent_cookbook ADD COLUMN IF NOT EXISTS definition_json TEXT`);
 
   // D1 — agent_designs: provider-neutral finished creative-media artifacts.
   await pool.query(`

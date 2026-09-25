@@ -3,6 +3,7 @@ import type {
   ResearchProjectRun,
 } from '../repositories/agent_research_repository';
 import * as AgentRunner from './agent_runner';
+import { dispatchAgentStage } from './dispatch_agent_stage';
 import { createHash } from 'node:crypto';
 
 type Runner = Pick<typeof AgentRunner, 'run'>;
@@ -127,7 +128,7 @@ export class ResearchProjectOrchestrator {
       });
       let result: Awaited<ReturnType<Runner['run']>>;
       try {
-        result = await this.runner.run({
+        result = await dispatchAgentStage({
           prompt: passPrompt(run, pass, ordinal, job.id),
           cwd: process.cwd(),
           outputTarget: 'session',
@@ -140,7 +141,7 @@ export class ResearchProjectOrchestrator {
             await this.repository.updateProjectPassJob(job!.id, ownerUserId, { agentSessionId: sessionId });
           },
           ...(modelOverride(pass.model) ? { modelOverride: modelOverride(pass.model) } : {}),
-        });
+        }, this.runner);
       } catch (error) {
         result = { sessionId: '', result: '', status: 'error', error: String(error) };
       }
@@ -283,7 +284,7 @@ export class ResearchProjectOrchestrator {
             `After writing the one canonical synthesis artifact and registering its curated sources, call rhythm_complete_research_pass with version=1, job_id=${job.id}, run_id=${input.run.id}, and pass_id=${job.id}. Do not report completion before that tool succeeds.`,
           ].join('\n\n')
         : input.prompt;
-      result = await this.runner.run({
+      result = await dispatchAgentStage({
         prompt,
         cwd: process.cwd(),
         outputTarget: 'session',
@@ -295,7 +296,7 @@ export class ResearchProjectOrchestrator {
         onSessionCreated: async (sessionId) => {
           await this.repository.updateProjectPassJob(job.id, input.ownerUserId, { agentSessionId: sessionId });
         },
-      });
+      }, this.runner);
     } catch (error) {
       result = { sessionId: '', result: '', status: 'error', error: String(error) };
     }

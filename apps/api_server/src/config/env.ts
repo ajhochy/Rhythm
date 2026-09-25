@@ -428,6 +428,14 @@ export const env = {
     agentLocal && dbClientValue === 'sqlite',
   agentBridgeRegistrarSha256:
     (process.env.RHYTHM_AGENT_BRIDGE_REGISTRAR_SHA256 ?? '').trim(),
+  /**
+   * #1485 — durable recipe-workflow runner, default OFF through S4. Only the
+   * literal string 'true' enables it; unset or any other value stays off
+   * (same opt-in convention as omlxProviderEnabled below). Existing cookbook
+   * rows/behavior are unaffected regardless of this flag until S3a/S3b ship
+   * execution.
+   */
+  recipeWorkflowsEnabled: process.env.RHYTHM_RECIPE_WORKFLOWS_ENABLED === 'true',
   /** True only for the Synology relay container (RHYTHM_ROLE=relay). */
   isRelayRole: deploymentRole === 'relay',
   /**

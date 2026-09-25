@@ -3534,6 +3534,17 @@ If someone asks for creative work that needs a local capability:
          ADD COLUMN owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL`,
     );
   }
+  // #1485 S1a — versioned-workflow columns, additive and nullable so every
+  // existing/generated/proposal-applied row stays a byte-identical legacy
+  // prompt recipe (definition_json IS NULL => legacy; see
+  // agent_cookbook_repository.ts's derived `format`). No backfill: leaving
+  // both NULL on pre-existing rows is the correct legacy value, not a gap.
+  if (!agentCookbookActivityCols.includes('schema_version')) {
+    db.exec(`ALTER TABLE agent_cookbook ADD COLUMN schema_version INTEGER`);
+  }
+  if (!agentCookbookActivityCols.includes('definition_json')) {
+    db.exec(`ALTER TABLE agent_cookbook ADD COLUMN definition_json TEXT`);
+  }
   const agentOrgProposalActivityCols = (
     db.pragma('table_info(agent_org_proposals)') as { name: string }[]
   ).map((column) => column.name);
