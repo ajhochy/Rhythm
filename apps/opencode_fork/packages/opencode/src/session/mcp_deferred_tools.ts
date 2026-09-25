@@ -22,6 +22,24 @@
 /** The single dispatcher tool's id. Chosen to sort near other builtins and to
  * read unambiguously in tool-call transcripts. */
 export const MCP_DISPATCH_TOOL_ID = "mcp_dispatch"
+export const GEMINI_FUNCTION_DECLARATION_CAP = 512
+
+/** Whether eagerly adding this MCP surface would overflow Gemini's hard cap. */
+export function shouldAutoDeferMcpTools(
+  providerID: string,
+  currentDeclarationCount: number,
+  mcpToolCount: number,
+): boolean {
+  return providerID === "google" && currentDeclarationCount + mcpToolCount > GEMINI_FUNCTION_DECLARATION_CAP
+}
+
+/** Final request-build guard. This must run before the provider HTTP call. */
+export function assertFunctionDeclarationCap(providerID: string, declarationCount: number): void {
+  if (providerID !== "google" || declarationCount <= GEMINI_FUNCTION_DECLARATION_CAP) return
+  throw new Error(
+    `Gemini function-declaration cap: ${declarationCount} > ${GEMINI_FUNCTION_DECLARATION_CAP}`,
+  )
+}
 
 export interface DeferredMcpToolEntry {
   /** The composed key the model must pass to mcp_dispatch (e.g. "rhythm_ping"). */

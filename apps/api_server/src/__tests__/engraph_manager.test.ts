@@ -272,7 +272,11 @@ describe('EngraphManager — process ownership + command construction', () => {
       spawned.push(child);
       return child as unknown as ReturnType<typeof import('node:child_process').spawn>;
     });
-    const execFileImpl = overrides.execFileImpl ?? vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
+    const execFileImpl = overrides.execFileImpl ?? vi.fn(async (_file: string, args: string[]) => (
+      args[0] === '--version'
+        ? { stdout: 'engraph 1.7.2\n', stderr: '' }
+        : { stdout: '', stderr: '' }
+    ));
     const fetchImpl = overrides.fetchImpl ?? vi.fn().mockResolvedValue(new Response(JSON.stringify([]), { status: 200 }));
     const manager = new EngraphManager({
       configStore, spawnFn: spawnFn as unknown as typeof import('node:child_process').spawn,
@@ -291,7 +295,11 @@ describe('EngraphManager — process ownership + command construction', () => {
   });
 
   it('a healthy start indexes and spawns with fixed argv (no shell), then check-health uses the generated key', async () => {
-    const execFileImpl = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
+    const execFileImpl = vi.fn(async (_file: string, args: string[]) => (
+      args[0] === '--version'
+        ? { stdout: 'engraph 1.7.2\n', stderr: '' }
+        : { stdout: '', stderr: '' }
+    ));
     const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify([{ file_path: 'fact/x.md' }]), { status: 200 }));
     const { manager, configStore, spawnFn } = makeManager({ execFileImpl, fetchImpl });
     configStore.write({ enabled: true, executablePath: process.execPath }); // any real executable path passes isExecutableFile
@@ -354,6 +362,38 @@ describe('EngraphManager — process ownership + command construction', () => {
     const result = await manager.enable();
     expect(result).toEqual({ ok: false, reason: 'binary_not_found' });
     expect(configStore.read().lastFailureCategory).toBe('binary_not_found');
+  });
+
+  it('1573:1573-B-engraph-version-after-restart:1 revalidates and reports a persisted binary version on restart', async () => {
+    const execFileImpl = vi.fn(async (_file: string, args: string[]) => (
+      args[0] === '--version'
+        ? { stdout: 'engraph 1.7.2\n', stderr: '' }
+        : { stdout: '', stderr: '' }
+    ));
+    const { manager, configStore } = makeManager({ execFileImpl });
+    configStore.write({ enabled: true, executablePath: process.execPath });
+    const chooseBinary = vi.spyOn(manager, 'chooseBinary');
+
+    await expect(manager.enable()).resolves.toMatchObject({ ok: true });
+
+    expect(chooseBinary).not.toHaveBeenCalled();
+    expect(execFileImpl).toHaveBeenCalledWith(
+      process.execPath,
+      ['--version'],
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+    expect(manager.getStatus().version).toBe('1.7.2');
+  });
+
+  it('1573:1573-B-engraph-version-after-restart:2 refuses a persisted binary with unexpected version output', async () => {
+    const execFileImpl = vi.fn().mockResolvedValue({ stdout: 'not engraph\n', stderr: '' });
+    const { manager, configStore, spawnFn } = makeManager({ execFileImpl });
+    configStore.write({ enabled: true, executablePath: process.execPath });
+
+    await expect(manager.enable()).resolves.toEqual({ ok: false, reason: 'binary_invalid' });
+
+    expect(configStore.read().lastFailureCategory).toBe('binary_invalid');
+    expect(spawnFn).not.toHaveBeenCalled();
   });
 
   it('getRetrievalClient() search()es to [] until a real health check has passed', async () => {

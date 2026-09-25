@@ -24,11 +24,14 @@ import { ToolJsonSchema } from "@/tool/json-schema"
 import { MCP } from "../mcp"
 import { filterMcpToolsByAllowlist } from "./mcp_allowlist"
 import {
+  assertFunctionDeclarationCap,
   buildDeferredToolCatalog,
   formatDeferredToolCatalog,
+  GEMINI_FUNCTION_DECLARATION_CAP,
   isDeferredMcpToolAllowed,
   isMcpToolDeferred,
   MCP_DISPATCH_TOOL_ID,
+  shouldAutoDeferMcpTools,
 } from "./mcp_deferred_tools"
 import { LSP } from "@/lsp/lsp"
 import { ulid } from "ulid"
@@ -766,10 +769,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       // executed only when the model actually dispatches a call by name. When
       // false/absent (default): unchanged eager behavior — one schema injected
       // per allowlisted tool, exactly as before this patch (back-compat).
-      const deferredMcp = input.session.mcpAllowlist?.deferred === true
+      const autoDeferMcp = shouldAutoDeferMcpTools(
+        input.model.providerID,
+        Object.keys(tools).length,
+        allowedKeys.size,
+      )
+      const deferredMcp = input.session.mcpAllowlist?.deferred === true || autoDeferMcp
       const deferredKeys = new Set(
         [...allowedKeys].filter((key) =>
-          isMcpToolDeferred(key, keyToServer, input.session.mcpAllowlist),
+          autoDeferMcp || isMcpToolDeferred(key, keyToServer, input.session.mcpAllowlist),
         ),
       )
       const eagerKeys = new Set([...allowedKeys].filter((key) => !deferredKeys.has(key)))
@@ -834,6 +842,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           },
         })
       }
+      if (autoDeferMcp) {
+        log.warn("Gemini function declarations auto-deferred", {
+          deferred: deferredKeys.size,
+          reason: "provider_cap",
+          cap: GEMINI_FUNCTION_DECLARATION_CAP,
+        })
+      }
       for (const [key, item] of Object.entries(mcpToolsAll)) {
         if (!eagerKeys.has(key)) continue
         const wrapped = yield* wrapMcpTool(key, item)
@@ -871,6 +886,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             ))
         if (approved) tools[ImageGeneration.ID] = ImageGeneration.tool()
       }
+
+      assertFunctionDeclarationCap(input.model.providerID, Object.keys(tools).length)
 
       // Rhythm carried patch (mcp-scope): measurement instrument for the per-session
       // MCP allowlist. resolveToolsCount is the number of tool schemas injected into

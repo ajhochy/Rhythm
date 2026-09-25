@@ -174,6 +174,7 @@ it('issue-1574-c2: disable during indexing must cancel the late start and releas
   store.write({ enabled: true, executablePath: binary });
   const home = join(dir, 'home');
   const instance = new EngraphManager({ configStore: store, homeDir: home, execFileImpl: async (_file, args) => {
+    if (args[0] === '--version') return { stdout: 'engraph 1.7.2\n', stderr: '' };
     if (args[0] === 'index') { entered(); await indexing; }
     return { stdout: '', stderr: '' };
   } });
@@ -382,6 +383,7 @@ it('issue-1574-c2: shutdown awaits a cancelled index and leaves no reservation',
   store.write({ enabled: true, executablePath: binary });
   const home = join(dir, 'home');
   const instance = new EngraphManager({ configStore: store, homeDir: home, execFileImpl: async (_file, args) => {
+    if (args[0] === '--version') return { stdout: 'engraph 1.7.2\n', stderr: '' };
     if (args[0] === 'index') { enter(); await indexing; }
     return { stdout: '', stderr: '' };
   } });
@@ -409,6 +411,7 @@ it('issue-1574-c2: rebuild during an in-flight index starts a new generation rat
   const store = new EngraphManagerConfigStore(join(dir, 'config.json'));
   store.write({ enabled: true, executablePath: binary });
   const instance = new EngraphManager({ configStore: store, homeDir: home, execFileImpl: async (_file, args) => {
+    if (args[0] === '--version') return { stdout: 'engraph 1.7.2\n', stderr: '' };
     if (args[0] === 'index') { indexed++; if (indexed === 1) { enter(); await held; } }
     return { stdout: '', stderr: '' };
   } });

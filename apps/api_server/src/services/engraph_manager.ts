@@ -876,6 +876,7 @@ export class EngraphManager {
       this.reusedFrom = existing;
       this.port = existing.port;
       this.apiKey = existing.apiKey;
+      this.version = existing.version;
       this.ready = true;
       this.store.write({ approvedMemoryRoot: approvedRoot, state: 'ready' });
       return { ok: true };
@@ -950,6 +951,18 @@ export class EngraphManager {
         return this._fail('spawn_failed', 'an Engraph owner marker already exists; refusing to overwrite it');
       }
     }
+
+    // On a fresh unowned start, publish same-home ownership before awaiting
+    // validation. Concurrent starts are then ordered by their reservation,
+    // not by how quickly independent --version probes happen to return.
+    const binaryValidation = await validateEngraphBinary(cfg.executablePath, this.execFileImpl);
+    if (!binaryValidation.ok) {
+      return this._fail(
+        'binary_invalid',
+        `configured Engraph executable failed validation (${binaryValidation.reason ?? 'unknown'})`,
+      );
+    }
+    this.version = binaryValidation.version ?? null;
 
     // Fresh port + credentials every (re)start; never persisted to disk in
     // Rhythm's own config store (only into Engraph's own config.toml, under
