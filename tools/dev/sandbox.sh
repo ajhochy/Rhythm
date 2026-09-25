@@ -51,6 +51,9 @@ runtime_env=(
   "RHYTHM_MANAGED_SKILLS_DIR=$SB/home/.config/opencode/skills"
   "RHYTHM_CREATIVE_RESOURCES_DIR=$API_DIR/resources"
   "RHYTHM_OPENCODE_ENGINE_PORT=$ENGINE_PORT"
+  # Cold fork startup can exceed the SDK's production-default 5s on a busy
+  # development host; the sandbox keeps a bounded, explicit readiness budget.
+  "RHYTHM_OPENCODE_STARTUP_TIMEOUT_MS=60000"
   "RHYTHM_OPENCODE_BIN_DIR=${ENGINE_BIN%/opencode}"
   # #1332 — name the sandbox's engine session store EXPLICITLY.
   #
@@ -97,6 +100,23 @@ if [[ "$RELAY_ENABLED" == 1 ]]; then
 fi
 
 fail() { printf 'sandbox: %s\n' "$*" >&2; exit 1; }
+
+# `env -i` is intentional, but these explicit offline/test-mode switches are
+# safe inputs that the engine and api_server need during deterministic live
+# verification. Accept only the enabled form so arbitrary caller values never
+# leak through the sanitized runtime boundary.
+append_enabled_runtime_flag() {
+  local name="$1"
+  case "${!name:-}" in
+    '') ;;
+    1) runtime_env+=("$name=1") ;;
+    *) fail "$name must be 1 when set" ;;
+  esac
+}
+append_enabled_runtime_flag OPENCODE_DISABLE_DEFAULT_PLUGINS
+append_enabled_runtime_flag OPENCODE_PURE
+append_enabled_runtime_flag RHYTHM_NUMBAT_MONITORING_DISABLED
+
 # Evidence is a sibling of the disposable runtime, never part of teardown.
 preserve_diagnostics() {
   [[ -d "$SB" && ! -L "$SB" && -O "$SB" ]] || return 0

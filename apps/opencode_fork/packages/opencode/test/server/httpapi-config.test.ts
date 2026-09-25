@@ -1,4 +1,5 @@
 import { afterEach, describe, expect } from "bun:test"
+import fs from "fs/promises"
 import path from "path"
 import { Server } from "../../src/server/server"
 import * as Log from "@opencode-ai/core/util/log"
@@ -33,6 +34,41 @@ afterEach(async () => {
 })
 
 describe("config HttpApi", () => {
+  it.live(
+    "1424:fix-command-reload invalidates the command instance after config reload",
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirEffect({ config: { formatter: false, lsp: false } })
+      const headers = { "x-opencode-directory": tmp.path }
+
+      const before = yield* Effect.promise(() => Promise.resolve(app().request("/command", { headers })))
+      expect(before.status).toBe(200)
+      expect((yield* Effect.promise(() => before.json()))).not.toContainEqual(
+        expect.objectContaining({ name: "live-reload" }),
+      )
+
+      const commands = path.join(tmp.path, ".opencode", "commands")
+      yield* Effect.promise(() => fs.mkdir(commands, { recursive: true }))
+      yield* Effect.promise(() =>
+        Bun.write(
+          path.join(commands, "live-reload.md"),
+          "---\ndescription: Added after command state was initialized\n---\nReturn LIVE_RELOAD_OK.\n",
+        ),
+      )
+
+      const reload = yield* Effect.promise(() =>
+        Promise.resolve(app().request("/config/reload", { method: "POST", headers })),
+      )
+      expect(reload.status).toBe(200)
+      expect(yield* Effect.promise(() => reload.json())).toBe(true)
+
+      const after = yield* Effect.promise(() => Promise.resolve(app().request("/command", { headers })))
+      expect(after.status).toBe(200)
+      expect(yield* Effect.promise(() => after.json())).toContainEqual(
+        expect.objectContaining({ name: "live-reload", description: "Added after command state was initialized" }),
+      )
+    }),
+  )
+
   it.live(
     "serves config update through the default server app",
     Effect.gen(function* () {

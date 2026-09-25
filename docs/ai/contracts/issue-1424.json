@@ -1,0 +1,26 @@
+{
+  "issue": 1424,
+  "generated": "2026-09-25",
+  "scope": "Repair command reload cache invalidation and busy-session prompt FIFO discovered by the provider-free live matrix.",
+  "criteria": [
+    {
+      "id": "1424:fix-command-reload",
+      "behavior": "A command written through the API appears in the engine-backed command list without restarting the engine.",
+      "tests": [
+        "apps/opencode_fork/packages/opencode/test/server/httpapi-config.test.ts",
+        "apps/api_server/src/__tests__/live_e2e_1424_command_reload.test.ts"
+      ],
+      "status": "pass"
+    },
+    {
+      "id": "1424:fix-busy-queue",
+      "behavior": "Three WebSocket prompts sent while one session is busy reach the provider exactly once in receive order.",
+      "tests": [
+        "apps/opencode_fork/packages/opencode/test/session/prompt.test.ts",
+        "apps/api_server/src/__tests__/agents_ws_e2e.test.ts",
+        "apps/api_server/src/__tests__/live_e2e_1424_turn_queue.test.ts"
+      ],
+      "status": "pass"
+    }
+  ]
+}

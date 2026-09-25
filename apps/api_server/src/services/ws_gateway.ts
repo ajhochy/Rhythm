@@ -35,6 +35,7 @@ export interface WsMessage {
 }
 
 const clients = new Set<WebSocket>();
+const inputFrameTails = new Map<string, Promise<void>>();
 let attached = false;
 
 function isLoopbackAddress(address: string | undefined): boolean {
@@ -1123,6 +1124,31 @@ export async function handleInputFrame(
   }
 }
 
+/**
+ * Preserve the receive order of user input for each local session. The input
+ * handler performs several asynchronous profile/model lookups before it
+ * reaches the engine, so invoking it independently from the WebSocket event
+ * callback can reverse two rapid frames even though the socket delivered them
+ * in order. A failure in one frame is isolated and never blocks the next.
+ */
+export function enqueueInputFrame(
+  ws: WebSocket,
+  msg: Record<string, unknown>,
+): Promise<void> {
+  const id = typeof msg.id === 'string' && msg.id.length > 0 ? msg.id : null;
+  if (!id) return handleInputFrame(ws, msg);
+
+  const previous = inputFrameTails.get(id) ?? Promise.resolve();
+  const current = previous
+    .catch(() => undefined)
+    .then(() => handleInputFrame(ws, msg));
+  inputFrameTails.set(id, current);
+  void current.finally(() => {
+    if (inputFrameTails.get(id) === current) inputFrameTails.delete(id);
+  }).catch(() => undefined);
+  return current;
+}
+
 function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
   let msg: Record<string, unknown>;
   try {
@@ -1141,7 +1167,7 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
       return;
     }
     case 'session.input': {
-      handleInputFrame(ws, msg).catch((err) =>
+      enqueueInputFrame(ws, msg).catch((err) =>
         console.error('[ws_gateway] session.input handler error:', err),
       );
       return;

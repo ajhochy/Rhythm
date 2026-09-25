@@ -116,8 +116,29 @@ export function resolveOpencodeCorsOrigins(raw = process.env.RHYTHM_LOCAL_RENDER
   return [...new Set(raw.split(',').map((value) => value.trim()).filter(Boolean))];
 }
 
-export function buildOpencodeServerOptions(port: number, cors: string[]): { port: number; cors?: string[] } {
-  return cors.length > 0 ? { port, cors } : { port };
+export function resolveOpencodeStartupTimeout(
+  raw = process.env.RHYTHM_OPENCODE_STARTUP_TIMEOUT_MS,
+): number | undefined {
+  if (!raw?.trim()) return undefined;
+  const timeout = Number(raw);
+  if (!Number.isInteger(timeout) || timeout < 5_000 || timeout > 60_000) {
+    throw new Error(
+      `RHYTHM_OPENCODE_STARTUP_TIMEOUT_MS must be an integer between 5000 and 60000; received "${raw}".`,
+    );
+  }
+  return timeout;
+}
+
+export function buildOpencodeServerOptions(
+  port: number,
+  cors: string[],
+  timeout?: number,
+): { port: number; cors?: string[]; timeout?: number } {
+  return {
+    port,
+    ...(cors.length > 0 ? { cors } : {}),
+    ...(timeout === undefined ? {} : { timeout }),
+  };
 }
 
 /** TCP port used by this api_server process's bundled opencode engine. */
@@ -927,7 +948,11 @@ export class OpencodeClientService {
       const t5 = Date.now();
       clearTrustedMcpVerifier();
       const corsOrigins = resolveOpencodeCorsOrigins();
-      const engineOptions = buildOpencodeServerOptions(OPENCODE_ENGINE_PORT, corsOrigins);
+      const engineOptions = buildOpencodeServerOptions(
+        OPENCODE_ENGINE_PORT,
+        corsOrigins,
+        resolveOpencodeStartupTimeout(),
+      );
       const { client, server } = await mod.createOpencode(engineOptions);
       logger.info(`[Opencode][timing] createOpencode (engine spawn) took ${Date.now() - t5}ms`);
 

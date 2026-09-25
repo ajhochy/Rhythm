@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, net, Notification, protocol, safeStorage, session, shell } from 'electron';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir, userInfo } from 'node:os';
 import { dirname, isAbsolute, resolve } from 'node:path';
@@ -80,6 +80,14 @@ if (hasSingleInstanceLock) {
   let pendingDeepLink = deepLinkFromArgv(process.argv);
   /** @type {Map<string, Notification>} */
   const nativeNotificationRegistry = new Map();
+  const agentNotificationReceiptPath = isInteractiveSmoke && allowTestRuntimePorts
+    ? resolve(/** @type {string} */ (process.env.RHYTHM_SHELL_USER_DATA), 'agent-notification-receipts.jsonl')
+    : undefined;
+  /** @param {{ event: 'show', family: 'permission' | 'question' | 'completion', sessionId: string } | { event: 'withdraw' }} receipt */
+  const recordAgentNotificationReceipt = (receipt) => {
+    if (!agentNotificationReceiptPath) return;
+    try { appendFileSync(agentNotificationReceiptPath, `${JSON.stringify(receipt)}\n`, { encoding: 'utf8', mode: 0o600 }); } catch {}
+  };
   /** @type {Array<{ family: 'approval', sessionId: string, approvalId: string }>} */
   const pendingNativeNotificationActivations = [];
   let rendererReady = false;
@@ -421,8 +429,8 @@ if (hasSingleInstanceLock) {
   };
   /** @param {AgentTarget} entry */
   const isAgentEntry = (entry) => Boolean(entry.valid && entry.generation === authGeneration && agentTargets.get(entry.key) === entry && mainWindow && !mainWindow.isDestroyed());
-  /** @param {AgentTarget} entry */
-  const withdrawAgentEntry = (entry) => {
+  /** @param {AgentTarget} entry @param {boolean} [recordWithdrawal] */
+  const withdrawAgentEntry = (entry, recordWithdrawal = false) => {
     entry.valid = false;
     if (entry.retireTimer) { clearTimeout(entry.retireTimer); entry.retireTimer = undefined; }
     if (entry.queued) {
@@ -431,8 +439,10 @@ if (hasSingleInstanceLock) {
       entry.queued = false;
     }
     if (queuedAgentActivation === entry) queuedAgentActivation = undefined;
-    try { entry.notification?.close(); } catch {}
+    const notification = entry.notification;
+    try { notification?.close(); } catch {}
     entry.notification = undefined;
+    if (recordWithdrawal && notification) recordAgentNotificationReceipt({ event: 'withdraw' });
   };
   /** @param {AgentTarget} entry @param {boolean} [close] */
   const retireCompletionEntry = (entry, close = false) => {
@@ -491,6 +501,7 @@ if (hasSingleInstanceLock) {
       }
       entry.notification = notification;
       notification.show();
+      recordAgentNotificationReceipt({ event: 'show', family: entry.family ?? 'completion', sessionId: entry.sessionId });
     } catch {
       if (entry.family) withdrawAgentEntry(entry); else retireCompletionEntry(entry);
     }
@@ -523,7 +534,7 @@ if (hasSingleInstanceLock) {
       if (!event.family || !event.sessionId || !event.requestId) return;
       const key = `${authGeneration}:${event.family}:${event.sessionId}:${event.requestId}`;
       const entry = agentTargets.get(key);
-      if (entry) withdrawAgentEntry(entry); // Retain a tombstone: OS dismissal is not a fresh ask.
+      if (entry) withdrawAgentEntry(entry, true); // Retain a tombstone: OS dismissal is not a fresh ask.
       else {
         const now = Date.now();
         for (const [oldKey, old] of agentTargets) if (!old.valid && now - old.created > 300_000) agentTargets.delete(oldKey);

@@ -48,8 +48,8 @@ test('issue-1579-c5: first arm requests a main-owned permission probe without gr
   assert.equal(preload.includes('rhythm:agent-notifications:permission'), true);
 });
 
-async function hostFixture({ fetcher, supported = true, supportThrow = false, focused = false, visible = true, minimized = false, nativeThrow = false, nativeFailure, apiBase = 'http://127.0.0.1:6298' } = {}) {
-  const listeners = new Map(), handlers = new Map(), shown = [], requests = [], windows = [], permissions = {}, actions = [], sent = [], timers = [];
+async function hostFixture({ fetcher, supported = true, supportThrow = false, focused = false, visible = true, minimized = false, nativeThrow = false, nativeFailure, apiBase = 'http://127.0.0.1:6298', argv = ['--interactive-smoke', '--allow-test-runtime-ports'], userData = '/fixture' } = {}) {
+  const listeners = new Map(), handlers = new Map(), shown = [], requests = [], windows = [], permissions = {}, actions = [], sent = [], timers = [], receiptWrites = [];
   const state = { focused, visible, minimized };
   const contents = Object.assign(new EventEmitter(), {
     mainFrame: { url: 'rhythm://app/index.html#/agents' },
@@ -79,7 +79,7 @@ async function hostFixture({ fetcher, supported = true, supportThrow = false, fo
     close() { this.closed = true; }
   }
   const app = Object.assign(new EventEmitter(), {
-    getPath: () => '/fixture', setPath() {}, requestSingleInstanceLock: () => true,
+    getPath: () => userData, setPath() {}, requestSingleInstanceLock: () => true,
     isReady: () => false, whenReady: async () => {}, getVersion: () => 'test', quit() {}, exit() {},
   });
   const file = new URL('../src/main.mjs', import.meta.url);
@@ -97,7 +97,7 @@ async function hostFixture({ fetcher, supported = true, supportThrow = false, fo
     if (timers.includes(timer)) timer.active = false; else clearTimeout(timer);
   };
   const context = createContext({ Date: ClockDate, process: Object.assign(new EventEmitter(), {
-    argv: ['--interactive-smoke', '--allow-test-runtime-ports'], env: { RHYTHM_SHELL_USER_DATA: '/fixture', RHYTHM_LIVE_API_URL: apiBase },
+    argv, env: { RHYTHM_SHELL_USER_DATA: userData, RHYTHM_LIVE_API_URL: apiBase },
     cwd: () => '/fixture', stdout: { write() {} }, stderr: { write() {} }, platform: 'darwin',
   }), URL, Response, Headers, AbortSignal, TextDecoder, Buffer, console, setTimeout: fixtureSetTimeout, clearTimeout: fixtureClearTimeout,
   fetch: fetcher ?? (async (url, init) => {
@@ -108,18 +108,25 @@ async function hostFixture({ fetcher, supported = true, supportThrow = false, fo
   await module.link(async (name) => {
     let values;
     if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on: (key, fn) => listeners.set(key, fn), handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: Native, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler(fn) { permissions.request = fn; }, setPermissionCheckHandler(fn) { permissions.check = fn; } }) }, shell: {}, dialog: { showMessageBox: async () => ({ response: 1 }) } };
-    else if (name === './agent-server.mjs') values = { AgentServerService: class {}, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:6298', AGENT_SERVER_ENGINE_PORT: 6297, electronDbPath: () => '/fixture/db', legacyFlutterDbPath: () => '/fixture/old' };
+    else if (name === './agent-server.mjs') values = { AgentServerService: class { status = { status: 'ready' }; onStatusChange() {} async start() {} async stopGracefully() {} reportStartupFailure() {} }, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:6298', AGENT_SERVER_ENGINE_PORT: 6297, electronDbPath: () => '/fixture/db', legacyFlutterDbPath: () => '/fixture/old' };
     else if (name === './hermes-server.mjs') values = { createHermesSupervisor: () => ({ getStatus: () => ({ state: 'disabled' }), onStatus() {}, stop: async () => {} }) };
     else if (name === './desktop-google-oauth.mjs') values = { runDesktopGoogleOAuth: async () => ({ sessionToken: 'fixture-token', user: { id: 1 } }) };
     else if (name === './hermes-view.mjs') values = { registerHermesView: () => ({ disposeCurrent: async () => {}, dispose: async () => {} }), bindHermesViewSupervisor() {} };
+    else if (name === './colony-host.mjs') values = { registerColonyHost: () => ({ activateProfile: async () => {}, invalidateProfile: async () => {}, dispose: async () => {} }) };
     else if (name === './production-api-config.mjs') values = { createProductionApiConfig: () => ({ load: () => 'https://example.invalid' }), createProductionApiSetHandler: () => () => {} };
-    else { values = { ...await import(name.startsWith('.') ? new URL(name, file).href : name) }; if (name === 'node:fs') values.existsSync = () => true; }
+    else {
+      values = { ...await import(name.startsWith('.') ? new URL(name, file).href : name) };
+      if (name === 'node:fs') {
+        values.existsSync = () => true;
+        values.appendFileSync = (path, data, options) => receiptWrites.push({ path: String(path), data: String(data), options });
+      }
+    }
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
   });
   await module.evaluate();
   await new Promise((resolveTick) => setImmediate(resolveTick));
   return {
-    app, contents, listeners, handlers, shown, requests, windows, permissions, actions, sent, timers, state, clock,
+    app, contents, listeners, handlers, shown, requests, windows, permissions, actions, sent, timers, receiptWrites, state, clock,
     runCompletionTimers: () => { for (const timer of timers) if (timer.active) { timer.active = false; timer.callback(...timer.args); } },
     signin: () => handlers.get('rhythm:auth:google-sign-in')({ sender: contents, senderFrame: contents.mainFrame }),
     send: (detail, event = { sender: contents, senderFrame: contents.mainFrame }, ...extras) => listeners.get('rhythm:agent-notifications:sync')?.(event, detail, ...extras),
@@ -133,6 +140,40 @@ const envelope = (id = sessionId, name = 'Authorized') => Response.json({ sessio
 const permissionStatuses = (host) => host.sent
   .filter(({ channel }) => channel === 'rhythm:agent-notifications:permission')
   .map(({ payload }) => payload.status);
+
+test('1579:notification-smoke-receipt-seam:1: interactive smoke records ask show, withdraw, and completion show once', async () => {
+  const host = await hostFixture(); await host.signin();
+  host.send(ask); host.send(ask); await tick();
+  host.send({ ...ask, type: 'resolve' });
+  host.send({ v: 1, type: 'arm', sessionId });
+  host.send({ v: 1, type: 'completion', sessionId }); await tick();
+
+  assert.deepEqual(host.receiptWrites.map(({ path }) => path), Array(3).fill('/fixture/agent-notification-receipts.jsonl'));
+  assert.deepEqual(host.receiptWrites.map(({ data }) => JSON.parse(data)), [
+    { event: 'show', family: 'permission', sessionId },
+    { event: 'withdraw' },
+    { event: 'show', family: 'completion', sessionId },
+  ]);
+  assert.equal(host.receiptWrites.every(({ data }) => data.endsWith('\n')), true);
+});
+
+test('1579:notification-smoke-receipt-seam:2: missing either smoke flag never creates a receipt', async () => {
+  for (const argv of [[], ['--interactive-smoke'], ['--allow-test-runtime-ports']]) {
+    const host = await hostFixture({ argv }); await host.signin();
+    host.send(ask); await tick();
+    host.send({ ...ask, type: 'resolve' });
+    host.send({ v: 1, type: 'completion', sessionId }); await tick();
+    assert.deepEqual(host.receiptWrites, [], `unexpected receipt with argv ${JSON.stringify(argv)}`);
+  }
+});
+
+test('1579:notification-smoke-receipt-seam:3: receipts expose no native text, credentials, or URLs', async () => {
+  const host = await hostFixture(); await host.signin();
+  host.send(ask); await tick();
+  const serialized = host.receiptWrites.map(({ data }) => data).join('');
+  assert.doesNotMatch(serialized, /title|body|bearer|token|https?:|rhythm:/i);
+  assert.deepEqual(Object.keys(JSON.parse(host.receiptWrites[0].data)).sort(), ['event', 'family', 'sessionId']);
+});
 
 test('issue-1579-c5: the first arm performs one macOS show probe and reports the observed result', async () => {
   // Regression: arming only changes renderer state, so macOS never gets the first Notification that triggers its permission prompt.

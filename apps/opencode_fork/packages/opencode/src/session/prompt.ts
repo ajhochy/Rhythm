@@ -56,7 +56,7 @@ import { Truncate } from "@/tool/truncate"
 import * as ImageGeneration from "@/tool/image-generation"
 import { decodeDataUrl, decodeDataUrlBytes } from "@/util/data-url"
 import { Process } from "@/util/process"
-import { Cause, Duration, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
+import { Cause, Duration, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Semaphore, Types } from "effect"
 import * as EffectLogger from "@opencode-ai/core/effect/logger"
 import { InstanceState } from "@/effect/instance-state"
 import { TaskTool, type TaskPromptOps } from "@/tool/task"
@@ -228,6 +228,19 @@ export const layer = Layer.effect(
     const scope = yield* Scope.Scope
     const instruction = yield* Instruction.Service
     const state = yield* SessionRunState.Service
+    // Busy-session inputs are durable immediately, but their provider turns
+    // must execute one at a time. Otherwise SessionRunState coalesces every
+    // caller onto the active loop and only the newest queued user survives as
+    // the next provider turn (#1424).
+    const promptLocks = new Map<SessionID, Semaphore.Semaphore>()
+    const promptLock = (sessionID: SessionID) => {
+      const existing = promptLocks.get(sessionID)
+      if (existing) return existing
+      const next = Semaphore.makeUnsafe(1)
+      promptLocks.set(sessionID, next)
+      return next
+    }
+    yield* Effect.addFinalizer(() => Effect.sync(() => promptLocks.clear()))
     const revert = yield* SessionRevert.Service
     const summary = yield* SessionSummary.Service
     const sys = yield* SystemPrompt.Service
@@ -1984,7 +1997,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         }
 
         if (input.noReply === true) return message
-        return yield* loop({ sessionID: input.sessionID })
+        return yield* promptLock(input.sessionID).withPermits(1)(
+          state.ensureRunning(
+            input.sessionID,
+            lastAssistant(input.sessionID),
+            runLoop(input.sessionID, message.info.id),
+          ),
+        )
       },
     )
 
@@ -1996,8 +2015,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       throw new Error("Impossible")
     })
 
-    const runLoop: (sessionID: SessionID) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.run")(
-      function* (sessionID: SessionID) {
+    const runLoop: (
+      sessionID: SessionID,
+      throughUserMessageID?: MessageID,
+    ) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.run")(
+      function* (sessionID: SessionID, throughUserMessageID?: MessageID) {
         const ctx = yield* InstanceState.context
         const slog = elog.with({ sessionID })
         let structured: unknown
@@ -2009,6 +2031,14 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           yield* slog.info("loop", { step })
 
           let msgs = yield* MessageV2.filterCompactedEffect(sessionID)
+          if (throughUserMessageID) {
+            // Later queued user messages are already persisted, but they
+            // belong to later provider turns. Assistant/tool messages remain
+            // visible so this turn can continue through its normal tool loop.
+            msgs = msgs.filter(
+              (message) => message.info.role !== "user" || message.info.id <= throughUserMessageID,
+            )
+          }
 
           let lastUser: MessageV2.User | undefined
           let lastAssistant: MessageV2.Assistant | undefined
@@ -2040,7 +2070,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             lastAssistant?.finish &&
             !["tool-calls"].includes(lastAssistant.finish) &&
             !hasToolCalls &&
-            lastUser.id < lastAssistant.id
+            (throughUserMessageID
+              ? lastAssistant.parentID === throughUserMessageID
+              : lastUser.id < lastAssistant.id)
           ) {
             yield* slog.info("exiting loop")
             break

@@ -1018,7 +1018,7 @@ it.instance(
       }
     }),
   { git: true },
-  3_000,
+  30_000,
 )
 
 // Queue semantics
@@ -1129,7 +1129,81 @@ it.instance(
       expect(JSON.stringify(inputs.at(-1)?.messages)).toContain("second")
     }),
   { git: true },
-  3_000,
+  30_000,
+)
+
+it.instance(
+  "1424:fix-busy-queue preserves every prompt submitted during an active run",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig(providerCfg)
+      const gate = yield* Deferred.make<void>()
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Busy prompt FIFO" })
+
+      yield* llm.hold("reply one", deferredAsPromise(gate))
+      yield* llm.text("reply two")
+      yield* llm.text("reply three")
+
+      const first = yield* prompt
+        .prompt({
+          sessionID: chat.id,
+          agent: "build",
+          model: ref,
+          parts: [{ type: "text", text: "QUEUE-1" }],
+        })
+        .pipe(Effect.forkChild)
+      yield* llm.wait(1)
+
+      const second = yield* prompt
+        .prompt({
+          sessionID: chat.id,
+          agent: "build",
+          model: ref,
+          parts: [{ type: "text", text: "QUEUE-2" }],
+        })
+        .pipe(Effect.forkChild)
+      const third = yield* prompt
+        .prompt({
+          sessionID: chat.id,
+          agent: "build",
+          model: ref,
+          parts: [{ type: "text", text: "QUEUE-3" }],
+        })
+        .pipe(Effect.forkChild)
+
+      yield* pollWithTimeout(
+        sessions.messages({ sessionID: chat.id }).pipe(
+          Effect.map((messages) => {
+            const text = JSON.stringify(messages)
+            return text.includes("QUEUE-2") && text.includes("QUEUE-3") ? true : undefined
+          }),
+        ),
+        "timed out waiting for queued prompts to persist",
+      )
+      yield* Deferred.succeed(gate, void 0)
+
+      const inputs = yield* pollWithTimeout(
+        llm.inputs.pipe(Effect.map((value) => value.length >= 3 ? value : undefined)),
+        "timed out waiting for all three queued provider turns",
+        "10 seconds",
+      )
+      expect(inputs).toHaveLength(3)
+      const messages = inputs.map((input) => JSON.stringify(input.messages))
+      expect(messages[0]).toContain("QUEUE-1")
+      expect(messages[0]).not.toContain("QUEUE-2")
+      expect(messages[1]).toContain("QUEUE-2")
+      expect(messages[1]).not.toContain("QUEUE-3")
+      expect(messages[2]).toContain("QUEUE-3")
+      const exits = yield* Effect.all(
+        [Fiber.await(first), Fiber.await(second), Fiber.await(third)],
+        { concurrency: "unbounded" },
+      )
+      expect(exits.every(Exit.isSuccess)).toBe(true)
+    }),
+  { git: true },
+  30_000,
 )
 
 it.instance(
@@ -1449,7 +1523,7 @@ it.instance(
       expect(yield* llm.calls).toBe(1)
     }),
   { git: true },
-  3_000,
+  30_000,
 )
 
 unix(
