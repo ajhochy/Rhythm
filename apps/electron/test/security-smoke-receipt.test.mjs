@@ -146,3 +146,14 @@ test('Accounts receipt requires the exact frozen metadata-only bridge', () => {
     assert.equal(validateSecuritySmokeReceipt(receipt).ok, false);
   }
 });
+
+test('main.mjs security-smoke receipt collects every object sub-bridge the validator checks', async () => {
+  // The packaged --security-smoke receipt is built in main.mjs, not from preload directly; a bridge the
+  // validator checks but main.mjs never collects fails every signed release smoke (regressed once by #1374).
+  const main = await readFile(new URL('../src/main.mjs', import.meta.url), 'utf8');
+  const objectBridges = ['gateway', 'auth', 'humanApproval', 'agentServer', 'hermes', 'hermesView', 'colonyView', 'aiAccounts', 'remoteEnvironments'];
+  for (const bridge of objectBridges) {
+    assert.ok(BRIDGE_KEYS.includes(bridge), `${bridge} is a validated bridge`);
+    assert.match(main, new RegExp(`Object\\.keys\\(window\\.rhythmShell\\?\\.${bridge}\\b`), `main.mjs receipt must collect ${bridge}`);
+  }
+});

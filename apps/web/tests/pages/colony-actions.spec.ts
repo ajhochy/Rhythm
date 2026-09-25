@@ -104,20 +104,24 @@ test('1531:inspector-actions-and-task-view-menus-ui:4 menus expose state and Esc
   await page.getByRole('menuitem', { name: 'Focus selected bot' }).click();
   await view.click();
   await expect(page.getByRole('menuitem', { name: /Screenshot unavailable/i })).toBeDisabled();
+  // Reopening the menu reports visibility via a MutationObserver + requestAnimationFrame, one
+  // frame after the click resolves; poll instead of taking a synchronous snapshot.
+  await expect.poll(async () => (await intentCalls(page)).filter(({ event }) => event === 'host.visibility').at(-1)).toEqual({
+    event: 'host.visibility', payload: { hidden: true },
+  });
   const intents = await intentCalls(page);
   expect(intents.filter(({ event }) => event === 'host.select')).toEqual([
     { event: 'host.select', payload: { threadId: 'rhythm:parent' } },
   ]);
   expect(intents.filter(({ event }) => event === 'host.view')).toEqual([
+    // openPage emulates the OS reduced-motion preference; COL-08 relays it to the host on attach.
+    { event: 'host.view', payload: { motion: 'reduced' } },
     { event: 'host.view', payload: { resetCamera: true } },
     { event: 'host.view', payload: { motion: 'full' } },
     { event: 'host.view', payload: { sound: false } },
     { event: 'host.view', payload: { quality: 'high' } },
     { event: 'host.view', payload: { focusSelection: true } },
   ]);
-  expect(intents.filter(({ event }) => event === 'host.visibility').at(-1)).toEqual({
-    event: 'host.visibility', payload: { hidden: true },
-  });
   await page.keyboard.press('Escape');
   await expect(view).toBeFocused();
   await expect.poll(async () => (await intentCalls(page)).filter(({ event }) => event === 'host.visibility').at(-1)?.payload.hidden).toBe(false);

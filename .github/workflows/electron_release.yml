@@ -95,6 +95,31 @@ jobs:
           test -f "${ARTIFACT_ROOT}/manifest.json"
           echo "RHYTHM_HERMES_DESKTOP_ARTIFACT_DIR=${ARTIFACT_ROOT}" >> "$GITHUB_ENV"
 
+      - name: Check out pinned Colony (Bot Crossing) source
+        run: |
+          set -euo pipefail
+          COLONY_SOURCE_COMMIT="$(node --input-type=module -e "import('./apps/electron/src/colony-desktop-config.mjs').then(({ PINNED_COLONY_SOURCE_COMMIT }) => process.stdout.write(PINNED_COLONY_SOURCE_COMMIT))")"
+          [[ "${COLONY_SOURCE_COMMIT}" =~ ^[0-9a-f]{40}$ ]]
+          COLONY_ROOT="${RUNNER_TEMP}/bot-crossing"
+          git init "${COLONY_ROOT}"
+          git -C "${COLONY_ROOT}" remote add origin https://github.com/ajhochy/bot-crossing.git
+          git -C "${COLONY_ROOT}" fetch --depth=1 origin "${COLONY_SOURCE_COMMIT}"
+          git -C "${COLONY_ROOT}" checkout --detach FETCH_HEAD
+          test "$(git -C "${COLONY_ROOT}" rev-parse HEAD)" = "${COLONY_SOURCE_COMMIT}"
+          echo "COLONY_ROOT=${COLONY_ROOT}" >> "$GITHUB_ENV"
+          echo "COLONY_SOURCE_COMMIT=${COLONY_SOURCE_COMMIT}" >> "$GITHUB_ENV"
+
+      - name: Build pinned Colony artifact
+        run: |
+          set -euo pipefail
+          test "$(git -C "${COLONY_ROOT}" rev-parse HEAD)" = "${COLONY_SOURCE_COMMIT}"
+          test "$(node -p 'process.arch')" = "${RHYTHM_PACKAGE_ARCH}"
+          npm ci --prefix "${COLONY_ROOT}"
+          GITHUB_SHA= GITHUB_REF_NAME= GITHUB_HEAD_REF= npm --prefix "${COLONY_ROOT}" run build:rhythm-embedded
+          ARTIFACT_ROOT="${COLONY_ROOT}/build/rhythm-embedded"
+          test -f "${ARTIFACT_ROOT}/manifest.json"
+          echo "RHYTHM_COLONY_ARTIFACT_DIR=${ARTIFACT_ROOT}" >> "$GITHUB_ENV"
+
       - name: Install vendored fork dependencies
         working-directory: apps/opencode_fork
         run: bun install --frozen-lockfile
@@ -158,6 +183,23 @@ jobs:
           RHYTHM_SHELL_USER_DATA="${SMOKE_ROOT}" \
             "${APP}/Contents/MacOS/Rhythm" --smoke --security-smoke
 
+      - name: Colony smoke against the signed bundle
+        run: |
+          set -euo pipefail
+          APP="apps/electron/dist/Rhythm.app"
+          SMOKE_ROOT="$(mktemp -d)"
+          trap 'rm -rf "${SMOKE_ROOT}"' EXIT
+          RHYTHM_SHELL_USER_DATA="${SMOKE_ROOT}" \
+            "${APP}/Contents/MacOS/Rhythm" --smoke --security-smoke --colony-smoke
+
+      - name: Record Colony manifest and archive hash receipts
+        run: |
+          set -euo pipefail
+          RECEIPTS="apps/electron/dist/receipts"
+          mkdir -p "${RECEIPTS}"
+          cp "apps/electron/dist/Rhythm.app/Contents/Resources/colony-desktop/manifest.json" "${RECEIPTS}/colony-manifest-${{ matrix.arch }}.json"
+          shasum -a 256 "apps/electron/dist/Rhythm.zip" > "${RECEIPTS}/Rhythm-${{ matrix.arch }}.zip.sha256"
+
       - name: Name native architecture archive
         run: mv apps/electron/dist/Rhythm.zip apps/electron/dist/Rhythm-${{ matrix.arch }}.zip
 
@@ -167,6 +209,8 @@ jobs:
           name: rhythm-electron-macos-${{ matrix.arch }}-${{ inputs.version }}
           path: |
             apps/electron/dist/Rhythm-${{ matrix.arch }}.zip
+            apps/electron/dist/receipts/colony-manifest-${{ matrix.arch }}.json
+            apps/electron/dist/receipts/Rhythm-${{ matrix.arch }}.zip.sha256
 
       - name: Publish GitHub release
         if: ${{ !inputs.qualification_only && github.ref == 'refs/heads/main' }}

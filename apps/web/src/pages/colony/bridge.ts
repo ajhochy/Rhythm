@@ -6,7 +6,7 @@ export type ColonyShell = {
     discoverSources(): Promise<ColonySourceChoice[]>;
     setEnabled(enabled: boolean): Promise<ColonyStatus>;
     setSource(id: string, enabled: boolean): Promise<ColonyStatus>;
-    attach(): Promise<{ ok: boolean; reason?: string } | void>;
+    attach(options?: { headless?: boolean }): Promise<{ ok: boolean; reason?: string } | void>;
     setBounds(bounds: { x: number; y: number; width: number; height: number }): Promise<boolean | void>;
     inventoryPage(page: { generation?: string; cursor?: string; collection?: 'threads' | 'projects' | 'warnings'; limit?: number }): Promise<{ generation: string; collection: 'threads' | 'projects' | 'warnings'; scannedAt: number; records: unknown[]; nextCursor: string | null }>;
     inventoryCancel(generation: string): Promise<boolean | void>;

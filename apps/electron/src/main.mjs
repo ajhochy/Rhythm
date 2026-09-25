@@ -20,6 +20,7 @@ import { createHermesAccountsMain } from './hermes-accounts-main.mjs';
 import { createAgentBridgeHost } from './hermes-agent-bridge.mjs';
 import { bindHermesViewSupervisor, registerHermesView } from './hermes-view.mjs';
 import { registerColonyHost } from './colony-host.mjs';
+import { runColonySmoke } from './colony-smoke.mjs';
 import { createRemoteEnvironmentsCustody, registerRemoteEnvironments } from './remote-environments.mjs';
 
 export { deepLinkFromArgv } from './policy.mjs';
@@ -69,6 +70,7 @@ if (hasSingleInstanceLock) {
   const isCleanupSmoke = process.argv.includes('--cleanup-smoke');
   const isProfileSecuritySmoke = process.argv.includes('--profile-security-smoke');
   const isArtifactFrameSmoke = process.argv.includes('--artifact-frame-smoke');
+  const isColonySmoke = process.argv.includes('--colony-smoke');
   const screenshotPath = app.isPackaged
     ? resolve(process.cwd(), '../../docs/ai/runs/evidence/electron-m1-shell.png')
     : resolve(import.meta.dirname, '../../../docs/ai/runs/evidence/electron-m1-shell.png');
@@ -1174,6 +1176,10 @@ if (hasSingleInstanceLock) {
       keys: Object.keys(window.rhythmShell?.aiAccounts || {}),
       frozen: Object.isFrozen(window.rhythmShell?.aiAccounts),
     },
+    remoteEnvironments: {
+      keys: Object.keys(window.rhythmShell?.remoteEnvironments || {}),
+      frozen: Object.isFrozen(window.rhythmShell?.remoteEnvironments),
+    },
     agentServer: {
       keys: Object.keys(window.rhythmShell?.agentServer || {}),
       frozen: Object.isFrozen(window.rhythmShell?.agentServer),
@@ -1341,6 +1347,12 @@ if (hasSingleInstanceLock) {
       profileSecurityReceipt.operations = [...observedProfileOperations];
       profileSecurity = profileSecurityReceipt;
     }
+    // Resolves and verifies the pinned Colony artifact, starts the owned worker headless (no
+    // window), completes the handshake and a status read, then tears it down. Throws on any
+    // failure, which the outer .catch below turns into a non-zero exit — a build whose worker
+    // can't spawn or handshake (wrong arch, a native-module problem the static hash can't catch)
+    // must fail this smoke, not just repeat the plain --security-smoke checks.
+    const colony = isColonySmoke ? await runColonySmoke({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath }) : undefined;
     const image = await mainWindow.webContents.capturePage();
     const png = image.toPNG();
     await mkdir(dirname(screenshotPath), { recursive: true });
@@ -1356,6 +1368,7 @@ if (hasSingleInstanceLock) {
       liveRead,
       profileSecurity,
       artifactFrame,
+      colony,
       cleanup: isCleanupSmoke ? { disposableRows: 0, listeners: 0, worktrees: 0, branches: 0 } : undefined,
       screenshot: { path: screenshotPath, width: image.getSize().width, height: image.getSize().height, sha256: createHash('sha256').update(png).digest('hex') },
     };

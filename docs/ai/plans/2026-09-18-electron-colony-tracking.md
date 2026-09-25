@@ -38,3 +38,32 @@ COL-08, deferring every packaging discovery until after the entire UI was writte
 All issues carry the `colony` label. Dependency edges remain acyclic.
 
 COL-06 also depends on review of [receiver draft PR #1538](https://github.com/ajhochy/Rhythm/pull/1538); see its scoped evidence and broad-suite failure notes.
+
+## Status ledger (colony-release lane, `codex/colony-release` @ base `e56d1a8a`)
+
+Status values: `done_needs_smoke` (implemented and unit/integration-tested here; only
+a live/installed/hardware pass remains), `partial` (implemented, existing tests pass,
+but this lane did not re-audit every original acceptance criterion this session),
+`native-pending` (source-side work complete; needs a native/hardware run this lane
+cannot perform), `release-gated` (source-side work complete; needs a human release
+action — CI dispatch or approval — this lane cannot perform).
+
+No row below claims installed, signed, or both-architecture qualification: that
+status belongs only to COL-11, and only once its own receipt
+(`docs/ai/contracts/colony-installed.json` plus a completed installed run) exists —
+which it does not yet.
+
+| Issue | Integrated commit(s) | Test command / receipt path | Status |
+| --- | --- | --- | --- |
+| #1526 [COL-01] | Present in base `e56d1a8a` (`apps/electron/src/colony-desktop-config.mjs`, `colony-desktop-artifact.mjs`) | `node --test apps/electron/test/colony-desktop-artifact.test.mjs apps/electron/test/colony-desktop-config.test.mjs` | partial |
+| #1527 [COL-02] | Present in base `e56d1a8a` (`colony-channel.mjs`, `colony-view.mjs` bridge) | `node --test apps/electron/test/colony-main-wiring-contract.test.mjs apps/electron/test/colony-protocol-parity.test.mjs` | partial |
+| #1528 [COL-03] | Present in base `e56d1a8a` (`colony-sources.mjs`, `colony-service.mjs`) | `node --test apps/electron/test/colony-sources.test.mjs apps/electron/test/colony-multisource-contract.test.mjs` (native, needs `COLONY_NATIVE_ARTIFACT`) | partial |
+| #1529 [COL-04] | `docs/ai/decisions/2026-09-25-colony-workspace-design.md` (base `e56d1a8a`) | design decision doc; no test suite of its own | partial |
+| #1530 [COL-05] | Present in base `e56d1a8a` (`apps/web/src/pages/colony/index.tsx`, `rail.tsx`, `inspector.tsx`) | `RHYTHM_E2E_PORT=7541 npx playwright test --config apps/web/tests/pages/colony-playwright.config.ts apps/web/tests/pages/colony.spec.ts apps/web/tests/pages/colony-rail.spec.ts` | partial |
+| #1531 [COL-06] | Present in base `e56d1a8a` (`apps/web/src/pages/colony/menus.tsx`) | `RHYTHM_E2E_PORT=7541 npx playwright test --config apps/web/tests/pages/colony-playwright.config.ts apps/web/tests/pages/colony-actions.spec.ts` | partial |
+| #1532 [COL-07] | Present in base `e56d1a8a` (`apps/web/src/pages/colony/settings.tsx`) | `RHYTHM_E2E_PORT=7541 npx playwright test --config apps/web/tests/pages/colony-playwright.config.ts apps/web/tests/pages/colony-settings.spec.ts` | partial |
+| #1533 [COL-08] | Uncommitted, this worktree (`colony-view.mjs` headless attach, `apps/web/src/pages/colony/index.tsx`, `status.tsx`) | `RHYTHM_E2E_PORT=7541 npx playwright test --config apps/web/tests/pages/colony-playwright.config.ts apps/web/tests/pages/colony-fallback.spec.ts`; `node --test apps/electron/test/colony-headless-contract.test.mjs` | done_needs_smoke |
+| #1534 [COL-09] | Uncommitted, this worktree (`apps/electron/scripts/package-mac.mjs`, `sign-and-notarize-mac.mjs`) | `node --test apps/electron/test/colony-package.test.mjs` | done_needs_smoke |
+| #1535 [COL-10] | Uncommitted, this worktree (`.github/workflows/electron_release.yml`) | `node --test apps/electron/test/runtime-config.test.mjs`; real receipt requires dispatching `electron_release.yml` on both native runners | release-gated |
+| #1536 [COL-11] | Uncommitted, this worktree (`apps/electron/test/colony-installed/`, `docs/ai/contracts/colony-installed.json`) | `node --test apps/electron/test/colony-installed/verify.test.mjs`; real receipt requires installed signed runs on both architectures | native-pending |
+| #1537 [COL-12] | Uncommitted, this worktree (`docs/release/colony-rollout.md`, `colony-support.md`) | `node --test apps/electron/test/colony-rollout-docs.test.mjs` | release-gated |

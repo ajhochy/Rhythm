@@ -88,10 +88,14 @@ const colonyView = Object.freeze({
   discoverSources: () => ipcRenderer.invoke('colony:host:discover'),
   setEnabled: (/** @type {boolean} */ enabled) => ipcRenderer.invoke('colony:host:set-enabled', enabled),
   setSource: (/** @type {string} */ id, /** @type {boolean} */ enabled) => ipcRenderer.invoke('colony:host:set-source', { id, enabled }),
-  attach: async () => {
+  /** @param {{headless?: boolean}} [options] List-only sessions pass {headless:true} so the
+   * main process never creates a WebContentsView; omitted/false keeps the original wire shape. */
+  attach: async (options) => {
     const epoch = ++colonyViewEpoch;
     colonyViewAttachment = undefined;
-    const result = await ipcRenderer.invoke('colony:view:attach');
+    const result = options?.headless
+      ? await ipcRenderer.invoke('colony:view:attach', { headless: true })
+      : await ipcRenderer.invoke('colony:view:attach');
     if (epoch !== colonyViewEpoch) {
       if (result?.attachment) await ipcRenderer.invoke('colony:view:detach', { attachment: result.attachment });
       return { ok: false, reason: 'detached' };

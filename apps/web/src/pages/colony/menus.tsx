@@ -44,19 +44,25 @@ function ColonyMenu({ label, children }: { label: string; children: ReactNode })
   </div>;
 }
 
-export function ColonyViewMenu({ hasSelection, sceneAvailable, state, onView }: {
+export function ColonyViewMenu({ hasSelection, sceneAvailable, listOnly, state, onView }: {
   hasSelection: boolean;
   sceneAvailable: boolean;
+  listOnly: boolean;
   state: ColonyViewState;
   onView(change: ColonyViewChange): void;
 }) {
+  // A headless/list-only attach never creates a scene (see colony-service.mjs: a headless
+  // record never binds a scene channel), so these controls must be honestly disabled here
+  // too, independent of sceneAvailable — not just left to whatever the attach callback did.
+  const sceneReady = sceneAvailable && !listOnly;
+  const sceneTitle = listOnly ? 'Unavailable in list view: no 3D scene is running.' : undefined;
   const unavailable = 'Unavailable in the current embedded scene';
   return <ColonyMenu label="View options">
-    <button type="button" role="menuitem" disabled={!sceneAvailable} onClick={() => onView({ resetCamera: true })}>Reset camera</button>
-    <button type="button" role="menuitem" disabled={!sceneAvailable || !hasSelection} onClick={() => onView({ focusSelection: true })}>Focus selected bot</button>
-    <button type="button" role="menuitemcheckbox" aria-checked={state.motion === 'reduced'} disabled={!sceneAvailable} onClick={() => onView({ motion: state.motion === 'reduced' ? 'full' : 'reduced' })}>Reduced motion</button>
-    <button type="button" role="menuitemcheckbox" aria-checked={state.sound} disabled={!sceneAvailable} onClick={() => onView({ sound: !state.sound })}>Ambient sound</button>
-    {(['auto', 'high', 'balanced', 'low'] as const).map((quality) => <button key={quality} type="button" role="menuitemradio" aria-checked={state.quality === quality} disabled={!sceneAvailable} onClick={() => onView({ quality })}>Quality: {quality[0].toUpperCase() + quality.slice(1)}</button>)}
+    <button type="button" role="menuitem" disabled={!sceneReady} title={sceneTitle} onClick={() => onView({ resetCamera: true })}>Reset camera</button>
+    <button type="button" role="menuitem" disabled={!sceneReady || !hasSelection} title={sceneTitle} onClick={() => onView({ focusSelection: true })}>Focus selected bot</button>
+    <button type="button" role="menuitemcheckbox" aria-checked={state.motion === 'reduced'} disabled={!sceneReady} title={sceneTitle} onClick={() => onView({ motion: state.motion === 'reduced' ? 'full' : 'reduced' })}>Reduced motion</button>
+    <button type="button" role="menuitemcheckbox" aria-checked={state.sound} disabled={!sceneReady} title={sceneTitle} onClick={() => onView({ sound: !state.sound })}>Ambient sound</button>
+    {(['auto', 'high', 'balanced', 'low'] as const).map((quality) => <button key={quality} type="button" role="menuitemradio" aria-checked={state.quality === quality} disabled={!sceneReady} title={sceneTitle} onClick={() => onView({ quality })}>Quality: {quality[0].toUpperCase() + quality.slice(1)}</button>)}
     <button type="button" role="menuitem" disabled title={unavailable}>Keyboard help unavailable</button>
     <button type="button" role="menuitem" disabled title={unavailable}>Focus scene unavailable</button>
     <button type="button" role="menuitem" disabled title={unavailable}>Orbit unavailable</button>

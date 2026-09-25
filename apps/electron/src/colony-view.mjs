@@ -171,23 +171,47 @@ export function registerColonyView(options) {
       const attempt = async (/** @type {() => any} */ work) => {
         try { await work() } catch (error) { failure ??= error }
       }
-      let stopping = /** @type {Promise<void> | undefined} */ (undefined)
-      await attempt(() => { stopping = record.channel?.dispose() })
-      await attempt(() => { if (!record.win.isDestroyed()) record.win.contentView.removeChildView(record.view) })
-      await attempt(() => { if (!record.view.webContents.isDestroyed()) record.view.webContents.close({ waitForBeforeUnload:false }) })
-      await attempt(() => stopping)
-      await attempt(() => record.service.dispose())
-      for (const cleanup of record.cleanups) await attempt(cleanup)
-      await attempt(() => record.partition.clearStorageData())
-      await attempt(() => record.partition.protocol.unhandle('rhythm-colony'))
+      // A headless record (list-only mode) never created a WebContentsView, partition or
+      // scene channel, so it only ever owns the service/worker.
+      if (record.headless) {
+        await attempt(() => record.service.dispose())
+      } else {
+        let stopping = /** @type {Promise<void> | undefined} */ (undefined)
+        await attempt(() => { stopping = record.channel?.dispose() })
+        await attempt(() => { if (!record.win.isDestroyed()) record.win.contentView.removeChildView(record.view) })
+        await attempt(() => { if (!record.view.webContents.isDestroyed()) record.view.webContents.close({ waitForBeforeUnload:false }) })
+        await attempt(() => stopping)
+        await attempt(() => record.service.dispose())
+        for (const cleanup of record.cleanups) await attempt(cleanup)
+        await attempt(() => record.partition.clearStorageData())
+        await attempt(() => record.partition.protocol.unhandle('rhythm-colony'))
+      }
       if (failure) throw failure
     })
     void barrier.catch(() => {})
     return barrier
   }
+  // A list-only (headless) session runs the same owned worker without ever creating a
+  // WebContentsView; a full-scene session additionally owns the native view/partition/channel.
   const attach = async (/** @type {any} */ event, /** @type {any[]} */ args) => {
-    if (disposed || !enabled() || !ownsHost(event) || args.length) return { ok:false, reason:'Bot Crossing is disabled or unavailable in this window.' }
-    if (current) return { ok:true, attachment:current.attachment }
+    if (disposed || !enabled() || !ownsHost(event)) return { ok:false, reason:'Bot Crossing is disabled or unavailable in this window.' }
+    let headless = false
+    if (args.length === 1) {
+      const value = args[0]
+      if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== 1 || typeof value.headless !== 'boolean') {
+        return { ok:false, reason:'Bot Crossing is disabled or unavailable in this window.' }
+      }
+      headless = value.headless
+    } else if (args.length !== 0) {
+      return { ok:false, reason:'Bot Crossing is disabled or unavailable in this window.' }
+    }
+    if (current) {
+      if (current.headless === headless) return { ok:true, attachment:current.attachment }
+      // Switching modes: fully tear down the previous record (and its worker) before a
+      // replacement is created below, so at most one worker ever exists at a time.
+      try { await disposeCurrent() }
+      catch (error) { return { ok:false, reason:error instanceof Error ? error.message : 'Bot Crossing teardown is incomplete.' } }
+    }
     try { await barrier }
     catch (error) { return { ok:false, reason:error instanceof Error ? error.message : 'Bot Crossing teardown is incomplete.' } }
     const requestEpoch = ++epoch
@@ -198,11 +222,17 @@ export function registerColonyView(options) {
     let view
     try {
       const config = { artifactRoot:options.getArtifactRoot(), expectedSourceCommit:options.expectedSourceCommit, expectedElectronMajor:options.expectedElectronMajor ?? 40 }
-      const artifact = await resolveColonyArtifact(config)
       const documentId = randomUUID()
       service = createColonyService({ ...options, ...config, dataDir, sources:options.getSources(), enabled })
       await service.start({ documentId })
       if (disposed || epoch !== requestEpoch || !ownsHost(event) || !enabled()) throw new Error('Bot Crossing attachment revoked')
+      if (headless) {
+        const record = { headless:true, service, documentId, attachment:randomUUID(), cleanups:[] }
+        current = record
+        if (current !== record || epoch !== requestEpoch || !enabled()) throw new Error('Bot Crossing attachment revoked')
+        return { ok:true, attachment:record.attachment }
+      }
+      const artifact = await resolveColonyArtifact(config)
       const electron = options.electron ?? await import('electron')
       view = new electron.WebContentsView({ webPreferences: { preload:artifact.preloadPath, partition:`colony-${randomUUID()}`, sandbox:true, contextIsolation:true, nodeIntegration:false, nodeIntegrationInSubFrames:false, webSecurity:true, webviewTag:false } })
       const contents = view.webContents
@@ -222,7 +252,7 @@ export function registerColonyView(options) {
       contents.on('will-navigate', (/** @type {any} */ navigation) => navigation.preventDefault())
       contents.on('will-redirect', (/** @type {any} */ navigation) => navigation.preventDefault())
       contents.on('will-frame-navigate', (/** @type {any} */ navigation) => navigation.preventDefault())
-      const record = { win, view, partition, service, documentId, attachment:randomUUID(), channel:/** @type {ReturnType<typeof bindColonySceneChannel> | null} */(null), cleanups:/** @type {(() => void)[]} */ ([]) }
+      const record = { headless:false, win, view, partition, service, documentId, attachment:randomUUID(), channel:/** @type {ReturnType<typeof bindColonySceneChannel> | null} */(null), cleanups:/** @type {(() => void)[]} */ ([]) }
       record.channel = bindColonySceneChannel({ ipcMain, contents, frame:() => contents.mainFrame, documentId, service, MessageChannelMain:electron.MessageChannelMain,
         attachment:record.attachment, hostContents:win.webContents, hostFrame:event.senderFrame,
         ownsThreadId:(/** @type {string} */ threadId) => options.ownsThreadId?.(threadId) === true,
@@ -257,7 +287,7 @@ export function registerColonyView(options) {
   }
   ipcMain.handle('colony:view:attach', attachHandler)
   ipcMain.handle('colony:view:bounds', (/** @type {any} */ event, /** @type {any} */ value) => {
-    if (!current || !ownsHost(event) || !enabled() || value?.attachment !== current.attachment || !value.bounds) return false
+    if (!current || current.headless || !ownsHost(event) || !enabled() || value?.attachment !== current.attachment || !value.bounds) return false
     const { x,y,width,height } = value.bounds
     if (![x,y,width,height].every(Number.isFinite) || width < 0 || height < 0) return false
     const zoom = current.win.webContents.getZoomFactor()

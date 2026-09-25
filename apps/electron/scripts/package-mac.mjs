@@ -9,6 +9,8 @@ import { buildAndStageApprovalHelper } from './build-approval-helper.mjs';
 import { hardenElectronFuses } from './harden-electron-fuses.mjs';
 import { PINNED_HERMES_DESKTOP_SOURCE_COMMIT } from '../src/hermes-desktop-config.mjs';
 import { refreshHermesDesktopArtifactIntegrity, resolveHermesDesktopArtifact } from '../src/hermes-desktop-artifact.mjs';
+import { EXPECTED_COLONY_ELECTRON_MAJOR, PINNED_COLONY_SOURCE_COMMIT } from '../src/colony-desktop-config.mjs';
+import { refreshColonyArtifactIntegrity, resolveColonyArtifact } from '../src/colony-desktop-artifact.mjs';
 
 const run = promisify(execFile);
 
@@ -141,6 +143,36 @@ export async function stageHermesDesktopArtifact({ resources, artifactRoot = pro
   return destination;
 }
 
+/** Stage only a verified artifact created by the pinned Colony (Bot Crossing) source builder.
+ * It deliberately has no development-checkout/PATH fallback, and refuses a payload built for a
+ * different packaged Node than this packaging run installs (see packagedNode below). */
+export async function stageColonyArtifact({ resources, artifactRoot = process.env.RHYTHM_COLONY_ARTIFACT_DIR }) {
+  if (typeof artifactRoot !== 'string' || !artifactRoot) {
+    throw new Error('Colony artifact is required for packaging. Build the pinned Colony artifact and set RHYTHM_COLONY_ARTIFACT_DIR.');
+  }
+  const artifact = await resolveColonyArtifact({
+    artifactRoot,
+    expectedElectronMajor: EXPECTED_COLONY_ELECTRON_MAJOR,
+    expectedSourceCommit: PINNED_COLONY_SOURCE_COMMIT,
+    allowDirty: false,
+  });
+  // The packaged Node is process.execPath copied verbatim (see packagedNode below), so the
+  // running packager's own Node version IS the packaged Node's version.
+  if (artifact.manifest.nodeVersion !== process.versions.node) {
+    throw new Error(`Colony artifact Node version mismatch: expected ${process.versions.node}, found ${String(artifact.manifest.nodeVersion)}`);
+  }
+  const destination = resolve(resources, 'colony-desktop');
+  await rm(destination, { recursive: true, force: true });
+  await cp(artifact.root, destination, { recursive: true, verbatimSymlinks: true });
+  await resolveColonyArtifact({
+    artifactRoot: destination,
+    expectedElectronMajor: EXPECTED_COLONY_ELECTRON_MAJOR,
+    expectedSourceCommit: PINNED_COLONY_SOURCE_COMMIT,
+    allowDirty: false,
+  });
+  return destination;
+}
+
 // Importing the assembly boundary for controlled-input tests must not build the app.
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
 const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -196,6 +228,7 @@ await run('npm', ['--prefix', '../web', 'run', 'build'], {
 await run('npm', ['--prefix', '../api_server', 'run', 'build'], { cwd: electronRoot });
 await cp(sourceApp, stagingArtifact, { recursive: true, verbatimSymlinks: true });
 await stageHermesDesktopArtifact({ resources });
+await stageColonyArtifact({ resources });
 await stageRhythmIcon({
   appiconsetDir: resolve(electronRoot, '../desktop_flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset'),
   resources,
@@ -276,6 +309,8 @@ await run(packagedNode, ['-e', [
   `const root=${JSON.stringify(packagedApiServer)};`,
   "require(root+'/node_modules/node-pty');",
 ].join('')]);
+// Colony's embedded worker requires node:sqlite; probe it with the exact packaged Node (COL-09).
+await run(packagedNode, ['-e', "require('node:sqlite')"]);
 await rename(
   resolve(stagingArtifact, 'Contents/MacOS/Electron'),
   resolve(stagingArtifact, 'Contents/MacOS/Rhythm'),
@@ -304,8 +339,16 @@ await resolveHermesDesktopArtifact({
   expectedSourceCommit: PINNED_HERMES_DESKTOP_SOURCE_COMMIT,
   allowDirty: false,
 });
-// The deep pass has sealed nested native binaries. The manifest refresh above
-// changes a resource, so re-seal only the outer app without re-signing it.
+const stagedColonyArtifact = resolve(resources, 'colony-desktop');
+await refreshColonyArtifactIntegrity({ artifactRoot: stagedColonyArtifact });
+await resolveColonyArtifact({
+  artifactRoot: stagedColonyArtifact,
+  expectedElectronMajor: EXPECTED_COLONY_ELECTRON_MAJOR,
+  expectedSourceCommit: PINNED_COLONY_SOURCE_COMMIT,
+  allowDirty: false,
+});
+// The deep pass has sealed nested native binaries. The manifest refreshes above
+// change resources, so re-seal only the outer app without re-signing it.
 await run('codesign', ['--force', '--sign', '-', stagingArtifact]);
 await rename(stagingArtifact, artifact);
 process.stdout.write(`Packaged ${artifact} with an ad-hoc signature.\n`);
@@ -314,7 +357,7 @@ process.stdout.write(`Packaged ${artifact} with an ad-hoc signature.\n`);
 }
 }
 
-async function assertPackagedModuleGraph(srcDir, entries) {
+export async function assertPackagedModuleGraph(srcDir, entries) {
   const seen = new Set();
   const queue = entries.map((entry) => resolve(srcDir, entry));
   const missing = [];

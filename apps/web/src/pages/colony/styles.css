@@ -18,7 +18,11 @@
 .colony-state-actions .primary-button { min-height: 44px; }
 .colony-state .colony-footnote { color: var(--muted); font-size: 10px; }
 .colony-error { width: min(560px, calc(100% - 32px)); }
-.colony-enabled { min-width: 0; min-height: 0; display: grid; grid-template-rows: 52px minmax(0, 1fr); }
+.colony-enabled { min-width: 0; min-height: 0; display: grid; grid-template-rows: 52px repeat(3, auto) minmax(0, 1fr); }
+.colony-state-warning { min-width: 0; margin: 0; padding: 6px 14px; border-bottom: 1px solid var(--border-soft); background: color-mix(in oklab, var(--surface), var(--bg) 6%); color: var(--fg-2); font-size: 11px; }
+.colony-freshness { min-width: 0; margin: 0; padding: 6px 14px; border-bottom: 1px solid var(--border-soft); color: var(--muted); font-size: 11px; }
+.colony-freshness-stale { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; color: var(--fg-2); }
+.colony-freshness-stale p { margin: 0; }
 .colony-toolbar { z-index: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 10px 7px 14px; border-bottom: 1px solid var(--border-soft); background: var(--surface); }
 .colony-toolbar > div { min-width: 0; display: grid; }
 .colony-toolbar strong { font-size: 13px; }

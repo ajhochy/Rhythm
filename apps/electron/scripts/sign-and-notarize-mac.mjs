@@ -24,6 +24,8 @@ import { promisify } from 'node:util';
 import { hardenElectronFuses } from './harden-electron-fuses.mjs';
 import { PINNED_HERMES_DESKTOP_SOURCE_COMMIT } from '../src/hermes-desktop-config.mjs';
 import { refreshHermesDesktopArtifactIntegrity, resolveHermesDesktopArtifact } from '../src/hermes-desktop-artifact.mjs';
+import { EXPECTED_COLONY_ELECTRON_MAJOR, PINNED_COLONY_SOURCE_COMMIT } from '../src/colony-desktop-config.mjs';
+import { refreshColonyArtifactIntegrity, resolveColonyArtifact } from '../src/colony-desktop-artifact.mjs';
 import { resolveSigningIdentityWithRunner } from './signing-identity.mjs';
 
 const run = promisify(execFile);
@@ -123,6 +125,14 @@ await resolveHermesDesktopArtifact({
   artifactRoot: hermesDesktopArtifact,
   expectedElectronMajor: 40,
   expectedSourceCommit: PINNED_HERMES_DESKTOP_SOURCE_COMMIT,
+  allowDirty: false,
+});
+const colonyDesktopArtifact = resolve(contentsDir, 'Resources/colony-desktop');
+await refreshColonyArtifactIntegrity({ artifactRoot: colonyDesktopArtifact });
+await resolveColonyArtifact({
+  artifactRoot: colonyDesktopArtifact,
+  expectedElectronMajor: EXPECTED_COLONY_ELECTRON_MAJOR,
+  expectedSourceCommit: PINNED_COLONY_SOURCE_COMMIT,
   allowDirty: false,
 });
 await codesign(artifact, { deep: false });
