@@ -374,6 +374,18 @@ export function pinEngineSessionStore(
 }
 
 /**
+ * #1178 — Rhythm transcript sharing is strictly in-instance. Force the child
+ * engine's external share path off even when the parent shell opted into
+ * OpenCode auto-share or attempted to override the disable flag.
+ */
+export function disableEngineExternalSharing(
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  delete env.OPENCODE_AUTO_SHARE;
+  env.OPENCODE_DISABLE_SHARE = '1';
+}
+
+/**
  * Directories the SDK's `cross-spawn("opencode")` may need on PATH. GUI-spawned
  * .app children on macOS only inherit `/usr/bin:/bin:/usr/sbin:/sbin` — none of
  * which contain the opencode binary. Idempotent: prepends each dir at most once.
@@ -724,6 +736,7 @@ export class OpencodeClientService {
       // createOpencode()'s child inherits it; `??=` lets an explicit override win
       // (e.g. a dev deliberately re-enabling external skills).
       process.env.OPENCODE_DISABLE_EXTERNAL_SKILLS ??= '1';
+      disableEngineExternalSharing();
       // #1332 — pin the engine to its STABLE session database.
       //
       // The engine names its DB after the installation channel

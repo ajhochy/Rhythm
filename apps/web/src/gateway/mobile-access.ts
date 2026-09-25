@@ -16,9 +16,9 @@ export interface MobileAccessDiagnostic {
 
 // apps/api_server/src/services/mobile_pairing_service.ts:68-94 (createPairingCode); `relayUrl` is
 // appended by apps/api_server/src/controllers/mobile_gateway_controller.ts:41-55 only when
-// env.relayPublicUrl is set. The QR payload itself is exactly {gatewayUrl, pairingCode, relayUrl?}
-// per apps/mobile/lib/pairing/paired-host-store.ts:61 — gatewayUrl comes from the access
-// diagnostic, never from this offer response.
+// env.relayPublicUrl is set. The QR payload is {gatewayUrl, pairingCode, relayUrl?}
+// when Tailscale is available, or {pairingCode, relayUrl} for relay-only pairing.
+// gatewayUrl comes from the access diagnostic, never from this offer response.
 export interface MobilePairingOffer {
   id: string;
   hostId: string;

@@ -286,10 +286,15 @@ export function parsePairingPayload(raw: string): PairingPayload {
   }
   const record = value as Record<string, unknown>;
   const keys = Object.keys(record).sort();
-  const allowedKeys = record.relayUrl === undefined
-    ? ['gatewayUrl', 'pairingCode']
-    : ['gatewayUrl', 'pairingCode', 'relayUrl'];
+  const hasGatewayUrl = record.gatewayUrl !== undefined;
+  const hasRelayUrl = record.relayUrl !== undefined;
+  const allowedKeys = hasGatewayUrl
+    ? hasRelayUrl
+      ? ['gatewayUrl', 'pairingCode', 'relayUrl']
+      : ['gatewayUrl', 'pairingCode']
+    : ['pairingCode', 'relayUrl'];
   if (
+    (!hasGatewayUrl && !hasRelayUrl) ||
     keys.length !== allowedKeys.length ||
     keys.some((key, index) => key !== allowedKeys[index]) ||
     typeof record.pairingCode !== 'string' ||
@@ -299,12 +304,21 @@ export function parsePairingPayload(raw: string): PairingPayload {
   ) {
     throw new PairedHostError('invalidPayload', 'This pairing QR code is invalid.');
   }
+  const relayUrl = hasRelayUrl ? safeRelayUrl(record.relayUrl) : undefined;
+  if (!hasGatewayUrl) {
+    if (relayDisabled()) {
+      throw new PairedHostError('invalidPayload', RELAY_DISABLED_MESSAGE);
+    }
+    return {
+      gatewayUrl: relayUrl!,
+      pairingCode: record.pairingCode,
+      relayUrl,
+    };
+  }
   return {
     gatewayUrl: safeGatewayUrl(record.gatewayUrl),
     pairingCode: record.pairingCode,
-    ...(record.relayUrl === undefined
-      ? {}
-      : { relayUrl: safeRelayUrl(record.relayUrl) }),
+    ...(relayUrl === undefined ? {} : { relayUrl }),
   };
 }
 

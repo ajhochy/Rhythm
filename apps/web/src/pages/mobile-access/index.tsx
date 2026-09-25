@@ -61,6 +61,9 @@ export function MobileAccessPage() {
   const isLive = gateway.mode === 'live';
   const liveGateway = gateway.domains.mobileAccess ?? null;
   const scenario = (queryParams().get('scenario') as FixtureScenario | null) ?? 'healthy';
+  const fixtureRelayUrl = scenario === 'missing' && queryParams().get('relay') !== 'none'
+    ? 'https://api.vcrcapps.com/relay'
+    : undefined;
 
   const [diagnostic, setDiagnostic] = useState<MobileAccessDiagnostic | null>(null);
   const [diagnosing, setDiagnosing] = useState(true);
@@ -157,6 +160,7 @@ export function MobileAccessPage() {
       hostId: 'fixture-host',
       pairingCode: Math.random().toString(36).slice(2),
       expiresAt: new Date(Date.now() + FIXTURE_PAIRING_TTL_MS).toISOString(),
+      ...(fixtureRelayUrl ? { relayUrl: fixtureRelayUrl } : {}),
     });
     setOfferStatus('active');
     setGenerating(false);
@@ -201,16 +205,22 @@ export function MobileAccessPage() {
     setRevokingId(null);
   };
 
-  // The QR payload is exactly {gatewayUrl, pairingCode, relayUrl?} — apps/mobile/lib/pairing/paired-host-store.ts:61.
-  // gatewayUrl comes from the access diagnostic, never from the offer response.
-  const pairingPayload = offer ? { gatewayUrl: diagnostic?.gatewayUrl ?? null, pairingCode: offer.pairingCode, ...(offer.relayUrl ? { relayUrl: offer.relayUrl } : {}) } : null;
+  // Prefer the direct gateway when present. A relay-only offer deliberately
+  // omits gatewayUrl so the phone can distinguish it from Tailscale fallback.
+  const pairingPayload = offer
+    ? diagnostic?.gatewayUrl
+      ? { gatewayUrl: diagnostic.gatewayUrl, pairingCode: offer.pairingCode, ...(offer.relayUrl ? { relayUrl: offer.relayUrl } : {}) }
+      : offer.relayUrl
+        ? { pairingCode: offer.pairingCode, relayUrl: offer.relayUrl }
+        : null
+    : null;
 
   return (
     <section className="page-shell" data-testid="page-mobile-access" aria-labelledby="mobile-access-title" style={{ padding: 24, display: 'grid', gap: 20, maxWidth: 720 }}>
       <header>
         <span className="eyebrow">Settings</span>
         <h1 id="mobile-access-title">Mobile Access</h1>
-        <p>Pair a phone with this Mac over your private Tailscale network.</p>
+        <p>Pair a phone through Rhythm Cloud Gateway or your private Tailscale network.</p>
       </header>
 
       {diagnosing && !diagnostic && !diagnosticError && (
@@ -239,7 +249,7 @@ export function MobileAccessPage() {
         </section>
       )}
 
-      {diagnostic?.state === 'healthy' && (
+      {(diagnostic?.state === 'healthy' || diagnostic?.state === 'missing') && (
         <section aria-labelledby="mobile-access-pairing-title" data-testid="mobile-access-pairing">
           <h2 id="mobile-access-pairing-title">Pair a phone</h2>
           {!offer && offerStatus !== 'expired' && offerStatus !== 'consumed' && (
@@ -248,6 +258,9 @@ export function MobileAccessPage() {
 
            {offer && pairingPayload && (
              <div data-testid="mobile-access-pairing-offer">
+               {!diagnostic.gatewayUrl && offer.relayUrl && (
+                 <p data-testid="mobile-access-pairing-transport">Pairing through Rhythm Cloud Gateway.</p>
+               )}
                <QRCodeSVG value={JSON.stringify(pairingPayload)} title="Scan to pair this phone with Rhythm" size={224} marginSize={2} data-testid="mobile-access-pairing-qr" />
                <details><summary>Manual pairing details</summary><pre data-testid="mobile-access-pairing-payload">{JSON.stringify(pairingPayload)}</pre></details>
                <p role="status" data-testid="mobile-access-pairing-countdown">Expires in {secondsRemaining}s</p>
@@ -260,6 +273,12 @@ export function MobileAccessPage() {
                </div>
                {copyStatus && <p role="status">{copyStatus}</p>}
              </div>
+          )}
+
+          {offer && !pairingPayload && (
+            <div role="alert" data-testid="mobile-access-pairing-unavailable">
+              Rhythm Cloud Gateway is not configured and Tailscale is unavailable. Configure the relay on this Mac, then generate a new pairing code.
+            </div>
           )}
 
           {offerStatus === 'expired' && (

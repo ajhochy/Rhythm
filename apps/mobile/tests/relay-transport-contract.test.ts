@@ -107,6 +107,27 @@ describe('Track 3 contract — relay URL validation', () => {
     ).toThrow();
   });
 
+  it('issue-1373-c1: parsePairingPayload accepts a configured relay-only QR', () => {
+    expect(
+      parsePairingPayload(
+        JSON.stringify({ pairingCode: CODE, relayUrl: RELAY_BASE }),
+      ),
+    ).toEqual({
+      gatewayUrl: RELAY_BASE,
+      pairingCode: CODE,
+      relayUrl: RELAY_BASE,
+    });
+
+    expect(() =>
+      parsePairingPayload(
+        JSON.stringify({
+          pairingCode: CODE,
+          relayUrl: 'https://evil.example.com/relay',
+        }),
+      ),
+    ).toThrow();
+  });
+
   it('effectiveGatewayBase prefers the relay and falls back to the gateway', async () => {
     expect(
       effectiveGatewayBase({ gatewayUrl: TSNET, relayUrl: RELAY_BASE }),

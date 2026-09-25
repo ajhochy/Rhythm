@@ -1262,4 +1262,37 @@ await test('issue-1373: relay kill switch preserves pairing and selects only the
   assert.equal(__secure().get(PAIRED_DEVICE_SECURE_KEY), TOKEN);
 });
 
+await test('issue-1373: relay-disabled QR pairing fails closed without replacing the saved pairing', async (t) => {
+  const previous = process.env.EXPO_PUBLIC_RHYTHM_RELAY_DISABLED;
+  t.after(() => {
+    if (previous === undefined) delete process.env.EXPO_PUBLIC_RHYTHM_RELAY_DISABLED;
+    else process.env.EXPO_PUBLIC_RHYTHM_RELAY_DISABLED = previous;
+  });
+  delete process.env.EXPO_PUBLIC_RHYTHM_RELAY_DISABLED;
+  __reset();
+  const store = await pairedStore();
+  const savedMetadata = __async().get(PAIRED_HOST_META_KEY);
+  const savedHost = store.snapshot().host;
+  const publicRequestCount = __publicRequests().length;
+
+  process.env.EXPO_PUBLIC_RHYTHM_RELAY_DISABLED = '1';
+  await assert.rejects(
+    () => store.pair(
+      JSON.stringify({
+        pairingCode: 'b'.repeat(43),
+        relayUrl: 'https://api.vcrcapps.com/relay',
+      }),
+      { userId: 7, deviceName: 'AJ iPhone' },
+    ),
+    (error) =>
+      error instanceof PairedHostError &&
+      /relay is disabled.*saved pairing is unchanged/i.test(error.message),
+  );
+
+  assert.deepEqual(store.snapshot().host, { ...savedHost, relayUrl: null });
+  assert.equal(__async().get(PAIRED_HOST_META_KEY), savedMetadata);
+  assert.equal(__secure().get(PAIRED_DEVICE_SECURE_KEY), TOKEN);
+  assert.equal(__publicRequests().length, publicRequestCount);
+});
+
 console.log('Paired-host security and state-machine tests passed');
