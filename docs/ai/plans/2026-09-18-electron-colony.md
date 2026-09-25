@@ -14,6 +14,8 @@ First platforms: macOS Apple Silicon and Intel
 
 Tracking: [epic #1525](https://github.com/ajhochy/Rhythm/issues/1525) · [milestones and issue dependencies](2026-09-18-electron-colony-tracking.md)
 
+COL-04 design resolution (2026-09-25): the concrete [Bot Crossing workspace packet](../../design/colony/README.md), [complete upstream action inventory](../../design/colony/action-inventory.md), and [D1–D6 decision record](../decisions/2026-09-25-colony-workspace-design.md) supersede the plan-level naming/visibility/lifecycle sketches where they conflict. In particular, the destination is labeled **Bot Crossing**, remains visible before opt-in without starting discovery, and disposes its native document on departure while restoring profile-owned view state on return.
+
 ## Goal and confirmed scope
 
 Give Rhythm Electron users a Colony tab that shows their local agent work across harnesses,
@@ -264,14 +266,14 @@ system, duplicate header, global settings menu or floating full-detail card into
 
 | Surface | Planned native treatment |
 | --- | --- |
-| App navigation | One `Colony` destination using existing navigation and overflow behavior; hidden until enabled. Deep-linking while disabled opens its enablement explanation without scanning. |
+| App navigation | One always-visible `Bot Crossing` destination using existing navigation and overflow behavior. Before opt-in it opens the disabled/access explanation without loading the artifact or scanning. |
 | Main workspace | Resizable repository/task rail, central scene, optional right inspector; keyboard-adjustable splitters with bounds, persistence and reset. Collapse panes gracefully at the supported minimum window width. |
 | Toolbar | Search, harness/activity filters and a compact status summary. Label repositories, other workspaces and historical locations separately; historical locations remain off by default. |
 | Selection | Clicking a bot or list row selects the same task and opens the same inspector. Show title, harness, status/freshness, repository and checkout first; branch, path and evidence remain readable/copyable. |
 | Actions | Primary `Open in Rhythm` or `Open in Codex`; `Show parent task` for a worker. Secondary actions live in the existing menu style. Show an explicit disabled reason when exact reopening is unsupported. |
 | View menu | Reset camera, focus selection, orbit, planet/time, sound, quality and screenshot. Use text labels, checked states and existing menu keyboard behavior; move advanced controls out of the main toolbar. |
 | Task menu | Open, show parent, mark viewed/unviewed, archive/restore **from Colony**, show checkout in Finder and copy checkout path. No ambiguous destructive `Archive` label. |
-| Settings | `Enable Colony on this Mac`, source toggles, local-data explanation, import preview, graphics/motion/sound preferences and a clear disable action. |
+| Settings | One authoritative Settings → Local apps → Bot Crossing section with enablement, source toggles, local-data explanation, import preview, graphics/motion/sound preferences and a clear disable action. |
 | Empty/error states | First enablement, no supported harness, no matches, all archived, disabled source, permission denial, stale snapshot, unavailable native app, scanner crash and unavailable WebGL each have a useful explanation/action. |
 | Accessibility | Searchable keyboard-operable list equivalent to the scene, visible focus, Escape dismissal/focus return, screen-reader status labels, reduced motion, and sufficient contrast in dark/light themes. |
 
