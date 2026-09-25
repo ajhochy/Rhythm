@@ -235,6 +235,7 @@ test('issue-1559-c8: mutation failures never become load failures or show a load
     return false;
   });
   await page.getByRole('option', { name: 'MCP servers' }).click();
+  await page.getByTestId('agent-settings-mcp-add-disclosure').locator('summary').click();
   await page.getByTestId('agent-settings-mcp-add-name').fill('example');
   await page.getByTestId('agent-settings-mcp-add-value').fill('https://example.test/mcp');
   await page.getByTestId('agent-settings-mcp-add').click();
@@ -359,6 +360,7 @@ for (const s of sections.filter((entry) => entry.key === 'mcp' || entry.key === 
     await expect(page.getByTestId(`agent-settings-${s.key}-status`)).toHaveText(`${s.key} still unavailable`);
     failed.delete(s.path);
     if (s.key === 'mcp') {
+      await page.getByTestId('agent-settings-mcp-add-disclosure').locator('summary').click();
       await page.getByTestId('agent-settings-mcp-add-name').fill('example');
       await page.getByTestId('agent-settings-mcp-add-value').fill('https://example.test/mcp');
       await page.getByTestId('agent-settings-mcp-add').click();
@@ -417,4 +419,80 @@ test('issue-1559-c13: unread provider badge displays exact Status unknown', asyn
     await expect(badge).toHaveText('Status unknown');
     expect(await badge.evaluate((el) => getComputedStyle(el).textTransform)).toBe('none');
   }
+});
+
+test('1559-action-reload-section-retry:1 MCP action reload failure exposes section Retry and retries one GET', async ({ page }) => {
+  // Regression: a successful disconnect followed by a failed catalog read leaves a stale list with no recovery.
+  let failReload = false;
+  const counts = await openSettings(page, new Set(), async (route, path) => {
+    if (path === '/opencode/mcp/propresenter/disconnect') {
+      failReload = true;
+      await route.fulfill({ status: 200, json: {} });
+      return true;
+    }
+    if (path === '/opencode/mcp') {
+      if (failReload) await route.fulfill({ status: 503, json: { error: 'MCP reload offline' } });
+      else await route.fulfill({ status: 200, json: [{ name: 'propresenter', status: 'connected', error: null, requiredEnv: [], needsCredentials: false, source: 'curated', tools: [] }] });
+      return true;
+    }
+    return false;
+  });
+  await page.getByRole('option', { name: 'MCP servers', exact: true }).click();
+  await page.getByTestId('agent-settings-mcp-disconnect-propresenter').click();
+  await expect(page.getByRole('button', { name: 'Retry MCP servers' })).toBeVisible();
+  failReload = false;
+  const before = counts['/opencode/mcp'];
+  await page.getByRole('button', { name: 'Retry MCP servers' }).click();
+  await expect.poll(() => counts['/opencode/mcp']).toBe(before + 1);
+});
+
+test('1559-action-reload-section-retry:2 account default reload failure exposes section Retry and retries one GET', async ({ page }) => {
+  // Regression: a completed Make default mutation swallows its failed account readback.
+  let failReload = false;
+  const counts = await openSettings(page, new Set(), async (route, path) => {
+    if (path === '/opencode/auth/accounts/default') {
+      failReload = true;
+      await route.fulfill({ status: 200, json: { ok: true } });
+      return true;
+    }
+    if (path === '/opencode/auth/accounts') {
+      if (failReload) await route.fulfill({ status: 503, json: { error: 'Accounts reload offline' } });
+      else await route.fulfill({ status: 200, json: { accounts: [{ id: 'work', label: 'Work', status: 'ok', isDefault: false }] } });
+      return true;
+    }
+    return false;
+  });
+  await page.getByRole('option', { name: 'Accounts', exact: true }).click();
+  await page.getByTestId('agent-settings-account-default-work').click();
+  await expect(page.getByRole('button', { name: 'Retry accounts' })).toBeVisible();
+  failReload = false;
+  const before = counts['/opencode/auth/accounts'];
+  await page.getByRole('button', { name: 'Retry accounts' }).click();
+  await expect.poll(() => counts['/opencode/auth/accounts']).toBe(before + 1);
+});
+
+test('1559-action-reload-section-retry:3 provider save reload failure exposes section Retry and retries one GET', async ({ page }) => {
+  // Regression: a stored provider key followed by a failed provider readback has no section recovery.
+  let failReload = false;
+  const counts = await openSettings(page, new Set(), async (route, path) => {
+    if (path === '/opencode/auth/opencode' && route.request().method() === 'POST') {
+      failReload = true;
+      await route.fulfill({ status: 200, json: { success: true } });
+      return true;
+    }
+    if (path === '/opencode/auth') {
+      if (failReload) await route.fulfill({ status: 503, json: { error: 'Providers reload offline' } });
+      else await route.fulfill({ status: 200, json: { providers: [] } });
+      return true;
+    }
+    return false;
+  });
+  await page.getByRole('option', { name: 'Accounts', exact: true }).click();
+  await page.getByTestId('agent-settings-provider-key-opencode').fill('test-key');
+  await page.getByTestId('agent-settings-provider-key-save-opencode').click();
+  await expect(page.getByRole('button', { name: 'Retry providers' })).toBeVisible();
+  failReload = false;
+  const before = counts['/opencode/auth'];
+  await page.getByRole('button', { name: 'Retry providers' }).click();
+  await expect.poll(() => counts['/opencode/auth']).toBe(before + 1);
 });

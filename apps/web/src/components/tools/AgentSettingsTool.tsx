@@ -13,6 +13,8 @@ import { HermesAccountsSettings } from './HermesAccountsSettings';
 
 type Trace = { method: string; route: string; detail: string };
 type LoadSection = 'profiles' | 'accounts' | 'mcp' | 'providers';
+type ActionScope = 'accounts' | 'providers' | 'mcp' | 'runtime';
+type PendingAction = { scope: ActionScope; key: string };
 
 export type AgentSettingsFrameProps = {
   slug: string;
@@ -61,10 +63,27 @@ const providerCatalog = [
 
 const accountNeedsRelogin = (account: AccountChoice) => !/^(ok|connected|active|authorized)$/i.test(account.status);
 
+const mcpStatusPresentation = (status: string) => {
+  const normalized = status.trim().toLocaleLowerCase();
+  const labels: Record<string, string> = {
+    connected: 'Connected',
+    needs_auth: 'Needs authorization',
+    failed: 'Failed',
+    disabled: 'Disabled',
+    disconnected: 'Disconnected',
+    needs_client_registration: 'Needs client registration',
+  };
+  return {
+    className: `status-${normalized.replace(/[^a-z0-9]+/g, '-') || 'unknown'}`,
+    label: labels[normalized] ?? (normalized.split(/[_\s-]+/).filter(Boolean).map((word) => `${word[0]?.toLocaleUpperCase() ?? ''}${word.slice(1)}`).join(' ') || 'Unknown'),
+  };
+};
+
 function useSettingsSelection() {
   const [selectedId, setSelectedId] = useSelectedId('settingsSection');
   useEffect(() => {
-    if (selectedId === null) setSelectedId(sectionIds.profiles);
+    const route = window.location.hash.split('?')[0];
+    if (selectedId === null && route === '#/tools/agent-settings') setSelectedId(sectionIds.profiles);
   }, [selectedId, setSelectedId]);
   return [selectedId, setSelectedId] as const;
 }
@@ -152,8 +171,8 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const loadGeneration = useRef(0);
   const traceGeneration = useRef(0);
   const [runtimeStatus, setRuntimeStatus] = useState<Record<'api' | 'engine', string>>({ api: 'Not checked', engine: 'Not checked' });
-  const [pendingAction, setPendingAction] = useState('');
-  const [actionNotice, setActionNotice] = useState('');
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [actionNotices, setActionNotices] = useState<Partial<Record<ActionScope, string>>>({});
   const [removing, setRemoving] = useState<McpServer | null>(null);
   const [removingAccount, setRemovingAccount] = useState<AccountChoice | null>(null);
   const [accountDraft, setAccountDraft] = useState({ accountId: '', label: '', code: '' });
@@ -163,9 +182,19 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const [providerFlow, setProviderFlow] = useState<{ id: string; authUrl: string; instructions: string; method: number } | null>(null);
   const [providerDraft, setProviderDraft] = useState<{ code: string; apiKey: Record<string, string> }>({ code: '', apiKey: {} });
   const [mcpDraft, setMcpDraft] = useState({ name: '', kind: 'remote' as 'remote' | 'local', value: '' });
+  const [mcpSearch, setMcpSearch] = useState('');
+  const [profileSearch, setProfileSearch] = useState('');
   const [mcpCredentials, setMcpCredentials] = useState<Record<string, Record<string, string>>>({});
   const [mcpAuthorization, setMcpAuthorization] = useState<{ name: string; url: string } | null>(null);
   const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-configs', detail: 'Loading live agent configuration' });
+  const actionPending = (scope: ActionScope, key?: string) => pendingAction?.scope === scope && (key === undefined || pendingAction.key === key);
+  const setActionNotice = (scope: ActionScope, notice: string) => setActionNotices((current) => ({
+    ...current,
+    ...(scope === 'accounts' ? { providers: '' } : scope === 'providers' ? { accounts: '' } : {}),
+    [scope]: notice,
+  }));
+
+  useEffect(() => { setActionNotices({}); }, [selectedId]);
 
   const routes: Record<LoadSection, string> = { profiles: '/agent-configs', accounts: '/opencode/auth/accounts', mcp: '/opencode/mcp', providers: '/opencode/auth' };
   const readSection = async (section: LoadSection, kind: 'load' | 'retry' | 'action' = 'load') => {
@@ -206,7 +235,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
         setRetrying((state) => ({ ...state, [section]: false }));
         if (retry) setRetryStatus((state) => ({ ...state, [section]: `${section} still unavailable` }));
       }
-      if (kind !== 'action' && current()) {
+      if (current()) {
         const message = err instanceof Error ? err.message : `${section} could not be loaded`;
         if (section === 'profiles') setProfileError(message);
         if (section === 'accounts') setAccountsError(message);
@@ -258,30 +287,30 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
 
   const startProviderAuth = async (provider: typeof providerCatalog[number]) => {
     if (!sessions.authorizeProvider) return;
-    setPendingAction(`provider-start-${provider.id}`); setAccountActionError(''); setActionNotice('');
+    setPendingAction({ scope: 'providers', key: `start:${provider.id}` }); setAccountActionError(''); setActionNotice('providers', '');
     setProviderFlow(null); setProviderDraft((current) => ({ ...current, code: '' }));
     try {
       const result = await sessions.authorizeProvider(provider.id, provider.method);
       setProviderFlow({ id: provider.id, authUrl: result.authUrl, instructions: result.instructions, method: provider.method });
-      setActionNotice(`Authorization started for ${provider.label}. Open the provider page to sign in.`);
+      setActionNotice('providers', `Authorization started for ${provider.label}. Open the provider page to sign in.`);
       setTrace({ method: 'GET', route: `/opencode/auth/${provider.id}/authorize`, detail: `Authorization started for ${provider.id}` });
     } catch (err) { setAccountActionError(err instanceof Error ? err.message : 'Provider authorization could not be started'); }
-    finally { setPendingAction(''); }
+    finally { setPendingAction(null); }
   };
 
   const completeProviderAuth = async (event: FormEvent) => {
     event.preventDefault();
     if (!providerFlow || !sessions.completeProviderAuth) return;
     const flow = providerFlow;
-    setPendingAction(`provider-complete-${flow.id}`); setAccountActionError(''); setActionNotice('');
+    setPendingAction({ scope: 'providers', key: `complete:${flow.id}` }); setAccountActionError(''); setActionNotice('providers', '');
     try {
       await sessions.completeProviderAuth(flow.id, providerDraft.code.trim(), flow.method);
       await reloadProviders();
       setProviderFlow(null); setProviderDraft((current) => ({ ...current, code: '' }));
-      setActionNotice(`${flow.id} connected.`);
+      setActionNotice('providers', `${flow.id} connected.`);
       setTrace({ method: 'GET', route: `/opencode/auth/${flow.id}/callback`, detail: `${flow.id} authorization completed` });
     } catch (err) { setAccountActionError(err instanceof Error ? err.message : 'Provider authorization could not be completed'); }
-    finally { setPendingAction(''); }
+    finally { setPendingAction(null); }
   };
 
   // method 0 providers are finished by the engine plugin's own listener, so the UI
@@ -289,7 +318,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const checkProviderAuth = async () => {
     if (!providerFlow) return;
     const flow = providerFlow;
-    setPendingAction(`provider-check-${flow.id}`); setAccountActionError('');
+    setPendingAction({ scope: 'providers', key: `check:${flow.id}` }); setAccountActionError('');
     const generation = sectionGeneration.current.providers + 1;
     const current = () => generation === sectionGeneration.current.providers;
     try {
@@ -297,39 +326,39 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
       if (!current()) return;
       const connected = providers.includes(flow.id);
       if (connected) setProviderFlow(null);
-      setActionNotice(connected ? `${flow.id} connected.` : `${flow.id} is not connected yet. Finish the browser sign-in, then check again.`);
+      setActionNotice('providers', connected ? `${flow.id} connected.` : `${flow.id} is not connected yet. Finish the browser sign-in, then check again.`);
       setTrace({ method: 'GET', route: '/opencode/auth', detail: `${flow.id} is ${connected ? 'connected' : 'not connected yet'}` });
     } catch (err) { if (current()) setAccountActionError(err instanceof Error ? err.message : 'Provider status could not be read'); }
-    finally { setPendingAction(''); }
+    finally { setPendingAction(null); }
   };
 
   const saveProviderApiKey = async (event: FormEvent, provider: typeof providerCatalog[number]) => {
     event.preventDefault();
     if (!sessions.saveProviderApiKey) return;
-    setPendingAction(`provider-key-${provider.id}`); setAccountActionError(''); setActionNotice('');
+    setPendingAction({ scope: 'providers', key: `key:${provider.id}` }); setAccountActionError(''); setActionNotice('providers', '');
     try {
       await sessions.saveProviderApiKey(provider.id, providerDraft.apiKey[provider.id] ?? '');
       await reloadProviders();
       setProviderDraft((current) => ({ ...current, apiKey: { ...current.apiKey, [provider.id]: '' } }));
-      setActionNotice(`${provider.label} connected.`);
+      setActionNotice('providers', `${provider.label} connected.`);
       setTrace({ method: 'POST', route: `/opencode/auth/${provider.id}`, detail: `${provider.id} API key stored` });
     } catch (err) { setAccountActionError(err instanceof Error ? err.message : 'Provider API key could not be saved'); }
-    finally { setPendingAction(''); }
+    finally { setPendingAction(null); }
   };
 
   // Re-authorizing an existing account is the same login-start/login-complete
   // pair as a new one — the server upserts by id and keeps the default set.
   const beginAccountLogin = async (accountId: string, label: string) => {
     if (!sessions.startAccountLogin || !accountId) return;
-    setPendingAction('account-start'); setAccountActionError(''); setActionNotice(''); setAccountAuthorizationUrl('');
+    setPendingAction({ scope: 'accounts', key: `start:${accountId}` }); setAccountActionError(''); setActionNotice('accounts', ''); setAccountAuthorizationUrl('');
     setAccountDraft({ accountId, label, code: '' });
     try {
       const result = await sessions.startAccountLogin({ accountId, label: label || accountId });
       setAccountAuthorizationUrl(result.authorizationUrl);
-      setActionNotice('Authorization started. Open the provider page, then paste the returned code.');
+      setActionNotice('accounts', 'Authorization started. Open the provider page, then paste the returned code.');
       setTrace({ method: 'POST', route: '/opencode/auth/accounts/login-start', detail: `Authorization started for ${accountId}` });
     } catch (err) { setAccountActionError(err instanceof Error ? err.message : 'Account authorization could not be started'); }
-    finally { setPendingAction(''); }
+    finally { setPendingAction(null); }
   };
 
   const startAccountLogin = async (event: FormEvent) => {
@@ -340,44 +369,44 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const completeAccountLogin = async (event: FormEvent) => {
     event.preventDefault();
     if (!sessions.completeAccountLogin) return;
-    setPendingAction('account-complete'); setAccountActionError(''); setActionNotice('');
+    setPendingAction({ scope: 'accounts', key: `complete:${accountDraft.accountId.trim()}` }); setAccountActionError(''); setActionNotice('accounts', '');
     try {
       await sessions.completeAccountLogin({ accountId: accountDraft.accountId.trim(), code: accountDraft.code.trim() });
       await reloadAccounts();
       setAccountDraft({ accountId: '', label: '', code: '' });
       setAccountAuthorizationUrl('');
-      setActionNotice('Account authorized and saved.');
+      setActionNotice('accounts', 'Account authorized and saved.');
       setTrace({ method: 'POST', route: '/opencode/auth/accounts/login-complete', detail: 'Account authorization completed' });
     } catch (err) { setAccountActionError(err instanceof Error ? err.message : 'Account authorization could not be completed'); }
-    finally { setPendingAction(''); }
+    finally { setPendingAction(null); }
   };
 
   const setDefaultAccount = async (account: AccountChoice) => {
     if (!sessions.setDefaultAccount) return;
-    setPendingAction(`account-default-${account.id}`); setAccountActionError(''); setActionNotice('');
+    setPendingAction({ scope: 'accounts', key: `default:${account.id}` }); setAccountActionError(''); setActionNotice('accounts', '');
     try {
       await sessions.setDefaultAccount(account.id);
       await reloadAccounts();
-      setActionNotice(`${account.label} is now the default account.`);
+      setActionNotice('accounts', `${account.label} is now the default account.`);
       setTrace({ method: 'PATCH', route: '/opencode/auth/accounts/default', detail: `${account.id} set as default` });
     } catch (err) { setAccountActionError(err instanceof Error ? err.message : 'Default account could not be saved'); }
-    finally { setPendingAction(''); }
+    finally { setPendingAction(null); }
   };
 
   const removeSelectedAccount = async () => {
     if (!removingAccount || !sessions.removeAccount) return;
-    const account = removingAccount; setRemovingAccount(null); setPendingAction(`account-remove-${account.id}`); setAccountActionError(''); setActionNotice('');
+    const account = removingAccount; setPendingAction({ scope: 'accounts', key: `remove:${account.id}` }); setAccountActionError(''); setActionNotice('accounts', '');
     try {
       await sessions.removeAccount(account.id);
       await reloadAccounts();
-      setActionNotice(`${account.label} removed.`);
+      setActionNotice('accounts', `${account.label} removed.`);
       setTrace({ method: 'DELETE', route: `/opencode/auth/accounts/${encodeURIComponent(account.id)}`, detail: `${account.id} removed` });
     } catch (err) { setAccountActionError(err instanceof Error ? err.message : 'Account could not be removed'); }
-    finally { setPendingAction(''); }
+    finally { setRemovingAccount(null); setPendingAction(null); }
   };
 
   const runRuntimeCheck = async (service: 'api' | 'engine') => {
-    setPendingAction(`runtime-${service}`); setActionNotice('');
+    setPendingAction({ scope: 'runtime', key: service }); setActionNotice('runtime', '');
     try {
       await gateway.health[service]();
       setRuntimeStatus((current) => ({ ...current, [service]: 'Healthy' }));
@@ -385,7 +414,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Health check failed';
       setRuntimeStatus((current) => ({ ...current, [service]: message }));
-    } finally { setPendingAction(''); }
+    } finally { setPendingAction(null); }
   };
 
   const reloadMcp = async () => {
@@ -393,88 +422,95 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   };
 
   const runMcpAction = async (server: McpServer, action: 'connect' | 'disconnect') => {
-    setPendingAction(`${action}-${server.name}`); setMcpActionError(''); setActionNotice('');
+    setPendingAction({ scope: 'mcp', key: `${action}:${server.name}` }); setMcpActionError(''); setActionNotice('mcp', '');
     try {
       if (action === 'connect') {
         const result = await mcp.connect(server.name);
         if (result.authorizationUrl) setMcpAuthorization({ name: server.name, url: result.authorizationUrl });
-        setActionNotice(result.authorizationUrl ? `${server.name} requires browser authorization.` : `${server.name} connected.`);
+        setActionNotice('mcp', result.authorizationUrl ? `${server.name} requires browser authorization.` : `${server.name} connected.`);
       } else {
         await mcp.disconnect(server.name);
-        setActionNotice(`${server.name} disconnected.`);
+        setActionNotice('mcp', `${server.name} disconnected.`);
       }
       await reloadMcp();
       setTrace({ method: 'POST', route: `/opencode/mcp/${encodeURIComponent(server.name)}/${action}`, detail: `${server.name} ${action} request completed` });
     } catch (err) { setMcpActionError(err instanceof Error ? err.message : `MCP ${action} failed`); }
-    finally { setPendingAction(''); }
+    finally { setPendingAction(null); }
   };
 
   const removeMcp = async () => {
     if (!removing) return;
-    const server = removing; setRemoving(null); setPendingAction(`remove-${server.name}`); setMcpActionError(''); setActionNotice('');
+    const server = removing; setPendingAction({ scope: 'mcp', key: `remove:${server.name}` }); setMcpActionError(''); setActionNotice('mcp', '');
     try {
       await mcp.remove(server.name);
       await reloadMcp();
-      setActionNotice(`${server.name} removed.`);
+      setActionNotice('mcp', `${server.name} removed.`);
       setTrace({ method: 'DELETE', route: `/opencode/mcp/${encodeURIComponent(server.name)}`, detail: `${server.name} removed` });
     } catch (err) { setMcpActionError(err instanceof Error ? err.message : 'MCP server removal failed'); }
-    finally { setPendingAction(''); }
+    finally { setRemoving(null); setPendingAction(null); }
   };
 
   const addMcp = async (event: FormEvent) => {
     event.preventDefault();
-    setPendingAction('mcp-add'); setMcpActionError(''); setActionNotice('');
+    setPendingAction({ scope: 'mcp', key: 'add' }); setMcpActionError(''); setActionNotice('mcp', '');
     try {
       await mcp.add({ name: mcpDraft.name.trim(), ...(mcpDraft.kind === 'remote' ? { url: mcpDraft.value.trim() } : { command: mcpDraft.value.trim() }) });
       await reloadMcp();
-      setActionNotice(`${mcpDraft.name.trim()} added and saved.`);
+      setActionNotice('mcp', `${mcpDraft.name.trim()} added and saved.`);
       setTrace({ method: 'POST', route: '/opencode/mcp', detail: `${mcpDraft.name.trim()} added` });
       setMcpDraft({ name: '', kind: 'remote', value: '' });
     } catch (err) { setMcpActionError(err instanceof Error ? err.message : 'MCP server could not be added'); }
-    finally { setPendingAction(''); }
+    finally { setPendingAction(null); }
   };
 
   const saveMcpCredentials = async (event: FormEvent, server: McpServer) => {
     event.preventDefault();
-    setPendingAction(`mcp-credentials-${server.name}`); setMcpActionError(''); setActionNotice('');
+    setPendingAction({ scope: 'mcp', key: `credentials:${server.name}` }); setMcpActionError(''); setActionNotice('mcp', '');
     try {
       await mcp.setCredentials(server.name, mcpCredentials[server.name] ?? {});
       await reloadMcp();
       setMcpCredentials((current) => ({ ...current, [server.name]: {} }));
-      setActionNotice(`${server.name} credentials saved.`);
+      setActionNotice('mcp', `${server.name} credentials saved.`);
       setTrace({ method: 'POST', route: `/opencode/mcp/${encodeURIComponent(server.name)}/credentials`, detail: `${server.name} credentials saved` });
     } catch (err) { setMcpActionError(err instanceof Error ? err.message : 'MCP credentials could not be saved'); }
-    finally { setPendingAction(''); }
+    finally { setPendingAction(null); }
   };
 
   const startMcpOAuth = async (server: McpServer) => {
-    setPendingAction(`mcp-oauth-${server.name}`); setMcpActionError(''); setActionNotice('');
+    setPendingAction({ scope: 'mcp', key: `oauth:${server.name}` }); setMcpActionError(''); setActionNotice('mcp', '');
     try {
       const result = await mcp.startOAuth(server.name);
       setMcpAuthorization({ name: server.name, url: result.authorizationUrl });
-      setActionNotice(`Authorization started for ${server.name}.`);
+      setActionNotice('mcp', `Authorization started for ${server.name}.`);
       setTrace({ method: 'POST', route: `/opencode/mcp/${encodeURIComponent(server.name)}/oauth/start`, detail: `${server.name} OAuth started` });
     } catch (err) { setMcpActionError(err instanceof Error ? err.message : 'MCP authorization could not be started'); }
-    finally { setPendingAction(''); }
+    finally { setPendingAction(null); }
   };
 
   const checkMcpOAuth = async () => {
     if (!mcpAuthorization) return;
-    setPendingAction(`mcp-oauth-status-${mcpAuthorization.name}`); setMcpActionError('');
+    setPendingAction({ scope: 'mcp', key: `oauth-status:${mcpAuthorization.name}` }); setMcpActionError('');
     try {
       const result = await mcp.oauthStatus(mcpAuthorization.name);
       await reloadMcp();
-      setActionNotice(`${mcpAuthorization.name} authorization status: ${result.status}.`);
+      setActionNotice('mcp', `${mcpAuthorization.name} authorization status: ${result.status}.`);
       setTrace({ method: 'GET', route: `/opencode/mcp/${encodeURIComponent(mcpAuthorization.name)}/oauth/status`, detail: `${mcpAuthorization.name} OAuth status is ${result.status}` });
       if (/connected|authorized|complete/i.test(result.status)) setMcpAuthorization(null);
     } catch (err) { setMcpActionError(err instanceof Error ? err.message : 'MCP authorization status could not be loaded'); }
-    finally { setPendingAction(''); }
+    finally { setPendingAction(null); }
   };
 
   const defaultProfile = profiles.find((profile) => profile.isDefault);
   const connectedAccounts = accounts.filter((account) => !accountNeedsRelogin(account)).length;
   const staleAccounts = accounts.length - connectedAccounts;
   const connectedMcp = mcpServers.filter((server) => server.status === 'connected').length;
+  const mcpAttentionRank = (server: McpServer) => server.status === 'failed' ? 0 : server.status === 'needs_auth' ? 1 : server.status === 'connected' ? 3 : 2;
+  const visibleMcpServers = [...mcpServers]
+    .sort((left, right) => mcpAttentionRank(left) - mcpAttentionRank(right) || left.name.localeCompare(right.name))
+    .filter((server) => server.name.toLocaleLowerCase().includes((mcpServers.length > 10 ? mcpSearch : '').trim().toLocaleLowerCase()));
+  const visibleProfiles = profiles.filter((profile) => `${profile.label} ${profile.provider} ${profile.model}`.toLocaleLowerCase().includes(profileSearch.trim().toLocaleLowerCase()));
+  const enabledProfiles = visibleProfiles.filter((profile) => profile.enabled);
+  const disabledProfiles = visibleProfiles.filter((profile) => !profile.enabled);
   const items = baseItems({
     profiles: profileError || (profiles.length ? `${profiles.length} configured${defaultProfile ? ` · default ${defaultProfile.label}` : ''}` : 'No profiles configured'),
     accounts: accountsError || `${connectedAccounts} connected · ${accounts.length} available${staleAccounts ? ` · ${staleAccounts} need re-authorization` : ''}`,
@@ -484,50 +520,64 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     mcp: mcpError || `${connectedMcp} connected · ${mcpServers.length} configured`,
   });
 
-  const profilesInspector = () => <><SectionIntro scope="Agent / profile">Profiles own identity, model defaults, delegation, skills, MCP access, and protected-action policy. Editing stays in the dedicated profile surface.</SectionIntro>{retryControl('profiles', profileError, 'Retry profiles')}{!profileError && (profiles.length === 0 ? <div className="agent-settings-empty"><strong>No agent profiles configured</strong><p>Create a profile before starting a configured session.</p></div> : <div className="agent-settings-records">{profiles.map((profile) => <article key={profile.id} data-testid={`agent-setting-${profile.id}`}><span className="profile-avatar" aria-hidden="true">{profileAvatarLabel(profile)}</span><span><strong>{profile.label}</strong><small>{profile.enabled ? 'Enabled' : 'Disabled'} · {profile.provider} · {profile.model}{profile.isDefault ? ' · Default' : ''}</small></span></article>)}</div>)}<button className="primary-button" type="button" onClick={() => navigate('/profiles')} data-testid="agent-settings-open-profiles">Open profile editor</button></>;
+  const profileRows = (rows: Profile[]) => rows.map((profile) => <button className={`agent-settings-profile-row${profile.enabled ? '' : ' disabled'}`} type="button" key={profile.id} onClick={() => navigate(`/profiles?profile=${encodeURIComponent(profile.id)}`)} data-testid={`agent-setting-${profile.id}`}><span className="profile-avatar" aria-hidden="true">{profileAvatarLabel(profile)}</span><span><strong>{profile.label}</strong><small>{profile.provider} · {profile.model}{profile.isDefault ? ' · Default' : ''}</small></span>{!profile.enabled && <em>Disabled</em>}</button>);
+  const profilesInspector = () => <><SectionIntro scope="Agent / profile">Profiles own identity, model defaults, delegation, skills, MCP access, and protected-action policy. Editing stays in the dedicated profile surface.</SectionIntro>{retryControl('profiles', profileError, 'Retry profiles')}<button className="primary-button" type="button" onClick={() => navigate('/profiles')} data-testid="agent-settings-open-profiles">Open profile editor</button>{!profileError && (profiles.length === 0 ? <div className="agent-settings-empty"><strong>No agent profiles configured</strong><p>Create a profile before starting a configured session.</p></div> : <><label className="list-inspector-search agent-settings-profile-search"><span className="sr-only">Search profiles overview</span><input type="search" value={profileSearch} onChange={(event) => setProfileSearch(event.target.value)} placeholder="Search profiles" /></label><div className="agent-settings-profile-groups">{enabledProfiles.length > 0 && <section aria-labelledby="agent-settings-enabled-heading"><h3 id="agent-settings-enabled-heading">Enabled profiles</h3><div className="agent-settings-profile-list">{profileRows(enabledProfiles)}</div></section>}{disabledProfiles.length > 0 && <section aria-labelledby="agent-settings-disabled-heading" data-testid="agent-settings-disabled-profiles"><h3 id="agent-settings-disabled-heading">Disabled profiles</h3><div className="agent-settings-profile-list">{profileRows(disabledProfiles)}</div></section>}{visibleProfiles.length === 0 && <div className="agent-settings-empty" role="status"><strong>No matching profiles</strong><p>Try a label, provider, or model.</p></div>}</div></>)}</>;
   const accountsInspector = () => <>
     <HermesAccountsSettings />
     <SectionIntro scope="Desktop local">Anthropic accounts and every other model provider are authorized against the local OpenCode runtime.</SectionIntro>
     {retryControl('accounts', accountsError, 'Retry accounts')}
     {accountActionError && <p role="alert">{accountActionError}</p>}
-    {(pendingAction.startsWith('account-') || pendingAction.startsWith('provider-')) && <p role="status">Saving account configuration…</p>}
-    {actionNotice && <p role="status">{actionNotice}</p>}
+    {(actionPending('accounts') || actionPending('providers')) && <p role="status">Saving account configuration…</p>}
+    {(actionNotices.accounts || actionNotices.providers) && <p role="status">{actionNotices.accounts || actionNotices.providers}</p>}
     {!accountsError && accounts.length === 0 && <div className="agent-settings-empty"><strong>No provider accounts reported</strong><p>Authorize an account below.</p></div>}
     <div className="agent-settings-records">
-      {accounts.map((account) => <article key={account.id} className={`agent-settings-account${accountNeedsRelogin(account) ? ' needs-relogin' : ''}`} data-testid={`agent-settings-account-${account.id}`} data-account-status={account.status}><span><strong>{account.label}</strong><small>{account.status}{account.isDefault ? ' · Default' : ''}</small>{accountNeedsRelogin(account) && <span className="kind-badge" data-testid={`agent-settings-account-attention-${account.id}`}>Needs re-authorization</span>}</span><div className="agent-settings-actions">{accountNeedsRelogin(account) && <button className="primary-button" type="button" disabled={Boolean(pendingAction)} onClick={() => void beginAccountLogin(account.id, account.label)} data-testid={`agent-settings-account-relogin-${account.id}`}>Re-authorize</button>}{!account.isDefault && <button className="secondary-button" type="button" disabled={Boolean(pendingAction)} onClick={() => void setDefaultAccount(account)} data-testid={`agent-settings-account-default-${account.id}`}>Make default</button>}<button className="text-danger-button" type="button" disabled={Boolean(pendingAction)} onClick={() => setRemovingAccount(account)} data-testid={`agent-settings-account-remove-${account.id}`}>Remove</button></div></article>)}
+      {accounts.map((account) => <article key={account.id} className={`agent-settings-account${accountNeedsRelogin(account) ? ' needs-relogin' : ''}`} data-testid={`agent-settings-account-${account.id}`} data-account-status={account.status}><span><strong>{account.label}</strong><small>{account.status}{account.isDefault ? ' · Default' : ''}</small>{accountNeedsRelogin(account) && <span className="kind-badge" data-testid={`agent-settings-account-attention-${account.id}`}>Needs re-authorization</span>}</span><div className="agent-settings-actions">{accountNeedsRelogin(account) && <button className="primary-button" type="button" disabled={actionPending('accounts')} onClick={() => void beginAccountLogin(account.id, account.label)} data-testid={`agent-settings-account-relogin-${account.id}`}>Re-authorize</button>}{!account.isDefault && <button className="secondary-button" type="button" disabled={actionPending('accounts')} onClick={() => void setDefaultAccount(account)} data-testid={`agent-settings-account-default-${account.id}`}>Make default</button>}<button className="text-danger-button" type="button" disabled={actionPending('accounts')} onClick={() => setRemovingAccount(account)} data-testid={`agent-settings-account-remove-${account.id}`}>Remove</button></div></article>)}
     </div>
     <form className="agent-settings-form" onSubmit={startAccountLogin}>
       <h3>Authorize Anthropic account</h3>
       <label>Account ID<input required pattern="[a-z0-9-]{1,32}" value={accountDraft.accountId} onChange={(event) => setAccountDraft((current) => ({ ...current, accountId: event.target.value }))} data-testid="agent-settings-account-id" /></label>
       <label>Label<input value={accountDraft.label} onChange={(event) => setAccountDraft((current) => ({ ...current, label: event.target.value }))} data-testid="agent-settings-account-label" /></label>
-      <button className="primary-button" type="submit" disabled={Boolean(pendingAction)} data-testid="agent-settings-account-start">Start authorization</button>
+      <button className="primary-button" type="submit" disabled={actionPending('accounts')} data-testid="agent-settings-account-start">Start authorization</button>
     </form>
-    {accountAuthorizationUrl && <form className="agent-settings-form" onSubmit={completeAccountLogin}><h3 data-testid="agent-settings-account-authorizing">Authorizing {accountDraft.label || accountDraft.accountId}</h3><a href={accountAuthorizationUrl} target="_blank" rel="noreferrer" data-testid="agent-settings-account-authorization-link">Open Anthropic authorization</a><label>Authorization code<input required value={accountDraft.code} onChange={(event) => setAccountDraft((current) => ({ ...current, code: event.target.value }))} data-testid="agent-settings-account-code" /></label><button className="primary-button" type="submit" disabled={Boolean(pendingAction)} data-testid="agent-settings-account-complete">Save account</button></form>}
+    {accountAuthorizationUrl && <form className="agent-settings-form" onSubmit={completeAccountLogin}><h3 data-testid="agent-settings-account-authorizing">Authorizing {accountDraft.label || accountDraft.accountId}</h3><a href={accountAuthorizationUrl} target="_blank" rel="noreferrer" data-testid="agent-settings-account-authorization-link">Open Anthropic authorization</a><label>Authorization code<input required value={accountDraft.code} onChange={(event) => setAccountDraft((current) => ({ ...current, code: event.target.value }))} data-testid="agent-settings-account-code" /></label><button className="primary-button" type="submit" disabled={actionPending('accounts')} data-testid="agent-settings-account-complete">Save account</button></form>}
     <h3 className="agent-settings-subhead">Model providers</h3>
     <p className="agent-settings-subhead-note">OAuth and API-key providers are stored by the local OpenCode runtime, the same as in the Flutter settings screen.</p>
     {retryControl('providers', providerError, 'Retry providers')}
     <div className="agent-settings-records">
-      {providerCatalog.map((provider) => { const connected = authProviders?.includes(provider.id) ?? false; const confirmed = providersCurrent && authProviders !== null; const badge = authProviders === null ? 'Status unknown' : `${confirmed ? '' : 'Last known '}${connected ? 'Connected' : 'Not connected'}`; return <article key={provider.id} className={`agent-settings-account${confirmed && !connected ? ' needs-relogin' : ''}`} data-testid={`agent-settings-provider-${provider.id}`}><span><strong>{provider.label}</strong><small>{provider.detail}</small><span className={`kind-badge${authProviders === null ? ' agent-settings-status-unknown' : ''}`} data-testid={`agent-settings-provider-status-${provider.id}`}>{badge}</span></span>{provider.kind === 'oauth' && <div className="agent-settings-actions"><button className={connected ? 'secondary-button' : 'primary-button'} type="button" disabled={Boolean(pendingAction)} onClick={() => void startProviderAuth(provider)} data-testid={`agent-settings-provider-authorize-${provider.id}`}>{connected ? 'Reconnect' : 'Connect'}</button></div>}{provider.kind === 'key' && <form className="agent-settings-form" onSubmit={(event) => void saveProviderApiKey(event, provider)}><label>API key<input required type="password" autoComplete="off" value={providerDraft.apiKey[provider.id] ?? ''} onChange={(event) => { const value = event.target.value; setProviderDraft((current) => ({ ...current, apiKey: { ...current.apiKey, [provider.id]: value } })); }} data-testid={`agent-settings-provider-key-${provider.id}`} /></label><button className="primary-button" type="submit" disabled={Boolean(pendingAction)} data-testid={`agent-settings-provider-key-save-${provider.id}`}>{connected ? 'Replace key' : 'Save key'}</button></form>}</article>; })}
+      {providerCatalog.map((provider) => { const connected = authProviders?.includes(provider.id) ?? false; const confirmed = providersCurrent && authProviders !== null; const badge = authProviders === null ? 'Status unknown' : `${confirmed ? '' : 'Last known '}${connected ? 'Connected' : 'Not connected'}`; return <article key={provider.id} className={`agent-settings-account${confirmed && !connected ? ' needs-relogin' : ''}`} data-testid={`agent-settings-provider-${provider.id}`}><span><strong>{provider.label}</strong><small>{provider.detail}</small><span className={`kind-badge${authProviders === null ? ' agent-settings-status-unknown' : ''}`} data-testid={`agent-settings-provider-status-${provider.id}`}>{badge}</span></span>{provider.kind === 'oauth' && <div className="agent-settings-actions"><button className={connected ? 'secondary-button' : 'primary-button'} type="button" disabled={actionPending('providers')} onClick={() => void startProviderAuth(provider)} data-testid={`agent-settings-provider-authorize-${provider.id}`}>{connected ? 'Reconnect' : 'Connect'}</button></div>}{provider.kind === 'key' && <form className="agent-settings-form" onSubmit={(event) => void saveProviderApiKey(event, provider)}><label>API key<input required type="password" autoComplete="off" value={providerDraft.apiKey[provider.id] ?? ''} onChange={(event) => { const value = event.target.value; setProviderDraft((current) => ({ ...current, apiKey: { ...current.apiKey, [provider.id]: value } })); }} data-testid={`agent-settings-provider-key-${provider.id}`} /></label><button className="primary-button" type="submit" disabled={actionPending('providers')} data-testid={`agent-settings-provider-key-save-${provider.id}`}>{connected ? 'Replace key' : 'Save key'}</button></form>}</article>; })}
     </div>
-    {providerFlow && <div className="agent-settings-form" data-testid={`agent-settings-provider-flow-${providerFlow.id}`}><h3>Authorizing {providerFlow.id}</h3>{providerFlow.instructions && <p>{providerFlow.instructions}</p>}<p><a href={providerFlow.authUrl} target="_blank" rel="noreferrer" data-testid="agent-settings-provider-authorization-link">Open {providerFlow.id} authorization</a></p>{providerFlow.method === 1 ? <form className="agent-settings-form" onSubmit={completeProviderAuth}><label>Callback URL or code<input required value={providerDraft.code} onChange={(event) => { const value = event.target.value; setProviderDraft((current) => ({ ...current, code: value })); }} data-testid="agent-settings-provider-code" /></label><button className="primary-button" type="submit" disabled={Boolean(pendingAction)} data-testid="agent-settings-provider-complete">Finish connecting</button></form> : <button className="primary-button" type="button" disabled={Boolean(pendingAction)} onClick={() => void checkProviderAuth()} data-testid="agent-settings-provider-check">I finished sign-in — check connection</button>}</div>}
+    {providerFlow && <div className="agent-settings-form" data-testid={`agent-settings-provider-flow-${providerFlow.id}`}><h3>Authorizing {providerFlow.id}</h3>{providerFlow.instructions && <p>{providerFlow.instructions}</p>}<p><a href={providerFlow.authUrl} target="_blank" rel="noreferrer" data-testid="agent-settings-provider-authorization-link">Open {providerFlow.id} authorization</a></p>{providerFlow.method === 1 ? <form className="agent-settings-form" onSubmit={completeProviderAuth}><label>Callback URL or code<input required value={providerDraft.code} onChange={(event) => { const value = event.target.value; setProviderDraft((current) => ({ ...current, code: value })); }} data-testid="agent-settings-provider-code" /></label><button className="primary-button" type="submit" disabled={actionPending('providers')} data-testid="agent-settings-provider-complete">Finish connecting</button></form> : <button className="primary-button" type="button" disabled={actionPending('providers')} onClick={() => void checkProviderAuth()} data-testid="agent-settings-provider-check">I finished sign-in — check connection</button>}</div>}
   </>;
-  const runtimeInspector = () => <><SectionIntro scope="Desktop local">Rhythm uses a local API and OpenCode engine supplied by the trusted desktop host.</SectionIntro><dl className="property-list"><div><dt>Local API</dt><dd>{gateway.environment ? `127.0.0.1:${gateway.environment.apiPort}` : 'Unavailable'} · {runtimeStatus.api}</dd></div><div><dt>OpenCode engine</dt><dd>{gateway.environment ? `127.0.0.1:${gateway.environment.enginePort}` : 'Unavailable'} · {runtimeStatus.engine}</dd></div></dl>{pendingAction.startsWith('runtime-') && <p role="status">Checking the local runtime…</p>}<div className="agent-settings-actions"><button className="secondary-button" type="button" disabled={Boolean(pendingAction)} onClick={() => void runRuntimeCheck('api')} data-testid="agent-settings-check-api">Check local API</button><button className="secondary-button" type="button" disabled={Boolean(pendingAction)} onClick={() => void runRuntimeCheck('engine')} data-testid="agent-settings-check-engine">Check OpenCode engine</button></div><GapNotice place="Flutter Agent settings → OpenCode server">Changing or restarting the runtime requires GET and PATCH /opencode/runtime plus POST /opencode/runtime/restart; those endpoints do not exist.</GapNotice></>;
+  const runtimeInspector = () => <><SectionIntro scope="Desktop local">Rhythm uses a local API and OpenCode engine supplied by the trusted desktop host.</SectionIntro><dl className="property-list"><div><dt>Local API</dt><dd>{gateway.environment ? `127.0.0.1:${gateway.environment.apiPort}` : 'Unavailable'} · {runtimeStatus.api}</dd></div><div><dt>OpenCode engine</dt><dd>{gateway.environment ? `127.0.0.1:${gateway.environment.enginePort}` : 'Unavailable'} · {runtimeStatus.engine}</dd></div></dl>{actionPending('runtime') && <p role="status">Checking the local runtime…</p>}<div className="agent-settings-actions"><button className="secondary-button" type="button" disabled={actionPending('runtime', 'api')} aria-busy={actionPending('runtime', 'api')} onClick={() => void runRuntimeCheck('api')} data-testid="agent-settings-check-api">{actionPending('runtime', 'api') ? 'Checking local API…' : 'Check local API'}</button><button className="secondary-button" type="button" disabled={actionPending('runtime', 'engine')} aria-busy={actionPending('runtime', 'engine')} onClick={() => void runRuntimeCheck('engine')} data-testid="agent-settings-check-engine">{actionPending('runtime', 'engine') ? 'Checking OpenCode engine…' : 'Check OpenCode engine'}</button></div><GapNotice place="Flutter Agent settings → OpenCode server">Changing or restarting the runtime requires GET and PATCH /opencode/runtime plus POST /opencode/runtime/restart; those endpoints do not exist.</GapNotice></>;
   const mcpInspector = () => <>
     <SectionIntro scope="Workspace">MCP servers provide tools to profiles. Changes are saved through the workspace MCP service.</SectionIntro>
     {retryControl('mcp', mcpError, 'Retry MCP servers')}
     {mcpActionError && <p role="alert">{mcpActionError}</p>}
-    {pendingAction.startsWith('mcp-') && <p role="status">Saving MCP configuration…</p>}
-    {actionNotice && <p role="status">{actionNotice}</p>}
-    <form className="agent-settings-form" onSubmit={addMcp}>
-      <h3>Add MCP server</h3>
-      <label>Name<input required value={mcpDraft.name} onChange={(event) => setMcpDraft((current) => ({ ...current, name: event.target.value }))} data-testid="agent-settings-mcp-add-name" /></label>
-      <label>Connection type<select value={mcpDraft.kind} onChange={(event) => setMcpDraft((current) => ({ ...current, kind: event.target.value as 'remote' | 'local' }))} data-testid="agent-settings-mcp-add-kind"><option value="remote">Remote URL</option><option value="local">Local command</option></select></label>
-      <label>{mcpDraft.kind === 'remote' ? 'URL' : 'Command'}<input required type={mcpDraft.kind === 'remote' ? 'url' : 'text'} value={mcpDraft.value} onChange={(event) => setMcpDraft((current) => ({ ...current, value: event.target.value }))} data-testid="agent-settings-mcp-add-value" /></label>
-      <button className="primary-button" type="submit" disabled={Boolean(pendingAction)} data-testid="agent-settings-mcp-add">Add server</button>
-    </form>
-    {!mcpError && mcpServers.length === 0 && <div className="agent-settings-empty"><strong>No MCP servers configured</strong><p>Add a local command or remote URL above.</p></div>}
-    {mcpAuthorization && <div className="agent-settings-gap" role="status"><strong>{mcpAuthorization.name} authorization</strong><p><a href={mcpAuthorization.url} target="_blank" rel="noreferrer" data-testid="agent-settings-mcp-authorization-link">Open provider authorization</a></p><button className="secondary-button" type="button" disabled={Boolean(pendingAction)} onClick={() => void checkMcpOAuth()} data-testid="agent-settings-mcp-oauth-status">Check authorization status</button></div>}
-    <div className="agent-settings-mcp-list">{mcpServers.map((server) => <article key={server.name} data-testid={`agent-settings-mcp-${server.name}`}><header><div><strong>{server.name}</strong><small>{server.source} · {server.tools.length} tools</small></div><span className="kind-badge">{server.status}</span></header>{server.error && <p role="alert">{server.error}</p>}{server.needsCredentials && server.requiredEnv.length > 0 && <form className="agent-settings-form" onSubmit={(event) => void saveMcpCredentials(event, server)}><p>Credentials required</p>{server.requiredEnv.map((key) => <label key={key}>{key}<input required type="password" autoComplete="off" value={mcpCredentials[server.name]?.[key] ?? ''} onChange={(event) => setMcpCredentials((current) => ({ ...current, [server.name]: { ...current[server.name], [key]: event.target.value } }))} data-testid={`agent-settings-mcp-credential-${server.name}-${key}`} /></label>)}<button className="primary-button" type="submit" disabled={Boolean(pendingAction)} data-testid={`agent-settings-mcp-credentials-save-${server.name}`}>Save credentials</button></form>}<div className="agent-settings-actions">{server.status === 'connected' ? <button className="secondary-button" type="button" disabled={Boolean(pendingAction)} onClick={() => void runMcpAction(server, 'disconnect')} data-testid={`agent-settings-mcp-disconnect-${server.name}`}>Disconnect</button> : server.needsCredentials && server.requiredEnv.length === 0 ? <button className="primary-button" type="button" disabled={Boolean(pendingAction)} onClick={() => void startMcpOAuth(server)} data-testid={`agent-settings-mcp-oauth-${server.name}`}>Authorize</button> : <button className="primary-button" type="button" disabled={Boolean(pendingAction) || server.needsCredentials} onClick={() => void runMcpAction(server, 'connect')} data-testid={`agent-settings-mcp-connect-${server.name}`}>Connect</button>}<button className="text-danger-button" type="button" disabled={Boolean(pendingAction)} onClick={() => setRemoving(server)} data-testid={`agent-settings-mcp-remove-${server.name}`}>Remove</button></div></article>)}</div>
+    {actionPending('mcp') && <p role="status">{pendingAction ? `${pendingAction.key.split(':')[0]} ${pendingAction.key.split(':').slice(1).join(':')}`.trim() : 'Saving MCP configuration'}…</p>}
+    {actionNotices.mcp && <p role="status">{actionNotices.mcp}</p>}
+    {mcpAuthorization && <div className="agent-settings-gap" role="status"><strong>{mcpAuthorization.name} authorization</strong><p><a href={mcpAuthorization.url} target="_blank" rel="noreferrer" data-testid="agent-settings-mcp-authorization-link">Open provider authorization</a></p><button className="secondary-button" type="button" disabled={actionPending('mcp', `oauth-status:${mcpAuthorization.name}`)} aria-busy={actionPending('mcp', `oauth-status:${mcpAuthorization.name}`)} onClick={() => void checkMcpOAuth()} data-testid="agent-settings-mcp-oauth-status">{actionPending('mcp', `oauth-status:${mcpAuthorization.name}`) ? 'Checking authorization…' : 'Check authorization status'}</button></div>}
+    {mcpServers.length > 10 && <label className="list-inspector-search agent-settings-mcp-search"><span className="sr-only">Search MCP servers</span><input type="search" value={mcpSearch} onChange={(event) => setMcpSearch(event.target.value)} placeholder="Search MCP servers" /></label>}
+    {!mcpError && mcpServers.length === 0 && <div className="agent-settings-empty"><strong>No MCP servers configured</strong><p>Add a local command or remote URL below.</p></div>}
+    <div className="agent-settings-mcp-list">{visibleMcpServers.map((server) => {
+      const rowPending = pendingAction?.scope === 'mcp' && pendingAction.key.endsWith(`:${server.name}`);
+      const disconnecting = actionPending('mcp', `disconnect:${server.name}`);
+      const connecting = actionPending('mcp', `connect:${server.name}`);
+      const authorizing = actionPending('mcp', `oauth:${server.name}`);
+      const savingCredentials = actionPending('mcp', `credentials:${server.name}`);
+      const presentation = mcpStatusPresentation(server.status);
+      return <article key={server.name} className={presentation.className} data-testid={`agent-settings-mcp-${server.name}`}><header><div><strong>{server.name}</strong><small>{server.source} · {server.tools.length} tools</small></div><span className="kind-badge" data-testid={`agent-settings-mcp-status-${server.name}`}>{presentation.label}</span></header>{server.error && <p className="agent-settings-mcp-error" role="alert"><span aria-hidden="true">!</span> {server.error}</p>}{server.needsCredentials && server.requiredEnv.length > 0 && <form className="agent-settings-form" onSubmit={(event) => void saveMcpCredentials(event, server)}><p>Credentials required</p>{server.requiredEnv.map((key) => <label key={key}>{key}<input required type="password" autoComplete="off" value={mcpCredentials[server.name]?.[key] ?? ''} onChange={(event) => setMcpCredentials((current) => ({ ...current, [server.name]: { ...current[server.name], [key]: event.target.value } }))} data-testid={`agent-settings-mcp-credential-${server.name}-${key}`} /></label>)}<button className="primary-button" type="submit" disabled={savingCredentials} aria-busy={savingCredentials} data-testid={`agent-settings-mcp-credentials-save-${server.name}`}>{savingCredentials ? 'Saving credentials…' : 'Save credentials'}</button></form>}<div className="agent-settings-actions">{server.status === 'connected' ? <button className="secondary-button" type="button" disabled={rowPending} aria-busy={disconnecting} onClick={() => void runMcpAction(server, 'disconnect')} data-testid={`agent-settings-mcp-disconnect-${server.name}`}>{disconnecting ? 'Disconnecting…' : 'Disconnect'}</button> : server.needsCredentials && server.requiredEnv.length === 0 ? <button className="primary-button" type="button" disabled={rowPending} aria-busy={authorizing} onClick={() => void startMcpOAuth(server)} data-testid={`agent-settings-mcp-oauth-${server.name}`}>{authorizing ? 'Authorizing…' : 'Authorize'}</button> : <button className="primary-button" type="button" disabled={rowPending || server.needsCredentials} aria-busy={connecting} onClick={() => void runMcpAction(server, 'connect')} data-testid={`agent-settings-mcp-connect-${server.name}`}>{connecting ? 'Connecting…' : 'Connect'}</button>}<button className="text-danger-button" type="button" disabled={rowPending} onClick={() => setRemoving(server)} data-testid={`agent-settings-mcp-remove-${server.name}`}>Remove</button></div></article>;
+    })}</div>
+    {mcpServers.length > 0 && visibleMcpServers.length === 0 && <div className="agent-settings-empty" role="status"><strong>No matching MCP servers</strong><p>Try a different server name.</p></div>}
+    <details className="agent-settings-add-disclosure" data-testid="agent-settings-mcp-add-disclosure">
+      <summary className="secondary-button">Add server</summary>
+      <form className="agent-settings-form" onSubmit={addMcp}>
+        <h3>Add MCP server</h3>
+        <label>Name<input required value={mcpDraft.name} onChange={(event) => setMcpDraft((current) => ({ ...current, name: event.target.value }))} data-testid="agent-settings-mcp-add-name" /></label>
+        <label>Connection type<select value={mcpDraft.kind} onChange={(event) => setMcpDraft((current) => ({ ...current, kind: event.target.value as 'remote' | 'local' }))} data-testid="agent-settings-mcp-add-kind"><option value="remote">Remote URL</option><option value="local">Local command</option></select></label>
+        <label>{mcpDraft.kind === 'remote' ? 'URL' : 'Command'}<input required type={mcpDraft.kind === 'remote' ? 'url' : 'text'} value={mcpDraft.value} onChange={(event) => setMcpDraft((current) => ({ ...current, value: event.target.value }))} data-testid="agent-settings-mcp-add-value" /></label>
+        <button className="primary-button" type="submit" disabled={actionPending('mcp', 'add')} aria-busy={actionPending('mcp', 'add')} data-testid="agent-settings-mcp-add">{actionPending('mcp', 'add') ? 'Adding server…' : 'Add server'}</button>
+      </form>
+    </details>
   </>;
 
   const inspector = (item: ListInspectorItem | null) => {
@@ -545,8 +595,8 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   };
 
   return <Frame slug="agent-settings" title="Agent settings" description="Agent, desktop-local, and workspace configuration in one place." trace={trace}>
-    <ListInspector label="Agent settings sections" items={items} selectedId={selectedId} onSelect={setSelectedId} loading={loading} toolbar={<button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="agent-settings-refresh"><Icon name="refresh" size={14} />Refresh</button>} inspector={inspector} emptyState={<p>No configuration sections are available.</p>} />
-    <FocusDialog open={Boolean(removing)} onClose={() => setRemoving(null)} title="Remove MCP server?" description={removing ? `${removing.name} will be removed from this local workspace configuration.` : ''} testId="agent-settings-mcp-remove-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setRemoving(null)}>Cancel</button><button className="danger-button" type="button" onClick={() => void removeMcp()} data-testid="agent-settings-mcp-remove-confirm">Remove</button></div></FocusDialog>
-    <FocusDialog open={Boolean(removingAccount)} onClose={() => setRemovingAccount(null)} title="Remove account?" description={removingAccount ? `${removingAccount.label} will be removed from the local OpenCode account store.` : ''} testId="agent-settings-account-remove-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setRemovingAccount(null)}>Cancel</button><button className="danger-button" type="button" onClick={() => void removeSelectedAccount()} data-testid="agent-settings-account-remove-confirm">Remove</button></div></FocusDialog>
+    <ListInspector className="agent-settings-list-inspector" label="Agent settings sections" items={items} selectedId={selectedId} onSelect={setSelectedId} loading={loading} toolbar={<button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="agent-settings-refresh"><Icon name="refresh" size={14} />Refresh</button>} inspector={inspector} emptyState={<p>No configuration sections are available.</p>} />
+    <FocusDialog open={Boolean(removing)} onClose={() => { if (!actionPending('mcp')) setRemoving(null); }} title="Remove MCP server?" description={removing ? `${removing.name} will be removed from this local workspace configuration.` : ''} testId="agent-settings-mcp-remove-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" disabled={actionPending('mcp')} onClick={() => setRemoving(null)}>Cancel</button><button className="danger-button" type="button" disabled={actionPending('mcp')} aria-busy={Boolean(removing && actionPending('mcp', `remove:${removing.name}`))} onClick={() => void removeMcp()} data-testid="agent-settings-mcp-remove-confirm">{removing && actionPending('mcp', `remove:${removing.name}`) ? 'Removing…' : 'Remove'}</button></div></FocusDialog>
+    <FocusDialog open={Boolean(removingAccount)} onClose={() => { if (!actionPending('accounts')) setRemovingAccount(null); }} title="Remove account?" description={removingAccount ? `${removingAccount.label} will be removed from the local OpenCode account store.` : ''} testId="agent-settings-account-remove-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" disabled={actionPending('accounts')} onClick={() => setRemovingAccount(null)}>Cancel</button><button className="danger-button" type="button" disabled={actionPending('accounts')} aria-busy={Boolean(removingAccount && actionPending('accounts', `remove:${removingAccount.id}`))} onClick={() => void removeSelectedAccount()} data-testid="agent-settings-account-remove-confirm">{removingAccount && actionPending('accounts', `remove:${removingAccount.id}`) ? 'Removing…' : 'Remove'}</button></div></FocusDialog>
   </Frame>;
 }

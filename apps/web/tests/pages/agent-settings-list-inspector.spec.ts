@@ -353,6 +353,7 @@ test.describe('Agent Settings live persistence', () => {
       },
     });
 
+    await page.getByTestId('agent-settings-mcp-add-disclosure').locator('summary').click();
     await page.getByTestId('agent-settings-mcp-add-name').fill('calendar');
     await page.getByTestId('agent-settings-mcp-add-value').fill('https://mcp.example.test');
     await page.getByTestId('agent-settings-mcp-add').click();

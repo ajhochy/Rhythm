@@ -116,7 +116,9 @@ export function Profiles() {
   // already-fetched rows.
   useEffect(() => { if (live) loadMcpCatalog(); }, [live]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (live) loadSkillCatalog(); }, [live]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [selectedId, setSelectedId] = useState(profiles.find((profile) => profile.isDefault)?.id || profiles[0]?.id || '');
+  const requestedProfileId = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('profile');
+  const [selectedId, setSelectedId] = useState(profiles.find((profile) => profile.id === requestedProfileId)?.id || profiles.find((profile) => profile.isDefault)?.id || profiles[0]?.id || '');
+  const appliedProfileParam = useRef<string | null>(null);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [saveError, setSaveError] = useState('');
@@ -161,6 +163,14 @@ export function Profiles() {
   const resetDraft = (profile: IdentityProfile) => {
     setDraft(structuredClone(profile)); setBaseline(draftSignature(profile)); setRenaming(false); setSaveError(''); setSaved(false); setCapabilityFilter('');
   };
+  useEffect(() => {
+    if (!requestedProfileId || appliedProfileParam.current === requestedProfileId || dirty || saving) return;
+    const requested = profiles.find((profile) => profile.id === requestedProfileId);
+    if (!requested) return;
+    appliedProfileParam.current = requestedProfileId;
+    setSelectedId(requested.id);
+    resetDraft(requested);
+  }, [requestedProfileId, profiles, dirty, saving]); // eslint-disable-line react-hooks/exhaustive-deps
   const performNavigation = (target: ProfileNavigation) => {
     setPendingNavigation(null);
     if (target.kind === 'back') { navigate('/agents'); return; }
