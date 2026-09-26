@@ -135,6 +135,7 @@ async function lifecycleFixture(run) {
     async clearStorageData() { partition.storageCleared = true },
   })
   let sceneContents
+  const insertedCss = []
   class WebContentsView {
     constructor() {
       const frame = { detached: false, url: '', postMessage() {}, send() {} }
@@ -149,6 +150,7 @@ async function lifecycleFixture(run) {
         isDestroyed() { return this.closed },
         close() { this.closed = true },
         setWindowOpenHandler() {},
+        async insertCSS(css) { insertedCss.push(css); return `skin-${insertedCss.length}` },
         async loadURL(next) {
           loading = true
           this.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false }, next, false, true)
@@ -202,7 +204,7 @@ async function lifecycleFixture(run) {
     spawnChild: () => { launches++; return child },
   })
   const event = { sender: ownerContents, senderFrame: ownerFrame }
-  try { await run({ host, ipcMain, event, partition, sceneContents: () => sceneContents, contentView, launches: () => launches }) }
+  try { await run({ host, ipcMain, event, partition, sceneContents: () => sceneContents, contentView, launches: () => launches, insertedCss }) }
   finally {
     child.exitCode = 0
     child.emit('exit', 0, null)
@@ -210,6 +212,21 @@ async function lifecycleFixture(run) {
     await fs.rm(root, { recursive: true, force: true })
   }
 }
+
+test('native scene injects the Rhythm HUD skin after every document load', async () => {
+  // Regression caught: the first load or a scene reload shows unskinned Bot Crossing menus inside Rhythm.
+  await lifecycleFixture(async ({ host, ipcMain, event, sceneContents, insertedCss }) => {
+    const result = await ipcMain.handlers.get('colony:view:attach')(event)
+    assert.equal(result.ok, true)
+    assert.equal(insertedCss.length, 1)
+    assert.match(insertedCss[0], /\.hud|\.settings|\.thread-pop/)
+    assert.match(insertedCss[0], /--rhythm-accent/)
+    sceneContents().emit('did-finish-load')
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(insertedCss.length, 2)
+    await host.disposeCurrent().catch(() => {})
+  })
+})
 
 test('sticky child-exit failure still completes local view and partition teardown and refuses replacement', async () => {
   await lifecycleFixture(async ({ host, ipcMain, event, partition, sceneContents, contentView, launches }) => {

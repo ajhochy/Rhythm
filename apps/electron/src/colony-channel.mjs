@@ -24,6 +24,7 @@ export const COLONY_REQUEST_SCHEMAS = {
   'state.readCancel': [['transferId'], []],
   'inventory.page': [[], ['generation', 'cursor', 'collection', 'limit']],
   'inventory.cancel': [['generation'], []],
+  'action.run': [['kind', 'id'], []],
   'scene.select': [['threadId'], []],
   'scene.status': [['webgl'], []],
 }
@@ -78,6 +79,7 @@ export function validateColonyRequest(message, documentId) {
   if (Object.hasOwn(payload, 'cursor') && (typeof payload.cursor !== 'string' || !/^(0|[1-9][0-9]{0,8})$/.test(payload.cursor))) fail('invalid_request', 'Invalid inventory cursor')
   if (Object.hasOwn(payload, 'collection') && !['threads', 'projects', 'warnings'].includes(payload.collection)) fail('invalid_request', 'Invalid inventory collection')
   if (Object.hasOwn(payload, 'threadId') && (typeof payload.threadId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$/.test(payload.threadId))) fail('invalid_request', 'Invalid thread identity')
+  if (message.method === 'action.run' && (!['open', 'reveal', 'copyPath'].includes(payload.kind) || typeof payload.id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$/.test(payload.id))) fail('invalid_request', 'Invalid Colony action')
   if (Object.hasOwn(payload, 'webgl') && !['ready', 'lost'].includes(payload.webgl)) fail('invalid_request', 'Invalid WebGL status')
   if (message.method === 'state.mark' && !Object.hasOwn(payload, 'archived') && !Object.hasOwn(payload, 'viewedAt')) fail('invalid_request', 'State mark requires a change')
   if (Object.hasOwn(payload, 'archived') && typeof payload.archived !== 'boolean') fail('invalid_request', 'Invalid archive mark')

@@ -95,9 +95,9 @@ protocol request field) without a separate reviewed runtime upgrade.
 
 ## Pinned build inputs
 
-- Bot Crossing source: `c5163e4d0f7dfcec5e45a09b442096ed35a891d3`
+- Bot Crossing source: `52893a5f83e2bd9e1c581a106a4847b39356c852`
 - Electron 40.10.2 (`electronMajor: 40`)
-- Node 22.22.0, matching the Electron release packager and providing `node:sqlite`
+- Node 22.23.0, matching the Electron release packager and providing `node:sqlite`
 - Minimum macOS 12.0
 
 These values are one qualified input set. Release CI must build the exact source revision with

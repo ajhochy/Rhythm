@@ -21,7 +21,7 @@ function overlayOpen() {
   return Boolean(document.querySelector('.menu-popover, [role="dialog"], .toast[data-visible="true"]'));
 }
 
-function ColonyHost({ headless, onError, onAttached, onSceneSelect, onSceneStatus, onShortcut }: { headless: boolean; onError(message: string): void; onAttached(): void; onSceneSelect(threadId: string): void; onSceneStatus(available: boolean): void; onShortcut(key: 'archive' | 'restore' | 'viewed'): void }) {
+function ColonyHost({ headless, onError, onAttached, onSceneSelect, onSceneStatus, onSceneAction, onShortcut }: { headless: boolean; onError(message: string): void; onAttached(): void; onSceneSelect(threadId: string): void; onSceneStatus(available: boolean): void; onSceneAction(result: Record<string, unknown>): void; onShortcut(key: 'archive' | 'restore' | 'viewed'): void }) {
   const host = useRef<HTMLDivElement>(null);
   const active = useRef(false);
   const attached = useRef(false);
@@ -80,6 +80,7 @@ function ColonyHost({ headless, onError, onAttached, onSceneSelect, onSceneStatu
     const unsubscribe = bridge?.onEvent?.((message) => {
       if (message.event === 'scene.select' && typeof message.payload.threadId === 'string') onSceneSelect(message.payload.threadId);
       if (message.event === 'scene.status' && typeof message.payload.webgl === 'string') onSceneStatus(message.payload.webgl !== 'lost');
+      if (message.event === 'scene.action') onSceneAction(message.payload);
     });
     return () => {
       active.current = false;
@@ -101,7 +102,7 @@ function ColonyHost({ headless, onError, onAttached, onSceneSelect, onSceneStatu
         });
       }, 0);
     };
-  }, [headless, onAttached, onError, onSceneSelect, onSceneStatus]);
+  }, [headless, onAttached, onError, onSceneAction, onSceneSelect, onSceneStatus]);
   if (headless) return null;
   return <div ref={host} className="colony-host" data-colony-host role="region" aria-label="Bot Crossing scene" tabIndex={0} onKeyDown={(event) => {
     const target = event.target as HTMLElement;
@@ -314,6 +315,9 @@ export function ColonyPage() {
     bridge?.sendIntent?.({ event: 'host.select', payload: { threadId } });
   }, [bridge]);
   const sceneSelect = useCallback((threadId: string) => setSelectedId(threadId), []);
+  const sceneAction = useCallback((result: Record<string, unknown>) => {
+    if (result.kind === 'rhythm-session' && typeof result.sessionId === 'string') window.location.hash = `/agents?sessionId=${encodeURIComponent(result.sessionId)}`;
+  }, []);
   const attached = useCallback(() => {
     // A headless (list-only) attach never creates a scene (colony-service.mjs never binds a
     // scene channel for one), so it must not report a scene as available.
@@ -383,7 +387,8 @@ export function ColonyPage() {
     {error ? <div className="colony-state colony-error"><p className="eyebrow">Local view unavailable</p><h1>Bot Crossing could not open</h1><p role="alert">{error}</p><div className="colony-state-actions"><button type="button" className="primary-button" onClick={() => { setError(''); setAttempt((value) => value + 1); }}>Retry</button></div></div>
       : !status ? <div className="colony-state" role="status"><p>Loading Bot Crossing settings…</p></div>
         : !status.enabled ? <Enablement sources={sources} busy={busy} onToggle={(id, enabled) => void toggle(id, enabled)} onEnable={() => void enable()} />
-          : <div className="colony-enabled"><header className="colony-toolbar"><div><strong>Bot Crossing</strong><span>Local read-only sources</span></div>{actionNotice && <p className={`colony-action-status ${actionNotice.kind}`} role={actionNotice.kind === 'error' ? 'alert' : 'status'}>{actionNotice.message}</p>}<div className="colony-toolbar-actions"><ColonyViewMenu hasSelection={Boolean(selectedId)} sceneAvailable={sceneAvailable} listOnly={listOnly} state={viewState} onView={changeView} /><button type="button" className="secondary-button compact" disabled={busy} onClick={() => void disable()}>Disable</button></div></header>
+          : !listOnly ? <div className="colony-enabled colony-scene-only"><ColonyHost key={attempt} headless={false} onError={handleError} onAttached={attached} onSceneSelect={sceneSelect} onSceneStatus={sceneStatus} onSceneAction={sceneAction} onShortcut={(kind) => void runAction(kind)} /></div>
+            : <div className="colony-enabled"><header className="colony-toolbar"><div><strong>Bot Crossing</strong><span>Local read-only sources</span></div>{actionNotice && <p className={`colony-action-status ${actionNotice.kind}`} role={actionNotice.kind === 'error' ? 'alert' : 'status'}>{actionNotice.message}</p>}<div className="colony-toolbar-actions"><ColonyViewMenu hasSelection={Boolean(selectedId)} sceneAvailable={sceneAvailable} listOnly={listOnly} state={viewState} onView={changeView} /><button type="button" className="secondary-button compact" disabled={busy} onClick={() => void disable()}>Disable</button></div></header>
             {listOnly && <p className="colony-state-warning" role="status">3D scene unavailable — showing list view. <button type="button" className="secondary-button compact" onClick={retryScene}>Retry 3D scene</button></p>}
             <ColonyPartialFailureBanner warnings={inventoryWarnings} labelFor={failedSourceLabel} />
             <ColonyFreshnessBanner phase={loadPhase} onCancel={cancelInventory} onRetry={retryInventory} />
@@ -393,7 +398,7 @@ export function ColonyPage() {
                 view/worker on every inventory load or retry (COL-08's "no second scanner"). The
                 ColonyFreshnessBanner above communicates load state instead. */}
             <ColonyRail threads={threads} filters={filters} selectedId={selectedId} loading={false} error={inventoryError || undefined} onFilters={setFilters} onSelect={selectThread} detail={(thread) => <div className={`colony-stage${listOnly ? ' colony-stage-list-only' : thread ? ' has-inspector' : ''}`} style={{ '--colony-inspector-width': `${inspectorWidth}px` } as CSSProperties}>
-              <ColonyHost key={attempt} headless={listOnly} onError={handleError} onAttached={attached} onSceneSelect={sceneSelect} onSceneStatus={sceneStatus} onShortcut={(kind) => void runAction(kind)} />
+              <ColonyHost key={attempt} headless={true} onError={handleError} onAttached={attached} onSceneSelect={sceneSelect} onSceneStatus={sceneStatus} onSceneAction={sceneAction} onShortcut={(kind) => void runAction(kind)} />
               {listOnly
                 ? (thread ? <ColonyInspector thread={thread} onAction={(kind) => void runAction(kind)} /> : <p className="colony-muted" role="status">Select a task in the list to inspect it.</p>)
                 : thread && <><Splitter orientation="vertical" storageKey="layout.colony.inspector" min={288} max={440} defaultSize={336} resizeEdge="end" onResize={setInspectorWidth} ariaLabel="Resize Bot Crossing inspector" testId="colony-inspector-splitter" /><ColonyInspector thread={thread} onAction={(kind) => void runAction(kind)} /></>}

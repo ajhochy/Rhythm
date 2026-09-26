@@ -17,6 +17,7 @@ const threads: ColonyThread[] = [
 
 async function mockColony(page: Page) {
   await page.addInitScript((records) => {
+    window.localStorage.setItem('colony.sceneUnavailable', '1');
     const calls: Call[] = [];
     const subscribers = new Set<(message: { event: 'scene.select' | 'scene.status'; payload: Record<string, unknown> }) => void>();
     Object.assign(window, {

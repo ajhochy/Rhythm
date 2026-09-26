@@ -73,6 +73,8 @@ export function registerColonyHost(/** @type {any} */ options) {
     await current?.service?.dispose()
   }
   const ownsThreadId = (/** @type {string} */ threadId) => refsByGeneration.get(activeInventoryGeneration)?.has(threadId) === true
+  /** @type {ReturnType<typeof createColonyActions>} */
+  let actions
   const view = (options.registerView ?? registerColonyView)({
     ...options,
     isPackaged: Boolean(options.isPackaged),
@@ -87,10 +89,11 @@ export function registerColonyHost(/** @type {any} */ options) {
     enabled: () => Boolean(!disposed && !profileRevoked && store && snapshot.enabled),
     onDispose: resetInventory,
     ownsThreadId,
+    runAction: (/** @type {any} */ value) => actions.run(value),
     expectedSourceCommit: PINNED_COLONY_SOURCE_COMMIT,
     expectedElectronMajor: EXPECTED_COLONY_ELECTRON_MAJOR,
   })
-  const actions = createColonyActions({
+  actions = createColonyActions({
     fs: options.actionFs,
     app: options.app,
     shell: options.shell,

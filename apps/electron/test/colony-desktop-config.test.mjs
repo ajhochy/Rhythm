@@ -7,7 +7,7 @@ import test from 'node:test'
 
 import { resolveColonyArtifact } from '../src/colony-desktop-artifact.mjs'
 
-const QUALIFIED_SOURCE_COMMIT = 'c5163e4d0f7dfcec5e45a09b442096ed35a891d3'
+const QUALIFIED_SOURCE_COMMIT = '52893a5f83e2bd9e1c581a106a4847b39356c852'
 
 let config
 let configImportError
@@ -84,6 +84,6 @@ test('1526:colony-pin-module-and-pinned-build-inputs:4 records every pinned buil
   const section = plan.match(/## Pinned build inputs\b[\s\S]*?(?=\n## |$)/)?.[0] ?? ''
   assert.match(section, new RegExp(QUALIFIED_SOURCE_COMMIT))
   assert.match(section, /Electron\s+40\.10\.2/)
-  assert.match(section, /Node(?:\.js)?\s+22\.22\.0/)
+  assert.match(section, /Node(?:\.js)?\s+22\.23\.0/)
   assert.match(section, /macOS\s+12\.0/)
 })

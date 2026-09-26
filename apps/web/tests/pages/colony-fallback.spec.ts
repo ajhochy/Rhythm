@@ -52,10 +52,10 @@ const calls = (page: Page, action: string) => page.evaluate((name) => (window as
 test('1533:list-fallback:1 webgl loss switches to a keyboard-operable, axe-clean list-only layout', async ({ page }) => {
   await mockColony(page);
   await openPage(page, '/colony');
+  await page.evaluate(() => (window as unknown as ColonyWindow).__colonyEmit({ event: 'scene.status', payload: { webgl: 'lost' } }));
   await page.getByTestId('task-active').focus();
   await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', { name: 'Active repository task' })).toBeVisible();
-  await page.evaluate(() => (window as unknown as ColonyWindow).__colonyEmit({ event: 'scene.status', payload: { webgl: 'lost' } }));
   await expect(page.getByRole('region', { name: 'Bot Crossing scene' })).toHaveCount(0);
   await expect(page.getByText(/3D scene unavailable/i)).toBeVisible();
   await page.getByRole('button', { name: 'Archive from Colony' }).focus();
@@ -78,6 +78,7 @@ test('1533:list-fallback:3 progress appears immediately and a stale load offers 
   // outstanding when the stale/cancel/retry assertions run, regardless of clock-jump timer
   // coalescing semantics.
   await mockColony(page, { pageDelayMs: 120_000 });
+  await page.addInitScript(() => window.localStorage.setItem('colony.sceneUnavailable', '1'));
   await openPage(page, '/colony');
   await expect(page.getByText('Reading local Bot Crossing sources…')).toBeVisible();
   await page.clock.fastForward(60_000);
@@ -85,12 +86,13 @@ test('1533:list-fallback:3 progress appears immediately and a stale load offers 
   const pageRequestsBeforeRetry = (await calls(page, 'inventoryPage')).length;
   await page.getByRole('button', { name: 'Cancel' }).click();
   await expect.poll(async () => (await calls(page, 'inventoryCancel')).length).toBeGreaterThan(0);
-  await page.getByRole('button', { name: 'Retry' }).click();
+  await page.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect.poll(async () => (await calls(page, 'inventoryPage')).length).toBe(pageRequestsBeforeRetry + 1);
 });
 
 test('1533:list-fallback:4 a partial source failure names the failed source in text while healthy rows remain', async ({ page }) => {
   await mockColony(page, { warnings: ['hermes: scan failed'] });
+  await page.addInitScript(() => window.localStorage.setItem('colony.sceneUnavailable', '1'));
   await openPage(page, '/colony');
   await expect(page.getByRole('alert').filter({ hasText: 'Hermes' })).toBeVisible();
   await expect(page.getByTestId('task-active')).toBeVisible();

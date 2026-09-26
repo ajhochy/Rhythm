@@ -38,6 +38,7 @@ function fixture() {
     send(channel, message) { this.events.push({ channel, message }) },
   })
   let workerRequests = 0
+  const actionCalls = []
   const channel = bindColonySceneChannel({
     ipcMain,
     contents: sceneContents,
@@ -47,6 +48,10 @@ function fixture() {
     hostContents,
     hostFrame,
     ownsThreadId: (threadId) => threadId === 'task-known',
+    runAction: async (value) => {
+      actionCalls.push(value)
+      return { ok: true, kind: 'rhythm-session', sessionId: 'session-known' }
+    },
     onSceneEvent: (event, payload) => hostContents.send('colony:view:event', { attachment: 'attachment-1', event, payload }),
     service: {
       async request() { workerRequests++; return {} },
@@ -55,7 +60,7 @@ function fixture() {
     MessageChannelMain,
   })
   ipcMain.emit('colony:scene-ready', { sender: sceneContents, senderFrame: sceneFrame }, { v: 1, product: 'colony' })
-  return { channel, ipcMain, sceneFrame, sceneContents, hostFrame, hostContents, port: MessageChannelMain.latest.port1, workerRequests: () => workerRequests }
+  return { channel, ipcMain, sceneFrame, sceneContents, hostFrame, hostContents, port: MessageChannelMain.latest.port1, workerRequests: () => workerRequests, actionCalls }
 }
 
 const tick = () => new Promise((resolve) => setImmediate(resolve))
@@ -77,6 +82,20 @@ test('1530:scene-host-selection-routing-in-the-receiver:1 routes known scene sel
     { ok: true, result: null },
     { ok: true, result: null },
   ])
+  await f.channel.dispose()
+})
+
+test('scene action.run dispatches through main policy and forwards Rhythm navigation to the host renderer', async () => {
+  // Regression caught: the restored Bot Crossing Open button cannot reach existing main-process action policy or navigate a Rhythm session.
+  const f = fixture()
+  f.port.emit('message', { data: { v: 1, documentId: 'document-1', id: 'request-1', method: 'action.run', payload: { kind: 'open', id: 'task-known' } } })
+  await tick()
+  assert.deepEqual(f.actionCalls, [{ kind: 'open', id: 'task-known' }])
+  assert.deepEqual(f.hostContents.events, [
+    { channel: 'colony:view:event', message: { attachment: 'attachment-1', event: 'scene.action', payload: { ok: true, kind: 'rhythm-session', sessionId: 'session-known' } } },
+  ])
+  assert.deepEqual(f.port.messages, [{ v: 1, documentId: 'document-1', id: 'request-1', ok: true, result: { ok: true, kind: 'rhythm-session', sessionId: 'session-known' } }])
+  assert.equal(f.workerRequests(), 0)
   await f.channel.dispose()
 })
 

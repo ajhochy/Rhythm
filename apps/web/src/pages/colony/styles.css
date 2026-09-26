@@ -19,6 +19,7 @@
 .colony-state .colony-footnote { color: var(--muted); font-size: 10px; }
 .colony-error { width: min(560px, calc(100% - 32px)); }
 .colony-enabled { min-width: 0; min-height: 0; display: grid; grid-template-rows: 52px repeat(3, auto) minmax(0, 1fr); }
+.colony-enabled.colony-scene-only { grid-template-rows: minmax(0, 1fr); }
 .colony-state-warning { min-width: 0; margin: 0; padding: 6px 14px; border-bottom: 1px solid var(--border-soft); background: color-mix(in oklab, var(--surface), var(--bg) 6%); color: var(--fg-2); font-size: 11px; }
 .colony-freshness { min-width: 0; margin: 0; padding: 6px 14px; border-bottom: 1px solid var(--border-soft); color: var(--muted); font-size: 11px; }
 .colony-freshness-stale { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; color: var(--fg-2); }
@@ -52,7 +53,7 @@
 .colony-counts { display: flex; flex-wrap: wrap; gap: 6px 10px; color: var(--muted); font-size: 10px; }
 .colony-stage { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); overflow: hidden; }
 .colony-stage.has-inspector { grid-template-columns: minmax(360px, 1fr) 8px minmax(288px, var(--colony-inspector-width, 336px)); }
-.colony-host { min-width: 0; min-height: 240px; background: color-mix(in oklab, var(--bg), black 4%); }
+.colony-host { width: 100%; height: 100%; min-width: 0; min-height: 240px; background: color-mix(in oklab, var(--bg), black 4%); }
 .colony-inspector { min-width: 0; padding: 16px; overflow: auto; background: var(--surface); overflow-wrap: anywhere; }
 .colony-inspector dl { display: grid; gap: 12px; margin: 12px 0 0; }
 .colony-inspector h2 { margin: 2px 0 12px; font-size: 18px; }

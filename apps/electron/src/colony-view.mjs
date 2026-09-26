@@ -1,6 +1,6 @@
 import { randomUUID, createHash } from 'node:crypto'
 import { constants } from 'node:fs'
-import { open, realpath } from 'node:fs/promises'
+import { open, readFile, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { createColonyService } from './colony-service.mjs'
 import { resolveColonyArtifact } from './colony-desktop-artifact.mjs'
@@ -95,6 +95,14 @@ export function bindColonySceneChannel(options) {
           const knownSelection = event.data.method !== 'scene.select' || options.ownsThreadId?.(event.data.payload.threadId) === true
           if (knownSelection) options.onSceneEvent?.(event.data.method, JSON.parse(JSON.stringify(event.data.payload)))
           const response = { v: 1, documentId, id: event.data.id, ok: true, result: null }
+          validateColonyResponse(response, documentId)
+          if (!revoked) port?.postMessage(response)
+          return
+        }
+        if (event.data.method === 'action.run') {
+          const result = await options.runAction?.(JSON.parse(JSON.stringify(event.data.payload)))
+          if (result?.ok === true && result.kind === 'rhythm-session') options.onSceneEvent?.('scene.action', JSON.parse(JSON.stringify(result)))
+          const response = { v: 1, documentId, id: event.data.id, ok: true, result }
           validateColonyResponse(response, documentId)
           if (!revoked) port?.postMessage(response)
           return
@@ -236,6 +244,7 @@ export function registerColonyView(options) {
       const electron = options.electron ?? await import('electron')
       view = new electron.WebContentsView({ webPreferences: { preload:artifact.preloadPath, partition:`colony-${randomUUID()}`, sandbox:true, contextIsolation:true, nodeIntegration:false, nodeIntegrationInSubFrames:false, webSecurity:true, webviewTag:false } })
       const contents = view.webContents
+      const skin = await readFile(new URL('./colony-skin.css', import.meta.url), 'utf8')
       const partition = contents.session
       partition.protocol.handle('rhythm-colony', createColonyAssetHandler(artifact))
       partition.webRequest.onBeforeRequest((/** @type {any} */ details, /** @type {any} */ callback) => {
@@ -268,6 +277,10 @@ export function registerColonyView(options) {
       view.setBounds({ x:0,y:0,width:0,height:0 })
       win.contentView.addChildView(view)
       await contents.loadURL(ENTRY)
+      await contents.insertCSS(skin)
+      const applySkin = () => { void contents.insertCSS(skin).catch(() => {}) }
+      contents.on('did-finish-load', applySkin)
+      record.cleanups.push(() => contents.removeListener('did-finish-load', applySkin))
       if (current !== record || epoch !== requestEpoch || !enabled()) throw new Error('Bot Crossing attachment revoked')
       return { ok:true, attachment:record.attachment }
     } catch (error) {

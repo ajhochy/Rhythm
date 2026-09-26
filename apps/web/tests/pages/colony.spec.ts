@@ -3,11 +3,12 @@ import { expect, test, type Page } from '@playwright/test';
 import { openPage } from '../helpers';
 
 type Call = { action: string; payload?: unknown };
-type FixtureWindow = Window & { __colonyCalls: Call[] };
+type FixtureWindow = Window & { __colonyCalls: Call[]; __colonyEmit(message: { event: string; payload: Record<string, unknown> }): void };
 
 async function mockColony(page: Page, options: { enabled?: boolean; available?: boolean; missingHost?: boolean; attachOutcomes?: Array<{ ok: boolean; reason?: string }> } = {}) {
   await page.addInitScript((options) => {
     const calls: Call[] = [];
+    const subscribers = new Set<(message: { event: string; payload: Record<string, unknown> }) => void>();
     let enabled = options.enabled ?? false;
     let sources = [
       { id: 'hermes', state: 'present', enabled: false },
@@ -17,6 +18,7 @@ async function mockColony(page: Page, options: { enabled?: boolean; available?: 
     const outcomes = options.attachOutcomes ?? [{ ok: true }];
     Object.assign(window, {
       __colonyCalls: calls,
+      __colonyEmit: (message: { event: string; payload: Record<string, unknown> }) => subscribers.forEach((subscriber) => subscriber(message)),
       rhythmShell: options.missingHost ? {} : { colonyView: {
         getStatus: async () => { calls.push({ action: 'status' }); return { v: 1, available: options.available ?? true, enabled, sources }; },
         discoverSources: async () => { calls.push({ action: 'discover' }); return sources; },
@@ -25,6 +27,7 @@ async function mockColony(page: Page, options: { enabled?: boolean; available?: 
         attach: async () => { calls.push({ action: 'attach' }); return outcomes[Math.min(attempt++, outcomes.length - 1)]; },
         setBounds: async (bounds: unknown) => { calls.push({ action: 'bounds', payload: bounds }); return true; },
         detach: async () => { calls.push({ action: 'detach' }); return true; },
+        onEvent: (subscriber: (message: { event: string; payload: Record<string, unknown> }) => void) => { subscribers.add(subscriber); return () => subscribers.delete(subscriber); },
       } },
     });
   }, options);
@@ -39,6 +42,14 @@ test('1530:native-host:1 Bot Crossing is an optional destination and overflows a
   await page.setViewportSize({ width: 1000, height: 800 });
   await page.getByTestId('nav-more').click();
   await expect(page.getByTestId('nav-colony-overflow')).toHaveText('Bot Crossing');
+});
+
+test('embedded Rhythm session opens reuse the existing agents navigation path', async ({ page }) => {
+  await mockColony(page, { enabled: true });
+  await openPage(page, '/colony');
+  await expect(page.getByRole('region', { name: 'Bot Crossing scene' })).toBeVisible();
+  await page.evaluate(() => (window as unknown as FixtureWindow).__colonyEmit({ event: 'scene.action', payload: { ok: true, kind: 'rhythm-session', sessionId: 'session-from-scene' } }));
+  await expect(page).toHaveURL(/#\/agents\?sessionId=session-from-scene$/);
 });
 
 test('1530:native-host:2 disabled first visit explains local read-only discovery without attaching', async ({ page }) => {
@@ -66,6 +77,23 @@ test('1530:native-host:3 enable attaches once, resizes, and route departure deta
   await expect.poll(async () => (await calls(page, 'bounds')).length).toBeGreaterThan(before);
   await page.evaluate(() => { window.location.hash = '/tasks'; });
   await expect.poll(async () => (await calls(page, 'detach')).length).toBe(1);
+});
+
+test('Bot Crossing normal state is only a full-bleed native scene host', async ({ page }) => {
+  // Regression caught: Rhythm's duplicate toolbar, task rail, inspector, and disabled View menu shrink and cover the original Bot Crossing UI.
+  await mockColony(page, { enabled: true });
+  await openPage(page, '/colony');
+  const host = page.getByRole('region', { name: 'Bot Crossing scene' });
+  await expect(host).toBeVisible();
+  await expect(page.locator('.colony-toolbar')).toHaveCount(0);
+  await expect(page.locator('.colony-rail')).toHaveCount(0);
+  await expect(page.locator('.colony-inspector')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'View options' })).toHaveCount(0);
+  const [pageBox, hostBox] = await Promise.all([page.getByTestId('page-colony').boundingBox(), host.boundingBox()]);
+  expect(pageBox).not.toBeNull();
+  expect(hostBox).not.toBeNull();
+  expect(Math.abs(hostBox!.width - pageBox!.width)).toBeLessThanOrEqual(1);
+  expect(Math.abs(hostBox!.height - pageBox!.height)).toBeLessThanOrEqual(1);
 });
 
 test('1530:native-host:4 attach errors can be retried', async ({ page }) => {

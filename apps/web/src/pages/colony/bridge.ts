@@ -15,7 +15,7 @@ export type ColonyShell = {
     commitImport(): Promise<{ ok: boolean; receipt?: { updatedAt: number; counts: { archived: number; viewed: number; groups: number } }; reason?: string }>;
     onReset?(callback: () => void): () => void;
     sendIntent(intent: { event: 'host.select' | 'host.filter' | 'host.view' | 'host.visibility'; payload: Record<string, unknown> }): void;
-    onEvent(callback: (message: { event: 'scene.select' | 'scene.status'; payload: Record<string, unknown> }) => void): () => void;
+    onEvent(callback: (message: { event: 'scene.select' | 'scene.status' | 'scene.action'; payload: Record<string, unknown> }) => void): () => void;
     detach(): Promise<boolean | void>;
   };
 };

@@ -29,7 +29,7 @@ async function viewFixture(t) {
       const frame = { url: '', detached: false, postMessage() {}, send() {} }
       let url = ''
       this.webContents = Object.assign(new EventEmitter(), { mainFrame: frame, session: partition, getURL: () => url, isLoadingMainFrame: () => false,
-        isDestroyed: () => false, close() {}, setWindowOpenHandler() {}, async loadURL(next) { url = next; frame.url = next; this.emit('did-finish-load') } })
+        isDestroyed: () => false, close() {}, setWindowOpenHandler() {}, async insertCSS() {}, async loadURL(next) { url = next; frame.url = next; this.emit('did-finish-load') } })
     }
     setBounds() {}
   }
