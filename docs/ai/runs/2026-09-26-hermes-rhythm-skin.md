@@ -12,7 +12,7 @@ tags: [run, Rhythm]
 
 ## Files
 
-- Pinned Hermes Desktop source `26e8f1449456fa9b94c18f0b3470222f235cb03d`.
+- Pinned Hermes Desktop source `a8f4bc005f84efd3ef0179cb046a2e630f067ea4`.
 - Passed `defaultSkin: 'rhythm'` to the embedded Hermes host.
 - Deleted unreferenced `apps/electron/src/hermes-theme.{mjs,css}` indigo overrides.
 - Updated pin fixtures and current pin documentation; preserved unrelated dirty docs.
@@ -25,7 +25,7 @@ tags: [run, Rhythm]
 - `npm run typecheck` — pass.
 - `npm test` — 427 pass, 3 skipped, 1 unrelated pre-existing relay-restoration failure (`agent-server-ownership.test.mjs`: expected team fixture relay URL, received configured production relay URL). Focused rerun reproduced 23 pass / 1 fail.
 - Hermes: focused theme Vitest 3/3 pass; embedded artifact Vitest 10/10 pass; full selected Electron project 1,503 pass / 2 skipped; Rhythm plugin pytest 320/320 pass; generator drift check pass.
-- Final artifact build: `npm run build:rhythm-embedded` — 424 integrity entries; manifest `sourceCommit=26e8f1449456fa9b94c18f0b3470222f235cb03d`, `dirty=false`, `electronMajor=40`.
+- Final artifact build: `npm run build:rhythm-embedded` — 424 integrity entries; manifest `sourceCommit=a8f4bc005f84efd3ef0179cb046a2e630f067ea4`, `dirty=false`, `electronMajor=40`.
 
 ## Visual evidence
 
