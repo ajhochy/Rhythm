@@ -247,5 +247,9 @@ test('1580 layout: model rows are readable text and the settings pane fits betwe
       return gap >= 0 && gap < 80;
     }).toBe(true);
   }
+  // Header: the back link sits on its own line above the eyebrow; badges keep their sentence case.
+  const [back, eyebrow] = [await page.getByTestId('tool-back').boundingBox(), await page.locator('.tool-heading-copy .eyebrow').boundingBox()];
+  expect(eyebrow!.y).toBeGreaterThanOrEqual(back!.y + back!.height - 1);
+  await expect(page.getByTestId('model-curation-group-openai').locator('.kind-badge').first()).toHaveCSS('text-transform', 'none');
   await page.screenshot({ path: 'test-results/issue-1580-page.png' });
 });

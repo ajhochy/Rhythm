@@ -622,7 +622,7 @@ code, pre { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .tool-workspace { height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; background: color-mix(in oklab, var(--bg), transparent 4%); }
 .tool-workspace-header { min-height: 112px; display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding: 16px 22px; border-bottom: 1px solid var(--border-soft); background: var(--surface); }
 .tool-heading-copy { min-width: 0; }
-.tool-heading-copy .text-button { min-height: 26px; margin-bottom: 3px; font-size: 10px; }
+.tool-heading-copy .text-button { display: flex; align-items: center; width: fit-content; min-height: 26px; margin-bottom: 3px; font-size: 10px; }
 .tool-heading-copy h1 { margin: 3px 0 2px; font-size: 22px; line-height: 1.2; font-weight: 600; letter-spacing: -.02em; }
 .tool-heading-copy p { max-width: 68ch; margin: 0; color: var(--muted); font-size: 11px; }
 .tool-heading-controls { flex: 0 0 auto; display: grid; justify-items: end; gap: 8px; }
