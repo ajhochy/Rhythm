@@ -1,6 +1,6 @@
 // Update this only with the corresponding reviewed embedded artifact source.
 // Runtime checks prevent a mutable local Hermes installation from being loaded.
-export const PINNED_HERMES_DESKTOP_SOURCE_COMMIT = 'a8f4bc005f84efd3ef0179cb046a2e630f067ea4';
+export const PINNED_HERMES_DESKTOP_SOURCE_COMMIT = 'd747cbd9e81870704347738cb702d3f229818557';
 
 // TODO(issue-1570): AJ must replace this empty trust set with the release
 // public key before installed artifact updates can be accepted.

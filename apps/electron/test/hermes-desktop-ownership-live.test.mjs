@@ -14,7 +14,7 @@ import { test } from 'node:test';
 import { randomBytes } from 'node:crypto';
 
 const live = process.env.RHYTHM_LIVE_E2E === '1';
-const sourceCommit = 'a8f4bc005f84efd3ef0179cb046a2e630f067ea4';
+const sourceCommit = 'd747cbd9e81870704347738cb702d3f229818557';
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const artifactRoot = process.env.RHYTHM_HERMES_OWNERSHIP_ARTIFACT_DIR
   ?? resolve(homedir(), 'Applications', 'Rhythm Mega Desktop Candidate.app', 'Contents', 'Resources', 'hermes-desktop');

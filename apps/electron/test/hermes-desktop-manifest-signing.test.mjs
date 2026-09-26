@@ -28,7 +28,7 @@ async function writeV2Artifact(root, { sequence = 2 } = {}) {
   const manifest = {
     schemaVersion: 2,
     product: 'hermes-desktop',
-    sourceCommit: 'a8f4bc005f84efd3ef0179cb046a2e630f067ea4',
+    sourceCommit: 'd747cbd9e81870704347738cb702d3f229818557',
     hermesVersion: '0.20.6',
     hostApiVersion: 1,
     electronMajor: 40,
