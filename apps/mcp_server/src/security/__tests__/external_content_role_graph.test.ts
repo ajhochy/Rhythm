@@ -197,6 +197,14 @@ const protectedWrites = new Map<string, { action: string; sourceFile: string }>(
       "rhythm_delegate_async",
       { action: "delegation.start-async", sourceFile: "agentDelegation.ts" },
     ],
+    // #1577 — prompting another RUNNING session. The most consequential write
+    // in the set: the target then acts on those words with its own tools. An
+    // agent that has absorbed untrusted content must not be able to relay it
+    // onward without crossing the approval boundary.
+    [
+      "rhythm_prompt_session",
+      { action: "session.prompt", sourceFile: "agentSessions.ts" },
+    ],
     [
       "rhythm_notify",
       { action: "notification.send", sourceFile: "notifications.ts" },

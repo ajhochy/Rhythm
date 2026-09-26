@@ -69,25 +69,33 @@ test('E21-c3 outage reconciles unselected membership and selected detail indepen
   await expect.poll(async () => (await state(page)).selectedId).toBe('');
   expect((await state(page)).sessions.some((session: any) => session.id === 'selected')).toBe(false);
   await expect(page.getByTestId('session-scheduled-new')).toHaveCount(0);
-  await page.getByRole('checkbox', { name: 'Archived sessions' }).check();
+  await page.getByRole('button', { name: 'View options', exact: true }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'View archived sessions' }).click();
   await expect(page.getByTestId('session-scheduled-new')).toContainText('Renamed while offline');
 });
 
 test('E21-c4 unselected metadata changes update visible preview/activity order; refresh is coalesced, never token driven', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-09-18T12:00:00Z') });
   const h = await open(page);
+  // Flush one scheduled reconciliation, then hold its two-second clock steady.
+  const initialDetails = h.details.length;
+  await page.clock.pauseAt(new Date('2026-09-18T13:00:00Z'));
+  await expect.poll(() => h.details.length).toBeGreaterThan(initialDetails);
+  const before = h.lists.length;
   await page.getByTestId('session-sort').selectOption('activity');
   const update = row('other', { name: 'External rename', lastPreview: 'external preview', lastActivityAt: '2026-09-11T00:00:00Z', status: 'error' });
   h.replace([row('selected'), update]);
   for (let i = 0; i < 20; i++) h.emit({ type: 'session.updated', session: update });
   await expect(page.getByTestId('session-other')).toContainText('external preview');
   await expect(page.locator('button.session-row').first()).toHaveAttribute('data-testid', 'session-other');
-  await page.waitForTimeout(800);
-  const before = h.lists.length;
-  for (let i = 0; i < 100; i++) h.emit({ type: 'message.part.delta', id: 'selected', messageId: 'stream', partId: 'p', field: 'text', delta: 'x' });
-  await expect.poll(async () => (await state(page)).selected.messages.at(-1).blocks[0].content.length).toBe(100);
-  await page.waitForTimeout(800);
   expect(h.lists.length).toBe(before);
-  expect(before).toBeLessThanOrEqual(5);
+  for (let i = 0; i < 100; i++) h.emit({ type: 'message.part.delta', id: 'selected', messageId: 'stream', partId: 'p', field: 'text', delta: 'x' });
+  await page.clock.runFor(100);
+  await expect.poll(async () => (await state(page)).selected.messages.at(-1).blocks[0].content.length).toBe(100);
+  expect(h.lists.length).toBe(before);
+  // The periodic refresh still works independently of all 120 socket events.
+  await page.clock.runFor(2_000);
+  await expect.poll(() => h.lists.length).toBe(before + 2);
   expect(h.details.filter((id) => id === 'other')).toEqual([]);
 });
 
@@ -146,4 +154,41 @@ test('subagent-tree-c4 complete active and archived snapshots remove an absent e
 
   await expect.poll(async () => (await state(page)).sessions.some((session: any) => session.id === 'stale-child'), { timeout: 5_000 }).toBe(false);
   await expect(page.getByTestId('subagents-selected')).toHaveCount(0);
+});
+
+// Workstream C — the #930 cross-provider fallback cascade is server-side, but
+// it announces every hop with `session.spillover`
+// (apps/api_server/src/services/turn_redispatch.ts advanceFallbackCascade →
+// notifyDecision). The Electron renderer previously ignored that frame
+// entirely, so a cascade that DID run was invisible and read as "fallback
+// doesn't work on Electron". These assert the user-visible outcome.
+test('fallback-c1 a rate-limit cascade hop is announced to the user with its destination tier', async ({ page }) => {
+  const h = await open(page);
+  h.emit({
+    v: 1, type: 'session.spillover', sessionId: 'selected',
+    fromAccountId: 'team', toAccountId: null, reason: 'rate_limit_cross_provider',
+    toProvider: 'openai', toModel: 'gpt-5.6-sol', toTier: 'Codex',
+  });
+  await expect.poll(async () => (await state(page)).toast?.message).toContain('Codex');
+  expect((await state(page)).toast.message).toContain('limit');
+});
+
+test('fallback-c2 an auth cascade hop says re-authentication, not rate limit', async ({ page }) => {
+  const h = await open(page);
+  h.emit({
+    v: 1, type: 'session.spillover', sessionId: 'selected',
+    fromAccountId: 'personal', toAccountId: null, reason: 'auth_cross_provider',
+    toProvider: 'openai', toModel: 'gpt-5.6-sol', toTier: 'Codex',
+  });
+  await expect.poll(async () => (await state(page)).toast?.message).toContain('re-authentication');
+  expect((await state(page)).toast.message).not.toContain('limit');
+});
+
+test('fallback-c3 a same-provider Anthropic account failover names the destination account', async ({ page }) => {
+  const h = await open(page);
+  h.emit({
+    v: 1, type: 'session.spillover', sessionId: 'selected',
+    fromAccountId: 'personal', toAccountId: 'team', reason: 'rate_limited',
+  });
+  await expect.poll(async () => (await state(page)).toast?.message).toContain('team');
 });

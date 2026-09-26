@@ -260,7 +260,11 @@ describe('EngraphManager — process ownership + command construction', () => {
     rmSync(vaultDir, { recursive: true, force: true });
   });
 
-  function makeManager(overrides: Partial<{ execFileImpl: ReturnType<typeof vi.fn>; fetchImpl: ReturnType<typeof vi.fn> }> = {}) {
+  function makeManager(overrides: Partial<{
+    execFileImpl: ReturnType<typeof vi.fn>;
+    fetchImpl: ReturnType<typeof vi.fn>;
+    processListSync: ReturnType<typeof vi.fn>;
+  }> = {}) {
     const configStore = new EngraphManagerConfigStore(join(dir, 'config.json'));
     const spawned: FakeChildProcess[] = [];
     const spawnFn = vi.fn(() => {
@@ -268,12 +272,17 @@ describe('EngraphManager — process ownership + command construction', () => {
       spawned.push(child);
       return child as unknown as ReturnType<typeof import('node:child_process').spawn>;
     });
-    const execFileImpl = overrides.execFileImpl ?? vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
+    const execFileImpl = overrides.execFileImpl ?? vi.fn(async (_file: string, args: string[]) => (
+      args[0] === '--version'
+        ? { stdout: 'engraph 1.7.2\n', stderr: '' }
+        : { stdout: '', stderr: '' }
+    ));
     const fetchImpl = overrides.fetchImpl ?? vi.fn().mockResolvedValue(new Response(JSON.stringify([]), { status: 200 }));
     const manager = new EngraphManager({
       configStore, spawnFn: spawnFn as unknown as typeof import('node:child_process').spawn,
       execFileImpl: execFileImpl as unknown as EngraphManagerDeps['execFileImpl'],
       fetchImpl: fetchImpl as unknown as typeof fetch,
+      processListSync: overrides.processListSync as unknown as EngraphManagerDeps['processListSync'],
       homeDir: join(dir, 'engraph-home'),
     });
     return { manager, configStore, spawnFn, execFileImpl, fetchImpl, spawned };
@@ -286,7 +295,11 @@ describe('EngraphManager — process ownership + command construction', () => {
   });
 
   it('a healthy start indexes and spawns with fixed argv (no shell), then check-health uses the generated key', async () => {
-    const execFileImpl = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
+    const execFileImpl = vi.fn(async (_file: string, args: string[]) => (
+      args[0] === '--version'
+        ? { stdout: 'engraph 1.7.2\n', stderr: '' }
+        : { stdout: '', stderr: '' }
+    ));
     const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify([{ file_path: 'fact/x.md' }]), { status: 200 }));
     const { manager, configStore, spawnFn } = makeManager({ execFileImpl, fetchImpl });
     configStore.write({ enabled: true, executablePath: process.execPath }); // any real executable path passes isExecutableFile
@@ -351,6 +364,38 @@ describe('EngraphManager — process ownership + command construction', () => {
     expect(configStore.read().lastFailureCategory).toBe('binary_not_found');
   });
 
+  it('1573:1573-B-engraph-version-after-restart:1 revalidates and reports a persisted binary version on restart', async () => {
+    const execFileImpl = vi.fn(async (_file: string, args: string[]) => (
+      args[0] === '--version'
+        ? { stdout: 'engraph 1.7.2\n', stderr: '' }
+        : { stdout: '', stderr: '' }
+    ));
+    const { manager, configStore } = makeManager({ execFileImpl });
+    configStore.write({ enabled: true, executablePath: process.execPath });
+    const chooseBinary = vi.spyOn(manager, 'chooseBinary');
+
+    await expect(manager.enable()).resolves.toMatchObject({ ok: true });
+
+    expect(chooseBinary).not.toHaveBeenCalled();
+    expect(execFileImpl).toHaveBeenCalledWith(
+      process.execPath,
+      ['--version'],
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+    expect(manager.getStatus().version).toBe('1.7.2');
+  });
+
+  it('1573:1573-B-engraph-version-after-restart:2 refuses a persisted binary with unexpected version output', async () => {
+    const execFileImpl = vi.fn().mockResolvedValue({ stdout: 'not engraph\n', stderr: '' });
+    const { manager, configStore, spawnFn } = makeManager({ execFileImpl });
+    configStore.write({ enabled: true, executablePath: process.execPath });
+
+    await expect(manager.enable()).resolves.toEqual({ ok: false, reason: 'binary_invalid' });
+
+    expect(configStore.read().lastFailureCategory).toBe('binary_invalid');
+    expect(spawnFn).not.toHaveBeenCalled();
+  });
+
   it('getRetrievalClient() search()es to [] until a real health check has passed', async () => {
     const { manager } = makeManager();
     await expect(manager.getRetrievalClient().search('q', 5)).resolves.toEqual([]);
@@ -400,11 +445,38 @@ describe('EngraphManager — process ownership + command construction', () => {
     expect(result.ok).toBe(false);
     expect(configStore.read().lastFailureCategory).toBe('permission_denied');
   });
+
+  it('getStatus() reads the process table exactly once', () => {
+    const processListSync = vi.fn().mockReturnValue([]);
+    const { manager } = makeManager({ processListSync });
+    manager.getStatus();
+    expect(processListSync).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('anti-#1124 structural guarantee', () => {
-  it('engraph_manager.ts never calls process.kill (only ever kills its own tracked ChildProcess handle)', () => {
+  it('engraph_manager.ts allows only verified owned process-group escalation', () => {
     const source = readFileSync(join(__dirname, '..', 'services', 'engraph_manager.ts'), 'utf8');
-    expect(source).not.toMatch(/\bprocess\.kill\(/);
+    // Blanket guard: an OS-level kill target must be either a liveness-only
+    // probe or one of the marker-gated identities. A future exact-list update
+    // must not be able to bless an arbitrary PID variable or literal.
+    const globalKillTargets = [...source.matchAll(/\bprocess\.kill\(\s*([^,\n)]+)/g)]
+      .map((match) => match[1].trim());
+    expect(globalKillTargets.filter((target) => ![
+      'expected.pid',
+      '-marker.relay!.pid',
+      'marker.child!.pid',
+      '-child.pid!',
+    ].includes(target))).toEqual([]);
+    expect(source).not.toMatch(/\b(?:execFileSync|execFile|spawn)\(\s*['"`]\/?(?:usr\/)?bin\/kill\b/);
+    expect(source.match(/\bprocess\.kill\([^)]*\)/g)).toEqual([
+      'process.kill(expected.pid, 0)',
+      "process.kill(-marker.relay!.pid, 'SIGTERM')",
+      "process.kill(marker.child!.pid, 'SIGTERM')",
+      "process.kill(-marker.relay!.pid, 'SIGKILL')",
+      "process.kill(marker.child!.pid, 'SIGKILL')",
+      "process.kill(-child.pid!, 'SIGKILL')",
+      "process.kill(marker.child!.pid, 'SIGKILL')",
+    ]);
   });
 });

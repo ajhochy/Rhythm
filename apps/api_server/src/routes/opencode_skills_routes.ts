@@ -240,7 +240,7 @@ opencodeSkillsRouter.get(
       // #929 — real skill-tool-invocation counts (not the legacy DB-preface hint
       // proxy). The ONLY usage signal available for a harvested draft, which has
       // no #792 sidecar row to increment (see skill_usage_tracker.ts header).
-      const realUses = countSkillToolUses();
+      const realUses = await countSkillToolUses();
 
       const withMetadata: SkillListEntryWithMetadata[] = visibleEntries.map((entry) => {
         const fm = frontmatterByName.get(entry.name);

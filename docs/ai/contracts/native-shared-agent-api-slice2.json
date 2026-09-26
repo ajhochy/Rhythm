@@ -1,0 +1,76 @@
+{
+  "contract_id": "native-shared-agent-api-slice2",
+  "generated": "2026-09-24",
+  "plan": "docs/ai/plans/2026-09-24-native-hermes-shared-agents.md",
+  "pr": 1544,
+  "tracking_note": "Plan-based contract per parent instruction: no dedicated GitHub issue exists; issue is intentionally omitted rather than fabricated. Schema deviation is limited to plan-based identity. Scope is canonical revision-safe editing only. Full shared-agent native policy, authenticated local transport, editors and two-way delegation remain in the parent plan.",
+  "criteria": [
+    {
+      "criterion_id": "SA2-AC1",
+      "text": "concurrent same-revision edits have exactly one winner",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/shared_agent_api_slice2_contract.test.ts",
+      "test_id": "SA2-AC1 concurrent same-revision edits have exactly one winner",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "SA2-AC2",
+      "text": "partial edits preserve raw scopes and unknown advanced values",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/shared_agent_api_slice2_contract.test.ts",
+      "test_id": "SA2-AC2 partial edits preserve raw scopes and unknown advanced values",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "SA2-AC3",
+      "text": "invalid revisions reject without writes or downstream effects",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/shared_agent_api_slice2_contract.test.ts",
+      "test_id": "SA2-AC3 invalid revisions reject without writes or downstream effects",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "SA2-AC4",
+      "text": "stale revisions preserve newer state without downstream effects",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/shared_agent_api_slice2_contract.test.ts",
+      "test_id": "SA2-AC4 stale revisions preserve newer state without downstream effects",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "SA2-AC5",
+      "text": "revisioned edits retain preset and security transition constraints",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/shared_agent_api_slice2_contract.test.ts",
+      "test_id": "SA2-AC5 revisioned edits retain preset and security transition constraints",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "SA2-AC6",
+      "text": "legacy edits without expectedRevision remain compatible",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/shared_agent_api_slice2_contract.test.ts",
+      "test_id": "SA2-AC6 legacy edits without expectedRevision remain compatible",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "SA2-AC7",
+      "text": "revisioned edits reject unknown top-level fields without writes",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/shared_agent_api_slice2_contract.test.ts",
+      "test_id": "SA2-AC7 revisioned edits reject unknown top-level fields without writes",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "SA2-AC8",
+      "text": "real API and engine retain only the winning revision",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/shared_agent_cas_live.test.ts",
+      "test_id": "SA2-AC8 real API and engine retain only the winning revision",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [],
+  "execution_note": "Local controller+SQLite criteria SA2-AC1 through SA2-AC7 passed; SA2-AC8 remains gated and unrun. Required live API/engine evidence and parent aggregate gate remain pending."
+}

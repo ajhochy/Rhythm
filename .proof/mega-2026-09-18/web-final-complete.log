@@ -1,0 +1,623 @@
+[WebServer] (node:73960) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:74547) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer]
+[WebServer] (!) Some chunks are larger than 500 kB after minification. Consider:
+[WebServer] - Using dynamic import() to code-split the application
+[WebServer] - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+[WebServer] - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+
+[WebServer] (node:74644) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+TAP version 13
+# Subtest: issue-1447-c2: production data and local agent traffic use separate authenticated bases
+ok 1 - issue-1447-c2: production data and local agent traffic use separate authenticated bases
+  ---
+  duration_ms: 665.950917
+  type: 'test'
+  ...
+# Subtest: issue-1447-c2: configurable production base accepts servers but rejects unsafe URL forms
+ok 2 - issue-1447-c2: configurable production base accepts servers but rejects unsafe URL forms
+  ---
+  duration_ms: 244.418625
+  type: 'test'
+  ...
+# Subtest: issue-1521: invalid persisted composer shortcuts fall back to Enter
+ok 3 - issue-1521: invalid persisted composer shortcuts fall back to Enter
+  ---
+  duration_ms: 0.472084
+  type: 'test'
+  ...
+# Subtest: issue-1521: the selected composer shortcut matches only its advertised chord
+ok 4 - issue-1521: the selected composer shortcut matches only its advertised chord
+  ---
+  duration_ms: 0.213459
+  type: 'test'
+  ...
+# Subtest: issue-1521: sandboxed storage access falls back before preferences are read
+ok 5 - issue-1521: sandboxed storage access falls back before preferences are read
+  ---
+  duration_ms: 1.404875
+  type: 'test'
+  ...
+
+Running 506 tests using 1 worker
+
+(node:74697) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/506] tests/agents-add-project.spec.ts:80:1 › add an empty project, reload, select it and create a correctly bound session without running an agent
+[2/506] tests/agents-add-project.spec.ts:108:1 › manual validation, duplicate directory, backend path error and failed save stay in the form and preserve selection
+[3/506] tests/agents-add-project.spec.ts:130:1 › native picker cancellation and form Escape preserve path, selection and focus without creating anything
+[4/506] tests/agents-add-project.spec.ts:143:1 › picker selection supports long paths and advanced creation inherits only the chosen project context
+[5/506] tests/agents-add-project.spec.ts:160:1 › gateway preserves project fields, existing request auth and readable backend errors
+[6/506] tests/agents-add-project.spec.ts:176:1 › live sandbox project persists and a new session retains its exact directory and project identity
+[7/506] tests/agents-rail-child-loading.spec.ts:62:1 › initial load, paging, nested parents and repeated activation preserve selection and scroll
+[8/506] tests/agents-rail-child-loading.spec.ts:107:1 › failure has inline Retry and does not block other parents; expired cursors restart that branch
+[9/506] tests/agents-rail-child-loading.spec.ts:124:40 › continuations are accessible at 200 percent in a narrow light RTL rail
+[10/506] tests/agents-rail-child-loading.spec.ts:124:40 › continuations are accessible at 200 percent in a narrow dark RTL rail
+[11/506] tests/agents-rail-view-options.spec.ts:4:1 › view options replaces standalone checkboxes and supports keyboard selection and return focus
+[12/506] tests/agents-rail-view-options.spec.ts:35:1 › archive is an explicit view with an obvious return path, without mutating sessions
+[13/506] tests/agents-rail-view-options.spec.ts:51:1 › sort, archive, and density preferences persist across reload and stay isolated per account
+[14/506] tests/agents-rail-view-options.spec.ts:96:40 › narrow rail at 200 percent with RTL keeps light view options contained and accessible
+[15/506] tests/agents-rail-view-options.spec.ts:96:40 › narrow rail at 200 percent with RTL keeps dark view options contained and accessible
+[16/506] tests/contract/daily-work-dashboard-live-20260912.spec.ts:4:34 › dashboard-live: persisted task and step status, drafts and artifact state at 1440
+[17/506] tests/contract/daily-work-dashboard-live-20260912.spec.ts:4:34 › dashboard-live: persisted task and step status, drafts and artifact state at 390
+[18/506] tests/contract/daily-work-planner-20260912.spec.ts:4:40 › planner-textzoom-c1: 1440px titles remain fully visible at 200% root text
+tests/contract/daily-work-planner-20260912.spec.ts:4:40 › planner-textzoom-c1: 1440px titles remain fully visible at 200% root text
+text200 1440 [{"text":"Monday: Confirm room access plan","font":"26px","line":"36px","content":180,"visible":180,"height":217,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Review volunteer coverage","font":"26px","line":"36px","content":144,"visible":144,"height":181,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Draft team handoff note","font":"26px","line":"36px","content":180,"visible":180,"height":217,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Check supply inventory","font":"26px","line":"36px","content":144,"visible":144,"height":181,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Confirm accessibility needs","font":"26px","line":"36px","content":144,"visible":144,"height":181,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Reconcile schedule conflicts","font":"26px","line":"36px","content":180,"visible":180,"height":217,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Send owner reminder","font":"26px","line":"36px","content":144,"visible":144,"height":181,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Review vendor delivery","font":"26px","line":"36px","content":144,"visible":144,"height":181,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Prepare print materials","font":"26px","line":"36px","content":144,"visible":144,"height":181,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Validate livestream backup","font":"26px","line":"36px","content":144,"visible":144,"height":181,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Confirm childcare roster","font":"26px","line":"36px","content":144,"visible":144,"height":181,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Update facility checklist","font":"26px","line":"36px","content":144,"visible":144,"height":181,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Review open approvals","font":"26px","line":"36px","content":144,"visible":144,"height":181,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Schedule translation review","font":"26px","line":"36px","content":180,"visible":180,"height":217,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Close pending follow-ups","font":"26px","line":"36px","content":180,"visible":180,"height":217,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44}]
+
+[19/506] tests/contract/daily-work-planner-20260912.spec.ts:4:40 › planner-textzoom-c1: 1024px titles remain fully visible at 200% root text
+tests/contract/daily-work-planner-20260912.spec.ts:4:40 › planner-textzoom-c1: 1024px titles remain fully visible at 200% root text
+text200 1024 [{"text":"Monday: Confirm room access plan","font":"26px","line":"36px","content":180,"visible":180,"height":217,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Review volunteer coverage","font":"26px","line":"36px","content":144,"visible":144,"height":181,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Draft team handoff note","font":"26px","line":"36px","content":180,"visible":180,"height":217,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Check supply inventory","font":"26px","line":"36px","content":144,"visible":144,"height":181,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Confirm accessibility needs","font":"26px","line":"36px","content":144,"visible":144,"height":181,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Reconcile schedule conflicts","font":"26px","line":"36px","content":180,"visible":180,"height":217,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Send owner reminder","font":"26px","line":"36px","content":144,"visible":144,"height":181,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Review vendor delivery","font":"26px","line":"36px","content":144,"visible":144,"height":181,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Prepare print materials","font":"26px","line":"36px","content":144,"visible":144,"height":181,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Validate livestream backup","font":"26px","line":"36px","content":144,"visible":144,"height":181,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Confirm childcare roster","font":"26px","line":"36px","content":144,"visible":144,"height":181,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Update facility checklist","font":"26px","line":"36px","content":144,"visible":144,"height":181,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Review open approvals","font":"26px","line":"36px","content":144,"visible":144,"height":181,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Schedule translation review","font":"26px","line":"36px","content":180,"visible":180,"height":217,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Close pending follow-ups","font":"26px","line":"36px","content":180,"visible":180,"height":217,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44}]
+
+[20/506] tests/contract/daily-work-planner-20260912.spec.ts:4:40 › planner-textzoom-c1: 390px titles remain fully visible at 200% root text
+tests/contract/daily-work-planner-20260912.spec.ts:4:40 › planner-textzoom-c1: 390px titles remain fully visible at 200% root text
+text200 390 [{"text":"Monday: Confirm room access plan","font":"26px","line":"36px","content":72,"visible":72,"height":109,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Review volunteer coverage","font":"26px","line":"36px","content":72,"visible":72,"height":109,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Draft team handoff note","font":"26px","line":"36px","content":72,"visible":72,"height":109,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Check supply inventory","font":"26px","line":"36px","content":72,"visible":72,"height":109,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Confirm accessibility needs","font":"26px","line":"36px","content":72,"visible":72,"height":109,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Reconcile schedule conflicts","font":"26px","line":"36px","content":72,"visible":72,"height":109,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Send owner reminder","font":"26px","line":"36px","content":72,"visible":72,"height":109,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Review vendor delivery","font":"26px","line":"36px","content":72,"visible":72,"height":109,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Prepare print materials","font":"26px","line":"36px","content":72,"visible":72,"height":109,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Validate livestream backup","font":"26px","line":"36px","content":72,"visible":72,"height":109,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Confirm childcare roster","font":"26px","line":"36px","content":72,"visible":72,"height":109,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Update facility checklist","font":"26px","line":"36px","content":72,"visible":72,"height":109,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Review open approvals","font":"26px","line":"36px","content":72,"visible":72,"height":109,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Schedule translation review","font":"26px","line":"36px","content":72,"visible":72,"height":109,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44},{"text":"Monday: Close pending follow-ups","font":"26px","line":"36px","content":72,"visible":72,"height":109,"contained":true,"overlap":0,"targetWidth":44,"targetHeight":44}]
+
+[21/506] tests/contract/daily-work-planner-20260912.spec.ts:39:40 › planner-p1-c1: light project labels meet normal-text contrast
+tests/contract/daily-work-planner-20260912.spec.ts:39:40 › planner-p1-c1: light project labels meet normal-text contrast
+light project contrast [
+  11.131122605577572, 11.131122605577572,
+  11.131122605577572, 11.131122605577572,
+  11.131122605577572, 11.131122605577572,
+  11.131122605577572, 11.131122605577572,
+  11.131122605577572, 11.131122605577572,
+  11.131122605577572, 11.131122605577572,
+  11.131122605577572, 11.131122605577572,
+  11.131122605577572, 11.131122605577572,
+  11.131122605577572, 11.131122605577572,
+  11.131122605577572, 11.131122605577572,
+  11.131122605577572, 11.131122605577572
+]
+
+default density { '64': 52, '76': 52, '94': 4 }
+
+[22/506] tests/contract/daily-work-planner-20260912.spec.ts:39:40 › planner-p1-c1: dark project labels meet normal-text contrast
+tests/contract/daily-work-planner-20260912.spec.ts:39:40 › planner-p1-c1: dark project labels meet normal-text contrast
+dark project contrast [
+  7.888771543816542, 7.888771543816542,
+  7.888771543816542, 7.888771543816542,
+  7.888771543816542, 7.888771543816542,
+  7.888771543816542, 7.888771543816542,
+  7.888771543816542, 7.888771543816542,
+  7.888771543816542, 7.888771543816542,
+  7.888771543816542, 7.888771543816542,
+  7.888771543816542, 7.888771543816542,
+  7.888771543816542, 7.888771543816542,
+  7.888771543816542, 7.888771543816542,
+  7.888771543816542, 7.888771543816542
+]
+
+default density { '64': 52, '76': 52, '94': 4 }
+
+[23/506] tests/contract/daily-work-planner-20260912.spec.ts:78:1 › planner-p1-c2: bottom-scroll Tab keeps the focused date below the hit-testable sticky action
+tests/contract/daily-work-planner-20260912.spec.ts:78:1 › planner-p1-c2: bottom-scroll Tab keeps the focused date below the hit-testable sticky action
+mobile Tab geometry {
+  height: 44,
+  top: 149,
+  bottom: 193,
+  actionBottom: 201,
+  fieldTop: 397.5,
+  fieldBottom: 441.5,
+  overlap: 0,
+  hits: [ true, true ]
+}
+
+[24/506] tests/contract/daily-work-planner-20260912.spec.ts:131:1 › planner-redesign-c1: backlog and selection are opt-in, not permanent card chrome
+[25/506] tests/contract/daily-work-planner-20260912.spec.ts:151:1 › planner-redesign-c2: readable dense cards keep left completion separate from drag
+[26/506] tests/contract/daily-work-planner-20260912.spec.ts:179:1 › planner-redesign-c3: intermediate week stays horizontal with local overflow
+[27/506] tests/contract/daily-work-planner-20260912.spec.ts:191:1 › planner-redesign-c4: narrow Agenda Today reaches today without a backlog preamble
+[28/506] tests/contract/daily-work-planner-20260912.spec.ts:203:1 › planner-redesign-c5: inspector status-only completion preserves dirty notes and supports reopen
+[29/506] tests/contract/daily-work-planner-20260912.spec.ts:224:1 › planner-redesign-c3 desktop: seven visible headings and seven dense rows, without sacrificing title width
+tests/contract/daily-work-planner-20260912.spec.ts:224:1 › planner-redesign-c3 desktop: seven visible headings and seven dense rows, without sacrificing title width
+Planner density: fifteen Monday card heights [{"height":64,"title":126},{"height":76,"title":126},{"height":64,"title":126},{"height":64,"title":126},{"height":76,"title":125},{"height":76,"title":126},{"height":64,"title":126},{"height":64,"title":126},{"height":64,"title":126},{"height":64,"title":125},{"height":64,"title":126},{"height":64,"title":126},{"height":64,"title":126},{"height":76,"title":126},{"height":76,"title":125}]
+
+[30/506] tests/contract/daily-work-planner-20260912.spec.ts:240:1 › planner-redesign-c6: keyboard Move task uses date placement without changing manual deadline
+[31/506] tests/contract/daily-work-planner-20260912.spec.ts:253:1 › planner-redesign-c6 fixture: inspector earlier/later persists canonical order with unavailable edge reasons
+[32/506] tests/contract/daily-work-tasks-20260912.spec.ts:5:54 › tasks-child-dismiss: Escape only closes topmost picker at390 (option)
+[33/506] tests/contract/daily-work-tasks-20260912.spec.ts:5:54 › tasks-child-dismiss: Escape only closes topmost picker at390 (boundary)
+[34/506] tests/contract/daily-work-tasks-20260912.spec.ts:39:1 › tasks-retained-resize: mounted desktop draft and hit targets fit1440→390
+[35/506] tests/contract/daily-work-tasks-20260912.spec.ts:69:1 › tasks-preservation: All completion filter survives inspector URL changes and reload
+[36/506] tests/contract/daily-work-tasks-20260912.spec.ts:82:1 › tasks-preservation: query defaults are key-specific and unrelated filters survive selection
+[37/506] tests/contract/daily-work-tasks-20260912.spec.ts:98:1 › tasks-dirty-switch: selection and URL wait for Save, Discard or Keep editing
+[38/506] tests/contract/daily-work-tasks-20260912.spec.ts:124:3 › tasks-density: compact actionable queue at 1440
+[39/506] tests/contract/daily-work-tasks-20260912.spec.ts:150:3 › tasks-inspector: sticky status-only action preserves drafts at 1440
+[40/506] tests/contract/daily-work-tasks-20260912.spec.ts:124:3 › tasks-density: compact actionable queue at 390
+[41/506] tests/contract/daily-work-tasks-20260912.spec.ts:150:3 › tasks-inspector: sticky status-only action preserves drafts at 390
+[42/506] tests/contract/daily-work-tasks-20260912.spec.ts:185:1 › tasks-board: compact cards have sibling keyboard completion
+[43/506] tests/contract/daily-work-tasks-20260912.spec.ts:198:1 › tasks-permissions: readonly and source-owned block status, collaborators can complete
+[44/506] tests/contract/daily-work-tasks-20260912.spec.ts:213:1 › tasks-narrow: Escape preserves dirty fields, Discard restores focus, People stays keyboard usable
+[45/506] tests/contract/daily-work-tasks-live-20260912.spec.ts:6:1 › tasks-live-binding: harness sources bind arbitrary assigned sandbox bases without retired ports
+[46/506] tests/contract/daily-work-tasks-live-20260912.spec.ts:26:34 › tasks-mutation-recovery: real persisted status, pending, failed Save and retry at 1440
+[47/506] tests/contract/daily-work-tasks-live-20260912.spec.ts:26:34 › tasks-mutation-recovery: real persisted status, pending, failed Save and retry at 390
+[48/506] tests/contract/issue-1408-1410-1409-inspector.spec.ts:12:1 › issue-1408-c1: session changes retain before/after content and render it when expanded
+[49/506] tests/contract/issue-1408-1410-1409-inspector.spec.ts:20:1 › issue-1410-c1: both file viewers write the selected path before reporting copy success
+[50/506] tests/contract/issue-1408-1410-1409-inspector.spec.ts:27:1 › issue-1410-c2: clipboard rejection does not report success
+[51/506] tests/contract/issue-1408-1410-1409-inspector.spec.ts:33:1 › issue-1409-c1: simulated terminal is explicitly labeled Fixture
+[52/506] tests/contract/issue-1408-1410-1409-inspector.spec.ts:40:1 › issue-1409-c2: fixture commands never claim a local PTY connection
+[53/506] tests/contract/issue-2001-dashboard.spec.ts:5:1 › issue-2001-c1: dashboard route renders the real page contract in the selected shell
+[54/506] tests/contract/issue-2001-dashboard.spec.ts:15:1 › issue-2001-c2: ready composition and fixture values cover focus planning unread and empties
+[55/506] tests/contract/issue-2001-dashboard.spec.ts:33:1 › issue-2001-c3: refresh and deterministic state matrix recover without reload
+[56/506] tests/contract/issue-2001-dashboard.spec.ts:61:1 › issue-2001-c4: every enabled Dashboard control has an outcome and dialogs restore focus
+[57/506] tests/contract/issue-2001-dashboard.spec.ts:79:1 › issue-2001-c5: add task validates and applies scheduling and collaborator selections
+[58/506] tests/contract/issue-2001-dashboard.spec.ts:101:1 › issue-2001-c6: task completion updates the row and summary with the exact PATCH receipt
+[59/506] tests/contract/issue-2001-dashboard.spec.ts:111:1 › issue-2001-c7: project-step completion updates only its project and summary
+[60/506] tests/contract/issue-2001-dashboard.spec.ts:121:1 › issue-2001-c8: Planner Projects Messages and thread shortcuts use exact routes
+[61/506] tests/contract/issue-2001-dashboard.spec.ts:142:1 › issue-2001-c9: quick actions expose one explicit client-side handoff at a time
+[62/506] tests/contract/issue-2001-dashboard.spec.ts:160:1 › issue-2001-c10: ready Dashboard has no serious or critical axe violations
+[63/506] tests/contract/issue-2001-dashboard.spec.ts:168:1 › issue-2001-c11: Dashboard is responsive under narrow and edge-case presentation modes
+[64/506] tests/contract/issue-2001-dashboard.spec.ts:188:1 › issue-2001-c12: fixture data is reload-stable and network-isolated
+[65/506] tests/contract/issue-2002-planner.spec.ts:27:1 › issue-2002-c1: planner route renders the real shell and fixed current week
+[66/506] tests/contract/issue-2002-planner.spec.ts:38:1 › issue-2002-c2: previous next and Today change the deterministic week and load receipt
+[67/506] tests/contract/issue-2002-planner.spec.ts:56:1 › issue-2002-c3: tasks project steps calendar context and backlog occupy their source-of-truth lanes
+[68/506] tests/contract/issue-2002-planner.spec.ts:67:1 › issue-2002-c4: scheduling normal work moves it and emits the correct task-family receipt
+[69/506] tests/contract/issue-2002-planner.spec.ts:78:1 › issue-2002-c5: scheduling and completing a project step use project-step receipts
+[70/506] tests/contract/issue-2002-planner.spec.ts:92:1 › issue-2002-c6: creating scheduled and unscheduled tasks updates plan counts with POST receipts
+[71/506] tests/contract/issue-2002-planner.spec.ts:113:1 › issue-2002-c7: editing supported task details persists notes and date through the normal task patch
+[72/506] tests/contract/issue-2002-planner.spec.ts:129:1 › issue-2002-c8: single and bulk completion update visible plan summaries and affirmation
+[73/506] tests/contract/issue-2002-planner.spec.ts:147:1 › issue-2002-c9: client-side filters selection and dialogs have observable outcomes without fake APIs
+[74/506] tests/contract/issue-2002-planner.spec.ts:169:1 › issue-2002-c10: deterministic state matrix remains actionable and Retry recovers without reload
+[75/506] tests/contract/issue-2002-planner.spec.ts:196:1 › issue-2002-c11: partial records long titles and read-only calendar items remain usable
+[76/506] tests/contract/issue-2002-planner.spec.ts:209:1 › issue-2002-c12: trace ledger records exact endpoint families and excludes client-only controls
+[77/506] tests/contract/issue-2002-planner.spec.ts:232:1 › issue-2002-c13: Planner has no serious axe violations and modal keyboard focus is contained and restored
+[78/506] tests/contract/issue-2002-planner.spec.ts:249:1 › issue-2002-c14: Planner fits target widths text scaling RTL and 44px touch targets
+[79/506] tests/contract/issue-2002-planner.spec.ts:278:1 › issue-2002-c15: Planner fixtures are loopback-only and reload to the identical seeded week
+[80/506] tests/contract/issue-2003-tasks.spec.ts:13:1 › issue-2003-c1: tasks route and deep links render the real page shell
+[81/506] tests/contract/issue-2003-tasks.spec.ts:27:1 › issue-2003-c2: filters grouping sorting and clear recovery are deterministic
+[82/506] tests/contract/issue-2003-tasks.spec.ts:61:1 › issue-2003-c3: list and board preserve selection filters and status movement
+[83/506] tests/contract/issue-2003-tasks.spec.ts:84:1 › issue-2003-c4: create validates inserts clears and records exact receipts
+[84/506] tests/contract/issue-2003-tasks.spec.ts:109:1 › issue-2003-c5: inspector edits supported fields and keeps source metadata read only
+[85/506] tests/contract/issue-2003-tasks.spec.ts:133:1 › issue-2003-c6: complete and reopen update counts receipts and affirmation
+[86/506] tests/contract/issue-2003-tasks.spec.ts:150:1 › issue-2003-c7: collaborator add remove and forbidden outcomes are observable
+[87/506] tests/contract/issue-2003-tasks.spec.ts:173:1 › issue-2003-c8: delete confirmation cancel and success update list count and receipt
+[88/506] tests/contract/issue-2003-tasks.spec.ts:194:1 › issue-2003-c9: state matrix and no-results expose recovery and prerequisites
+[89/506] tests/contract/issue-2003-tasks.spec.ts:226:1 › issue-2003-c10: task quick actions produce a fixture session handoff
+[90/506] tests/contract/issue-2003-tasks.spec.ts:242:1 › issue-2003-c11: enabled controls are identifiable live and receipt-honest
+[91/506] tests/contract/issue-2003-tasks.spec.ts:261:1 › issue-2003-c12: ready editable inspector is accessible and dialog focus recovers
+[92/506] tests/contract/issue-2003-tasks.spec.ts:284:1 › issue-2003-c13: tasks remains responsive at required widths text scale and rtl
+[93/506] tests/contract/issue-2003-tasks.spec.ts:306:1 › issue-2003-c14: fixture isolation blocks external I O and reload resets deterministically
+[94/506] tests/contract/issue-2003-tasks.spec.ts:326:1 › issue-2003-c15: selecting a task keeps the queue visible and synchronizes a persistent inspector
+[95/506] tests/contract/issue-2004-rhythms.spec.ts:13:1 › issue-2004-c1: rhythms route and deep links render the real page shell
+[96/506] tests/contract/issue-2004-rhythms.spec.ts:30:1 › issue-2004-c2: ready list exposes exact schedules progress and enabled state without invented filters
+[97/506] tests/contract/issue-2004-rhythms.spec.ts:49:1 › issue-2004-c3: selected detail exposes deterministic ownership progress and next due data
+[98/506] tests/contract/issue-2004-rhythms.spec.ts:65:1 › issue-2004-c4: create validates recurrence and supported step template fields
+[99/506] tests/contract/issue-2004-rhythms.spec.ts:104:1 › issue-2004-c5: edit prepopulates validates and updates supported fields
+[100/506] tests/contract/issue-2004-rhythms.spec.ts:127:1 › issue-2004-c6: enable and pause update the selected rule with exact receipts
+[101/506] tests/contract/issue-2004-rhythms.spec.ts:144:1 › issue-2004-c7: collaborator add remove and owner prerequisite are observable
+[102/506] tests/contract/issue-2004-rhythms.spec.ts:167:1 › issue-2004-c8: delete confirmation preserves generated-task truth and updates selection
+[103/506] tests/contract/issue-2004-rhythms.spec.ts:186:1 › issue-2004-c9: deterministic state matrix remains actionable and read only is native
+[104/506] tests/contract/issue-2004-rhythms.spec.ts:213:1 › issue-2004-c10: enabled controls are identifiable live and dialogs restore focus
+[105/506] tests/contract/issue-2004-rhythms.spec.ts:236:1 › issue-2004-c11: trace ledger is exact append only and excludes unused endpoint families
+[106/506] tests/contract/issue-2004-rhythms.spec.ts:253:1 › issue-2004-c12: ready page and dialogs are accessible
+[107/506] tests/contract/issue-2004-rhythms.spec.ts:273:1 › issue-2004-c13: rhythms is responsive under required widths text scale rtl and touch sizing
+[108/506] tests/contract/issue-2004-rhythms.spec.ts:301:1 › issue-2004-c14: fixture isolation blocks external io and reload resets deterministically
+[109/506] tests/contract/issue-2005-projects.spec.ts:16:1 › issue-2005-c1: projects route and deep links render distinct real surfaces
+[110/506] tests/contract/issue-2005-projects.spec.ts:38:1 › issue-2005-c2: template create edit and delete validate and receipt exactly
+[111/506] tests/contract/issue-2005-projects.spec.ts:69:1 › issue-2005-c3: template steps validate preserve ordering and use nested receipts
+[112/506] tests/contract/issue-2005-projects.spec.ts:104:1 › issue-2005-c4: start project previews validates generates and shows success
+[113/506] tests/contract/issue-2005-projects.spec.ts:124:1 › issue-2005-c5: completion filtering and derived instance status stay consistent
+[114/506] tests/contract/issue-2005-projects.spec.ts:143:1 › issue-2005-c6: project step inspector edits supported fields and preserves context
+[115/506] tests/contract/issue-2005-projects.spec.ts:163:1 › issue-2005-c7: collaborator changes enforce owner rules and exact receipts
+[116/506] tests/contract/issue-2005-projects.spec.ts:189:1 › issue-2005-c8: milestones add assign ungroup and delete update the timeline
+[117/506] tests/contract/issue-2005-projects.spec.ts:222:1 › issue-2005-c9: active project delete removes only its instance with exact receipt
+[118/506] tests/contract/issue-2005-projects.spec.ts:243:1 › issue-2005-c10: projects state matrix exposes recovery empties and prerequisites
+[119/506] tests/contract/issue-2005-projects.spec.ts:278:1 › issue-2005-c11: enabled controls are live identifiable and receipt honest
+[120/506] tests/contract/issue-2005-projects.spec.ts:296:1 › issue-2005-c12: projects and dialogs are accessible with focus recovery
+[121/506] tests/contract/issue-2005-projects.spec.ts:349:1 › issue-2005-c13: projects remains responsive at required widths text scale and rtl
+[122/506] tests/contract/issue-2005-projects.spec.ts:376:1 › issue-2005-c14: fixture isolation blocks external I O and reload resets deterministically
+[123/506] tests/contract/issue-2005-projects.spec.ts:395:1 › issue-2005-c15: active projects use a persistent list and synchronized detail inspector
+[124/506] tests/contract/issue-2006-messages.spec.ts:25:1 › issue-2006-c1: messages collection and thread deep links render the real page shell
+[125/506] tests/contract/issue-2006-messages.spec.ts:38:1 › issue-2006-c2: search filters deterministic threads without changing the six unread baseline
+[126/506] tests/contract/issue-2006-messages.spec.ts:65:1 › issue-2006-c3: state matrix no-results and invalid links expose deterministic recovery
+[127/506] tests/contract/issue-2006-messages.spec.ts:99:1 › issue-2006-c4: controls are live receipt-honest and restore focus
+[128/506] tests/contract/issue-2006-messages.spec.ts:127:1 › issue-2006-c5: visible ledger records exact message endpoint receipts and excludes client-only controls
+[129/506] tests/contract/issue-2006-messages.spec.ts:174:1 › issue-2006-c6: ready page and New thread dialog satisfy axe and modal focus
+[130/506] tests/contract/issue-2006-messages.spec.ts:190:1 › issue-2006-c7: messages remains responsive under required presentation modes
+[131/506] tests/contract/issue-2006-messages.spec.ts:220:1 › issue-2006-c8: fixture isolation blocks external I O and reload resets the seed
+[132/506] tests/contract/issue-2006-messages.spec.ts:242:1 › issue-2006-c9: selecting and deep linking hydrate the correct conversation and read state
+[133/506] tests/contract/issue-2006-messages.spec.ts:262:1 › issue-2006-c10: new thread validates supported fields creates once and selects the result
+[134/506] tests/contract/issue-2006-messages.spec.ts:290:1 › issue-2006-c11: reply validates appends once preserves focus and exposes the exact receipt
+[135/506] tests/contract/issue-2006-messages.spec.ts:316:1 › issue-2006-c12: mark read and unread synchronize thread page and shell badges
+[136/506] tests/contract/issue-2006-messages.spec.ts:343:1 › issue-2006-c13: thread rename and delete are functional and selection safe
+[137/506] tests/contract/issue-2007-facilities.spec.ts:40:1 › issue-2007-c1: facilities routes deep links and initial loads render the real surface
+[138/506] tests/contract/issue-2007-facilities.spec.ts:63:1 › issue-2007-c2: overview range filters indicators and availability match Flutter
+[139/506] tests/contract/issue-2007-facilities.spec.ts:96:1 › issue-2007-c3: single reservation create validates conflicts and receipts once
+[140/506] tests/contract/issue-2007-facilities.spec.ts:139:1 › issue-2007-c4: linked room groups expose partial success and edit summaries
+[141/506] tests/contract/issue-2007-facilities.spec.ts:174:1 › issue-2007-c5: reservation edit delete and ownership gates stay truthful
+[142/506] tests/contract/issue-2007-facilities.spec.ts:212:1 › issue-2007-c6: recurring create validates patterns and reports materialization results
+[143/506] tests/contract/issue-2007-facilities.spec.ts:246:1 › issue-2007-c7: recurring actions mutate the entire series and never invent occurrence controls
+[144/506] tests/contract/issue-2007-facilities.spec.ts:274:1 › issue-2007-c8: manager facility CRUD validates fields and updates room inventory
+[145/506] tests/contract/issue-2007-facilities.spec.ts:309:1 › issue-2007-c9: room inventory detail booking and manager controls match Flutter
+[146/506] tests/contract/issue-2007-facilities.spec.ts:336:1 › issue-2007-c10: automation preview cleanup counts confirmation results and receipts are truthful
+[147/506] tests/contract/issue-2007-facilities.spec.ts:362:1 › issue-2007-c11: facilities state matrix exposes recovery permission and empty boundaries
+[148/506] tests/contract/issue-2007-facilities.spec.ts:396:1 › issue-2007-c12: enabled controls are live identifiable and receipt honest
+[149/506] tests/contract/issue-2007-facilities.spec.ts:425:1 › issue-2007-c13: facilities and its dialogs are accessible with focus recovery
+[150/506] tests/contract/issue-2007-facilities.spec.ts:458:1 › issue-2007-c14: facilities remains responsive across required presentation modes
+[151/506] tests/contract/issue-2007-facilities.spec.ts:489:1 › issue-2007-c15: fixture isolation blocks external I O and reload resets deterministically
+[152/506] tests/contract/issue-2008-automations.spec.ts:26:1 › issue-2008-c1: automations route and rule deep links render the real page shell
+[153/506] tests/contract/issue-2008-automations.spec.ts:47:1 › issue-2008-c2: rule grouping ordering and enabled statistics are deterministic
+[154/506] tests/contract/issue-2008-automations.spec.ts:68:1 › issue-2008-c3: shared state matrix exposes deterministic recovery and readonly inspection
+[155/506] tests/contract/issue-2008-automations.spec.ts:98:1 › issue-2008-c4: controls are live receipt-honest and modal focus is restored
+[156/506] tests/contract/issue-2008-automations.spec.ts:124:1 › issue-2008-c5: bootstrap ledger records exact catalog dependency receipts
+[157/506] tests/contract/issue-2008-automations.spec.ts:144:1 › issue-2008-c6: ready page and builder satisfy axe and modal focus
+[158/506] tests/contract/issue-2008-automations.spec.ts:160:1 › issue-2008-c7: automations remains responsive under required presentation modes
+[159/506] tests/contract/issue-2008-automations.spec.ts:186:1 › issue-2008-c8: fixture isolation blocks external I O and reload resets rule state
+[160/506] tests/contract/issue-2008-automations.spec.ts:207:1 › issue-2008-c9: provider prerequisites and dependency failures remain explicit
+[161/506] tests/contract/issue-2008-automations.spec.ts:229:1 › issue-2008-c10: builder choices follow provider trigger and action catalogs
+[162/506] tests/contract/issue-2008-automations.spec.ts:258:1 › issue-2008-c11: create edit and delete update the list with exact receipts
+[163/506] tests/contract/issue-2008-automations.spec.ts:294:1 › issue-2008-c12: enabled switch patches one rule and preserves deterministic order
+[164/506] tests/contract/issue-2008-automations.spec.ts:312:1 › issue-2008-c13: preview renders historical match evidence without mutation
+[165/506] tests/contract/issue-2008-automations.spec.ts:332:1 › issue-2008-c14: resync exposes progress result receipt and deterministic reload
+[166/506] tests/contract/issue-2008-automations.spec.ts:349:1 › issue-2008-c15: builder validates required action fields and omits blank conditions
+[167/506] tests/contract/issue-2009-integrations.spec.ts:11:1 › issue-2009-c1: integrations routes render the real page and section deep links
+[168/506] tests/contract/issue-2009-integrations.spec.ts:34:1 › issue-2009-c2: provider rows and inspectors distinguish connection sync error and permission states
+[169/506] tests/contract/issue-2009-integrations.spec.ts:55:1 › issue-2009-c3: deterministic state matrix remains actionable and readonly is native
+[170/506] tests/contract/issue-2009-integrations.spec.ts:83:1 › issue-2009-c4: enabled controls are live identifiable and restore focus
+[171/506] tests/contract/issue-2009-integrations.spec.ts:103:1 › issue-2009-c5: visible ledger is exact append only and excludes client controls
+[172/506] tests/contract/issue-2009-integrations.spec.ts:126:1 › issue-2009-c6: page dialogs and fixture handoff are accessible
+[173/506] tests/contract/issue-2009-integrations.spec.ts:153:1 › issue-2009-c7: integrations remains responsive under required presentation modes
+[174/506] tests/contract/issue-2009-integrations.spec.ts:188:1 › issue-2009-c8: fixtures block every external and OAuth request and reset on reload
+[175/506] tests/contract/issue-2009-integrations.spec.ts:214:1 › issue-2009-c9: connect actions expose explicit OAuth fixture handoffs without navigation
+[176/506] tests/contract/issue-2009-integrations.spec.ts:240:1 › issue-2009-c10: calendar sources select validate save sync and recover truthfully
+[177/506] tests/contract/issue-2009-integrations.spec.ts:267:1 › issue-2009-c11: Gmail signals dedupe display sync failure and retry
+[178/506] tests/contract/issue-2009-integrations.spec.ts:288:1 › issue-2009-c12: Planning Center dependent team and position preferences save exactly
+[179/506] tests/contract/issue-2009-integrations.spec.ts:310:1 › issue-2009-c13: assistant Google consent remains separate and fixture safe
+[180/506] tests/contract/issue-2009-integrations.spec.ts:326:1 › issue-2009-c14: individual and sync all operations expose progress partial failure and retry
+[181/506] tests/contract/issue-2009-integrations.spec.ts:354:1 › issue-2009-c15: AI Import validates formats reports exact outcomes and retries safely
+[182/506] tests/conversation.spec.ts:5:3 › transcript decisions and composer › handles permission once, always, and deny with a reason
+[183/506] tests/conversation.spec.ts:22:3 › transcript decisions and composer › answers and rejects an agent question
+[184/506] tests/conversation.spec.ts:34:3 › transcript decisions and composer › copies, reverts, restores, forks, compacts, and loads older history
+[185/506] tests/conversation.spec.ts:51:3 › transcript decisions and composer › supports slash, file mention, shell shortcut, attachment, model/profile, send, cancel, and offline queue
+[186/506] tests/core-flow.spec.ts:4:1 › completes the shipping-shaped Agents operator flow
+[187/506] tests/directory-picker.spec.ts:19:1 › native directory picker is enabled with live history and updates cwd through a click
+[188/506] tests/directory-picker.spec.ts:29:1 › live browser without the bridge preserves manual entry and disables Browse
+[189/506] tests/directory-picker.spec.ts:36:1 › fixture Browse fallback remains /workspace/rhythm
+[190/506] tests/directory-picker.spec.ts:45:54 › native picker cancel preserves cwd and manual fallback
+[191/506] tests/directory-picker.spec.ts:45:54 › native picker reject preserves cwd and manual fallback
+[192/506] tests/gateway/gateway.spec.ts:8:1 › slice-2-c19: renderer CSP permits only production local services and the exact artifact bridge
+[193/506] tests/gateway/gateway.spec.ts:28:1 › slice-2-c1: gateway exposes explicit mode, health, and unsupported domain boundary
+[194/506] tests/gateway/gateway.spec.ts:40:1 › slice-2-c2: fixture gateway performs zero network operations
+[195/506] tests/gateway/gateway.spec.ts:52:1 › production live bases default to Flutter runtime ports and reject baked-in sandbox ports
+[196/506] tests/gateway/gateway.spec.ts:80:1 › production gateway receipt exposes Flutter runtime ports instead of sandbox constants
+[197/506] tests/gateway/gateway.spec.ts:91:1 › credentialed production base rejects plaintext and every loopback spelling
+[198/506] tests/gateway/gateway.spec.ts:121:1 › bucket-a-repair-c1: trusted alternate expected bases accept only matching distinct unprivileged loopback ports
+[199/506] tests/gateway/gateway.spec.ts:161:1 › slice-2-c4: explicit live configuration failure never composes fixture
+[200/506] tests/gateway/gateway.spec.ts:170:1 › slice-2-c5: API and engine health failures remain separate live errors
+[201/506] tests/gateway/gateway.spec.ts:193:1 › post-login local boundary omits the cloud bearer while production keeps it
+[202/506] tests/gateway/gateway.spec.ts:223:1 › slice-2-c7: failed live requests cannot return fixture data
+[203/506] tests/gateway/live.spec.ts:8:1 › slice-2-c7-live: receipt probes the real sandbox API and engine separately
+[204/506] tests/gateway/receipt.spec.ts:3:1 › slice-2-c6: default composition renders an accessible Fixture receipt without live traffic
+[205/506] tests/gateway/self-improvement-gateways.spec.ts:13:1 › self-improvement-gateway-a1: org proposals use the local boundary, preserve deployment/outcome status, and fail closed for tool safety
+[206/506] tests/gateway/self-improvement-gateways.spec.ts:36:1 › self-improvement-gateway-a2: tool-install approval only transmits the explicit conditional confirmation
+[207/506] tests/gateway/self-improvement-gateways.spec.ts:55:1 › self-improvement-gateway-a3: run outcomes make 404 absent, omit blank reasons, and reject unsupported verdicts
+[208/506] tests/gateway/self-improvement-gateways.spec.ts:69:1 › self-improvement-gateway-a4: auto-promotion uses the cloud token and confirmation header and rejects malformed state
+[209/506] tests/gateway/sessions-gateway.spec.ts:13:1 › engine-session-live-lifecycle-c1: typed gateway keeps local and SDK session identities separate
+[210/506] tests/gateway/sessions-gateway.spec.ts:21:1 › engine-session-live-lifecycle-c2: fixture sessions gateway is network-free and live never falls back
+[211/506] tests/gateway/sessions-gateway.spec.ts:32:1 › engine-session-live-lifecycle-c3: hydration boundary consumes structured API and WS payloads
+[212/506] tests/gateway/sessions-gateway.spec.ts:40:1 › engine-session-live-lifecycle-c10: live failures are bounded and redact response secrets
+[213/506] tests/gateway/tasks-gateway.spec.ts:35:1 › task-live-lifecycle-c1a: 401, 403, 404, and 5xx map to distinct typed gateway errors
+[214/506] tests/gateway/tasks-gateway.spec.ts:49:1 › task-live-lifecycle-c1b: Authorization and token data never appear in error text
+[215/506] tests/inspector-profiles.spec.ts:5:3 › inspector and profile workflows › collapsing the Agents rail preserves the active session and inspector
+[216/506] tests/inspector-profiles.spec.ts:34:3 › inspector and profile workflows › uses every inspector view, worktree actions, todos, and pane controls
+[217/506] tests/inspector-profiles.spec.ts:114:3 › inspector and profile workflows › creates, edits, renames, defaults, duplicates, refreshes capabilities, and deletes profiles
+[218/506] tests/list-inspector-primitive.spec.ts:9:3 › shared list and inspector through Agents → Tasks › selects two schedules and retains their actions and history
+[219/506] tests/list-inspector-primitive.spec.ts:29:3 › shared list and inspector through Agents → Tasks › roves focus with arrows and boundaries, and selects with Enter and Space
+[220/506] tests/list-inspector-primitive.spec.ts:52:3 › shared list and inspector through Agents → Tasks › restores deep links and refresh selection without losing other search params
+[221/506] tests/list-inspector-primitive.spec.ts:68:3 › shared list and inspector through Agents → Tasks › missing and deleted selections cannot show stale details or actions
+[222/506] tests/list-inspector-primitive.spec.ts:86:3 › shared list and inspector through Agents → Tasks › uses one narrow pane and returns focus to the selected list row
+[223/506] tests/list-inspector-primitive.spec.ts:107:3 › shared list and inspector through Agents → Tasks › keeps long titles and controls usable at 200% zoom and in RTL
+[224/506] tests/list-inspector-primitive.spec.ts:136:3 › shared list and inspector through Agents → Tasks › retains loading, empty, error recovery and read-only inspection
+[225/506] tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 brain: live ListInspector selection is inert, keyboardable, and axe-clean
+[226/506] tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 deep-research: live ListInspector selection is inert, keyboardable, and axe-clean
+[227/506] tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 tasks: live ListInspector selection is inert, keyboardable, and axe-clean
+[228/506] tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 webhooks: live ListInspector selection is inert, keyboardable, and axe-clean
+[229/506] tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 skills: live ListInspector selection is inert, keyboardable, and axe-clean
+[230/506] tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 playbooks: live ListInspector selection is inert, keyboardable, and axe-clean
+[231/506] tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 cookbook: live ListInspector selection is inert, keyboardable, and axe-clean
+[232/506] tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 review: live ListInspector selection is inert, keyboardable, and axe-clean
+[233/506] tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 report-card: live ListInspector selection is inert, keyboardable, and axe-clean
+[234/506] tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 email: live ListInspector selection is inert, keyboardable, and axe-clean
+[235/506] tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 gallery: live ListInspector selection is inert, keyboardable, and axe-clean
+[236/506] tests/live/mega-2026-09-18-smoke.spec.ts:317:3 › Facilities — #1515 › live room rows select without mutation and meet the ListInspector contract
+[237/506] tests/live/mega-2026-09-18-smoke.spec.ts:325:3 › Facilities — #1515 › creates, reads back, and deletes a marked room and reservation
+[238/506] tests/live/mega-2026-09-18-smoke.spec.ts:365:3 › Messages — #1516 › live conversations select without mutation and meet the ListInspector contract
+[239/506] tests/live/mega-2026-09-18-smoke.spec.ts:373:3 › Messages — #1516 › thread plus message create/read-back/delete cycle
+[240/506] tests/live/mega-2026-09-18-smoke.spec.ts:380:3 › Projects — #1517 › live projects select without mutation and meet the ListInspector contract
+[241/506] tests/live/mega-2026-09-18-smoke.spec.ts:388:3 › Projects — #1517 › creates, reads back, and deletes a marked project template
+[242/506] tests/live/mega-2026-09-18-smoke.spec.ts:409:3 › Automations — #1518 › live rules select without mutation and meet the ListInspector contract
+[243/506] tests/live/mega-2026-09-18-smoke.spec.ts:417:3 › Automations — #1518 › paused rule create/read-back/delete cycle
+[244/506] tests/live/mega-2026-09-18-smoke.spec.ts:424:3 › Integrations — #1519 › provider selection is inert and the no-create panel cancels cleanly
+[245/506] tests/live/mega-2026-09-18-smoke.spec.ts:441:3 › Settings — #1521 › selection is inert, axe-clean, and a device-local theme preference restores
+[246/506] tests/live/mega-2026-09-18-smoke.spec.ts:461:3 › Agent Settings — #1514 › live sections are read-only under selection and meet the ListInspector contract
+[247/506] tests/live/mega-2026-09-18-smoke.spec.ts:473:3 › Agents rail — #1511/#1512/#1522 › view options restore active sessions, compact rows, and avoid checkbox rows
+[248/506] tests/live/mega-2026-09-18-smoke.spec.ts:490:3 › Agents rail — #1511/#1512/#1522 › loads one child-session page when live children exist
+[249/506] tests/live/mega-2026-09-18-smoke.spec.ts:501:3 › Agents rail — #1511/#1512/#1522 › Cancel creates nothing; marked project creates, selects empty state, and is removed through DELETE /projects/:id
+[250/506] tests/live/mega-2026-09-18-smoke.spec.ts:537:3 › Profiles — #1523 › groups, sticky footer, clean switching, and Advanced JSON render for existing profiles
+[251/506] tests/live/mega-2026-09-18-smoke.spec.ts:558:3 › Profiles — #1523 › creates, edits, saves, reloads, and deletes only a marked profile
+[252/506] tests/live/mega-2026-09-18-smoke.spec.ts:582:3 › Reading comfort — #1509 › live task rows keep the shipped typography and completion hit area
+[253/506] tests/live/mega-2026-09-18-smoke.spec.ts:607:3 › Reading comfort — #1509 › live transcript body keeps line-height and the 840px/72ch reading measures
+[254/506] tests/live/mega-2026-09-18-smoke.spec.ts:633:3 › Hermes browser boundary — #1542/#1541 › plain browser hides navigation and renders the disabled route state
+[255/506] tests/live/mega-2026-09-18-smoke.spec.ts:644:3 › Advanced session directory fallback — #1496 › browser Browse is disabled while manual path entry works
+[256/506] tests/live/mega-2026-09-18-smoke.spec.ts:668:3 › Persistent splitters — #1524 › Shell navigation exposes ARIA values, drags by 80px, and persists
+[257/506] tests/live/mega-2026-09-18-smoke.spec.ts:683:3 › Persistent splitters — #1524 › Agents rail exposes ARIA values, drags by 80px, and persists
+[258/506] tests/live/mega-2026-09-18-smoke.spec.ts:701:3 › Persistent splitters — #1524 › Settings ListInspector exposes ARIA values, drags by 80px, and persists
+[259/506] tests/mega-smoke-ownership.spec.ts:6:1 › cleanup preserves previous runs and unrelated rows mentioning the smoke marker
+[260/506] tests/mega-smoke-ownership.spec.ts:12:1 › cleanup recognizes only this invocation across the actual row naming fields
+[261/506] tests/navigation-validation.spec.ts:5:3 › child navigation and accessible resizing › moves parent → child → grandchild and returns one parent at a time
+[262/506] tests/navigation-validation.spec.ts:24:3 › child navigation and accessible resizing › resizes all panels from the keyboard with clamps and live values
+[263/506] tests/navigation-validation.spec.ts:58:3 › attachment and @mention validation › adds, classifies, removes, rejects, and recovers deterministically
+[264/506] tests/navigation-validation.spec.ts:87:3 › attachment and @mention validation › @mention wraps keyboard selection, removes the token, and recovers after Escape
+[265/506] tests/navigation-validation.spec.ts:102:3 › attachment and @mention validation › @mention surfaces unsafe and missing-file failures without stale chips
+[266/506] tests/pages/agent-settings-list-inspector.spec.ts:11:3 › Agent Settings list and inspector › selects different configuration sections and keeps scope visible
+[267/506] tests/pages/agent-settings-list-inspector.spec.ts:27:3 › Agent Settings list and inspector › uses roving keyboard focus without changing selection until activation
+[268/506] tests/pages/agent-settings-list-inspector.spec.ts:40:3 › Agent Settings list and inspector › restores a valid deep link and shows a clear state for a deleted id
+[269/506] tests/pages/agent-settings-list-inspector.spec.ts:56:3 › Agent Settings list and inspector › keeps empty, loading, error, and read-only states usable
+[270/506] tests/pages/agent-settings-list-inspector.spec.ts:78:3 › Agent Settings list and inspector › keeps every existing fixture action in the inspector
+[271/506] tests/pages/agent-settings-list-inspector.spec.ts:94:3 › Agent Settings list and inspector › uses one pane at 640px and remains unclipped at 200% zoom
+[272/506] tests/pages/agent-settings-list-inspector.spec.ts:116:3 › Agent Settings live persistence › authorizes an account, saves the default, and restores it after reload
+[273/506] tests/pages/agent-settings-list-inspector.spec.ts:175:3 › Agent Settings live persistence › saves MCP server, credential, and OAuth changes and restores them after reload
+[274/506] tests/pages/agent-tools-list-inspector.spec.ts:25:1 › issue-1513-c6: mouse and keyboard selection update each inspector
+[275/506] tests/pages/agent-tools-list-inspector.spec.ts:63:1 › issue-1513-c5: every item action remains reachable from its inspector
+[276/506] tests/pages/agent-tools-list-inspector.spec.ts:90:1 › issue-1513-c8: deep links restore selection and missing ids show not found
+[277/506] tests/pages/agent-tools-list-inspector.spec.ts:108:1 › issue-1513-c7: edge states remain accessible at narrow width and 200 percent zoom
+[278/506] tests/pages/automations-list-inspector.spec.ts:21:3 › Automations shared list and inspector › selects two rules without execution and exposes every item action in the inspector
+[279/506] tests/pages/automations-list-inspector.spec.ts:62:3 › Automations shared list and inspector › supports roving keyboard focus and selection
+[280/506] tests/pages/automations-list-inspector.spec.ts:78:3 › Automations shared list and inspector › restores selection, shows missing ids, and clears stale details after deletion
+[281/506] tests/pages/automations-list-inspector.spec.ts:102:3 › Automations shared list and inspector › keeps loading, empty, error, and read-only states inside the shared surface
+[282/506] tests/pages/automations-list-inspector.spec.ts:125:3 › Automations shared list and inspector › uses one narrow pane and remains usable at 200 percent zoom
+[283/506] tests/pages/automations.spec.ts:15:1 › Automations click-through covers catalog creation, editing, confirmation-gated delete, preview, and resync
+[284/506] tests/pages/automations.spec.ts:64:1 › Automations state and prerequisite journeys recover in place without external OAuth
+[285/506] tests/pages/automations.spec.ts:88:1 › Automations is responsive and axe-clean across representative page, dialog, error, and readonly states
+[286/506] tests/pages/dashboard.spec.ts:10:1 › Dashboard distributes the dense task week across its planning queues
+[287/506] tests/pages/dashboard.spec.ts:19:1 › Dashboard click-through covers refresh, capture, inspectors, completion, handoff, and shortcuts
+[288/506] tests/pages/dashboard.spec.ts:63:3 › Dashboard ready representative state has no serious or critical axe violations
+[289/506] tests/pages/dashboard.spec.ts:63:3 › Dashboard server-error representative state has no serious or critical axe violations
+[290/506] tests/pages/dashboard.spec.ts:63:3 › Dashboard readonly representative state has no serious or critical axe violations
+[291/506] tests/pages/dashboard.spec.ts:77:3 › Dashboard remains usable without horizontal overflow at 1024px
+[292/506] tests/pages/dashboard.spec.ts:77:3 › Dashboard remains usable without horizontal overflow at 768px
+[293/506] tests/pages/dashboard.spec.ts:77:3 › Dashboard remains usable without horizontal overflow at 390px
+[294/506] tests/pages/dashboard.spec.ts:96:1 › Dashboard survives 200% text, RTL, forced colors, and reduced motion
+[295/506] tests/pages/facilities-list-inspector.spec.ts:14:3 › Facilities shared list and inspector › selects two reservations and keeps details, editing, conflicts, and every item action in the inspector
+[296/506] tests/pages/facilities-list-inspector.spec.ts:65:3 › Facilities shared list and inspector › roves keyboard focus without changing selection until Enter or Space
+[297/506] tests/pages/facilities-list-inspector.spec.ts:80:3 › Facilities shared list and inspector › restores selection, preserves deep links, and shows stale or deleted IDs clearly
+[298/506] tests/pages/facilities-list-inspector.spec.ts:101:3 › Facilities shared list and inspector › keeps empty, loading, error, and read-only states usable
+[299/506] tests/pages/facilities-list-inspector.spec.ts:123:3 › Facilities shared list and inspector › distinguishes an empty reservation range from a search with no matches
+[300/506] tests/pages/facilities-list-inspector.spec.ts:135:3 › Facilities shared list and inspector › keeps long room names and inspector controls reachable at narrow width and 200% zoom
+[301/506] tests/pages/facilities.spec.ts:17:1 › Facilities click-through covers schedule, reservation, room, and automation work
+[302/506] tests/pages/facilities.spec.ts:60:1 › Facilities destructive confirmations cancel safely and identify their target
+[303/506] tests/pages/facilities.spec.ts:72:1 › Facilities stays usable without horizontal overflow at required widths
+[304/506] tests/pages/facilities.spec.ts:94:1 › Facilities representative ready, dialog, readonly, and error states are axe-clean
+[305/506] tests/pages/hermes.spec.ts:37:1 › Hermes destination is hidden in a browser and its direct route explains enabling
+[306/506] tests/pages/hermes.spec.ts:46:1 › Hermes disabled bridge hides the destination even if a stale status says ready
+[307/506] tests/pages/hermes.spec.ts:58:3 › Hermes absent state is explicit and keeps the intent disabled
+[308/506] tests/pages/hermes.spec.ts:58:3 › Hermes starting state is explicit and keeps the intent disabled
+[309/506] tests/pages/hermes.spec.ts:58:3 › Hermes failed state is explicit and keeps the intent disabled
+[310/506] tests/pages/hermes.spec.ts:58:3 › Hermes stopped state is explicit and keeps the intent disabled
+[311/506] tests/pages/hermes.spec.ts:70:3 › Hermes install delegates to the native supervisor
+[312/506] tests/pages/hermes.spec.ts:70:3 › Hermes restart delegates to the native supervisor
+[313/506] tests/pages/hermes.spec.ts:79:1 › Hermes ready attaches, reports viewport bounds, and detaches on leaving
+[314/506] tests/pages/hermes.spec.ts:98:1 › Hermes status changes tear down the ready view
+[315/506] tests/pages/hermes.spec.ts:108:1 › Hermes changing the ready origin remounts its native host
+[316/506] tests/pages/hermes.spec.ts:118:1 › Hermes asks only on click, sends a labelled bounded summary, and confirms the editable draft
+[317/506] tests/pages/hermes.spec.ts:136:3 › Hermes rejectStatus shows a recoverable failure
+[318/506] tests/pages/hermes.spec.ts:136:3 › Hermes rejectAttach shows a recoverable failure
+[319/506] tests/pages/hermes.spec.ts:145:3 › Hermes disabled is accessible at narrow RTL and enlarged text
+[320/506] tests/pages/hermes.spec.ts:145:3 › Hermes absent is accessible at narrow RTL and enlarged text
+[321/506] tests/pages/hermes.spec.ts:145:3 › Hermes starting is accessible at narrow RTL and enlarged text
+[322/506] tests/pages/hermes.spec.ts:145:3 › Hermes failed is accessible at narrow RTL and enlarged text
+[323/506] tests/pages/hermes.spec.ts:145:3 › Hermes ready is accessible at narrow RTL and enlarged text
+[324/506] tests/pages/integrations-list-inspector.spec.ts:18:1 › issue-1519-c1: rows expose compact provider identity and connection status
+[325/506] tests/pages/integrations-list-inspector.spec.ts:31:1 › issue-1519-c2: selecting two entries swaps the inspector details
+[326/506] tests/pages/integrations-list-inspector.spec.ts:43:1 › issue-1519-c3: every existing item action remains reachable from its inspector
+[327/506] tests/pages/integrations-list-inspector.spec.ts:72:1 › issue-1519-c4: consent scopes stay distinct and selection is inert
+[328/506] tests/pages/integrations-list-inspector.spec.ts:85:1 › issue-1519-c5: keyboard selection updates visible focus and selected state
+[329/506] tests/pages/integrations-list-inspector.spec.ts:94:1 › issue-1519-c6: states narrow layout zoom long metadata and readonly inspection remain usable
+[330/506] tests/pages/integrations-list-inspector.spec.ts:135:1 › issue-1519-c7: deep links and refresh restore the selected integration
+[331/506] tests/pages/integrations.spec.ts:12:1 › Integrations click-through covers provider sync settings consent and deterministic import
+[332/506] tests/pages/integrations.spec.ts:58:1 › Integrations state recovery partial failures and idempotent retries stay truthful
+[333/506] tests/pages/integrations.spec.ts:80:1 › Integrations is responsive at 1024, 768, and 390 pixels
+[334/506] tests/pages/integrations.spec.ts:99:1 › Integrations representative states and dialogs have no serious or critical axe violations
+[335/506] tests/pages/messages-list-inspector.spec.ts:16:1 › Messages selects conversations with mouse and keyboard and hydrates their read state
+[336/506] tests/pages/messages-list-inspector.spec.ts:35:1 › Messages restores selection and chooses a safe fallback after deletion
+[337/506] tests/pages/messages-list-inspector.spec.ts:58:1 › Messages exposes empty, loading, error, and read-only states in the shared frame
+[338/506] tests/pages/messages-list-inspector.spec.ts:78:1 › Messages keeps every item action and the composer inside the inspector
+[339/506] tests/pages/messages-list-inspector.spec.ts:120:1 › Messages remains usable at 640px, 200% zoom, and with long row metadata
+[340/506] tests/pages/messages.spec.ts:14:1 › Messages click-through covers search, unread state, reply, incoming notice, and group creation
+[341/506] tests/pages/messages.spec.ts:58:1 › Messages mutation failures preserve reply and create drafts for truthful recovery
+[342/506] tests/pages/messages.spec.ts:83:1 › Messages preserves state in the hash and recovers in place with an open draft
+[343/506] tests/pages/messages.spec.ts:98:1 › Messages is responsive and axe-clean across representative states
+[344/506] tests/pages/planner.spec.ts:25:1 › planner: density fixture adds fifteen tasks to every current-week day
+[345/506] tests/pages/planner.spec.ts:37:1 › planner: full weekly planning journey
+[346/506] tests/pages/planner.spec.ts:91:1 › planner: source-safe navigation and deterministic agent handoff
+[347/506] tests/pages/planner.spec.ts:108:3 › planner: responsive at 1024px
+[348/506] tests/pages/planner.spec.ts:108:3 › planner: responsive at 768px
+[349/506] tests/pages/planner.spec.ts:108:3 › planner: responsive at 390px
+[350/506] tests/pages/planner.spec.ts:119:3 › planner: axe scan for ready
+[351/506] tests/pages/planner.spec.ts:119:3 › planner: axe scan for readonly
+[352/506] tests/pages/planner.spec.ts:119:3 › planner: axe scan for server-error
+[353/506] tests/pages/projects-list-inspector.spec.ts:20:3 › Projects shared list and inspector › selects templates and active projects while keeping every item action in the inspector
+[354/506] tests/pages/projects-list-inspector.spec.ts:55:3 › Projects shared list and inspector › supports roving keyboard focus and selection across groups
+[355/506] tests/pages/projects-list-inspector.spec.ts:66:3 › Projects shared list and inspector › restores selection, shows missing and deleted ids, and never leaves stale actions
+[356/506] tests/pages/projects-list-inspector.spec.ts:88:3 › Projects shared list and inspector › prompts before selection discards an unsaved step edit
+[357/506] tests/pages/projects-list-inspector.spec.ts:111:3 › Projects shared list and inspector › retains empty, loading, error recovery, and read-only inspection states
+[358/506] tests/pages/projects-list-inspector.spec.ts:140:3 › Projects shared list and inspector › uses one pane at 640px and keeps long content and actions available at 200% zoom
+[359/506] tests/pages/projects.spec.ts:16:1 › Projects click-through covers templates, generation, steps, people, milestones, inspection, completion, and deletion
+[360/506] tests/pages/projects.spec.ts:82:1 › Projects recovery and permission states preserve URL state, truthful prerequisites, and inspection
+[361/506] tests/pages/projects.spec.ts:102:1 › Projects is responsive and axe-clean across representative surfaces and dialogs
+[362/506] tests/pages/rhythms.spec.ts:24:1 › Rhythms click-through covers selection, create, edit, pause, collaborators, delete, and recovery
+[363/506] tests/pages/rhythms.spec.ts:70:1 › Rhythms shared and readonly rules remain inspectable without mutation
+[364/506] tests/pages/rhythms.spec.ts:86:3 › Rhythms is responsive at 1024px
+[365/506] tests/pages/rhythms.spec.ts:86:3 › Rhythms is responsive at 768px
+[366/506] tests/pages/rhythms.spec.ts:86:3 › Rhythms is responsive at 390px
+[367/506] tests/pages/rhythms.spec.ts:99:3 › Rhythms axe scan for ready
+[368/506] tests/pages/rhythms.spec.ts:99:3 › Rhythms axe scan for server-error
+[369/506] tests/pages/rhythms.spec.ts:99:3 › Rhythms axe scan for readonly
+[370/506] tests/pages/rhythms.spec.ts:105:1 › Rhythms create dialog and localized content survive 200 percent text and RTL
+[371/506] tests/pages/settings-list-inspector.spec.ts:19:1 › issue-1521-c1: main Settings renders through the shared list-and-inspector primitive
+[372/506] tests/pages/settings-list-inspector.spec.ts:32:1 › issue-1521-c2: rows stay compact while two selections show their full inspectors
+[373/506] tests/pages/settings-list-inspector.spec.ts:56:1 › issue-1521-c3: every existing Settings action is reachable from an inspector
+[374/506] tests/pages/settings-list-inspector.spec.ts:104:1 › issue-1521-c4: device preferences persist per account and workspace values come from the gateway
+[375/506] tests/pages/settings-list-inspector.spec.ts:125:1 › issue-1521-c5: selection is inert and staff permissions remain read-only
+[376/506] tests/pages/settings-list-inspector.spec.ts:142:1 › issue-1521-c6: related destination rows navigate without duplicating editors
+[377/506] tests/pages/settings-list-inspector.spec.ts:157:1 › issue-1521-c7: keyboard, narrow, zoom, focus, and axe behavior remain usable
+[378/506] tests/pages/settings-list-inspector.spec.ts:189:1 › issue-1521-c8: loading error empty missing and unsaved states are explicit
+[379/506] tests/pages/tasks.spec.ts:13:1 › Tasks renders all fifteen dense fixtures for every current-week date
+[380/506] tests/pages/tasks.spec.ts:23:1 › Tasks click-through covers filtering, creation, editing, collaborators, board movement, and delete
+[381/506] tests/pages/tasks.spec.ts:76:1 › Tasks permission and recovery states keep the truthful prerequisite boundary
+[382/506] tests/pages/tasks.spec.ts:95:1 › Tasks is responsive and axe-clean in representative list, board, inspector, error, and readonly states
+[383/506] tests/parity-edge-cases.spec.ts:6:3 › remaining Flutter parity edge cases › navigates nested child sessions and returns one parent at a time
+[384/506] tests/parity-edge-cases.spec.ts:20:3 › remaining Flutter parity edge cases › matches Flutter keyboard resizing semantics for every desktop separator
+[385/506] tests/parity-edge-cases.spec.ts:49:3 › remaining Flutter parity edge cases › validates attachments and mentions with observable recovery
+[386/506] tests/parity-edge-cases.spec.ts:92:3 › remaining Flutter parity edge cases › exposes every deterministic state on every Tool destination
+[387/506] tests/parity-edge-cases.spec.ts:118:3 › remaining Flutter parity edge cases › keeps core controls reachable at compact width, 200 percent scale, long content, and RTL
+[388/506] tests/parity-edge-cases.spec.ts:154:3 › remaining Flutter parity edge cases › preserves accessible names, focus visibility, and blocking WCAG checks in edge states
+[389/506] tests/profiles-editor-redesign.spec.ts:5:1 › editor hierarchy, save/cancel and profile switching keep drafts on their original profile
+[390/506] tests/profiles-editor-redesign.spec.ts:35:1 › create, duplicate and back also protect a dirty draft; rename waits for Save
+[391/506] tests/profiles-editor-redesign.spec.ts:51:1 › choosing a default during an edit does not get overwritten by Save
+[392/506] tests/profiles-editor-redesign.spec.ts:62:1 › capability summaries, disclosure, filtering and bulk edits retain individual choices
+[393/506] tests/profiles-editor-redesign.spec.ts:86:1 › structured permissions preserve advanced JSON, patterns and explicit defaults through save/readback
+[394/506] tests/profiles-editor-redesign.spec.ts:109:1 › invalid names and JSON prevent saving without losing the draft
+[395/506] tests/profiles-editor-redesign.spec.ts:126:1 › read-only profiles allow inspection with every edit and immediate action disabled
+[396/506] tests/profiles-editor-redesign.spec.ts:139:1 › small windows, 200 percent zoom equivalent, RTL and long text keep controls reachable above the footer
+[397/506] tests/profiles-editor-redesign.spec.ts:228:1 › canonical fixture: inheritance, large catalogs, grouped selection and policy survive gateway readback
+[398/506] tests/profiles-editor-redesign.spec.ts:257:1 › canonical fixture: advanced MCP server policy is warned, locked, and preserved through unrelated saves
+[399/506] tests/profiles-editor-redesign.spec.ts:271:1 › canonical fixture: pending save blocks switching and a failure retains the original draft for retry
+[400/506] tests/profiles-editor-redesign.spec.ts:293:1 › live profile save survives a full UI reload
+[401/506] tests/reading-comfort-1509.spec.ts:122:3 › dark: grouped open tasks omit repeated status and date while preserving meaningful metadata
+[402/506] tests/reading-comfort-1509.spec.ts:144:3 › dark: task typography, contrast and distinct interaction states
+[403/506] tests/reading-comfort-1509.spec.ts:194:3 › dark: chat body, secondary labels, actions and bounded reading width
+[404/506] tests/reading-comfort-1509.spec.ts:225:3 › dark: comparison captures with identical fixtures and pane arrangement
+[405/506] tests/reading-comfort-1509.spec.ts:122:3 › light: grouped open tasks omit repeated status and date while preserving meaningful metadata
+[406/506] tests/reading-comfort-1509.spec.ts:144:3 › light: task typography, contrast and distinct interaction states
+[407/506] tests/reading-comfort-1509.spec.ts:194:3 › light: chat body, secondary labels, actions and bounded reading width
+[408/506] tests/reading-comfort-1509.spec.ts:225:3 › light: comparison captures with identical fixtures and pane arrangement
+[409/506] tests/reading-comfort-1509.spec.ts:241:3 › narrow RTL: long task names wrap and controls stay usable
+[410/506] tests/reading-comfort-1509.spec.ts:271:3 › narrow RTL: markdown, paragraphs, selection, tool expansion and copy
+[411/506] tests/reading-comfort-1509.spec.ts:241:3 › 200% zoom: long task names wrap and controls stay usable
+[412/506] tests/reading-comfort-1509.spec.ts:271:3 › 200% zoom: markdown, paragraphs, selection, tool expansion and copy
+[413/506] tests/resilience-map-a11y.spec.ts:7:3 › determinism, contracts, accessibility, and control audit › loads every required deterministic demo state and resets fixtures
+[414/506] tests/resilience-map-a11y.spec.ts:20:3 › determinism, contracts, accessibility, and control audit › renders and searches the complete endpoint map
+[415/506] tests/resilience-map-a11y.spec.ts:47:3 › determinism, contracts, accessibility, and control audit › supports a keyboard-only critical path and visible focus
+[416/506] tests/resilience-map-a11y.spec.ts:73:3 › determinism, contracts, accessibility, and control audit › has no serious or critical automated accessibility violations
+[417/506] tests/resilience-map-a11y.spec.ts:80:3 › determinism, contracts, accessibility, and control audit › activates every visible primary workbench control with an observable result
+[418/506] tests/responsive-a11y.spec.ts:17:3 › compact desktop keeps the complete Agents workspace reachable without page overflow
+[419/506] tests/responsive-a11y.spec.ts:17:3 › tablet portrait keeps the complete Agents workspace reachable without page overflow
+[420/506] tests/responsive-a11y.spec.ts:17:3 › mobile-ish keeps the complete Agents workspace reachable without page overflow
+[421/506] tests/responsive-a11y.spec.ts:39:3 › touch, text, direction, and contrast resilience › uses 44px touch targets for every visible enabled workbench control
+[422/506] tests/responsive-a11y.spec.ts:50:3 › touch, text, direction, and contrast resilience › wraps long RTL, CJK, and emoji content without hiding core controls
+[423/506] tests/responsive-a11y.spec.ts:63:3 › touch, text, direction, and contrast resilience › retains focus visibility and contrast semantics in forced-colors mode
+[424/506] tests/responsive-a11y.spec.ts:77:1 › supports 200% text scaling without obscuring primary actions
+[425/506] tests/responsive-a11y.spec.ts:89:1 › keyboard menus and dialogs restore focus without trapping the page
+[426/506] tests/screenshot-sweep.spec.ts:12:1 › screenshot sweep: widths, 200% text, RTL, forced colors
+[427/506] tests/secondary-tool-paths.spec.ts:9:1 › exercises every secondary Tool path with exact endpoint-ledger receipts
+[428/506] tests/sessions/session-live-lifecycle.live.spec.ts:229:1 › engine-session-live-lifecycle-c4-c9: real UI creates, streams, reloads, and hard-deletes a nonce session
+[429/506] tests/sessions.spec.ts:5:3 › session rail and lifecycle › creates an instant chat and an advanced session
+[430/506] tests/sessions.spec.ts:43:3 › session rail and lifecycle › filters, sorts, switches scopes, and selects a session
+[431/506] tests/sessions.spec.ts:61:3 › session rail and lifecycle › archives, restores, resumes, cancels, and permanently deletes
+[432/506] tests/settings-behavior-1521.spec.ts:4:1 › issue-1521 review: saved send key controls Composer and survives reload
+[433/506] tests/shell.spec.ts:8:3 › product shell › renders and toggles theme when Studio storage access is sandboxed
+[434/506] tests/shell.spec.ts:22:3 › product shell › sandboxed View options report failed persistence without changing the current view
+[435/506] tests/shell.spec.ts:46:3 › product shell › sandboxed Settings preserve theme and keyboard drafts when device storage rejects changes
+[436/506] tests/shell.spec.ts:85:3 › product shell › navigates the shell and uses the responsive More overflow
+[437/506] tests/shell.spec.ts:100:3 › product shell › opens activity, notifications, account, theme, and endpoint controls
+[438/506] tests/splitter.spec.ts:71:5 › shared Splitter › Agents exposes a bounded separator whose size persists
+[439/506] tests/splitter.spec.ts:71:5 › shared Splitter › Dashboard exposes a bounded separator whose size persists
+[440/506] tests/splitter.spec.ts:71:5 › shared Splitter › Planner week exposes a bounded separator whose size persists
+[441/506] tests/splitter.spec.ts:71:5 › shared Splitter › Tasks list detail exposes a bounded separator whose size persists
+[442/506] tests/splitter.spec.ts:71:5 › shared Splitter › Tasks board exposes a bounded separator whose size persists
+[443/506] tests/splitter.spec.ts:71:5 › shared Splitter › Rhythms exposes a bounded separator whose size persists
+[444/506] tests/splitter.spec.ts:71:5 › shared Splitter › Projects templates exposes a bounded separator whose size persists
+[445/506] tests/splitter.spec.ts:71:5 › shared Splitter › Projects instances exposes a bounded separator whose size persists
+[446/506] tests/splitter.spec.ts:71:5 › shared Splitter › Messages exposes a bounded separator whose size persists
+[447/506] tests/splitter.spec.ts:71:5 › shared Splitter › Facilities reservations exposes a bounded separator whose size persists
+[448/506] tests/splitter.spec.ts:71:5 › shared Splitter › Facilities rooms exposes a bounded separator whose size persists
+[449/506] tests/splitter.spec.ts:71:5 › shared Splitter › Automations exposes a bounded separator whose size persists
+[450/506] tests/splitter.spec.ts:71:5 › shared Splitter › Integrations exposes a bounded separator whose size persists
+[451/506] tests/splitter.spec.ts:71:5 › shared Splitter › Profiles exposes a bounded separator whose size persists
+[452/506] tests/splitter.spec.ts:71:5 › shared Splitter › Endpoint Map exposes a bounded separator whose size persists
+[453/506] tests/splitter.spec.ts:71:5 › shared Splitter › Hermes exposes a bounded separator whose size persists
+[454/506] tests/splitter.spec.ts:71:5 › shared Splitter › Mobile Access exposes a bounded separator whose size persists
+[455/506] tests/splitter.spec.ts:71:5 › shared Splitter › Settings exposes a bounded separator whose size persists
+[456/506] tests/splitter.spec.ts:71:5 › shared Splitter › Brain tool exposes a bounded separator whose size persists
+[457/506] tests/splitter.spec.ts:71:5 › shared Splitter › Deep Research tool exposes a bounded separator whose size persists
+[458/506] tests/splitter.spec.ts:71:5 › shared Splitter › Tasks tool exposes a bounded separator whose size persists
+[459/506] tests/splitter.spec.ts:71:5 › shared Splitter › Webhooks tool exposes a bounded separator whose size persists
+[460/506] tests/splitter.spec.ts:71:5 › shared Splitter › Skills tool exposes a bounded separator whose size persists
+[461/506] tests/splitter.spec.ts:71:5 › shared Splitter › Playbooks tool exposes a bounded separator whose size persists
+[462/506] tests/splitter.spec.ts:71:5 › shared Splitter › Cookbook tool exposes a bounded separator whose size persists
+[463/506] tests/splitter.spec.ts:71:5 › shared Splitter › Review Queue tool exposes a bounded separator whose size persists
+[464/506] tests/splitter.spec.ts:71:5 › shared Splitter › Report Card tool exposes a bounded separator whose size persists
+[465/506] tests/splitter.spec.ts:71:5 › shared Splitter › Email tool exposes a bounded separator whose size persists
+[466/506] tests/splitter.spec.ts:71:5 › shared Splitter › Gallery tool exposes a bounded separator whose size persists
+[467/506] tests/splitter.spec.ts:71:5 › shared Splitter › Agent Settings tool exposes a bounded separator whose size persists
+[468/506] tests/splitter.spec.ts:71:5 › shared Splitter › Unknown route recovery exposes a bounded separator whose size persists
+[469/506] tests/splitter.spec.ts:96:3 › shared Splitter › pointer drag resizes a ListInspector pane and persists across reload
+[470/506] tests/splitter.spec.ts:111:3 › shared Splitter › keyboard resizing uses shared steps, bounds, values, and reset
+[471/506] tests/splitter.spec.ts:148:3 › shared Splitter › nested horizontal and vertical splitters remain independent
+[472/506] tests/splitter.spec.ts:179:3 › shared Splitter › pointercancel releases capture, text selection, and drag listeners
+[473/506] tests/splitter.spec.ts:198:3 › shared Splitter › Settings reset clears every layout preference and restores mounted defaults
+[474/506] tests/splitter.spec.ts:235:3 › shared Splitter › Agents and ListInspector routes both expose named separators
+[475/506] tests/task-density-fixtures.spec.ts:7:1 › the canonical dense week reaches every ordinary-task fixture surface
+[476/506] tests/tasks/task-live-lifecycle.fixture.spec.ts:4:1 › task-live-lifecycle-c6: fixture lifecycle remains deterministic and network-free
+[477/506] tests/tasks/task-live-lifecycle.fixture.spec.ts:30:1 › task-live-lifecycle-c7: shared and owner tasks discriminate delete availability
+[478/506] tests/tasks/task-live-lifecycle.fixture.spec.ts:39:1 › issue-1475-c6: Electron/web moves tasks to Deferred after Done and excludes them from Open
+[479/506] tests/tasks/task-live-lifecycle.live.spec.ts:53:1 › task-live-lifecycle-c1: visible UI persists create edit complete reload and delete through the live task gateway
+[480/506] tests/tool-state-matrix.spec.ts:21:3 › brain: deterministic loading, empty, error, recovery, permission, unavailable, and read-only states
+[481/506] tests/tool-state-matrix.spec.ts:21:3 › deep-research: deterministic loading, empty, error, recovery, permission, unavailable, and read-only states
+[482/506] tests/tool-state-matrix.spec.ts:21:3 › tasks: deterministic loading, empty, error, recovery, permission, unavailable, and read-only states
+[483/506] tests/tool-state-matrix.spec.ts:21:3 › webhooks: deterministic loading, empty, error, recovery, permission, unavailable, and read-only states
+[484/506] tests/tool-state-matrix.spec.ts:21:3 › skills: deterministic loading, empty, error, recovery, permission, unavailable, and read-only states
+[485/506] tests/tool-state-matrix.spec.ts:21:3 › playbooks: deterministic loading, empty, error, recovery, permission, unavailable, and read-only states
+[486/506] tests/tool-state-matrix.spec.ts:21:3 › cookbook: deterministic loading, empty, error, recovery, permission, unavailable, and read-only states
+[487/506] tests/tool-state-matrix.spec.ts:21:3 › review: deterministic loading, empty, error, recovery, permission, unavailable, and read-only states
+[488/506] tests/tool-state-matrix.spec.ts:21:3 › report-card: deterministic loading, empty, error, recovery, permission, unavailable, and read-only states
+[489/506] tests/tool-state-matrix.spec.ts:21:3 › email: deterministic loading, empty, error, recovery, permission, unavailable, and read-only states
+[490/506] tests/tool-state-matrix.spec.ts:21:3 › gallery: deterministic loading, empty, error, recovery, permission, unavailable, and read-only states
+[491/506] tests/tool-state-matrix.spec.ts:21:3 › agent-settings: deterministic loading, empty, error, recovery, permission, unavailable, and read-only states
+[492/506] tests/tools.spec.ts:11:3 › shipping-shaped Agents tools › searches, expands, edits, and deletes Brain memories
+[493/506] tests/tools.spec.ts:28:3 › shipping-shaped Agents tools › creates projects and exercises research run, retry, copy, archive, export, and discussion paths
+[494/506] tests/tools.spec.ts:54:3 › shipping-shaped Agents tools › creates, edits, toggles, triggers, and deletes schedules; creates and revokes webhooks
+[495/506] tests/tools.spec.ts:84:3 › shipping-shaped Agents tools › authors, edits, refreshes, and deletes managed skills and playbooks
+[496/506] tests/tools.spec.ts:104:3 › shipping-shaped Agents tools › runs Cookbook recipes and preserves the Review Queue human gate
+[497/506] tests/tools.spec.ts:132:3 › shipping-shaped Agents tools › filters Report Card detail and launches Email and Creative Media sessions with seeded context
+[498/506] tests/tools.spec.ts:156:3 › shipping-shaped Agents tools › keeps constrained header actions reachable and disables every unresumable composer control
+[499/506] tests/tools.spec.ts:186:3 › shipping-shaped Agents tools › audits every Agents tool page for named controls, real state changes, and blocking accessibility violations
+(node:96774) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[500/506] tests/live-demo-state-leak.spec.ts:59:1 › c1/c2/c4/c5 live demo URL and actions cannot replace real transcripts or select fixture IDs
+[501/506] tests/live-demo-state-leak.spec.ts:85:1 › c1/c3/c5 fixture resumable remains available but stale demo cannot mask live selection
+[502/506] tests/live-demo-state-leak.spec.ts:104:13 › c3 fixture resumable control renders its distinct state
+[503/506] tests/live-demo-state-leak.spec.ts:104:13 › c3 fixture empty control renders its distinct state
+[504/506] tests/live-demo-state-leak.spec.ts:104:13 › c3 fixture loading control renders its distinct state
+[505/506] tests/live-demo-state-leak.spec.ts:104:13 › c3 fixture no-provider control renders its distinct state
+[506/506] tests/live-demo-state-leak.spec.ts:120:1 › c6 isolated live API and engine stay healthy with demo URL
+  47 skipped
+  459 passed (13.1m)

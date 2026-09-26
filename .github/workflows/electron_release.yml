@@ -19,6 +19,11 @@ on:
         required: true
         default: true
         type: boolean
+      qualification_only:
+        description: 'Sign and upload qualification artifacts without publishing a release'
+        required: false
+        default: false
+        type: boolean
       release_notes:
         description: 'Optional release notes override'
         required: false
@@ -53,12 +58,67 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.x'
+          node-version: '22.22.0'
           architecture: ${{ matrix.arch }}
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.11'
 
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.13'
+
+      - name: Check out pinned Hermes Desktop source
+        run: |
+          set -euo pipefail
+          HERMES_DESKTOP_SOURCE_COMMIT="$(node --input-type=module -e "import('./apps/electron/src/hermes-desktop-config.mjs').then(({ PINNED_HERMES_DESKTOP_SOURCE_COMMIT }) => process.stdout.write(PINNED_HERMES_DESKTOP_SOURCE_COMMIT))")"
+          [[ "${HERMES_DESKTOP_SOURCE_COMMIT}" =~ ^[0-9a-f]{40}$ ]]
+          HERMES_DESKTOP_ROOT="${RUNNER_TEMP}/hermes-rhythm-plugin"
+          git init "${HERMES_DESKTOP_ROOT}"
+          git -C "${HERMES_DESKTOP_ROOT}" remote add origin https://github.com/ajhochy/hermes-rhythm-plugin.git
+          git -C "${HERMES_DESKTOP_ROOT}" fetch --depth=1 origin "${HERMES_DESKTOP_SOURCE_COMMIT}"
+          git -C "${HERMES_DESKTOP_ROOT}" checkout --detach FETCH_HEAD
+          test "$(git -C "${HERMES_DESKTOP_ROOT}" rev-parse HEAD)" = "${HERMES_DESKTOP_SOURCE_COMMIT}"
+          echo "HERMES_DESKTOP_ROOT=${HERMES_DESKTOP_ROOT}" >> "$GITHUB_ENV"
+          echo "HERMES_DESKTOP_SOURCE_COMMIT=${HERMES_DESKTOP_SOURCE_COMMIT}" >> "$GITHUB_ENV"
+
+      - name: Build pinned Hermes Desktop artifact
+        run: |
+          set -euo pipefail
+          test "$(git -C "${HERMES_DESKTOP_ROOT}" rev-parse HEAD)" = "${HERMES_DESKTOP_SOURCE_COMMIT}"
+          test "$(node -p 'process.arch')" = "${RHYTHM_PACKAGE_ARCH}"
+          export npm_config_python="$(command -v python3)"
+          npm ci --prefix "${HERMES_DESKTOP_ROOT}"
+          GITHUB_SHA= GITHUB_REF_NAME= GITHUB_HEAD_REF= npm --prefix "${HERMES_DESKTOP_ROOT}/apps/desktop" run build:rhythm-embedded
+          ARTIFACT_ROOT="${HERMES_DESKTOP_ROOT}/apps/desktop/build/rhythm-embedded"
+          test -f "${ARTIFACT_ROOT}/manifest.json"
+          echo "RHYTHM_HERMES_DESKTOP_ARTIFACT_DIR=${ARTIFACT_ROOT}" >> "$GITHUB_ENV"
+
+      - name: Check out pinned Colony (Bot Crossing) source
+        run: |
+          set -euo pipefail
+          COLONY_SOURCE_COMMIT="$(node --input-type=module -e "import('./apps/electron/src/colony-desktop-config.mjs').then(({ PINNED_COLONY_SOURCE_COMMIT }) => process.stdout.write(PINNED_COLONY_SOURCE_COMMIT))")"
+          [[ "${COLONY_SOURCE_COMMIT}" =~ ^[0-9a-f]{40}$ ]]
+          COLONY_ROOT="${RUNNER_TEMP}/bot-crossing"
+          git init "${COLONY_ROOT}"
+          git -C "${COLONY_ROOT}" remote add origin https://github.com/ajhochy/bot-crossing.git
+          git -C "${COLONY_ROOT}" fetch --depth=1 origin "${COLONY_SOURCE_COMMIT}"
+          git -C "${COLONY_ROOT}" checkout --detach FETCH_HEAD
+          test "$(git -C "${COLONY_ROOT}" rev-parse HEAD)" = "${COLONY_SOURCE_COMMIT}"
+          echo "COLONY_ROOT=${COLONY_ROOT}" >> "$GITHUB_ENV"
+          echo "COLONY_SOURCE_COMMIT=${COLONY_SOURCE_COMMIT}" >> "$GITHUB_ENV"
+
+      - name: Build pinned Colony artifact
+        run: |
+          set -euo pipefail
+          test "$(git -C "${COLONY_ROOT}" rev-parse HEAD)" = "${COLONY_SOURCE_COMMIT}"
+          test "$(node -p 'process.arch')" = "${RHYTHM_PACKAGE_ARCH}"
+          npm ci --prefix "${COLONY_ROOT}"
+          GITHUB_SHA= GITHUB_REF_NAME= GITHUB_HEAD_REF= npm --prefix "${COLONY_ROOT}" run build:rhythm-embedded
+          ARTIFACT_ROOT="${COLONY_ROOT}/build/rhythm-embedded"
+          test -f "${ARTIFACT_ROOT}/manifest.json"
+          echo "RHYTHM_COLONY_ARTIFACT_DIR=${ARTIFACT_ROOT}" >> "$GITHUB_ENV"
 
       - name: Install vendored fork dependencies
         working-directory: apps/opencode_fork
@@ -106,6 +166,14 @@ jobs:
 
       - name: Sign and notarize
         working-directory: apps/electron
+        env:
+          # issue-1570-d: Ed25519 PEM private key signing the embedded Hermes Desktop manifest
+          # after its post-codesign reseal (apps/electron/scripts/sign-hermes-desktop-manifest.mjs).
+          # Scoped to this step only — never present during the earlier third-party Hermes source
+          # checkout/build/npm-ci steps above. AJ must create this secret; the corresponding
+          # public key then goes into apps/electron/src/hermes-desktop-config.mjs
+          # HERMES_DESKTOP_UPDATE_PUBLIC_KEYS.
+          HERMES_DESKTOP_MANIFEST_SIGNING_KEY: ${{ secrets.HERMES_DESKTOP_MANIFEST_SIGNING_KEY }}
         run: npm run sign:mac
 
       - name: Verify signed bundle
@@ -123,6 +191,23 @@ jobs:
           RHYTHM_SHELL_USER_DATA="${SMOKE_ROOT}" \
             "${APP}/Contents/MacOS/Rhythm" --smoke --security-smoke
 
+      - name: Colony smoke against the signed bundle
+        run: |
+          set -euo pipefail
+          APP="apps/electron/dist/Rhythm.app"
+          SMOKE_ROOT="$(mktemp -d)"
+          trap 'rm -rf "${SMOKE_ROOT}"' EXIT
+          RHYTHM_SHELL_USER_DATA="${SMOKE_ROOT}" \
+            "${APP}/Contents/MacOS/Rhythm" --smoke --security-smoke --colony-smoke
+
+      - name: Record Colony manifest and archive hash receipts
+        run: |
+          set -euo pipefail
+          RECEIPTS="apps/electron/dist/receipts"
+          mkdir -p "${RECEIPTS}"
+          cp "apps/electron/dist/Rhythm.app/Contents/Resources/colony-desktop/manifest.json" "${RECEIPTS}/colony-manifest-${{ matrix.arch }}.json"
+          shasum -a 256 "apps/electron/dist/Rhythm.zip" > "${RECEIPTS}/Rhythm-${{ matrix.arch }}.zip.sha256"
+
       - name: Name native architecture archive
         run: mv apps/electron/dist/Rhythm.zip apps/electron/dist/Rhythm-${{ matrix.arch }}.zip
 
@@ -132,8 +217,11 @@ jobs:
           name: rhythm-electron-macos-${{ matrix.arch }}-${{ inputs.version }}
           path: |
             apps/electron/dist/Rhythm-${{ matrix.arch }}.zip
+            apps/electron/dist/receipts/colony-manifest-${{ matrix.arch }}.json
+            apps/electron/dist/receipts/Rhythm-${{ matrix.arch }}.zip.sha256
 
       - name: Publish GitHub release
+        if: ${{ !inputs.qualification_only && github.ref == 'refs/heads/main' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}

@@ -72,6 +72,8 @@ describe('#1480 optimizer recipe signal quality', () => {
       id: 'shell', title: 'Recipe: reduce retry loops (workflow-orchestrator)', description: 'shell',
       stepsJson: JSON.stringify([{ action: 'prompt', text: 'Recipe: reduce retry loops (workflow-orchestrator)' }]),
       boundConfigId: null, ownerUserId: null,
+      // #1485 S1a — additive/nullable workflow columns; this fixture predates them, so legacy.
+      schemaVersion: null, definitionJson: null, format: 'legacy',
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     }];
     const { generateRecipeProposals } = await import('../services/generators/recipe_generator');

@@ -131,6 +131,60 @@ describe('C7: trimmed result never exceeds the hard Gemini cap', () => {
   });
 });
 
+describe('1468:1468-S3-api-real-count-scoped-cap:1 uses real inherit-all server counts', () => {
+  it('trims twenty 29-tool servers to at most the 500-declaration MCP budget', () => {
+    // Regression: the former flat estimate charged each server 25 declarations,
+    // kept all 20, and offered 580 real declarations to Gemini.
+    const servers = Array.from({ length: 20 }, (_, index) => `server_${index}`);
+    const realToolCounts = Object.fromEntries(servers.map((server) => [server, 29]));
+
+    const result = capMcpAllowlistForProvider(
+      { servers, tools: [] },
+      'google',
+      realToolCounts,
+    );
+
+    const realCappedCount = result.allowlist.servers.reduce(
+      (total, server) => total + realToolCounts[server],
+      result.allowlist.tools.length,
+    );
+    expect(result.trimmed).toBe(true);
+    expect(result.originalEstimatedCount).toBe(580);
+    expect(realCappedCount).toBeLessThanOrEqual(GEMINI_MCP_TOOL_BUDGET);
+    expect(result.cappedEstimatedCount).toBe(realCappedCount);
+  });
+});
+
+describe('1468:1468-S3-api-real-count-scoped-cap:2 names bounded dropped entries', () => {
+  it('lists the first twenty dropped tools and servers, then reports the remainder', () => {
+    const tools = Array.from({ length: 525 }, (_, index) => `tool_${index}`);
+    const servers = Array.from({ length: 25 }, (_, index) => `server_${index}`);
+    const realToolCounts = Object.fromEntries(servers.map((server) => [server, 29]));
+
+    const result = capMcpAllowlistForProvider(
+      { servers, tools },
+      'google',
+      realToolCounts,
+    );
+
+    expect(result.warning).toContain(
+      `dropped tools: ${Array.from({ length: 20 }, (_, index) => `tool_${index + 500}`).join(', ')}, +5 more`,
+    );
+    expect(result.warning).toContain(
+      `dropped servers: ${Array.from({ length: 20 }, (_, index) => `server_${index}`).join(', ')}, +5 more`,
+    );
+  });
+
+  it('returns a non-google allowlist unchanged even when real counts exceed Gemini limits', () => {
+    const allowlist: McpAllowlist = { servers: ['large'], tools: [] };
+    const result = capMcpAllowlistForProvider(allowlist, 'anthropic', { large: 900 });
+
+    expect(result.trimmed).toBe(false);
+    expect(result.allowlist).toBe(allowlist);
+    expect(result.warning).toBeNull();
+  });
+});
+
 // ── #952: unscoped-path deferred allowlist ──────────────────────────────────────
 // The count-based cap above only trims an allowlist it is given. An UNSCOPED
 // Gemini session hands the fork none, so the full surface goes through and blows

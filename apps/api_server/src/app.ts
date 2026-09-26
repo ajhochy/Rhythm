@@ -49,13 +49,16 @@ import { syncRouter } from './routes/sync_routes';
 import { ptyRouter } from './routes/pty_routes';
 import { createRelayGatewayRouter } from './routes/relay_gateway_routes';
 import { opencodeClient } from './services/opencode_engine';
+import { OPENCODE_ENGINE_PORT } from './services/opencode_client_service';
 import { streamBridge } from './services/opencode_stream_bridge';
 import { buildOpencodeHealthPayload } from './services/opencode_health';
+import { requireAuth } from './middleware/auth_middleware';
 import agentSchedulesRouter from './routes/agentSchedulesRoutes';
 import agentMemoryRouter from './routes/agentMemoryRoutes';
 import agentWebhookRouter from './routes/agentWebhookRoutes';
 import agentResearchRouter from './routes/agentResearchRoutes';
 import agentCookbookRouter from './routes/agentCookbookRoutes';
+import agentWorkflowRouter from './routes/agentWorkflowRoutes';
 import orgProposalsRouter from './routes/org_proposals_routes';
 import orgOptimizerRunRouter from './routes/org_optimizer_run_routes';
 import agentDesignsRouter from './routes/agentDesignsRoutes';
@@ -76,6 +79,9 @@ import {
   sharedTranscriptsRouter,
   transcriptShareCreationRouter,
 } from './routes/shared_transcripts_routes';
+import { createAgentBridgeRouter } from './routes/agent_bridge_routes';
+import { sharedAgentsCatalogRouter } from './shared_agents/bridge/catalog';
+import { requireLocalOrCloudAuth } from './middleware/auth_middleware';
 
 export function isLoopbackAddress(address: string | undefined): boolean {
   return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
@@ -85,6 +91,9 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
   const app = express();
 
   app.use(localAgentSurfaceGuard);
+  if (env.bridgeEnabled) {
+    app.use('/agent-bridge/v1', createAgentBridgeRouter());
+  }
   app.use(
     cors({
       origin: (origin, callback) => {
@@ -232,6 +241,9 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
     app.use('/agent-run-outcomes', runOutcomeRouter);
     app.use('/agents/models', agentsModelsRouter);
     app.use('/agent-configs', agentConfigsRouter);
+    if (env.bridgeEnabled) {
+      app.use('/shared-agents/v1', requireLocalOrCloudAuth, sharedAgentsCatalogRouter);
+    }
     app.use('/agent-delegation', agentDelegationRouter);
     app.use('/agent-skills', agentSkillsRouter);
     app.use('/agent-schedules', agentSchedulesRouter);
@@ -249,6 +261,11 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
     app.use('/agent-webhooks', agentWebhookRouter);
     app.use('/agent-research', agentResearchRouter);
     app.use('/agent-cookbook', agentCookbookRouter);
+    // #1485 S3a-1 — durable recipe-workflow runs, default off behind
+    // env.recipeWorkflowsEnabled (checked inside the runner, not the route
+    // gate here — mirrors agent-cookbook's own pattern of one shared route
+    // surface with an inner capability check).
+    app.use('/agent-workflows', agentWorkflowRouter);
     app.use('/agent-activity', agentActivityRouter);
     // org-optimizer-10 (#826): human-gate review queue — exception path for
     // new-agent + external-adoption/webhook-wiring proposals, plus an
@@ -312,6 +329,31 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
     });
     app.get('/opencode/health', (_req, res) => {
       res.json(buildOpencodeHealthPayload(opencodeClient, streamBridge));
+    });
+    const runtimeAuth = env.agentLocal
+      ? (_req: express.Request, _res: express.Response, next: express.NextFunction) => next()
+      : requireAuth;
+    app.get('/opencode/runtime', runtimeAuth, async (_req, res, next) => {
+      try {
+        const identity = await opencodeClient.getEngineIdentity();
+        const bridgeLive = streamBridge.isLive !== false;
+        res.json({
+          engine: {
+            port: OPENCODE_ENGINE_PORT,
+            pid: identity?.pid ?? null,
+            bootId: identity?.bootId ?? null,
+            version: identity?.version ?? null,
+            status: identity && opencodeClient.isReady && bridgeLive
+              ? 'ready'
+              : 'unavailable',
+            bridgeLive,
+          },
+          api: { port: env.port },
+          remoteOverride: null,
+        });
+      } catch (err) {
+        next(err);
+      }
     });
   }
 

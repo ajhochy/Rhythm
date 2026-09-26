@@ -1,3 +1,5 @@
+> Current investigation (2026-09-19): [Hermes Desktop replacement — verified state, architecture and open proof gates](plans/2026-09-19-hermes-desktop-in-rhythm.md). Historical investigation below is retained.
+
 # Investigation — #1123 interactive asynchronous delegation
 
 ## Trigger and current behavior

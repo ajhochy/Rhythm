@@ -1,20 +1,31 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { runInNewContext } from 'node:vm';
 
-import { validateSecuritySmokeReceipt } from '../src/security-smoke-receipt.mjs';
+import {
+  AGENT_SERVER_KEYS, AI_ACCOUNTS_KEYS, AUTH_KEYS, BRIDGE_KEYS, COLONY_VIEW_KEYS,
+  GATEWAY_KEYS, HERMES_KEYS, HERMES_VIEW_KEYS, HUMAN_APPROVAL_KEYS, REMOTE_ENVIRONMENTS_KEYS, UPDATE_KEYS,
+  validateSecuritySmokeReceipt,
+} from '../src/security-smoke-receipt.mjs';
 
 const validReceipt = {
   bridge: {
-    keys: ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates'],
+    keys: BRIDGE_KEYS,
     frozen: true,
     gateway: {
-      keys: ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase'],
+      keys: GATEWAY_KEYS,
       frozen: true,
     },
-    auth: { keys: ['signInWithGoogle', 'currentSession', 'logout'], frozen: true },
-    humanApproval: { keys: ['capability', 'signDecision'], frozen: true },
-    agentServer: { keys: ['status', 'onStatusChange'], frozen: true },
-    updates: { keys: ['openDownloadPage'], frozen: true },
+    auth: { keys: AUTH_KEYS, frozen: true },
+    humanApproval: { keys: HUMAN_APPROVAL_KEYS, frozen: true },
+    agentServer: { keys: AGENT_SERVER_KEYS, frozen: true },
+    hermes: { keys: HERMES_KEYS, frozen: true },
+    hermesView: { keys: HERMES_VIEW_KEYS, frozen: true },
+    colonyView: { keys: COLONY_VIEW_KEYS, frozen: true },
+    aiAccounts: { keys: AI_ACCOUNTS_KEYS, frozen: true },
+    remoteEnvironments: { keys: REMOTE_ENVIRONMENTS_KEYS, frozen: true },
+    updates: { keys: UPDATE_KEYS, frozen: true },
     nodeExposed: false,
     value: { version: 6 },
   },
@@ -27,14 +38,71 @@ const validReceipt = {
   },
 };
 
-test('signed security smoke accepts the exact hardened bridge and denial receipt', () => {
+async function receiptFromRealPreload() {
+  let bridge;
+  runInNewContext(await readFile(new URL('../src/preload.cjs', import.meta.url), 'utf8'), {
+    require(name) {
+      assert.equal(name, 'electron');
+      return {
+        contextBridge: { exposeInMainWorld: (key, value) => { assert.equal(key, 'rhythmShell'); bridge = value; } },
+        ipcRenderer: { invoke: async () => undefined, on() {}, send() {}, sendSync: () => 'https://example.invalid' },
+      };
+    },
+    process: { argv: [], env: {}, platform: 'darwin' },
+    window: { addEventListener() {}, dispatchEvent() {} },
+  });
+  const keys = (value) => ({ keys: Object.keys(value), frozen: Object.isFrozen(value) });
+  return {
+    bridge: {
+      ...keys(bridge),
+      gateway: keys(bridge.gateway),
+      auth: keys(bridge.auth),
+      humanApproval: keys(bridge.humanApproval),
+      agentServer: keys(bridge.agentServer),
+      hermes: keys(bridge.hermes),
+      hermesView: keys(bridge.hermesView),
+      colonyView: keys(bridge.colonyView),
+      aiAccounts: keys(bridge.aiAccounts),
+      remoteEnvironments: keys(bridge.remoteEnvironments),
+      updates: keys(bridge.updates),
+      nodeExposed: false,
+      value: { version: bridge.version },
+    },
+    denials: structuredClone(validReceipt.denials),
+  };
+}
+
+test('issue-1542-c12: signed security smoke accepts both exact Hermes bridge receipts', () => {
   assert.deepEqual(validateSecuritySmokeReceipt(validReceipt), { ok: true });
+});
+
+test('review:security-smoke-receipt.mjs:5 validates the real preload closed surface', async () => {
+  assert.deepEqual(validateSecuritySmokeReceipt(await receiptFromRealPreload()), { ok: true });
+});
+
+test('review:security-smoke-receipt.mjs:5 rejects an unexpected real agentServer capability', async () => {
+  const receipt = await receiptFromRealPreload();
+  receipt.bridge.agentServer.keys.push('unexpected');
+  assert.deepEqual(validateSecuritySmokeReceipt(receipt), {
+    ok: false,
+    reason: 'bridge.agentServer.keys does not match the closed capability surface',
+  });
+});
+
+test('review:security-smoke-receipt.mjs:5 rejects an unexpected real colonyView capability', async () => {
+  const receipt = await receiptFromRealPreload();
+  receipt.bridge.colonyView.keys.push('unexpected');
+  assert.deepEqual(validateSecuritySmokeReceipt(receipt), {
+    ok: false,
+    reason: 'bridge.colonyView.keys does not match the closed capability surface',
+  });
 });
 
 test('signed security smoke rejects every unsafe bridge and denial invariant', () => {
   const invalidMutations = [
     (receipt) => { receipt.bridge.nodeExposed = true; },
     (receipt) => { receipt.bridge.keys.push('filesystem'); },
+    (receipt) => { receipt.bridge.keys = receipt.bridge.keys.filter((key) => key !== 'selectDirectory'); },
     (receipt) => { receipt.bridge.frozen = false; },
     (receipt) => { receipt.bridge.gateway.keys.push('fetch'); },
     (receipt) => { receipt.bridge.gateway.frozen = false; },
@@ -44,6 +112,13 @@ test('signed security smoke rejects every unsafe bridge and denial invariant', (
     (receipt) => { receipt.bridge.humanApproval.frozen = false; },
     (receipt) => { receipt.bridge.agentServer.keys.push('spawn'); },
     (receipt) => { receipt.bridge.agentServer.frozen = false; },
+    (receipt) => { receipt.bridge.hermes.keys.push('token'); },
+    (receipt) => { receipt.bridge.hermes.frozen = false; },
+    (receipt) => { receipt.bridge.hermesView.keys.push('token'); },
+    (receipt) => { receipt.bridge.hermesView.frozen = false; },
+    (receipt) => { receipt.bridge.colonyView.frozen = false; },
+    (receipt) => { receipt.bridge.remoteEnvironments.keys.push('deviceToken'); },
+    (receipt) => { receipt.bridge.remoteEnvironments.frozen = false; },
     (receipt) => { receipt.bridge.updates.keys.push('install'); },
     (receipt) => { receipt.bridge.updates.frozen = false; },
     (receipt) => { receipt.bridge.value.version = '5'; },
@@ -62,4 +137,23 @@ test('signed security smoke rejects every unsafe bridge and denial invariant', (
     assert.equal(typeof result.reason, 'string');
   }
   assert.equal(validateSecuritySmokeReceipt(null).ok, false);
+});
+
+test('Accounts receipt requires the exact frozen metadata-only bridge', () => {
+  for (const accounts of [undefined, { keys: AI_ACCOUNTS_KEYS, frozen: false }, { keys: [...AI_ACCOUNTS_KEYS, 'readKey'], frozen: true }]) {
+    const receipt = structuredClone(validReceipt);
+    receipt.bridge.aiAccounts = accounts;
+    assert.equal(validateSecuritySmokeReceipt(receipt).ok, false);
+  }
+});
+
+test('main.mjs security-smoke receipt collects every object sub-bridge the validator checks', async () => {
+  // The packaged --security-smoke receipt is built in main.mjs, not from preload directly; a bridge the
+  // validator checks but main.mjs never collects fails every signed release smoke (regressed once by #1374).
+  const main = await readFile(new URL('../src/main.mjs', import.meta.url), 'utf8');
+  const objectBridges = ['gateway', 'auth', 'humanApproval', 'agentServer', 'hermes', 'hermesView', 'colonyView', 'aiAccounts', 'remoteEnvironments'];
+  for (const bridge of objectBridges) {
+    assert.ok(BRIDGE_KEYS.includes(bridge), `${bridge} is a validated bridge`);
+    assert.match(main, new RegExp(`Object\\.keys\\(window\\.rhythmShell\\?\\.${bridge}\\b`), `main.mjs receipt must collect ${bridge}`);
+  }
 });

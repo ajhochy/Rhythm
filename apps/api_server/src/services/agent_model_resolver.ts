@@ -3,6 +3,10 @@ import { getUsageBudget } from './usage_budget_service';
 import { logger } from '../utils/logger';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import {
+  eligibleModel,
+  preferredVisibleDirectModelId,
+} from './provider_catalog_policy';
 
 /**
  * OPC-M1-1: Server-side provider-to-agent-kind mapping.
@@ -135,7 +139,7 @@ export const ROUTE_FALLBACKS_BY_AGENT: Record<string, ModelRoute[]> = {
  */
 const SMALL_MODEL_CANDIDATES: ModelRoute[] = [
   { providerID: 'anthropic', modelID: 'claude-haiku-4-5' },
-  { providerID: 'openai', modelID: 'gpt-5.4-mini' },
+  { providerID: 'openai', modelID: 'gpt-5.6-luna' },
   { providerID: 'google', modelID: 'gemini-2.5-flash' },
 ];
 
@@ -155,17 +159,76 @@ export async function resolveSmallModel(): Promise<ModelRoute | undefined> {
   }
 }
 
-/** Pick the first authed route for the given agent, or the first route if none authed. */
+/** Pick the first authorized route that the shared picker policy can expose. */
 export async function resolveModelForAgent(
   agentId: string,
 ): Promise<ModelRoute | undefined> {
   const routes = ROUTE_FALLBACKS_BY_AGENT[agentId];
   if (!routes || routes.length === 0) return undefined;
   const authed = new Set(await opencodeClient.listAuthedProviders());
-  for (const route of routes) {
-    if (authed.has(route.providerID)) return route;
+  try {
+    const snapshot = await opencodeClient.providerSnapshot();
+    if (snapshot.providers.length === 0) {
+      return routes.find((route) => authed.has(route.providerID)) ?? routes[0];
+    }
+    for (const provider of snapshot.providers) {
+      if (
+        provider.connected ||
+        ['env', 'api', 'custom'].includes(provider.source ?? '')
+      ) authed.add(provider.id);
+    }
+
+    const usage = await getUsageBudget({ cachedOnly: true }).catch(() => null);
+    const openAiUsage = usage?.providers.find((entry) => entry.provider === 'openai');
+    const rawOpenAiEntitlements = openAiUsage?.entitledModels;
+    const openAiEntitlements = rawOpenAiEntitlements &&
+      typeof rawOpenAiEntitlements === 'object' &&
+      !Array.isArray(rawOpenAiEntitlements) &&
+      Object.values(rawOpenAiEntitlements).every((value) => typeof value === 'boolean')
+      ? rawOpenAiEntitlements as Record<string, boolean>
+      : undefined;
+    const geminiUsage = usage?.providers.find((entry) => entry.provider === 'gemini');
+
+    for (const route of routes) {
+      if (!authed.has(route.providerID)) continue;
+      const provider = snapshot.providers.find((entry) => entry.id === route.providerID);
+      if (!provider) continue;
+      const geminiIds = new Set(
+        geminiUsage?.kind !== 'unavailable'
+          ? geminiUsage?.items.map((item) => item.label).filter((id) =>
+              provider.models.some((model) => model.id === id)) ?? []
+          : [],
+      );
+      const models = provider.models.filter((model) => {
+        if (!eligibleModel(model)) return false;
+        if (provider.id === 'openai' && openAiEntitlements?.[model.id] === false) return false;
+        if (provider.id === 'google' && geminiIds.size > 0 && !geminiIds.has(model.id)) return false;
+        return true;
+      });
+      if (AGGREGATOR_IDS.has(provider.id) || provider.id === 'ollama' || provider.id === 'omlx') {
+        if (models.some((model) => model.id === route.modelID)) return route;
+        continue;
+      }
+      const modelID = preferredVisibleDirectModelId(provider.id, route.modelID, models, {
+        geminiEntitlementsKnown: provider.id === 'google' && geminiIds.size > 0,
+      });
+      if (modelID) {
+        return {
+          ...route,
+          modelID,
+          ...(modelID.endsWith('-1m') ? { variantLabel: '1M context' } : {}),
+        };
+      }
+    }
+    return undefined;
+  } catch {
+    // Preserve the pre-#1572 fallback when the bounded catalog snapshot is not
+    // available; the engine will surface any provider/model error normally.
+    for (const route of routes) {
+      if (authed.has(route.providerID)) return route;
+    }
+    return routes[0];
   }
-  return routes[0];
 }
 
 /**
@@ -191,7 +254,7 @@ export interface CatalogEntry extends ModelRoute {
 }
 
 /** Mapping from provider ID → OAuth start path. */
-const PROVIDER_CONNECT_URL: Record<string, string> = {
+export const PROVIDER_CONNECT_URL: Record<string, string> = {
   anthropic: '/opencode/auth/anthropic/authorize',
   openai: '/opencode/auth/openai/authorize',
   google: '/opencode/auth/google/authorize',

@@ -350,9 +350,10 @@ export class GoogleOAuthService {
       displayName: profile.name ?? null,
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token ?? null,
-      scope: tokens.scope ?? GOOGLE_SCOPES.join(' '),
+      scope: tokens.scope ?? null,
       tokenType: tokens.token_type ?? null,
       expiresAt,
+      preserveScopes: true,
     });
   }
 

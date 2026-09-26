@@ -12,6 +12,59 @@ macOS desktop productivity app for church staff. Flutter desktop client with a l
 
 Flutter's `serverConfigService.url` controls the production API only. The agent server is always `http://localhost:4001` (`AppConstants.agentLocalBaseUrl`) — never coupled to the user-configurable URL.
 
+## Remote access (Cloud Gateway relay)
+
+This is the Rhythm-owned remote-access boundary for #1177's two product
+triggers. It does not enable upstream experimental OpenCode workspaces.
+
+- **Control plane and network path:** the NAS relay (`RHYTHM_ROLE=relay`) sits
+  behind Cloudflare. Mobile presents a device token over HTTPS/WSS to the relay;
+  the paired Mac makes an outbound authenticated uplink and remains the worker
+  and execution authority. The relay never accepts a client-supplied host or
+  filesystem root. Uplink hello validates the authenticated user plus the sole
+  enrolled `(hostId,userId)` pair
+  (`apps/api_server/src/services/relay_uplink_server.ts:638-656`).
+- **Worker identity and authorization:** the Mac uplink bearer identifies the
+  worker, and the hello binds it to the enrolled host. Relay routes apply
+  `requireDevice` before events, PTY, mirror reads, or tunnel forwarding
+  (`apps/api_server/src/routes/relay_gateway_routes.ts:408-419` and
+  `:687-696`). The Mac repeats project and session authorization rather than
+  trusting relay-supplied authority; `requireMobileProjectScope()` gates the
+  catalog and OpenCode surface
+  (`apps/api_server/src/routes/mobile_gateway_routes.ts:137-150` and
+  `:401-415`). Device grants are user-, host-, and project-scoped; opaque IDs
+  do not grant authority by themselves.
+- **Secret boundary:** device tokens authenticate phones, and the uplink bearer
+  is held by the Mac/API process. No model-held bearer ever reaches the relay,
+  worker command, transcript, or tool payload. Receipts and diagnostics record
+  only sanitized IDs and failure categories.
+- **Data residency and retention:** execution worktrees, model credentials, and
+  authoritative session state remain on the Mac. Relay SQLite mirrors exactly
+  `mobile_devices`, `mobile_device_projects`, `agent_sessions`, and
+  `agent_session_messages`; `relay_sync_state` stores only the applied sequence
+  cursor (`apps/api_server/src/services/relay_uplink_server.ts:75-88` and
+  `:191-235`). Mirror rows persist until the Mac replaces/deletes them or the
+  operator removes the relay data; there is currently no time-based retention
+  policy. Relay live-artifact bytes use the dedicated relay artifact store.
+- **Failure ownership and recovery:** the Mac owns engine/session lifecycle.
+  The relay reports the Mac offline, serves only authorized mirror data where
+  supported, and reconnect/resync closes stale streams so clients reattach.
+  A revoked device or failed user/project check fails closed. The Mac/operator
+  owns recovery of worker or uplink failures; the relay must not invent or
+  duplicate execution.
+- **Kill switches:** mobile builds can set
+  `EXPO_PUBLIC_RHYTHM_RELAY_DISABLED=1` (build-time; saved pairing is retained,
+  `apps/mobile/lib/pairing/paired-host-store.ts:165-171`). An empty Mac
+  `RHYTHM_RELAY_URLS` disables the uplink
+  (`apps/api_server/src/config/env.ts:427-434`). The #1374 secondary-desktop
+  flag is not yet defined because that slice has no implementation; it must be
+  explicit and default-off before #1374 can ship, and disabling it must retain
+  session data.
+
+Current scope is single-tenant relay access for the paired mobile path. The
+secondary-desktop workflow remains #1374 work and cannot inherit authority
+from the mobile relay implicitly.
+
 ## Cloud live artifacts
 
 The hosted production API owns authenticated live-artifact metadata and authorization in Postgres; immutable bundle/state bytes persist under `/data/live-artifacts`. Stable artifact IDs support private, selected-collaborator, and organization access with revision-checked writes. The local Rhythm MCP surface exposes five hosted API tools, while the shipping Dashboard renders artifacts in a WKWebView with a closed bridge limited to state get/update and declared current-user `pco.services.read`. The authoritative V1 contract and verified flow are `docs/ai/contracts/live-artifacts-av07.json` and `docs/ai/runs/2026-08-09-live-artifacts-av07.md`.
@@ -78,6 +131,23 @@ DELETE /agent-sessions/:id
 
 ### Auth model
 Per-user AI accounts. Each user signs into their own provider on their machine. No shared credentials. Credentials stored by Opencode SDK in `~/.local/share/opencode/auth.json`.
+
+### Approval lanes
+
+Every approval declares a lane so bypass behavior is predictable in the API
+and visible in the desktop UI.
+
+| Approval class | Lane | Bypass / auto-approve coverage |
+|---|---|---|
+| Engine tool asks and non-hardline #878 command asks | Convenience | May be satisfied by the permission mode, bypass, or profile auto-approve policy. |
+| #878 hardline command deny | Hardline | Never bypassed or auto-approved. |
+| #736 out-of-allowlist deny | Hardline | Never bypassed or auto-approved. |
+| #1134 external-data taint approval | Hardline | Never bypassed or auto-approved; requires the signed human-approval credential. |
+
+The agent-approval API labels taint-bound rows as `hardline` with reason
+`external_data_taint`, other security actions as `hardline` with reason
+`consequential_action`, and ordinary approval gates as `approval` with reason
+`approval_gate`.
 
 ### Provider tiers (Settings UI)
 1. **Subscriptions:** Claude OAuth, ChatGPT OAuth (opens system browser)

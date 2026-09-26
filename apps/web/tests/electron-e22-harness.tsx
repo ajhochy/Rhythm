@@ -8,7 +8,8 @@ import { AgentsWorkspace } from '../src/components/AgentsWorkspace';
 import { Profiles } from '../src/components/Profiles';
 import '../src/styles.css';
 const env = import.meta.env;
-const gateway = composeGateway({ mode: 'live', apiBase: env.VITE_RHYTHM_API_BASE, expectedApiBase: env.VITE_RHYTHM_API_BASE, engineBase: env.VITE_RHYTHM_ENGINE_BASE, expectedEngineBase: env.VITE_RHYTHM_ENGINE_BASE, productionApiBase: env.VITE_RHYTHM_PRODUCTION_API_BASE, taskToken: env.VITE_RHYTHM_LIVE_TOKEN });
+const fixtureGateway = new URLSearchParams(location.search).get('gateway') === 'fixture';
+const gateway = composeGateway(fixtureGateway ? { mode: 'fixture' } : { mode: 'live', apiBase: env.VITE_RHYTHM_API_BASE, expectedApiBase: env.VITE_RHYTHM_API_BASE, engineBase: env.VITE_RHYTHM_ENGINE_BASE, expectedEngineBase: env.VITE_RHYTHM_ENGINE_BASE, productionApiBase: env.VITE_RHYTHM_PRODUCTION_API_BASE, taskToken: env.VITE_RHYTHM_LIVE_TOKEN });
 function Probe() {
   const state = useFixtures(); const [profiles, showProfiles] = useState(false);
   return <><button onClick={() => showProfiles(!profiles)}>Switch surface</button><div style={{ height: '850px' }}>{profiles ? <Profiles /> : <AgentsWorkspace />}</div><output data-testid="notice">{state.toast.message}</output><pre data-testid="state">{JSON.stringify({ profiles: state.profiles, selected: state.selected })}</pre></>;

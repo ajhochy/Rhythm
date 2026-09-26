@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { FocusDialog } from '../../components/FocusDialog';
+import { Timestamp } from '../../components/Timestamp';
+import { ListInspector, useSelectedId, type ListInspectorItem } from '../../components/ListInspector';
 import { navigate } from '../../components/Shell';
 import { Icon } from '../../icons';
 import { useFixtures } from '../../store';
@@ -26,7 +27,6 @@ import {
   cloneSeededAutomationRules,
   conditionFields,
   initialAutomationReceipts,
-  sourceDescriptions,
   sourceLabels,
   sourceOrder,
   triggerCatalog,
@@ -91,8 +91,7 @@ function writeState(route: string, state: SurfaceState) {
 }
 
 function dateTimeLabel(value: string | null) {
-  if (!value) return 'Never';
-  return value.slice(0, 16).replace('T', ' ');
+  return value ? <Timestamp value={value} /> : 'Never';
 }
 
 function suggestedName(source: AutomationSource) {
@@ -100,14 +99,6 @@ function suggestedName(source: AutomationSource) {
   if (source === 'google_calendar') return 'Calendar event matches filter';
   if (source === 'planning_center') return 'Planning Center plan upcoming';
   return 'Rhythm task due';
-}
-
-function StatePanel({ state, onRetry, onCreate }: { state: Exclude<SurfaceState, 'ready' | 'readonly'>; onRetry(): void; onCreate(): void }) {
-  if (state === 'loading') return <section className="automations-state loading" role="status" aria-live="polite" data-testid="page-state-loading"><span className="automations-spinner" aria-hidden="true" /><h2>Loading automations</h2><p>Gathering rules, provider accounts, and the current automation catalogs.</p><div className="automations-skeleton" aria-hidden="true"><span /><span /><span /></div></section>;
-  if (state === 'empty') return <section className="automations-state" role="status" data-testid="page-state-empty"><span className="automations-state-mark" aria-hidden="true"><Icon name="spark" size={24} /></span><h2>No automations yet</h2><p>Turn a repeated handoff into a dependable Rhythm rule.</p><button className="primary-button" type="button" onClick={onCreate} data-testid="automations-empty-create"><Icon name="plus" size={15} />Create automation</button></section>;
-  if (state === 'server-error') return <section className="automations-state danger" role="alert" data-testid="page-state-server-error"><span className="automations-state-code">503</span><h2>Automations could not be loaded</h2><p>The automation service returned a temporary error. Existing rules remain unchanged.</p><button className="primary-button" type="button" onClick={onRetry} data-testid="page-retry"><Icon name="refresh" size={15} />Retry</button></section>;
-  if (state === 'forbidden') return <section className="automations-state warning" role="alert" data-testid="page-state-forbidden"><span className="automations-state-code">403</span><h2>Workspace access required</h2><p>Ask a workspace owner to grant access to owned automation rules. Restricted rules are not exposed or changed here.</p></section>;
-  return <section className="automations-state warning" role="status" data-testid="page-state-unavailable"><span className="automations-state-mark" aria-hidden="true"><Icon name="background" size={24} /></span><h2>Automations are unavailable</h2><p>Reconnect the local Rhythm API before rules can be loaded or changed.</p></section>;
 }
 
 interface BuilderDraft {
@@ -126,12 +117,6 @@ interface BuilderDraft {
   notes: string;
   targetDay: string;
   conditions: AutomationCondition[];
-}
-
-function InspectorPortal({ children }: { children: ReactNode }) {
-  const [target, setTarget] = useState<Element | null>(null);
-  useEffect(() => { const next = document.querySelector("[data-testid='automation-inspector']"); setTarget((current) => current === next ? current : next); });
-  return target ? createPortal(children, target) : null;
 }
 
 // Fixture-mode builder options come straight from fixtures.ts (unchanged behavior). Live mode
@@ -295,7 +280,8 @@ export function AutomationsPage({ route }: { route: string }) {
   const [builderOpen, setBuilderOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<AutomationRule | null>(null);
   const [previewRuleId, setPreviewRuleId] = useState<string | null>(() => requestedRuleId);
-  const [selectedRuleId, setSelectedRuleId] = useState<string | null>(() => isLive ? requestedRuleId : requestedRuleId ?? cloneSeededAutomationRules()[0]?.id ?? null);
+  const [storedSelectedRuleId, setSelectedRuleId] = useSelectedId('automationId');
+  const selectedRuleId = requestedRuleId ?? storedSelectedRuleId;
   const [deleteTarget, setDeleteTarget] = useState<AutomationRule | null>(null);
   const [resyncingId, setResyncingId] = useState<string | null>(null);
   const [resyncResults, setResyncResults] = useState<Record<string, string>>({});
@@ -319,7 +305,7 @@ export function AutomationsPage({ route }: { route: string }) {
   const activeCatalog = isLive ? liveCatalog : fixtureCatalog;
 
   const selectedRule = rules.find((rule) => rule.id === previewRuleId) ?? null;
-  const inspectorRule = rules.find((rule) => rule.id === selectedRuleId) ?? rules[0] ?? null;
+  const inspectorRule = rules.find((rule) => rule.id === selectedRuleId) ?? null;
   const requestedRuleExists = !requestedRuleId || rules.some((rule) => rule.id === requestedRuleId);
   const isReadonly = surfaceState === 'readonly';
   const showsRules = ['ready', 'readonly'].includes(surfaceState);
@@ -334,6 +320,15 @@ export function AutomationsPage({ route }: { route: string }) {
     ? (liveCatalogEmpty ? 'catalog-empty' : liveInvalidConfigRule ? 'invalid-config' : 'none')
     : fixtureDependency;
   const groupedRules = useMemo(() => sourceOrder.map((source) => ({ source, rules: rules.filter((rule) => rule.source === source) })).filter((group) => group.rules.length), [rules]);
+  const listItems = useMemo<ListInspectorItem[]>(() => rules.map((rule) => ({
+    id: `automation-rule-${rule.id}`,
+    title: rule.name,
+    subtitle: sourceLabels[rule.source],
+    meta: rule.triggerLabel,
+    badge: rule.enabled ? 'Enabled' : 'Paused',
+    group: rule.source,
+  })), [rules]);
+  const listGroups = useMemo(() => groupedRules.map((group) => ({ id: group.source, label: sourceLabels[group.source] })), [groupedRules]);
   const enabledCount = rules.filter((rule) => rule.enabled).length;
 
   const appendReceipt = (receipt: string) => setReceipts((current) => [...current, receipt]);
@@ -366,6 +361,10 @@ export function AutomationsPage({ route }: { route: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLive, liveGateway]);
 
+  useEffect(() => {
+    if (!requestedRuleId && storedSelectedRuleId === null && showsRules && rules[0]) setSelectedRuleId(rules[0].id);
+  }, [requestedRuleId, rules, setSelectedRuleId, showsRules, storedSelectedRuleId]);
+
   const retryLiveLoad = () => { if (liveGateway) void loadLiveAutomations(liveGateway); };
 
   useEffect(() => {
@@ -378,8 +377,7 @@ export function AutomationsPage({ route }: { route: string }) {
   const chooseState = (state: SurfaceState) => { setSurfaceState(state); writeState(route, state); };
   const openBuilder = (rule: AutomationRule | null = null) => { setEditingRule(rule); setBuilderOpen(true); if (!isLive) appendReceipt('GET /facilities → 200'); };
   const closeBuilder = () => { setBuilderOpen(false); setEditingRule(null); };
-  const openPreview = (rule: AutomationRule, event?: MouseEvent<HTMLAnchorElement>) => {
-    event?.preventDefault();
+  const openPreview = (rule: AutomationRule) => {
     setSelectedRuleId(rule.id);
     setPreviewRuleId(rule.id);
     if (isLive) {
@@ -399,7 +397,11 @@ export function AutomationsPage({ route }: { route: string }) {
   };
   const closePreview = () => {
     setPreviewRuleId(null);
-    if (requestedRuleId) history.replaceState(null, '', '#/automations');
+    if (requestedRuleId) {
+      const params = hashParams();
+      params.set('automationId', requestedRuleId);
+      navigate(`/automations?${params.toString()}`);
+    }
   };
 
   // Canonical literal sets used below for live create/update payloads:
@@ -516,7 +518,6 @@ export function AutomationsPage({ route }: { route: string }) {
       try {
         await liveGateway.delete(deleteTarget.id);
         setRules((current) => current.filter((rule) => rule.id !== deleteTarget.id));
-        if (selectedRuleId === deleteTarget.id) setSelectedRuleId(rules.find((rule) => rule.id !== deleteTarget.id)?.id ?? null);
         appendReceipt(`DELETE /automation-rules/${deleteTarget.id} → 204`);
         notify(`${deleteTarget.name} deleted`);
         setDeleteTarget(null);
@@ -525,7 +526,6 @@ export function AutomationsPage({ route }: { route: string }) {
       return;
     }
     setRules((current) => current.filter((rule) => rule.id !== deleteTarget.id));
-    if (selectedRuleId === deleteTarget.id) setSelectedRuleId(rules.find((rule) => rule.id !== deleteTarget.id)?.id ?? null);
     appendReceipt(`DELETE /automation-rules/${deleteTarget.id} → 204`);
     notify(`${deleteTarget.name} deleted`);
     setDeleteTarget(null);
@@ -557,49 +557,73 @@ export function AutomationsPage({ route }: { route: string }) {
     }, 180);
   };
 
+  const listError = surfaceState === 'server-error'
+    ? <div className="automations-list-state danger" data-testid="page-state-server-error"><strong>503 · Automations could not be loaded</strong><p>The automation service returned a temporary error. Existing rules remain unchanged.</p><button className="primary-button" type="button" onClick={() => { if (isLive) retryLiveLoad(); else chooseState('ready'); }} data-testid="page-retry"><Icon name="refresh" size={15} />Retry</button></div>
+    : surfaceState === 'forbidden'
+      ? <div className="automations-list-state warning" data-testid="page-state-forbidden"><strong>403 · Workspace access required</strong><p>Ask a workspace owner to grant access to owned automation rules. Restricted rules are not exposed or changed here.</p></div>
+      : surfaceState === 'unavailable'
+        ? <div className="automations-list-state warning" data-testid="page-state-unavailable"><strong>Automations are unavailable</strong><p>Reconnect the local Rhythm API before rules can be loaded or changed.</p></div>
+        : undefined;
+  const selectedItemId = showsRules && selectedRuleId ? `automation-rule-${selectedRuleId}` : null;
+
   return <section className="page-shell pg-automations" data-testid="page-automations" aria-labelledby="automations-title" aria-busy={surfaceState === 'loading'} {...(selectedRuleId ? { 'data-selected-stable-id': selectedRuleId } : {})}>
     <header className="automations-header"><div className="automations-heading"><div className="automations-mark" aria-hidden="true"><Icon name="spark" size={22} /></div><div><h1 id="automations-title">Automations</h1><p>Create and inspect rules that turn incoming signals into tasks, schedules, or notifications.</p></div></div><div className="automations-header-controls"><label className="automations-state-picker">View state<select value={surfaceState} onChange={(event) => chooseState(event.target.value as SurfaceState)} data-testid="automations-state-select">{supportedStates.map((state) => <option value={state} key={state}>{stateLabels[state]}</option>)}</select></label></div></header>
 
     {surfaceState === 'readonly' && <div className="automations-banner" role="status" id="automations-readonly-reason" data-testid="page-state-readonly"><Icon name="review" size={16} /><span><strong>Workspace is read-only.</strong> Rules and historical previews remain available; creating, editing, running, toggling, and deleting are disabled.</span></div>}
 
-    {!showsRules && <main className="automations-state-wrap">{<StatePanel state={surfaceState as Exclude<SurfaceState, 'ready' | 'readonly'>} onRetry={() => { if (isLive) retryLiveLoad(); else chooseState('ready'); }} onCreate={() => openBuilder()} />}</main>}
+    <section className="automations-overview" aria-label="Automation summary"><dl><div><dt>Rules</dt><dd data-testid="automations-rule-count">{showsRules ? rules.length : 0}</dd></div><div><dt>Enabled</dt><dd data-testid="automations-enabled-count">{showsRules ? enabledCount : 0}</dd></div></dl></section>
 
-    {showsRules && !requestedRuleExists && <section className="automations-not-found" role="status" data-testid="automation-rule-not-found"><span className="automations-state-code">404</span><h2>Automation not found</h2><p>The requested rule is not in the current workspace. No preview request was made.</p><button className="secondary-button" type="button" onClick={() => navigate('/automations')} data-testid="automations-back-to-list"><Icon name="chevronRight" className="rotate-180" size={14} />Back to automations</button></section>}
+    {showsRules && dependencyDetail === 'catalog-empty' && <div className="automations-dependency" role="alert" id="automations-catalog-reason" data-testid="automations-catalog-empty"><Icon name="background" size={17} /><span><strong>The automation catalog is unavailable.</strong> Existing rules remain inspectable, but a trigger and action catalog is required to create another.</span></div>}
+    {showsRules && dependencyDetail === 'invalid-config' && <div className="automations-dependency" role="alert" id="automations-invalid-reason" data-testid="automation-invalid-config"><Icon name="background" size={17} /><span><strong>One rule references a trigger that is no longer in the provider catalog.</strong> Edit the rule to choose a supported trigger before running it.</span><button className="secondary-button" type="button" disabled data-testid="automation-invalid-run">Run unavailable</button><button className="secondary-button" type="button" disabled={isReadonly} onClick={() => openBuilder(liveInvalidConfigRule ?? rules[0])} data-testid="automation-invalid-edit">Edit rule</button></div>}
+    {showsRules && dependencyDetail === 'provider-error' && <div className="automations-dependency" role="alert" id="automations-provider-reason" data-testid="automation-provider-error"><Icon name="background" size={17} /><span><strong>Google Calendar needs attention.</strong> Reconnect the provider before its rules can resync.</span><button className="secondary-button" type="button" disabled aria-describedby="automations-provider-reason" data-testid="automation-provider-resync">Resync unavailable</button><button className="text-button" type="button" onClick={() => navigate('/integrations')} data-testid="automations-open-integrations">Open Integrations</button></div>}
 
-    {showsRules && requestedRuleExists && <>
-      <fieldset className="automations-mutation-gate" disabled={isReadonly} aria-disabled={isReadonly ? 'true' : undefined} aria-describedby={isReadonly ? 'automations-readonly-reason' : undefined} data-testid="automations-mutations"><legend className="sr-only">Automation mutations</legend>
-        <section className="automations-overview" aria-label="Automation summary"><dl><div><dt>Rules</dt><dd data-testid="automations-rule-count">{rules.length}</dd></div><div><dt>Enabled</dt><dd data-testid="automations-enabled-count">{enabledCount}</dd></div><div><dt>Connected providers</dt><dd data-testid="automations-provider-count">3</dd></div><div><dt>Latest account sync</dt><dd>Aug 12 · 15:45</dd></div></dl><button className="primary-button" type="button" onClick={() => openBuilder()} disabled={dependencyDetail === 'catalog-empty'} aria-describedby={dependencyDetail === 'catalog-empty' ? 'automations-catalog-reason' : undefined} data-testid="automations-new"><Icon name="plus" size={15} />New automation</button></section>
-        {dependencyDetail === 'catalog-empty' && <div className="automations-dependency" role="alert" id="automations-catalog-reason" data-testid="automations-catalog-empty"><Icon name="background" size={17} /><span><strong>The automation catalog is unavailable.</strong> Existing rules remain inspectable, but a trigger and action catalog is required to create another.</span></div>}
-        {dependencyDetail === 'invalid-config' && <div className="automations-dependency" role="alert" id="automations-invalid-reason" data-testid="automation-invalid-config"><Icon name="background" size={17} /><span><strong>One rule references a trigger that is no longer in the provider catalog.</strong> Edit the rule to choose a supported trigger before running it.</span><button className="secondary-button" type="button" disabled data-testid="automation-invalid-run">Run unavailable</button><button className="secondary-button" type="button" onClick={() => openBuilder(liveInvalidConfigRule ?? rules[0])} data-testid="automation-invalid-edit">Edit rule</button></div>}
-        {dependencyDetail === 'provider-error' && <div className="automations-dependency" role="alert" id="automations-provider-reason" data-testid="automation-provider-error"><Icon name="background" size={17} /><span><strong>Google Calendar needs attention.</strong> Reconnect the provider before its rules can resync.</span><button className="secondary-button" type="button" disabled aria-describedby="automations-provider-reason" data-testid="automation-provider-resync">Resync unavailable</button><button className="text-button" type="button" onClick={() => navigate('/integrations')} data-testid="automations-open-integrations">Open Integrations</button></div>}
-
-        </fieldset>
-        <main className="automation-workspace" aria-label="Automation rules and inspector">
-          <div className="automation-groups" tabIndex={0} aria-label="Automation rule groups"><fieldset className="automations-rule-gate" disabled={isReadonly} aria-disabled={isReadonly ? 'true' : undefined}><legend className="sr-only">Automation rules</legend>{groupedRules.map((group) => <section className="automation-group" key={group.source} data-source={group.source} data-testid={`automation-group-${group.source}`} aria-labelledby={`automation-group-${group.source}-title`}><header><div><h2 id={`automation-group-${group.source}-title`}>{sourceLabels[group.source]}</h2><p>{sourceDescriptions[group.source]}</p></div><span>{group.rules.length} {group.rules.length === 1 ? 'rule' : 'rules'}</span></header><div className="automation-rule-list">{group.rules.map((rule) => {
-            const isResyncing = resyncingId === rule.id;
-            const providerBlocked = dependencyDetail === 'provider-error' && rule.source === 'google_calendar';
-            // post-m1-p10-c5g: a rule whose stored triggerKey is absent from the live trigger
-            // catalog cannot be resynced until it is edited onto a supported trigger.
-            const triggerInvalid = isLive && liveTriggers.length > 0 && !liveTriggers.some((trigger) => trigger.key === rule.triggerKey);
-            const resyncBlocked = providerBlocked || triggerInvalid;
-            return <section className="automation-rule" key={rule.id} aria-current={inspectorRule?.id === rule.id ? 'true' : undefined} data-rule-id={rule.id} data-condition-count={rule.conditions.length} data-testid={`automation-rule-${rule.id}`}>
-              <button className="rule-select" type="button" onClick={() => setSelectedRuleId(rule.id)} data-testid={`automation-select-${rule.id}`}>
-                <span className="rule-copy"><span className="rule-title-line"><strong>{rule.name}</strong><span className={`rule-status ${rule.enabled ? 'active' : ''}`}>{rule.enabled ? 'Enabled' : 'Paused'}</span></span><small>{rule.triggerLabel} → {rule.actionLabel}</small><em>{rule.accountLabel}</em></span>
-              </button>
-              <div className="rule-actions"><label className="automation-toggle"><span className="sr-only">{rule.enabled ? 'Disable' : 'Enable'} {rule.name}</span><input type="checkbox" checked={rule.enabled} disabled={mutationPending} onChange={(event) => { void toggleRule(rule, event.target.checked); }} data-testid={`automation-enabled-${rule.id}`} /></label><button className="secondary-button" type="button" onClick={() => resyncRule(rule)} disabled={isResyncing || resyncBlocked} aria-describedby={providerBlocked ? 'automations-provider-reason' : triggerInvalid ? 'automations-invalid-reason' : undefined} data-testid={`automation-resync-${rule.id}`}>{isResyncing ? <Icon name="refresh" className="spin" size={14} /> : <Icon name={rule.source === 'rhythm' ? 'resume' : 'refresh'} size={14} />}{rule.source === 'rhythm' ? 'Trigger' : 'Resync'}</button><button className="icon-button danger-control" type="button" aria-label={`Delete ${rule.name}`} disabled={mutationPending} onClick={() => setDeleteTarget(rule)} data-testid={`automation-delete-${rule.id}`}><Icon name="delete" size={15} /></button></div>
-              <a className="rule-inspect" href={`#/automations/${encodeURIComponent(rule.id)}`} onClick={(event) => openPreview(rule, event)} data-testid={`automation-inspect-${rule.id}`}><Icon name="search" size={14} />Preview history</a>
-              {isResyncing && <div className="rule-progress" role="status" aria-live="polite" data-testid={`automation-resync-progress-${rule.id}`}><span />Refreshing provider signals and automation catalogs…</div>}
-              {resyncResults[rule.id] && <div className="rule-result" role="status" aria-live="polite" data-testid={`automation-resync-result-${rule.id}`}><Icon name="check" size={14} />{resyncResults[rule.id]}</div>}
-            </section>;
-          })}</div></section>)}</fieldset></div>
-
-          <aside className="automation-inspector" aria-label="Automation inspector" data-testid="automation-inspector">
-            {inspectorRule ? <div className="automation-inspector-content"><header><span>{sourceLabels[inspectorRule.source]}</span><h2>{inspectorRule.name}</h2><p>{inspectorRule.previewSummary}</p></header><dl><div><dt>Status</dt><dd>{inspectorRule.enabled ? 'Enabled' : 'Paused'}</dd></div><div><dt>Account</dt><dd>{inspectorRule.accountLabel}</dd></div><div><dt>Trigger</dt><dd>{inspectorRule.triggerLabel}</dd></div><div><dt>Action</dt><dd>{inspectorRule.actionLabel}</dd></div><div><dt>Conditions</dt><dd>{inspectorRule.conditions.length || 'None'}</dd></div><div><dt>Matches last run</dt><dd>{inspectorRule.matchCountLastRun}</dd></div><div><dt>Last matched</dt><dd>{dateTimeLabel(inspectorRule.lastMatchedAt)}</dd></div><div><dt>Last evaluated</dt><dd>{dateTimeLabel(inspectorRule.lastEvaluatedAt)}</dd></div></dl>{inspectorRule.previewSample && <section className="automation-inspector-sample"><span>Latest sample</span><p>{inspectorRule.previewSample}</p></section>}</div> : <div className="automation-inspector-empty"><strong>Select an automation</strong><p>Choose a rule to inspect its trigger, action, account, and latest match evidence.</p></div>}
-          </aside>
-        </main>
-    </>}
-
-    {inspectorRule && <InspectorPortal><DirectAutomationEditor rule={inspectorRule} disabled={isReadonly || mutationPending} onSave={saveInspector} catalog={activeCatalog} /></InspectorPortal>}
+    <main className="automation-workspace" aria-label="Automation rules and inspector" data-testid={surfaceState === 'loading' ? 'page-state-loading' : undefined}>
+      <ListInspector
+        label="Automation rules"
+        items={showsRules ? listItems : []}
+        groups={showsRules ? listGroups : []}
+        selectedId={selectedItemId}
+        onSelect={(itemId) => {
+          const ruleId = itemId.replace(/^automation-rule-/, '');
+          if (!requestedRuleId) { setSelectedRuleId(ruleId); return; }
+          const params = hashParams();
+          params.set('automationId', ruleId);
+          navigate(`/automations?${params.toString()}`);
+        }}
+        toolbar={<button className="primary-button" type="button" onClick={() => openBuilder()} disabled={isReadonly || dependencyDetail === 'catalog-empty' || surfaceState === 'loading' || Boolean(listError)} aria-describedby={dependencyDetail === 'catalog-empty' ? 'automations-catalog-reason' : isReadonly ? 'automations-readonly-reason' : undefined} data-testid={surfaceState === 'empty' ? 'automations-empty-create' : 'automations-new'}><Icon name="plus" size={15} />New automation</button>}
+        searchable={showsRules}
+        searchPlaceholder="Search automation rules"
+        loading={surfaceState === 'loading'}
+        error={listError}
+        emptyState={<div className="automations-list-state" data-testid="page-state-empty"><strong>No automations yet</strong><p>Turn a repeated handoff into a dependable Rhythm rule.</p></div>}
+        listFooter={showsRules ? <span>{rules.length} {rules.length === 1 ? 'rule' : 'rules'} · {enabledCount} enabled</span> : undefined}
+        inspector={(item) => {
+          const rule = item ? rules.find((candidate) => `automation-rule-${candidate.id}` === item.id) ?? null : null;
+          if (!rule) return <div className="automation-inspector-empty"><strong>Select an automation</strong><p>Choose a rule to inspect its trigger, action, account, and latest match evidence.</p></div>;
+          const isResyncing = resyncingId === rule.id;
+          const providerBlocked = dependencyDetail === 'provider-error' && rule.source === 'google_calendar';
+          const triggerInvalid = isLive && liveTriggers.length > 0 && !liveTriggers.some((trigger) => trigger.key === rule.triggerKey);
+          const resyncBlocked = providerBlocked || triggerInvalid;
+          return <div className="automation-inspector-content" data-testid="automation-inspector">
+            <p className="automation-inspector-summary">{rule.previewSummary}</p>
+            <dl><div><dt>Status</dt><dd>{rule.enabled ? 'Enabled' : 'Paused'}</dd></div><div><dt>Account</dt><dd>{rule.accountLabel}</dd></div><div><dt>Trigger</dt><dd>{rule.triggerLabel}</dd></div><div><dt>Action</dt><dd>{rule.actionLabel}</dd></div><div><dt>Conditions</dt><dd>{rule.conditions.length ? rule.conditions.map((condition) => `${condition.field} ${condition.operator.replaceAll('_', ' ')} ${condition.value}`).join(' · ') : 'None'}</dd></div><div><dt>Matches last run</dt><dd>{rule.matchCountLastRun}</dd></div><div><dt>Last matched</dt><dd>{dateTimeLabel(rule.lastMatchedAt)}</dd></div><div><dt>Last evaluated</dt><dd>{dateTimeLabel(rule.lastEvaluatedAt)}</dd></div></dl>
+            {rule.previewSample && <section className="automation-inspector-sample"><span>Latest sample</span><p>{rule.previewSample}</p></section>}
+            <div className="automation-inspector-actions">
+              <fieldset disabled={isReadonly || mutationPending} aria-disabled={isReadonly ? 'true' : undefined} aria-describedby={isReadonly ? 'automations-readonly-reason' : undefined} data-testid="automations-mutations"><legend className="sr-only">Automation actions</legend>
+                <button className="secondary-button" type="button" onClick={() => openBuilder(rule)} data-testid={`automation-edit-${rule.id}`}><Icon name="rename" size={14} />Edit</button>
+                <label className="automation-toggle"><span className="sr-only">{rule.enabled ? 'Pause' : 'Enable'} {rule.name}</span><input type="checkbox" checked={rule.enabled} onChange={(event) => { void toggleRule(rule, event.target.checked); }} data-testid={`automation-enabled-${rule.id}`} /></label>
+                <button className="secondary-button" type="button" onClick={() => resyncRule(rule)} disabled={isResyncing || resyncBlocked} aria-describedby={providerBlocked ? 'automations-provider-reason' : triggerInvalid ? 'automations-invalid-reason' : undefined} data-testid={`automation-resync-${rule.id}`}>{isResyncing ? <Icon name="refresh" className="spin" size={14} /> : <Icon name={rule.source === 'rhythm' ? 'resume' : 'refresh'} size={14} />}{rule.source === 'rhythm' ? 'Trigger' : 'Resync'}</button>
+                <button className="secondary-button danger-control" type="button" onClick={() => setDeleteTarget(rule)} data-testid={`automation-delete-${rule.id}`}><Icon name="delete" size={15} />Delete</button>
+              </fieldset>
+              <button className="secondary-button" type="button" onClick={() => openPreview(rule)} data-testid={`automation-inspect-${rule.id}`}><Icon name="search" size={14} />Preview history</button>
+            </div>
+            {isResyncing && <div className="rule-progress" role="status" aria-live="polite" data-testid={`automation-resync-progress-${rule.id}`}><span />Refreshing provider signals and automation catalogs…</div>}
+            {resyncResults[rule.id] && <div className="rule-result" role="status" aria-live="polite" data-testid={`automation-resync-result-${rule.id}`}><Icon name="check" size={14} />{resyncResults[rule.id]}</div>}
+            <DirectAutomationEditor rule={rule} disabled={isReadonly || mutationPending} onSave={saveInspector} catalog={activeCatalog} />
+          </div>;
+        }}
+      />
+    </main>
     <aside className="page-trace" aria-label="Automation endpoint receipts" tabIndex={0} data-testid="page-trace"><span>Endpoint ledger</span><ol>{receipts.map((receipt, index) => <li key={`${receipt}-${index}`}>{receipt}</li>)}</ol></aside>
 
     <BuilderDialog open={builderOpen} editing={editingRule} onClose={closeBuilder} onSubmit={(draft) => { void submitBuilder(draft); }} catalog={activeCatalog} />

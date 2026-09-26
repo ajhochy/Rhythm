@@ -1,0 +1,54 @@
+{
+  "issue": 1536,
+  "generated": "2026-09-25",
+  "harness": "apps/electron/test/colony-installed/run.mjs",
+  "manual_smoke_section": "docs/testing/manual-smoke.md#16-colony-bot-crossing-installed-acceptance-issue-1536",
+  "criteria": [
+    {
+      "criterion_id": "COL-11-AC1",
+      "text": "Both installed signed architectures pass first launch disabled, enablement/source choice, empty/populated inventories, list/scene selection, archive/restore, Finder/copy and supported exact task/parent navigation.",
+      "mapped_to": [
+        { "kind": "harness", "case": "first-launch-disabled" },
+        { "kind": "harness", "case": "enablement-source-choice" },
+        { "kind": "harness", "case": "empty-inventory" },
+        { "kind": "harness", "case": "populated-inventory" },
+        { "kind": "manual", "case": "list-scene-selection", "step": "16.2" },
+        { "kind": "harness", "case": "archive-restore" },
+        { "kind": "manual", "case": "finder-copy", "step": "16.2" },
+        { "kind": "harness", "case": "exact-task-navigation" }
+      ]
+    },
+    {
+      "criterion_id": "COL-11-AC2",
+      "text": "Switching Rhythm tasks preserves authentication and the existing main/API/engine processes; missing external apps and unsupported task refs report accurately without launching another task.",
+      "mapped_to": [
+        { "kind": "harness", "case": "task-switch-preserves-auth-and-processes" },
+        { "kind": "harness", "case": "missing-external-app-reports-accurately" },
+        { "kind": "harness", "case": "unsupported-task-ref-reports-accurately" }
+      ]
+    },
+    {
+      "criterion_id": "COL-11-AC3",
+      "text": "Quit/relaunch, scanner crash/retry, disable/re-enable, account switch, offline use and low-GPU fallback preserve correct data boundaries and leave no orphan scanner.",
+      "mapped_to": [
+        { "kind": "harness", "case": "quit-relaunch" },
+        { "kind": "harness", "case": "scanner-crash-retry" },
+        { "kind": "harness", "case": "disable-reenable" },
+        { "kind": "manual", "case": "account-switch", "step": "16.3" },
+        { "kind": "harness", "case": "offline-use" },
+        { "kind": "manual", "case": "low-gpu-fallback", "step": "16.3" },
+        { "kind": "harness", "case": "no-orphan-scanner" }
+      ]
+    },
+    {
+      "criterion_id": "COL-11-AC4",
+      "text": "An upgrade from the preceding compatible build and rollback/backup restoration retain local preferences and do not alter harness records. Evidence names artifact SHA, app version, OS, CPU and any unpassed case; no required case is silently skipped.",
+      "mapped_to": [
+        { "kind": "harness", "case": "upgrade-from-preceding-build" },
+        { "kind": "harness", "case": "rollback-restoration" }
+      ]
+    }
+  ],
+  "boundary": "physical-hardware: qualification requires the CI-signed COL-10 release candidates, native Apple Silicon and Intel hardware, and real Keychain sign-in in disposable macOS accounts. Rosetta, mock Keychain and ad-hoc builds do not count.",
+  "not_tested": ["COL-11-AC1", "COL-11-AC2", "COL-11-AC3", "COL-11-AC4"]
+}

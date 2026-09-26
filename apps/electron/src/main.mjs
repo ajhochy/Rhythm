@@ -1,8 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, net, Notification, protocol, safeStorage, session, shell } from 'electron';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { AGENT_SERVER_BASE_URL, AGENT_SERVER_ENGINE_PORT, AgentServerService, electronDbPath, legacyFlutterDbPath } from './agent-server.mjs';
@@ -10,10 +10,19 @@ import { injectArtifactFrameBridge, isAllowedArtifactFrameNavigation, parseArtif
 import { GOOGLE_DESKTOP_CLIENT_ID, RHYTHM_AUTH_API_BASE } from './build-config.mjs';
 import { runDesktopGoogleOAuth } from './desktop-google-oauth.mjs';
 import * as humanApprovalSigner from './human-approval-main-signer.mjs';
+import { createHermesSupervisor } from './hermes-server.mjs';
 import { deepLinkFromArgv, resolveAsset, validateRequest, webDist } from './policy.mjs';
 import { createProductionApiConfig, createProductionApiSetHandler } from './production-api-config.mjs';
 import { resolveGoogleDesktopClientId } from './runtime-config.mjs';
 import { validateSecuritySmokeReceipt } from './security-smoke-receipt.mjs';
+import { createAccountsAuthState } from './hermes-accounts-auth.mjs';
+import { createHermesAccountsMain } from './hermes-accounts-main.mjs';
+import { createAgentBridgeHost } from './hermes-agent-bridge.mjs';
+import { bindHermesViewSupervisor, registerHermesView } from './hermes-view.mjs';
+import { installHermesDesktopUpdate } from './hermes-desktop-updates.mjs';
+import { registerColonyHost } from './colony-host.mjs';
+import { runColonySmoke } from './colony-smoke.mjs';
+import { createRemoteEnvironmentsCustody, registerRemoteEnvironments } from './remote-environments.mjs';
 
 export { deepLinkFromArgv } from './policy.mjs';
 
@@ -39,6 +48,7 @@ const productionApiConfigPath = resolve(app.getPath('userData'), 'server-config.
 const productionApiConfig = createProductionApiConfig({ configPath: productionApiConfigPath, defaultBase: RHYTHM_AUTH_API_BASE, env: process.env });
 let productionApiBase = productionApiConfig.load();
 const authSessionPath = resolve(app.getPath('userData'), 'auth-session.bin');
+const remoteAttachGrantPath = resolve(app.getPath('userData'), 'remote-attach-grant.bin');
 process.env.RHYTHM_PRODUCTION_API_URL = productionApiBase;
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -48,6 +58,10 @@ if (hasSingleInstanceLock) {
   protocol.registerSchemesAsPrivileged([
     { scheme: 'rhythm', privileges: { standard: true, secure: true, supportFetchAPI: true } },
     { scheme: 'rhythm-artifact', privileges: { standard: true, secure: true, supportFetchAPI: true } },
+    { scheme: 'rhythm-colony', privileges: { standard: true, secure: true, supportFetchAPI: true } },
+    // Hermes registers the handler on the isolated embedded session; Chromium
+    // still requires this privilege declaration before app readiness.
+    { scheme: 'hermes-media', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } },
   ]);
   const registeredBeforeReady = !app.isReady();
 
@@ -57,29 +71,240 @@ if (hasSingleInstanceLock) {
   const isCleanupSmoke = process.argv.includes('--cleanup-smoke');
   const isProfileSecuritySmoke = process.argv.includes('--profile-security-smoke');
   const isArtifactFrameSmoke = process.argv.includes('--artifact-frame-smoke');
+  const isColonySmoke = process.argv.includes('--colony-smoke');
   const screenshotPath = app.isPackaged
     ? resolve(process.cwd(), '../../docs/ai/runs/evidence/electron-m1-shell.png')
     : resolve(import.meta.dirname, '../../../docs/ai/runs/evidence/electron-m1-shell.png');
 
   /** @type {BrowserWindow | undefined} */
   let mainWindow;
+  /** @type {ReturnType<typeof registerColonyHost> | undefined} */
+  let colonyHost;
+  const hermesView = registerHermesView({ ipcMain, getWindow: () => mainWindow, getUserDataPath: () => app.getPath('userData'), getBackendCredentialOptions: () => credentialHostOptions(), openExternal: (url) => shell.openExternal(url) });
+  // #1374 — secondary-desktop continuation. The Device grant is a distinct secret from the
+  // production session (auth-session.bin) and gets its own encrypted-at-rest file; it is cleared
+  // whenever the production session itself is invalidated (see invalidateAuthentication below).
+  const remoteEnvironmentsCustody = createRemoteEnvironmentsCustody({
+    getProductionApiBase: () => productionApiBase,
+    getSessionToken: () => productionSessionToken,
+    loadEncrypted: () => readFile(remoteAttachGrantPath),
+    saveEncrypted: async (bytes) => { await mkdir(dirname(remoteAttachGrantPath), { recursive: true }); await writeFile(remoteAttachGrantPath, bytes, { mode: 0o600 }); },
+    clearEncrypted: async () => { try { await rm(remoteAttachGrantPath, { force: true }); } catch {} },
+    safeStorage,
+  });
   /** @type {string | null} */
   let pendingDeepLink = deepLinkFromArgv(process.argv);
   /** @type {Map<string, Notification>} */
   const nativeNotificationRegistry = new Map();
+  const agentNotificationReceiptPath = isInteractiveSmoke && allowTestRuntimePorts
+    ? resolve(/** @type {string} */ (process.env.RHYTHM_SHELL_USER_DATA), 'agent-notification-receipts.jsonl')
+    : undefined;
+  /** @param {{ event: 'show', family: 'permission' | 'question' | 'completion', sessionId: string } | { event: 'withdraw' }} receipt */
+  const recordAgentNotificationReceipt = (receipt) => {
+    if (!agentNotificationReceiptPath) return;
+    try { appendFileSync(agentNotificationReceiptPath, `${JSON.stringify(receipt)}\n`, { encoding: 'utf8', mode: 0o600 }); } catch {}
+  };
   /** @type {Array<{ family: 'approval', sessionId: string, approvalId: string }>} */
   const pendingNativeNotificationActivations = [];
   let rendererReady = false;
+  /** @typedef {{ key: string, family?: 'permission' | 'question', sessionId: string, generation: number, created: number, valid: boolean, notification?: Notification, queued?: boolean, retireAfterActivation?: boolean, retireTimer?: ReturnType<typeof setTimeout> }} AgentTarget */
+  /** @type {Map<string, AgentTarget>} */
+  const agentTargets = new Map();
+  /** @type {Map<string, number>} */
+  const completionCycles = new Map();
+  /** @type {Map<string, number>} */
+  const retiredCompletions = new Map();
+  let agentReady = false;
+  /** @type {{ sessionId: string | null, displayed: boolean }} */
+  let agentViewing = { sessionId: null, displayed: false };
+  /** @type {AgentTarget | undefined} */
+  let queuedAgentActivation;
+  let activationSequence = 0;
+  let activeLookups = 0;
+  /** @type {AgentTarget[]} */
+  const waitingLookups = [];
+  /** @type {number[]} */
+  const admissionTimes = [];
+  /** @type {'granted' | 'denied' | 'unknown' | 'unsupported'} */
+  let agentNotificationPermission = 'unknown';
+  let agentNotificationPermissionPrimed = false;
+  /** @type {Notification | undefined} */
+  let agentNotificationPermissionPrimer;
+  const reportAgentNotificationPermission = () => {
+    const contents = mainWindow?.webContents;
+    if (!contents || contents.isDestroyed()) return;
+    try { contents.send('rhythm:agent-notifications:permission', { v: 1, status: agentNotificationPermission }); } catch {}
+  };
+  /** @param {'granted' | 'denied' | 'unknown' | 'unsupported'} status */
+  const recordAgentNotificationPermission = (status) => {
+    agentNotificationPermission = status;
+    reportAgentNotificationPermission();
+  };
+  const primeAgentNotificationPermission = () => {
+    if (agentNotificationPermissionPrimed) { reportAgentNotificationPermission(); return; }
+    agentNotificationPermissionPrimed = true;
+    try {
+      if (!Notification.isSupported()) { recordAgentNotificationPermission('unsupported'); return; }
+    } catch { recordAgentNotificationPermission('unknown'); return; }
+    // Electron has no main-process requestPermission API. On macOS the first show() is the
+    // explicit OS permission trigger; on other supported platforms this is only a best-effort
+    // presentation probe. A show event is observable as granted. A permission-specific failure
+    // is denied; silence or any other platform error remains unknown rather than overclaiming.
+    recordAgentNotificationPermission('unknown');
+    try {
+      const primer = new Notification({
+        title: 'Rhythm notifications',
+        body: 'Agent completion and question alerts are enabled.',
+      });
+      agentNotificationPermissionPrimer = primer;
+      primer.once('show', () => {
+        if (agentNotificationPermissionPrimer !== primer) return;
+        recordAgentNotificationPermission('granted');
+        agentNotificationPermissionPrimer = undefined;
+      });
+      primer.once('failed', (_event, error) => {
+        if (agentNotificationPermissionPrimer !== primer) return;
+        agentNotificationPermissionPrimer = undefined;
+        recordAgentNotificationPermission(/permission|denied/i.test(String(error)) ? 'denied' : 'unknown');
+      });
+      primer.once('close', () => { if (agentNotificationPermissionPrimer === primer) agentNotificationPermissionPrimer = undefined; });
+      primer.show();
+    } catch (error) {
+      agentNotificationPermissionPrimer = undefined;
+      recordAgentNotificationPermission(/permission|denied/i.test(String(error)) ? 'denied' : 'unknown');
+    }
+  };
+  const clearAgentNotifications = () => {
+    agentReady = false;
+    admissionTimes.length = 0;
+    waitingLookups.length = 0;
+    queuedAgentActivation = undefined;
+    agentViewing = { sessionId: null, displayed: false };
+    for (const entry of agentTargets.values()) {
+      entry.valid = false;
+      if (entry.retireTimer) clearTimeout(entry.retireTimer);
+      try { entry.notification?.close(); } catch {}
+    }
+    agentTargets.clear();
+    completionCycles.clear();
+    retiredCompletions.clear();
+  };
   /** @type {Promise<import('./google-oauth-core.mjs').DesktopAuthLoginResponse> | undefined} */
   let googleSignInInFlight;
   let authGeneration = 0;
   /** @type {import('./google-oauth-core.mjs').DesktopAuthLoginResponse['user'] | undefined} */
   let productionSessionUser;
   const clearStoredAuthentication = () => rm(authSessionPath, { force: true }).catch(() => undefined);
+  const accountsAuth = createAccountsAuthState({
+    safeStorage, loadEncrypted: () => readFile(authSessionPath),
+    saveEncrypted: async (bytes) => { await mkdir(dirname(authSessionPath), { recursive: true }); await writeFile(authSessionPath, bytes, { mode: 0o600 }); },
+    clearEncrypted: clearStoredAuthentication,
+    // Reuse the existing main session policy: successful OAuth or a validated
+    // encrypted offline envelope. Accounts does not add a network login gate.
+    validateSession: (session) => session.serverOrigin === productionApiBase && session.sessionToken === productionSessionToken && session.userId === String(productionSessionUser?.id),
+  });
+  /** @type {ReturnType<typeof createHermesAccountsMain> | undefined} */
+  let accountsMain;
+  /** @type {string | undefined} */
+  let accountsHermesHome;
+  let accountsBlocked = false;
+  let accountsTransition = Promise.resolve();
+  /** @type {AgentServerService | undefined} */
+  let agentServer;
+  const bridgeHost = createAgentBridgeHost({
+    getRegistrar: () => agentServer?.bridgeRegistrar?.(),
+    getSessionToken: () => productionSessionToken,
+    getMemoryConsent: async (identity) => {
+      const auth = accountsAuth.getSnapshot();
+      const memorySearchConsent = /** @type {any} */ (accountsMain)?.memorySearchConsent;
+      const consent = await memorySearchConsent?.({
+        ...identity,
+        rhythmUserId: auth.userId,
+        hermesHome: accountsHermesHome,
+      });
+      if (consent === true) return { granted: true, memoryVaultId: identity.memoryVaultId };
+      if (consent && typeof consent === 'object') return consent;
+      return { granted: false };
+    },
+    confirmNative: async (summary) => {
+      const win = mainWindow;
+      if (!win || win.isDestroyed()) return false;
+      const detail = summary.fields.map((field) => `${field.name}: ${String(field.before)} → ${String(field.after)}`).join('\n');
+      const result = await dialog.showMessageBox(win, {
+        type: 'question', buttons: ['Apply', 'Reject'], defaultId: 1, cancelId: 1,
+        title: 'Confirm shared agent change',
+        message: `Allow changes to ${summary.agentLabel} (${summary.agentId})?`,
+        detail,
+      });
+      return result.response === 0;
+    },
+    log: (entry) => process.stderr.write(`agent bridge: ${entry.code}\n`),
+  });
+  const getAccountsMain = () => {
+    if (accountsBlocked || !accountsAuth.getSnapshot().authenticated) return undefined;
+    if (accountsMain) return accountsMain;
+    try {
+      const osHome = realpathSync(userInfo().homedir);
+      const hermesHome = realpathSync(resolve(osHome, '.hermes'));
+      accountsHermesHome = hermesHome;
+      accountsMain = createHermesAccountsMain({ osHome, hermesHome,
+        grantsPath: resolve(app.getPath('userData'), 'hermes-credential-grants.json'),
+        getAuthState: () => accountsAuth.getSnapshot(),
+        getDocumentState: () => ({ contents: mainWindow?.webContents, frame: mainWindow?.webContents.mainFrame,
+          url: mainWindow?.webContents.mainFrame.url, epoch: accountsAuth.getSnapshot().documentEpoch }),
+        confirmNative: async (mutation) => {
+          const win = mainWindow;
+          if (!win || win.isDestroyed()) return false;
+          const result = await dialog.showMessageBox(win, { type: 'question', buttons: ['Confirm', 'Cancel'], defaultId: 1, cancelId: 1,
+            title: 'Hermes account sharing', message: `${mutation.action === 'enable' ? 'Share' : 'Stop sharing'} the ${mutation.provider} API key with Hermes?`,
+            detail: 'Applies to the next Hermes backend start. Existing running work may retain a previously shared key until it stops.' });
+          return result.response === 0;
+        },
+        disposeOwnedBackend: () => hermesView.disposeCurrent(),
+        bridgeHost,
+      });
+    } catch { return undefined; }
+    return accountsMain;
+  };
+  const credentialHostOptions = () => {
+    if (accountsBlocked) throw new Error('Previous Hermes backend disposal has not completed');
+    const adapter = getAccountsMain(), auth = accountsAuth.getSnapshot();
+    if (!adapter || !auth.authenticated) return undefined;
+    /** @type {ReturnType<typeof adapter.createBackendAttempt> | undefined} */
+    let attempt;
+    /** @type {string | undefined} */
+    let attemptId;
+    return {
+      hermesHome: accountsHermesHome,
+      backendEnvContext: Object.freeze({ serverOrigin: auth.serverOrigin, rhythmUserId: auth.userId, authGeneration: auth.authGeneration }),
+      backendEnv: async (/** @type {any} */ request) => {
+        const accountEnvironment = await (attempt?.backendEnv(request) ?? Promise.resolve({}));
+        if (!attempt || !attemptId) return accountEnvironment;
+        return { ...accountEnvironment, ...bridgeHost.mintForAttempt({
+          attemptId,
+          profile: request.profile,
+          serverOrigin: String(auth.serverOrigin ?? ''),
+          authGeneration: String(auth.authGeneration ?? ''),
+        }) };
+      },
+      onOwnedBackendAttempt: (/** @type {any} */ event) => {
+        if (event.phase === 'starting') {
+          if (attempt || accountsBlocked || accountsAuth.getSnapshot().authGeneration !== auth.authGeneration) throw new Error('Stale credential attempt denied');
+          attemptId = event.attemptId;
+          attempt = adapter.createBackendAttempt({ attemptId: event.attemptId, profile: event.profile });
+          return;
+        }
+        const accepted = event.attemptId === attemptId && attempt?.record({ phase: event.phase === 'accepted' ? 'spawned' : event.cause === 'exited' ? 'exited' : 'failed', owned: true, acceptedEnvNames: event.acceptedEnvNames });
+        if (event.phase === 'accepted' && !accepted) throw new Error('Invalid credential spawn receipt');
+        if (event.phase === 'retired') void bridgeHost.retire(event.attemptId).catch(() => {});
+        if (event.phase === 'retired' && event.attemptId === attemptId) attempt = undefined;
+      },
+    };
+  };
   const persistAuthentication = async () => {
-    if (!productionSessionToken || !productionSessionUser || !safeStorage.isEncryptionAvailable()) return;
-    await mkdir(dirname(authSessionPath), { recursive: true });
-    await writeFile(authSessionPath, safeStorage.encryptString(JSON.stringify({ productionApiBase, sessionToken: productionSessionToken, user: productionSessionUser })), { mode: 0o600 });
+    if (!productionSessionToken || !productionSessionUser) return;
+    await accountsAuth.signIn({ serverOrigin: productionApiBase, userId: String(productionSessionUser.id), sessionToken: productionSessionToken,
+      envelope: { productionApiBase, sessionToken: productionSessionToken, user: productionSessionUser } });
   };
   const restoreAuthentication = async () => {
     if (isSmoke || !safeStorage.isEncryptionAvailable()) return;
@@ -87,6 +312,7 @@ if (hasSingleInstanceLock) {
       const stored = JSON.parse(safeStorage.decryptString(await readFile(authSessionPath)));
       if (stored.productionApiBase !== productionApiBase || typeof stored.sessionToken !== 'string' || !stored.user || typeof stored.user.id !== 'number') throw new Error('invalid stored session');
       productionSessionToken = stored.sessionToken; productionSessionUser = stored.user;
+      await accountsAuth.restore({ serverOrigin: productionApiBase });
     } catch { await clearStoredAuthentication(); }
   };
   let changingServer = false;
@@ -94,11 +320,17 @@ if (hasSingleInstanceLock) {
   /** @type {(() => Promise<void>) | undefined} */
   let rebuildMainWindow;
   const invalidateAuthentication = () => {
+    accountsBlocked = true;
+    const authInvalidation = accountsAuth.invalidate();
+    const brokerInvalidation = accountsMain?.identityChanged();
+    const previous = accountsTransition;
+    accountsTransition = Promise.all([previous, authInvalidation, brokerInvalidation, bridgeHost.revokeAll(), hermesView.disposeCurrent(), colonyHost?.invalidateProfile(), remoteEnvironmentsCustody.disconnect()]).then(() => { accountsBlocked = false; });
+    void accountsTransition.catch(() => {});
     authGeneration += 1;
+    clearAgentNotifications();
     googleSignInInFlight = undefined;
     productionSessionToken = undefined;
     productionSessionUser = undefined;
-    void clearStoredAuthentication();
     rendererReady = false;
     pendingNativeNotificationActivations.length = 0;
     for (const notification of nativeNotificationRegistry.values()) notification.close();
@@ -190,25 +422,254 @@ if (hasSingleInstanceLock) {
         if (generation !== authGeneration || nativeNotificationRegistry.get(target.approvalId) !== notification) return;
         routeNativeNotificationActivation(target);
       });
-      notification.on('close', () => {
-        if (nativeNotificationRegistry.get(target.approvalId) === notification) {
-          nativeNotificationRegistry.delete(target.approvalId);
-        }
-      });
+      // Dismissal/OS expiry is not resolution: retain the pending ID so another
+      // snapshot cannot re-show (and re-sound) it. Reconciliation/auth reset clears it.
       nativeNotificationRegistry.set(target.approvalId, notification);
       notification.show();
     }
   };
+
+  /** @param {unknown} value @returns {{ v: 1, type: 'ready' | 'viewing' | 'arm' | 'completion' | 'ask' | 'resolve', family?: 'permission' | 'question', sessionId?: string | null, requestId?: string, displayed?: boolean } | null} */
+  const agentEvent = (value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const item = /** @type {Record<string, unknown>} */ (value);
+    try { if (JSON.stringify(value).length >= 2048) return null; } catch { return null; }
+    if (item.v !== 1) return null;
+    const keys = Object.keys(item).sort().join(',');
+    if (item.type === 'ready' && keys === 'type,v') return { v: 1, type: 'ready' };
+    if (item.type === 'viewing' && keys === 'displayed,sessionId,type,v' && typeof item.displayed === 'boolean' && (item.sessionId === null || safeNotificationId(item.sessionId))) return { v: 1, type: 'viewing', displayed: item.displayed, sessionId: /** @type {string | null} */ (item.sessionId) };
+    if (item.type === 'arm' && keys === 'sessionId,type,v' && safeNotificationId(item.sessionId)) return { v: 1, type: 'arm', sessionId: /** @type {string} */ (item.sessionId) };
+    if (item.type === 'completion' && keys === 'sessionId,type,v' && safeNotificationId(item.sessionId)) return { v: 1, type: 'completion', sessionId: /** @type {string} */ (item.sessionId) };
+    if ((item.type === 'ask' || item.type === 'resolve') && keys === 'family,requestId,sessionId,type,v' && (item.family === 'permission' || item.family === 'question') && safeNotificationId(item.sessionId) && safeNotificationId(item.requestId)) return { v: 1, type: item.type, family: item.family, sessionId: /** @type {string} */ (item.sessionId), requestId: /** @type {string} */ (item.requestId) };
+    return null;
+  };
+  /** @param {AgentTarget} entry */
+  const isAgentEntry = (entry) => Boolean(entry.valid && entry.generation === authGeneration && agentTargets.get(entry.key) === entry && mainWindow && !mainWindow.isDestroyed());
+  /** @param {AgentTarget} entry @param {boolean} [recordWithdrawal] */
+  const withdrawAgentEntry = (entry, recordWithdrawal = false) => {
+    entry.valid = false;
+    if (entry.retireTimer) { clearTimeout(entry.retireTimer); entry.retireTimer = undefined; }
+    if (entry.queued) {
+      const index = waitingLookups.indexOf(entry);
+      if (index !== -1) waitingLookups.splice(index, 1);
+      entry.queued = false;
+    }
+    if (queuedAgentActivation === entry) queuedAgentActivation = undefined;
+    const notification = entry.notification;
+    try { notification?.close(); } catch {}
+    entry.notification = undefined;
+    if (recordWithdrawal && notification) recordAgentNotificationReceipt({ event: 'withdraw' });
+  };
+  /** @param {AgentTarget} entry @param {boolean} [close] */
+  const retireCompletionEntry = (entry, close = false) => {
+    if (entry.family || (!entry.valid && agentTargets.get(entry.key) !== entry)) return;
+    entry.valid = false;
+    if (entry.retireTimer) { clearTimeout(entry.retireTimer); entry.retireTimer = undefined; }
+    if (entry.queued) {
+      const index = waitingLookups.indexOf(entry);
+      if (index !== -1) waitingLookups.splice(index, 1);
+      entry.queued = false;
+    }
+    if (queuedAgentActivation === entry) queuedAgentActivation = undefined;
+    const notification = entry.notification;
+    entry.notification = undefined;
+    if (agentTargets.get(entry.key) === entry) agentTargets.delete(entry.key);
+    retiredCompletions.set(entry.key, Date.now());
+    if (close) { try { notification?.close(); } catch {} }
+  };
+  /** @param {AgentTarget} entry */
+  const activateAgentEntry = (entry) => {
+    if (!isAgentEntry(entry) || !entry.notification || !mainWindow) return false;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show(); mainWindow.focus();
+    if (!agentReady) { queuedAgentActivation = entry; return false; }
+    const url = new URL('rhythm://app/index.html');
+    url.hash = `/agents?sessionId=${encodeURIComponent(entry.sessionId)}&activation=${++activationSequence}`;
+    void mainWindow.loadURL(url.toString());
+    return true;
+  };
+  /** @param {AgentTarget} entry @param {string} title @param {string} body */
+  const showAgentEntry = (entry, title, body) => {
+    if (!isAgentEntry(entry) || !mainWindow) return;
+    try { if (!Notification.isSupported()) return; } catch { return; }
+    if (entry.family && agentViewing.displayed && agentViewing.sessionId === entry.sessionId
+      && mainWindow.isFocused() && mainWindow.isVisible() && !mainWindow.isMinimized()) {
+      agentTargets.delete(entry.key); entry.valid = false; return;
+    }
+    try {
+      const notification = new Notification({ title, body });
+      notification.on('click', () => {
+        if (!isAgentEntry(entry) || entry.notification !== notification) return;
+        const activated = activateAgentEntry(entry);
+        if (!entry.family) {
+          if (activated) retireCompletionEntry(entry);
+          else entry.retireAfterActivation = true;
+        }
+      });
+      if (!entry.family) {
+        notification.on('close', () => {
+          if (entry.retireAfterActivation && queuedAgentActivation === entry) return;
+          retireCompletionEntry(entry);
+        });
+        const timer = setTimeout(() => retireCompletionEntry(entry, true), 300_000);
+        timer.unref?.();
+        entry.retireTimer = timer;
+      }
+      entry.notification = notification;
+      notification.show();
+      recordAgentNotificationReceipt({ event: 'show', family: entry.family ?? 'completion', sessionId: entry.sessionId });
+    } catch {
+      if (entry.family) withdrawAgentEntry(entry); else retireCompletionEntry(entry);
+    }
+  };
+  /** @param {unknown} payload */
+  const syncAgentNotifications = (payload) => {
+    const event = agentEvent(payload);
+    if (!event) return;
+    if (event.type === 'ready') {
+      agentReady = true;
+      const entry = queuedAgentActivation;
+      queuedAgentActivation = undefined;
+      if (entry) {
+        const activated = activateAgentEntry(entry);
+        if (activated && entry.retireAfterActivation && !entry.family) retireCompletionEntry(entry);
+      }
+      return;
+    }
+    if (event.type === 'viewing') { agentViewing = { sessionId: event.sessionId ?? null, displayed: event.displayed === true }; return; }
+    if (event.type === 'arm') {
+      if (!event.sessionId) return;
+      primeAgentNotificationPermission();
+      completionCycles.set(event.sessionId, (completionCycles.get(event.sessionId) ?? 0) + 1);
+      for (const entry of agentTargets.values()) {
+        if (!entry.family && entry.sessionId === event.sessionId) retireCompletionEntry(entry, true);
+      }
+      return;
+    }
+    if (event.type === 'resolve') {
+      if (!event.family || !event.sessionId || !event.requestId) return;
+      const key = `${authGeneration}:${event.family}:${event.sessionId}:${event.requestId}`;
+      const entry = agentTargets.get(key);
+      if (entry) withdrawAgentEntry(entry, true); // Retain a tombstone: OS dismissal is not a fresh ask.
+      else {
+        const now = Date.now();
+        for (const [oldKey, old] of agentTargets) if (!old.valid && now - old.created > 300_000) agentTargets.delete(oldKey);
+        while (admissionTimes[0] < now - 60_000) admissionTimes.shift();
+        if (admissionTimes.length >= 20) return;
+        admissionTimes.push(now);
+        if (agentTargets.size >= 100) return;
+        agentTargets.set(key, { key, sessionId: event.sessionId, family: event.family, generation: authGeneration, valid: false, created: Date.now() });
+      }
+      return;
+    }
+    if (!productionSessionToken?.trim() || !event.sessionId) return;
+    const key = event.type === 'completion'
+      ? `${authGeneration}:completion:${event.sessionId}:${completionCycles.get(event.sessionId) ?? 0}`
+      : `${authGeneration}:${event.family}:${event.sessionId}:${event.requestId}`;
+    if (event.type === 'ask' && agentTargets.has(key)) return;
+    const now = Date.now();
+    for (const [oldKey, retiredAt] of retiredCompletions) if (now - retiredAt > 300_000) retiredCompletions.delete(oldKey);
+    if (event.type === 'completion' && (agentTargets.has(key) || retiredCompletions.has(key))) return;
+    // Only tombstones expire; live/queued entries remain pending until resolution or invalidation.
+    for (const [oldKey, old] of agentTargets) if (!old.valid && now - old.created > 300_000) agentTargets.delete(oldKey);
+    while (admissionTimes[0] < now - 60_000) admissionTimes.shift();
+    if (admissionTimes.length >= 20) return;
+    admissionTimes.push(now);
+    while (agentTargets.size >= 100) {
+      const tombstone = [...agentTargets].find(([, value]) => !value.valid);
+      if (!tombstone) return; // Never evict a visible or pending ask to accept a new one.
+      agentTargets.delete(tombstone[0]);
+    }
+    /** @type {AgentTarget} */
+    const entry = { key, family: event.family, sessionId: event.sessionId, generation: authGeneration, created: now, valid: true, notification: undefined };
+    agentTargets.set(key, entry); // Reserve before the asynchronous ownership lookup.
+    if (activeLookups >= 4) { entry.queued = true; waitingLookups.push(entry); return; }
+    startAgentLookup(entry);
+  };
+  /** @param {AgentTarget} entry */
+  const startAgentLookup = (entry) => {
+    if (!isAgentEntry(entry)) return;
+    entry.queued = false;
+    activeLookups++;
+    // ponytail: signed-in main is the local gate; the localhost API route is an existence check,
+    // not a cloud ownership proof. Never forward a hosted bearer to the local server.
+    const apiBase = process.env.RHYTHM_LIVE_API_URL ?? AGENT_SERVER_BASE_URL;
+    let localApi;
+    try {
+      localApi = new URL(apiBase);
+      if (localApi.protocol !== 'http:' || !['127.0.0.1', '[::1]'].includes(localApi.hostname)
+        || localApi.username || localApi.password || !['', '/'].includes(localApi.pathname)
+        || localApi.search || localApi.hash) throw new Error('Local API required');
+    } catch {
+      withdrawAgentEntry(entry);
+      activeLookups--;
+      return;
+    }
+    void globalThis.fetch(`${localApi.origin}/agent-sessions/${encodeURIComponent(entry.sessionId)}?transcriptLimit=0`, {
+      redirect: 'error', signal: AbortSignal.timeout(1500),
+    }).then(async (response) => {
+      if (!isAgentEntry(entry) || !response.ok || Number(response.headers.get('content-length') ?? 0) > 65536) {
+        await response.body?.cancel(); withdrawAgentEntry(entry); return;
+      }
+      const reader = response.body?.getReader();
+      if (!reader) { withdrawAgentEntry(entry); return; }
+      const chunks = [];
+      let size = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > 65536 || !isAgentEntry(entry)) { await reader.cancel(); withdrawAgentEntry(entry); return; }
+        chunks.push(value);
+      }
+      const text = new TextDecoder().decode(Buffer.concat(chunks));
+      if (text.length > 65536 || !isAgentEntry(entry)) { withdrawAgentEntry(entry); return; }
+      const data = JSON.parse(text);
+      if (!data || !Array.isArray(data.messages) || !data.transcriptPage || Array.isArray(data.transcriptPage)
+        || typeof data.transcriptPage !== 'object' || typeof data.transcriptPage.hasMore !== 'boolean'
+        || !(data.transcriptPage.nextCursor === null || typeof data.transcriptPage.nextCursor === 'string')
+        || data.session?.id !== entry.sessionId) { withdrawAgentEntry(entry); return; }
+      const name = typeof data.session.name === 'string' ? Array.from(data.session.name.replace(/[\p{Cc}\p{Cf}]/gu, ' ').trim()).slice(0, 60).join('') : '';
+      if (!entry.family) showAgentEntry(entry, 'Agent finished', 'Your agent has finished working.');
+      else {
+        const title = `${name || 'Agent session'} — ${entry.family === 'permission' ? 'Permission requested' : 'Question'}`;
+        showAgentEntry(entry, title, entry.family === 'permission' ? 'An agent is waiting for your permission.' : 'An agent is waiting for your answer.');
+      }
+    }).catch(() => { withdrawAgentEntry(entry); }).finally(() => {
+      activeLookups--;
+      while (activeLookups < 4 && waitingLookups.length) {
+        const next = waitingLookups.shift();
+        if (next && isAgentEntry(next)) startAgentLookup(next);
+      }
+    });
+  };
+  ipcMain.on('rhythm:agent-notifications:sync', (event, payload, ...args) => {
+    if (!args.length && ownsDocument(event)) syncAgentNotifications(payload);
+  });
 
   ipcMain.on('rhythm:approval-notifications:sync', (event, payload) => {
     if (!ownsDocument(event)) return;
     syncNativeApprovalNotifications(payload);
   });
 
+  ipcMain.handle('rhythm:ai-accounts:status', (event, ...args) => {
+    const adapter = getAccountsMain();
+    return adapter ? adapter.getStatus(event, ...args) : { version: 1, availability: 'unavailable', childMayRetainCredential: accountsBlocked, memory: { state: 'disabled' } };
+  });
+  ipcMain.handle('rhythm:ai-accounts:set-grant', (event, payload, ...args) => {
+    const adapter = getAccountsMain();
+    return adapter ? adapter.setGrant(event, payload, ...args) : { accepted: false };
+  });
+  ipcMain.handle('rhythm:ai-accounts:set-memory-consent', (event, payload, ...args) => {
+    const adapter = getAccountsMain();
+    return adapter ? adapter.setMemorySearchConsent(event, payload, ...args) : { accepted: false };
+  });
+
   ipcMain.handle('rhythm:auth:google-sign-in', (event, ...args) => {
     requireOwnedDocument(event);
     requireNoPayload(args);
     // No account-replacement API yet: never silently replace an authenticated renderer's identity.
+    if (accountsBlocked) throw new Error('Previous Hermes backend disposal has not completed');
     if (productionSessionToken) throw new Error('Account replacement denied; restart to sign in again');
     if (!googleSignInInFlight) {
       const generation = authGeneration;
@@ -224,6 +685,7 @@ if (hasSingleInstanceLock) {
         productionSessionToken = login.sessionToken;
         productionSessionUser = login.user;
         await persistAuthentication();
+        await colonyHost?.activateProfile({ productionApiBase, userId: String(login.user.id) });
         return login;
       }).finally(() => { if (generation === authGeneration) googleSignInInFlight = undefined; });
     }
@@ -243,10 +705,12 @@ if (hasSingleInstanceLock) {
       if (!rebuildMainWindow) throw new Error('Production API update denied before window ready');
       changingServer = true;
       invalidateAuthentication();
+      const hermesDispose = accountsTransition;
       // Destroy, not a renderer notification: no old gateway, bearer or pending callback survives.
       mainWindow?.destroy();
       mainWindow = undefined;
       try {
+        await hermesDispose;
         const serverUrl = await productionApiConfig.save(value);
         productionApiBase = serverUrl;
         process.env.RHYTHM_PRODUCTION_API_URL = serverUrl;
@@ -269,29 +733,129 @@ if (hasSingleInstanceLock) {
   });
   ipcMain.handle('rhythm:auth:logout', async (event, ...args) => {
     requireOwnedDocument(event); requireNoPayload(args);
-    invalidateAuthentication(); await clearStoredAuthentication();
+    invalidateAuthentication(); await accountsTransition;
     if (rebuildMainWindow) { mainWindow?.destroy(); mainWindow = undefined; await rebuildMainWindow(); }
   });
   ipcMain.handle('rhythm:updates:open-download', async (event, ...args) => {
     requireOwnedDocument(event); requireNoPayload(args);
     await shell.openExternal('https://github.com/ajhochy/Rhythm/releases');
   });
+  ipcMain.handle('shell:select-directory', async (event, ...args) => {
+    requireOwnedDocument(event); requireNoPayload(args);
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed()) throw new Error('Directory picker owner unavailable');
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'] });
+    requireOwnedDocument(event);
+    return canceled || !filePaths[0] ? null : String(filePaths[0]);
+  });
+  // issue-1570-e: install an already-verified Hermes Desktop update from a local artifact
+  // directory. No renderer payload, no network feed (deliberately out of scope — see #1570), and a
+  // cancelled dialog performs no filesystem writes. Full verification (signature, sequence,
+  // schema/version gates) happens inside installHermesDesktopUpdate/resolveHermesDesktopArtifact;
+  // this handler only owns dialog custody and the manifest.json entry point.
+  let hermesUpdateInstallInFlight = false;
+  ipcMain.handle('hermes:update:install', async (event, ...args) => {
+    requireOwnedDocument(event); requireNoPayload(args);
+    // A rapid double-click (or two renderer calls racing) must not open a second native dialog
+    // or start a second install for the same version — ignore the duplicate instead of racing
+    // installHermesDesktopUpdate's own mkdtemp/rename against itself.
+    if (hermesUpdateInstallInFlight) return { ok: false, reason: 'A Hermes Desktop update install is already in progress.' };
+    hermesUpdateInstallInFlight = true;
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (!win || win.isDestroyed()) throw new Error('Hermes Desktop update picker owner unavailable');
+      const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+        title: 'Install Hermes Desktop update',
+        properties: ['openFile'],
+        filters: [{ name: 'Hermes Desktop manifest', extensions: ['json'] }],
+      });
+      requireOwnedDocument(event);
+      if (canceled || !filePaths[0]) return { ok: false, cancelled: true };
+      const manifestPath = String(filePaths[0]);
+      if (!/(^|[/\\])manifest\.json$/.test(manifestPath)) {
+        return { ok: false, reason: 'Choose the manifest.json file inside the Hermes Desktop update folder.' };
+      }
+      try {
+        const installed = await installHermesDesktopUpdate({
+          sourceRoot: dirname(manifestPath),
+          userDataPath: app.getPath('userData'),
+          expectedElectronMajor: 40,
+          expectedElectronVersion: process.versions.electron,
+        });
+        return { ok: true, version: installed.version };
+      } catch (error) {
+        // hermes-desktop-updates.mjs/hermes-desktop-artifact.mjs are real modules loaded outside
+        // any sandbox in production, but a cross-realm `instanceof Error` check is unreliable in
+        // the vm module test harness; `.message` access is realm-safe, so read that directly.
+        const reason = error && typeof (/** @type {{message?: unknown}} */ (error).message) === 'string'
+          ? /** @type {{message: string}} */ (error).message : 'Hermes Desktop update could not be installed.';
+        return { ok: false, reason };
+      }
+    } finally {
+      hermesUpdateInstallInFlight = false;
+    }
+  });
 
   // Mirrors apps/desktop_flutter/lib/app/core/server/api_server_service.dart +
   // agent_server_controller.dart: THIS process spawns and owns the local api_server, the same way
   // Flutter's Dart code does, instead of assuming some other process (tools/dev/sandbox.sh, a
   // developer's own terminal) already has one running. Production always pins these bases to the
-  // canonical 4001/4096 boundary, exclusively: foreign owners are conflicts, never adopted.
+  // canonical 4001/4096 boundary: healthy Rhythm services are reused without ownership.
   // Alternate ports exist only behind an explicit smoke-only flag.
   // Interactive smoke renders normally, but the manager owns the external sandbox lifecycle.
-  const agentServer = isInteractiveSmoke ? undefined : new AgentServerService();
-  const externalRuntimeStatus = { status: 'stopped', failureReason: null, stderrTail: null, errorMessage: null };
+  agentServer = isInteractiveSmoke ? undefined : new AgentServerService({
+    relayConfigurationProvider: () => ({ token: productionSessionToken, productionApiBase }),
+  });
+  const isHermesSelfTest = isSmoke || isMissingDistSmoke;
+  /** @param {string} text */
+  const writeHermesLog = (text) => process.stdout?.write?.(text.endsWith('\n') ? text : `${text}\n`);
+  const hermes = createHermesSupervisor({
+    env: process.env,
+    installLogPath: resolve(app.getPath('userData'), 'hermes-install.log'),
+    log: writeHermesLog,
+    showConsent: (options) => dialog.showMessageBox(options),
+  });
+  bindHermesViewSupervisor(hermes);
+  for (const [channel, action] of /** @type {const} */ ([
+    ['hermes:get-status', () => hermes.getStatus()],
+    // The legacy dashboard supervisor remains a status compatibility seam only.
+    // Embedded Desktop owns its own supported backend lifecycle, so shell IPC
+    // cannot start a second dashboard service.
+    ['hermes:install', () => hermes.getStatus()],
+    ['hermes:restart', () => hermes.getStatus()],
+  ])) {
+    ipcMain.handle(channel, (event, ...args) => {
+      requireOwnedDocument(event); requireNoPayload(args);
+      return action();
+    });
+  }
+  hermes.onStatus((snapshot) => {
+    const reason = snapshot.reason?.split(/\r?\n/, 1)[0];
+    writeHermesLog(`hermes: ${snapshot.state}${reason ? ` ${reason}` : ''}`);
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('hermes:status', snapshot);
+    }
+  });
+  const externalRuntimeStatus = { status: 'stopped', ownership: 'none', owned: false, failureReason: null, stderrTail: null, errorMessage: null };
   if (!allowTestRuntimePorts) {
     process.env.RHYTHM_LIVE_API_URL = AGENT_SERVER_BASE_URL;
     process.env.RHYTHM_LIVE_ENGINE_URL = `http://127.0.0.1:${AGENT_SERVER_ENGINE_PORT}`;
   }
 
   ipcMain.handle('rhythm:agent-server:status', () => agentServer?.status ?? externalRuntimeStatus);
+  let shuttingDown = false;
+  let intentionalAgentServerRestart = false;
+  ipcMain.handle('rhythm:agent-server:restart', async (event, ...args) => {
+    requireOwnedDocument(event); requireNoPayload(args);
+    if (shuttingDown) return { ok: false, reason: 'shutting_down', code: 'shutting_down' };
+    if (!agentServer) return { ok: false, reason: 'runtime_unowned', code: 'runtime_unowned' };
+    intentionalAgentServerRestart = true;
+    try {
+      return await agentServer.restart();
+    } finally {
+      intentionalAgentServerRestart = false;
+    }
+  });
   ipcMain.handle('rhythm:human-approval:capability', (event, ...args) => {
     requireOwnedDocument(event);
     requireNoPayload(args);
@@ -315,25 +879,33 @@ if (hasSingleInstanceLock) {
     return signature;
   });
   agentServer?.onStatusChange((/** @type {import('./agent-server.mjs').AgentServerStatus} */ snapshot) => {
+    if (snapshot.status === 'ready') void bridgeHost.onRegistrarReady().catch(() => {});
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('rhythm:agent-server:status-changed', snapshot);
     // ponytail: native error dialog keeps failures actionable without expanding E12's renderer UI.
-    if (!isSmoke && snapshot.status === 'failed') dialog.showErrorBox('Rhythm local runtime unavailable', snapshot.errorMessage ?? 'Quit and reopen Rhythm to retry.');
+    if (!isSmoke && !intentionalAgentServerRestart && snapshot.status === 'failed') {
+      void dialog.showMessageBox({ type: 'error', title: 'Rhythm local runtime unavailable',
+        message: snapshot.errorMessage ?? 'Rhythm could not start its local runtime.',
+        buttons: ['Retry', 'Close'], defaultId: 0, cancelId: 1,
+      }).then(({ response }) => {
+        if (response === 0 && !shuttingDown) void agentServer?.start();
+      });
+    }
   });
 
   // api_server_service.dart:134-151's exact shutdown sequence (SIGTERM, race a 2s timer against
   // real exit, SIGKILL if still alive), triggered from the same three places Flutter triggers it:
   // normal app quit, and OS SIGINT/SIGTERM (main.dart:182-192; SIGTERM is skipped on Windows there
   // because it isn't catchable — not a concern here since this Electron build targets macOS only).
-  let shuttingDown = false;
+  const stopRuntimes = async () => { await Promise.all([agentServer?.stopForQuit(), hermes.stop(), hermesView.dispose(), colonyHost?.dispose()]); };
   app.on('before-quit', (event) => {
-    if (isSmoke || !agentServer || shuttingDown) return;
+    if (isHermesSelfTest || shuttingDown) return;
     shuttingDown = true;
     event.preventDefault();
-    void agentServer.stopGracefully().catch((error) => process.stderr.write(`Runtime shutdown failed: ${error}\n`)).finally(() => app.quit());
+    void stopRuntimes().catch((error) => process.stderr.write(`Runtime shutdown failed: ${error}\n`)).finally(() => app.quit());
   });
-  if (!isSmoke && agentServer) {
+  if (!isHermesSelfTest) {
     for (const signal of ['SIGINT', 'SIGTERM']) {
-      process.on(signal, () => { void agentServer.stopGracefully().then(() => process.exit(0), (error) => { process.stderr.write(`Runtime shutdown failed: ${error}\n`); process.exit(1); }); });
+      process.on(signal, () => { shuttingDown = true; void stopRuntimes().then(() => process.exit(0), (error) => { process.stderr.write(`Runtime shutdown failed: ${error}\n`); process.exit(1); }); });
     }
   }
 
@@ -358,16 +930,21 @@ if (hasSingleInstanceLock) {
   app.whenReady().then(async () => {
     if (isMissingDistSmoke || !existsSync(webDist)) throw new Error(`Rhythm Electron shell requires built web assets at ${webDist}`);
     await restoreAuthentication();
+    colonyHost = registerColonyHost({ ipcMain, getWindow: () => mainWindow, userDataPath: app.getPath('userData'), resourcesPath: process.resourcesPath,
+      home: userInfo().homedir, isPackaged: app.isPackaged, environment: process.env, app, shell, dialog,
+      emitReset: () => mainWindow?.webContents.send('colony:host:reset') });
+    if (productionSessionUser) await colonyHost.activateProfile({ productionApiBase, userId: String(productionSessionUser.id) });
+    registerRemoteEnvironments({ ipcMain, getWindow: () => mainWindow, custody: remoteEnvironmentsCustody });
     if (!isSmoke && agentServer && !existsSync(electronDbPath()) && existsSync(legacyFlutterDbPath())) {
       const choice = await dialog.showMessageBox({ type: 'question', title: 'Import existing Rhythm data?', message: 'Rhythm found data from the Flutter desktop app.', detail: 'Import copies the database into Electron using SQLite backup. The original remains untouched. Imported schedules start disabled for review.', buttons: ['Import existing data', 'Start fresh', 'Cancel'], defaultId: 0, cancelId: 2 });
       if (choice.response === 2) { app.quit(); return; }
       process.env.RHYTHM_ELECTRON_MIGRATE_LEGACY = choice.response === 0 ? '1' : '0';
     }
 
-    // Fire-and-forget, exactly like Flutter's main.dart:186-190 (`AgentServerController..initialize()`
-    // is never awaited before `runApp`) — the window renders immediately and the renderer's own
-    // EnvironmentReceipt already polls health with retries while this comes up in the background.
-    if (!isSmoke && agentServer) void agentServer.start().catch((error) => agentServer.reportStartupFailure(error));
+    // Initial workspace requests must not race local API startup and cache connection errors.
+    if (!isSmoke && agentServer) await agentServer.start().catch((error) => agentServer.reportStartupFailure(error));
+    // Hermes Desktop's embedded host owns compatible backend discovery and any
+    // service it starts. Do not also launch the legacy dashboard supervisor.
 
     protocol.handle('rhythm', (request) => {
       const url = new URL(request.url);
@@ -436,11 +1013,21 @@ if (hasSingleInstanceLock) {
     });
 
     const denials = { navigation: false, popup: false, permission: false, download: false };
+    /** @type {((blocked: boolean) => void) | undefined} */
+    let resolveArtifactNavigationDenied;
+    const artifactNavigationDenied = isArtifactFrameSmoke
+      ? new Promise((resolvePromise) => { resolveArtifactNavigationDenied = resolvePromise; })
+      : undefined;
+    /** @param {Electron.WebContents | null} webContents @param {string} permission */
+    const allowOwnedClipboardWrite = (webContents, permission) =>
+      permission === 'clipboard-sanitized-write' && !!webContents && webContents === mainWindow?.webContents
+        && !webContents.isDestroyed() && /^rhythm:\/\/app\/index\.html(?:#.*)?$/.test(webContents.mainFrame?.url ?? '');
     session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-      const notificationPermission = permission === 'notifications' && webContents === mainWindow?.webContents;
-      if (!notificationPermission) denials.permission = true;
-      callback(notificationPermission);
+      const allowed = allowOwnedClipboardWrite(webContents, permission);
+      if (!allowed) denials.permission = true;
+      callback(allowed);
     });
+    session.defaultSession.setPermissionCheckHandler?.((webContents, permission) => allowOwnedClipboardWrite(webContents, permission));
     session.defaultSession.on('will-download', (event) => {
       denials.download = true;
       event.preventDefault();
@@ -479,7 +1066,7 @@ if (hasSingleInstanceLock) {
     }
 
     rebuildMainWindow = async () => {
-    mainWindow = new BrowserWindow({
+    const window = new BrowserWindow({
       width: 1280,
       height: 800,
       show: !isSmoke,
@@ -492,14 +1079,24 @@ if (hasSingleInstanceLock) {
         additionalArguments: [`--rhythm-shell-version=${app.getVersion()}`],
       },
     });
-    mainWindow.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
-      if (isMainFrame && !isInPlace && rendererReady) invalidateAuthentication();
+    mainWindow = window;
+    window.webContents.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
+      if (isMainFrame && !isInPlace && rendererReady) {
+        if (/^rhythm:\/\/app\/index\.html(?:#.*)?$/.test(url)) {
+          // Revoke pending work from the old document, but a trusted reload is not logout.
+          authGeneration += 1;
+          accountsAuth.documentChanged();
+          clearAgentNotifications();
+          googleSignInInFlight = undefined;
+          rendererReady = false;
+        } else invalidateAuthentication();
+      }
     });
-    mainWindow.webContents.on('will-navigate', (event) => {
+    window.webContents.on('will-navigate', (event) => {
       denials.navigation = true;
       event.preventDefault();
     });
-    mainWindow.webContents.on('will-frame-navigate', (event) => {
+    window.webContents.on('will-frame-navigate', (event) => {
       if (event.isMainFrame) return;
       const currentUrl = event.frame?.url;
       const targetUrl = event.url;
@@ -507,34 +1104,44 @@ if (hasSingleInstanceLock) {
       if (!touchesArtifact) return;
       if (typeof currentUrl !== 'string' || !isAllowedArtifactFrameNavigation(currentUrl, targetUrl)) {
         denials.navigation = true;
+        resolveArtifactNavigationDenied?.(true);
         event.preventDefault();
       }
     });
-    mainWindow.webContents.setWindowOpenHandler(() => {
+    window.webContents.setWindowOpenHandler(() => {
       denials.popup = true;
       return { action: 'deny' };
     });
-    mainWindow.webContents.on('did-finish-load', () => {
+    window.webContents.on('did-finish-load', () => {
       rendererReady = true;
-      mainWindow?.webContents.send('rhythm:agent-server:status-changed', agentServer?.status ?? externalRuntimeStatus);
+      if (agentNotificationPermissionPrimed) reportAgentNotificationPermission();
+      window.webContents.send('rhythm:agent-server:status-changed', agentServer?.status ?? externalRuntimeStatus);
+      window.webContents.send('hermes:status', hermes.getStatus());
       for (const activation of pendingNativeNotificationActivations.splice(0)) {
         routeNativeNotificationActivation(activation);
       }
     });
-    await mainWindow.loadURL(pendingDeepLink ?? 'rhythm://app/index.html#/agents');
-    await mainWindow.webContents.executeJavaScript('globalThis.Notification.requestPermission()');
+    window.on?.('closed', () => { if (mainWindow === window) clearAgentNotifications(); });
+    await window.loadURL(pendingDeepLink ?? 'rhythm://app/index.html#/agents');
+    if (mainWindow !== window || window.isDestroyed()) return;
     pendingDeepLink = null;
     };
     const windowOptions = {
       webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true },
     };
     await rebuildMainWindow();
-    if (!mainWindow) throw new Error('Rhythm window unavailable');
+    // A renderer can synchronously request logout/server replacement during
+    // its first load. The old load may have returned after a replacement was
+    // already started, so it must not turn that normal lifecycle transition
+    // into a fatal startup error.
+    if (!mainWindow) return;
 
     if (isArtifactFrameSmoke) {
-      artifactFrame = await mainWindow.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+      const smokeWindow = mainWindow;
+      artifactFrame = await smokeWindow.webContents.executeJavaScript(`new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error('Artifact frame smoke timed out')), 10_000);
         const frame = document.createElement('iframe');
+        frame.id = 'rhythm-artifact-smoke-frame';
         frame.sandbox = 'allow-scripts';
         frame.hidden = true;
         frame.src = 'rhythm-artifact://app/00000000-0000-4000-8000-000000000801';
@@ -557,16 +1164,22 @@ if (hasSingleInstanceLock) {
           }
           if (event.data?.__artifactSmoke !== true) return;
           const protocol = new URL(frame.src).protocol;
-          setTimeout(() => {
-            clearTimeout(timer);
-            window.removeEventListener('message', onMessage);
-            frame.remove();
-            resolve({ loaded: true, protocol, bridge: event.data.bridge });
-          }, 100);
+          clearTimeout(timer);
+          window.removeEventListener('message', onMessage);
+          resolve({ loaded: true, protocol, bridge: event.data.bridge });
         };
         window.addEventListener('message', onMessage);
         document.body.append(frame);
-      })`).then((receipt) => ({ ...receipt, navigationBlocked: denials.navigation, request: artifactFrameRequest }));
+      })`).then(async (receipt) => {
+        let denialTimeout;
+        const navigationBlocked = await Promise.race([
+          artifactNavigationDenied,
+          new Promise((resolvePromise) => { denialTimeout = setTimeout(() => resolvePromise(false), 10_000); }),
+        ]);
+        clearTimeout(denialTimeout);
+        await smokeWindow.webContents.executeJavaScript("document.getElementById('rhythm-artifact-smoke-frame')?.remove()");
+        return { ...receipt, navigationBlocked, request: artifactFrameRequest };
+      });
     }
 
     if (!isSmoke) return;
@@ -594,6 +1207,27 @@ if (hasSingleInstanceLock) {
       keys: Object.keys(window.rhythmShell?.humanApproval || {}),
       frozen: Object.isFrozen(window.rhythmShell?.humanApproval),
     },
+    hermes: {
+      keys: Object.keys(window.rhythmShell?.hermes || {}),
+      frozen: Object.isFrozen(window.rhythmShell?.hermes),
+      enabled: window.rhythmShell?.hermes?.enabled,
+    },
+    hermesView: {
+      keys: Object.keys(window.rhythmShell?.hermesView || {}),
+      frozen: Object.isFrozen(window.rhythmShell?.hermesView),
+    },
+    colonyView: {
+      keys: Object.keys(window.rhythmShell?.colonyView || {}),
+      frozen: Object.isFrozen(window.rhythmShell?.colonyView),
+    },
+    aiAccounts: {
+      keys: Object.keys(window.rhythmShell?.aiAccounts || {}),
+      frozen: Object.isFrozen(window.rhythmShell?.aiAccounts),
+    },
+    remoteEnvironments: {
+      keys: Object.keys(window.rhythmShell?.remoteEnvironments || {}),
+      frozen: Object.isFrozen(window.rhythmShell?.remoteEnvironments),
+    },
     agentServer: {
       keys: Object.keys(window.rhythmShell?.agentServer || {}),
       frozen: Object.isFrozen(window.rhythmShell?.agentServer),
@@ -605,6 +1239,7 @@ if (hasSingleInstanceLock) {
   nodeExposed: typeof process !== 'undefined' || typeof require !== 'undefined',
   value: { version: window.rhythmShell?.version }
 })`);
+    if (bridge?.hermes) bridge.hermes.status = await mainWindow.webContents.executeJavaScript('window.rhythmShell.hermes.getStatus()');
     await mainWindow.webContents.executeJavaScript(`window.open('https://example.invalid')`);
     await mainWindow.webContents.executeJavaScript(`location.href = 'https://example.invalid'`).catch(() => undefined);
     await mainWindow.webContents.executeJavaScript(`navigator.geolocation.getCurrentPosition(() => {}, () => {})`);
@@ -760,6 +1395,12 @@ if (hasSingleInstanceLock) {
       profileSecurityReceipt.operations = [...observedProfileOperations];
       profileSecurity = profileSecurityReceipt;
     }
+    // Resolves and verifies the pinned Colony artifact, starts the owned worker headless (no
+    // window), completes the handshake and a status read, then tears it down. Throws on any
+    // failure, which the outer .catch below turns into a non-zero exit — a build whose worker
+    // can't spawn or handshake (wrong arch, a native-module problem the static hash can't catch)
+    // must fail this smoke, not just repeat the plain --security-smoke checks.
+    const colony = isColonySmoke ? await runColonySmoke({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath }) : undefined;
     const image = await mainWindow.webContents.capturePage();
     const png = image.toPNG();
     await mkdir(dirname(screenshotPath), { recursive: true });
@@ -775,6 +1416,7 @@ if (hasSingleInstanceLock) {
       liveRead,
       profileSecurity,
       artifactFrame,
+      colony,
       cleanup: isCleanupSmoke ? { disposableRows: 0, listeners: 0, worktrees: 0, branches: 0 } : undefined,
       screenshot: { path: screenshotPath, width: image.getSize().width, height: image.getSize().height, sha256: createHash('sha256').update(png).digest('hex') },
     };

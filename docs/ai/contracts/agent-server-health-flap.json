@@ -1,0 +1,39 @@
+{
+  "issue": "agent-server-health-flap",
+  "generated": "2026-09-17",
+  "criteria": [
+    {
+      "criterion_id": "agent-server-health-flap-c1",
+      "text": "countSkillToolUses yields to the event loop during its history scan so /health stays responsive while the idle skill evaluator sweeps.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/contract_agent_server_health_flap.test.ts",
+      "test_id": "agent-server-health-flap-c1: usage scan yields to the event loop",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "agent-server-health-flap-c2",
+      "text": "Chunked counting returns the same per-skill counts and eligibility filtering as the previous single-pass scan.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/skill_usage_tracker.test.ts",
+      "test_id": "countSkillToolUses (existing suite, awaited)",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "agent-server-health-flap-c3",
+      "text": "AgentServerController does not flip a live owned API process to failed on two consecutive slow health polls; the third consecutive failure flips it.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/contract/agent_server_health_flap_contract_test.dart",
+      "test_id": "agent-server-health-flap-c3: two slow polls keep a live owned server ready; the third flips it",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "agent-server-health-flap-c4",
+      "text": "Relaunched app shows no agent-server disconnect across a 30-minute window with several chat turns against the production-size database.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Live soak against AJ's real database and engine; run by the orchestrator with the /health stall monitor before handoff, then re-run by AJ in manual smoke."
+    }
+  ],
+  "stack": "typescript+dart",
+  "not_tested": ["agent-server-health-flap-c4"]
+}

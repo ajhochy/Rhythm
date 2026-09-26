@@ -1,9 +1,17 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 
+import '../../../app/core/errors/app_error.dart';
 import '../../../app/core/notifications/local_notification_service.dart';
 import '../data/agent_approvals_data_source.dart';
 import '../models/agent_approval.dart';
+
+enum AgentApprovalAuthState {
+  ready,
+  needsSignIn,
+  capabilityUnavailable,
+  decisionFailed,
+}
 
 /// #895 — polls pending agent approvals so the notification panel can
 /// surface approve/reject cards for high-stakes agent actions.
@@ -22,9 +30,32 @@ class AgentApprovalsController extends ChangeNotifier {
   Timer? _pollingTimer;
   final Set<String> _notifiedApprovalIds = {};
   String? _focusedApprovalId;
+  AgentApprovalAuthState _authState = AgentApprovalAuthState.ready;
+  String? _lastDecisionError;
 
   List<AgentApproval> get pending => List.unmodifiable(_pending);
   String? get focusedApprovalId => _focusedApprovalId;
+  AgentApprovalAuthState get authState => _authState;
+  String? get lastDecisionError => _lastDecisionError;
+
+  String? get authMessage => switch (_authState) {
+        AgentApprovalAuthState.ready => null,
+        AgentApprovalAuthState.needsSignIn => 'Sign in again to approve',
+        AgentApprovalAuthState.capabilityUnavailable =>
+          'Human approval capability unavailable',
+        AgentApprovalAuthState.decisionFailed => 'Approval failed',
+      };
+
+  String? get authDetail => switch (_authState) {
+        AgentApprovalAuthState.ready => null,
+        AgentApprovalAuthState.needsSignIn =>
+          'Your Rhythm sign-in expired. Sign in again to approve or reject this request.',
+        AgentApprovalAuthState.capabilityUnavailable =>
+          'This device\'s human approval capability is missing or invalid. Reopen Rhythm or contact an administrator.',
+        // Falls back to `lastDecisionError` at the call site (a sanitized,
+        // non-leaking summary — never the raw exception).
+        AgentApprovalAuthState.decisionFailed => null,
+      };
 
   void startPolling() {
     _pollingTimer?.cancel();
@@ -67,6 +98,7 @@ class AgentApprovalsController extends ChangeNotifier {
       }
 
       _pending = next;
+      _authState = AgentApprovalAuthState.ready;
       notifyListeners();
     } catch (error) {
       // The local agent server may not be ready yet on the first few polls
@@ -75,6 +107,7 @@ class AgentApprovalsController extends ChangeNotifier {
       // fetch path for security-bound approval cards, and a swallowed error
       // is indistinguishable from "no approvals exist".
       debugPrint('AgentApprovalsController poll failed: $error');
+      if (_setAuthStateFrom(error)) notifyListeners();
     }
   }
 
@@ -90,6 +123,8 @@ class AgentApprovalsController extends ChangeNotifier {
     try {
       final approval = _pending.firstWhere((item) => item.id == id);
       await _dataSource.decide(approval, approve: approve);
+      _authState = AgentApprovalAuthState.ready;
+      _lastDecisionError = null;
       _pending = _pending.where((a) => a.id != id).toList();
       final hadNativeNotification = _notifiedApprovalIds.remove(id);
       if (_focusedApprovalId == id) _focusedApprovalId = null;
@@ -112,9 +147,36 @@ class AgentApprovalsController extends ChangeNotifier {
         }
       }
       notifyListeners();
-    } catch (_) {
-      // Leave the card in place so the user can retry.
+    } catch (error) {
+      // Leave the card in place so the user can retry. Every decide()
+      // failure must surface (#1382: no silent hangs) — not just 401/403 —
+      // but only with a sanitized message, never a raw exception dump
+      // (a signer StateError, network failure, or decode error can all
+      // reach here from the data source).
+      debugPrint('AgentApprovalsController decide failed: $error');
+      _lastDecisionError = _decisionErrorMessage(error);
+      if (!_setAuthStateFrom(error) &&
+          _authState == AgentApprovalAuthState.ready) {
+        _authState = AgentApprovalAuthState.decisionFailed;
+      }
+      notifyListeners();
     }
+  }
+
+  String _decisionErrorMessage(Object error) => error is AppError
+      ? error.message
+      : 'Could not complete this decision. Try again.';
+
+  bool _setAuthStateFrom(Object error) {
+    final statusCode = error is AppError ? error.statusCode : null;
+    final next = switch (statusCode) {
+      401 => AgentApprovalAuthState.needsSignIn,
+      403 => AgentApprovalAuthState.capabilityUnavailable,
+      _ => _authState,
+    };
+    if (next == _authState) return false;
+    _authState = next;
+    return true;
   }
 
   int _approvalNotificationId(String approvalId) =>

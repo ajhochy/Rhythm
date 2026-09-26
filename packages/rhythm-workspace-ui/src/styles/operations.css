@@ -1,0 +1,7 @@
+/* Style entry point for the three operations screens (issue #4: Facilities, Integrations,
+ * Automations). It is imported by src/styles/rhythm.css so consumers receive these styles
+ * through the package's public stylesheet. */
+
+@import './screens/facilities.css';
+@import './screens/integrations.css';
+@import './screens/automations.css';

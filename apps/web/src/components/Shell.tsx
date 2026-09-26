@@ -2,9 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { Icon, type IconName } from '../icons';
 import { useFixtures } from '../store';
 import type { DemoState } from '../types';
+import { hermesShell } from '../pages/hermes/bridge';
+import { colonyShell } from '../pages/colony/bridge';
+import { Splitter } from './Splitter';
 
 const destinations = ['Dashboard', 'Planner', 'Tasks', 'Rhythms', 'Projects', 'Messages', 'Facilities', 'Automations', 'Integrations', 'Agents', 'Settings'];
-const optional = new Set(['Facilities', 'Automations', 'Integrations', 'Settings']);
+const optional = new Set(['Facilities', 'Automations', 'Integrations', 'Settings', 'Hermes', 'Bot Crossing']);
+
+const destinationKey = (destination: string) => destination === 'Bot Crossing' ? 'colony' : destination.toLowerCase();
 
 function moveMenuFocus(event: React.KeyboardEvent<HTMLElement>) {
   if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
@@ -63,6 +68,7 @@ const demoLabels: Record<DemoState, string> = {
 };
 
 export function Shell({ route, children }: { route: string; children: React.ReactNode }) {
+  const visibleDestinations = [...destinations, ...(hermesShell()?.hermes?.enabled === true ? ['Hermes'] : []), ...(colonyShell()?.colonyView ? ['Bot Crossing'] : [])];
   const { theme, setTheme, demo, setDemo, toast, resetFixtures, notify, unreadThreads, sessionGatewayMode, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, pendingApprovals, decideApproval } = useFixtures();
   const live = sessionGatewayMode === 'live';
   const entityDestination = (entityType: string, entityId: string) => ({
@@ -77,16 +83,19 @@ export function Shell({ route, children }: { route: string; children: React.Reac
   const openPushNotification = () => navigate('/agents');
   const [demoOpen, setDemoOpen] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
-  const [compactNav, setCompactNav] = useState(() => window.matchMedia('(max-width: 900px)').matches);
+  const [navTier, setNavTier] = useState(() => window.matchMedia('(max-width: 900px)').matches ? 2 : window.matchMedia('(max-width: 1320px)').matches ? 1 : 0);
+  const [navigationHeight, setNavigationHeight] = useState(48);
   const activeKey = route.startsWith('/profiles') || route.startsWith('/endpoint-map') || route.startsWith('/tools/') ? 'agents' : route.split('/')[1] || 'agents';
   const activeLabel = activeKey.charAt(0).toUpperCase() + activeKey.slice(1);
 
   useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
   useEffect(() => {
-    const query = window.matchMedia('(max-width: 900px)');
-    const change = (event: MediaQueryListEvent) => setCompactNav(event.matches);
-    query.addEventListener('change', change);
-    return () => query.removeEventListener('change', change);
+    const compact = window.matchMedia('(max-width: 900px)');
+    const overflow = window.matchMedia('(max-width: 1320px)');
+    const change = () => setNavTier(compact.matches ? 2 : overflow.matches ? 1 : 0);
+    compact.addEventListener('change', change);
+    overflow.addEventListener('change', change);
+    return () => { compact.removeEventListener('change', change); overflow.removeEventListener('change', change); };
   }, []);
   useEffect(() => {
     if (toast.id === 0) return;
@@ -101,7 +110,7 @@ export function Shell({ route, children }: { route: string; children: React.Reac
   }, []);
 
   const destinationButton = (destination: string, inMenu = false) => {
-    const key = destination.toLowerCase();
+    const key = destinationKey(destination);
     const selected = key === activeKey;
     return (
       <button key={destination} type="button" role={inMenu ? 'menuitem' : undefined} className={inMenu ? 'menu-item' : `destination ${optional.has(destination) ? 'nav-optional' : ''} ${!['Dashboard', 'Agents'].includes(destination) ? 'nav-compact' : ''} ${selected ? 'selected' : ''}`} aria-current={selected ? 'page' : undefined} onClick={() => navigate(`/${key}`)} data-testid={`nav-${key}${inMenu ? '-overflow' : ''}`}>
@@ -111,13 +120,13 @@ export function Shell({ route, children }: { route: string; children: React.Reac
   };
 
   return (
-    <div className="app-canvas" data-od-id="agents-app-shell">
+    <div className="app-canvas" style={{ '--app-navigation-height': `${navigationHeight}px` } as React.CSSProperties} data-od-id="agents-app-shell">
       <a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); document.getElementById('main-content')?.focus(); }}>Skip to main content</a>
       <header className="app-header" data-od-id="rhythm-global-header">
         <nav className="destination-nav" aria-label="Product destinations">
-          {destinations.map((destination) => destinationButton(destination))}
-          <Menu label="More destinations" icon="chevronDown" testId="nav-more" className="more-nav" popoverClassName="nav-overflow" triggerClassName="destination" triggerContent={<>More <Icon name="chevronDown" size={14} /></>}>
-            {(compactNav ? destinations.filter((destination) => !['Dashboard', 'Agents'].includes(destination)) : [...optional]).map((destination) => destinationButton(destination, true))}
+          {visibleDestinations.map((destination) => destinationButton(destination))}
+          <Menu key={navTier} label="More destinations" icon="chevronDown" testId="nav-more" className="more-nav" popoverClassName="nav-overflow" triggerClassName="destination" triggerContent={<>More <Icon name="chevronDown" size={14} /></>}>
+            {(navTier === 2 ? visibleDestinations.filter((destination) => !['Dashboard', 'Agents'].includes(destination)) : [...optional].filter((destination) => visibleDestinations.includes(destination))).map((destination) => destinationButton(destination, true))}
           </Menu>
         </nav>
         <div className="global-actions">
@@ -169,6 +178,7 @@ export function Shell({ route, children }: { route: string; children: React.Reac
           </Menu>
         </div>
       </header>
+      <Splitter orientation="horizontal" storageKey="layout.shell.navigation" min={44} max={112} defaultSize={48} onResize={setNavigationHeight} ariaLabel="Resize app navigation" className="shell-navigation-splitter" testId="shell-navigation-resizer" />
       <section className="workspace-surface" aria-label={`${activeLabel} workspace`}>
         <main id="main-content" tabIndex={-1}>{children}</main>
       </section>

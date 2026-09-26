@@ -64,6 +64,28 @@ test('post-m1-p9-c1c: pairing QR carries exactly gatewayUrl/pairingCode, expires
   await expect(page.getByTestId('mobile-access-generate-pairing')).toBeVisible();
 });
 
+test('issue-1373-c1: missing Tailscale uses an exact relay-only QR or shows actionable recovery', async ({ page }) => {
+  await openPage(page, 'mobile-access', '?scenario=missing');
+  await page.getByTestId('mobile-access-generate-pairing').click();
+
+  const relayPayload = JSON.parse(
+    await page.getByTestId('mobile-access-pairing-payload').textContent() ?? '{}',
+  );
+  expect(Object.keys(relayPayload).sort()).toEqual(['pairingCode', 'relayUrl']);
+  expect(relayPayload.relayUrl).toBe('https://api.vcrcapps.com/relay');
+  await expect(page.getByTestId('mobile-access-pairing-qr')).toBeVisible();
+  await expect(page.getByTestId('mobile-access-pairing-transport')).toContainText(
+    'Rhythm Cloud Gateway',
+  );
+
+  await openPage(page, 'mobile-access', '?scenario=missing&relay=none');
+  await page.getByTestId('mobile-access-generate-pairing').click();
+  await expect(page.getByTestId('mobile-access-pairing-qr')).toHaveCount(0);
+  await expect(page.getByTestId('mobile-access-pairing-unavailable')).toContainText(
+    'Rhythm Cloud Gateway',
+  );
+});
+
 test('post-m1-p9-c1c: a consumed pairing code dismisses the offer and the new device appears in the paired-device list', async ({ page }) => {
   await openPage(page, 'mobile-access', '?scenario=healthy');
   await expect(page.getByTestId('mobile-access-devices')).toContainText("AJ's iPhone");
@@ -84,7 +106,10 @@ test('post-m1-p9-c1e: desktop lists paired devices with id/name/createdAt/revoke
   const seed = page.getByTestId('mobile-access-device-fixture-device-seed-1');
   await expect(seed).toBeVisible();
   await expect(seed).toContainText("AJ's iPhone");
-  await expect(page.getByTestId('mobile-access-device-created-fixture-device-seed-1')).toHaveText('2026-08-10T12:00:00.000Z');
+  await expect(page.getByTestId('mobile-access-device-created-fixture-device-seed-1').locator('time')).toHaveAttribute(
+    'datetime',
+    '2026-08-10T12:00:00.000Z',
+  );
   await expect(page.getByTestId('mobile-access-device-revoked-fixture-device-seed-1')).toHaveCount(0);
 
   await page.getByTestId('mobile-access-device-revoke-fixture-device-seed-1').click();

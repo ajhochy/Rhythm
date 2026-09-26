@@ -1,0 +1,52 @@
+{
+  "plain": {
+    "status": "PASS",
+    "ws": 33,
+    "mid": 2,
+    "final": 2
+  },
+  "reasoning": {
+    "status": "PASS",
+    "ws": 41,
+    "mid": 2,
+    "final": 2
+  },
+  "tool": {
+    "status": "PASS",
+    "ws": 51,
+    "mid": 3,
+    "final": 3
+  },
+  "permission": {
+    "status": "PASS",
+    "ws": 51,
+    "mid": 2,
+    "final": 3
+  },
+  "question": {
+    "status": "PASS",
+    "ws": 50,
+    "mid": 2,
+    "final": 3
+  },
+  "cancel": {
+    "status": "PASS",
+    "ws": 25,
+    "mid": 2,
+    "final": 3
+  },
+  "error": {
+    "status": "PASS",
+    "ws": 25,
+    "mid": 3,
+    "final": 3
+  },
+  "compaction": {
+    "status": "BLOCKED",
+    "reason": "No bounded scripted compaction trigger without product changes"
+  },
+  "attachments": {
+    "status": "BLOCKED",
+    "reason": "No approved synthetic attachment fixture or entry-point qualification"
+  }
+}

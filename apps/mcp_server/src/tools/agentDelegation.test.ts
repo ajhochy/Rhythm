@@ -157,4 +157,39 @@ describe("rhythm_delegate MCP tool", () => {
     );
     expect(JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body))).not.toHaveProperty("model");
   });
+
+  it("MCP-DEL-1 signs targetRuntime but keeps idempotency and trusted caller identity body-only", async () => {
+    // Regression caught: derived caller/job identity is added to the signed MCP
+    // arguments, or targetRuntime is omitted so Hermes dispatch is downgraded to
+    // the unchanged OpenCode default.
+    const server = new FakeServer();
+    const approvalFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ allowed: true, consumed: false }),
+    });
+    vi.stubGlobal("fetch", approvalFetch);
+    const apiFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: "queued" }) });
+    registerAgentDelegationTools(server as never, "http://localhost:4001", "token", apiFetch as never);
+    const extra = { _meta: { [RHYTHM_SECURITY_CONTEXT_META_KEY]: {
+      sdkSessionId: "sdk-mcp-del-1", turnId: "turn", agentName: "manager", toolCallId: "call",
+    } } };
+
+    await server.registered.get("rhythm_delegate_async")!(
+      { targetAgentConfigId: "specialist", prompt: "Run there.", targetRuntime: "hermes" },
+      extra,
+    );
+    const signed = JSON.parse(String(approvalFetch.mock.calls[0]?.[1]?.body));
+    expect(signed.payload).toMatchObject({ targetRuntime: "hermes" });
+    expect(signed.payload).not.toHaveProperty("idempotencyKey");
+    expect(signed.payload).not.toHaveProperty("callerSdkSessionId");
+    const body = JSON.parse(String(apiFetch.mock.calls[0]?.[1]?.body));
+    expect(body).toMatchObject({ targetRuntime: "hermes", callerSdkSessionId: "sdk-mcp-del-1" });
+    expect(body.idempotencyKey).toMatch(/^[0-9a-f-]{36}$/);
+
+    await server.registered.get("rhythm_delegate_async")!(
+      { targetAgentConfigId: "specialist", prompt: "Use default." }, extra,
+    );
+    expect(JSON.parse(String(apiFetch.mock.calls[1]?.[1]?.body))).not.toHaveProperty("targetRuntime");
+  });
 });

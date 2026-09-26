@@ -2,7 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { FIXED_NOW, seedDiff, seedFiles, seedProfiles, seedSessions, seedTodos } from './fixtures';
 import { useGateway } from './gateway/context';
 import type { GatewayMode } from './gateway';
-import { mapPart, reconcileMessageInfo, SessionGatewayError, toSessionViewModel, type ProfileMutation, type SessionSocket, type SessionWireEvent, type IdentityProfile, type ModelChoice, type AccountChoice, type SessionSettings, type TurnOverride } from './gateway/sessions';
+import { SessionGatewayError, toSessionViewModel, createGenerationGuard, type ProfileMutation, type RichTranscriptMessage, type SessionSocket, type SessionWireEvent, type IdentityProfile, type ModelChoice, type AccountChoice, type SessionSettings, type TurnOverride } from './gateway/sessions';
+import { applyTranscriptEvent, emptyTranscript, mergeTranscriptPage, type TranscriptPageOptions, type TranscriptState } from './gateway/transcript-reducer';
 import { useAuthUser } from './gateway/auth';
 import type { DomainNotification } from './gateway/notifications';
 import type { MessageThread } from './gateway/messages';
@@ -10,7 +11,8 @@ import { ApprovalGatewayError, type PendingApproval } from './gateway/approvals'
 import { signApprovalDecision } from './security/humanApprovalSigner';
 import { isSessionOffline } from './sessionState';
 import { agentSessionLinkFromHash } from './agentSessionLink';
-import { addPermission, addQuestion, clearPendingDecisions, rehydrateDecisions, removeDecision } from './pending-decisions';
+import { addPermission, addQuestion, clearPendingDecisions, getSnapshot, rehydrateDecisions, removeDecision, subscribe } from './pending-decisions';
+import { emitAgentNotification } from './agentNotifications';
 import type { ComposerAttachment, DemoState, FixtureFile, InspectorTab, Profile, Session, SessionScope, Theme, TodoItem, TranscriptMessage } from './types';
 
 // c4c: a live agent push notification — apps/api_server/src/controllers/notifications_agent_controller.ts:6-32.
@@ -26,6 +28,7 @@ interface NewSessionInput {
 interface LiveSessionInput {
   taskId?: string;
   anthropicAccountId?: string;
+  projectId?: string;
   name: string;
   cwd: string;
   profileId: string;
@@ -49,6 +52,9 @@ interface LiveChildView {
 interface FixtureContextValue {
   sessions: Session[]; profiles: IdentityProfile[]; todos: TodoItem[]; files: FixtureFile[]; diff: string;
   models: ModelChoice[]; accounts: AccountChoice[]; catalogError: string;
+  // #1580: re-fetches the model catalog on demand (e.g. right after a visibility PATCH) so
+  // every picker reflects curation immediately, without a restart or session switch.
+  refreshModels(): Promise<void>;
   turnOverride: TurnOverride; stageTurnOverride(patch: TurnOverride): void;
   saveSessionSettings(id: string, input: SessionSettings): Promise<void>;
   selectedId: string; selected: Session; scope: SessionScope; theme: Theme; inspectorTab: InspectorTab; demo: DemoState;
@@ -97,6 +103,8 @@ interface FixtureContextValue {
   // Notifications bell (same GET /agent-approvals?status=pending boundary Review Queue reads).
   pendingApprovals: PendingApproval[];
   decideApproval(id: string, status: 'approved' | 'rejected'): Promise<void>;
+  isCompletionArmed(sessionId: string, messageId: string): boolean;
+  toggleCompletionArm(sessionId: string, messageId: string): void;
 }
 
 const FixtureContext = createContext<FixtureContextValue | null>(null);
@@ -106,6 +114,7 @@ const THEME_STORAGE_KEY = 'rhythm-agents-theme';
 const FIXTURE_SESSIONS_STORAGE_KEY = 'rhythm-agents-fixture-sessions';
 const FIXTURE_SELECTED_SESSION_KEY = 'rhythm-agents-fixture-selected-session';
 const LIVE_SELECTED_SESSION_KEY = 'rhythm-agents-live-selected-session';
+const TRANSCRIPT_EVENT_TYPES = new Set(['message.updated', 'message.part.updated', 'message.part.delta', 'message.removed', 'message.part.removed']);
 
 const emptyLiveSession = (): Session => ({
   id: '', name: 'Live sessions', scope: 'chats', group: 'active', status: 'idle', connectionState: 'online', profileId: '',
@@ -197,14 +206,28 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const [overrideVersion, setOverrideVersion] = useState(0);
   const stageTurnOverride = (patch: TurnOverride) => { const id = selectedIdRef.current; if (!id) return; turnOverrides.current[id] = { ...turnOverrides.current[id], ...patch }; setOverrideVersion(v => v + 1); };
   const settingsWrites = useRef(new Map<string, Promise<void>>());
+  // #1580: begin()/isCurrent() fence model-catalog fetches so a manual refreshModels() call
+  // (e.g. right after a visibility PATCH) and the gateway/account-switch effect below can never
+  // race each other into painting a stale account's rows over the current one.
+  const modelsGuard = useRef(createGenerationGuard());
+  const refreshModels = useCallback(async () => {
+    if (!live) return;
+    const token = modelsGuard.current.begin();
+    try {
+      const rows = await gateway.domains.sessions?.models?.() ?? [];
+      if (modelsGuard.current.isCurrent(token)) setModels(rows);
+    } catch {
+      if (modelsGuard.current.isCurrent(token)) setCatalogError('Model catalog unavailable');
+    }
+  }, [gateway, live]);
   useEffect(() => {
     if (!live) return;
     let active = true;
     setModels([]); setAccounts([]); setCatalogError('');
-    void gateway.domains.sessions?.models?.().then(rows => { if (active) setModels(rows); }).catch(() => { if (active) setCatalogError('Model catalog unavailable'); });
+    void refreshModels();
     void gateway.domains.sessions?.accounts?.().then(rows => { if (active) setAccounts(rows); }).catch(() => { if (active) setCatalogError(value => `${value} Account catalog unavailable`.trim()); });
     return () => { active = false; };
-  }, [gateway, live]);
+  }, [gateway, live, refreshModels]);
   const [todos, setTodos] = useState<TodoItem[]>(() => structuredClone(seedTodos));
   const [selectedId, setSelectedId] = useState(() => {
     if (!live) {
@@ -237,7 +260,22 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
   const pushSeenIdsRef = useRef(new Set<number>());
   const sessionSocketRef = useRef<SessionSocket | null>(null);
+  const armedCompletions = useRef(new Map<string, Set<string>>());
+  const [armedKeys, setArmedKeys] = useState<Set<string>>(() => new Set());
+  const workingSessions = useRef(new Set<string>());
+  const isCompletionArmed = (sessionId: string, messageId: string) => armedKeys.has(JSON.stringify([sessionId, messageId]));
+  const toggleCompletionArm = (sessionId: string, messageId: string) => {
+    if (!live || !window.rhythmShell?.gateway || !sessionId || !messageId) return;
+    const messages = armedCompletions.current.get(sessionId) ?? new Set<string>();
+    const arming = !messages.has(messageId);
+    if (arming) messages.add(messageId); else messages.delete(messageId);
+    if (messages.size) armedCompletions.current.set(sessionId, messages); else armedCompletions.current.delete(sessionId);
+    const key = JSON.stringify([sessionId, messageId]);
+    setArmedKeys((current) => { const next = new Set(current); if (messages.has(messageId)) next.add(key); else next.delete(key); return next; });
+    if (arming) emitAgentNotification({ v: 1, type: 'arm', sessionId }, live);
+  };
   const streamedPartsRef = useRef(new Set<string>());
+  const transcriptStatesRef = useRef(new Map<string, TranscriptState>());
   const stableEngineRef = useRef<Promise<void>>(Promise.resolve());
   const selectedIdRef = useRef(selectedId);
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
@@ -247,7 +285,12 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   // Fixture mode starts from its six seeded unread threads. Live mode starts unknown/zero and is
   // hydrated only from GET /message-threads — never show fixture unread state in production.
   const [unreadThreads, setUnreadThreads] = useState(() => live ? 0 : 6);
-  const [liveMessageThreads, setLiveMessageThreads] = useState<MessageThread[]>([]);
+  const [liveMessageThreads, setLiveMessageThreadsState] = useState<MessageThread[]>([]);
+  const liveMessageThreadsMutation = useRef(0);
+  const setLiveMessageThreads = useCallback<Dispatch<SetStateAction<MessageThread[]>>>((next) => {
+    liveMessageThreadsMutation.current += 1;
+    setLiveMessageThreadsState(next);
+  }, []);
   const [liveMessagesLoading, setLiveMessagesLoading] = useState(live);
   const [liveMessagesError, setLiveMessagesError] = useState('');
   const liveMessagesRefreshRef = useRef<Promise<void> | null>(null);
@@ -259,6 +302,32 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     clearPendingDecisions();
     return clearPendingDecisions;
   }, [gateway, accountId]);
+  useEffect(() => {
+    armedCompletions.current.clear(); workingSessions.current.clear(); setArmedKeys(new Set());
+    if (!live || !window.rhythmShell?.gateway) return;
+    let previous = new Set<string>();
+    const sync = () => {
+      const current = new Set<string>();
+      for (const [sessionId, pending] of getSnapshot()) {
+        for (const requestId of pending.permissions.keys()) {
+          const key = JSON.stringify(['permission', sessionId, requestId]); current.add(key);
+          if (!previous.has(key)) emitAgentNotification({ v: 1, type: 'ask', family: 'permission', sessionId, requestId }, live);
+        }
+        for (const requestId of pending.questions.keys()) {
+          const key = JSON.stringify(['question', sessionId, requestId]); current.add(key);
+          if (!previous.has(key)) emitAgentNotification({ v: 1, type: 'ask', family: 'question', sessionId, requestId }, live);
+        }
+      }
+      for (const key of previous) if (!current.has(key)) {
+        const [family, sessionId, requestId] = JSON.parse(key) as ['permission' | 'question', string, string];
+        emitAgentNotification({ v: 1, type: 'resolve', family, sessionId, requestId }, live);
+      }
+      previous = current;
+    };
+    const unsubscribe = subscribe(sync);
+    sync();
+    return unsubscribe;
+  }, [gateway, live, accountId]);
   useEffect(() => {
     childViewRequestRef.current++;
     childStack.current = [];
@@ -272,10 +341,13 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const refreshLiveMessageThreads = useCallback(() => {
     if (!live || !gateway.domains.messages) return Promise.resolve();
     if (liveMessagesRefreshRef.current) return liveMessagesRefreshRef.current;
+    const mutationAtStart = liveMessageThreadsMutation.current;
     const request = gateway.domains.messages.threads()
       .then((threads) => {
-        setLiveMessageThreads(threads);
-        setUnreadThreads(threads.filter((thread) => thread.unreadCount > 0).length);
+        if (liveMessageThreadsMutation.current === mutationAtStart) {
+          setLiveMessageThreadsState(threads);
+          setUnreadThreads(threads.filter((thread) => thread.unreadCount > 0).length);
+        }
         setLiveMessagesError('');
       })
       .catch(() => { setLiveMessagesError('Messages service unavailable'); })
@@ -317,17 +389,43 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     }
   }, [live, selectedId]);
 
-  const replaceLiveSession = (incoming: Session) => {
-    setSessions((current) => current.some((session) => session.id === incoming.id)
-      ? current.map((session) => session.id === incoming.id ? {
-        ...session, ...incoming,
-        messages: incoming.messages.length ? incoming.messages : session.messages,
-        artifacts: incoming.artifacts.length ? incoming.artifacts : session.artifacts,
-        queuedDraft: session.queuedDraft, queuedAttachments: session.queuedAttachments, pendingAttachments: session.pendingAttachments,
-        retry: session.retry, permission: session.permission, question: session.question,
-        livePermission: session.livePermission, liveQuestion: session.liveQuestion, revertedMessageId: session.revertedMessageId,
-      } : session)
-      : [incoming, ...current]);
+  const mergeSessionTranscript = (session: Session, page: RichTranscriptMessage[], options: TranscriptPageOptions): TranscriptState => {
+    const stored = transcriptStatesRef.current.get(session.id) ?? emptyTranscript();
+    const seeded = mergeTranscriptPage(stored, session.messages as RichTranscriptMessage[], {
+      mode: 'merge', hasMore: session.transcriptHasMore ?? false, nextCursor: session.transcriptCursor,
+    });
+    const next = mergeTranscriptPage(seeded, page, options);
+    transcriptStatesRef.current.set(session.id, next);
+    return next;
+  };
+
+  const reduceSessionTranscript = (session: Session, event: SessionWireEvent): TranscriptState => {
+    const seeded = mergeSessionTranscript(session, [], {
+      mode: 'merge', hasMore: session.transcriptHasMore ?? false, nextCursor: session.transcriptCursor,
+    });
+    const next = applyTranscriptEvent(seeded, event);
+    transcriptStatesRef.current.set(session.id, next);
+    return next;
+  };
+
+  const replaceLiveSession = (incoming: Session, options: { transcriptMode?: 'merge' | 'replace'; boundary?: { revertedMessageId?: string } } = {}) => {
+    setSessions((current) => {
+      const existing = current.find((session) => session.id === incoming.id);
+      const prior = existing ?? { ...incoming, messages: [] };
+      const transcript = mergeSessionTranscript(prior, incoming.messages as RichTranscriptMessage[], {
+        mode: options.transcriptMode ?? 'merge', hasMore: incoming.transcriptHasMore ?? false, nextCursor: incoming.transcriptCursor,
+      });
+      const merged: Session = {
+        ...prior, ...incoming,
+        messages: transcript.messages,
+        artifacts: incoming.artifacts.length ? incoming.artifacts : prior.artifacts,
+        queuedDraft: prior.queuedDraft, queuedAttachments: prior.queuedAttachments, pendingAttachments: prior.pendingAttachments,
+        retry: prior.retry, permission: prior.permission, question: prior.question,
+        livePermission: prior.livePermission, liveQuestion: prior.liveQuestion,
+        revertedMessageId: options.boundary ? options.boundary.revertedMessageId : prior.revertedMessageId,
+      };
+      return existing ? current.map((session) => session.id === incoming.id ? merged : session) : [merged, ...current];
+    });
   };
 
   const saveSessionSettings = (id: string, input: SessionSettings): Promise<void> => {
@@ -421,6 +519,20 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     };
     let reconcileInFlight: Promise<void> | null = null;
     const requestReconcile = () => reconcileInFlight ??= reconcileMembership().finally(() => { reconcileInFlight = null; });
+    const transcriptReconciliationTimers = new Map<string, number>();
+    const transcriptReconciliations = new Set<string>();
+    const requestTranscriptReconciliation = (sessionId: string) => {
+      if (transcriptReconciliations.has(sessionId)) return;
+      transcriptReconciliations.add(sessionId);
+      const timer = window.setTimeout(() => {
+        transcriptReconciliationTimers.delete(sessionId);
+        void sessionGateway.detail(sessionId)
+          .then((detail) => { if (active) replaceLiveSession(detail, { transcriptMode: 'replace' }); })
+          .catch(onError)
+          .finally(() => { transcriptReconciliations.delete(sessionId); });
+      }, 50);
+      transcriptReconciliationTimers.set(sessionId, timer);
+    };
     reconcileLiveSessionsRef.current = requestReconcile;
     const reconcileOnFocus = () => { void requestReconcile().catch(onError); };
     const reconcileOnVisibility = () => { if (document.visibilityState === 'visible') reconcileOnFocus(); };
@@ -437,8 +549,29 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     const onEvent = (event: SessionWireEvent) => {
       if (!active) return;
       if (event.type === 'session.removed' && event.id) {
+        armedCompletions.current.delete(event.id); workingSessions.current.delete(event.id);
+        transcriptStatesRef.current.delete(event.id);
         setSessions((current) => current.filter((session) => session.id !== event.id));
         if (selectedIdRef.current === event.id) rememberLiveSelection('');
+        return;
+      }
+      // Workstream C: the #930 cross-provider fallback cascade is entirely
+      // server-side, but it announces each hop with a `session.spillover`
+      // frame (apps/api_server/src/services/turn_redispatch.ts notifyDecision
+      // + routes/opencode_spillover_routes.ts). Flutter has rendered this
+      // since the dual-account work; the Electron renderer ignored it
+      // completely, so a cascade that DID run looked like nothing happened.
+      // The new provider/model itself still arrives on the `session.updated`
+      // that follows — this branch only makes the hop visible.
+      if (event.type === 'session.spillover') {
+        const target = event.toTier || event.toProvider || event.toAccountId;
+        if (target) {
+          notify(
+            event.reason === 'auth_cross_provider'
+              ? `Switched to ${target} — the previous account needs re-authentication`
+              : `Switched to ${target} — the previous account hit its limit`,
+          );
+        }
         return;
       }
       if ((event.type === 'session.created' || event.type === 'session.updated') && event.session && typeof event.session === 'object') {
@@ -454,70 +587,32 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
         }
         return;
       }
-      if (event.type === 'message.part.delta' && event.id && event.messageId && event.partId && event.field === 'text' && typeof event.delta === 'string') {
-        // c2b: accumulate every delta onto the same part instead of keeping only the first
-        // fragment. The previous `streamedPartsRef` gate below dropped every delta after the
-        // first for a given (session, message, part) triple, so partial output never grew.
-        const { id: sessionId, messageId, partId, delta } = event;
+      if (event.id && TRANSCRIPT_EVENT_TYPES.has(event.type)) {
+        const sessionId = event.id;
+        const suppliedReceivedAt = (event as SessionWireEvent & { receivedAt?: unknown }).receivedAt;
+        const transcriptEvent = event.type === 'message.part.delta'
+          ? {
+              ...event,
+              receivedAt: typeof suppliedReceivedAt === 'number' && Number.isFinite(suppliedReceivedAt)
+                ? suppliedReceivedAt
+                : Date.now(),
+            } as SessionWireEvent
+          : event;
         liveTouched.add(sessionId);
         setSessions((current) => current.map((session) => {
           if (session.id !== sessionId) return session;
-          const existing = session.messages.find((message) => message.id === messageId);
-          if (existing) {
-            return { ...session, status: 'working', retry: undefined, messages: session.messages.map((message) => message.id === messageId ? {
-              ...message,
-              blocks: message.blocks.some((block) => block.id === partId)
-                ? message.blocks.map((block) => block.id === partId ? { ...block, content: `${block.content}${delta}` } : block)
-                : [...message.blocks, { id: partId, kind: 'markdown', content: delta }],
-            } : message) };
-          }
-          return { ...session, status: 'working', retry: undefined, messages: [...session.messages, {
-            id: messageId, role: 'assistant', createdAt: new Date().toISOString(),
-            blocks: [{ id: partId, kind: 'markdown', content: delta }],
-          }] };
+          const transcript = reduceSessionTranscript(session, transcriptEvent);
+          if (transcript.reconciliationNeeded) requestTranscriptReconciliation(sessionId);
+          return {
+            ...session,
+            ...(event.type === 'message.part.delta' ? { status: 'working' as const, retry: undefined } : {}),
+            messages: transcript.messages,
+          };
         }));
-        return;
-      }
-      if (event.type === 'message.part.updated' && event.id && event.messageId && event.partId && event.part && typeof event.part === 'object') {
-        // c2d: a full part supersedes any delta-built placeholder and carries its real
-        // canonical type (reasoning/tool/file/agent/...) via the shared `mapPart` mapper,
-        // instead of the delta path's plain-markdown fragments.
-        const { id: sessionId, messageId, partId, part } = event;
-        liveTouched.add(sessionId);
-        const block = mapPart(part as Record<string, unknown>, partId);
-        setSessions((current) => current.map((session) => {
-          if (session.id !== sessionId) return session;
-          const existing = session.messages.find((message) => message.id === messageId);
-          if (existing) {
-            return { ...session, messages: session.messages.map((message) => message.id === messageId ? {
-              ...message,
-              blocks: message.blocks.some((item) => item.id === partId)
-                ? message.blocks.map((item) => item.id === partId ? block : item)
-                : [...message.blocks, block],
-            } : message) };
-          }
-          return { ...session, messages: [...session.messages, { id: messageId, role: 'assistant', createdAt: new Date().toISOString(), blocks: [block] }] };
-        }));
-        return;
-      }
-      if (event.type === 'message.updated' && event.id) {
-        const info = event.info && typeof event.info === 'object' ? event.info as Record<string, unknown> : {};
-        if (typeof info.id !== 'string' || !info.id) return;
-        liveTouched.add(event.id);
-        setSessions(current => current.map(session => {
-          if (session.id !== event.id) return session;
-          const existing = session.messages.find(message => message.id === info.id);
-          const message = reconcileMessageInfo(existing, info);
-          return { ...session, messages: existing ? session.messages.map(item => item.id === message.id ? message : item) : [...session.messages, message] };
-        }));
-        return;
-      }
-      if (event.type === 'message.removed' && event.id && event.messageId) {
-        liveTouched.add(event.id);
-        setSessions(current => current.map(session => session.id === event.id ? { ...session, messages: session.messages.filter(message => message.id !== event.messageId) } : session));
         return;
       }
       if (event.type === 'error' && event.id) {
+        workingSessions.current.delete(event.id);
         liveTouched.add(event.id);
         setSessions(current => current.map(session => session.id === event.id ? { ...session, status: 'error', retry: undefined, statusMessage: typeof event.message === 'string' ? event.message : 'Session request failed' } : session));
         return;
@@ -532,8 +627,19 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
           setSessions((current) => current.map((session) => session.id === event.id ? { ...session, retry: { attempt, reason } } : session));
           return;
         }
+        if (event.working !== true && event.working !== false) return;
         const working = event.working === true;
-        setSessions((current) => current.map((session) => session.id === event.id ? { ...session, status: working ? 'working' : 'idle', retry: undefined } : session));
+        if (working) workingSessions.current.add(event.id);
+        else if (workingSessions.current.delete(event.id) && armedCompletions.current.has(event.id)) {
+          armedCompletions.current.delete(event.id);
+          setArmedKeys(new Set([...armedCompletions.current].flatMap(([sessionId, messages]) => [...messages].map(messageId => JSON.stringify([sessionId, messageId])))));
+          emitAgentNotification({ v: 1, type: 'completion', sessionId: event.id }, live);
+        }
+        setSessions((current) => current.map((session) => {
+          if (session.id !== event.id) return session;
+          const transcript = reduceSessionTranscript(session, event);
+          return { ...session, status: working ? 'working' : 'idle', retry: undefined, messages: transcript.messages };
+        }));
         if (!working) {
           for (const key of streamedPartsRef.current) if (key.startsWith(`${event.id}:`)) streamedPartsRef.current.delete(key);
           void sessionGateway.detail(event.id).then((detail) => { if (active) replaceLiveSession(detail); }).catch(onError);
@@ -616,6 +722,8 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       onReconnect();
       void rehydrateDecisions(gateway, pendingSessionRef.current).catch(onError);
     });
+    // The hash listener above is installed before main flushes a pre-ready native click.
+    emitAgentNotification({ v: 1, type: 'ready' }, live);
     setLoading(true);
     setLiveSessionError(null);
     void Promise.all([sessionGateway.profiles(), sessionGateway.list()]).then(async ([nextProfiles, nextSessions]) => {
@@ -628,7 +736,13 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       // already `working` (or has a retry banner) back to a stale idle/no-retry state.
       const keepLiveFields = (incoming: Session, existing: Session | undefined) =>
         existing && liveTouched.has(incoming.id) ? { ...incoming, status: existing.status, retry: existing.retry } : incoming;
-      setSessions((current) => nextSessions.map((incoming) => keepLiveFields(incoming, current.find((session) => session.id === incoming.id))));
+      const hydrateWorkingState = (incoming: Session, existing: Session | undefined) => {
+        const hydrated = keepLiveFields(incoming, existing);
+        if (hydrated.status === 'working') workingSessions.current.add(hydrated.id);
+        else workingSessions.current.delete(hydrated.id);
+        return hydrated;
+      };
+      setSessions((current) => nextSessions.map((incoming) => hydrateWorkingState(incoming, current.find((session) => session.id === incoming.id))));
       sessionListReady = true;
       if (await openSessionLink()) return;
       const selectedNow = selectedIdRef.current;
@@ -636,16 +750,21 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       rememberLiveSelection(chosen);
       if (chosen) {
         const detail = await sessionGateway.detail(chosen);
-        if (active) setSessions((current) => current.map((session) => session.id === chosen ? keepLiveFields(detail, session) : session));
+        if (active) setSessions((current) => current.map((session) => session.id === chosen ? hydrateWorkingState(detail, session) : session));
         rehydratePendingPermission(chosen);
       }
     }).catch(onError).finally(() => { if (active) setLoading(false); });
 
     return () => {
       active = false;
+      workingSessions.current.clear();
       sessionSocketRef.current?.close();
       sessionSocketRef.current = null;
       streamedPartsRef.current.clear();
+      transcriptStatesRef.current.clear();
+      for (const timer of transcriptReconciliationTimers.values()) window.clearTimeout(timer);
+      transcriptReconciliationTimers.clear();
+      transcriptReconciliations.clear();
       reconcileLiveSessionsRef.current = null;
       window.removeEventListener('hashchange', onSessionLink);
       window.removeEventListener('focus', reconcileOnFocus);
@@ -770,6 +889,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     if (!live) return;
     setLiveSessionError(null);
     await gateway.domains.sessions!.hardDelete(id);
+    transcriptStatesRef.current.delete(id);
     setSessions((current) => {
       const remaining = current.filter((session) => session.id !== id);
       if (selectedIdRef.current === id) rememberLiveSelection('');
@@ -859,9 +979,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   };
   const readLifecycleSession = async (id: string, boundary?: { revertedMessageId?: string }) => {
     const detail = await gateway.domains.sessions!.detail(id);
-    setSessions(current => current.some(session => session.id === id)
-      ? current.map(session => session.id === id ? { ...session, ...detail, revertedMessageId: boundary ? boundary.revertedMessageId : session.revertedMessageId } : session)
-      : [detail, ...current]);
+    replaceLiveSession(detail, { transcriptMode: 'replace', boundary });
   };
   const archiveSession = (id: string) => {
     if (live) { void liveLifecycle(id, async () => { await gateway.domains.sessions!.archive!(id, true); await readLifecycleSession(id); }, 'Session archived'); return; }
@@ -981,12 +1099,13 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       const cursor = target?.transcriptCursor;
       if (!cursor) return;
       await gateway.domains.sessions!.pageOlder(id, cursor).then((page) => {
-        setSessions((current) => current.map((session) => session.id === id ? {
-          ...session,
-          messages: [...page.messages, ...session.messages],
-          transcriptCursor: page.pageInfo.nextCursor,
-          transcriptHasMore: page.pageInfo.hasMore,
-        } : session));
+        setSessions((current) => current.map((session) => {
+          if (session.id !== id) return session;
+          const transcript = mergeSessionTranscript(session, page.messages as RichTranscriptMessage[], {
+            mode: 'merge', older: true, hasMore: page.pageInfo.hasMore, nextCursor: page.pageInfo.nextCursor,
+          });
+          return { ...session, messages: transcript.messages, transcriptCursor: page.pageInfo.nextCursor, transcriptHasMore: page.pageInfo.hasMore };
+        }));
       });
       return;
     }
@@ -1139,7 +1258,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   };
 
   const notificationUnreadCount = notifications.length + pushNotifications.length;
-  const value = useMemo<FixtureContextValue>(() => ({ prepareLiveSession, startFreshSession, reconnectLiveSession, models, accounts, catalogError, turnOverride: turnOverrides.current[selectedId] ?? {}, stageTurnOverride, saveSessionSettings, sessions, profiles, todos, files: seedFiles, diff: seedDiff, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, setUnreadThreads, liveMessageThreads, setLiveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, selectSession, setScope, setTheme, setInspectorTab, setDemo, notify, createSession, updateSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, forkSession, revertSession, unrevertSession, summarizeSession, loadOlder, replyPermission, answerQuestion, rejectQuestion, sendInput, reconnect, runShell, setActiveFile, resetWorktree, removeWorktree, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, resetFixtures, sessionGatewayMode: gateway.mode, liveSessionError, createLiveSession, deleteLiveSession, refreshLiveSessions, selectLiveSession, sendLiveInput, sendLiveCommand, resumeGone, dismissResumeGone, liveChildView, openLiveChildSession, closeLiveChildView, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, replyLivePermission, replyLiveQuestion, rejectLiveQuestion, updatePermissionMode, pendingApprovals, decideApproval }), [models, accounts, catalogError, overrideVersion, sessions, profiles, todos, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, liveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, gateway.mode, liveSessionError, resumeGone, liveChildView, notifications, pushNotifications, notificationUnreadCount, pendingApprovals]);
+  const value = useMemo<FixtureContextValue>(() => ({ prepareLiveSession, startFreshSession, reconnectLiveSession, models, accounts, catalogError, refreshModels, turnOverride: turnOverrides.current[selectedId] ?? {}, stageTurnOverride, saveSessionSettings, sessions, profiles, todos, files: seedFiles, diff: seedDiff, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, setUnreadThreads, liveMessageThreads, setLiveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, selectSession, setScope, setTheme, setInspectorTab, setDemo, notify, createSession, updateSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, forkSession, revertSession, unrevertSession, summarizeSession, loadOlder, replyPermission, answerQuestion, rejectQuestion, sendInput, reconnect, runShell, setActiveFile, resetWorktree, removeWorktree, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, resetFixtures, sessionGatewayMode: gateway.mode, liveSessionError, createLiveSession, deleteLiveSession, refreshLiveSessions, selectLiveSession, sendLiveInput, sendLiveCommand, resumeGone, dismissResumeGone, liveChildView, openLiveChildSession, closeLiveChildView, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, replyLivePermission, replyLiveQuestion, rejectLiveQuestion, updatePermissionMode, pendingApprovals, decideApproval, isCompletionArmed, toggleCompletionArm }), [models, accounts, catalogError, refreshModels, overrideVersion, sessions, profiles, todos, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, liveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, gateway.mode, liveSessionError, resumeGone, liveChildView, notifications, pushNotifications, notificationUnreadCount, pendingApprovals, armedKeys]);
   return <FixtureContext.Provider value={value}>{children}</FixtureContext.Provider>;
 }
 

@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'apps/desktop_flutter/**'
+      - 'apps/opencode_fork/packages/opencode/src/mcp/**'
+      - 'apps/opencode_fork/packages/opencode/src/session/mcp-app-execution.ts'
       - '.github/workflows/desktop_ci.yml'
 
 jobs:
@@ -47,6 +49,15 @@ jobs:
       - name: Test
         if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
         run: flutter test
+
+      - name: Test MCP Apps Runner contracts
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        working-directory: ${{ github.workspace }}
+        run: >
+          node --test
+          apps/desktop_flutter/macos/RunnerTests/issue_1350_mcp_app_host_contract.test.mjs
+          apps/desktop_flutter/macos/RunnerTests/issue_1356_mcp_apps_ga_contract.test.mjs
+          apps/desktop_flutter/macos/RunnerTests/issue_1356_mcp_apps_ga_live.test.mjs
 
       - name: Configure macOS debug build
         id: configure

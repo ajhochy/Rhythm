@@ -44,6 +44,7 @@ import {
   getConfiguredFallbackChain,
   resolveNextFallbackHandoff,
   type CrossProviderHandoffDecision,
+  type ProviderErrorClass,
 } from './model_fallback';
 import type { McpRoleConfig } from './agent_profile_scope';
 
@@ -70,6 +71,8 @@ interface HandoffState {
   visitedTierIds: Set<string>;
   /** Original turn's error message, held while a handoff is in flight. */
   deferredError?: string;
+  /** Why the current handoff was started — surfaced on the spillover frame. */
+  errorClass?: ProviderErrorClass;
 }
 
 // ponytail: bounded FIFO — one composed prompt per live session is tiny; 200
@@ -131,6 +134,7 @@ export function beginHandoff(
   localSessionId: string,
   exhaustedProviderID?: string,
   message?: string,
+  errorClass?: ProviderErrorClass,
 ): boolean {
   let st = handoffs.get(localSessionId);
   if (!st) {
@@ -185,6 +189,7 @@ export function beginHandoff(
   }
   st.phase = 'deciding';
   if (message) st.deferredError = message;
+  st.errorClass = errorClass ?? 'rate_limit';
   return true;
 }
 
@@ -194,8 +199,14 @@ export type SessionErrorAction = 'defer' | 'cascade' | 'finalize';
  * Bridge (session.error): what to do with this structured provider error.
  *  - 'defer': the spillover route is deciding — hold the message (it becomes
  *    the finalization message if the handoff fails) and skip finalizing.
- *  - 'cascade': rate-limit/exhaustion on the active tier — advance again.
- *  - 'finalize': auth/schema/tool/other failure — unchanged normal behavior.
+ *  - 'cascade': rate-limit/exhaustion OR auth failure on the active tier —
+ *    advance again. Workstream C: an unusable credential kills the current
+ *    tier exactly as dead as a spent quota does, and it is the user's own
+ *    canonical scenario ("personal, not authed, switch to team"). The cascade
+ *    is already bounded to one attempt per tier by `visitedTierIds`, so
+ *    admitting 'auth' cannot produce a retry storm — worst case it walks the
+ *    authed chain once and finalizes with formatFallbackExhaustedMessage.
+ *  - 'finalize': schema/tool/other failure — unchanged normal behavior.
  */
 export function onSessionError(
   localSessionId: string,
@@ -208,15 +219,19 @@ export function onSessionError(
     return 'defer';
   }
 
-  if (classifyProviderError(errorInfo) === 'rate_limit' && retained.has(localSessionId)) {
+  const errorClass = classifyProviderError(errorInfo);
+  if (
+    (errorClass === 'rate_limit' || errorClass === 'auth') &&
+    retained.has(localSessionId)
+  ) {
     const providerID = st?.currentProviderID ?? retained.get(localSessionId)?.model?.providerID;
-    if (beginHandoff(localSessionId, providerID, message)) return 'cascade';
-    // A rate-limit event racing an already-started handoff belongs to the
+    if (beginHandoff(localSessionId, providerID, message, errorClass)) return 'cascade';
+    // A rate-limit/auth event racing an already-started handoff belongs to the
     // interrupted attempt; never finalize it over the replacement prompt.
     return 'defer';
   }
 
-  // Auth/schema/tool/other errors preserve the pre-cascade behavior.
+  // Schema/tool/other errors preserve the pre-cascade behavior.
   handoffs.delete(localSessionId);
   return 'finalize';
 }
@@ -262,6 +277,12 @@ export interface ProviderExhaustionSignal {
   providerID?: string;
   message?: string;
   fromAccountId?: string | null;
+  /**
+   * Why the tier was abandoned. Set by advanceFallbackCascade from the handoff
+   * state before notifyDecision runs, so the UI can say "switched because that
+   * account needs re-login" vs "...because it hit its rate limit".
+   */
+  errorClass?: ProviderErrorClass;
 }
 
 export interface FallbackCascadeDeps {
@@ -300,7 +321,10 @@ function defaultCascadeDeps(): FallbackCascadeDeps {
         sessionId: localSessionId,
         fromAccountId: signal.fromAccountId ?? null,
         toAccountId: null,
-        reason: 'rate_limit_cross_provider',
+        reason:
+          signal.errorClass === 'auth'
+            ? 'auth_cross_provider'
+            : 'rate_limit_cross_provider',
         toProvider: decision.providerID,
         toModel: decision.modelID,
         toTier: decision.tier.label,
@@ -321,7 +345,7 @@ export async function advanceFallbackCascade(
   const hasRetainedTurn = retained.has(localSessionId);
   const existing = handoffs.get(localSessionId);
   if (existing?.phase !== 'deciding') {
-    if (!beginHandoff(localSessionId, signal.providerID, signal.message)) {
+    if (!beginHandoff(localSessionId, signal.providerID, signal.message, signal.errorClass)) {
       return { outcome: 'stale' };
     }
   } else if (signal.message && !existing.deferredError) {
@@ -368,7 +392,10 @@ export async function advanceFallbackCascade(
 
     await d.persistDecision(localSessionId, decision);
     try {
-      await d.notifyDecision(localSessionId, decision, signal);
+      await d.notifyDecision(localSessionId, decision, {
+        ...signal,
+        errorClass: signal.errorClass ?? st.errorClass ?? 'rate_limit',
+      });
     } catch (err) {
       logger.warn(`[TurnRedispatch] fallback notification failed for ${localSessionId}: ${String(err)}`);
     }

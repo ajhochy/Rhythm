@@ -1,0 +1,65 @@
+{
+  "issue": 1575,
+  "date": "2026-09-23",
+  "test_command": "npm --prefix /private/tmp/rhythm-swarm-1575/apps/api_server test -- src/__tests__/issue_1575_async_delegation_worktree.test.ts src/__tests__/issue_1575_async_delegation_worktree_live.test.ts; RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_URL=http://127.0.0.1:4998 RHYTHM_LIVE_ENGINE_URL=http://127.0.0.1:4997 RHYTHM_LIVE_DB_PATH=/private/tmp/rhythm-swarm-1575-repair2-sandbox/rhythm.db RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-swarm-1575-repair2-sandbox npm --prefix /private/tmp/rhythm-swarm-1575/apps/api_server test -- src/__tests__/issue_1575_async_delegation_worktree_live.test.ts --no-file-parallelism",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1575-c1",
+      "text": "rhythm_delegate_async accepts isolateWorktree and optional worktreeName and dispatches the child into a server-created worktree;",
+      "mode": "unit",
+      "test": "apps/mcp_server/src/tools/issue_1575_agentDelegation_worktree.test.ts",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1575-c2",
+      "text": "the child session path.cwd equals the created worktree directory, not the manager cwd;",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/issue_1575_async_delegation_worktree.test.ts",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1575-c3",
+      "text": "worktree_name/worktree_path/worktree_branch persist on the child row;",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/issue_1575_async_delegation_worktree.test.ts",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1575-c4",
+      "text": "a child inspecting cwd sees the correct directory so prose is redundant;",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/issue_1575_async_delegation_worktree_live.test.ts",
+      "status": "UNVERIFIED",
+      "reason": "Live sandbox child creation succeeded, but its Google provider had no credentials and never produced the required cwd report; see the run note."
+    },
+    {
+      "criterion_id": "issue-1575-c5",
+      "text": "omitting isolateWorktree preserves current behavior;",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/issue_1575_async_delegation_worktree.test.ts",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1575-c6",
+      "text": "no automatic worktree deletion, especially dirty trees.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/issue_1575_async_delegation_worktree_live.test.ts",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1575-c7",
+      "text": "when isolateWorktree is supplied and is not boolean, delegateAsync returns 400 BAD_REQUEST without dispatching; omitted remains false and booleans remain supported.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/issue_1575_async_delegation_worktree.test.ts",
+      "status": "pass",
+      "reason": null
+    }
+  ],
+  "not_tested": ["issue-1575-c4"]
+}

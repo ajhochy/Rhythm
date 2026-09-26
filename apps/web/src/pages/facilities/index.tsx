@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
 import { FocusDialog } from '../../components/FocusDialog';
-import { Icon } from '../../icons';
+import { Timestamp } from '../../components/Timestamp';
+import { formatTimestamp, wallClockInstant } from '../../timestamps';
+import { ListInspector, useSelectedId, type ListInspectorItem } from '../../components/ListInspector';
 import { navigate } from '../../components/Shell';
+import { Icon } from '../../icons';
 import { useFixtures } from '../../store';
 import { useGateway } from '../../gateway/context';
 import { LiveFacilitiesPage } from './live';
@@ -20,11 +22,6 @@ type SurfaceState = 'ready' | 'loading' | 'empty' | 'server-error' | 'forbidden'
 type RangeMode = 'day' | 'week' | 'month';
 type EditorMode = 'create' | 'reservation' | 'group' | 'series';
 
-function InspectorPortal({ selector, children }: { selector: string; children: ReactNode }) {
-  const [target, setTarget] = useState<Element | null>(null);
-  useEffect(() => { const next = document.querySelector(selector); setTarget((current) => current === next ? current : next); });
-  return target ? createPortal(children, target) : null;
-}
 type RecurrenceType = 'weekly' | 'biweekly' | 'monthly' | 'custom';
 
 const surfaceStates: SurfaceState[] = ['ready', 'loading', 'empty', 'server-error', 'forbidden', 'unavailable', 'readonly'];
@@ -51,12 +48,11 @@ function timeOnly(value: string) {
 }
 
 function displayTime(value: string) {
-  const [hourText, minute] = timeOnly(value).split(':');
-  const hour = Number(hourText);
-  return `${hour % 12 || 12}:${minute} ${hour >= 12 ? 'PM' : 'AM'}`;
+  return formatTimestamp(wallClockInstant(value)?.toISOString())?.label ?? 'Time unavailable';
 }
 
 function displayDate(value: string) {
+  // Date-only reservation value: UTC prevents viewer offsets from shifting the calendar day.
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${dateOnly(value)}T12:00:00Z`));
 }
 
@@ -79,11 +75,13 @@ function rangeFor(mode: RangeMode, offset: number) {
   if (mode === 'day') {
     const day = addDays(anchor, offset);
     const value = isoDay(day);
+    // Date-only range label: UTC preserves the selected facility calendar day.
     return { start: `${value}T00:00:00.000`, end: `${value}T23:59:59.999`, label: new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(day) };
   }
   if (mode === 'week') {
     const monday = addDays(anchor, -2 + (offset * 7));
     const sunday = addDays(monday, 6);
+    // Date-only range labels: UTC preserves the selected facility calendar days.
     const startLabel = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(monday);
     const endLabel = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(sunday);
     return { start: `${isoDay(monday)}T00:00:00.000`, end: `${isoDay(sunday)}T23:59:59.999`, label: `${startLabel} - ${endLabel}` };
@@ -93,6 +91,7 @@ function rangeFor(mode: RangeMode, offset: number) {
   return {
     start: `${isoDay(month)}T00:00:00.000`,
     end: `${isoDay(end)}T23:59:59.999`,
+    // Date-only range label: UTC preserves the selected facility calendar month.
     label: new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(month),
   };
 }
@@ -179,13 +178,12 @@ function FixtureFacilitiesPage({ route }: { route: string }) {
   const [facilities, setFacilities] = useState<Facility[]>(cloneSeededFacilities);
   const [reservations, setReservations] = useState<Reservation[]>(cloneSeededReservations);
   const [receipts, setReceipts] = useState<string[]>(() => [...initialFacilityReceipts]);
-  const [mode, setMode] = useState<'overview' | 'rooms'>(() => route.startsWith('/facilities/rooms') ? 'rooms' : 'overview');
+  const [selectedItemId, setSelectedItemId] = useSelectedId('facilityItemId');
+  const [mode, setMode] = useState<'overview' | 'rooms'>(() => route.startsWith('/facilities/rooms') || hashParams().get('facilityItemId')?.startsWith('room-') ? 'rooms' : 'overview');
   const [rangeMode, setRangeMode] = useState<RangeMode>('week');
   const [rangeOffset, setRangeOffset] = useState(0);
   const [buildingFilter, setBuildingFilter] = useState('');
   const [roomFilter, setRoomFilter] = useState('');
-  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(() => route.startsWith('/facilities/rooms/') ? decodeURIComponent(route.slice('/facilities/rooms/'.length)) : cloneSeededFacilities()[0]?.id ?? null);
-  const [selectedReservationId, setSelectedReservationId] = useState<string | null>(() => route.startsWith('/facilities/reservations/') ? decodeURIComponent(route.slice('/facilities/reservations/'.length)) : cloneSeededReservations().find((reservation) => !reservation.automation)?.id ?? null);
   const [reservationDialogOpen, setReservationDialogOpen] = useState(false);
   const [reservationMode, setReservationMode] = useState<EditorMode>('create');
   const [editingReservation, setEditingReservation] = useState<Reservation | null>(null);
@@ -226,10 +224,7 @@ function FixtureFacilitiesPage({ route }: { route: string }) {
   const currentRange = rangeFor(rangeMode, rangeOffset);
   const requestedRoomId = route.startsWith('/facilities/rooms/') ? decodeURIComponent(route.slice('/facilities/rooms/'.length)) : null;
   const requestedReservationId = route.startsWith('/facilities/reservations/') ? decodeURIComponent(route.slice('/facilities/reservations/'.length)) : null;
-  const selectedRoom = facilities.find((facility) => facility.id === selectedRoomId) ?? null;
-  const selectedReservation = reservations.find((reservation) => reservation.id === selectedReservationId) ?? null;
-  const invalidRoom = Boolean(requestedRoomId && !selectedRoom);
-  const invalidReservation = Boolean(requestedReservationId && !selectedReservation);
+  const requestedItemId = requestedRoomId ? `room-${requestedRoomId}` : requestedReservationId ? `reservation-${requestedReservationId}` : null;
 
   const appendReceipt = (receipt: string) => setReceipts((current) => [...current, receipt]);
   const updateStateUrl = (next: SurfaceState) => {
@@ -269,15 +264,48 @@ function FixtureFacilitiesPage({ route }: { route: string }) {
     })).filter((group) => group.facilities.length > 0);
   }, [facilities]);
 
-  useEffect(() => {
-    if (requestedReservationId || !filteredReservations.length) return;
-    if (!filteredReservations.some((reservation) => reservation.id === selectedReservationId)) setSelectedReservationId(filteredReservations[0].id);
-  }, [filteredReservations, requestedReservationId, selectedReservationId]);
+  const defaultItemId = mode === 'rooms'
+    ? facilities[0] ? `room-${facilities[0].id}` : null
+    : filteredReservations[0] ? `reservation-${filteredReservations[0].id}` : null;
+  const effectiveSelectedItemId = selectedItemId ?? requestedItemId ?? defaultItemId;
+  const selectedRoomId = effectiveSelectedItemId?.startsWith('room-') ? effectiveSelectedItemId.slice('room-'.length) : null;
+  const selectedReservationId = effectiveSelectedItemId?.startsWith('reservation-') ? effectiveSelectedItemId.slice('reservation-'.length) : null;
+  const selectedRoom = facilities.find((facility) => facility.id === selectedRoomId) ?? null;
+  const selectedReservation = reservations.find((reservation) => reservation.id === selectedReservationId) ?? null;
+  const invalidRoom = Boolean(requestedRoomId && !selectedRoom);
+  const invalidReservation = Boolean(requestedReservationId && !selectedReservation);
+  const visibleReservationIds = new Set(filteredReservations.map((reservation) => reservation.id));
+  const roomItems: ListInspectorItem[] = groupedFacilities.flatMap((group) => group.facilities.map((facility) => {
+    const upcoming = reservations.filter((reservation) => reservation.facilityId === facility.id && !reservation.automation).length;
+    return {
+      id: `room-${facility.id}`,
+      title: facility.name,
+      subtitle: facility.description,
+      meta: upcoming ? `${upcoming} upcoming` : 'Available',
+      group: `building-${slug(group.building ?? 'unassigned')}`,
+    };
+  }));
+  const reservationItems: ListInspectorItem[] = reservations.filter((reservation) => !reservation.automation).map((reservation) => {
+    const facility = facilities.find((item) => item.id === reservation.facilityId);
+    return {
+      id: `reservation-${reservation.id}`,
+      title: reservation.title,
+      subtitle: `${displayTime(reservation.start)}-${displayTime(reservation.end)} · ${facility?.name ?? 'Unknown room'}`,
+      meta: reservation.requesterName,
+      badge: reservation.conflicted ? 'Conflict' : reservation.seriesId ? 'Series' : reservation.groupId ? 'Linked' : reservation.notes ? 'Setup' : undefined,
+      group: `date-${dateOnly(reservation.start)}`,
+    };
+  });
+  const reservationGroups = [...new Set(reservations.filter((reservation) => !reservation.automation).map((reservation) => dateOnly(reservation.start)))].sort().map((date) => ({ id: `date-${date}`, label: displayDate(`${date}T00:00:00`) }));
 
   useEffect(() => {
-    if (requestedRoomId || !facilities.length) return;
-    if (!facilities.some((facility) => facility.id === selectedRoomId)) setSelectedRoomId(facilities[0].id);
-  }, [facilities, requestedRoomId, selectedRoomId]);
+    if (selectedItemId === null && effectiveSelectedItemId !== null) setSelectedItemId(effectiveSelectedItemId);
+  }, [effectiveSelectedItemId, selectedItemId, setSelectedItemId]);
+
+  useEffect(() => {
+    if (selectedItemId?.startsWith('room-')) setMode('rooms');
+    if (selectedItemId?.startsWith('reservation-')) setMode('overview');
+  }, [selectedItemId]);
 
   const openReservationEditor = (facilityId = '101', reservation?: Reservation, editorMode: EditorMode = 'create', showDialog = true) => {
     setReservationMode(editorMode);
@@ -317,7 +345,7 @@ function FixtureFacilitiesPage({ route }: { route: string }) {
   useEffect(() => {
     if (!selectedReservation) return;
     openReservationEditor(selectedReservation.facilityId, selectedReservation, selectedReservation.seriesId ? 'series' : selectedReservation.groupId ? 'group' : 'reservation', false);
-  }, [selectedReservationId]);
+  }, [selectedReservation?.id]);
 
   const closeReservationEditor = () => {
     setReservationDialogOpen(false);
@@ -434,7 +462,7 @@ function FixtureFacilitiesPage({ route }: { route: string }) {
   useEffect(() => {
     if (mode !== 'rooms' || !selectedRoom) return;
     setEditingFacility(selectedRoom); setFacilityName(selectedRoom.name); setFacilityBuilding(selectedRoom.building ?? ''); setNewBuilding(''); setFacilityDescription(selectedRoom.description); setFacilityNameError('');
-  }, [mode, selectedRoomId]);
+  }, [mode, selectedRoom?.id]);
 
   const submitFacility = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -465,7 +493,6 @@ function FixtureFacilitiesPage({ route }: { route: string }) {
     if (!deleteReservationTarget) return;
     appendReceipt(`DELETE /facilities/${deleteReservationTarget.facilityId}/reservations/${deleteReservationTarget.id} → 204`);
     setReservations((current) => deleteReservationTarget.groupId ? current.filter((item) => item.groupId !== deleteReservationTarget.groupId) : current.filter((item) => item.id !== deleteReservationTarget.id));
-    setSelectedReservationId(null);
     notify('Reservation deleted');
     setDeleteReservationTarget(null);
   };
@@ -474,7 +501,6 @@ function FixtureFacilitiesPage({ route }: { route: string }) {
     if (!deleteSeriesTarget?.seriesId) return;
     appendReceipt(`DELETE /facilities/${deleteSeriesTarget.facilityId}/reservation-series/${deleteSeriesTarget.seriesId} → 204`);
     setReservations((current) => current.filter((item) => item.seriesId !== deleteSeriesTarget.seriesId));
-    setSelectedReservationId(null);
     notify('Recurring series deleted');
     setDeleteSeriesTarget(null);
   };
@@ -527,128 +553,104 @@ function FixtureFacilitiesPage({ route }: { route: string }) {
         <div className="facilities-header-tools">
           <span className="facilities-role" title="Current workspace identity"><strong>AJ</strong><span>Facilities manager</span></span>
           <label className="facilities-state-picker">View state<select value={surfaceState} onChange={(event) => chooseSurfaceState(event.target.value as SurfaceState)} data-testid="facilities-state-picker">{surfaceStates.map((state) => <option key={state} value={state}>{state}</option>)}</select></label>
-          <fieldset className="facilities-mutation-gate" disabled={!readyLike || readonly} aria-disabled={!readyLike || readonly ? 'true' : 'false'} aria-describedby={readonly ? 'facilities-readonly-reason' : undefined} data-testid="facilities-mutations">
-            <legend className="sr-only">Facilities mutation actions</legend>
-            <button className="primary-button" type="button" onClick={() => openReservationEditor()} data-testid="facilities-reserve-space">Reserve Space</button>
-          </fieldset>
         </div>
       </header>
 
-      {readyLike && <>
-        {readonly && <div className="facilities-readonly" id="facilities-readonly-reason" role="status" data-testid="page-state-readonly"><strong>Read-only Facilities</strong><span>Facilities manager or reservation creator access is required to change rooms and reservations. Inspection remains available.</span></div>}
-        <nav className="facilities-mode-switch" aria-label="Facilities views">
-          <button type="button" aria-pressed={mode === 'overview'} onClick={() => { setMode('overview'); setSelectedRoomId(null); }} data-testid="facilities-mode-overview">Overview</button>
-          <button type="button" aria-pressed={mode === 'rooms'} onClick={() => { setMode('rooms'); setSelectedReservationId(null); }} data-testid="facilities-mode-rooms">Rooms</button>
-        </nav>
+      {readonly && <div className="facilities-readonly" id="facilities-readonly-reason" role="status" data-testid="page-state-readonly"><strong>Read-only Facilities</strong><span>Facilities manager or reservation creator access is required to change rooms and reservations. Inspection remains available.</span></div>}
+      <nav className="facilities-mode-switch" aria-label="Facilities views">
+        <button type="button" aria-pressed={mode === 'overview'} onClick={() => { setMode('overview'); setSelectedItemId(filteredReservations[0] ? `reservation-${filteredReservations[0].id}` : null); }} data-testid="facilities-mode-overview">Overview</button>
+        <button type="button" aria-pressed={mode === 'rooms'} onClick={() => { setMode('rooms'); setSelectedItemId(facilities[0] ? `room-${facilities[0].id}` : null); }} data-testid="facilities-mode-rooms">Rooms</button>
+      </nav>
 
-        {mode === 'overview' ? <main className="facilities-overview facilities-split-shell" aria-label="Facility schedule">
-          <div className="facilities-list-pane" tabIndex={0}>
-            <section className="facilities-command-deck" aria-label="Schedule range and filters">
-              <div className="facilities-range-controls">
-                <div className="facilities-segmented" aria-label="Schedule range">
-                  {(['day', 'week', 'month'] as RangeMode[]).map((range) => <button key={range} type="button" aria-pressed={rangeMode === range} onClick={() => { setRangeMode(range); setRangeOffset(0); overviewReceipt(range, 0); }} data-testid={`facilities-range-${range}`}>{range[0].toUpperCase() + range.slice(1)}</button>)}
-                </div>
-                <div className="facilities-period-nav">
-                  <button className="icon-button" type="button" aria-label="Previous range" onClick={() => { const next = rangeOffset - 1; setRangeOffset(next); overviewReceipt(rangeMode, next); }} data-testid="facilities-range-back"><span aria-hidden="true">←</span></button>
-                  <strong data-testid="facilities-range-label">{currentRange.label}</strong>
-                  <button className="icon-button" type="button" aria-label="Next range" onClick={() => { const next = rangeOffset + 1; setRangeOffset(next); overviewReceipt(rangeMode, next); }} data-testid="facilities-range-forward"><span aria-hidden="true">→</span></button>
-                </div>
-              </div>
-              <div className="facilities-filter-row">
-                <label>Building<select value={buildingFilter} onChange={(event) => { const value = event.target.value; setBuildingFilter(value); if (roomFilter && facilities.find((item) => item.id === roomFilter)?.building !== value) setRoomFilter(''); overviewReceipt(rangeMode, rangeOffset, value, ''); }} data-testid="facilities-building-filter"><option value="">All buildings</option>{[...new Set(facilities.map((item) => item.building).filter(Boolean))].map((building) => <option key={building} value={building ?? ''}>{building}</option>)}</select></label>
-                <label>Room<select value={roomFilter} onChange={(event) => { setRoomFilter(event.target.value); overviewReceipt(rangeMode, rangeOffset, buildingFilter, event.target.value); }} data-testid="facilities-room-filter"><option value="">All rooms</option>{facilities.filter((item) => !buildingFilter || item.building === buildingFilter).map((facility) => <option key={facility.id} value={facility.id}>{facility.name}</option>)}</select></label>
-              </div>
-            </section>
-
-            <dl className="facilities-metrics" aria-label="Reservation indicators">
-              <div><dt>Reservations</dt><dd>{filteredReservations.length}</dd></div>
-              <div><dt>Rooms in use</dt><dd>{new Set(filteredReservations.map((item) => item.facilityId)).size}</dd></div>
-              <div><dt>Setup</dt><dd data-testid="facilities-metric-setup-notes">{filteredReservations.filter((item) => item.notes).length}</dd></div>
-              <div><dt>Conflicts</dt><dd data-testid="facilities-metric-conflicts">{filteredReservations.filter((item) => item.conflicted).length}</dd></div>
-              <div className="sr-only"><dt>External changes</dt><dd data-testid="facilities-metric-external">{filteredReservations.filter((item) => item.external).length}</dd></div>
-            </dl>
-
-            <section className="facilities-schedule" aria-labelledby="facilities-schedule-title">
-              <header><div><h2 id="facilities-schedule-title">Schedule</h2><p>{filteredReservations.length} visible reservation{filteredReservations.length === 1 ? '' : 's'}</p></div><span className="facilities-live-dot">Current</span></header>
-              <div className="facilities-reservation-list" id="facilities-overview-results" data-testid="facilities-overview-results">
-                {filteredReservations.length ? filteredReservations.map((reservation) => {
-                  const facility = facilities.find((item) => item.id === reservation.facilityId);
-                  return <article className="facilities-reservation-row" key={reservation.id} aria-current={selectedReservation?.id === reservation.id ? 'true' : undefined} data-testid={`facility-reservation-${reservation.id}`} data-facility-id={reservation.facilityId} data-series-id={reservation.seriesId} data-conflicted={reservation.conflicted ? 'true' : 'false'}>
-                    <button className="facilities-reservation-open" type="button" onClick={() => setSelectedReservationId(reservation.id)} data-testid={`facility-reservation-open-${reservation.id}`}>
-                      <time dateTime={reservation.start}><strong>{displayTime(reservation.start)}</strong><span>{displayTime(reservation.end)}</span></time>
-                      <span className="facilities-reservation-copy"><strong>{reservation.title}</strong><small>{facility?.name} · {facility?.building ?? 'Unassigned'} · {reservation.requesterName}</small></span>
-                      <span className="facilities-badges">{reservation.groupId && <em>Linked</em>}{reservation.seriesId && <em>Series</em>}{reservation.notes && <em>Setup</em>}{reservation.external && <em>External</em>}{reservation.conflicted && <em className="danger">Conflict</em>}</span>
-                    </button>
-                    {!readonly && reservationActions(reservation)}
-                  </article>;
-                }) : <div className="facilities-local-empty" role="status"><h3>No reservations in this range</h3><p>Change the date range or clear a room filter to inspect another part of the schedule.</p><button className="secondary-button" type="button" onClick={() => { setRangeMode('week'); setRangeOffset(0); setBuildingFilter(''); setRoomFilter(''); overviewReceipt('week', 0, '', ''); }} data-testid="facilities-clear-filters">Reset range and filters</button></div>}
-              </div>
-            </section>
+      {mode === 'overview' && <section className="facilities-command-deck facilities-context-bar" aria-label="Schedule range and filters">
+        <div className="facilities-range-controls">
+          <div className="facilities-segmented" aria-label="Schedule range">
+            {(['day', 'week', 'month'] as RangeMode[]).map((range) => <button key={range} type="button" aria-pressed={rangeMode === range} onClick={() => { setRangeMode(range); setRangeOffset(0); overviewReceipt(range, 0); }} data-testid={`facilities-range-${range}`}>{range[0].toUpperCase() + range.slice(1)}</button>)}
           </div>
-
-          <aside className="facilities-inspector" aria-label="Reservation inspector">
-            {invalidReservation ? <section className="facilities-not-found" role="status" data-testid="facility-reservation-not-found"><h2>Reservation not found</h2><p>The requested reservation is not in the current workspace.</p><button className="secondary-button" type="button" onClick={() => navigate('/facilities')} data-testid="facilities-back">Back to facilities</button></section>
-              : selectedReservation ? <section className="facilities-detail-sheet" data-testid="facility-reservation-detail" aria-labelledby="facility-reservation-detail-title">
-                <div className="facilities-detail-heading"><div><span>{selectedReservation.seriesId ? 'Recurring series' : selectedReservation.groupId ? 'Linked room group' : 'Reservation'}</span><h2 id="facility-reservation-detail-title">{selectedReservation.title}</h2></div></div>
-                <dl className="facilities-detail-grid"><div><dt>Room</dt><dd>{facilities.find((item) => item.id === selectedReservation.facilityId)?.name}</dd></div><div><dt>Date</dt><dd>{displayDate(selectedReservation.start)}</dd></div><div><dt>Time</dt><dd>{displayTime(selectedReservation.start)}-{displayTime(selectedReservation.end)}</dd></div><div><dt>Requester</dt><dd>{selectedReservation.requesterName}</dd></div><div className="span-all"><dt>Setup notes</dt><dd>{selectedReservation.notes || 'No setup notes'}</dd></div></dl>
-                <div className="facilities-detail-actions">
-                  {selectedReservation.seriesId ? <>
-                    <button className="text-danger-button" type="button" disabled={readonly} aria-describedby={readonly ? 'facilities-readonly-reason' : undefined} onClick={() => setDeleteSeriesTarget(selectedReservation)} data-testid="facility-series-delete">Delete entire series</button>
-                  </> : <>
-                    <button className="text-danger-button" type="button" disabled={readonly} aria-describedby={readonly ? 'facilities-readonly-reason' : undefined} onClick={() => setDeleteReservationTarget(selectedReservation)} data-testid="facility-reservation-delete">Delete reservation</button>
-                  </>}
-                </div>
-              </section> : <div className="facilities-inspector-empty"><span>Select a reservation</span><p>Choose a schedule row to inspect its room, timing, requester, and setup notes.</p></div>}
-          </aside>
-        </main> : <main className="facilities-rooms" aria-label="Facility rooms">
-          <div className="facilities-manager-bar" data-testid="facility-manager-bar">
-            <div><strong>Space operations</strong><span>Manager tools for rooms and automation-created reservations.</span></div>
-            <fieldset disabled={readonly} aria-disabled={readonly ? 'true' : 'false'} aria-describedby={readonly ? 'facilities-readonly-reason' : undefined}>
-              <legend className="sr-only">Manager actions</legend>
-              <button className="secondary-button" type="button" onClick={openAutomation} data-testid="facility-automation-manage">Manage automation reservations</button>
-              <button className="primary-button" type="button" onClick={() => openFacilityEditor()} data-testid="facility-add-space">Add Space</button>
-            </fieldset>
+          <div className="facilities-period-nav">
+            <button className="icon-button" type="button" aria-label="Previous range" onClick={() => { const next = rangeOffset - 1; setRangeOffset(next); overviewReceipt(rangeMode, next); }} data-testid="facilities-range-back"><span aria-hidden="true">←</span></button>
+            <strong data-testid="facilities-range-label">{currentRange.label}</strong>
+            <button className="icon-button" type="button" aria-label="Next range" onClick={() => { const next = rangeOffset + 1; setRangeOffset(next); overviewReceipt(rangeMode, next); }} data-testid="facilities-range-forward"><span aria-hidden="true">→</span></button>
           </div>
+        </div>
+        <div className="facilities-filter-row">
+          <label>Building<select value={buildingFilter} onChange={(event) => { const value = event.target.value; setBuildingFilter(value); if (roomFilter && facilities.find((item) => item.id === roomFilter)?.building !== value) setRoomFilter(''); overviewReceipt(rangeMode, rangeOffset, value, ''); }} data-testid="facilities-building-filter"><option value="">All buildings</option>{[...new Set(facilities.map((item) => item.building).filter(Boolean))].map((building) => <option key={building} value={building ?? ''}>{building}</option>)}</select></label>
+          <label>Room<select value={roomFilter} onChange={(event) => { setRoomFilter(event.target.value); overviewReceipt(rangeMode, rangeOffset, buildingFilter, event.target.value); }} data-testid="facilities-room-filter"><option value="">All rooms</option>{facilities.filter((item) => !buildingFilter || item.building === buildingFilter).map((facility) => <option key={facility.id} value={facility.id}>{facility.name}</option>)}</select></label>
+        </div>
+      </section>}
 
-          <div className="facilities-split-shell facilities-room-split">
-            <div className="facilities-list-pane facilities-building-list" data-testid="facilities-rooms-list" tabIndex={0}>
-              {groupedFacilities.map((group) => <section className="facilities-building" key={group.building ?? 'unassigned'} data-testid={`facility-building-${slug(group.building ?? 'unassigned')}`}>
-                <header><h2 data-testid="facility-building-name">{group.building ?? 'Unassigned'}</h2><span>{group.facilities.length} space{group.facilities.length === 1 ? '' : 's'}</span></header>
-                <div>{group.facilities.map((facility) => {
-                  const upcoming = reservations.filter((reservation) => reservation.facilityId === facility.id && !reservation.automation).length;
-                  return <article className="facilities-room-row" key={facility.id} aria-current={selectedRoom?.id === facility.id ? 'true' : undefined} data-testid={`facility-room-${facility.id}`} data-room-row="true" data-room-name={facility.name}>
-                    <button className="facilities-room-open" type="button" onClick={() => setSelectedRoomId(facility.id)} data-testid={`facility-room-open-${facility.id}`}>
-                      <span className="facilities-room-mark" aria-hidden="true"><i /><i /><i /></span>
-                      <span className="facilities-room-copy"><strong>{facility.name}</strong><small>{facility.description}</small></span>
-                      <span className="facilities-room-status" data-testid="facility-room-upcoming">{upcoming ? `${upcoming} upcoming` : 'Available'}</span>
-                    </button>
-                    <button className="secondary-button" type="button" disabled={readonly} aria-describedby={readonly ? 'facilities-readonly-reason' : undefined} onClick={(event) => { event.stopPropagation(); openReservationEditor(facility.id); }} data-testid={`facility-room-reserve-${facility.id}`}>Reserve</button>
-                    {!readonly && manager && <ActionMenu label={`Manage ${facility.name}`} testId={`facility-room-actions-${facility.id}`}>
-                      <button className="menu-item danger-item" role="menuitem" type="button" onClick={() => setDeleteFacilityTarget(facility)} data-testid={`facility-room-delete-${facility.id}`}>Delete room</button>
-                    </ActionMenu>}
-                  </article>;
-                })}</div>
-              </section>)}
-            </div>
-            <aside className="facilities-inspector" aria-label="Room inspector" tabIndex={0}>
-              {invalidRoom ? <section className="facilities-not-found" role="status" data-testid="facility-room-not-found"><h2>Room not found</h2><p>The requested room is not in the current workspace.</p><button className="secondary-button" type="button" onClick={() => navigate('/facilities/rooms')} data-testid="facilities-back">Back to facilities</button></section>
-                : selectedRoom ? <section className="facilities-detail-sheet room-detail" data-testid="facility-room-detail" aria-labelledby="facility-room-detail-title">
-                  <div className="facilities-detail-heading"><div><span>{selectedRoom.building ?? 'Unassigned'}</span><h2 id="facility-room-detail-title">{selectedRoom.name}</h2><p>{selectedRoom.description}</p></div></div>
-                  <div className="facilities-room-preview"><div className="facilities-inspector-section-heading"><h3>Upcoming reservations</h3><span>{reservations.filter((item) => item.facilityId === selectedRoom.id && !item.automation).length}</span></div>{reservations.filter((item) => item.facilityId === selectedRoom.id && !item.automation).slice(0, 5).map((reservation) => <div key={reservation.id} data-reservation-preview="true"><strong>{reservation.title}</strong><span>{displayDate(reservation.start)} · {displayTime(reservation.start)}</span></div>)}</div>
-                  <button className="primary-button" type="button" disabled={readonly} aria-describedby={readonly ? 'facilities-readonly-reason' : undefined} onClick={() => openReservationEditor(selectedRoom.id)} data-testid="facility-room-reserve">Reserve this room</button>
-                </section> : <div className="facilities-inspector-empty"><span>Select a room</span><p>Choose a room to inspect its description and upcoming reservations.</p></div>}
-            </aside>
-          </div>
-        </main>}
-        <span className="facilities-responsive-primary" id="facilities-responsive-primary" data-testid="facilities-responsive-primary">Rooms and schedule available</span>
-      </>}
+      {mode === 'overview' && <dl className="facilities-metrics" aria-label="Reservation indicators">
+        <div><dt>Reservations</dt><dd>{filteredReservations.length}</dd></div>
+        <div><dt>Rooms in use</dt><dd>{new Set(filteredReservations.map((item) => item.facilityId)).size}</dd></div>
+        <div><dt>Setup</dt><dd data-testid="facilities-metric-setup-notes">{filteredReservations.filter((item) => item.notes).length}</dd></div>
+        <div><dt>Conflicts</dt><dd data-testid="facilities-metric-conflicts">{filteredReservations.filter((item) => item.conflicted).length}</dd></div>
+        <div className="sr-only"><dt>External changes</dt><dd data-testid="facilities-metric-external">{filteredReservations.filter((item) => item.external).length}</dd></div>
+      </dl>}
 
-      {!readyLike && <StatePanel state={surfaceState} onRetry={() => { chooseSurfaceState('ready'); setFacilities(cloneSeededFacilities()); setReservations(cloneSeededReservations()); setReceipts([...initialFacilityReceipts]); }} onAdd={() => openFacilityEditor()} />}
+      <ListInspector
+        className="facilities-list-inspector"
+        label={mode === 'rooms' ? 'Facility rooms' : 'Facility reservations'}
+        items={surfaceState === 'empty' ? [] : mode === 'rooms' ? roomItems : reservationItems}
+        groups={mode === 'rooms'
+          ? groupedFacilities.map((group) => ({ id: `building-${slug(group.building ?? 'unassigned')}`, label: group.building ?? 'Unassigned' }))
+          : reservationGroups}
+        selectedId={surfaceState === 'empty' || invalidRoom || invalidReservation ? null : effectiveSelectedItemId}
+        onSelect={setSelectedItemId}
+        filterItem={mode === 'overview' ? (item) => visibleReservationIds.has(item.id.slice('reservation-'.length)) : undefined}
+        loading={surfaceState === 'loading'}
+        loadingState={<span data-testid="page-state-loading">Loading Facility reservations</span>}
+        error={!readyLike && surfaceState !== 'loading' && surfaceState !== 'empty'
+          ? <StatePanel state={surfaceState} onRetry={() => { chooseSurfaceState('ready'); setFacilities(cloneSeededFacilities()); setReservations(cloneSeededReservations()); setReceipts([...initialFacilityReceipts]); }} onAdd={() => openFacilityEditor()} />
+          : undefined}
+        searchable
+        searchPlaceholder={mode === 'rooms' ? 'Search rooms' : 'Search reservations'}
+        toolbar={<fieldset className="facilities-list-toolbar" disabled={(!readyLike && surfaceState !== 'empty') || readonly} aria-disabled={(!readyLike && surfaceState !== 'empty') || readonly ? 'true' : 'false'} aria-describedby={readonly ? 'facilities-readonly-reason' : undefined} data-testid="facilities-mutations">
+          <legend className="sr-only">{mode === 'rooms' ? 'Room actions' : 'Reservation actions'}</legend>
+          {surfaceState === 'empty'
+            ? <button className="primary-button" type="button" onClick={() => openFacilityEditor()} data-testid="facilities-empty-add-space">Add Space</button>
+            : mode === 'rooms'
+            ? <button className="primary-button" type="button" onClick={() => openFacilityEditor()} data-testid="facility-add-space">Add Space</button>
+            : <button className="primary-button" type="button" onClick={() => openReservationEditor()} data-testid="facilities-reserve-space">Reserve Space</button>}
+        </fieldset>}
+        listFooter={<span className="facilities-list-count">{mode === 'rooms' ? `${roomItems.length} spaces` : `${filteredReservations.length} reservations in range`}</span>}
+        emptyState={<div className="facilities-local-empty" role="status" data-testid="page-state-empty"><h3>{surfaceState === 'empty' || mode === 'rooms' ? 'No facilities yet' : 'No reservations in this range'}</h3><p>{surfaceState === 'empty' || mode === 'rooms' ? 'Add the first space to make room reservations available.' : 'Change the date range or clear a room filter to inspect another part of the schedule.'}</p></div>}
+        noResultsState={mode === 'overview' ? <div className="facilities-local-empty" role="status"><h3>No reservations in this range</h3><p>Change the date range or clear a room filter to inspect another part of the schedule.</p></div> : undefined}
+        inspector={(item) => {
+          if (invalidReservation || invalidRoom) return <section className="facilities-not-found" role="status" data-testid={invalidReservation ? 'facility-reservation-not-found' : 'facility-room-not-found'}><h3>{invalidReservation ? 'Reservation' : 'Room'} not found</h3><p>The requested {invalidReservation ? 'reservation' : 'room'} is not in the current workspace.</p><button className="secondary-button" type="button" onClick={() => navigate(invalidReservation ? '/facilities' : '/facilities/rooms')} data-testid="facilities-back">Back to facilities</button></section>;
+          if (!item) return <div className="facilities-inspector-empty"><span>Select an item</span><p>Choose a compact row to inspect its details and actions.</p></div>;
+          if (item.id.startsWith('reservation-')) {
+            const reservation = reservations.find((entry) => `reservation-${entry.id}` === item.id);
+            if (!reservation) return null;
+            const facility = facilities.find((entry) => entry.id === reservation.facilityId);
+            return <section className="facilities-detail-sheet" data-testid="facility-reservation-detail">
+              <span className="sr-only">{reservation.title}</span>
+              <div className="facilities-detail-heading"><div><span>{reservation.seriesId ? 'Recurring series' : reservation.groupId ? 'Linked room group' : 'Reservation'}</span><p>{facility?.name} · {facility?.building ?? 'Unassigned'}</p></div><div className="facilities-detail-actions">{!readonly && reservationActions(reservation)}{reservation.seriesId
+                ? <button className="text-danger-button" type="button" disabled={readonly} onClick={() => setDeleteSeriesTarget(reservation)} data-testid="facility-series-delete">Delete entire series</button>
+                : <button className="text-danger-button" type="button" disabled={readonly} onClick={() => setDeleteReservationTarget(reservation)} data-testid="facility-reservation-delete">{reservation.groupId ? 'Delete reservation group' : 'Delete reservation'}</button>}</div></div>
+              <dl className="facilities-detail-grid">
+                <div><dt>Room</dt><dd>{facility?.name}</dd></div><div><dt>Date</dt><dd>{displayDate(reservation.start)}</dd></div>
+                <div><dt>Time</dt><dd><Timestamp value={wallClockInstant(reservation.start)?.toISOString()} />–<Timestamp value={wallClockInstant(reservation.end)?.toISOString()} /></dd></div><div><dt>Requester</dt><dd>{reservation.requesterName}</dd></div>
+                <div className="span-all"><dt>Setup notes</dt><dd>{reservation.notes || 'No setup notes'}</dd></div>
+                {reservation.conflicted && <div className="span-all facilities-conflict-note"><dt>Availability</dt><dd aria-live="polite">Conflict detected for this reservation.</dd></div>}
+              </dl>
+              <form className="facilities-reservation-form facilities-direct-editor" onSubmit={submitReservation} data-testid="facility-reservation-direct-editor"><fieldset disabled={readonly} aria-describedby={readonly ? 'facilities-readonly-reason' : undefined}><legend className="sr-only">Reservation details</legend><div className="facilities-form-grid"><label className="field span-2">Title<input value={reservationTitle} onChange={(event) => setReservationTitle(event.target.value)} data-testid="facility-reservation-title" /></label><label className="field span-2">Requester<input value={requesterName} onChange={(event) => setRequesterName(event.target.value)} readOnly={!manager} data-testid="facility-reservation-requester" /></label><label className="field">Date<input type="date" value={reservationDate} onChange={(event) => setReservationDate(event.target.value)} data-testid="facility-reservation-date" /></label><label className="field">Start time<input type="time" value={reservationStart} onChange={(event) => setReservationStart(event.target.value)} data-testid="facility-reservation-start" /></label><label className="field">End time<input type="time" value={reservationEnd} onChange={(event) => setReservationEnd(event.target.value)} data-testid="facility-reservation-end" /></label><label className="field span-2">Setup notes<textarea rows={3} value={reservationNotes} onChange={(event) => setReservationNotes(event.target.value)} data-testid="facility-reservation-notes" /></label></div><section className={`facilities-availability ${selectedConflicts.length ? 'conflict' : ''}`} aria-live="polite"><div><h3>Availability</h3><strong data-testid="facility-availability-status">{reservationStart && reservationEnd ? selectedConflicts.length ? `${selectedConflicts.length} reservation overlaps the selected slot` : 'Selected slot is open' : 'Choose a start and end time'}</strong></div></section><footer className="dialog-actions"><button className="primary-button" type="submit" data-testid="facility-reservation-submit">Save changes</button></footer></fieldset></form>
+            </section>;
+          }
+          const room = facilities.find((entry) => `room-${entry.id}` === item.id);
+          if (!room) return null;
+          const upcoming = reservations.filter((entry) => entry.facilityId === room.id && !entry.automation);
+          return <section className="facilities-detail-sheet room-detail" data-testid="facility-room-detail">
+            <span className="sr-only">{room.name}</span>
+            <div className="facilities-detail-heading"><div><span>{room.building ?? 'Unassigned'}</span><p>{room.description}</p></div><div className="facilities-detail-actions"><button className="primary-button" type="button" disabled={readonly} onClick={() => openReservationEditor(room.id)} data-testid="facility-room-reserve">Reserve this room</button>{!readonly && manager && <ActionMenu label={`Manage ${room.name}`} testId={`facility-room-actions-${room.id}`}><button className="menu-item danger-item" role="menuitem" type="button" onClick={() => setDeleteFacilityTarget(room)} data-testid={`facility-room-delete-${room.id}`}>Delete room</button></ActionMenu>}</div></div>
+            <form className="facilities-editor-form facilities-direct-editor" onSubmit={submitFacility} data-testid="facility-room-direct-editor"><fieldset disabled={readonly} aria-describedby={readonly ? 'facilities-readonly-reason' : undefined}><legend className="sr-only">Room details</legend><label className="field">Room name<input value={facilityName} onChange={(event) => { setFacilityName(event.target.value); setFacilityNameError(''); }} data-testid="facility-name" /></label><label className="field">Building<select value={facilityBuilding} onChange={(event) => setFacilityBuilding(event.target.value)} data-testid="facility-building"><option value="">Unassigned</option>{[...new Set(facilities.map((facility) => facility.building).filter(Boolean))].map((building) => <option key={building} value={building ?? ''}>{building}</option>)}</select></label><label className="field">Description<textarea rows={4} value={facilityDescription} onChange={(event) => setFacilityDescription(event.target.value)} data-testid="facility-description" /></label><footer className="dialog-actions"><button className="primary-button" type="submit" data-testid="facility-editor-submit">Save changes</button></footer></fieldset></form>
+            <div className="facilities-room-preview"><div className="facilities-inspector-section-heading"><h3>Upcoming reservations</h3><span>{upcoming.length}</span></div>{upcoming.slice(0, 5).map((reservation) => <button type="button" key={reservation.id} data-reservation-preview="true" onClick={() => { setMode('overview'); setSelectedItemId(`reservation-${reservation.id}`); }}><strong>{reservation.title}</strong><span><Timestamp value={wallClockInstant(reservation.start)?.toISOString()} /></span></button>)}</div>
+            <button className="secondary-button" type="button" disabled={readonly} onClick={openAutomation} data-testid="facility-automation-manage">Manage automation reservations</button>
+          </section>;
+        }}
+      />
 
+      <span className="facilities-responsive-primary" id="facilities-responsive-primary" data-testid="facilities-responsive-primary">Rooms and schedule available</span>
       <output className="facilities-trace" aria-live="polite" aria-label="Facilities fixture endpoint receipts" data-testid="page-trace" tabIndex={0}><span>Request log</span><ol>{receipts.map((receipt, index) => <li key={`${receipt}-${index}`}>{receipt}</li>)}</ol></output>
-
-      {selectedReservation && <InspectorPortal selector="[data-testid='facility-reservation-detail']"><form className="facilities-reservation-form facilities-direct-editor" onSubmit={submitReservation} data-testid="facility-reservation-direct-editor"><fieldset disabled={readonly} aria-describedby={readonly ? 'facilities-readonly-reason' : undefined}><legend className="sr-only">Reservation details</legend><div className="facilities-form-grid"><label className="field span-2">Title<input value={reservationTitle} onChange={(event) => setReservationTitle(event.target.value)} data-testid="facility-reservation-title" /></label><label className="field span-2">Requester<input value={requesterName} onChange={(event) => setRequesterName(event.target.value)} readOnly={!manager} data-testid="facility-reservation-requester" /></label><label className="field">Date<input type="date" value={reservationDate} onChange={(event) => setReservationDate(event.target.value)} data-testid="facility-reservation-date" /></label><label className="field">Start time<input type="time" value={reservationStart} onChange={(event) => setReservationStart(event.target.value)} data-testid="facility-reservation-start" /></label><label className="field">End time<input type="time" value={reservationEnd} onChange={(event) => setReservationEnd(event.target.value)} data-testid="facility-reservation-end" /></label><label className="field span-2">Setup notes<textarea rows={3} value={reservationNotes} onChange={(event) => setReservationNotes(event.target.value)} data-testid="facility-reservation-notes" /></label></div><footer className="dialog-actions"><button className="primary-button" type="submit" data-testid="facility-reservation-submit">Save changes</button></footer></fieldset></form></InspectorPortal>}
-      {mode === 'rooms' && selectedRoom && <InspectorPortal selector="[data-testid='facility-room-detail']"><form className="facilities-editor-form facilities-direct-editor" onSubmit={submitFacility} data-testid="facility-room-direct-editor"><fieldset disabled={readonly} aria-describedby={readonly ? 'facilities-readonly-reason' : undefined}><legend className="sr-only">Room details</legend><label className="field">Room name<input value={facilityName} onChange={(event) => { setFacilityName(event.target.value); setFacilityNameError(''); }} data-testid="facility-name" /></label><label className="field">Building<select value={facilityBuilding} onChange={(event) => setFacilityBuilding(event.target.value)} data-testid="facility-building"><option value="">Unassigned</option>{[...new Set(facilities.map((facility) => facility.building).filter(Boolean))].map((building) => <option key={building} value={building ?? ''}>{building}</option>)}</select></label><label className="field">Description<textarea rows={4} value={facilityDescription} onChange={(event) => setFacilityDescription(event.target.value)} data-testid="facility-description" /></label><footer className="dialog-actions"><button className="primary-button" type="submit" data-testid="facility-editor-submit">Save changes</button></footer></fieldset></form></InspectorPortal>}
 
       <FocusDialog open={reservationDialogOpen} title={reservationMode === 'series' ? 'Edit recurring series' : reservationMode === 'reservation' || reservationMode === 'group' ? 'Edit reservation' : 'Reserve space'} description="Availability is calculated from the current room schedule." onClose={closeReservationEditor} testId="facility-reservation-dialog" wide>
         <form className="facilities-reservation-form" onSubmit={submitReservation}>

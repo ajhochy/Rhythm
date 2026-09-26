@@ -15,7 +15,7 @@ import {
   connectionCredentialStore,
   directMacStateManager,
 } from '@/lib/security/connection-credential-store';
-import type { ChatPreferences } from '@/providers/opencode-provider-utils';
+import { migrateWorkingSoundPreferences, type ChatPreferences } from '@/providers/opencode-provider-utils';
 
 export function useOpencodePersistence({
   defaultChatPreferences,
@@ -163,7 +163,7 @@ export function useOpencodePersistence({
                 setChatPreferences((current) => ({
                   ...defaultChatPreferences,
                   ...current,
-                  ...parsed,
+                  ...migrateWorkingSoundPreferences(parsed),
                 }));
               }
             } catch {
@@ -257,7 +257,7 @@ export function useOpencodePersistence({
         if (stored.chatPreferences) {
           setChatPreferences({
             ...defaultChatPreferences,
-            ...JSON.parse(stored.chatPreferences) as Partial<ChatPreferences>,
+            ...migrateWorkingSoundPreferences(JSON.parse(stored.chatPreferences) as Partial<ChatPreferences>),
           });
         }
         if (stored.activeProject) setActiveProjectPath(stored.activeProject);

@@ -15,9 +15,7 @@
  *      - 'smart'  → local risk classifier (command_risk_classifier.ts):
  *                   low → 'allow', high → 'deny', uncertain → 'ask'.
  *      - 'manual' → always 'ask'.
- *   4. 'ask' results are resolved by `resolveApproval`, which prompts (via
- *      the injected `promptFn`) and applies the configured timeout —
- *      timeout or no response → 'deny' (fail-closed), per the issue.
+ *   4. 'ask' results are surfaced by the stream bridge's permission transport.
  */
 
 import { matchHardlineBlock } from './command_blocklist';
@@ -98,8 +96,8 @@ export interface ClassifyResult {
 /**
  * Classify `command` under `mode`, consulting the persistent "always allow"
  * store. This is the PURE decision step — it does NOT prompt anyone; a
- * result of `decision: 'ask'` means the caller must invoke
- * {@link resolveApproval} (or its own equivalent) to get a final answer.
+ * result of `decision: 'ask'` means the caller must use the permission
+ * transport to get a final answer.
  */
 export function classifyCommand(
   command: string,
@@ -169,80 +167,4 @@ export function classifyCommands(
     if (strongest.decision === 'deny') break;
   }
   return strongest;
-}
-
-export type ApprovalResponse = 'once' | 'session' | 'always' | 'deny';
-
-export interface ResolveApprovalOptions {
-  /** Seconds to wait for a response before failing closed. */
-  timeoutSeconds: number;
-  /**
-   * Prompts the user and resolves with their choice. Must resolve within
-   * `timeoutSeconds` on its own if it can (the wrapper below still enforces
-   * the timeout independently as a backstop).
-   */
-  promptFn: (command: string) => Promise<ApprovalResponse>;
-  approvalStore?: ApprovalStore;
-  /** In-memory per-session allowlist for the "session" response. Caller-owned so it can live for the session's lifetime. */
-  sessionAllowlist?: Set<string>;
-}
-
-/**
- * Resolve an 'ask' decision by prompting the user, with a fail-closed
- * timeout. Never throws — a prompt rejection is treated the same as a
- * timeout (deny).
- */
-export async function resolveApproval(
-  command: string,
-  opts: ResolveApprovalOptions,
-): Promise<{ decision: 'allow' | 'deny'; response: ApprovalResponse | 'timeout' }> {
-  const timeoutMs = Math.max(0, opts.timeoutSeconds) * 1000;
-
-  let response: ApprovalResponse | 'timeout';
-  try {
-    response = await new Promise<ApprovalResponse | 'timeout'>((resolve) => {
-      let settled = false;
-      const timer = setTimeout(() => {
-        if (!settled) {
-          settled = true;
-          resolve('timeout');
-        }
-      }, timeoutMs);
-      // Only set up the timer as unref'd where supported so tests / CLI exit
-      // aren't kept alive by a pending timeout.
-      if (typeof (timer as { unref?: () => void }).unref === 'function') {
-        (timer as unknown as { unref: () => void }).unref();
-      }
-      opts
-        .promptFn(command)
-        .then((r) => {
-          if (!settled) {
-            settled = true;
-            clearTimeout(timer);
-            resolve(r);
-          }
-        })
-        .catch(() => {
-          if (!settled) {
-            settled = true;
-            clearTimeout(timer);
-            resolve('timeout');
-          }
-        });
-    });
-  } catch {
-    response = 'timeout';
-  }
-
-  if (response === 'timeout' || response === 'deny') {
-    return { decision: 'deny', response };
-  }
-
-  if (response === 'always') {
-    (opts.approvalStore ?? new ApprovalStore()).alwaysAllow(command);
-  } else if (response === 'session') {
-    opts.sessionAllowlist?.add(command);
-  }
-
-  return { decision: 'allow', response };
 }

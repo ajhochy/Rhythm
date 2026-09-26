@@ -41,6 +41,7 @@ import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { MemoryIndexService } from '../services/memory_index_service';
+import { isReservedVaultFilename } from '../services/memoryVaultSyncService';
 import {
   parseKnowledgeGraphJsonl,
   mapEntityTypeToMemoryKind,
@@ -102,7 +103,7 @@ function allNoteFiles(): string[] {
       if (name.isDirectory()) walk(full);
       else if (
         name.name.endsWith('.md') &&
-        !['index.md', 'log.md'].includes(name.name.toLowerCase())
+        !isReservedVaultFilename(name.name)
       ) {
         out.push(full);
       }

@@ -18,6 +18,8 @@ export interface AgentDelegationInput {
   callerSessionId: string;
   context?: string | null;
   cwd?: string | null;
+  isolateWorktree?: boolean;
+  worktreeName?: string;
   model?: unknown;
 }
 
@@ -58,9 +60,17 @@ export interface AsyncAgentDelegationResult {
  *
  *   See docs/ai/decisions/2026-06-25-delegation-depth.md for full rationale.
  */
-const MAX_DELEGATION_DEPTH = 2;
+export const MAX_DELEGATION_DEPTH = 2;
 
-function parseAllowedDelegates(json: string | null): Set<string> {
+export function nextDelegationDepth(parentDepth: number): number {
+  const depth = parentDepth + 1;
+  if (depth > MAX_DELEGATION_DEPTH) {
+    throw AppError.badRequest('delegation depth limit exceeded');
+  }
+  return depth;
+}
+
+export function parseAllowedDelegates(json: string | null): Set<string> {
   if (!json) return new Set();
   try {
     const parsed: unknown = JSON.parse(json);
@@ -73,7 +83,7 @@ function parseAllowedDelegates(json: string | null): Set<string> {
   }
 }
 
-function requireExecutableProfile(
+export function requireExecutableProfile(
   repo: AgentConfigsRepository,
   profileId: string,
   role: 'caller' | 'target',
@@ -113,7 +123,8 @@ async function validateModelOverride(input: unknown): Promise<{
   const model = { providerID: providerID.trim(), modelID: modelID.trim() };
   const catalog = await listAgentModelCatalog();
   if (!catalog.some((entry) =>
-    entry.provider === model.providerID && entry.modelId === model.modelID && entry.authorized,
+    entry.provider === model.providerID && entry.modelId === model.modelID &&
+    entry.authorized && entry.available !== false && entry.visible !== false,
   )) {
     throw AppError.badRequest(`model override is unknown or unauthorized: ${model.providerID}/${model.modelID}`);
   }
@@ -146,10 +157,7 @@ export async function delegateToAgent(
   }
 
   if (callerId === targetId) throw AppError.badRequest('self-delegation is not allowed');
-  const childDepth = callerSession.delegationDepth + 1;
-  if (childDepth > MAX_DELEGATION_DEPTH) {
-    throw AppError.badRequest('delegation depth limit exceeded');
-  }
+  const childDepth = nextDelegationDepth(callerSession.delegationDepth);
 
   const repo = new AgentConfigsRepository();
   const caller = requireExecutableProfile(repo, callerId, 'caller');
@@ -269,10 +277,7 @@ export async function delegateToAgentAsync(
     throw AppError.badRequest('caller session is not attached to the engine');
   }
 
-  const childDepth = callerSession.delegationDepth + 1;
-  if (childDepth > MAX_DELEGATION_DEPTH) {
-    throw AppError.badRequest('delegation depth limit exceeded');
-  }
+  const childDepth = nextDelegationDepth(callerSession.delegationDepth);
 
   const configRepo = new AgentConfigsRepository();
   const caller = requireExecutableProfile(configRepo, callerId, 'caller');
@@ -304,9 +309,22 @@ export async function delegateToAgentAsync(
     ? `${input.context.trim()}\n\n${prompt}`
     : prompt;
   const childTitle = `Async delegation: ${target.label} (@${targetId} subagent)`;
+  let effectiveCwd = callerSession.cwd;
+  let worktree: { name: string; path: string; branch: string | null } | null = null;
+  if (input.isolateWorktree === true) {
+    const created = await opencodeClient.createWorktree(callerSession.cwd, {
+      name: input.worktreeName,
+    });
+    effectiveCwd = created.directory;
+    worktree = {
+      name: created.name,
+      path: created.directory,
+      branch: created.branch ?? null,
+    };
+  }
   const childSession = await opencodeClient.createSession(
     childTitle,
-    callerSession.cwd,
+    effectiveCwd,
     profileScope.mcpRoleConfig ?? undefined,
     skillNames,
     runModel.providerID,
@@ -320,12 +338,13 @@ export async function delegateToAgentAsync(
     childSession.id,
     parentSdkSessionId,
     childTitle,
-    callerSession.cwd,
+    effectiveCwd,
     profileScope.mcpRoleConfig?.allowedToolsJson ?? null,
   );
   if (!childRow) {
     throw AppError.internal('failed to persist async delegated child session');
   }
+  if (worktree) sessionRepo.setWorktree(childRow.id, worktree);
 
   opencodeSessionMap.set(childRow.id, childSession.id);
   sessionRepo.updatePermissionMode(childRow.id, 'bypassPermissions');
@@ -344,7 +363,7 @@ export async function delegateToAgentAsync(
     // Subscribe before enqueue so a very fast child cannot finish before the
     // bridge has a route for its first message/status event.
     const { streamBridge } = await import('./opencode_stream_bridge');
-    await streamBridge.streamSession(childRow.id, childSession.id, callerSession.cwd);
+    await streamBridge.streamSession(childRow.id, childSession.id, effectiveCwd);
 
     // This is the actual execution boundary. Re-read both profiles after the
     // awaited stream subscription so a lock applied during setup wins.
@@ -364,12 +383,13 @@ export async function delegateToAgentAsync(
       childSession.id,
       scopedPrompt,
       runModel,
-      callerSession.cwd,
+      effectiveCwd,
       promptOpts,
     );
     if (!enqueued) {
       throw AppError.internal('failed to enqueue async delegated prompt');
     }
+    if (worktree) sessionRepo.setWorktree(childRow.id, worktree);
   } catch (error) {
     const failure = dispatchFailureMessage(error);
     if (delegationPersisted) {

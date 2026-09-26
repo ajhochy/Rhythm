@@ -1,0 +1,37 @@
+{
+  "pid": 49607,
+  "executable": "/Users/ajhochhalter/Applications/Rhythm Electron Qualification.app/Contents/MacOS/Rhythm",
+  "userData": "/private/tmp/rhythm-signed-qualification-7eza8uy4",
+  "nonOwningInteractiveSmoke": true,
+  "hermesEnabled": false,
+  "cleanupAt": "2026-09-19T16:25:49.806729+00:00",
+  "candidateExited": true,
+  "protectedHealth": [
+    {
+      "url": "http://127.0.0.1:4001/health",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:4096/global/health",
+      "status": 200
+    }
+  ],
+  "installedHermesProcessesAlive": true,
+  "scratchPortsFree": [
+    9121,
+    4198,
+    4197,
+    4299
+  ],
+  "authSessionCreated": false,
+  "postLaunchSignatureValid": true,
+  "iconSurfaces": {
+    "Finder": "pass",
+    "Get Info": "pass",
+    "Dock": "unverified: supported computer-control request timed out",
+    "Command-Tab": "unverified: held switcher unavailable through supported API"
+  },
+  "safeLoginRejection": "pass",
+  "scratchProfileRemoved": true,
+  "downloadExtractionRemoved": true
+}

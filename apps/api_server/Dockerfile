@@ -1,13 +1,10 @@
-# Pinned, not floating: Node 24.19.0+ backported cleanup hooks into node::ObjectWrap
-# without the addon cleanup-hook registry (nodejs/node#65446). better-sqlite3 12.x
-# then aborts during GC finalization with "Assertion failed: (env) != nullptr" in
-# RemoveEnvironmentCleanupHook. The relay container (the only SQLite user of this
-# image) crash-looped on node:24 -> 24.21.0 on 2026-09-16; 24.18.1 matches the
-# desktop bundle pinned in .github/workflows/desktop_release.yml and is stable.
+# Keep the relay runtime aligned with the qualified desktop pin. better-sqlite3 13
+# uses N-API prebuilds and is not exposed to the 12.x ObjectWrap cleanup crash;
+# the startup guard still protects anyone who runs an older lockfile.
 FROM node:24.18.1-bookworm-slim AS base
 WORKDIR /app
 
-# Stage with toolchain for compiling native modules (node-pty, better-sqlite3 fallback).
+# Stage with the toolchain still required to compile node-pty.
 FROM base AS build-tools
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3 make g++ \

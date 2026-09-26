@@ -1,0 +1,40 @@
+.rhythm-workspace-root.shared-agents-screen { min-height: 100%; }
+.rhythm-workspace-root .shared-agents-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-block-end: 18px; }
+.rhythm-workspace-root .shared-agents-header h1 { margin-block: 2px 4px; }
+.rhythm-workspace-root .shared-agents-header p { margin: 0; color: var(--rhythm-fg-muted); }
+.rhythm-workspace-root .shared-agents-eyebrow { font-family: var(--rhythm-font-mono); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.rhythm-workspace-root .shared-agents-banner { padding: 9px 12px; border: 1px solid var(--rhythm-border); border-radius: var(--rhythm-radius-md); background: var(--rhythm-surface-warm); }
+.rhythm-workspace-root .shared-agent-inspector { display: grid; gap: 16px; }
+.rhythm-workspace-root .shared-agent-id { display: flex; align-items: baseline; gap: 10px; margin: 0; color: var(--rhythm-fg-muted); }
+.rhythm-workspace-root .shared-agent-readiness-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.rhythm-workspace-root .shared-agent-readiness { padding: 12px; border: 1px solid var(--rhythm-border); border-radius: var(--rhythm-radius-md); background: var(--rhythm-surface-warm); }
+.rhythm-workspace-root .shared-agent-readiness header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rhythm-workspace-root .shared-agent-readiness header span { padding: 3px 7px; border-radius: var(--rhythm-radius-pill); background: var(--rhythm-surface-raised); color: var(--rhythm-fg-secondary); font-size: 11px; font-weight: 700; }
+.rhythm-workspace-root .shared-agent-readiness.readiness-supported header span { color: var(--rhythm-success); }
+.rhythm-workspace-root .shared-agent-readiness.readiness-unavailable header span, .rhythm-workspace-root .shared-agent-readiness.readiness-unsupported header span { color: var(--rhythm-warning); }
+.rhythm-workspace-root .shared-agent-readiness ul { margin-block-start: 10px; }
+.rhythm-workspace-root .shared-agent-readiness li { display: grid; gap: 3px; margin: 6px 0 0; padding: 0; border: 0; background: transparent; }
+.rhythm-workspace-root .shared-agent-readiness p { margin: 10px 0 0; color: var(--rhythm-fg-muted); }
+.rhythm-workspace-root .shared-agent-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.rhythm-workspace-root .shared-agent-summary div { padding: 10px; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-sm); }
+.rhythm-workspace-root .shared-agent-summary dt { color: var(--rhythm-fg-muted); font-size: 11px; }
+.rhythm-workspace-root .shared-agent-summary dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+.rhythm-workspace-root .shared-agent-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.rhythm-workspace-root .shared-agent-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.rhythm-workspace-root .shared-agent-field { display: grid; gap: 5px; color: var(--rhythm-fg-secondary); font-size: 12px; font-weight: 600; }
+.rhythm-workspace-root .shared-agent-field input, .rhythm-workspace-root .shared-agent-field textarea { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid var(--rhythm-border); border-radius: var(--rhythm-radius-sm); background: var(--rhythm-surface); color: var(--rhythm-fg); font: inherit; }
+.rhythm-workspace-root .shared-agent-json { font-family: var(--rhythm-font-mono); font-size: 12px; white-space: pre; }
+.rhythm-workspace-root .shared-agent-check { display: flex; align-items: center; gap: 8px; min-height: 36px; color: var(--rhythm-fg-secondary); }
+.rhythm-workspace-root .shared-agent-span { grid-column: 1 / -1; }
+.rhythm-workspace-root .shared-agent-editor-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.rhythm-workspace-root .shared-agent-editor-footer p { margin: 0; color: var(--rhythm-fg-muted); }
+.rhythm-workspace-root button:disabled { cursor: not-allowed; opacity: .5; }
+.rhythm-workspace-root[data-rhythm-viewport='compact'] .shared-agents-header, .rhythm-workspace-root[data-rhythm-viewport='compact'] .shared-agent-editor-footer { align-items: stretch; flex-direction: column; }
+.rhythm-workspace-root[data-rhythm-viewport='compact'] .shared-agent-readiness-grid, .rhythm-workspace-root[data-rhythm-viewport='compact'] .shared-agent-summary, .rhythm-workspace-root[data-rhythm-viewport='compact'] .shared-agent-form { grid-template-columns: minmax(0, 1fr); }
+.rhythm-workspace-root[data-rhythm-viewport='compact'] .shared-agent-span { grid-column: auto; }
+
+@media (max-width: 640px) {
+  .rhythm-workspace-root .shared-agents-header, .rhythm-workspace-root .shared-agent-editor-footer { align-items: stretch; flex-direction: column; }
+  .rhythm-workspace-root .shared-agent-readiness-grid, .rhythm-workspace-root .shared-agent-summary, .rhythm-workspace-root .shared-agent-form { grid-template-columns: minmax(0, 1fr); }
+  .rhythm-workspace-root .shared-agent-span { grid-column: auto; }
+}

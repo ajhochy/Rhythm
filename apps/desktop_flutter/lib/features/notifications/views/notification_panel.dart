@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../app/core/auth/auth_session_service.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../../app/core/utils/time_format.dart';
 import '../controllers/agent_approvals_controller.dart';
@@ -16,10 +17,12 @@ class NotificationPanel extends StatelessWidget {
     final controller = context.watch<NotificationsController>();
     final notifications = controller.notifications;
     final agentItems = controller.agentNotifications;
-    final approvals = context.watch<AgentApprovalsController>().pending;
+    final approvalsController = context.watch<AgentApprovalsController>();
+    final approvals = approvalsController.pending;
     final hasAny = notifications.isNotEmpty ||
         agentItems.isNotEmpty ||
-        approvals.isNotEmpty;
+        approvals.isNotEmpty ||
+        approvalsController.authState != AgentApprovalAuthState.ready;
 
     return Material(
       elevation: 8,
@@ -46,6 +49,9 @@ class NotificationPanel extends StatelessWidget {
                   padding: EdgeInsets.zero,
                   shrinkWrap: true,
                   children: [
+                    if (approvalsController.authState !=
+                        AgentApprovalAuthState.ready)
+                      _ApprovalAuthNotice(controller: approvalsController),
                     for (final a in approvals) _ApprovalCard(approval: a),
                     if (approvals.isNotEmpty &&
                         (agentItems.isNotEmpty || notifications.isNotEmpty))
@@ -69,6 +75,50 @@ class NotificationPanel extends StatelessWidget {
   }
 }
 
+class _ApprovalAuthNotice extends StatelessWidget {
+  const _ApprovalAuthNotice({required this.controller});
+
+  final AgentApprovalsController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            controller.authMessage ?? 'Approval unavailable',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: context.rhythm.danger,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            controller.authDetail ??
+                controller.lastDecisionError ??
+                'Try the approval again.',
+            style: TextStyle(
+              fontSize: 12,
+              color: context.rhythm.textSecondary,
+            ),
+          ),
+          if (controller.authState == AgentApprovalAuthState.needsSignIn) ...[
+            const SizedBox(height: 6),
+            TextButton(
+              onPressed: () =>
+                  context.read<AuthSessionService>().signInWithGoogle(),
+              child: const Text('Sign in'),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _PanelHeader extends StatelessWidget {
   const _PanelHeader({required this.hasNotifications});
 
@@ -83,15 +133,17 @@ class _PanelHeader extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Text(
-            'Notifications',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: context.rhythm.textPrimary,
+          Expanded(
+            child: Text(
+              'Notifications',
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: context.rhythm.textPrimary,
+              ),
             ),
           ),
-          const Spacer(),
           if (hasNotifications)
             TextButton(
               onPressed: () =>
@@ -346,6 +398,27 @@ class _ApprovalCard extends StatelessWidget {
                           color: context.rhythm.textMuted,
                         ),
                       ),
+                    ],
+                    if (approval.isHardline) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        "Bypass mode can't approve this",
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: context.rhythm.warning,
+                        ),
+                      ),
+                      if (approval.laneReasonCopy case final reason?) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          reason,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: context.rhythm.textSecondary,
+                          ),
+                        ),
+                      ],
                     ],
                   ],
                 ),

@@ -1,0 +1,75 @@
+.colony-page { height: 100%; min-width: 0; min-height: 0; display: grid; overflow: hidden; background: color-mix(in oklab, var(--bg), transparent 4%); }
+.colony-state { width: min(680px, calc(100% - 32px)); align-self: center; justify-self: center; display: grid; gap: 14px; padding: clamp(22px, 4vw, 40px); border: 1px solid var(--border-soft); border-radius: var(--r-lg); background: var(--surface); box-shadow: 0 18px 60px color-mix(in oklab, var(--bg), transparent 45%); }
+.colony-state h1 { max-width: 18ch; margin: 0; font-size: clamp(24px, 4vw, 38px); line-height: 1.05; letter-spacing: -.035em; }
+.colony-state > p { max-width: 62ch; margin: 0; color: var(--fg-2); }
+.colony-state .eyebrow { color: var(--muted); }
+.colony-state fieldset { min-width: 0; margin: 4px 0 0; padding: 0; border: 0; }
+.colony-state legend { margin-bottom: 8px; color: var(--fg); font-size: 12px; font-weight: 650; }
+.colony-source-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.colony-source { min-width: 0; min-height: 58px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; padding: 9px 11px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); background: color-mix(in oklab, var(--surface), var(--bg) 6%); cursor: pointer; }
+.colony-source:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.colony-source:has(input:disabled) { cursor: not-allowed; opacity: .62; }
+.colony-source input { width: 18px; height: 18px; min-height: 0; margin: 0; accent-color: var(--accent); }
+.colony-source span { min-width: 0; display: grid; }
+.colony-source strong, .colony-source small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.colony-source strong { font-size: 12px; }
+.colony-source small { color: var(--muted); font-size: 10px; }
+.colony-state-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.colony-state-actions .primary-button { min-height: 44px; }
+.colony-state .colony-footnote { color: var(--muted); font-size: 10px; }
+.colony-error { width: min(560px, calc(100% - 32px)); }
+.colony-enabled { min-width: 0; min-height: 0; display: grid; grid-template-rows: 52px repeat(3, auto) minmax(0, 1fr); }
+.colony-enabled.colony-scene-only { grid-template-rows: minmax(0, 1fr); }
+.colony-state-warning { min-width: 0; margin: 0; padding: 6px 14px; border-bottom: 1px solid var(--border-soft); background: color-mix(in oklab, var(--surface), var(--bg) 6%); color: var(--fg-2); font-size: 11px; }
+.colony-freshness { min-width: 0; margin: 0; padding: 6px 14px; border-bottom: 1px solid var(--border-soft); color: var(--muted); font-size: 11px; }
+.colony-freshness-stale { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; color: var(--fg-2); }
+.colony-freshness-stale p { margin: 0; }
+.colony-toolbar { z-index: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 10px 7px 14px; border-bottom: 1px solid var(--border-soft); background: var(--surface); }
+.colony-toolbar > div { min-width: 0; display: grid; }
+.colony-toolbar strong { font-size: 13px; }
+.colony-toolbar span { color: var(--muted); font-size: 10px; }
+.colony-action-status { min-width: 0; margin: 0; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.colony-action-status.error { color: var(--danger); }
+.colony-toolbar-actions, .colony-inspector-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.colony-menu-anchor { position: relative; }
+.colony-menu { position: absolute; z-index: 20; top: calc(100% + 6px); right: 0; width: max-content; min-width: 190px; display: grid; padding: 6px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-raised); box-shadow: var(--shadow-lg); }
+.colony-menu button { min-height: 36px; padding: 7px 10px; border: 0; border-radius: var(--r-xs); background: transparent; color: var(--fg); text-align: left; }
+.colony-menu button:hover:not(:disabled), .colony-menu button:focus-visible { background: var(--surface-warm); }
+.colony-menu button:disabled { color: var(--muted); opacity: .58; }
+.colony-menu [role="menuitemcheckbox"]::before, .colony-menu [role="menuitemradio"]::before { content: '✓'; display: inline-block; width: 18px; opacity: 0; }
+.colony-menu [aria-checked="true"]::before { opacity: 1; }
+.colony-workspace { min-width: 0; min-height: 0; height: 100%; }
+.colony-workspace .list-inspector-panes { height: 100%; min-height: 0; border: 0; border-radius: 0; }
+.colony-workspace .list-inspector-list { max-height: none; flex: 1; }
+.colony-workspace .list-inspector-detail { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); padding: 0; overflow: hidden; }
+.colony-workspace .list-inspector-header { padding: 8px 12px; border-bottom: 1px solid var(--border-soft); }
+.colony-workspace .list-inspector-header h2 { margin: 0; font-size: 14px; }
+.colony-rail-controls { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.colony-rail-controls label { min-width: 0; display: grid; gap: 4px; color: var(--muted); font-size: 10px; }
+.colony-rail-controls input[type="search"], .colony-rail-controls select { width: 100%; min-width: 0; min-height: 44px; padding: 7px 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--fg); }
+.colony-rail-controls .colony-search, .colony-rail-controls .colony-historical, .colony-counts { grid-column: 1 / -1; }
+.colony-rail-controls .colony-historical { min-height: 44px; display: flex; flex-direction: row; align-items: center; gap: 8px; }
+.colony-rail-controls .colony-historical input { width: 18px; height: 18px; min-height: 0; margin: 0; }
+.colony-counts { display: flex; flex-wrap: wrap; gap: 6px 10px; color: var(--muted); font-size: 10px; }
+.colony-stage { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); overflow: hidden; }
+.colony-stage.has-inspector { grid-template-columns: minmax(360px, 1fr) 8px minmax(288px, var(--colony-inspector-width, 336px)); }
+.colony-host { width: 100%; height: 100%; min-width: 0; min-height: 240px; background: color-mix(in oklab, var(--bg), black 4%); }
+.colony-inspector { min-width: 0; padding: 16px; overflow: auto; background: var(--surface); overflow-wrap: anywhere; }
+.colony-inspector dl { display: grid; gap: 12px; margin: 12px 0 0; }
+.colony-inspector h2 { margin: 2px 0 12px; font-size: 18px; }
+.colony-inspector-actions { align-items: stretch; }
+.colony-inspector-actions button { min-height: 40px; }
+.colony-action-reason { margin: 10px 0 0; color: var(--muted); font-size: 11px; }
+.colony-inspector dl > div { display: grid; gap: 3px; }
+.colony-inspector dt { color: var(--muted); font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; }
+.colony-inspector dd { min-width: 0; margin: 0; color: var(--fg-2); font-size: 12px; overflow-wrap: anywhere; }
+.colony-muted { color: var(--muted); }
+@media (max-width: 1100px) {
+  .colony-stage.has-inspector { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(240px, 1fr) auto; overflow: auto; }
+  .colony-stage.has-inspector > .splitter { display: none; }
+  .colony-inspector { border-top: 1px solid var(--border-soft); }
+}
+@media (max-width: 640px) {
+  .colony-state { width: calc(100% - 20px); padding: 20px; }
+  .colony-source-list { grid-template-columns: 1fr; }
+}

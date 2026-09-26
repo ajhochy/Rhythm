@@ -35,6 +35,7 @@ export interface WsMessage {
 }
 
 const clients = new Set<WebSocket>();
+const inputFrameTails = new Map<string, Promise<void>>();
 let attached = false;
 
 function isLoopbackAddress(address: string | undefined): boolean {
@@ -330,6 +331,7 @@ export async function handleCommandFrame(
 export async function handleInputFrame(
   ws: WebSocket,
   msg: Record<string, unknown>,
+  trustedTurn?: { agent?: string | null },
 ): Promise<void> {
   const id = msg.id as string | undefined;
 
@@ -404,6 +406,13 @@ export async function handleInputFrame(
   // to the named agent. Absent → SDK uses its default (build).
   const perTurnAgent = typeof msg.agent === 'string' && msg.agent.length > 0
     ? msg.agent
+    : null;
+  // Server-only scope override for callers that already resolved a stored
+  // Rhythm profile. This is deliberately separate from the client frame so a
+  // request cannot self-assert trusted profile scope or replace engine
+  // identity.
+  const trustedScopeAgent = typeof trustedTurn?.agent === 'string' && trustedTurn.agent.length > 0
+    ? trustedTurn.agent
     : null;
 
   if (!id || typeof data !== 'string') {
@@ -499,7 +508,7 @@ export async function handleInputFrame(
   // happen BEFORE any createSession call so the mcpRoleConfig is available for
   // init-time scoping. Non-fatal: a missing/unknown profile id returns null
   // mcpRoleConfig (no restriction).
-  const scopeAgentId = perTurnAgent ?? agentKind ?? null;
+  const scopeAgentId = trustedScopeAgent ?? perTurnAgent ?? agentKind ?? null;
   if (scopeAgentId) {
     try {
       const configsRepo = new AgentConfigsRepository();
@@ -535,7 +544,7 @@ export async function handleInputFrame(
     try {
       const { resolveModelForSessionTurn } = await import('./agent_model_resolver');
       resolvedTurnModel = await resolveModelForSessionTurn({
-        agentId: agentKind,
+        agentId: trustedScopeAgent ?? agentKind,
         sessionProviderId,
         sessionModelId,
         perTurnOverride,
@@ -844,7 +853,9 @@ export async function handleInputFrame(
         `[ws_gateway] session ${id}: enabling reasoning via reasoningConfig.budgetTokens=${effectiveThinkingBudget}`,
       );
     }
-    // P2: Resolve `agent` with precedence: per-turn override > profile ocAgent > none.
+    // P2: Resolve the OpenCode engine `agent` independently from profile scope.
+    // A client per-turn override still wins. Both ordinary and server-trusted
+    // profile turns use ocAgent; the row's provider kind is not an engine mode.
     // Per docs/ai/decisions/2026-06-24-sdk-per-session-system-prompt.md:
     //   profile.ocAgent is an opencode *mode* ('build'/'plan'/etc.), NOT the Rhythm
     //   provider kind — forwarding it is safe and different from the #738 guardrail.
@@ -1069,6 +1080,10 @@ export async function handleInputFrame(
       // reserved -> dispatched.
       await markRunEnrollmentPreDispatchFailed(perTurnRunEpisodeId!).catch(() => {});
     }
+    if (!promptOk) {
+      ws.send(JSON.stringify({ v: 1, type: 'error', id, message: 'Could not enqueue prompt in Opencode engine.' }));
+      return;
+    }
 
     // #929 — evaluateHarvestedDrafts() is NOT called here. `promptFn`
     // (promptAsync) resolves once the turn is submitted to the engine, not
@@ -1109,6 +1124,31 @@ export async function handleInputFrame(
   }
 }
 
+/**
+ * Preserve the receive order of user input for each local session. The input
+ * handler performs several asynchronous profile/model lookups before it
+ * reaches the engine, so invoking it independently from the WebSocket event
+ * callback can reverse two rapid frames even though the socket delivered them
+ * in order. A failure in one frame is isolated and never blocks the next.
+ */
+export function enqueueInputFrame(
+  ws: WebSocket,
+  msg: Record<string, unknown>,
+): Promise<void> {
+  const id = typeof msg.id === 'string' && msg.id.length > 0 ? msg.id : null;
+  if (!id) return handleInputFrame(ws, msg);
+
+  const previous = inputFrameTails.get(id) ?? Promise.resolve();
+  const current = previous
+    .catch(() => undefined)
+    .then(() => handleInputFrame(ws, msg));
+  inputFrameTails.set(id, current);
+  void current.finally(() => {
+    if (inputFrameTails.get(id) === current) inputFrameTails.delete(id);
+  }).catch(() => undefined);
+  return current;
+}
+
 function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
   let msg: Record<string, unknown>;
   try {
@@ -1127,7 +1167,7 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
       return;
     }
     case 'session.input': {
-      handleInputFrame(ws, msg).catch((err) =>
+      enqueueInputFrame(ws, msg).catch((err) =>
         console.error('[ws_gateway] session.input handler error:', err),
       );
       return;

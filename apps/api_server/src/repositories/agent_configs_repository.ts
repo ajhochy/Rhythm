@@ -553,7 +553,10 @@ export class AgentConfigsRepository {
     return this.getById(id)!;
   }
 
-  update(id: string, patch: Partial<AgentConfigInput>): RevisionedAgentConfig | null {
+  update(id: string, patch: Partial<AgentConfigInput>, expectedRevision?: number): RevisionedAgentConfig | null {
+    if (expectedRevision !== undefined && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)) {
+      throw new Error('Agent config CAS requires a non-negative integer revision');
+    }
     const existing = this.getById(id);
     if (!existing) return null;
 
@@ -657,11 +660,15 @@ export class AgentConfigsRepository {
     }
 
     values.push(id);
-    getDb()
-      .prepare(`UPDATE agent_configs SET ${fields.join(', ')} WHERE id = ?`)
-      .run(...values);
+    // Every assignment above comes from a fixed column name, never a request
+    // key. Bind revision in the UPDATE itself so validation-time races cannot
+    // overwrite another writer. RETURNING captures this write's exact result.
+    if (expectedRevision !== undefined) values.push(expectedRevision);
+    const row = getDb()
+      .prepare(`UPDATE agent_configs SET ${fields.join(', ')} WHERE id = ?${expectedRevision === undefined ? '' : ' AND revision = ?'} RETURNING *`)
+      .get(...values) as AgentConfigRow | undefined;
 
-    return this.getById(id);
+    return row ? rowToModel(row) : null;
   }
 
   /**

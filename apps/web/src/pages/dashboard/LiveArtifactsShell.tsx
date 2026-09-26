@@ -6,6 +6,7 @@ import { LiveArtifactsGatewayError, type LiveArtifact, type LiveArtifactDetail, 
 import type { MessageThreadParticipant } from '../../gateway/messages';
 import type { UserPreferencesGateway } from '../../gateway/user-preferences';
 import { DashboardPage } from '.';
+import { Timestamp } from '../../components/Timestamp';
 import './liveArtifacts.css';
 
 type TabStatus = 'loading' | 'ready' | 'unavailable' | 'deleted' | 'conflict' | 'error';
@@ -18,10 +19,6 @@ interface ArtifactTab {
   html: string | null;
   frameUrl: string | null;
   errorMessage: string | null;
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 // Injected into every artifact document's srcDoc (appended after the artifact's own markup — HTML
@@ -321,7 +318,7 @@ function LiveArtifactSurface({
         <div>
           <h2>{detail.title}</h2>
           <p>
-            Updated by {detail.updatedByDisplayName ?? 'Unknown'} · {formatDate(detail.updatedAt)} · bundle revision {detail.currentBundleRevision} · state revision {detail.currentStateRevision} · {currentVisibility}
+            Updated by {detail.updatedByDisplayName ?? 'Unknown'} · <Timestamp value={detail.updatedAt} /> · bundle revision {detail.currentBundleRevision} · state revision {detail.currentStateRevision} · {currentVisibility}
           </p>
         </div>
         <div>

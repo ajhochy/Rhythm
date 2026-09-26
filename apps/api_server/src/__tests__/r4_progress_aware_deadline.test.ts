@@ -129,6 +129,10 @@ describe('R4 — progress-aware AgentRunner deadline', () => {
       status: 'done',
       result: 'finished after twenty minutes',
     });
+    expect(mockListMessages).toHaveBeenCalled();
+    for (const call of mockListMessages.mock.calls) {
+      expect(call[2]).toEqual({ limit: 3, caller: 'agent_runner.activity_probe' });
+    }
   });
 
   it('issue-0-c2: stalled session is aborted at the inactivity window', async () => {
@@ -146,6 +150,31 @@ describe('R4 — progress-aware AgentRunner deadline', () => {
     expect(result.status).toBe('error');
     expect(result.error).toMatch(/inactivity window/i);
     expect(mockAbortSession).toHaveBeenCalledWith('sdk-r4', process.cwd());
+  });
+
+  it('1503-B-bounded-agentrunner-activity-probe:4 rearms when a new tail message appears', async () => {
+    process.env.AGENT_RUN_INACTIVITY_TIMEOUT_MS = '1500';
+    process.env.AGENT_RUN_HARD_TIMEOUT_MS = '10000';
+    const pending = deferredPrompt();
+    mockPrompt.mockReturnValue(pending.promise);
+    let snapshot = [activitySnapshot(1)[0]];
+    mockListMessages.mockImplementation(async () => snapshot);
+    const { runPromise } = await startRun('Observe a new message');
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    snapshot = [...snapshot, {
+      ...activitySnapshot(2)[0],
+      info: { ...activitySnapshot(2)[0].info, id: 'assistant-progress-2' },
+    }];
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(mockAbortSession).not.toHaveBeenCalled();
+    pending.resolve(response('new message counted as progress'));
+
+    await expect(runPromise).resolves.toMatchObject({
+      status: 'done',
+      result: 'new message counted as progress',
+    });
   });
 
   it('issue-0-c3: hard ceiling aborts even with continuous progress', async () => {

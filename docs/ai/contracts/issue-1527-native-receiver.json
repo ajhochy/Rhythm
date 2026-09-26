@@ -1,0 +1,70 @@
+{
+  "issue": 1527,
+  "generated": "2026-09-24",
+  "criteria": [
+    {
+      "criterion_id": "issue-1527-c1",
+      "text": "**COL-02-AC1:** Each refusal case above is covered by a direct unit test and produces a distinct actionable error with zero import, zero native action and zero state write. Corrupting one byte of one artifact file fails the load.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Whole-issue acceptance remains UNVERIFIED. Node receiver/service/assets/resolver regressions pass and Electron typecheck passes. The latest outside native run proved asset/state, sandbox/network, foreign-frame refusal and navigation revocation (4/5); the late-bind sibling positive-control receiver repair still requires an outside rerun. Main/React tab and packaged qualification are not implemented."
+    },
+    {
+      "criterion_id": "issue-1527-c2",
+      "text": "**COL-02-AC2:** With `RHYTHM_COLONY_ARTIFACT_DIR` unset or pointing at a missing, dirty, wrong-commit or wrong-`electronMajor` artifact, the Colony tab reports why and stops; no alternative source is loaded and no partial UI is shown.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Whole-issue acceptance remains UNVERIFIED. Node receiver/service/assets/resolver regressions pass and Electron typecheck passes. The latest outside native run proved asset/state, sandbox/network, foreign-frame refusal and navigation revocation (4/5); the late-bind sibling positive-control receiver repair still requires an outside rerun. Main/React tab and packaged qualification are not implemented."
+    },
+    {
+      "criterion_id": "issue-1527-c3",
+      "text": "**COL-02-AC3:** In real pinned Electron, artifact-served JS/GLB assets load and a synthetic scan plus state round-trip works through private child IPC; no Colony TCP listener is created and upstream standalone HTTP behavior still passes.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Whole-issue acceptance remains UNVERIFIED. The outside native run proved real pinned Electron asset loading, synthetic inventory/state and private storage behavior, but listener absence, upstream standalone coverage and packaged qualification remain separate. Node regressions pass 55/55."
+    },
+    {
+      "criterion_id": "issue-1527-c4",
+      "text": "**COL-02-AC4:** A sibling/foreign frame, stale/reloaded document, unknown method, malformed/oversize message and unsupported protocol version each produce zero native actions and zero state writes.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Whole-issue acceptance remains UNVERIFIED. Real Electron proves foreign-frame and navigation revocation. The late-bind receiver now lazily confirms the exact committed main frame while refusing the same-URL sibling in Node regression coverage; this final native hostile-frame case requires rerun. Malformed/oversize native-matrix completion remains pending."
+    },
+    {
+      "criterion_id": "issue-1527-c5",
+      "text": "**COL-02-AC5:** The scene cannot access Rhythm bearer tokens, parent DOM, arbitrary URLs, filesystem APIs or process APIs; leaving/disabling the feature revokes the previous channel.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Whole-issue acceptance remains UNVERIFIED. Real Electron proves sandbox/network isolation and reload revocation; Node regressions additionally prove idempotent stop and no second port when the frame wrapper persists. Disable/host composition is not implemented."
+    },
+    {
+      "criterion_id": "issue-1527-c6",
+      "text": "**COL-02-AC6:** A 15,000-record snapshot is paged with stable generation/cursors and cancellation; a large archive beyond 64 KiB round-trips unchanged, while an interrupted state transfer commits nothing.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Whole-issue acceptance remains UNVERIFIED. This receiver follow-up did not run the 15,000-record, large-archive or interrupted-transfer native matrix; those gates remain pending."
+    }
+  ],
+  "stack": "unknown",
+  "not_tested": [
+    "issue-1527-c1",
+    "issue-1527-c2",
+    "issue-1527-c3",
+    "issue-1527-c4",
+    "issue-1527-c5",
+    "issue-1527-c6"
+  ],
+  "scope": "Supporting native implementation slice. Node built-in JavaScript tests; no JavaScript enum in canonical schema. Whole-issue criteria remain explicitly UNVERIFIED.",
+  "supplemental_tests": {
+    "files": [
+      "apps/electron/test/colony-native-service-contract.test.mjs",
+      "apps/electron/test/colony-native-assets-contract.test.mjs",
+      "apps/electron/test/colony-native-view-contract.test.mjs",
+      "apps/electron/test/colony-native-frame-contract.test.mjs"
+    ],
+    "red": "17 failures, zero passes before product implementation",
+    "command": "node --test apps/electron/test/colony-native-service-contract.test.mjs apps/electron/test/colony-native-frame-contract.test.mjs apps/electron/test/colony-native-assets-contract.test.mjs",
+    "plan": "docs/ai/plans/2026-09-24-colony-native-receiver.md",
+    "checkpoint": "Current: the latest outside native run passed 4/5, including navigation revocation. The remaining sibling positive control exposed a late-bind commitment snapshot defect. Lazy exact-entry commitment plus sibling/main-frame Node regression is implemented; native5 rerun remains pending outside the sandbox."
+  }
+}

@@ -6,6 +6,8 @@
     "apps/api_server"
   ],
   "scripts": {
+    "workspace-ui:test": "npm --prefix packages/rhythm-workspace-ui run test:all",
+    "workspace-ui:build": "npm --prefix packages/rhythm-workspace-ui run build",
     "postinstall": "node -e \"const{execSync}=require('child_process');['darwin-arm64','darwin-x64'].forEach(p=>{try{execSync('chmod +x node_modules/node-pty/prebuilds/'+p+'/spawn-helper')}catch(_){}});\""
   }
 }

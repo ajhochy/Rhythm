@@ -91,6 +91,49 @@ tools/release/verify_desktop_oauth_build.sh apps/desktop_flutter/build/macos/Bui
 tools/release/verify_desktop_oauth_build.sh --signed apps/desktop_flutter/build/macos/Build/Products/Release/Rhythm.app
 ```
 
+## Electron clean-machine Gatekeeper qualification
+
+Use the artifact produced by `.github/workflows/electron_release.yml`. A
+qualification run sets `qualification_only=true`; publication occurs only from
+`main` when `qualification_only=false`. Qualification does not publish a
+release.
+
+On a Mac or clean VM that has never seen the candidate artifact or bundle,
+download the workflow archive without copying credentials or build-machine
+paths into the receipt. Before extracting it, record the source commit SHA,
+GitHub Actions run ID, archive SHA-256, and a non-sensitive machine identity.
+State explicitly that the machine has never seen the artifact.
+
+After downloading and extracting, run these checks against the actual archive,
+app, and DMG paths:
+
+```bash
+xattr -p com.apple.quarantine <downloaded-archive-or-dmg>
+spctl -a -vvv -t exec <Rhythm.app>
+xcrun stapler validate <downloaded.dmg>
+xcrun stapler validate <Rhythm.app>
+codesign --verify --deep --strict --verbose=2 <Rhythm.app>
+```
+
+Expected results:
+
+- `xattr` prints a non-empty quarantine value, proving the download exercises
+  Gatekeeper. Record an explicit failure if the attribute is absent; do not add
+  it by hand to make the check pass.
+- `spctl` exits zero and reports `accepted` with
+  `source=Notarized Developer ID`.
+- each `xcrun stapler validate` exits zero and reports that the ticket is
+  valid. If the uploaded workflow artifact does not include a DMG, record the
+  DMG check as not applicable rather than substituting another file.
+- `codesign` exits zero without invalid or unsealed-component diagnostics.
+
+Launch the quarantined app through Finder for the first launch. Record whether
+it launches with no Gatekeeper prompt; do not pre-open it on that machine.
+The receipt must contain the source SHA, run ID, archive SHA-256, machine
+identity and never-seen assertion, every command and observed output, and the
+first-launch result. Keep host paths, usernames, and credentials out of the
+receipt.
+
 ## Facilities V1 Beta Notes
 
 If the release includes Facilities v1, use the product checklist in [Facilities V1 Rollout Notes](/Users/ajhochhalter/Documents/Rhythm/docs/product/facilities-v1.md) before publishing.

@@ -4731,6 +4731,25 @@ export type McpAddResponses = {
 
 export type McpAddResponse = McpAddResponses[keyof McpAddResponses]
 
+export type McpToolsData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/mcp/tools"
+}
+
+export type McpToolsResponses = {
+  /**
+   * Live MCP tool IDs
+   */
+  200: Array<string>
+}
+
+export type McpToolsResponse = McpToolsResponses[keyof McpToolsResponses]
+
 export type McpAuthRemoveData = {
   body?: never
   path: {

@@ -36,6 +36,8 @@ import {
   resolveTieredModel,
   classifyRouteTier,
   TASK_KIND_TIER_POLICY,
+  NEAR_BUDGET_REMAINING_THRESHOLD,
+  ROUTE_FALLBACKS_BY_AGENT,
 } from '../services/agent_model_resolver';
 
 function healthyBudget() {
@@ -182,5 +184,58 @@ describe('issue-844: tiered model routing', () => {
       expect(decision.overrideApplied).toBe(true);
       expect(decision.downgradedForBudget).toBe(false);
     });
+  });
+
+  it('issue-1568-c5: Codex below/at/above configured threshold, unavailable, hint, override, and no cheaper route', async () => {
+    listAuthedProviders.mockResolvedValue(['openai']);
+    const budget = (remainingFraction: number | null, kind = 'window') => ({
+      fetchedAt: new Date().toISOString(),
+      providers: [{ provider: 'openai', label: 'OpenAI', kind, items: remainingFraction === null ? [] : [{ label: '5h limit', remainingFraction }] }],
+    });
+    for (const fraction of [NEAR_BUDGET_REMAINING_THRESHOLD - 0.001, NEAR_BUDGET_REMAINING_THRESHOLD]) {
+      getUsageBudget.mockResolvedValue(budget(fraction));
+      const decision = await resolveTieredModel({ agentId: 'codex', taskKind: 'planning' });
+      expect(decision.route.providerID).toBe('openai');
+      expect(decision.tier).toBe('standard');
+      expect(decision.route.modelID).toBe('gpt-5.4');
+      expect(decision.downgradedForBudget).toBe(true);
+      expect(decision.reason).toBe("task kind 'planning' -> frontier tier; downgraded frontier -> standard tier: provider 'openai' is near its usage budget");
+    }
+    for (const snapshot of [budget(NEAR_BUDGET_REMAINING_THRESHOLD + 0.001), budget(null, 'unavailable')]) {
+      getUsageBudget.mockResolvedValue(snapshot);
+      const decision = await resolveTieredModel({ agentId: 'codex', taskKind: 'planning' });
+      expect(decision.tier).toBe('frontier');
+      expect(decision.route.modelID).toBe('gpt-5.6-sol');
+      expect(decision.downgradedForBudget).toBe(false);
+      expect(decision.reason).toBe("task kind 'planning' -> frontier tier");
+    }
+    getUsageBudget.mockResolvedValue(budget(0));
+    const hinted = await resolveTieredModel({ agentId: 'codex', taskKind: 'triage', explicitTierHint: 'frontier' });
+    expect(hinted.overrideApplied).toBe(true);
+    expect(hinted.downgradedForBudget).toBe(true);
+    expect(hinted.route.modelID).toBe('gpt-5.4');
+    const overridden = await resolveTieredModel({ agentId: 'codex', taskKind: 'planning', modelOverride: { providerID: 'openai', modelID: 'gpt-5.6-sol' } });
+    expect(overridden.route.modelID).toBe('gpt-5.6-sol');
+    expect(overridden.downgradedForBudget).toBe(false);
+    const cheap = await resolveTieredModel({ agentId: 'codex', taskKind: 'triage' });
+    expect(cheap.tier).toBe('cheap');
+    expect(cheap.route.modelID).toBe('gpt-5.4-mini');
+    expect(cheap.downgradedForBudget).toBe(false);
+  });
+
+  it('issue-1568-c5: frontier-only configured routes have no cheaper route, separate from already-cheap', async () => {
+    listAuthedProviders.mockResolvedValue(['openai']);
+    getUsageBudget.mockResolvedValue({ fetchedAt: new Date().toISOString(), providers: [
+      { provider: 'openai', label: 'OpenAI', kind: 'window', items: [{ label: '5h limit', remainingFraction: 0 }] },
+    ] });
+    const routes = ROUTE_FALLBACKS_BY_AGENT.codex;
+    ROUTE_FALLBACKS_BY_AGENT.codex = [{ providerID: 'openai', modelID: 'gpt-5.6-sol' }];
+    try {
+      const decision = await resolveTieredModel({ agentId: 'codex', taskKind: 'planning' });
+      expect(decision).toMatchObject({ route: { providerID: 'openai', modelID: 'gpt-5.6-sol' }, tier: 'frontier', downgradedForBudget: false });
+      expect(decision.reason).toBe("task kind 'planning' -> frontier tier; provider 'openai' is near its usage budget but no cheaper tier route is available — keeping frontier");
+    } finally {
+      ROUTE_FALLBACKS_BY_AGENT.codex = routes;
+    }
   });
 });

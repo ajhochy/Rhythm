@@ -760,7 +760,8 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
       }
     }
     setState(() {
-      _catalogModels = entries;
+      _catalogModels =
+          entries.where((entry) => entry.modelId.isNotEmpty).toList();
       _selectedModel = preSelected;
     });
   }

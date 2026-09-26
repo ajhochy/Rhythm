@@ -304,5 +304,40 @@ else
   printf 'FAIL (exact approved renderer origins exported)\n' >&2
 fi
 
+# A caller that explicitly supplies a previously-built fork may skip the
+# expensive build, but only when the expected executable is present.
+PREBUILT_ENGINE_DIR="$WORK/prebuilt-engine"
+mkdir -p "$PREBUILT_ENGINE_DIR/dist/opencode-darwin-arm64/bin"
+PREBUILT_ENGINE_BIN="$PREBUILT_ENGINE_DIR/dist/opencode-darwin-arm64/bin/opencode"
+cat >"$PREBUILT_ENGINE_BIN" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+chmod +x "$PREBUILT_ENGINE_BIN"
+out="$(env RHYTHM_SANDBOX_ENGINE_DIR="$PREBUILT_ENGINE_DIR" RHYTHM_SANDBOX_SKIP_ENGINE_BUILD=1 \
+  bash -c '
+    source "$1"
+    bun() { exit 87; }
+    build_engine
+  ' bash "$SANDBOX_SH" 2>&1)"
+status=$?
+if [[ "$status" -eq 0 ]]; then
+  pass=$((pass + 1))
+else
+  fail_count=$((fail_count + 1))
+  printf 'FAIL (prebuilt engine skips rebuild): exit %s:\n%s\n' "$status" "$out" >&2
+fi
+
+rm "$PREBUILT_ENGINE_BIN"
+out="$(env RHYTHM_SANDBOX_ENGINE_DIR="$PREBUILT_ENGINE_DIR" RHYTHM_SANDBOX_SKIP_ENGINE_BUILD=1 \
+  bash -c 'source "$1"; build_engine' bash "$SANDBOX_SH" 2>&1)"
+status=$?
+if [[ "$status" -ne 0 && "$out" == *"prebuilt engine is missing or not executable"* ]]; then
+  pass=$((pass + 1))
+else
+  fail_count=$((fail_count + 1))
+  printf 'FAIL (missing prebuilt engine rejected): exit %s:\n%s\n' "$status" "$out" >&2
+fi
+
 printf '\nsandbox_guard_test: %d passed, %d failed\n' "$pass" "$fail_count"
 [[ "$fail_count" -eq 0 ]]

@@ -69,7 +69,7 @@ function allNoteFiles(): string[] {
       if (name.isDirectory()) walk(full);
       else if (
         name.name.endsWith('.md') &&
-        !['index.md', 'log.md'].includes(name.name.toLowerCase())
+        !['index.md', 'log.md', 'readme.md'].includes(name.name.toLowerCase())
       ) {
         out.push(path.relative(vaultRoot, full));
       }

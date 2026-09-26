@@ -1,4 +1,11 @@
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from '@testing-library/react-native';
+import { InteractionManager } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 
 import { AgentsOverflowMenu } from '@/app/(tabs)/agents';
@@ -107,5 +114,52 @@ describe('AgentsOverflowMenu', () => {
     await waitFor(() => {
       expect(screen.queryByLabelText('Create chat')).toBeNull();
     });
+  });
+
+  test('opens only the latest deferred menu press and cancels it on unmount', () => {
+    const scheduled: { cancel: jest.Mock; run: () => void }[] = [];
+    const runAfterInteractions = jest
+      .spyOn(InteractionManager, 'runAfterInteractions')
+      .mockImplementation(((task: () => void) => {
+        let cancelled = false;
+        const entry = {
+          cancel: jest.fn(() => {
+            cancelled = true;
+          }),
+          run: () => {
+            if (!cancelled) task();
+          },
+        };
+        scheduled.push(entry);
+        return { cancel: entry.cancel } as unknown as ReturnType<
+          typeof InteractionManager.runAfterInteractions
+        >;
+      }) as typeof InteractionManager.runAfterInteractions);
+    const screen = render(
+      <PaperProvider>
+        <AgentsOverflowMenu
+          chatController={controller()}
+          counts={{ background: 2, chats: 4, scheduled: 1 }}
+          onSectionChange={jest.fn()}
+          section="chats"
+        />
+      </PaperProvider>,
+    );
+
+    fireEvent.press(screen.getByLabelText('Chats menu'));
+    fireEvent.press(screen.getByLabelText('Chats menu'));
+
+    expect(scheduled).toHaveLength(2);
+    expect(scheduled[0].cancel).toHaveBeenCalledTimes(1);
+    act(() => scheduled[0].run());
+    expect(screen.queryByLabelText('Open workspace')).toBeNull();
+    act(() => scheduled[1].run());
+    expect(screen.getByLabelText('Open workspace')).toBeTruthy();
+
+    fireEvent.press(screen.getByLabelText('Chats menu'));
+    expect(scheduled).toHaveLength(3);
+    screen.unmount();
+    expect(scheduled[2].cancel).toHaveBeenCalledTimes(1);
+    runAfterInteractions.mockRestore();
   });
 });

@@ -184,7 +184,7 @@ async function main() {
   // #1096 WP1 — reference to the Engraph manager singleton so the (sync)
   // shutdown handler can stop its managed child process. Nullable for the
   // 'cloud' role, where the agent runtime (and this manager) never starts.
-  let engraphManagerRef: { shutdown: () => void } | null = null;
+  let engraphManagerRef: { shutdown: () => Promise<void> } | null = null;
   // Issue #856: watches ~/.local/share/opencode/auth.json and bounces the
   // opencode engine on a genuine credential change (e.g. a Claude account
   // switch), so the engine re-reads fresh tokens instead of 401ing on stale
@@ -653,6 +653,14 @@ async function main() {
     opencodeClient
       .initialize()
       .then(async () => {
+      // #1572 — preserve the engine-loaded provider options so the first
+      // refresh after an on-disk edit can report restart_required accurately.
+      try {
+        const { captureProviderConfigBaseline } = await import('./routes/system_routes');
+        await captureProviderConfigBaseline();
+      } catch (e) {
+        logger.warn(`[server] provider config baseline failed (non-fatal): ${String(e)}`);
+      }
       // The initial seed can run before the engine exists, when its reload is a
       // no-op. Re-project now that reloadConfig can register `research` before
       // the first page-launched AgentRunner job.
@@ -947,7 +955,8 @@ async function main() {
     try { syncJob?.stop(); } catch (_) { /* ignore */ }
     try { memoryVaultSyncJob?.stop(); } catch (_) { /* ignore */ }
     // #1096 WP1 — stop only the exact child process this manager spawned.
-    try { engraphManagerRef?.shutdown(); } catch (_) { /* ignore */ }
+    let engraphCleanup: Promise<void> = Promise.resolve();
+    try { engraphCleanup = engraphManagerRef?.shutdown() ?? engraphCleanup; } catch (_) { /* ignore */ }
     try { agentSchedulerJob?.stop(); } catch (_) { /* ignore */ }
     // #856 — stop the auth.json watcher so a credential write during
     // shutdown can't trigger a bounce of an engine we're about to dispose.
@@ -967,20 +976,23 @@ async function main() {
     // 2b. Shut down managed Chrome (no-op if Chrome was reused / not spawned).
     try { managedChromeService.shutdown(); } catch (_) { /* ignore */ }
 
+    const forceExit = setTimeout(() => {
+      logger.info('[server] shutdown timeout — forcing exit');
+      process.exit(0);
+    }, 1500);
+    const finish = async () => {
+      await Promise.race([engraphCleanup, new Promise<void>((resolve) => setTimeout(resolve, 1400))]);
+      clearTimeout(forceExit);
+      process.exit(0);
+    };
+
     // 3. Close the WebSocket server (no new connections).
     wss.close(() => {
-      // 4. Close the HTTP server; fall back to force-exit after 1 s.
-      const forceExit = setTimeout(() => {
-        logger.info('[server] HTTP close timeout — forcing exit');
-        process.exit(0);
-      }, 1000);
-      // Allow the timeout to be garbage-collected if the server closes cleanly.
-      if (forceExit.unref) forceExit.unref();
-
+      // 4. Close HTTP; exit only after bounded Engraph cleanup.
       const closeHttpServer = () => {
         httpServer.close(() => {
           logger.info('[server] clean shutdown complete');
-          process.exit(0);
+          void finish();
         });
       };
       if (mobileGatewayServer) {

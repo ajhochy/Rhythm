@@ -68,7 +68,35 @@ func acquireKeyCreationLock() throws -> Int32 {
     return fd
 }
 
-func signingKey() throws -> SecKey {
+enum SigningIdentity {
+    case legacy(SecKey)
+    case enclave(SecureEnclave.P256.Signing.PrivateKey)
+
+    func publicBytes() throws -> Data {
+        switch self {
+        case .enclave(let key): return key.publicKey.x963Representation
+        case .legacy(let key):
+            guard let publicKey = SecKeyCopyPublicKey(key) else { throw Failure.unavailable }
+            var error: Unmanaged<CFError>?
+            guard let raw = SecKeyCopyExternalRepresentation(publicKey, &error) as Data? else { throw Failure.unavailable }
+            return raw
+        }
+    }
+
+    func signature(for message: Data) throws -> Data {
+        switch self {
+        case .enclave(let key): return try key.signature(for: message).derRepresentation
+        case .legacy(let key):
+            var error: Unmanaged<CFError>?
+            let digest = Data(SHA256.hash(data: message))
+            guard let signature = SecKeyCreateSignature(key, .ecdsaSignatureDigestX962SHA256,
+                digest as CFData, &error) as Data? else { throw Failure.unavailable }
+            return signature
+        }
+    }
+}
+
+func signingKey() throws -> SigningIdentity {
     let lock = try acquireKeyCreationLock()
     defer {
         flock(lock, LOCK_UN)
@@ -85,25 +113,37 @@ func signingKey() throws -> SecKey {
     ]
     var item: CFTypeRef?
     let status = SecItemCopyMatching(query as CFDictionary, &item)
-    if status == errSecSuccess, let item = item { return item as! SecKey }
+    if status == errSecSuccess, let item = item { return .legacy(item as! SecKey) }
     guard status == errSecItemNotFound else { throw Failure.unavailable }
+    // CryptoKit supplies a device-bound encrypted handle, never raw private key bytes.
+    // Store that handle in the macOS login Keychain. A standalone Developer ID helper cannot
+    // create a permanent data-protection SecKey without provisioned app-identifier entitlements.
+    let handleQuery: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: "com.rhythm.desktop.human-approval.secure-enclave.v3",
+        kSecAttrAccount as String: "encrypted-key-handle"
+    ]
+    func readHandle() throws -> SecureEnclave.P256.Signing.PrivateKey? {
+        var lookup = handleQuery
+        lookup[kSecReturnData as String] = true
+        lookup[kSecMatchLimit as String] = kSecMatchLimitOne
+        var stored: CFTypeRef?
+        let result = SecItemCopyMatching(lookup as CFDictionary, &stored)
+        if result == errSecItemNotFound { return nil }
+        guard result == errSecSuccess, let data = stored as? Data else { throw Failure.keychain }
+        return try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: data)
+    }
+    if let key = try readHandle() { return .enclave(key) }
     var error: Unmanaged<CFError>?
     guard let access = SecAccessControlCreateWithFlags(nil,
         kSecAttrAccessibleWhenUnlockedThisDeviceOnly, .privateKeyUsage, &error) else { throw Failure.unavailable }
-    let attributes: [String: Any] = [
-        kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
-        kSecAttrKeySizeInBits as String: 256,
-        kSecAttrTokenID as String: kSecAttrTokenIDSecureEnclave,
-        kSecPrivateKeyAttrs as String: [
-            kSecAttrIsPermanent as String: true,
-            kSecAttrApplicationTag as String: applicationTag,
-            kSecAttrAccessControl as String: access
-        ]
-    ]
-    if let key = SecKeyCreateRandomKey(attributes as CFDictionary, &error) { return key }
-    // Recover only through the same enclave query, still holding the cross-process lock.
-    if SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess, let item = item { return item as! SecKey }
-    throw Failure.unavailable
+    let key = try SecureEnclave.P256.Signing.PrivateKey(accessControl: access)
+    var attributes = handleQuery
+    attributes[kSecValueData as String] = key.dataRepresentation
+    let added = SecItemAdd(attributes as CFDictionary, nil)
+    if added == errSecDuplicateItem, let existing = try readHandle() { return .enclave(existing) }
+    guard added == errSecSuccess else { throw Failure.keychain }
+    return .enclave(key)
 }
 
 func capability() throws -> String {
@@ -142,7 +182,7 @@ func respond(_ request: [String: Any]) throws -> [String: Any] {
     guard let operation = request["operation"] as? String,
           ["capability", "public-key", "sign"].contains(operation),
           Set(request.keys) == Set(operation == "sign" ? ["operation", "decision"] : ["operation"]) else { throw Failure.invalidRequest }
-    var digest: Data?
+    var message: Data?
     if operation == "sign" {
         guard let decision = request["decision"] as? [String: Any],
               Set(decision.keys) == Set(["approvalId", "status", "decisionNonce", "payloadDigest"]),
@@ -153,23 +193,15 @@ func respond(_ request: [String: Any]) throws -> [String: Any] {
         let canonical = ["rhythm-human-approval-v1", decision["approvalId"] as! String,
                          decision["status"] as! String, decision["decisionNonce"] as! String,
                          decision["payloadDigest"] as? String ?? ""].joined(separator: "\n")
-        digest = Data(SHA256.hash(data: Data(canonical.utf8)))
+        message = Data(canonical.utf8)
     }
     let key = try signingKey()
-    let attributes = SecKeyCopyAttributes(key) as? [String: Any]
-    guard attributes?[kSecAttrTokenID as String] as? String == kSecAttrTokenIDSecureEnclave as String,
-          attributes?[kSecAttrKeySizeInBits as String] as? Int == 256,
-          SecKeyIsAlgorithmSupported(key, .sign, .ecdsaSignatureDigestX962SHA256),
-          let publicKey = SecKeyCopyPublicKey(key) else { throw Failure.unavailable }
-    var error: Unmanaged<CFError>?
-    guard let raw = SecKeyCopyExternalRepresentation(publicKey, &error) as Data?,
-          raw.count == 65, raw.first == 4 else { throw Failure.unavailable }
+    let raw = try key.publicBytes()
+    guard raw.count == 65, raw.first == 4 else { throw Failure.unavailable }
     var result: [String: Any] = ["available": true, "publicKey": raw.base64EncodedString()]
     if operation != "public-key" { result["capability"] = try capability() }
-    if let digest = digest {
-        guard let signature = SecKeyCreateSignature(key, .ecdsaSignatureDigestX962SHA256,
-            digest as CFData, &error) as Data? else { throw Failure.unavailable }
-        result["signature"] = signature.base64EncodedString()
+    if let message = message {
+        result["signature"] = try key.signature(for: message).base64EncodedString()
     }
     return result
 }

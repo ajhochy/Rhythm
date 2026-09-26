@@ -1,0 +1,582 @@
+.agent-settings-scope {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface-warm);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .02em;
+}
+
+.agent-settings-intro {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin-block-end: 18px;
+}
+
+.agent-settings-intro p,
+.agent-settings-gap p,
+.agent-settings-empty p,
+.agent-settings-mcp-list p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.agent-settings-gap,
+.agent-settings-empty {
+  display: grid;
+  gap: 6px;
+  margin-block: 16px;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  background: color-mix(in oklab, var(--surface), var(--bg) 5%);
+}
+
+.agent-settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block: 14px;
+}
+
+.agent-settings-local-preference {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  margin-block: 16px;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.agent-settings-local-preference > label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  cursor: pointer;
+}
+
+.agent-settings-keybinding-fields { display: grid; gap: 12px; max-width: 420px; margin-bottom: 14px; }
+.agent-settings-keybinding-fields label { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(180px, 1.35fr); gap: 12px; align-items: center; color: var(--fg-2); font-size: 13px; }
+.agent-settings-keybinding-fields select { min-width: 0; }
+
+.agent-settings-local-preference > label > span {
+  display: grid;
+  gap: 4px;
+}
+
+.agent-settings-local-preference small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.agent-settings-local-preference input[role="switch"] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
+}
+
+.agent-settings-actions > button,
+.agent-settings-records + button,
+.auto-promotion-card footer button,
+[data-testid="auto-promotion-dialog"] .dialog-actions button,
+[data-testid="agent-settings-mcp-remove-dialog"] .dialog-actions button,
+[data-testid="agent-settings-account-remove-dialog"] .dialog-actions button,
+.agent-settings-form button {
+  min-width: 44px;
+  min-height: 44px;
+  white-space: normal;
+}
+
+.list-inspector .agent-settings-retry {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* Global badge capitalization must not rewrite the unknown provider copy. */
+.kind-badge.agent-settings-status-unknown {
+  text-transform: none;
+}
+
+.agent-settings-records,
+.agent-settings-mcp-list {
+  display: grid;
+  gap: 8px;
+  margin-block: 14px;
+}
+
+.agent-settings-profile-search {
+  margin-block: 14px 8px;
+}
+
+.agent-settings-profile-groups,
+.agent-settings-profile-groups > section,
+.agent-settings-profile-list {
+  display: grid;
+  gap: 8px;
+}
+
+.agent-settings-profile-groups {
+  gap: 18px;
+}
+
+.agent-settings-profile-groups h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.agent-settings-profile-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 54px;
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+  color: var(--fg-2);
+  background: var(--surface);
+  text-align: start;
+  cursor: pointer;
+}
+
+.agent-settings-profile-row:hover {
+  border-color: var(--border);
+  background: var(--surface-warm);
+}
+
+.agent-settings-profile-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.agent-settings-profile-row > span:not(.profile-avatar) {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.agent-settings-profile-row small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.agent-settings-profile-row em {
+  padding: 3px 7px;
+  border: 1px solid var(--warning);
+  border-radius: 999px;
+  color: var(--warning);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 650;
+}
+
+.agent-settings-profile-row.disabled {
+  border-color: color-mix(in oklab, var(--warning), var(--border-soft) 55%);
+  background: color-mix(in oklab, var(--warning), var(--surface) 97%);
+}
+
+.agent-settings-records article {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+}
+
+.agent-settings-records article > span,
+.agent-settings-mcp-list article header > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.agent-settings-records small,
+.agent-settings-mcp-list small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.agent-settings-mcp-list article {
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.agent-settings-mcp-list article.status-connected {
+  border-color: color-mix(in oklab, var(--success), var(--border) 58%);
+}
+
+.agent-settings-mcp-list article.status-needs-auth {
+  border-color: var(--warning);
+}
+
+.agent-settings-mcp-list article.status-failed {
+  border-color: color-mix(in oklab, var(--danger), var(--border) 42%);
+  background: color-mix(in oklab, var(--danger), var(--surface) 96%);
+}
+
+.agent-settings-mcp-list article .kind-badge {
+  font-size: 11px;
+  text-transform: none;
+}
+
+.agent-settings-mcp-list article.status-connected .kind-badge {
+  border-color: var(--success);
+  color: color-mix(in oklab, var(--success), white 24%);
+}
+
+.agent-settings-mcp-list article.status-needs-auth .kind-badge {
+  border-color: var(--warning);
+  color: color-mix(in oklab, var(--warning), white 18%);
+}
+
+.agent-settings-mcp-list article.status-failed .kind-badge {
+  border-color: var(--danger);
+  color: color-mix(in oklab, var(--danger), white 28%);
+}
+
+.agent-settings-mcp-list p.agent-settings-mcp-error {
+  margin-block: 10px 0;
+  color: color-mix(in oklab, var(--danger), white 26%);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.agent-settings-mcp-search {
+  margin-block: 0 12px;
+}
+
+.agent-settings-add-disclosure {
+  margin-block-start: 18px;
+}
+
+.agent-settings-add-disclosure > summary {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 44px;
+  align-items: center;
+  cursor: pointer;
+}
+
+/* Every Agent Settings badge label is authored in sentence case; the global capitalize turns
+   "Needs login or key" into "Needs Login Or Key". */
+.agent-settings-list-inspector .kind-badge { text-transform: none; }
+
+/* ponytail: fixed offset for app header + page header + tool-trace footer; swap for a flex-fill
+   layout if the page header ever grows. The old 720px ceiling left tall windows half empty, and
+   the 180px offset tucked the pane's bottom under the footer. */
+.agent-settings-list-inspector {
+  height: calc(100vh - 270px);
+  min-height: 420px;
+}
+
+.agent-settings-list-inspector .list-inspector-panes {
+  height: 100%;
+  min-height: 0;
+}
+
+.agent-settings-list-inspector .list-inspector-rail {
+  overflow: hidden;
+}
+
+.agent-settings-list-inspector .list-inspector-list {
+  flex: 1;
+  max-height: none;
+}
+
+.agent-settings-list-inspector .list-inspector-header {
+  position: sticky;
+  z-index: 2;
+  top: -16px;
+  padding-block: 16px 8px;
+  background: var(--surface);
+}
+
+.agent-settings-form {
+  display: grid;
+  gap: 12px;
+  margin-block: 16px;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.agent-settings-form h3,
+.agent-settings-form p {
+  margin: 0;
+}
+
+/* The semantic h3 follows the inspector h2 without changing its former h4 size. */
+.agent-settings-form h3,
+.agent-settings-subhead {
+  font-size: 1em;
+}
+
+.agent-settings-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.agent-settings-form input,
+.agent-settings-form select {
+  width: 100%;
+  min-height: 44px;
+}
+
+.agent-settings-form button,
+.agent-settings-gap button {
+  justify-self: start;
+}
+
+.agent-settings-mcp-list article header,
+.auto-promotion-card > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.auto-promotion-card > header p {
+  margin: 0;
+}
+
+.agent-settings-property-list {
+  display: grid;
+  gap: 10px;
+  margin-block: 14px;
+}
+
+.agent-settings-property-list > div {
+  display: grid;
+  grid-template-columns: minmax(112px, max-content) minmax(0, 1fr);
+  align-items: start;
+  justify-content: start;
+  gap: 8px 16px;
+}
+
+.agent-settings-property-list dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.agent-settings-property-list dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px 10px;
+  min-width: 0;
+  margin: 0;
+  color: var(--fg-2);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+
+.agent-settings-runtime-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block-start: 16px;
+  padding-block-start: 16px;
+  border-block-start: 1px solid var(--border-soft);
+}
+
+.agent-settings-runtime-owner-note {
+  margin-block: 8px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.agent-settings-status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.agent-settings-runtime-state {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-settings-runtime-value.status-healthy .agent-settings-runtime-state {
+  color: var(--success);
+}
+
+.agent-settings-runtime-value.status-checking .agent-settings-runtime-state {
+  color: var(--warning);
+}
+
+.agent-settings-runtime-value.status-failed .agent-settings-runtime-state {
+  color: var(--danger);
+}
+
+.agent-settings-status-indicator i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.agent-settings-runtime-value.status-healthy .agent-settings-status-indicator {
+  color: var(--success);
+}
+
+.agent-settings-runtime-value.status-checking .agent-settings-status-indicator {
+  color: var(--warning);
+}
+
+.agent-settings-runtime-value.status-failed .agent-settings-status-indicator,
+.agent-settings-runtime-error {
+  color: var(--danger);
+}
+
+.agent-settings-runtime-error {
+  flex-basis: 100%;
+  font-weight: 600;
+}
+
+.auto-promotion-card .kind-badge.unavailable {
+  border-color: var(--danger);
+  color: var(--danger);
+  text-transform: none;
+}
+
+.auto-promotion-error {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-block: 14px;
+  padding: 12px;
+  border: 1px solid color-mix(in oklab, var(--danger), var(--border) 45%);
+  border-radius: var(--r-md);
+  color: color-mix(in oklab, var(--danger), white 18%);
+  background: color-mix(in oklab, var(--danger), var(--surface) 94%);
+}
+
+.auto-promotion-error > span {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-weight: 800;
+}
+
+.auto-promotion-error p {
+  margin: 0;
+}
+
+.auto-promotion-error button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.auto-promotion-card footer {
+  margin-block-start: 14px;
+}
+
+@container list-inspector (width < 720px) {
+  .agent-settings-mcp-list article header,
+  .auto-promotion-card > header {
+    flex-wrap: wrap;
+  }
+
+  .agent-settings-property-list > div,
+  .auto-promotion-error {
+    grid-template-columns: 1fr;
+  }
+}
+
+.agent-settings-records article.agent-settings-account {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.agent-settings-records article.agent-settings-account .agent-settings-actions {
+  margin-block: 0;
+  justify-content: flex-end;
+}
+
+.agent-settings-records article.needs-relogin {
+  border-color: var(--warning);
+}
+
+.agent-settings-records article.needs-relogin .kind-badge {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.agent-settings-subhead {
+  margin: 22px 0 0;
+}
+
+.agent-settings-subhead-note {
+  margin: 4px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.agent-settings-records article.agent-settings-account > form {
+  grid-column: 1 / -1;
+  margin-block: 10px 0;
+}
+
+.hermes-accounts-settings { margin-block: 0 28px; }
+.hermes-accounts-settings > header { margin-block-end: 20px; }
+.hermes-accounts-settings h3 { margin: 0 0 8px; }
+.hermes-accounts-settings p { max-width: 70ch; line-height: 1.5; margin: 6px 0; }
+.hermes-account-row { min-width: 0; margin: 0 0 16px; padding: 12px 0 16px; border: 0; border-bottom: 1px solid var(--border); }
+.hermes-account-row legend { padding: 0; font-weight: 650; }
+.hermes-account-row button { margin-top: 8px; }
+.hermes-accounts-memory { color: var(--muted); }
+
+/* #1580 S2 — provider-first model curation panel. min-width: 0 throughout so a long model id
+   or provider label wraps instead of forcing the list-inspector detail pane to scroll sideways. */
+.model-curation { min-width: 0; display: grid; gap: 12px; }
+.model-curation-search { max-width: 420px; }
+.model-curation-groups { min-width: 0; display: grid; gap: 10px; }
+.model-curation-group { min-width: 0; border: 1px solid var(--border); border-radius: var(--r-sm); overflow: hidden; }
+.model-curation-group-header {
+  width: 100%; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+  border: 0; background: var(--surface-warm); color: var(--fg); font: inherit; text-align: left; cursor: pointer;
+}
+.model-curation-group-header:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.model-curation-group-title { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.model-curation-status-connected { border-color: var(--success); color: var(--success); }
+.model-curation-status-needs-login { border-color: var(--warning); color: var(--warning); }
+.model-curation-status-unavailable { color: var(--muted); }
+.model-curation-group-body { min-width: 0; display: grid; gap: 2px; padding: 4px 12px 12px; }
+.model-curation-all-none { padding-block: 6px; border-bottom: 1px solid var(--border-soft); font-size: 11px; color: var(--muted); }
+.model-curation-row { min-width: 0; padding-block: 6px; }
+.model-curation-row-label { min-width: 0; display: grid; gap: 1px; overflow-wrap: anywhere; }
+.model-curation-row-label small { color: var(--muted); }
+.model-curation-empty { color: var(--muted); font-size: 12px; margin: 6px 0; }
+.model-curation-local-note { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 0; padding: 8px 0 0; color: var(--muted); overflow-wrap: anywhere; }

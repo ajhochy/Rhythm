@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 
 import {
   env,
@@ -56,7 +57,7 @@ const HOP_BY_HOP_HEADERS = new Set([
   'transfer-encoding',
   'upgrade',
 ]);
-const ARTIFACT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+const ARTIFACT_ID_PATTERN = /^[A-Za-z0-9_-]{1,256}$/;
 const MAX_DEVICE_NAME_LENGTH = 128;
 
 function validatedRelayPublicUrl(
@@ -94,6 +95,18 @@ function relayProject(req: Request): { id: string; root: string } {
   // this opaque project id, while `/` prevents host-path shaping from inventing
   // a NAS-local path boundary.
   return { id: projectId, root: '/' };
+}
+
+function recordRelayAttach(req: Request, sessionId: string | null): void {
+  logger.info('[RemoteAttach] lifecycle', {
+    device_id_hash: createHash('sha256')
+      .update(req.mobileDevice!.id)
+      .digest('hex')
+      .slice(0, 16),
+    session_id: sessionId ?? 'none',
+    lifecycle_state: 'attach',
+    reason: 'mirror_authorized',
+  });
 }
 
 function forwardedHeaders(req: Request): Record<string, string> {
@@ -321,12 +334,21 @@ export function createRelayGatewayRouter(
           throw AppError.internal('Invalid bootstrap grant');
         }
         res.setHeader('Cache-Control', 'no-store');
+        // ponytail: capability is opt-in via the same x-rhythm-client-capability
+        // header the mobile-gateway proxy already reads (mobile_gateway_routes.ts).
+        // The iOS phone contract must stay byte-for-byte unchanged — only a
+        // caller that declares itself a desktop remote-attach client gets it.
+        const isDesktopRemoteAttachClient =
+          req.header('x-rhythm-client-capability') === 'remote-attach-desktop-v1';
         res.status(201).json({
           environmentId: enrollment.hostId,
           hostId: enrollment.hostId,
           deviceId: grant.deviceId,
           deviceToken: grant.deviceToken,
           gatewayBaseUrl,
+          ...(isDesktopRemoteAttachClient
+            ? { capabilities: ['remote-attach-desktop-v1'] }
+            : {}),
         });
       } catch (error) {
         next(error instanceof AppError ? error : AppError.internal());
@@ -378,17 +400,30 @@ export function createRelayGatewayRouter(
       const authorization = req.header('Authorization') ?? '';
       const token = authorization.match(/^Device\s+(\S+)$/i)?.[1] ?? '';
       const deviceId = req.mobileDevice!.id;
-      liveSseResponses.add(res);
       const removeLiveResponse = () => liveSseResponses.delete(res);
-      res.once('close', removeLiveResponse);
-      res.once('finish', removeLiveResponse);
       try {
+        const project = relayProject(req);
+        const preauthorizedSession = !sessionId || Boolean(
+          ownership.isResourceOwnedBy(
+            'session', sessionId, req.mobileDevice!.userId, project.id,
+          ) || ownership.isSessionOwnedByDesktopCatalog?.(
+            sessionId, req.mobileDevice!.userId, project.id,
+          ),
+        );
+        if (!preauthorizedSession) {
+          res.status(404).json({ error: 'not_found' });
+          return;
+        }
+        liveSseResponses.add(res);
+        res.once('close', removeLiveResponse);
+        res.once('finish', removeLiveResponse);
         await sseProxy.stream({
           request: req,
           response: res,
-          project: relayProject(req),
+          project,
           userId: req.mobileDevice!.userId,
           ...(sessionId ? { sessionId } : {}),
+          preauthorizedSession,
           isDeviceActive: () => {
             const active = getMobilePairingService().authenticateDevice(token);
             return active !== null && active.id === deviceId;
@@ -417,7 +452,7 @@ export function createRelayGatewayRouter(
   );
 
   router.all('/mobile-gateway/pty/*', requireDevice, (_req, res) => {
-    res.status(501).json({ error: 'pty_requires_direct_connection' });
+    res.status(426).json({ error: 'pty_websocket_upgrade_required' });
   });
 
   // Relay-served mirror reads (Track 5). Keep this region separate from the
@@ -467,6 +502,7 @@ export function createRelayGatewayRouter(
           await tunnelMirrorMiss(req, res, next);
           return;
         }
+        recordRelayAttach(req, null);
         sendMirrorResponse(
           res,
           page.items,
@@ -533,6 +569,7 @@ export function createRelayGatewayRouter(
           await tunnelMirrorMiss(req, res, next);
           return;
         }
+        recordRelayAttach(req, req.params.id);
         sendMirrorResponse(res, safeValue);
       } catch (error) {
         next(error instanceof AppError ? error : AppError.internal());
@@ -661,7 +698,7 @@ export function createRelayGatewayRouter(
             ]);
           } catch (error) {
             logger.warn(
-              `[RelayGateway] failed to cache artifact ${artifactId}: ${String(error)}`,
+              `[RelayGateway] failed to cache artifact ${artifactId} (${error instanceof Error ? error.name : 'UnknownError'})`,
             );
           }
         }

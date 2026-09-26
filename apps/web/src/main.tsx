@@ -9,16 +9,25 @@ import './styles.css';
 
 const root = ReactDOM.createRoot(document.getElementById('root')!);
 const environment = (import.meta as ImportMeta & { env: Record<string, string | undefined> }).env;
-const runtimeGateway = (window as Window & {
-  rhythmShell?: {
-    gateway?: {
-      apiBase?: string;
-      engineBase?: string;
-      productionApiBase?: string;
+declare global {
+  interface Window {
+    rhythmShell?: {
+      gateway?: {
+        apiBase?: string;
+        engineBase?: string;
+        productionApiBase?: string;
+      };
+      auth?: DesktopAuthBridge;
+      agentServer?: {
+        status(): Promise<{ status: string; ownership?: 'electron' | 'external' | 'none'; owned: boolean; errorMessage?: string | null }>;
+        onStatusChange?(callback: (status: { status: string; ownership?: 'electron' | 'external' | 'none'; owned: boolean; errorMessage?: string | null }) => void): () => void;
+        restart(): Promise<{ ok: boolean; reason?: string; code?: string; status?: { errorMessage?: string | null } }>;
+      };
+      selectDirectory?: () => Promise<string | null>;
     };
-    auth?: DesktopAuthBridge;
-  };
-}).rhythmShell;
+  }
+}
+const runtimeGateway = window.rhythmShell;
 const gatewayMode = environment.VITE_RHYTHM_GATEWAY_MODE;
 const apiBase = runtimeGateway?.gateway?.apiBase ?? environment.VITE_RHYTHM_API_BASE;
 const engineBase = runtimeGateway?.gateway?.engineBase ?? environment.VITE_RHYTHM_ENGINE_BASE;

@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Icon } from '../icons';
 import { useGateway } from '../gateway/context';
 import { useAuthUser } from '../gateway/auth';
-import { InspectorGatewayError, readOnlyResourceDocument, sessionResources, type InspectorTodo, type MemoryProvenance, type PreparedShare, type SessionResource, type TranscriptShare } from '../gateway/inspector';
-import { SessionGatewayError, type SessionFileContent, type SessionFileEntry, type SessionFileStatusEntry } from '../gateway/sessions';
+import { InspectorGatewayError, readOnlyResourceDocument, sessionResources, type InspectorTodo, type MemoryProvenance, type ModelProvenance, type PreparedShare, type SessionResource, type TranscriptShare } from '../gateway/inspector';
+import { SessionGatewayError, type RichTranscriptMessage, type SessionFileContent, type SessionFileEntry, type SessionFileStatusEntry } from '../gateway/sessions';
 import { useFixtures } from '../store';
 import type { FixtureFile, InspectorTab, Session } from '../types';
 import { FocusDialog } from './FocusDialog';
 import { navigate } from './Shell';
+import { Timestamp } from './Timestamp';
+import { UsageBudgetPanel } from './UsageBudgetPanel';
 import { Terminal } from '@xterm/xterm';
 import type { PtyGateway } from '../gateway/pty';
 import '@xterm/xterm/css/xterm.css';
@@ -19,6 +21,7 @@ const tabs: { id: InspectorTab; label: string; icon: 'activity' | 'diff' | 'term
 
 type InspectorTrace = { method: 'GET' | 'POST' | 'PATCH' | 'DELETE' | 'WS'; route: string };
 type PtyFixture = { id: string; status: 'connecting' | 'connected' | 'exited' | 'error'; output: string[] };
+const transcriptSharesChanged = 'rhythm-transcript-shares-changed';
 
 function Trace({ trace }: { trace: InspectorTrace | null }) {
   if (!trace) return null;
@@ -38,18 +41,26 @@ function RunFeedback({ sessionId, hidden }: { sessionId: string; hidden: boolean
 }
 
 function ContextPanel() {
-  const { selected, profiles, sessionGatewayMode } = useFixtures();
-  const profile = profiles.find((item) => item.id === selected.profileId);
-  const total = selected.inputTokens + selected.outputTokens + selected.cachedTokens;
-  const pct = selected.totalBudget > 0 ? Math.min(100, Math.round((total / selected.totalBudget) * 100)) : 0;
+  const { selected, models, sessionGatewayMode } = useFixtures();
+  const persistedUsage = [...selected.messages].reverse().map((message) => message as RichTranscriptMessage).find((message) => {
+    const tokens = message.tokens;
+    return (tokens?.input ?? 0) + (tokens?.cache?.read ?? 0) + (tokens?.cache?.write ?? 0) > 0;
+  });
+  const liveTotal = (persistedUsage?.tokens?.input ?? 0) + (persistedUsage?.tokens?.cache?.read ?? 0) + (persistedUsage?.tokens?.cache?.write ?? 0);
+  const catalogBudget = models.find((model) => model.providerId === selected.providerId && model.modelId === selected.modelId)?.contextLimit;
+  const total = sessionGatewayMode === 'live' ? liveTotal : selected.inputTokens + selected.outputTokens + selected.cachedTokens;
+  const budget = sessionGatewayMode === 'live' ? catalogBudget ?? 200_000 : selected.totalBudget;
+  const pct = budget > 0 ? Math.min(100, Math.round((total / budget) * 100)) : 0;
+  const tokenLabel = (value: number) => value >= 1_000 ? `${Number((value / 1_000).toFixed(1))}k` : String(value);
   return <section className="inspector-panel" aria-label="Session context" data-testid="context-panel">
     <div className="context-path"><Icon name="worktree" /><div><strong>{selected.cwd}</strong><small>{selected.isolateWorktree ? 'Isolated worktree' : 'Project workspace'} · {selected.dirtyCount} changed</small></div></div>
-    <div className="token-gauge" aria-label={`${pct}% of context budget used`}><div><strong>{total.toLocaleString()}</strong><small>of {selected.totalBudget.toLocaleString()} tokens</small></div><span><i style={{ width: `${pct}%` }} /></span><em>{pct}%</em></div>
-    <dl className="property-list"><div><dt>Provider</dt><dd>{profile?.modelProvider ?? selected.providerId ?? 'Configured'}</dd></div><div><dt>Agent</dt><dd>{profile?.label ?? selected.profileId}</dd></div><div><dt>Model</dt><dd>{selected.modelId ?? profile?.modelId ?? selected.model}</dd></div><div><dt>Usage budget</dt><dd>$2.00 session cap</dd></div><div><dt>Total cost</dt><dd>${selected.cost.toFixed(3)}</dd></div><div><dt>Input</dt><dd>{selected.inputTokens.toLocaleString()}</dd></div><div><dt>Output</dt><dd>{selected.outputTokens.toLocaleString()}</dd></div><div><dt>Cached</dt><dd>{selected.cachedTokens.toLocaleString()}</dd></div><div><dt>Created</dt><dd>Aug 12 · {selected.createdAt.slice(11, 16)}</dd></div><div><dt>Updated</dt><dd>Aug 12 · {selected.updatedAt.slice(11, 16)}</dd></div><div><dt>Messages</dt><dd>{selected.messages.length}</dd></div><div><dt>Worktree</dt><dd>{selected.isolateWorktree ? 'Isolated' : 'Current workspace'}</dd></div>
+    {sessionGatewayMode === 'live' && !persistedUsage ? <div className="token-gauge token-gauge-empty" data-testid="context-usage-empty"><div><strong>Usage unavailable</strong><small>No persisted context usage yet</small></div></div> : <div className="token-gauge" aria-label={`${pct}% of context budget used`}><div><strong data-testid="context-usage-value">{tokenLabel(total)} / {tokenLabel(budget)}</strong><small>tokens</small></div><span><i style={{ width: `${pct}%` }} /></span><em data-testid="context-usage-percent">{pct}%</em></div>}
+    <UsageBudgetPanel />
+    <dl className="property-list"><div><dt>Created</dt><dd><Timestamp value={selected.createdAt} /></dd></div><div><dt>Updated</dt><dd><Timestamp value={selected.updatedAt} /></dd></div>
       {/* post-m1-phase-6 c3b: the resolved isolated-worktree branch — never defaulted to 'main'. */}
       {selected.worktreeBranch && <div><dt>Worktree branch</dt><dd>{selected.worktreeBranch}</dd></div>}
     </dl>
-    {sessionGatewayMode === 'live' ? <><LiveProvenance sessionId={selected.id} /><SharePanel sessionId={selected.id} /></> : <div className="memory-provenance"><h3>Memory provenance</h3><p>Project memory · services/run-sheet.md</p><p>Session summary · fixed fixture clock</p><p>Profile prompt · {selected.profileId}</p></div>}
+    {sessionGatewayMode === 'live' ? <><LiveProvenance sessionId={selected.id} /><LiveModelProvenance sessionId={selected.id} /><SharePanel sessionId={selected.id} /></> : <div className="memory-provenance"><h3>Memory provenance</h3><p>Project memory · services/run-sheet.md</p><p>Session summary · fixed fixture clock</p><p>Profile prompt · {selected.profileId}</p></div>}
     <RunFeedback sessionId={selected.id} hidden={sessionGatewayMode !== 'live' || Boolean(selected.parentSessionId)} />
   </section>;
 }
@@ -74,6 +85,44 @@ function LiveProvenance({ sessionId }: { sessionId: string }) {
   </section>;
 }
 
+/**
+ * #1576 S4 — "Served by": the model(s) that actually served this session's
+ * steps, as distinct from the requested alias. The engine does not stamp
+ * served identity yet (fork slice S1, not built), so most live sessions today
+ * show the "not recorded" state below — that is the honest, expected result,
+ * never a fabricated model name.
+ */
+export function LiveModelProvenance({ sessionId }: { sessionId: string }) {
+  const api = useGateway().domains.inspector;
+  const [data, setData] = useState<ModelProvenance | null>(null);
+  const [error, setError] = useState(false);
+  const [revision, refresh] = useState(0);
+  useEffect(() => { let active = true; setError(false); setData(null);
+    api?.modelProvenance(sessionId).then(value => { if (active) setData(value); }).catch(() => { if (active) setError(true); });
+    return () => { active = false; };
+  }, [api, sessionId, revision]);
+  return <section className="memory-provenance" aria-label="Model provenance" data-testid="model-provenance">
+    <h3>Served by</h3>
+    {!api || error ? <p role="alert">Served-model provenance unavailable.</p> : !data ? <p role="status">Loading served models…</p> : !data.available ? (
+      // #1576 review follow-up: the hosted/Postgres role has no local ledger to
+      // read — a known, labeled gap, not an error, so no alert role here.
+      <p role="status">Provenance unavailable on this server.</p>
+    ) : data.servedModels.length === 0 ? (
+      // ponytail: never invent a model name — "unattributed" steps are steps the
+      // engine ran before/without a served-identity stamp, not steps with no model.
+      <>
+        <p>{data.steps.unattributed > 0 ? `Not recorded (${data.steps.unattributed} steps before provenance capture)` : 'No served steps recorded yet.'}</p>
+        {data.requestedModelId && <p data-testid="model-provenance-requested">Requested {data.requestedModelId} — unverified</p>}
+      </>
+    ) : <>
+      <ul>{data.servedModels.map(model => <li key={model}>{model}</li>)}</ul>
+      {data.multiModel && <p role="status">Spanned {data.servedModels.length} models</p>}
+      {data.routed && <span className="kind-badge" data-testid="model-provenance-routed">Routed</span>}
+    </>}
+    <button type="button" className="text-button" onClick={() => refresh(value => value + 1)}>Refresh served models</button>
+  </section>;
+}
+
 function LiveTodos({ sessionId }: { sessionId: string }) {
   const api = useGateway().domains.inspector;
   const [todos, setTodos] = useState<InspectorTodo[] | null>(null);
@@ -90,19 +139,55 @@ function LiveTodos({ sessionId }: { sessionId: string }) {
   </footer>;
 }
 
+export function SharedWithMePanel() {
+  const api = useGateway().domains.inspector; const actorId = useAuthUser()?.user.id;
+  const [shares, setShares] = useState<TranscriptShare[]>([]); const [loading, setLoading] = useState(true);
+  const [unavailable, setUnavailable] = useState(false); const [view, setView] = useState<TranscriptShare | null>(null);
+  const refresh = async () => {
+    if (!api || !actorId) { setShares([]); setLoading(false); return; }
+    setLoading(true);
+    try {
+      const now = Date.now(); const values = await api.shares();
+      setShares(values.filter(share => share.recipientUserIds.includes(actorId) && !share.revokedAt && new Date(share.expiresAt).getTime() > now));
+    } catch { setShares([]); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => {
+    void refresh(); const changed = () => void refresh();
+    window.addEventListener(transcriptSharesChanged, changed);
+    return () => window.removeEventListener(transcriptSharesChanged, changed);
+  }, [api, actorId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const open = async (id: string) => {
+    if (!api) return; setUnavailable(false); setView(null);
+    try { setView(await api.share(id)); } catch { setUnavailable(true); }
+  };
+  return <section className="memory-provenance" aria-label="Shared with me" data-testid="shared-with-me"><header><h2>Shared with me</h2><button className="text-button" type="button" disabled={loading} onClick={() => void refresh()}>Refresh</button></header>
+    <p>Recipient-visible immutable snapshots. Private source sessions stay private.</p>
+    {loading ? <p role="status">Loading shared snapshots…</p> : shares.length === 0 ? <p>No active snapshots shared with you.</p> : shares.map(share => <article key={share.id} data-testid={`shared-with-me-${share.id}`}><strong>Shared snapshot (immutable)</strong><p>Private source session not shown · Expires <Timestamp value={share.expiresAt} /></p><button className="secondary-button" type="button" onClick={() => void open(share.id)}>Open shared snapshot</button></article>)}
+    {unavailable && <p role="alert">Shared snapshot unavailable</p>}
+    <FocusDialog open={Boolean(view)} title="Shared snapshot (immutable)" testId="shared-with-me-snapshot" onClose={() => setView(null)} wide><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(view?.snapshot, null, 2)}</pre><button type="button" onClick={() => setView(null)}>Close</button></FocusDialog>
+  </section>;
+}
+
 function SharePanel({ sessionId }: { sessionId: string }) {
   const api = useGateway().domains.inspector; const actor = useAuthUser()?.user;
   const [prepared, setPrepared] = useState<PreparedShare | null>(null);
   const [members, setMembers] = useState<Array<{ userId: number; name: string }>>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]); const [recipients, setRecipients] = useState<number[]>([]);
+  const [expiryDays, setExpiryDays] = useState<7 | 30 | 90>(90); const [confirming, setConfirming] = useState(false);
   const [shares, setShares] = useState<TranscriptShare[]>([]); const [view, setView] = useState<TranscriptShare | null>(null);
   const [error, setError] = useState(''); const [listError, setListError] = useState(''); const [busy, setBusy] = useState(false);
   const sequence = useRef(0);
-  const refresh = async () => { if (!api) return; try { const values = await api.shares(); setShares(values.filter(share => share.sourceSessionId === null || share.sourceSessionId === sessionId)); setListError(''); } catch { setListError('Share list unavailable.'); } };
-  useEffect(() => { void refresh(); return () => { sequence.current += 1; }; }, [api, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const confirmButton = useRef<HTMLButtonElement>(null);
+  const refresh = async () => { if (!api) return; const [shareResult, directoryResult] = await Promise.allSettled([api.shares(), api.recipients()]); if (shareResult.status === 'fulfilled') { setShares(shareResult.value.filter(share => share.sourceSessionId === null || share.sourceSessionId === sessionId)); setListError(''); } else setListError('Share list unavailable.'); if (directoryResult.status === 'fulfilled') setMembers(directoryResult.value.filter(member => member.userId !== actor?.id)); };
+  useEffect(() => { void refresh(); return () => { sequence.current += 1; }; }, [api, sessionId, actor?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ponytail: a bare requestAnimationFrame here raced FocusDialog's own rAF-driven autofocus/containment
+  // (flaky toBeFocused failures on error). useLayoutEffect runs after the busy-disabled DOM commit but
+  // before any paint/rAF, so it always wins deterministically.
+  useLayoutEffect(() => { if (confirming && error) confirmButton.current?.focus(); }, [error, confirming]);
   const review = async () => {
     if (!api || busy) return; const current = ++sequence.current;
-    setBusy(true); setError(''); setPrepared(null); setRecipients([]); setMembers([]);
+    setBusy(true); setError(''); setPrepared(null); setRecipients([]); setConfirming(false); setExpiryDays(90);
     try {
       const data = await api.review(sessionId);
       if (current !== sequence.current) return;
@@ -121,31 +206,42 @@ function SharePanel({ sessionId }: { sessionId: string }) {
     try {
       await api.createShare(sessionId, { reviewHash: prepared.reviewHash,
         review: { items: prepared.inclusiveSnapshot.items.filter(item => selectedIds.includes(item.id)) },
-        explicitlyIncludedItemIds: selectedIds.filter(id => !prepared.snapshot.items.some(item => item.id === id)), recipientUserIds: recipients });
-      setPrepared(null); await refresh();
+        explicitlyIncludedItemIds: selectedIds.filter(id => !prepared.snapshot.items.some(item => item.id === id)), recipientUserIds: recipients,
+        ...(expiryDays === 90 ? {} : { expiresAt: new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000).toISOString() }) });
+      setPrepared(null); setConfirming(false); await refresh();
     } catch (failure) {
       if (failure instanceof InspectorGatewayError && failure.status === 409) { setPrepared(null); setRecipients([]); setError('Transcript changed. Review again before sharing.'); }
-      else setError('Share creation unavailable. No success confirmed.');
+      else { setError('Share creation unavailable. No success confirmed.'); }
     } finally { setBusy(false); }
   };
-  const revoke = async (id: string) => { if (!api || busy) return; setBusy(true); setError(''); try { await api.revoke(id); await refresh(); } catch { setError('Share revoke unavailable.'); } finally { setBusy(false); } };
+  const revoke = async (id: string) => { if (!api || busy) return; setBusy(true); setError(''); try { await api.revoke(id); await refresh(); window.dispatchEvent(new Event(transcriptSharesChanged)); } catch { setError('Share revoke unavailable.'); } finally { setBusy(false); } };
   const read = async (id: string) => { if (!api) return; setError(''); try { setView(await api.share(id)); } catch { setError('Shared snapshot unavailable.'); } };
+  const defaultIncludedIds = new Set(prepared?.snapshot.items.map(item => item.id) ?? []);
+  const excludedByDefault = prepared?.inclusiveSnapshot.items.filter(item => !defaultIncludedIds.has(item.id) && !selectedIds.includes(item.id)) ?? [];
+  const explicitlyIncluded = prepared?.inclusiveSnapshot.items.filter(item => !defaultIncludedIds.has(item.id) && selectedIds.includes(item.id)) ?? [];
+  const excludedCounts = [...excludedByDefault.reduce((counts, item) => counts.set(item.category, (counts.get(item.category) ?? 0) + 1), new Map<string, number>())];
+  const memberName = (userId: number) => userId === actor?.id ? 'You' : members.find(member => member.userId === userId)?.name ?? 'Unavailable recipient';
+  const closeReview = () => { if (!busy) { sequence.current += 1; setPrepared(null); setConfirming(false); } };
   return <section className="memory-provenance" aria-label="Transcript sharing"><h3>Transcript sharing</h3>
     <p>Immutable snapshot · named recipients only. Sensitive items are excluded unless explicitly included; secrets remain redacted.</p>
-    <p>Shared copies remain available until revoked or expired (at most 30 days), even if the local session is deleted. Detached copies from all sessions appear here.</p>
+    <p><strong>Private source session</strong> stays private. A <strong>Shared snapshot (immutable)</strong> remains available until revoked or expired, even if the local session is deleted. Detached copies from all sessions appear here.</p>
     <button type="button" className="secondary-button" disabled={!api || busy} onClick={() => void review()}>Review transcript share</button>
     <button type="button" className="text-button" disabled={busy} onClick={() => void refresh()}>Refresh shares</button>
     {error && <p role="alert">{error}</p>}{listError && <p role="alert">{listError}</p>}
     {shares.length === 0 && !listError && <p>No shared snapshots for this session.</p>}
-    {shares.map(share => <article key={share.id} data-testid={`share-${share.id}`}><code>{share.id}</code><p>Recipients: {share.recipientUserIds.join(', ')} · Expires {share.expiresAt}</p>
+    {shares.map(share => <article key={share.id} data-testid={`share-${share.id}`}><code>{share.id}</code><p><strong>Private source session</strong> → <strong>Shared snapshot (immutable)</strong></p><p>Recipients: {share.recipientUserIds.map(memberName).join(', ')} · Expires <Timestamp value={share.expiresAt} /></p>
       {share.revokedAt ? <p>Revoked</p> : new Date(share.expiresAt).getTime() <= Date.now() ? <p>Expired</p> : <><button type="button" onClick={() => void read(share.id)}>View snapshot</button>{share.ownerUserId === actor?.id && <button type="button" disabled={busy} onClick={() => void revoke(share.id)}>Revoke</button>}</>}
     </article>)}
-    <FocusDialog open={Boolean(prepared)} title="Share reviewed transcript" description="Only checked content below will be published. This preview is sanitized by the server." testId="transcript-share-review" onClose={() => { if (!busy) { sequence.current += 1; setPrepared(null); } }} wide>
-      {prepared && <><fieldset disabled={busy}><legend>Exact snapshot selection</legend>
-        {prepared.inclusiveSnapshot.items.map(item => <div key={item.id}><label><input type="checkbox" aria-label={`Include ${item.id}`} checked={selectedIds.includes(item.id)} onChange={event => setSelectedIds(ids => event.target.checked ? [...ids, item.id] : ids.filter(id => id !== item.id))} />{item.id} · {item.category}</label><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(item.content, null, 2)}</pre></div>)}
+    <FocusDialog open={Boolean(prepared) && !confirming} title="Share reviewed transcript" description="Only checked content below will be published. This preview is sanitized by the server." testId="transcript-share-review" onClose={closeReview} wide>
+      {prepared && <><section aria-label="Excluded content summary"><h3>Excluded by default ({excludedByDefault.length})</h3>{excludedCounts.length === 0 ? <p>No sensitive items remain excluded.</p> : <ul>{excludedCounts.map(([category, count]) => <li key={category}>{category.replaceAll('_', ' ')}: {count}</li>)}</ul>}<p>Explicitly included: {explicitlyIncluded.length}</p></section><fieldset disabled={busy}><legend>Exact snapshot selection</legend>
+        {prepared.inclusiveSnapshot.items.map(item => { const excluded = !defaultIncludedIds.has(item.id); const included = selectedIds.includes(item.id); return <div key={item.id} data-testid={`share-item-${item.id}`}><label><input type="checkbox" aria-label={`Include ${item.id}`} checked={included} onChange={event => setSelectedIds(ids => event.target.checked ? [...ids, item.id] : ids.filter(id => id !== item.id))} />{item.id} · {item.category.replaceAll('_', ' ')}{excluded && <em> · {included ? 'Explicitly included' : 'Excluded by default'}</em>}</label><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(item.content, null, 2)}</pre></div>; })}
       </fieldset><fieldset disabled={busy}><legend>Named recipients</legend>{members.length === 0 && <p>No eligible recipients available.</p>}{members.map(member => <label key={member.userId}><input type="checkbox" checked={recipients.includes(member.userId)} onChange={event => setRecipients(ids => event.target.checked ? [...ids, member.userId] : ids.filter(id => id !== member.userId))} />{member.name}</label>)}</fieldset>
+      <label className="field">Expires after<select aria-label="Expires after" value={expiryDays} onChange={event => setExpiryDays(Number(event.target.value) as 7 | 30 | 90)}><option value={7}>7 days</option><option value={30}>30 days</option><option value={90}>90 days</option></select></label>
       {error && <p role="alert">{error}</p>}
-      <button className="primary-button" type="button" disabled={busy || !recipients.length || !selectedIds.length} onClick={() => void create()}>Create immutable share</button></>}
+      <button className="primary-button" type="button" disabled={busy || !recipients.length || !selectedIds.length} onClick={() => setConfirming(true)}>Create immutable share</button></>}
+    </FocusDialog>
+    <FocusDialog open={Boolean(prepared) && confirming} title="Confirm immutable share" description="Confirm the exact recipients, expiration, and content counts before publishing." testId="transcript-share-confirm" onClose={() => { if (!busy) setConfirming(false); }}>
+      {prepared && <><dl className="property-list"><div><dt>Recipients</dt><dd>{recipients.map(memberName).join(', ')}</dd></div><div><dt>Expiration</dt><dd>{expiryDays} days</dd></div><div><dt>Content</dt><dd>{selectedIds.length} included · {prepared.inclusiveSnapshot.items.length - selectedIds.length} excluded</dd></div></dl>{error && <p role="alert">{error}</p>}<div className="dialog-actions"><button className="secondary-button" type="button" disabled={busy} onClick={() => setConfirming(false)}>Cancel</button><button ref={confirmButton} className="primary-button" type="button" disabled={busy} onClick={() => void create()}>Confirm and share</button></div></>}
     </FocusDialog>
     <FocusDialog open={Boolean(view)} title="Shared snapshot" testId="transcript-share-snapshot" onClose={() => setView(null)} wide><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(view?.snapshot, null, 2)}</pre><button type="button" onClick={() => setView(null)}>Close</button></FocusDialog>
   </section>;
@@ -616,7 +712,7 @@ function ArtifactsPanel({ trace, setTrace }: { trace: InspectorTrace | null; set
   if (!selected.artifacts.length) return <section className="inspector-panel artifacts-panel" aria-label="Session artifacts" data-testid="artifacts-panel"><div className="inspector-empty"><Icon name="artifact" size={24} /><h3>No artifacts yet</h3><p>Completed session output appears here and on Dashboard.</p></div><button className="text-button" type="button" onClick={() => navigate('/dashboard')} data-testid="artifacts-dashboard-link">Open Dashboard <Icon name="chevronRight" size={13} /></button></section>;
   return <section className="inspector-panel artifacts-panel" aria-label="Session artifacts" data-testid="artifacts-panel">
     <label className="field">Session artifact<select value={artifact?.id ?? ''} onChange={(event) => { setArtifactId(event.target.value); setTrace({ method: 'GET', route: `/live-artifacts/${event.target.value}` }); }} data-testid="artifact-selector">{selected.artifacts.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
-    <div className="artifact-meta"><span><strong>{artifact?.type}</strong><small>{artifact?.updatedAt?.replace('T', ' · ').slice(0, 18)}</small></span><button className="secondary-button" type="button" onClick={() => { notify(`${artifact?.name} opened`); setTrace({ method: 'GET', route: `/live-artifacts/${artifact?.id}` }); }} data-testid={`open-${artifact?.id}`}>Open</button></div>
+    <div className="artifact-meta"><span><strong>{artifact?.type}</strong><small><Timestamp value={artifact?.updatedAt} /></small></span><button className="secondary-button" type="button" onClick={() => { notify(`${artifact?.name} opened`); setTrace({ method: 'GET', route: `/live-artifacts/${artifact?.id}` }); }} data-testid={`open-${artifact?.id}`}>Open</button></div>
     <div className="artifact-preview"><iframe title={`Preview of ${artifact?.name}`} sandbox="" srcDoc={artifactDocument(artifact?.html)} data-testid="artifact-preview" /></div>
     {history === 'error' ? <div className="artifact-history-error" role="status"><span><strong>Earlier history unavailable</strong><small>The first fixture page could not be read.</small></span><button className="secondary-button" type="button" onClick={() => { setHistory('loaded'); setTrace({ method: 'GET', route: `/agent-sessions/${selected.id}/messages?before=msg-user-handoff` }); }} data-testid="artifact-history-retry">Retry</button></div> : <p className="artifact-history-status" role="status">Earlier history loaded · {selected.artifacts.length} unique artifacts</p>}
     <button className="text-button" type="button" onClick={() => navigate('/dashboard')} data-testid="artifacts-dashboard-link">Open Dashboard <Icon name="chevronRight" size={13} /></button>
@@ -658,7 +754,7 @@ export function Inspector({ collapsed, onToggle }: { collapsed: boolean; onToggl
   return <aside className="inspector" aria-label="Session inspector" data-od-id="session-inspector">
     <header className="inspector-header"><div role="tablist" aria-label="Inspector views" onKeyDown={moveTab}>{tabs.map((tab) => <button role="tab" aria-selected={inspectorTab === tab.id} tabIndex={inspectorTab === tab.id ? 0 : -1} type="button" key={tab.id} onClick={() => { setInspectorTab(tab.id); setTrace(null); }} data-testid={`inspector-${tab.id}`}><Icon name={tab.icon} size={15} /><span>{tab.label}</span></button>)}</div><button ref={collapseControl} className="icon-button small" type="button" onClick={onToggle} aria-label="Collapse Inspector" data-testid="inspector-collapse"><Icon name="collapse" size={16} /></button></header>
     {/* ponytail: gate mounting, not just requests, so every session panel drops stale state. */}
-    <div className="inspector-content" role="region" aria-label={`${tabs.find((tab) => tab.id === inspectorTab)?.label ?? 'Session'} inspector content`} tabIndex={0} data-testid="inspector-content">{selected.id ? panel : <p className="inspector-empty" role="status">Select a session to inspect its details.</p>}</div>
+    <div className="inspector-content" role="region" aria-label={`${tabs.find((tab) => tab.id === inspectorTab)?.label ?? 'Session'} inspector content`} tabIndex={0} data-testid="inspector-content">{live && <SharedWithMePanel />}{selected.id ? panel : <p className="inspector-empty" role="status">Select a session to inspect its details.</p>}</div>
     {selected.id && (live ? <LiveTodos key={identityKey} sessionId={selected.id} /> : <footer className={`todo-footer ${todosCollapsed ? 'collapsed' : ''}`}><button className="todo-title" type="button" onClick={() => setCollapsedTodos((current) => ({ ...current, [selected.id]: !current[selected.id] }))} aria-expanded={!todosCollapsed} data-testid="todo-toggle"><span><Icon name="todo" size={15} /><strong>Session plan</strong></span><small>{todos.filter((todo) => todo.done).length}/{todos.length}</small></button>{!todosCollapsed && <div>{todos.map((todo) => <label key={todo.id}><input type="checkbox" checked={todo.done} disabled readOnly data-testid={`todo-${todo.id}`} /><span>{todo.label}</span></label>)}</div>}</footer>)}
   </aside>;
 }

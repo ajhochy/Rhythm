@@ -78,7 +78,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          # Match the API image/runtime pin while better-sqlite3 remains on
+          # 12.x; Node 24.19+ is affected by nodejs/node#65446.
+          node-version: '24.18.1'
           cache: 'npm'
           cache-dependency-path: apps/api_server/package.json
       - run: npm install --workspaces=false
@@ -86,4 +88,7 @@ jobs:
         env:
           RHYTHM_LIVE_PG: '1'
           RHYTHM_LIVE_PG_URL: postgres://probe:probe@127.0.0.1:5432/probe
-        run: npx vitest run src/__tests__/live_postgres_bootstrap.test.ts
+        run: >-
+          npx vitest run
+          src/__tests__/live_postgres_bootstrap.test.ts
+          src/__tests__/google_desktop_postgres.test.ts

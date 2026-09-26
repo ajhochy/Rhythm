@@ -27,6 +27,7 @@ export interface GatewayDomainContracts {
   mobileAccess?: MobileAccessGateway;
   commands?: CommandGateway;
   runQuality?: RunQualityGateway;
+  usageBudget?: UsageBudgetGateway;
   cookbook?: CookbookGateway;
   research?: ResearchGateway;
   designs?: DesignsGateway;
@@ -35,6 +36,9 @@ export interface GatewayDomainContracts {
   autoPromotion?: AutoPromotionGateway;
   workspaceMembers?: ReturnType<typeof createLiveWorkspaceMembersGateway>;
   settings?: ReturnType<typeof createLiveSettingsGateway>;
+  runtime?: RuntimeGateway;
+  sharedAgents?: SharedAgentsPort;
+  remoteSessions?: RemoteSessionsGateway;
 }
 
 export interface GatewayHealth {
@@ -174,6 +178,7 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
       mobileAccess: createLiveMobileAccessGateway(apiBase, config.taskToken, localFetcher),
       commands: createLiveCommandGateway(apiBase, config.taskToken, localFetcher),
       runQuality: createLiveRunQualityGateway(apiBase, config.taskToken, localFetcher),
+      usageBudget: createLiveUsageBudgetGateway(apiBase, config.taskToken, localFetcher),
       cookbook: createLiveCookbookGateway(apiBase, config.taskToken, localFetcher),
       research: createLiveResearchGateway(apiBase, config.taskToken, localFetcher),
       designs: createLiveDesignsGateway(apiBase, config.taskToken, localFetcher),
@@ -182,6 +187,14 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
       autoPromotion: createLiveAutoPromotionGateway(productionApiBase, config.taskToken, fetcher),
       workspaceMembers: createLiveWorkspaceMembersGateway(productionApiBase, config.taskToken, fetcher),
       settings: createLiveSettingsGateway(productionApiBase, config.taskToken, fetcher),
+      runtime: createLiveRuntimeGateway(apiBase, localFetcher),
+      sharedAgents: createLiveSharedAgentsPort(apiBase, config.taskToken, createLiveSessionsGateway(apiBase, config.taskToken, localFetcher), fetcher),
+      // #1374 — undefined outside the Electron shell (plain browser preview, or a build with the
+      // RHYTHM_REMOTE_ATTACH kill switch off); the gateway itself reports `enabled: false` then.
+      remoteSessions: createLiveRemoteSessionsGateway(
+        typeof window === 'undefined' ? undefined
+          : (window as unknown as { rhythmShell?: { remoteEnvironments?: RemoteEnvironmentsBridge } }).rhythmShell?.remoteEnvironments,
+      ),
     },
     health: {
       api: () => check('api', `${apiBase}/health`),
@@ -231,6 +244,7 @@ import { createLiveScheduleGateway, type ScheduleGateway } from './schedules';
 import { createLiveMobileAccessGateway, type MobileAccessGateway } from './mobile-access';
 import { createLiveCommandGateway, type CommandGateway } from './commands';
 import { createLiveRunQualityGateway, type RunQualityGateway } from './run-quality';
+import { createLiveUsageBudgetGateway, type UsageBudgetGateway } from './usage-budget';
 import { createLiveCookbookGateway, type CookbookGateway } from './cookbook';
 import { createLiveResearchGateway, type ResearchGateway } from './research';
 import { createLiveDesignsGateway, type DesignsGateway } from './designs';
@@ -239,3 +253,7 @@ import { createLiveRunOutcomesGateway, type RunOutcomesGateway } from './run-out
 import { createLiveAutoPromotionGateway, type AutoPromotionGateway } from './auto-promotion';
 import { createLiveWorkspaceMembersGateway } from './workspace-members';
 import { createLiveSettingsGateway } from './settings';
+import { createLiveRuntimeGateway, type RuntimeGateway } from './runtime';
+import { createLiveSharedAgentsPort } from './shared-agents';
+import type { SharedAgentsPort } from '@ajhochy/rhythm-workspace-ui';
+import { createLiveRemoteSessionsGateway, type RemoteEnvironmentsBridge, type RemoteSessionsGateway } from './remote-sessions';

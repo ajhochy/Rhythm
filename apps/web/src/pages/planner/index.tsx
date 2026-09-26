@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from 'react';
 import { FocusDialog } from '../../components/FocusDialog';
 import { HeaderTaskAction } from '../../components/HeaderTaskAction';
+import { Splitter } from '../../components/Splitter';
 import { TaskCreateForm } from '../../components/TaskCreateForm';
 import { navigate } from '../../components/Shell';
 import { useFixtures } from '../../store';
@@ -8,6 +9,7 @@ import { useGateway } from '../../gateway/context';
 import { PlannerGatewayError, type Task, type TaskCollaborator, type WeeklyPlan } from '../../gateway/planner';
 import { launchQuickActionSession, quickActionPresets, type QuickActionTaskContext } from '../../components/quickActions';
 import { useWorkspaceMembers } from '../../components/useWorkspaceMembers';
+import { formatTimestamp } from '../../timestamps';
 import {
   partialLongTask,
   plannerEvents,
@@ -28,6 +30,7 @@ type InspectorState =
   | null;
 
 const supportedStates: PlannerSurfaceState[] = ['ready', 'loading', 'empty', 'server-error', 'forbidden', 'unavailable', 'readonly'];
+// These format date-only planner values; UTC prevents viewer offsets from shifting calendar days.
 const dayFormatter = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'UTC' });
 const monthDayFormatter = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 const weekFormatter = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
@@ -138,11 +141,14 @@ function CalendarEvent({ event, onInspect }: { event: PlannerEvent; onInspect(ev
 }
 
 // Page-local state shared by the two real render sites; breakpoints measure the pane, not the window.
+const defaultPlannerDayWidth = 184;
+
 function usePlannerLayout() {
   const root = useRef<HTMLElement>(null);
   const backlogTrigger = useRef<HTMLButtonElement>(null);
   const [narrow, setNarrow] = useState(false);
   const [view, setView] = useState<'week' | 'agenda' | null>(null);
+  const [dayWidths, setDayWidths] = useState(() => Array.from({ length: 6 }, () => defaultPlannerDayWidth));
   const [backlogOpen, setBacklogOpen] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   useEffect(() => {
@@ -153,9 +159,14 @@ function usePlannerLayout() {
     return () => observer.disconnect();
   }, []);
   const agenda = view ? view === 'agenda' : narrow;
+  const setDayWidth = (index: number, size: number) => setDayWidths((current) => current[index] === size ? current : current.map((width, widthIndex) => widthIndex === index ? size : width));
+  const dayGridStyle = agenda ? undefined : {
+    minWidth: `${dayWidths.reduce((total, width) => total + width, defaultPlannerDayWidth + dayWidths.length * 8)}px`,
+    gridTemplateColumns: `${dayWidths.map((width) => `${width}px 8px`).join(' ')} minmax(${defaultPlannerDayWidth}px, 1fr)`,
+  };
   const closeBacklog = () => { setBacklogOpen(false); backlogTrigger.current?.focus(); };
   const focusToday = () => requestAnimationFrame(() => root.current?.querySelector<HTMLElement>('.day-lane.today > header')?.scrollIntoView({ block: 'start', inline: 'nearest' }));
-  return { root, backlogTrigger, agenda, setView, backlogOpen, setBacklogOpen, closeBacklog, selectionMode, setSelectionMode, focusToday };
+  return { root, backlogTrigger, agenda, setView, backlogOpen, setBacklogOpen, closeBacklog, selectionMode, setSelectionMode, focusToday, dayGridStyle, setDayWidth };
 }
 
 function PlannerToolbar({ layout, week, backlog, all, onFilter, onWeek, onToday, onCreate, disabled, onSelection }: {
@@ -377,16 +388,16 @@ function FixturePlannerPage({ route }: { route: string }) {
               <div className="lane-list">{backlog.map((task) => <TaskCard key={task.id} task={task} readonly={readonly} selectionMode={layout.selectionMode} selected={selectedIds.includes(task.id)} onInspect={(item) => setInspector({ kind: 'task', id: item.id })} onComplete={toggleComplete} onSelect={toggleSelected} onDragStart={onDragStart} />)}</div>
             </aside>}
 
-            <div className="days-grid">
-              {days.map((day) => {
+            <div className="days-grid" style={layout.dayGridStyle}>
+              {days.map((day, index) => {
                 const events = week === PLANNER_CURRENT_WEEK ? plannerEvents.filter((event) => event.date === day.date) : [];
                 const dayTasks = tasks.filter((task) => placementDate(task) === day.date && (filter === 'all' || task.status === 'open')).sort((a, b) => a.scheduledOrder - b.scheduledOrder);
-                return <section className={`day-lane ${day.isToday ? 'today' : ''}`} key={day.date} aria-labelledby={`planner-day-title-${day.date}`} onDragOver={(event) => { if (!readonly) event.preventDefault(); }} onDrop={(event) => dropOnDay(event, day.date)} data-testid={`planner-day-${day.date}`}>
+                return <Fragment key={day.date}><section className={`day-lane ${day.isToday ? 'today' : ''}`} aria-labelledby={`planner-day-title-${day.date}`} onDragOver={(event) => { if (!readonly) event.preventDefault(); }} onDrop={(event) => dropOnDay(event, day.date)} data-testid={`planner-day-${day.date}`}>
                   <header tabIndex={-1}><h2 id={`planner-day-title-${day.date}`}>{day.weekday} {Number(day.date.slice(-2))} · {dayTasks.filter(task => task.status === 'open').length} open</h2>{day.isToday && <em>Today</em>}</header>
                   <div className="event-list">{events.map((event) => <CalendarEvent key={event.id} event={event} onInspect={(item) => setInspector({ kind: 'event', id: item.id })} />)}</div>
                   <div className="lane-list">{dayTasks.map((task) => <TaskCard key={task.id} task={task} readonly={readonly} selectionMode={layout.selectionMode} selected={selectedIds.includes(task.id)} onInspect={(item) => setInspector({ kind: 'task', id: item.id })} onComplete={toggleComplete} onSelect={toggleSelected} onDragStart={onDragStart} />)}</div>
                   <button className="text-button add-control" type="button" disabled={readonly} aria-describedby={readonly ? 'planner-readonly-reason' : undefined} onClick={() => setInspector({ kind: 'create', scheduledDate: day.date })} data-testid={`planner-add-task-${day.date}`}>+ Add task</button>
-                </section>;
+                </section>{!layout.agenda && index < days.length - 1 && <Splitter orientation="vertical" storageKey={`layout.planner.day-${index + 1}`} min={144} max={320} defaultSize={defaultPlannerDayWidth} onResize={(size) => layout.setDayWidth(index, size)} ariaLabel={`Resize ${day.weekday} and ${days[index + 1]!.weekday}`} testId={`planner-day-resizer-${index + 1}`} />}</Fragment>;
               })}
             </div>
           </section>
@@ -482,7 +493,7 @@ function LiveTaskCard({ task, selected, selectionMode, pending, onInspect, onCom
   const readonly = isCalendarShadow(task) || task.sourceType === 'prod_mirror';
   const sourceLabel = isProjectStep(task) ? task.sourceName ?? 'Project step' : `${task.energy ?? '-'} Task`;
   const eventTime = isCalendarShadow(task) && task.startsAt
-    ? `${new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(task.startsAt))}${task.endsAt ? `–${new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(task.endsAt))}` : ''}`
+    ? `${formatTimestamp(task.startsAt, { now: new Date(task.startsAt) })?.label ?? 'Time unavailable'}${task.endsAt ? `–${formatTimestamp(task.endsAt, { now: new Date(task.endsAt) })?.label ?? 'Time unavailable'}` : ''}`
     : null;
   // data-source-id is the task's own canonical id, not task.sourceId (the owning instance for
   // project steps) — apps/api_server/src/repositories/project_instances_repository.ts:106-129
@@ -809,15 +820,15 @@ function LivePlannerPage({ route }: { route: string }) {
               <div className="lane-list">{visibleBacklog.map((task) => <LiveTaskCard key={task.id} task={task} selectionMode={layout.selectionMode} pending={mutationPending} selected={selectedIds.includes(task.id)} onInspect={(item) => void openInspector(item)} onComplete={(item) => void toggleComplete(item)} onSelect={toggleSelected} onDragStart={onDragStart} />)}</div>
             </aside>}
 
-            <div className="days-grid">
-              {days.map((day) => {
+            <div className="days-grid" style={layout.dayGridStyle}>
+              {days.map((day, index) => {
                 const dayTasks = (plan.days.find((entry) => entry.date === day.date)?.tasks ?? [])
                   .filter((task) => showCompleted || (task.status !== 'done' && task.status !== 'deferred'));
-                return <section className={`day-lane ${day.isToday ? 'today' : ''}`} key={day.date} aria-labelledby={`planner-day-title-${day.date}`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropOnDay(event, day.date)} data-testid={`planner-day-${day.date}`}>
+                return <Fragment key={day.date}><section className={`day-lane ${day.isToday ? 'today' : ''}`} aria-labelledby={`planner-day-title-${day.date}`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropOnDay(event, day.date)} data-testid={`planner-day-${day.date}`}>
                   <header tabIndex={-1}><h2 id={`planner-day-title-${day.date}`}>{day.weekday} {Number(day.date.slice(-2))} · {dayTasks.filter(task => !isCalendarShadow(task) && task.status !== 'done' && task.status !== 'deferred').length} open</h2>{day.isToday && <em>Today</em>}</header>
                   <div className="lane-list">{dayTasks.map((task) => <LiveTaskCard key={task.id} task={task} selectionMode={layout.selectionMode} pending={mutationPending} selected={selectedIds.includes(task.id)} onInspect={(item) => void openInspector(item)} onComplete={(item) => void toggleComplete(item)} onSelect={toggleSelected} onDragStart={onDragStart} />)}</div>
                   <button className="text-button add-control" type="button" disabled={mutationPending} onClick={() => { setCreateScheduledDate(day.date); setCreateOpen(true); }} data-testid={`planner-add-task-${day.date}`}>+ Add task</button>
-                </section>;
+                </section>{!layout.agenda && index < days.length - 1 && <Splitter orientation="vertical" storageKey={`layout.planner.day-${index + 1}`} min={144} max={320} defaultSize={defaultPlannerDayWidth} onResize={(size) => layout.setDayWidth(index, size)} ariaLabel={`Resize ${day.weekday} and ${days[index + 1]!.weekday}`} testId={`planner-day-resizer-${index + 1}`} />}</Fragment>;
               })}
             </div>
           </section>

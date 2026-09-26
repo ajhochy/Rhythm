@@ -1,0 +1,73 @@
+{
+  "issue": 1540,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1540-c1",
+      "text": "**HRM-B1-AC1:** The rebased shared package builds and its React 18.3/19.2 host contracts pass; bundle inspection finds no bundled React, and the existing Electron consumer still renders its supported non-agent screens.",
+      "mode": "integration",
+      "test_file": "packages/rhythm-workspace-ui/tests/public-api.test.ts",
+      "test_id": "exports exactly the ten specified non-agent screens as components",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1540-c2",
+      "text": "**HRM-B1-AC2:** Fork-integrated builds/package checks pass; the unified artifact meets M9.2, including byte-for-byte `write:false` rebuild comparison, hashes, provenance, licenses and secret/source-map scans.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: the covering fork tests are outside this worktree, so no named test file could be verified here."
+    },
+    {
+      "criterion_id": "issue-1540-c3",
+      "text": "**HRM-B1-AC3:** The installed package passes install → enable → reload → disable → uninstall, plus update/rollback; `hermes doctor` and `hermes plugins doctor` pass without exposing secrets or leaving duplicate routes, styles or listeners.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires installed-app lifecycle inspection; the gate log deferred disable, uninstall, update, and rollback."
+    },
+    {
+      "criterion_id": "issue-1540-c4",
+      "text": "**HRM-B1-AC4:** One Rhythm sidebar destination renders safe identity/workspace metadata plus real Dashboard and task-list data from `https://api.vcrcapps.com`; network assertions find zero hosted POST/PATCH/PUT/DELETE requests in this read-only slice and zero calls to port 4001.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires hosted-API login and live credentialed network verification."
+    },
+    {
+      "criterion_id": "issue-1540-c5",
+      "text": "**HRM-B1-AC5:** Ask Hermes about this opens a native, editable chat draft with entity ID and bounded context labelled as untrusted user-authored data; it never sends, creates a Rhythm agent session or exposes a credential.",
+      "mode": "unit",
+      "test_file": "packages/rhythm-workspace-ui/tests/dashboard.screen.test.ts",
+      "test_id": "invites the host to handle a quick action rather than creating an agent session itself",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1540-c6",
+      "text": "**HRM-B1-AC6:** `rhythm_get_dashboard`, `rhythm_list_tasks` and `rhythm_complete_task` pass live Hermes policy tests; denied/unapproved completion makes zero writes, approved completion has live read-back, and M4.6 complete/reschedule tests prove unauthorized targets, conflicts and ambiguous retries cannot yield duplicate writes or false success.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires hosted-API login, a real Hermes approval client, and live read-back against a designated test task."
+    },
+    {
+      "criterion_id": "issue-1540-c7",
+      "text": "**HRM-B1-AC7:** Profile switches, restart, plugin reload, offline/reconnect and auth expiry recover correctly; renderer state/storage/responses, query keys, URLs, logs, bundles and model/tool context contain no credentials, and workspace metadata contains no `joinCode`.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires installed-app lifecycle inspection and hosted-API login."
+    },
+    {
+      "criterion_id": "issue-1540-c8",
+      "text": "**HRM-B1-AC8:** The approved-module matrix records parity evidence for Dashboard, Planner, Tasks, Rhythms, Projects, Messages, Facilities, Automations, Integrations and shared artifacts; no duplicate Rhythm Agents/Profile/Model/Skill/Schedule/Delegation surface ships, except the shared-agent catalog/editor governed by issue-shared-agents.json (decision 2026-09-24), and responsive, keyboard, theme and WCAG 2.1 AA gates pass.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires rendered installed-app parity, responsive, keyboard, theme, and axe verification."
+    },
+    {
+      "criterion_id": "issue-1540-c9",
+      "text": "**HRM-B1-AC9:** A draft fork PR targets `ajhochy/hermes-rhythm-plugin:main`; every fork issue #3–#14 has criterion-level evidence and closes only when proven. Dedicated campaign tracker/run logs are accurate, approved Obsidian dry-run updates are recorded, and AJ's merge/cutover gate remains explicitly separate from technical verification.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires human review of the fork PR, issue closures, campaign records, and cutover authorization."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-1540-c2", "issue-1540-c3", "issue-1540-c4", "issue-1540-c6", "issue-1540-c7", "issue-1540-c8", "issue-1540-c9"]
+}

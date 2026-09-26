@@ -36,6 +36,14 @@ export type SessionWireEvent = {
   callId?: string;
   questions?: unknown[];
   rejected?: boolean;
+  // session.spillover — apps/api_server/src/services/turn_redispatch.ts
+  // (cross-provider cascade hop) and routes/opencode_spillover_routes.ts
+  // (same-provider Anthropic account failover). `reason` is shared above.
+  fromAccountId?: string | null;
+  toAccountId?: string | null;
+  toProvider?: string;
+  toModel?: string;
+  toTier?: string;
 };
 export type SessionSocket = { send(frame: unknown): void; close(): void };
 export type TranscriptPageInfo = { nextCursor: string | null; hasMore: boolean };
@@ -60,8 +68,21 @@ export type SessionListQuery = {
 export type SessionListPage = { sessions: SessionCatalogEntry[]; ancestors: SessionCatalogEntry[]; pageInfo: TranscriptPageInfo };
 export type SessionSort = 'newest' | 'oldest' | 'name' | 'activity' | 'status';
 export type IdentityProfile = Profile & { autoApproveActions?: boolean; reasoningEffort?: string | null };
-export type ModelChoice = { providerId: string; modelId: string; label: string };
-export type AccountChoice = { id: string; label: string; status: string };
+// needsVerification: mirrors the #1572 catalog contract's available:'unknown' rows — the
+// provider is authorized and the model is not known-unavailable, but entitlement could not
+// be confirmed. Selectable, but the curation UI must show it as unverified rather than solid.
+export type ModelChoice = { providerId: string; modelId: string; label: string; contextLimit?: number; needsVerification?: boolean };
+export type AccountChoice = { id: string; label: string; status: string; isDefault?: boolean };
+export type ModelVisibilityEntry = { provider: string; modelId: string; visible: boolean };
+// #1580 S2 — one row per provider/model from GET /agents/models/catalog/full (unfiltered: includes
+// hidden and unavailable rows, unlike models()/gateway's picker-facing catalog). This is the
+// provider-first curation screen's data source; `visible` here already folds in the persisted
+// agent_model_visibility override, so it doubles as the switch's current on/off state.
+export type ModelCatalogEntry = {
+  provider: string; modelId: string; displayName: string;
+  authorized: boolean; available: boolean | 'unknown'; visible: boolean;
+  availabilityReason: string; connectUrl?: string;
+};
 export type SessionSettings = { name?: string; profileId?: string | null; providerId?: string | null; modelId?: string | null; thinkingBudget?: number | null; permissionMode?: string; fastMode?: boolean; anthropicAccountId?: string };
 export type TurnOverride = { profileId?: string; modelOverride?: { providerId: string; modelId: string } };
 const statusOrder: Record<Session['status'], number> = { working: 0, starting: 1, idle: 2, error: 3, closed: 4, resumable: 5 };
@@ -95,12 +116,36 @@ export interface SessionFileDiffEntry { file: string; before: string; after: str
 export interface SessionVcsDiffEntry { file: string; patch?: string; additions: number; deletions: number; status?: string }
 // GET /projects/:id/branches — apps/api_server/src/controllers/projects_controller.ts:161-175.
 export interface ProjectBranches { current: string | null; local: string[]; recent: string[] }
+export interface AgentProject { id: string; name: string; cwd?: string; vcsBranch?: string | null; archivedAt?: string | null }
+
+function mapAgentProject(value: unknown): AgentProject {
+  const row = record(value);
+  return { id: string(row.id), name: string(row.name), cwd: string(row.cwd),
+    vcsBranch: typeof row.vcsBranch === 'string' ? row.vcsBranch : null,
+    archivedAt: typeof row.archivedAt === 'string' ? row.archivedAt : null };
+}
 
 export interface SessionGateway {
   readonly mode: GatewayMode;
   profiles(): Promise<IdentityProfile[]>;
   models?(): Promise<ModelChoice[]>;
+  // #1580 — GET/PATCH /agent-models/visibility (issue #609 endpoints). The curation screen
+  // reads current per-model visibility and writes it back as an exact {updates:[...]} batch;
+  // callers must re-run models() afterward to refresh every picker (see store.refreshModels).
+  modelVisibility?(): Promise<ModelVisibilityEntry[]>;
+  setModelVisibility?(updates: ModelVisibilityEntry[]): Promise<void>;
+  // #1580 S2 — GET /agents/models/catalog/full for the provider-first curation screen.
+  modelCatalogFull?(): Promise<ModelCatalogEntry[]>;
   accounts?(): Promise<AccountChoice[]>;
+  startAccountLogin?(input: { accountId: string; label: string }): Promise<{ authorizationUrl: string }>;
+  completeAccountLogin?(input: { accountId: string; code: string }): Promise<void>;
+  setDefaultAccount?(accountId: string): Promise<void>;
+  removeAccount?(accountId: string): Promise<void>;
+  // Provider auth — apps/api_server/src/routes/opencode_auth_routes.ts:17-105.
+  authProviders?(): Promise<string[]>;
+  authorizeProvider?(provider: string, method: number): Promise<{ authUrl: string; instructions: string }>;
+  completeProviderAuth?(provider: string, code: string, method: number): Promise<void>;
+  saveProviderApiKey?(provider: string, apiKey: string): Promise<void>;
   patchSettings?(localId: string, input: SessionSettings): Promise<Session>;
   archive?(localId: string, archived: boolean): Promise<void>;
   fork?(localId: string, messageId: string): Promise<Session>;
@@ -108,9 +153,10 @@ export interface SessionGateway {
   init?(localId: string): Promise<void>;
   list(): Promise<Session[]>;
   listPage?(query: SessionListQuery): Promise<SessionListPage>;
-  projectLabels?(): Promise<{ id: string; name: string }[]>;
+  projectLabels?(): Promise<AgentProject[]>;
+  createProject?(input: { name: string; cwd: string }): Promise<AgentProject>;
   detail(localId: string): Promise<Session>;
-  create(input: { profileId: string; cwd: string; name: string; isolateWorktree: boolean; worktreeName?: string; branch?: string; createBranch?: boolean; stash?: 'stash' | 'discard'; taskId?: string; anthropicAccountId?: string }): Promise<Session>;
+  create(input: { profileId: string; cwd: string; name: string; projectId?: string; isolateWorktree: boolean; worktreeName?: string; branch?: string; createBranch?: boolean; stash?: 'stash' | 'discard'; taskId?: string; anthropicAccountId?: string }): Promise<Session>;
   // post-m1-phase-6 c1b/c2a: GET /:id/files/find-files?query&limit&type — returns relative paths.
   findFiles(localId: string, query: string, opts?: { limit?: number; type?: 'file' | 'directory' }): Promise<string[]>;
   // GET /:id/files/list?path — engine-shaped entries scoped to the session/worktree directory.
@@ -188,6 +234,17 @@ export interface ProfileMutation {
   defaultAnthropicAccountId: string | null;
 }
 
+// #1580 — discards a response that started before a newer one began (a gateway or account
+// switch mid-flight). Mirrors the `generation` fencing already used by the transcript reducer:
+// begin() hands the caller a token to check with isCurrent() once its request resolves.
+export function createGenerationGuard() {
+  let generation = 0;
+  return {
+    begin: (): number => ++generation,
+    isCurrent: (token: number): boolean => token === generation,
+  };
+}
+
 export class SessionGatewayError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
@@ -242,7 +299,7 @@ export type CanonicalTool = {
   name: string; callId: string; status: string; input?: unknown; output?: unknown; error?: unknown;
   metadata?: Record<string, unknown> & { content?: McpContent[] };
 };
-export type RichTranscriptBlock = TranscriptBlock & { tool?: CanonicalTool };
+export type RichTranscriptBlock = TranscriptBlock & { tool?: CanonicalTool; streaming?: boolean; terminal?: boolean };
 export type RichTranscriptMessage = TranscriptMessage & {
   cost?: number; tokens?: { input?: number; output?: number; reasoning?: number; cache?: { read?: number; write?: number } };
 };
@@ -258,20 +315,21 @@ export function mapPart(raw: Record<string, unknown>, id: string): RichTranscrip
   } : undefined;
   if (raw.type === 'tool' && raw.tool === 'task') {
     const match = TASK_ID_PATTERN.exec(string(state.output));
-    return { id, kind: 'children', content: string(state.title, 'Child session'), meta: string(state.status), childSessionId: match?.[1], tool };
+    const terminal = state.status === 'completed' || state.status === 'error';
+    return { id, kind: 'children', content: string(state.title, 'Child session'), meta: string(state.status), childSessionId: match?.[1], tool, terminal, streaming: !terminal };
   }
   // post-m1-phase-4 c2d: preserve every other canonical part type instead of collapsing it to
   // markdown. Field vocabulary from apps/api_server/src/services/opencode_stream_bridge.ts:1250-1339.
-  if (raw.type === 'reasoning') return { id, kind: 'reasoning', title: 'Reasoning', content: string(raw.text) };
+  if (raw.type === 'reasoning') return { id, kind: 'reasoning', title: 'Reasoning', content: raw.text === '[REDACTED]' ? '' : string(raw.text), terminal: typeof record(raw.time).end === 'number', streaming: typeof record(raw.time).end !== 'number' };
   if (raw.type === 'tool') {
-    return { id, kind: 'tool', title: string(state.title, string(raw.tool, 'Tool')), content: canonicalText(state.output), meta: tool?.status, tool };
+    return { id, kind: 'tool', title: string(state.title, string(raw.tool, 'Tool')), content: canonicalText(state.output), meta: state.status === 'error' && record(state.metadata).interrupted === true ? 'Interrupted' : tool?.status, tool, terminal: state.status === 'completed' || state.status === 'error' };
   }
   if (raw.type === 'step-start') return { id, kind: 'step-start', content: string(raw.snapshot) };
   if (raw.type === 'step-finish') return { id, kind: 'step-finish', content: string(raw.snapshot), meta: string(raw.reason) };
   if (raw.type === 'compaction') return { id, kind: 'compaction', content: raw.auto === true ? 'Context compacted automatically' : 'Context compacted' };
   if (raw.type === 'file') return { id, kind: 'file', title: string(raw.filename), content: string(raw.url), meta: string(raw.mime) };
   if (raw.type === 'agent') { const source = record(raw.source); return { id, kind: 'agent', title: string(raw.name, 'Agent'), content: string(source.value) }; }
-  return { id, kind: 'markdown', content: string(raw.text, string(raw.content)) };
+  return { id, kind: 'markdown', content: string(raw.text, string(raw.content)), terminal: typeof record(raw.time).end === 'number', streaming: raw.type === 'text' && typeof record(raw.time).end !== 'number' };
 }
 
 export function mapMessage(value: unknown): RichTranscriptMessage {
@@ -288,6 +346,7 @@ export function mapMessage(value: unknown): RichTranscriptMessage {
     role: ['user', 'assistant', 'system'].includes(role) ? role as TranscriptMessage['role'] : 'system',
     createdAt: typeof record(info.time).created === 'number' && Number.isFinite(record(info.time).created) && Math.abs(record(info.time).created as number) <= 8640000000000000
       ? new Date(record(info.time).created as number).toISOString() : string(source.createdAt, new Date(0).toISOString()),
+    interrupted: record(info.error).name === 'MessageAbortedError',
     ...messageMetadata({ ...source, ...info }),
     blocks: parts.map((part, index) => mapPart(record(part), string(record(part).id, `${id}-${index}`))),
   };
@@ -419,23 +478,96 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
       const result = await response<{ ok?: boolean }>('Prepare project', request(`/agent-sessions/${encodeURIComponent(id)}/init`, { method: 'POST' }));
       if (result.ok !== true) throw new Error('Project initialization was not confirmed by the engine');
     },
+    // #1580: a row is selectable only when its provider is authorized AND the model itself
+    // is not known-unavailable — `available` is the #1572 tri-state (true/'unknown'/false).
+    // Previously this only checked `authorized`, so a disconnected or ineligible model still
+    // showed up as choosable; unavailable rows must instead fall through to the '(unavailable)'
+    // fallback option the pickers already render for a stale current selection.
     models: async () => {
       const rows = await response<unknown[]>('Load models', request('/agents/models/catalog'));
-      const choices = rows.map(record).filter(row => row.authorized === true && string(row.provider) && string(row.modelId))
-        .map(row => ({ providerId: string(row.provider), modelId: string(row.modelId), label: string(row.displayName, string(row.modelId)) }));
+      const choices = rows.map(record)
+        .filter(row => row.authorized === true && row.available !== false && string(row.provider) && string(row.modelId))
+        .map(row => ({
+          providerId: string(row.provider), modelId: string(row.modelId), label: string(row.displayName, string(row.modelId)),
+          needsVerification: row.available === 'unknown',
+          ...(typeof row.contextLimit === 'number' && Number.isFinite(row.contextLimit) && row.contextLimit > 0 ? { contextLimit: row.contextLimit } : {}),
+        }));
       return [...new Map(choices.map(row => [`${row.providerId}/${row.modelId}`, row])).values()];
     },
-    accounts: async () => {
-      const body = await response<{ accounts?: unknown[] }>('Load accounts', request('/opencode/auth/accounts'));
-      return (body.accounts ?? []).map(record).map(row => ({ id: string(row.id), label: string(row.label, string(row.id)), status: string(row.status) }));
+    modelVisibility: async () => {
+      const rows = await response<unknown[]>('Load model visibility', request('/agent-models/visibility'));
+      return rows.map(record).map(row => ({ provider: string(row.provider), modelId: string(row.modelId), visible: row.visible === true }));
     },
+    setModelVisibility: async (updates) => {
+      await response<unknown>('Save model visibility', request('/agent-models/visibility', { method: 'PATCH', body: JSON.stringify({ updates }) }));
+    },
+    // #1580 S2: de-duplicated by provider+modelId — the server fans one model out to several
+    // `agent` rows (claude-code/codex/gemini-cli/opencode); the curation screen only needs one
+    // row per actual model.
+    modelCatalogFull: async () => {
+      const rows = await response<unknown[]>('Load full model catalog', request('/agents/models/catalog/full'));
+      const seen = new Map<string, ModelCatalogEntry>();
+      for (const raw of rows.map(record)) {
+        const provider = string(raw.provider);
+        if (!provider) continue;
+        const modelId = string(raw.modelId);
+        const key = `${provider}\0${modelId}`;
+        if (seen.has(key)) continue;
+        seen.set(key, {
+          provider, modelId, displayName: string(raw.displayName, modelId || provider),
+          authorized: raw.authorized === true, available: raw.available === 'unknown' ? 'unknown' : raw.available === true,
+          visible: raw.visible !== false, availabilityReason: string(raw.availabilityReason),
+          ...(typeof raw.connectUrl === 'string' && raw.connectUrl ? { connectUrl: raw.connectUrl } : {}),
+        });
+      }
+      return [...seen.values()];
+    },
+    accounts: async () => {
+      const body = await response<{ accounts?: unknown[]; defaultAccountId?: string }>('Load accounts', request('/opencode/auth/accounts'));
+      return (body.accounts ?? []).map(record).map(row => ({
+        id: string(row.id),
+        label: string(row.label, string(row.id)),
+        status: string(row.status),
+        isDefault: string(row.id) === body.defaultAccountId,
+      }));
+    },
+    startAccountLogin: async (input) => {
+      const result = await response<{ authorizeUrl: string }>('Start account authorization', request('/opencode/auth/accounts/login-start', { method: 'POST', body: JSON.stringify(input) }));
+      return { authorizationUrl: result.authorizeUrl };
+    },
+    completeAccountLogin: async (input) => { await response<unknown>('Complete account authorization', request('/opencode/auth/accounts/login-complete', { method: 'POST', body: JSON.stringify(input) })); },
+    setDefaultAccount: async (accountId) => { await response<unknown>('Set default account', request('/opencode/auth/accounts/default', { method: 'PATCH', body: JSON.stringify({ accountId }) })); },
+    removeAccount: async (accountId) => { await response<unknown>('Remove account', request(`/opencode/auth/accounts/${encodeURIComponent(accountId)}`, { method: 'DELETE' })); },
+    authProviders: async () => {
+      const body = await response<{ providers?: unknown[] }>('Load provider authorizations', request('/opencode/auth'));
+      return (body.providers ?? []).map((entry) => string(entry));
+    },
+    authorizeProvider: async (provider, method) => {
+      const body = await response<{ authUrl?: string; instructions?: string }>('Start provider authorization', request(`/opencode/auth/${encodeURIComponent(provider)}/authorize?method=${method}`));
+      return { authUrl: string(body.authUrl), instructions: string(body.instructions, '') };
+    },
+    completeProviderAuth: async (provider, code, method) => { await response<unknown>('Complete provider authorization', request(`/opencode/auth/${encodeURIComponent(provider)}/callback?code=${encodeURIComponent(code)}&method=${method}`)); },
+    saveProviderApiKey: async (provider, apiKey) => { await response<unknown>('Save provider API key', request(`/opencode/auth/${encodeURIComponent(provider)}`, { method: 'POST', body: JSON.stringify({ apiKey }) })); },
     patchSettings: async (id, input) => {
       await response<unknown>('Save session settings', request(`/agent-sessions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(input) }));
       const body = await response<{ session: unknown; messages?: unknown[]; transcriptPage?: unknown }>('Read session settings', request(`/agent-sessions/${encodeURIComponent(id)}?transcriptLimit=50`));
       return toSessionViewModel(body.session, body.messages ?? [], body.transcriptPage);
     },
     projectLabels: async () => (await response<unknown[]>('Load projects', request('/projects?includeArchived=true')))
-      .map((value) => ({ id: string(record(value).id), name: string(record(value).name) })),
+      .map(mapAgentProject),
+    createProject: async (input) => {
+      // ProjectsController uses the canonical AppError envelope, {error:{code,message}}.
+      // Adapt it here without changing error semantics for other session operations.
+      const pending = request('/projects', { method: 'POST', body: JSON.stringify({ name: input.name, cwd: input.cwd }) }).then(async (result) => {
+        if (!result.ok) {
+          const body = await result.clone().json().catch(() => null);
+          const message = record(record(body).error).message;
+          if (typeof message === 'string') throw new SessionGatewayError(result.status, message);
+        }
+        return result;
+      });
+      return mapAgentProject(await response<unknown>('Create project', pending));
+    },
     listPage: async (query) => {
       const params = new URLSearchParams({ limit: '100', scope: query.scope === 'background' ? 'self_improvement' : query.scope ?? 'chats' });
       if (query.projectId) params.set('projectId', query.projectId);

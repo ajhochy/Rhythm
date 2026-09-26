@@ -49,7 +49,7 @@ import {
 export const MEMORY_VAULT_SOURCE = 'obsidian-memory';
 
 /** OKF navigation/audit artifacts are derived metadata, never memory notes. */
-export const RESERVED_VAULT_FILENAMES = ['index.md', 'log.md'] as const;
+export const RESERVED_VAULT_FILENAMES = ['index.md', 'log.md', 'readme.md'] as const;
 export const RESERVED_VAULT_FILENAME_PATTERNS = [
   /^log-archive-\d{4}\.md$/i,
 ] as const;

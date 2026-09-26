@@ -112,6 +112,18 @@ export interface RpcResFrame {
   bodyB64: string;
 }
 
+// ── pty ──────────────────────────────────────────────────────────────────────
+
+/** A device-authorized PTY socket bridged through the existing Mac uplink. */
+export type PtyFrame =
+  | {
+      ch: 'pty'; t: 'open'; id: string; ptyId: string;
+      projectId: string; deviceToken: string; ticket: string;
+    }
+  | { ch: 'pty'; t: 'ready'; id: string }
+  | { ch: 'pty'; t: 'data'; id: string; dataB64: string; binary: boolean }
+  | { ch: 'pty'; t: 'close'; id: string; code: number };
+
 // ── file ─────────────────────────────────────────────────────────────────────
 
 export interface FileArtifactFrame {
@@ -134,9 +146,10 @@ export type UplinkFrame =
   | EventsEnvFrame
   | RpcReqFrame
   | RpcResFrame
+  | PtyFrame
   | FileArtifactFrame;
 
-const CHANNELS = new Set(['ctrl', 'repl', 'events', 'rpc', 'file']);
+const CHANNELS = new Set(['ctrl', 'repl', 'events', 'rpc', 'pty', 'file']);
 
 /**
  * Parse one wire frame. Returns null (never throws) on garbage — an uplink

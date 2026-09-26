@@ -140,15 +140,22 @@ describe('issue #1178 transcript sharing contracts', () => {
   it('E25C-c1: detached publication is consumable without a source and remains revocable', async () => {
     const sourceId = seedStructuredSource();
     const prepared = await (await fetch(`${baseUrl}/agent-sessions/${sourceId}/shares/review`, { headers: bearer(users.owner.token) })).json() as { reviewHash: string; snapshot: unknown };
+    const requestStartedAt = Date.now();
     const response = await fetch(`${baseUrl}/shares`, {
       method: 'POST', headers: { ...bearer(users.owner.token), 'Content-Type': 'application/json' },
       body: JSON.stringify({ review: prepared.snapshot, reviewHash: prepared.reviewHash, explicitlyIncludedItemIds: [], recipientUserIds: [users.recipient.id] }),
     });
+    const requestFinishedAt = Date.now();
     expect(response.status).toBe(201);
     const share = await response.json() as { id: string; sourceSessionId: unknown; expiresAt: string; snapshot: unknown; ownerUserId: number };
     expect(share.sourceSessionId).toBeNull();
     expect(share.ownerUserId).toBe(users.owner.id);
-    expect(Date.parse(share.expiresAt) - Date.now()).toBeLessThanOrEqual(30 * 86400000);
+    expect(Date.parse(share.expiresAt)).toBeGreaterThanOrEqual(
+      requestStartedAt + SharedTranscriptsRepository.defaultExpirationMs,
+    );
+    expect(Date.parse(share.expiresAt)).toBeLessThanOrEqual(
+      requestFinishedAt + SharedTranscriptsRepository.defaultExpirationMs,
+    );
     db.prepare('DELETE FROM agent_sessions WHERE id = ?').run(sourceId);
     const read = await fetch(`${baseUrl}/shares/${share.id}`, { headers: bearer(users.recipient.token) });
     expect(read.status).toBe(200);
@@ -165,6 +172,36 @@ describe('issue #1178 transcript sharing contracts', () => {
     ]);
   });
 
+  it('uses the approved 90-day cap for explicit detached-share expiry', async () => {
+    const sourceId = seedStructuredSource();
+    const prepared = await (await fetch(
+      `${baseUrl}/agent-sessions/${sourceId}/shares/review`,
+      { headers: bearer(users.owner.token) },
+    )).json() as { reviewHash: string; snapshot: unknown };
+    const body = {
+      review: prepared.snapshot,
+      reviewHash: prepared.reviewHash,
+      explicitlyIncludedItemIds: [],
+      recipientUserIds: [users.recipient.id],
+    };
+    const post = (expiresAt: string) => fetch(`${baseUrl}/shares`, {
+      method: 'POST',
+      headers: {
+        ...bearer(users.owner.token),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ ...body, expiresAt }),
+    });
+
+    expect((await post(new Date(Date.now() + 60 * 86400000).toISOString())).status)
+      .toBe(201);
+    const overCap = await post(
+      new Date(Date.now() + 91 * 86400000).toISOString(),
+    );
+    expect(overCap.status).toBe(400);
+    expect(await overCap.text()).toMatch(/90 days/i);
+  });
+
   it('E25C-c2: production rejects malformed publication without mutations and sanitizes forged categories', async () => {
     const body = { reviewHash: 'a'.repeat(64), review: { items: [{ id: 'safe', category: 'message', content: { type: 'text', text: 'hello' } }] }, explicitlyIncludedItemIds: [], recipientUserIds: [users.recipient.id] };
     const post = (value: unknown, token: string = users.owner.token) => fetch(`${baseUrl}/shares`, { method: 'POST', headers: { ...bearer(token), 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
@@ -176,7 +213,7 @@ describe('issue #1178 transcript sharing contracts', () => {
       { review: { items: [{ id: 'a', category: 'unknown', content: 'x' }] } },
       { review: { items: [body.review.items[0], body.review.items[0]] } },
       { explicitlyIncludedItemIds: ['missing'] }, { explicitlyIncludedItemIds: ['safe', 'safe'] },
-      { expiresAt: new Date(Date.now() + 31 * 86400000).toISOString() },
+      { expiresAt: new Date(Date.now() + 91 * 86400000).toISOString() },
     ]) expect((await post({ ...body, ...patch })).status).toBe(400);
     expect((await post({ ...body, recipientUserIds: [users.other.id] })).status).toBe(403);
     expect(db.prepare('SELECT count(*) AS n FROM shared_transcripts').get()).toEqual(before);

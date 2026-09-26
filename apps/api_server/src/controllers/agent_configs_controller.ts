@@ -4,7 +4,10 @@ import { env } from '../config/env';
 import { resolveMemoryVaultPath } from '../config/env';
 import { AppError } from '../errors/app_error';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
-import type { AgentConfigInput } from '../repositories/agent_configs_repository';
+import type {
+  AgentConfigInput,
+  RevisionedAgentConfig,
+} from '../repositories/agent_configs_repository';
 import { syncOpencodeAgentProfiles } from '../services/agent_profile_sync';
 import {
   deleteAgentProfileFile,
@@ -219,6 +222,175 @@ function validateBody(body: Record<string, unknown>, requireLabel = true): void 
   // is the source of truth for what actually gets stored.
 }
 
+export type AgentConfigPatchReason =
+  | 'revision_conflict'
+  | 'agent_locked'
+  | 'invalid_change'
+  | 'not_found';
+
+export class AgentConfigPatchError extends AppError {
+  constructor(
+    public readonly reason: AgentConfigPatchReason,
+    statusCode: number,
+    code: string,
+    message: string,
+    public readonly currentRevision?: number,
+  ) {
+    super(statusCode, code, message);
+    this.name = 'AgentConfigPatchError';
+  }
+}
+
+interface PreparedAgentConfigPatch {
+  patch: Partial<AgentConfigInput>;
+  expectedRevision: number | undefined;
+  revisioned: boolean;
+}
+
+function patchError(
+  reason: AgentConfigPatchReason,
+  error: AppError,
+  currentRevision?: number,
+): AgentConfigPatchError {
+  return new AgentConfigPatchError(
+    reason,
+    error.statusCode,
+    error.code,
+    error.message,
+    currentRevision,
+  );
+}
+
+async function prepareAgentConfigPatch(
+  id: string,
+  body: Record<string, unknown>,
+): Promise<PreparedAgentConfigPatch> {
+  const existing = repo.getById(id);
+  if (!existing) throw patchError('not_found', AppError.notFound('AgentConfig'));
+
+  try {
+    const revisioned = Object.prototype.hasOwnProperty.call(body, 'expectedRevision');
+    const expectedRevision = revisioned ? body.expectedRevision : undefined;
+    if (revisioned) {
+      if (typeof expectedRevision !== 'number' || !Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
+        throw AppError.badRequest('expectedRevision must be a non-negative safe integer');
+      }
+      const editableFields = new Set([
+        'expectedRevision', 'label', 'icon', 'enabled', 'isAgent', 'isManager',
+        'systemPrompt', 'allowedMcpsJson', 'allowedSkillsJson', 'corePermissionsJson',
+        'allowedDelegatesJson', 'modelProvider', 'modelId', 'ocAgent', 'sessionSelectable',
+        'schedulable', 'imageGenerationEnabled', 'modelTierHint', 'defaultAnthropicAccountId',
+        'reasoningEffort', 'autoApproveActions',
+      ]);
+      if (Object.keys(body).some((key) => !editableFields.has(key))) {
+        throw AppError.badRequest('Unknown or protected field in revisioned agent config edit');
+      }
+      if (expectedRevision !== existing.revision) {
+        throw patchError(
+          'revision_conflict',
+          AppError.conflict('Agent config changed; reload before saving'),
+          existing.revision,
+        );
+      }
+    }
+
+    const suppliedSecurityFields = Object.keys(body).filter((field) => SECURITY_STATE_FIELDS.has(field));
+    if (suppliedSecurityFields.length > 0) {
+      throw AppError.badRequest(
+        `Security lock fields can only be changed through the dedicated reviewed transition: ${suppliedSecurityFields.join(', ')}`,
+      );
+    }
+    if (existing.locked === true && body.enabled !== undefined && Boolean(body.enabled)) {
+      throw patchError(
+        'agent_locked',
+        AppError.conflict(
+          'This agent is security-locked and cannot be re-enabled with the generic PATCH; use the reviewed-reenable transition',
+        ),
+        existing.revision,
+      );
+    }
+    if (existing.presetId !== null) {
+      const forbidden = Object.keys(body).filter((field) => PRESET_PROTECTED_FIELDS.includes(field));
+      if (forbidden.length > 0) {
+        throw AppError.badRequest(
+          `Preset configs may only update "enabled" and "command". Forbidden fields: ${forbidden.join(', ')}`,
+        );
+      }
+    }
+
+    validateBody(body, false);
+    if (typeof body.allowedMcpsJson === 'string') {
+      try {
+        await assertMcpToolGrantsKnown(body.allowedMcpsJson, existing.id);
+      } catch (error) {
+        throw AppError.badRequest(error instanceof Error ? error.message : String(error));
+      }
+    }
+
+    const patch: Partial<AgentConfigInput> = {};
+    if (body.label !== undefined) patch.label = (body.label as string).trim();
+    if (body.icon !== undefined) patch.icon = body.icon as string;
+    if (body.enabled !== undefined) patch.enabled = Boolean(body.enabled);
+    if (body.isAgent !== undefined) patch.isAgent = Boolean(body.isAgent);
+    if (body.isManager !== undefined) patch.isManager = Boolean(body.isManager);
+    if (body.systemPrompt !== undefined) patch.systemPrompt = typeof body.systemPrompt === 'string' ? body.systemPrompt : null;
+    if (body.allowedMcpsJson !== undefined) patch.allowedMcpsJson = typeof body.allowedMcpsJson === 'string' ? body.allowedMcpsJson : null;
+    if (body.allowedSkillsJson !== undefined) patch.allowedSkillsJson = typeof body.allowedSkillsJson === 'string' ? body.allowedSkillsJson : null;
+    if (body.corePermissionsJson !== undefined) patch.corePermissionsJson = typeof body.corePermissionsJson === 'string' ? body.corePermissionsJson : null;
+    if (body.allowedDelegatesJson !== undefined) patch.allowedDelegatesJson = typeof body.allowedDelegatesJson === 'string' ? body.allowedDelegatesJson : null;
+    if (body.modelProvider !== undefined) patch.modelProvider = typeof body.modelProvider === 'string' ? body.modelProvider : null;
+    if (body.modelId !== undefined) patch.modelId = typeof body.modelId === 'string' ? body.modelId : null;
+    if (body.ocAgent !== undefined) patch.ocAgent = typeof body.ocAgent === 'string' ? body.ocAgent : null;
+    if (body.sessionSelectable !== undefined) patch.sessionSelectable = Boolean(body.sessionSelectable);
+    if (body.schedulable !== undefined) patch.schedulable = body.schedulable === null ? null : Boolean(body.schedulable);
+    if (body.imageGenerationEnabled !== undefined) patch.imageGenerationEnabled = Boolean(body.imageGenerationEnabled);
+    if (body.modelTierHint !== undefined) patch.modelTierHint = typeof body.modelTierHint === 'string' ? body.modelTierHint : null;
+    if (body.defaultAnthropicAccountId !== undefined) patch.defaultAnthropicAccountId = typeof body.defaultAnthropicAccountId === 'string' ? body.defaultAnthropicAccountId : null;
+    if (body.reasoningEffort !== undefined) patch.reasoningEffort = typeof body.reasoningEffort === 'string' ? body.reasoningEffort : null;
+    if (body.autoApproveActions !== undefined) patch.autoApproveActions = Boolean(body.autoApproveActions);
+
+    return {
+      patch,
+      expectedRevision: expectedRevision as number | undefined,
+      revisioned,
+    };
+  } catch (error) {
+    if (error instanceof AgentConfigPatchError) throw error;
+    if (error instanceof AppError) throw patchError('invalid_change', error, existing.revision);
+    throw error;
+  }
+}
+
+export async function validateAgentConfigPatch(
+  id: string,
+  body: Record<string, unknown>,
+): Promise<void> {
+  await prepareAgentConfigPatch(id, body);
+}
+
+export async function applyAgentConfigPatch(
+  id: string,
+  body: Record<string, unknown>,
+): Promise<RevisionedAgentConfig> {
+  const prepared = await prepareAgentConfigPatch(id, body);
+  const updated = repo.update(id, prepared.patch, prepared.expectedRevision);
+  if (!updated) {
+    const current = repo.getById(id);
+    if (prepared.revisioned && current) {
+      throw patchError(
+        'revision_conflict',
+        AppError.conflict('Agent config changed; reload before saving'),
+        current.revision,
+      );
+    }
+    throw patchError('not_found', AppError.notFound('AgentConfig'));
+  }
+  projectAgentProfileAfterWrite(updated, 'config-update');
+  await reloadAgentProfilesBestEffort();
+  broadcastAgentConfigsChanged();
+  return updated;
+}
+
 export class AgentConfigsController {
   list(_req: Request, res: Response, next: NextFunction): void {
     try {
@@ -423,87 +595,13 @@ export class AgentConfigsController {
 
   async patch(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const existing = repo.getById(req.params.id);
-      if (!existing) throw AppError.notFound('AgentConfig');
-
-      const body = req.body as Record<string, unknown>;
-      const suppliedSecurityFields = Object.keys(body).filter((field) =>
-        SECURITY_STATE_FIELDS.has(field),
-      );
-      if (suppliedSecurityFields.length > 0) {
-        throw AppError.badRequest(
-          `Security lock fields can only be changed through the dedicated reviewed transition: ${suppliedSecurityFields.join(', ')}`,
-        );
+      if (req.header?.('Origin') === 'app://hermes') {
+        throw AppError.forbidden('Hermes may edit agents only through the capability bridge');
       }
-      if (existing.locked === true && body.enabled !== undefined && Boolean(body.enabled)) {
-        throw AppError.conflict(
-          'This agent is security-locked and cannot be re-enabled with the generic PATCH; use the reviewed-reenable transition',
-        );
-      }
-
-      // Preset rows: only allow patching enabled and command
-      if (existing.presetId !== null) {
-        const suppliedFields = Object.keys(body);
-        const forbidden = suppliedFields.filter((f) => PRESET_PROTECTED_FIELDS.includes(f));
-        if (forbidden.length > 0) {
-          throw AppError.badRequest(
-            `Preset configs may only update "enabled" and "command". Forbidden fields: ${forbidden.join(', ')}`,
-          );
-        }
-      }
-
-      // Validate the patch body (don't require label/command presence, but validate if provided)
-      validateBody(body, false);
-      if (typeof body.allowedMcpsJson === 'string') {
-        try {
-          await assertMcpToolGrantsKnown(body.allowedMcpsJson, existing.id);
-        } catch (error) {
-          throw AppError.badRequest(error instanceof Error ? error.message : String(error));
-        }
-      }
-
-      const patch: Partial<AgentConfigInput> = {};
-      if (body.label !== undefined) patch.label = (body.label as string).trim();
-      if (body.icon !== undefined) patch.icon = body.icon as string;
-      if (body.enabled !== undefined) patch.enabled = Boolean(body.enabled);
-      if (body.isAgent !== undefined) patch.isAgent = Boolean(body.isAgent);
-      if (body.isManager !== undefined) patch.isManager = Boolean(body.isManager);
-      if (body.systemPrompt !== undefined) patch.systemPrompt = typeof body.systemPrompt === 'string' ? body.systemPrompt : null;
-      if (body.allowedMcpsJson !== undefined) patch.allowedMcpsJson = typeof body.allowedMcpsJson === 'string' ? body.allowedMcpsJson : null;
-      if (body.allowedSkillsJson !== undefined) patch.allowedSkillsJson = typeof body.allowedSkillsJson === 'string' ? body.allowedSkillsJson : null;
-      if (body.corePermissionsJson !== undefined) patch.corePermissionsJson = typeof body.corePermissionsJson === 'string' ? body.corePermissionsJson : null;
-      if (body.allowedDelegatesJson !== undefined) patch.allowedDelegatesJson = typeof body.allowedDelegatesJson === 'string' ? body.allowedDelegatesJson : null;
-      if (body.modelProvider !== undefined) patch.modelProvider = typeof body.modelProvider === 'string' ? body.modelProvider : null;
-      if (body.modelId !== undefined) patch.modelId = typeof body.modelId === 'string' ? body.modelId : null;
-      if (body.ocAgent !== undefined) patch.ocAgent = typeof body.ocAgent === 'string' ? body.ocAgent : null;
-      if (body.sessionSelectable !== undefined) patch.sessionSelectable = Boolean(body.sessionSelectable);
-      // #1088 — `schedulable: null` explicitly clears the override back to
-      // "inherit sessionSelectable"; a boolean sets an explicit override.
-      if (body.schedulable !== undefined) {
-        patch.schedulable = body.schedulable === null ? null : Boolean(body.schedulable);
-      }
-      if (body.imageGenerationEnabled !== undefined) patch.imageGenerationEnabled = Boolean(body.imageGenerationEnabled);
-      if (body.modelTierHint !== undefined) patch.modelTierHint = typeof body.modelTierHint === 'string' ? body.modelTierHint : null;
-      if (body.defaultAnthropicAccountId !== undefined) patch.defaultAnthropicAccountId = typeof body.defaultAnthropicAccountId === 'string' ? body.defaultAnthropicAccountId : null;
-      // #1118 — `reasoningEffort: null` explicitly clears back to provider default.
-      if (body.reasoningEffort !== undefined) patch.reasoningEffort = typeof body.reasoningEffort === 'string' ? body.reasoningEffort : null;
-      if (body.autoApproveActions !== undefined) patch.autoApproveActions = Boolean(body.autoApproveActions);
-      // Legacy CLI fields (#581) — accept on the wire for back-compat
-      // with old payloads but never propagate to the repository layer.
-
-      const updated = repo.update(req.params.id, patch);
-      if (!updated) throw AppError.notFound('AgentConfig');
-      // Re-project the updated profile to its opencode agent file — or delete
-      // it when the profile just became disabled (#1135: a disabled profile's
-      // stale .md must not remain live/loadable by the engine). Non-fatal.
-      projectAgentProfileAfterWrite(updated, 'config-update');
-      // The engine caches agent profiles (including task permission rules) for
-      // its lifetime (#1015, #1014). Best-effort reload covers every edit —
-      // system prompt, scope, model, AND the delegate roster — so the next
-      // task call in an existing session sees the newly persisted allowlist.
-      await reloadAgentProfilesBestEffort();
-      broadcastAgentConfigsChanged();
-      res.json(updated);
+      res.json(await applyAgentConfigPatch(
+        req.params.id,
+        req.body as Record<string, unknown>,
+      ));
     } catch (err) {
       next(err);
     }

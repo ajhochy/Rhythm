@@ -1,0 +1,21 @@
+{
+  "run_id": "2026-09-19-hermes-wrong-app",
+  "date": "2026-09-19",
+  "issue": 1542,
+  "smoke_result": "fail",
+  "verification_claimed": "dashboard Ready and session dashboard loads",
+  "divergence": true,
+  "smoke_notes": "looks like we put the wrong hermes app into electron... i wanted hermes desktop. Not whatever this is.",
+  "criteria_results": [
+    {
+      "criterion_id": "hermes-desktop-identity",
+      "text": "Rhythm Hermes tab hosts actual Hermes Desktop",
+      "contract_status": "dashboard-specific contract passed",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "The contract tested the web dashboard rather than the requested Desktop. Native Ready/HTTP health was insufficient to establish product identity."
+    }
+  ],
+  "process_issues": [],
+  "resolution": "Planning only: proposed Desktop renderer plus explicit native host adapter; implementation and qualification pending."
+}

@@ -37,13 +37,184 @@ const agentServer = Object.freeze({
     ipcRenderer.on('rhythm:agent-server:status-changed', listener);
     return () => ipcRenderer.removeListener('rhythm:agent-server:status-changed', listener);
   },
+  restart: () => ipcRenderer.invoke('rhythm:agent-server:restart'),
 });
 const updates = Object.freeze({ openDownloadPage: () => ipcRenderer.invoke('rhythm:updates:open-download') });
+const hermes = Object.freeze({
+  enabled: process.env.RHYTHM_HERMES_ENABLED !== '0',
+  getStatus: () => ipcRenderer.invoke('hermes:get-status'),
+  install: () => ipcRenderer.invoke('hermes:install'),
+  restart: () => ipcRenderer.invoke('hermes:restart'),
+  /** @param {(status: import('./hermes-server.mjs').Status) => void} callback */
+  onStatus: (callback) => {
+    const listener = (/** @type {unknown} */ _event, /** @type {import('./hermes-server.mjs').Status} */ snapshot) => callback(snapshot);
+    ipcRenderer.on('hermes:status', listener);
+    return () => ipcRenderer.removeListener('hermes:status', listener);
+  },
+});
+// B3 owns this key independently of B2's `hermes` supervisor bridge. Keep the
+// native attachment capability private so a stale document cannot reuse it.
+let hermesViewEpoch = 0;
+/** @type {string | undefined} */
+let hermesViewAttachment;
+const hermesView = Object.freeze({
+  attach: async () => {
+    const epoch = ++hermesViewEpoch;
+    hermesViewAttachment = undefined;
+    const result = await ipcRenderer.invoke('hermes:view:attach');
+    if (epoch !== hermesViewEpoch) {
+      if (result?.attachment) await ipcRenderer.invoke('hermes:view:detach', { attachment: result.attachment });
+      return { ok: false, reason: 'detached' };
+    }
+    if (result?.ok === true && typeof result.attachment === 'string') hermesViewAttachment = result.attachment;
+    // issue-1570-e: version/source/fallbackReason let the Hermes page state which artifact is
+    // running and why, when an installed update failed and Rhythm fell back to the bundled copy.
+    return {
+      ok: result?.ok === true,
+      ...(result?.reason ? { reason: result.reason } : {}),
+      ...(typeof result?.hermesVersion === 'string' ? { version: result.hermesVersion } : {}),
+      ...(result?.source === 'installed' || result?.source === 'factory' ? { source: result.source } : {}),
+      ...(typeof result?.fallbackReason === 'string' ? { fallbackReason: result.fallbackReason } : {}),
+    };
+  },
+  /** @param {{x: number, y: number, width: number, height: number}} bounds */
+  setBounds: (bounds) => ipcRenderer.invoke('hermes:view:bounds', { attachment: hermesViewAttachment, bounds }),
+  detach: () => {
+    ++hermesViewEpoch;
+    const attachment = hermesViewAttachment;
+    hermesViewAttachment = undefined;
+    return ipcRenderer.invoke('hermes:view:detach', { attachment });
+  },
+  /** @param {unknown} intent */
+  sendIntent: (intent) => ipcRenderer.invoke('hermes:intent', { attachment: hermesViewAttachment, intent }),
+  // issue-1570-e: main-owned native file dialog only; no renderer-supplied path ever crosses this
+  // bridge. See hermes:update:install in main.mjs.
+  installUpdate: () => ipcRenderer.invoke('hermes:update:install'),
+});
+let colonyViewEpoch = 0;
+/** @type {string | undefined} */
+let colonyViewAttachment;
+const colonyView = Object.freeze({
+  getStatus: () => ipcRenderer.invoke('colony:host:status'),
+  discoverSources: () => ipcRenderer.invoke('colony:host:discover'),
+  setEnabled: (/** @type {boolean} */ enabled) => ipcRenderer.invoke('colony:host:set-enabled', enabled),
+  setSource: (/** @type {string} */ id, /** @type {boolean} */ enabled) => ipcRenderer.invoke('colony:host:set-source', { id, enabled }),
+  /** @param {{headless?: boolean}} [options] List-only sessions pass {headless:true} so the
+   * main process never creates a WebContentsView; omitted/false keeps the original wire shape. */
+  attach: async (options) => {
+    const epoch = ++colonyViewEpoch;
+    colonyViewAttachment = undefined;
+    const result = options?.headless
+      ? await ipcRenderer.invoke('colony:view:attach', { headless: true })
+      : await ipcRenderer.invoke('colony:view:attach');
+    if (epoch !== colonyViewEpoch) {
+      if (result?.attachment) await ipcRenderer.invoke('colony:view:detach', { attachment: result.attachment });
+      return { ok: false, reason: 'detached' };
+    }
+    if (result?.ok === true && typeof result.attachment === 'string') colonyViewAttachment = result.attachment;
+    return { ok: result?.ok === true, reason: result?.reason };
+  },
+  /** @param {{x:number,y:number,width:number,height:number}} bounds */
+  setBounds: (bounds) => ipcRenderer.invoke('colony:view:bounds', { attachment: colonyViewAttachment, bounds }),
+  /** @param {{generation?:string,cursor?:string,collection?:'threads'|'projects'|'warnings',limit?:number}} page */
+  inventoryPage: (page) => ipcRenderer.invoke('colony:inventory:page', { attachment: colonyViewAttachment, page }),
+  /** @param {string} generation */
+  inventoryCancel: (generation) => ipcRenderer.invoke('colony:inventory:cancel', { attachment: colonyViewAttachment, generation }),
+  /** @param {'open'|'showParent'|'reveal'|'copyPath'|'archive'|'restore'|'viewed'} kind @param {string} id */
+  runAction: (kind, id) => ipcRenderer.invoke('colony:action:run', { attachment: colonyViewAttachment, kind, id }),
+  previewImport: () => ipcRenderer.invoke('colony:import:preview'),
+  commitImport: () => ipcRenderer.invoke('colony:import:commit'),
+  onReset: (/** @type {() => void} */ callback) => {
+    const listener = () => callback();
+    ipcRenderer.on('colony:host:reset', listener);
+    return () => ipcRenderer.removeListener('colony:host:reset', listener);
+  },
+  /** @param {{event:string,payload:unknown}} intent */
+  sendIntent: (intent) => ipcRenderer.send('colony:view:intent', { attachment: colonyViewAttachment, ...intent }),
+  /** @param {(message:{event:string,payload:unknown}) => void} callback */
+  onEvent: (callback) => {
+    const listener = (/** @type {unknown} */ _event, /** @type {any} */ message) => {
+      if (!message || typeof message !== 'object' || Array.isArray(message) || Object.keys(message).length !== 3 ||
+        message.attachment !== colonyViewAttachment || !['scene.select', 'scene.status'].includes(message.event) ||
+        !message.payload || typeof message.payload !== 'object' || Array.isArray(message.payload)) return;
+      callback({ event: message.event, payload: JSON.parse(JSON.stringify(message.payload)) });
+    };
+    ipcRenderer.on('colony:view:event', listener);
+    return () => ipcRenderer.removeListener('colony:view:event', listener);
+  },
+  detach: () => {
+    ++colonyViewEpoch;
+    const attachment = colonyViewAttachment;
+    colonyViewAttachment = undefined;
+    return ipcRenderer.invoke('colony:view:detach', { attachment });
+  },
+});
 // Renderer code can only reconcile pending approval IDs with the main process. Main validates the
 // closed approval/session target schema and owns all text, presentation, dedupe, and navigation.
 window.addEventListener('rhythm:approval-notifications', (event) => {
   if (!(event instanceof CustomEvent)) return;
   ipcRenderer.send('rhythm:approval-notifications:sync', event.detail);
+});
+// ponytail: validate again in main; an owned document is not proof of a trusted component.
+window.addEventListener('rhythm:agent-notifications', (event) => {
+  if (!(event instanceof CustomEvent)) return;
+  const detail = event.detail;
+  if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return;
+  const keys = Object.keys(detail).sort().join(',');
+  /** @param {unknown} value */
+  const id = (value) => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
+  try { if (JSON.stringify(detail).length >= 2048 || detail.v !== 1) return; } catch { return; }
+  if (detail.type === 'ready' && keys === 'type,v'
+    || detail.type === 'viewing' && keys === 'displayed,sessionId,type,v' && typeof detail.displayed === 'boolean' && (detail.sessionId === null || id(detail.sessionId))
+    || detail.type === 'arm' && keys === 'sessionId,type,v' && id(detail.sessionId)
+    || detail.type === 'completion' && keys === 'sessionId,type,v' && id(detail.sessionId)
+    || (detail.type === 'ask' || detail.type === 'resolve') && keys === 'family,requestId,sessionId,type,v' && ['permission', 'question'].includes(detail.family) && id(detail.sessionId) && id(detail.requestId)) {
+    ipcRenderer.send('rhythm:agent-notifications:sync', detail);
+  }
+});
+ipcRenderer.on('rhythm:agent-notifications:permission', (_event, detail) => {
+  if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return;
+  if (Object.keys(detail).sort().join(',') !== 'status,v' || detail.v !== 1
+    || !['granted', 'denied', 'unknown', 'unsupported'].includes(detail.status)) return;
+  window.dispatchEvent(new CustomEvent('rhythm:agent-notifications:permission', { detail: { v: 1, status: detail.status } }));
+});
+const aiAccounts = Object.freeze({
+  getStatus: () => ipcRenderer.invoke('rhythm:ai-accounts:status'),
+  setGrant: (/** @type {unknown} */ mutation) => ipcRenderer.invoke('rhythm:ai-accounts:set-grant', mutation),
+  setMemorySearchConsent: (/** @type {unknown} */ mutation) => ipcRenderer.invoke('rhythm:ai-accounts:set-memory-consent', mutation),
+});
+// #1374 — secondary-desktop continuation. The Device token lives only in main
+// (src/remote-environments.mjs); this surface never sees it, only opaque ids and results.
+const remoteEnvironments = Object.freeze({
+  enabled: !['0', 'false'].includes((process.env.RHYTHM_REMOTE_ATTACH ?? '').toLowerCase()),
+  list: () => ipcRenderer.invoke('remote-env:list'),
+  /** @param {string} environmentId */
+  connect: (environmentId) => ipcRenderer.invoke('remote-env:connect', environmentId),
+  disconnect: () => ipcRenderer.invoke('remote-env:disconnect'),
+  /** @param {{method:string,path:string,body?:unknown,headers?:Record<string,string>}} request */
+  request: (request) => ipcRenderer.invoke('remote-env:request', request),
+  /** @param {string} sessionId @param {(chunk: string) => void} onChunk @param {() => void} [onEnd] */
+  subscribe: (sessionId, onChunk, onEnd) => {
+    const chunkListener = (/** @type {unknown} */ _event, /** @type {{sessionId:string,chunk:string}} */ message) => {
+      if (message?.sessionId === sessionId) onChunk(message.chunk);
+    };
+    const endListener = (/** @type {unknown} */ _event, /** @type {{sessionId:string}} */ message) => {
+      if (message?.sessionId !== sessionId) return;
+      ipcRenderer.removeListener('remote-env:sse-chunk', chunkListener);
+      ipcRenderer.removeListener('remote-env:sse-end', endListener);
+      onEnd?.();
+    };
+    ipcRenderer.on('remote-env:sse-chunk', chunkListener);
+    ipcRenderer.on('remote-env:sse-end', endListener);
+    return ipcRenderer.invoke('remote-env:subscribe', sessionId).then((/** @type {{state:string}} */ result) => Object.freeze({
+      ...result,
+      unsubscribe: () => {
+        ipcRenderer.removeListener('remote-env:sse-chunk', chunkListener);
+        ipcRenderer.removeListener('remote-env:sse-end', endListener);
+        return ipcRenderer.invoke('remote-env:unsubscribe', sessionId);
+      },
+    }));
+  },
 });
 contextBridge.exposeInMainWorld('rhythmShell', Object.freeze({
   version: 6,
@@ -54,4 +225,10 @@ contextBridge.exposeInMainWorld('rhythmShell', Object.freeze({
   humanApproval,
   agentServer,
   updates,
+  selectDirectory: () => ipcRenderer.invoke('shell:select-directory'),
+  hermes,
+  hermesView,
+  colonyView,
+  aiAccounts,
+  remoteEnvironments,
 }));

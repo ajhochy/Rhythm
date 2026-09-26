@@ -104,6 +104,25 @@ describe('issue #1175 paired OpenCode gateway security regressions', () => {
           }],
         }]);
       }
+      if (
+        url.pathname.startsWith('/session/ses-owned/message/') &&
+        method === 'GET'
+      ) {
+        const messageId = decodeURIComponent(url.pathname.split('/').at(-1)!);
+        return json({
+          info: {
+            id: messageId,
+            sessionID: messageId === 'msg-owned' ? 'ses-owned' : 'ses-other',
+          },
+          parts: messageId === 'msg-owned' ? [{
+            id: 'prt-owned',
+            sessionID: 'ses-owned',
+            messageID: 'msg-owned',
+            type: 'text',
+            text: 'owned',
+          }] : [],
+        });
+      }
       forwarded.push(`${method} ${url.pathname}`);
       return json({
         id: 'unexpected',

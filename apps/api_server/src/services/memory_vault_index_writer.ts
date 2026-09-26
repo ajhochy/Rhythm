@@ -9,6 +9,7 @@
  */
 
 import { promises as fs } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 
 import { logger } from '../utils/logger';
@@ -176,6 +177,34 @@ async function assertSafeNavigationOutput(
     if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') throw err;
   }
 }
+
+async function writeNavigationAtomic(canonicalRoot: string, abs: string, content: string): Promise<void> {
+  const parent = path.dirname(abs);
+  const parentBefore = await fs.lstat(parent);
+  const temporary = path.join(parent, `.${path.basename(abs)}.${randomBytes(12).toString('hex')}.tmp`);
+  const handle = await fs.open(temporary, 'wx', 0o600);
+  try { await handle.writeFile(content, 'utf8'); await handle.sync(); }
+  finally { await handle.close(); }
+  try {
+    await assertSafeNavigationOutput(canonicalRoot, abs);
+    const parentAfter = await fs.lstat(parent);
+    if (parentBefore.dev !== parentAfter.dev || parentBefore.ino !== parentAfter.ino) {
+      throw new Error(`Navigation parent changed during write: ${abs}`);
+    }
+    await fs.rename(temporary, abs);
+  } finally {
+    await fs.rm(temporary, { force: true });
+  }
+}
+
+const OWNERSHIP_README = [
+  '# Memory ownership', '',
+  'Rhythm-managed notes: Rhythm owns their lifecycle and index updates.',
+  'Unmanaged user notes: the user or external author owns the content; Rhythm only searches them.',
+  'Hermes working memory: Hermes owns ~/.hermes/memories/MEMORY.md and USER.md.',
+  'Rhythm exclusively owns index.md and log.md aggregates; Hermes never writes either file.',
+  '',
+].join('\n');
 
 function renderKindIndex(kind: MemoryKind, entries: NavigationEntry[]): string {
   const lines = [`# ${KIND_TITLES[kind]}`, ''];
@@ -362,7 +391,7 @@ async function regenerateMemoryVaultNavigationUnlocked(
           summary.unchanged += 1;
           continue;
         }
-        await fs.writeFile(abs, output.content, 'utf8');
+        await writeNavigationAtomic(canonicalRoot, abs, output.content);
         summary.written += 1;
       } catch (err) {
         summary.failed += 1;
@@ -370,6 +399,13 @@ async function regenerateMemoryVaultNavigationUnlocked(
           `[MemoryVaultNavigation] Could not write ${output.relPath}: ${String(err)}`,
         );
       }
+    }
+    const readme = resolveWithinMemoryDir(root, 'README.md');
+    await assertSafeNavigationOutput(canonicalRoot, readme);
+    try { await fs.access(readme); }
+    catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      await writeNavigationAtomic(canonicalRoot, readme, OWNERSHIP_README);
     }
   } catch (err) {
     summary.failed += 1;

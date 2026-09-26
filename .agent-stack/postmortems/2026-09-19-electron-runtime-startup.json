@@ -1,0 +1,26 @@
+{
+  "run_id": "2026-09-19-electron-runtime-startup",
+  "issue": null,
+  "date": "2026-09-19",
+  "smoke_result": "fail",
+  "verification_claimed": "FAIL",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "desktop-startup",
+      "text": "Electron reuses a running Rhythm runtime or starts its API and engine with no startup errors",
+      "contract_status": "untested",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "Unit and source probes do not prove signed-app startup. Saved-session Keychain authorization blocks app; helper independently waits for existing capability Keychain authorization."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "local-keychain-authorization",
+      "description": "SecurityAgent interaction requires the user; computer control rejected access for safety reasons.",
+      "detected_by": "native process samples and CUA refusal"
+    }
+  ],
+  "later_result": "User accepted signed local repair; real native signing and real runtime reuse passed. Full fresh package qualification remains pending."
+}

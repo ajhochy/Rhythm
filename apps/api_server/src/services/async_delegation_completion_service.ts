@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 
 import {
   AgentAsyncDelegationsRepository,
-  type AgentAsyncDelegation,
 } from '../repositories/agent_async_delegations_repository';
 import {
   AgentConfigsRepository,
@@ -16,6 +15,10 @@ import { untrustedContext } from '../security/untrusted_fence';
 import { getDb } from '../database/db';
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { resolveProfileScope } from './agent_profile_scope';
+import {
+  AgentBridgeJobsRepository,
+  type AgentBridgeJobRow,
+} from '../shared_agents/delegation_jobs_repository';
 
 const RESTART_RECOVERY_PARENT_LIMIT = 100;
 
@@ -32,6 +35,11 @@ export class AsyncDelegationCompletionService {
   private delegationsRepo = new AgentAsyncDelegationsRepository();
   private messagesRepo = new AgentSessionMessagesRepository();
   private sessionsRepo = new AgentSessionsRepository();
+  private bridgeRestartRecovered = false;
+
+  async onBridgeJobTerminal(parentSessionId: string): Promise<void> {
+    await this.flushParent(parentSessionId);
+  }
 
   /**
    * Production restart hook. Each query is bounded, but cursor pagination
@@ -43,6 +51,11 @@ export class AsyncDelegationCompletionService {
   async recoverAfterRestart(
     limit = RESTART_RECOVERY_PARENT_LIMIT,
   ): Promise<{ parentsExamined: number; claimsRemaining: number }> {
+    const bridgeJobs = new AgentBridgeJobsRepository();
+    if (!this.bridgeRestartRecovered) {
+      bridgeJobs.recoverAfterRestart();
+      this.bridgeRestartRecovered = true;
+    }
     const pageSize = Math.max(
       1,
       Math.min(RESTART_RECOVERY_PARENT_LIMIT, Math.floor(limit)),
@@ -74,6 +87,13 @@ export class AsyncDelegationCompletionService {
       const nextCursor = parentIds.at(-1)!;
       if (nextCursor === afterParentSessionId) break;
       afterParentSessionId = nextCursor;
+    }
+
+    for (const parentSessionId of bridgeJobs.listWakingParentIds(pageSize)) {
+      if (!examined.has(parentSessionId)) {
+        examined.add(parentSessionId);
+        await this.flushParent(parentSessionId);
+      }
     }
 
     return {
@@ -156,12 +176,20 @@ export class AsyncDelegationCompletionService {
     }
 
     const claimed = this.delegationsRepo.claimCompletedForParent(parentSessionId);
-    if (claimed.length === 0) return;
+    const bridgeRepo = new AgentBridgeJobsRepository();
+    const bridgeClaimed = bridgeRepo.claimCompletedForParent(parentSessionId);
+    if (claimed.length === 0 && bridgeClaimed.length === 0) return;
     const ids = claimed.map((delegation) => delegation.id);
+    const bridgeIds = bridgeClaimed.map((delegation) => delegation.id);
+    const wakeDelegations: WakeDelegation[] = [
+      ...claimed,
+      ...bridgeClaimed.map(bridgeWakeDelegation),
+    ];
     const parentSdkSessionId =
       parent.sdkSessionId ?? opencodeSessionMap.get(parent.id) ?? null;
     if (!parentSdkSessionId) {
       this.delegationsRepo.releaseClaims(ids);
+      bridgeRepo.releaseDeliveryClaims(bridgeIds);
       logger.warn(
         `[AsyncDelegation] parent ${parent.id} has no engine session; completion remains queued`,
       );
@@ -181,7 +209,7 @@ export class AsyncDelegationCompletionService {
     }
     const runningAsOwnAgent =
       profileScope.ocAgent !== null && profileScope.ocAgent === parentAgentConfigId;
-    const messageID = this.deliveryMessageId(claimed);
+    const messageID = this.deliveryMessageId(wakeDelegations);
     // `messageID` is deliberately NOT forwarded to the engine.
     //
     // Engine message ids are `msg_` + 12 HEX characters encoding a timestamp +
@@ -206,7 +234,7 @@ export class AsyncDelegationCompletionService {
         ? { system: profileScope.systemPrompt }
         : {}),
     };
-    const wakeText = this.buildWakeText(claimed, messageID);
+    const wakeText = this.buildWakeText(wakeDelegations, messageID);
 
     this.wakeInFlight.add(parentSessionId);
     let deliveryUnknown = false;
@@ -219,9 +247,10 @@ export class AsyncDelegationCompletionService {
         promptOpts,
       );
       if (!enqueued) {
-        const delivered = await this.wasWakeDelivered(parent, claimed);
+        const delivered = await this.wasWakeDelivered(parent, wakeDelegations);
         if (delivered === true) {
           this.delegationsRepo.markNotified(ids);
+          bridgeRepo.markDelivered(bridgeIds);
           logger.info(
             `[AsyncDelegation] recovered accepted parent wake ${messageID} after an ambiguous enqueue result`,
           );
@@ -236,13 +265,15 @@ export class AsyncDelegationCompletionService {
       }
 
       this.delegationsRepo.markNotified(ids);
+      bridgeRepo.markDelivered(bridgeIds);
       logger.info(
         `[AsyncDelegation] woke parent ${parentSessionId} with ${claimed.length} completed delegate(s)`,
       );
     } catch (error) {
-      const delivered = await this.wasWakeDelivered(parent, claimed);
+      const delivered = await this.wasWakeDelivered(parent, wakeDelegations);
       if (delivered === true) {
         this.delegationsRepo.markNotified(ids);
+        bridgeRepo.markDelivered(bridgeIds);
         logger.info(
           `[AsyncDelegation] recovered accepted parent wake ${messageID} after enqueue exception`,
         );
@@ -252,7 +283,10 @@ export class AsyncDelegationCompletionService {
       throw error;
     } finally {
       this.wakeInFlight.delete(parentSessionId);
-      if (!deliveryUnknown) this.delegationsRepo.releaseClaims(ids);
+      if (!deliveryUnknown) {
+        this.delegationsRepo.releaseClaims(ids);
+        bridgeRepo.releaseDeliveryClaims(bridgeIds);
+      }
     }
   }
 
@@ -268,14 +302,21 @@ export class AsyncDelegationCompletionService {
   }
 
   private async reconcileWakingClaims(parent: AgentSession): Promise<boolean> {
-    const waking = this.delegationsRepo.listWakingForParent(parent.id);
+    const bridgeRepo = new AgentBridgeJobsRepository();
+    const asyncWaking = this.delegationsRepo.listWakingForParent(parent.id);
+    const bridgeWaking = bridgeRepo.listWakingForParent(parent.id);
+    const waking: WakeDelegation[] = [
+      ...asyncWaking,
+      ...bridgeWaking.map(bridgeWakeDelegation),
+    ];
     if (waking.length === 0) return true;
 
     const delivered = await this.wasWakeDelivered(parent, waking);
     if (delivered === true) {
       this.delegationsRepo.markNotified(
-        waking.map((delegation) => delegation.id),
+        asyncWaking.map((delegation) => delegation.id),
       );
+      bridgeRepo.markDelivered(bridgeWaking.map((delegation) => delegation.id));
       logger.info(
         `[AsyncDelegation] reconciled already-delivered wake ${this.deliveryMessageId(waking)} for parent ${parent.id}`,
       );
@@ -289,18 +330,21 @@ export class AsyncDelegationCompletionService {
     }
 
     this.delegationsRepo.releaseClaims(
-      waking.map((delegation) => delegation.id),
+      asyncWaking.map((delegation) => delegation.id),
     );
+    bridgeRepo.releaseDeliveryClaims(bridgeWaking.map((delegation) => delegation.id));
     return true;
   }
 
   private async wasWakeDelivered(
     parent: AgentSession,
-    delegations: AgentAsyncDelegation[],
+    delegations: WakeDelegation[],
   ): Promise<boolean | null> {
     const messageID = this.deliveryMessageId(delegations);
     const marker = this.deliveryMarker(messageID);
-    const childIds = delegations.map((delegation) => delegation.childSessionId);
+    const childIds = delegations
+      .map((delegation) => delegation.childSessionId)
+      .filter((id): id is string => Boolean(id));
     const matches = (
       candidate: {
         sdkMessageId?: string | null;
@@ -321,7 +365,7 @@ export class AsyncDelegationCompletionService {
         '';
       return (
         text.includes(marker) ||
-        (text.includes('[Async delegation update]') &&
+        (childIds.length > 0 && text.includes('[Async delegation update]') &&
           childIds.every((childId) => text.includes(childId)))
       );
     };
@@ -363,7 +407,7 @@ export class AsyncDelegationCompletionService {
     }
   }
 
-  private deliveryMessageId(delegations: AgentAsyncDelegation[]): string {
+  private deliveryMessageId(delegations: WakeDelegation[]): string {
     const stableIds = delegations
       .map((delegation) => delegation.id)
       .sort()
@@ -377,7 +421,7 @@ export class AsyncDelegationCompletionService {
   }
 
   private buildWakeText(
-    delegations: AgentAsyncDelegation[],
+    delegations: WakeDelegation[],
     messageID = this.deliveryMessageId(delegations),
   ): string {
     const blocks = delegations.map((delegation) => {
@@ -387,18 +431,21 @@ export class AsyncDelegationCompletionService {
       // docs/ai/decisions/2026-06-27-fence-untrusted-external-content.md.
       // This path previously interpolated it raw, which was the one place in the
       // system that injected possibly-tainted text into a prompt unfenced.
-      const tainted = childConsumedExternalContent(delegation.childSessionId);
+      const tainted = delegation.forceUntrusted ||
+        childConsumedExternalContent(delegation.childSessionId ?? '');
       const body = delegation.completionText ?? '(no text result)';
+      const renderedBody = tainted
+        ? untrustedContext(body, `delegated result from @${delegation.targetAgentConfigId}`)
+        : body;
       const outcome = delegation.errorText
-        ? `failed: ${delegation.errorText}`
-        : `finished:\n${
-            tainted
-              ? untrustedContext(body, `delegated result from @${delegation.targetAgentConfigId}`)
-              : body
-          }`;
+        ? `failed (${delegation.errorText}):\n${renderedBody}`
+        : `finished:\n${renderedBody}`;
+      const childReference = delegation.forceUntrusted
+        ? 'external runtime'
+        : delegation.childSessionId ?? 'unknown';
       return (
         `- @${delegation.targetAgentConfigId} ` +
-        `(delegated child session ${delegation.childSessionId}) ${outcome}`
+        `(delegated child session ${childReference}) ${outcome}`
       );
     });
     return (
@@ -408,6 +455,30 @@ export class AsyncDelegationCompletionService {
       this.deliveryMarker(messageID)
     );
   }
+}
+
+interface WakeDelegation {
+  id: string;
+  childSessionId: string | null;
+  targetAgentConfigId: string;
+  completionText: string | null;
+  errorText: string | null;
+  forceUntrusted?: boolean;
+}
+
+function bridgeWakeDelegation(row: AgentBridgeJobRow): WakeDelegation {
+  return {
+    id: row.id,
+    childSessionId: row.child_session_id,
+    targetAgentConfigId: row.target_agent_id,
+    completionText: row.result_text,
+    errorText: row.state === 'failed' || row.state === 'unknown'
+      ? row.state_reason ?? row.state
+      : row.state === 'cancelled'
+        ? 'cancelled'
+        : null,
+    forceUntrusted: true,
+  };
 }
 
 /**

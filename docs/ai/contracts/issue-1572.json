@@ -1,0 +1,349 @@
+{
+  "issue": 1572,
+  "date": "2026-09-25",
+  "test_command": "npx vitest run src/__tests__/agents_models_catalog.test.ts src/__tests__/issue_1572_provider_policy.test.ts src/__tests__/issue_1572_provider_snapshot.test.ts src/__tests__/issue_1572_live_e2e.test.ts src/__tests__/system_refresh_routes.test.ts src/__tests__/issue_637_contract.test.ts src/__tests__/issue_639_contract.test.ts src/__tests__/issue_1123_contract.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/issue_1572_entitlements.test.ts src/services/usage_budget_service.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "1572:1572-S1:1",
+      "text": "Connected curated OpenAI rows with unverified entitlement remain selectable while stale models are absent.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S1:2",
+      "text": "A localhost custom provider is probed without forwarding authorization and a declared available model is selectable.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S1:3",
+      "text": "A configured public custom provider is not probed and remains selectable with unknown availability.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S1:4",
+      "text": "Protocol-relative and backslash base-path escapes make no outbound request.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S1:5",
+      "text": "A live OpenRouter fallback model remains visible by default unless explicitly hidden.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S1:6",
+      "text": "OpenRouter duplicate suppression is display-only and agent-scoped, and treats an authorized direct row with availability other than false as present.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S1:7",
+      "text": "Options-only, environment-authorized, and OpenCode Zen providers are not dropped.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S1:8",
+      "text": "Unauthorized providers receive provider-level Connect rows without invented model IDs.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S1:9",
+      "text": "Resolver default order is unchanged; automatic selection never picks custom providers or local providers while an authorized cloud route exists, and falls back to Ollama when it is the only authorized route.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S1:10",
+      "text": "A connected direct Anthropic override with unknown entitlement is accepted.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1123_contract.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S1:11",
+      "text": "Hidden, disconnected, and explicitly unavailable overrides are rejected.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/agent_delegation_auth.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S1:12",
+      "text": "A failed engine config reload returns restart_required with reason reload_failed.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/system_refresh_routes.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S1:13",
+      "text": "Provider drift returns restart_required with reason provider_drift; an in-sync refresh returns ok.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/system_refresh_routes.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S1:14",
+      "text": "Loopback inventory intersection is read-only, bounded, and credential-free.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1572_provider_policy.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S1:15",
+      "text": "Public, link-local, metadata, userinfo, IPv6-mapped, private-host, and mismatched-origin probes are rejected.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/issue_1572_provider_policy.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S1:16",
+      "text": "Inventory redirects are refused and never followed across origins.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1572_provider_policy.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S1:17",
+      "text": "Provider snapshots expose only effective endpoint origin and source metadata, with secret-free digests.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/issue_1572_provider_snapshot.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S1:18",
+      "text": "An engine-managed models override without baseURL stays selectable.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S1:19",
+      "text": "Live reload detects newly declared provider drift without falsely claiming activation.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1572_live_e2e.test.ts phase 1",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S1:20",
+      "text": "A live fresh boot instantiates the declared provider and never invents an undeclared inventory row.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1572_live_e2e.test.ts phase 2",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S2:1",
+      "text": "Anthropic visibility keeps only the newest canonical model per active family.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/issue_1572_entitlements.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S2:2",
+      "text": "Anthropic family parsing supports future families and one-part major versions without a hard-coded family enum.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/issue_1572_entitlements.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S2:3",
+      "text": "Validated OpenAI model_usage entitlements set true and false availability while omitted keys stay unknown.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1572_entitlements.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S2:4",
+      "text": "Missing or malformed OpenAI model_usage fails to wholly unknown, never false denial.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1572_entitlements.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S2:5",
+      "text": "Gemini quota labels are intersected with eligible chat models; image, TTS, and embedding rows stay absent.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1572_entitlements.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S2:6",
+      "text": "Unavailable Gemini quota data falls back to approved chat rows with unknown availability.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1572_entitlements.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S2:7",
+      "text": "Catalog entitlement reads use only the usage cache, make no provider request, and log no token or account identifier.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1572_entitlements.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S2:8",
+      "text": "Usage budgets expose only validated boolean model_usage entries.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/usage_budget_service.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S2:9",
+      "text": "Malformed model_usage is omitted rather than interpreted as denial.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/usage_budget_service.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "review:review-findings.md:2",
+      "text": "Unprobeable query-string and engine-resolved environment-substitution endpoints remain selectable with unknown availability and are never probed.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "review:review-findings.md:5",
+      "text": "Resolver-selected direct routes map stale static family IDs to a picker-visible policy model.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "review:review-findings.md:8",
+      "text": "Built-in providers with a baseURL override retain direct-provider policy and agent kind.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "review:review-findings.md:11",
+      "text": "OpenRouter duplicate suppression counts unknown direct entitlement as present.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_639_contract.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "review:review-findings.md:15",
+      "text": "Each resolver default is present in the public and per-agent catalogs for representative provider snapshots.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "review:review-findings.md:34",
+      "text": "OpenRouter suppression is authorization-based, handles provider/model ID-shape differences, and remains agent-scoped.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "review:review-findings.md:54",
+      "text": "A credential-free built-in config block does not authorize a provider; options.apiKey and environment sources do.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "review:review-findings.md:57",
+      "text": "Proxy-configured built-in providers are not treated as declared-only custom providers.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "review:review-findings.md:60",
+      "text": "Provider Connect rows are excluded from profile and playbook selectable-model dropdowns.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/agent_profile_model_picker_test.dart; apps/desktop_flutter/test/features/agent_playbooks/agent_playbooks_view_test.dart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "review:review-findings.md:64",
+      "text": "Anthropic-only and Copilot-only resolver defaults are catalog-visible and selectable.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "review:review-findings.md:84",
+      "text": "Built-in authorization uses credential evidence consistently in snapshots, catalog rows, and resolver selection.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/agents_models_catalog.test.ts; apps/api_server/src/__tests__/issue_1572_provider_snapshot.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "review:review-findings.md:115",
+      "text": "A built-in provider with a baseURL override remains on its normal direct-provider route.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "review:review-findings.md:118",
+      "text": "The first refresh after provider options change reports restart_required from the engine boot baseline.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/system_refresh_routes.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "review:review-findings.md:121",
+      "text": "Query-string endpoints and 401 inventory replies remain selectable with unknown availability.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "review:review-findings.md:124",
+      "text": "Canonical #639 suppression remains enabled for direct Anthropic plus OpenRouter.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_639_contract.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "review:review-findings.md:127",
+      "text": "The built-in direct allowlist is recorded as an explicit product decision.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Decision record review: docs/ai/decisions/2026-09-25-1572-direct-allowlist.md"
+    },
+    {
+      "criterion_id": "review:review-findings.md:130",
+      "text": "Regression coverage protects dated Anthropic ranking, Copilot policy, opencode agent mapping, variants, hostname endpoints, per-agent OpenRouter rows, and Zen overrides.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1572_entitlements.test.ts; apps/api_server/src/__tests__/agent_delegation_auth.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "review:review-findings.md:133",
+      "text": "Resolver contract wording permits Ollama only when no authorized cloud route exists and is backed by a genuinely failing old-code catalog-membership assertion.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1572:1572-S2:10",
+      "text": "Real authenticated-account picker behavior matches the provider entitlement payload shapes used by production accounts.",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "The bounded lane has no real provider credentials. AJ must perform the requested real-account picker check; synthetic tests intentionally make no model-provider calls."
+    }
+  ],
+  "not_tested": [
+    "1572:1572-S2:10"
+  ]
+}

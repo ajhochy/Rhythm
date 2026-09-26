@@ -74,6 +74,7 @@ export interface MobileSseStreamInput {
   project: MobileProjectScope;
   userId: number;
   sessionId?: string;
+  preauthorizedSession?: boolean;
   isDeviceActive: () => boolean;
 }
 
@@ -357,7 +358,7 @@ export class MobileSseProxy {
     ) {
       throw AppError.badRequest('Invalid session id');
     }
-    if (input.sessionId) {
+    if (input.sessionId && !input.preauthorizedSession) {
       // #1378: a cold/busy engine must read as transient (504), never as a
       // hard 502. Bound the pre-check so a hung engine surfaces a timeout
       // instead of holding the SSE request open indefinitely.

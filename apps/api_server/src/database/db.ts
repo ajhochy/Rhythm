@@ -3,6 +3,7 @@ import { Pool, type PoolConfig } from 'pg';
 import { env } from '../config/env';
 import { runMigrations } from './migrations';
 import { runPostgresBootstrap } from './postgres_bootstrap';
+import { assertSafeNativeRuntime } from './native_runtime_guard';
 
 let _db: Database.Database | null = null;
 let _postgresPool: Pool | null = null;
@@ -56,6 +57,7 @@ export async function initDb(): Promise<void> {
   }
 
   _postgresPool = null;
+  assertSafeNativeRuntime();
   _db = new Database(env.dbPath);
   _db.pragma('journal_mode = WAL');
   _db.pragma('foreign_keys = ON');

@@ -1,0 +1,111 @@
+{
+  "run_id": "2026-09-24-issue-1558-takeover",
+  "issue": 1558,
+  "date": "2026-09-24",
+  "smoke_result": "pass",
+  "verification_claimed": "unknown",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1558-c1",
+      "text": "Fresh load defaults every non-selected project group collapsed.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Independent fixture browser smoke; selected group reopens on remount while stored false remains. Other criteria covered by automated suite only."
+    },
+    {
+      "criterion_id": "issue-1558-c2",
+      "text": "The group containing the currently selected session is expanded on load.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Independent fixture browser smoke; selected group reopens on remount while stored false remains. Other criteria covered by automated suite only."
+    },
+    {
+      "criterion_id": "issue-1558-c2b",
+      "text": "Moving selection must not collapse a project group that held a real selected session since load, unless explicitly closed.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Independent fixture browser smoke; selected group reopens on remount while stored false remains. Other criteria covered by automated suite only."
+    },
+    {
+      "criterion_id": "issue-1558-c3",
+      "text": "An explicit false closes the selected group immediately and remains stored through document remount; the selected group reopens on each mount without rewriting that preference.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Independent fixture browser smoke; selected group reopens on remount while stored false remains. Other criteria covered by automated suite only."
+    },
+    {
+      "criterion_id": "issue-1558-c3b",
+      "text": "Explicit true and false project choices survive browser-process close and relaunch on the same persistent profile.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Independent fixture browser smoke; selected group reopens on remount while stored false remains. Other criteria covered by automated suite only."
+    },
+    {
+      "criterion_id": "issue-1558-c4",
+      "text": "Explicit per-project state preserves a manually opened non-selected group, while a genuinely created project defaults closed without disturbing it.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Independent fixture browser smoke; selected group reopens on remount while stored false remains. Other criteria covered by automated suite only."
+    },
+    {
+      "criterion_id": "issue-1558-c5",
+      "text": "Throwing storage reads and writes fall back safely without crashing the rail.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Independent fixture browser smoke; selected group reopens on remount while stored false remains. Other criteria covered by automated suite only."
+    },
+    {
+      "criterion_id": "issue-1558-c6",
+      "text": "Rendered Lucide right/down chevrons and aria-expanded toggle together.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Independent fixture browser smoke; selected group reopens on remount while stored false remains. Other criteria covered by automated suite only."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "test-selection",
+      "description": "Default Playwright config ignores E16/E20; first invocation found no tests. Correct dedicated configs subsequently passed 1 and 30 cases.",
+      "detected_by": "Captured command logs"
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "verification-gate",
+      "failure-postmortem",
+      "project-state-updater"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "verification-gate",
+      "failure-postmortem",
+      "project-state-updater"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W4",
+        "affected_skill": "verification-gate",
+        "description": "Verification skill was reread after context compaction despite summary recording prior read.",
+        "detected_by": "Takeover transcript"
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/web/src/components/SessionRail.tsx"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Use the dedicated renderer configs; keep packaged native acceptance separate from fixture smoke."
+}

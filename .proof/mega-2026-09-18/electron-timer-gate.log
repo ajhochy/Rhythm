@@ -1,0 +1,4051 @@
+Electron timer gate
+UTC: 2026-09-19T05:39:20.219400+00:00
+Branch: mega/2026-09-18-mobile-electron-hermes
+HEAD: 86bfd1a7c5c37fa469a606b5f0614d49a3c5a47f
+Worktree: /Users/ajhochhalter/Documents/Rhythm/.mega-wt/integration
+
+=== Run 1: cd apps/electron && npm test ===
+
+> rhythm-electron-shell@0.1.0 test
+> node --experimental-vm-modules --test --test-concurrency=1 test/agent-server.test.mjs test/agent-server-ownership.test.mjs test/artifact-frame-protocol.test.mjs test/electron-shell.test.mjs test/google-oauth.test.mjs test/human-approval-isolated-home.test.mjs test/human-approval-main-signer.test.mjs test/main-runtime.test.mjs test/post-m1-phase-1-host-policy.test.mjs test/post-m1-phase-7-native-notifications.test.mjs test/post-m1-phase-7-packaged-notifications.test.mjs test/post-m1-phase-8-artifact-policy.test.mjs test/production-api-security.test.mjs test/runtime-config.test.mjs test/security-smoke-receipt.test.mjs test/electron-icon.test.mjs test/hermes-server.test.mjs test/hermes-protocol.test.mjs test/hermes-view.test.mjs
+
+TAP version 13
+# (node:2964) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: e11-c1: occupied 4001, foreign health=false, is never adopted or signaled
+ok 1 - e11-c1: occupied 4001, foreign health=false, is never adopted or signaled
+  ---
+  duration_ms: 21.14525
+  type: 'test'
+  ...
+# Subtest: e11-c1: occupied 4096, foreign health=false, is never adopted or signaled
+ok 2 - e11-c1: occupied 4096, foreign health=false, is never adopted or signaled
+  ---
+  duration_ms: 10.052167
+  type: 'test'
+  ...
+# Subtest: e11-c1: occupied 4001, foreign health=true, is never adopted or signaled
+ok 3 - e11-c1: occupied 4001, foreign health=true, is never adopted or signaled
+  ---
+  duration_ms: 5.804084
+  type: 'test'
+  ...
+# Subtest: e11-c1: occupied 4096, foreign health=true, is never adopted or signaled
+ok 4 - e11-c1: occupied 4096, foreign health=true, is never adopted or signaled
+  ---
+  duration_ms: 4.93625
+  type: 'test'
+  ...
+# Subtest: e11-c2: async spawn error is handled and never becomes ready
+ok 5 - e11-c2: async spawn error is handled and never becomes ready
+  ---
+  duration_ms: 208.179417
+  type: 'test'
+  ...
+# Subtest: e11-c3: exit after ready clears ownership and publishes failure
+ok 6 - e11-c3: exit after ready clears ownership and publishes failure
+  ---
+  duration_ms: 206.702209
+  type: 'test'
+  ...
+# Subtest: e11-c4: rejected filesystem startup resolves actionable failed state
+ok 7 - e11-c4: rejected filesystem startup resolves actionable failed state
+  ---
+  duration_ms: 4.834167
+  type: 'test'
+  ...
+# Subtest: e11-c5: owned stop graceful=true signals exact child and cleans listeners
+ok 8 - e11-c5: owned stop graceful=true signals exact child and cleans listeners
+  ---
+  duration_ms: 207.880084
+  type: 'test'
+  ...
+# Subtest: e11-c5: owned stop graceful=false signals exact child and cleans listeners
+ok 9 - e11-c5: owned stop graceful=false signals exact child and cleans listeners
+  ---
+  duration_ms: 2207.524375
+  type: 'test'
+  ...
+# Subtest: e11-c7: repeated start owns one child; timeout is bounded, stops child, never auto-retries
+ok 10 - e11-c7: repeated start owns one child; timeout is bounded, stops child, never auto-retries
+  ---
+  duration_ms: 8258.675
+  type: 'test'
+  ...
+# Subtest: e11-c1: real bind probe rejects an owned ephemeral 127.0.0.1 non-HTTP listener without disturbing it
+ok 11 - e11-c1: real bind probe rejects an owned ephemeral 127.0.0.1 non-HTTP listener without disturbing it
+  ---
+  duration_ms: 23.788791
+  type: 'test'
+  ...
+# Subtest: e11-c1: real bind probe rejects an owned ephemeral ::1 non-HTTP listener without disturbing it
+ok 12 - e11-c1: real bind probe rejects an owned ephemeral ::1 non-HTTP listener without disturbing it
+  ---
+  duration_ms: 0.916167
+  type: 'test'
+  ...
+# Subtest: e11-c5: stopping during startup cannot publish late health as ready
+ok 13 - e11-c5: stopping during startup cannot publish late health as ready
+  ---
+  duration_ms: 212.011709
+  type: 'test'
+  ...
+# Subtest: production agent-server shares Flutter local API and engine ports
+ok 14 - production agent-server shares Flutter local API and engine ports
+  ---
+  duration_ms: 3.090917
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4d agent-server: buildEnvironment sets every required var and strips stale HUMAN_APPROVAL_* keys
+ok 15 - post-m1-p7-c4d agent-server: buildEnvironment sets every required var and strips stale HUMAN_APPROVAL_* keys
+  ---
+  duration_ms: 0.90675
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4d agent-server: buildEnvironment never lets an explicit override win for security-critical vars
+ok 16 - post-m1-p7-c4d agent-server: buildEnvironment never lets an explicit override win for security-critical vars
+  ---
+  duration_ms: 1.419417
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4d agent-server: buildEnvironment respects explicit MCP_ROLES_DIR override, matching Flutter precedence
+ok 17 - post-m1-p7-c4d agent-server: buildEnvironment respects explicit MCP_ROLES_DIR override, matching Flutter precedence
+  ---
+  duration_ms: 0.196125
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4d agent-server: findServerEntry resolves the real apps/api_server dev entry from this checkout
+ok 18 - post-m1-p7-c4d agent-server: findServerEntry resolves the real apps/api_server dev entry from this checkout
+  ---
+  duration_ms: 3.029625
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4d agent-server: checkHealth is false for a port nothing listens on
+ok 19 - post-m1-p7-c4d agent-server: checkHealth is false for a port nothing listens on
+  ---
+  duration_ms: 135.857625
+  type: 'test'
+  ...
+# Subtest: artifact frame protocol accepts only an exact GET app UUID URL
+ok 20 - artifact frame protocol accepts only an exact GET app UUID URL
+  ---
+  duration_ms: 5.322667
+  type: 'test'
+  ...
+# Subtest: artifact frame navigation allows only the initial exact UUID mount
+ok 21 - artifact frame navigation allows only the initial exact UUID mount
+  ---
+  duration_ms: 3.016167
+  type: 'test'
+  ...
+# Subtest: artifact frame bridge adapts the server RhythmBridge channel before its bootstrap without rewriting artifact code
+ok 22 - artifact frame bridge adapts the server RhythmBridge channel before its bootstrap without rewriting artifact code
+  ---
+  duration_ms: 1.029292
+  type: 'test'
+  ...
+# Subtest: artifact frame bridge rejects a stale response after a replacement document reuses the request id
+ok 23 - artifact frame bridge rejects a stale response after a replacement document reuses the request id
+  ---
+  duration_ms: 91.533875
+  type: 'test'
+  ...
+# Subtest: Electron host registers the authenticated artifact scheme and renderer uses it only inside Rhythm
+ok 24 - Electron host registers the authenticated artifact scheme and renderer uses it only inside Rhythm
+  ---
+  duration_ms: 19.556708
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: assembly maps every source slot and inventories the converter output
+ok 25 - Rhythm icon: assembly maps every source slot and inventories the converter output
+  ---
+  duration_ms: 124.859625
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: staged plist and artwork identity (IconName=true)
+ok 26 - Rhythm icon: staged plist and artwork identity (IconName=true)
+  ---
+  duration_ms: 923.394959
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: staged plist and artwork identity (IconName=false)
+ok 27 - Rhythm icon: staged plist and artwork identity (IconName=false)
+  ---
+  duration_ms: 867.09075
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: rejects missing mapping before conversion
+ok 28 - Rhythm icon: rejects missing mapping before conversion
+  ---
+  duration_ms: 52.311333
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: rejects missing file before conversion
+ok 29 - Rhythm icon: rejects missing file before conversion
+  ---
+  duration_ms: 43.852542
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: rejects wrong dimensions before conversion
+ok 30 - Rhythm icon: rejects wrong dimensions before conversion
+  ---
+  duration_ms: 49.975541
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: rejects invalid PNG before conversion
+ok 31 - Rhythm icon: rejects invalid PNG before conversion
+  ---
+  duration_ms: 58.83075
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: fails clearly for missing iconutil, never reuses a stale icon
+ok 32 - Rhythm icon: fails clearly for missing iconutil, never reuses a stale icon
+  ---
+  duration_ms: 33.458167
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: fails clearly for missing output, never reuses a stale icon
+ok 33 - Rhythm icon: fails clearly for missing output, never reuses a stale icon
+  ---
+  duration_ms: 21.760417
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: fails clearly for invalid output, never reuses a stale icon
+ok 34 - Rhythm icon: fails clearly for invalid output, never reuses a stale icon
+  ---
+  duration_ms: 20.251875
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: packaging and release assemble icons before bundle signing
+ok 35 - Rhythm icon: packaging and release assemble icons before bundle signing
+  ---
+  duration_ms: 4.569125
+  type: 'test'
+  ...
+# (node:3911) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: interactive-runtime-c1: interactive smoke keeps the visible normal route
+ok 36 - interactive-runtime-c1: interactive smoke keeps the visible normal route
+  ---
+  duration_ms: 147.802625
+  type: 'test'
+  ...
+# Subtest: interactive-runtime-c2: interactive smoke leaves the external runtime unowned while Hermes has shutdown hooks
+ok 37 - interactive-runtime-c2: interactive smoke leaves the external runtime unowned while Hermes has shutdown hooks
+  ---
+  duration_ms: 13.681584
+  type: 'test'
+  ...
+# Subtest: interactive-runtime-c3: explicit userData required before lock; alternate ports need both flags
+ok 38 - interactive-runtime-c3: explicit userData required before lock; alternate ports need both flags
+  ---
+  duration_ms: 99.776583
+  type: 'test'
+  ...
+# Subtest: interactive-runtime-c4: production still owns lifecycle; automated smoke stays hidden and unowned
+ok 39 - interactive-runtime-c4: production still owns lifecycle; automated smoke stays hidden and unowned
+  ---
+  duration_ms: 15.834459
+  type: 'test'
+  ...
+# Subtest: directory-picker: actual preload adds only a no-payload selectDirectory capability
+ok 40 - directory-picker: actual preload adds only a no-payload selectDirectory capability
+  ---
+  duration_ms: 2.949125
+  type: 'test'
+  ...
+# Subtest: directory-picker: owned native dialog returns only the first path string or null
+ok 41 - directory-picker: owned native dialog returns only the first path string or null
+  ---
+  duration_ms: 6.336
+  type: 'test'
+  ...
+# Subtest: directory-picker: foreign senders, frames, hosts and payloads cannot open the dialog
+ok 42 - directory-picker: foreign senders, frames, hosts and payloads cannot open the dialog
+  ---
+  duration_ms: 7.435
+  type: 'test'
+  ...
+# Subtest: directory-picker: navigation during selection cannot receive a stale path
+ok 43 - directory-picker: navigation during selection cannot receive a stale path
+  ---
+  duration_ms: 7.759167
+  type: 'test'
+  ...
+# Subtest: slice-5-c1: resolves only files under the packaged web dist
+ok 44 - slice-5-c1: resolves only files under the packaged web dist
+  ---
+  duration_ms: 1.72025
+  type: 'test'
+  ...
+# Subtest: slice-5-c2: rejects unknown hosts, unsupported methods, and malformed protocol paths
+ok 45 - slice-5-c2: rejects unknown hosts, unsupported methods, and malformed protocol paths
+  ---
+  duration_ms: 0.563541
+  type: 'test'
+  ...
+# Subtest: slice-5-c3: actual Electron launch loads the local agents route
+ok 46 - slice-5-c3: actual Electron launch loads the local agents route
+  ---
+  duration_ms: 1614.599625
+  type: 'test'
+  ...
+# Subtest: slice-5-c4: actual preload exposes only frozen versioned lifecycle, gateway configuration, Google auth, human-approval signing, and agent-server status
+ok 47 - slice-5-c4: actual preload exposes only frozen versioned lifecycle, gateway configuration, Google auth, human-approval signing, and agent-server status
+  ---
+  duration_ms: 0.519167
+  type: 'test'
+  ...
+# Subtest: production repair: alternate local ports require an explicit smoke-only flag
+ok 48 - production repair: alternate local ports require an explicit smoke-only flag
+  ---
+  duration_ms: 1580.943584
+  type: 'test'
+  ...
+# Subtest: slice-5-c5: actual shell denies navigation, popups, permissions, and downloads
+ok 49 - slice-5-c5: actual shell denies navigation, popups, permissions, and downloads
+  ---
+  duration_ms: 595.571583
+  type: 'test'
+  ...
+# Subtest: production repair: actual Electron artifact protocol authenticates and executes a sandboxed frame
+ok 50 - production repair: actual Electron artifact protocol authenticates and executes a sandboxed frame
+  ---
+  duration_ms: 2066.070334
+  type: 'test'
+  ...
+# Subtest: desktop OAuth exchange uses Node fetch instead of Chromium net.fetch
+ok 51 - desktop OAuth exchange uses Node fetch instead of Chromium net.fetch
+  ---
+  duration_ms: 2.354542
+  type: 'test'
+  ...
+# Subtest: post-m1-auth-c1/c2: PKCE and authorization URL match Flutter
+ok 52 - post-m1-auth-c1/c2: PKCE and authorization URL match Flutter
+  ---
+  duration_ms: 10.163542
+  type: 'test'
+  ...
+# Subtest: post-m1-auth-c3/c4/c5: callback validation fails closed
+ok 53 - post-m1-auth-c3/c4/c5: callback validation fails closed
+  ---
+  duration_ms: 1.947792
+  type: 'test'
+  ...
+# Subtest: post-m1-auth-c6: callback timeout is exactly five minutes
+ok 54 - post-m1-auth-c6: callback timeout is exactly five minutes
+  ---
+  duration_ms: 0.411125
+  type: 'test'
+  ...
+# Subtest: post-m1-auth-c7: desktop exchange body and response shape match Flutter
+ok 55 - post-m1-auth-c7: desktop exchange body and response shape match Flutter
+  ---
+  duration_ms: 3.937583
+  type: 'test'
+  ...
+# Subtest: post-m1-auth-c8: host binds loopback, opens externally, exchanges, and closes
+ok 56 - post-m1-auth-c8: host binds loopback, opens externally, exchanges, and closes
+  ---
+  duration_ms: 44.677667
+  type: 'test'
+  ...
+# Subtest: production repair: OAuth does not exchange or tear down until the browser confirmation response flushes
+ok 57 - production repair: OAuth does not exchange or tear down until the browser confirmation response flushes
+  ---
+  duration_ms: 14.406667
+  type: 'test'
+  ...
+# Subtest: Hermes protocol accepts exactly the two version-one DTOs
+ok 58 - Hermes protocol accepts exactly the two version-one DTOs
+  ---
+  duration_ms: 3.797959
+  type: 'test'
+  ...
+# Subtest: Hermes protocol rejects unknown versions/types, malformed DTOs and URL injection
+ok 59 - Hermes protocol rejects unknown versions/types, malformed DTOs and URL injection
+  ---
+  duration_ms: 0.783916
+  type: 'test'
+  ...
+# Subtest: Hermes protocol bounds the complete UTF-8 JSON encoding at 64 KiB
+ok 60 - Hermes protocol bounds the complete UTF-8 JSON encoding at 64 KiB
+  ---
+  duration_ms: 3.8505
+  type: 'test'
+  ...
+# Subtest: Hermes supervisor origin must be ready, loopback, root-only, and match the declared port
+ok 61 - Hermes supervisor origin must be ready, loopback, root-only, and match the declared port
+  ---
+  duration_ms: 0.457
+  type: 'test'
+  ...
+# Subtest: Hermes bounds reject non-finite, excessive, negative dimensions and extra keys
+ok 62 - Hermes bounds reject non-finite, excessive, negative dimensions and extra keys
+  ---
+  duration_ms: 2.732292
+  type: 'test'
+  ...
+# Subtest: Hermes disabled means no binary lookup, fetch, consent, or spawn for any operation
+ok 63 - Hermes disabled means no binary lookup, fetch, consent, or spawn for any operation
+  ---
+  duration_ms: 16.821166
+  type: 'test'
+  ...
+# Subtest: Hermes absent binary reports absent without spawning
+ok 64 - Hermes absent binary reports absent without spawning
+  ---
+  duration_ms: 1.128708
+  type: 'test'
+  ...
+# Subtest: issue-1542-c1: Hermes uses exact pinned dashboard arguments, built dist=false
+ok 65 - issue-1542-c1: Hermes uses exact pinned dashboard arguments, built dist=false
+  ---
+  duration_ms: 7.161583
+  type: 'test'
+  ...
+# Subtest: issue-1542-c1: Hermes uses exact pinned dashboard arguments, built dist=true
+ok 66 - issue-1542-c1: Hermes uses exact pinned dashboard arguments, built dist=true
+  ---
+  duration_ms: 3.227
+  type: 'test'
+  ...
+# Subtest: Hermes readiness accepts only a 2xx Hermes health JSON payload
+ok 67 - Hermes readiness accepts only a 2xx Hermes health JSON payload
+  ---
+  duration_ms: 7.92375
+  type: 'test'
+  ...
+# Subtest: Hermes readiness rejects HTTP 401 until the deadline and reports the status
+ok 68 - Hermes readiness rejects HTTP 401 until the deadline and reports the status
+  ---
+  duration_ms: 10.264084
+  type: 'test'
+  ...
+# Subtest: Hermes readiness rejects HTTP 404 until the deadline and reports the status
+ok 69 - Hermes readiness rejects HTTP 404 until the deadline and reports the status
+  ---
+  duration_ms: 6.388458
+  type: 'test'
+  ...
+# Subtest: Hermes readiness rejects HTTP 503 until the deadline and reports the status
+ok 70 - Hermes readiness rejects HTTP 503 until the deadline and reports the status
+  ---
+  duration_ms: 3.926667
+  type: 'test'
+  ...
+# Subtest: Hermes readiness rejects a 2xx response whose JSON is not the Hermes health shape
+not ok 71 - Hermes readiness rejects a 2xx response whose JSON is not the Hermes health shape
+  ---
+  duration_ms: 30.949375
+  type: 'test'
+  location: '/Users/ajhochhalter/Documents/Rhythm/.mega-wt/integration/apps/electron/test/hermes-server.test.mjs:104:1'
+  failureType: 'testCodeFailure'
+  error: 'an invalid body must remain starting and retry until the deadline'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///Users/ajhochhalter/Documents/Rhythm/.mega-wt/integration/apps/electron/test/hermes-server.test.mjs:116:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: issue-1542-c3: Hermes mints a main-only token per child and redacts it from diagnostics
+ok 72 - issue-1542-c3: Hermes mints a main-only token per child and redacts it from diagnostics
+  ---
+  duration_ms: 6.135875
+  type: 'test'
+  ...
+# Subtest: Hermes busy port fails exactly, with no adoption, roaming, or signaling
+ok 73 - Hermes busy port fails exactly, with no adoption, roaming, or signaling
+  ---
+  duration_ms: 1.985333
+  type: 'test'
+  ...
+# Subtest: Hermes rejects unsafe port 0
+ok 74 - Hermes rejects unsafe port 0
+  ---
+  duration_ms: 0.31325
+  type: 'test'
+  ...
+# Subtest: Hermes rejects unsafe port 9119
+ok 75 - Hermes rejects unsafe port 9119
+  ---
+  duration_ms: 1.438333
+  type: 'test'
+  ...
+# Subtest: Hermes rejects unsafe port -1
+ok 76 - Hermes rejects unsafe port -1
+  ---
+  duration_ms: 10.178417
+  type: 'test'
+  ...
+# Subtest: Hermes rejects unsafe port no
+ok 77 - Hermes rejects unsafe port no
+  ---
+  duration_ms: 0.243542
+  type: 'test'
+  ...
+# Subtest: Hermes rejects unsafe port 65536
+ok 78 - Hermes rejects unsafe port 65536
+  ---
+  duration_ms: 0.527125
+  type: 'test'
+  ...
+# Subtest: Hermes stops only its child, graceful=true
+ok 79 - Hermes stops only its child, graceful=true
+  ---
+  duration_ms: 3.7085
+  type: 'test'
+  ...
+# Subtest: Hermes stops only its child, graceful=false
+ok 80 - Hermes stops only its child, graceful=false
+  ---
+  duration_ms: 24.511417
+  type: 'test'
+  ...
+# Subtest: Hermes start is idempotent and subscriptions can unsubscribe
+ok 81 - Hermes start is idempotent and subscriptions can unsubscribe
+  ---
+  duration_ms: 28.745083
+  type: 'test'
+  ...
+# Subtest: Hermes timeout kills owned child and publishes the last 50 stderr lines, redacted
+ok 82 - Hermes timeout kills owned child and publishes the last 50 stderr lines, redacted
+  ---
+  duration_ms: 73.236125
+  type: 'test'
+  ...
+# Subtest: Hermes stop during binary resolution prevents a late spawn
+ok 83 - Hermes stop during binary resolution prevents a late spawn
+  ---
+  duration_ms: 0.768917
+  type: 'test'
+  ...
+# Subtest: Hermes stop during readiness cannot publish late ready
+ok 84 - Hermes stop during readiness cannot publish late ready
+  ---
+  duration_ms: 4.361459
+  type: 'test'
+  ...
+# Subtest: Hermes unexpected exit fails and restart replaces only the owned child
+ok 85 - Hermes unexpected exit fails and restart replaces only the owned child
+  ---
+  duration_ms: 2.996167
+  type: 'test'
+  ...
+# Subtest: Hermes async spawn errors settle as failed
+ok 86 - Hermes async spawn errors settle as failed
+  ---
+  duration_ms: 4.234292
+  type: 'test'
+  ...
+# Subtest: Hermes install defaults to cancellation and shows the literal official command
+ok 87 - Hermes install defaults to cancellation and shows the literal official command
+  ---
+  duration_ms: 3.224917
+  type: 'test'
+  ...
+# Subtest: Hermes consent runs bootstrap in login shell, streams private log, re-resolves, then starts
+ok 88 - Hermes consent runs bootstrap in login shell, streams private log, re-resolves, then starts
+  ---
+  duration_ms: 19.924667
+  type: 'test'
+  ...
+# Subtest: Hermes quitting while native consent is open cancels the install
+ok 89 - Hermes quitting while native consent is open cancels the install
+  ---
+  duration_ms: 3.201792
+  type: 'test'
+  ...
+# Subtest: issue-1542-c2: Hermes skip-build checks hermes_cli/web_dist and ignores legacy web/dist
+ok 90 - issue-1542-c2: Hermes skip-build checks hermes_cli/web_dist and ignores legacy web/dist
+  ---
+  duration_ms: 148.927625
+  type: 'test'
+  ...
+# Subtest: issue-1542-c5: Hermes contract records one coherent dashboard, token, readiness, and view contract
+ok 91 - issue-1542-c5: Hermes contract records one coherent dashboard, token, readiness, and view contract
+  ---
+  duration_ms: 4.772708
+  type: 'test'
+  ...
+# Subtest: Hermes frozen preload surface and unsubscribe, flag=undefined
+ok 92 - Hermes frozen preload surface and unsubscribe, flag=undefined
+  ---
+  duration_ms: 10.235416
+  type: 'test'
+  ...
+# Subtest: Hermes frozen preload surface and unsubscribe, flag=0
+ok 93 - Hermes frozen preload surface and unsubscribe, flag=0
+  ---
+  duration_ms: 5.232709
+  type: 'test'
+  ...
+# Subtest: Hermes frozen preload surface and unsubscribe, flag=1
+ok 94 - Hermes frozen preload surface and unsubscribe, flag=1
+  ---
+  duration_ms: 7.690042
+  type: 'test'
+  ...
+# (node:4080) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: issue-1542-c7: Hermes main binds the native supervisor, authorizes IPC, broadcasts status, and awaits shutdown
+ok 95 - issue-1542-c7: Hermes main binds the native supervisor, authorizes IPC, broadcasts status, and awaits shutdown
+  ---
+  duration_ms: 171.617041
+  type: 'test'
+  ...
+# Subtest: Hermes main flag off does not start and returns disabled
+ok 96 - Hermes main flag off does not start and returns disabled
+  ---
+  duration_ms: 28.225542
+  type: 'test'
+  ...
+# Subtest: Hermes interactive smoke owns only Hermes, including install/restart and shutdown
+ok 97 - Hermes interactive smoke owns only Hermes, including install/restart and shutdown
+  ---
+  duration_ms: 76.288458
+  type: 'test'
+  ...
+# Subtest: Hermes failed installer does not start a server and retains output
+ok 98 - Hermes failed installer does not start a server and retains output
+  ---
+  duration_ms: 38.150208
+  type: 'test'
+  ...
+# Subtest: Hermes detects a port conflict reported after the preflight race
+ok 99 - Hermes detects a port conflict reported after the preflight race
+  ---
+  duration_ms: 6.21425
+  type: 'test'
+  ...
+# Subtest: Hermes attach creates no view while supervisor is disabled
+ok 100 - Hermes attach creates no view while supervisor is disabled
+  ---
+  duration_ms: 19.640041
+  type: 'test'
+  ...
+# Subtest: Hermes attach creates no view while supervisor is absent
+ok 101 - Hermes attach creates no view while supervisor is absent
+  ---
+  duration_ms: 1.497334
+  type: 'test'
+  ...
+# Subtest: Hermes attach creates no view while supervisor is starting
+ok 102 - Hermes attach creates no view while supervisor is starting
+  ---
+  duration_ms: 4.170625
+  type: 'test'
+  ...
+# Subtest: Hermes attach creates no view while supervisor is failed
+ok 103 - Hermes attach creates no view while supervisor is failed
+  ---
+  duration_ms: 0.933708
+  type: 'test'
+  ...
+# Subtest: Hermes attach creates no view while supervisor is stopped
+ok 104 - Hermes attach creates no view while supervisor is stopped
+  ---
+  duration_ms: 2.400708
+  type: 'test'
+  ...
+# Subtest: Hermes view is sandboxed, separately partitioned, zoomed and themed on dom-ready
+ok 105 - Hermes view is sandboxed, separately partitioned, zoomed and themed on dom-ready
+  ---
+  duration_ms: 5.868583
+  type: 'test'
+  ...
+# Subtest: Hermes detach destroys its ephemeral session and the next attach cannot reuse it
+ok 106 - Hermes detach destroys its ephemeral session and the next attach cannot reuse it
+  ---
+  duration_ms: 6.435791
+  type: 'test'
+  ...
+# Subtest: issue-1542-c8: Hermes view requires the main-only token but loads only the clean ready URL for server HTML bootstrap
+ok 107 - issue-1542-c8: Hermes view requires the main-only token but loads only the clean ready URL for server HTML bootstrap
+  ---
+  duration_ms: 3.487375
+  type: 'test'
+  ...
+# Subtest: Hermes auth is a main-only Bearer header on the approved ephemeral session, never a cookie or renderer value
+ok 108 - Hermes auth is a main-only Bearer header on the approved ephemeral session, never a cookie or renderer value
+  ---
+  duration_ms: 4.100167
+  type: 'test'
+  ...
+# Subtest: issue-1542-c9: Hermes token rotation revokes a view tied to the prior dashboard start
+ok 109 - issue-1542-c9: Hermes token rotation revokes a view tied to the prior dashboard start
+  ---
+  duration_ms: 34.467584
+  type: 'test'
+  ...
+# Subtest: Hermes foreign frames, absent acknowledgement, and malformed intents cause zero navigation
+ok 110 - Hermes foreign frames, absent acknowledgement, and malformed intents cause zero navigation
+  ---
+  duration_ms: 6.445334
+  type: 'test'
+  ...
+# Subtest: issue-1542-c4: Hermes forwards a validated new-chat draft without submitting and navigates requested sessions
+ok 111 - issue-1542-c4: Hermes forwards a validated new-chat draft without submitting and navigates requested sessions
+  ---
+  duration_ms: 1.901125
+  type: 'test'
+  ...
+# Subtest: Hermes reload revokes old generation; only the current main frame can reactivate
+ok 112 - Hermes reload revokes old generation; only the current main frame can reactivate
+  ---
+  duration_ms: 3.302334
+  type: 'test'
+  ...
+# Subtest: Hermes detach removes view, closes port, and rejects stale handles
+ok 113 - Hermes detach removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 1.20875
+  type: 'test'
+  ...
+# Subtest: Hermes window-close removes view, closes port, and rejects stale handles
+ok 114 - Hermes window-close removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 4.47725
+  type: 'test'
+  ...
+# Subtest: Hermes host-reload removes view, closes port, and rejects stale handles
+ok 115 - Hermes host-reload removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 1.698375
+  type: 'test'
+  ...
+# Subtest: Hermes leave-route removes view, closes port, and rejects stale handles
+ok 116 - Hermes leave-route removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 3.344584
+  type: 'test'
+  ...
+# Subtest: Hermes supervisor-stop removes view, closes port, and rejects stale handles
+ok 117 - Hermes supervisor-stop removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 16.322875
+  type: 'test'
+  ...
+# Subtest: Hermes replace removes view, closes port, and rejects stale handles
+ok 118 - Hermes replace removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 3.330292
+  type: 'test'
+  ...
+# Subtest: Hermes off flag and wrong host route never create a view
+ok 119 - Hermes off flag and wrong host route never create a view
+  ---
+  duration_ms: 2.503209
+  type: 'test'
+  ...
+# Subtest: Hermes pending intents cannot navigate after a reload or a supervisor change
+ok 120 - Hermes pending intents cannot navigate after a reload or a supervisor change
+  ---
+  duration_ms: 1.303583
+  type: 'test'
+  ...
+# Subtest: Hermes overlapping attach requests destroy the old view and ignore late load completion
+ok 121 - Hermes overlapping attach requests destroy the old view and ignore late load completion
+  ---
+  duration_ms: 9.946167
+  type: 'test'
+  ...
+# Subtest: Hermes parent reload during readiness lookup cancels the pending attach
+ok 122 - Hermes parent reload during readiness lookup cancels the pending attach
+  ---
+  duration_ms: 1.269041
+  type: 'test'
+  ...
+# Subtest: Hermes supervisor replacement cancels a pending readiness snapshot
+ok 123 - Hermes supervisor replacement cancels a pending readiness snapshot
+  ---
+  duration_ms: 0.701333
+  type: 'test'
+  ...
+# Subtest: Hermes same-document navigation replaces the port without duplicating theme insertion
+ok 124 - Hermes same-document navigation replaces the port without duplicating theme insertion
+  ---
+  duration_ms: 1.351166
+  type: 'test'
+  ...
+# Subtest: Hermes navigation, subframes and downloads cannot leave the approved origin
+ok 125 - Hermes navigation, subframes and downloads cannot leave the approved origin
+  ---
+  duration_ms: 3.391333
+  type: 'test'
+  ...
+# Subtest: Hermes main preload hides attachment handles and retires late attach results
+ok 126 - Hermes main preload hides attachment handles and retires late attach results
+  ---
+  duration_ms: 48.077208
+  type: 'test'
+  ...
+# Subtest: Hermes view preload gives the page no native API and closes old ports
+ok 127 - Hermes view preload gives the page no native API and closes old ports
+  ---
+  duration_ms: 15.058667
+  type: 'test'
+  ...
+# Subtest: Hermes view preload opens an editable xterm draft without dispatching submit
+ok 128 - Hermes view preload opens an editable xterm draft without dispatching submit
+  ---
+  duration_ms: 17.218
+  type: 'test'
+  ...
+# Subtest: issue-1542-c10: packaged main stages every Hermes view support file
+ok 129 - issue-1542-c10: packaged main stages every Hermes view support file
+  ---
+  duration_ms: 3.92675
+  type: 'test'
+  ...
+# Subtest: issue-1542-c11: canonical Electron tests include both B3 suites
+ok 130 - issue-1542-c11: canonical Electron tests include both B3 suites
+  ---
+  duration_ms: 1.679083
+  type: 'test'
+  ...
+# Subtest: isolated Electron HOME is overridden only for the macOS Keychain subprocess
+ok 131 - isolated Electron HOME is overridden only for the macOS Keychain subprocess
+  ---
+  duration_ms: 2.738542
+  type: 'test'
+  ...
+# Subtest: e12b-package-staging: official fuses resolve the framework, not the launcher, at the assembly path
+ok 132 - e12b-package-staging: official fuses resolve the framework, not the launcher, at the assembly path
+  ---
+  duration_ms: 18.916375
+  type: 'test'
+  ...
+# Subtest: e12b-c1: exportable private-key/CLI path is absent (regression: PEM leaks in argv)
+ok 133 - e12b-c1: exportable private-key/CLI path is absent (regression: PEM leaks in argv)
+  ---
+  duration_ms: 2.051916
+  type: 'test'
+  ...
+# (node:4143) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: e12b-c2: exact canonical bytes round-trip DER and capability registration without argv/env secrets
+ok 134 - e12b-c2: exact canonical bytes round-trip DER and capability registration without argv/env secrets
+  ---
+  duration_ms: 62.185625
+  type: 'test'
+  ...
+# Subtest: e12b-c3: malformed decision schema cannot reach helper (regression: arbitrary-sign oracle)
+ok 135 - e12b-c3: malformed decision schema cannot reach helper (regression: arbitrary-sign oracle)
+  ---
+  duration_ms: 31.651709
+  type: 'test'
+  ...
+# Subtest: e12b-c4: malformed/untrusted helper replies fail closed, including invalid/wrong-message DER
+ok 136 - e12b-c4: malformed/untrusted helper replies fail closed, including invalid/wrong-message DER
+  ---
+  duration_ms: 100.175625
+  type: 'test'
+  ...
+# Subtest: e12b-c5: timeout, stderr, nonzero exit and process errors are bounded and redacted
+ok 137 - e12b-c5: timeout, stderr, nonzero exit and process errors are bounded and redacted
+  ---
+  duration_ms: 90.385375
+  type: 'test'
+  ...
+# Subtest: e12b-c6: unavailable Secure Enclave is explicit, never a software fallback
+ok 138 - e12b-c6: unavailable Secure Enclave is explicit, never a software fallback
+  ---
+  duration_ms: 8.823959
+  type: 'test'
+  ...
+# Subtest: e12b-c2: concurrent first-use calls serialize helper creation so registration cannot race signing
+ok 139 - e12b-c2: concurrent first-use calls serialize helper creation so registration cannot race signing
+  ---
+  duration_ms: 16.3425
+  type: 'test'
+  ...
+# Subtest: e12b-c7: Swift restricts permanent enclave key, fixed decision schema/digest and public-only export
+ok 140 - e12b-c7: Swift restricts permanent enclave key, fixed decision schema/digest and public-only export
+  ---
+  duration_ms: 18.954083
+  type: 'test'
+  ...
+# Subtest: e12b-c8: package builds native architecture from source; nested signing requires and verifies helper
+ok 141 - e12b-c8: package builds native architecture from source; nested signing requires and verifies helper
+  ---
+  duration_ms: 65.069167
+  type: 'test'
+  ...
+# Subtest: e12b-c12: required official fuses disable alternate loaders before any signing, preserving unpacked app
+ok 142 - e12b-c12: required official fuses disable alternate loaders before any signing, preserving unpacked app
+  ---
+  duration_ms: 73.457583
+  type: 'test'
+  ...
+# Subtest: e12b-c13: account-local flock encloses lookup/create/requery (regression: two helper processes create different keys)
+ok 143 - e12b-c13: account-local flock encloses lookup/create/requery (regression: two helper processes create different keys)
+  ---
+  duration_ms: 25.02075
+  type: 'test'
+  ...
+# (node:4162) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: e11-c6: main catches rejected start and publishes current/changed failure through existing bridge
+ok 144 - e11-c6: main catches rejected start and publishes current/changed failure through existing bridge
+  ---
+  duration_ms: 335.626666
+  type: 'test'
+  ...
+# Subtest: issue-1541-c4: feature flag starts Hermes in attached mode and not explicit self-test modes
+ok 145 - issue-1541-c4: feature flag starts Hermes in attached mode and not explicit self-test modes
+  ---
+  duration_ms: 122.249375
+  type: 'test'
+  ...
+# Subtest: Hermes supervisor output and lifecycle states reach the main-process stdout
+ok 146 - Hermes supervisor output and lifecycle states reach the main-process stdout
+  ---
+  duration_ms: 17.428667
+  type: 'test'
+  ...
+# Subtest: post-m1-p1-c4b: deep-link requests are explicit fail-closed policy decisions
+ok 147 - post-m1-p1-c4b: deep-link requests are explicit fail-closed policy decisions
+  ---
+  duration_ms: 2.78225
+  type: 'test'
+  ...
+# Subtest: post-m1-p1-c4c: the host acquires one instance lock and routes second-instance input through policy
+ok 148 - post-m1-p1-c4c: the host acquires one instance lock and routes second-instance input through policy
+  ---
+  duration_ms: 2.153584
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4e: Electron owns permission presentation deduplication cancellation and a narrow preload
+ok 149 - post-m1-p7-c4e: Electron owns permission presentation deduplication cancellation and a narrow preload
+  ---
+  duration_ms: 3.134833
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4f-policy: native activation is allowlisted queued and replayed through owned-target navigation
+ok 150 - post-m1-p7-c4f-policy: native activation is allowlisted queued and replayed through owned-target navigation
+  ---
+  duration_ms: 3.152709
+  type: 'test'
+  ...
+# Subtest: post-m1-p8-c4a: artifact policy exposes only the closed canonical bridge operations
+ok 151 - post-m1-p8-c4a: artifact policy exposes only the closed canonical bridge operations
+  ---
+  duration_ms: 2.987834
+  type: 'test'
+  ...
+# Subtest: post-m1-p8-c4b: artifact bridge policy binds nonce, request IDs, payload, concurrency, and generation
+ok 152 - post-m1-p8-c4b: artifact bridge policy binds nonce, request IDs, payload, concurrency, and generation
+  ---
+  duration_ms: 10.985291
+  type: 'test'
+  ...
+# Subtest: bucket-a-repair-c2a: unauthorized production API updates reject without persistence
+ok 153 - bucket-a-repair-c2a: unauthorized production API updates reject without persistence
+  ---
+  duration_ms: 6.848292
+  type: 'test'
+  ...
+# Subtest: bucket-a-repair-c2b: unsafe production API values reject without persistence
+ok 154 - bucket-a-repair-c2b: unsafe production API values reject without persistence
+  ---
+  duration_ms: 6.360459
+  type: 'test'
+  ...
+# Subtest: bucket-a-repair-c2c: persisted production API config is exactly mode 0600
+ok 155 - bucket-a-repair-c2c: persisted production API config is exactly mode 0600
+  ---
+  duration_ms: 23.622083
+  type: 'test'
+  ...
+# Subtest: local dev can supply the public Google desktop client ID at runtime
+ok 156 - local dev can supply the public Google desktop client ID at runtime
+  ---
+  duration_ms: 0.873166
+  type: 'test'
+  ...
+# Subtest: packaged builds retain their generated Google desktop client ID
+ok 157 - packaged builds retain their generated Google desktop client ID
+  ---
+  duration_ms: 0.1245
+  type: 'test'
+  ...
+# Subtest: packaging copies every support module imported by main
+ok 158 - packaging copies every support module imported by main
+  ---
+  duration_ms: 8.4345
+  type: 'test'
+  ...
+# Subtest: ordinary Electron tests exclude package-shaped contracts
+ok 159 - ordinary Electron tests exclude package-shaped contracts
+  ---
+  duration_ms: 3.951375
+  type: 'test'
+  ...
+# Subtest: web build declares Node types as a required root dependency
+ok 160 - web build declares Node types as a required root dependency
+  ---
+  duration_ms: 11.365333
+  type: 'test'
+  ...
+# Subtest: Electron release installs every package dependency and builds assets before shell smoke
+ok 161 - Electron release installs every package dependency and builds assets before shell smoke
+  ---
+  duration_ms: 16.711583
+  type: 'test'
+  ...
+# Subtest: issue-1542-c12: signed security smoke accepts both exact Hermes bridge receipts
+ok 162 - issue-1542-c12: signed security smoke accepts both exact Hermes bridge receipts
+  ---
+  duration_ms: 2.597459
+  type: 'test'
+  ...
+# Subtest: signed security smoke rejects every unsafe bridge and denial invariant
+ok 163 - signed security smoke rejects every unsafe bridge and denial invariant
+  ---
+  duration_ms: 4.008208
+  type: 'test'
+  ...
+1..163
+# tests 163
+# suites 0
+# pass 162
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 26847.715542
+
+Exit: 1
+
+Retest after adjacent invalid-JSON fake-clock repair; UTC: 2026-09-19T05:40:16.171498+00:00; Branch: mega/2026-09-18-mobile-electron-hermes; HEAD: 86bfd1a7c5c37fa469a606b5f0614d49a3c5a47f
+
+=== Consecutive run 1: cd apps/electron && npm test ===
+
+> rhythm-electron-shell@0.1.0 test
+> node --experimental-vm-modules --test --test-concurrency=1 test/agent-server.test.mjs test/agent-server-ownership.test.mjs test/artifact-frame-protocol.test.mjs test/electron-shell.test.mjs test/google-oauth.test.mjs test/human-approval-isolated-home.test.mjs test/human-approval-main-signer.test.mjs test/main-runtime.test.mjs test/post-m1-phase-1-host-policy.test.mjs test/post-m1-phase-7-native-notifications.test.mjs test/post-m1-phase-7-packaged-notifications.test.mjs test/post-m1-phase-8-artifact-policy.test.mjs test/production-api-security.test.mjs test/runtime-config.test.mjs test/security-smoke-receipt.test.mjs test/electron-icon.test.mjs test/hermes-server.test.mjs test/hermes-protocol.test.mjs test/hermes-view.test.mjs
+
+TAP version 13
+# (node:5156) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: e11-c1: occupied 4001, foreign health=false, is never adopted or signaled
+ok 1 - e11-c1: occupied 4001, foreign health=false, is never adopted or signaled
+  ---
+  duration_ms: 40.103375
+  type: 'test'
+  ...
+# Subtest: e11-c1: occupied 4096, foreign health=false, is never adopted or signaled
+ok 2 - e11-c1: occupied 4096, foreign health=false, is never adopted or signaled
+  ---
+  duration_ms: 9.965125
+  type: 'test'
+  ...
+# Subtest: e11-c1: occupied 4001, foreign health=true, is never adopted or signaled
+ok 3 - e11-c1: occupied 4001, foreign health=true, is never adopted or signaled
+  ---
+  duration_ms: 8.858459
+  type: 'test'
+  ...
+# Subtest: e11-c1: occupied 4096, foreign health=true, is never adopted or signaled
+ok 4 - e11-c1: occupied 4096, foreign health=true, is never adopted or signaled
+  ---
+  duration_ms: 7.269584
+  type: 'test'
+  ...
+# Subtest: e11-c2: async spawn error is handled and never becomes ready
+ok 5 - e11-c2: async spawn error is handled and never becomes ready
+  ---
+  duration_ms: 207.325208
+  type: 'test'
+  ...
+# Subtest: e11-c3: exit after ready clears ownership and publishes failure
+ok 6 - e11-c3: exit after ready clears ownership and publishes failure
+  ---
+  duration_ms: 207.18325
+  type: 'test'
+  ...
+# Subtest: e11-c4: rejected filesystem startup resolves actionable failed state
+ok 7 - e11-c4: rejected filesystem startup resolves actionable failed state
+  ---
+  duration_ms: 5.594708
+  type: 'test'
+  ...
+# Subtest: e11-c5: owned stop graceful=true signals exact child and cleans listeners
+ok 8 - e11-c5: owned stop graceful=true signals exact child and cleans listeners
+  ---
+  duration_ms: 210.774
+  type: 'test'
+  ...
+# Subtest: e11-c5: owned stop graceful=false signals exact child and cleans listeners
+ok 9 - e11-c5: owned stop graceful=false signals exact child and cleans listeners
+  ---
+  duration_ms: 2211.812042
+  type: 'test'
+  ...
+# Subtest: e11-c7: repeated start owns one child; timeout is bounded, stops child, never auto-retries
+ok 10 - e11-c7: repeated start owns one child; timeout is bounded, stops child, never auto-retries
+  ---
+  duration_ms: 8282.050625
+  type: 'test'
+  ...
+# Subtest: e11-c1: real bind probe rejects an owned ephemeral 127.0.0.1 non-HTTP listener without disturbing it
+ok 11 - e11-c1: real bind probe rejects an owned ephemeral 127.0.0.1 non-HTTP listener without disturbing it
+  ---
+  duration_ms: 17.482375
+  type: 'test'
+  ...
+# Subtest: e11-c1: real bind probe rejects an owned ephemeral ::1 non-HTTP listener without disturbing it
+ok 12 - e11-c1: real bind probe rejects an owned ephemeral ::1 non-HTTP listener without disturbing it
+  ---
+  duration_ms: 2.674709
+  type: 'test'
+  ...
+# Subtest: e11-c5: stopping during startup cannot publish late health as ready
+ok 13 - e11-c5: stopping during startup cannot publish late health as ready
+  ---
+  duration_ms: 217.642959
+  type: 'test'
+  ...
+# Subtest: production agent-server shares Flutter local API and engine ports
+ok 14 - production agent-server shares Flutter local API and engine ports
+  ---
+  duration_ms: 1.897667
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4d agent-server: buildEnvironment sets every required var and strips stale HUMAN_APPROVAL_* keys
+ok 15 - post-m1-p7-c4d agent-server: buildEnvironment sets every required var and strips stale HUMAN_APPROVAL_* keys
+  ---
+  duration_ms: 0.42975
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4d agent-server: buildEnvironment never lets an explicit override win for security-critical vars
+ok 16 - post-m1-p7-c4d agent-server: buildEnvironment never lets an explicit override win for security-critical vars
+  ---
+  duration_ms: 0.1395
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4d agent-server: buildEnvironment respects explicit MCP_ROLES_DIR override, matching Flutter precedence
+ok 17 - post-m1-p7-c4d agent-server: buildEnvironment respects explicit MCP_ROLES_DIR override, matching Flutter precedence
+  ---
+  duration_ms: 0.111292
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4d agent-server: findServerEntry resolves the real apps/api_server dev entry from this checkout
+ok 18 - post-m1-p7-c4d agent-server: findServerEntry resolves the real apps/api_server dev entry from this checkout
+  ---
+  duration_ms: 1.936458
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4d agent-server: checkHealth is false for a port nothing listens on
+ok 19 - post-m1-p7-c4d agent-server: checkHealth is false for a port nothing listens on
+  ---
+  duration_ms: 78.208209
+  type: 'test'
+  ...
+# Subtest: artifact frame protocol accepts only an exact GET app UUID URL
+ok 20 - artifact frame protocol accepts only an exact GET app UUID URL
+  ---
+  duration_ms: 2.400583
+  type: 'test'
+  ...
+# Subtest: artifact frame navigation allows only the initial exact UUID mount
+ok 21 - artifact frame navigation allows only the initial exact UUID mount
+  ---
+  duration_ms: 1.845958
+  type: 'test'
+  ...
+# Subtest: artifact frame bridge adapts the server RhythmBridge channel before its bootstrap without rewriting artifact code
+ok 22 - artifact frame bridge adapts the server RhythmBridge channel before its bootstrap without rewriting artifact code
+  ---
+  duration_ms: 1.1195
+  type: 'test'
+  ...
+# Subtest: artifact frame bridge rejects a stale response after a replacement document reuses the request id
+ok 23 - artifact frame bridge rejects a stale response after a replacement document reuses the request id
+  ---
+  duration_ms: 62.077958
+  type: 'test'
+  ...
+# Subtest: Electron host registers the authenticated artifact scheme and renderer uses it only inside Rhythm
+ok 24 - Electron host registers the authenticated artifact scheme and renderer uses it only inside Rhythm
+  ---
+  duration_ms: 29.515708
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: assembly maps every source slot and inventories the converter output
+ok 25 - Rhythm icon: assembly maps every source slot and inventories the converter output
+  ---
+  duration_ms: 163.829125
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: staged plist and artwork identity (IconName=true)
+ok 26 - Rhythm icon: staged plist and artwork identity (IconName=true)
+  ---
+  duration_ms: 1189.453833
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: staged plist and artwork identity (IconName=false)
+ok 27 - Rhythm icon: staged plist and artwork identity (IconName=false)
+  ---
+  duration_ms: 686.3165
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: rejects missing mapping before conversion
+ok 28 - Rhythm icon: rejects missing mapping before conversion
+  ---
+  duration_ms: 30.821167
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: rejects missing file before conversion
+ok 29 - Rhythm icon: rejects missing file before conversion
+  ---
+  duration_ms: 36.452167
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: rejects wrong dimensions before conversion
+ok 30 - Rhythm icon: rejects wrong dimensions before conversion
+  ---
+  duration_ms: 67.085083
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: rejects invalid PNG before conversion
+ok 31 - Rhythm icon: rejects invalid PNG before conversion
+  ---
+  duration_ms: 55.640042
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: fails clearly for missing iconutil, never reuses a stale icon
+ok 32 - Rhythm icon: fails clearly for missing iconutil, never reuses a stale icon
+  ---
+  duration_ms: 25.964417
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: fails clearly for missing output, never reuses a stale icon
+ok 33 - Rhythm icon: fails clearly for missing output, never reuses a stale icon
+  ---
+  duration_ms: 20.804416
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: fails clearly for invalid output, never reuses a stale icon
+ok 34 - Rhythm icon: fails clearly for invalid output, never reuses a stale icon
+  ---
+  duration_ms: 17.182042
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: packaging and release assemble icons before bundle signing
+ok 35 - Rhythm icon: packaging and release assemble icons before bundle signing
+  ---
+  duration_ms: 2.07225
+  type: 'test'
+  ...
+# (node:6014) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: interactive-runtime-c1: interactive smoke keeps the visible normal route
+ok 36 - interactive-runtime-c1: interactive smoke keeps the visible normal route
+  ---
+  duration_ms: 50.618917
+  type: 'test'
+  ...
+# Subtest: interactive-runtime-c2: interactive smoke leaves the external runtime unowned while Hermes has shutdown hooks
+ok 37 - interactive-runtime-c2: interactive smoke leaves the external runtime unowned while Hermes has shutdown hooks
+  ---
+  duration_ms: 6.64625
+  type: 'test'
+  ...
+# Subtest: interactive-runtime-c3: explicit userData required before lock; alternate ports need both flags
+ok 38 - interactive-runtime-c3: explicit userData required before lock; alternate ports need both flags
+  ---
+  duration_ms: 78.017625
+  type: 'test'
+  ...
+# Subtest: interactive-runtime-c4: production still owns lifecycle; automated smoke stays hidden and unowned
+ok 39 - interactive-runtime-c4: production still owns lifecycle; automated smoke stays hidden and unowned
+  ---
+  duration_ms: 26.734917
+  type: 'test'
+  ...
+# Subtest: directory-picker: actual preload adds only a no-payload selectDirectory capability
+ok 40 - directory-picker: actual preload adds only a no-payload selectDirectory capability
+  ---
+  duration_ms: 10.427
+  type: 'test'
+  ...
+# Subtest: directory-picker: owned native dialog returns only the first path string or null
+ok 41 - directory-picker: owned native dialog returns only the first path string or null
+  ---
+  duration_ms: 18.175458
+  type: 'test'
+  ...
+# Subtest: directory-picker: foreign senders, frames, hosts and payloads cannot open the dialog
+ok 42 - directory-picker: foreign senders, frames, hosts and payloads cannot open the dialog
+  ---
+  duration_ms: 11.787209
+  type: 'test'
+  ...
+# Subtest: directory-picker: navigation during selection cannot receive a stale path
+ok 43 - directory-picker: navigation during selection cannot receive a stale path
+  ---
+  duration_ms: 22.124958
+  type: 'test'
+  ...
+# Subtest: slice-5-c1: resolves only files under the packaged web dist
+ok 44 - slice-5-c1: resolves only files under the packaged web dist
+  ---
+  duration_ms: 1.681417
+  type: 'test'
+  ...
+# Subtest: slice-5-c2: rejects unknown hosts, unsupported methods, and malformed protocol paths
+ok 45 - slice-5-c2: rejects unknown hosts, unsupported methods, and malformed protocol paths
+  ---
+  duration_ms: 1.564667
+  type: 'test'
+  ...
+# Subtest: slice-5-c3: actual Electron launch loads the local agents route
+ok 46 - slice-5-c3: actual Electron launch loads the local agents route
+  ---
+  duration_ms: 2013.978292
+  type: 'test'
+  ...
+# Subtest: slice-5-c4: actual preload exposes only frozen versioned lifecycle, gateway configuration, Google auth, human-approval signing, and agent-server status
+ok 47 - slice-5-c4: actual preload exposes only frozen versioned lifecycle, gateway configuration, Google auth, human-approval signing, and agent-server status
+  ---
+  duration_ms: 0.717541
+  type: 'test'
+  ...
+# Subtest: production repair: alternate local ports require an explicit smoke-only flag
+ok 48 - production repair: alternate local ports require an explicit smoke-only flag
+  ---
+  duration_ms: 2115.109958
+  type: 'test'
+  ...
+# Subtest: slice-5-c5: actual shell denies navigation, popups, permissions, and downloads
+ok 49 - slice-5-c5: actual shell denies navigation, popups, permissions, and downloads
+  ---
+  duration_ms: 15971.958125
+  type: 'test'
+  ...
+# Subtest: production repair: actual Electron artifact protocol authenticates and executes a sandboxed frame
+ok 50 - production repair: actual Electron artifact protocol authenticates and executes a sandboxed frame
+  ---
+  duration_ms: 2337.366833
+  type: 'test'
+  ...
+# Subtest: desktop OAuth exchange uses Node fetch instead of Chromium net.fetch
+ok 51 - desktop OAuth exchange uses Node fetch instead of Chromium net.fetch
+  ---
+  duration_ms: 1.80225
+  type: 'test'
+  ...
+# Subtest: post-m1-auth-c1/c2: PKCE and authorization URL match Flutter
+ok 52 - post-m1-auth-c1/c2: PKCE and authorization URL match Flutter
+  ---
+  duration_ms: 22.029042
+  type: 'test'
+  ...
+# Subtest: post-m1-auth-c3/c4/c5: callback validation fails closed
+ok 53 - post-m1-auth-c3/c4/c5: callback validation fails closed
+  ---
+  duration_ms: 3.460125
+  type: 'test'
+  ...
+# Subtest: post-m1-auth-c6: callback timeout is exactly five minutes
+ok 54 - post-m1-auth-c6: callback timeout is exactly five minutes
+  ---
+  duration_ms: 2.783583
+  type: 'test'
+  ...
+# Subtest: post-m1-auth-c7: desktop exchange body and response shape match Flutter
+ok 55 - post-m1-auth-c7: desktop exchange body and response shape match Flutter
+  ---
+  duration_ms: 13.781541
+  type: 'test'
+  ...
+# Subtest: post-m1-auth-c8: host binds loopback, opens externally, exchanges, and closes
+ok 56 - post-m1-auth-c8: host binds loopback, opens externally, exchanges, and closes
+  ---
+  duration_ms: 107.638375
+  type: 'test'
+  ...
+# Subtest: production repair: OAuth does not exchange or tear down until the browser confirmation response flushes
+ok 57 - production repair: OAuth does not exchange or tear down until the browser confirmation response flushes
+  ---
+  duration_ms: 31.132958
+  type: 'test'
+  ...
+# Subtest: Hermes protocol accepts exactly the two version-one DTOs
+ok 58 - Hermes protocol accepts exactly the two version-one DTOs
+  ---
+  duration_ms: 2.681583
+  type: 'test'
+  ...
+# Subtest: Hermes protocol rejects unknown versions/types, malformed DTOs and URL injection
+ok 59 - Hermes protocol rejects unknown versions/types, malformed DTOs and URL injection
+  ---
+  duration_ms: 1.59125
+  type: 'test'
+  ...
+# Subtest: Hermes protocol bounds the complete UTF-8 JSON encoding at 64 KiB
+ok 60 - Hermes protocol bounds the complete UTF-8 JSON encoding at 64 KiB
+  ---
+  duration_ms: 3.459458
+  type: 'test'
+  ...
+# Subtest: Hermes supervisor origin must be ready, loopback, root-only, and match the declared port
+ok 61 - Hermes supervisor origin must be ready, loopback, root-only, and match the declared port
+  ---
+  duration_ms: 0.429916
+  type: 'test'
+  ...
+# Subtest: Hermes bounds reject non-finite, excessive, negative dimensions and extra keys
+ok 62 - Hermes bounds reject non-finite, excessive, negative dimensions and extra keys
+  ---
+  duration_ms: 1.34375
+  type: 'test'
+  ...
+# Subtest: Hermes disabled means no binary lookup, fetch, consent, or spawn for any operation
+ok 63 - Hermes disabled means no binary lookup, fetch, consent, or spawn for any operation
+  ---
+  duration_ms: 4.879666
+  type: 'test'
+  ...
+# Subtest: Hermes absent binary reports absent without spawning
+ok 64 - Hermes absent binary reports absent without spawning
+  ---
+  duration_ms: 6.372083
+  type: 'test'
+  ...
+# Subtest: issue-1542-c1: Hermes uses exact pinned dashboard arguments, built dist=false
+ok 65 - issue-1542-c1: Hermes uses exact pinned dashboard arguments, built dist=false
+  ---
+  duration_ms: 3.138042
+  type: 'test'
+  ...
+# Subtest: issue-1542-c1: Hermes uses exact pinned dashboard arguments, built dist=true
+ok 66 - issue-1542-c1: Hermes uses exact pinned dashboard arguments, built dist=true
+  ---
+  duration_ms: 1.748667
+  type: 'test'
+  ...
+# Subtest: Hermes readiness accepts only a 2xx Hermes health JSON payload
+ok 67 - Hermes readiness accepts only a 2xx Hermes health JSON payload
+  ---
+  duration_ms: 5.17075
+  type: 'test'
+  ...
+# Subtest: Hermes readiness rejects HTTP 401 until the deadline and reports the status
+ok 68 - Hermes readiness rejects HTTP 401 until the deadline and reports the status
+  ---
+  duration_ms: 8.657333
+  type: 'test'
+  ...
+# Subtest: Hermes readiness rejects HTTP 404 until the deadline and reports the status
+ok 69 - Hermes readiness rejects HTTP 404 until the deadline and reports the status
+  ---
+  duration_ms: 8.03475
+  type: 'test'
+  ...
+# Subtest: Hermes readiness rejects HTTP 503 until the deadline and reports the status
+ok 70 - Hermes readiness rejects HTTP 503 until the deadline and reports the status
+  ---
+  duration_ms: 8.90225
+  type: 'test'
+  ...
+# Subtest: Hermes readiness rejects a 2xx response whose JSON is not the Hermes health shape
+ok 71 - Hermes readiness rejects a 2xx response whose JSON is not the Hermes health shape
+  ---
+  duration_ms: 3.187791
+  type: 'test'
+  ...
+# Subtest: issue-1542-c3: Hermes mints a main-only token per child and redacts it from diagnostics
+ok 72 - issue-1542-c3: Hermes mints a main-only token per child and redacts it from diagnostics
+  ---
+  duration_ms: 5.314833
+  type: 'test'
+  ...
+# Subtest: Hermes busy port fails exactly, with no adoption, roaming, or signaling
+ok 73 - Hermes busy port fails exactly, with no adoption, roaming, or signaling
+  ---
+  duration_ms: 2.612208
+  type: 'test'
+  ...
+# Subtest: Hermes rejects unsafe port 0
+ok 74 - Hermes rejects unsafe port 0
+  ---
+  duration_ms: 0.285
+  type: 'test'
+  ...
+# Subtest: Hermes rejects unsafe port 9119
+ok 75 - Hermes rejects unsafe port 9119
+  ---
+  duration_ms: 0.711042
+  type: 'test'
+  ...
+# Subtest: Hermes rejects unsafe port -1
+ok 76 - Hermes rejects unsafe port -1
+  ---
+  duration_ms: 0.337334
+  type: 'test'
+  ...
+# Subtest: Hermes rejects unsafe port no
+ok 77 - Hermes rejects unsafe port no
+  ---
+  duration_ms: 0.354834
+  type: 'test'
+  ...
+# Subtest: Hermes rejects unsafe port 65536
+ok 78 - Hermes rejects unsafe port 65536
+  ---
+  duration_ms: 0.440375
+  type: 'test'
+  ...
+# Subtest: Hermes stops only its child, graceful=true
+ok 79 - Hermes stops only its child, graceful=true
+  ---
+  duration_ms: 0.919791
+  type: 'test'
+  ...
+# Subtest: Hermes stops only its child, graceful=false
+ok 80 - Hermes stops only its child, graceful=false
+  ---
+  duration_ms: 42.768125
+  type: 'test'
+  ...
+# Subtest: Hermes start is idempotent and subscriptions can unsubscribe
+ok 81 - Hermes start is idempotent and subscriptions can unsubscribe
+  ---
+  duration_ms: 1.324917
+  type: 'test'
+  ...
+# Subtest: Hermes timeout kills owned child and publishes the last 50 stderr lines, redacted
+ok 82 - Hermes timeout kills owned child and publishes the last 50 stderr lines, redacted
+  ---
+  duration_ms: 94.212167
+  type: 'test'
+  ...
+# Subtest: Hermes stop during binary resolution prevents a late spawn
+ok 83 - Hermes stop during binary resolution prevents a late spawn
+  ---
+  duration_ms: 3.343083
+  type: 'test'
+  ...
+# Subtest: Hermes stop during readiness cannot publish late ready
+ok 84 - Hermes stop during readiness cannot publish late ready
+  ---
+  duration_ms: 40.527084
+  type: 'test'
+  ...
+# Subtest: Hermes unexpected exit fails and restart replaces only the owned child
+ok 85 - Hermes unexpected exit fails and restart replaces only the owned child
+  ---
+  duration_ms: 1.520459
+  type: 'test'
+  ...
+# Subtest: Hermes async spawn errors settle as failed
+ok 86 - Hermes async spawn errors settle as failed
+  ---
+  duration_ms: 3.093167
+  type: 'test'
+  ...
+# Subtest: Hermes install defaults to cancellation and shows the literal official command
+ok 87 - Hermes install defaults to cancellation and shows the literal official command
+  ---
+  duration_ms: 1.894167
+  type: 'test'
+  ...
+# Subtest: Hermes consent runs bootstrap in login shell, streams private log, re-resolves, then starts
+ok 88 - Hermes consent runs bootstrap in login shell, streams private log, re-resolves, then starts
+  ---
+  duration_ms: 14.029166
+  type: 'test'
+  ...
+# Subtest: Hermes quitting while native consent is open cancels the install
+ok 89 - Hermes quitting while native consent is open cancels the install
+  ---
+  duration_ms: 2.462542
+  type: 'test'
+  ...
+# Subtest: issue-1542-c2: Hermes skip-build checks hermes_cli/web_dist and ignores legacy web/dist
+ok 90 - issue-1542-c2: Hermes skip-build checks hermes_cli/web_dist and ignores legacy web/dist
+  ---
+  duration_ms: 127.616708
+  type: 'test'
+  ...
+# Subtest: issue-1542-c5: Hermes contract records one coherent dashboard, token, readiness, and view contract
+ok 91 - issue-1542-c5: Hermes contract records one coherent dashboard, token, readiness, and view contract
+  ---
+  duration_ms: 24.084083
+  type: 'test'
+  ...
+# Subtest: Hermes frozen preload surface and unsubscribe, flag=undefined
+ok 92 - Hermes frozen preload surface and unsubscribe, flag=undefined
+  ---
+  duration_ms: 8.569334
+  type: 'test'
+  ...
+# Subtest: Hermes frozen preload surface and unsubscribe, flag=0
+ok 93 - Hermes frozen preload surface and unsubscribe, flag=0
+  ---
+  duration_ms: 2.367
+  type: 'test'
+  ...
+# Subtest: Hermes frozen preload surface and unsubscribe, flag=1
+ok 94 - Hermes frozen preload surface and unsubscribe, flag=1
+  ---
+  duration_ms: 4.325583
+  type: 'test'
+  ...
+# (node:7147) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: issue-1542-c7: Hermes main binds the native supervisor, authorizes IPC, broadcasts status, and awaits shutdown
+ok 95 - issue-1542-c7: Hermes main binds the native supervisor, authorizes IPC, broadcasts status, and awaits shutdown
+  ---
+  duration_ms: 53.39175
+  type: 'test'
+  ...
+# Subtest: Hermes main flag off does not start and returns disabled
+ok 96 - Hermes main flag off does not start and returns disabled
+  ---
+  duration_ms: 9.180417
+  type: 'test'
+  ...
+# Subtest: Hermes interactive smoke owns only Hermes, including install/restart and shutdown
+ok 97 - Hermes interactive smoke owns only Hermes, including install/restart and shutdown
+  ---
+  duration_ms: 8.462375
+  type: 'test'
+  ...
+# Subtest: Hermes failed installer does not start a server and retains output
+ok 98 - Hermes failed installer does not start a server and retains output
+  ---
+  duration_ms: 5.938875
+  type: 'test'
+  ...
+# Subtest: Hermes detects a port conflict reported after the preflight race
+ok 99 - Hermes detects a port conflict reported after the preflight race
+  ---
+  duration_ms: 3.646584
+  type: 'test'
+  ...
+# Subtest: Hermes attach creates no view while supervisor is disabled
+ok 100 - Hermes attach creates no view while supervisor is disabled
+  ---
+  duration_ms: 12.227208
+  type: 'test'
+  ...
+# Subtest: Hermes attach creates no view while supervisor is absent
+ok 101 - Hermes attach creates no view while supervisor is absent
+  ---
+  duration_ms: 0.695167
+  type: 'test'
+  ...
+# Subtest: Hermes attach creates no view while supervisor is starting
+ok 102 - Hermes attach creates no view while supervisor is starting
+  ---
+  duration_ms: 0.639709
+  type: 'test'
+  ...
+# Subtest: Hermes attach creates no view while supervisor is failed
+ok 103 - Hermes attach creates no view while supervisor is failed
+  ---
+  duration_ms: 0.432708
+  type: 'test'
+  ...
+# Subtest: Hermes attach creates no view while supervisor is stopped
+ok 104 - Hermes attach creates no view while supervisor is stopped
+  ---
+  duration_ms: 1.242125
+  type: 'test'
+  ...
+# Subtest: Hermes view is sandboxed, separately partitioned, zoomed and themed on dom-ready
+ok 105 - Hermes view is sandboxed, separately partitioned, zoomed and themed on dom-ready
+  ---
+  duration_ms: 8.491625
+  type: 'test'
+  ...
+# Subtest: Hermes detach destroys its ephemeral session and the next attach cannot reuse it
+ok 106 - Hermes detach destroys its ephemeral session and the next attach cannot reuse it
+  ---
+  duration_ms: 2.956625
+  type: 'test'
+  ...
+# Subtest: issue-1542-c8: Hermes view requires the main-only token but loads only the clean ready URL for server HTML bootstrap
+ok 107 - issue-1542-c8: Hermes view requires the main-only token but loads only the clean ready URL for server HTML bootstrap
+  ---
+  duration_ms: 3.380583
+  type: 'test'
+  ...
+# Subtest: Hermes auth is a main-only Bearer header on the approved ephemeral session, never a cookie or renderer value
+ok 108 - Hermes auth is a main-only Bearer header on the approved ephemeral session, never a cookie or renderer value
+  ---
+  duration_ms: 2.12225
+  type: 'test'
+  ...
+# Subtest: issue-1542-c9: Hermes token rotation revokes a view tied to the prior dashboard start
+ok 109 - issue-1542-c9: Hermes token rotation revokes a view tied to the prior dashboard start
+  ---
+  duration_ms: 33.957125
+  type: 'test'
+  ...
+# Subtest: Hermes foreign frames, absent acknowledgement, and malformed intents cause zero navigation
+ok 110 - Hermes foreign frames, absent acknowledgement, and malformed intents cause zero navigation
+  ---
+  duration_ms: 3.653625
+  type: 'test'
+  ...
+# Subtest: issue-1542-c4: Hermes forwards a validated new-chat draft without submitting and navigates requested sessions
+ok 111 - issue-1542-c4: Hermes forwards a validated new-chat draft without submitting and navigates requested sessions
+  ---
+  duration_ms: 3.856875
+  type: 'test'
+  ...
+# Subtest: Hermes reload revokes old generation; only the current main frame can reactivate
+ok 112 - Hermes reload revokes old generation; only the current main frame can reactivate
+  ---
+  duration_ms: 1.559625
+  type: 'test'
+  ...
+# Subtest: Hermes detach removes view, closes port, and rejects stale handles
+ok 113 - Hermes detach removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 3.796542
+  type: 'test'
+  ...
+# Subtest: Hermes window-close removes view, closes port, and rejects stale handles
+ok 114 - Hermes window-close removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 1.110292
+  type: 'test'
+  ...
+# Subtest: Hermes host-reload removes view, closes port, and rejects stale handles
+ok 115 - Hermes host-reload removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 1.164041
+  type: 'test'
+  ...
+# Subtest: Hermes leave-route removes view, closes port, and rejects stale handles
+ok 116 - Hermes leave-route removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 1.797166
+  type: 'test'
+  ...
+# Subtest: Hermes supervisor-stop removes view, closes port, and rejects stale handles
+ok 117 - Hermes supervisor-stop removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 7.388167
+  type: 'test'
+  ...
+# Subtest: Hermes replace removes view, closes port, and rejects stale handles
+ok 118 - Hermes replace removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 2.493458
+  type: 'test'
+  ...
+# Subtest: Hermes off flag and wrong host route never create a view
+ok 119 - Hermes off flag and wrong host route never create a view
+  ---
+  duration_ms: 0.723083
+  type: 'test'
+  ...
+# Subtest: Hermes pending intents cannot navigate after a reload or a supervisor change
+ok 120 - Hermes pending intents cannot navigate after a reload or a supervisor change
+  ---
+  duration_ms: 1.615333
+  type: 'test'
+  ...
+# Subtest: Hermes overlapping attach requests destroy the old view and ignore late load completion
+ok 121 - Hermes overlapping attach requests destroy the old view and ignore late load completion
+  ---
+  duration_ms: 15.461958
+  type: 'test'
+  ...
+# Subtest: Hermes parent reload during readiness lookup cancels the pending attach
+ok 122 - Hermes parent reload during readiness lookup cancels the pending attach
+  ---
+  duration_ms: 0.569209
+  type: 'test'
+  ...
+# Subtest: Hermes supervisor replacement cancels a pending readiness snapshot
+ok 123 - Hermes supervisor replacement cancels a pending readiness snapshot
+  ---
+  duration_ms: 0.274167
+  type: 'test'
+  ...
+# Subtest: Hermes same-document navigation replaces the port without duplicating theme insertion
+ok 124 - Hermes same-document navigation replaces the port without duplicating theme insertion
+  ---
+  duration_ms: 0.494458
+  type: 'test'
+  ...
+# Subtest: Hermes navigation, subframes and downloads cannot leave the approved origin
+ok 125 - Hermes navigation, subframes and downloads cannot leave the approved origin
+  ---
+  duration_ms: 0.640542
+  type: 'test'
+  ...
+# Subtest: Hermes main preload hides attachment handles and retires late attach results
+ok 126 - Hermes main preload hides attachment handles and retires late attach results
+  ---
+  duration_ms: 73.434292
+  type: 'test'
+  ...
+# Subtest: Hermes view preload gives the page no native API and closes old ports
+ok 127 - Hermes view preload gives the page no native API and closes old ports
+  ---
+  duration_ms: 3.128916
+  type: 'test'
+  ...
+# Subtest: Hermes view preload opens an editable xterm draft without dispatching submit
+ok 128 - Hermes view preload opens an editable xterm draft without dispatching submit
+  ---
+  duration_ms: 2.905334
+  type: 'test'
+  ...
+# Subtest: issue-1542-c10: packaged main stages every Hermes view support file
+ok 129 - issue-1542-c10: packaged main stages every Hermes view support file
+  ---
+  duration_ms: 1.004041
+  type: 'test'
+  ...
+# Subtest: issue-1542-c11: canonical Electron tests include both B3 suites
+ok 130 - issue-1542-c11: canonical Electron tests include both B3 suites
+  ---
+  duration_ms: 2.558042
+  type: 'test'
+  ...
+# Subtest: isolated Electron HOME is overridden only for the macOS Keychain subprocess
+ok 131 - isolated Electron HOME is overridden only for the macOS Keychain subprocess
+  ---
+  duration_ms: 1.546792
+  type: 'test'
+  ...
+# Subtest: e12b-package-staging: official fuses resolve the framework, not the launcher, at the assembly path
+ok 132 - e12b-package-staging: official fuses resolve the framework, not the launcher, at the assembly path
+  ---
+  duration_ms: 30.883208
+  type: 'test'
+  ...
+# Subtest: e12b-c1: exportable private-key/CLI path is absent (regression: PEM leaks in argv)
+ok 133 - e12b-c1: exportable private-key/CLI path is absent (regression: PEM leaks in argv)
+  ---
+  duration_ms: 11.928625
+  type: 'test'
+  ...
+# (node:7179) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: e12b-c2: exact canonical bytes round-trip DER and capability registration without argv/env secrets
+ok 134 - e12b-c2: exact canonical bytes round-trip DER and capability registration without argv/env secrets
+  ---
+  duration_ms: 124.833208
+  type: 'test'
+  ...
+# Subtest: e12b-c3: malformed decision schema cannot reach helper (regression: arbitrary-sign oracle)
+ok 135 - e12b-c3: malformed decision schema cannot reach helper (regression: arbitrary-sign oracle)
+  ---
+  duration_ms: 29.640833
+  type: 'test'
+  ...
+# Subtest: e12b-c4: malformed/untrusted helper replies fail closed, including invalid/wrong-message DER
+ok 136 - e12b-c4: malformed/untrusted helper replies fail closed, including invalid/wrong-message DER
+  ---
+  duration_ms: 156.49275
+  type: 'test'
+  ...
+# Subtest: e12b-c5: timeout, stderr, nonzero exit and process errors are bounded and redacted
+ok 137 - e12b-c5: timeout, stderr, nonzero exit and process errors are bounded and redacted
+  ---
+  duration_ms: 140.597792
+  type: 'test'
+  ...
+# Subtest: e12b-c6: unavailable Secure Enclave is explicit, never a software fallback
+ok 138 - e12b-c6: unavailable Secure Enclave is explicit, never a software fallback
+  ---
+  duration_ms: 4.842458
+  type: 'test'
+  ...
+# Subtest: e12b-c2: concurrent first-use calls serialize helper creation so registration cannot race signing
+ok 139 - e12b-c2: concurrent first-use calls serialize helper creation so registration cannot race signing
+  ---
+  duration_ms: 8.575958
+  type: 'test'
+  ...
+# Subtest: e12b-c7: Swift restricts permanent enclave key, fixed decision schema/digest and public-only export
+ok 140 - e12b-c7: Swift restricts permanent enclave key, fixed decision schema/digest and public-only export
+  ---
+  duration_ms: 5.396375
+  type: 'test'
+  ...
+# Subtest: e12b-c8: package builds native architecture from source; nested signing requires and verifies helper
+ok 141 - e12b-c8: package builds native architecture from source; nested signing requires and verifies helper
+  ---
+  duration_ms: 3.818917
+  type: 'test'
+  ...
+# Subtest: e12b-c12: required official fuses disable alternate loaders before any signing, preserving unpacked app
+ok 142 - e12b-c12: required official fuses disable alternate loaders before any signing, preserving unpacked app
+  ---
+  duration_ms: 21.949208
+  type: 'test'
+  ...
+# Subtest: e12b-c13: account-local flock encloses lookup/create/requery (regression: two helper processes create different keys)
+ok 143 - e12b-c13: account-local flock encloses lookup/create/requery (regression: two helper processes create different keys)
+  ---
+  duration_ms: 6.234708
+  type: 'test'
+  ...
+# (node:7194) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: e11-c6: main catches rejected start and publishes current/changed failure through existing bridge
+ok 144 - e11-c6: main catches rejected start and publishes current/changed failure through existing bridge
+  ---
+  duration_ms: 185.98325
+  type: 'test'
+  ...
+# Subtest: issue-1541-c4: feature flag starts Hermes in attached mode and not explicit self-test modes
+ok 145 - issue-1541-c4: feature flag starts Hermes in attached mode and not explicit self-test modes
+  ---
+  duration_ms: 39.984125
+  type: 'test'
+  ...
+# Subtest: Hermes supervisor output and lifecycle states reach the main-process stdout
+ok 146 - Hermes supervisor output and lifecycle states reach the main-process stdout
+  ---
+  duration_ms: 32.950083
+  type: 'test'
+  ...
+# Subtest: post-m1-p1-c4b: deep-link requests are explicit fail-closed policy decisions
+ok 147 - post-m1-p1-c4b: deep-link requests are explicit fail-closed policy decisions
+  ---
+  duration_ms: 2.006833
+  type: 'test'
+  ...
+# Subtest: post-m1-p1-c4c: the host acquires one instance lock and routes second-instance input through policy
+ok 148 - post-m1-p1-c4c: the host acquires one instance lock and routes second-instance input through policy
+  ---
+  duration_ms: 2.016875
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4e: Electron owns permission presentation deduplication cancellation and a narrow preload
+ok 149 - post-m1-p7-c4e: Electron owns permission presentation deduplication cancellation and a narrow preload
+  ---
+  duration_ms: 2.736792
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4f-policy: native activation is allowlisted queued and replayed through owned-target navigation
+ok 150 - post-m1-p7-c4f-policy: native activation is allowlisted queued and replayed through owned-target navigation
+  ---
+  duration_ms: 1.873
+  type: 'test'
+  ...
+# Subtest: post-m1-p8-c4a: artifact policy exposes only the closed canonical bridge operations
+ok 151 - post-m1-p8-c4a: artifact policy exposes only the closed canonical bridge operations
+  ---
+  duration_ms: 2.456875
+  type: 'test'
+  ...
+# Subtest: post-m1-p8-c4b: artifact bridge policy binds nonce, request IDs, payload, concurrency, and generation
+ok 152 - post-m1-p8-c4b: artifact bridge policy binds nonce, request IDs, payload, concurrency, and generation
+  ---
+  duration_ms: 3.548166
+  type: 'test'
+  ...
+# Subtest: bucket-a-repair-c2a: unauthorized production API updates reject without persistence
+ok 153 - bucket-a-repair-c2a: unauthorized production API updates reject without persistence
+  ---
+  duration_ms: 10.95125
+  type: 'test'
+  ...
+# Subtest: bucket-a-repair-c2b: unsafe production API values reject without persistence
+ok 154 - bucket-a-repair-c2b: unsafe production API values reject without persistence
+  ---
+  duration_ms: 5.043
+  type: 'test'
+  ...
+# Subtest: bucket-a-repair-c2c: persisted production API config is exactly mode 0600
+ok 155 - bucket-a-repair-c2c: persisted production API config is exactly mode 0600
+  ---
+  duration_ms: 32.590917
+  type: 'test'
+  ...
+# Subtest: local dev can supply the public Google desktop client ID at runtime
+ok 156 - local dev can supply the public Google desktop client ID at runtime
+  ---
+  duration_ms: 1.231458
+  type: 'test'
+  ...
+# Subtest: packaged builds retain their generated Google desktop client ID
+ok 157 - packaged builds retain their generated Google desktop client ID
+  ---
+  duration_ms: 0.160584
+  type: 'test'
+  ...
+# Subtest: packaging copies every support module imported by main
+ok 158 - packaging copies every support module imported by main
+  ---
+  duration_ms: 16.369125
+  type: 'test'
+  ...
+# Subtest: ordinary Electron tests exclude package-shaped contracts
+ok 159 - ordinary Electron tests exclude package-shaped contracts
+  ---
+  duration_ms: 31.858583
+  type: 'test'
+  ...
+# Subtest: web build declares Node types as a required root dependency
+ok 160 - web build declares Node types as a required root dependency
+  ---
+  duration_ms: 70.96875
+  type: 'test'
+  ...
+# Subtest: Electron release installs every package dependency and builds assets before shell smoke
+ok 161 - Electron release installs every package dependency and builds assets before shell smoke
+  ---
+  duration_ms: 20.158292
+  type: 'test'
+  ...
+# Subtest: issue-1542-c12: signed security smoke accepts both exact Hermes bridge receipts
+ok 162 - issue-1542-c12: signed security smoke accepts both exact Hermes bridge receipts
+  ---
+  duration_ms: 3.804791
+  type: 'test'
+  ...
+# Subtest: signed security smoke rejects every unsafe bridge and denial invariant
+ok 163 - signed security smoke rejects every unsafe bridge and denial invariant
+  ---
+  duration_ms: 4.941959
+  type: 'test'
+  ...
+1..163
+# tests 163
+# suites 0
+# pass 163
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 43263.55175
+
+Exit: 0
+
+=== Consecutive run 2: cd apps/electron && npm test ===
+
+> rhythm-electron-shell@0.1.0 test
+> node --experimental-vm-modules --test --test-concurrency=1 test/agent-server.test.mjs test/agent-server-ownership.test.mjs test/artifact-frame-protocol.test.mjs test/electron-shell.test.mjs test/google-oauth.test.mjs test/human-approval-isolated-home.test.mjs test/human-approval-main-signer.test.mjs test/main-runtime.test.mjs test/post-m1-phase-1-host-policy.test.mjs test/post-m1-phase-7-native-notifications.test.mjs test/post-m1-phase-7-packaged-notifications.test.mjs test/post-m1-phase-8-artifact-policy.test.mjs test/production-api-security.test.mjs test/runtime-config.test.mjs test/security-smoke-receipt.test.mjs test/electron-icon.test.mjs test/hermes-server.test.mjs test/hermes-protocol.test.mjs test/hermes-view.test.mjs
+
+TAP version 13
+# (node:7296) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: e11-c1: occupied 4001, foreign health=false, is never adopted or signaled
+ok 1 - e11-c1: occupied 4001, foreign health=false, is never adopted or signaled
+  ---
+  duration_ms: 23.61125
+  type: 'test'
+  ...
+# Subtest: e11-c1: occupied 4096, foreign health=false, is never adopted or signaled
+ok 2 - e11-c1: occupied 4096, foreign health=false, is never adopted or signaled
+  ---
+  duration_ms: 10.305916
+  type: 'test'
+  ...
+# Subtest: e11-c1: occupied 4001, foreign health=true, is never adopted or signaled
+ok 3 - e11-c1: occupied 4001, foreign health=true, is never adopted or signaled
+  ---
+  duration_ms: 5.8135
+  type: 'test'
+  ...
+# Subtest: e11-c1: occupied 4096, foreign health=true, is never adopted or signaled
+ok 4 - e11-c1: occupied 4096, foreign health=true, is never adopted or signaled
+  ---
+  duration_ms: 3.773458
+  type: 'test'
+  ...
+# Subtest: e11-c2: async spawn error is handled and never becomes ready
+ok 5 - e11-c2: async spawn error is handled and never becomes ready
+  ---
+  duration_ms: 210.88575
+  type: 'test'
+  ...
+# Subtest: e11-c3: exit after ready clears ownership and publishes failure
+ok 6 - e11-c3: exit after ready clears ownership and publishes failure
+  ---
+  duration_ms: 229.242167
+  type: 'test'
+  ...
+# Subtest: e11-c4: rejected filesystem startup resolves actionable failed state
+ok 7 - e11-c4: rejected filesystem startup resolves actionable failed state
+  ---
+  duration_ms: 39.290667
+  type: 'test'
+  ...
+# Subtest: e11-c5: owned stop graceful=true signals exact child and cleans listeners
+ok 8 - e11-c5: owned stop graceful=true signals exact child and cleans listeners
+  ---
+  duration_ms: 238.322917
+  type: 'test'
+  ...
+# Subtest: e11-c5: owned stop graceful=false signals exact child and cleans listeners
+ok 9 - e11-c5: owned stop graceful=false signals exact child and cleans listeners
+  ---
+  duration_ms: 2223.894375
+  type: 'test'
+  ...
+# Subtest: e11-c7: repeated start owns one child; timeout is bounded, stops child, never auto-retries
+ok 10 - e11-c7: repeated start owns one child; timeout is bounded, stops child, never auto-retries
+  ---
+  duration_ms: 8272.511458
+  type: 'test'
+  ...
+# Subtest: e11-c1: real bind probe rejects an owned ephemeral 127.0.0.1 non-HTTP listener without disturbing it
+ok 11 - e11-c1: real bind probe rejects an owned ephemeral 127.0.0.1 non-HTTP listener without disturbing it
+  ---
+  duration_ms: 28.0885
+  type: 'test'
+  ...
+# Subtest: e11-c1: real bind probe rejects an owned ephemeral ::1 non-HTTP listener without disturbing it
+ok 12 - e11-c1: real bind probe rejects an owned ephemeral ::1 non-HTTP listener without disturbing it
+  ---
+  duration_ms: 1.558083
+  type: 'test'
+  ...
+# Subtest: e11-c5: stopping during startup cannot publish late health as ready
+ok 13 - e11-c5: stopping during startup cannot publish late health as ready
+  ---
+  duration_ms: 210.165167
+  type: 'test'
+  ...
+# Subtest: production agent-server shares Flutter local API and engine ports
+ok 14 - production agent-server shares Flutter local API and engine ports
+  ---
+  duration_ms: 1.584833
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4d agent-server: buildEnvironment sets every required var and strips stale HUMAN_APPROVAL_* keys
+ok 15 - post-m1-p7-c4d agent-server: buildEnvironment sets every required var and strips stale HUMAN_APPROVAL_* keys
+  ---
+  duration_ms: 0.756917
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4d agent-server: buildEnvironment never lets an explicit override win for security-critical vars
+ok 16 - post-m1-p7-c4d agent-server: buildEnvironment never lets an explicit override win for security-critical vars
+  ---
+  duration_ms: 0.339917
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4d agent-server: buildEnvironment respects explicit MCP_ROLES_DIR override, matching Flutter precedence
+ok 17 - post-m1-p7-c4d agent-server: buildEnvironment respects explicit MCP_ROLES_DIR override, matching Flutter precedence
+  ---
+  duration_ms: 0.261959
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4d agent-server: findServerEntry resolves the real apps/api_server dev entry from this checkout
+ok 18 - post-m1-p7-c4d agent-server: findServerEntry resolves the real apps/api_server dev entry from this checkout
+  ---
+  duration_ms: 2.275
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4d agent-server: checkHealth is false for a port nothing listens on
+ok 19 - post-m1-p7-c4d agent-server: checkHealth is false for a port nothing listens on
+  ---
+  duration_ms: 53.604458
+  type: 'test'
+  ...
+# Subtest: artifact frame protocol accepts only an exact GET app UUID URL
+ok 20 - artifact frame protocol accepts only an exact GET app UUID URL
+  ---
+  duration_ms: 3.077875
+  type: 'test'
+  ...
+# Subtest: artifact frame navigation allows only the initial exact UUID mount
+ok 21 - artifact frame navigation allows only the initial exact UUID mount
+  ---
+  duration_ms: 1.663333
+  type: 'test'
+  ...
+# Subtest: artifact frame bridge adapts the server RhythmBridge channel before its bootstrap without rewriting artifact code
+ok 22 - artifact frame bridge adapts the server RhythmBridge channel before its bootstrap without rewriting artifact code
+  ---
+  duration_ms: 0.877666
+  type: 'test'
+  ...
+# Subtest: artifact frame bridge rejects a stale response after a replacement document reuses the request id
+ok 23 - artifact frame bridge rejects a stale response after a replacement document reuses the request id
+  ---
+  duration_ms: 54.568292
+  type: 'test'
+  ...
+# Subtest: Electron host registers the authenticated artifact scheme and renderer uses it only inside Rhythm
+ok 24 - Electron host registers the authenticated artifact scheme and renderer uses it only inside Rhythm
+  ---
+  duration_ms: 19.544208
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: assembly maps every source slot and inventories the converter output
+ok 25 - Rhythm icon: assembly maps every source slot and inventories the converter output
+  ---
+  duration_ms: 102.773666
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: staged plist and artwork identity (IconName=true)
+ok 26 - Rhythm icon: staged plist and artwork identity (IconName=true)
+  ---
+  duration_ms: 784.305666
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: staged plist and artwork identity (IconName=false)
+ok 27 - Rhythm icon: staged plist and artwork identity (IconName=false)
+  ---
+  duration_ms: 746.385083
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: rejects missing mapping before conversion
+ok 28 - Rhythm icon: rejects missing mapping before conversion
+  ---
+  duration_ms: 93.487917
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: rejects missing file before conversion
+ok 29 - Rhythm icon: rejects missing file before conversion
+  ---
+  duration_ms: 85.068333
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: rejects wrong dimensions before conversion
+ok 30 - Rhythm icon: rejects wrong dimensions before conversion
+  ---
+  duration_ms: 78.564041
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: rejects invalid PNG before conversion
+ok 31 - Rhythm icon: rejects invalid PNG before conversion
+  ---
+  duration_ms: 60.251917
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: fails clearly for missing iconutil, never reuses a stale icon
+ok 32 - Rhythm icon: fails clearly for missing iconutil, never reuses a stale icon
+  ---
+  duration_ms: 47.087125
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: fails clearly for missing output, never reuses a stale icon
+ok 33 - Rhythm icon: fails clearly for missing output, never reuses a stale icon
+  ---
+  duration_ms: 49.701083
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: fails clearly for invalid output, never reuses a stale icon
+ok 34 - Rhythm icon: fails clearly for invalid output, never reuses a stale icon
+  ---
+  duration_ms: 63.2805
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: packaging and release assemble icons before bundle signing
+ok 35 - Rhythm icon: packaging and release assemble icons before bundle signing
+  ---
+  duration_ms: 7.520458
+  type: 'test'
+  ...
+# (node:8084) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: interactive-runtime-c1: interactive smoke keeps the visible normal route
+ok 36 - interactive-runtime-c1: interactive smoke keeps the visible normal route
+  ---
+  duration_ms: 87.1615
+  type: 'test'
+  ...
+# Subtest: interactive-runtime-c2: interactive smoke leaves the external runtime unowned while Hermes has shutdown hooks
+ok 37 - interactive-runtime-c2: interactive smoke leaves the external runtime unowned while Hermes has shutdown hooks
+  ---
+  duration_ms: 10.101167
+  type: 'test'
+  ...
+# Subtest: interactive-runtime-c3: explicit userData required before lock; alternate ports need both flags
+ok 38 - interactive-runtime-c3: explicit userData required before lock; alternate ports need both flags
+  ---
+  duration_ms: 62.264
+  type: 'test'
+  ...
+# Subtest: interactive-runtime-c4: production still owns lifecycle; automated smoke stays hidden and unowned
+ok 39 - interactive-runtime-c4: production still owns lifecycle; automated smoke stays hidden and unowned
+  ---
+  duration_ms: 24.51075
+  type: 'test'
+  ...
+# Subtest: directory-picker: actual preload adds only a no-payload selectDirectory capability
+ok 40 - directory-picker: actual preload adds only a no-payload selectDirectory capability
+  ---
+  duration_ms: 11.895958
+  type: 'test'
+  ...
+# Subtest: directory-picker: owned native dialog returns only the first path string or null
+ok 41 - directory-picker: owned native dialog returns only the first path string or null
+  ---
+  duration_ms: 11.752584
+  type: 'test'
+  ...
+# Subtest: directory-picker: foreign senders, frames, hosts and payloads cannot open the dialog
+ok 42 - directory-picker: foreign senders, frames, hosts and payloads cannot open the dialog
+  ---
+  duration_ms: 10.294708
+  type: 'test'
+  ...
+# Subtest: directory-picker: navigation during selection cannot receive a stale path
+ok 43 - directory-picker: navigation during selection cannot receive a stale path
+  ---
+  duration_ms: 15.854542
+  type: 'test'
+  ...
+# Subtest: slice-5-c1: resolves only files under the packaged web dist
+ok 44 - slice-5-c1: resolves only files under the packaged web dist
+  ---
+  duration_ms: 1.751917
+  type: 'test'
+  ...
+# Subtest: slice-5-c2: rejects unknown hosts, unsupported methods, and malformed protocol paths
+ok 45 - slice-5-c2: rejects unknown hosts, unsupported methods, and malformed protocol paths
+  ---
+  duration_ms: 1.200167
+  type: 'test'
+  ...
+# Subtest: slice-5-c3: actual Electron launch loads the local agents route
+ok 46 - slice-5-c3: actual Electron launch loads the local agents route
+  ---
+  duration_ms: 1664.501459
+  type: 'test'
+  ...
+# Subtest: slice-5-c4: actual preload exposes only frozen versioned lifecycle, gateway configuration, Google auth, human-approval signing, and agent-server status
+ok 47 - slice-5-c4: actual preload exposes only frozen versioned lifecycle, gateway configuration, Google auth, human-approval signing, and agent-server status
+  ---
+  duration_ms: 0.562292
+  type: 'test'
+  ...
+# Subtest: production repair: alternate local ports require an explicit smoke-only flag
+ok 48 - production repair: alternate local ports require an explicit smoke-only flag
+  ---
+  duration_ms: 1542.008
+  type: 'test'
+  ...
+# Subtest: slice-5-c5: actual shell denies navigation, popups, permissions, and downloads
+ok 49 - slice-5-c5: actual shell denies navigation, popups, permissions, and downloads
+  ---
+  duration_ms: 800.416167
+  type: 'test'
+  ...
+# Subtest: production repair: actual Electron artifact protocol authenticates and executes a sandboxed frame
+ok 50 - production repair: actual Electron artifact protocol authenticates and executes a sandboxed frame
+  ---
+  duration_ms: 1725.142625
+  type: 'test'
+  ...
+# Subtest: desktop OAuth exchange uses Node fetch instead of Chromium net.fetch
+ok 51 - desktop OAuth exchange uses Node fetch instead of Chromium net.fetch
+  ---
+  duration_ms: 2.312583
+  type: 'test'
+  ...
+# Subtest: post-m1-auth-c1/c2: PKCE and authorization URL match Flutter
+ok 52 - post-m1-auth-c1/c2: PKCE and authorization URL match Flutter
+  ---
+  duration_ms: 15.244875
+  type: 'test'
+  ...
+# Subtest: post-m1-auth-c3/c4/c5: callback validation fails closed
+ok 53 - post-m1-auth-c3/c4/c5: callback validation fails closed
+  ---
+  duration_ms: 1.096292
+  type: 'test'
+  ...
+# Subtest: post-m1-auth-c6: callback timeout is exactly five minutes
+ok 54 - post-m1-auth-c6: callback timeout is exactly five minutes
+  ---
+  duration_ms: 0.474333
+  type: 'test'
+  ...
+# Subtest: post-m1-auth-c7: desktop exchange body and response shape match Flutter
+ok 55 - post-m1-auth-c7: desktop exchange body and response shape match Flutter
+  ---
+  duration_ms: 6.461
+  type: 'test'
+  ...
+# Subtest: post-m1-auth-c8: host binds loopback, opens externally, exchanges, and closes
+ok 56 - post-m1-auth-c8: host binds loopback, opens externally, exchanges, and closes
+  ---
+  duration_ms: 88.168792
+  type: 'test'
+  ...
+# Subtest: production repair: OAuth does not exchange or tear down until the browser confirmation response flushes
+ok 57 - production repair: OAuth does not exchange or tear down until the browser confirmation response flushes
+  ---
+  duration_ms: 24.322875
+  type: 'test'
+  ...
+# Subtest: Hermes protocol accepts exactly the two version-one DTOs
+ok 58 - Hermes protocol accepts exactly the two version-one DTOs
+  ---
+  duration_ms: 3.553083
+  type: 'test'
+  ...
+# Subtest: Hermes protocol rejects unknown versions/types, malformed DTOs and URL injection
+ok 59 - Hermes protocol rejects unknown versions/types, malformed DTOs and URL injection
+  ---
+  duration_ms: 0.540583
+  type: 'test'
+  ...
+# Subtest: Hermes protocol bounds the complete UTF-8 JSON encoding at 64 KiB
+ok 60 - Hermes protocol bounds the complete UTF-8 JSON encoding at 64 KiB
+  ---
+  duration_ms: 3.051416
+  type: 'test'
+  ...
+# Subtest: Hermes supervisor origin must be ready, loopback, root-only, and match the declared port
+ok 61 - Hermes supervisor origin must be ready, loopback, root-only, and match the declared port
+  ---
+  duration_ms: 0.791416
+  type: 'test'
+  ...
+# Subtest: Hermes bounds reject non-finite, excessive, negative dimensions and extra keys
+ok 62 - Hermes bounds reject non-finite, excessive, negative dimensions and extra keys
+  ---
+  duration_ms: 2.673708
+  type: 'test'
+  ...
+# Subtest: Hermes disabled means no binary lookup, fetch, consent, or spawn for any operation
+ok 63 - Hermes disabled means no binary lookup, fetch, consent, or spawn for any operation
+  ---
+  duration_ms: 5.251958
+  type: 'test'
+  ...
+# Subtest: Hermes absent binary reports absent without spawning
+ok 64 - Hermes absent binary reports absent without spawning
+  ---
+  duration_ms: 2.007209
+  type: 'test'
+  ...
+# Subtest: issue-1542-c1: Hermes uses exact pinned dashboard arguments, built dist=false
+ok 65 - issue-1542-c1: Hermes uses exact pinned dashboard arguments, built dist=false
+  ---
+  duration_ms: 5.611375
+  type: 'test'
+  ...
+# Subtest: issue-1542-c1: Hermes uses exact pinned dashboard arguments, built dist=true
+ok 66 - issue-1542-c1: Hermes uses exact pinned dashboard arguments, built dist=true
+  ---
+  duration_ms: 3.053209
+  type: 'test'
+  ...
+# Subtest: Hermes readiness accepts only a 2xx Hermes health JSON payload
+ok 67 - Hermes readiness accepts only a 2xx Hermes health JSON payload
+  ---
+  duration_ms: 2.837167
+  type: 'test'
+  ...
+# Subtest: Hermes readiness rejects HTTP 401 until the deadline and reports the status
+ok 68 - Hermes readiness rejects HTTP 401 until the deadline and reports the status
+  ---
+  duration_ms: 4.923458
+  type: 'test'
+  ...
+# Subtest: Hermes readiness rejects HTTP 404 until the deadline and reports the status
+ok 69 - Hermes readiness rejects HTTP 404 until the deadline and reports the status
+  ---
+  duration_ms: 1.954417
+  type: 'test'
+  ...
+# Subtest: Hermes readiness rejects HTTP 503 until the deadline and reports the status
+ok 70 - Hermes readiness rejects HTTP 503 until the deadline and reports the status
+  ---
+  duration_ms: 1.723417
+  type: 'test'
+  ...
+# Subtest: Hermes readiness rejects a 2xx response whose JSON is not the Hermes health shape
+ok 71 - Hermes readiness rejects a 2xx response whose JSON is not the Hermes health shape
+  ---
+  duration_ms: 1.427417
+  type: 'test'
+  ...
+# Subtest: issue-1542-c3: Hermes mints a main-only token per child and redacts it from diagnostics
+ok 72 - issue-1542-c3: Hermes mints a main-only token per child and redacts it from diagnostics
+  ---
+  duration_ms: 7.687166
+  type: 'test'
+  ...
+# Subtest: Hermes busy port fails exactly, with no adoption, roaming, or signaling
+ok 73 - Hermes busy port fails exactly, with no adoption, roaming, or signaling
+  ---
+  duration_ms: 1.229625
+  type: 'test'
+  ...
+# Subtest: Hermes rejects unsafe port 0
+ok 74 - Hermes rejects unsafe port 0
+  ---
+  duration_ms: 0.66425
+  type: 'test'
+  ...
+# Subtest: Hermes rejects unsafe port 9119
+ok 75 - Hermes rejects unsafe port 9119
+  ---
+  duration_ms: 0.350875
+  type: 'test'
+  ...
+# Subtest: Hermes rejects unsafe port -1
+ok 76 - Hermes rejects unsafe port -1
+  ---
+  duration_ms: 0.178292
+  type: 'test'
+  ...
+# Subtest: Hermes rejects unsafe port no
+ok 77 - Hermes rejects unsafe port no
+  ---
+  duration_ms: 0.182166
+  type: 'test'
+  ...
+# Subtest: Hermes rejects unsafe port 65536
+ok 78 - Hermes rejects unsafe port 65536
+  ---
+  duration_ms: 0.148167
+  type: 'test'
+  ...
+# Subtest: Hermes stops only its child, graceful=true
+ok 79 - Hermes stops only its child, graceful=true
+  ---
+  duration_ms: 0.557042
+  type: 'test'
+  ...
+# Subtest: Hermes stops only its child, graceful=false
+ok 80 - Hermes stops only its child, graceful=false
+  ---
+  duration_ms: 32.140958
+  type: 'test'
+  ...
+# Subtest: Hermes start is idempotent and subscriptions can unsubscribe
+ok 81 - Hermes start is idempotent and subscriptions can unsubscribe
+  ---
+  duration_ms: 0.828584
+  type: 'test'
+  ...
+# Subtest: Hermes timeout kills owned child and publishes the last 50 stderr lines, redacted
+ok 82 - Hermes timeout kills owned child and publishes the last 50 stderr lines, redacted
+  ---
+  duration_ms: 72.49775
+  type: 'test'
+  ...
+# Subtest: Hermes stop during binary resolution prevents a late spawn
+ok 83 - Hermes stop during binary resolution prevents a late spawn
+  ---
+  duration_ms: 1.507208
+  type: 'test'
+  ...
+# Subtest: Hermes stop during readiness cannot publish late ready
+ok 84 - Hermes stop during readiness cannot publish late ready
+  ---
+  duration_ms: 2.282417
+  type: 'test'
+  ...
+# Subtest: Hermes unexpected exit fails and restart replaces only the owned child
+ok 85 - Hermes unexpected exit fails and restart replaces only the owned child
+  ---
+  duration_ms: 2.260666
+  type: 'test'
+  ...
+# Subtest: Hermes async spawn errors settle as failed
+ok 86 - Hermes async spawn errors settle as failed
+  ---
+  duration_ms: 3.847791
+  type: 'test'
+  ...
+# Subtest: Hermes install defaults to cancellation and shows the literal official command
+ok 87 - Hermes install defaults to cancellation and shows the literal official command
+  ---
+  duration_ms: 0.912166
+  type: 'test'
+  ...
+# Subtest: Hermes consent runs bootstrap in login shell, streams private log, re-resolves, then starts
+ok 88 - Hermes consent runs bootstrap in login shell, streams private log, re-resolves, then starts
+  ---
+  duration_ms: 19.624542
+  type: 'test'
+  ...
+# Subtest: Hermes quitting while native consent is open cancels the install
+ok 89 - Hermes quitting while native consent is open cancels the install
+  ---
+  duration_ms: 0.856958
+  type: 'test'
+  ...
+# Subtest: issue-1542-c2: Hermes skip-build checks hermes_cli/web_dist and ignores legacy web/dist
+ok 90 - issue-1542-c2: Hermes skip-build checks hermes_cli/web_dist and ignores legacy web/dist
+  ---
+  duration_ms: 53.899875
+  type: 'test'
+  ...
+# Subtest: issue-1542-c5: Hermes contract records one coherent dashboard, token, readiness, and view contract
+ok 91 - issue-1542-c5: Hermes contract records one coherent dashboard, token, readiness, and view contract
+  ---
+  duration_ms: 3.292167
+  type: 'test'
+  ...
+# Subtest: Hermes frozen preload surface and unsubscribe, flag=undefined
+ok 92 - Hermes frozen preload surface and unsubscribe, flag=undefined
+  ---
+  duration_ms: 5.272666
+  type: 'test'
+  ...
+# Subtest: Hermes frozen preload surface and unsubscribe, flag=0
+ok 93 - Hermes frozen preload surface and unsubscribe, flag=0
+  ---
+  duration_ms: 2.105417
+  type: 'test'
+  ...
+# Subtest: Hermes frozen preload surface and unsubscribe, flag=1
+ok 94 - Hermes frozen preload surface and unsubscribe, flag=1
+  ---
+  duration_ms: 4.604375
+  type: 'test'
+  ...
+# (node:8248) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: issue-1542-c7: Hermes main binds the native supervisor, authorizes IPC, broadcasts status, and awaits shutdown
+ok 95 - issue-1542-c7: Hermes main binds the native supervisor, authorizes IPC, broadcasts status, and awaits shutdown
+  ---
+  duration_ms: 56.835333
+  type: 'test'
+  ...
+# Subtest: Hermes main flag off does not start and returns disabled
+ok 96 - Hermes main flag off does not start and returns disabled
+  ---
+  duration_ms: 8.712083
+  type: 'test'
+  ...
+# Subtest: Hermes interactive smoke owns only Hermes, including install/restart and shutdown
+ok 97 - Hermes interactive smoke owns only Hermes, including install/restart and shutdown
+  ---
+  duration_ms: 9.239208
+  type: 'test'
+  ...
+# Subtest: Hermes failed installer does not start a server and retains output
+ok 98 - Hermes failed installer does not start a server and retains output
+  ---
+  duration_ms: 24.399542
+  type: 'test'
+  ...
+# Subtest: Hermes detects a port conflict reported after the preflight race
+ok 99 - Hermes detects a port conflict reported after the preflight race
+  ---
+  duration_ms: 4.060292
+  type: 'test'
+  ...
+# Subtest: Hermes attach creates no view while supervisor is disabled
+ok 100 - Hermes attach creates no view while supervisor is disabled
+  ---
+  duration_ms: 14.764042
+  type: 'test'
+  ...
+# Subtest: Hermes attach creates no view while supervisor is absent
+ok 101 - Hermes attach creates no view while supervisor is absent
+  ---
+  duration_ms: 0.572542
+  type: 'test'
+  ...
+# Subtest: Hermes attach creates no view while supervisor is starting
+ok 102 - Hermes attach creates no view while supervisor is starting
+  ---
+  duration_ms: 0.471625
+  type: 'test'
+  ...
+# Subtest: Hermes attach creates no view while supervisor is failed
+ok 103 - Hermes attach creates no view while supervisor is failed
+  ---
+  duration_ms: 0.949208
+  type: 'test'
+  ...
+# Subtest: Hermes attach creates no view while supervisor is stopped
+ok 104 - Hermes attach creates no view while supervisor is stopped
+  ---
+  duration_ms: 1.538167
+  type: 'test'
+  ...
+# Subtest: Hermes view is sandboxed, separately partitioned, zoomed and themed on dom-ready
+ok 105 - Hermes view is sandboxed, separately partitioned, zoomed and themed on dom-ready
+  ---
+  duration_ms: 6.882542
+  type: 'test'
+  ...
+# Subtest: Hermes detach destroys its ephemeral session and the next attach cannot reuse it
+ok 106 - Hermes detach destroys its ephemeral session and the next attach cannot reuse it
+  ---
+  duration_ms: 2.477375
+  type: 'test'
+  ...
+# Subtest: issue-1542-c8: Hermes view requires the main-only token but loads only the clean ready URL for server HTML bootstrap
+ok 107 - issue-1542-c8: Hermes view requires the main-only token but loads only the clean ready URL for server HTML bootstrap
+  ---
+  duration_ms: 2.636709
+  type: 'test'
+  ...
+# Subtest: Hermes auth is a main-only Bearer header on the approved ephemeral session, never a cookie or renderer value
+ok 108 - Hermes auth is a main-only Bearer header on the approved ephemeral session, never a cookie or renderer value
+  ---
+  duration_ms: 5.868708
+  type: 'test'
+  ...
+# Subtest: issue-1542-c9: Hermes token rotation revokes a view tied to the prior dashboard start
+ok 109 - issue-1542-c9: Hermes token rotation revokes a view tied to the prior dashboard start
+  ---
+  duration_ms: 23.884916
+  type: 'test'
+  ...
+# Subtest: Hermes foreign frames, absent acknowledgement, and malformed intents cause zero navigation
+ok 110 - Hermes foreign frames, absent acknowledgement, and malformed intents cause zero navigation
+  ---
+  duration_ms: 3.298333
+  type: 'test'
+  ...
+# Subtest: issue-1542-c4: Hermes forwards a validated new-chat draft without submitting and navigates requested sessions
+ok 111 - issue-1542-c4: Hermes forwards a validated new-chat draft without submitting and navigates requested sessions
+  ---
+  duration_ms: 2.45425
+  type: 'test'
+  ...
+# Subtest: Hermes reload revokes old generation; only the current main frame can reactivate
+ok 112 - Hermes reload revokes old generation; only the current main frame can reactivate
+  ---
+  duration_ms: 2.636041
+  type: 'test'
+  ...
+# Subtest: Hermes detach removes view, closes port, and rejects stale handles
+ok 113 - Hermes detach removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 1.275833
+  type: 'test'
+  ...
+# Subtest: Hermes window-close removes view, closes port, and rejects stale handles
+ok 114 - Hermes window-close removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 3.271
+  type: 'test'
+  ...
+# Subtest: Hermes host-reload removes view, closes port, and rejects stale handles
+ok 115 - Hermes host-reload removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 2.182125
+  type: 'test'
+  ...
+# Subtest: Hermes leave-route removes view, closes port, and rejects stale handles
+ok 116 - Hermes leave-route removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 2.168
+  type: 'test'
+  ...
+# Subtest: Hermes supervisor-stop removes view, closes port, and rejects stale handles
+ok 117 - Hermes supervisor-stop removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 15.005833
+  type: 'test'
+  ...
+# Subtest: Hermes replace removes view, closes port, and rejects stale handles
+ok 118 - Hermes replace removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 1.31675
+  type: 'test'
+  ...
+# Subtest: Hermes off flag and wrong host route never create a view
+ok 119 - Hermes off flag and wrong host route never create a view
+  ---
+  duration_ms: 0.842834
+  type: 'test'
+  ...
+# Subtest: Hermes pending intents cannot navigate after a reload or a supervisor change
+ok 120 - Hermes pending intents cannot navigate after a reload or a supervisor change
+  ---
+  duration_ms: 3.363042
+  type: 'test'
+  ...
+# Subtest: Hermes overlapping attach requests destroy the old view and ignore late load completion
+ok 121 - Hermes overlapping attach requests destroy the old view and ignore late load completion
+  ---
+  duration_ms: 6.12425
+  type: 'test'
+  ...
+# Subtest: Hermes parent reload during readiness lookup cancels the pending attach
+ok 122 - Hermes parent reload during readiness lookup cancels the pending attach
+  ---
+  duration_ms: 1.594291
+  type: 'test'
+  ...
+# Subtest: Hermes supervisor replacement cancels a pending readiness snapshot
+ok 123 - Hermes supervisor replacement cancels a pending readiness snapshot
+  ---
+  duration_ms: 0.532125
+  type: 'test'
+  ...
+# Subtest: Hermes same-document navigation replaces the port without duplicating theme insertion
+ok 124 - Hermes same-document navigation replaces the port without duplicating theme insertion
+  ---
+  duration_ms: 0.727875
+  type: 'test'
+  ...
+# Subtest: Hermes navigation, subframes and downloads cannot leave the approved origin
+ok 125 - Hermes navigation, subframes and downloads cannot leave the approved origin
+  ---
+  duration_ms: 0.852083
+  type: 'test'
+  ...
+# Subtest: Hermes main preload hides attachment handles and retires late attach results
+ok 126 - Hermes main preload hides attachment handles and retires late attach results
+  ---
+  duration_ms: 12.322791
+  type: 'test'
+  ...
+# Subtest: Hermes view preload gives the page no native API and closes old ports
+ok 127 - Hermes view preload gives the page no native API and closes old ports
+  ---
+  duration_ms: 6.955166
+  type: 'test'
+  ...
+# Subtest: Hermes view preload opens an editable xterm draft without dispatching submit
+ok 128 - Hermes view preload opens an editable xterm draft without dispatching submit
+  ---
+  duration_ms: 4.417542
+  type: 'test'
+  ...
+# Subtest: issue-1542-c10: packaged main stages every Hermes view support file
+ok 129 - issue-1542-c10: packaged main stages every Hermes view support file
+  ---
+  duration_ms: 1.0125
+  type: 'test'
+  ...
+# Subtest: issue-1542-c11: canonical Electron tests include both B3 suites
+ok 130 - issue-1542-c11: canonical Electron tests include both B3 suites
+  ---
+  duration_ms: 1.275875
+  type: 'test'
+  ...
+# Subtest: isolated Electron HOME is overridden only for the macOS Keychain subprocess
+ok 131 - isolated Electron HOME is overridden only for the macOS Keychain subprocess
+  ---
+  duration_ms: 2.46475
+  type: 'test'
+  ...
+# Subtest: e12b-package-staging: official fuses resolve the framework, not the launcher, at the assembly path
+ok 132 - e12b-package-staging: official fuses resolve the framework, not the launcher, at the assembly path
+  ---
+  duration_ms: 16.549959
+  type: 'test'
+  ...
+# Subtest: e12b-c1: exportable private-key/CLI path is absent (regression: PEM leaks in argv)
+ok 133 - e12b-c1: exportable private-key/CLI path is absent (regression: PEM leaks in argv)
+  ---
+  duration_ms: 4.904459
+  type: 'test'
+  ...
+# (node:8268) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: e12b-c2: exact canonical bytes round-trip DER and capability registration without argv/env secrets
+ok 134 - e12b-c2: exact canonical bytes round-trip DER and capability registration without argv/env secrets
+  ---
+  duration_ms: 27.304083
+  type: 'test'
+  ...
+# Subtest: e12b-c3: malformed decision schema cannot reach helper (regression: arbitrary-sign oracle)
+ok 135 - e12b-c3: malformed decision schema cannot reach helper (regression: arbitrary-sign oracle)
+  ---
+  duration_ms: 21.688625
+  type: 'test'
+  ...
+# Subtest: e12b-c4: malformed/untrusted helper replies fail closed, including invalid/wrong-message DER
+ok 136 - e12b-c4: malformed/untrusted helper replies fail closed, including invalid/wrong-message DER
+  ---
+  duration_ms: 56.354458
+  type: 'test'
+  ...
+# Subtest: e12b-c5: timeout, stderr, nonzero exit and process errors are bounded and redacted
+ok 137 - e12b-c5: timeout, stderr, nonzero exit and process errors are bounded and redacted
+  ---
+  duration_ms: 54.995416
+  type: 'test'
+  ...
+# Subtest: e12b-c6: unavailable Secure Enclave is explicit, never a software fallback
+ok 138 - e12b-c6: unavailable Secure Enclave is explicit, never a software fallback
+  ---
+  duration_ms: 8.269709
+  type: 'test'
+  ...
+# Subtest: e12b-c2: concurrent first-use calls serialize helper creation so registration cannot race signing
+ok 139 - e12b-c2: concurrent first-use calls serialize helper creation so registration cannot race signing
+  ---
+  duration_ms: 15.227667
+  type: 'test'
+  ...
+# Subtest: e12b-c7: Swift restricts permanent enclave key, fixed decision schema/digest and public-only export
+ok 140 - e12b-c7: Swift restricts permanent enclave key, fixed decision schema/digest and public-only export
+  ---
+  duration_ms: 9.039917
+  type: 'test'
+  ...
+# Subtest: e12b-c8: package builds native architecture from source; nested signing requires and verifies helper
+ok 141 - e12b-c8: package builds native architecture from source; nested signing requires and verifies helper
+  ---
+  duration_ms: 6.499208
+  type: 'test'
+  ...
+# Subtest: e12b-c12: required official fuses disable alternate loaders before any signing, preserving unpacked app
+ok 142 - e12b-c12: required official fuses disable alternate loaders before any signing, preserving unpacked app
+  ---
+  duration_ms: 4.117667
+  type: 'test'
+  ...
+# Subtest: e12b-c13: account-local flock encloses lookup/create/requery (regression: two helper processes create different keys)
+ok 143 - e12b-c13: account-local flock encloses lookup/create/requery (regression: two helper processes create different keys)
+  ---
+  duration_ms: 1.692333
+  type: 'test'
+  ...
+# (node:8276) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: e11-c6: main catches rejected start and publishes current/changed failure through existing bridge
+ok 144 - e11-c6: main catches rejected start and publishes current/changed failure through existing bridge
+  ---
+  duration_ms: 82.128167
+  type: 'test'
+  ...
+# Subtest: issue-1541-c4: feature flag starts Hermes in attached mode and not explicit self-test modes
+ok 145 - issue-1541-c4: feature flag starts Hermes in attached mode and not explicit self-test modes
+  ---
+  duration_ms: 37.928333
+  type: 'test'
+  ...
+# Subtest: Hermes supervisor output and lifecycle states reach the main-process stdout
+ok 146 - Hermes supervisor output and lifecycle states reach the main-process stdout
+  ---
+  duration_ms: 12.09875
+  type: 'test'
+  ...
+# Subtest: post-m1-p1-c4b: deep-link requests are explicit fail-closed policy decisions
+ok 147 - post-m1-p1-c4b: deep-link requests are explicit fail-closed policy decisions
+  ---
+  duration_ms: 1.553333
+  type: 'test'
+  ...
+# Subtest: post-m1-p1-c4c: the host acquires one instance lock and routes second-instance input through policy
+ok 148 - post-m1-p1-c4c: the host acquires one instance lock and routes second-instance input through policy
+  ---
+  duration_ms: 2.05075
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4e: Electron owns permission presentation deduplication cancellation and a narrow preload
+ok 149 - post-m1-p7-c4e: Electron owns permission presentation deduplication cancellation and a narrow preload
+  ---
+  duration_ms: 2.612292
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4f-policy: native activation is allowlisted queued and replayed through owned-target navigation
+ok 150 - post-m1-p7-c4f-policy: native activation is allowlisted queued and replayed through owned-target navigation
+  ---
+  duration_ms: 2.23525
+  type: 'test'
+  ...
+# Subtest: post-m1-p8-c4a: artifact policy exposes only the closed canonical bridge operations
+ok 151 - post-m1-p8-c4a: artifact policy exposes only the closed canonical bridge operations
+  ---
+  duration_ms: 5.742041
+  type: 'test'
+  ...
+# Subtest: post-m1-p8-c4b: artifact bridge policy binds nonce, request IDs, payload, concurrency, and generation
+ok 152 - post-m1-p8-c4b: artifact bridge policy binds nonce, request IDs, payload, concurrency, and generation
+  ---
+  duration_ms: 5.025208
+  type: 'test'
+  ...
+# Subtest: bucket-a-repair-c2a: unauthorized production API updates reject without persistence
+ok 153 - bucket-a-repair-c2a: unauthorized production API updates reject without persistence
+  ---
+  duration_ms: 4.625625
+  type: 'test'
+  ...
+# Subtest: bucket-a-repair-c2b: unsafe production API values reject without persistence
+ok 154 - bucket-a-repair-c2b: unsafe production API values reject without persistence
+  ---
+  duration_ms: 2.408375
+  type: 'test'
+  ...
+# Subtest: bucket-a-repair-c2c: persisted production API config is exactly mode 0600
+ok 155 - bucket-a-repair-c2c: persisted production API config is exactly mode 0600
+  ---
+  duration_ms: 30.049792
+  type: 'test'
+  ...
+# Subtest: local dev can supply the public Google desktop client ID at runtime
+ok 156 - local dev can supply the public Google desktop client ID at runtime
+  ---
+  duration_ms: 1.861584
+  type: 'test'
+  ...
+# Subtest: packaged builds retain their generated Google desktop client ID
+ok 157 - packaged builds retain their generated Google desktop client ID
+  ---
+  duration_ms: 0.6235
+  type: 'test'
+  ...
+# Subtest: packaging copies every support module imported by main
+ok 158 - packaging copies every support module imported by main
+  ---
+  duration_ms: 8.983375
+  type: 'test'
+  ...
+# Subtest: ordinary Electron tests exclude package-shaped contracts
+ok 159 - ordinary Electron tests exclude package-shaped contracts
+  ---
+  duration_ms: 1.323625
+  type: 'test'
+  ...
+# Subtest: web build declares Node types as a required root dependency
+ok 160 - web build declares Node types as a required root dependency
+  ---
+  duration_ms: 4.951042
+  type: 'test'
+  ...
+# Subtest: Electron release installs every package dependency and builds assets before shell smoke
+ok 161 - Electron release installs every package dependency and builds assets before shell smoke
+  ---
+  duration_ms: 1.643666
+  type: 'test'
+  ...
+# Subtest: issue-1542-c12: signed security smoke accepts both exact Hermes bridge receipts
+ok 162 - issue-1542-c12: signed security smoke accepts both exact Hermes bridge receipts
+  ---
+  duration_ms: 1.813541
+  type: 'test'
+  ...
+# Subtest: signed security smoke rejects every unsafe bridge and denial invariant
+ok 163 - signed security smoke rejects every unsafe bridge and denial invariant
+  ---
+  duration_ms: 5.26675
+  type: 'test'
+  ...
+1..163
+# tests 163
+# suites 0
+# pass 163
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 24150.511417
+
+Exit: 0
+
+=== Consecutive run 3: cd apps/electron && npm test ===
+
+> rhythm-electron-shell@0.1.0 test
+> node --experimental-vm-modules --test --test-concurrency=1 test/agent-server.test.mjs test/agent-server-ownership.test.mjs test/artifact-frame-protocol.test.mjs test/electron-shell.test.mjs test/google-oauth.test.mjs test/human-approval-isolated-home.test.mjs test/human-approval-main-signer.test.mjs test/main-runtime.test.mjs test/post-m1-phase-1-host-policy.test.mjs test/post-m1-phase-7-native-notifications.test.mjs test/post-m1-phase-7-packaged-notifications.test.mjs test/post-m1-phase-8-artifact-policy.test.mjs test/production-api-security.test.mjs test/runtime-config.test.mjs test/security-smoke-receipt.test.mjs test/electron-icon.test.mjs test/hermes-server.test.mjs test/hermes-protocol.test.mjs test/hermes-view.test.mjs
+
+TAP version 13
+# (node:8362) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: e11-c1: occupied 4001, foreign health=false, is never adopted or signaled
+ok 1 - e11-c1: occupied 4001, foreign health=false, is never adopted or signaled
+  ---
+  duration_ms: 72.733916
+  type: 'test'
+  ...
+# Subtest: e11-c1: occupied 4096, foreign health=false, is never adopted or signaled
+ok 2 - e11-c1: occupied 4096, foreign health=false, is never adopted or signaled
+  ---
+  duration_ms: 8.749125
+  type: 'test'
+  ...
+# Subtest: e11-c1: occupied 4001, foreign health=true, is never adopted or signaled
+ok 3 - e11-c1: occupied 4001, foreign health=true, is never adopted or signaled
+  ---
+  duration_ms: 11.439833
+  type: 'test'
+  ...
+# Subtest: e11-c1: occupied 4096, foreign health=true, is never adopted or signaled
+ok 4 - e11-c1: occupied 4096, foreign health=true, is never adopted or signaled
+  ---
+  duration_ms: 36.634042
+  type: 'test'
+  ...
+# Subtest: e11-c2: async spawn error is handled and never becomes ready
+ok 5 - e11-c2: async spawn error is handled and never becomes ready
+  ---
+  duration_ms: 227.946292
+  type: 'test'
+  ...
+# Subtest: e11-c3: exit after ready clears ownership and publishes failure
+ok 6 - e11-c3: exit after ready clears ownership and publishes failure
+  ---
+  duration_ms: 214.372666
+  type: 'test'
+  ...
+# Subtest: e11-c4: rejected filesystem startup resolves actionable failed state
+ok 7 - e11-c4: rejected filesystem startup resolves actionable failed state
+  ---
+  duration_ms: 13.779208
+  type: 'test'
+  ...
+# Subtest: e11-c5: owned stop graceful=true signals exact child and cleans listeners
+ok 8 - e11-c5: owned stop graceful=true signals exact child and cleans listeners
+  ---
+  duration_ms: 228.799
+  type: 'test'
+  ...
+# Subtest: e11-c5: owned stop graceful=false signals exact child and cleans listeners
+ok 9 - e11-c5: owned stop graceful=false signals exact child and cleans listeners
+  ---
+  duration_ms: 2213.151584
+  type: 'test'
+  ...
+# Subtest: e11-c7: repeated start owns one child; timeout is bounded, stops child, never auto-retries
+ok 10 - e11-c7: repeated start owns one child; timeout is bounded, stops child, never auto-retries
+  ---
+  duration_ms: 8279.28675
+  type: 'test'
+  ...
+# Subtest: e11-c1: real bind probe rejects an owned ephemeral 127.0.0.1 non-HTTP listener without disturbing it
+ok 11 - e11-c1: real bind probe rejects an owned ephemeral 127.0.0.1 non-HTTP listener without disturbing it
+  ---
+  duration_ms: 22.285292
+  type: 'test'
+  ...
+# Subtest: e11-c1: real bind probe rejects an owned ephemeral ::1 non-HTTP listener without disturbing it
+ok 12 - e11-c1: real bind probe rejects an owned ephemeral ::1 non-HTTP listener without disturbing it
+  ---
+  duration_ms: 3.864917
+  type: 'test'
+  ...
+# Subtest: e11-c5: stopping during startup cannot publish late health as ready
+ok 13 - e11-c5: stopping during startup cannot publish late health as ready
+  ---
+  duration_ms: 212.251042
+  type: 'test'
+  ...
+# Subtest: production agent-server shares Flutter local API and engine ports
+ok 14 - production agent-server shares Flutter local API and engine ports
+  ---
+  duration_ms: 1.615375
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4d agent-server: buildEnvironment sets every required var and strips stale HUMAN_APPROVAL_* keys
+ok 15 - post-m1-p7-c4d agent-server: buildEnvironment sets every required var and strips stale HUMAN_APPROVAL_* keys
+  ---
+  duration_ms: 0.740792
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4d agent-server: buildEnvironment never lets an explicit override win for security-critical vars
+ok 16 - post-m1-p7-c4d agent-server: buildEnvironment never lets an explicit override win for security-critical vars
+  ---
+  duration_ms: 0.174584
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4d agent-server: buildEnvironment respects explicit MCP_ROLES_DIR override, matching Flutter precedence
+ok 17 - post-m1-p7-c4d agent-server: buildEnvironment respects explicit MCP_ROLES_DIR override, matching Flutter precedence
+  ---
+  duration_ms: 0.144084
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4d agent-server: findServerEntry resolves the real apps/api_server dev entry from this checkout
+ok 18 - post-m1-p7-c4d agent-server: findServerEntry resolves the real apps/api_server dev entry from this checkout
+  ---
+  duration_ms: 2.02225
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4d agent-server: checkHealth is false for a port nothing listens on
+ok 19 - post-m1-p7-c4d agent-server: checkHealth is false for a port nothing listens on
+  ---
+  duration_ms: 115.886333
+  type: 'test'
+  ...
+# Subtest: artifact frame protocol accepts only an exact GET app UUID URL
+ok 20 - artifact frame protocol accepts only an exact GET app UUID URL
+  ---
+  duration_ms: 1.342375
+  type: 'test'
+  ...
+# Subtest: artifact frame navigation allows only the initial exact UUID mount
+ok 21 - artifact frame navigation allows only the initial exact UUID mount
+  ---
+  duration_ms: 4.133834
+  type: 'test'
+  ...
+# Subtest: artifact frame bridge adapts the server RhythmBridge channel before its bootstrap without rewriting artifact code
+ok 22 - artifact frame bridge adapts the server RhythmBridge channel before its bootstrap without rewriting artifact code
+  ---
+  duration_ms: 2.992791
+  type: 'test'
+  ...
+# Subtest: artifact frame bridge rejects a stale response after a replacement document reuses the request id
+ok 23 - artifact frame bridge rejects a stale response after a replacement document reuses the request id
+  ---
+  duration_ms: 139.092417
+  type: 'test'
+  ...
+# Subtest: Electron host registers the authenticated artifact scheme and renderer uses it only inside Rhythm
+ok 24 - Electron host registers the authenticated artifact scheme and renderer uses it only inside Rhythm
+  ---
+  duration_ms: 72.157917
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: assembly maps every source slot and inventories the converter output
+ok 25 - Rhythm icon: assembly maps every source slot and inventories the converter output
+  ---
+  duration_ms: 98.615417
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: staged plist and artwork identity (IconName=true)
+ok 26 - Rhythm icon: staged plist and artwork identity (IconName=true)
+  ---
+  duration_ms: 1688.2325
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: staged plist and artwork identity (IconName=false)
+ok 27 - Rhythm icon: staged plist and artwork identity (IconName=false)
+  ---
+  duration_ms: 1122.090083
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: rejects missing mapping before conversion
+ok 28 - Rhythm icon: rejects missing mapping before conversion
+  ---
+  duration_ms: 121.807792
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: rejects missing file before conversion
+ok 29 - Rhythm icon: rejects missing file before conversion
+  ---
+  duration_ms: 103.057916
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: rejects wrong dimensions before conversion
+ok 30 - Rhythm icon: rejects wrong dimensions before conversion
+  ---
+  duration_ms: 138.176
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: rejects invalid PNG before conversion
+ok 31 - Rhythm icon: rejects invalid PNG before conversion
+  ---
+  duration_ms: 210.778458
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: fails clearly for missing iconutil, never reuses a stale icon
+ok 32 - Rhythm icon: fails clearly for missing iconutil, never reuses a stale icon
+  ---
+  duration_ms: 109.635
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: fails clearly for missing output, never reuses a stale icon
+ok 33 - Rhythm icon: fails clearly for missing output, never reuses a stale icon
+  ---
+  duration_ms: 34.964709
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: fails clearly for invalid output, never reuses a stale icon
+ok 34 - Rhythm icon: fails clearly for invalid output, never reuses a stale icon
+  ---
+  duration_ms: 57.028
+  type: 'test'
+  ...
+# Subtest: Rhythm icon: packaging and release assemble icons before bundle signing
+ok 35 - Rhythm icon: packaging and release assemble icons before bundle signing
+  ---
+  duration_ms: 8.152583
+  type: 'test'
+  ...
+# (node:9002) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: interactive-runtime-c1: interactive smoke keeps the visible normal route
+ok 36 - interactive-runtime-c1: interactive smoke keeps the visible normal route
+  ---
+  duration_ms: 122.058125
+  type: 'test'
+  ...
+# Subtest: interactive-runtime-c2: interactive smoke leaves the external runtime unowned while Hermes has shutdown hooks
+ok 37 - interactive-runtime-c2: interactive smoke leaves the external runtime unowned while Hermes has shutdown hooks
+  ---
+  duration_ms: 13.446833
+  type: 'test'
+  ...
+# Subtest: interactive-runtime-c3: explicit userData required before lock; alternate ports need both flags
+ok 38 - interactive-runtime-c3: explicit userData required before lock; alternate ports need both flags
+  ---
+  duration_ms: 118.644791
+  type: 'test'
+  ...
+# Subtest: interactive-runtime-c4: production still owns lifecycle; automated smoke stays hidden and unowned
+ok 39 - interactive-runtime-c4: production still owns lifecycle; automated smoke stays hidden and unowned
+  ---
+  duration_ms: 23.245333
+  type: 'test'
+  ...
+# Subtest: directory-picker: actual preload adds only a no-payload selectDirectory capability
+ok 40 - directory-picker: actual preload adds only a no-payload selectDirectory capability
+  ---
+  duration_ms: 3.646584
+  type: 'test'
+  ...
+# Subtest: directory-picker: owned native dialog returns only the first path string or null
+ok 41 - directory-picker: owned native dialog returns only the first path string or null
+  ---
+  duration_ms: 9.829708
+  type: 'test'
+  ...
+# Subtest: directory-picker: foreign senders, frames, hosts and payloads cannot open the dialog
+ok 42 - directory-picker: foreign senders, frames, hosts and payloads cannot open the dialog
+  ---
+  duration_ms: 13.128541
+  type: 'test'
+  ...
+# Subtest: directory-picker: navigation during selection cannot receive a stale path
+ok 43 - directory-picker: navigation during selection cannot receive a stale path
+  ---
+  duration_ms: 18.977875
+  type: 'test'
+  ...
+# Subtest: slice-5-c1: resolves only files under the packaged web dist
+ok 44 - slice-5-c1: resolves only files under the packaged web dist
+  ---
+  duration_ms: 2.118083
+  type: 'test'
+  ...
+# Subtest: slice-5-c2: rejects unknown hosts, unsupported methods, and malformed protocol paths
+ok 45 - slice-5-c2: rejects unknown hosts, unsupported methods, and malformed protocol paths
+  ---
+  duration_ms: 1.197416
+  type: 'test'
+  ...
+# Subtest: slice-5-c3: actual Electron launch loads the local agents route
+ok 46 - slice-5-c3: actual Electron launch loads the local agents route
+  ---
+  duration_ms: 1874.962416
+  type: 'test'
+  ...
+# Subtest: slice-5-c4: actual preload exposes only frozen versioned lifecycle, gateway configuration, Google auth, human-approval signing, and agent-server status
+ok 47 - slice-5-c4: actual preload exposes only frozen versioned lifecycle, gateway configuration, Google auth, human-approval signing, and agent-server status
+  ---
+  duration_ms: 0.453459
+  type: 'test'
+  ...
+# Subtest: production repair: alternate local ports require an explicit smoke-only flag
+ok 48 - production repair: alternate local ports require an explicit smoke-only flag
+  ---
+  duration_ms: 1846.184417
+  type: 'test'
+  ...
+# Subtest: slice-5-c5: actual shell denies navigation, popups, permissions, and downloads
+ok 49 - slice-5-c5: actual shell denies navigation, popups, permissions, and downloads
+  ---
+  duration_ms: 656.123
+  type: 'test'
+  ...
+# Subtest: production repair: actual Electron artifact protocol authenticates and executes a sandboxed frame
+ok 50 - production repair: actual Electron artifact protocol authenticates and executes a sandboxed frame
+  ---
+  duration_ms: 1693.019209
+  type: 'test'
+  ...
+# Subtest: desktop OAuth exchange uses Node fetch instead of Chromium net.fetch
+ok 51 - desktop OAuth exchange uses Node fetch instead of Chromium net.fetch
+  ---
+  duration_ms: 4.602208
+  type: 'test'
+  ...
+# Subtest: post-m1-auth-c1/c2: PKCE and authorization URL match Flutter
+ok 52 - post-m1-auth-c1/c2: PKCE and authorization URL match Flutter
+  ---
+  duration_ms: 14.841667
+  type: 'test'
+  ...
+# Subtest: post-m1-auth-c3/c4/c5: callback validation fails closed
+ok 53 - post-m1-auth-c3/c4/c5: callback validation fails closed
+  ---
+  duration_ms: 1.95875
+  type: 'test'
+  ...
+# Subtest: post-m1-auth-c6: callback timeout is exactly five minutes
+ok 54 - post-m1-auth-c6: callback timeout is exactly five minutes
+  ---
+  duration_ms: 1.515333
+  type: 'test'
+  ...
+# Subtest: post-m1-auth-c7: desktop exchange body and response shape match Flutter
+ok 55 - post-m1-auth-c7: desktop exchange body and response shape match Flutter
+  ---
+  duration_ms: 5.40825
+  type: 'test'
+  ...
+# Subtest: post-m1-auth-c8: host binds loopback, opens externally, exchanges, and closes
+ok 56 - post-m1-auth-c8: host binds loopback, opens externally, exchanges, and closes
+  ---
+  duration_ms: 101.838833
+  type: 'test'
+  ...
+# Subtest: production repair: OAuth does not exchange or tear down until the browser confirmation response flushes
+ok 57 - production repair: OAuth does not exchange or tear down until the browser confirmation response flushes
+  ---
+  duration_ms: 47.033875
+  type: 'test'
+  ...
+# Subtest: Hermes protocol accepts exactly the two version-one DTOs
+ok 58 - Hermes protocol accepts exactly the two version-one DTOs
+  ---
+  duration_ms: 4.10625
+  type: 'test'
+  ...
+# Subtest: Hermes protocol rejects unknown versions/types, malformed DTOs and URL injection
+ok 59 - Hermes protocol rejects unknown versions/types, malformed DTOs and URL injection
+  ---
+  duration_ms: 1.153584
+  type: 'test'
+  ...
+# Subtest: Hermes protocol bounds the complete UTF-8 JSON encoding at 64 KiB
+ok 60 - Hermes protocol bounds the complete UTF-8 JSON encoding at 64 KiB
+  ---
+  duration_ms: 7.763667
+  type: 'test'
+  ...
+# Subtest: Hermes supervisor origin must be ready, loopback, root-only, and match the declared port
+ok 61 - Hermes supervisor origin must be ready, loopback, root-only, and match the declared port
+  ---
+  duration_ms: 1.048458
+  type: 'test'
+  ...
+# Subtest: Hermes bounds reject non-finite, excessive, negative dimensions and extra keys
+ok 62 - Hermes bounds reject non-finite, excessive, negative dimensions and extra keys
+  ---
+  duration_ms: 5.752541
+  type: 'test'
+  ...
+# Subtest: Hermes disabled means no binary lookup, fetch, consent, or spawn for any operation
+ok 63 - Hermes disabled means no binary lookup, fetch, consent, or spawn for any operation
+  ---
+  duration_ms: 10.069333
+  type: 'test'
+  ...
+# Subtest: Hermes absent binary reports absent without spawning
+ok 64 - Hermes absent binary reports absent without spawning
+  ---
+  duration_ms: 3.116666
+  type: 'test'
+  ...
+# Subtest: issue-1542-c1: Hermes uses exact pinned dashboard arguments, built dist=false
+ok 65 - issue-1542-c1: Hermes uses exact pinned dashboard arguments, built dist=false
+  ---
+  duration_ms: 6.391542
+  type: 'test'
+  ...
+# Subtest: issue-1542-c1: Hermes uses exact pinned dashboard arguments, built dist=true
+ok 66 - issue-1542-c1: Hermes uses exact pinned dashboard arguments, built dist=true
+  ---
+  duration_ms: 2.598917
+  type: 'test'
+  ...
+# Subtest: Hermes readiness accepts only a 2xx Hermes health JSON payload
+ok 67 - Hermes readiness accepts only a 2xx Hermes health JSON payload
+  ---
+  duration_ms: 3.078958
+  type: 'test'
+  ...
+# Subtest: Hermes readiness rejects HTTP 401 until the deadline and reports the status
+ok 68 - Hermes readiness rejects HTTP 401 until the deadline and reports the status
+  ---
+  duration_ms: 7.033667
+  type: 'test'
+  ...
+# Subtest: Hermes readiness rejects HTTP 404 until the deadline and reports the status
+ok 69 - Hermes readiness rejects HTTP 404 until the deadline and reports the status
+  ---
+  duration_ms: 5.958875
+  type: 'test'
+  ...
+# Subtest: Hermes readiness rejects HTTP 503 until the deadline and reports the status
+ok 70 - Hermes readiness rejects HTTP 503 until the deadline and reports the status
+  ---
+  duration_ms: 1.685208
+  type: 'test'
+  ...
+# Subtest: Hermes readiness rejects a 2xx response whose JSON is not the Hermes health shape
+ok 71 - Hermes readiness rejects a 2xx response whose JSON is not the Hermes health shape
+  ---
+  duration_ms: 2.369959
+  type: 'test'
+  ...
+# Subtest: issue-1542-c3: Hermes mints a main-only token per child and redacts it from diagnostics
+ok 72 - issue-1542-c3: Hermes mints a main-only token per child and redacts it from diagnostics
+  ---
+  duration_ms: 4.375333
+  type: 'test'
+  ...
+# Subtest: Hermes busy port fails exactly, with no adoption, roaming, or signaling
+ok 73 - Hermes busy port fails exactly, with no adoption, roaming, or signaling
+  ---
+  duration_ms: 0.952625
+  type: 'test'
+  ...
+# Subtest: Hermes rejects unsafe port 0
+ok 74 - Hermes rejects unsafe port 0
+  ---
+  duration_ms: 0.315666
+  type: 'test'
+  ...
+# Subtest: Hermes rejects unsafe port 9119
+ok 75 - Hermes rejects unsafe port 9119
+  ---
+  duration_ms: 0.859083
+  type: 'test'
+  ...
+# Subtest: Hermes rejects unsafe port -1
+ok 76 - Hermes rejects unsafe port -1
+  ---
+  duration_ms: 0.489792
+  type: 'test'
+  ...
+# Subtest: Hermes rejects unsafe port no
+ok 77 - Hermes rejects unsafe port no
+  ---
+  duration_ms: 0.831958
+  type: 'test'
+  ...
+# Subtest: Hermes rejects unsafe port 65536
+ok 78 - Hermes rejects unsafe port 65536
+  ---
+  duration_ms: 0.620417
+  type: 'test'
+  ...
+# Subtest: Hermes stops only its child, graceful=true
+ok 79 - Hermes stops only its child, graceful=true
+  ---
+  duration_ms: 2.481792
+  type: 'test'
+  ...
+# Subtest: Hermes stops only its child, graceful=false
+ok 80 - Hermes stops only its child, graceful=false
+  ---
+  duration_ms: 33.421417
+  type: 'test'
+  ...
+# Subtest: Hermes start is idempotent and subscriptions can unsubscribe
+ok 81 - Hermes start is idempotent and subscriptions can unsubscribe
+  ---
+  duration_ms: 1.371625
+  type: 'test'
+  ...
+# Subtest: Hermes timeout kills owned child and publishes the last 50 stderr lines, redacted
+ok 82 - Hermes timeout kills owned child and publishes the last 50 stderr lines, redacted
+  ---
+  duration_ms: 71.283542
+  type: 'test'
+  ...
+# Subtest: Hermes stop during binary resolution prevents a late spawn
+ok 83 - Hermes stop during binary resolution prevents a late spawn
+  ---
+  duration_ms: 1.109417
+  type: 'test'
+  ...
+# Subtest: Hermes stop during readiness cannot publish late ready
+ok 84 - Hermes stop during readiness cannot publish late ready
+  ---
+  duration_ms: 2.389125
+  type: 'test'
+  ...
+# Subtest: Hermes unexpected exit fails and restart replaces only the owned child
+ok 85 - Hermes unexpected exit fails and restart replaces only the owned child
+  ---
+  duration_ms: 1.3645
+  type: 'test'
+  ...
+# Subtest: Hermes async spawn errors settle as failed
+ok 86 - Hermes async spawn errors settle as failed
+  ---
+  duration_ms: 5.597583
+  type: 'test'
+  ...
+# Subtest: Hermes install defaults to cancellation and shows the literal official command
+ok 87 - Hermes install defaults to cancellation and shows the literal official command
+  ---
+  duration_ms: 1.880042
+  type: 'test'
+  ...
+# Subtest: Hermes consent runs bootstrap in login shell, streams private log, re-resolves, then starts
+ok 88 - Hermes consent runs bootstrap in login shell, streams private log, re-resolves, then starts
+  ---
+  duration_ms: 30.575875
+  type: 'test'
+  ...
+# Subtest: Hermes quitting while native consent is open cancels the install
+ok 89 - Hermes quitting while native consent is open cancels the install
+  ---
+  duration_ms: 2.618916
+  type: 'test'
+  ...
+# Subtest: issue-1542-c2: Hermes skip-build checks hermes_cli/web_dist and ignores legacy web/dist
+ok 90 - issue-1542-c2: Hermes skip-build checks hermes_cli/web_dist and ignores legacy web/dist
+  ---
+  duration_ms: 50.087959
+  type: 'test'
+  ...
+# Subtest: issue-1542-c5: Hermes contract records one coherent dashboard, token, readiness, and view contract
+ok 91 - issue-1542-c5: Hermes contract records one coherent dashboard, token, readiness, and view contract
+  ---
+  duration_ms: 6.002917
+  type: 'test'
+  ...
+# Subtest: Hermes frozen preload surface and unsubscribe, flag=undefined
+ok 92 - Hermes frozen preload surface and unsubscribe, flag=undefined
+  ---
+  duration_ms: 5.056083
+  type: 'test'
+  ...
+# Subtest: Hermes frozen preload surface and unsubscribe, flag=0
+ok 93 - Hermes frozen preload surface and unsubscribe, flag=0
+  ---
+  duration_ms: 3.0875
+  type: 'test'
+  ...
+# Subtest: Hermes frozen preload surface and unsubscribe, flag=1
+ok 94 - Hermes frozen preload surface and unsubscribe, flag=1
+  ---
+  duration_ms: 5.750917
+  type: 'test'
+  ...
+# (node:9353) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: issue-1542-c7: Hermes main binds the native supervisor, authorizes IPC, broadcasts status, and awaits shutdown
+ok 95 - issue-1542-c7: Hermes main binds the native supervisor, authorizes IPC, broadcasts status, and awaits shutdown
+  ---
+  duration_ms: 111.51375
+  type: 'test'
+  ...
+# Subtest: Hermes main flag off does not start and returns disabled
+ok 96 - Hermes main flag off does not start and returns disabled
+  ---
+  duration_ms: 12.99925
+  type: 'test'
+  ...
+# Subtest: Hermes interactive smoke owns only Hermes, including install/restart and shutdown
+ok 97 - Hermes interactive smoke owns only Hermes, including install/restart and shutdown
+  ---
+  duration_ms: 12.523958
+  type: 'test'
+  ...
+# Subtest: Hermes failed installer does not start a server and retains output
+ok 98 - Hermes failed installer does not start a server and retains output
+  ---
+  duration_ms: 8.473459
+  type: 'test'
+  ...
+# Subtest: Hermes detects a port conflict reported after the preflight race
+ok 99 - Hermes detects a port conflict reported after the preflight race
+  ---
+  duration_ms: 3.524458
+  type: 'test'
+  ...
+# Subtest: Hermes attach creates no view while supervisor is disabled
+ok 100 - Hermes attach creates no view while supervisor is disabled
+  ---
+  duration_ms: 11.426209
+  type: 'test'
+  ...
+# Subtest: Hermes attach creates no view while supervisor is absent
+ok 101 - Hermes attach creates no view while supervisor is absent
+  ---
+  duration_ms: 0.666916
+  type: 'test'
+  ...
+# Subtest: Hermes attach creates no view while supervisor is starting
+ok 102 - Hermes attach creates no view while supervisor is starting
+  ---
+  duration_ms: 0.505125
+  type: 'test'
+  ...
+# Subtest: Hermes attach creates no view while supervisor is failed
+ok 103 - Hermes attach creates no view while supervisor is failed
+  ---
+  duration_ms: 0.815834
+  type: 'test'
+  ...
+# Subtest: Hermes attach creates no view while supervisor is stopped
+ok 104 - Hermes attach creates no view while supervisor is stopped
+  ---
+  duration_ms: 1.331667
+  type: 'test'
+  ...
+# Subtest: Hermes view is sandboxed, separately partitioned, zoomed and themed on dom-ready
+ok 105 - Hermes view is sandboxed, separately partitioned, zoomed and themed on dom-ready
+  ---
+  duration_ms: 7.139167
+  type: 'test'
+  ...
+# Subtest: Hermes detach destroys its ephemeral session and the next attach cannot reuse it
+ok 106 - Hermes detach destroys its ephemeral session and the next attach cannot reuse it
+  ---
+  duration_ms: 3.177458
+  type: 'test'
+  ...
+# Subtest: issue-1542-c8: Hermes view requires the main-only token but loads only the clean ready URL for server HTML bootstrap
+ok 107 - issue-1542-c8: Hermes view requires the main-only token but loads only the clean ready URL for server HTML bootstrap
+  ---
+  duration_ms: 3.553334
+  type: 'test'
+  ...
+# Subtest: Hermes auth is a main-only Bearer header on the approved ephemeral session, never a cookie or renderer value
+ok 108 - Hermes auth is a main-only Bearer header on the approved ephemeral session, never a cookie or renderer value
+  ---
+  duration_ms: 3.576458
+  type: 'test'
+  ...
+# Subtest: issue-1542-c9: Hermes token rotation revokes a view tied to the prior dashboard start
+ok 109 - issue-1542-c9: Hermes token rotation revokes a view tied to the prior dashboard start
+  ---
+  duration_ms: 19.304375
+  type: 'test'
+  ...
+# Subtest: Hermes foreign frames, absent acknowledgement, and malformed intents cause zero navigation
+ok 110 - Hermes foreign frames, absent acknowledgement, and malformed intents cause zero navigation
+  ---
+  duration_ms: 3.519083
+  type: 'test'
+  ...
+# Subtest: issue-1542-c4: Hermes forwards a validated new-chat draft without submitting and navigates requested sessions
+ok 111 - issue-1542-c4: Hermes forwards a validated new-chat draft without submitting and navigates requested sessions
+  ---
+  duration_ms: 5.302709
+  type: 'test'
+  ...
+# Subtest: Hermes reload revokes old generation; only the current main frame can reactivate
+ok 112 - Hermes reload revokes old generation; only the current main frame can reactivate
+  ---
+  duration_ms: 3.569375
+  type: 'test'
+  ...
+# Subtest: Hermes detach removes view, closes port, and rejects stale handles
+ok 113 - Hermes detach removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 1.319792
+  type: 'test'
+  ...
+# Subtest: Hermes window-close removes view, closes port, and rejects stale handles
+ok 114 - Hermes window-close removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 1.072042
+  type: 'test'
+  ...
+# Subtest: Hermes host-reload removes view, closes port, and rejects stale handles
+ok 115 - Hermes host-reload removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 0.991375
+  type: 'test'
+  ...
+# Subtest: Hermes leave-route removes view, closes port, and rejects stale handles
+ok 116 - Hermes leave-route removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 1.556959
+  type: 'test'
+  ...
+# Subtest: Hermes supervisor-stop removes view, closes port, and rejects stale handles
+ok 117 - Hermes supervisor-stop removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 16.4625
+  type: 'test'
+  ...
+# Subtest: Hermes replace removes view, closes port, and rejects stale handles
+ok 118 - Hermes replace removes view, closes port, and rejects stale handles
+  ---
+  duration_ms: 8.742416
+  type: 'test'
+  ...
+# Subtest: Hermes off flag and wrong host route never create a view
+ok 119 - Hermes off flag and wrong host route never create a view
+  ---
+  duration_ms: 3.204875
+  type: 'test'
+  ...
+# Subtest: Hermes pending intents cannot navigate after a reload or a supervisor change
+ok 120 - Hermes pending intents cannot navigate after a reload or a supervisor change
+  ---
+  duration_ms: 0.997708
+  type: 'test'
+  ...
+# Subtest: Hermes overlapping attach requests destroy the old view and ignore late load completion
+ok 121 - Hermes overlapping attach requests destroy the old view and ignore late load completion
+  ---
+  duration_ms: 3.68025
+  type: 'test'
+  ...
+# Subtest: Hermes parent reload during readiness lookup cancels the pending attach
+ok 122 - Hermes parent reload during readiness lookup cancels the pending attach
+  ---
+  duration_ms: 0.393209
+  type: 'test'
+  ...
+# Subtest: Hermes supervisor replacement cancels a pending readiness snapshot
+ok 123 - Hermes supervisor replacement cancels a pending readiness snapshot
+  ---
+  duration_ms: 0.229417
+  type: 'test'
+  ...
+# Subtest: Hermes same-document navigation replaces the port without duplicating theme insertion
+ok 124 - Hermes same-document navigation replaces the port without duplicating theme insertion
+  ---
+  duration_ms: 0.434708
+  type: 'test'
+  ...
+# Subtest: Hermes navigation, subframes and downloads cannot leave the approved origin
+ok 125 - Hermes navigation, subframes and downloads cannot leave the approved origin
+  ---
+  duration_ms: 2.54
+  type: 'test'
+  ...
+# Subtest: Hermes main preload hides attachment handles and retires late attach results
+ok 126 - Hermes main preload hides attachment handles and retires late attach results
+  ---
+  duration_ms: 12.444417
+  type: 'test'
+  ...
+# Subtest: Hermes view preload gives the page no native API and closes old ports
+ok 127 - Hermes view preload gives the page no native API and closes old ports
+  ---
+  duration_ms: 5.265041
+  type: 'test'
+  ...
+# Subtest: Hermes view preload opens an editable xterm draft without dispatching submit
+ok 128 - Hermes view preload opens an editable xterm draft without dispatching submit
+  ---
+  duration_ms: 6.531958
+  type: 'test'
+  ...
+# Subtest: issue-1542-c10: packaged main stages every Hermes view support file
+ok 129 - issue-1542-c10: packaged main stages every Hermes view support file
+  ---
+  duration_ms: 2.028459
+  type: 'test'
+  ...
+# Subtest: issue-1542-c11: canonical Electron tests include both B3 suites
+ok 130 - issue-1542-c11: canonical Electron tests include both B3 suites
+  ---
+  duration_ms: 3.076416
+  type: 'test'
+  ...
+# Subtest: isolated Electron HOME is overridden only for the macOS Keychain subprocess
+ok 131 - isolated Electron HOME is overridden only for the macOS Keychain subprocess
+  ---
+  duration_ms: 4.085833
+  type: 'test'
+  ...
+# Subtest: e12b-package-staging: official fuses resolve the framework, not the launcher, at the assembly path
+ok 132 - e12b-package-staging: official fuses resolve the framework, not the launcher, at the assembly path
+  ---
+  duration_ms: 16.209541
+  type: 'test'
+  ...
+# Subtest: e12b-c1: exportable private-key/CLI path is absent (regression: PEM leaks in argv)
+ok 133 - e12b-c1: exportable private-key/CLI path is absent (regression: PEM leaks in argv)
+  ---
+  duration_ms: 3.018375
+  type: 'test'
+  ...
+# (node:9396) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: e12b-c2: exact canonical bytes round-trip DER and capability registration without argv/env secrets
+ok 134 - e12b-c2: exact canonical bytes round-trip DER and capability registration without argv/env secrets
+  ---
+  duration_ms: 37.635167
+  type: 'test'
+  ...
+# Subtest: e12b-c3: malformed decision schema cannot reach helper (regression: arbitrary-sign oracle)
+ok 135 - e12b-c3: malformed decision schema cannot reach helper (regression: arbitrary-sign oracle)
+  ---
+  duration_ms: 20.974458
+  type: 'test'
+  ...
+# Subtest: e12b-c4: malformed/untrusted helper replies fail closed, including invalid/wrong-message DER
+ok 136 - e12b-c4: malformed/untrusted helper replies fail closed, including invalid/wrong-message DER
+  ---
+  duration_ms: 112.409416
+  type: 'test'
+  ...
+# Subtest: e12b-c5: timeout, stderr, nonzero exit and process errors are bounded and redacted
+ok 137 - e12b-c5: timeout, stderr, nonzero exit and process errors are bounded and redacted
+  ---
+  duration_ms: 77.039041
+  type: 'test'
+  ...
+# Subtest: e12b-c6: unavailable Secure Enclave is explicit, never a software fallback
+ok 138 - e12b-c6: unavailable Secure Enclave is explicit, never a software fallback
+  ---
+  duration_ms: 16.22025
+  type: 'test'
+  ...
+# Subtest: e12b-c2: concurrent first-use calls serialize helper creation so registration cannot race signing
+ok 139 - e12b-c2: concurrent first-use calls serialize helper creation so registration cannot race signing
+  ---
+  duration_ms: 16.902666
+  type: 'test'
+  ...
+# Subtest: e12b-c7: Swift restricts permanent enclave key, fixed decision schema/digest and public-only export
+ok 140 - e12b-c7: Swift restricts permanent enclave key, fixed decision schema/digest and public-only export
+  ---
+  duration_ms: 12.382458
+  type: 'test'
+  ...
+# Subtest: e12b-c8: package builds native architecture from source; nested signing requires and verifies helper
+ok 141 - e12b-c8: package builds native architecture from source; nested signing requires and verifies helper
+  ---
+  duration_ms: 23.049916
+  type: 'test'
+  ...
+# Subtest: e12b-c12: required official fuses disable alternate loaders before any signing, preserving unpacked app
+ok 142 - e12b-c12: required official fuses disable alternate loaders before any signing, preserving unpacked app
+  ---
+  duration_ms: 15.382709
+  type: 'test'
+  ...
+# Subtest: e12b-c13: account-local flock encloses lookup/create/requery (regression: two helper processes create different keys)
+ok 143 - e12b-c13: account-local flock encloses lookup/create/requery (regression: two helper processes create different keys)
+  ---
+  duration_ms: 1.370375
+  type: 'test'
+  ...
+# (node:9426) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: e11-c6: main catches rejected start and publishes current/changed failure through existing bridge
+ok 144 - e11-c6: main catches rejected start and publishes current/changed failure through existing bridge
+  ---
+  duration_ms: 116.333542
+  type: 'test'
+  ...
+# Subtest: issue-1541-c4: feature flag starts Hermes in attached mode and not explicit self-test modes
+ok 145 - issue-1541-c4: feature flag starts Hermes in attached mode and not explicit self-test modes
+  ---
+  duration_ms: 175.851958
+  type: 'test'
+  ...
+# Subtest: Hermes supervisor output and lifecycle states reach the main-process stdout
+ok 146 - Hermes supervisor output and lifecycle states reach the main-process stdout
+  ---
+  duration_ms: 15.1755
+  type: 'test'
+  ...
+# Subtest: post-m1-p1-c4b: deep-link requests are explicit fail-closed policy decisions
+ok 147 - post-m1-p1-c4b: deep-link requests are explicit fail-closed policy decisions
+  ---
+  duration_ms: 2.486583
+  type: 'test'
+  ...
+# Subtest: post-m1-p1-c4c: the host acquires one instance lock and routes second-instance input through policy
+ok 148 - post-m1-p1-c4c: the host acquires one instance lock and routes second-instance input through policy
+  ---
+  duration_ms: 1.262958
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4e: Electron owns permission presentation deduplication cancellation and a narrow preload
+ok 149 - post-m1-p7-c4e: Electron owns permission presentation deduplication cancellation and a narrow preload
+  ---
+  duration_ms: 3.043041
+  type: 'test'
+  ...
+# Subtest: post-m1-p7-c4f-policy: native activation is allowlisted queued and replayed through owned-target navigation
+ok 150 - post-m1-p7-c4f-policy: native activation is allowlisted queued and replayed through owned-target navigation
+  ---
+  duration_ms: 2.737042
+  type: 'test'
+  ...
+# Subtest: post-m1-p8-c4a: artifact policy exposes only the closed canonical bridge operations
+ok 151 - post-m1-p8-c4a: artifact policy exposes only the closed canonical bridge operations
+  ---
+  duration_ms: 3.603833
+  type: 'test'
+  ...
+# Subtest: post-m1-p8-c4b: artifact bridge policy binds nonce, request IDs, payload, concurrency, and generation
+ok 152 - post-m1-p8-c4b: artifact bridge policy binds nonce, request IDs, payload, concurrency, and generation
+  ---
+  duration_ms: 5.789041
+  type: 'test'
+  ...
+# Subtest: bucket-a-repair-c2a: unauthorized production API updates reject without persistence
+ok 153 - bucket-a-repair-c2a: unauthorized production API updates reject without persistence
+  ---
+  duration_ms: 6.380542
+  type: 'test'
+  ...
+# Subtest: bucket-a-repair-c2b: unsafe production API values reject without persistence
+ok 154 - bucket-a-repair-c2b: unsafe production API values reject without persistence
+  ---
+  duration_ms: 8.370375
+  type: 'test'
+  ...
+# Subtest: bucket-a-repair-c2c: persisted production API config is exactly mode 0600
+ok 155 - bucket-a-repair-c2c: persisted production API config is exactly mode 0600
+  ---
+  duration_ms: 140.71775
+  type: 'test'
+  ...
+# Subtest: local dev can supply the public Google desktop client ID at runtime
+ok 156 - local dev can supply the public Google desktop client ID at runtime
+  ---
+  duration_ms: 2.128583
+  type: 'test'
+  ...
+# Subtest: packaged builds retain their generated Google desktop client ID
+ok 157 - packaged builds retain their generated Google desktop client ID
+  ---
+  duration_ms: 0.2335
+  type: 'test'
+  ...
+# Subtest: packaging copies every support module imported by main
+ok 158 - packaging copies every support module imported by main
+  ---
+  duration_ms: 50.692333
+  type: 'test'
+  ...
+# Subtest: ordinary Electron tests exclude package-shaped contracts
+ok 159 - ordinary Electron tests exclude package-shaped contracts
+  ---
+  duration_ms: 10.907541
+  type: 'test'
+  ...
+# Subtest: web build declares Node types as a required root dependency
+ok 160 - web build declares Node types as a required root dependency
+  ---
+  duration_ms: 55.055667
+  type: 'test'
+  ...
+# Subtest: Electron release installs every package dependency and builds assets before shell smoke
+ok 161 - Electron release installs every package dependency and builds assets before shell smoke
+  ---
+  duration_ms: 19.336042
+  type: 'test'
+  ...
+# Subtest: issue-1542-c12: signed security smoke accepts both exact Hermes bridge receipts
+ok 162 - issue-1542-c12: signed security smoke accepts both exact Hermes bridge receipts
+  ---
+  duration_ms: 4.16425
+  type: 'test'
+  ...
+# Subtest: signed security smoke rejects every unsafe bridge and denial invariant
+ok 163 - signed security smoke rejects every unsafe bridge and denial invariant
+  ---
+  duration_ms: 5.085375
+  type: 'test'
+  ...
+1..163
+# tests 163
+# suites 0
+# pass 163
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 28251.181334
+
+Exit: 0
+
+=== Typecheck: cd apps/electron && npm run typecheck ===
+
+> rhythm-electron-shell@0.1.0 typecheck
+> tsc --noEmit
+
+
+Exit: 0

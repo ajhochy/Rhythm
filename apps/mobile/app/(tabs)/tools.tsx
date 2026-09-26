@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { Avatar, Card, Text } from 'react-native-paper';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -32,7 +33,7 @@ export default function ToolsScreen() {
   const palette = Colors[colorScheme];
 
   return (
-    <View style={[styles.screen, { backgroundColor: palette.background }]}>
+    <SafeAreaView edges={['top']} style={[styles.screen, { backgroundColor: palette.background }]}>
       <ScrollView
         accessibilityLabel="Agent tools"
         contentContainerStyle={styles.content}>
@@ -62,7 +63,7 @@ export default function ToolsScreen() {
           );
         })}
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 

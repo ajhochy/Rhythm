@@ -24,6 +24,7 @@ import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { ProjectsRepository } from '../repositories/projects_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import {
   AgentConfigsRepository,
@@ -43,6 +44,7 @@ import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_se
 import type { MemoryProvenanceItem } from '../repositories/agent_session_memory_provenance_repository';
 import { resolveProfileScope } from './agent_profile_scope';
 import { partitionResearchMcpPreflight } from './agent_skill_wiring';
+import { anthropicAccountsService } from './anthropic_accounts_service';
 import { TREATMENT_ADAPTERS, resolveEffectiveSystemPrompt } from '../models/experiment_treatment_adapter';
 import {
   commitReservedTreatmentDispatch,
@@ -69,16 +71,30 @@ function _positiveTimeoutMs(value: string | undefined, fallback: number): number
 }
 
 /**
- * A run is STALLED only after this much time with no observable progress.
+ * The engine grants a single `bash` tool call up to 1_200_000 ms. A tool call
+ * emits no new message parts while it runs, so the activity probe below cannot
+ * observe progress during one — which made every window shorter than that cap a
+ * guaranteed false "no progress" kill of a perfectly healthy run. Observed on
+ * ffb-daily-dashboard-update (2026-09-18/21): a `refresh_all.py daily` call with
+ * an explicit `timeout: 1200000` was aborted ~17 min in by the old 600_000 ms
+ * window, after nine consecutive successful runs.
+ *
+ * So the default must exceed the longest tool call the engine will permit. The
+ * hard ceiling (getRunHardTimeoutMs) stays the real bound on a genuinely hung
+ * tool; this window only catches a dead run sooner than that.
+ *
  * AGENT_RUN_TIMEOUT_MS remains a backwards-compatible fallback so existing
  * deployments keep their configured stall tolerance while migrating to the
  * explicit knob.
  */
-function getRunInactivityTimeoutMs(): number {
+export const MAX_ENGINE_TOOL_TIMEOUT_MS = 1_200_000;
+const AGENT_RUNNER_TRANSCRIPT_TAIL_LIMIT = 3;
+
+export function getRunInactivityTimeoutMs(): number {
   return _positiveTimeoutMs(
     process.env.AGENT_RUN_INACTIVITY_TIMEOUT_MS ??
       process.env.AGENT_RUN_TIMEOUT_MS,
-    600_000,
+    MAX_ENGINE_TOOL_TIMEOUT_MS + 300_000,
   );
 }
 
@@ -99,14 +115,29 @@ class AgentRunTimeoutError extends Error {
     readonly stage: string,
     readonly timeoutMs: number,
     readonly kind: 'inactivity' | 'hard_ceiling',
+    /**
+     * What the run was last seen doing (e.g. a still-running tool call). A bare
+     * timer message is unactionable: the operator cannot tell a hung tool from a
+     * dead engine from an unauthenticated model. Naming the stuck step is the
+     * difference between "no progress for 600000ms" and "…; last activity: tool
+     * `bash` (agent-reach doctor --json) running".
+     */
+    readonly lastActivity?: string | null,
   ) {
-    super(
+    const base =
       kind === 'inactivity'
         ? `Run timed out during ${stage}: no progress for ${timeoutMs}ms (inactivity window)`
-        : `Run timed out during ${stage}: hard ceiling reached after ${timeoutMs}ms`,
-    );
+        : `Run timed out during ${stage}: hard ceiling reached after ${timeoutMs}ms`;
+    super(lastActivity ? `${base}; last activity: ${lastActivity}` : base);
     this.name = 'AgentRunTimeoutError';
   }
+}
+
+interface RunActivityObservation {
+  /** Changes whenever the session made observable progress. */
+  readonly fingerprint: string;
+  /** Human-readable description of the newest step, for timeout messages. */
+  readonly detail: string | null;
 }
 
 interface RunDeadlinePolicy {
@@ -138,7 +169,7 @@ async function _withinRunDeadline<T>(
   operation: Promise<T>,
   policy: RunDeadlinePolicy,
   stage: string,
-  activityProbe?: () => Promise<string | null>,
+  activityProbe?: () => Promise<RunActivityObservation | null>,
 ): Promise<T> {
   const ACTIVITY_POLL_INTERVAL_MS = 1_000;
 
@@ -149,6 +180,7 @@ async function _withinRunDeadline<T>(
     let activityTimer: ReturnType<typeof setInterval> | undefined;
     let activityProbeInFlight = false;
     let lastActivityFingerprint: string | null = null;
+    let lastActivityDetail: string | null = null;
 
     const cleanup = () => {
       if (inactivityTimer) clearTimeout(inactivityTimer);
@@ -166,7 +198,9 @@ async function _withinRunDeadline<T>(
         kind === 'inactivity'
           ? policy.inactivityTimeoutMs
           : policy.hardTimeoutMs;
-      finish(() => reject(new AgentRunTimeoutError(stage, timeoutMs, kind)));
+      finish(() =>
+        reject(new AgentRunTimeoutError(stage, timeoutMs, kind, lastActivityDetail)),
+      );
     };
     const armInactivityTimer = () => {
       if (inactivityTimer) clearTimeout(inactivityTimer);
@@ -200,15 +234,13 @@ async function _withinRunDeadline<T>(
         if (settled || activityProbeInFlight) return;
         activityProbeInFlight = true;
         void activityProbe()
-          .then((fingerprint) => {
-            if (
-              settled ||
-              fingerprint === null ||
-              fingerprint === lastActivityFingerprint
-            ) {
-              return;
-            }
-            lastActivityFingerprint = fingerprint;
+          .then((observation) => {
+            if (settled || observation === null) return;
+            // Record the description even when the fingerprint is unchanged:
+            // that is exactly the stalled case whose detail the timeout needs.
+            lastActivityDetail = observation.detail;
+            if (observation.fingerprint === lastActivityFingerprint) return;
+            lastActivityFingerprint = observation.fingerprint;
             policy.lastProgressAt = Date.now();
             armInactivityTimer();
           })
@@ -271,7 +303,10 @@ async function _recoverPartialResultOnTimeout(
   cwd: string | undefined,
 ): Promise<string> {
   try {
-    const msgs = await opencodeClient.listMessages(sessionId, cwd);
+    const msgs = await opencodeClient.listMessages(sessionId, cwd, {
+      limit: AGENT_RUNNER_TRANSCRIPT_TAIL_LIMIT,
+      caller: 'agent_runner.timeout_recovery',
+    });
     const lastAssistant = [...msgs].reverse().find((m) => m.info.role === 'assistant');
     return _extractText(lastAssistant?.parts as ReadonlyArray<{ type: string }> | undefined);
   } catch {
@@ -366,6 +401,15 @@ export interface AgentRunOptions {
    */
   _isEscalation?: boolean;
   /**
+   * #1485 S2 — pinned-provider stages (recipe-workflow contrarian-review /
+   * verdict stages with an explicit provider override) must never silently
+   * re-run on a different (teacher) model: that would invalidate the
+   * cross-provider guarantee the caller asked for. Net-new and public
+   * (unlike the internal `_isEscalation` recursion guard); set by a caller
+   * BEFORE dispatch, never by AgentRunner itself. See {@link shouldEscalate}.
+   */
+  suppressTeacherEscalation?: boolean;
+  /**
    * When set, bypasses resolveRunModel() and forces this run to use the given
    * model. Two callers set it: (1) P4-1 teacher-escalation forces the stronger
    * teacher model on a re-run; (2) the scheduler (the model-override change) forwards a task's
@@ -437,6 +481,12 @@ export interface AgentRunOptions {
    * instead of any generated fallback.
    */
   runEpisodeId?: string | null;
+  /**
+   * A Hermes-originated bridge launch. These runs retain the target profile's
+   * ordinary approval policy, never teacher-escalate, and may consume owner
+   * memory only when the bridge grant explicitly carries memory.search.
+   */
+  bridgeOrigin?: { allowMemoryPreface: boolean };
 }
 
 export interface AgentRunResult {
@@ -471,28 +521,57 @@ export function _activeRunCount(): number {
 
 function _sessionActivityFingerprint(
   messages: import('@opencode-ai/sdk').SessionMessage[],
-): string | null {
+): RunActivityObservation | null {
   if (messages.length === 0) return null;
 
   // Keep the cursor compact while covering the runtime's real progress
   // carriers: new messages, streamed text/reasoning, and tool state/output.
   // Serializing only each message's final part avoids repeatedly hashing the
   // whole transcript during long tool-heavy runs.
-  return JSON.stringify(
-    messages.map((message) => {
-      const finalPart =
-        message.parts.length > 0
-          ? message.parts[message.parts.length - 1]
-          : null;
-      return {
+  const finalParts = messages.map((message) =>
+    message.parts.length > 0 ? message.parts[message.parts.length - 1] : null,
+  );
+
+  return {
+    fingerprint: JSON.stringify(
+      messages.map((message, index) => ({
         id: message.info.id,
         role: message.info.role,
         time: message.info.time,
         partCount: message.parts.length,
-        finalPart,
-      };
-    }),
-  );
+        finalPart: finalParts[index],
+      })),
+    ),
+    detail: _describeActivityPart(finalParts[finalParts.length - 1]),
+  };
+}
+
+/**
+ * One short line naming the newest step, used only in timeout messages.
+ * A still-`running` tool is the overwhelmingly common stall, so name the tool
+ * and its command; anything else degrades to the part type.
+ */
+function _describeActivityPart(part: { type?: string } | null | undefined): string | null {
+  if (!part?.type) return null;
+  if (part.type !== 'tool') return `${part.type} part`;
+
+  const tool = part as { tool?: string; state?: { status?: string; input?: unknown } };
+  const status = tool.state?.status ?? 'unknown';
+  const input = tool.state?.input as Record<string, unknown> | undefined;
+  const command =
+    typeof input?.command === 'string'
+      ? input.command
+      : typeof input?.name === 'string'
+        ? input.name
+        : typeof input?.filePath === 'string'
+          ? input.filePath
+          : null;
+
+  const MAX_COMMAND_LENGTH = 120;
+  const suffix = command
+    ? ` (${command.length > MAX_COMMAND_LENGTH ? `${command.slice(0, MAX_COMMAND_LENGTH - 1)}…` : command})`
+    : '';
+  return `tool \`${tool.tool ?? 'unknown'}\`${suffix} ${status}`;
 }
 
 // ── Model resolution ──────────────────────────────────────────────────────────
@@ -565,6 +644,7 @@ function _recordSession(opts: {
   profileId?: string | null;
   opencodeAgentId?: string | null;
   cwd: string;
+  projectId?: string | null;
   taskTitle?: string | null;
   scheduledTaskId?: string | null;
   mcpRole?: string | null;
@@ -588,7 +668,7 @@ function _recordSession(opts: {
       taskTitle: opts.taskTitle ?? null,
       cwd: opts.cwd,
       name: opts.name,
-      projectId: null,
+      projectId: opts.projectId ?? null,
       mcpRole: opts.mcpRole ?? null,
       mcpAllowedToolsJson: opts.mcpAllowedToolsJson ?? null,
       scheduledTaskId: opts.scheduledTaskId ?? null,
@@ -662,13 +742,22 @@ export function resolveTeacherModel(
  */
 export function shouldEscalate(
   result: Pick<AgentRunResult, 'status' | 'error' | 'errorCode' | 'failureCategory'>,
-  opts: Pick<AgentRunOptions, '_isEscalation'>,
+  opts: Pick<AgentRunOptions, '_isEscalation' | 'bridgeOrigin' | 'suppressTeacherEscalation'>,
   enabled: boolean = env.agentTeacherEscalationEnabled,
 ): boolean {
   if (!enabled) return false;
+  if (opts.bridgeOrigin) return false;
   if (opts._isEscalation) return false; // recursion guard — escalate at most once
+  if (opts.suppressTeacherEscalation) return false; // #1485 S2 — pinned provider, never re-run on a different model
   if (result.status !== 'error') return false;
   return classifyAgentRunFailure(result).teacherRetryable;
+}
+
+export function shouldInjectMemoryPreface(
+  opts: Pick<AgentRunOptions, 'bridgeOrigin' | 'category'>,
+): boolean {
+  return opts.category !== 'self_improvement' &&
+    (opts.bridgeOrigin === undefined || opts.bridgeOrigin.allowMemoryPreface);
 }
 
 /** Injectable deps for {@link escalateAndCapture} so tests hit no real model/LLM. */
@@ -818,7 +907,9 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   // schedules and background callers after a profile is locked.
   const effectiveConfigId = agentConfigId ?? agentKind;
   const isOrgReviewer = effectiveConfigId === ORG_REVIEWER_PROFILE_ID;
-  const permissionMode: PermissionMode = isOrgReviewer ? 'default' : 'bypassPermissions';
+  const permissionMode: PermissionMode = isOrgReviewer || opts.bridgeOrigin
+    ? 'default'
+    : 'bypassPermissions';
   if (effectiveConfigId) {
     const config = new AgentConfigsRepository().getById(effectiveConfigId);
     if (config) {
@@ -953,7 +1044,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     notePaths: (string | null)[];
     items: MemoryProvenanceItem[];
   } | null = null;
-  if (isMemoryInjectionEnabled() && category !== 'self_improvement') {
+  if (isMemoryInjectionEnabled() && shouldInjectMemoryPreface(opts)) {
     try {
       const memPreface = await buildMemoryPreface(prompt, ownerUserId ?? null);
       if (memPreface.text) {
@@ -980,6 +1071,14 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     ? sessionName
     : promptTitle ?? sessionName ?? (scheduledTaskId ? 'Scheduled run' : 'AgentRunner run');
   const projectCwd = cwd ?? process.cwd();
+  let projectId: string | null = null;
+  try {
+    projectId = new ProjectsRepository().findByCwdPrefix(projectCwd)?.id ?? null;
+  } catch (err) {
+    // Session recording is best-effort when AgentRunner is used without an
+    // initialized database (including lightweight consumers and unit tests).
+    logger.warn(`[AgentRunner] project lookup failed (non-fatal): ${String(err)}`);
+  }
   let effectiveCwd = projectCwd;
   let worktree: { name: string; path: string; branch: string | null } | null = null;
   const deadlinePolicy = _createRunDeadlinePolicy();
@@ -1011,6 +1110,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     profileId: isOrgReviewer ? ORG_REVIEWER_PROFILE_ID : null,
     opencodeAgentId: isOrgReviewer ? ORG_REVIEWER_PROFILE_ID : null,
     cwd: effectiveCwd,
+    projectId,
     taskTitle: taskTitle ?? null,
     scheduledTaskId: scheduledTaskId ?? null,
     mcpRole: mcpRole ?? profileScope.mcpRoleConfig?.role ?? null,
@@ -1150,6 +1250,42 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
           if (err instanceof AgentRunTimeoutError) throw err;
           logger.warn(`[AgentRunner] #892 MCP readiness preflight failed (non-fatal, proceeding): ${String(err)}`);
         }
+      }
+    }
+
+    // Account preflight — the auth sibling of the #892 MCP preflight above.
+    // When the default Anthropic account's refresh fails, the service marks it
+    // `needs_relogin` and server.ts stops pushing its token into the engine —
+    // but nothing on the run path ever read that status, so scheduled runs kept
+    // dispatching against a dead credential for days. What the operator saw was
+    // "model produced no output — check the agent profile model is valid and
+    // the provider is authenticated": accurate but misdirecting, since the
+    // profile and model were fine. Observed on ai-trend-research-daily, which
+    // failed this way every day after the `personal` account expired
+    // 2026-09-18T11:11:54Z. Say the real thing instead, before spending a
+    // session on it.
+    //
+    // Fail-OPEN on every ambiguity, exactly like the MCP preflight: no accounts
+    // at all (API-key setups), a non-anthropic route, or a throwing lookup all
+    // proceed. Only a present-and-expired default account blocks.
+    if (resolvedModel.providerID === 'anthropic') {
+      try {
+        const account = anthropicAccountsService.defaultAccount();
+        if (account && account.status === 'needs_relogin') {
+          const msg = `AgentRunner: Anthropic account "${account.id}" needs re-login — its OAuth token expired and could not be refreshed. Re-authenticate it in Settings; scheduled runs cannot authenticate until then.`;
+          logger.warn(`[AgentRunner] ${msg}`);
+          _markSessionError(rhythmSessionId, msg);
+          return {
+            sessionId: rhythmSessionId ?? '',
+            result: '',
+            status: 'error',
+            error: msg,
+          };
+        }
+      } catch (err) {
+        logger.warn(
+          `[AgentRunner] Anthropic account preflight failed (non-fatal, proceeding): ${String(err)}`,
+        );
       }
     }
 
@@ -1450,7 +1586,10 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       'prompt',
       async () =>
         _sessionActivityFingerprint(
-          await opencodeClient.listMessages(sessionId, effectiveCwd),
+          await opencodeClient.listMessages(sessionId, effectiveCwd, {
+            limit: AGENT_RUNNER_TRANSCRIPT_TAIL_LIMIT,
+            caller: 'agent_runner.activity_probe',
+          }),
         ),
     );
 
@@ -1489,7 +1628,10 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     // transcript uses) and extract its text.
     if (!resultText) {
       try {
-        const msgs = await opencodeClient.listMessages(sessionId, effectiveCwd);
+        const msgs = await opencodeClient.listMessages(sessionId, effectiveCwd, {
+          limit: AGENT_RUNNER_TRANSCRIPT_TAIL_LIMIT,
+          caller: 'agent_runner.final_text_fallback',
+        });
         const lastAssistant = msgs
           .filter((m) => m.info.role === 'assistant')
           .pop();

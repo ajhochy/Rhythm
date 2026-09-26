@@ -27,7 +27,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # Verify on the exact Node runtime baked into the API image.
+          node-version: '24.18.1'
           cache: 'npm'
           cache-dependency-path: apps/api_server/package-lock.json
 

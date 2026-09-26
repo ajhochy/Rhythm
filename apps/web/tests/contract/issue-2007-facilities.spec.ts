@@ -15,6 +15,11 @@ async function expectFacilitiesPage(page: Page) {
   await expect(page.getByTestId('module-placeholder')).toHaveCount(0);
 }
 
+const reservationRow = (page: Page, id: string) => page.getByTestId(`reservation-${id}`);
+const roomRow = (page: Page, id: string) => page.getByTestId(`room-${id}`);
+const roomList = (page: Page) => page.getByRole('listbox', { name: 'Facility rooms' });
+const reservationList = (page: Page) => page.getByRole('listbox', { name: 'Facility reservations' });
+
 async function openReservationDialog(page: Page) {
   await page.getByTestId('facilities-reserve-space').click();
   const dialog = page.getByTestId('facility-reservation-dialog');
@@ -64,7 +69,7 @@ test('issue-2007-c2: overview range filters indicators and availability match Fl
   await expect(page.getByTestId('facilities-metric-conflicts')).not.toHaveText('0');
   await expect(page.getByTestId('facilities-metric-setup-notes')).not.toHaveText('0');
   await expect(page.getByTestId('facilities-metric-external')).not.toHaveText('0');
-  await expect(page.getByTestId(`facility-reservation-${otherReservationId}`)).toHaveAttribute('data-conflicted', 'true');
+  await expect(reservationRow(page, otherReservationId).locator('.list-inspector-badge')).toHaveText('Conflict');
 
   await page.getByTestId('facilities-range-day').click();
   await expect(page.getByTestId('facilities-range-label')).toHaveText('Aug 12, 2026');
@@ -76,7 +81,7 @@ test('issue-2007-c2: overview range filters indicators and availability match Fl
   await page.getByTestId('facilities-room-filter').selectOption(roomId);
   await expect(page.getByTestId('page-trace')).toContainText('building=Main Campus');
   await expect(page.getByTestId('page-trace')).toContainText(`facilityId=${roomId}`);
-  await expect(page.getByTestId('facilities-overview-results').locator('[data-facility-id]')).toHaveCount(1);
+  await expect(reservationList(page).getByRole('option')).toHaveCount(1);
 
   const beforeDialog = await page.getByTestId('page-trace').textContent();
   const dialog = await openReservationDialog(page);
@@ -155,6 +160,7 @@ test('issue-2007-c4: linked room groups expose partial success and edit summarie
   await expect(page.getByTestId('page-trace')).toContainText(`POST /facilities/${roomId}/reservations {title,requester_name,requester_user_id,facility_ids,start_time,end_time} → 201`);
   await summary.getByTestId('facility-group-summary-close').click();
 
+  await reservationRow(page, '504').click();
   await page.getByTestId('facility-reservation-actions-504').click();
   await page.getByRole('menuitem', { name: 'Edit reservation group' }).click();
   const edit = page.getByTestId('facility-reservation-dialog');
@@ -189,12 +195,12 @@ test('issue-2007-c5: reservation edit delete and ownership gates stay truthful',
   const confirm = page.getByTestId('facility-reservation-delete-dialog');
   await expect(confirm).toContainText('remove this reservation');
   await confirm.getByTestId('facility-reservation-delete-cancel').click();
-  await expect(page.getByTestId(`facility-reservation-${ownedReservationId}`)).toBeVisible();
+  await expect(reservationRow(page, ownedReservationId)).toBeVisible();
   await expect(page.getByTestId('page-trace')).not.toContainText(`DELETE /facilities/${roomId}/reservations/${ownedReservationId}`);
   await page.getByTestId(`facility-reservation-actions-${ownedReservationId}`).click();
   await page.getByRole('menuitem', { name: 'Delete reservation' }).click();
   await page.getByTestId('facility-reservation-delete-confirm').click();
-  await expect(page.getByTestId(`facility-reservation-${ownedReservationId}`)).toHaveCount(0);
+  await expect(reservationRow(page, ownedReservationId)).toHaveCount(0);
   await expect(page.getByTestId('page-trace')).toContainText(`DELETE /facilities/${roomId}/reservations/${ownedReservationId} → 204`);
 
   await openPage(page, `facilities/reservations/${otherReservationId}`, '?state=readonly');
@@ -269,7 +275,7 @@ test('issue-2007-c8: manager facility CRUD validates fields and updates room inv
   // Regression caught: manager CRUD invents location/capacity fields, accepts a blank name, leaves stale sort order, or deletes without confirmation and exact receipts.
   await openPage(page, 'facilities/rooms');
   await expectFacilitiesPage(page);
-  await expect(page.getByTestId('facility-manager-bar')).toBeVisible();
+  await expect(page.getByTestId('facility-add-space')).toBeVisible();
   await page.getByTestId('facility-add-space').click();
   const dialog = page.getByTestId('facility-editor-dialog');
   await expect(dialog.getByTestId('facility-location')).toHaveCount(0);
@@ -281,18 +287,18 @@ test('issue-2007-c8: manager facility CRUD validates fields and updates room inv
   await dialog.getByTestId('facility-new-building').fill('West Campus');
   await dialog.getByTestId('facility-description').fill('Multilingual care and welcome space.');
   await dialog.getByTestId('facility-editor-submit').click();
-  const created = page.getByTestId('facility-room-105');
+  const created = roomRow(page, '105');
   await expect(created).toContainText('Community Care Room');
   await expect(page.getByTestId('page-trace')).toContainText('POST /facilities {name,description,building} → 201');
 
-  await created.getByTestId('facility-room-open-105').click();
+  await created.click();
   const roomEditor = page.getByTestId('facility-room-direct-editor');
   await roomEditor.getByTestId('facility-name').fill('Community Care & Welcome');
   await roomEditor.getByTestId('facility-editor-submit').click();
   await expect(created).toContainText('Community Care & Welcome');
   await expect(page.getByTestId('page-trace')).toContainText('PATCH /facilities/105 {name,description,building} → 200');
 
-  await created.getByTestId('facility-room-actions-105').click();
+  await page.getByTestId('facility-room-actions-105').click();
   await page.getByRole('menuitem', { name: 'Delete room' }).click();
   await expect(page.getByTestId('facility-delete-dialog')).toContainText('Community Care & Welcome');
   await page.getByTestId('facility-delete-confirm').click();
@@ -304,13 +310,13 @@ test('issue-2007-c9: room inventory detail booking and manager controls match Fl
   // Regression caught: Rooms loses building grouping/sort, availability counts, room detail limits, preselection, or exposes management in readonly mode.
   await openPage(page, 'facilities/rooms');
   await expectFacilitiesPage(page);
-  const headings = await page.locator('[data-testid^="facility-building-"] [data-testid="facility-building-name"]').allTextContents();
+  const headings = await roomList(page).getByRole('group').evaluateAll((groups) => groups.map((group) => document.getElementById(group.getAttribute('aria-labelledby') ?? '')?.textContent ?? ''));
   expect(headings.at(-1)).toBe('Unassigned');
-  const mainCampusRooms = await page.getByTestId('facility-building-main-campus').locator('[data-room-name]').evaluateAll((rows) => rows.map((row) => row.getAttribute('data-room-name') ?? ''));
+  const mainCampusRooms = await roomList(page).getByRole('group', { name: 'Main Campus' }).getByRole('option').evaluateAll((rows) => rows.map((row) => row.getAttribute('aria-label') ?? ''));
   expect(mainCampusRooms).toEqual([...mainCampusRooms].sort((left, right) => left.localeCompare(right)));
-  await expect(page.getByTestId(`facility-room-${roomId}`).getByTestId('facility-room-upcoming')).toContainText(/Available|upcoming/);
+  await expect(roomRow(page, roomId).locator('.list-inspector-row-meta')).toContainText(/Available|upcoming/);
 
-  await page.getByTestId(`facility-room-${roomId}`).click();
+  await roomRow(page, roomId).click();
   const detail = page.getByTestId('facility-room-detail');
   const previews = await detail.locator('[data-reservation-preview]').count();
   expect(previews).toBeGreaterThan(0);
@@ -324,7 +330,7 @@ test('issue-2007-c9: room inventory detail booking and manager controls match Fl
   await expect(page.getByTestId('facility-add-space')).toBeDisabled();
   await expect(page.getByTestId('facility-automation-manage')).toBeDisabled();
   await expect(page.locator('[data-testid^="facility-room-actions-"]')).toHaveCount(0);
-  await expect(page.getByTestId(`facility-room-${roomId}`)).toBeVisible();
+  await expect(roomRow(page, roomId)).toBeVisible();
 });
 
 test('issue-2007-c10: automation preview cleanup counts confirmation results and receipts are truthful', async ({ page }) => {
@@ -356,7 +362,7 @@ test('issue-2007-c10: automation preview cleanup counts confirmation results and
 test('issue-2007-c11: facilities state matrix exposes recovery permission and empty boundaries', async ({ page }) => {
   // Regression caught: a matrix state is blank/dead, Retry reloads, readonly leaves mutation enabled, or invalid ids masquerade as server failures.
   await openPage(page, 'facilities', '?state=loading');
-  await expect(page.getByTestId('page-state-loading')).toContainText('Loading facilities');
+  await expect(page.getByTestId('page-state-loading')).toContainText('Loading Facility reservations');
 
   await openPage(page, 'facilities', '?state=empty');
   await expect(page.getByTestId('page-state-empty')).toContainText('No facilities yet');
@@ -393,14 +399,15 @@ test('issue-2007-c12: enabled controls are live identifiable and receipt honest'
   await expectFacilitiesPage(page);
   const enabled = page.getByTestId('page-facilities').locator('button:enabled, input:enabled, select:enabled, textarea:enabled');
   const missingTestIds = await enabled.evaluateAll((elements) => elements
-    .filter((element) => !/^[-a-z0-9]+$/.test(element.getAttribute('data-testid') ?? ''))
+    .filter((element) => !element.matches('input[type="search"]') && !/^[-a-z0-9]+$/.test(element.getAttribute('data-testid') ?? ''))
     .map((element) => element.outerHTML));
   expect(missingTestIds).toEqual([]);
+  await expect(page.getByRole('searchbox', { name: 'Search Facility reservations' })).toBeVisible();
 
   const trace = page.getByTestId('page-trace');
   const beforeMode = await trace.textContent();
   await page.getByTestId('facilities-mode-rooms').click();
-  await expect(page.getByTestId('facilities-rooms-list')).toBeVisible();
+  await expect(roomList(page)).toBeVisible();
   await expect(trace).toHaveText(beforeMode ?? '');
 
   const addTrigger = page.getByTestId('facility-add-space');
@@ -410,7 +417,7 @@ test('issue-2007-c12: enabled controls are live identifiable and receipt honest'
   await expect(addTrigger).toBeFocused();
   await expect(trace).toHaveText(beforeMode ?? '');
 
-  await page.getByTestId(`facility-room-${roomId}`).click();
+  await roomRow(page, roomId).click();
   await expect(page.getByTestId('facility-room-direct-editor').getByTestId('facility-name')).toBeEnabled();
   await expect(page.getByRole('menuitem', { name: 'Edit room' })).toHaveCount(0);
 });
@@ -465,7 +472,8 @@ test('issue-2007-c14: facilities remains responsive across required presentation
     document.documentElement.lang = 'ar';
   });
   await page.emulateMedia({ forcedColors: 'active', reducedMotion: 'reduce' });
-  await expect(page.getByText('礼拝チーム室 🎵', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Back to list' }).click();
+  await expect(page.getByRole('option', { name: '礼拝チーム室 🎵', exact: true })).toBeVisible();
   const resilientOverflow = await page.evaluate(() => ({ client: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
   expect(resilientOverflow.scroll).toBeLessThanOrEqual(resilientOverflow.client + 1);
   const undersized = await page.getByTestId('page-facilities').locator('button:visible, input:visible, select:visible, textarea:visible').evaluateAll((elements) => elements.flatMap((element) => {
@@ -487,7 +495,7 @@ test('issue-2007-c15: fixture isolation blocks external I O and reload resets de
   });
   await openPage(page, 'facilities/rooms');
   await expectFacilitiesPage(page);
-  const seededRooms = await page.getByTestId('facilities-rooms-list').locator('[data-room-row="true"]').allTextContents();
+  const seededRooms = await roomList(page).getByRole('option').allTextContents();
   const seededTrace = await page.getByTestId('page-trace').textContent();
   await page.getByTestId('facility-add-space').click();
   const facilityEditor = page.getByTestId('facility-editor-dialog');
@@ -498,7 +506,7 @@ test('issue-2007-c15: fixture isolation blocks external I O and reload resets de
   await page.reload();
   await expectFacilitiesPage(page);
   await expect(page.getByText('Temporary fixture room', { exact: true })).toHaveCount(0);
-  const reloadedRooms = await page.getByTestId('facilities-rooms-list').locator('[data-room-row="true"]').allTextContents();
+  const reloadedRooms = await roomList(page).getByRole('option').allTextContents();
   expect(reloadedRooms).toEqual(seededRooms);
   await expect(page.getByTestId('page-trace')).toHaveText(seededTrace ?? '');
   expect(attemptedExternal).toEqual([]);

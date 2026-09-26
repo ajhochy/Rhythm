@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { AGENT_SERVER_BASE_URL, AGENT_SERVER_ENGINE_PORT, AGENT_SERVER_PORT, buildEnvironment, checkHealth, findNode, findServerEntry } from '../src/agent-server.mjs';
+import { AGENT_SERVER_BASE_URL, AGENT_SERVER_ENGINE_PORT, AGENT_SERVER_PORT, buildEnvironment, checkHealth, findNode, findServerEntry, relayUplinkUrlForProductionApiBase } from '../src/agent-server.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const electronRoot = resolve(here, '..');
@@ -32,6 +32,32 @@ test('post-m1-p7-c4d agent-server: buildEnvironment sets every required var and 
   assert.equal(env.HUMAN_APPROVAL_CAPABILITY_SHA256, 'real-hash');
   assert.equal(env.HOME, '/Users/test', 'unrelated base env vars must pass through untouched');
   assert.equal(env.MCP_ROLES_DIR, undefined, 'must not fabricate MCP_ROLES_DIR when none was resolved');
+});
+
+test('EB-1: bridge registrar environment contains only the digest and strips inherited bridge material', () => {
+  const digest = 'a'.repeat(64);
+  const env = buildEnvironment({
+    baseEnv: {
+      RHYTHM_AGENT_BRIDGE_REGISTRAR_SHA256: 'stale-digest',
+      RHYTHM_AGENT_BRIDGE_CAPABILITY: 'must-not-survive',
+      RHYTHM_AGENT_BRIDGE_OTHER: 'must-not-survive',
+      PATH: '/usr/bin',
+    },
+    port: 7330,
+    enginePort: 7331,
+    dbPathValue: '/tmp/rhythm-sa-s2/rhythm.db',
+    humanApprovalPublicKey: 'public-key',
+    humanApprovalCapabilitySha256: 'approval-digest',
+    bridgeRegistrarSha256: digest,
+    mcpRolesDir: undefined,
+  });
+
+  assert.equal(env.RHYTHM_AGENT_BRIDGE_REGISTRAR_SHA256, digest);
+  assert.deepEqual(
+    Object.keys(env).filter((key) => key.startsWith('RHYTHM_AGENT_BRIDGE_')),
+    ['RHYTHM_AGENT_BRIDGE_REGISTRAR_SHA256'],
+  );
+  assert.equal(JSON.stringify(env).includes('must-not-survive'), false);
 });
 
 test('post-m1-p7-c4d agent-server: buildEnvironment never lets an explicit override win for security-critical vars', () => {
@@ -64,6 +90,93 @@ test('post-m1-p7-c4d agent-server: buildEnvironment respects explicit MCP_ROLES_
     mcpRolesDir: '/resolved/from/bundle',
   });
   assert.equal(env.MCP_ROLES_DIR, '/explicit/override');
+});
+
+test('relay restoration: a restored session uses only the validated selected API origin and path', () => {
+  assert.equal(relayUplinkUrlForProductionApiBase('https://team.example/tenant'), 'wss://team.example/tenant/relay/uplink');
+  const defaults = buildEnvironment({
+    baseEnv: {},
+    port: 4098,
+    enginePort: 4097,
+    dbPathValue: '/tmp/db',
+    humanApprovalPublicKey: 'k',
+    humanApprovalCapabilitySha256: 'h',
+    mcpRolesDir: undefined,
+    relaySessionToken: 'restored-session',
+    relayProductionApiBase: 'https://team.example/tenant',
+  });
+  assert.equal(defaults.RHYTHM_RELAY_URLS, 'wss://team.example/tenant/relay/uplink');
+  assert.equal(defaults.RHYTHM_RELAY_BEARER, 'restored-session');
+  assert.doesNotMatch(defaults.RHYTHM_RELAY_URLS, /vcrcapps\.com/);
+
+  const explicitDisable = buildEnvironment({
+    baseEnv: { RHYTHM_RELAY_URLS: '', RHYTHM_RELAY_BEARER: '' },
+    port: 4098,
+    enginePort: 4097,
+    dbPathValue: '/tmp/db',
+    humanApprovalPublicKey: 'k',
+    humanApprovalCapabilitySha256: 'h',
+    mcpRolesDir: undefined,
+    relaySessionToken: 'restored-session',
+    relayProductionApiBase: 'https://team.example/tenant',
+  });
+  assert.equal(explicitDisable.RHYTHM_RELAY_URLS, '');
+  assert.equal(explicitDisable.RHYTHM_RELAY_BEARER, '');
+
+  const inheritedUrl = buildEnvironment({
+    baseEnv: { RHYTHM_RELAY_URLS: 'wss://inherited.example/relay/uplink' },
+    port: 4098,
+    enginePort: 4097,
+    dbPathValue: '/tmp/db',
+    humanApprovalPublicKey: 'k',
+    humanApprovalCapabilitySha256: 'h',
+    mcpRolesDir: undefined,
+    relaySessionToken: 'restored-session',
+    relayProductionApiBase: 'https://team.example/tenant',
+  });
+  assert.equal(inheritedUrl.RHYTHM_RELAY_URLS, 'wss://inherited.example/relay/uplink');
+  assert.equal(Object.hasOwn(inheritedUrl, 'RHYTHM_RELAY_BEARER'), false);
+
+  const explicitBearer = buildEnvironment({
+    baseEnv: { RHYTHM_RELAY_BEARER: '' },
+    port: 4098,
+    enginePort: 4097,
+    dbPathValue: '/tmp/db',
+    humanApprovalPublicKey: 'k',
+    humanApprovalCapabilitySha256: 'h',
+    mcpRolesDir: undefined,
+    relaySessionToken: 'restored-session',
+    relayProductionApiBase: 'https://team.example/tenant',
+  });
+  assert.equal(Object.hasOwn(explicitBearer, 'RHYTHM_RELAY_URLS'), false);
+  assert.equal(explicitBearer.RHYTHM_RELAY_BEARER, '');
+
+  const noSession = buildEnvironment({
+    baseEnv: {},
+    port: 4098,
+    enginePort: 4097,
+    dbPathValue: '/tmp/db',
+    humanApprovalPublicKey: 'k',
+    humanApprovalCapabilitySha256: 'h',
+    mcpRolesDir: undefined,
+    relayProductionApiBase: 'https://team.example/tenant',
+  });
+  assert.equal(Object.hasOwn(noSession, 'RHYTHM_RELAY_URLS'), false);
+  assert.equal(Object.hasOwn(noSession, 'RHYTHM_RELAY_BEARER'), false);
+
+  const invalidBase = buildEnvironment({
+    baseEnv: {},
+    port: 4098,
+    enginePort: 4097,
+    dbPathValue: '/tmp/db',
+    humanApprovalPublicKey: 'k',
+    humanApprovalCapabilitySha256: 'h',
+    mcpRolesDir: undefined,
+    relaySessionToken: 'restored-session',
+    relayProductionApiBase: 'https://invalid.example/path?query=forbidden',
+  });
+  assert.equal(Object.hasOwn(invalidBase, 'RHYTHM_RELAY_URLS'), false);
+  assert.equal(Object.hasOwn(invalidBase, 'RHYTHM_RELAY_BEARER'), false);
 });
 
 test('post-m1-p7-c4d agent-server: findServerEntry resolves the real apps/api_server dev entry from this checkout', async () => {

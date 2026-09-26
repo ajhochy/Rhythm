@@ -4,11 +4,11 @@
 // every renderer live-mode call previously assumed some OTHER process (usually
 // `tools/dev/sandbox.sh`) was already running api_server.
 //
-// D20: Electron exclusively owns its local runtime. Canonical ports/database remain the same,
-// but an existing Flutter/other server is a conflict, never an adoption or reclamation target.
+// Reuse a healthy Rhythm runtime without taking ownership. Only stop children we spawned.
 // Hermetic smoke runs remain isolated by their explicit RHYTHM_LIVE_* URLs plus isolated HOME and
 // RHYTHM_SHELL_USER_DATA; main.mjs never starts this service for --smoke runs.
 import { execFile, spawn } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { createServer } from 'node:net';
@@ -16,6 +16,7 @@ import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { normalizeRemoteProductionApiBase } from '../../shared/production-api-base.mjs';
 import { capabilityMaterial } from './human-approval-main-signer.mjs';
 
 const run = promisify(execFile);
@@ -23,7 +24,8 @@ const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
  * @typedef {'nodeNotFound' | 'bundleNotFound' | 'spawnThrew' | 'healthCheckTimeout' | 'lostConnection' | 'approvalCredentialsUnavailable' | 'portConflict' | 'startupFailed' | 'stopFailed'} AgentServerFailureReason
- * @typedef {{ status: 'starting' | 'ready' | 'failed' | 'stopping' | 'stopped', failureReason: AgentServerFailureReason | null, stderrTail: string | null, errorMessage: string | null }} AgentServerStatus
+ * @typedef {'electron' | 'external' | 'none'} AgentServerOwnership
+ * @typedef {{ status: 'starting' | 'ready' | 'failed' | 'stopping' | 'stopped', ownership: AgentServerOwnership, owned: boolean, failureReason: AgentServerFailureReason | null, stderrTail: string | null, errorMessage: string | null }} AgentServerStatus
  * @typedef {{ executable: string, args: string[], workingDir: string, mcpRolesDir: string | undefined }} ServerEntry
  */
 
@@ -84,16 +86,25 @@ export function electronDbPath() {
 }
 export function legacyFlutterDbPath() { return join(homedir(), 'Library/Application Support/Rhythm/rhythm.db'); }
 
+/** @param {unknown} value */
+export function relayUplinkUrlForProductionApiBase(value) {
+  const base = new URL(normalizeRemoteProductionApiBase(value));
+  base.protocol = 'wss:';
+  base.pathname = `${base.pathname.replace(/\/+$/, '')}/relay/uplink`;
+  return base.toString();
+}
+
 /**
- * api_server_service.dart:46-92 field-for-field, adapted to this build's optional params (memory
- * vault / relay bearer sourcing does not exist yet in apps/electron — passed through baseEnv only,
- * never fabricated).
- * @param {{ baseEnv: NodeJS.ProcessEnv, port: number, enginePort: number, dbPathValue: string, humanApprovalPublicKey: string, humanApprovalCapabilitySha256: string, mcpRolesDir: string | undefined }} options
+ * api_server_service.dart:46-92 field-for-field, adapted to Electron's persisted main-process
+ * session. The restored session is paired with only the validated selected API base; explicit relay
+ * configuration, including an intentional empty value, never receives it automatically.
+ * @param {{ baseEnv: NodeJS.ProcessEnv, port: number, enginePort: number, dbPathValue: string, humanApprovalPublicKey: string, humanApprovalCapabilitySha256: string, bridgeRegistrarSha256?: string | undefined, mcpRolesDir: string | undefined, relaySessionToken?: string | undefined, relayProductionApiBase?: string | undefined }} options
  */
-export function buildEnvironment({ baseEnv, port, enginePort, dbPathValue, humanApprovalPublicKey, humanApprovalCapabilitySha256, mcpRolesDir }) {
+export function buildEnvironment({ baseEnv, port, enginePort, dbPathValue, humanApprovalPublicKey, humanApprovalCapabilitySha256, bridgeRegistrarSha256, mcpRolesDir, relaySessionToken, relayProductionApiBase }) {
   /** @type {NodeJS.ProcessEnv} */
   const env = { ...baseEnv };
   for (const key of Object.keys(env)) if (key.startsWith('HUMAN_APPROVAL_')) delete env[key];
+  for (const key of Object.keys(env)) if (key.startsWith('RHYTHM_AGENT_BRIDGE_')) delete env[key];
   env.PORT = String(port);
   env.RHYTHM_OPENCODE_ENGINE_PORT = String(enginePort);
   env.DB_PATH = dbPathValue;
@@ -101,7 +112,19 @@ export function buildEnvironment({ baseEnv, port, enginePort, dbPathValue, human
   env.RHYTHM_LOCAL_RENDERER_ORIGINS = 'rhythm://app';
   env.HUMAN_APPROVAL_PUBLIC_KEY = humanApprovalPublicKey;
   env.HUMAN_APPROVAL_CAPABILITY_SHA256 = humanApprovalCapabilitySha256;
+  if (typeof bridgeRegistrarSha256 === 'string' && /^[a-f0-9]{64}$/.test(bridgeRegistrarSha256)) {
+    env.RHYTHM_AGENT_BRIDGE_REGISTRAR_SHA256 = bridgeRegistrarSha256;
+  }
   if (mcpRolesDir && !env.MCP_ROLES_DIR) env.MCP_ROLES_DIR = mcpRolesDir;
+  const hasExplicitRelayConfiguration = Object.hasOwn(baseEnv, 'RHYTHM_RELAY_URLS') || Object.hasOwn(baseEnv, 'RHYTHM_RELAY_BEARER');
+  if (!hasExplicitRelayConfiguration && typeof relaySessionToken === 'string' && relaySessionToken.length > 0 && typeof relayProductionApiBase === 'string') {
+    try {
+      env.RHYTHM_RELAY_URLS = relayUplinkUrlForProductionApiBase(relayProductionApiBase);
+      env.RHYTHM_RELAY_BEARER = relaySessionToken;
+    } catch {
+      // Invalid persisted config disables only the relay; the local runtime still starts.
+    }
+  }
   return env;
 }
 
@@ -111,6 +134,37 @@ export async function checkHealth(baseUrl, signal = AbortSignal.timeout(2_000)) 
     const response = await fetch(`${baseUrl}/health`, { signal });
     return response.ok;
   } catch { return false; }
+}
+
+/** Recognize Rhythm, rather than treating an arbitrary HTTP 200 as a usable server. */
+export async function runningRhythmRuntime(signal = AbortSignal.timeout(2_000)) {
+  try {
+    const [apiResponse, engineResponse] = await Promise.all([
+      fetch(`${AGENT_SERVER_BASE_URL}/health`, { signal }),
+      fetch(`http://127.0.0.1:${AGENT_SERVER_ENGINE_PORT}/global/health`, { signal }),
+    ]);
+    if (!apiResponse.ok || !engineResponse.ok) return false;
+    const [api, engine] = await Promise.all([apiResponse.json(), engineResponse.json()]);
+    return api?.service === 'rhythm-api-server' && api?.status === 'ok'
+      && engine?.healthy === true && typeof engine.version === 'string';
+  } catch { return false; }
+}
+
+/** Why the readiness probe is failing, for the give-up log line. Only runs once, on timeout:
+ * the health probe itself is a boolean by design and a failure used to name neither half. */
+export async function describeRuntimeProbe(signal = AbortSignal.timeout(2_000)) {
+  const describe = async (/** @type {string} */ url) => {
+    try {
+      const response = await fetch(url, { signal });
+      if (!response.ok) return `HTTP ${response.status}`;
+      return JSON.stringify(await response.json()).slice(0, 200);
+    } catch (error) { return `unreachable (${error instanceof Error ? error.message : String(error)})`; }
+  };
+  const [api, engine] = await Promise.all([
+    describe(`${AGENT_SERVER_BASE_URL}/health`),
+    describe(`http://127.0.0.1:${AGENT_SERVER_ENGINE_PORT}/global/health`),
+  ]);
+  return `api :${AGENT_SERVER_PORT} -> ${api}; engine :${AGENT_SERVER_ENGINE_PORT} -> ${engine}`;
 }
 
 /** Bind rather than HTTP-probe: even a non-HTTP listener is a conflict. No PID discovery.
@@ -137,6 +191,10 @@ const STDERR_MAX_LINE_CHARS = 200;
 export class AgentServerService {
   /** @type {import('node:child_process').ChildProcess | undefined} */
   #process;
+  #usingExisting = false;
+  /** @type {AgentServerOwnership} */
+  #ownership = 'none';
+  #shuttingDown = false;
   /** @type {string[]} */
   #stderrLines = [];
   /** @type {AgentServerStatus['status']} */
@@ -145,7 +203,14 @@ export class AgentServerService {
   #starting;
   /** @type {Promise<void> | undefined} */
   #stopping;
+  /** @type {Promise<{ ok: true } | { ok: false, reason: string, code?: string, status?: AgentServerStatus }> | undefined} */
+  #restarting;
   #generation = 0;
+  /** A freshly installed, freshly signed bundle's FIRST launch is far slower than a warm one
+   * (Gatekeeper scan, Keychain ACL prompts, cold Chromium network service). 8s killed a runtime
+   * that was in fact healthy 5s before the deadline — see
+   * docs/ai/runs/2026-09-21-desktop-agents-never-start.md. Env override exists for tests. */
+  #readyBudgetMs = Number(process.env.RHYTHM_AGENT_READY_BUDGET_MS) || 45_000;
   #abort = new AbortController();
   #release = () => {};
   /** @type {AgentServerFailureReason | undefined} */
@@ -154,9 +219,23 @@ export class AgentServerService {
   #errorMessage;
   /** @type {Set<(status: AgentServerStatus) => void>} */
   #listeners = new Set();
+  /** @type {(() => Promise<{ token?: string, productionApiBase?: string } | undefined> | { token?: string, productionApiBase?: string } | undefined) | undefined} */
+  #relayConfigurationProvider;
+  /** @type {string | undefined} */
+  #bridgeRegistrarSecret;
+
+  /** @param {{ relayConfigurationProvider?: (() => Promise<{ token?: string, productionApiBase?: string } | undefined> | { token?: string, productionApiBase?: string } | undefined) | undefined }} [options] */
+  constructor({ relayConfigurationProvider } = {}) {
+    this.#relayConfigurationProvider = relayConfigurationProvider;
+  }
 
   /** @returns {AgentServerStatus} */
-  get status() { return { status: this.#status, failureReason: this.#failureReason ?? null, stderrTail: this.#stderrTail(), errorMessage: this.#errorMessage ?? null }; }
+  get status() { return { status: this.#status, ownership: this.#ownership, owned: this.#ownership === 'electron', failureReason: this.#failureReason ?? null, stderrTail: this.#stderrTail(), errorMessage: this.#errorMessage ?? null }; }
+
+  bridgeRegistrar() {
+    if (this.#usingExisting || this.#status !== 'ready' || !this.#process || !this.#bridgeRegistrarSecret) return undefined;
+    return { secret: this.#bridgeRegistrarSecret, baseUrl: AGENT_SERVER_BASE_URL, port: AGENT_SERVER_PORT };
+  }
 
   /** @param {(status: AgentServerStatus) => void} listener */
   onStatusChange(listener) { this.#listeners.add(listener); return () => this.#listeners.delete(listener); }
@@ -180,8 +259,9 @@ export class AgentServerService {
   }
 
   start() {
+    if (this.#shuttingDown) return Promise.resolve(this.status);
     if (this.#starting) return this.#starting;
-    if (this.#process || this.#stopping) return Promise.resolve(this.status);
+    if (this.#process || this.#usingExisting || this.#stopping) return Promise.resolve(this.status);
     this.#abort = new AbortController();
     this.#starting = this.#start(this.#generation).catch((error) => {
       this.reportStartupFailure(error);
@@ -202,13 +282,25 @@ export class AgentServerService {
     this.#status = 'starting';
     this.#failureReason = undefined;
     this.#errorMessage = undefined;
+    this.#bridgeRegistrarSecret = undefined;
     this.#emit();
 
+    const occupied = [];
     for (const port of [AGENT_SERVER_PORT, AGENT_SERVER_ENGINE_PORT]) {
-      if (!await portAvailable(port)) {
-        this.#setFailed('portConflict', `Local runtime port ${port} is already in use. Quit Flutter or the other app/server using this port, then reopen Rhythm. Nothing was stopped or adopted.`);
-        return this.status;
+      if (!await portAvailable(port)) occupied.push(port);
+    }
+    if (occupied.length) {
+      const healthy = await runningRhythmRuntime();
+      if (generation !== this.#generation) return this.status;
+      if (healthy) {
+        this.#usingExisting = true;
+        this.#ownership = 'external';
+        this.#status = 'ready';
+        this.#emit();
+      } else {
+        this.#setFailed('portConflict', `Local runtime port ${occupied.join(' / ')} is in use, but the Rhythm API and engine are not both healthy. Quit the conflicting server, then reopen Rhythm. Nothing was stopped.`);
       }
+      return this.status;
     }
     if (generation !== this.#generation) return this.status;
 
@@ -216,7 +308,7 @@ export class AgentServerService {
     try {
       material = await capabilityMaterial();
     } catch (error) {
-      this.#setFailed('approvalCredentialsUnavailable', 'Rhythm could not unlock its human-approval Keychain identity. Unlock your Mac and try again.');
+      this.#setFailed('approvalCredentialsUnavailable', 'Rhythm could not access its approval identity. Complete any macOS Keychain authorization, then retry.');
       return this.status;
     }
 
@@ -241,6 +333,15 @@ export class AgentServerService {
     }
     if (generation !== this.#generation) return this.status;
 
+    let relayConfiguration;
+    try {
+      relayConfiguration = await this.#relayConfigurationProvider?.();
+    } catch {
+      // A failed secure-store/config read leaves the uplink disabled; never log bearer material.
+      relayConfiguration = undefined;
+    }
+    if (generation !== this.#generation) return this.status;
+
     const env = buildEnvironment({
       baseEnv: process.env,
       port: AGENT_SERVER_PORT,
@@ -248,7 +349,13 @@ export class AgentServerService {
       dbPathValue: targetDbPath,
       humanApprovalPublicKey: material.humanApprovalPublicKey,
       humanApprovalCapabilitySha256: material.humanApprovalCapabilitySha256,
+      bridgeRegistrarSha256: (() => {
+        this.#bridgeRegistrarSecret = randomBytes(32).toString('base64url');
+        return createHash('sha256').update(this.#bridgeRegistrarSecret).digest('hex');
+      })(),
       mcpRolesDir: serverInfo.mcpRolesDir,
+      relaySessionToken: relayConfiguration?.token,
+      relayProductionApiBase: relayConfiguration?.productionApiBase,
     });
 
     try {
@@ -257,6 +364,7 @@ export class AgentServerService {
         env,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
+      this.#ownership = 'electron';
     } catch (error) {
       this.#appendStderr(error instanceof Error ? error.message : String(error));
       this.#setFailed('spawnThrew', "Couldn't start the local runtime process. Quit and reopen Rhythm to retry. See technical details below.");
@@ -284,6 +392,7 @@ export class AgentServerService {
       proc.stdout?.off('data', stdout); proc.stderr?.off('data', stderr);
       proc.off('exit', onExit); proc.off('error', onError);
       if (this.#process === proc) this.#process = undefined;
+      this.#bridgeRegistrarSecret = undefined;
       this.#abort.abort();
     };
     proc.on('error', onError); proc.on('exit', onExit);
@@ -292,8 +401,9 @@ export class AgentServerService {
     const ready = await this.#waitForReady();
     if (generation !== this.#generation || this.#process !== proc || this.#status !== 'starting') return this.status;
     if (!ready) {
+      this.#appendStderr(`health probe at give-up: ${await describeRuntimeProbe().catch((error) => String(error))}`);
       await this.stopGracefully();
-      this.#setFailed('healthCheckTimeout', 'The local runtime did not respond within 8 seconds. Quit and reopen Rhythm to retry.');
+      this.#setFailed('healthCheckTimeout', `The local runtime did not respond within ${Math.round(this.#readyBudgetMs / 1000)} seconds. Quit and reopen Rhythm to retry.`);
       return this.status;
     }
     this.#status = 'ready';
@@ -301,21 +411,65 @@ export class AgentServerService {
     return this.status;
   }
 
-  /** 8s wall-clock health budget, including requests (previous 40 x (200ms + 2s) could take 88s).
-   * Owned-child shutdown can add up to 4s after timeout. No automatic restart. */
+  /** Bounded wall-clock health budget, including requests (a naive 40 x (200ms + 2s) could take
+   * 88s). Owned-child shutdown can add up to 4s after timeout. No automatic restart. */
   async #waitForReady() {
-    const deadline = Date.now() + 8_000;
+    const deadline = Date.now() + this.#readyBudgetMs;
     while (this.#process && this.#status === 'starting' && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, Math.min(200, deadline - Date.now())));
       const remaining = deadline - Date.now();
       if (remaining <= 0 || this.#abort.signal.aborted) break;
-      if (await checkHealth(AGENT_SERVER_BASE_URL, AbortSignal.any([this.#abort.signal, AbortSignal.timeout(Math.min(2_000, remaining))]))) return true;
+      if (await runningRhythmRuntime(AbortSignal.any([this.#abort.signal, AbortSignal.timeout(Math.min(2_000, remaining))]))) return true;
     }
     return false;
   }
 
   markLostConnection() {
     if (this.#status === 'ready') this.#setFailed('lostConnection', 'The agent server stopped responding. Restart to bring it back.');
+  }
+
+  /** Restart only a child this service spawned; adopted runtimes are never signaled. */
+  restart() {
+    if (this.#restarting) return this.#restarting;
+    if (this.#usingExisting || this.#ownership === 'external') {
+      return Promise.resolve({ ok: false, reason: 'adopted', code: 'runtime_unowned' });
+    }
+    if (this.#shuttingDown) {
+      return Promise.resolve({ ok: false, reason: 'shutting_down', code: 'shutting_down' });
+    }
+    const starting = this.#starting;
+    const hadOwnedChild = Boolean(this.#process);
+    this.#restarting = (async () => {
+      if (hadOwnedChild || starting) await this.stopGracefully();
+      await starting?.catch(() => {});
+      if (this.#shuttingDown) return { ok: false, reason: 'shutting_down', code: 'shutting_down' };
+      if (hadOwnedChild && !await this.#waitForRuntimePortsReleased()) {
+        this.#setFailed('portConflict', 'The previous local runtime is still releasing its ports. Wait a moment, then Retry local runtime.');
+        return { ok: false, reason: 'ports_not_released', code: 'ports_not_released', status: this.status };
+      }
+      if (this.#shuttingDown) return { ok: false, reason: 'shutting_down', code: 'shutting_down' };
+      const status = await this.start();
+      /** @type {{ ok: true } | { ok: false, reason: string, status: AgentServerStatus }} */
+      const result = status.status === 'ready'
+        ? { ok: true }
+        : { ok: false, reason: 'startup_failed', status };
+      return result;
+    })().finally(() => { this.#restarting = undefined; });
+    return this.#restarting;
+  }
+
+  async #waitForRuntimePortsReleased() {
+    const deadline = Date.now() + (Number(process.env.RHYTHM_AGENT_RESTART_PORT_BUDGET_MS) || 5_000);
+    while (Date.now() < deadline) {
+      if (await portAvailable(AGENT_SERVER_PORT) && await portAvailable(AGENT_SERVER_ENGINE_PORT)) return true;
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, Math.min(100, deadline - Date.now())));
+    }
+    return portAvailable(AGENT_SERVER_PORT).then(async (apiFree) => apiFree && await portAvailable(AGENT_SERVER_ENGINE_PORT));
+  }
+
+  stopForQuit() {
+    this.#shuttingDown = true;
+    return this.stopGracefully();
   }
 
   /** Signal only the exact ChildProcess spawned here; retain ownership until observed exit. */
@@ -328,6 +482,14 @@ export class AgentServerService {
   async #stopOwned() {
     this.#generation++;
     this.#abort.abort();
+    if (this.#usingExisting) {
+      this.#usingExisting = false;
+      this.#ownership = 'none';
+      this.#bridgeRegistrarSecret = undefined;
+      this.#status = 'stopped';
+      this.#emit();
+      return;
+    }
     const proc = this.#process;
     if (!proc) {
       if (this.#status === 'starting') { this.#status = 'stopped'; this.#emit(); }
@@ -349,6 +511,14 @@ export class AgentServerService {
   stop() {
     this.#generation++;
     this.#abort.abort();
+    if (this.#usingExisting) {
+      this.#usingExisting = false;
+      this.#ownership = 'none';
+      this.#bridgeRegistrarSecret = undefined;
+      this.#status = 'stopped';
+      this.#emit();
+      return;
+    }
     if (!this.#process) return;
     this.#status = 'stopping'; this.#emit();
     try { this.#process.kill('SIGTERM'); }

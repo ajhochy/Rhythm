@@ -1,6 +1,8 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { FocusDialog } from '../../components/FocusDialog';
-import { navigate } from '../../components/Shell';
+import { Timestamp } from '../../components/Timestamp';
+import { formatTimestamp } from '../../timestamps';
+import { ListInspector, useSelectedId } from '../../components/ListInspector';
 import { useAuthUser } from '../../gateway/auth';
 import { useGateway } from '../../gateway/context';
 import { Icon } from '../../icons';
@@ -34,13 +36,7 @@ function threadIdFromRoute(route: string): number | null {
 }
 
 function timeLabel(timestamp: string): string {
-  const value = new Date(timestamp);
-  if (Number.isNaN(value.getTime())) return '';
-  return value.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-}
-
-function initials(name: string): string {
-  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || 'R';
+  return formatTimestamp(timestamp)?.label ?? 'Time unavailable';
 }
 
 function LiveThreadActions({ thread, onRead, onUnread, testId }: {
@@ -98,7 +94,9 @@ export function LiveMessagesPage({ route }: { route: string }) {
   // reported it rather than fetching /users with the test-only token — the right call, since that
   // token is unset in a packaged build.
 
-  const [selectedId, setSelectedId] = useState<number | null>(() => threadIdFromRoute(route));
+  const [storedSelectedId, setStoredSelectedId] = useSelectedId('threadId');
+  const selectedId = storedSelectedId == null ? threadIdFromRoute(route) : Number(storedSelectedId);
+  const selectedKey = storedSelectedId ?? (threadIdFromRoute(route)?.toString() ?? null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [pageLoadError, setLoadError] = useState('');
   const [reply, setReply] = useState('');
@@ -109,7 +107,6 @@ export function LiveMessagesPage({ route }: { route: string }) {
   const [directory, setDirectory] = useState<LiveDirectoryUser[]>([]);
   const [selectedRecipients, setSelectedRecipients] = useState<number[]>([]);
   const [createError, setCreateError] = useState('');
-  const [search, setSearch] = useState('');
   const replyRef = useRef<HTMLTextAreaElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const selectedIdRef = useRef(selectedId);
@@ -119,10 +116,6 @@ export function LiveMessagesPage({ route }: { route: string }) {
 
   const selectedThread = threads.find((thread) => thread.id === selectedId) ?? null;
   const unreadTotal = threads.filter((thread) => thread.unreadCount > 0).length;
-  const visibleThreads = useMemo(() => {
-    const needle = search.trim().toLocaleLowerCase();
-    return needle ? threads.filter((thread) => thread.title.toLocaleLowerCase().includes(needle)) : threads;
-  }, [search, threads]);
 
   useLayoutEffect(() => {
     if (transcriptRef.current) transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
@@ -138,22 +131,20 @@ export function LiveMessagesPage({ route }: { route: string }) {
     return () => { active = false; };
   }, [gateway]);
 
-  // Deep-linked selection (/messages/:id) must survive independently of whether the thread list
-  // happened to include it — reload re-parses the same URL and re-runs this same fetch, so the
-  // selection never depends on array order or a re-minted local id.
+  // Deep-linked and URL-query selection survives reload independently of thread list ordering.
+  // Selection only loads inspector content; unread mutations remain explicit inspector actions.
   useEffect(() => {
-    const id = threadIdFromRoute(route);
-    if (id == null) return;
-    setSelectedId(id); selectedIdRef.current = id;
+    const id = selectedId;
+    if (id == null || !Number.isFinite(id)) { setMessages([]); selectedIdRef.current = null; return; }
+    selectedIdRef.current = id;
     const requestId = ++messageRequestRef.current;
+    setLoadError('');
+    setMessages([]);
     gateway.messages(id)
       .then((loaded) => { if (requestId === messageRequestRef.current && selectedIdRef.current === id) setMessages(loaded); })
       .catch((error) => { if (requestId === messageRequestRef.current) setLoadError(boundedMessage(error)); });
-    void gateway.markRead(id).then(() => {
-      if (selectedIdRef.current === id) setThreads((current) => current.map((thread) => thread.id === id ? { ...thread, unreadCount: 0, isUnread: false } : thread));
-    }).catch(() => {});
     return () => { messageRequestRef.current += 1; };
-  }, [gateway, route, setThreads]);
+  }, [gateway, selectedId]);
 
   useEffect(() => {
     const refresh = () => {
@@ -168,22 +159,6 @@ export function LiveMessagesPage({ route }: { route: string }) {
     window.addEventListener('focus', refresh);
     return () => { window.clearInterval(timer); window.removeEventListener('focus', refresh); };
   }, [gateway]);
-
-  const openThread = async (id: number) => {
-    setSelectedId(id);
-    selectedIdRef.current = id;
-    const requestId = ++messageRequestRef.current;
-    setReplyError('');
-    try {
-      const loaded = await gateway.messages(id);
-      if (requestId !== messageRequestRef.current || selectedIdRef.current !== id) return;
-      setMessages(loaded);
-      await gateway.markRead(id);
-      setThreads((current) => current.map((thread) => thread.id === id ? { ...thread, unreadCount: 0, isUnread: false } : thread));
-    } catch (error) {
-      setLoadError(boundedMessage(error));
-    }
-  };
 
   const toggleUnread = async (thread: MessageThread) => {
     try {
@@ -243,7 +218,7 @@ export function LiveMessagesPage({ route }: { route: string }) {
       const created = await gateway.createThread({ participantIds: selectedRecipients, threadType, title: threadTitle.trim() || undefined });
       setThreads((current) => [created, ...current]);
       closeNewThread();
-      await openThread(created.id);
+      setStoredSelectedId(String(created.id));
     } catch (error) {
       setCreateError(boundedMessage(error));
     }
@@ -253,54 +228,55 @@ export function LiveMessagesPage({ route }: { route: string }) {
     <section className="page-shell pg-messages" aria-labelledby="messages-title" data-testid="page-messages" {...(selectedId != null ? { 'data-selected-stable-id': selectedId } : {})}>
       <header className="messages-page-header">
         <div className="messages-heading"><span className="eyebrow">Rhythm workspace</span><h1 id="messages-title">Messages</h1><p>Conversations, participants, and handoffs in one focused workspace.</p></div>
-        <fieldset className="messages-header-mutations"><legend className="sr-only">Conversation actions</legend><button className="primary-button" type="button" onClick={() => void openNewThread()} data-testid="messages-new-thread"><Icon name="plus" size={15} />New</button></fieldset>
       </header>
 
       {loadError && <p role="alert" data-testid="messages-live-error">{loadError}</p>}
 
-      <div className={`messages-workspace ${selectedThread ? 'has-selection' : ''}`} data-testid="messages-responsive-primary">
-        <aside className="messages-thread-rail" aria-label="Conversations">
-          <div className="messages-rail-summary"><div><strong data-testid="messages-unread-total">{unreadTotal} unread {unreadTotal === 1 ? 'thread' : 'threads'}</strong><span>{visibleThreads.length} {visibleThreads.length === 1 ? 'conversation' : 'conversations'}</span></div><span aria-hidden="true">{String(unreadTotal).padStart(2, '0')}</span></div>
-          <label className="search-field messages-search"><Icon name="search" size={14} /><span className="sr-only">Search conversations by title</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search conversations" data-testid="messages-thread-search" /></label>
-          {loading ? <div className="messages-selection-state" role="status" data-testid="page-state-loading"><span className="messages-spinner" aria-hidden="true" /><p>Loading conversations…</p></div> : threads.length === 0 ? <div className="messages-no-results" data-testid="messages-no-results"><h2>No conversations yet</h2><p>Start a direct message or group handoff.</p></div> : visibleThreads.length === 0 ? <div className="messages-no-results" data-testid="messages-no-results"><h2>No matching conversations</h2><p>Try a shorter title or clear the search.</p><button className="secondary-button" type="button" onClick={() => setSearch('')}>Clear search</button></div> : (
-            <ul className="messages-thread-list" aria-label="Conversation list" data-testid="messages-thread-list">
-              {visibleThreads.map((thread) => {
-                const participant = thread.participants[0];
-                return <li key={thread.id} className="messages-thread-item">
-                  <button className="messages-thread-row" type="button" aria-current={selectedId === thread.id ? 'true' : undefined} data-unread={thread.unreadCount > 0 ? 'true' : 'false'} onClick={() => void openThread(thread.id)} data-testid={`messages-thread-${thread.id}`}>
-                    <span className="messages-thread-avatar" aria-hidden="true">{initials(participant?.name ?? thread.title)}</span>
-                    <span className="messages-thread-copy"><strong>{thread.title}</strong><small>{thread.lastMessage ?? 'No messages yet'}</small></span>
-                    <time dateTime={thread.updatedAt}>{timeLabel(thread.updatedAt)}</time>
-                    {thread.unreadCount > 0 && <span className="messages-row-unread" aria-label={`${thread.unreadCount} unread message${thread.unreadCount === 1 ? '' : 's'}`} data-testid={`messages-thread-unread-${thread.id}`}>{thread.unreadCount}</span>}
-                  </button>
-                  <div><LiveThreadActions thread={thread} onRead={() => void toggleUnread(thread)} onUnread={() => void toggleUnread(thread)} /></div>
-                </li>;
-              })}
-            </ul>
-          )}
-        </aside>
-
-        <section className="messages-conversation" aria-label="Selected conversation">
-          {!selectedThread ? <div className="messages-selection-state" data-testid="messages-empty-selection"><span className="messages-state-mark" aria-hidden="true">↗</span><h2>Select a conversation</h2><p>Choose a thread to read its participants and transcript.</p></div> : (
-            <>
-              <header className="messages-conversation-header">
-                <button className="text-button messages-mobile-back" type="button" onClick={() => { setSelectedId(null); setMessages([]); navigate('/messages'); }}>Back to conversations</button>
-                <div className="messages-conversation-heading"><span className="eyebrow" data-testid="messages-thread-type">{selectedThread.threadType === 'group' ? 'Group' : 'Direct'}</span><h2 data-testid="messages-subject">{selectedThread.title}</h2><p>{selectedThread.participants.map((participant) => participant.name).join(' · ')}<span aria-hidden="true"> · </span>{messages.length} {messages.length === 1 ? 'message' : 'messages'}</p></div>
-                <LiveThreadActions thread={selectedThread} onRead={() => void toggleUnread(selectedThread)} onUnread={() => void toggleUnread(selectedThread)} testId="messages-selected-thread-actions" />
-              </header>
-              <div className="messages-transcript" ref={transcriptRef} tabIndex={0} aria-label={`${selectedThread.title} transcript`} aria-live="polite" data-testid="messages-transcript">
-                {messages.length === 0 ? <div className="messages-transcript-empty"><p>No messages yet. Start the conversation below.</p></div> : messages.map((message) => (
-                  <article className={`messages-message ${message.senderId === authUser?.user.id ? 'own' : ''}`} key={message.id} data-message-row="true"><header><strong>{message.senderName}</strong><time dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time></header><p>{message.body}</p></article>
-                ))}
-              </div>
-              <fieldset className="messages-composer-fieldset"><legend className="sr-only">Reply to {selectedThread.title}</legend><div className="messages-composer">
-                <label htmlFor="messages-reply-input">Reply</label>
-                <div><textarea ref={replyRef} id="messages-reply-input" rows={2} value={reply} onChange={(event) => { setReply(event.target.value); setReplyError(''); }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void sendReply(); } }} aria-describedby={replyError ? 'messages-reply-error' : 'messages-reply-help'} data-testid="messages-reply-input" /><button className="primary-button messages-send" type="button" onClick={() => void sendReply()} data-testid="messages-send"><Icon name="send" size={16} /><span>Send</span></button></div>
-                <small id="messages-reply-help">Enter to send · Shift+Enter for a new line</small>{replyError && <p id="messages-reply-error" role="alert" data-testid="messages-reply-error">{replyError}</p>}
-              </div></fieldset>
-            </>
-          )}
-        </section>
+      <div className="messages-workspace" data-testid="messages-responsive-primary">
+        <div className="messages-list-inspector-host" data-testid="messages-thread-list">
+          <ListInspector
+            className="messages-list-inspector"
+            label="Conversations"
+            items={threads.map((thread) => ({
+              id: `messages-thread-${thread.id}`,
+              title: thread.title,
+              subtitle: thread.lastMessage ?? 'No messages yet',
+              meta: timeLabel(thread.updatedAt),
+              badge: thread.unreadCount > 0 ? `${thread.unreadCount} unread` : undefined,
+            }))}
+            selectedId={selectedKey == null ? null : `messages-thread-${selectedKey}`}
+            onSelect={(rowId) => { setReplyError(''); setStoredSelectedId(rowId.slice('messages-thread-'.length)); }}
+            toolbar={<div className="messages-list-toolbar">
+              <div className="messages-rail-summary"><div><strong data-testid="messages-unread-total">{unreadTotal} unread {unreadTotal === 1 ? 'thread' : 'threads'}</strong><span>{threads.length} {threads.length === 1 ? 'conversation' : 'conversations'}</span></div><span aria-hidden="true">{String(unreadTotal).padStart(2, '0')}</span></div>
+              <fieldset className="messages-header-mutations"><legend className="sr-only">Conversation actions</legend><button className="primary-button" type="button" onClick={() => void openNewThread()} data-testid="messages-new-thread"><Icon name="plus" size={15} />New conversation</button></fieldset>
+            </div>}
+            searchable
+            searchPlaceholder="Search conversations"
+            loading={loading}
+            error={!loading && liveMessagesError && threads.length === 0 ? <div className="messages-state danger"><h3>Messages could not be loaded</h3><p>{liveMessagesError}</p></div> : undefined}
+            emptyState={<div className="messages-state" data-testid="messages-no-results"><span className="messages-state-mark" aria-hidden="true">＋</span><h3>No conversations yet</h3><p>Start a direct message or group handoff.</p></div>}
+            inspector={(item) => {
+              const thread = item ? threads.find((candidate) => `messages-thread-${candidate.id}` === item.id) ?? null : null;
+              if (!thread) return <div className="messages-selection-state" data-testid="messages-empty-selection"><span className="messages-state-mark" aria-hidden="true">↗</span><h3>Select a conversation</h3><p>Choose a thread to read its participants and transcript.</p></div>;
+              return <div className="messages-conversation" role="region" aria-label="Selected conversation">
+                <header className="messages-conversation-header">
+                  <div className="messages-conversation-heading"><span className="eyebrow" data-testid="messages-thread-type">{thread.threadType === 'group' ? 'Group' : 'Direct'}</span><span className="sr-only" data-testid="messages-subject">{thread.title}</span><p>{thread.participants.map((participant) => participant.name).join(' · ')}<span aria-hidden="true"> · </span>{messages.length} {messages.length === 1 ? 'message' : 'messages'}</p></div>
+                  <LiveThreadActions thread={thread} onRead={() => void toggleUnread(thread)} onUnread={() => void toggleUnread(thread)} testId="messages-selected-thread-actions" />
+                </header>
+                <div className="messages-transcript" ref={transcriptRef} role="log" tabIndex={0} aria-label={`${thread.title} transcript`} aria-live="polite" data-testid="messages-transcript">
+                  {messages.length === 0 ? <div className="messages-transcript-empty"><p>No messages yet. Start the conversation below.</p></div> : messages.map((message) => (
+                    <article className={`messages-message ${message.senderId === authUser?.user.id ? 'own' : ''}`} key={message.id} data-message-row="true"><header><strong>{message.senderName}</strong><Timestamp value={message.createdAt} /></header><p>{message.body}</p></article>
+                  ))}
+                </div>
+                <fieldset className="messages-composer-fieldset"><legend className="sr-only">Reply to {thread.title}</legend><div className="messages-composer">
+                  <label htmlFor="messages-reply-input">Reply</label>
+                  <div><textarea ref={replyRef} id="messages-reply-input" rows={2} value={reply} onChange={(event) => { setReply(event.target.value); setReplyError(''); }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void sendReply(); } }} aria-describedby={replyError ? 'messages-reply-error' : 'messages-reply-help'} data-testid="messages-reply-input" /><button className="primary-button messages-send" type="button" onClick={() => void sendReply()} data-testid="messages-send"><Icon name="send" size={16} /><span>Send</span></button></div>
+                  <small id="messages-reply-help">Enter to send · Shift+Enter for a new line</small>{replyError && <p id="messages-reply-error" role="alert" data-testid="messages-reply-error">{replyError}</p>}
+                </div></fieldset>
+              </div>;
+            }}
+          />
+        </div>
       </div>
 
       <FocusDialog open={newThreadOpen} onClose={closeNewThread} title="New conversation" description="Choose one person for a direct message or at least two other participants for a group." testId="messages-new-thread-dialog" wide>

@@ -1,0 +1,399 @@
+{
+  "conclusion": "success",
+  "databaseId": 35454150623,
+  "headSha": "70bcf2c96a9a74521d4b61f009bf47aa89557436",
+  "jobs": [
+    {
+      "completedAt": "2026-09-19T16:32:20Z",
+      "conclusion": "success",
+      "databaseId": 105926366660,
+      "name": "build-macos-release (x64, macos-15-intel)",
+      "startedAt": "2026-09-19T16:11:26Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-09-19T16:11:30Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-09-19T16:11:27Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:11:47Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v4",
+          "number": 2,
+          "startedAt": "2026-09-19T16:11:30Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:11:49Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-node@v4",
+          "number": 3,
+          "startedAt": "2026-09-19T16:11:47Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:11:52Z",
+          "conclusion": "success",
+          "name": "Run oven-sh/setup-bun@v2",
+          "number": 4,
+          "startedAt": "2026-09-19T16:11:49Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:13:54Z",
+          "conclusion": "success",
+          "name": "Install vendored fork dependencies",
+          "number": 5,
+          "startedAt": "2026-09-19T16:11:52Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:14:58Z",
+          "conclusion": "success",
+          "name": "Install dependencies",
+          "number": 6,
+          "startedAt": "2026-09-19T16:13:54Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:15:01Z",
+          "conclusion": "success",
+          "name": "Typecheck the Electron shell",
+          "number": 7,
+          "startedAt": "2026-09-19T16:14:58Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:26:26Z",
+          "conclusion": "success",
+          "name": "Test unsigned package contracts",
+          "number": 8,
+          "startedAt": "2026-09-19T16:15:01Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:28:37Z",
+          "conclusion": "success",
+          "name": "Build final unsigned package",
+          "number": 9,
+          "startedAt": "2026-09-19T16:26:26Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:28:59Z",
+          "conclusion": "success",
+          "name": "Test the Electron shell with packaged assets",
+          "number": 10,
+          "startedAt": "2026-09-19T16:28:37Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:28:59Z",
+          "conclusion": "success",
+          "name": "Import signing certificate into a temporary keychain",
+          "number": 11,
+          "startedAt": "2026-09-19T16:28:59Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:31:55Z",
+          "conclusion": "success",
+          "name": "Sign and notarize",
+          "number": 12,
+          "startedAt": "2026-09-19T16:28:59Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:32:01Z",
+          "conclusion": "success",
+          "name": "Verify signed bundle",
+          "number": 13,
+          "startedAt": "2026-09-19T16:31:55Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:32:02Z",
+          "conclusion": "success",
+          "name": "Packaged smoke against the SIGNED bundle (post-m1-p11-c4)",
+          "number": 14,
+          "startedAt": "2026-09-19T16:32:01Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:32:02Z",
+          "conclusion": "success",
+          "name": "Name native architecture archive",
+          "number": 15,
+          "startedAt": "2026-09-19T16:32:02Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:32:13Z",
+          "conclusion": "success",
+          "name": "Upload build artifacts",
+          "number": 16,
+          "startedAt": "2026-09-19T16:32:02Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:32:13Z",
+          "conclusion": "skipped",
+          "name": "Publish GitHub release",
+          "number": 17,
+          "startedAt": "2026-09-19T16:32:13Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:32:16Z",
+          "conclusion": "success",
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "number": 32,
+          "startedAt": "2026-09-19T16:32:13Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:32:17Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-node@v4",
+          "number": 33,
+          "startedAt": "2026-09-19T16:32:16Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:32:17Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v4",
+          "number": 34,
+          "startedAt": "2026-09-19T16:32:17Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:32:18Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 35,
+          "startedAt": "2026-09-19T16:32:17Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/ajhochy/Rhythm/actions/runs/35454150623/job/105926366660"
+    },
+    {
+      "completedAt": "2026-09-19T16:22:05Z",
+      "conclusion": "success",
+      "databaseId": 105926366833,
+      "name": "build-macos-release (arm64, macos-14)",
+      "startedAt": "2026-09-19T16:11:30Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-09-19T16:11:32Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-09-19T16:11:30Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:11:41Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v4",
+          "number": 2,
+          "startedAt": "2026-09-19T16:11:32Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:11:41Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-node@v4",
+          "number": 3,
+          "startedAt": "2026-09-19T16:11:41Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:11:43Z",
+          "conclusion": "success",
+          "name": "Run oven-sh/setup-bun@v2",
+          "number": 4,
+          "startedAt": "2026-09-19T16:11:41Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:12:18Z",
+          "conclusion": "success",
+          "name": "Install vendored fork dependencies",
+          "number": 5,
+          "startedAt": "2026-09-19T16:11:43Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:12:48Z",
+          "conclusion": "success",
+          "name": "Install dependencies",
+          "number": 6,
+          "startedAt": "2026-09-19T16:12:18Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:12:50Z",
+          "conclusion": "success",
+          "name": "Typecheck the Electron shell",
+          "number": 7,
+          "startedAt": "2026-09-19T16:12:48Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:18:05Z",
+          "conclusion": "success",
+          "name": "Test unsigned package contracts",
+          "number": 8,
+          "startedAt": "2026-09-19T16:12:50Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:19:13Z",
+          "conclusion": "success",
+          "name": "Build final unsigned package",
+          "number": 9,
+          "startedAt": "2026-09-19T16:18:05Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:19:30Z",
+          "conclusion": "success",
+          "name": "Test the Electron shell with packaged assets",
+          "number": 10,
+          "startedAt": "2026-09-19T16:19:13Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:19:30Z",
+          "conclusion": "success",
+          "name": "Import signing certificate into a temporary keychain",
+          "number": 11,
+          "startedAt": "2026-09-19T16:19:30Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:21:50Z",
+          "conclusion": "success",
+          "name": "Sign and notarize",
+          "number": 12,
+          "startedAt": "2026-09-19T16:19:30Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:21:52Z",
+          "conclusion": "success",
+          "name": "Verify signed bundle",
+          "number": 13,
+          "startedAt": "2026-09-19T16:21:50Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:21:53Z",
+          "conclusion": "success",
+          "name": "Packaged smoke against the SIGNED bundle (post-m1-p11-c4)",
+          "number": 14,
+          "startedAt": "2026-09-19T16:21:52Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:21:53Z",
+          "conclusion": "success",
+          "name": "Name native architecture archive",
+          "number": 15,
+          "startedAt": "2026-09-19T16:21:53Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:22:01Z",
+          "conclusion": "success",
+          "name": "Upload build artifacts",
+          "number": 16,
+          "startedAt": "2026-09-19T16:21:53Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:22:01Z",
+          "conclusion": "skipped",
+          "name": "Publish GitHub release",
+          "number": 17,
+          "startedAt": "2026-09-19T16:22:01Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:22:01Z",
+          "conclusion": "success",
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "number": 32,
+          "startedAt": "2026-09-19T16:22:01Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:22:01Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-node@v4",
+          "number": 33,
+          "startedAt": "2026-09-19T16:22:01Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:22:02Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v4",
+          "number": 34,
+          "startedAt": "2026-09-19T16:22:01Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-19T16:22:03Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 35,
+          "startedAt": "2026-09-19T16:22:02Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/ajhochy/Rhythm/actions/runs/35454150623/job/105926366833"
+    }
+  ],
+  "status": "completed",
+  "url": "https://github.com/ajhochy/Rhythm/actions/runs/35454150623",
+  "artifacts": [
+    {
+      "id": 10587743120,
+      "name": "rhythm-electron-macos-x64-0.18.65",
+      "size_in_bytes": 214049138,
+      "digest": "sha256:7ebf8090a826e21042a27ec24aff267ab3068a093d164ef0dd9427db09e188eb",
+      "expired": false,
+      "created_at": "2026-09-19T16:32:13Z",
+      "workflow_run": {
+        "id": 35454150623,
+        "repository_id": 1191246957,
+        "head_repository_id": 1191246957,
+        "head_branch": "mega/2026-09-18-mobile-electron-hermes",
+        "head_sha": "70bcf2c96a9a74521d4b61f009bf47aa89557436"
+      }
+    },
+    {
+      "id": 10587539461,
+      "name": "rhythm-electron-macos-arm64-0.18.65",
+      "size_in_bytes": 204133387,
+      "digest": "sha256:bcdc6a8be1a868d8aa82446db7da5c7fe5e9cfe97f96644911671d7fd91cee8f",
+      "expired": false,
+      "created_at": "2026-09-19T16:22:01Z",
+      "workflow_run": {
+        "id": 35454150623,
+        "repository_id": 1191246957,
+        "head_repository_id": 1191246957,
+        "head_branch": "mega/2026-09-18-mobile-electron-hermes",
+        "head_sha": "70bcf2c96a9a74521d4b61f009bf47aa89557436"
+      }
+    }
+  ]
+}

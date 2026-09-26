@@ -10,6 +10,7 @@ import {
   MEMORY_CONSOLIDATION_REPAIR_KEY,
   MEMORY_CONSOLIDATION_SEED_NAME,
 } from '../services/memory_consolidation_seed';
+import { installAgentBridgeSchema } from '../shared_agents/bridge_schema';
 
 /**
  * W1 corrective-6 package B — monotonic persistence revisions.
@@ -89,6 +90,7 @@ function installRevisionInvariants(db: Database.Database, table: string): void {
 }
 
 export function runMigrations(db: Database.Database): void {
+  installAgentBridgeSchema(db);
   // ── Write-discipline contract ─────────────────────────────────────────
   // runMigrations() runs on EVERY boot (db.ts initDb), not just first
   // install. Every statement here is one of exactly two classes:
@@ -3532,6 +3534,17 @@ If someone asks for creative work that needs a local capability:
          ADD COLUMN owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL`,
     );
   }
+  // #1485 S1a — versioned-workflow columns, additive and nullable so every
+  // existing/generated/proposal-applied row stays a byte-identical legacy
+  // prompt recipe (definition_json IS NULL => legacy; see
+  // agent_cookbook_repository.ts's derived `format`). No backfill: leaving
+  // both NULL on pre-existing rows is the correct legacy value, not a gap.
+  if (!agentCookbookActivityCols.includes('schema_version')) {
+    db.exec(`ALTER TABLE agent_cookbook ADD COLUMN schema_version INTEGER`);
+  }
+  if (!agentCookbookActivityCols.includes('definition_json')) {
+    db.exec(`ALTER TABLE agent_cookbook ADD COLUMN definition_json TEXT`);
+  }
   const agentOrgProposalActivityCols = (
     db.pragma('table_info(agent_org_proposals)') as { name: string }[]
   ).map((column) => column.name);
@@ -3697,7 +3710,7 @@ If someone asks for creative work that needs a local capability:
       task_id TEXT NOT NULL REFERENCES agent_scheduled_tasks(id) ON DELETE CASCADE,
       started_at TEXT NOT NULL,
       ended_at TEXT NOT NULL,
-      status TEXT NOT NULL,       -- 'success' | 'error' | 'blocked_on_approval' | 'completed_no_op'
+      status TEXT NOT NULL,       -- 'success' | 'error' | 'blocked_on_approval' | 'completed_no_op' | 'skipped_stale'
       error TEXT,
       root_session_id TEXT,
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
@@ -4518,4 +4531,212 @@ If someone asks for creative work that needs a local capability:
   if (!toolSafetyReportCols.includes('proposal_fingerprint')) {
     db.exec(`ALTER TABLE tool_safety_reports ADD COLUMN proposal_fingerprint TEXT`);
   }
+
+  // #1576 B1 — local agent-server dispatch attempts only. No historical
+  // inference: existing sessions start with zero attempts. FK enforces both
+  // deletion cascade and refusal of late events after a session is removed.
+  // Deliberately absent from the hosted Postgres bootstrap.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_turn_dispatches (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+      sdk_session_id TEXT,
+      sdk_user_message_id TEXT,
+      origin TEXT NOT NULL,
+      requested_source TEXT NOT NULL,
+      requested_provider_id TEXT,
+      requested_model_id TEXT,
+      requested_tier TEXT,
+      resolved_provider_id TEXT,
+      resolved_model_id TEXT,
+      resolved_tier TEXT,
+      override_applied INTEGER NOT NULL DEFAULT 0 CHECK (override_applied IN (0,1)),
+      downgraded INTEGER NOT NULL DEFAULT 0 CHECK (downgraded IN (0,1)),
+      route_authed INTEGER CHECK (route_authed IN (0,1)),
+      final_provider_id TEXT,
+      final_model_id TEXT,
+      reason_code TEXT,
+      predecessor_id TEXT,
+      outcome TEXT NOT NULL DEFAULT 'pending' CHECK (outcome IN ('pending','accepted','rejected','unknown')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_turn_dispatches_session_order
+      ON agent_turn_dispatches(session_id, created_at, id);
+  `);
+
+  // #1576 S2 — one row per engine step-finish part whose served identity was
+  // captured (a fork stamp S1 has not landed yet; today this stays empty in
+  // production and is exercised in tests against synthetic parts). Append-only,
+  // local-only, identifier columns ONLY — no prompt/response content. The
+  // UNIQUE constraint makes a re-delivered event idempotent (one row survives).
+  // message.removed intentionally does not touch this table: a served-model
+  // record documents what actually ran, independent of the message's later
+  // lifecycle. Deliberately absent from the hosted Postgres bootstrap, like
+  // agent_turn_dispatches above.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_served_steps (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+      sdk_message_id TEXT NOT NULL,
+      sdk_part_id TEXT NOT NULL,
+      request_model_id TEXT,
+      served_model_id TEXT NOT NULL,
+      served_response_id TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE(session_id, sdk_message_id, sdk_part_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_served_steps_session
+      ON agent_served_steps(session_id, id);
+  `);
+
+  // ── #1577 — prompt-injection audit trail ────────────────────────────────
+  //
+  // One append-only row per prompt pushed into an EXISTING session through
+  // POST /agent-sessions/:id/prompt (the programmatic twin of a UI-typed
+  // message). Prompting is deliberately NOT gated on parentage — any running
+  // session is promptable and the Rhythm API key is the trust boundary — so
+  // this log is the only thing that distinguishes a legitimate caller from an
+  // agent relaying words it absorbed from untrusted content (a GitHub issue
+  // body saying "tell session X to ..."). Both calls are authorized; only the
+  // log shows which is which. Logging, not gating.
+  //
+  // caller_sdk_session_id is the ENGINE session id resolved by the MCP layer's
+  // trusted security context, never a model-supplied value (#1322 precedent:
+  // a model asked for its own session id invents a plausible UUID).
+  //
+  // SQLite-only, like agent_session_messages — the local agent server on :4001
+  // is the sole writer/reader. Deliberately NOT in postgres_bootstrap.ts.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_prompt_injections (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      target_session_id TEXT NOT NULL,
+      caller_session_id TEXT,
+      caller_sdk_session_id TEXT,
+      caller_user_id INTEGER,
+      source TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      accepted INTEGER NOT NULL DEFAULT 0,
+      error TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+  `);
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_agent_prompt_injections_target
+       ON agent_prompt_injections(target_session_id, created_at)`,
+  );
+  // Append-only: the value of an audit trail is that a compromised caller
+  // cannot erase its own row.
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS agent_prompt_injections_no_delete
+      BEFORE DELETE ON agent_prompt_injections
+      BEGIN
+        SELECT RAISE(ABORT, 'prompt injection audit history is append-only');
+      END;
+  `);
+
+  // #1485 S3a-2 — durably marks a session as workflow-owned BEFORE engine
+  // work starts (see recipe_workflow_runner.ts's provisional-binding
+  // onSessionCreated callback). Nullable/additive; also read by S3b's shared
+  // interactive/scheduled-bypass exclusions (a workflow-marked session is
+  // never eligible for those shortcuts).
+  const agentSessionCols1485 = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map(
+    (c) => c.name,
+  );
+  if (!agentSessionCols1485.includes('workflow_run_id')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN workflow_run_id TEXT`);
+  }
+  if (!agentSessionCols1485.includes('workflow_stage_execution_id')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN workflow_stage_execution_id TEXT`);
+  }
+
+  // #1485 S3a-1 — durable recipe-workflow runs. Default-off behind
+  // env.recipeWorkflowsEnabled; see recipe_workflow_runner.ts. A run snapshots
+  // its recipe's definition_json at start (never re-reads a later edit), and
+  // input_json is the run's own start-time input (RunInput — always strings).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS recipe_workflow_runs (
+      id TEXT PRIMARY KEY,
+      recipe_id TEXT NOT NULL REFERENCES agent_cookbook(id) ON DELETE CASCADE,
+      owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      definition_json TEXT NOT NULL,
+      input_json TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'pending',
+      pending_approval_id TEXT,
+      usage_cost_usd REAL NOT NULL DEFAULT 0,
+      usage_tokens INTEGER NOT NULL DEFAULT 0,
+      stage_execution_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      cancelled_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_recipe_workflow_runs_recipe
+      ON recipe_workflow_runs(recipe_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_recipe_workflow_runs_status
+      ON recipe_workflow_runs(status, updated_at);
+  `);
+
+  // One row per LOGICAL stage occurrence: (run_id, stage_id, item_key,
+  // item_id) — stable across repair-loop re-attempts of the same occurrence
+  // (attempt_id/attempt_count advance in place; see recipe_workflow_runner.ts
+  // "claim" pattern for idempotency under a duplicated tick).
+  //
+  // item_key/item_id are NOT NULL with a '' sentinel for "root scope" rather
+  // than nullable: SQLite (like standard SQL) treats every NULL as distinct
+  // from every other NULL inside a UNIQUE/PRIMARY KEY, so two root-scope rows
+  // for the same stage would NOT collide and idempotent claims would silently
+  // duplicate. The repository translates '' <-> null at its API boundary.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS recipe_workflow_stage_executions (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL REFERENCES recipe_workflow_runs(id) ON DELETE CASCADE,
+      stage_id TEXT NOT NULL,
+      item_key TEXT NOT NULL DEFAULT '',
+      item_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempt_id TEXT,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      profile_id TEXT,
+      configured_provider_id TEXT,
+      configured_model_id TEXT,
+      observed_provider_id TEXT,
+      observed_model_id TEXT,
+      outcome TEXT,
+      output_json TEXT,
+      item_data_json TEXT,
+      cost_usd REAL NOT NULL DEFAULT 0,
+      tokens INTEGER NOT NULL DEFAULT 0,
+      -- #1485 S3a-2 — two-phase session binding. provisional_session_id is
+      -- set atomically by the FIRST onSessionCreated call for this attempt
+      -- (a second call with a different id fails the attempt closed);
+      -- committed_session_id is set only once AgentRunResult.sessionId is
+      -- confirmed to equal the sole provisional session.
+      provisional_session_id TEXT,
+      committed_session_id TEXT,
+      started_at TEXT,
+      completed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(run_id, stage_id, item_key, item_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_recipe_workflow_stage_executions_run
+      ON recipe_workflow_stage_executions(run_id, status);
+  `);
+
+  // Loop-instance usage, keyed exactly as the plan specifies: (loopId,
+  // itemKey [+ itemId for a loop that lives inside a fan-out]). Same ''
+  // sentinel rationale as recipe_workflow_stage_executions above.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS recipe_workflow_loop_usage (
+      run_id TEXT NOT NULL REFERENCES recipe_workflow_runs(id) ON DELETE CASCADE,
+      loop_id TEXT NOT NULL,
+      item_key TEXT NOT NULL DEFAULT '',
+      item_id TEXT NOT NULL DEFAULT '',
+      iterations INTEGER NOT NULL DEFAULT 0,
+      cost_usd REAL NOT NULL DEFAULT 0,
+      tokens INTEGER NOT NULL DEFAULT 0,
+      started_at TEXT NOT NULL,
+      PRIMARY KEY (run_id, loop_id, item_key, item_id)
+    );
+  `);
 }
