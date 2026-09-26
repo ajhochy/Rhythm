@@ -18,7 +18,7 @@
       "mode": "integration",
       "test": "apps/electron/test/hermes-desktop-artifact.test.mjs",
       "status": "pass",
-      "reason": "Clean artifact ba0de5c2068ba3fe9ad986952f644056610b64fb contains themes/rhythm-theme.json and passed Rhythm artifact validation."
+      "reason": "Clean artifact 26e8f1449456fa9b94c18f0b3470222f235cb03d contains themes/rhythm-theme.json and passed Rhythm artifact validation."
     },
     {
       "criterion_id": "task-hermes-rhythm-skin-c6",
