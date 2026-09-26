@@ -576,8 +576,9 @@ code, pre { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .option-grid small { color: var(--muted); font-size: 9px; }
 .switch-row { display: flex; flex-wrap: wrap; gap: 16px; }
 .switch-label { position: relative; }
-.switch-label > span { width: 34px; height: 20px; order: -1; border: 1px solid var(--border); border-radius: var(--r-pill); background: var(--surface-warm); pointer-events: none; }
-.switch-label > span::after { content: ""; display: block; width: 14px; height: 14px; margin: 2px; border-radius: 50%; background: var(--muted); transition: transform .15s ease, background .15s ease; }
+/* The track is the span right after the input; any other child span (e.g. a text label) stays text. */
+.switch-label > input + span { width: 34px; height: 20px; order: -1; border: 1px solid var(--border); border-radius: var(--r-pill); background: var(--surface-warm); pointer-events: none; }
+.switch-label > input + span::after { content: ""; display: block; width: 14px; height: 14px; margin: 2px; border-radius: 50%; background: var(--muted); transition: transform .15s ease, background .15s ease; }
 .switch-label input { position: absolute; width: 1px; height: 1px; opacity: .001; }
 .switch-label input:checked + span::after { transform: translateX(14px); background: var(--accent); }
 .switch-label input:focus-visible + span { box-shadow: var(--focus); }

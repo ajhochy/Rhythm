@@ -178,14 +178,15 @@ export function ModelCurationPanel({
                 </span>
               </label>;
             })}
-            {group.status === 'needs-login' && group.catalogEntry && <ProviderConnectCard
+            {/* The card's styles are scoped to .agent-settings-records (its Accounts-section home). */}
+            {group.status === 'needs-login' && group.catalogEntry && <div className="agent-settings-records"><ProviderConnectCard
               provider={group.catalogEntry} connected={false} statusKnown={authProviders !== null}
               confirmed={providersCurrent && authProviders !== null} pending={providerPending}
               badge={authProviders === null ? 'Status unknown' : 'Not connected'}
               apiKeyValue={providerDraft.apiKey[group.catalogEntry.id] ?? ''}
               onApiKeyChange={(value) => onApiKeyChange(group.catalogEntry!.id, value)}
               onAuthorize={() => void startProviderAuth(group.catalogEntry!)}
-              onSaveKey={(event) => void saveProviderApiKey(event, group.catalogEntry!)} />}
+              onSaveKey={(event) => void saveProviderApiKey(event, group.catalogEntry!)} /></div>}
             {group.status === 'needs-login' && providerFlow?.id === group.provider && <ProviderAuthFlowForm
               flow={providerFlow} code={providerDraft.code} pending={providerPending} onCodeChange={onCodeChange}
               onSubmit={completeProviderAuth} onCheck={() => void checkProviderAuth()} />}

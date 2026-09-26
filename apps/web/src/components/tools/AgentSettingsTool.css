@@ -274,8 +274,11 @@
   cursor: pointer;
 }
 
+/* ponytail: fixed offset for app header + page header + tool-trace footer; swap for a flex-fill
+   layout if the page header ever grows. The old 720px ceiling left tall windows half empty, and
+   the 180px offset tucked the pane's bottom under the footer. */
 .agent-settings-list-inspector {
-  height: min(720px, calc(100vh - 180px));
+  height: calc(100vh - 270px);
   min-height: 420px;
 }
 

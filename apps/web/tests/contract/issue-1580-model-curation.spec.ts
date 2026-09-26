@@ -227,3 +227,25 @@ test('1580:S2:6 at 390px width every control has a label and the panel does not 
   const modelSwitch = page.getByTestId('model-curation-model-openrouter-anthropic/claude-terra').locator('input[type="checkbox"]');
   await expect(modelSwitch).toHaveAttribute('aria-label', /Claude Terra/);
 });
+
+test('1580 layout: model rows are readable text and the settings pane fits between header and footer', async ({ page }) => {
+  // Regressions a rendered look would have caught (the no-overflow checks above passed on both):
+  // the global `.switch-label > span` track rule clamped each row's name/id to 34x20px, and the
+  // pane was capped at 720px (half-empty on tall windows) with its bottom tucked under the footer.
+  await openModels(page);
+  const label = page.getByTestId('model-curation-model-openrouter-anthropic/claude-terra').locator('.model-curation-row-label');
+  expect((await label.boundingBox())!.width).toBeGreaterThan(60);
+  expect((await label.locator('strong').boundingBox())!.height).toBeLessThan(24);
+
+  const pane = page.locator('.agent-settings-list-inspector');
+  const footer = page.getByTestId('tool-trace');
+  for (const height of [900, 1400]) {
+    await page.setViewportSize({ width: 1440, height });
+    await expect.poll(async () => {
+      const [p, f] = [await pane.boundingBox(), await footer.boundingBox()];
+      const gap = f!.y - (p!.y + p!.height);
+      return gap >= 0 && gap < 80;
+    }).toBe(true);
+  }
+  await page.screenshot({ path: 'test-results/issue-1580-page.png' });
+});
