@@ -193,6 +193,7 @@ export function registerHermesView(options) {
       const contents = view.webContents;
       const host = await hostModule.createEmbeddedHermesHost({
         hostWindow: win, webContents: contents, assetRoot: artifact.root, userDataPath,
+        defaultSkin: 'rhythm',
         ...options.getBackendCredentialOptions?.(),
         ...(options.openExternal ? { openExternal: options.openExternal } : {}),
         log: (/** @type {string} */ message) => process.stdout?.write?.(`hermes-desktop: ${String(message)}\n`),

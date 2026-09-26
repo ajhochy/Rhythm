@@ -180,6 +180,7 @@ test('issue-1542-desktop-c6: mounts the real local Desktop renderer with its pac
     webContents: f.views[0].webContents,
     assetRoot: ARTIFACT.root,
     userDataPath: '/fixture/rhythm-user-data',
+    defaultSkin: 'rhythm',
     log: f.hostCalls[0].log,
   });
   assert.equal(f.children.has(f.views[0]), true);
