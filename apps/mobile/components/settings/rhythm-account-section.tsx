@@ -13,9 +13,9 @@
  */
 
 import { StyleSheet, View } from 'react-native';
-import { Button, Card, Chip, List, Text } from 'react-native-paper';
+import { Button, Chip, List, Surface, Text } from 'react-native-paper';
 
-import { Colors } from '@/constants/theme';
+import { Colors, MinimumTouchTarget, Radii, Spacing } from '@/constants/theme';
 import type { RhythmAccountError, RhythmAccountState, RhythmUser } from '@/lib/auth/rhythm-session-store';
 
 type Palette = typeof Colors.light;
@@ -76,12 +76,12 @@ export function RhythmAccountSection({
   const canSignOut = ['signedIn', 'offline', 'error'].includes(state);
 
   return (
-    <Card
-      mode="contained"
+    <Surface
+      elevation={0}
       style={[styles.card, { backgroundColor: palette.surface }]}
       accessibilityLabel="Rhythm account"
     >
-      <Card.Content style={styles.content}>
+      <View style={styles.content}>
         <View style={styles.row}>
           <Text
             variant="titleMedium"
@@ -97,13 +97,14 @@ export function RhythmAccountSection({
           </Chip>
         </View>
 
-        <List.Item
-          title={user?.name ?? (state === 'signedOut' || state === 'expired' ? 'Not signed in' : '—')}
-          description={stateDescription(state, user)}
-          titleStyle={{ color: palette.text }}
-          descriptionStyle={{ color: palette.muted }}
-          descriptionNumberOfLines={3}
-        />
+        <View style={[styles.summary, { backgroundColor: palette.background }]}>
+          <List.Item
+            title={user?.name ?? (state === 'signedOut' || state === 'expired' ? 'Not signed in' : '—')}
+            description={stateDescription(state, user)}
+            titleStyle={{ color: palette.text }}
+            descriptionStyle={{ color: palette.muted }}
+          />
+        </View>
 
         {error ? (
           <Text
@@ -183,15 +184,16 @@ export function RhythmAccountSection({
             </Text>
           )}
         </View>
-      </Card.Content>
-    </Card>
+      </View>
+    </Surface>
   );
 }
 
 const styles = StyleSheet.create({
-  card: { marginBottom: 4 },
-  content: { gap: 4, paddingBottom: 8 },
-  row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, paddingVertical: 4 },
+  card: { borderRadius: Radii.grouped, marginBottom: Spacing.x1, overflow: 'hidden' },
+  content: { gap: Spacing.x2, padding: Spacing.x4 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: Spacing.x2 },
   title: { fontWeight: '600', flexShrink: 1 },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingTop: 4 },
+  summary: { borderRadius: Radii.control, overflow: 'hidden' },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.x2, paddingTop: Spacing.x1, minHeight: MinimumTouchTarget },
 });

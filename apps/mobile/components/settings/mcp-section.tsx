@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { StyleSheet, Switch, View } from 'react-native';
-import { Button, Card, Chip, HelperText, List, SegmentedButtons, Text, TextInput } from 'react-native-paper';
+import { Button, Card, Chip, Divider, HelperText, List, SegmentedButtons, Text, TextInput } from 'react-native-paper';
 
-import { Colors } from '@/constants/theme';
+import { Colors, MinimumTouchTarget, Radii, Spacing } from '@/constants/theme';
 import type { Config, McpLocalConfig, McpRemoteConfig, McpStatus } from '@/lib/opencode/types';
 
 type Palette = typeof Colors.light;
@@ -75,36 +75,38 @@ export function McpSection({
           <Text variant="titleLarge" style={[styles.title, { color: palette.text }]}>Advanced · MCP servers</Text>
           <Button compact loading={busy === 'refresh'} onPress={() => void run('refresh', onRefresh)}>Refresh</Button>
         </View>
-        <SegmentedButtons
-          value={addType}
-          onValueChange={(value) => { setAddType(value as 'local' | 'remote'); setTarget(''); }}
-          buttons={[{ value: 'local', label: 'Local' }, { value: 'remote', label: 'Remote' }]}
-        />
-        <TextInput testID="settings-mcp-name" mode="outlined" label="Server name" value={name} onChangeText={setName} autoCapitalize="none" autoCorrect={false} />
-        <TextInput
-          testID="settings-mcp-target"
-          mode="outlined"
-          label={addType === 'local' ? 'Command arguments (JSON)' : 'URL'}
-          placeholder={addType === 'local' ? '["npx","@modelcontextprotocol/server"]' : 'https://example.com/mcp'}
-          value={target}
-          onChangeText={setTarget}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-        <Button
-          testID="settings-mcp-add"
-          mode="contained"
-          disabled={!trimmedName || !trimmedTarget || Boolean(busy)}
-          loading={busy === 'add'}
-          onPress={() => void run('add', async () => {
-            await onAdd(trimmedName, addType === 'local'
-              ? { type: 'local', command: localCommand() }
-              : { type: 'remote', url: trimmedTarget });
-            setName('');
-            setTarget('');
-          })}>
-          Add {addType} server
-        </Button>
+        <View style={[styles.addGroup, { backgroundColor: palette.background }]}>
+          <SegmentedButtons
+            value={addType}
+            onValueChange={(value) => { setAddType(value as 'local' | 'remote'); setTarget(''); }}
+            buttons={[{ value: 'local', label: 'Local' }, { value: 'remote', label: 'Remote' }]}
+          />
+          <TextInput testID="settings-mcp-name" mode="flat" label="Server name" value={name} onChangeText={setName} autoCapitalize="none" autoCorrect={false} />
+          <TextInput
+            testID="settings-mcp-target"
+            mode="flat"
+            label={addType === 'local' ? 'Command arguments (JSON)' : 'URL'}
+            placeholder={addType === 'local' ? '["npx","@modelcontextprotocol/server"]' : 'https://example.com/mcp'}
+            value={target}
+            onChangeText={setTarget}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <Button
+            testID="settings-mcp-add"
+            mode="contained"
+            disabled={!trimmedName || !trimmedTarget || Boolean(busy)}
+            loading={busy === 'add'}
+            onPress={() => void run('add', async () => {
+              await onAdd(trimmedName, addType === 'local'
+                ? { type: 'local', command: localCommand() }
+                : { type: 'remote', url: trimmedTarget });
+              setName('');
+              setTarget('');
+            })}>
+            Add {addType} server
+          </Button>
+        </View>
 
         {names.length === 0 ? <HelperText type="info">No MCP servers configured.</HelperText> : null}
         {names.map((serverName) => {
@@ -119,10 +121,31 @@ export function McpSection({
               <List.Item
                 title={serverName}
                 description={describeConfig(config)}
+                titleNumberOfLines={0}
+                descriptionNumberOfLines={0}
                 titleStyle={{ color: palette.text }}
                 descriptionStyle={{ color: palette.muted }}
                 right={() => <Chip compact>{status?.status || (enabled ? 'configured' : 'disabled')}</Chip>}
               />
+              <Divider style={{ backgroundColor: palette.border }} />
+              <View style={styles.metadata}>
+                <View style={styles.metadataRow}>
+                  <Text variant="labelMedium" style={[styles.metadataLabel, { color: palette.muted }]}>Reachability</Text>
+                  <Text variant="bodyMedium" style={[styles.metadataValue, { color: palette.text }]}>{status?.status === 'connected' ? 'Reachable' : status?.status === 'failed' ? 'Failed' : 'Not connected'}</Text>
+                </View>
+                <View style={styles.metadataRow}>
+                  <Text variant="labelMedium" style={[styles.metadataLabel, { color: palette.muted }]}>Authentication</Text>
+                  <Text variant="bodyMedium" style={[styles.metadataValue, { color: palette.text }]}>{status?.status === 'needs_auth' ? 'Required' : status?.status === 'needs_client_registration' ? 'Client registration required' : status?.status === 'connected' ? 'Ready' : 'Not requested'}</Text>
+                </View>
+                <View style={styles.metadataRow}>
+                  <Text variant="labelMedium" style={[styles.metadataLabel, { color: palette.muted }]}>Enablement</Text>
+                  <Text variant="bodyMedium" style={[styles.metadataValue, { color: palette.text }]}>{enabled ? 'Enabled' : 'Disabled'}</Text>
+                </View>
+                <View style={styles.metadataRow}>
+                  <Text variant="labelMedium" style={[styles.metadataLabel, { color: palette.muted }]}>Configuration</Text>
+                  <Text variant="bodyMedium" style={[styles.metadataValue, { color: palette.text }]}>{config && 'type' in config ? (config.type === 'local' ? 'Local command' : 'Remote server') : 'Unavailable'}</Text>
+                </View>
+              </View>
               {status?.status === 'failed' || status?.status === 'needs_client_registration' ? (
                 <HelperText type="error">{status.error}</HelperText>
               ) : null}
@@ -178,12 +201,17 @@ export function McpSection({
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: 16 },
-  section: { gap: 14 },
+  card: { borderRadius: Radii.grouped },
+  section: { gap: Spacing.x3 },
   title: { fontWeight: '600' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  server: { borderRadius: 14, borderWidth: 1, padding: 8 },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end', gap: 4 },
-  enabledControl: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  oauth: { gap: 8, padding: 8 },
+  header: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.x3 },
+  addGroup: { borderRadius: Radii.control, gap: Spacing.x2, overflow: 'hidden', padding: Spacing.x2 },
+  server: { borderRadius: Radii.control, borderWidth: 1, overflow: 'hidden', paddingBottom: Spacing.x2 },
+  metadata: { gap: Spacing.x2, padding: Spacing.x3 },
+  metadataRow: { alignItems: 'flex-start', flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.x2 },
+  metadataLabel: { flexBasis: 100 },
+  metadataValue: { flex: 1, flexBasis: 160, flexShrink: 1 },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end', gap: Spacing.x1, minHeight: MinimumTouchTarget, paddingHorizontal: Spacing.x2 },
+  enabledControl: { flexDirection: 'row', alignItems: 'center', gap: Spacing.x1, minHeight: MinimumTouchTarget },
+  oauth: { gap: Spacing.x2, padding: Spacing.x2 },
 });

@@ -49,14 +49,14 @@ export function buildPatchDiff(patch: string): DiffLine[] {
 export function getDiffPalette(kind: DiffLine['kind'], palette: (typeof Colors)['light']) {
   if (kind === 'added') {
     return {
-      backgroundColor: 'rgba(86, 207, 142, 0.14)',
-      accentColor: '#56cf8e',
+      backgroundColor: `${palette.success}1F`,
+      accentColor: palette.success,
     };
   }
 
   if (kind === 'removed') {
     return {
-      backgroundColor: 'rgba(255, 107, 107, 0.14)',
+      backgroundColor: `${palette.danger}1F`,
       accentColor: palette.danger,
     };
   }

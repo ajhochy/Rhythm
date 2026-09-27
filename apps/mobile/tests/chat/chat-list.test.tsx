@@ -18,9 +18,19 @@ const mockRetryBootstrap = jest.fn(async () => undefined);
 
 const mockSessions = [
   {
+    archivedAt: 5,
+    id: 'archived',
+    parentId: null,
+    projectId: '/projects/alpha',
+    status: 'idle',
+    title: 'Archived chat',
+    updatedAt: 5,
+  },
+  {
     archivedAt: null,
     id: 'parent',
     parentId: null,
+    projectID: 'project-alpha-uid',
     projectId: '/projects/alpha',
     status: 'running',
     title: 'Parent chat',
@@ -54,6 +64,11 @@ const mockSessions = [
     updatedAt: 1,
   },
 ];
+const defaultProjects = [
+  { id: 'project-alpha-uid', label: 'Alpha project', path: '/projects/alpha' },
+  { label: 'Empty project', path: '/projects/empty' },
+];
+let mockProjects = defaultProjects;
 let mockChatState = {
   error: null as string | null,
   isLoading: false,
@@ -80,7 +95,7 @@ jest.mock('@/providers/opencode-provider', () => ({
       status: 'idle',
     },
     configuredProviders: [],
-    projects: [{ label: 'Alpha project', path: '/projects/alpha' }],
+    projects: mockProjects,
   }),
 }));
 jest.mock('@/providers/paired-host-provider', () => ({
@@ -127,12 +142,17 @@ function controller(): ChatListController {
   } as ChatListController;
 }
 
-function screen() {
-  return render(
+function screen({ expandProjects = true }: { expandProjects?: boolean } = {}) {
+  const rendered = render(
     <PaperProvider>
       <ChatList controller={controller()} />
     </PaperProvider>,
   );
+  if (expandProjects) {
+    const disclosure = rendered.queryByLabelText(/Alpha project, \d+ active, collapsed/);
+    if (disclosure) fireEvent.press(disclosure);
+  }
+  return rendered;
 }
 
 describe('ChatList hierarchy', () => {
@@ -146,10 +166,291 @@ describe('ChatList hierarchy', () => {
       isOnline: true,
       sessions: mockSessions,
     };
+    mockProjects = defaultProjects;
     mockPairedHostState = {
       bootstrapState: 'idle',
       message: 'Offline',
     };
+  });
+
+  test('task-mobile-project-list-c1: active counts use active lifecycle statuses for root and nested sessions', () => {
+    // Regression caught: idle or archived sessions inflate the active count, or nested active sessions are missed.
+    const rendered = screen({ expandProjects: false });
+
+    const alpha = rendered.getByLabelText('Alpha project, 2 active, collapsed');
+    expect(alpha.props.accessibilityState).toEqual(expect.objectContaining({ expanded: false }));
+    expect(rendered.getByText('2 active')).toBeTruthy();
+    expect(rendered.getByLabelText('Empty project, 0 active, collapsed')).toBeTruthy();
+    expect(rendered.queryByTestId('chat-row-parent')).toBeNull();
+  });
+
+  test('task-mobile-project-list-c1-statuses: active counts follow every AgentChatService lifecycle status', () => {
+    // Regression caught: the list copies an incomplete status allowlist instead of using AgentChatService derivation.
+    mockChatState.sessions = [
+      ...['working', 'busy', 'retry', 'starting', 'running', 'queued', 'idle', 'completed'].map(
+        (status, index) => ({
+          archivedAt: null,
+          id: status,
+          parentId: null,
+          projectId: '/projects/alpha',
+          status,
+          title: status,
+          updatedAt: index,
+        }),
+      ),
+      {
+        archivedAt: 1,
+        id: 'archived-running',
+        parentId: null,
+        projectId: '/projects/alpha',
+        status: 'running',
+        title: 'Archived running',
+        updatedAt: 9,
+      },
+    ];
+
+    expect(screen({ expandProjects: false }).getByLabelText('Alpha project, 6 active, collapsed')).toBeTruthy();
+  });
+
+  test('task-mobile-project-list-c2: project paths and UIDs are absent from visible and accessible project rows', () => {
+    // Regression caught: an internal routing path or project UID leaks into project-row text or VoiceOver output.
+    const rendered = screen({ expandProjects: false });
+
+    expect(rendered.queryByText(/\/projects\/alpha|project-alpha-uid/)).toBeNull();
+    expect(rendered.queryByLabelText(/\/projects\/alpha|project-alpha-uid/)).toBeNull();
+    expect(rendered.getByLabelText('Alpha project, 2 active, collapsed')).toBeTruthy();
+  });
+
+  test('task-mobile-project-list-c3-tie: equal project activity falls back to human label order', () => {
+    // Regression caught: session IDs or provider order break the alphabetical project-group tie-break.
+    mockProjects = [
+      { label: 'Zulu project', path: '/projects/zulu' },
+      { label: 'Alpha project', path: '/projects/alpha' },
+    ];
+    mockChatState.sessions = [
+      {
+        archivedAt: null,
+        id: 'a-zulu-session',
+        parentId: null,
+        projectId: '/projects/zulu',
+        status: 'idle',
+        title: 'Zulu chat',
+        updatedAt: 100,
+      },
+      {
+        archivedAt: null,
+        id: 'z-alpha-session',
+        parentId: null,
+        projectId: '/projects/alpha',
+        status: 'idle',
+        title: 'Alpha chat',
+        updatedAt: 100,
+      },
+    ];
+
+    const rendered = screen({ expandProjects: false });
+    expect(rendered.getAllByLabelText(/project, 0 active, collapsed/).map((row) => row.props.accessibilityLabel)).toEqual([
+      'Alpha project, 0 active, collapsed',
+      'Zulu project, 0 active, collapsed',
+    ]);
+  });
+
+  test('task-mobile-project-list-c3: recent activity is default and includes completed nested activity', () => {
+    // Regression caught: provider order wins, completed activity is ignored, or empty projects sort above active projects.
+    mockProjects = [
+      { label: 'Alpha project', path: '/projects/alpha' },
+      { label: 'Beta project', path: '/projects/beta' },
+      { label: 'Empty project', path: '/projects/empty' },
+    ];
+    mockChatState.sessions = [
+      ...mockSessions,
+      {
+        archivedAt: null,
+        id: 'beta-parent',
+        parentId: null,
+        projectId: '/projects/beta',
+        status: 'idle',
+        title: 'Beta parent',
+        updatedAt: 6,
+      },
+      {
+        archivedAt: null,
+        id: 'beta-child',
+        parentId: 'beta-parent',
+        projectId: '/projects/beta',
+        status: 'completed',
+        title: 'Beta completed child',
+        updatedAt: 20,
+      },
+    ];
+
+    const rendered = screen({ expandProjects: false });
+    expect(rendered.getByLabelText('Sort projects, Recent activity').props.accessibilityState).toEqual(
+      expect.objectContaining({ expanded: false }),
+    );
+    expect(rendered.getAllByLabelText(/project, \d+ active, collapsed/).map((row) => row.props.accessibilityLabel)).toEqual([
+      'Beta project, 0 active, collapsed',
+      'Alpha project, 2 active, collapsed',
+      'Empty project, 0 active, collapsed',
+    ]);
+  });
+
+  test('task-mobile-project-list-c4: alphabetical sort is locale-aware and preserves disclosure state', async () => {
+    // Regression caught: sorting mutates source order or resets an expanded project disclosure.
+    mockProjects = [
+      { label: 'Zulu project', path: '/projects/zulu' },
+      ...defaultProjects,
+    ];
+    mockChatState.sessions = [
+      ...mockSessions,
+      {
+        archivedAt: null,
+        id: 'zulu',
+        parentId: null,
+        projectId: '/projects/zulu',
+        status: 'idle',
+        title: 'Zulu chat',
+        updatedAt: 30,
+      },
+    ];
+    const originalOrder = mockProjects.map((project) => project.path);
+    const rendered = screen({ expandProjects: false });
+    fireEvent.press(rendered.getByLabelText('Alpha project, 2 active, collapsed'));
+    fireEvent.press(rendered.getByLabelText('Sort projects, Recent activity'));
+    fireEvent.press(await rendered.findByText('Alphabetical'));
+
+    expect(rendered.getAllByLabelText(/project, \d+ active, (?:collapsed|expanded)/).map((row) => row.props.accessibilityLabel)).toEqual([
+      'Alpha project, 2 active, expanded',
+      'Empty project, 0 active, collapsed',
+      'Zulu project, 0 active, collapsed',
+    ]);
+    expect(mockProjects.map((project) => project.path)).toEqual(originalOrder);
+  });
+
+  test('task-mobile-project-list-c5: compact toolbar wraps safely for Dynamic Type without shrinking targets', () => {
+    // Regression caught: fixed heights clip enlarged text or force controls beyond the screen width.
+    const rendered = screen({ expandProjects: false });
+
+    expect(rendered.queryByText('Filters')).toBeNull();
+    expect(rendered.queryByText('All projects')).toBeNull();
+    expect(rendered.queryByText('All states')).toBeNull();
+    expect(rendered.queryByText(/projects · .*active sessions/)).toBeNull();
+    expect(rendered.queryByRole('button', { name: 'Clear filters' })).toBeNull();
+    const toolbarStyle = StyleSheet.flatten(rendered.getByTestId('chat-list-toolbar').props.style);
+    expect(toolbarStyle).toEqual(expect.objectContaining({ flexWrap: 'wrap', minHeight: 44 }));
+    expect(toolbarStyle).not.toEqual(expect.objectContaining({ height: expect.anything() }));
+    const searchStyle = StyleSheet.flatten(rendered.getByTestId('chat-list-search').props.style);
+    expect(searchStyle).toEqual(expect.objectContaining({ flexBasis: 140, flexGrow: 1, minHeight: 44 }));
+    expect(searchStyle).not.toEqual(expect.objectContaining({ height: expect.anything() }));
+    expect(StyleSheet.flatten(rendered.getByLabelText('Sort projects, Recent activity').props.style)).toEqual(
+      expect.objectContaining({ minHeight: 44 }),
+    );
+  });
+
+  test('task-mobile-project-list-c6: project filter is one 44 point clear button with its value', () => {
+    // Regression caught: only a tiny trailing icon clears the project filter or the value is absent from its label.
+    const active = controller();
+    active.projectId = '/projects/alpha';
+    active.lifecycle = 'active';
+    const rendered = render(
+      <PaperProvider>
+        <ChatList controller={active} />
+      </PaperProvider>,
+    );
+
+    const clearProject = rendered.getByLabelText('Clear project filter, Alpha project');
+    expect(StyleSheet.flatten(rendered.getByTestId('project-filter-control').props.style)).toEqual(expect.objectContaining({ minHeight: 44 }));
+    expect(rendered.getAllByText('Alpha project').length).toBeGreaterThan(0);
+    fireEvent.press(clearProject);
+    expect(active.setProjectId).toHaveBeenCalledWith(null);
+    expect(active.setLifecycle).not.toHaveBeenCalled();
+  });
+
+  test('task-mobile-project-list-c7: lifecycle filter is one 44 point clear button with its value', () => {
+    // Regression caught: only a tiny trailing icon clears lifecycle state or the value is absent from its label.
+    const active = controller();
+    active.projectId = '/projects/alpha';
+    active.lifecycle = 'active';
+    const rendered = render(
+      <PaperProvider>
+        <ChatList controller={active} />
+      </PaperProvider>,
+    );
+
+    const clearLifecycle = rendered.getByLabelText('Clear lifecycle filter, Active');
+    expect(StyleSheet.flatten(rendered.getByTestId('lifecycle-filter-control').props.style)).toEqual(expect.objectContaining({ minHeight: 44 }));
+    expect(rendered.getByText('Active')).toBeTruthy();
+    fireEvent.press(clearLifecycle);
+    expect(active.setLifecycle).toHaveBeenCalledWith('all');
+    expect(active.setProjectId).not.toHaveBeenCalled();
+  });
+
+  test('task-mobile-chat-redesign-c2: expanding an empty project shows exactly one empty-project message', () => {
+    // Regression caught: zero-session projects are omitted or reuse the account-level empty state.
+    const rendered = screen({ expandProjects: false });
+
+    fireEvent.press(rendered.getByLabelText('Empty project, 0 active, collapsed'));
+    expect(rendered.getAllByText('No active sessions')).toHaveLength(1);
+    expect(rendered.getByLabelText('Empty project, 0 active, expanded').props.accessibilityState).toEqual(
+      expect.objectContaining({ expanded: true }),
+    );
+  });
+
+  test('task-mobile-chat-redesign-c3: search reveals project context without changing project or nested disclosure state', () => {
+    // Regression caught: search hides project context or permanently expands project/session disclosures.
+    const rendered = screen({ expandProjects: false });
+
+    expect(rendered.getByPlaceholderText('Search projects and chats')).toBeTruthy();
+    expect(rendered.getByLabelText('Search chats')).toBeTruthy();
+
+    fireEvent.changeText(rendered.getByLabelText('Search chats'), 'Grandchild');
+    expect(rendered.getByLabelText('Alpha project, 2 active, collapsed')).toBeTruthy();
+    expect(rendered.getByTestId('chat-row-grandchild')).toBeTruthy();
+    fireEvent.changeText(rendered.getByLabelText('Search chats'), '');
+    expect(rendered.queryByTestId('chat-row-grandchild')).toBeNull();
+
+    fireEvent.press(rendered.getByLabelText('Alpha project, 2 active, collapsed'));
+    fireEvent.press(rendered.getByLabelText('Collapse Parent chat'));
+    fireEvent.changeText(rendered.getByLabelText('Search chats'), 'Grandchild');
+    expect(rendered.getByTestId('chat-row-grandchild')).toBeTruthy();
+    fireEvent.changeText(rendered.getByLabelText('Search chats'), '');
+    expect(rendered.queryByTestId('chat-row-grandchild')).toBeNull();
+    expect(rendered.getByLabelText('Expand Parent chat')).toBeTruthy();
+  });
+
+  test('lifecycle filters expand matching projects and retain that expansion when cleared', () => {
+    // Regression caught: lifecycle-filtered chats remain hidden behind collapsed project groups.
+    const filtered = controller();
+    filtered.lifecycle = 'active';
+    const rendered = render(
+      <PaperProvider>
+        <ChatList controller={filtered} />
+      </PaperProvider>,
+    );
+
+    expect(rendered.getByLabelText('Alpha project, 2 active, expanded')).toBeTruthy();
+    expect(rendered.getByTestId('chat-row-parent')).toBeTruthy();
+
+    rendered.rerender(
+      <PaperProvider>
+        <ChatList controller={{ ...filtered, lifecycle: 'all' }} />
+      </PaperProvider>,
+    );
+    expect(rendered.getByLabelText('Alpha project, 2 active, expanded')).toBeTruthy();
+    expect(rendered.getByTestId('chat-row-parent')).toBeTruthy();
+  });
+
+  test('task-mobile-chat-redesign-c4: cached grouped rows have one calm offline notice and no repeated project error', () => {
+    // Regression caught: each project repeats offline/error feedback above otherwise usable cached rows.
+    mockChatState.isOnline = false;
+    mockChatState.isOfflineCache = true;
+    mockChatState.error = 'Mac did not respond';
+    const rendered = screen();
+
+    expect(rendered.getAllByLabelText('Offline saved chats. Actions are unavailable.')).toHaveLength(1);
+    expect(rendered.getByLabelText('Alpha project, 2 active, expanded')).toBeTruthy();
+    expect(rendered.getByTestId('chat-row-parent')).toBeTruthy();
+    expect(rendered.queryByText('Mac did not respond')).toBeNull();
   });
 
   test('task-mobile-agents-session-list-c1: compact rows replace outlined cards', () => {
@@ -295,8 +596,10 @@ describe('ChatList hierarchy', () => {
     );
 
     expect(rendered.getByRole('button', { name: 'New chat' })).toBeTruthy();
-    expect(rendered.getByText('Alpha project')).toBeTruthy();
+    expect(rendered.getAllByText('Alpha project').length).toBeGreaterThan(0);
     expect(rendered.getByText('Active')).toBeTruthy();
+    expect(rendered.queryByText('All projects')).toBeNull();
+    expect(rendered.queryByText('All states')).toBeNull();
     fireEvent.press(rendered.getByRole('button', { name: 'Clear filters' }));
     expect(active.setProjectId).toHaveBeenCalledWith(null);
     expect(active.setLifecycle).toHaveBeenCalledWith('all');

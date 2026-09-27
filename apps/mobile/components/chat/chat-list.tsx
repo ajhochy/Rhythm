@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -11,7 +11,6 @@ import {
 import {
   Button,
   Card,
-  Chip,
   Dialog,
   Divider,
   Menu,
@@ -25,7 +24,7 @@ import {
 import { SessionConfigurationSheet } from '@/components/chat/session-configuration-sheet';
 import type { ChatListController } from '@/components/chat/chat-list-controller';
 import { ToolScreenState } from '@/components/tools/tool-screen-state';
-import { Colors } from '@/constants/theme';
+import { Colors, Fonts, MinimumTouchTarget, Radii, Spacing, TypeScale } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { formatTimestamp } from '@/lib/opencode/format';
 import { isAccountBootstrapFailure } from '@/lib/pairing/mobile-environment-contract';
@@ -42,6 +41,22 @@ interface FlatChat extends AgentChatRecord {
   descendantCount: number;
   runningDescendantCount: number;
 }
+
+type ProjectGroup = {
+  activeCount: number;
+  key: string;
+  label: string;
+  path: string;
+  recentActivityAt?: number;
+  rows: FlatChat[];
+};
+
+type ProjectSort = 'recent' | 'alphabetical';
+
+type ChatListItem =
+  | ({ kind: 'chat' } & FlatChat)
+  | { kind: 'empty-project'; key: string }
+  | { expanded: boolean; group: ProjectGroup; kind: 'project' };
 
 export function flattenChats(
   records: AgentChatRecord[],
@@ -91,7 +106,12 @@ export function ChatList({ controller }: ChatListProps) {
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
   const [query, setQuery] = useState('');
+  const [projectSort, setProjectSort] = useState<ProjectSort>('recent');
+  const [sortMenuVisible, setSortMenuVisible] = useState(false);
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
+  const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{
     kind: 'rename';
@@ -124,11 +144,119 @@ export function ChatList({ controller }: ChatListProps) {
       );
     });
   }, [collapsedIds, projectsByPath, query, readModel]);
+  const activeCountByProject = useMemo(() => {
+    const counts = new Map<string, number>();
+    flattenChats(
+      buildAgentChatReadModel(
+        chat.sessions.map((session) =>
+          session && typeof session === 'object' && !Array.isArray(session)
+            ? { ...session, parentId: null, parentID: null, parentSessionId: null }
+            : session,
+        ),
+        { lifecycle: 'active' },
+      ),
+      0,
+      new Set(),
+      true,
+    ).forEach((session) => {
+      const key = session.projectId ?? session.routingProjectId ?? '__desktop__';
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    });
+    return counts;
+  }, [chat.sessions]);
+  const recentActivityByProject = useMemo(() => {
+    const activity = new Map<string, number>();
+    flattenChats(
+      buildAgentChatReadModel(chat.sessions, { lifecycle: 'all' }),
+      0,
+      new Set(),
+      true,
+    ).forEach((session) => {
+      const key = session.projectId ?? session.routingProjectId ?? '__desktop__';
+      activity.set(key, Math.max(activity.get(key) ?? Number.NEGATIVE_INFINITY, session.updatedAt));
+    });
+    return activity;
+  }, [chat.sessions]);
+  const projectGroups = useMemo(() => {
+    const groups = new Map<string, ProjectGroup>();
+    opencode.projects.forEach((project) => {
+      if (controller.projectId && project.path !== controller.projectId) return;
+      groups.set(project.path, {
+        activeCount: activeCountByProject.get(project.path) ?? 0,
+        key: project.path,
+        label: project.label,
+        path: project.path,
+        recentActivityAt: recentActivityByProject.get(project.path),
+        rows: [],
+      });
+    });
+    rows.forEach((row) => {
+      const key = row.projectId ?? row.routingProjectId ?? '__desktop__';
+      if (controller.projectId && key !== controller.projectId) return;
+      const mirroredLabel = typeof row.projectName === 'string' && row.projectName.trim()
+        ? row.projectName.trim()
+        : undefined;
+      const group = groups.get(key) ?? {
+        activeCount: activeCountByProject.get(key) ?? 0,
+        key,
+        label: key === '__desktop__' ? 'Desktop chats' : mirroredLabel ?? 'Unknown project',
+        path: key === '__desktop__' ? 'Local desktop sessions' : key,
+        recentActivityAt: recentActivityByProject.get(key),
+        rows: [],
+      };
+      group.rows.push(row);
+      groups.set(key, group);
+    });
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    return [...groups.values()]
+      .filter((group) => {
+        if (!normalizedQuery) return true;
+        return group.rows.length > 0 || [group.label, group.path].some((value) =>
+          value.toLocaleLowerCase().includes(normalizedQuery));
+      })
+      .sort((left, right) => {
+        const alphabetical = left.label.localeCompare(right.label);
+        if (projectSort === 'alphabetical') return alphabetical;
+        if (left.recentActivityAt === undefined) {
+          return right.recentActivityAt === undefined ? alphabetical : 1;
+        }
+        if (right.recentActivityAt === undefined) return -1;
+        return right.recentActivityAt - left.recentActivityAt || alphabetical;
+      });
+  }, [activeCountByProject, controller.projectId, opencode.projects, projectSort, query, recentActivityByProject, rows]);
+  useEffect(() => {
+    if (controller.lifecycle === 'all') return;
+    const matchingProjectIds = flattenChats(readModel, 0, new Set(), true).map(
+      (row) => row.projectId ?? row.routingProjectId ?? '__desktop__',
+    );
+    setExpandedProjectIds((current) => {
+      const next = new Set(current);
+      matchingProjectIds.forEach((projectId) => next.add(projectId));
+      return next.size === current.size ? current : next;
+    });
+  }, [controller.lifecycle, readModel]);
+  const listItems = useMemo<ChatListItem[]>(() => projectGroups.flatMap((group) => {
+    const expanded = expandedProjectIds.has(group.key)
+      || (controller.lifecycle !== 'all' && group.rows.length > 0);
+    const revealRows = Boolean(query.trim()) || expanded;
+    const items: ChatListItem[] = [{ expanded, group, kind: 'project' }];
+    if (revealRows) {
+      items.push(...group.rows.map((row) => ({ ...row, kind: 'chat' as const })));
+      if (group.rows.length === 0) {
+        items.push({ key: `${group.key}:empty`, kind: 'empty-project' });
+      }
+    }
+    return items;
+  }), [controller.lifecycle, expandedProjectIds, projectGroups, query]);
+  const visibleSessionCount = projectGroups.reduce(
+    (total, group) => total + group.rows.length,
+    0,
+  );
   const hasFilters = Boolean(query.trim() || controller.projectId || controller.lifecycle !== 'all');
   // Recovery replaces the empty list; with cached chats on screen it would only
   // hide the offline warning those rows still need.
   const showsBootstrapRecovery =
-    rows.length === 0 && isAccountBootstrapFailure(pairedHost.bootstrapState);
+    visibleSessionCount === 0 && isAccountBootstrapFailure(pairedHost.bootstrapState);
   const selectedProjectLabel = controller.projectId
     ? projectsByPath.get(controller.projectId)?.label ?? 'Selected project'
     : 'All projects';
@@ -218,40 +346,101 @@ export function ChatList({ controller }: ChatListProps) {
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}>
       <View style={styles.filters}>
-        <View style={styles.primaryActions}>
-          <View style={styles.filterSummary}>
-            <Text variant="labelMedium" style={{ color: palette.muted }}>Filters</Text>
-            <Chip compact icon="folder-outline">{selectedProjectLabel}</Chip>
-            <Chip compact icon="filter-outline">{lifecycleLabel}</Chip>
+        <View style={styles.toolbar} testID="chat-list-toolbar">
+          <View style={styles.search} testID="chat-list-search">
+            <Searchbar
+              accessibilityLabel="Search chats"
+              inputStyle={styles.searchInput}
+              onChangeText={setQuery}
+              placeholder="Search projects and chats"
+              style={styles.searchField}
+              value={query}
+            />
           </View>
+          <Menu
+            anchor={
+              <Pressable
+                accessibilityLabel={`Sort projects, ${projectSort === 'recent' ? 'Recent activity' : 'Alphabetical'}`}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: sortMenuVisible }}
+                onPress={() => setSortMenuVisible(true)}
+                style={styles.toolbarAction}>
+                <Text style={{ color: palette.tint }} variant="labelLarge">
+                  {projectSort === 'recent' ? '↕ Recent' : '↕ A–Z'}
+                </Text>
+              </Pressable>
+            }
+            onDismiss={() => setSortMenuVisible(false)}
+            visible={sortMenuVisible}>
+            <Menu.Item
+              onPress={() => {
+                setProjectSort('recent');
+                setSortMenuVisible(false);
+              }}
+              title="Recent activity"
+            />
+            <Menu.Item
+              onPress={() => {
+                setProjectSort('alphabetical');
+                setSortMenuVisible(false);
+              }}
+              title="Alphabetical"
+            />
+          </Menu>
           <Button
             accessibilityLabel="New chat"
+            compact
             disabled={!chat.isOnline || controller.isCreating}
             icon="plus"
-            mode="contained"
-            onPress={() => void controller.openCreateSheet()}>
+            mode="contained-tonal"
+            onPress={() => void controller.openCreateSheet()}
+            style={styles.toolbarAction}>
             New chat
           </Button>
         </View>
-        <Searchbar
-          accessibilityLabel="Search chats"
-          onChangeText={setQuery}
-          placeholder="Search chats"
-          value={query}
-        />
         {hasFilters ? (
-          <Button
-            accessibilityLabel="Clear filters"
-            compact
-            icon="filter-remove-outline"
-            onPress={() => {
-              setQuery('');
-              controller.setProjectId(null);
-              controller.setLifecycle('all');
-            }}
-            style={styles.clearFilters}>
-            Clear filters
-          </Button>
+          <View style={styles.activeFilters}>
+            {controller.projectId ? (
+              <View style={styles.activeFilterButton} testID="project-filter-control">
+                <Button
+                  accessibilityLabel={`Clear project filter, ${selectedProjectLabel}`}
+                  compact
+                  contentStyle={styles.activeFilterButtonContent}
+                  icon="close"
+                  mode="outlined"
+                  onPress={() => controller.setProjectId(null)}
+                  style={styles.activeFilterButton}>
+                  {selectedProjectLabel}
+                </Button>
+              </View>
+            ) : null}
+            {controller.lifecycle !== 'all' ? (
+              <View style={styles.activeFilterButton} testID="lifecycle-filter-control">
+                <Button
+                  accessibilityLabel={`Clear lifecycle filter, ${lifecycleLabel}`}
+                  compact
+                  contentStyle={styles.activeFilterButtonContent}
+                  icon="close"
+                  mode="outlined"
+                  onPress={() => controller.setLifecycle('all')}
+                  style={styles.activeFilterButton}>
+                  {lifecycleLabel}
+                </Button>
+              </View>
+            ) : null}
+            <Button
+              accessibilityLabel="Clear filters"
+              compact
+              icon="filter-remove-outline"
+              onPress={() => {
+                setQuery('');
+                controller.setProjectId(null);
+                controller.setLifecycle('all');
+              }}
+              style={styles.clearFilters}>
+              Clear filters
+            </Button>
+          </View>
         ) : null}
         {chat.isOfflineCache && !showsBootstrapRecovery ? (
           <Card
@@ -268,7 +457,7 @@ export function ChatList({ controller }: ChatListProps) {
             </Card.Content>
           </Card>
         ) : null}
-        {chat.error && rows.length > 0 ? (
+        {chat.error && visibleSessionCount > 0 && !chat.isOfflineCache ? (
           <Card
             accessibilityRole="alert"
             mode="contained"
@@ -288,10 +477,14 @@ export function ChatList({ controller }: ChatListProps) {
       <FlatList
         accessibilityLabel="Chats"
         contentContainerStyle={
-          rows.length === 0 ? styles.emptyList : styles.list
+          showsBootstrapRecovery || listItems.length === 0 ? styles.emptyList : styles.list
         }
-        data={rows}
-        keyExtractor={(item) => `${item.projectId ?? 'none'}:${item.id}`}
+        data={showsBootstrapRecovery ? [] : listItems}
+        keyExtractor={(item) => item.kind === 'chat'
+          ? `${item.projectId ?? 'none'}:${item.id}`
+          : item.kind === 'project'
+            ? `project:${item.group.key}`
+            : item.key}
         refreshControl={
           <RefreshControl
             onRefresh={() => void chat.refresh()}
@@ -300,6 +493,36 @@ export function ChatList({ controller }: ChatListProps) {
           />
         }
         renderItem={({ item }) => {
+          if (item.kind === 'project') {
+            const stateLabel = item.expanded ? 'expanded' : 'collapsed';
+            return (
+              <Pressable
+                accessibilityLabel={`${item.group.label}, ${item.group.activeCount} active, ${stateLabel}`}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: item.expanded }}
+                onPress={() => setExpandedProjectIds((current) => {
+                  const next = new Set(current);
+                  if (next.has(item.group.key)) next.delete(item.group.key);
+                  else next.add(item.group.key);
+                  return next;
+                })}
+                style={({ pressed }) => [
+                  styles.projectHeader,
+                  { backgroundColor: palette.surfaceAlt, opacity: pressed ? 0.78 : 1 },
+                ]}>
+                <View style={styles.projectHeaderText}>
+                  <Text style={[styles.projectTitle, { color: palette.text }]}>{item.group.label}</Text>
+                </View>
+                <Text style={[styles.projectCount, { color: palette.muted }]}>{`${item.group.activeCount} active`}</Text>
+                <Text accessible={false} style={[styles.projectChevron, { color: palette.muted }]}>
+                  {item.expanded ? '⌄' : '›'}
+                </Text>
+              </Pressable>
+            );
+          }
+          if (item.kind === 'empty-project') {
+            return <Text style={[styles.emptyProject, { color: palette.muted }]}>No active sessions</Text>;
+          }
           const isCollapsed = collapsedIds.has(item.id);
           const hiddenSummary = isCollapsed && item.descendantCount > 0
             ? `${item.descendantCount} hidden descendant${item.descendantCount === 1 ? '' : 's'}${item.runningDescendantCount > 0 ? ` · ${item.runningDescendantCount} running` : ''}`
@@ -459,6 +682,14 @@ export function ChatList({ controller }: ChatListProps) {
             </View>
           );
         }}
+        ListHeaderComponent={
+          chat.sessions.length === 0 && !hasFilters && !showsBootstrapRecovery ? (
+            <View accessibilityRole="summary" style={styles.accountEmptySummary}>
+              <Text accessibilityRole="header" style={{ color: palette.text }} variant="headlineSmall">No chats yet</Text>
+              <Text style={{ color: palette.muted }} variant="bodyLarge">Create a chat or expand a project to review its sessions.</Text>
+            </View>
+          ) : null
+        }
         ListEmptyComponent={
           showsBootstrapRecovery ? (
             <ToolScreenState
@@ -556,14 +787,27 @@ export function ChatList({ controller }: ChatListProps) {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   filters: { gap: 12, padding: 16 },
-  primaryActions: { alignItems: 'flex-start', flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'space-between' },
-  filterSummary: { alignItems: 'center', flexDirection: 'row', flex: 1, flexWrap: 'wrap', gap: 8 },
-  clearFilters: { alignSelf: 'flex-start', minHeight: 44 },
+  toolbar: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.x1, minHeight: MinimumTouchTarget },
+  search: { flexBasis: 140, flexGrow: 1, flexShrink: 1, minHeight: MinimumTouchTarget, minWidth: 120 },
+  searchField: { minHeight: MinimumTouchTarget },
+  searchInput: { minHeight: MinimumTouchTarget },
+  toolbarAction: { alignItems: 'center', justifyContent: 'center', minHeight: MinimumTouchTarget, paddingHorizontal: Spacing.x2 },
+  activeFilters: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.x1 },
+  activeFilterButton: { minHeight: MinimumTouchTarget },
+  activeFilterButtonContent: { minHeight: MinimumTouchTarget },
+  clearFilters: { minHeight: MinimumTouchTarget },
   refreshErrorContent: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   refreshErrorCopy: { flex: 1, gap: 2, minWidth: 180 },
-  list: { padding: 8, paddingBottom: 32 },
+  list: { padding: Spacing.x2, paddingBottom: Spacing.x8 },
   emptyList: { flexGrow: 1 },
-  row: { alignItems: 'center', flexDirection: 'row', minHeight: 72 },
+  projectHeader: { alignItems: 'center', borderRadius: Radii.grouped, flexDirection: 'row', gap: Spacing.x2, marginBottom: Spacing.x1, marginTop: Spacing.x2, minHeight: MinimumTouchTarget, paddingHorizontal: Spacing.x3, paddingVertical: Spacing.x2 },
+  projectHeaderText: { flex: 1, minWidth: 0 },
+  projectTitle: { fontFamily: Fonts.sans, fontSize: TypeScale.callout, fontWeight: '700' },
+  projectCount: { fontFamily: Fonts.sans, fontSize: TypeScale.footnote, fontWeight: '600' },
+  projectChevron: { fontSize: 24, lineHeight: 24 },
+  emptyProject: { paddingHorizontal: 56, paddingVertical: Spacing.x3 },
+  accountEmptySummary: { gap: Spacing.x2, padding: Spacing.x4 },
+  row: { alignItems: 'center', flexDirection: 'row', minHeight: 72, paddingLeft: Spacing.x2 },
   disclosureButton: { alignItems: 'center', height: 48, justifyContent: 'center', width: 48 },
   disclosureSpacer: { height: 48, width: 48 },
   rowText: { alignSelf: 'stretch', flex: 1, gap: 2, justifyContent: 'center', minHeight: 44, minWidth: 0 },

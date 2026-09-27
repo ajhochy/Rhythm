@@ -1,8 +1,9 @@
-import { Image, Pressable, StyleSheet, View } from 'react-native';
-import { ActivityIndicator, Button, Text } from 'react-native-paper';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Button, Surface, Text } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Colors, Fonts } from '@/constants/theme';
+import { Colors, Fonts, Radii, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export type SignInScreenProps = {
@@ -27,70 +28,93 @@ export function SignInScreen({
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
-      <View style={styles.content}>
-        <Image
-          accessibilityLabel="Rhythm"
-          resizeMode="contain"
-          source={require('@/assets/images/icon.png')}
-          style={styles.mark}
-        />
-        <View style={styles.copy}>
-          <Text accessibilityRole="header" style={[styles.title, { color: palette.text }]}>Rhythm</Text>
-          <Text style={{ color: palette.muted }} variant="bodyLarge">
-            Your chats, tools, and paired Mac—ready wherever you are.
-          </Text>
-        </View>
-
-        {restoring ? (
-          <View accessibilityLiveRegion="polite" style={styles.status}>
-            <ActivityIndicator accessibilityLabel="Restoring session" color={palette.tint} />
-            <Text style={{ color: palette.text }} variant="bodyLarge">Restoring your session…</Text>
-          </View>
-        ) : (
-          <View style={styles.actions}>
-            {state === 'error' ? (
-              <View accessibilityRole="alert" style={[styles.error, { backgroundColor: palette.surfaceAlt }]} testID="sign-in-error">
-                <Text style={{ color: palette.danger }} variant="titleSmall">Sign in didn’t finish</Text>
-                <Text style={{ color: palette.text }} variant="bodyMedium">{errorMessage || 'Check your connection and try again.'}</Text>
-              </View>
-            ) : null}
-            <Pressable
-              accessibilityLabel={state === 'error' ? 'Retry sign in with Google' : 'Continue with Google'}
-              accessibilityRole="button"
-              accessibilityState={{ busy: signingIn, disabled: signingIn }}
-              disabled={signingIn}
-              onPress={state === 'error' ? onRetry : onSignIn}
-              style={({ pressed }) => pressed && styles.pressed}>
-              <Button
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled">
+        <View style={styles.content}>
+          <View
+            accessible={false}
+            accessibilityLabel="Rhythm"
+            style={styles.markWrapper}>
+            <Surface
+              accessible={false}
+              elevation={2}
+              style={[styles.mark, { backgroundColor: palette.surfaceAlt }]}>
+              <MaterialCommunityIcons
                 accessible={false}
-                disabled={signingIn}
-                icon="google"
-                loading={signingIn}
-                mode="contained"
-                pointerEvents="none"
-                style={styles.button}>
-                {state === 'error' ? 'Try again' : 'Continue with Google'}
-              </Button>
-            </Pressable>
-            {signingIn ? (
-              <Button accessibilityLabel="Cancel sign in" mode="text" onPress={onCancel}>Cancel</Button>
-            ) : null}
+                color={palette.tint}
+                name="source-branch"
+                size={42}
+              />
+            </Surface>
           </View>
-        )}
-      </View>
+          <View style={styles.copy}>
+            <Text accessibilityRole="header" style={[styles.title, { color: palette.text }]}>Welcome to Rhythm Agents</Text>
+            <Text style={{ color: palette.muted }} variant="bodyLarge">
+              Continue with your Rhythm account to connect to your Mac and chats.
+            </Text>
+          </View>
+
+          <Surface elevation={0} style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+            {restoring ? (
+            <View accessibilityLiveRegion="polite" style={styles.status}>
+              <ActivityIndicator accessibilityLabel="Restoring session" color={palette.tint} />
+              <Text style={{ color: palette.text }} variant="bodyLarge">Restoring your session…</Text>
+            </View>
+          ) : (
+            <View style={styles.actions}>
+              {state === 'error' ? (
+                <View accessibilityRole="alert" style={[styles.error, { backgroundColor: palette.surfaceAlt }]} testID="sign-in-error">
+                  <Text style={{ color: palette.danger }} variant="titleSmall">Sign in didn’t finish</Text>
+                  <Text style={{ color: palette.text }} variant="bodyMedium">{errorMessage || 'Check your connection and try again.'}</Text>
+                </View>
+              ) : null}
+              <Pressable
+                accessibilityLabel={state === 'error' ? 'Retry sign in with Google' : 'Continue with Google'}
+                accessibilityRole="button"
+                accessibilityState={{ busy: signingIn, disabled: signingIn }}
+                disabled={signingIn}
+                onPress={state === 'error' ? onRetry : onSignIn}
+                style={({ pressed }) => pressed && styles.pressed}>
+                <Button
+                  accessible={false}
+                  disabled={signingIn}
+                  icon="google"
+                  loading={signingIn}
+                  mode="contained"
+                  pointerEvents="none"
+                  style={styles.button}>
+                  {state === 'error' ? 'Try again' : 'Continue with Google'}
+                </Button>
+              </Pressable>
+              <Text style={[styles.trustNote, { color: palette.muted }]} variant="bodyMedium">
+                Your account controls trusted device access.
+              </Text>
+              {signingIn ? (
+                <Button accessibilityLabel="Cancel sign in" mode="text" onPress={onCancel}>Cancel</Button>
+              ) : null}
+            </View>
+            )}
+          </Surface>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, justifyContent: 'center' },
-  content: { alignSelf: 'center', gap: 24, maxWidth: 480, padding: 24, width: '100%' },
-  mark: { alignSelf: 'center', height: 88, width: 88 },
-  copy: { alignItems: 'center', gap: 8 },
+  screen: { flex: 1 },
+  scrollContent: { flexGrow: 1, justifyContent: 'center' },
+  content: { alignSelf: 'center', gap: Spacing.x6, maxWidth: 480, padding: Spacing.x6, width: '100%' },
+  markWrapper: { alignSelf: 'center' },
+  mark: { alignItems: 'center', borderRadius: Radii.grouped, height: 88, justifyContent: 'center', width: 88 },
+  copy: { alignItems: 'center', gap: Spacing.x2 },
   title: { fontFamily: Fonts.display, fontSize: 34, fontWeight: '700', lineHeight: 41 },
-  status: { alignItems: 'center', gap: 12, minHeight: 56 },
-  actions: { gap: 12 },
+  card: { borderRadius: Radii.sheet, borderWidth: StyleSheet.hairlineWidth, padding: Spacing.x4 },
+  status: { alignItems: 'center', gap: Spacing.x3, minHeight: 56, justifyContent: 'center' },
+  actions: { gap: Spacing.x3 },
   button: { justifyContent: 'center', minHeight: 52 },
-  error: { borderRadius: 16, gap: 4, padding: 16 },
+  error: { borderRadius: Radii.control, gap: Spacing.x1, padding: Spacing.x4 },
   pressed: { opacity: 0.82 },
+  trustNote: { textAlign: 'center' },
 });

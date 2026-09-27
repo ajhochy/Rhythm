@@ -3,6 +3,7 @@ import { Pressable, ScrollView, Text as NativeText, View } from 'react-native';
 import { useState } from 'react';
 import { Appbar, Button, Portal, ProgressBar, Text } from 'react-native-paper';
 
+import { TopTab } from '@/components/chat/chat-controls';
 import { SessionConfigurationSheet } from '@/components/chat/session-configuration-sheet';
 import { Colors } from '@/constants/theme';
 import { getSessionSubtitle } from '@/lib/opencode/format';
@@ -109,6 +110,15 @@ export function ChatHeader({
   const statusLabel = isUsageLoading
     ? `${connectionLabel} · Syncing`
     : connectionLabel;
+  const selectedProfileLabel = availableProfiles.find(
+    (profile) => profile.profileId === chatPreferences.profileId,
+  )?.label;
+  const selectedModelLabel = availableModels.find(
+    (model) => model.id === chatPreferences.modelId,
+  )?.label ?? chatPreferences.modelId;
+  const subtitle = [statusLabel, selectedProfileLabel, selectedModelLabel]
+    .filter(Boolean)
+    .join(' · ');
   const usageLabel = usage.costStatus === 'pricing-unavailable' ? 'Pricing unavailable' : `Estimated API cost ${formatEstimatedCost(usage.cost)}`;
   const contextProgress = contextLimit && contextTokens !== undefined ? Math.min(contextTokens / contextLimit, 1) : undefined;
   const usageIcon = contextProgress === undefined
@@ -124,7 +134,7 @@ export function ChatHeader({
     <>
       <Appbar.Header
         testID="compact-chat-header"
-        style={[styles.header, { backgroundColor: palette.surface, paddingTop: insetsTop, height: 64 + insetsTop }]}
+        style={[styles.header, { backgroundColor: palette.surface, paddingTop: insetsTop }]}
         statusBarHeight={0}
         elevated>
         <Appbar.BackAction
@@ -135,11 +145,11 @@ export function ChatHeader({
           <Pressable accessibilityLabel="Choose chat" onPress={onOpenSessionMenu} style={({ pressed }) => [styles.headerSessionAnchor, pressed && styles.headerSessionAnchorPressed]}>
             <View style={styles.headerSessionContent}>
               <View style={styles.headerSessionTextWrap}>
-                <Text numberOfLines={1} variant="titleMedium" style={[styles.headerTitle, { color: palette.text }]}>
+                <Text numberOfLines={2} variant="titleMedium" style={[styles.headerTitle, { color: palette.text }]}>
                   {selectedSession?.title || 'Untitled chat'}
                 </Text>
-                <NativeText accessibilityLabel={`Chat status: ${statusLabel}`} numberOfLines={1} style={[styles.headerUsage, { color: palette.muted }]}>
-                  {statusLabel}
+                <NativeText accessibilityLabel={`Chat status: ${subtitle}`} style={[styles.headerUsage, { color: palette.muted }]}>
+                  {subtitle}
                 </NativeText>
               </View>
               <MaterialCommunityIcons name="chevron-down" size={20} color={palette.muted} />
@@ -147,16 +157,6 @@ export function ChatHeader({
           </Pressable>
         </View>
         <View style={styles.headerActions}>
-          {diffCount > 0 || showingChanges ? (
-            <Button
-              accessibilityLabel={showingChanges ? 'Session' : `${diffCount} Files Changed`}
-              compact
-              icon={showingChanges ? 'message-outline' : 'file-document-edit-outline'}
-              onPress={onShowChanges}
-              style={styles.headerFilesButton}>
-              {showingChanges ? 'Session' : `${diffCount} Files Changed`}
-            </Button>
-          ) : null}
           <Pressable
             accessibilityHint="Session configuration"
             accessibilityLabel="Chat menu"
@@ -174,6 +174,24 @@ export function ChatHeader({
           </Pressable>
         </View>
       </Appbar.Header>
+      <View style={[styles.chatSegmentedControl, { backgroundColor: palette.surfaceAlt }]}>
+        <TopTab
+          accessibilityLabel="Chat"
+          active={!showingChanges}
+          label={showingChanges ? 'Session' : 'Chat'}
+          onPress={() => {
+            if (showingChanges) onShowChanges();
+          }}
+        />
+        <TopTab
+          accessibilityLabel="Changes"
+          active={showingChanges}
+          label={diffCount > 0 ? `${diffCount} Files Changed` : 'Changes'}
+          onPress={() => {
+            if (!showingChanges) onShowChanges();
+          }}
+        />
+      </View>
       <SessionConfigurationSheet
         availableModels={availableModels}
         availableProfiles={availableProfiles}

@@ -3,7 +3,7 @@ import type { ComponentProps, ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { NativeSelect, type NativeSelectOption } from '@/components/ui/native-select';
-import { Colors, Fonts } from '@/constants/theme';
+import { Colors, Fonts, MinimumTouchTarget, Radii, Spacing, TypeScale } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export function SelectControl<T extends string>({
@@ -107,13 +107,18 @@ export function ControlButton({
   );
 }
 
-export function TopTab({ active, label, onPress }: { active: boolean; label: string; onPress: () => void }) {
+export function TopTab({ accessibilityLabel, active, label, onPress }: { accessibilityLabel?: string; active: boolean; label: string; onPress: () => void }) {
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
 
   return (
-    <Pressable accessibilityRole="tab" style={styles.topTab} onPress={onPress}>
-      <View style={[styles.topTabInner, active && { borderBottomColor: palette.tint, borderBottomWidth: 2 }]}>
+    <Pressable
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
+      style={styles.topTab}
+      onPress={onPress}>
+      <View style={[styles.topTabInner, active && { backgroundColor: palette.surface }]}>
         <Text style={[styles.topTabLabel, { color: active ? palette.text : palette.muted, fontWeight: active ? '700' : '500' }]}>
           {label}
         </Text>
@@ -133,12 +138,12 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   controlButtonIconOnly: {
-    width: 40,
-    height: 40,
+    width: MinimumTouchTarget,
+    height: MinimumTouchTarget,
   },
   controlButtonText: {
     flex: 1,
-    minHeight: 40,
+    minHeight: MinimumTouchTarget,
     paddingHorizontal: 12,
   },
   controlButtonInner: {
@@ -150,7 +155,7 @@ const styles = StyleSheet.create({
   },
   controlButtonInnerIconOnly: {
     gap: 0,
-    minHeight: 40,
+    minHeight: MinimumTouchTarget,
   },
   controlButtonLabel: {
     flexShrink: 1,
@@ -158,14 +163,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  topTab: { flex: 1 },
+  topTab: { flex: 1, minHeight: MinimumTouchTarget, padding: Spacing.x1 },
   topTabInner: {
     alignItems: 'center',
+    borderRadius: Radii.control,
+    flex: 1,
     justifyContent: 'center',
-    paddingVertical: 14,
+    minHeight: MinimumTouchTarget - Spacing.x2,
+    paddingHorizontal: Spacing.x3,
   },
   topTabLabel: {
     fontFamily: Fonts.sans,
-    fontSize: 16,
+    fontSize: TypeScale.subheadline,
   },
 });

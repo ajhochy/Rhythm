@@ -12,15 +12,15 @@ export function getPaperTheme(colorScheme: 'light' | 'dark'): MD3Theme {
 
   return {
     ...base,
-    roundness: 3,
+    roundness: 2.5,
     colors: {
       ...base.colors,
       primary: palette.tint,
-      onPrimary: colorScheme === 'dark' ? '#08110F' : '#FFFFFF',
+      onPrimary: colorScheme === 'dark' ? palette.background : palette.surface,
       primaryContainer: palette.surfaceAlt,
       onPrimaryContainer: palette.text,
       secondary: palette.accent,
-      onSecondary: colorScheme === 'dark' ? '#08110F' : '#FFFFFF',
+      onSecondary: colorScheme === 'dark' ? palette.background : palette.surface,
       secondaryContainer: palette.surfaceAlt,
       onSecondaryContainer: palette.text,
       error: palette.danger,
@@ -36,10 +36,10 @@ export function getPaperTheme(colorScheme: 'light' | 'dark'): MD3Theme {
         ...base.colors.elevation,
         level0: palette.background,
         level1: palette.surface,
-        level2: palette.card,
-        level3: palette.surfaceAlt,
-        level4: palette.surfaceAlt,
-        level5: palette.surfaceAlt,
+        level2: palette.surfaceAlt,
+        level3: palette.card,
+        level4: palette.card,
+        level5: palette.card,
       },
     },
   };

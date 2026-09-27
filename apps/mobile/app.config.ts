@@ -156,7 +156,8 @@ const config: ExpoConfig = {
     [
       'expo-camera',
       {
-        cameraPermission: 'Allow $(PRODUCT_NAME) to scan a one-time Mac pairing code.',
+        cameraPermission:
+          'Allow $(PRODUCT_NAME) to scan a one-time Mac pairing code and take photos for chat attachments.',
         barcodeScannerEnabled: true,
       },
     ],

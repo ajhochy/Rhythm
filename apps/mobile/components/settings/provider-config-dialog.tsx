@@ -1,7 +1,7 @@
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Chip, Dialog, HelperText, RadioButton, Text, TextInput } from 'react-native-paper';
 
-import { Colors } from '@/constants/theme';
+import { Colors, MinimumTouchTarget, Radii, Spacing } from '@/constants/theme';
 import type { ProviderAuthMethod } from '@/providers/opencode-provider';
 
 type Palette = typeof Colors.light;
@@ -40,8 +40,8 @@ export function ProviderConfigDialog({
   visiblePrompts,
 }: ProviderConfigDialogProps) {
   return (
-    <Dialog visible onDismiss={onDismiss}>
-      <Dialog.Title>{`Configure ${selectedProviderLabel}`}</Dialog.Title>
+    <Dialog visible onDismiss={onDismiss} style={styles.dialog}>
+      <Dialog.Title style={styles.dialogTitle}>{`Configure ${selectedProviderLabel}`}</Dialog.Title>
       <Dialog.ScrollArea style={styles.scrollArea}>
         <ScrollView accessibilityViewIsModal contentContainerStyle={styles.dialogContent} keyboardShouldPersistTaps="handled">
         {selectedProviderDescription ? (
@@ -114,9 +114,11 @@ export function ProviderConfigDialog({
 }
 
 const styles = StyleSheet.create({
-  dialogContent: { gap: 14 },
-  scrollArea: { maxHeight: '70%', paddingHorizontal: 24 },
-  authMethodRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  promptGroup: { gap: 8 },
-  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  dialog: { borderRadius: Radii.sheet, marginHorizontal: Spacing.x6 },
+  dialogTitle: { paddingTop: Spacing.x6 },
+  dialogContent: { gap: Spacing.x4, paddingVertical: Spacing.x2 },
+  scrollArea: { maxHeight: '70%', paddingHorizontal: Spacing.x6 },
+  authMethodRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.x2, minHeight: MinimumTouchTarget },
+  promptGroup: { gap: Spacing.x2 },
+  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.x2 },
 });

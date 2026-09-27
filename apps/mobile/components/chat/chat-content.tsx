@@ -235,23 +235,9 @@ export function ChatContent({
                 </Card>
               ) : null}
 
-              {awaitingUserInput ? (
-                <Card mode="contained" style={[styles.noticeCard, { backgroundColor: palette.surface }]}>
-                  <Card.Content style={styles.waitingNoticeContent}>
-                    <View style={styles.waitingNoticeHeader}>
-                      <MaterialCommunityIcons name="alert-circle-outline" size={18} color={palette.warning} />
-                      <Text variant="titleMedium" style={{ color: palette.text }}>Waiting for your input</Text>
-                    </View>
-                    <Text style={{ color: palette.muted }}>
-                      OpenCode is blocked on {pendingInteractions === 1 ? 'a response' : `${pendingInteractions} responses`} below.
-                    </Text>
-                  </Card.Content>
-                </Card>
-              ) : null}
-
               {running && !awaitingUserInput ? (
                 <View style={styles.loadingRow}>
-                  <ActivityIndicator color={palette.tint} />
+                  <ActivityIndicator color={palette.muted} size="small" />
                   <Text style={{ color: palette.muted }}>
                     {currentActivityLabel ? `OpenCode is ${currentActivityLabel.toLowerCase()}...` : 'OpenCode is working through the current step...'}
                   </Text>

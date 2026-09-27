@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 
-import { Colors, Fonts } from '@/constants/theme';
+import { Colors, Fonts, MinimumTouchTarget, Radii, Spacing, TypeScale } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export type NativeSelectOption<T extends string = string> = {
@@ -106,7 +106,7 @@ export function NativeSelect<T extends string>({
               style={[styles.sheet, { backgroundColor: palette.surface, borderColor: palette.border }]}
               testID="native-select-modal">
               <View style={[styles.sheetHeader, { borderBottomColor: palette.border }]}>
-                <Text numberOfLines={1} style={[styles.sheetTitle, { color: palette.text }]}>
+                <Text style={[styles.sheetTitle, { color: palette.text }]}>
                   {title || 'Choose an option'}
                 </Text>
                 <Pressable accessibilityLabel="Close options" accessibilityRole="button" onPress={close} style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}>
@@ -178,8 +178,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.28)',
   },
   sheet: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: Radii.sheet,
+    borderTopRightRadius: Radii.sheet,
     borderWidth: 1,
     maxHeight: '72%',
     overflow: 'hidden',
@@ -189,18 +189,19 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: Spacing.x4,
+    paddingVertical: Spacing.x3,
   },
   sheetTitle: {
     flex: 1,
     fontFamily: Fonts.display,
-    fontSize: 18,
+    fontSize: TypeScale.body,
     fontWeight: '700',
+    minWidth: 0,
   },
   closeButton: {
     borderRadius: 999,
-    minHeight: 44,
+    minHeight: MinimumTouchTarget,
     justifyContent: 'center',
     paddingHorizontal: 10,
   },
@@ -210,13 +211,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   optionList: {
-    gap: 8,
-    padding: 12,
-    paddingBottom: 24,
+    gap: 1,
+    padding: Spacing.x3,
+    paddingBottom: Spacing.x6,
   },
   option: {
-    borderRadius: 16,
-    borderWidth: 1,
+    borderRadius: Radii.control,
+    borderWidth: 0,
   },
   sectionLabel: {
     fontFamily: Fonts.sans,
@@ -233,8 +234,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     minHeight: 56,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: Spacing.x3,
+    paddingVertical: Spacing.x3,
   },
   optionIcon: {
     alignItems: 'center',

@@ -116,18 +116,18 @@ export function ChatComposer({
       ) : null}
 
       <View style={styles.composerDockRow}>
-        <View testID="chat-attachment-button">
-          <IconButton
-            accessibilityLabel="Add attachment"
-            accessibilityRole="button"
-            icon="plus"
-            size={20}
-            style={styles.composerPrimaryButton}
-            onPress={onAttach}
-          />
-        </View>
         <View style={[styles.inputShell, styles.inputShellFlex, { borderColor: palette.border, backgroundColor: palette.background }]}>
           <View style={styles.composerRow}>
+            <View testID="chat-attachment-button">
+              <IconButton
+                accessibilityLabel="Add attachment"
+                accessibilityRole="button"
+                icon="plus"
+                size={20}
+                style={styles.composerInlineButton}
+                onPress={onAttach}
+              />
+            </View>
             <TextInput
                accessibilityLabel="Message"
                testID="chat-prompt-input"
@@ -153,47 +153,46 @@ export function ChatComposer({
                  },
                ]}
                textAlignVertical="top"
-             />
-
-            <IconButton
-              accessibilityLabel="Dismiss keyboard"
-              icon="keyboard-close"
-              size={20}
-              style={styles.composerDismissButton}
-              onPress={Keyboard.dismiss}
-            />
-
-            <View testID="chat-dictation-button">
+              />
+            <View testID={showSendAction ? 'chat-send-button' : 'chat-stop-button'}>
               <IconButton
-                accessibilityLabel={isSpeechInputListening ? 'Stop dictation' : 'Start dictation'}
+                accessibilityLabel={showSendAction ? 'Send message' : 'Stop response'}
                 accessibilityRole="button"
-                testID="chat-secondary-button"
-                icon={isSpeechInputListening ? 'microphone-off' : 'microphone'}
+                accessibilityState={{ busy: !showSendAction && isStoppingSession }}
+                testID="chat-primary-button"
+                mode="contained"
+                icon={showSendAction ? 'send' : 'stop'}
                 size={20}
-                selected={isSpeechInputListening}
-                style={styles.composerVoiceButton}
-                disabled={dictationDisabled}
-                onPress={onToggleRecording}
+                style={styles.composerPrimaryButton}
+                containerColor={palette.tint}
+                iconColor={palette.surface}
+                loading={!showSendAction && isStoppingSession}
+                disabled={showSendAction ? sendDisabled : stopDisabled}
+                onPress={onSend}
               />
             </View>
           </View>
         </View>
-
-        <View testID={showSendAction ? 'chat-send-button' : 'chat-stop-button'}>
+      </View>
+      <View style={styles.composerMetadataRow}>
+        <IconButton
+          accessibilityLabel="Dismiss keyboard"
+          icon="keyboard-close"
+          size={18}
+          style={styles.composerDismissButton}
+          onPress={Keyboard.dismiss}
+        />
+        <View testID="chat-dictation-button">
           <IconButton
-            accessibilityLabel={showSendAction ? 'Send message' : 'Stop response'}
+            accessibilityLabel={isSpeechInputListening ? 'Stop dictation' : 'Start dictation'}
             accessibilityRole="button"
-            accessibilityState={{ busy: !showSendAction && isStoppingSession }}
-            testID="chat-primary-button"
-            mode="contained"
-            icon={showSendAction ? 'send' : 'stop'}
-            size={20}
-            style={styles.composerPrimaryButton}
-            containerColor={palette.tint}
-            iconColor={palette.surface}
-            loading={!showSendAction && isStoppingSession}
-            disabled={showSendAction ? sendDisabled : stopDisabled}
-            onPress={onSend}
+            testID="chat-secondary-button"
+            icon={isSpeechInputListening ? 'microphone-off' : 'microphone'}
+            size={18}
+            selected={isSpeechInputListening}
+            style={styles.composerVoiceButton}
+            disabled={dictationDisabled}
+            onPress={onToggleRecording}
           />
         </View>
       </View>

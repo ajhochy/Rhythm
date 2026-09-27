@@ -1,4 +1,5 @@
 import * as Clipboard from 'expo-clipboard';
+import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -8,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ChatComposer } from '@/components/chat/chat-composer';
 import { ChatContent } from '@/components/chat/chat-content';
+import { CameraAttachmentSheet } from '@/components/chat/camera-attachment-sheet';
 import {
   createSessionDraftStore,
   type ChatAttachment,
@@ -101,6 +103,7 @@ export function ChatView() {
   const [speakingMessageId, setSpeakingMessageId] = useState<string | undefined>(undefined);
   const [voiceFeedback, setVoiceFeedback] = useState<string | undefined>(undefined);
   const [sendFeedback, setSendFeedback] = useState<string | undefined>(undefined);
+  const [cameraVisible, setCameraVisible] = useState(false);
   const [sessionToolsVisible, setSessionToolsVisible] = useState(false);
   const [sessionChildren, setSessionChildren] = useState<{ id: string; title?: string }[]>([]);
   const [sessionChildrenLoaded, setSessionChildrenLoaded] = useState(false);
@@ -391,10 +394,9 @@ export function ChatView() {
     }
   }
 
-  async function handleAttach() {
+  async function handleChooseFile() {
     try {
-      const picker = await import('expo-document-picker');
-      const result = await picker.getDocumentAsync({
+      const result = await DocumentPicker.getDocumentAsync({
         base64: Platform.OS === 'web',
         multiple: true,
         copyToCacheDirectory: true,
@@ -432,6 +434,18 @@ export function ChatView() {
     } catch (error) {
       setSendFeedback(summarizeError(error, 'Could not attach that file.'));
     }
+  }
+
+  function handleAttach() {
+    if (Platform.OS === 'web') {
+      void handleChooseFile();
+      return;
+    }
+    Alert.alert('Add attachment', undefined, [
+      { text: 'Take Photo', onPress: () => setCameraVisible(true) },
+      { text: 'Choose File', onPress: () => void handleChooseFile() },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   }
 
   async function handleNewSession(
@@ -819,7 +833,7 @@ export function ChatView() {
           isSpeechInputAvailable={isSpeechInputAvailable}
           isSpeechInputListening={isSpeechInputListening}
           isStoppingSession={isStoppingSession}
-          onAttach={() => void handleAttach()}
+          onAttach={handleAttach}
           onDraftChange={(value) => {
             setSendFeedback(undefined);
             updateDraftState(value);
@@ -854,6 +868,19 @@ export function ChatView() {
         palette={palette}
         preferences={chatPreferences}
         visible={newSessionSheetVisible}
+      />
+      <CameraAttachmentSheet
+        onCapture={(attachment) => {
+          setSendFeedback(undefined);
+          updateAttachmentsState((current) =>
+            current.some((item) => item.uri === attachment.uri)
+              ? current
+              : [...current, attachment],
+          );
+        }}
+        onClose={() => setCameraVisible(false)}
+        palette={palette}
+        visible={cameraVisible}
       />
       <Snackbar visible={Boolean(copiedMessageId)} onDismiss={() => setCopiedMessageId(undefined)} duration={1800}>
         {copiedMessageId === '__send-error__' ? 'Error details copied' : 'Message copied to clipboard'}
