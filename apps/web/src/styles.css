@@ -340,6 +340,8 @@ code, pre { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .starter-row button { min-height: 38px; border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--fg); background: var(--surface); cursor: pointer; }
 
 .composer { position: relative; z-index: 6; display: grid; gap: 7px; overflow: visible; padding: 8px 12px 10px; border-top: 1px solid var(--border-soft); background: var(--surface); }
+.composer.file-drag-active { box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--accent), transparent 32%); background: color-mix(in oklab, var(--accent), var(--surface) 95%); }
+.composer-drop-status { justify-self: start; color: var(--accent); font-size: 10px; font-weight: 650; }
 .composer-label { color: var(--muted); font-family: var(--font-mono); font-size: 9px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
 .composer-input-row { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: 6px; }
 .composer textarea { min-height: 54px; max-height: 150px; resize: none; }

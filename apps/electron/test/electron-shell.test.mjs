@@ -54,7 +54,7 @@ async function interactiveRuntime(argv, userData = '/fixture/interactive-user-da
   const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = '/fixture'; } });
   await module.link(async (name) => {
     let values;
-    if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: {}, dialog: { showOpenDialog: selectDirectory, showErrorBox: () => calls.push('ownership-error'), showMessageBox: async () => { calls.push('migration'); return { response: 1 }; } } };
+    if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: { openExternal: async (url) => calls.push(['openExternal', url]) }, dialog: { showOpenDialog: selectDirectory, showErrorBox: () => calls.push('ownership-error'), showMessageBox: async () => { calls.push('migration'); return { response: 1 }; } } };
     else if (name === './agent-server.mjs') values = { AgentServerService: Server, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:4001', AGENT_SERVER_ENGINE_PORT: 4096, electronDbPath: () => '/fixture/electron.db', legacyFlutterDbPath: () => '/fixture/legacy.db' };
     else if (name === './hermes-server.mjs') values = { createHermesSupervisor: () => ({ getStatus: () => ({ state: 'disabled', port: 9121, url: 'http://127.0.0.1:9121' }), onStatus() {}, async start() {}, async stop() {} }) };
     else if (name === './production-api-config.mjs') values = { createProductionApiConfig: () => ({ load: () => 'https://example.invalid' }), createProductionApiSetHandler: () => () => {} };
@@ -134,6 +134,63 @@ test('1555:electron-local-runtime-restart-ipc:5 preload exposes a frozen restart
   assert.equal(Object.isFrozen(bridge.agentServer), true);
   assert.equal(await bridge.selectDirectory({ properties: ['openFile'] }), '/selected/project');
   assert.deepEqual(calls, [['shell:select-directory']]);
+});
+
+test('task-safe-external-links-c2: preload exposes only openExternal to one IPC channel on bridge version 7', async () => {
+  let bridge;
+  const calls = [];
+  runInNewContext(await readFile(resolve(shellRoot, 'src/preload.cjs'), 'utf8'), {
+    require: () => ({
+      contextBridge: { exposeInMainWorld: (_key, value) => { bridge = value; } },
+      ipcRenderer: { on() {}, send() {}, sendSync: () => 'https://example.invalid', invoke: async (...args) => { calls.push(args); } },
+    }),
+    process: { argv: [], env: {}, platform: 'darwin' },
+    window: { addEventListener() {}, dispatchEvent() {} },
+  });
+  assert.equal(bridge.version, 7);
+  assert.equal(typeof bridge.openExternal, 'function');
+  await bridge.openExternal('https://example.com/path');
+  assert.deepEqual(calls, [['rhythm:shell:open-external', 'https://example.com/path']]);
+  assert.deepEqual(Object.keys(bridge), BRIDGE_KEYS);
+  assert.equal(Object.isFrozen(bridge), true);
+});
+
+test('task-safe-external-links-c3: main canonicalizes credential-free HTTP URLs and rejects malformed payloads before dispatch', async () => {
+  const runtime = await interactiveRuntime(['--interactive-smoke'], undefined, undefined, false);
+  const owner = runtime.windows[0];
+  const event = { sender: owner.webContents, senderFrame: owner.webContents.mainFrame };
+  const handler = runtime.handlers.get('rhythm:shell:open-external');
+  assert.equal(typeof handler, 'function');
+  await handler(event, 'HTTPS://Example.COM:443/a/../guide?q=1#start');
+  assert.deepEqual(runtime.calls.filter(Array.isArray).at(-1), ['openExternal', 'https://example.com/guide?q=1#start']);
+  await handler(event, 'http://Example.COM:80/plain');
+  assert.deepEqual(runtime.calls.filter(Array.isArray).at(-1), ['openExternal', 'http://example.com/plain']);
+  const dispatched = runtime.calls.filter((call) => Array.isArray(call) && call[0] === 'openExternal').length;
+  for (const payload of ['', 'x'.repeat(4097), 'not a url', 'https:example.com', ' https://example.com', 'https://example.com/\nnext', 'https://user@example.com', 'https://:secret@example.com', 'javascript:alert(1)', 'file:///tmp/a', 'data:text/plain,a', 'rhythm://settings']) {
+    await assert.rejects(handler(event, payload), /Invalid external URL/);
+  }
+  await assert.rejects(handler(event, 'https://example.com', 'extra'), /Invalid external URL/);
+  await assert.rejects(handler(event, { url: 'https://example.com' }), /Invalid external URL/);
+  assert.equal(runtime.calls.filter((call) => Array.isArray(call) && call[0] === 'openExternal').length, dispatched);
+  runtime.app.emit('before-quit', { preventDefault() {} });
+  await new Promise((done) => setImmediate(done));
+});
+
+test('task-safe-external-links-c8: external dispatch rejects foreign sender, frame, and document ownership', async () => {
+  const runtime = await interactiveRuntime(['--interactive-smoke'], undefined, undefined, false);
+  const owner = runtime.windows[0];
+  const event = { sender: owner.webContents, senderFrame: owner.webContents.mainFrame };
+  const handler = runtime.handlers.get('rhythm:shell:open-external');
+  for (const invalid of [{ sender: {}, senderFrame: event.senderFrame }, { ...event, senderFrame: { url: event.senderFrame.url } }, { ...event, senderFrame: undefined }]) {
+    await assert.rejects(handler(invalid, 'https://example.com'), /denied/);
+  }
+  for (const url of ['https://example.invalid', 'rhythm://other/index.html', 'rhythm-artifact://app/index.html']) {
+    event.senderFrame.url = url;
+    await assert.rejects(handler(event, 'https://example.com'), /denied/);
+  }
+  assert.equal(runtime.calls.some((call) => Array.isArray(call) && call[0] === 'openExternal'), false);
+  runtime.app.emit('before-quit', { preventDefault() {} });
+  await new Promise((done) => setImmediate(done));
 });
 
 test('directory-picker: owned native dialog returns only the first path string or null', async () => {

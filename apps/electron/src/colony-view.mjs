@@ -48,6 +48,7 @@ export function bindColonySceneChannel(options) {
   let revoked = false
   let transferred = false
   let port = /** @type {Electron.MessagePortMain | null} */ (null)
+  let pendingVisibility = /** @type {any} */ (null)
   let disposal = /** @type {Promise<void> | null} */ (null)
   const dispose = () => {
     if (disposal) return disposal
@@ -67,7 +68,7 @@ export function bindColonySceneChannel(options) {
     return disposal
   }
   function onHostIntent(/** @type {any} */ event, /** @type {any} */ value) {
-    if (revoked || !port || !options.hostContents || !options.hostFrame || event.sender !== options.hostContents ||
+    if (revoked || !port || (options.hostAuthorized && options.hostAuthorized() !== true) || !options.hostContents || !options.hostFrame || event.sender !== options.hostContents ||
       event.senderFrame !== options.hostFrame || options.hostContents.mainFrame !== options.hostFrame ||
       !value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== 3 ||
       value.attachment !== options.attachment || typeof value.event !== 'string') return
@@ -76,6 +77,19 @@ export function bindColonySceneChannel(options) {
       validateColonyHostEvent(message, documentId)
       port.postMessage(JSON.parse(JSON.stringify(message)))
     } catch {}
+  }
+  function sendHostEvent(/** @type {string} */ event, /** @type {any} */ payload) {
+    if (revoked) return false
+    const message = { v: 1, documentId, event, payload }
+    try {
+      validateColonyHostEvent(message, documentId)
+      if (!port) {
+        if (event === 'host.visibility') { pendingVisibility = JSON.parse(JSON.stringify(message)); return true }
+        return false
+      }
+      port.postMessage(JSON.parse(JSON.stringify(message)))
+      return true
+    } catch { return false }
   }
   const flush = () => {
     const current = contents.mainFrame
@@ -116,6 +130,10 @@ export function bindColonySceneChannel(options) {
     port?.start()
     try { expectedFrame.postMessage('colony:port', { v:1, documentId }, [channel.port2]) }
     catch { channel.port2.close(); void dispose() }
+    if (pendingVisibility && !revoked) {
+      port?.postMessage(pendingVisibility)
+      pendingVisibility = null
+    }
   }
   function onReady(/** @type {any} */ event, /** @type {any} */ message) {
     // Foreign frames cannot revoke another document, either.
@@ -152,7 +170,7 @@ export function bindColonySceneChannel(options) {
   contents.on('did-start-navigation', onNavigation)
   contents.on('render-process-gone', dispose)
   contents.on('destroyed', dispose)
-  return { dispose }
+  return { dispose, sendHostEvent }
 }
 
 /** @param {any} options */
@@ -199,6 +217,24 @@ export function registerColonyView(options) {
     void barrier.catch(() => {})
     return barrier
   }
+  const suspendCurrent = () => {
+    const record = current
+    if (!record || record.suspended) return false
+    record.suspended = true
+    if (!record.headless) {
+      record.view.setBounds({ x:0,y:0,width:0,height:0 })
+      record.channel?.sendHostEvent('host.visibility', { hidden:true })
+      if (!record.win.isDestroyed()) record.win.webContents.focus()
+    }
+    return true
+  }
+  const resumeCurrent = () => {
+    const record = current
+    if (!record || !record.suspended) return false
+    record.suspended = false
+    if (!record.headless) record.channel?.sendHostEvent('host.visibility', { hidden:false })
+    return true
+  }
   // A list-only (headless) session runs the same owned worker without ever creating a
   // WebContentsView; a full-scene session additionally owns the native view/partition/channel.
   const attach = async (/** @type {any} */ event, /** @type {any[]} */ args) => {
@@ -214,7 +250,10 @@ export function registerColonyView(options) {
       return { ok:false, reason:'Bot Crossing is disabled or unavailable in this window.' }
     }
     if (current) {
-      if (current.headless === headless) return { ok:true, attachment:current.attachment }
+      if (current.headless === headless) {
+        resumeCurrent()
+        return { ok:true, attachment:current.attachment }
+      }
       // Switching modes: fully tear down the previous record (and its worker) before a
       // replacement is created below, so at most one worker ever exists at a time.
       try { await disposeCurrent() }
@@ -235,7 +274,7 @@ export function registerColonyView(options) {
       await service.start({ documentId })
       if (disposed || epoch !== requestEpoch || !ownsHost(event) || !enabled()) throw new Error('Bot Crossing attachment revoked')
       if (headless) {
-        const record = { headless:true, service, documentId, attachment:randomUUID(), cleanups:[] }
+        const record = { headless:true, suspended:false, service, documentId, attachment:randomUUID(), cleanups:[] }
         current = record
         if (current !== record || epoch !== requestEpoch || !enabled()) throw new Error('Bot Crossing attachment revoked')
         return { ok:true, attachment:record.attachment }
@@ -261,18 +300,34 @@ export function registerColonyView(options) {
       contents.on('will-navigate', (/** @type {any} */ navigation) => navigation.preventDefault())
       contents.on('will-redirect', (/** @type {any} */ navigation) => navigation.preventDefault())
       contents.on('will-frame-navigate', (/** @type {any} */ navigation) => navigation.preventDefault())
-      const record = { headless:false, win, view, partition, service, documentId, attachment:randomUUID(), channel:/** @type {ReturnType<typeof bindColonySceneChannel> | null} */(null), cleanups:/** @type {(() => void)[]} */ ([]) }
+      const record = { headless:false, suspended:false, win, view, partition, service, documentId, attachment:randomUUID(), channel:/** @type {ReturnType<typeof bindColonySceneChannel> | null} */(null), cleanups:/** @type {(() => void)[]} */ ([]) }
       record.channel = bindColonySceneChannel({ ipcMain, contents, frame:() => contents.mainFrame, documentId, service, MessageChannelMain:electron.MessageChannelMain,
         attachment:record.attachment, hostContents:win.webContents, hostFrame:event.senderFrame,
+        hostAuthorized:() => current === record && !record.suspended && ownsHost(event),
         ownsThreadId:(/** @type {string} */ threadId) => options.ownsThreadId?.(threadId) === true,
         onSceneEvent:(/** @type {string} */ sceneEvent, /** @type {any} */ payload) => {
           if (current === record && !disposed) win.webContents.send('colony:view:event', { attachment:record.attachment, event:sceneEvent, payload })
         } })
       current = record
-      const hostNavigation = () => { if (!ownsHost(event)) void disposeCurrent().catch(() => {}) }
-      win.webContents.on('did-navigate-in-page', hostNavigation)
-      win.webContents.on('did-start-navigation', hostNavigation)
-      record.cleanups.push(() => { win.webContents.removeListener('did-navigate-in-page', hostNavigation); win.webContents.removeListener('did-start-navigation', hostNavigation); partition.removeListener('will-download', denyDownload) })
+      const hostHashNavigation = () => { if (ownsHost(event)) resumeCurrent(); else suspendCurrent() }
+      const hostDocumentNavigation = (/** @type {any} */ navigation, /** @type {string} */ _url, /** @type {boolean} */ inPlace, /** @type {boolean} */ mainFrame) => {
+        const main = typeof navigation?.isMainFrame === 'boolean' ? navigation.isMainFrame : mainFrame
+        const same = typeof navigation?.isSameDocument === 'boolean' ? navigation.isSameDocument : inPlace
+        if (main && !same) void disposeCurrent().catch(() => {})
+        else if (main) hostHashNavigation()
+      }
+      const hostGone = () => { void disposeCurrent().catch(() => {}) }
+      win.webContents.on('did-navigate-in-page', hostHashNavigation)
+      win.webContents.on('did-start-navigation', hostDocumentNavigation)
+      win.webContents.on('render-process-gone', hostGone)
+      win.webContents.on('destroyed', hostGone)
+      record.cleanups.push(() => {
+        win.webContents.removeListener('did-navigate-in-page', hostHashNavigation)
+        win.webContents.removeListener('did-start-navigation', hostDocumentNavigation)
+        win.webContents.removeListener('render-process-gone', hostGone)
+        win.webContents.removeListener('destroyed', hostGone)
+        partition.removeListener('will-download', denyDownload)
+      })
       contents.on('render-process-gone', () => { if (current === record) void disposeCurrent().catch(() => {}) })
       view.setBounds({ x:0,y:0,width:0,height:0 })
       win.contentView.addChildView(view)
@@ -303,6 +358,7 @@ export function registerColonyView(options) {
     if (!current || current.headless || !ownsHost(event) || !enabled() || value?.attachment !== current.attachment || !value.bounds) return false
     const { x,y,width,height } = value.bounds
     if (![x,y,width,height].every(Number.isFinite) || width < 0 || height < 0) return false
+    resumeCurrent()
     const zoom = current.win.webContents.getZoomFactor()
     const area = current.win.getContentBounds()
     const left = Math.min(area.width, Math.max(0,Math.round(x*zoom)))
@@ -312,7 +368,7 @@ export function registerColonyView(options) {
   })
   ipcMain.handle('colony:view:detach', async (/** @type {any} */ event, /** @type {any} */ value) => {
     if (!current || !ownsHost(event) || value?.attachment !== current.attachment) return false
-    await disposeCurrent(); return true
+    suspendCurrent(); return true
   })
   return { disposeCurrent,
     currentAttachment: () => current?.attachment ?? '',

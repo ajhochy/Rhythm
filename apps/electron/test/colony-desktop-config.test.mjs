@@ -7,7 +7,7 @@ import test from 'node:test'
 
 import { resolveColonyArtifact } from '../src/colony-desktop-artifact.mjs'
 
-const QUALIFIED_SOURCE_COMMIT = '52893a5f83e2bd9e1c581a106a4847b39356c852'
+const QUALIFIED_SOURCE_COMMIT = '4e6ed18409a4d6507bf9cec4808b1952ce426eaf'
 
 let config
 let configImportError

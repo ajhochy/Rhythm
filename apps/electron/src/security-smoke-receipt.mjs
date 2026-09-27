@@ -1,4 +1,4 @@
-export const BRIDGE_KEYS = Object.freeze(['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory', 'hermes', 'hermesView', 'colonyView', 'aiAccounts', 'remoteEnvironments']);
+export const BRIDGE_KEYS = Object.freeze(['version', 'appVersion', 'platform', 'openExternal', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory', 'hermes', 'hermesView', 'colonyView', 'aiAccounts', 'remoteEnvironments']);
 export const GATEWAY_KEYS = Object.freeze(['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase']);
 export const AUTH_KEYS = Object.freeze(['signInWithGoogle', 'currentSession', 'logout']);
 export const HUMAN_APPROVAL_KEYS = Object.freeze(['capability', 'signDecision']);
@@ -82,8 +82,8 @@ export function validateSecuritySmokeReceipt(receipt) {
   if (valueAt(receipt, ['bridge', 'nodeExposed']) !== false) {
     return { ok: false, reason: 'bridge.nodeExposed must be false' };
   }
-  if (!Number.isInteger(valueAt(receipt, ['bridge', 'value', 'version']))) {
-    return { ok: false, reason: 'bridge.value.version must be an integer' };
+  if (valueAt(receipt, ['bridge', 'value', 'version']) !== 7) {
+    return { ok: false, reason: 'bridge.value.version must be 7' };
   }
   for (const denial of DENIAL_KEYS) {
     if (valueAt(receipt, ['denials', denial]) !== true) {

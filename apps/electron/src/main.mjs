@@ -740,6 +740,16 @@ if (hasSingleInstanceLock) {
     requireOwnedDocument(event); requireNoPayload(args);
     await shell.openExternal('https://github.com/ajhochy/Rhythm/releases');
   });
+  ipcMain.handle('rhythm:shell:open-external', async (event, value, ...args) => {
+    requireOwnedDocument(event);
+    if (args.length || typeof value !== 'string' || !/^https?:\/\//i.test(value) || value.length > 4096 || /[\p{Cc}\p{Cf}\s]/u.test(value)) {
+      throw new Error('Invalid external URL');
+    }
+    let url;
+    try { url = new URL(value); } catch { throw new Error('Invalid external URL'); }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Invalid external URL');
+    await shell.openExternal(url.href);
+  });
   ipcMain.handle('shell:select-directory', async (event, ...args) => {
     requireOwnedDocument(event); requireNoPayload(args);
     const win = BrowserWindow.fromWebContents(event.sender);

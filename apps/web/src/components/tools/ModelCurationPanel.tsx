@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Icon } from '../../icons';
 import { useGateway } from '../../gateway/context';
-import { createGenerationGuard, type ModelCatalogEntry } from '../../gateway/sessions';
+import { createGenerationGuard, type CustomProviderInput, type ModelCatalogEntry } from '../../gateway/sessions';
 import { useFixtures } from '../../store';
 import { ProviderConnectCard, ProviderAuthFlowForm, providerCatalog, type ProviderCatalogEntry, type ProviderAuthFlow } from './AgentSettingsTool';
 
@@ -12,6 +12,7 @@ import { ProviderConnectCard, ProviderAuthFlowForm, providerCatalog, type Provid
 // agent_model_visibility_routes.ts (GET/PATCH /agent-models/visibility).
 
 type ProviderStatus = 'connected' | 'needs-login' | 'unavailable';
+type SavedCustomProvider = { providerId: string; modelCount: number };
 
 type ProviderGroup = {
   provider: string;
@@ -51,9 +52,16 @@ export function ModelCurationPanel({
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
+  const [providerSearch, setProviderSearch] = useState<Record<string, string>>({});
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [visibilityError, setVisibilityError] = useState('');
+  const [customProvider, setCustomProvider] = useState<CustomProviderInput>({ providerId: '', name: '', baseURL: '', apiKey: '' });
+  const [customState, setCustomState] = useState<'idle' | 'testing' | 'success' | 'error' | 'saving' | 'saved' | 'pending' | 'refreshing' | 'refresh-error'>('idle');
+  const [customMessage, setCustomMessage] = useState('');
+  const [testedFingerprint, setTestedFingerprint] = useState('');
+  const [savedCustomProvider, setSavedCustomProvider] = useState<SavedCustomProvider | null>(null);
+  const customProviderRef = useRef(customProvider);
   // A stale response (e.g. from before the desktop process reconnected to a different
   // gateway) must never overwrite a fresher one — same fencing store.refreshModels() uses.
   const guard = useRef(createGenerationGuard());
@@ -63,9 +71,10 @@ export function ModelCurationPanel({
     setLoading(true);
     try {
       const rows = await gateway.domains.sessions?.modelCatalogFull?.() ?? [];
-      if (guard.current.isCurrent(token)) { setCatalog(rows); setLoadError(''); }
+      if (guard.current.isCurrent(token)) { setCatalog(rows); setLoadError(''); return rows; }
     } catch (err) {
       if (guard.current.isCurrent(token)) setLoadError(err instanceof Error ? err.message : 'Model catalog unavailable');
+      return null;
     } finally {
       if (guard.current.isCurrent(token)) setLoading(false);
     }
@@ -134,40 +143,145 @@ export function ModelCurationPanel({
   };
 
   const toggleModel = (row: ModelCatalogEntry) => void setRowVisibility([{ provider: row.provider, modelId: row.modelId, visible: !row.visible }]);
-  const toggleGroup = (group: ProviderGroup, next: boolean) => void setRowVisibility(group.rows.filter((row) => row.visible !== next).map((row) => ({ provider: row.provider, modelId: row.modelId, visible: next })));
+  const toggleGroup = (rows: ModelCatalogEntry[], next: boolean) => void setRowVisibility(rows.filter((row) => row.visible !== next).map((row) => ({ provider: row.provider, modelId: row.modelId, visible: next })));
+  const fingerprint = JSON.stringify(customProvider);
+  const updateCustomProvider = (field: keyof CustomProviderInput, value: string) => {
+    setCustomProvider((current) => {
+      const next = { ...current, [field]: value };
+      customProviderRef.current = next;
+      return next;
+    });
+    setTestedFingerprint('');
+    setCustomState('idle');
+    setCustomMessage('');
+  };
+  const testCustomProvider = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!gateway.domains.sessions?.testCustomProvider) return;
+    const submitted = customProvider;
+    const submittedFingerprint = JSON.stringify(submitted);
+    setCustomState('testing');
+    setCustomMessage('Testing connection…');
+    try {
+      const result = await gateway.domains.sessions.testCustomProvider(submitted);
+      if (JSON.stringify(customProviderRef.current) !== submittedFingerprint) return;
+      setTestedFingerprint(submittedFingerprint);
+      setCustomState('success');
+      setCustomMessage(`Connected · ${result.modelCount} ${result.modelCount === 1 ? 'model' : 'models'} found`);
+    } catch (error) {
+      if (JSON.stringify(customProviderRef.current) !== submittedFingerprint) return;
+      setTestedFingerprint('');
+      setCustomState('error');
+      setCustomMessage(error instanceof Error ? error.message : 'Connection test failed. Check the fields and try again.');
+    }
+  };
+  const refreshSavedCustomProvider = async (saved: SavedCustomProvider) => {
+    setCustomState('refreshing');
+    const [full, picker] = await Promise.allSettled([load(), refreshModels()]);
+    const rows = full.status === 'fulfilled' ? full.value : null;
+    if (!rows || picker.status === 'rejected' || picker.value === false) {
+      setCustomState('refresh-error');
+      setCustomMessage('Provider saved, but models could not be refreshed. Refresh failed. Try again.');
+      return;
+    }
+    const visibleModels = rows.filter((row) => row.provider === saved.providerId && row.modelId);
+    if (visibleModels.length < saved.modelCount) {
+      setCustomState('pending');
+      setCustomMessage(`Provider safely saved · ${saved.modelCount} ${saved.modelCount === 1 ? 'model' : 'models'} still refreshing`);
+      return;
+    }
+    setCustomState('saved');
+    setCustomMessage(`Provider saved · ${saved.modelCount} ${saved.modelCount === 1 ? 'model' : 'models'} available`);
+    setCollapsed((current) => ({ ...current, [saved.providerId]: false }));
+  };
+  const saveCustomProvider = async () => {
+    if (!gateway.domains.sessions?.saveCustomProvider || testedFingerprint !== fingerprint) return;
+    const submitted = customProvider;
+    setCustomState('saving');
+    setCustomMessage('Saving provider…');
+    let result: Awaited<ReturnType<NonNullable<typeof gateway.domains.sessions.saveCustomProvider>>>;
+    try {
+      result = await gateway.domains.sessions.saveCustomProvider(submitted);
+    } catch (error) {
+      setCustomState('error');
+      setCustomMessage(error instanceof Error ? error.message : 'Provider could not be saved. Test the connection and try again.');
+      return;
+    }
+    const empty = { providerId: '', name: '', baseURL: '', apiKey: '' };
+    customProviderRef.current = empty;
+    setCustomProvider(empty);
+    setTestedFingerprint('');
+    const saved = { providerId: result.providerId, modelCount: result.modelCount };
+    setSavedCustomProvider(saved);
+    if (result.pending) {
+      setCustomState('pending');
+      setCustomMessage(`Provider safely saved · ${result.modelCount} ${result.modelCount === 1 ? 'model' : 'models'} still refreshing`);
+      return;
+    }
+    setCustomState('saved');
+    setCustomMessage(`Provider saved · ${result.modelCount} ${result.modelCount === 1 ? 'model' : 'models'} available`);
+    await refreshSavedCustomProvider(saved);
+  };
+  const customFieldsDisabled = customState === 'saving';
+  const showCustomRefresh = Boolean(savedCustomProvider && ['pending', 'refreshing', 'refresh-error'].includes(customState));
 
   return <div className="model-curation" data-testid="model-curation-panel">
     {loadError && <p role="alert">{loadError} <button className="text-button" type="button" onClick={() => void load()}>Retry</button></p>}
     {visibilityError && <p role="alert" data-testid="model-curation-visibility-error">{visibilityError}</p>}
     {providerActionError && <p role="alert">{providerActionError}</p>}
     {providerNotice && <p role="status">{providerNotice}</p>}
+    <details className="custom-provider">
+      <summary data-testid="custom-provider-disclosure">Add custom provider</summary>
+      <form className="custom-provider-form" onSubmit={(event) => void testCustomProvider(event)}>
+        <p id="custom-provider-help" data-testid="custom-provider-help">Connect an OpenAI-compatible endpoint. Rhythm discovers models from its <code>/models</code> endpoint before saving.</p>
+        <div className="custom-provider-fields">
+          <label>Provider name<input required disabled={customFieldsDisabled} autoComplete="off" value={customProvider.name} onChange={(event) => updateCustomProvider('name', event.target.value)} /></label>
+          <label>Provider ID<input required disabled={customFieldsDisabled} autoComplete="off" pattern="[a-z0-9][a-z0-9-_]*" value={customProvider.providerId} onChange={(event) => updateCustomProvider('providerId', event.target.value)} /></label>
+          <label>Base URL<input required disabled={customFieldsDisabled} type="url" autoComplete="url" aria-describedby="custom-provider-help" value={customProvider.baseURL} onChange={(event) => updateCustomProvider('baseURL', event.target.value)} /></label>
+          <label>API key (optional)<input disabled={customFieldsDisabled} type="password" autoComplete="new-password" value={customProvider.apiKey ?? ''} onChange={(event) => updateCustomProvider('apiKey', event.target.value)} /></label>
+        </div>
+        <div className="custom-provider-actions">
+          <button type="submit" className="secondary-button" disabled={customState === 'testing' || customState === 'saving'} data-testid="custom-provider-test">{customState === 'testing' ? 'Testing…' : 'Test connection'}</button>
+          <button type="button" className="primary-button" disabled={testedFingerprint !== fingerprint || customState !== 'success'} onClick={() => void saveCustomProvider()} data-testid="custom-provider-save">{customState === 'saving' ? 'Saving…' : 'Save provider'}</button>
+        </div>
+        <p className={`custom-provider-status ${customState === 'error' ? 'is-error' : ''}`} role={customState === 'error' ? 'alert' : 'status'} aria-live="polite" data-testid="custom-provider-status">{customMessage}</p>
+        {showCustomRefresh && <button type="button" className="secondary-button custom-provider-refresh" disabled={customState === 'refreshing'} onClick={() => savedCustomProvider && void refreshSavedCustomProvider(savedCustomProvider)} data-testid="custom-provider-refresh">{customState === 'refreshing' ? 'Refreshing…' : 'Refresh models'}</button>}
+      </form>
+    </details>
     <label className="list-inspector-search model-curation-search"><span className="sr-only">Search models</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by provider, model id, or name" data-testid="model-curation-search" /></label>
     {loading && <p role="status">Loading model catalog…</p>}
     {!loading && !loadError && visibleGroups.length === 0 && <div className="agent-settings-empty" role="status"><strong>No matching models</strong><p>Try a different provider, model id, or name.</p></div>}
     <div className="model-curation-groups">
       {!loading && visibleGroups.map((group) => {
         const expanded = term ? true : !collapsed[group.provider];
-        const visibleCount = group.rows.filter((row) => row.visible).length;
-        const allSelected = group.rows.length > 0 && visibleCount === group.rows.length;
+        const localTerm = (providerSearch[group.provider] ?? '').trim().toLocaleLowerCase();
+        const filtered = Boolean(term || localTerm);
+        const displayedRows = localTerm ? group.rows.filter((row) => row.modelId.toLocaleLowerCase().includes(localTerm) || row.displayName.toLocaleLowerCase().includes(localTerm)) : group.rows;
+        const visibleCount = displayedRows.filter((row) => row.visible).length;
+        const allSelected = displayedRows.length > 0 && visibleCount === displayedRows.length;
         const mixed = visibleCount > 0 && !allSelected;
         const togglable = group.status === 'connected';
-        const groupPending = group.rows.some((row) => pending.has(visibilityKey(row)));
+        const groupPending = displayedRows.some((row) => pending.has(visibilityKey(row)));
         return <section key={group.provider} className="model-curation-group" data-testid={`model-curation-group-${group.provider}`}>
-          <button type="button" className="model-curation-group-header" aria-expanded={expanded} onClick={() => setCollapsed((current) => ({ ...current, [group.provider]: !current[group.provider] }))} data-testid={`model-curation-group-toggle-${group.provider}`}>
-            <Icon name={expanded ? 'chevronDown' : 'chevronRight'} size={13} aria-hidden="true" />
-            <span className="model-curation-group-title">{group.label}</span>
-            <span className={`kind-badge model-curation-status-${group.status}`}>{statusLabel[group.status]}</span>
-          </button>
+          <div className="model-curation-group-heading">
+            <button type="button" className="model-curation-group-header" aria-expanded={expanded} onClick={() => setCollapsed((current) => ({ ...current, [group.provider]: !current[group.provider] }))} data-testid={`model-curation-group-toggle-${group.provider}`}>
+              <Icon name={expanded ? 'chevronDown' : 'chevronRight'} size={13} aria-hidden="true" />
+              <span className="model-curation-group-title">{group.label}</span>
+              <span className={`kind-badge model-curation-status-${group.status}`}>{statusLabel[group.status]}</span>
+            </button>
+            {group.rows.length > 0 && <label className="model-curation-provider-search"><span className="sr-only">Search {group.label} models</span><input type="search" value={providerSearch[group.provider] ?? ''} onChange={(event) => setProviderSearch((current) => ({ ...current, [group.provider]: event.target.value }))} placeholder={`Search ${group.label} models`} data-testid={`model-curation-provider-search-${group.provider}`} /></label>}
+          </div>
           {expanded && <div className="model-curation-group-body">
-            {group.rows.length > 0 && <label className="switch-label model-curation-all-none">
+            {displayedRows.length > 0 && <label className="switch-label model-curation-all-none">
               <input type="checkbox" aria-checked={mixed ? 'mixed' : allSelected} checked={allSelected}
                 ref={(element) => { if (element) element.indeterminate = mixed; }}
-                disabled={!togglable || groupPending} onChange={() => toggleGroup(group, !allSelected)}
-                aria-label={`Show all ${group.label} models`} data-testid={`model-curation-all-${group.provider}`} />
-              <span />All / none
+                disabled={!togglable || groupPending} onChange={() => toggleGroup(displayedRows, !allSelected)}
+                aria-label={`Show all ${filtered ? 'displayed ' : ''}${group.label} models`} data-testid={`model-curation-all-${group.provider}`} />
+              <span />All / none{filtered ? ' shown' : ''}
             </label>}
             {group.rows.length === 0 && <p className="model-curation-empty">No models reported for this provider yet.</p>}
-            {group.rows.map((row) => {
+            {group.rows.length > 0 && displayedRows.length === 0 && <p className="model-curation-empty" role="status">No matching models for this provider.</p>}
+            {displayedRows.map((row) => {
               const busy = pending.has(visibilityKey(row));
               return <label key={row.modelId} className="switch-label model-curation-row" data-testid={`model-curation-model-${group.provider}-${row.modelId}`}>
                 <input type="checkbox" role="switch" checked={row.visible} disabled={!togglable || busy} onChange={() => toggleModel(row)} aria-label={`Show ${row.displayName} in model pickers`} />

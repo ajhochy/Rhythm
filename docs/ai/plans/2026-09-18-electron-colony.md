@@ -95,7 +95,7 @@ protocol request field) without a separate reviewed runtime upgrade.
 
 ## Pinned build inputs
 
-- Bot Crossing source: `52893a5f83e2bd9e1c581a106a4847b39356c852`
+- Bot Crossing source: `4e6ed18409a4d6507bf9cec4808b1952ce426eaf`
 - Electron 40.10.2 (`electronMajor: 40`)
 - Node 22.23.0, matching the Electron release packager and providing `node:sqlite`
 - Minimum macOS 12.0

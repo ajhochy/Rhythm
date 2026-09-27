@@ -45,6 +45,7 @@ import { opencodeSkillsRouter } from './routes/opencode_skills_routes';
 import { opencodeCommandsRouter } from './routes/opencode_commands_routes';
 import { opencodeWorktreesRouter } from './routes/opencode_worktrees_routes';
 import { opencodeSpilloverRouter } from './routes/opencode_spillover_routes';
+import { opencodeProvidersRouter } from './routes/opencode_providers_routes';
 import { syncRouter } from './routes/sync_routes';
 import { ptyRouter } from './routes/pty_routes';
 import { createRelayGatewayRouter } from './routes/relay_gateway_routes';
@@ -301,15 +302,7 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
     // only exists when the agent runtime is stood up.
     app.use('/system', systemRouter);
 
-    // M5-2: custom provider definitions placeholder. Returns 501 until the
-    // SDK config writer is wired through `opencode_plugin_config.ts`.
-    app.put('/opencode/providers', (_req, res) => {
-      res.status(501).json({
-        error: 'NOT_IMPLEMENTED',
-        message:
-          'Custom provider definitions are not yet wired through opencode_plugin_config.ts. Edit opencode.json directly for now.',
-      });
-    });
+    app.use('/opencode/providers', opencodeProvidersRouter);
 
     // OCU-09 (#1050) — Playbooks: custom slash-command CRUD (list/content/
     // create/edit/delete) writing managed `commands/*.md` + config reload.

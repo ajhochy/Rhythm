@@ -1281,6 +1281,40 @@ export class OpencodeClientService {
     }
   }
 
+  /** Remove a newly-created provider credential through the typed v2 engine API. */
+  async removeAuth(providerId: string): Promise<boolean> {
+    try {
+      const client = await this.v2Client();
+      const raw = await client.auth.remove({ providerID: providerId });
+      return raw.data === true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Read the schema-validated global engine config used by PATCH /global/config. */
+  async getGlobalConfig(): Promise<Record<string, unknown> | null> {
+    try {
+      const client = await this.v2Client();
+      const raw = await client.global.config.get();
+      if (raw.error || !raw.data || typeof raw.data !== 'object') return null;
+      return raw.data as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Persist a global config patch; the engine validates, writes, and disposes instances. */
+  async updateGlobalConfig(config: Record<string, unknown>): Promise<boolean> {
+    try {
+      const client = await this.v2Client();
+      const raw = await client.global.config.update({ config: config as never });
+      return !raw.error && Boolean(raw.data);
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Create a new Opencode session with an optional working directory.
    *

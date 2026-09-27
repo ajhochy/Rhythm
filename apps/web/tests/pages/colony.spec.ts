@@ -24,7 +24,7 @@ async function mockColony(page: Page, options: { enabled?: boolean; available?: 
         discoverSources: async () => { calls.push({ action: 'discover' }); return sources; },
         setSource: async (id: string, value: boolean) => { calls.push({ action: 'setSource', payload: { id, enabled: value } }); sources = sources.map((source) => source.id === id ? { ...source, enabled: value } : source); return { v: 1, available: true, enabled, sources }; },
         setEnabled: async (value: boolean) => { calls.push({ action: 'setEnabled', payload: value }); enabled = value; return { v: 1, available: true, enabled, sources }; },
-        attach: async () => { calls.push({ action: 'attach' }); return outcomes[Math.min(attempt++, outcomes.length - 1)]; },
+        attach: async () => { calls.push({ action: 'attach' }); return { attachment: 'stable-attachment', ...outcomes[Math.min(attempt++, outcomes.length - 1)] }; },
         setBounds: async (bounds: unknown) => { calls.push({ action: 'bounds', payload: bounds }); return true; },
         detach: async () => { calls.push({ action: 'detach' }); return true; },
         onEvent: (subscriber: (message: { event: string; payload: Record<string, unknown> }) => void) => { subscribers.add(subscriber); return () => subscribers.delete(subscriber); },
@@ -77,6 +77,39 @@ test('1530:native-host:3 enable attaches once, resizes, and route departure deta
   await expect.poll(async () => (await calls(page, 'bounds')).length).toBeGreaterThan(before);
   await page.evaluate(() => { window.location.hash = '/tasks'; });
   await expect.poll(async () => (await calls(page, 'detach')).length).toBe(1);
+  await expect.poll(async () => (await calls(page, 'bounds')).at(-1)?.payload).toEqual({ x: 0, y: 0, width: 0, height: 0 });
+});
+
+test('task-bot-crossing-c9 web hash tabs hide then restore the same native attachment without reset loading', async ({ page }) => {
+  // Regression: route cleanup tears down the native scene and the return visit displays a fresh loading reset.
+  await mockColony(page, { enabled: true });
+  await openPage(page, '/colony');
+  await expect(page.getByRole('region', { name: 'Bot Crossing scene' })).toBeVisible();
+  await expect.poll(async () => (await calls(page, 'attach')).length).toBe(1);
+  await page.evaluate(() => {
+    const decorate = () => {
+      const host = document.querySelector('[data-colony-host]');
+      if (host && !host.querySelector('[data-scene-marker]')) {
+        const marker = document.createElement('div');
+        marker.setAttribute('data-scene-marker', '');
+        marker.setAttribute('style', 'position:absolute;inset:40% auto auto 40%;padding:12px;background:#17324d;color:white;border-radius:8px');
+        marker.textContent = 'Selected rhythm:recent-0 · Camera 12,8,24';
+        host.appendChild(marker);
+      }
+    };
+    decorate();
+    new MutationObserver(decorate).observe(document.body, { childList: true, subtree: true });
+  });
+  await expect(page.getByText('Selected rhythm:recent-0 · Camera 12,8,24')).toBeVisible();
+  await page.screenshot({ path: '../../docs/ai/artifacts/bot-crossing-colony-before.png' });
+  await page.evaluate(() => { window.location.hash = '/tasks'; });
+  await expect.poll(async () => (await calls(page, 'detach')).length).toBe(1);
+  await page.evaluate(() => { window.location.hash = '/colony'; });
+  await expect(page.getByRole('region', { name: 'Bot Crossing scene' })).toBeVisible();
+  await expect.poll(async () => (await calls(page, 'attach')).length).toBe(2);
+  await expect(page.getByText('Loading Bot Crossing settings…')).toHaveCount(0);
+  await expect(page.getByText('Selected rhythm:recent-0 · Camera 12,8,24')).toBeVisible();
+  await page.screenshot({ path: '../../docs/ai/artifacts/bot-crossing-colony-after.png' });
 });
 
 test('Bot Crossing normal state is only a full-bleed native scene host', async ({ page }) => {

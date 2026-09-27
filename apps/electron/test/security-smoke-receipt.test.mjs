@@ -27,7 +27,7 @@ const validReceipt = {
     remoteEnvironments: { keys: REMOTE_ENVIRONMENTS_KEYS, frozen: true },
     updates: { keys: UPDATE_KEYS, frozen: true },
     nodeExposed: false,
-    value: { version: 6 },
+    value: { version: 7 },
   },
   denials: {
     navigation: true,
@@ -121,7 +121,7 @@ test('signed security smoke rejects every unsafe bridge and denial invariant', (
     (receipt) => { receipt.bridge.remoteEnvironments.frozen = false; },
     (receipt) => { receipt.bridge.updates.keys.push('install'); },
     (receipt) => { receipt.bridge.updates.frozen = false; },
-    (receipt) => { receipt.bridge.value.version = '5'; },
+    (receipt) => { receipt.bridge.value.version = 6; },
     (receipt) => { receipt.denials.navigation = false; },
     (receipt) => { receipt.denials.popup = false; },
     (receipt) => { receipt.denials.permission = false; },

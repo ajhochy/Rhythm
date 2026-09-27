@@ -136,9 +136,10 @@ async function lifecycleFixture(run) {
   })
   let sceneContents
   const insertedCss = []
+  const bounds = []
   class WebContentsView {
     constructor() {
-      const frame = { detached: false, url: '', postMessage() {}, send() {} }
+      const frame = { detached: false, url: '', transferred: null, postMessage(_channel, _message, ports) { this.transferred = ports[0] }, send() {} }
       let url = ''
       let loading = false
       sceneContents = Object.assign(new EventEmitter(), {
@@ -162,10 +163,11 @@ async function lifecycleFixture(run) {
       })
       this.webContents = sceneContents
     }
-    setBounds() {}
+    setBounds(value) { bounds.push(value) }
   }
   const ownerFrame = { url: 'rhythm://app/index.html#/colony' }
-  const ownerContents = Object.assign(new EventEmitter(), { mainFrame: ownerFrame, getZoomFactor: () => 1 })
+  let hostFocuses = 0
+  const ownerContents = Object.assign(new EventEmitter(), { mainFrame: ownerFrame, getZoomFactor: () => 1, focus: () => { hostFocuses++ } })
   const contentView = {
     children: [],
     addChildView(view) { this.children.push(view) },
@@ -204,7 +206,7 @@ async function lifecycleFixture(run) {
     spawnChild: () => { launches++; return child },
   })
   const event = { sender: ownerContents, senderFrame: ownerFrame }
-  try { await run({ host, ipcMain, event, partition, sceneContents: () => sceneContents, contentView, launches: () => launches, insertedCss }) }
+  try { await run({ host, ipcMain, event, ownerFrame, ownerContents, partition, sceneContents: () => sceneContents, contentView, launches: () => launches, hostFocuses: () => hostFocuses, insertedCss, bounds }) }
   finally {
     child.exitCode = 0
     child.emit('exit', 0, null)
@@ -225,6 +227,84 @@ test('native scene injects the Rhythm HUD skin after every document load', async
     await new Promise((resolve) => setImmediate(resolve))
     assert.equal(insertedCss.length, 2)
     await host.disposeCurrent().catch(() => {})
+  })
+})
+
+test('task-bot-crossing-c9-c12 hash tab departure suspends one native scene and reuses its attachment', async () => {
+  // Regression: #/colony -> #/tasks destroys the view, worker, partition, document, and local scene state.
+  await lifecycleFixture(async ({ host, ipcMain, event, ownerFrame, ownerContents, partition, sceneContents, contentView, launches, hostFocuses, bounds }) => {
+    const attach = ipcMain.handlers.get('colony:view:attach')
+    const detach = ipcMain.handlers.get('colony:view:detach')
+    const setBounds = ipcMain.handlers.get('colony:view:bounds')
+    const first = await attach(event)
+    assert.equal(first.ok, true)
+    ipcMain.emit('colony:scene-ready', { sender: sceneContents(), senderFrame: sceneContents().mainFrame }, { v: 1, product: 'colony' })
+    assert.equal(await setBounds(event, { attachment: first.attachment, bounds: { x: 10, y: 20, width: 300, height: 200 } }), true)
+    ownerFrame.url = 'rhythm://app/index.html#/tasks'
+    ownerContents.emit('did-navigate-in-page')
+    await new Promise(resolve => setImmediate(resolve))
+    assert.deepEqual(bounds.at(-1), { x: 0, y: 0, width: 0, height: 0 })
+    assert.equal(contentView.children.length, 1)
+    assert.equal(sceneContents().closed, false)
+    assert.equal(partition.storageCleared, false)
+    assert.equal(partition.unhandled, false)
+    assert.equal(launches(), 1)
+    assert.equal(hostFocuses(), 1, 'suspend must transfer keyboard focus back to the Rhythm host')
+    const hiddenEvent = sceneContents().mainFrame.transferred.peer.messages.at(-1)
+    assert.deepEqual(hiddenEvent, {
+      v: 1, documentId: hiddenEvent.documentId,
+      event: 'host.visibility', payload: { hidden: true },
+    })
+    const sceneMessages = sceneContents().mainFrame.transferred.peer.messages.length
+    ipcMain.emit('colony:view:intent', { sender: ownerContents, senderFrame: ownerFrame }, {
+      attachment: first.attachment, event: 'host.select', payload: { threadId: 'rhythm:hidden-shortcut' },
+    })
+    assert.equal(sceneContents().mainFrame.transferred.peer.messages.length, sceneMessages, 'hidden scene shortcut intent must be blocked off-route')
+    assert.equal(await detach(event, { attachment: first.attachment }), false, 'non-Colony route has no action authority')
+    ownerFrame.url = 'rhythm://app/index.html#/colony'
+    ownerContents.emit('did-navigate-in-page')
+    const second = await attach(event)
+    assert.equal(second.attachment, first.attachment)
+    assert.equal(launches(), 1)
+  })
+})
+
+test('task-bot-crossing-c17 departure before scene readiness queues hidden visibility until port transfer', async () => {
+  // Regression: a fast tab departure happens before port creation, so the scene starts visible and polls/plays audio off-route.
+  await lifecycleFixture(async ({ ipcMain, event, ownerFrame, ownerContents, sceneContents, hostFocuses }) => {
+    const first = await ipcMain.handlers.get('colony:view:attach')(event)
+    assert.equal(first.ok, true)
+    ownerFrame.url = 'rhythm://app/index.html#/tasks'
+    ownerContents.emit('did-navigate-in-page')
+    assert.equal(hostFocuses(), 1)
+    assert.equal(sceneContents().mainFrame.transferred, null)
+    ipcMain.emit('colony:scene-ready', { sender: sceneContents(), senderFrame: sceneContents().mainFrame }, { v: 1, product: 'colony' })
+    const messages = sceneContents().mainFrame.transferred.peer.messages
+    assert.equal(messages.length, 1)
+    assert.equal(messages[0].event, 'host.visibility')
+    assert.deepEqual(messages[0].payload, { hidden: true })
+  })
+})
+
+test('task-bot-crossing-c19 run evidence labels screenshots synthetic and blocks native continuity proof on packaging', async () => {
+  // Regression: bridge fixture screenshots are presented as proof of native WebContentsView camera/HUD continuity.
+  const note = await fs.readFile(new URL('../../../docs/ai/runs/2026-09-26-bot-crossing-persistence-auto-archive.md', import.meta.url), 'utf8')
+  assert.match(note, /synthetic bridge lifecycle fixtures/i)
+  assert.match(note, /do not prove native camera\/HUD continuity/i)
+  assert.match(note, /packaged verification blocker/i)
+})
+
+test('task-bot-crossing-c11 full-document host navigation still fully disposes scene storage and worker ownership', async () => {
+  // Regression: broad persistence accidentally keeps a privileged scene alive across reload/document replacement.
+  await lifecycleFixture(async ({ ipcMain, event, ownerContents, partition, sceneContents, contentView }) => {
+    const first = await ipcMain.handlers.get('colony:view:attach')(event)
+    assert.equal(first.ok, true)
+    ownerContents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false }, 'rhythm://app/index.html', false, true)
+    await new Promise(resolve => setTimeout(resolve, 20))
+    assert.equal(contentView.children.length, 0)
+    assert.equal(sceneContents().closed, true)
+    assert.equal(partition.storageCleared, true)
+    assert.equal(partition.unhandled, true)
   })
 })
 

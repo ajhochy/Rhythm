@@ -54,7 +54,7 @@ interface FixtureContextValue {
   models: ModelChoice[]; accounts: AccountChoice[]; catalogError: string;
   // #1580: re-fetches the model catalog on demand (e.g. right after a visibility PATCH) so
   // every picker reflects curation immediately, without a restart or session switch.
-  refreshModels(): Promise<void>;
+  refreshModels(): Promise<boolean>;
   turnOverride: TurnOverride; stageTurnOverride(patch: TurnOverride): void;
   saveSessionSettings(id: string, input: SessionSettings): Promise<void>;
   selectedId: string; selected: Session; scope: SessionScope; theme: Theme; inspectorTab: InspectorTab; demo: DemoState;
@@ -211,13 +211,15 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   // race each other into painting a stale account's rows over the current one.
   const modelsGuard = useRef(createGenerationGuard());
   const refreshModels = useCallback(async () => {
-    if (!live) return;
+    if (!live) return true;
     const token = modelsGuard.current.begin();
     try {
       const rows = await gateway.domains.sessions?.models?.() ?? [];
       if (modelsGuard.current.isCurrent(token)) setModels(rows);
+      return true;
     } catch {
       if (modelsGuard.current.isCurrent(token)) setCatalogError('Model catalog unavailable');
+      return false;
     }
   }, [gateway, live]);
   useEffect(() => {

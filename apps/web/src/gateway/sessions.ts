@@ -83,6 +83,8 @@ export type ModelCatalogEntry = {
   authorized: boolean; available: boolean | 'unknown'; visible: boolean;
   availabilityReason: string; connectUrl?: string;
 };
+export type CustomProviderInput = { providerId: string; name: string; baseURL: string; apiKey?: string };
+export type CustomProviderTestResult = { ok: true; providerId: string; modelCount: number; models: Array<{ id: string; name: string }> };
 export type SessionSettings = { name?: string; profileId?: string | null; providerId?: string | null; modelId?: string | null; thinkingBudget?: number | null; permissionMode?: string; fastMode?: boolean; anthropicAccountId?: string };
 export type TurnOverride = { profileId?: string; modelOverride?: { providerId: string; modelId: string } };
 const statusOrder: Record<Session['status'], number> = { working: 0, starting: 1, idle: 2, error: 3, closed: 4, resumable: 5 };
@@ -136,6 +138,8 @@ export interface SessionGateway {
   setModelVisibility?(updates: ModelVisibilityEntry[]): Promise<void>;
   // #1580 S2 — GET /agents/models/catalog/full for the provider-first curation screen.
   modelCatalogFull?(): Promise<ModelCatalogEntry[]>;
+  testCustomProvider?(input: CustomProviderInput): Promise<CustomProviderTestResult>;
+  saveCustomProvider?(input: CustomProviderInput): Promise<{ ok: true; pending?: boolean; providerId: string; modelCount: number }>;
   accounts?(): Promise<AccountChoice[]>;
   startAccountLogin?(input: { accountId: string; label: string }): Promise<{ authorizationUrl: string }>;
   completeAccountLogin?(input: { accountId: string; code: string }): Promise<void>;
@@ -274,6 +278,20 @@ async function response<T>(operation: string, request: Promise<Response>): Promi
   } catch (error) {
     if (error instanceof SessionGatewayError) throw error;
     throw new SessionGatewayError(0, failureText(0, operation));
+  }
+}
+
+async function customProviderResponse<T>(request: Promise<Response>): Promise<T> {
+  try {
+    const result = await request;
+    if (!result.ok) {
+      const body = record(await result.clone().json().catch(() => null));
+      throw new SessionGatewayError(result.status, string(body.message, 'The provider request failed. Check the fields and try again.'));
+    }
+    return await result.json() as T;
+  } catch (error) {
+    if (error instanceof SessionGatewayError) throw error;
+    throw new SessionGatewayError(0, 'The local provider service is unavailable. Try again after the local runtime reconnects.');
   }
 }
 
@@ -522,6 +540,8 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
       }
       return [...seen.values()];
     },
+    testCustomProvider: async (input) => customProviderResponse<CustomProviderTestResult>(request('/opencode/providers/test', { method: 'POST', body: JSON.stringify(input) })),
+    saveCustomProvider: async (input) => customProviderResponse<{ ok: true; pending?: boolean; providerId: string; modelCount: number }>(request('/opencode/providers', { method: 'PUT', body: JSON.stringify(input) })),
     accounts: async () => {
       const body = await response<{ accounts?: unknown[]; defaultAccountId?: string }>('Load accounts', request('/opencode/auth/accounts'));
       return (body.accounts ?? []).map(record).map(row => ({

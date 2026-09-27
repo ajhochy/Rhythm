@@ -102,6 +102,7 @@ export function Composer() {
   const [bypassConfirm, setBypassConfirm] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [attachmentFeedback, setAttachmentFeedback] = useState('');
+  const [fileDragActive, setFileDragActive] = useState(false);
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const [mentionState, setMentionState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [commandsUnavailable, setCommandsUnavailable] = useState(false);
@@ -174,6 +175,26 @@ export function Composer() {
         : (selected.status === 'closed' || selected.status === 'error') && !recoverableSdk
           ? 'This run has ended. Resume it or start fresh if its runtime session is unavailable.'
           : '';
+  const isFileDrag = (event: React.DragEvent) => event.dataTransfer.types.includes('Files');
+  const handleFileDrag = (event: React.DragEvent<HTMLFormElement>) => {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    if (event.type === 'dragenter' || event.type === 'dragover') {
+      event.dataTransfer.dropEffect = disabledReason || !live ? 'none' : 'copy';
+      setFileDragActive(live && !disabledReason);
+    } else if (event.type === 'dragleave' && !event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      setFileDragActive(false);
+    }
+  };
+  const handleFileDrop = (event: React.DragEvent<HTMLFormElement>) => {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    setFileDragActive(false);
+    if (disabledReason) { setAttachmentFeedback(disabledReason); notify(disabledReason); return; }
+    if (!live) return;
+    const files = Array.from(event.dataTransfer.files);
+    if (files.length > 0) setLiveFiles((current) => [...current, ...files]);
+  };
   const atMatch = mentionMatch(draft);
   const atQuery = atMatch?.[1].toLowerCase() ?? '';
   const mentionOptions = useMemo(() => fileFixtures.filter((file) => file.path.toLowerCase().includes(atQuery)), [atQuery]);
@@ -330,7 +351,8 @@ export function Composer() {
   };
 
   return (
-    <form className={`composer ${offline ? 'offline' : ''}`} aria-label="Message composer" onSubmit={(event) => { event.preventDefault(); void submit(); }} data-od-id="agent-composer">
+    <form className={`composer ${offline ? 'offline' : ''} ${fileDragActive ? 'file-drag-active' : ''}`} aria-label="Message composer" onDragEnter={handleFileDrag} onDragOver={handleFileDrag} onDragLeave={handleFileDrag} onDrop={handleFileDrop} onSubmit={(event) => { event.preventDefault(); void submit(); }} data-od-id="agent-composer">
+      {fileDragActive && <div className="composer-drop-status" role="status">Drop files to attach</div>}
       {live && (settingsError || catalogError) && <p role="alert">{settingsError || catalogError}</p>}
       {live && (turnOverride.profileId || turnOverride.modelOverride) && <p role="status">Next turn only: {profiles.find(p => p.id === turnOverride.profileId)?.label} {turnOverride.modelOverride?.modelId}</p>}
       {offline && <div className="offline-queue" role="status" data-testid="offline-queue"><span><Icon name="background" size={15} /><strong>Desktop offline</strong> · input remains local until you reconnect.</span><button className="secondary-button" type="button" onClick={reconnect} data-testid="reconnect-button"><Icon name="refresh" size={14} />Reconnect &amp; flush</button></div>}

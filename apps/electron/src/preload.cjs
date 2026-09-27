@@ -217,9 +217,10 @@ const remoteEnvironments = Object.freeze({
   },
 });
 contextBridge.exposeInMainWorld('rhythmShell', Object.freeze({
-  version: 6,
+  version: 7,
   appVersion,
   platform: process.platform,
+  openExternal: (/** @type {string} */ url) => ipcRenderer.invoke('rhythm:shell:open-external', url),
   gateway,
   auth,
   humanApproval,

@@ -1,3 +1,4 @@
+import { mkdir } from 'node:fs/promises';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page, type Route } from '@playwright/test';
 
@@ -19,10 +20,10 @@ function seedCatalog(): CatalogRow[] {
   ];
 }
 
-type ServerState = { authProviders: string[]; catalog: CatalogRow[]; patches: { provider: string; modelId: string; visible: boolean }[][]; catalogFullRequests: number; catalogRequests: number };
+type ServerState = { authProviders: string[]; catalog: CatalogRow[]; patches: { provider: string; modelId: string; visible: boolean }[][]; catalogFullRequests: number; catalogRequests: number; providerTests: number; providerSaves: number; providerModelCount: number; failProviderTest: boolean; pendingProviderSave: boolean; fullCatalogFailures: number; pickerCatalogFailures: number; providerTestDelayMs: number; providerSaveDelayMs: number };
 
 async function openModels(page: Page): Promise<ServerState> {
-  const state: ServerState = { authProviders: [], catalog: seedCatalog(), patches: [], catalogFullRequests: 0, catalogRequests: 0 };
+  const state: ServerState = { authProviders: [], catalog: seedCatalog(), patches: [], catalogFullRequests: 0, catalogRequests: 0, providerTests: 0, providerSaves: 0, providerModelCount: 2, failProviderTest: false, pendingProviderSave: false, fullCatalogFailures: 0, pickerCatalogFailures: 0, providerTestDelayMs: 0, providerSaveDelayMs: 0 };
   const cors = (origin: string | undefined) => ({ 'access-control-allow-origin': origin ?? '*', 'access-control-allow-headers': 'authorization,content-type', 'access-control-allow-methods': 'GET,POST,PATCH,OPTIONS' });
 
   await page.route('https://api.vcrcapps.com/**', (route) => {
@@ -44,13 +45,31 @@ async function openModels(page: Page): Promise<ServerState> {
     if (url.pathname === '/opencode/auth/openai/authorize') return route.fulfill({ status: 200, headers, json: { authUrl: 'https://openai.example/authorize', instructions: 'Sign in with ChatGPT, then paste the code back here.' } });
     if (url.pathname === '/opencode/auth/google/authorize') return route.fulfill({ status: 200, headers, json: { authUrl: 'https://google.example/authorize', instructions: 'Sign in with Google, then check back here.' } });
     if (url.pathname === '/opencode/auth/openai/callback') { state.authProviders = [...new Set([...state.authProviders, 'openai'])]; return route.fulfill({ status: 200, headers, json: { ok: true } }); }
+    if (url.pathname === '/opencode/providers/test' && request.method() === 'POST') {
+      state.providerTests++;
+      if (state.providerTestDelayMs) await new Promise((resolve) => setTimeout(resolve, state.providerTestDelayMs));
+      if (state.failProviderTest) return route.fulfill({ status: 502, headers, json: { error: 'provider_auth_failed', message: 'The provider rejected the API key.' } });
+      return route.fulfill({ status: 200, headers, json: { ok: true, providerId: 'studio-local', modelCount: state.providerModelCount, models: [{ id: 'canvas-pro', name: 'canvas-pro' }, { id: 'text-mini', name: 'text-mini' }].slice(0, state.providerModelCount) } });
+    }
+    if (url.pathname === '/opencode/providers' && request.method() === 'PUT') {
+      state.providerSaves++;
+      if (state.providerSaveDelayMs) await new Promise((resolve) => setTimeout(resolve, state.providerSaveDelayMs));
+      if (state.pendingProviderSave) return route.fulfill({ status: 202, headers, json: { ok: true, pending: true, providerId: 'studio-local', modelCount: 2 } });
+      state.catalog.push(
+        { provider: 'studio-local', modelId: 'canvas-pro', displayName: 'canvas-pro', authorized: true, available: true, visible: true, availabilityReason: 'available' },
+        { provider: 'studio-local', modelId: 'text-mini', displayName: 'text-mini', authorized: true, available: true, visible: true, availabilityReason: 'available' },
+      );
+      return route.fulfill({ status: 200, headers, json: { ok: true, providerId: 'studio-local', modelCount: 2 } });
+    }
     if (url.pathname === '/agents/models/catalog/full') {
       state.catalogFullRequests++;
+      if (state.fullCatalogFailures > 0) { state.fullCatalogFailures--; return route.fulfill({ status: 503, headers, json: { error: 'catalog_refresh_failed' } }); }
       const rows = state.catalog.map((row) => row.provider === 'openai' ? { ...row, authorized: state.authProviders.includes('openai'), available: state.authProviders.includes('openai') } : row);
       return route.fulfill({ status: 200, headers, json: rows });
     }
     if (url.pathname === '/agents/models/catalog') {
       state.catalogRequests++;
+      if (state.pickerCatalogFailures > 0) { state.pickerCatalogFailures--; return route.fulfill({ status: 503, headers, json: { error: 'picker_refresh_failed' } }); }
       const rows = state.catalog.filter((row) => row.visible && (row.authorized || false)).map((row) => ({ ...row }));
       return route.fulfill({ status: 200, headers, json: rows });
     }
@@ -70,6 +89,24 @@ async function openModels(page: Page): Promise<ServerState> {
   await expect.poll(() => state.catalogFullRequests > 0).toBe(true);
   await expect(page.getByTestId('model-curation-panel')).toBeVisible();
   return state;
+}
+
+async function prepareCustomProvider(page: Page) {
+  await page.getByTestId('custom-provider-disclosure').click();
+  await page.getByLabel('Provider name').fill('Studio Local');
+  await page.getByLabel('Provider ID').fill('studio-local');
+  await page.getByLabel('Base URL').fill('http://127.0.0.1:8787/v1');
+  await page.getByLabel('API key (optional)').fill('synthetic-ui-key');
+  await page.getByTestId('custom-provider-test').click();
+  await expect(page.getByTestId('custom-provider-status')).toHaveText('Connected · 2 models found');
+}
+
+function addStudioCatalog(state: ServerState) {
+  if (state.catalog.some((row) => row.provider === 'studio-local')) return;
+  state.catalog.push(
+    { provider: 'studio-local', modelId: 'canvas-pro', displayName: 'canvas-pro', authorized: true, available: true, visible: true, availabilityReason: 'available' },
+    { provider: 'studio-local', modelId: 'text-mini', displayName: 'text-mini', authorized: true, available: true, visible: true, availabilityReason: 'available' },
+  );
 }
 
 test('1580:S2:1 provider badges reflect connected/needs-login/unavailable, and Connect re-fetches the catalog and provider status in place', async ({ page }) => {
@@ -228,6 +265,86 @@ test('1580:S2:6 at 390px width every control has a label and the panel does not 
   await expect(modelSwitch).toHaveAttribute('aria-label', /Claude Terra/);
 });
 
+test('provider-search-c1: each populated provider has a compact named search outside its toggle', async ({ page }) => {
+  // Regression: placing a search inside the provider button creates nested interactive controls;
+  // the button-ancestor and accessible-name assertions fail if that structure returns.
+  await openModels(page);
+  for (const provider of ['openai', 'openrouter', 'ollama']) {
+    const search = page.getByTestId(`model-curation-provider-search-${provider}`);
+    await expect(search).toHaveAccessibleName(new RegExp(provider, 'i'));
+    expect(await search.evaluate((element) => Boolean(element.closest('button')))).toBe(false);
+  }
+});
+
+test('provider-search-c2: local name/id matching is case-insensitive and isolated to one provider', async ({ page }) => {
+  // Regression: a provider-local query accidentally filtered every provider; the OpenAI row
+  // visibility assertion fails, while name and raw-ID assertions guard both match fields.
+  await openModels(page);
+  const search = page.getByTestId('model-curation-provider-search-openrouter');
+  await search.fill('CLAUDE TERRA');
+  await expect(page.getByTestId('model-curation-model-openrouter-anthropic/claude-terra')).toBeVisible();
+  await expect(page.getByTestId('model-curation-model-openrouter-meta/llama-4')).toHaveCount(0);
+  await expect(page.getByTestId('model-curation-model-openai-gpt-6')).toBeVisible();
+  await search.fill('META/LLAMA-4');
+  await expect(page.getByTestId('model-curation-model-openrouter-meta/llama-4')).toBeVisible();
+});
+
+test('provider-search-c3: no local matches keeps the provider and explains the empty result', async ({ page }) => {
+  // Regression: local filtering removed the whole provider card; both visibility assertions fail.
+  await openModels(page);
+  await page.getByTestId('model-curation-provider-search-openrouter').fill('no-such-model');
+  const group = page.getByTestId('model-curation-group-openrouter');
+  await expect(group).toBeVisible();
+  const noResults = group.getByText('No matching models for this provider.', { exact: true });
+  await expect(noResults).toHaveAttribute('role', 'status');
+  await mkdir('../../docs/ai/runs/artifacts/composer-drop-provider-model-search', { recursive: true });
+  await group.screenshot({ path: '../../docs/ai/runs/artifacts/composer-drop-provider-model-search/provider-search-no-results.png' });
+});
+
+test('provider-search-c4: keyboard collapse preserves provider-local search state', async ({ page }) => {
+  // Regression: putting search state in the collapsible body reset it on unmount; the value
+  // assertion after Enter/Space catches that loss while aria-expanded guards keyboard toggling.
+  await openModels(page);
+  const search = page.getByTestId('model-curation-provider-search-openrouter');
+  const toggle = page.getByTestId('model-curation-group-toggle-openrouter');
+  await search.fill('terra');
+  await toggle.focus();
+  await page.keyboard.press('Enter');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await page.keyboard.press(' ');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(search).toHaveValue('terra');
+});
+
+test('provider-search-c5: All / none reflects and patches only displayed rows during search', async ({ page }) => {
+  // Regression: bulk selection mutated hidden models; exact PATCH payloads fail if either the
+  // provider-local or global search is ignored by tri-state/bulk behavior.
+  const state = await openModels(page);
+  const localSearch = page.getByTestId('model-curation-provider-search-openrouter');
+  const allNone = page.getByTestId('model-curation-all-openrouter');
+  const allNoneLabel = allNone.locator('..');
+  await expect(allNone).toHaveAccessibleName('Show all OpenRouter models');
+  await expect(allNoneLabel).toHaveText('All / none');
+  await localSearch.fill('terra');
+  await expect(allNone).toHaveAccessibleName('Show all displayed OpenRouter models');
+  await expect(allNoneLabel).toHaveText('All / none shown');
+  await expect(allNone).toHaveAttribute('aria-checked', 'true');
+  await allNone.click();
+  await expect.poll(() => state.patches.length).toBe(1);
+  expect(state.patches[0]).toEqual([{ provider: 'openrouter', modelId: 'anthropic/claude-terra', visible: false }]);
+
+  await localSearch.fill('');
+  await expect(allNone).toHaveAccessibleName('Show all OpenRouter models');
+  await expect(allNoneLabel).toHaveText('All / none');
+  await page.getByTestId('model-curation-search').fill('llama-4');
+  await expect(allNone).toHaveAccessibleName('Show all displayed OpenRouter models');
+  await expect(allNoneLabel).toHaveText('All / none shown');
+  await expect(allNone).toHaveAttribute('aria-checked', 'false');
+  await allNone.click();
+  await expect.poll(() => state.patches.length).toBe(2);
+  expect(state.patches[1]).toEqual([{ provider: 'openrouter', modelId: 'meta/llama-4', visible: true }]);
+});
+
 test('1580 layout: model rows are readable text and the settings pane fits between header and footer', async ({ page }) => {
   // Regressions a rendered look would have caught (the no-overflow checks above passed on both):
   // the global `.switch-label > span` track rule clamped each row's name/id to 34x20px, and the
@@ -252,4 +369,218 @@ test('1580 layout: model rows are readable text and the settings pane fits betwe
   expect(eyebrow!.y).toBeGreaterThanOrEqual(back!.y + back!.height - 1);
   await expect(page.getByTestId('model-curation-group-openai').locator('.kind-badge').first()).toHaveCSS('text-transform', 'none');
   await page.screenshot({ path: 'test-results/issue-1580-page.png' });
+});
+
+test('custom-provider-c9/c10: disclosure is accessible, test success enables save, and editing invalidates the exact tested values', async ({ page }) => {
+  const state = await openModels(page);
+  const disclosure = page.getByTestId('custom-provider-disclosure');
+  await expect(disclosure).toHaveAccessibleName('Add custom provider');
+  await disclosure.click();
+  await expect(page.getByLabel('Provider name')).toBeVisible();
+  await expect(page.getByLabel('Provider ID')).toBeVisible();
+  await expect(page.getByLabel('Base URL')).toBeVisible();
+  await expect(page.getByLabel('API key (optional)')).toHaveAttribute('type', 'password');
+  await expect(page.getByTestId('custom-provider-help')).toContainText('OpenAI-compatible');
+
+  await page.getByLabel('Provider name').fill('Studio Local');
+  await page.getByLabel('Provider ID').fill('studio-local');
+  await page.getByLabel('Base URL').fill('http://127.0.0.1:8787/v1');
+  await page.getByLabel('API key (optional)').fill('synthetic-ui-key');
+  await expect(page.getByTestId('custom-provider-save')).toBeDisabled();
+  await page.getByTestId('custom-provider-test').click();
+  await expect(page.getByTestId('custom-provider-status')).toHaveText('Connected · 2 models found');
+  await mkdir('../../docs/ai/runs/artifacts/custom-provider-endpoint', { recursive: true });
+  await page.locator('.custom-provider').screenshot({ path: '../../docs/ai/runs/artifacts/custom-provider-endpoint/test-success.png' });
+  await expect(page.getByTestId('custom-provider-save')).toBeEnabled();
+  expect(state.providerTests).toBe(1);
+
+  await page.getByLabel('Provider name').fill('Studio Local Edited');
+  await expect(page.getByTestId('custom-provider-status')).toBeEmpty();
+  await expect(page.getByTestId('custom-provider-save')).toBeDisabled();
+});
+
+test('custom-provider-c10: singular model count uses exact grammar', async ({ page }) => {
+  const state = await openModels(page);
+  state.providerModelCount = 1;
+  await page.getByTestId('custom-provider-disclosure').click();
+  await page.getByLabel('Provider name').fill('Studio Local');
+  await page.getByLabel('Provider ID').fill('studio-local');
+  await page.getByLabel('Base URL').fill('http://127.0.0.1:8787/v1');
+  await page.getByTestId('custom-provider-test').click();
+  await expect(page.getByTestId('custom-provider-status')).toHaveText('Connected · 1 model found');
+});
+
+test('custom-provider-c10: sanitized actionable failures use an alert live region', async ({ page }) => {
+  const state = await openModels(page);
+  await page.getByTestId('custom-provider-disclosure').click();
+  await page.getByLabel('Provider name').fill('Studio Local');
+  await page.getByLabel('Provider ID').fill('studio-local');
+  await page.getByLabel('Base URL').fill('http://127.0.0.1:8787/v1');
+  state.failProviderTest = true;
+  await page.getByTestId('custom-provider-test').click();
+  const status = page.getByTestId('custom-provider-status');
+  await expect(status).toHaveAttribute('role', 'alert');
+  await expect(status).toContainText('The provider rejected the API key.');
+  await expect(status).not.toContainText('synthetic-ui-key');
+  await expect(page.getByTestId('custom-provider-save')).toBeDisabled();
+});
+
+test('custom-provider-c11/c12: save clears the secret, refreshes catalogs, expands the searchable group, and preserves narrow a11y', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const state = await openModels(page);
+  const disclosure = page.getByTestId('custom-provider-disclosure');
+  await disclosure.click();
+  await page.getByLabel('Provider name').fill('Studio Local');
+  await page.getByLabel('Provider ID').fill('studio-local');
+  await page.getByLabel('Base URL').fill('http://127.0.0.1:8787/v1');
+  await page.getByLabel('API key (optional)').fill('synthetic-ui-key');
+  await page.getByTestId('custom-provider-test').click();
+  const beforeFull = state.catalogFullRequests;
+  const beforePicker = state.catalogRequests;
+  await page.getByTestId('custom-provider-save').click();
+  await expect.poll(() => state.providerSaves).toBe(1);
+  await expect.poll(() => state.catalogFullRequests).toBeGreaterThan(beforeFull);
+  await expect.poll(() => state.catalogRequests).toBeGreaterThan(beforePicker);
+  await expect(page.getByLabel('API key (optional)')).toHaveValue('');
+  const group = page.getByTestId('model-curation-group-studio-local');
+  await expect(group).toBeVisible();
+  await expect(group.getByTestId('model-curation-model-studio-local-canvas-pro')).toBeVisible();
+  await group.getByTestId('model-curation-provider-search-studio-local').fill('canvas');
+  await expect(group.getByTestId('model-curation-model-studio-local-text-mini')).toHaveCount(0);
+  const results = await new AxeBuilder({ page }).include('[data-testid="model-curation-panel"]').analyze();
+  expect(results.violations.filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')).toEqual([]);
+  for (const testId of ['custom-provider-test', 'custom-provider-save']) {
+    expect((await page.getByTestId(testId).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  }
+  expect(await disclosure.evaluate((element) => Boolean(element.querySelector('button,input,select,textarea,a')))).toBe(false);
+  await mkdir('../../docs/ai/runs/artifacts/custom-provider-endpoint', { recursive: true });
+  await group.screenshot({ path: '../../docs/ai/runs/artifacts/custom-provider-endpoint/post-save-provider.png' });
+});
+
+test('custom-provider pending commit clears the key, avoids a connected claim, and offers Refresh models', async ({ page }) => {
+  const state = await openModels(page);
+  state.pendingProviderSave = true;
+  await page.getByTestId('custom-provider-disclosure').click();
+  await page.getByLabel('Provider name').fill('Studio Local');
+  await page.getByLabel('Provider ID').fill('studio-local');
+  await page.getByLabel('Base URL').fill('http://127.0.0.1:8787/v1');
+  await page.getByLabel('API key (optional)').fill('synthetic-ui-key');
+  await page.getByTestId('custom-provider-test').click();
+  await page.getByTestId('custom-provider-save').click();
+  await expect(page.getByLabel('API key (optional)')).toHaveValue('');
+  await expect(page.getByTestId('custom-provider-status')).toContainText('safely saved');
+  await expect(page.getByTestId('custom-provider-status')).not.toContainText('Connected');
+  const refresh = page.getByTestId('custom-provider-refresh');
+  await expect(refresh).toBeVisible();
+  const before = state.catalogFullRequests;
+  await refresh.click();
+  await expect.poll(() => state.catalogFullRequests).toBeGreaterThan(before);
+});
+
+test('custom-provider review: PUT 200 plus full-catalog refresh failure stays saved and retry refreshes both catalogs', async ({ page }) => {
+  const state = await openModels(page);
+  await prepareCustomProvider(page);
+  state.fullCatalogFailures = 1;
+  const beforePicker = state.catalogRequests;
+  await page.getByTestId('custom-provider-save').click();
+  await expect(page.getByTestId('custom-provider-status')).toContainText('Provider saved, but models could not be refreshed.');
+  await expect(page.getByTestId('custom-provider-status')).not.toContainText('could not be saved');
+  const refresh = page.getByTestId('custom-provider-refresh');
+  const beforeFull = state.catalogFullRequests;
+  await refresh.click();
+  await expect.poll(() => state.catalogFullRequests).toBeGreaterThan(beforeFull);
+  await expect.poll(() => state.catalogRequests).toBeGreaterThan(beforePicker);
+  await expect(page.getByTestId('custom-provider-group-studio-local')).toHaveCount(0);
+  await expect(page.getByTestId('model-curation-group-studio-local')).toBeVisible();
+  await expect(refresh).toHaveCount(0);
+});
+
+test('custom-provider review: PUT 200 plus picker refresh failure is truthful and retry runs both', async ({ page }) => {
+  const state = await openModels(page);
+  await prepareCustomProvider(page);
+  state.pickerCatalogFailures = 1;
+  await page.getByTestId('custom-provider-save').click();
+  await expect(page.getByTestId('custom-provider-status')).toContainText('Provider saved, but models could not be refreshed.');
+  await expect(page.getByTestId('custom-provider-status')).not.toContainText('Provider could not be saved');
+  const beforeFull = state.catalogFullRequests;
+  const beforePicker = state.catalogRequests;
+  await page.getByTestId('custom-provider-refresh').click();
+  await expect.poll(() => state.catalogFullRequests).toBeGreaterThan(beforeFull);
+  await expect.poll(() => state.catalogRequests).toBeGreaterThan(beforePicker);
+  await expect(page.getByTestId('custom-provider-refresh')).toHaveCount(0);
+});
+
+test('custom-provider review: 202 refresh success resolves, expands provider, and removes retry', async ({ page }) => {
+  const state = await openModels(page);
+  state.pendingProviderSave = true;
+  await prepareCustomProvider(page);
+  await page.getByTestId('custom-provider-save').click();
+  addStudioCatalog(state);
+  await page.getByTestId('custom-provider-refresh').click();
+  const group = page.getByTestId('model-curation-group-studio-local');
+  await expect(group).toBeVisible();
+  await expect(group.getByTestId('model-curation-model-studio-local-canvas-pro')).toBeVisible();
+  await expect(group.getByTestId('model-curation-group-toggle-studio-local')).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByTestId('custom-provider-status')).toContainText('available');
+  await expect(page.getByTestId('custom-provider-refresh')).toHaveCount(0);
+});
+
+test('custom-provider review: 202 refresh with provider still absent retains pending retry', async ({ page }) => {
+  const state = await openModels(page);
+  state.pendingProviderSave = true;
+  await prepareCustomProvider(page);
+  await page.getByTestId('custom-provider-save').click();
+  await page.getByTestId('custom-provider-refresh').click();
+  await expect(page.getByTestId('custom-provider-status')).toContainText('still refreshing');
+  await expect(page.getByTestId('custom-provider-refresh')).toBeVisible();
+});
+
+test('custom-provider review: 202 refresh failure retains committed pending truth and retry', async ({ page }) => {
+  const state = await openModels(page);
+  state.pendingProviderSave = true;
+  await prepareCustomProvider(page);
+  await page.getByTestId('custom-provider-save').click();
+  state.fullCatalogFailures = 1;
+  await page.getByTestId('custom-provider-refresh').click();
+  await expect(page.getByTestId('custom-provider-status')).toContainText('safely saved');
+  await expect(page.getByTestId('custom-provider-status')).toContainText('Refresh failed');
+  await expect(page.getByTestId('custom-provider-status')).not.toContainText('could not be saved');
+  await expect(page.getByTestId('custom-provider-refresh')).toBeVisible();
+});
+
+test('custom-provider review: stale test result is ignored after fields change', async ({ page }) => {
+  const state = await openModels(page);
+  state.providerTestDelayMs = 300;
+  await page.getByTestId('custom-provider-disclosure').click();
+  await page.getByLabel('Provider name').fill('Studio Local');
+  await page.getByLabel('Provider ID').fill('studio-local');
+  await page.getByLabel('Base URL').fill('http://127.0.0.1:8787/v1');
+  await page.getByTestId('custom-provider-test').click();
+  await page.getByLabel('Provider name').fill('Edited During Test');
+  await expect.poll(() => state.providerTests).toBe(1);
+  await page.waitForTimeout(400);
+  await expect(page.getByTestId('custom-provider-status')).toBeEmpty();
+  await expect(page.getByTestId('custom-provider-save')).toBeDisabled();
+});
+
+test('custom-provider review: all four fields are disabled for the in-flight committed save', async ({ page }) => {
+  const state = await openModels(page);
+  await prepareCustomProvider(page);
+  state.providerSaveDelayMs = 400;
+  await page.getByTestId('custom-provider-save').click();
+  for (const label of ['Provider name', 'Provider ID', 'Base URL', 'API key (optional)']) await expect(page.getByLabel(label)).toBeDisabled();
+  await expect(page.getByTestId('custom-provider-save')).toHaveText('Saving…');
+});
+
+test('custom-provider review: refresh and disclosure are 44px and narrow provider search reaches 44px', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const state = await openModels(page);
+  state.pendingProviderSave = true;
+  await prepareCustomProvider(page);
+  await page.getByTestId('custom-provider-save').click();
+  for (const testId of ['custom-provider-disclosure', 'custom-provider-refresh', 'model-curation-provider-search-openrouter']) {
+    expect((await page.getByTestId(testId).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  }
+  await mkdir('../../docs/ai/runs/artifacts/custom-provider-endpoint', { recursive: true });
+  await page.locator('.custom-provider').screenshot({ path: '../../docs/ai/runs/artifacts/custom-provider-endpoint/pending-refresh.png' });
 });

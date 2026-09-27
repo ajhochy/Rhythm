@@ -96,6 +96,9 @@ function ColonyHost({ headless, onError, onAttached, onSceneSelect, onSceneStatu
         if (active.current) return;
         void attachment.current?.then(async () => {
           if (active.current || !attached.current) return;
+          visibility.current = true;
+          bridge?.sendIntent?.({ event: 'host.visibility', payload: { hidden: true } });
+          await bridge?.setBounds({ x: 0, y: 0, width: 0, height: 0 }).catch(() => undefined);
           attached.current = false;
           attachment.current = null;
           await bridge?.detach().catch(() => undefined);
