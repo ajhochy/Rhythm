@@ -3,22 +3,16 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Linking,
   Platform,
-  ScrollView,
   StyleSheet,
-  View,
   useWindowDimensions,
 } from 'react-native';
-import {
-  Appbar,
-  Button,
-  HelperText,
-  Text,
-  TextInput,
-} from 'react-native-paper';
+import { Appbar } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Colors } from '@/constants/theme';
+import { PairingScanner } from '@/components/settings/pairing-scanner';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { PairedHostError } from '@/lib/pairing/paired-host-store';
 import { usePairedHost } from '@/providers/paired-host-provider';
@@ -105,136 +99,46 @@ export default function PairScreen() {
         />
         <Appbar.Content
           title="Pair a Mac"
-          titleMaxFontSizeMultiplier={1.4}
         />
       </Appbar.Header>
-      <ScrollView
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled">
-        <Text variant="headlineSmall" style={{ color: palette.text }}>
-          Scan the code from Rhythm on your Mac
-        </Text>
-        <Text variant="bodyMedium" style={{ color: palette.muted }}>
-          Pairing connects this iPhone to your Mac through Rhythm Cloud Gateway.
-          The one-time code is discarded as soon as the Mac exchanges it.
-        </Text>
-        {!signedIn ? (
-          <View
-            accessibilityRole="alert"
-            style={[styles.notice, { borderColor: palette.border }]}>
-            <Text style={{ color: palette.text }}>
-              Sign in to the same Rhythm account on this iPhone and Mac before
-              pairing.
-            </Text>
-            <Button
-              maxFontSizeMultiplier={1.8}
-              onPress={() => router.replace('/(tabs)/settings')}>
-              Open Settings
-            </Button>
-          </View>
-        ) : permission?.granted ? (
-          <View
-            accessible
-            accessibilityLabel="QR code scanner"
-            style={[
-              styles.cameraFrame,
-              { borderColor: palette.border, height: cameraHeight },
-            ]}>
-            <CameraView
-              barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
-              onBarcodeScanned={
-                scanned
-                  ? undefined
-                  : ({ data }) => {
-                      void pair(data);
-                    }
-              }
-              style={StyleSheet.absoluteFill}
-            />
-          </View>
-        ) : (
-          <View style={[styles.notice, { borderColor: palette.border }]}>
-            <Text style={{ color: palette.text }}>
-              Camera access is needed only to scan the one-time QR code.
-            </Text>
-            <Button
-              mode="contained"
-              maxFontSizeMultiplier={1.8}
-              accessibilityLabel="Allow camera for QR pairing"
-              onPress={() => void requestPermission()}>
-              Allow camera
-            </Button>
-          </View>
-        )}
-        {e2ePayload ? (
-          <Button
-            mode="contained"
-            maxFontSizeMultiplier={1.8}
-            testID={mobileRuntimeVariant.simulatedPairingTestId ?? undefined}
-            accessibilityLabel="Scan test QR code"
-            disabled={!signedIn || pairedHost.state === 'pairing'}
-            onPress={() => void pair(e2ePayload)}>
-            Simulate QR scan
-          </Button>
-        ) : null}
-        {Platform.OS === 'web' ? (
-          <>
-            <TextInput
-              accessibilityLabel="Pairing payload"
-              autoCapitalize="none"
-              autoCorrect={false}
-              disabled={!signedIn || pairedHost.state === 'pairing'}
-              label="Pairing payload"
-              multiline
-              onChangeText={setManualPayload}
-              value={manualPayload}
-            />
-            <Button
-              mode="contained"
-              maxFontSizeMultiplier={1.8}
-              disabled={!manualPayload.trim() || !signedIn}
-              onPress={() => void pair(manualPayload)}>
-              Pair securely
-            </Button>
-          </>
-        ) : null}
-        {pairedHost.state === 'pairing' ? (
-          <Text accessibilityLiveRegion="polite" style={{ color: palette.text }}>
-            Pairing securely…
-          </Text>
-        ) : null}
-        {error ? (
-          <HelperText accessibilityLiveRegion="assertive" type="error" visible>
-            {error}
-          </HelperText>
-        ) : null}
-      </ScrollView>
+      <PairingScanner
+        cameraHeight={cameraHeight}
+        cameraPermission={permission == null
+          ? 'loading'
+          : permission.granted
+            ? 'granted'
+            : permission.status === 'undetermined'
+              ? 'undetermined'
+              : permission.canAskAgain
+                ? 'denied'
+                : 'blocked'}
+        error={error}
+        manualPayload={manualPayload}
+        onManualPair={() => void pair(manualPayload)}
+        onManualPayloadChange={setManualPayload}
+        onOpenSettings={() => router.replace('/(tabs)/settings')}
+        onOpenSystemSettings={() => void Linking.openSettings().catch((cause) => setError(cause instanceof Error ? cause.message : 'Could not open iOS Settings.'))}
+        onRequestCamera={() => void requestPermission()}
+        pairing={pairedHost.state === 'pairing'}
+        scanner={permission?.granted ? (
+          <CameraView
+            barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+            onBarcodeScanned={scanned ? undefined : ({ data }) => { void pair(data); }}
+            style={StyleSheet.absoluteFill}
+          />
+        ) : undefined}
+        signedIn={signedIn}
+        simulatedScan={e2ePayload ? {
+          disabled: !signedIn || pairedHost.state === 'pairing',
+          onPress: () => void pair(e2ePayload),
+          testID: mobileRuntimeVariant.simulatedPairingTestId ?? undefined,
+        } : undefined}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  cameraFrame: {
-    borderRadius: 20,
-    borderWidth: 2,
-    height: 300,
-    overflow: 'hidden',
-    width: '100%',
-  },
-  content: {
-    alignSelf: 'center',
-    flexGrow: 1,
-    gap: 16,
-    maxWidth: 520,
-    padding: 20,
-    width: '100%',
-  },
-  notice: {
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 12,
-    padding: 16,
-  },
   screen: {
     flex: 1,
   },

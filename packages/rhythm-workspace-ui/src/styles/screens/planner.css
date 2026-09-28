@@ -1,0 +1,93 @@
+.rhythm-workspace-root .pg-planner { height: 100%; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; color: var(--rhythm-fg); background: color-mix(in oklab, var(--rhythm-bg), var(--rhythm-surface) 16%); }
+.rhythm-workspace-root .pg-planner .planner-toolbar { min-width: 0; display: grid; grid-template-columns: minmax(190px, 1fr) auto auto; align-items: center; gap: 18px; padding: 16px 22px; border-bottom: 1px solid var(--rhythm-border-soft); background: color-mix(in oklab, var(--rhythm-surface), var(--rhythm-bg) 8%); }
+.rhythm-workspace-root .pg-planner .planner-heading h1 { margin: 2px 0 0; font-size: clamp(20px, 2vw, 27px); font-weight: 630; letter-spacing: -.025em; }
+.rhythm-workspace-root .pg-planner .planner-heading p { margin: 3px 0 0; color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 10px; }
+.rhythm-workspace-root .pg-planner .planner-summary { min-width: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.rhythm-workspace-root .pg-planner .planner-summary > span { min-height: 32px; display: inline-flex; align-items: center; gap: 5px; padding: 0 9px; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-pill); color: var(--rhythm-fg-muted); background: var(--rhythm-surface); font-family: var(--rhythm-font-mono); font-size: 9px; white-space: nowrap; }
+.rhythm-workspace-root .pg-planner .planner-summary strong { color: var(--rhythm-fg); font-size: 11px; }
+.rhythm-workspace-root .pg-planner .planner-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.rhythm-workspace-root .pg-planner .week-controls { display: flex; align-items: center; gap: 6px; }
+.rhythm-workspace-root .pg-planner .week-controls button { min-width: 44px; min-height: 44px; padding-inline: 10px; }
+.rhythm-workspace-root .pg-planner .planner-scroll { min-width: 0; min-height: 0; overflow: auto; padding: 18px; }
+.rhythm-workspace-root .pg-planner .planner-state { width: min(100%, 700px); min-height: 340px; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 0 auto; padding: 34px 22px; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-lg); background: color-mix(in oklab, var(--rhythm-surface), var(--rhythm-bg) 5%); text-align: center; }
+.rhythm-workspace-root .pg-planner .planner-state h2 { margin: 10px 0 4px; font-size: 20px; }
+.rhythm-workspace-root .pg-planner .planner-state p { max-width: 52ch; margin: 0 0 17px; color: var(--rhythm-fg-muted); }
+.rhythm-workspace-root .pg-planner .planner-state.danger { border-color: color-mix(in oklab, var(--rhythm-danger), var(--rhythm-border) 45%); }
+.rhythm-workspace-root .pg-planner .planner-state.warning { border-color: color-mix(in oklab, var(--rhythm-warning), var(--rhythm-border) 42%); }
+.rhythm-workspace-root .pg-planner .state-lines { width: min(100%, 400px); display: grid; gap: 8px; margin-top: 10px; }
+.rhythm-workspace-root .pg-planner .state-lines span { height: 8px; border-radius: var(--rhythm-radius-pill); background: var(--rhythm-surface-warm); }
+.rhythm-workspace-root .pg-planner .selection-bar { position: sticky; top: 0; z-index: 6; min-width: 0; display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding: 7px 9px; border: 1px solid var(--rhythm-border); border-radius: var(--rhythm-radius-sm); background: var(--rhythm-surface-warm); }
+.rhythm-workspace-root .pg-planner .selection-bar strong { flex: 1; font-family: var(--rhythm-font-mono); font-size: 10px; }
+.rhythm-workspace-root .pg-planner .planner-board { min-width: 0; display: grid; grid-template-columns: minmax(218px, 254px) minmax(0, 1fr); border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-md); overflow: hidden; background: color-mix(in oklab, var(--rhythm-surface), var(--rhythm-bg) 5%); }
+.rhythm-workspace-root .pg-planner .backlog-lane { min-width: 0; padding: 14px; border-inline-end: 1px solid var(--rhythm-border); background: color-mix(in oklab, var(--rhythm-surface-warm), transparent 45%); }
+.rhythm-workspace-root .pg-planner .backlog-lane h2 { margin: 2px 0 0; font-size: 16px; }
+.rhythm-workspace-root .pg-planner .days-grid { min-width: 0; display: grid; grid-template-columns: repeat(7, minmax(160px, 1fr)); overflow-x: auto; }
+.rhythm-workspace-root .pg-planner .day-lane { min-width: 0; min-height: 380px; padding: 10px 8px 12px; border-inline-start: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-planner .day-lane:first-child { border-inline-start: 0; }
+.rhythm-workspace-root .pg-planner .day-lane > header { min-height: 44px; display: grid; gap: 0; padding: 2px 3px 8px; border-bottom: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-planner .day-lane > header > span { color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 8px; font-weight: 650; letter-spacing: .09em; text-transform: uppercase; }
+.rhythm-workspace-root .pg-planner .day-lane > header h2 { margin: 1px 0 0; font-family: var(--rhythm-font-mono); font-size: 11px; font-weight: 600; }
+.rhythm-workspace-root .pg-planner .event-list, .rhythm-workspace-root .pg-planner .lane-list { min-width: 0; display: grid; gap: 4px; margin-top: 6px; }
+.rhythm-workspace-root .pg-planner .calendar-event { width: 100%; min-width: 0; min-height: 48px; display: grid; gap: 1px; padding: 6px 8px; border: 1px solid color-mix(in oklab, var(--rhythm-info), var(--rhythm-border) 65%); border-radius: var(--rhythm-radius-sm); color: var(--rhythm-fg-secondary); background: color-mix(in oklab, var(--rhythm-info), transparent 93%); cursor: pointer; text-align: start; }
+.rhythm-workspace-root .pg-planner .calendar-event strong { font-size: 10px; overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-planner .calendar-event span, .rhythm-workspace-root .pg-planner .calendar-event small { color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 8px; }
+.rhythm-workspace-root .pg-planner .planner-task { min-width: 0; min-height: 52px; display: grid; grid-template-columns: minmax(0, 1fr) 88px; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-sm); overflow: hidden; background: var(--rhythm-surface); }
+.rhythm-workspace-root .pg-planner .planner-task.selected { border-color: var(--rhythm-accent); box-shadow: inset 0 0 0 1px var(--rhythm-accent); }
+.rhythm-workspace-root .pg-planner .planner-task.project-step { border-inline-start: 2px solid var(--rhythm-warning); }
+.rhythm-workspace-root .pg-planner .planner-task[data-status="done"] strong { color: var(--rhythm-fg-muted); text-decoration: line-through; }
+.rhythm-workspace-root .pg-planner .task-main { min-width: 0; display: grid; align-content: center; gap: 1px; padding: 6px 7px; border: 0; color: var(--rhythm-fg); background: transparent; cursor: grab; text-align: start; }
+.rhythm-workspace-root .pg-planner .task-main strong { font-size: 10px; overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-planner .task-main small { color: var(--rhythm-fg-muted); font-size: 8px; }
+.rhythm-workspace-root .pg-planner .task-source { color: var(--rhythm-accent); font-family: var(--rhythm-font-mono); font-size: 7px; letter-spacing: .06em; text-transform: uppercase; }
+.rhythm-workspace-root .pg-planner .project-step .task-source { color: var(--rhythm-warning); }
+.rhythm-workspace-root .pg-planner .task-controls { min-width: 88px; display: flex; align-items: stretch; border-inline-start: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-planner .task-controls button { min-width: 44px; min-height: 44px; display: grid; place-items: center; padding: 0; border: 0; border-inline-start: 1px solid var(--rhythm-border-soft); color: var(--rhythm-fg-muted); background: transparent; cursor: pointer; }
+.rhythm-workspace-root .pg-planner .add-control { width: 100%; min-height: 44px; margin-top: 9px; text-align: start; }
+.rhythm-workspace-root .pg-planner .filter-control { width: fit-content; display: grid; grid-template-columns: repeat(2, minmax(72px, 1fr)); gap: 3px; margin-top: 12px; padding: 3px; border-radius: var(--rhythm-radius-sm); background: var(--rhythm-bg); }
+.rhythm-workspace-root .pg-planner .filter-control button { min-height: 44px; padding: 0 12px; border: 0; border-radius: 7px; color: var(--rhythm-fg-muted); background: transparent; cursor: pointer; }
+.rhythm-workspace-root .pg-planner .filter-control button[aria-pressed="true"] { color: var(--rhythm-fg); background: var(--rhythm-surface-warm); box-shadow: inset 0 0 0 1px var(--rhythm-border); }
+.rhythm-workspace-root .pg-planner .inspector-form { display: grid; gap: 13px; }
+.rhythm-workspace-root .pg-planner .inspector-record-title { margin: 0; padding: 9px 0; border-block: 1px solid var(--rhythm-border-soft); font-weight: 600; overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-planner .field-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.rhythm-workspace-root .pg-planner .inspector-form input, .rhythm-workspace-root .pg-planner .inspector-form textarea { width: 100%; min-height: 44px; }
+.rhythm-workspace-root .pg-planner .collaborators, .rhythm-workspace-root .pg-planner .quick-actions { padding-top: 11px; border-top: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-planner .subhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rhythm-workspace-root .pg-planner .collaborator-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.rhythm-workspace-root .pg-planner .collaborator-chips > span { min-height: 40px; display: inline-flex; align-items: center; gap: 3px; padding-inline-start: 10px; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-pill); background: var(--rhythm-surface-warm); }
+.rhythm-workspace-root .pg-planner .collaborator-picker { display: grid; gap: 5px; margin-top: 7px; padding: 6px; border: 1px solid var(--rhythm-border); border-radius: var(--rhythm-radius-sm); background: var(--rhythm-bg); }
+.rhythm-workspace-root .pg-planner .quick-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.rhythm-workspace-root .pg-planner .quick-actions h3 { grid-column: 1 / -1; margin: 0; font-size: 12px; }
+.rhythm-workspace-root .pg-planner .readonly-details h3 { margin: 7px 0 4px; font-size: 18px; overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-planner .readonly-details p { margin: 0; color: var(--rhythm-fg-muted); overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-planner .readonly-details dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 16px 0 0; }
+.rhythm-workspace-root .pg-planner .readonly-details dt { color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 8px; text-transform: uppercase; }
+.rhythm-workspace-root .pg-planner button:disabled { cursor: not-allowed; opacity: .5; }
+
+@media (max-width: 1024px) {
+  .rhythm-workspace-root .pg-planner .planner-toolbar { grid-template-columns: minmax(180px, 1fr) auto; }
+  .rhythm-workspace-root .pg-planner .planner-summary { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; }
+  .rhythm-workspace-root .pg-planner .days-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); overflow: visible; }
+  .rhythm-workspace-root .pg-planner .day-lane { min-height: 260px; border-bottom: 1px solid var(--rhythm-border-soft); }
+}
+
+@media (max-width: 768px) {
+  .rhythm-workspace-root .pg-planner .planner-toolbar { padding: 14px 16px; }
+  .rhythm-workspace-root .pg-planner .planner-scroll { padding: 13px; }
+  .rhythm-workspace-root .pg-planner .planner-board { grid-template-columns: 1fr; }
+  .rhythm-workspace-root .pg-planner .backlog-lane { border-inline-end: 0; border-bottom: 1px solid var(--rhythm-border); }
+  .rhythm-workspace-root .pg-planner .days-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 520px) {
+  .rhythm-workspace-root .pg-planner .planner-toolbar { grid-template-columns: 1fr; gap: 10px; }
+  .rhythm-workspace-root .pg-planner .days-grid { grid-template-columns: 1fr; }
+  .rhythm-workspace-root .pg-planner .field-pair, .rhythm-workspace-root .pg-planner .quick-actions, .rhythm-workspace-root .pg-planner .readonly-details dl { grid-template-columns: 1fr; }
+}
+
+@media (forced-colors: active) {
+  .rhythm-workspace-root .pg-planner .planner-board, .rhythm-workspace-root .pg-planner .planner-task, .rhythm-workspace-root .pg-planner .calendar-event { border: 1px solid CanvasText; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rhythm-workspace-root .pg-planner * { transition: none; }
+}

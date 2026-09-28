@@ -112,29 +112,40 @@ test.describe('inspector and profile workflows', () => {
   });
 
   test('creates, edits, renames, defaults, duplicates, refreshes capabilities, and deletes profiles', async ({ page }) => {
+    // Profiles is a column browser: pick a setting group, then edit it in the inspector column.
+    const group = (name: string) => page.getByTestId('settings-column-groups').getByRole('option', { name, exact: true }).click();
     await openFixture(page, '#/profiles');
     await page.getByTestId('profile-create').click();
     await page.getByTestId('profile-rename').click();
     await page.getByTestId('profile-inline-name').fill('Release Steward');
     await page.getByTestId('profile-inline-confirm').click();
+    await expect(page.getByTestId('profile-save-status')).toHaveText('Unsaved changes');
     await page.getByTestId('profile-icon').fill('RS');
     await page.getByTestId('profile-system-prompt').fill('Prepare releases, preserve scope, and verify every handoff.');
+    await group('Delegation');
     await page.getByTestId('profile-manager').check();
     await page.getByTestId('delegate-profile-builder').check();
+    await group('Provider, model & account');
     await page.getByTestId('profile-provider').selectOption('Anthropic');
     await page.getByTestId('profile-model').selectOption('claude-sonnet-4');
+    await group('MCPs');
     await page.getByTestId('mcp-gitnexus').check();
     await page.getByTestId('skill-verification').check();
-    await page.getByTestId('permission-shell-allow').check();
+    await group('Permissions');
+    await page.getByTestId('permission-shell').selectOption('allow');
+    await group('Availability & defaults');
     await page.getByTestId('profile-managed-skills').check();
     await page.getByTestId('profile-save').click();
     await expect(page.getByTestId('toast-status')).toContainText('saved');
+    await group('Actions');
     await page.getByTestId('profile-default').click();
     await expect(page.getByTestId('toast-status')).toContainText('Default');
     await page.getByTestId('profile-duplicate').click();
     await expect(page.getByRole('heading', { name: /copy/ })).toBeVisible();
+    await group('MCPs');
     await page.getByTestId('profile-resync').click();
     await expect(page.getByTestId('toast-status')).toContainText('refreshed');
+    await group('Actions');
     await page.getByTestId('profile-delete').click();
     await page.getByTestId('confirm-profile-delete').click();
     await expect(page.getByTestId('toast-status')).toContainText('deleted');

@@ -3,7 +3,7 @@
 #
 # What this asserts (NOT "fix is implemented"):
 #   1. Node sentinel exists and points to an executable.
-#   2. better-sqlite3 .node binary loads under that sentinel Node (ABI match).
+#   2. better-sqlite3 opens and queries SQLite under that sentinel Node.
 #   3. dist/server.js exists (build artifact present).
 #   4. Spawning the server with the sentinel Node + AGENT_LOCAL=true binds
 #      :4001 and answers /health within 25s — same path Rhythm.app uses.
@@ -13,7 +13,7 @@
 #
 # Exit codes:
 #   0  PASS
-#   1  build/sentinel/ABI prerequisite failure
+#   1  build/sentinel/native-load prerequisite failure
 #   2  server failed to bind :4001
 #   3  capabilities or session POST failed acceptance
 #
@@ -85,12 +85,19 @@ NODE_ABI=$(/usr/bin/env node -e "console.log(require('$SENTINEL').abi)" 2>/dev/n
 [ -x "$NODE_PATH" ] || fail "sentinel nodePath not executable: $NODE_PATH"
 ok "sentinel: $NODE_PATH (ABI $NODE_ABI)"
 
-# 2. better-sqlite3 ABI match under sentinel Node
+# 2. better-sqlite3 N-API prebuild loads under sentinel Node
 "$NODE_PATH" -e "
-  const p='$REPO_ROOT/node_modules/better-sqlite3/build/Release/better_sqlite3.node';
-  try { process.dlopen({exports:{}}, p); }
+  const { createRequire } = require('node:module');
+  const requireFromApi = createRequire('$API_SERVER_DIR/package.json');
+  try {
+    const Database = requireFromApi('better-sqlite3');
+    const db = new Database(':memory:');
+    const row = db.prepare('select 1 as x').get();
+    db.close();
+    if (row.x !== 1) throw new Error('better-sqlite3 query returned the wrong result');
+  }
   catch(e){ console.error(e.message.split('\\n')[0]); process.exit(2); }
-" 2>/tmp/rhythm-smoke/abi-err || fail "better-sqlite3 ABI mismatch under sentinel Node: $(cat /tmp/rhythm-smoke/abi-err)"
+" 2>/tmp/rhythm-smoke/abi-err || fail "better-sqlite3 failed under sentinel Node: $(cat /tmp/rhythm-smoke/abi-err)"
 ok "better-sqlite3 loads under sentinel Node"
 
 # 3. dist build artifact

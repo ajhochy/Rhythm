@@ -14,6 +14,22 @@ Run the isolated `research_projects_live_e2e.test.ts` matrix, the separate flag-
 
 The copied-data reconciliation gate must record dry-run/apply/repeated-apply counts and a byte-for-byte vault digest before and after reconciliation. It must never rerun historical agents.
 
+## Enablement targets
+
+- **Synology production API:** set `RHYTHM_RESEARCH_PROJECTS_ENABLED=true` in
+  `apps/api_server/.env.production`, which
+  `apps/api_server/docker-compose.synology.yml` loads through `env_file`, then
+  perform the normal manual pull and restart. Verify the startup-static value
+  at `/health.features.researchProjectsEnabled` before admitting the pilot
+  cohort.
+- **Desktop development launches only:** the packaged Electron and Flutter
+  embedded api_server inherit only the launching process environment. A
+  Finder-launched app never picks up a shell export, so desktop enablement is
+  limited to development launches that export
+  `RHYTHM_RESEARCH_PROJECTS_ENABLED=true`. There is currently no packaged-app
+  launch configuration for this flag; do not imply that production desktop
+  enablement exists until one is deliberately designed.
+
 ## Pilot metrics
 
 Review at least daily during the pilot:

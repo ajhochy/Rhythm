@@ -1,0 +1,70 @@
+/* Every rule in this stylesheet — here and in every file it imports below — is scoped under
+ * .rhythm-workspace-root (see src/host/theme.ts, RHYTHM_ROOT_CLASS) so nothing here can ever
+ * leak an unprefixed, global selector into a host page. tests/css-scoping.test.ts enforces
+ * that as a standing contract across this whole concatenation, not just this one file. */
+
+@import './base.css';
+@import './screens/tasks.css';
+@import './screens/dashboard.css';
+/* This is the supported public stylesheet exported as ./styles.css. */
+@import './collaboration.css';
+@import './list-inspector.css';
+@import './operations.css';
+@import './screens/shared-agents.css';
+
+.rhythm-workspace-root {
+  background: var(--rhythm-bg);
+  color: var(--rhythm-fg);
+  font-family: var(--rhythm-font-ui);
+  display: block;
+  padding: 24px;
+}
+
+.rhythm-workspace-root h1 {
+  margin: 0 0 8px;
+  font-size: 1.5rem;
+}
+
+.rhythm-workspace-root h2 {
+  margin: 16px 0 8px;
+  font-size: 1.1rem;
+  color: var(--rhythm-fg-muted);
+}
+
+.rhythm-workspace-root ul,
+.rhythm-workspace-root ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.rhythm-workspace-root li {
+  border: 1px solid var(--rhythm-border);
+  border-radius: var(--rhythm-radius-md);
+  background: var(--rhythm-surface);
+  padding: 12px;
+  margin-bottom: 8px;
+}
+
+.rhythm-workspace-root button {
+  background: var(--rhythm-accent);
+  color: var(--rhythm-accent-on);
+  border: none;
+  border-radius: var(--rhythm-radius-md);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.rhythm-workspace-root[data-rhythm-viewport='compact'] {
+  padding: 12px;
+}
+
+.rhythm-workspace-root[data-rhythm-viewport='compact'] li {
+  padding: 8px;
+}
+
+@media (max-width: 480px) {
+  .rhythm-workspace-root {
+    padding: 12px;
+  }
+}

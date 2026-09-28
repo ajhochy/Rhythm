@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { openPage } from '../helpers';
+import { selectRow } from '../helpers/list-inspector';
 
 const templateId = 'template-sunday-service';
 const instanceId = 'instance-sunday-service-2026-08-16';
@@ -20,15 +21,15 @@ test('Projects click-through covers templates, generation, steps, people, milest
   await page.getByTestId('project-template-submit').click();
   const createdTemplate = page.getByTestId('project-template-template-community-care-launch');
   await expect(createdTemplate).toBeVisible();
-  await createdTemplate.getByTestId('project-template-edit-template-community-care-launch').click();
+  await page.getByTestId('project-template-edit-template-community-care-launch').click();
   await page.getByTestId('project-template-name').fill('Community care launch — revised');
   await page.getByTestId('project-template-submit').click();
   await expect(createdTemplate).toContainText('revised');
-  await createdTemplate.getByTestId('project-template-delete-template-community-care-launch').click();
+  await page.getByTestId('project-template-delete-template-community-care-launch').click();
   await page.getByTestId('project-template-delete-cancel').click();
   await expect(createdTemplate).toBeVisible();
 
-  await page.getByTestId(`project-template-${templateId}`).getByTestId(`project-template-select-${templateId}`).click();
+  await selectRow(page, 'Sunday Service Launch');
   await page.getByTestId('project-step-add').click();
   await page.getByTestId('project-step-title').fill('Confirm welcome language');
   await page.getByTestId('project-step-offset-days').fill('-5');
@@ -131,12 +132,14 @@ test('Projects is responsive and axe-clean across representative surfaces and di
   await expectNoBlockingAxe(page, 'readonly project');
 
   await openPage(page, `projects/templates/${templateId}`);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await selectRow(page, 'إطلاق خدمة المجتمع - 准备礼拜 🎵');
   await page.evaluate(() => {
     document.documentElement.style.fontSize = '200%';
     document.documentElement.dir = 'rtl';
     document.documentElement.lang = 'ar';
   });
-  await expect(page.getByText('إطلاق خدمة المجتمع - 准备礼拜 🎵', { exact: true })).toBeVisible();
+  await expect(page.locator('.list-inspector-detail:visible').getByRole('heading', { name: 'إطلاق خدمة المجتمع - 准备礼拜 🎵', exact: true })).toBeVisible();
   const resilientOverflow = await page.evaluate(() => ({ client: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
   expect(resilientOverflow.scroll).toBeLessThanOrEqual(resilientOverflow.client + 1);
 });

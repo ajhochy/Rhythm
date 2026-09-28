@@ -1,0 +1,229 @@
+import { cleanup, fireEvent, render } from '@testing-library/react-native';
+import type { ComponentProps } from 'react';
+import { FlatList, StyleSheet } from 'react-native';
+import { PaperProvider } from 'react-native-paper';
+
+import { ChatContent } from '@/components/chat/chat-content';
+import { styles as chatViewStyles } from '@/components/chat/chat-view-styles';
+import { Colors } from '@/constants/theme';
+import type { TranscriptEntry } from '@/lib/opencode/format';
+
+const noop = jest.fn();
+
+function entry(id: string, text: string): TranscriptEntry {
+  return { createdAt: Number(id), details: [], id, role: 'assistant', text };
+}
+
+function props(
+  currentSessionId: string,
+  displayTranscript: TranscriptEntry[],
+): ComponentProps<typeof ChatContent> {
+  return {
+    activeTab: 'session',
+    awaitingUserInput: false,
+    connection: { message: 'Connected', status: 'connected' },
+    currentDiffs: [],
+    currentPendingPermissions: [],
+    currentPendingQuestions: [],
+    currentSessionId,
+    currentTodos: [],
+    diffCount: 0,
+    diffDetails: [],
+    displayTranscript,
+    hasOlderMessages: false,
+    isRefreshingDiffs: false,
+    isRefreshingMessages: false,
+    onCopyMessage: noop,
+    onExpandDiff: noop,
+    onForkMessage: noop,
+    onLoadOlderMessages: noop,
+    onRefresh: noop,
+    onRejectQuestion: noop,
+    onReplyToPermission: noop,
+    onReplyToQuestion: noop,
+    onRevertMessage: noop,
+    onSendStarterPrompt: noop,
+    onToggleSpeak: noop,
+    onUnrevert: noop,
+    palette: Colors.light,
+    pendingInteractions: 0,
+    running: false,
+  };
+}
+
+function content(currentSessionId: string, displayTranscript: TranscriptEntry[]) {
+  return (
+    <PaperProvider>
+      <ChatContent {...props(currentSessionId, displayTranscript)} />
+    </PaperProvider>
+  );
+}
+
+afterEach(() => {
+  cleanup();
+  jest.restoreAllMocks();
+});
+
+test('existing chats open at the bottom without pulling a reader back down', () => {
+  const scrollToEnd = jest.spyOn(FlatList.prototype, 'scrollToEnd');
+  const rendered = render(content('session-a', [entry('1', 'Existing message')]));
+  const transcript = rendered.getByTestId('chat-transcript');
+
+  expect(rendered.getByText('Existing message')).toBeTruthy();
+  fireEvent(transcript, 'contentSizeChange', 320, 900);
+  expect(scrollToEnd).toHaveBeenLastCalledWith({ animated: false });
+
+  scrollToEnd.mockClear();
+  fireEvent.scroll(transcript, {
+    nativeEvent: {
+      contentOffset: { x: 0, y: 100 },
+      contentSize: { height: 900, width: 320 },
+      layoutMeasurement: { height: 300, width: 320 },
+    },
+  });
+  rendered.rerender(content('session-a', [
+    entry('1', 'Existing message'),
+    entry('2', 'New message while reading'),
+  ]));
+  expect(rendered.getByText('New message while reading')).toBeTruthy();
+  fireEvent(rendered.getByTestId('chat-transcript'), 'contentSizeChange', 320, 1_000);
+  expect(scrollToEnd).not.toHaveBeenCalled();
+
+  rendered.rerender(content('session-b', [entry('3', 'Different existing chat')]));
+  const nextTranscript = rendered.getByTestId('chat-transcript');
+  expect(rendered.getByText('Different existing chat')).toBeTruthy();
+  fireEvent(nextTranscript, 'contentSizeChange', 320, 700);
+  expect(scrollToEnd).toHaveBeenCalledTimes(1);
+  expect(scrollToEnd).toHaveBeenCalledWith({ animated: false });
+});
+
+test('task-chat-polish-c2: viewport changes restore bottom only for readers within 32 points', () => {
+  // Regression caught: keyboard/composer layout changes either hide the last
+  // response or yank a reader away from an older transcript anchor.
+  const scrollToEnd = jest.spyOn(FlatList.prototype, 'scrollToEnd');
+  const rendered = render(content('session-a', [entry('1', 'Long response')]));
+  const transcript = rendered.getByTestId('chat-transcript');
+  fireEvent(transcript, 'contentSizeChange', 320, 900);
+  scrollToEnd.mockClear();
+
+  fireEvent.scroll(transcript, {
+    nativeEvent: {
+      contentOffset: { x: 0, y: 568 },
+      contentSize: { height: 900, width: 320 },
+      layoutMeasurement: { height: 300, width: 320 },
+    },
+  });
+  fireEvent(transcript, 'layout', { nativeEvent: { layout: { height: 240, width: 320, x: 0, y: 0 } } });
+  expect(scrollToEnd).toHaveBeenCalledWith({ animated: false });
+
+  scrollToEnd.mockClear();
+  fireEvent.scroll(transcript, {
+    nativeEvent: {
+      contentOffset: { x: 0, y: 300 },
+      contentSize: { height: 900, width: 320 },
+      layoutMeasurement: { height: 240, width: 320 },
+    },
+  });
+  fireEvent(transcript, 'layout', { nativeEvent: { layout: { height: 200, width: 320, x: 0, y: 0 } } });
+  expect(scrollToEnd).not.toHaveBeenCalled();
+  expect(transcript.props.maintainVisibleContentPosition).toEqual({ minIndexForVisible: 0 });
+});
+
+test('task-chat-polish-c2-geometry: transcript uses centered 16 point insets, 20 point turns, and a compact loader', () => {
+  // Regression caught: the pagination control becomes a teal card with a large
+  // empty gap, or Pro Max transcripts grow wider than the readable measure.
+  const rendered = render(
+    <PaperProvider>
+      <ChatContent {...props('session-a', [entry('1', 'First')])} hasOlderMessages />
+    </PaperProvider>,
+  );
+  expect(StyleSheet.flatten(chatViewStyles.content)).toEqual(expect.objectContaining({
+    alignSelf: 'center',
+    maxWidth: 422,
+    paddingHorizontal: 16,
+    width: '100%',
+  }));
+  expect(chatViewStyles.transcriptItem.marginBottom).toBe(20);
+  expect(chatViewStyles.paginationRow).toEqual(expect.objectContaining({ height: 44, marginBottom: 8 }));
+  expect(rendered.getByText('Load earlier messages')).toBeTruthy();
+});
+
+test('mobile-chat-ui-c8: completed idle tasks disappear while active progress stays inline and expandable', () => {
+  // Regression caught: a finished task summary remains as standalone chrome,
+  // or active task progress returns to an overlay that obscures the transcript.
+  const complete = [
+    { content: 'One', status: 'completed' },
+    { content: 'Two', status: 'completed' },
+  ] as never;
+  const rendered = render(
+    <PaperProvider>
+      <ChatContent {...props('session-a', [entry('1', 'Done')])} currentTodos={complete} />
+    </PaperProvider>,
+  );
+  expect(rendered.queryByText('2 of 2 tasks completed')).toBeNull();
+
+  rendered.rerender(
+    <PaperProvider>
+      <ChatContent
+        {...props('session-a', [entry('1', 'Working')])}
+        currentTodos={[
+          { content: 'One', status: 'completed' },
+          { content: 'Two', status: 'in_progress' },
+        ] as never}
+        running
+      />
+    </PaperProvider>,
+  );
+  expect(rendered.getByText('1 of 2 tasks completed')).toBeTruthy();
+  fireEvent.press(rendered.getByRole('button', { name: 'Expand tasks' }));
+  expect(rendered.getByText('Two')).toBeTruthy();
+  expect(chatViewStyles.todoHeader.minHeight).toBeLessThanOrEqual(44);
+  expect(StyleSheet.flatten(chatViewStyles.todoInline)).not.toHaveProperty('position');
+});
+
+test('task-chat-polish-c7: a pending decision hides even an expanded todo panel', () => {
+  // Regression caught: an expanded todo panel remains between the transcript
+  // and a blocking assistant question, pushing the decision actions offscreen.
+  const activeTodos = [
+    { content: 'Finished setup', status: 'completed' },
+    { content: 'Waiting task', status: 'in_progress' },
+  ] as never;
+  const rendered = render(
+    <PaperProvider>
+      <ChatContent
+        {...props('session-a', [entry('1', 'Need a decision')])}
+        currentTodos={activeTodos}
+        running
+      />
+    </PaperProvider>,
+  );
+  fireEvent.press(rendered.getByRole('button', { name: 'Expand tasks' }));
+  expect(rendered.getByText('Waiting task')).toBeTruthy();
+
+  rendered.rerender(
+    <PaperProvider>
+      <ChatContent
+        {...props('session-a', [entry('1', 'Need a decision')])}
+        currentPendingQuestions={[{
+          id: 'question-1',
+          sessionID: 'session-a',
+          questions: [{
+            custom: false,
+            header: 'Choose one',
+            multiple: false,
+            options: [{ label: 'Continue' }],
+            question: 'Proceed?',
+          }],
+        }] as never}
+        currentTodos={activeTodos}
+        pendingInteractions={1}
+        running
+      />
+    </PaperProvider>,
+  );
+
+  expect(rendered.getByRole('radio', { name: 'Continue' })).toBeTruthy();
+  expect(rendered.getByText('Submit answer')).toBeTruthy();
+  expect(rendered.queryByText('Waiting task')).toBeNull();
+  expect(rendered.queryByText('1 of 2 tasks completed')).toBeNull();
+});

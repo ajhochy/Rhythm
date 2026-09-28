@@ -55,7 +55,9 @@ async function requestHelper(request) {
       child?.kill('SIGKILL');
       reject(new Error('Human approval helper failed'));
     };
-    const timer = setTimeout(fail, 10_000);
+    // First use can display macOS Keychain authorization. Do not kill that prompt after 10s.
+    // Signing keeps the short bound; initialization gets a bounded window for user authorization.
+    const timer = setTimeout(fail, request.operation === 'capability' ? 120_000 : 10_000);
     try {
       child = spawn(resolve(process.resourcesPath, 'human-approval/rhythm-approval-signer'), [], {
         env: resolveKeychainEnvironment(), stdio: ['pipe', 'pipe', 'pipe'], shell: false,

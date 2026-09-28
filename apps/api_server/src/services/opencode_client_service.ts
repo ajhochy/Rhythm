@@ -1,6 +1,7 @@
 import { homedir } from 'os';
 import { join } from 'path';
 import { readFileSync, existsSync } from 'fs';
+import { createHmac, randomBytes } from 'node:crypto';
 import { promisify } from 'util';
 import type { OpencodeClient, RhythmEvent as Event } from '@opencode-ai/sdk';
 import { logger } from '../utils/logger';
@@ -18,7 +19,7 @@ import {
   applySelectiveDeferral,
   toolCountsForRoleConfig,
 } from './tool_surface_estimator';
-import type { PermissionMode } from '../models/agent_session';
+import { isUntitledSessionName, type PermissionMode } from '../models/agent_session';
 import {
   ensureOmlxProviderConfig,
   detectAndUnloadCompetingOllamaModel,
@@ -28,6 +29,29 @@ import {
   clearTrustedMcpVerifier,
   initializeTrustedMcpVerifier,
 } from '../security/trusted_mcp_call';
+import type { DispatchInput } from '../models/model_provenance';
+import { ModelProvenanceRepository } from '../repositories/model_provenance_repository';
+
+const modelProvenanceRepo = new ModelProvenanceRepository();
+
+function beginDispatch(input?: DispatchInput): string | undefined {
+  if (!input) return undefined;
+  try {
+    return modelProvenanceRepo.insert(input).id;
+  } catch (err) {
+    logger.warn('[OpencodeClientService] provenance pending write failed (non-fatal):', err);
+    return undefined;
+  }
+}
+
+function settleDispatch(id: string | undefined, outcome: 'accepted' | 'rejected'): void {
+  if (!id) return;
+  try {
+    modelProvenanceRepo.setOutcome(id, outcome);
+  } catch (err) {
+    logger.warn('[OpencodeClientService] provenance outcome write failed (non-fatal):', err);
+  }
+}
 
 /**
  * MCP-6 — resolves a FRESH OAuth access token for a curated server's
@@ -70,6 +94,30 @@ type EngineStatus = 'uninitialized' | 'ready' | 'error' | 'reloading';
  * credential either, exactly like `ollama`.
  */
 const KEYLESS_PROVIDER_IDS = new Set(['ollama', 'omlx', 'opencode']);
+const providerDigestKey = randomBytes(32);
+
+export type ProviderSnapshot = {
+  providers: Array<{
+    id: string;
+    connected: boolean;
+    source?: 'env' | 'config' | 'custom' | 'api';
+    endpoint?: string;
+    digest: string;
+    models: Array<{
+      id: string;
+      name?: string;
+      apiId?: string;
+      status?: string;
+      contextLimit?: number;
+      capabilities?: {
+        input?: { text?: boolean };
+        output?: { text?: boolean };
+        toolcall?: boolean;
+      };
+    }>;
+  }>;
+  defaults: Record<string, string>;
+};
 
 /** Resolve the engine port once so the SDK, stale-port reclaim, and PTY proxy agree. */
 export function resolveOpencodeEnginePort(): number {
@@ -91,8 +139,29 @@ export function resolveOpencodeCorsOrigins(raw = process.env.RHYTHM_LOCAL_RENDER
   return [...new Set(raw.split(',').map((value) => value.trim()).filter(Boolean))];
 }
 
-export function buildOpencodeServerOptions(port: number, cors: string[]): { port: number; cors?: string[] } {
-  return cors.length > 0 ? { port, cors } : { port };
+export function resolveOpencodeStartupTimeout(
+  raw = process.env.RHYTHM_OPENCODE_STARTUP_TIMEOUT_MS,
+): number | undefined {
+  if (!raw?.trim()) return undefined;
+  const timeout = Number(raw);
+  if (!Number.isInteger(timeout) || timeout < 5_000 || timeout > 60_000) {
+    throw new Error(
+      `RHYTHM_OPENCODE_STARTUP_TIMEOUT_MS must be an integer between 5000 and 60000; received "${raw}".`,
+    );
+  }
+  return timeout;
+}
+
+export function buildOpencodeServerOptions(
+  port: number,
+  cors: string[],
+  timeout?: number,
+): { port: number; cors?: string[]; timeout?: number } {
+  return {
+    port,
+    ...(cors.length > 0 ? { cors } : {}),
+    ...(timeout === undefined ? {} : { timeout }),
+  };
 }
 
 /** TCP port used by this api_server process's bundled opencode engine. */
@@ -374,6 +443,18 @@ export function pinEngineSessionStore(
 }
 
 /**
+ * #1178 — Rhythm transcript sharing is strictly in-instance. Force the child
+ * engine's external share path off even when the parent shell opted into
+ * OpenCode auto-share or attempted to override the disable flag.
+ */
+export function disableEngineExternalSharing(
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  delete env.OPENCODE_AUTO_SHARE;
+  env.OPENCODE_DISABLE_SHARE = '1';
+}
+
+/**
  * Directories the SDK's `cross-spawn("opencode")` may need on PATH. GUI-spawned
  * .app children on macOS only inherit `/usr/bin:/bin:/usr/sbin:/sbin` — none of
  * which contain the opencode binary. Idempotent: prepends each dir at most once.
@@ -511,7 +592,8 @@ export class OpencodeClientService {
   private client: OpencodeClient | null = null;
   private server: OpencodeServerHandle | null = null;
   private error: Error | null = null;
-  private authStore = new OpencodeAuthStore();
+  private authStore: Pick<OpencodeAuthStore, 'listAuthedProviders'> = new OpencodeAuthStore();
+  private providerSnapshotPending?: Promise<ProviderSnapshot>;
   /** Set to true by the shutdown handler before dispose() is called. */
   private _shuttingDown = false;
 
@@ -531,6 +613,11 @@ export class OpencodeClientService {
     this.client = client;
     this.status = 'ready';
     this.error = null;
+  }
+
+  /** Test-only seam that prevents provider snapshot tests from reading user auth files. */
+  __setTestAuthedProviders(providers: string[]): void {
+    this.authStore = { listAuthedProviders: () => [...providers] };
   }
 
   /**
@@ -724,6 +811,7 @@ export class OpencodeClientService {
       // createOpencode()'s child inherits it; `??=` lets an explicit override win
       // (e.g. a dev deliberately re-enabling external skills).
       process.env.OPENCODE_DISABLE_EXTERNAL_SKILLS ??= '1';
+      disableEngineExternalSharing();
       // #1332 — pin the engine to its STABLE session database.
       //
       // The engine names its DB after the installation channel
@@ -883,7 +971,11 @@ export class OpencodeClientService {
       const t5 = Date.now();
       clearTrustedMcpVerifier();
       const corsOrigins = resolveOpencodeCorsOrigins();
-      const engineOptions = buildOpencodeServerOptions(OPENCODE_ENGINE_PORT, corsOrigins);
+      const engineOptions = buildOpencodeServerOptions(
+        OPENCODE_ENGINE_PORT,
+        corsOrigins,
+        resolveOpencodeStartupTimeout(),
+      );
       const { client, server } = await mod.createOpencode(engineOptions);
       logger.info(`[Opencode][timing] createOpencode (engine spawn) took ${Date.now() - t5}ms`);
 
@@ -943,7 +1035,10 @@ export class OpencodeClientService {
           const refresh = creds.refresh;
           const expires = creds.expires;
           if (typeof access === 'string' && typeof refresh === 'string' && typeof expires === 'number') {
-            await this.setOAuthCredentials(providerId, { access, refresh, expires });
+            // Keep the ChatGPT workspace id (openai) — dropping it loses the
+            // ChatGPT-Account-Id header the codex plugin sends.
+            const accountId = typeof creds.accountId === 'string' ? creds.accountId : undefined;
+            await this.setOAuthCredentials(providerId, { access, refresh, expires, ...(accountId ? { accountId } : {}) });
             restored++;
           }
         }
@@ -1010,6 +1105,108 @@ export class OpencodeClientService {
   /** True only for a credential recorded by the auth store, never a keyless provider. */
   isProviderInAuthStore(providerId: string): boolean {
     return this.authStore.listAuthedProviders().includes(providerId);
+  }
+
+  /** One bounded engine read per concurrent catalog/status request; never retain failures. */
+  providerSnapshot(): Promise<ProviderSnapshot> {
+    if (this.providerSnapshotPending) return this.providerSnapshotPending;
+    if (!this.client) return Promise.reject(new Error('engine_unverified'));
+    const client = this.client;
+    const controller = new AbortController();
+    // Wall-clock budget on this process's timer: a startup request burst stalled the event
+    // loop ~1.1s, so 750ms aborted a 15ms engine read and the picker catalog came back [].
+    const timeout = setTimeout(() => controller.abort(), 2_500);
+    const read = async (): Promise<ProviderSnapshot> => {
+      const raw = await client.config.providers({ signal: controller.signal });
+      if (controller.signal.aborted || raw.error || !raw.data || !Array.isArray(raw.data.providers)) {
+        throw new Error('engine_unverified');
+      }
+      const connected = new Set(this.authStore.listAuthedProviders());
+      const providers = raw.data.providers.map((provider) => {
+        const models = Object.entries(provider.models ?? {}).map(([key, value]) => {
+          const model = value as typeof value & {
+            api?: { id?: string; url?: string };
+            status?: string;
+            capabilities?: ProviderSnapshot['providers'][number]['models'][number]['capabilities'];
+          };
+          return {
+            id: model.id ?? key,
+            ...(typeof model.name === 'string' ? { name: model.name } : {}),
+            ...(typeof model.api?.id === 'string' ? { apiId: model.api.id } : {}),
+            ...(typeof model.status === 'string' ? { status: model.status } : {}),
+            ...(typeof model.limit?.context === 'number' ? { contextLimit: model.limit.context } : {}),
+            ...(model.capabilities ? {
+              capabilities: {
+                input: { text: model.capabilities.input?.text === true },
+                output: { text: model.capabilities.output?.text === true },
+                toolcall: model.capabilities.toolcall === true,
+              },
+            } : {}),
+          };
+        });
+        // Engine provider options may carry secrets. Only expose a URL origin
+        // from a model's declared API endpoint when it has no userinfo.
+        const effectiveOptions = (provider as typeof provider & {
+          options?: { baseURL?: unknown; baseUrl?: unknown; [key: string]: unknown };
+          source?: ProviderSnapshot['providers'][number]['source'];
+        }).options ?? null;
+        const rawEndpoint = typeof effectiveOptions?.baseURL === 'string'
+          ? effectiveOptions.baseURL
+          : typeof effectiveOptions?.baseUrl === 'string'
+            ? effectiveOptions.baseUrl
+            : Object.values(provider.models ?? {})[0]?.api?.url;
+        let endpoint: string | undefined;
+        try {
+          if (rawEndpoint) {
+            const url = new URL(rawEndpoint);
+            if (!url.username && !url.password && ['http:', 'https:'].includes(url.protocol)) {
+              endpoint = url.origin;
+            }
+          }
+        } catch {
+          // An invalid endpoint is not public metadata.
+        }
+        const digest = createHmac('sha256', providerDigestKey).update(JSON.stringify({
+          id: provider.id,
+          endpoint,
+          models,
+          options: effectiveOptions,
+        })).digest('hex');
+        const source = (provider as typeof provider & {
+          source?: ProviderSnapshot['providers'][number]['source'];
+        }).source;
+        const configuredApiKey = effectiveOptions?.apiKey;
+        const credentialBacked = ['env', 'api', 'custom'].includes(source ?? '') ||
+          (typeof configuredApiKey === 'string'
+            ? configuredApiKey.trim().length > 0
+            : configuredApiKey != null);
+        return {
+          id: provider.id,
+          connected: connected.has(provider.id) || KEYLESS_PROVIDER_IDS.has(provider.id) || credentialBacked,
+          ...(source
+            ? { source }
+            : {}),
+          ...(endpoint ? { endpoint } : {}),
+          digest,
+          models,
+        };
+      });
+      const defaults = (raw.data as typeof raw.data & { default?: Record<string, string> }).default ?? {};
+      return { providers, defaults };
+    };
+    const pending = Promise.race([
+      read(),
+      new Promise<never>((_, reject) => controller.signal.addEventListener(
+        'abort',
+        () => reject(new Error('engine_unverified')),
+        { once: true },
+      )),
+    ]).finally(() => {
+      clearTimeout(timeout);
+      if (this.providerSnapshotPending === pending) this.providerSnapshotPending = undefined;
+    });
+    this.providerSnapshotPending = pending;
+    return pending;
   }
 
   /** Get available models for a provider */
@@ -1112,6 +1309,40 @@ export class OpencodeClientService {
     }
   }
 
+  /** Remove a newly-created provider credential through the typed v2 engine API. */
+  async removeAuth(providerId: string): Promise<boolean> {
+    try {
+      const client = await this.v2Client();
+      const raw = await client.auth.remove({ providerID: providerId });
+      return raw.data === true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Read the schema-validated global engine config used by PATCH /global/config. */
+  async getGlobalConfig(): Promise<Record<string, unknown> | null> {
+    try {
+      const client = await this.v2Client();
+      const raw = await client.global.config.get();
+      if (raw.error || !raw.data || typeof raw.data !== 'object') return null;
+      return raw.data as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Persist a global config patch; the engine validates, writes, and disposes instances. */
+  async updateGlobalConfig(config: Record<string, unknown>): Promise<boolean> {
+    try {
+      const client = await this.v2Client();
+      const raw = await client.global.config.update({ config: config as never });
+      return !raw.error && Boolean(raw.data);
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Create a new Opencode session with an optional working directory.
    *
@@ -1197,14 +1428,15 @@ export class OpencodeClientService {
     } | undefined;
     if (mcpRoleConfig) {
       try {
+        const toolCounts = toolCountsForRoleConfig(mcpRoleConfig.mcpServers);
         mcpAllowlist = applySelectiveDeferral(
           expandMcpAllowlist(mcpRoleConfig),
-          toolCountsForRoleConfig(mcpRoleConfig.mcpServers),
+          toolCounts,
           providerId,
         );
         // #884 — trim to Gemini's function-declaration cap when this session's
         // turn is routed to `google`. No-op for every other provider.
-        const capResult = capMcpAllowlistForProvider(mcpAllowlist, providerId);
+        const capResult = capMcpAllowlistForProvider(mcpAllowlist, providerId, toolCounts);
         mcpAllowlist = capResult.allowlist;
         if (capResult.trimmed) {
           logger.warn(capResult.warning ?? '[GeminiToolCap] allowlist trimmed');
@@ -1243,7 +1475,12 @@ export class OpencodeClientService {
     }
 
     try {
-      const body: Record<string, unknown> = { title };
+      // Omit a blank/placeholder title so the engine assigns its default
+      // "New session - <iso>" title — the ONLY title its first-turn
+      // auto-namer (SessionPrompt.ensureTitle → isDefaultTitle) will replace.
+      // Sending '' (instant-create since OPC-#710) or 'Untitled chat' made the
+      // engine skip auto-titling for every such session.
+      const body: Record<string, unknown> = isUntitledSessionName(title) ? {} : { title: title.trim() };
       if (parentSdkSessionId) {
         body.parentID = parentSdkSessionId;
       }
@@ -1386,12 +1623,13 @@ export class OpencodeClientService {
               null)
             : null;
       } else {
+        const toolCounts = toolCountsForRoleConfig(mcpRoleConfig.mcpServers);
         mcpAllowlist = applySelectiveDeferral(
           expandMcpAllowlist(mcpRoleConfig),
-          toolCountsForRoleConfig(mcpRoleConfig.mcpServers),
+          toolCounts,
           providerId,
         );
-        const capResult = capMcpAllowlistForProvider(mcpAllowlist, providerId);
+        const capResult = capMcpAllowlistForProvider(mcpAllowlist, providerId, toolCounts);
         mcpAllowlist = capResult.allowlist;
         if (capResult.trimmed) {
           logger.warn(capResult.warning ?? '[GeminiToolCap] allowlist trimmed');
@@ -1667,6 +1905,7 @@ export class OpencodeClientService {
     directory?: string,
     opts?: Record<string, unknown>,
     beforeDispatch?: () => Promise<void>,
+    provenance?: DispatchInput,
   ): Promise<{ info: import('@opencode-ai/sdk').Message; parts: Array<import('@opencode-ai/sdk').Part> } | null> {
     if (!this.client) return null;
     const requestArgs = {
@@ -1688,14 +1927,18 @@ export class OpencodeClientService {
         throw new Error('OpencodeClientService: pre-dispatch hook failed — prompt not sent');
       }
     }
+    const dispatchId = beginDispatch(provenance);
     try {
       const raw = await this.client.session.prompt(requestArgs);
       if (raw.error || !raw.data) {
+        settleDispatch(dispatchId, 'rejected');
         logger.error(`[OpencodeClientService] prompt error for ${sessionId}:`, raw.error);
         return null;
       }
+      settleDispatch(dispatchId, 'accepted');
       return raw.data;
     } catch (err) {
+      settleDispatch(dispatchId, 'rejected');
       logger.error(`[OpencodeClientService] prompt failed for session ${sessionId}:`, err);
       return null;
     }
@@ -1725,6 +1968,7 @@ export class OpencodeClientService {
     opts?: Record<string, unknown>,
     parts?: Array<import('@opencode-ai/sdk').PartInput>,
     beforeDispatch?: () => Promise<void>,
+    provenance?: DispatchInput,
   ): Promise<boolean> {
     if (!this.client) return false;
     // OPC-M4-1: use the caller-supplied parts array when present; otherwise
@@ -1754,9 +1998,11 @@ export class OpencodeClientService {
         throw new Error('OpencodeClientService: pre-dispatch hook failed — prompt not sent');
       }
     }
+    const dispatchId = beginDispatch(provenance);
     try {
       const raw = await this.client.session.promptAsync(requestArgs);
       if (raw.error) {
+        settleDispatch(dispatchId, 'rejected');
         logger.error(`[OpencodeClientService] promptAsync error for ${sessionId}:`, raw.error);
         return false;
       }
@@ -1775,17 +2021,21 @@ export class OpencodeClientService {
       if (raw.data !== undefined) {
         // Back-compat for older/fake SDK transports that returned a body on
         // success. The generated fork client uses the 204 branch below.
+        settleDispatch(dispatchId, 'accepted');
         return true;
       }
       const httpStatus = raw.response?.status;
       if (httpStatus === 204) {
+        settleDispatch(dispatchId, 'accepted');
         return true;
       }
+      settleDispatch(dispatchId, 'rejected');
       logger.warn(
         `[OpencodeClientService] promptAsync silent no-op for ${sessionId}: SDK returned neither data nor error (model may not be supported; HTTP status=${httpStatus ?? 'unknown'})`,
       );
       return false;
     } catch (err) {
+      settleDispatch(dispatchId, 'rejected');
       logger.error(`[OpencodeClientService] promptAsync failed for session ${sessionId}:`, err);
       return false;
     }
@@ -2068,7 +2318,7 @@ export class OpencodeClientService {
    */
   async setOAuthCredentials(
     providerId: string,
-    creds: { access: string; refresh: string; expires: number },
+    creds: { access: string; refresh: string; expires: number; accountId?: string },
   ): Promise<boolean> {
     if (!this.client) return false;
     try {
@@ -2079,7 +2329,9 @@ export class OpencodeClientService {
           access: creds.access,
           refresh: creds.refresh,
           expires: creds.expires,
-        },
+          // Engine Auth.Oauth schema accepts optional accountId (vendored d.ts omits it).
+          ...(creds.accountId ? { accountId: creds.accountId } : {}),
+        } as { type: 'oauth'; access: string; refresh: string; expires: number },
       });
       return raw.data === true;
     } catch (err) {
@@ -2440,7 +2692,9 @@ export class OpencodeClientService {
   }
 
   /**
-   * POST /experimental/worktree — create a worktree in the project directory.
+   * POST /experimental/worktree — ask the engine to create a worktree for the
+   * project. The engine chooses its own storage location; it is not necessarily
+   * inside the requested project directory.
    * Returns the created worktree Info (name/branch/directory) or throws
    * AppError(502) on failure so the route surfaces worktree.failed cleanly.
    */
@@ -2751,16 +3005,35 @@ export class OpencodeClientService {
   async listMessages(
     sdkId: string,
     directory?: string,
+    options: { limit?: number; caller?: string } = {},
   ): Promise<import('@opencode-ai/sdk').SessionMessage[]> {
     const client = this.requireClient();
     // #861 smoke fix: engine session reads are DIRECTORY-SCOPED — without
     // ?directory=<session cwd> the engine looks in its default instance and
     // reports "Session not found" for sessions created under another cwd
     // (e.g. subagent sessions under $HOME). Same gotcha as respond/abort.
+    const startedAt = Date.now();
     const raw = await client.session.messages({
       path: { id: sdkId },
-      ...(directory ? { query: { directory } } : {}),
+      ...(directory || options.limit !== undefined
+        ? {
+            query: {
+              ...(directory ? { directory } : {}),
+              ...(options.limit !== undefined ? { limit: options.limit } : {}),
+            },
+          }
+        : {}),
     });
+    const elapsedMs = Date.now() - startedAt;
+    const configuredThreshold = Number(process.env.RHYTHM_TRANSCRIPT_FETCH_WARN_MS);
+    const warnThresholdMs = Number.isFinite(configuredThreshold) && configuredThreshold >= 0
+      ? configuredThreshold
+      : 200;
+    if (elapsedMs >= warnThresholdMs) {
+      logger.warn(
+        `[OpencodeClientService] slow transcript fetch caller=${options.caller ?? 'unspecified'} messages=${raw.data?.length ?? 0} elapsedMs=${elapsedMs}`,
+      );
+    }
     if (raw.error) {
       throw new AppError(
         502,

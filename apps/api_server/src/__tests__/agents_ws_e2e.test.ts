@@ -268,6 +268,43 @@ describe('Agents WS end-to-end chat data flow', () => {
     ws.close();
   });
 
+  it('1424:fix-busy-queue serializes rapid session.input frames in receive order', async () => {
+    const { ws, frames } = await openClient(ctx.wsUrl);
+    await waitFor(() => frames.find((f) => f.type === 'sessions.list'));
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    promptAsyncSpy.mockImplementation(async () => {
+      await gate;
+      return true;
+    });
+
+    for (const data of ['QUEUE-1', 'QUEUE-2', 'QUEUE-3']) {
+      ws.send(JSON.stringify({
+        v: 1,
+        type: 'session.input',
+        id: ctx.localSessionId,
+        data,
+      }));
+    }
+
+    await waitFor(() => promptAsyncSpy.mock.calls.length > 0 || undefined);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const callsBeforeRelease = promptAsyncSpy.mock.calls.length;
+    release();
+
+    await waitFor(() => promptAsyncSpy.mock.calls.length === 3 || undefined);
+    const order = promptAsyncSpy.mock.calls.map((call) => call[1]);
+    ws.close();
+
+    expect(callsBeforeRelease).toBe(1);
+    expect(order).toEqual([
+      'QUEUE-1',
+      'QUEUE-2',
+      'QUEUE-3',
+    ]);
+  });
+
   // --- Direction 2: Server -> Chat ----------------------------------------
   it('forwards SDK message events to the WS client with messageId + partId intact', async () => {
     const { ws, frames } = await openClient(ctx.wsUrl);

@@ -1,0 +1,94 @@
+[WebServer] (node:9543) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 34 tests using 1 worker
+
+(node:9653) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   1 tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 brain: live ListInspector selection is inert, keyboardable, and axe-clean (0ms)
+  -   2 tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 deep-research: live ListInspector selection is inert, keyboardable, and axe-clean
+  -   3 tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 tasks: live ListInspector selection is inert, keyboardable, and axe-clean
+  -   4 tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 webhooks: live ListInspector selection is inert, keyboardable, and axe-clean
+  -   5 tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 skills: live ListInspector selection is inert, keyboardable, and axe-clean
+  -   6 tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 playbooks: live ListInspector selection is inert, keyboardable, and axe-clean
+  -   7 tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 cookbook: live ListInspector selection is inert, keyboardable, and axe-clean
+  -   8 tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 review: live ListInspector selection is inert, keyboardable, and axe-clean
+  -   9 tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 report-card: live ListInspector selection is inert, keyboardable, and axe-clean
+  -  10 tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 email: live ListInspector selection is inert, keyboardable, and axe-clean
+  -  11 tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 gallery: live ListInspector selection is inert, keyboardable, and axe-clean
+  -  12 tests/live/mega-2026-09-18-smoke.spec.ts:317:3 › Facilities — #1515 › live room rows select without mutation and meet the ListInspector contract
+  -  13 tests/live/mega-2026-09-18-smoke.spec.ts:325:3 › Facilities — #1515 › creates, reads back, and deletes a marked room and reservation
+  -  14 tests/live/mega-2026-09-18-smoke.spec.ts:365:3 › Messages — #1516 › live conversations select without mutation and meet the ListInspector contract
+  -  15 tests/live/mega-2026-09-18-smoke.spec.ts:373:3 › Messages — #1516 › thread plus message create/read-back/delete cycle
+  -  16 tests/live/mega-2026-09-18-smoke.spec.ts:380:3 › Projects — #1517 › live projects select without mutation and meet the ListInspector contract
+  -  17 tests/live/mega-2026-09-18-smoke.spec.ts:388:3 › Projects — #1517 › creates, reads back, and deletes a marked project template
+  -  18 tests/live/mega-2026-09-18-smoke.spec.ts:409:3 › Automations — #1518 › live rules select without mutation and meet the ListInspector contract
+  -  19 tests/live/mega-2026-09-18-smoke.spec.ts:417:3 › Automations — #1518 › paused rule create/read-back/delete cycle
+  -  20 tests/live/mega-2026-09-18-smoke.spec.ts:424:3 › Integrations — #1519 › provider selection is inert and the no-create panel cancels cleanly
+  -  21 tests/live/mega-2026-09-18-smoke.spec.ts:441:3 › Settings — #1521 › selection is inert, axe-clean, and a device-local theme preference restores
+  -  22 tests/live/mega-2026-09-18-smoke.spec.ts:461:3 › Agent Settings — #1514 › live sections are read-only under selection and meet the ListInspector contract
+  -  23 tests/live/mega-2026-09-18-smoke.spec.ts:473:3 › Agents rail — #1511/#1512/#1522 › view options restore active sessions, compact rows, and avoid checkbox rows
+  -  24 tests/live/mega-2026-09-18-smoke.spec.ts:490:3 › Agents rail — #1511/#1512/#1522 › loads one child-session page when live children exist
+  -  25 tests/live/mega-2026-09-18-smoke.spec.ts:501:3 › Agents rail — #1511/#1512/#1522 › Cancel creates nothing; marked project creates, selects empty state, and is removed through DELETE /projects/:id
+  -  26 tests/live/mega-2026-09-18-smoke.spec.ts:537:3 › Profiles — #1523 › groups, sticky footer, clean switching, and Advanced JSON render for existing profiles
+  -  27 tests/live/mega-2026-09-18-smoke.spec.ts:558:3 › Profiles — #1523 › creates, edits, saves, reloads, and deletes only a marked profile
+  -  28 tests/live/mega-2026-09-18-smoke.spec.ts:582:3 › Reading comfort — #1509 › live task rows keep the shipped typography and completion hit area
+  -  29 tests/live/mega-2026-09-18-smoke.spec.ts:604:3 › Reading comfort — #1509 › live transcript body keeps line-height and the 840px/72ch reading measures
+  -  30 tests/live/mega-2026-09-18-smoke.spec.ts:630:3 › Hermes browser boundary — #1542/#1541 › plain browser hides navigation and renders the disabled route state
+  -  31 tests/live/mega-2026-09-18-smoke.spec.ts:641:3 › Advanced session directory fallback — #1496 › browser Browse is disabled while manual path entry works
+  -  32 tests/live/mega-2026-09-18-smoke.spec.ts:665:3 › Persistent splitters — #1524 › Shell navigation exposes ARIA values, drags by 80px, and persists
+  -  33 tests/live/mega-2026-09-18-smoke.spec.ts:680:3 › Persistent splitters — #1524 › Agents rail exposes ARIA values, drags by 80px, and persists
+  -  34 tests/live/mega-2026-09-18-smoke.spec.ts:698:3 › Persistent splitters — #1524 › Settings ListInspector exposes ARIA values, drags by 80px, and persists
+
+
+  1) tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 brain: live ListInspector selection is inert, keyboardable, and axe-clean
+
+    Error: RHYTHM_LIVE_TOKEN must be provided through the process environment
+
+    expect(received).toBeTruthy()
+
+    Received: false
+
+      243 |
+      244 | test.beforeAll(async ({ request }) => {
+    > 245 |   expect(Boolean(bearer), 'RHYTHM_LIVE_TOKEN must be provided through the process environment').toBeTruthy();
+          |                                                                                                 ^
+      246 |   const response = await request.get(`${environment.productionApiBase}/auth/me`, { headers: authHeaders() });
+      247 |   if (response.status() === 200) hostedAvailable = true;
+      248 |   else if ([401, 403].includes(response.status())) markHostedUnavailable();
+        at /Users/ajhochhalter/Documents/Rhythm/.mega-wt/integration/apps/web/tests/live/mega-2026-09-18-smoke.spec.ts:245:97
+
+    Error: apiRequestContext.get: connect ECONNREFUSED 127.0.0.1:4001
+    Call log:
+      - → GET http://127.0.0.1:4001/projects?includeArchived=true
+        - user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.7922.34 Safari/537.36
+        - accept: */*
+        - accept-encoding: gzip,deflate,br
+
+
+      129 | async function listRows(request: APIRequestContext, base: string, path: string, local = false) {
+      130 |   if (!local && !hostedAvailable) return [];
+    > 131 |   const response = await request.get(`${base}${path}`, { headers: authHeaders(local) });
+          |                                  ^
+      132 |   if (!local && [401, 403].includes(response.status())) {
+      133 |     markHostedUnavailable();
+      134 |     return [];
+        at listRows (/Users/ajhochhalter/Documents/Rhythm/.mega-wt/integration/apps/web/tests/live/mega-2026-09-18-smoke.spec.ts:131:34)
+        at cleanMarkerRows (/Users/ajhochhalter/Documents/Rhythm/.mega-wt/integration/apps/web/tests/live/mega-2026-09-18-smoke.spec.ts:168:27)
+        at /Users/ajhochhalter/Documents/Rhythm/.mega-wt/integration/apps/web/tests/live/mega-2026-09-18-smoke.spec.ts:262:9
+
+    Error Context: test-results/mega-2026-09-18-smoke-Agen-6d512--keyboardable-and-axe-clean/error-context.md
+
+    Error Context: test-results/mega-2026-09-18-smoke-Agen-6d512--keyboardable-and-axe-clean/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/mega-2026-09-18-smoke-Agen-6d512--keyboardable-and-axe-clean/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/mega-2026-09-18-smoke-Agen-6d512--keyboardable-and-axe-clean/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    tests/live/mega-2026-09-18-smoke.spec.ts:285:5 › Agent Tools — #1513/#1515–#1519/#1521/#1514 › #1513 brain: live ListInspector selection is inert, keyboardable, and axe-clean
+  33 did not run

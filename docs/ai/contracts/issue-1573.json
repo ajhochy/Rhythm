@@ -1,0 +1,80 @@
+{
+  "issue": 1573,
+  "generated": "2026-09-24",
+  "criteria": [
+    {
+      "criterion_id": "1573:1573-A-semantic-degradation-observability:1",
+      "text": "A fake Engraph client returns only RRF-score hits (no confidence). buildMemoryPreface with an FTS-matching memory yields provenance items with semanticStatus 'no_confidence', and exactly one logger line containing 'semantic' and 'no_confidence' with a hit count and no query text or note body.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1573_semantic_degradation.test.ts",
+      "test_id": "1573:1573-A-semantic-degradation-observability:1 records and logs no_confidence without prompt or note text",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1573:1573-A-semantic-degradation-observability:2",
+      "text": "Fake fetch returns HTTP 503: status 'http_error'. Malformed JSON body: 'malformed'. Manager not ready (unconfigured client with empty URL): 'backend_unavailable'.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1573_semantic_degradation.test.ts",
+      "test_id": "1573:1573-A-semantic-degradation-observability:2 surfaces status",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1573:1573-A-semantic-degradation-observability:3",
+      "text": "A fetch that never resolves within AGENT_MEMORY_SEMANTIC_BUDGET_MS=5: 'timeout'.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1573_semantic_degradation.test.ts",
+      "test_id": "1573:1573-A-semantic-degradation-observability:3 surfaces a shared-budget timeout",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1573:1573-A-semantic-degradation-observability:4",
+      "text": "A confident hit whose file maps outside the memory root: 'unmapped'.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1573_semantic_degradation.test.ts",
+      "test_id": "1573:1573-A-semantic-degradation-observability:4 distinguishes unmapped semantic hits",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1573:1573-A-semantic-degradation-observability:5",
+      "text": "A confident mapped hit that fails clearsAutomaticGate: 'lexical_gate'.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1573_semantic_degradation.test.ts",
+      "test_id": "1573:1573-A-semantic-degradation-observability:5 distinguishes the unchanged lexical gate",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1573:1573-A-semantic-degradation-observability:6",
+      "text": "A confident hit that passes: provenance lane 'semantic' or 'hybrid' and semanticStatus 'used'.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1573_semantic_degradation.test.ts",
+      "test_id": "1573:1573-A-semantic-degradation-observability:6 records used on a trusted semantic hit",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1573:1573-A-semantic-degradation-observability:7",
+      "text": "AGENT_MEMORY_RETRIEVAL_MODE=fts: semanticStatus 'disabled' and no Engraph call.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1573_semantic_degradation.test.ts",
+      "test_id": "1573:1573-A-semantic-degradation-observability:7 marks FTS-only retrieval disabled and never calls Engraph",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1573:1573-B-engraph-version-after-restart:1",
+      "text": "A new EngraphManager whose config store already has enabled=true and an executablePath, with an injected execFile returning 'engraph 1.7.2', has getStatus().version === '1.7.2' after enable()/ensureStarted, with no chooseBinary call.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/engraph_manager.test.ts",
+      "test_id": "1573:1573-B-engraph-version-after-restart:1 revalidates and reports a persisted binary version on restart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "1573:1573-B-engraph-version-after-restart:2",
+      "text": "A binary whose --version output is unexpected fails _doStart with category binary_invalid instead of starting.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/engraph_manager.test.ts",
+      "test_id": "1573:1573-B-engraph-version-after-restart:2 refuses a persisted binary with unexpected version output",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

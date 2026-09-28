@@ -63,7 +63,7 @@ function seedSession(id: string, overrides: SessionOverrides = {}): void {
 }
 
 describe('countSkillToolUses', () => {
-  it('counts a completed skill-tool invocation, keyed by the invoked skill name', () => {
+  it('counts a completed skill-tool invocation, keyed by the invoked skill name', async () => {
     seedSession('sess-1');
     new AgentSessionMessagesRepository().upsertStructured(
       'sess-1',
@@ -74,11 +74,11 @@ describe('countSkillToolUses', () => {
       null,
     );
 
-    const counts = countSkillToolUses();
+    const counts = (await countSkillToolUses());
     expect(counts.get('rebuild-abi')).toBe(1);
   });
 
-  it('sums invocations of the same skill across multiple sessions/messages', () => {
+  it('sums invocations of the same skill across multiple sessions/messages', async () => {
     seedSession('sess-1');
     seedSession('sess-2');
     const repo = new AgentSessionMessagesRepository();
@@ -86,21 +86,21 @@ describe('countSkillToolUses', () => {
     repo.upsertStructured('sess-2', 'msg-1', 'output', JSON.stringify([skillToolPart('rebuild-abi')]), null, null);
     repo.upsertStructured('sess-2', 'msg-2', 'output', JSON.stringify([skillToolPart('other-skill')]), null, null);
 
-    const counts = countSkillToolUses();
+    const counts = (await countSkillToolUses());
     expect(counts.get('rebuild-abi')).toBe(2);
     expect(counts.get('other-skill')).toBe(1);
   });
 
-  it('does not count a pending/error skill-tool call (only completed)', () => {
+  it('does not count a pending/error skill-tool call (only completed)', async () => {
     seedSession('sess-1');
     const repo = new AgentSessionMessagesRepository();
     repo.upsertStructured('sess-1', 'msg-1', 'output', JSON.stringify([skillToolPart('rebuild-abi', 'error')]), null, null);
     repo.upsertStructured('sess-1', 'msg-2', 'output', JSON.stringify([skillToolPart('rebuild-abi', 'pending')]), null, null);
 
-    expect(countSkillToolUses().get('rebuild-abi')).toBeUndefined();
+    expect((await countSkillToolUses()).get('rebuild-abi')).toBeUndefined();
   });
 
-  it('ignores non-skill tool parts', () => {
+  it('ignores non-skill tool parts', async () => {
     seedSession('sess-1');
     new AgentSessionMessagesRepository().upsertStructured(
       'sess-1',
@@ -111,11 +111,11 @@ describe('countSkillToolUses', () => {
       null,
     );
 
-    expect(countSkillToolUses().size).toBe(0);
+    expect((await countSkillToolUses()).size).toBe(0);
   });
 
-  it('returns an empty map when there are no messages at all', () => {
-    expect(countSkillToolUses().size).toBe(0);
+  it('returns an empty map when there are no messages at all', async () => {
+    expect((await countSkillToolUses()).size).toBe(0);
   });
 
   // ── W3 late-review corrective package: eligibility-gated counting ─────────
@@ -123,7 +123,7 @@ describe('countSkillToolUses', () => {
   // invocations advance harvested-draft evaluation thresholds. Every case here
   // seeds a REAL agent_sessions row through the actual migrated schema.
 
-  it('counts a completed skill call from an ordinary user chat session', () => {
+  it('counts a completed skill call from an ordinary user chat session', async () => {
     seedSession('sess-chat', { isSystem: 0, category: 'chat', mcpRole: null });
     new AgentSessionMessagesRepository().upsertStructured(
       'sess-chat',
@@ -134,10 +134,10 @@ describe('countSkillToolUses', () => {
       null,
     );
 
-    expect(countSkillToolUses().get('rebuild-abi')).toBe(1);
+    expect((await countSkillToolUses()).get('rebuild-abi')).toBe(1);
   });
 
-  it('does NOT count a completed skill call from an is_system=1 session', () => {
+  it('does NOT count a completed skill call from an is_system=1 session', async () => {
     seedSession('sess-system', { isSystem: 1, category: 'chat', mcpRole: null });
     new AgentSessionMessagesRepository().upsertStructured(
       'sess-system',
@@ -148,10 +148,10 @@ describe('countSkillToolUses', () => {
       null,
     );
 
-    expect(countSkillToolUses().get('rebuild-abi')).toBeUndefined();
+    expect((await countSkillToolUses()).get('rebuild-abi')).toBeUndefined();
   });
 
-  it('does NOT count a completed skill call from a category=self_improvement session', () => {
+  it('does NOT count a completed skill call from a category=self_improvement session', async () => {
     seedSession('sess-self-improve', { isSystem: 0, category: 'self_improvement', mcpRole: null });
     new AgentSessionMessagesRepository().upsertStructured(
       'sess-self-improve',
@@ -162,10 +162,10 @@ describe('countSkillToolUses', () => {
       null,
     );
 
-    expect(countSkillToolUses().get('rebuild-abi')).toBeUndefined();
+    expect((await countSkillToolUses()).get('rebuild-abi')).toBeUndefined();
   });
 
-  it('does NOT count a completed skill call from a category=scheduled session', () => {
+  it('does NOT count a completed skill call from a category=scheduled session', async () => {
     seedSession('sess-scheduled', { isSystem: 0, category: 'scheduled', mcpRole: null });
     new AgentSessionMessagesRepository().upsertStructured(
       'sess-scheduled',
@@ -176,10 +176,10 @@ describe('countSkillToolUses', () => {
       null,
     );
 
-    expect(countSkillToolUses().get('rebuild-abi')).toBeUndefined();
+    expect((await countSkillToolUses()).get('rebuild-abi')).toBeUndefined();
   });
 
-  it('does NOT count a completed skill call from a curator mcp_role session', () => {
+  it('does NOT count a completed skill call from a curator mcp_role session', async () => {
     seedSession('sess-curator', { isSystem: 0, category: 'chat', mcpRole: 'skill-extract' });
     new AgentSessionMessagesRepository().upsertStructured(
       'sess-curator',
@@ -190,10 +190,10 @@ describe('countSkillToolUses', () => {
       null,
     );
 
-    expect(countSkillToolUses().get('rebuild-abi')).toBeUndefined();
+    expect((await countSkillToolUses()).get('rebuild-abi')).toBeUndefined();
   });
 
-  it('does NOT count a completed skill call from a session with corrupt/unknown category metadata', () => {
+  it('does NOT count a completed skill call from a session with corrupt/unknown category metadata', async () => {
     seedSession('sess-corrupt-category', { isSystem: 0, category: 'not_a_real_category', mcpRole: null });
     new AgentSessionMessagesRepository().upsertStructured(
       'sess-corrupt-category',
@@ -204,10 +204,10 @@ describe('countSkillToolUses', () => {
       null,
     );
 
-    expect(countSkillToolUses().get('rebuild-abi')).toBeUndefined();
+    expect((await countSkillToolUses()).get('rebuild-abi')).toBeUndefined();
   });
 
-  it('does NOT count a completed skill call from a session with a corrupt (non-0/1) is_system value', () => {
+  it('does NOT count a completed skill call from a session with a corrupt (non-0/1) is_system value', async () => {
     // Realistic corruption: a bad write/migration leaves is_system as neither
     // 0 nor 1. The shared predicate must fail closed rather than treat any
     // truthy/falsy-looking integer as a real boolean.
@@ -222,10 +222,10 @@ describe('countSkillToolUses', () => {
       null,
     );
 
-    expect(countSkillToolUses().get('rebuild-abi')).toBeUndefined();
+    expect((await countSkillToolUses()).get('rebuild-abi')).toBeUndefined();
   });
 
-  it('does not count a pending/error skill-tool call from an otherwise-eligible session', () => {
+  it('does not count a pending/error skill-tool call from an otherwise-eligible session', async () => {
     seedSession('sess-pending-error', { isSystem: 0, category: 'chat', mcpRole: null });
     const repo = new AgentSessionMessagesRepository();
     repo.upsertStructured(
@@ -245,10 +245,10 @@ describe('countSkillToolUses', () => {
       null,
     );
 
-    expect(countSkillToolUses().get('rebuild-abi')).toBeUndefined();
+    expect((await countSkillToolUses()).get('rebuild-abi')).toBeUndefined();
   });
 
-  it('counts only the eligible session out of a mix of eligible/ineligible sessions', () => {
+  it('counts only the eligible session out of a mix of eligible/ineligible sessions', async () => {
     seedSession('sess-eligible', { isSystem: 0, category: 'chat', mcpRole: null });
     seedSession('sess-system-ineligible', { isSystem: 1, category: 'chat', mcpRole: null });
     seedSession('sess-scheduled-ineligible', { isSystem: 0, category: 'scheduled', mcpRole: null });
@@ -273,10 +273,10 @@ describe('countSkillToolUses', () => {
       null,
     );
 
-    expect(countSkillToolUses().get('rebuild-abi')).toBe(2);
+    expect((await countSkillToolUses()).get('rebuild-abi')).toBe(2);
   });
 
-  it('agent-server-memory-c1: preserves exact counts across malformed rows, same-timestamp edits, and deletes', () => {
+  it('agent-server-memory-c1: preserves exact counts across malformed rows, same-timestamp edits, and deletes', async () => {
     seedSession('sess-live');
     const db = getDb();
     const insert = db.prepare(
@@ -296,7 +296,7 @@ describe('countSkillToolUses', () => {
     insert.run('sess-live', 'msg-malformed', '{not-json');
     insert.run('sess-live', 'msg-object', JSON.stringify({ type: 'tool', tool: 'skill' }));
 
-    expect(Object.fromEntries(countSkillToolUses())).toEqual({
+    expect(Object.fromEntries((await countSkillToolUses()))).toEqual({
       'rebuild-abi': 2,
       'other-skill': 1,
     });
@@ -307,16 +307,16 @@ describe('countSkillToolUses', () => {
       `UPDATE agent_session_messages SET parts_json = ?
        WHERE session_id = 'sess-live' AND sdk_message_id = 'msg-a'`,
     ).run(JSON.stringify([skillToolPart('replacement-skill')]));
-    expect(Object.fromEntries(countSkillToolUses())).toEqual({ 'replacement-skill': 1 });
+    expect(Object.fromEntries((await countSkillToolUses()))).toEqual({ 'replacement-skill': 1 });
 
     db.prepare(
       `DELETE FROM agent_session_messages
        WHERE session_id = 'sess-live' AND sdk_message_id = 'msg-a'`,
     ).run();
-    expect(countSkillToolUses().size).toBe(0);
+    expect((await countSkillToolUses()).size).toBe(0);
   });
 
-  it('matches JSON.parse last-key-wins semantics for duplicate metadata keys at every nested level', () => {
+  it('matches JSON.parse last-key-wins semantics for duplicate metadata keys at every nested level', async () => {
     seedSession('sess-duplicates');
     const insert = getDb().prepare(
       `INSERT INTO agent_session_messages
@@ -347,10 +347,10 @@ describe('countSkillToolUses', () => {
       ']',
     );
 
-    expect(Object.fromEntries(countSkillToolUses())).toEqual({ 'final-name': 1 });
+    expect(Object.fromEntries((await countSkillToolUses()))).toEqual({ 'final-name': 1 });
   });
 
-  it('reflects owning-session eligibility changes on the next call', () => {
+  it('reflects owning-session eligibility changes on the next call', async () => {
     seedSession('sess-eligibility-change');
     new AgentSessionMessagesRepository().upsertStructured(
       'sess-eligibility-change',
@@ -362,14 +362,14 @@ describe('countSkillToolUses', () => {
     );
     const db = getDb();
 
-    expect(countSkillToolUses().get('eligibility-sensitive')).toBe(1);
+    expect((await countSkillToolUses()).get('eligibility-sensitive')).toBe(1);
 
     db.prepare(
       `UPDATE agent_sessions
           SET category = 'scheduled', updated_at = '2026-09-15T00:00:00.000Z'
         WHERE id = 'sess-eligibility-change'`,
     ).run();
-    expect(countSkillToolUses().get('eligibility-sensitive')).toBeUndefined();
+    expect((await countSkillToolUses()).get('eligibility-sensitive')).toBeUndefined();
 
     // Keep the same updated_at while changing eligibility again. This rejects
     // caches keyed only by the owning session's latest timestamp.
@@ -378,16 +378,16 @@ describe('countSkillToolUses', () => {
           SET category = 'chat', updated_at = '2026-09-15T00:00:00.000Z'
         WHERE id = 'sess-eligibility-change'`,
     ).run();
-    expect(countSkillToolUses().get('eligibility-sensitive')).toBe(1);
+    expect((await countSkillToolUses()).get('eligibility-sensitive')).toBe(1);
 
     db.prepare(
       `UPDATE agent_sessions SET mcp_role = 'skill-extract'
         WHERE id = 'sess-eligibility-change'`,
     ).run();
-    expect(countSkillToolUses().get('eligibility-sensitive')).toBeUndefined();
+    expect((await countSkillToolUses()).get('eligibility-sensitive')).toBeUndefined();
   });
 
-  it('agent-server-memory-c2: counts a small live signal under a 128 MB heap beside more than 150 MB of irrelevant archived history', () => {
+  it('agent-server-memory-c2: counts a small live signal under a 128 MB heap beside more than 150 MB of irrelevant archived history', async () => {
     const root = mkdtempSync(join(tmpdir(), 'rhythm-skill-usage-heap-'));
     const dbPath = join(root, 'fixture.db');
     const fixtureDb = new Database(dbPath);

@@ -16,8 +16,9 @@ test('E33: an open transcript refreshes on focus without mixing routes', async (
     return false;
   });
   await expect(page.getByTestId('messages-transcript')).toContainText('First');
-  await expect(page.getByTestId('messages-thread-list')).not.toHaveAttribute('role', 'grid');
-  await expect(page.getByTestId('messages-thread-31')).toHaveJSProperty('tagName', 'BUTTON');
+  await expect(page.getByTestId('messages-thread-list').getByRole('listbox')).toHaveAttribute('aria-label', 'Conversations');
+  await expect(page.getByTestId('messages-thread-31')).toHaveJSProperty('tagName', 'DIV');
+  await expect(page.getByTestId('messages-thread-31')).toHaveAttribute('role', 'option');
   messages = [...messages, { id: 2, threadId: 31, senderId: 2, senderName: 'Casey Staff', body: 'Arrived while open', createdAt: '2026-09-11T00:01:00Z' }];
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(page.getByTestId('messages-transcript')).toContainText('Arrived while open');
@@ -60,4 +61,39 @@ test('E33: a delayed old-thread refresh cannot overwrite a newly routed thread',
   await expect(page.getByTestId('messages-transcript')).toContainText('Current second response');
   release(); await expect.poll(() => delivered).toBe(true);
   await expect(page.getByTestId('messages-transcript')).not.toContainText('Late old response');
+});
+
+test('1516:messages-refresh-stale-overwrite-guard:1 a held thread refresh cannot erase a newly created selected thread', async ({ page }) => {
+  const seen: SeenRequest[] = [];
+  const created = { ...thread, id: 42, title: 'New handoff', lastMessage: null, participants: thread.participants };
+  let holdRefresh = false;
+  let refreshPending = false;
+  let releaseRefresh = () => {};
+  await openPhase7Live(page, '/messages/31', seen, async (route, request) => {
+    const path = new URL(request.url()).pathname;
+    if (path === '/users') return fulfillJson(route, 200, thread.participants).then(() => true);
+    if (path === '/message-threads' && request.method() === 'POST') return fulfillJson(route, 201, created).then(() => true);
+    if (path === '/message-threads') {
+      if (holdRefresh) {
+        refreshPending = true;
+        await new Promise<void>((resolve) => { releaseRefresh = resolve; });
+      }
+      return fulfillJson(route, 200, [thread]).then(() => true);
+    }
+    if (path === '/message-threads/31/messages' || path === '/message-threads/42/messages') return fulfillJson(route, 200, []).then(() => true);
+    if (path.endsWith('/read')) return route.fulfill({ status: 204 }).then(() => true);
+    return false;
+  });
+  await expect(page.getByTestId('messages-thread-31')).toBeVisible();
+  holdRefresh = true;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect.poll(() => refreshPending).toBe(true);
+  await page.getByTestId('messages-new-thread').click();
+  await page.getByTestId('messages-new-thread-title').fill('New handoff');
+  await page.getByTestId('messages-recipient-2').check();
+  await page.getByTestId('messages-create-thread').click();
+  await expect(page.getByTestId('messages-thread-42')).toHaveAttribute('aria-selected', 'true');
+  releaseRefresh();
+  await expect(page.getByTestId('messages-thread-42')).toBeVisible();
+  await expect(page.getByTestId('messages-thread-42')).toHaveAttribute('aria-selected', 'true');
 });

@@ -105,7 +105,7 @@ const config: ExpoConfig = {
   name: isDevelopmentVariant ? 'Rhythm Agents Dev' : 'Rhythm Agents',
   slug: 'rhythm-mobile',
   owner: 'ajhochys-team',
-  version: '1.0.8',
+  version: '1.0.9',
   orientation: 'portrait',
   icon: './assets/images/icon.png',
   scheme: 'rhythmagents',
@@ -156,8 +156,16 @@ const config: ExpoConfig = {
     [
       'expo-camera',
       {
-        cameraPermission: 'Allow $(PRODUCT_NAME) to scan a one-time Mac pairing code.',
+        cameraPermission:
+          'Allow $(PRODUCT_NAME) to scan a one-time Mac pairing code and take photos for chat attachments.',
         barcodeScannerEnabled: true,
+      },
+    ],
+    [
+      'expo-image-picker',
+      {
+        photosPermission:
+          'Allow $(PRODUCT_NAME) to access photos you choose for chat attachments.',
       },
     ],
     'expo-notifications',

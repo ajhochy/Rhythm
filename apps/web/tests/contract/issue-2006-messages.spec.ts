@@ -12,9 +12,15 @@ async function expectMessagesPage(page: Page) {
 }
 
 async function openThreadActions(page: Page, threadId = weekendThreadId, subject = weekendSubject) {
-  await page.getByTestId(`messages-thread-actions-${threadId}`).click();
+  if (await page.getByTestId('messages-selected-thread-actions').count() === 0) {
+    await page.getByTestId(`messages-thread-${threadId}`).click();
+  }
+  await page.getByTestId('messages-selected-thread-actions').click();
   return page.getByRole('menu', { name: `Actions for ${subject}` });
 }
+
+const threadRows = (page: Page) => page.getByTestId('messages-thread-list').getByRole('option');
+const unreadBadge = (page: Page, threadId: string) => page.getByTestId(`messages-thread-${threadId}`).locator('.list-inspector-badge');
 
 test('issue-2006-c1: messages collection and thread deep links render the real page shell', async ({ page }) => {
   // Regression caught: #/messages or its thread deep link continues rendering ModulePlaceholder or loses the selected shell destination.
@@ -34,13 +40,13 @@ test('issue-2006-c2: search filters deterministic threads without changing the s
   await openPage(page, 'messages');
   await expectMessagesPage(page);
   await expect(page.getByTestId('messages-unread-total')).toHaveText('6 unread threads');
-  await expect(page.getByTestId('messages-thread-list').locator('[data-unread="true"]')).toHaveCount(6);
+  await expect(page.getByTestId('messages-thread-list').locator('[role="option"] .list-inspector-badge')).toHaveCount(6);
   const traceBefore = await page.getByTestId('page-trace').textContent();
 
   await page.getByTestId('messages-thread-search').fill('wEeKeNd');
   await expect(page.getByTestId(`messages-thread-${weekendThreadId}`)).toBeVisible();
   await expect(page.getByTestId('messages-visible-count')).toHaveText('1 conversation');
-  await expect(page.getByTestId('messages-thread-list').locator('[data-testid^="messages-thread-"][data-thread-row="true"]')).toHaveCount(1);
+  await expect(threadRows(page)).toHaveCount(1);
   await expect(page.getByTestId('messages-unread-total')).toHaveText('6 unread threads');
   await expect(page.getByTestId('page-trace')).toHaveText(traceBefore ?? '');
 
@@ -48,12 +54,18 @@ test('issue-2006-c2: search filters deterministic threads without changing the s
   await expect(page.getByTestId('messages-no-results')).toContainText('No matching conversations');
   await page.getByTestId('messages-clear-search').click();
   await expect(page.getByTestId(`messages-thread-${weekendThreadId}`)).toBeVisible();
+
+  await page.getByTestId(`messages-thread-${weekendThreadId}`).click();
+  await page.getByTestId('messages-thread-search').fill('not a fixture conversation');
+  await expect(page.getByTestId('messages-no-results')).toBeVisible();
+  await expect(page.getByTestId('list-inspector-detail')).toContainText('Weekend Team');
+  await expect(page.getByTestId('messages-transcript')).toContainText('Final volunteer positions are ready.');
 });
 
 test('issue-2006-c3: state matrix no-results and invalid links expose deterministic recovery', async ({ page }) => {
   // Regression caught: a URL fixture state is blank or dead, Retry reloads the app, an invalid link strands the user, or readonly leaves a mutation enabled.
   await openPage(page, 'messages', '?state=loading');
-  await expect(page.getByTestId('page-state-loading')).toContainText('Loading conversations');
+  await expect(page.getByTestId('page-state-loading')).toContainText(/Loading conversations/i);
 
   await openPage(page, 'messages', '?state=empty');
   await expect(page.getByTestId('page-state-empty')).toContainText('No conversations');
@@ -61,7 +73,8 @@ test('issue-2006-c3: state matrix no-results and invalid links expose determinis
   await expect(page.getByTestId('messages-new-thread-dialog')).toBeVisible();
 
   await openPage(page, 'messages', '?state=server-error');
-  await expect(page.getByTestId('page-state-server-error')).toHaveAttribute('role', 'alert');
+  await expect(page.getByTestId('page-state-server-error')).toContainText('Messages could not be loaded');
+  await expect(page.locator('.list-inspector-state[role="alert"]')).toContainText('Messages could not be loaded');
   await page.getByTestId('page-retry').click();
   await expectMessagesPage(page);
   await expect(page).toHaveURL(/state=ready/);
@@ -100,10 +113,11 @@ test('issue-2006-c4: controls are live receipt-honest and restore focus', async 
   await expect(page.getByTestId('messages-new-thread-dialog')).toHaveCount(0);
   await expect(newTrigger).toBeFocused();
 
-  const actionTrigger = page.getByTestId(`messages-thread-actions-${weekendThreadId}`);
+  await page.getByTestId(`messages-thread-${weekendThreadId}`).click();
+  const actionTrigger = page.getByTestId('messages-selected-thread-actions');
   const traceBefore = await page.getByTestId('page-trace').textContent();
   await actionTrigger.click();
-  await expect(page.getByRole('menuitem', { name: 'Mark as read' })).toBeFocused();
+  await expect(page.getByRole('menuitem', { name: 'Mark as unread' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(actionTrigger).toBeFocused();
   await page.getByTestId('messages-thread-search').fill('weekend');
@@ -190,7 +204,7 @@ test('issue-2006-c7: messages remains responsive under required presentation mod
     document.documentElement.lang = 'ar';
   });
   await page.emulateMedia({ forcedColors: 'active', reducedMotion: 'reduce' });
-  await expect(page.getByText('礼拝チーム引き継ぎ 🎵', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('messages-transcript').getByText('礼拝チーム引き継ぎ 🎵', { exact: true })).toBeVisible();
   const resilientOverflow = await page.evaluate(() => ({ client: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
   expect(resilientOverflow.scroll).toBeLessThanOrEqual(resilientOverflow.client + 1);
   const undersized = await page.getByTestId('page-messages').locator('button:visible, input:visible, textarea:visible').evaluateAll((elements) => elements.flatMap((element) => {
@@ -212,15 +226,15 @@ test('issue-2006-c8: fixture isolation blocks external I O and reload resets the
   });
   await openPage(page, 'messages');
   await expectMessagesPage(page);
-  const seededThreads = await page.getByTestId('messages-thread-list').locator('[data-thread-row="true"]').allTextContents();
-  const menu = await openThreadActions(page);
-  await menu.getByRole('menuitem', { name: 'Mark as read' }).click();
+  const seededThreads = await threadRows(page).allTextContents();
+  await page.getByTestId(`messages-thread-${weekendThreadId}`).click();
   await expect(page.getByTestId('messages-unread-total')).toHaveText('5 unread threads');
 
+  await page.evaluate(() => history.replaceState(null, '', '#/messages'));
   await page.reload();
   await expectMessagesPage(page);
   await expect(page.getByTestId('messages-unread-total')).toHaveText('6 unread threads');
-  const reloadedThreads = await page.getByTestId('messages-thread-list').locator('[data-thread-row="true"]').allTextContents();
+  const reloadedThreads = await threadRows(page).allTextContents();
   expect(reloadedThreads).toEqual(seededThreads);
   expect(attemptedExternal).toEqual([]);
 });
@@ -232,7 +246,7 @@ test('issue-2006-c9: selecting and deep linking hydrate the correct conversation
   await page.getByTestId(`messages-thread-${weekendThreadId}`).click();
   await expect(page).toHaveURL(/#\/messages\/thread-weekend-team(?:\?|$)/);
   await expect(page.getByTestId(`messages-thread-${weekendThreadId}`)).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByTestId(`messages-thread-${weekendThreadId}`)).toHaveAttribute('data-unread', 'false');
+  await expect(unreadBadge(page, weekendThreadId)).toHaveCount(0);
   await expect(page.getByTestId('messages-subject')).toHaveText(weekendSubject);
   await expect(page.getByTestId('messages-thread-type')).toHaveText('Group');
   await expect(page.getByTestId('messages-participants')).toContainText('Morgan Lee');
@@ -305,21 +319,24 @@ test('issue-2006-c12: mark read and unread synchronize thread page and shell bad
   await expectMessagesPage(page);
   await expect(page.getByTestId('nav-messages').getByLabel('6 unread')).toHaveText('6');
   await expect(page.getByTestId('messages-unread-total')).toHaveText('6 unread threads');
-  await expect(page.getByTestId(`messages-thread-unread-${weekendThreadId}`)).toHaveText('1');
+  await expect(unreadBadge(page, weekendThreadId)).toHaveText('1 unread');
 
-  let menu = await openThreadActions(page);
-  await menu.getByRole('menuitem', { name: 'Mark as read' }).click();
-  await expect(page.getByTestId(`messages-thread-unread-${weekendThreadId}`)).toHaveCount(0);
+  await page.getByTestId(`messages-thread-${weekendThreadId}`).click();
+  await expect(unreadBadge(page, weekendThreadId)).toHaveCount(0);
   await expect(page.getByTestId('messages-unread-total')).toHaveText('5 unread threads');
   await expect(page.getByTestId('nav-messages').getByLabel('5 unread')).toHaveText('5');
   await expect(page.getByTestId('page-trace')).toContainText(`POST /message-threads/${weekendThreadId}/read → 204`);
 
-  menu = await openThreadActions(page);
+  let menu = await openThreadActions(page);
   await menu.getByRole('menuitem', { name: 'Mark as unread' }).click();
-  await expect(page.getByTestId(`messages-thread-unread-${weekendThreadId}`)).toHaveText('1');
+  await expect(unreadBadge(page, weekendThreadId)).toHaveText('1 unread');
   await expect(page.getByTestId('messages-unread-total')).toHaveText('6 unread threads');
   await expect(page.getByTestId('nav-messages').getByLabel('6 unread')).toHaveText('6');
   await expect(page.getByTestId('page-trace')).toContainText(`POST /message-threads/${weekendThreadId}/unread → 204`);
+  menu = await openThreadActions(page);
+  await menu.getByRole('menuitem', { name: 'Mark as read' }).click();
+  await expect(unreadBadge(page, weekendThreadId)).toHaveCount(0);
+  await expect(page.getByTestId('messages-unread-total')).toHaveText('5 unread threads');
   await expect(page.getByTestId('page-trace')).toContainText('GET /message-threads → 200');
 });
 

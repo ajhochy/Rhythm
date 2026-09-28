@@ -94,5 +94,17 @@ class PrepareAssetsTests(unittest.TestCase):
         self.assertFalse(result["published"])
 
 
+
+class ProtocolTests(unittest.TestCase):
+    def test_unknown_requests_get_method_not_found(self):
+        for method in ("prompts/list", "resources/list"):
+            response = bridge.handle({"jsonrpc": "2.0", "id": 7, "method": method})
+            self.assertEqual(response["id"], 7)
+            self.assertEqual(response["error"]["code"], -32601)
+
+    def test_notifications_and_ping(self):
+        self.assertIsNone(bridge.handle({"jsonrpc": "2.0", "method": "notifications/initialized"}))
+        self.assertEqual(bridge.handle({"jsonrpc": "2.0", "id": 1, "method": "ping"})["result"], {})
+
 if __name__ == "__main__":
     unittest.main()

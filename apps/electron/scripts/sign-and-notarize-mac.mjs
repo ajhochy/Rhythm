@@ -22,25 +22,46 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { hardenElectronFuses } from './harden-electron-fuses.mjs';
+import { PINNED_HERMES_DESKTOP_SOURCE_COMMIT } from '../src/hermes-desktop-config.mjs';
+import { refreshHermesDesktopArtifactIntegrity, resolveHermesDesktopArtifact } from '../src/hermes-desktop-artifact.mjs';
+import { EXPECTED_COLONY_ELECTRON_MAJOR, PINNED_COLONY_SOURCE_COMMIT } from '../src/colony-desktop-config.mjs';
+import { refreshColonyArtifactIntegrity, resolveColonyArtifact } from '../src/colony-desktop-artifact.mjs';
+import { requireManifestSigningKey, signHermesDesktopManifest } from './sign-hermes-desktop-manifest.mjs';
+import { resolveSigningIdentityWithRunner } from './signing-identity.mjs';
 
 const run = promisify(execFile);
 const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const artifact = resolve(electronRoot, 'dist/Rhythm.app');
 const entitlementsPath = resolve(electronRoot, 'entitlements/mac.plist');
 
-const required = ['APPLE_SIGNING_IDENTITY', 'APPLE_TEAM_ID', 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD'];
+// RHYTHM_SIGN_ONLY=1: local candidate — Developer ID signature, no notarization. Ad-hoc builds
+// cannot start the agent runtime (the approval helper requires a team-signed parent), and the
+// bundled (factory) Hermes artifact is integrity-checked, not signature-checked, so the manifest
+// key is only needed when a release will also ship installable Hermes updates.
+const signOnly = process.env.RHYTHM_SIGN_ONLY === '1';
+const required = ['APPLE_SIGNING_IDENTITY', 'APPLE_TEAM_ID', ...(signOnly ? [] : ['APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD'])];
 for (const name of required) {
   if (!process.env[name]?.trim()) {
     process.stderr.write(`Missing ${name} — skipping sign/notarize.\n`);
     process.exit(1);
   }
 }
+// issue-1570-d: fail closed before any codesign work starts, never after — an unsigned Hermes
+// Desktop manifest is a release the installed-artifact verifier will reject anyway, so catching it
+// here saves the notarization round trip instead of discovering it downstream.
+let hermesDesktopManifestSigningKey;
+try {
+  if (!signOnly || process.env.HERMES_DESKTOP_MANIFEST_SIGNING_KEY?.trim()) hermesDesktopManifestSigningKey = requireManifestSigningKey();
+} catch (error) {
+  process.stderr.write(`${error instanceof Error ? error.message : error}\n`);
+  process.exit(1);
+}
 if (!existsSync(artifact)) {
   process.stderr.write(`${artifact} not found — run \`npm run package:mac\` first.\n`);
   process.exit(1);
 }
 
-const identity = process.env.APPLE_SIGNING_IDENTITY.trim();
+const identity = await resolveSigningIdentityWithRunner(process.env.APPLE_SIGNING_IDENTITY, { runner: run });
 const teamId = process.env.APPLE_TEAM_ID.trim();
 
 // Mach-O magic numbers (32/64-bit, fat/universal, both endiannesses). Notarization rejected the
@@ -114,6 +135,25 @@ for (const target of targets) {
 }
 await run('codesign', ['--verify', '--strict', approvalHelper]);
 await run('codesign', ['--verify', '--strict', engine]);
+const hermesDesktopArtifact = resolve(contentsDir, 'Resources/hermes-desktop');
+await refreshHermesDesktopArtifactIntegrity({ artifactRoot: hermesDesktopArtifact });
+await resolveHermesDesktopArtifact({
+  artifactRoot: hermesDesktopArtifact,
+  expectedElectronMajor: 40,
+  expectedSourceCommit: PINNED_HERMES_DESKTOP_SOURCE_COMMIT,
+  allowDirty: false,
+});
+// Must run after the reseal above (mutating the artifact later invalidates this signature) and
+// before the outer app codesign, so this exact signed manifest ships inside the sealed bundle.
+if (hermesDesktopManifestSigningKey) await signHermesDesktopManifest({ artifactRoot: hermesDesktopArtifact, signingKey: hermesDesktopManifestSigningKey });
+const colonyDesktopArtifact = resolve(contentsDir, 'Resources/colony-desktop');
+await refreshColonyArtifactIntegrity({ artifactRoot: colonyDesktopArtifact });
+await resolveColonyArtifact({
+  artifactRoot: colonyDesktopArtifact,
+  expectedElectronMajor: EXPECTED_COLONY_ELECTRON_MAJOR,
+  expectedSourceCommit: PINNED_COLONY_SOURCE_COMMIT,
+  allowDirty: false,
+});
 await codesign(artifact, { deep: false });
 
 const verify = await run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', artifact]).catch((error) => error);
@@ -125,6 +165,11 @@ if (verify instanceof Error) {
 
 const assess = await run('spctl', ['--assess', '--type', 'execute', '--verbose', artifact]).catch((error) => error);
 process.stdout.write(`${assess.stderr ?? assess.stdout ?? ''}\n`);
+
+if (signOnly) {
+  process.stdout.write(`Signed ${artifact} (sign-only; not notarized).\n`);
+  process.exit(0);
+}
 
 const zipPath = resolve(electronRoot, 'dist/Rhythm.zip');
 await run('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', artifact, zipPath]);

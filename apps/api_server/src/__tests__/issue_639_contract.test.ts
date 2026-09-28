@@ -36,24 +36,10 @@ import { SessionsRepository } from '../repositories/sessions_repository';
 vi.mock('../services/opencode_engine', () => {
   const mockClient = {
     isReady: true,
-    listModels: vi.fn().mockImplementation((providerId: string) => {
-      const byProvider: Record<string, Array<{ id: string }>> = {
-        anthropic: [
-          { id: 'claude-opus-4-7' },
-          { id: 'claude-sonnet-4-6' },
-          { id: 'claude-haiku-4-5' },
-        ],
-        openrouter: [
-          { id: 'anthropic/claude-opus-4.7' },
-          { id: 'anthropic/claude-opus-4.7:extended' },
-          { id: 'anthropic/claude-opus-4.5' },
-          { id: 'anthropic/claude-sonnet-4.6' },
-          { id: 'anthropic/claude-haiku-4.5' },
-          { id: 'meta-llama/llama-3.3-70b-instruct' },
-        ],
-      };
-      return Promise.resolve(byProvider[providerId] ?? []);
-    }),
+    providerSnapshot: vi.fn().mockResolvedValue({ providers: [
+      { id: 'anthropic', connected: true, digest: 'a', models: ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5'].map((id) => ({ id, capabilities: { input: { text: true }, output: { text: true }, toolcall: true } })) },
+      { id: 'openrouter', connected: true, digest: 'r', models: ['anthropic/claude-opus-4.7', 'anthropic/claude-opus-4.7:extended', 'anthropic/claude-opus-4.5', 'anthropic/claude-sonnet-4.6', 'anthropic/claude-haiku-4.5', 'meta-llama/llama-3.3-70b-instruct'].map((id) => ({ id, capabilities: { input: { text: true }, output: { text: true }, toolcall: true } })) },
+    ] }),
     // Both anthropic and openrouter are authed — the duplicate scenario.
     listAuthedProviders: vi.fn().mockResolvedValue(['anthropic', 'openrouter']),
     statusMessage: 'ready',
@@ -88,6 +74,7 @@ function makeDb() {
 // ---------------------------------------------------------------------------
 
 type ModelsRow = {
+  agent?: string;
   providerId?: string;
   modelId?: string;
   provider?: string;
@@ -130,7 +117,7 @@ describe(
     });
 
     it(
-      'does NOT return {providerId:openrouter, modelId:anthropic/claude-opus-4.7} when anthropic is directly authed',
+      'suppresses OpenRouter when direct Anthropic is authorized with unverified entitlement',
       async () => {
         // CONTRACT TEST — must fail before implementation.
         //
@@ -151,11 +138,7 @@ describe(
         // The route anthropic/claude-opus-4.7 via openrouter must be absent
         // because anthropic is directly authed and the user already has the
         // direct route to the same model family.
-        expect(
-          hasOpenrouterAnthropicRow(rows),
-          'GET /agents/models must not include openrouter rows for anthropic/* ' +
-            'when anthropic is directly authed (would cause duplicate picker rows)',
-        ).toBe(false);
+        expect(hasOpenrouterAnthropicRow(rows)).toBe(false);
       },
     );
 
@@ -244,7 +227,7 @@ describe(
     });
 
     it(
-      'does NOT return openrouter rows for anthropic/* models when anthropic is directly authed',
+      'suppresses openrouter rows for anthropic/* when the direct provider is authorized',
       async () => {
         // CONTRACT TEST — must fail before implementation.
         //
@@ -252,7 +235,9 @@ describe(
         // ROUTE_FALLBACKS_BY_AGENT entry. It then filters by authedSet but does
         // NOT suppress openrouter aggregator rows for models whose prefix
         // matches a directly-authed provider. The fix must add that suppression.
-        const res = await fetch(`${baseUrl}/agents/models/catalog`, {
+        // Unknown entitlement remains selectable, so authorization is enough
+        // to suppress the duplicate for this agent kind.
+        const res = await fetch(`${baseUrl}/agents/models/catalog/full`, {
           headers: authHeaders,
         });
         expect(res.status).toBe(200);
@@ -260,19 +245,23 @@ describe(
         const rows = (await res.json()) as ModelsRow[];
 
         // THIS IS THE FAILING ASSERTION before the fix.
-        expect(
-          hasOpenrouterAnthropicRow(rows),
-          'GET /agents/models/catalog must not include openrouter rows for ' +
-            'anthropic/* when anthropic is directly authed (duplicate catalog rows)',
-        ).toBe(false);
+        expect(rows.some((row) =>
+          row.agent === 'claude-code' &&
+          row.provider === 'openrouter' &&
+          (row.modelId ?? '').startsWith('anthropic/'))).toBe(false);
+        expect(rows.some((row) =>
+          row.agent === 'opencode' &&
+          row.provider === 'openrouter' &&
+          (row.modelId ?? '').startsWith('anthropic/'))).toBe(true);
       },
     );
 
     it(
       'still includes authorized: true on direct anthropic rows in the catalog',
       async () => {
-        // Regression guard — the direct anthropic rows must remain present.
-        const res = await fetch(`${baseUrl}/agents/models/catalog`, {
+        // Regression guard — the direct anthropic row remains visible in the
+        // full catalog even when unverified entitlement makes it non-selectable.
+        const res = await fetch(`${baseUrl}/agents/models/catalog/full`, {
           headers: authHeaders,
         });
         expect(res.status).toBe(200);

@@ -1,0 +1,145 @@
+/* Finder-style column browser. Dense rows match the session rail. */
+.column-browser {
+  container: column-browser / inline-size;
+  min-width: 0;
+  min-height: 0;
+}
+
+.column-browser-track {
+  display: flex;
+  height: var(--column-browser-height, max(420px, calc(100vh - 220px)));
+  min-width: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.column-browser-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-inline-end: 1px solid var(--border-soft);
+}
+.column-browser-column:last-child { border-inline-end: 0; }
+.column-browser-list { flex: 0 0 240px; background: color-mix(in oklab, var(--surface), var(--bg) 4%); }
+.column-browser-panel { flex: 1 1 380px; min-width: 320px; }
+.column-browser-splitter { margin-inline: -4px; }
+
+.column-browser-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 6px;
+  min-width: 0;
+}
+.column-browser-header h2 {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.column-browser-panel > .column-browser-header h2 { color: var(--fg); font-size: 13px; letter-spacing: 0; }
+.column-browser .column-browser-back, .column-browser .column-browser-forward { display: none; }
+
+.column-browser-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  margin: 0 6px 4px;
+  padding: 0 8px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg-2);
+  font-size: 13px;
+  text-align: start;
+  cursor: pointer;
+}
+.column-browser-add:hover, .column-browser-add.selected { color: var(--fg); background: var(--surface-warm); border-style: solid; }
+
+.column-browser-column > [role="listbox"] { flex: 1 1 auto; min-height: 0; padding: 0 6px 8px; overflow: auto; }
+.column-browser-group-label { padding: 8px 8px 2px; color: var(--muted); font-size: 11px; font-weight: 600; }
+
+.column-browser-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 8px;
+  border-radius: var(--r-sm);
+  color: var(--fg-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+.column-browser-row > strong { flex: 0 1 auto; min-width: 0; overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.column-browser-row > small { flex: 1 1 0; min-width: 0; overflow: hidden; color: var(--muted); font-size: 11px; text-align: end; text-overflow: ellipsis; white-space: nowrap; }
+.column-browser-row > .profile-avatar { width: 20px; height: 20px; font-size: 8px; }
+.column-browser-badge { flex: 0 0 auto; padding: 1px 5px; border: 1px solid var(--border); border-radius: var(--r-pill); color: var(--muted); font-size: 10px; font-style: normal; }
+.column-browser-row:hover, .column-browser-row.selected { color: var(--fg); background: var(--surface-warm); }
+.column-browser-row.selected { box-shadow: inset 0 0 0 1px var(--border); }
+.column-browser-row[aria-disabled="true"] { opacity: .58; cursor: not-allowed; }
+.column-browser-row.muted { opacity: .55; }
+.column-browser-list[data-stacked] .column-browser-row { flex-direction: column; align-items: stretch; justify-content: center; gap: 1px; min-height: 40px; padding-block: 4px; }
+.column-browser-list[data-stacked] .column-browser-row > strong,
+.column-browser-list[data-stacked] .column-browser-row > small { flex: 0 0 auto; width: 100%; text-align: start; }
+.column-browser-state { margin: 0; padding: 8px 12px; color: var(--muted); font-size: 12px; }
+.column-browser-footer { flex: 0 0 auto; padding: 6px 8px; border-top: 1px solid var(--border-soft); }
+
+.column-browser-body { flex: 1 1 auto; min-height: 0; padding: 4px 14px 20px; overflow: auto; overflow-wrap: anywhere; }
+.column-browser :is(.column-browser-row, .column-browser-body, .column-browser-add):focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Long checkbox lists (skills, MCP tools, delegation targets). */
+.column-checklist { display: grid; gap: 4px; min-width: 0; }
+.column-checklist-toolbar { position: sticky; top: -4px; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding-block: 4px 6px; background: var(--surface); }
+.column-checklist-filter { display: flex; flex: 1 1 160px; align-items: center; gap: 6px; min-width: 0; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--muted); }
+.column-checklist-filter input { flex: 1; min-width: 0; min-height: 28px; padding: 0; border: 0; background: transparent; color: var(--fg); font-size: 13px; }
+.column-checklist-filter input:focus { outline: none; }
+.column-checklist-filter:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.column-checklist :is(.text-button) { min-height: 24px; font-size: 12px; }
+.column-checklist-sort { min-height: 28px; max-width: 100%; padding: 0 6px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--fg); font-size: 12px; }
+.column-check-group { min-width: 0; }
+.column-check-group > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 28px; padding: 4px 2px; color: var(--fg); font-size: 12px; cursor: pointer; }
+.column-check-group > summary > span { color: var(--muted); }
+.column-check-group-actions { display: flex; flex-wrap: wrap; gap: 2px 12px; padding-inline: 2px; }
+.column-check-rows { display: grid; }
+.column-check-row { position: relative; display: flex; align-items: center; min-width: 0; min-height: 24px; border-radius: var(--r-sm); }
+.column-check-row:hover, .column-check-row:focus-within { background: var(--surface-warm); }
+.column-check-row > label { display: flex; flex: 1 1 auto; align-items: center; gap: 8px; min-width: 0; min-height: 24px; padding: 0 6px; font-size: 13px; cursor: pointer; }
+.column-check-row input { flex: 0 0 auto; min-height: 0; margin: 0; padding: 0; }
+.column-check-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.column-check-row small { flex: 1 1 0; min-width: 0; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.column-check-actions { display: flex; flex: 0 0 auto; gap: 2px; opacity: 0; }
+.column-check-row:hover .column-check-actions, .column-check-row:focus-within .column-check-actions { opacity: 1; }
+.column-check-actions .icon-button, .column-check-actions .icon-button.small { width: 24px; min-width: 24px; height: 24px; min-height: 24px; padding: 0; }
+.column-checklist-error { margin: 4px 0; color: var(--danger); font-size: 12px; }
+.column-checklist-empty { margin: 6px 2px; color: var(--muted); font-size: 12px; }
+.column-check-row input:focus-visible, .column-check-group > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (any-pointer: coarse) {
+  .column-browser-row, .column-browser-add, .column-check-row, .column-check-row > label, .column-check-group > summary, .column-checklist-filter input, .column-checklist .text-button, .column-checklist-sort { min-height: 44px; }
+  .column-check-actions { opacity: 1; }
+  .column-check-actions .icon-button, .column-check-actions .icon-button.small { width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
+}
+
+/* Narrow: one column at a time, with Back (and forward for panels that lead to a list). */
+@container column-browser (width < 900px) {
+  .column-browser-column:not([data-shown]), .column-browser-splitter { display: none; }
+  .column-browser-column[data-shown] { flex: 1 1 auto; width: auto !important; min-width: 0; border-inline-end: 0; }
+  .column-browser .column-browser-back, .column-browser .column-browser-forward { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; }
+  .column-browser .column-browser-back { flex-basis: 100%; justify-content: flex-start; padding-inline: 0; }
+}
+
+@media (forced-colors: active) {
+  .column-browser-row.selected { outline: 2px solid Highlight; outline-offset: -2px; }
+}

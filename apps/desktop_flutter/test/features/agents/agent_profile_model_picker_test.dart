@@ -194,6 +194,42 @@ void main() {
     );
 
     testWidgets(
+      'review:review-findings.md:60 provider Connect rows are not selectable models',
+      (tester) async {
+        final config = _makeConfig();
+        final dataSource = _RecordingAgentConfigsDataSource(config);
+        final modelsDs = _FakeAgentModelsDataSource([
+          const CatalogModelEntry(
+            agent: 'codex',
+            provider: 'openai',
+            modelId: '',
+            displayName: 'openai',
+            route: 'direct',
+            authorized: false,
+            authProvider: 'openai',
+            connectUrl: '/opencode/auth/openai/authorize',
+          ),
+          catalogEntry,
+        ]);
+
+        await tester.pumpWidget(
+          _buildSheet(
+            config: config,
+            dataSource: dataSource,
+            modelsDataSource: modelsDs,
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester
+            .tap(find.byType(DropdownButtonFormField<CatalogModelEntry>));
+        await tester.pumpAndSettle();
+
+        expect(find.text('openai / '), findsNothing);
+        expect(find.text('anthropic / claude-sonnet-4-6'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
       'pre-selects existing model when config has modelProvider/modelId',
       (tester) async {
         final config = _makeConfig(

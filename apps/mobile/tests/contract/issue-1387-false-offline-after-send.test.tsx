@@ -6,7 +6,7 @@ import {
   waitFor,
 } from '@testing-library/react-native';
 import React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Platform, Pressable, Text, View } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 
 import AgentChatDetailScreen from '@/app/agents/chats/[sessionId]';
@@ -15,6 +15,16 @@ import {
   PairedHostProvider,
   usePairedHost,
 } from '@/providers/paired-host-provider';
+
+jest.mock('react-native', () => {
+  const actual = jest.requireActual('react-native');
+  Object.defineProperty(actual.Platform, 'OS', { value: 'ios' });
+  Object.defineProperty(actual.AppState, 'currentState', {
+    configurable: true,
+    value: 'active',
+  });
+  return actual;
+});
 
 const PROJECT_ID = 'rhythm-owner-project';
 const SESSION_ID = 'ses-relay-connected';
@@ -25,6 +35,27 @@ let mockAcceptedPromptCount = 0;
 let mockRelayOnline = true;
 let mockRefreshPairedHost: (() => Promise<unknown>) | undefined;
 const mockBoundaryTrace: string[] = [];
+let mockLatestSubmission: Promise<boolean> | undefined;
+let mockPersistenceError: Error | undefined;
+let mockReconciliationReadsFail = false;
+let mockSessionStatus: 'busy' | 'idle' = 'idle';
+let mockWorkingSoundActive = false;
+let mockPendingQuestions: {
+  id: string;
+  sessionID: string;
+  questions: {
+    custom: boolean;
+    header: string;
+    multiple: boolean;
+    options: never[];
+    question: string;
+  }[];
+}[] = [];
+let mockPromptOutcome:
+  | 'accepted-then-offline'
+  | 'accepted-visible'
+  | 'not-accepted' =
+  'accepted-then-offline';
 
 const mockHost = {
   contractFingerprint: 'contract',
@@ -118,13 +149,19 @@ const mockStore = {
 };
 
 const mockPromptAsync = jest.fn(async () => {
+  if (mockPromptOutcome === 'not-accepted') {
+    mockBoundaryTrace.push('opencode:prompt-not-accepted');
+    throw new Error('OpenCode rejected the prompt before accepting it.');
+  }
   // Preserve the physical failure mechanism. The local OpenCode boundary has
   // accepted the prompt, but the relay instance disappears before the phone
   // receives the RPC response. The paired-host probe then observes no uplink.
   mockAcceptedPromptCount += 1;
   mockBoundaryTrace.push('opencode:prompt-accepted');
-  mockRelayOnline = false;
-  await mockRefreshPairedHost?.();
+  if (mockPromptOutcome === 'accepted-then-offline') {
+    mockRelayOnline = false;
+    await mockRefreshPairedHost?.();
+  }
   throw Object.assign(
     new Error('Rhythm Cloud Gateway cannot reach your Mac.'),
     { code: 'NETWORK_ERROR', status: 0 },
@@ -133,7 +170,13 @@ const mockPromptAsync = jest.fn(async () => {
 
 const mockSdkClient = {
   __opencode: { directory: PROJECT_ID, gateway: true },
-  session: { promptAsync: mockPromptAsync },
+  session: {
+    promptAsync: mockPromptAsync,
+    status: jest.fn(async () => {
+      if (mockReconciliationReadsFail) throw new Error('status unavailable');
+      return { data: { [SESSION_ID]: { type: mockSessionStatus } } };
+    }),
+  },
 };
 
 const sessionExecutionState = {
@@ -153,6 +196,11 @@ const session = {
   title: 'Relay QA',
   time: { created: 1, updated: 2 },
   rhythm: sessionExecutionState,
+};
+const mockOtherSession = {
+  ...session,
+  id: 'ses-other',
+  title: 'Other planning chat',
 };
 
 function message(
@@ -230,13 +278,18 @@ jest.mock('@/providers/rhythm-account-provider', () => ({
 }));
 
 jest.mock('@/providers/use-opencode-persistence', () => ({
-  useOpencodePersistence: ({ setActiveProjectPath }: {
+  useOpencodePersistence: ({ setActiveProjectPath, setChatPreferences }: {
     setActiveProjectPath: (path: string) => void;
+    setChatPreferences: React.Dispatch<React.SetStateAction<Record<string, unknown>>>;
   }) => {
     const React = jest.requireActual<typeof import('react')>('react');
     React.useEffect(() => {
       setActiveProjectPath(PROJECT_ID);
-    }, [setActiveProjectPath]);
+      setChatPreferences((current) => ({
+        ...current,
+        workingSoundEnabled: true,
+      }));
+    }, [setActiveProjectPath, setChatPreferences]);
     return { isHydrated: true };
   },
 }));
@@ -255,8 +308,10 @@ jest.mock('@/lib/opencode/client', () => ({
   }),
   listPendingInteractions: jest.fn(async () => ({
     permissions: [],
-    questions: [],
+    questions: mockPendingQuestions,
   })),
+  rejectPendingQuestion: jest.fn(async () => undefined),
+  replyToPendingQuestion: jest.fn(async () => undefined),
 }));
 
 jest.mock('@/providers/services/mobile-gateway-service', () => {
@@ -284,7 +339,10 @@ jest.mock('@/providers/services/mobile-gateway-service', () => {
     },
     display: { icon: 'account', color: null },
   }]),
-  updateMobileSessionProfileState: jest.fn(async () => sessionExecutionState),
+  updateMobileSessionProfileState: jest.fn(async () => {
+    if (mockPersistenceError) throw mockPersistenceError;
+    return sessionExecutionState;
+  }),
   };
 });
 
@@ -292,13 +350,21 @@ jest.mock('@/providers/services/session-service', () => ({
   listArchivedSessions: jest.fn(async () => []),
   listCommands: jest.fn(async () => []),
   listSessions: jest.fn(async () => ({
-    sessions: [session],
-    statuses: { [SESSION_ID]: { type: 'idle' } },
+    sessions: [session, mockOtherSession],
+    statuses: { [SESSION_ID]: { type: mockSessionStatus } },
   })),
-  getSessionMessages: jest.fn(async () => ({
-    records: mockCurrentMessages(),
-    nextCursor: undefined,
-  })),
+  getSessionMessages: jest.fn(async () => {
+    if (
+      mockReconciliationReadsFail ||
+      (mockPromptOutcome === 'accepted-then-offline' && !mockRelayOnline)
+    ) {
+      throw new Error('messages unavailable');
+    }
+    return {
+      records: mockCurrentMessages(),
+      nextCursor: undefined,
+    };
+  }),
   getSessionDiff: jest.fn(async () => []),
   getSessionTodos: jest.fn(async () => []),
 }));
@@ -330,9 +396,13 @@ jest.mock('@/providers/services/workspace-service', () => ({
   getVcsInfo: jest.fn(async () => undefined),
   listWorktrees: jest.fn(async () => []),
 }));
-jest.mock('@/providers/services/post-prompt-refresh', () => ({
-  pollForNewAssistantTurn: jest.fn(async () => undefined),
-}));
+jest.mock('@/providers/services/post-prompt-refresh', () => {
+  const actual = jest.requireActual('@/providers/services/post-prompt-refresh');
+  return {
+    ...actual,
+    pollForNewAssistantTurn: jest.fn(async () => undefined),
+  };
+});
 
 jest.mock('@/lib/opencode/global-event-stream', () => ({
   streamDirectGlobalEvents: jest.fn(),
@@ -353,6 +423,7 @@ jest.mock('@/lib/opencode/global-event-stream', () => ({
 
 jest.mock('@/lib/notifications', () => ({
   clearPendingTaskFinishedNotification: jest.fn(async () => undefined),
+  notifyQuestionRequired: jest.fn(async () => undefined),
   notifyTaskFinished: jest.fn(async () => undefined),
   trackPendingTaskFinishedNotification: jest.fn(async () => undefined),
 }));
@@ -361,8 +432,13 @@ jest.mock('@/lib/voice/speech-output', () => ({
   stopSpeaking: jest.fn(async () => undefined),
 }));
 jest.mock('@/lib/voice/working-sound', () => ({
-  startWorkingSoundAsync: jest.fn(async () => undefined),
-  stopWorkingSoundAsync: jest.fn(async () => undefined),
+  startWorkingSoundAsync: jest.fn(async () => {
+    mockWorkingSoundActive = true;
+    return true;
+  }),
+  stopWorkingSoundAsync: jest.fn(async () => {
+    mockWorkingSoundActive = false;
+  }),
   unloadWorkingSoundAsync: jest.fn(async () => undefined),
 }));
 jest.mock('@/lib/voice/use-speech-input', () => ({
@@ -417,19 +493,85 @@ function PairedRefreshHarness() {
 }
 
 function SendHarness() {
-  const { sendPrompt } = useOpencode();
+  const { chatPreferences, promptError, sendPrompt, sendingState } = useOpencode();
   const [result, setResult] = React.useState('idle');
+  const [draft, setDraft] = React.useState(PROMPT);
+  const [settledCount, setSettledCount] = React.useState(0);
   return (
     <View>
       <Text testID="send-result">{result}</Text>
+      <Text testID="send-draft">{draft}</Text>
+      <Text testID="send-error">{promptError?.message ?? ''}</Text>
+      <Text testID="send-settled-count">{settledCount}</Text>
+      <Text testID="send-working-sound-enabled">
+        {String(chatPreferences.workingSoundEnabled)}
+      </Text>
+      <Text testID="send-active">{String(sendingState.active)}</Text>
+      <Text testID="platform-os">{Platform.OS}</Text>
       <Pressable
         testID="send-final-prompt"
         onPress={() => {
-          void sendPrompt(SESSION_ID, PROMPT)
-            .then(() => setResult('transport-returned'))
-            .catch(() => setResult('transport-dropped-after-acceptance'));
+          setDraft('');
+          mockLatestSubmission = sendPrompt(SESSION_ID, PROMPT);
+          void mockLatestSubmission
+            .then((accepted) => {
+              setResult(accepted ? 'transport-returned' : 'not-submitted');
+              if (!accepted) setDraft(PROMPT);
+              setSettledCount((current) => current + 1);
+            })
+            .catch(() => {
+              setResult('definitive-rejection');
+              setDraft(PROMPT);
+              setSettledCount((current) => current + 1);
+            });
         }}>
         <Text>Send relay prompt</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function PendingQuestionHarness() {
+  const {
+    currentSessionId,
+    currentPendingQuestions,
+    pendingQuestionSessionIds,
+    rejectQuestion,
+    refreshCurrentSession,
+    replyToQuestion,
+  } = useOpencode();
+  return (
+    <View>
+      <Text testID="pending-question-current-session">
+        {currentSessionId ?? ''}
+      </Text>
+      <Text testID="pending-question-session-ids">
+        {pendingQuestionSessionIds.join(',')}
+      </Text>
+      <Text testID="pending-question-current-count">
+        {String(currentPendingQuestions.length)}
+      </Text>
+      <Text testID="pending-question-provider-mounted">mounted</Text>
+      <Pressable
+        testID="refresh-pending-questions"
+        onPress={() => void refreshCurrentSession()}>
+        <Text>Refresh pending questions</Text>
+      </Pressable>
+      <Pressable
+        testID="reply-current-question"
+        onPress={() => {
+          const request = currentPendingQuestions[0];
+          if (request) void replyToQuestion(request.id, [['Continue']]);
+        }}>
+        <Text>Reply to current question</Text>
+      </Pressable>
+      <Pressable
+        testID="reject-current-question"
+        onPress={() => {
+          const request = currentPendingQuestions[0];
+          if (request) void rejectQuestion(request.id);
+        }}>
+        <Text>Reject current question</Text>
       </Pressable>
     </View>
   );
@@ -442,9 +584,186 @@ describe('issue-1387 send-time relay loss', () => {
     mockPairedState = 'connected';
     mockRefreshPairedHost = undefined;
     mockBoundaryTrace.length = 0;
+    mockLatestSubmission = undefined;
+    mockPersistenceError = undefined;
+    mockReconciliationReadsFail = false;
+    mockSessionStatus = 'idle';
+    mockWorkingSoundActive = false;
+    mockPendingQuestions = [];
+    mockPromptOutcome = 'accepted-then-offline';
+  });
+
+  test('task-mobile-question-state-c1-c6: all pending sessions publish and request IDs dedupe until resolved', async () => {
+    // Regression caught: provider exposes only the open session, repeats notifications on refresh,
+    // or never permits a genuinely reintroduced request to notify again after resolution.
+    mockPendingQuestions = [
+      {
+        id: 'question-current',
+        sessionID: SESSION_ID,
+        questions: [{
+          custom: false,
+          header: 'Current',
+          multiple: false,
+          options: [],
+          question: 'Current question?',
+        }],
+      },
+      {
+        id: 'question-other',
+        sessionID: 'ses-other',
+        questions: [{
+          custom: false,
+          header: 'Other',
+          multiple: false,
+          options: [],
+          question: 'Other question?',
+        }],
+      },
+    ];
+    const screen = render(
+      <PaperProvider>
+        <PairedHostProvider>
+          <OpencodeProvider>
+            <PendingQuestionHarness />
+            <AgentChatDetailScreen />
+          </OpencodeProvider>
+        </PairedHostProvider>
+      </PaperProvider>,
+    );
+    const notifyQuestionRequired = jest.requireMock(
+      '@/lib/notifications',
+    ).notifyQuestionRequired;
+
+    await waitFor(() => {
+      expect(screen.getByTestId('pending-question-session-ids').props.children).toBe(
+        `${SESSION_ID},ses-other`,
+      );
+      expect(screen.getByTestId('pending-question-current-session').props.children).toBe(
+        SESSION_ID,
+      );
+      expect(notifyQuestionRequired).toHaveBeenCalledTimes(2);
+    });
+    expect(notifyQuestionRequired).toHaveBeenCalledWith(
+      'Relay QA',
+      expect.objectContaining({ header: 'Current' }),
+    );
+    expect(notifyQuestionRequired).toHaveBeenCalledWith(
+      'Other planning chat',
+      expect.objectContaining({ header: 'Other' }),
+    );
+
+    fireEvent.press(screen.getByTestId('refresh-pending-questions'));
+    await waitFor(() => expect(notifyQuestionRequired).toHaveBeenCalledTimes(2));
+
+    mockPendingQuestions = [];
+    fireEvent.press(screen.getByTestId('refresh-pending-questions'));
+    await waitFor(() => {
+      expect(screen.getByTestId('pending-question-session-ids').props.children).toBe('');
+    });
+
+    mockPendingQuestions = [
+      {
+        id: 'question-other',
+        sessionID: 'ses-other',
+        questions: [{
+          custom: false,
+          header: 'Other',
+          multiple: false,
+          options: [],
+          question: 'Other question?',
+        }],
+      },
+    ];
+    fireEvent.press(screen.getByTestId('refresh-pending-questions'));
+    await waitFor(() => expect(notifyQuestionRequired).toHaveBeenCalledTimes(3));
+  });
+
+  test('task-mobile-question-state-c7: notification rejection preserves pending state, dedupe, reply, and reject', async () => {
+    // Regression caught: a rejected native notification promise escapes the provider effect,
+    // unmounts the consumer, duplicates on refresh, or breaks question resolution actions.
+    mockPendingQuestions = [{
+      id: 'question-notification-fails',
+      sessionID: SESSION_ID,
+      questions: [{
+        custom: false,
+        header: 'Failure path',
+        multiple: false,
+        options: [],
+        question: 'Can this still be answered?',
+      }],
+    }];
+    const notifyQuestionRequired = jest.requireMock(
+      '@/lib/notifications',
+    ).notifyQuestionRequired;
+    notifyQuestionRequired.mockRejectedValueOnce(new Error('notifications unavailable'));
+    const replyToPendingQuestion = jest.requireMock(
+      '@/lib/opencode/client',
+    ).replyToPendingQuestion;
+    const rejectPendingQuestion = jest.requireMock(
+      '@/lib/opencode/client',
+    ).rejectPendingQuestion;
+    const screen = render(
+      <PaperProvider>
+        <PairedHostProvider>
+          <OpencodeProvider>
+            <PendingQuestionHarness />
+            <AgentChatDetailScreen />
+          </OpencodeProvider>
+        </PairedHostProvider>
+      </PaperProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('pending-question-session-ids').props.children).toBe(SESSION_ID);
+      expect(screen.getByTestId('pending-question-current-count').props.children).toBe('1');
+      expect(notifyQuestionRequired).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.getByTestId('pending-question-provider-mounted').props.children).toBe('mounted');
+
+    fireEvent.press(screen.getByTestId('refresh-pending-questions'));
+    await waitFor(() => expect(notifyQuestionRequired).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId('pending-question-current-count').props.children).toBe('1');
+
+    fireEvent.press(screen.getByTestId('reply-current-question'));
+    await waitFor(() => {
+      expect(replyToPendingQuestion).toHaveBeenCalledWith(
+        expect.anything(),
+        'question-notification-fails',
+        [['Continue']],
+      );
+      expect(screen.getByTestId('pending-question-session-ids').props.children).toBe('');
+    });
+
+    mockPendingQuestions = [{
+      id: 'question-reject-remains-usable',
+      sessionID: SESSION_ID,
+      questions: [{
+        custom: false,
+        header: 'Reject path',
+        multiple: false,
+        options: [],
+        question: 'Can this still be rejected?',
+      }],
+    }];
+    fireEvent.press(screen.getByTestId('refresh-pending-questions'));
+    await waitFor(() => {
+      expect(screen.getByTestId('pending-question-current-count').props.children).toBe('1');
+      expect(notifyQuestionRequired).toHaveBeenCalledTimes(2);
+    });
+    fireEvent.press(screen.getByTestId('reject-current-question'));
+    await waitFor(() => {
+      expect(rejectPendingQuestion).toHaveBeenCalledWith(
+        expect.anything(),
+        'question-reject-remains-usable',
+      );
+      expect(screen.getByTestId('pending-question-session-ids').props.children).toBe('');
+    });
+    expect(screen.getByTestId('pending-question-provider-mounted').props.children).toBe('mounted');
   });
 
   afterEach(() => {
+    jest.restoreAllMocks();
+    jest.useRealTimers();
     cleanup();
     jest.clearAllMocks();
   });
@@ -455,6 +774,7 @@ describe('issue-1387 send-time relay loss', () => {
     // connected -> tailscaleUnavailable transition cleared the selected chat,
     // replacing a readable transcript with terminal "Opening chat" even
     // though the Mac API/engine remained alive and the turn later converged.
+    mockSessionStatus = 'busy';
     const screen = render(
       <PaperProvider>
         <PairedHostProvider>
@@ -477,7 +797,14 @@ describe('issue-1387 send-time relay loss', () => {
       );
     });
 
+    const clearPendingNotification = jest.requireMock(
+      '@/lib/notifications',
+    ).clearPendingTaskFinishedNotification;
+    clearPendingNotification.mockClear();
     fireEvent.press(screen.getByTestId('send-final-prompt'));
+    await act(async () => {
+      await expect(mockLatestSubmission).resolves.toBe(true);
+    });
 
     await waitFor(() => {
       expect(mockBoundaryTrace).toContain('opencode:prompt-accepted');
@@ -486,9 +813,12 @@ describe('issue-1387 send-time relay loss', () => {
         'tailscaleUnavailable',
       );
       expect(screen.getByTestId('send-result').props.children).toBe(
-        'transport-dropped-after-acceptance',
+        'transport-returned',
       );
+      expect(screen.getByTestId('send-draft').props.children).toBe('');
+      expect(screen.getByTestId('send-error').props.children).toBe('');
     });
+    expect(clearPendingNotification).not.toHaveBeenCalled();
 
     // This is the strengthened assertion that is RED on the current code.
     // A transient uplink loss may disable writes, but it must not replace the
@@ -499,6 +829,7 @@ describe('issue-1387 send-time relay loss', () => {
       BASELINE_TEXT,
     );
 
+    mockSessionStatus = 'idle';
     mockRelayOnline = true;
     await act(async () => {
       await mockRefreshPairedHost?.();
@@ -517,5 +848,274 @@ describe('issue-1387 send-time relay loss', () => {
       );
     });
     expect(screen.queryByText('Opening chat')).toBeNull();
+    expect(mockPromptAsync).toHaveBeenCalledTimes(1);
+    const transcriptLines = screen
+      .getByTestId('chat-transcript')
+      .props.children.split('\n');
+    expect(transcriptLines.filter((line: string) => line === PROMPT)).toHaveLength(1);
+    expect(transcriptLines.filter((line: string) => line === 'RELAY_FINAL')).toHaveLength(1);
+
+    const firstSubmission = mockLatestSubmission;
+    fireEvent.press(screen.getByTestId('send-final-prompt'));
+    expect(mockLatestSubmission).not.toBe(firstSubmission);
+    await act(async () => {
+      await expect(mockLatestSubmission).resolves.toBe(true);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('send-settled-count').props.children).toBe(2);
+    });
+    expect(mockPromptAsync).toHaveBeenCalledTimes(1);
   }, 20_000);
+
+  test('issue-1387-c19-accepted: response loss reconciled to a user message keeps the draft committed', async () => {
+    // Regression caught: a thrown prompt RPC restores a resubmittable draft even
+    // after the real transcript proves that OpenCode accepted the user turn.
+    mockPromptOutcome = 'accepted-visible';
+    const screen = render(
+      <PaperProvider>
+        <PairedHostProvider>
+          <OpencodeProvider>
+            <SendHarness />
+            <AgentChatDetailScreen />
+          </OpencodeProvider>
+        </PairedHostProvider>
+      </PaperProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('chat-transcript').props.children).toContain(
+        BASELINE_TEXT,
+      );
+      expect(
+        screen.getByTestId('send-working-sound-enabled').props.children,
+      ).toBe('true');
+    });
+    fireEvent.press(screen.getByTestId('send-final-prompt'));
+    await act(async () => {
+      await expect(mockLatestSubmission).resolves.toBe(true);
+    });
+
+    expect(screen.getByTestId('send-result').props.children).toBe(
+      'transport-returned',
+    );
+    expect(screen.getByTestId('send-draft').props.children).toBe('');
+    expect(screen.getByTestId('send-error').props.children).toBe('');
+    expect(mockPromptAsync).toHaveBeenCalledTimes(1);
+  });
+
+  test('ios-chat-integration-c3: pre-dispatch persistence rejection restores the draft without reconciliation or POST', async () => {
+    // Regression caught: a profile persistence failure is mistaken for an
+    // ambiguous POST, causing reconciliation or sound despite no dispatch.
+    mockPersistenceError = new Error('Profile persistence failed.');
+    const screen = render(
+      <PaperProvider>
+        <PairedHostProvider>
+          <OpencodeProvider>
+            <SendHarness />
+            <AgentChatDetailScreen />
+          </OpencodeProvider>
+        </PairedHostProvider>
+      </PaperProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('chat-transcript').props.children).toContain(
+        BASELINE_TEXT,
+      );
+      expect(
+        screen.getByTestId('send-working-sound-enabled').props.children,
+      ).toBe('true');
+    });
+
+    const sessionService = jest.requireMock('@/providers/services/session-service');
+    const workingSound = jest.requireMock('@/lib/voice/working-sound');
+    mockSdkClient.session.status.mockClear();
+    sessionService.getSessionMessages.mockClear();
+    workingSound.startWorkingSoundAsync.mockClear();
+    mockWorkingSoundActive = false;
+    fireEvent.press(screen.getByTestId('send-final-prompt'));
+    await act(async () => {
+      await expect(mockLatestSubmission).rejects.toThrow(
+        'Profile persistence failed.',
+      );
+    });
+
+    expect(mockPromptAsync).not.toHaveBeenCalled();
+    expect(mockSdkClient.session.status).not.toHaveBeenCalled();
+    expect(sessionService.getSessionMessages).not.toHaveBeenCalled();
+    expect(workingSound.startWorkingSoundAsync).not.toHaveBeenCalled();
+    expect(mockWorkingSoundActive).toBe(false);
+    expect(screen.getByTestId('send-result').props.children).toBe(
+      'definitive-rejection',
+    );
+    expect(screen.getByTestId('send-draft').props.children).toBe(PROMPT);
+  });
+
+  test('issue-1387-working-sound: dispatched rejection starts then stops working sound', async () => {
+    // Regression caught: confirmed terminal rejection leaves dispatched audio
+    // playing, or a send never starts its configured working sound.
+    mockPromptOutcome = 'not-accepted';
+    const screen = render(
+      <PaperProvider>
+        <PairedHostProvider>
+          <OpencodeProvider>
+            <SendHarness />
+            <AgentChatDetailScreen />
+          </OpencodeProvider>
+        </PairedHostProvider>
+      </PaperProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('chat-transcript').props.children).toContain(
+        BASELINE_TEXT,
+      );
+      expect(
+        screen.getByTestId('send-working-sound-enabled').props.children,
+      ).toBe('true');
+    });
+
+    const workingSound = jest.requireMock('@/lib/voice/working-sound');
+    workingSound.startWorkingSoundAsync.mockClear();
+    workingSound.stopWorkingSoundAsync.mockClear();
+    mockWorkingSoundActive = false;
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('send-final-prompt'));
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('chat-status').props.children).toBe('connected');
+      expect(screen.getByTestId('platform-os').props.children).toBe('ios');
+      expect(screen.getByTestId('send-active').props.children).toBe('true');
+      expect(workingSound.startWorkingSoundAsync).toHaveBeenCalled();
+    });
+
+    await act(async () => {
+      await expect(mockLatestSubmission).rejects.toThrow(
+        'OpenCode rejected the prompt before accepting it.',
+      );
+    });
+    expect(workingSound.stopWorkingSoundAsync).toHaveBeenCalled();
+    expect(mockWorkingSoundActive).toBe(false);
+  }, 15_000);
+
+  test('issue-1387-uncertain-refresh: uncertain acceptance schedules one refresh and one bounded assistant poll', async () => {
+    // Regression caught: provisional acceptance returns without a convergence
+    // read, or installs a repeating refresh loop after transport recovery.
+    mockPromptOutcome = 'accepted-visible';
+    const screen = render(
+      <PaperProvider>
+        <PairedHostProvider>
+          <OpencodeProvider>
+            <SendHarness />
+            <AgentChatDetailScreen />
+          </OpencodeProvider>
+        </PairedHostProvider>
+      </PaperProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('chat-transcript').props.children).toContain(
+        BASELINE_TEXT,
+      );
+    });
+
+    mockReconciliationReadsFail = true;
+    jest.useFakeTimers();
+    const timeoutSpy = jest.spyOn(global, 'setTimeout');
+    fireEvent.press(screen.getByTestId('send-final-prompt'));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(5_500);
+    });
+    await act(async () => {
+      await expect(mockLatestSubmission).resolves.toBe(true);
+    });
+
+    const postPromptRefresh = jest.requireMock(
+      '@/providers/services/post-prompt-refresh',
+    );
+    expect(postPromptRefresh.pollForNewAssistantTurn).toHaveBeenCalledTimes(1);
+    expect(postPromptRefresh.pollForNewAssistantTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baselineAssistantMessageIds: expect.any(Set),
+        isActive: expect.any(Function),
+        refreshMessages: expect.any(Function),
+      }),
+    );
+    expect(mockPromptAsync).toHaveBeenCalledTimes(1);
+
+    const sessionService = jest.requireMock('@/providers/services/session-service');
+    mockReconciliationReadsFail = false;
+    sessionService.listSessions.mockClear();
+    sessionService.getSessionMessages.mockClear();
+    sessionService.getSessionDiff.mockClear();
+    sessionService.getSessionTodos.mockClear();
+    expect(
+      timeoutSpy.mock.calls.filter(([, delay]) => delay === 1_000),
+    ).toHaveLength(1);
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(999);
+    });
+    expect(sessionService.listSessions).toHaveBeenCalledTimes(1);
+    expect(sessionService.getSessionMessages).toHaveBeenCalledTimes(1);
+    expect(sessionService.getSessionDiff).toHaveBeenCalledTimes(1);
+    expect(sessionService.getSessionTodos).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1);
+    });
+    expect(sessionService.listSessions).toHaveBeenCalledTimes(1);
+    expect(sessionService.getSessionMessages).toHaveBeenCalledTimes(1);
+    expect(sessionService.getSessionDiff).toHaveBeenCalledTimes(1);
+    expect(sessionService.getSessionTodos).toHaveBeenCalledTimes(1);
+    expect(
+      timeoutSpy.mock.calls.filter(([, delay]) => delay === 1_000),
+    ).toHaveLength(1);
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(5_000);
+    });
+    expect(
+      timeoutSpy.mock.calls.filter(([, delay]) => delay === 1_000),
+    ).toHaveLength(1);
+  });
+
+  test('issue-1387-c20: a confirmed notAccepted send rejects and restores the draft', async () => {
+    // Regression caught: provisional acceptance must be limited to uncertainty;
+    // this assertion fails if a readable idle transcript is treated as accepted.
+    mockPromptOutcome = 'not-accepted';
+    const screen = render(
+      <PaperProvider>
+        <PairedHostProvider>
+          <OpencodeProvider>
+            <SendHarness />
+            <AgentChatDetailScreen />
+          </OpencodeProvider>
+        </PairedHostProvider>
+      </PaperProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('chat-transcript').props.children).toContain(
+        BASELINE_TEXT,
+      );
+    });
+    fireEvent.press(screen.getByTestId('send-final-prompt'));
+
+    await act(async () => {
+      await expect(mockLatestSubmission).rejects.toThrow(
+        'OpenCode rejected the prompt before accepting it.',
+      );
+    });
+    expect(mockBoundaryTrace).toContain('opencode:prompt-not-accepted');
+    await waitFor(() => {
+      expect(screen.getByTestId('send-result').props.children).toBe(
+        'definitive-rejection',
+      );
+      expect(screen.getByTestId('send-draft').props.children).toBe(PROMPT);
+      expect(screen.getByTestId('send-error').props.children).toBe(
+        'OpenCode rejected the prompt before accepting it.',
+      );
+    });
+    expect(mockAcceptedPromptCount).toBe(0);
+  }, 15_000);
 });

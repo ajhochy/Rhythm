@@ -1,0 +1,5 @@
+
+> rhythm-desktop-agents@1.0.0 test:dist-smoke
+> node tests/dist-smoke.mjs
+
+dist smoke passed: index and 2 relative assets verified

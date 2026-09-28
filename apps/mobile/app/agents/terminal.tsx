@@ -23,6 +23,7 @@ import {
 } from 'react-native-paper';
 
 import { Colors, Fonts } from '@/constants/theme';
+import { TerminalShell } from '@/components/workspace/terminal-shell';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import type { Pty } from '@/lib/opencode/types';
 import { useOpencode } from '@/providers/opencode-provider';
@@ -179,7 +180,7 @@ export default function AgentTerminalScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}>
         <Appbar.Header
-          style={[styles.header, { backgroundColor: palette.surface, paddingTop: insets.top, height: 64 + insets.top }]}
+          style={[styles.header, { backgroundColor: palette.surface, paddingBottom: 8, paddingTop: insets.top, minHeight: 64 + insets.top }]}
           statusBarHeight={0}
           elevated>
           <Appbar.BackAction
@@ -196,10 +197,10 @@ export default function AgentTerminalScreen() {
                   onPress={() => setTerminalMenuVisible(true)}
                   style={({ pressed }) => [styles.headerSelector, pressed && styles.headerSelectorPressed]}>
                   <View style={styles.headerCopy}>
-                    <Text numberOfLines={1} variant="titleMedium" style={[styles.headerTitle, { color: palette.text }]}>
+                    <Text numberOfLines={2} variant="titleMedium" style={[styles.headerTitle, { color: palette.text }]}>
                       {activeTerminal?.title || activeTerminal?.command || 'Select terminal'}
                     </Text>
-                    <Text numberOfLines={1} variant="bodySmall" style={{ color: palette.muted }}>
+                    <Text variant="bodySmall" style={{ color: palette.muted }}>
                       {activeProject.path}  |  {terminalConnection}
                     </Text>
                   </View>
@@ -220,118 +221,119 @@ export default function AgentTerminalScreen() {
               ))}
             </Menu>
           </View>
-          <View style={styles.headerActions}>
-            <Appbar.Action
-              testID="terminal-create-button"
-              icon="plus"
-              accessibilityLabel="Create terminal"
-              disabled={isCreating || Boolean(busyId)}
-              onPress={() => void handleCreate()}
-            />
-            <Appbar.Action
-              icon="refresh"
-              accessibilityLabel="Refresh terminals"
-              disabled={Boolean(busyId) || isCreating}
-              onPress={() => void refreshTerminals().catch((reason) => setError(message(reason, 'Could not refresh terminals.')))}
-            />
-            {activeTerminal ? (
-              <Appbar.Action
-                testID="terminal-close-button"
-                icon="close"
-                color={palette.danger}
-                accessibilityLabel="Close terminal"
-                disabled={Boolean(busyId) || isCreating}
-                onPress={() => confirmTerminate(activeTerminal)}
-              />
-            ) : null}
-          </View>
         </Appbar.Header>
 
-        {activeTerminal ? (
-          <Surface
-            testID="terminal-detail-panel"
-            style={[styles.detailPanel, { backgroundColor: palette.surface, borderBottomColor: palette.border }]}
-            elevation={0}>
-            <View style={styles.detailCopy}>
-              <Text numberOfLines={1} variant="labelMedium" style={{ color: palette.text }}>
-                {terminalDetail?.cwd || activeTerminal.cwd}
-              </Text>
-              <Text variant="bodySmall" style={{ color: palette.muted }}>
-                PID {terminalDetail?.pid || activeTerminal.pid} · {terminalDetail?.status || activeTerminal.status}
-              </Text>
-            </View>
-            <TextInput
-              testID="terminal-rows-input"
-              mode="outlined"
-              dense
-              label="Rows"
-              keyboardType="number-pad"
-              value={terminalRows}
-              onChangeText={setTerminalRows}
-              style={styles.sizeInput}
-            />
-            <TextInput
-              testID="terminal-columns-input"
-              mode="outlined"
-              dense
-              label="Columns"
-              keyboardType="number-pad"
-              value={terminalColumns}
-              onChangeText={setTerminalColumns}
-              style={styles.sizeInput}
-            />
-            <Button
-              testID="terminal-resize-button"
-              compact
-              mode="outlined"
-              loading={isResizing}
-              disabled={isResizing}
-              onPress={() => void handleResize()}>
-              Resize
-            </Button>
-          </Surface>
-        ) : null}
-
-        <ScrollView ref={outputRef} style={styles.output} contentContainerStyle={styles.outputContent} nestedScrollEnabled>
-          <Text testID="terminal-output" selectable style={[styles.outputText, { color: activeTerminalId ? palette.text : palette.muted }]}>
-            {activeTerminalId ? terminalOutput || 'Connected. Waiting for output...' : 'Open or create a terminal to begin.'}
-          </Text>
-        </ScrollView>
-
-        <Surface style={[styles.composer, { backgroundColor: palette.surface, borderTopColor: palette.border, paddingBottom: Math.max(insets.bottom, 12) }]} elevation={4}>
-          <View style={styles.composerRow}>
-            <View style={[styles.inputShell, { backgroundColor: palette.background, borderColor: palette.border }]}>
+        <TerminalShell
+          output={activeTerminalId ? terminalOutput || 'Connected. Waiting for output...' : 'Open or create a terminal to begin.'}
+          outputRef={outputRef}
+          actions={[
+            {
+              id: 'create',
+              label: 'Create terminal',
+              icon: 'plus',
+              testID: 'terminal-create-button',
+              loading: isCreating,
+              disabled: isCreating || Boolean(busyId),
+              onPress: () => void handleCreate(),
+            },
+            {
+              id: 'refresh',
+              label: 'Refresh terminals',
+              icon: 'refresh',
+              disabled: Boolean(busyId) || isCreating,
+              onPress: () => void refreshTerminals().catch((reason) => setError(message(reason, 'Could not refresh terminals.'))),
+            },
+            ...(activeTerminal ? [{
+              id: 'close',
+              label: 'Close terminal',
+              icon: 'close',
+              testID: 'terminal-close-button',
+              destructive: true,
+              disabled: Boolean(busyId) || isCreating,
+              onPress: () => confirmTerminate(activeTerminal),
+            }] : []),
+          ]}
+          detailSlot={activeTerminal ? (
+            <Surface
+              testID="terminal-detail-panel"
+              style={[styles.detailPanel, { backgroundColor: palette.surface, borderBottomColor: palette.border }]}
+              elevation={0}>
+              <View style={styles.detailCopy}>
+                <Text variant="labelMedium" style={{ color: palette.text }}>
+                  {terminalDetail?.cwd || activeTerminal.cwd}
+                </Text>
+                <Text variant="bodySmall" style={{ color: palette.muted }}>
+                  PID {terminalDetail?.pid || activeTerminal.pid} · {terminalDetail?.status || activeTerminal.status}
+                </Text>
+              </View>
               <TextInput
-                testID="terminal-line-input"
-                mode="flat"
+                testID="terminal-rows-input"
+                mode="outlined"
                 dense
-                placeholder="Enter a command"
-                value={line}
-                onChangeText={setLine}
-                onSubmitEditing={handleSend}
-                disabled={terminalConnection !== 'connected'}
-                style={[styles.lineInput, { color: palette.text }]}
-                contentStyle={styles.lineInputContent}
-                textColor={palette.text}
-                placeholderTextColor={palette.muted}
-                underlineColor="transparent"
-                activeUnderlineColor="transparent"
+                label="Rows"
+                keyboardType="number-pad"
+                value={terminalRows}
+                onChangeText={setTerminalRows}
+                style={styles.sizeInput}
               />
-            </View>
-            <IconButton
-              testID="terminal-send-button"
-              mode="contained"
-              icon="send"
-              size={20}
-              style={styles.sendButton}
-              containerColor={palette.tint}
-              iconColor={palette.surface}
-              accessibilityLabel="Send command"
-              disabled={!line || terminalConnection !== 'connected'}
-              onPress={handleSend}
-            />
-          </View>
-        </Surface>
+              <TextInput
+                testID="terminal-columns-input"
+                mode="outlined"
+                dense
+                label="Columns"
+                keyboardType="number-pad"
+                value={terminalColumns}
+                onChangeText={setTerminalColumns}
+                style={styles.sizeInput}
+              />
+              <Button
+                testID="terminal-resize-button"
+                compact
+                mode="outlined"
+                loading={isResizing}
+                disabled={isResizing}
+                onPress={() => void handleResize()}>
+                Resize
+              </Button>
+            </Surface>
+          ) : null}
+          composerSlot={(
+            <Surface style={[styles.composer, { backgroundColor: palette.surface, borderTopColor: palette.border, paddingBottom: Math.max(insets.bottom, 12) }]} elevation={4}>
+              <View style={styles.composerRow}>
+                <View style={[styles.inputShell, { backgroundColor: palette.background, borderColor: palette.border }]}>
+                  <TextInput
+                    testID="terminal-line-input"
+                    mode="flat"
+                    dense
+                    placeholder="Enter a command"
+                    value={line}
+                    onChangeText={setLine}
+                    onSubmitEditing={handleSend}
+                    disabled={terminalConnection !== 'connected'}
+                    style={[styles.lineInput, { color: palette.text }]}
+                    contentStyle={styles.lineInputContent}
+                    textColor={palette.text}
+                    placeholderTextColor={palette.muted}
+                    underlineColor="transparent"
+                    activeUnderlineColor="transparent"
+                  />
+                </View>
+                <IconButton
+                  testID="terminal-send-button"
+                  mode="contained"
+                  icon="send"
+                  size={20}
+                  style={styles.sendButton}
+                  containerColor={palette.tint}
+                  iconColor={palette.surface}
+                  accessibilityLabel="Send command"
+                  disabled={!line || terminalConnection !== 'connected'}
+                  onPress={handleSend}
+                />
+              </View>
+            </Surface>
+          )}
+        />
       </KeyboardAvoidingView>
       <Snackbar visible={Boolean(error)} onDismiss={() => setError(undefined)}>{error}</Snackbar>
     </>
@@ -348,17 +350,13 @@ const styles = StyleSheet.create({
   emptyPanel: { gap: 12, maxWidth: 560, padding: 24, borderRadius: 16, width: '100%' },
   header: { elevation: 0 },
   headerMain: { alignSelf: 'stretch', flex: 1, justifyContent: 'center', minWidth: 0 },
-  headerActions: { alignItems: 'center', flexDirection: 'row', flexShrink: 0 },
   headerSelector: { alignItems: 'center', alignSelf: 'stretch', borderRadius: 14, flexDirection: 'row', gap: 8, justifyContent: 'center', marginRight: 8, minHeight: 48, paddingRight: 4 },
   headerSelectorPressed: { opacity: 0.82 },
   headerCopy: { flex: 1, minWidth: 0 },
   headerTitle: { fontFamily: Fonts.display, fontWeight: '700' },
-  output: { flex: 1 },
-  detailPanel: { alignItems: 'center', borderBottomWidth: 1, flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingVertical: 8 },
+  detailPanel: { alignItems: 'center', borderBottomWidth: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 12, paddingVertical: 8 },
   detailCopy: { flex: 1, minWidth: 0 },
   sizeInput: { width: 80 },
-  outputContent: { flexGrow: 1, padding: 16 },
-  outputText: { fontFamily: Fonts.mono, fontSize: 14, lineHeight: 21 },
   composer: { borderTopWidth: 1, paddingHorizontal: 12, paddingTop: 10 },
   composerRow: { alignItems: 'center', flexDirection: 'row', gap: 10 },
   inputShell: { borderRadius: 22, borderWidth: 1, flex: 1, justifyContent: 'center', minHeight: 48, paddingHorizontal: 12 },

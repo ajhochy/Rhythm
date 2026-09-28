@@ -16,8 +16,21 @@ test('post-m1-p7-c4e: Electron owns permission presentation deduplication cancel
     'Electron main must own the native Notification primitive',
   );
   assert.ok(
-    /Notification\.requestPermission|requestPermission\([^)]*notification/i.test(mainSource),
-    'the host must explicitly request native notification permission',
+    /setPermissionRequestHandler\([\s\S]*?callback\(allowed\)/.test(mainSource)
+      && /setPermissionCheckHandler\?\.\([\s\S]*?allowOwnedClipboardWrite/.test(mainSource)
+      && !/globalThis\.Notification\.requestPermission\(\)/.test(mainSource),
+    'the host must keep renderer web notifications denied',
+  );
+  assert.ok(
+    mainSource.includes("item.type === 'arm'")
+      && mainSource.includes('primeAgentNotificationPermission')
+      && mainSource.includes("'granted'")
+      && mainSource.includes("'denied'")
+      && mainSource.includes("'unknown'")
+      && mainSource.includes("'unsupported'")
+      && mainSource.includes("rhythm:agent-notifications:permission")
+      && preloadSource.includes("rhythm:agent-notifications:permission"),
+    'the first arm must invoke a main-owned permission probe and report its observed outcome',
   );
   assert.ok(/new Notification\s*\(/.test(mainSource), 'the host must present native notifications');
   assert.ok(

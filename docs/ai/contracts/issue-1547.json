@@ -1,0 +1,21 @@
+{
+  "issue": 1547,
+  "date": "2026-09-23",
+  "test_command": "./node_modules/.bin/vitest run src/__tests__/google_desktop_exchange.test.ts src/__tests__/google_desktop_postgres.test.ts",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "issue-1547-c1", "text": "Desktop exchange with no refresh_token and narrower scope preserves the entire existing credential row, including access token, refresh token, scope, expiry, and identity.", "mode": "integration", "test": "apps/api_server/src/__tests__/google_desktop_exchange.test.ts", "status": "pass" },
+    { "criterion_id": "issue-1547-c2", "text": "When preserveScopes is enabled, a non-error row with refreshToken and any stored scope absent from incoming scope must remain entirely unchanged; this includes narrow/with-refresh, disjoint, and different-identity grants, and survives HTTP desktop exchange and forced ensureFresh refresh.", "mode": "integration", "test": "apps/api_server/src/__tests__/google_desktop_exchange.test.ts", "status": "pass" },
+    { "criterion_id": "issue-1547-c3", "text": "A covering incoming grant writes incoming normalized scope and tokens, including a different identity; a same-identity covering grant with missing refresh token retains the existing refresh token.", "mode": "integration", "test": "apps/api_server/src/__tests__/google_desktop_exchange.test.ts", "status": "pass" },
+    { "criterion_id": "issue-1547-c4", "text": "First Google desktop grant inserts Calendar and Gmail accounts with its scope and refresh token.", "mode": "integration", "test": "apps/api_server/src/__tests__/google_desktop_exchange.test.ts", "status": "pass" },
+    { "criterion_id": "issue-1547-c5", "text": "Duplicate/ordering normalization produces a stable normalized stored Google scope ordering.", "mode": "integration", "test": "apps/api_server/src/__tests__/google_desktop_exchange.test.ts", "status": "pass" },
+    { "criterion_id": "issue-1547-c6", "text": "Account/profile identity correctness: different owner and Google profile must not inherit another owner's scope or token.", "mode": "integration", "test": "apps/api_server/src/__tests__/google_desktop_exchange.test.ts", "status": "pass" },
+    { "criterion_id": "issue-1547-c7", "text": "Real Google OAuth remains manual not_tested; never use live credentials.", "mode": "manual", "test": null, "status": "not_tested", "reason": "Requires manual Google consent with operator-managed credentials; synthetic token responses only." },
+    { "criterion_id": "issue-1547-c8", "text": "Disposable-schema Postgres gate proves narrow/covering and identity matrix, concurrent covering writes, and compare-and-swap retry with coherent credential rows.", "mode": "integration", "test": "apps/api_server/src/__tests__/google_desktop_postgres.test.ts", "status": "pass" },
+    { "criterion_id": "issue-1547-c9", "text": "Expired seeded rows; error-status narrow grant recovery exact credentials/expiry; covering writes expiry; different-identity covering/no-refresh exact null token.", "mode": "integration", "test": "apps/api_server/src/__tests__/google_desktop_exchange.test.ts; apps/api_server/src/__tests__/google_desktop_postgres.test.ts", "status": "pass" },
+    { "criterion_id": "issue-1547-c10", "text": "Native HTTP response keys sessionToken/user, valid session identity, no credential strings.", "mode": "integration", "test": "apps/api_server/src/__tests__/google_desktop_exchange.test.ts", "status": "pass" },
+    { "criterion_id": "issue-1547-c11", "text": "Postgres: truncate before each, exact expiry/identity/no-refresh/error recovery; concurrent writers exact coherent winner tuples; forced CAS identity-switch and rotated-refresh retries with exact conflict evidence.", "mode": "integration", "test": "apps/api_server/src/__tests__/google_desktop_postgres.test.ts", "status": "pass" },
+    { "criterion_id": "issue-1547-c12", "text": "Exact PG16 stays manual not_tested.", "mode": "manual", "test": null, "status": "not_tested", "reason": "Installed disposable server is PostgreSQL 17.11, not 16; exact PG16 remains a manual target." }
+  ],
+  "not_tested": ["issue-1547-c7", "issue-1547-c12"]
+}

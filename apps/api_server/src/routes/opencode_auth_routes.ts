@@ -7,6 +7,7 @@ import { CredentialsBridgeService } from '../services/credentials_bridge_service
 import { githubCopilotDeviceAuth } from '../services/github_copilot_device_auth';
 import { anthropicAccountsService } from '../services/anthropic_accounts_service';
 import { AnthropicOauthService } from '../services/anthropic_oauth_service';
+import { openaiAccountsService, OpenAIOauthService } from '../services/openai_accounts_service';
 
 export const opencodeAuthRouter = Router();
 
@@ -258,6 +259,11 @@ opencodeAuthRouter.patch('/accounts/default', (req: Request, res: Response) => {
   res.json({ ok: true, defaultAccountId: accountId });
 });
 
+// PATCH /accounts/:id {label} — rename
+opencodeAuthRouter.patch('/accounts/:id', (req: Request, res: Response) => {
+  renameRoute(req, res, (id, label) => anthropicAccountsService.renameAccount(id, label));
+});
+
 // DELETE /accounts/:id — idempotent removal
 opencodeAuthRouter.delete('/accounts/:id', (req: Request, res: Response) => {
   const { id } = req.params;
@@ -266,5 +272,112 @@ opencodeAuthRouter.delete('/accounts/:id', (req: Request, res: Response) => {
     return;
   }
   anthropicAccountsService.removeAccount(id);
+  res.json({ ok: true });
+});
+
+function renameRoute(req: Request, res: Response, rename: (id: string, label: string) => boolean): void {
+  const { id } = req.params;
+  const label = typeof req.body?.label === 'string' ? req.body.label.trim() : '';
+  if (!ACCOUNT_ID_RE.test(id)) {
+    res.status(400).json({ error: 'accountId must match [a-z0-9-]{1,32}' });
+    return;
+  }
+  if (!label || label.length > 80) {
+    res.status(400).json({ error: 'label must be 1-80 characters' });
+    return;
+  }
+  if (!rename(id, label)) {
+    res.status(404).json({ error: `unknown account: '${id}'` });
+    return;
+  }
+  res.json({ ok: true });
+}
+
+// ── Multi-account OpenAI (ChatGPT/Codex OAuth) ───────────────────────────────
+// Same shapes as the Anthropic routes above, under /openai/accounts. Like
+// Anthropic, the engine's codex plugin resolves the account per request from
+// openai-accounts.json (session routing → default), so switching the default
+// needs no engine write/restart. Tokens never appear in responses.
+
+const openaiOauth = new OpenAIOauthService(openaiAccountsService);
+
+function redactOpenAI(id: string) {
+  const a = openaiAccountsService.getAccount(id);
+  if (!a) return { id, status: 'ok' };
+  return { id: a.id, label: a.label, status: a.status, expires: a.expires, email: a.email, chatgptAccountId: a.chatgptAccountId };
+}
+
+opencodeAuthRouter.get('/openai/accounts', (_req: Request, res: Response) => {
+  res.json(openaiAccountsService.listRedacted());
+});
+
+// POST /openai/accounts/login-start {accountId, label?} → {authorizeUrl, redirectUri}
+opencodeAuthRouter.post('/openai/accounts/login-start', (req: Request, res: Response) => {
+  const { accountId, label } = req.body as { accountId?: string; label?: string };
+  if (!accountId || !ACCOUNT_ID_RE.test(accountId)) {
+    res.status(400).json({ error: 'accountId must match [a-z0-9-]{1,32}' });
+    return;
+  }
+  res.json(openaiOauth.startLogin(accountId, typeof label === 'string' ? label.trim() : ''));
+});
+
+// POST /openai/accounts/login-complete {accountId, code: callback URL | code#state | code}
+opencodeAuthRouter.post('/openai/accounts/login-complete', async (req: Request, res: Response) => {
+  const { accountId, code } = req.body as { accountId?: string; code?: string };
+  if (!accountId || !ACCOUNT_ID_RE.test(accountId)) {
+    res.status(400).json({ error: 'accountId must match [a-z0-9-]{1,32}' });
+    return;
+  }
+  if (typeof code !== 'string' || !code.trim()) {
+    res.status(400).json({ error: 'code is required' });
+    return;
+  }
+  if (!openaiOauth.hasPending(accountId)) {
+    const status = openaiAccountsService.getAccount(accountId) ? 409 : 404;
+    res.status(status).json({ error: 'no pending login', reason: 'no_pending_login' });
+    return;
+  }
+  const result = await openaiOauth.completeLogin(accountId, code);
+  if (!result.ok) {
+    const status = result.reason === 'bad_code' || result.reason === 'state_mismatch' ? 400 : 502;
+    res.status(status).json({ error: result.reason, reason: result.reason });
+    return;
+  }
+  // Seeds auth.json only when the engine has no openai login yet (first account).
+  if (openaiAccountsService.listRedacted().defaultAccountId === accountId) {
+    await openaiAccountsService.pushDefaultToEngine(opencodeClient);
+  }
+  res.json({ account: redactOpenAI(accountId) });
+});
+
+// PATCH /openai/accounts/default {accountId} — switch the global default (applies per request)
+opencodeAuthRouter.patch('/openai/accounts/default', async (req: Request, res: Response) => {
+  const { accountId } = req.body as { accountId?: string };
+  if (!accountId || !ACCOUNT_ID_RE.test(accountId)) {
+    res.status(400).json({ error: 'accountId must match [a-z0-9-]{1,32}' });
+    return;
+  }
+  const acct = openaiAccountsService.getAccount(accountId);
+  if (!acct) {
+    res.status(404).json({ error: `unknown account: '${accountId}'` });
+    return;
+  }
+  const engineUpdated = await openaiAccountsService.activate(opencodeClient, accountId);
+  // engineUpdated=false: engine not ready/seeded yet (boot seeds it) or account needs re-login.
+  res.json({ ok: true, defaultAccountId: accountId, engineUpdated });
+});
+
+opencodeAuthRouter.patch('/openai/accounts/:id', (req: Request, res: Response) => {
+  renameRoute(req, res, (id, label) => openaiAccountsService.renameAccount(id, label));
+});
+
+// DELETE /openai/accounts/:id — idempotent; logs the engine out when the last account goes
+opencodeAuthRouter.delete('/openai/accounts/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (!ACCOUNT_ID_RE.test(id)) {
+    res.status(400).json({ error: 'accountId must match [a-z0-9-]{1,32}' });
+    return;
+  }
+  await openaiAccountsService.removeAndReconcile(opencodeClient, id);
   res.json({ ok: true });
 });

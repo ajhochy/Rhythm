@@ -1,0 +1,157 @@
+{
+  "run_id": "2026-09-19-mega-native-hosted-followup",
+  "issue": 1544,
+  "date": "2026-09-19",
+  "smoke_result": "fail",
+  "verification_claimed": "FAIL",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "desktop-native",
+      "text": "Run the nine authenticated native workspace steps",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "C5",
+      "notes": "Client ID and local services recovered; protected Keychain persistence blocked; safe final client additionally requires undeployed login-only API."
+    },
+    {
+      "criterion_id": "hosted-smoke",
+      "text": "Run hosted smoke and prove no campaign rows remain",
+      "contract_status": "fail",
+      "smoke_status": "fail",
+      "category": "C5",
+      "notes": "Browser suite 7 passed/22 failed/5 skipped. Browser origin rejected by local/hosted APIs; six final authenticated collections all have zero campaign markers."
+    },
+    {
+      "criterion_id": "oauth-integration-preservation",
+      "text": "Desktop login must preserve existing Google integrations",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "Minimal-scope M3 hit legacy exchange, overwrote existing Google/Gmail token scopes, and caused needs_reauth. Restored original granted flow; both connected/needsReauth false. New login-only boundary and preservation regressions added."
+    },
+    {
+      "criterion_id": "hermes-mount",
+      "text": "Hermes workspace mounts in a native host",
+      "contract_status": "fail",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "React Compiler cached route expansion when snapshot was discarded. Rebuilt isolated candidate mounted workspace; installed old host unchanged."
+    },
+    {
+      "criterion_id": "hermes-disposal",
+      "text": "Removed backend plugin registrations disappear without host restart",
+      "contract_status": "fail",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Same owned candidate Rescan changed Agent plugins 1 to 0, removed sidebar and stale disk listing, and retained bundled Rhythm OFF. Final IPC message replay passed; credentialed M3 remains blocked by deployment."
+    },
+    {
+      "criterion_id": "finder-icon",
+      "text": "Packaged app uses Rhythm icon in Finder and Get Info",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Final source70bcf2c9 signed/notarized ARM artifact installed separately as version0.18.65. Native Finder/Get Info show Rhythm waveform; all ten normal/Retina artwork hashes match. Dock control timed out and held Command-Tab was unavailable; those surfaces remain unverified."
+    },
+    {
+      "criterion_id": "physical-device",
+      "text": "Physical audio and TestFlight/off-LAN device checks",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "C5",
+      "notes": "Paired iPhone locked; no audible observation or cellular route. Relay public health became macOnline true but source/image/device qualification remains open."
+    },
+    {
+      "criterion_id": "signed-arm64-package",
+      "text": "Exact-source Developer ID signature, Gatekeeper acceptance, stapled ticket and installed native launch",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Workflow35454150623 ARM succeeded, publication skipped. Downloaded ZIP SHA256 d2a303e834745cd099391ef5d3d8e4872bb3d0fd7a49dd8bdc4af41967998f93. Local codesign/spctl/stapler pass before and after separate installation; engine version matches70bcf2c9. Native safe-login rejection passed before browser; candidate quit, protected services healthy."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "release-auth-environment",
+      "description": "The old deployed desktop exchange mutates integrations; protected Keychain interaction was denied; no security bypass attempted.",
+      "detected_by": "Native UI, API status receipts, source review, computer-control rejection."
+    },
+    {
+      "process_category": "release-dependency-drift",
+      "description": "Both signing qualification jobs stopped at frozen install because a GitHub main dependency moved; pinning the existing locked commit restores deterministic resolution.",
+      "detected_by": "Workflow35452996081 and clean Bun1.3.13 ARM/x64 reproduction."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "failure-postmortem",
+      "project-state-updater"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W1",
+        "affected_skill": "verification-gate",
+        "description": "Generated SDK regeneration ran before the required GitNexus class-impact check. Post-generation impact was CRITICAL for the widely used Mcp class; warning and narrow generated diff review occurred before commit.",
+        "detected_by": "Generator and GitNexus tool order; no claim of pre-edit impact."
+      }
+    ],
+    "notes": "Tools have no TodoWrite capability; execution/check/evidence lists are recorded in repository run documents. Existing PRs 1544 and fork17 carry the repairs and remaining acceptance; no duplicate tracking issue created."
+  },
+  "implementation_files": [
+    "apps/api_server/src/controllers/auth_controller.ts",
+    "apps/api_server/src/services/google_oauth_service.ts",
+    "apps/api_server/src/repositories/integration_accounts_repository.ts",
+    "apps/api_server/src/controllers/messages_controller.ts",
+    "apps/electron/src/desktop-google-oauth.mjs",
+    "apps/electron/src/main.mjs",
+    "apps/web/tests/live/mega-2026-09-18-smoke.spec.ts"
+  ],
+  "failure_output": "Hosted browser: 22 failed, 7 passed, 5 skipped. Initial M3: schema_drift; subsequent safe endpoint capability: oauth_login_only_unavailable.",
+  "overall_category": "C1",
+  "suggested_follow_up": "Require integration-preservation and deployed login-only capability proof before minimal-scope desktop OAuth, then rerun native and hosted gates on the signed candidate.",
+  "final_source_ci": {
+    "source": "70bcf2c96a9a74521d4b61f009bf47aa89557436",
+    "server": {
+      "run": 35454145321,
+      "passed": 6185,
+      "skipped": 253,
+      "failed": 0
+    },
+    "mobile": {
+      "run": 35454145315,
+      "status": "success",
+      "playwrightPassed": 70,
+      "playwrightSkipped": 1,
+      "playwrightFlaky": 1
+    },
+    "fork": {
+      "run": 35454145318,
+      "status": "success"
+    },
+    "signing": {
+      "run": 35454150623,
+      "arm64": "success",
+      "x64": "success",
+      "releasePublication": "skipped in both jobs",
+      "localTrust": "codesign, Gatekeeper and stapler pass for both downloaded architectures",
+      "localNative": "ARM only; Finder/Get Info and safe login rejection pass; Dock/Command-Tab unverified"
+    }
+  }
+}

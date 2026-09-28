@@ -56,7 +56,7 @@ export function childSkillAllowlist(agent: Agent.Info, parent: Session.Info): Se
   return parent.skillAllowlist
 }
 
-function childMcpAllowlist(agent: Agent.Info, model: { providerID: string }): Session.Info["mcpAllowlist"] {
+export function childMcpAllowlist(agent: Agent.Info, model: { providerID: string }): Session.Info["mcpAllowlist"] {
   // ConfigAgent preserves custom agent-file frontmatter in `options`. The
   // resolved target profile carries its already-expanded session shape there,
   // so the task tool does not re-implement api-server DB resolution or

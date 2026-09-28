@@ -1578,3 +1578,77 @@ describe("session.message-v2.fromError", () => {
     expect(result.name).toBe("MessageAbortedError")
   })
 })
+
+// Rhythm: a composer-attached image (stored as a user file part with a data: URL) must reach the
+// OpenAI Responses request as input_image — the same body the Codex OAuth fetch wrapper forwards
+// unchanged. Guards the 2026-09-28 "attached image has no filesystem path" report.
+describe("session.message-v2 user image attachment → openai responses", () => {
+  test("sends a user data: image part as input_image", async () => {
+    const { streamText, wrapLanguageModel } = await import("ai")
+    const { createOpenAI } = await import("@ai-sdk/openai")
+    const visionModel: Provider.Model = {
+      ...model,
+      id: ModelID.make("gpt-5.6-luna"),
+      providerID: ProviderID.make("openai"),
+      api: { id: "gpt-5.6-luna", url: "", npm: "@ai-sdk/openai" },
+      capabilities: { ...model.capabilities, attachment: true, input: { ...model.capabilities.input, image: true } },
+    }
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]).toString("base64")
+    const userID = "m-user-image"
+    const msgs = await MessageV2.toModelMessages(
+      [
+        {
+          info: userInfo(userID),
+          parts: [
+            { ...basePart(userID, "u-text"), type: "text", text: "what is in this photo?" },
+            {
+              ...basePart(userID, "u-file"),
+              type: "file",
+              mime: "image/jpeg",
+              filename: "photo.jpg",
+              url: `data:image/jpeg;base64,${jpeg}`,
+            },
+          ] as MessageV2.Part[],
+        },
+      ],
+      visionModel,
+    )
+
+    let body: any
+    const openai = createOpenAI({
+      apiKey: "test",
+      fetch: (async (_url: unknown, init?: RequestInit) => {
+        body = JSON.parse(String(init?.body))
+        throw new Error("captured")
+      }) as unknown as typeof fetch,
+    })
+    const result = streamText({
+      model: wrapLanguageModel({
+        model: openai.responses("gpt-5.6-luna"),
+        middleware: [
+          {
+            specificationVersion: "v3" as const,
+            async transformParams(args: any) {
+              args.params.prompt = ProviderTransform.message(args.params.prompt, visionModel, {})
+              return args.params
+            },
+          },
+        ],
+      }),
+      messages: msgs,
+      onError() {},
+    })
+    for await (const _ of result.fullStream) {
+    }
+
+    expect(body.input).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "input_text", text: "what is in this photo?" },
+          { type: "input_image", image_url: `data:image/jpeg;base64,${jpeg}` },
+        ],
+      },
+    ])
+  })
+})

@@ -29,7 +29,7 @@ test('E21-c5 real second HTTP client mutations reconcile visible rail and select
     expect(sockets).toHaveLength(1);
     await page.getByTestId('session-search-toggle').click();
     await page.getByTestId('session-search').fill(prefix);
-    await page.getByTestId('session-sort').selectOption('name');
+    await page.getByRole('button', { name: 'View options', exact: true }).click(); await page.getByTestId('session-sort-name').click();
     const other = await create('A-external');
     await expect(page.getByTestId(`session-${other}`)).toContainText(`${prefix}-A-external`);
     await expect(page.locator('button.session-row').first()).toHaveAttribute('data-testid', `session-${other}`);
@@ -39,7 +39,8 @@ test('E21-c5 real second HTTP client mutations reconcile visible rail and select
     expect((await client.patch(`/agent-sessions/${other}`, { data: { archived: true } })).status()).toBe(200);
     await expect(page.getByTestId(`session-${other}`)).toHaveCount(0);
     await expect(page.getByTestId(`session-${selected}`)).toHaveAttribute('aria-current', 'true');
-    await page.getByRole('checkbox', { name: 'Archived sessions' }).check();
+    await page.getByRole('button', { name: 'View options', exact: true }).click();
+    await page.getByRole('menuitemcheckbox', { name: 'View archived sessions' }).click();
     await expect(page.getByTestId(`session-${other}`)).toBeVisible();
     expect((await client.delete(`/agent-sessions/${other}/hard`, { data: { removeWorktree: false } })).status()).toBe(204);
     await expect(page.getByTestId(`session-${other}`)).toHaveCount(0);

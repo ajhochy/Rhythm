@@ -1,16 +1,16 @@
-.pg-facilities { height: 100%; min-width: 0; display: flex; flex-direction: column; overflow: hidden; color: var(--fg); background: color-mix(in oklab, var(--bg), transparent 3%); }
+.pg-facilities { height: 100%; min-width: 0; display: flex; flex-direction: column; overflow-x: hidden; overflow-y: auto; color: var(--fg); background: color-mix(in oklab, var(--bg), transparent 3%); }
 .pg-facilities button, .pg-facilities input, .pg-facilities select, .pg-facilities textarea, .pg-facilities [role="button"] { min-height: 44px; }
 .pg-facilities input, .pg-facilities select, .pg-facilities textarea { width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--fg); background: color-mix(in oklab, var(--surface), var(--bg) 8%); }
 .pg-facilities textarea { resize: vertical; }
 .pg-facilities fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 .pg-facilities h1, .pg-facilities h2, .pg-facilities h3, .pg-facilities p { overflow-wrap: anywhere; }
-.pg-facilities h1 { margin: 0; font-size: clamp(22px, 2.6vw, 34px); line-height: 1.05; letter-spacing: -.028em; }
+.pg-facilities h1 { margin: 0; font-size: clamp(20px, 2vw, 26px); line-height: 1.1; letter-spacing: -.025em; }
 .pg-facilities h2, .pg-facilities h3 { margin: 0; letter-spacing: -.016em; }
 .pg-facilities p { margin: 0; }
 .pg-facilities button:focus-visible, .pg-facilities input:focus-visible, .pg-facilities select:focus-visible, .pg-facilities textarea:focus-visible, .pg-facilities [role="button"]:focus-visible { outline: 2px solid CanvasText; outline-offset: 2px; box-shadow: var(--focus); }
 
-.pg-facilities .facilities-header { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 20px 14px; border-bottom: 1px solid var(--border-soft); background: var(--surface); }
-.pg-facilities .facilities-heading { min-width: 0; display: grid; gap: 4px; }
+.pg-facilities .facilities-header { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 20px; border-bottom: 1px solid var(--border-soft); background: var(--surface); }
+.pg-facilities .facilities-heading { min-width: 0; display: flex; align-items: baseline; gap: 10px; }
 .pg-facilities .facilities-heading p { max-width: 64ch; color: var(--muted); }
 .pg-facilities .facilities-header-tools { min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .pg-facilities .facilities-role { min-height: 44px; display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: center; gap: 8px; padding: 5px 10px 5px 6px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); color: var(--muted); background: color-mix(in oklab, var(--surface), var(--bg) 5%); font-size: 10px; }
@@ -18,6 +18,27 @@
 .pg-facilities .facilities-state-picker { min-width: 118px; display: grid; gap: 2px; color: var(--muted); font-size: 9px; }
 .pg-facilities .facilities-state-picker select { min-height: 44px; padding-block: 7px; font-size: 10px; }
 .pg-facilities .facilities-mutation-gate { display: flex; }
+.pg-facilities .facilities-page-header { flex: 0 0 auto; }
+.pg-facilities .facilities-context-bar { flex: 0 0 auto; grid-template-columns: minmax(0, 1fr) minmax(240px, .72fr); align-items: end; gap: 12px; padding: 10px 20px; }
+.pg-facilities .facilities-list-inspector { flex: 1 1 auto; min-height: 420px; padding: 12px 20px; overflow: hidden; }
+.pg-facilities .facilities-list-inspector .list-inspector-panes { height: 100%; min-height: 0; }
+.pg-facilities .facilities-list-inspector .list-inspector-list { max-height: none; }
+.pg-facilities .facilities-list-inspector .list-inspector-detail { background: color-mix(in oklab, var(--surface), var(--bg) 4%); }
+.pg-facilities .facilities-list-toolbar { width: 100%; display: grid; gap: 8px; }
+.pg-facilities .facilities-rail-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding-bottom: 8px; border-bottom: 1px solid var(--border-soft); }
+.pg-facilities .facilities-rail-filters legend { grid-column: 1 / -1; color: var(--muted); font-size: 10px; font-weight: 600; }
+.pg-facilities .facilities-rail-filters label { min-width: 0; display: grid; gap: 3px; color: var(--muted); font-size: 9px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.pg-facilities .facilities-rail-filters .facilities-building-filter { grid-column: 1 / -1; }
+.pg-facilities .facilities-rail-filters input, .pg-facilities .facilities-rail-filters select { min-height: 40px; padding: 7px 8px; font-size: 10px; }
+.pg-facilities .facilities-list-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.pg-facilities .facilities-list-actions > button { width: 100%; min-width: 0; }
+.pg-facilities .facilities-list-count { color: var(--muted); font-family: var(--font-mono); font-size: 9px; }
+.pg-facilities .facilities-conflict-note { color: color-mix(in oklab, var(--danger), white 24%); }
+.pg-facilities .facilities-related-section { display: grid; gap: 8px; padding-top: 16px; border-top: 1px solid var(--border-soft); }
+.pg-facilities .facilities-related-section h3 { font-size: 12px; }
+.pg-facilities .facilities-related-section > button, .pg-facilities .facilities-room-preview > button { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); color: var(--fg-2); background: var(--surface); text-align: start; cursor: pointer; }
+.pg-facilities .facilities-related-section > button span, .pg-facilities .facilities-room-preview > button span { min-width: 0; color: var(--muted); font-family: var(--font-mono); font-size: 9px; overflow-wrap: anywhere; }
+.pg-facilities .facilities-related-row { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 
 .pg-facilities .facilities-readonly { min-width: 0; display: flex; align-items: center; gap: 12px; padding: 9px 20px; border-bottom: 1px solid color-mix(in oklab, var(--warning), var(--border-soft) 65%); color: var(--fg-2); background: color-mix(in oklab, var(--warning), transparent 92%); }
 .pg-facilities .facilities-readonly strong { flex: 0 0 auto; color: var(--warning); }
@@ -97,6 +118,7 @@
 .pg-facilities .facilities-detail-grid dt { color: var(--muted); font-family: var(--font-mono); font-size: 8px; letter-spacing: .05em; text-transform: uppercase; }
 .pg-facilities .facilities-detail-grid dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--fg-2); font-size: 11px; }
 .pg-facilities .facilities-detail-actions { display: flex; justify-content: flex-start; flex-wrap: wrap; gap: 7px; }
+.pg-facilities .facilities-detail-heading .facilities-detail-actions { justify-content: flex-end; }
 
 .pg-facilities .facilities-rooms { display: grid; grid-template-rows: auto minmax(0, 1fr); }
 .pg-facilities .facilities-manager-bar { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border-block: 1px solid var(--border-soft); background: color-mix(in oklab, var(--surface-warm), var(--surface) 65%); }
@@ -163,7 +185,7 @@
 .pg-facilities .facilities-availability > div:last-child { border-bottom: 0; }
 .pg-facilities .facilities-availability h3 { font-size: 11px; }
 .pg-facilities .facilities-availability strong { font-size: 10px; }
-.pg-facilities .facilities-availability span { min-width: 0; overflow-wrap: anywhere; color: var(--muted); font-size: 9px; }
+.pg-facilities .facilities-availability span { min-width: 0; overflow-wrap: anywhere; color: var(--fg-2); font-size: 9px; }
 .pg-facilities .facilities-recurrence { display: grid; gap: 10px; padding: 11px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); }
 .pg-facilities .facilities-switch { min-height: 44px; display: flex; align-items: center; gap: 8px; color: var(--fg); font-weight: 600; cursor: pointer; }
 .pg-facilities .facilities-switch input { width: 18px; min-height: 18px; }
@@ -205,12 +227,16 @@
   .pg-facilities .facilities-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pg-facilities .facilities-room-open { grid-template-columns: 42px minmax(150px, 1fr); }
   .pg-facilities .facilities-room-status { grid-column: 2; justify-self: start; }
+  .pg-facilities .facilities-context-bar { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 640px) {
   .pg-facilities .facilities-header { flex-direction: column; gap: 10px; padding: 12px; }
   .pg-facilities .facilities-heading p { display: none; }
   .pg-facilities .facilities-header-tools { width: 100%; justify-content: space-between; }
+  .pg-facilities .facilities-list-inspector { padding: 8px 12px; overflow: visible; }
+  .pg-facilities .facilities-list-inspector .list-inspector-panes { height: auto; min-height: 420px; }
+  .pg-facilities .facilities-context-bar { padding-inline: 12px; }
   .pg-facilities .facilities-state-picker { flex: 1; }
   .pg-facilities .facilities-mutation-gate { flex: 1; justify-content: flex-end; }
   .pg-facilities .facilities-mutation-gate .primary-button { width: 100%; }
@@ -226,6 +252,9 @@
   .pg-facilities .facilities-reservation-open { grid-template-columns: 68px minmax(0, 1fr); gap: 8px; padding-inline-start: 8px; }
   .pg-facilities .facilities-badges em { white-space: normal; }
   .pg-facilities .facilities-detail-heading, .pg-facilities .facilities-manager-bar { align-items: stretch; flex-direction: column; }
+  .pg-facilities .facilities-detail-heading .facilities-detail-actions { justify-content: flex-start; }
+  .pg-facilities .facilities-rail-filters, .pg-facilities .facilities-list-actions { grid-template-columns: 1fr; }
+  .pg-facilities .facilities-rail-filters .facilities-building-filter { grid-column: 1; }
   .pg-facilities .facilities-detail-grid { grid-template-columns: 1fr; }
   .pg-facilities .facilities-detail-grid div, .pg-facilities .facilities-detail-grid div:nth-child(odd), .pg-facilities .facilities-detail-grid div:nth-child(even) { padding-inline: 0; border-inline-start: 0; border-bottom: 1px solid var(--border-soft); }
   .pg-facilities .facilities-detail-grid div:last-child { border-bottom: 0; }
@@ -245,6 +274,7 @@
   .pg-facilities .facilities-availability > div { grid-template-columns: 1fr; gap: 3px; }
   .pg-facilities .facilities-automation-preview { grid-template-columns: 1fr; }
   .pg-facilities .facilities-automation-preview > div:first-child { border-inline-end: 0; border-bottom: 1px solid var(--border-soft); }
+  .pg-facilities .facilities-related-section > button, .pg-facilities .facilities-room-preview > button, .pg-facilities .facilities-related-row { align-items: stretch; flex-direction: column; }
   .pg-facilities .dialog-backdrop { padding: 8px; }
   .pg-facilities .dialog-panel { max-height: calc(100vh - 16px); }
 }

@@ -1,0 +1,212 @@
+.rhythm-workspace-root .pg-integrations { height: 100%; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; color: var(--rhythm-fg); background: color-mix(in oklab, var(--rhythm-bg), transparent 3%); }
+.rhythm-workspace-root .pg-integrations button, .rhythm-workspace-root .pg-integrations input, .rhythm-workspace-root .pg-integrations select { min-width: 44px; min-height: 44px; }
+.rhythm-workspace-root .pg-integrations button { overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-integrations fieldset:disabled { color: inherit; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-page-header { min-width: 0; display: grid; grid-template-columns: minmax(260px, 1fr) auto auto auto; align-items: end; gap: 18px; padding: 20px 24px 18px; border-bottom: 1px solid var(--rhythm-border-soft); background: var(--rhythm-surface); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-page-header h1 { margin: 3px 0 3px; font-size: clamp(22px, 2.5vw, 30px); line-height: 1.08; font-weight: 620; letter-spacing: -.025em; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-page-header p { max-width: 66ch; margin: 0; color: var(--rhythm-fg-muted); font-size: 11px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-header-meta { display: grid; min-width: 116px; gap: 3px; padding-inline: 14px; border-inline-start: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-header-meta span { color: var(--rhythm-fg-secondary); font-size: 10px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-header-meta strong { color: var(--rhythm-fg); font-family: var(--rhythm-font-mono); font-size: 20px; font-weight: 580; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-header-meta small { color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 8px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-state-picker { display: grid; gap: 4px; color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 8px; letter-spacing: .06em; text-transform: uppercase; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-state-picker select { width: 148px; padding-inline: 9px 28px; font-family: var(--rhythm-font-ui); font-size: 10px; letter-spacing: 0; text-transform: none; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-scroll { min-width: 0; min-height: 0; overflow: auto; padding: 18px 24px 28px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-state { min-height: min(460px, calc(100vh - 180px)); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-state-mark { min-width: 48px; min-height: 34px; display: grid; place-items: center; padding: 4px 8px; border: 1px solid var(--rhythm-border); border-radius: var(--rhythm-radius-pill); color: var(--rhythm-fg-secondary); background: var(--rhythm-surface-warm); font-family: var(--rhythm-font-mono); font-size: 10px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-readonly { min-height: 44px; display: flex; align-items: center; gap: 6px; margin-bottom: 12px; padding: 8px 11px; border: 1px solid var(--rhythm-border); border-radius: var(--rhythm-radius-sm); color: var(--rhythm-fg-secondary); background: var(--rhythm-surface-warm); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-mutations { min-width: 0; margin: 0; padding: 0; border: 0; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-mutations:disabled :disabled { opacity: .66; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-workspace { min-width: 0; min-height: 620px; display: grid; grid-template-columns: minmax(440px, .92fr) minmax(360px, 1.08fr); border-block: 1px solid var(--rhythm-border-soft); background: var(--rhythm-surface); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-list { min-width: 0; border-inline-end: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-list > header { min-height: 46px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--rhythm-border); background: color-mix(in oklab, var(--rhythm-surface), var(--rhythm-bg) 3%); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-list > header span { color: var(--rhythm-fg); font-weight: 600; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-list > header strong { color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 9px; font-weight: 500; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-row { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; padding: 8px 10px 8px 12px; border-bottom: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-row[aria-current="true"] { box-shadow: inset 2px 0 0 var(--rhythm-accent); background: var(--rhythm-surface-warm); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-select { min-width: 0; display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 0; border: 0; color: var(--rhythm-fg); background: transparent; cursor: pointer; text-align: start; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-select > span:nth-child(2) { min-width: 0; display: grid; gap: 2px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-select strong, .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-select small, .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-select em { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-select strong { font-size: 12px; font-weight: 620; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-select small { color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 8px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-select em { color: color-mix(in oklab, var(--rhythm-danger), white 25%); font-size: 8px; font-style: normal; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-row-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 4px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-row-actions button { padding-inline: 10px; font-size: 9px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-utility-list { margin-top: 18px; border-top: 1px solid var(--rhythm-border); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-utility-list section { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-utility-list section > button:first-child { min-width: 0; display: grid; justify-items: start; gap: 2px; padding: 4px 0; border: 0; color: var(--rhythm-fg); background: transparent; cursor: pointer; text-align: start; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-utility-list span { font-weight: 600; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-utility-list small { color: var(--rhythm-fg-muted); font-size: 9px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-inspector { min-width: 0; padding: 24px; background: color-mix(in oklab, var(--rhythm-surface), var(--rhythm-bg) 4%); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-inspector > section { min-width: 0; display: grid; gap: 18px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-inspector > section > header { display: grid; gap: 4px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-inspector h2 { margin: 0; font-size: 24px; line-height: 1.18; letter-spacing: -.022em; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-inspector > section > header p { margin: 0; color: var(--rhythm-fg-muted); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-inspector .rhythm-workspace-root .pg-integrations-detail { padding: 16px 0 0; border-top: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-direct-editor { min-width: 0; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-direct-editor .rhythm-workspace-root .pg-integrations-pco-dialog { padding: 0; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-grid { display: grid; gap: 0; border-block: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-card { min-width: 0; overflow: hidden; border: 0; border-bottom: 1px solid var(--rhythm-border-soft); background: var(--rhythm-surface); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-card:last-child { border-bottom: 0; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-card[data-deep-link-active="true"], .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-feature-card[data-deep-link-active="true"] { border-color: var(--rhythm-accent); background: color-mix(in oklab, var(--rhythm-accent), transparent 95%); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-header { min-width: 0; display: grid; grid-template-columns: 46px minmax(180px, 1fr) auto auto; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--rhythm-border-soft); background: color-mix(in oklab, var(--rhythm-surface), var(--rhythm-bg) 5%); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-mark { width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid var(--rhythm-border); border-radius: 13px; color: var(--rhythm-fg); background: var(--rhythm-surface-warm); font-family: var(--rhythm-font-mono); font-size: 10px; font-weight: 700; letter-spacing: .04em; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-mark.is-google-calendar { background: color-mix(in oklab, var(--rhythm-info), transparent 84%); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-mark.is-gmail { background: color-mix(in oklab, var(--rhythm-danger), transparent 85%); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-mark.is-planning-center { background: color-mix(in oklab, var(--rhythm-accent), transparent 84%); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-copy { min-width: 0; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-copy h2 { margin: 1px 0; overflow-wrap: anywhere; font-size: 15px; line-height: 1.25; font-weight: 600; letter-spacing: -.012em; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-copy p { margin: 0; overflow-wrap: anywhere; color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 9px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-state { display: grid; justify-items: end; gap: 4px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-state small { color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 8px; white-space: nowrap; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-status { width: fit-content; min-height: 24px; display: inline-flex; align-items: center; padding: 2px 8px; border: 1px solid var(--rhythm-border); border-radius: var(--rhythm-radius-pill); color: var(--rhythm-fg-secondary); background: var(--rhythm-surface-warm); font-family: var(--rhythm-font-mono); font-size: 8px; font-weight: 650; letter-spacing: .035em; text-transform: uppercase; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-status.is-connected { color: var(--rhythm-success); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-status.is-needs_reauth { color: var(--rhythm-warning); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-status.is-error { color: color-mix(in oklab, var(--rhythm-danger), white 25%); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-actions { min-width: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-actions button { font-size: 10px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-error { margin: 0; padding: 9px 16px; border-bottom: 1px solid color-mix(in oklab, var(--rhythm-danger), transparent 70%); color: color-mix(in oklab, var(--rhythm-danger), white 25%); background: color-mix(in oklab, var(--rhythm-danger), transparent 92%); font-size: 10px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-detail { min-width: 0; padding: 14px 16px 16px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-section-heading { min-width: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-section-heading h3 { margin: 0 0 2px; font-size: 12px; font-weight: 600; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-section-heading p { max-width: 76ch; margin: 0; color: var(--rhythm-fg-muted); font-size: 10px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-inline-actions { display: flex; gap: 12px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-inline-actions button { min-width: 44px; min-height: 44px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-summary { margin: 11px 0 6px; color: var(--rhythm-fg-secondary); font-family: var(--rhythm-font-mono); font-size: 9px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-calendar-list { display: grid; border-top: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-calendar-list label { min-width: 0; min-height: 54px; display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 9px; border-bottom: 1px solid var(--rhythm-border-soft); color: var(--rhythm-fg-secondary); cursor: pointer; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-calendar-list input { width: 44px; height: 44px; margin: 0; accent-color: var(--rhythm-accent); cursor: pointer; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-calendar-list label > span { min-width: 0; display: grid; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-calendar-list strong { overflow-wrap: anywhere; color: var(--rhythm-fg); font-size: 11px; font-weight: 560; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-calendar-list small { overflow-wrap: anywhere; color: var(--rhythm-fg-muted); font-size: 9px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-calendar-list em { padding: 2px 7px; border: 1px solid var(--rhythm-border); border-radius: var(--rhythm-radius-pill); color: var(--rhythm-accent); font-family: var(--rhythm-font-mono); font-size: 8px; font-style: normal; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-save-row { min-width: 0; min-height: 48px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 10px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-save-row > span:first-child { min-width: 0; flex: 1; color: var(--rhythm-fg-muted); font-size: 10px; overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-inline-error { color: color-mix(in oklab, var(--rhythm-danger), white 24%); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-live { min-height: 1.4em; margin: 5px 0 0; color: var(--rhythm-fg-muted); font-size: 9px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-prerequisite { min-height: 68px; display: grid; align-content: center; gap: 2px; margin-top: 10px; padding: 10px 12px; border: 1px dashed var(--rhythm-border); border-radius: var(--rhythm-radius-sm); color: var(--rhythm-fg-muted); background: color-mix(in oklab, var(--rhythm-surface), var(--rhythm-bg) 8%); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-prerequisite strong { color: var(--rhythm-fg-secondary); font-size: 10px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-unread { flex: 0 0 auto; padding: 4px 8px; border: 1px solid var(--rhythm-border); border-radius: var(--rhythm-radius-pill); color: var(--rhythm-accent); font-family: var(--rhythm-font-mono); font-size: 9px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-signal-list { display: grid; margin: 10px 0 0; padding: 0; border-top: 1px solid var(--rhythm-border-soft); list-style: none; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-signal-list li { min-width: 0; min-height: 66px; display: grid; grid-template-columns: 8px minmax(0, 1fr); align-items: start; gap: 9px; padding: 9px 5px; border-bottom: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-signal-list li > div { min-width: 0; display: grid; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-signal-list strong { overflow-wrap: anywhere; color: var(--rhythm-fg); font-size: 11px; font-weight: 560; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-signal-list small { color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 8px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-signal-list p { margin: 3px 0 0; overflow-wrap: anywhere; color: var(--rhythm-fg-secondary); font-size: 10px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-signal-dot { width: 6px; height: 6px; margin-top: 5px; border: 1px solid var(--rhythm-border); border-radius: 50%; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-signal-list .is-unread .rhythm-workspace-root .pg-integrations-signal-dot { border-color: var(--rhythm-accent); background: var(--rhythm-accent); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-preference-summary { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-preference-summary span { min-height: 30px; display: inline-flex; align-items: center; padding: 3px 9px; border: 1px solid var(--rhythm-border); border-radius: var(--rhythm-radius-pill); color: var(--rhythm-fg-secondary); background: var(--rhythm-surface-warm); font-family: var(--rhythm-font-mono); font-size: 9px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-secondary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-feature-card { min-width: 0; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 16px; border-block: 1px solid var(--rhythm-border-soft); background: transparent; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-feature-index { align-self: start; color: var(--rhythm-accent); font-family: var(--rhythm-font-mono); font-size: 10px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-feature-card h2 { margin: 2px 0 4px; overflow-wrap: anywhere; font-size: 14px; font-weight: 600; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-feature-card p { max-width: 64ch; margin: 0; overflow-wrap: anywhere; color: var(--rhythm-fg-muted); font-size: 10px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-feature-card button { max-width: 210px; font-size: 10px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-partial { min-width: 0; min-height: 58px; display: flex; align-items: center; gap: 14px; margin-top: 14px; padding: 10px 12px; border: 1px solid color-mix(in oklab, var(--rhythm-warning), transparent 52%); border-radius: var(--rhythm-radius-sm); color: var(--rhythm-fg-secondary); background: color-mix(in oklab, var(--rhythm-warning), transparent 92%); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-partial > div { min-width: 0; flex: 1; display: grid; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-partial span { overflow-wrap: anywhere; color: var(--rhythm-fg-muted); font-size: 10px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-sync-all-status { min-height: 20px; margin: 7px 0 0; color: var(--rhythm-fg-muted); font-size: 10px; text-align: end; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-ledger { min-width: 0; margin-top: 18px; overflow: hidden; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-md); background: color-mix(in oklab, var(--rhythm-surface), var(--rhythm-bg) 5%); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-ledger > header { min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 13px; border-bottom: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-ledger h2 { margin: 1px 0 0; font-size: 12px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-ledger > header > strong { min-width: 30px; min-height: 30px; display: grid; place-items: center; border: 1px solid var(--rhythm-border); border-radius: var(--rhythm-radius-pill); color: var(--rhythm-fg-secondary); font-family: var(--rhythm-font-mono); font-size: 9px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-ledger ol { max-height: 240px; margin: 0; overflow: auto; padding: 0; list-style: none; counter-reset: receipt; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-ledger li { min-width: 0; min-height: 38px; display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: center; gap: 7px; padding: 6px 12px; border-bottom: 1px solid var(--rhythm-border-soft); counter-increment: receipt; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-ledger li::before { content: counter(receipt, decimal-leading-zero); color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 8px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-ledger code { min-width: 0; overflow-wrap: anywhere; color: var(--rhythm-fg-secondary); font-family: var(--rhythm-font-mono); font-size: 9px; }
+.rhythm-workspace-root .pg-integrations .dialog-backdrop { padding: 14px; }
+.rhythm-workspace-root .pg-integrations .dialog-panel { max-width: calc(100vw - 28px); }
+.rhythm-workspace-root .pg-integrations .dialog-body { padding: 0; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-handoff { display: grid; justify-items: start; gap: 9px; padding: 18px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-handoff-badge { min-height: 26px; display: inline-flex; align-items: center; padding: 3px 8px; border: 1px solid var(--rhythm-accent); border-radius: var(--rhythm-radius-pill); color: var(--rhythm-accent); font-family: var(--rhythm-font-mono); font-size: 8px; font-weight: 700; letter-spacing: .08em; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-handoff h3 { margin: 0; font-size: 17px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-handoff p { margin: 0; color: var(--rhythm-fg-muted); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-handoff code { max-width: 100%; padding: 9px 10px; overflow-wrap: anywhere; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-sm); color: var(--rhythm-fg-secondary); background: var(--rhythm-bg); font-size: 9px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-pco-dialog, .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-import { min-width: 0; display: grid; gap: 16px; padding: 16px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-pco-dialog > section + section { padding-top: 14px; border-top: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-dialog-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-dialog-heading h3 { margin: 1px 0 0; font-size: 13px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-dialog-heading > span { color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 9px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-chip-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-chip-grid button { min-height: 44px; padding: 5px 11px; border: 1px solid var(--rhythm-border); border-radius: var(--rhythm-radius-pill); color: var(--rhythm-fg-secondary); background: var(--rhythm-surface); cursor: pointer; font-size: 10px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-chip-grid button:hover, .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-chip-grid button.is-selected { color: var(--rhythm-fg); border-color: var(--rhythm-accent); background: color-mix(in oklab, var(--rhythm-accent), transparent 86%); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-dialog-actions { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-dialog-actions > [role="status"] { color: var(--rhythm-success); font-family: var(--rhythm-font-mono); font-size: 9px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; padding: 3px; border-radius: var(--rhythm-radius-sm); background: var(--rhythm-bg); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-tabs button { border: 0; border-radius: 8px; color: var(--rhythm-fg-muted); background: transparent; cursor: pointer; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-tabs button[aria-selected="true"] { color: var(--rhythm-fg); background: var(--rhythm-surface-warm); box-shadow: inset 0 0 0 1px var(--rhythm-border); }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-import section { min-width: 0; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-import pre { max-height: 310px; margin: 0; overflow: auto; padding: 12px; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-sm); color: var(--rhythm-fg-secondary); background: var(--rhythm-bg); font-family: var(--rhythm-font-mono); font-size: 9px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-json-label { min-width: 0; display: grid; gap: 6px; color: var(--rhythm-fg-secondary); font-size: 10px; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-json-label textarea { min-width: 0; max-width: 100%; min-height: 230px; resize: vertical; font-family: var(--rhythm-font-mono); font-size: 10px; line-height: 1.6; }
+.rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-import-error { display: grid; gap: 2px; margin: 9px 0 0; padding: 9px 10px; border: 1px solid color-mix(in oklab, var(--rhythm-danger), transparent 60%); border-radius: var(--rhythm-radius-sm); color: color-mix(in oklab, var(--rhythm-danger), white 24%); background: color-mix(in oklab, var(--rhythm-danger), transparent 92%); font-size: 10px; }
+
+@media (max-width: 1100px) {
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-page-header { grid-template-columns: minmax(220px, 1fr) auto auto; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-page-header > .primary-button { grid-column: 3; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-header-meta { grid-row: 1 / span 2; grid-column: 2; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-state-picker { grid-column: 3; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-workspace { grid-template-columns: minmax(380px, .95fr) minmax(320px, 1.05fr); }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-header { grid-template-columns: 46px minmax(160px, 1fr) auto; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-actions { grid-column: 2 / -1; justify-content: flex-start; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-secondary-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 760px) {
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-page-header { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 14px 16px; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-page-header > div:first-child { grid-column: 1 / -1; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-header-meta { grid-row: auto; grid-column: 1; padding-inline: 0; border: 0; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-state-picker { grid-column: 2; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-page-header > .primary-button { grid-column: 1 / -1; width: 100%; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-scroll { padding: 12px 14px 22px; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-workspace { display: block; min-height: 0; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-list { border-inline-end: 0; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-inspector { min-height: 440px; border-top: 1px solid var(--rhythm-border); }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-row { grid-template-columns: minmax(0, 1fr); }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-row-actions { justify-content: flex-start; padding-inline-start: 52px; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-header { grid-template-columns: 46px minmax(0, 1fr); }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-state { grid-column: 2; justify-items: start; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-actions { grid-column: 1 / -1; justify-content: stretch; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-actions button { flex: 1 1 150px; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-section-heading { display: grid; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-feature-card { grid-template-columns: 28px minmax(0, 1fr); }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-feature-card button { grid-column: 1 / -1; width: 100%; max-width: none; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-dialog-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-dialog-actions > span:empty { display: none; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-dialog-actions button { width: 100%; }
+}
+
+@media (max-width: 430px) {
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-page-header { grid-template-columns: 1fr; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-state-picker, .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-header-meta, .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-page-header > .primary-button { grid-column: 1; width: 100%; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-state-picker select { width: 100%; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-select { grid-template-columns: 42px minmax(0, 1fr); }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-select .rhythm-workspace-root .pg-integrations-status { grid-column: 2; justify-self: start; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-row-actions { padding-inline-start: 0; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-inspector { padding: 18px 14px; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-card { border-radius: var(--rhythm-radius-md); }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-header { padding: 12px; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-state { grid-column: 1 / -1; justify-items: start; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-detail { padding: 12px; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-save-row { align-items: stretch; flex-direction: column; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-save-row button { width: 100%; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-feature-card { padding: 13px; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-partial { align-items: stretch; flex-direction: column; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-partial button { width: 100%; }
+  .rhythm-workspace-root .pg-integrations .dialog-backdrop { padding: 8px; }
+  .rhythm-workspace-root .pg-integrations .dialog-panel { max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
+  .rhythm-workspace-root .pg-integrations .dialog-header { padding: 10px 12px; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-pco-dialog, .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-import { padding: 12px; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-tabs { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rhythm-workspace-root .pg-integrations *, .rhythm-workspace-root .pg-integrations *::before, .rhythm-workspace-root .pg-integrations *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+
+@media (forced-colors: active) {
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-status, .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-mark, .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-handoff-badge, .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-chip-grid button.is-selected { forced-color-adjust: none; border-color: Highlight; color: Highlight; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-provider-row[aria-current="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
+  .rhythm-workspace-root .pg-integrations .rhythm-workspace-root .pg-integrations-signal-list .is-unread .rhythm-workspace-root .pg-integrations-signal-dot { background: Highlight; }
+}

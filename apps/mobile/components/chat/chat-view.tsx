@@ -1,5 +1,7 @@
 import * as Clipboard from 'expo-clipboard';
+import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
@@ -8,6 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ChatComposer } from '@/components/chat/chat-composer';
 import { ChatContent } from '@/components/chat/chat-content';
+import { CameraAttachmentSheet } from '@/components/chat/camera-attachment-sheet';
 import {
   createSessionDraftStore,
   type ChatAttachment,
@@ -18,7 +21,7 @@ import { SessionConfigurationSheet } from '@/components/chat/session-configurati
 import { styles } from '@/components/chat/chat-view-styles';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { MOBILE_ATTACHMENT_LIMIT_BYTES } from '@/lib/attachments/limits';
+import { attachmentPickLimitBytes, MOBILE_IMAGE_SOURCE_LIMIT_BYTES } from '@/lib/attachments/limits';
 import { type TranscriptEntry } from '@/lib/opencode/format';
 import {
   findEditableUserTextPart,
@@ -101,6 +104,7 @@ export function ChatView() {
   const [speakingMessageId, setSpeakingMessageId] = useState<string | undefined>(undefined);
   const [voiceFeedback, setVoiceFeedback] = useState<string | undefined>(undefined);
   const [sendFeedback, setSendFeedback] = useState<string | undefined>(undefined);
+  const [cameraVisible, setCameraVisible] = useState(false);
   const [sessionToolsVisible, setSessionToolsVisible] = useState(false);
   const [sessionChildren, setSessionChildren] = useState<{ id: string; title?: string }[]>([]);
   const [sessionChildrenLoaded, setSessionChildrenLoaded] = useState(false);
@@ -150,6 +154,22 @@ export function ChatView() {
     () => availableModels.find((model) => model.providerID === selectedSession?.model?.providerID && model.modelID === selectedSession?.model?.id),
     [availableModels, selectedSession?.model?.id, selectedSession?.model?.providerID],
   );
+  const selectedProfileLabel = availableAgents.find(
+    (profile) => profile.profileId === chatPreferences.profileId,
+  )?.label;
+  const selectedModelLabel = availableModels.find(
+    (model) => model.id === chatPreferences.modelId,
+  )?.label ?? chatPreferences.modelId;
+  const contextLabel = [selectedProfileLabel, selectedModelLabel].filter(Boolean).join(' · ') || undefined;
+  const presentationStatus = currentPendingPermissions.length > 0
+    ? 'Waiting for approval'
+    : currentPendingQuestions.length > 0
+      ? 'One answer needed'
+      : running
+        ? 'Working'
+        : displayTranscript.length > 0
+          ? 'Finished'
+          : contextLabel;
   const visiblePromptError = promptError && (!promptError.sessionId || promptError.sessionId === currentSessionId)
     ? promptError.message
     : undefined;
@@ -391,10 +411,9 @@ export function ChatView() {
     }
   }
 
-  async function handleAttach() {
+  async function handleChooseFile() {
     try {
-      const picker = await import('expo-document-picker');
-      const result = await picker.getDocumentAsync({
+      const result = await DocumentPicker.getDocumentAsync({
         base64: Platform.OS === 'web',
         multiple: true,
         copyToCacheDirectory: true,
@@ -405,8 +424,8 @@ export function ChatView() {
       }
       if (result.assets.some((asset) =>
         typeof asset.size === 'number' &&
-        asset.size > MOBILE_ATTACHMENT_LIMIT_BYTES)) {
-        setSendFeedback('File exceeds the 10 MB attachment limit.');
+        asset.size > attachmentPickLimitBytes(asset.mimeType))) {
+        setSendFeedback('File exceeds the attachment limit (10 MB, or 50 MB for photos).');
         return;
       }
 
@@ -432,6 +451,53 @@ export function ChatView() {
     } catch (error) {
       setSendFeedback(summarizeError(error, 'Could not attach that file.'));
     }
+  }
+
+  async function handleChooseExistingPhoto() {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        allowsMultipleSelection: true,
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 1,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      if (result.assets.some((asset) =>
+        typeof asset.fileSize === 'number' &&
+        asset.fileSize > MOBILE_IMAGE_SOURCE_LIMIT_BYTES)) {
+        setSendFeedback('Photo exceeds the 50 MB attachment limit.');
+        return;
+      }
+
+      setSendFeedback(undefined);
+      updateAttachmentsState((current) => {
+        const next = [...current];
+        result.assets.forEach((asset) => {
+          if (!next.some((attachment) => attachment.uri === asset.uri)) {
+            next.push({
+              uri: asset.uri,
+              filename: asset.fileName || 'Attachment',
+              mime: asset.mimeType || 'image/jpeg',
+            });
+          }
+        });
+        return next;
+      });
+    } catch (error) {
+      setSendFeedback(summarizeError(error, 'Could not attach that photo.'));
+    }
+  }
+
+  function handleAttach() {
+    if (Platform.OS === 'web') {
+      void handleChooseFile();
+      return;
+    }
+    Alert.alert('Add attachment', undefined, [
+      { text: 'Take Photo', onPress: () => setCameraVisible(true) },
+      { text: 'Choose Existing Photo', onPress: () => void handleChooseExistingPhoto() },
+      { text: 'Choose File', onPress: () => void handleChooseFile() },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   }
 
   async function handleNewSession(
@@ -540,6 +606,7 @@ export function ChatView() {
           isCreatingSession={isCreatingSession}
           diffCount={diffCount}
           running={running}
+          presentationStatus={presentationStatus}
           showingChanges={activeTab === 'changes'}
           onBack={navigateBackToChats}
           onCloseMenu={() => setSessionMenuVisible(false)}
@@ -807,10 +874,11 @@ export function ChatView() {
           </Card>
         ) : null}
 
-        <ChatComposer
+        {activeTab === 'session' ? <ChatComposer
           attachments={attachments}
           connectionStatus={connection.status}
           conversation={conversation}
+          contextLabel={contextLabel}
           currentSessionId={currentSessionId}
           commands={commands}
           draft={draft}
@@ -819,7 +887,7 @@ export function ChatView() {
           isSpeechInputAvailable={isSpeechInputAvailable}
           isSpeechInputListening={isSpeechInputListening}
           isStoppingSession={isStoppingSession}
-          onAttach={() => void handleAttach()}
+          onAttach={handleAttach}
           onDraftChange={(value) => {
             setSendFeedback(undefined);
             updateDraftState(value);
@@ -840,7 +908,7 @@ export function ChatView() {
           onToggleRecording={() => void handleToggleRecording()}
           palette={palette}
           showSendAction={showSendAction}
-        />
+        /> : null}
         </KeyboardAvoidingView>
       </View>
 
@@ -854,6 +922,19 @@ export function ChatView() {
         palette={palette}
         preferences={chatPreferences}
         visible={newSessionSheetVisible}
+      />
+      <CameraAttachmentSheet
+        onCapture={(attachment) => {
+          setSendFeedback(undefined);
+          updateAttachmentsState((current) =>
+            current.some((item) => item.uri === attachment.uri)
+              ? current
+              : [...current, attachment],
+          );
+        }}
+        onClose={() => setCameraVisible(false)}
+        palette={palette}
+        visible={cameraVisible}
       />
       <Snackbar visible={Boolean(copiedMessageId)} onDismiss={() => setCopiedMessageId(undefined)} duration={1800}>
         {copiedMessageId === '__send-error__' ? 'Error details copied' : 'Message copied to clipboard'}

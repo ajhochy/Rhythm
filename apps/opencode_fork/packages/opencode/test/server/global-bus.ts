@@ -1,10 +1,11 @@
 import { GlobalBus, type GlobalEvent } from "@/bus/global"
-import { Cause, Effect } from "effect"
+import { Cause, Deferred, Effect } from "effect"
 
 export function waitGlobalBusEvent(input: {
   timeout?: number
   message?: string
   predicate: (event: GlobalEvent) => boolean
+  subscribed?: Deferred.Deferred<void>
 }) {
   return Effect.callback<GlobalEvent, unknown>((resume) => {
     const cleanup = () => GlobalBus.off("event", handler)
@@ -21,6 +22,7 @@ export function waitGlobalBusEvent(input: {
     }
 
     GlobalBus.on("event", handler)
+    if (input.subscribed) Effect.runSync(Deferred.succeed(input.subscribed, undefined).pipe(Effect.ignore))
     return Effect.sync(cleanup)
   }).pipe(
     Effect.timeout(input.timeout ?? 10_000),

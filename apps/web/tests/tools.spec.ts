@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { chooseDemo, openFixture } from './helpers';
+import { selectRow } from './helpers/list-inspector';
 
 async function expectTrace(page: Page, route: string) {
   await expect(page.getByTestId('tool-trace')).toContainText(route);
@@ -9,12 +10,11 @@ async function expectTrace(page: Page, route: string) {
 test.describe('shipping-shaped Agents tools', () => {
   test('searches, expands, edits, and deletes Brain memories', async ({ page }) => {
     await openFixture(page, '#/tools/brain');
-    await page.getByTestId('brain-search').fill('offline');
-    await expect(page.getByTestId('brain-list')).toContainText('desktop relay is offline');
-    await expectTrace(page, '/agent-memory/search');
-    await page.getByTestId('brain-search').fill('');
+    await page.getByRole('searchbox', { name: 'Search Agent memories' }).fill('offline');
+    await expect(page.getByRole('option', { name: /desktop relay is offline/ })).toBeVisible();
+    await page.getByRole('searchbox', { name: 'Search Agent memories' }).fill('');
     const memory = page.getByTestId('memory-memory-relay');
-    await memory.getByRole('button').first().click();
+    await memory.click();
     await page.getByTestId('brain-edit-memory-relay').click();
     await page.getByTestId('memory-editor').getByLabel('Content').fill('Keep every fixture run deterministic.');
     await page.getByTestId('memory-save').click();
@@ -75,10 +75,10 @@ test.describe('shipping-shaped Agents tools', () => {
     await page.getByTestId('webhook-create').click();
     await expect(page.getByTestId('webhook-success')).toContainText('/agent-webhooks/webhook-2/receive');
     await page.getByTestId('webhook-copy-created').click();
-    await expect(page.getByText('Planning Intake')).toBeVisible();
+    await expect(page.getByTestId('list-inspector-detail').getByRole('heading', { name: 'Planning Intake' })).toBeVisible();
     await page.getByTestId('webhook-delete-webhook-2').click();
     await page.getByTestId('webhook-delete-dialog-confirm').click();
-    await expect(page.getByText('Planning Intake')).toHaveCount(0);
+    await expect(page.getByRole('option', { name: 'Planning Intake', exact: true })).toHaveCount(0);
   });
 
   test('authors, edits, refreshes, and deletes managed skills and playbooks', async ({ page }) => {
@@ -94,7 +94,7 @@ test.describe('shipping-shaped Agents tools', () => {
       await page.getByTestId(`${kind}-edit`).click();
       await page.getByTestId(`${kind}-editor`).getByLabel('Description').fill(`An updated deterministic ${kind} fixture.`);
       await page.getByTestId(`${kind}-save`).click();
-      await expect(page.getByText(`An updated deterministic ${kind} fixture.`)).toBeVisible();
+      await expect(page.getByTestId('list-inspector-detail').getByText(`An updated deterministic ${kind} fixture.`, { exact: true })).toBeVisible();
       await page.getByTestId(`${kind}-delete`).click();
       await page.getByTestId(`${kind}-delete-dialog-confirm`).click();
       await expect(page.getByTestId(`${kind}-item-fixture-${kind}`)).toHaveCount(0);
@@ -117,15 +117,16 @@ test.describe('shipping-shaped Agents tools', () => {
 
     await openFixture(page, '#/tools/review');
     await page.getByTestId('proposal-expand-proposal-research-agent').click();
-    await expect(page.getByTestId('proposal-proposal-research-agent')).toContainText('verified runs');
+    await expect(page.getByTestId('proposal-proposal-research-agent-details')).toContainText('verified runs');
     await page.getByTestId('proposal-approve-proposal-research-agent').click();
     await page.getByTestId('review-filter').selectOption('approved');
-    await expect(page.getByText('Adopt research-librarian profile')).toBeVisible();
+    await expect(page.getByTestId('list-inspector-detail').getByRole('heading', { name: 'Adopt research-librarian profile' })).toBeVisible();
     await page.getByTestId('review-filter').selectOption('proposed');
+    await selectRow(page, 'Promote verification skill');
     await page.getByTestId('proposal-reject-proposal-review-skill').click();
     await page.getByTestId('proposal-reject-dialog-confirm').click();
     await page.getByTestId('review-filter').selectOption('rejected');
-    await expect(page.getByText('Promote verification skill')).toBeVisible();
+    await expect(page.getByTestId('list-inspector-detail').getByRole('heading', { name: 'Promote verification skill' })).toBeVisible();
   });
 
   test('filters Report Card detail and launches Email and Creative Media sessions with seeded context', async ({ page }) => {
@@ -136,7 +137,7 @@ test.describe('shipping-shaped Agents tools', () => {
     await expect(page.getByRole('heading', { name: 'Implementation Partner' })).toBeVisible();
 
     await openFixture(page, '#/tools/email');
-    await page.getByTestId('email-signal-email-relay').click();
+    await page.getByTestId('email-email-relay').click();
     await expect(page.getByRole('heading', { name: 'Relay recovery notes' })).toBeVisible();
     await page.getByTestId('email-launch').click();
     await expect(page).toHaveURL(/#\/agents/);
@@ -144,7 +145,7 @@ test.describe('shipping-shaped Agents tools', () => {
     await expect(page.getByTestId('transcript')).toContainText('Seeded Gmail context');
 
     await openFixture(page, '#/tools/gallery');
-    await page.getByTestId('design-design-relay-card').getByRole('button', { name: 'Select Relay status card' }).click();
+    await selectRow(page, 'Relay status card');
     await page.getByTestId('gallery-open-design-relay-card').click();
     await expectTrace(page, '/artifact');
     await page.getByTestId('gallery-launch').click();

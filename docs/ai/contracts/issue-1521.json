@@ -1,0 +1,72 @@
+{
+  "issue": 1521,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1521-c1",
+      "text": "Main Settings uses the same list width, typography, spacing, selected-row treatment, inspector hierarchy, and action placement as the shared design in #1513.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/settings-list-inspector.spec.ts",
+      "test_id": "issue-1521-c1: main Settings renders through the shared list-and-inspector primitive",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1521-c2",
+      "text": "Each left-hand row has a clear title and one short explanatory subtitle or useful status; detailed forms and actions appear in the main inspector after selection.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/settings-list-inspector.spec.ts",
+      "test_id": "issue-1521-c2: rows stay compact while two selections show their full inspectors",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1521-c3",
+      "text": "All existing settings and functions remain reachable: appearance, keyboard/safety preferences, workspace information, join-code management, members/roles, Facilities Manager access, notifications, account/access destinations, sign-out, runtime health/version, and release access.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/settings-list-inspector.spec.ts",
+      "test_id": "issue-1521-c3: every existing Settings action is reachable from an inspector",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1521-c4",
+      "text": "Current values are loaded from the appropriate existing source, and edits retain their existing persistence scope. Clearly distinguish device/user preferences from workspace administration.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/settings-list-inspector.spec.ts",
+      "test_id": "issue-1521-c4: device preferences persist per account and workspace values come from the gateway",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1521-c5",
+      "text": "Preserve admin-only permissions, self-management restrictions, relevant confirmations, and disabled/pending/error feedback. Selecting a row must not itself change a setting or execute an action.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/settings-list-inspector.spec.ts",
+      "test_id": "issue-1521-c5: selection is inert and staff permissions remain read-only",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1521-c6",
+      "text": "Related destinations such as Agent Settings, Integrations, Mobile Access, and memory remain discoverable without duplicating their entire editors into main Settings.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/settings-list-inspector.spec.ts",
+      "test_id": "issue-1521-c6: related destination rows navigate without duplicating editors",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1521-c7",
+      "text": "Mouse and keyboard selection work with visible focus and selected state. Long labels, smaller windows, and scrolling do not hide essential controls.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/settings-list-inspector.spec.ts",
+      "test_id": "issue-1521-c7: keyboard, narrow, zoom, focus, and axe behavior remain usable",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1521-c8",
+      "text": "Loading, unavailable, empty, and read-only states are clear; switching sections does not silently discard unsaved edits or show stale details.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/settings-list-inspector.spec.ts",
+      "test_id": "issue-1521-c8: loading error empty missing and unsaved states are explicit",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

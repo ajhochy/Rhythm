@@ -29,6 +29,12 @@ import {
 } from 'react-native-paper';
 
 import { ToolScreenState } from '@/components/tools/tool-screen-state';
+import {
+  BrainSearchSurface,
+  ConnectionMetadata,
+  ProviderModelGroups,
+  StatusDecisionSummary,
+} from '@/components/tools/tool-detail-primitives';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useOpencode } from '@/providers/opencode-provider';
@@ -1005,14 +1011,35 @@ export default function RhythmToolScreen() {
               : undefined
         }
         style={[styles.card, { borderColor: palette.border }]}>
-        <Card.Content style={styles.cardHeader}>
-          <Text variant="titleMedium">{title}</Text>
-          {subtitle ? (
-            <Text style={{ color: palette.muted }} variant="bodyMedium">
-              {subtitle}
-            </Text>
-          ) : null}
-        </Card.Content>
+        {tool === 'models' ? (
+          <Card.Content>
+            <ProviderModelGroups
+              groups={[{
+                id: String(item.providerID ?? item.providerId ?? item.id),
+                title,
+                metadata: item.connected === true ? 'Connected' : undefined,
+                models: providerModels.map((model) => ({
+                  id: model.id,
+                  title: model.name,
+                })),
+              }]}
+            />
+            {providerModels.length === 0 ? (
+              <Text style={{ color: palette.muted }} variant="bodySmall">
+                The paired Mac did not report model metadata for this provider.
+              </Text>
+            ) : null}
+          </Card.Content>
+        ) : (
+          <Card.Content style={styles.cardHeader}>
+            <Text variant="titleMedium">{title}</Text>
+            {subtitle ? (
+              <Text style={{ color: palette.muted }} variant="bodyMedium">
+                {subtitle}
+              </Text>
+            ) : null}
+          </Card.Content>
+        )}
         {tool === 'brain' && item.content ? (
           <Card.Content>
             <Text>{String(item.content)}</Text>
@@ -1052,22 +1079,38 @@ export default function RhythmToolScreen() {
             </Text>
           </Card.Content>
         ) : null}
-        {tool === 'models' ? (
-          <Card.Content style={styles.modelList}>
-            <Text variant="labelLarge">Available models</Text>
-            {providerModels.length > 0 ? (
-              <View style={styles.modelChips}>
-                {providerModels.map((model) => (
-                  <Chip compact key={model.id}>
-                    {model.name}
-                  </Chip>
-                ))}
-              </View>
-            ) : (
-              <Text style={{ color: palette.muted }} variant="bodySmall">
-                The paired Mac did not report model metadata for this provider.
-              </Text>
-            )}
+        {tool === 'mcp' ? (
+          <Card.Content>
+            <ConnectionMetadata
+              reachability={
+                item.status === 'connected'
+                  ? 'Connected'
+                  : item.error
+                    ? 'Unreachable'
+                    : 'Not reported'
+              }
+              authentication={
+                typeof item.authenticated === 'boolean'
+                  ? item.authenticated
+                    ? 'Authenticated'
+                    : 'Not authenticated'
+                  : typeof item.authentication === 'string'
+                    ? item.authentication
+                    : 'Not reported'
+              }
+              enablement={
+                typeof item.enabled === 'boolean'
+                  ? item.enabled
+                    ? 'Enabled'
+                    : 'Disabled'
+                  : 'Not reported'
+              }
+              configuration={
+                [item.type, item.url]
+                  .filter((value): value is string => typeof value === 'string' && value.length > 0)
+                  .join(' · ') || 'Not reported'
+              }
+            />
           </Card.Content>
         ) : null}
         {actions ? <Divider /> : null}
@@ -1216,13 +1259,7 @@ export default function RhythmToolScreen() {
           </Surface>
         ) : null}
         {tool === 'brain' ? (
-          <TextInput
-            accessibilityLabel="Search Brain"
-            label="Search Brain"
-            mode="outlined"
-            onChangeText={setSearch}
-            value={search}
-          />
+          <BrainSearchSurface query={search} onQueryChange={setSearch} />
         ) : null}
         {isOrganizedToolCatalog(tool) ? (
           <Surface
@@ -1335,7 +1372,11 @@ export default function RhythmToolScreen() {
           <Surface style={styles.detail}>
             <Text variant="titleLarge">{recordTitle(tool, selected)}</Text>
             <Chip>{String(selected.risk ?? 'unknown')} risk</Chip>
-            <Text>{String(selected.rationale ?? 'Review the proposed change before acting.')}</Text>
+            <StatusDecisionSummary
+              status={String(selected.status ?? 'Not reported')}
+              summary={String(selected.rationale ?? 'Review the proposed change before acting.')}
+              nextDecision="Approve or reject this proposal."
+            />
             <View style={styles.actions}>
               <Button
                 accessibilityLabel="Approve proposal"
@@ -1928,8 +1969,6 @@ const styles = StyleSheet.create({
   runtimeInspection: { borderRadius: 16, gap: 10, padding: 14 },
   runtimeHeader: { alignItems: 'center', flexDirection: 'row', gap: 10 },
   runtimeCopy: { flex: 1, minWidth: 0 },
-  modelList: { gap: 8 },
-  modelChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   mono: { fontFamily: 'monospace', fontSize: 12 },
   dialogFields: { gap: 14, paddingVertical: 8 },
   galleryPreviewContent: { gap: 12 },

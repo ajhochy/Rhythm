@@ -93,6 +93,11 @@ class PendingTrigger {
     required this.taskTitle,
     required this.arrivedAt,
     this.taskNotes,
+    this.scheduledTaskId,
+    this.webhookEndpointId,
+    this.webhookEndpointName,
+    this.profileId,
+    this.prompt,
   });
 
   final String taskId;
@@ -102,6 +107,12 @@ class PendingTrigger {
   /// prefill the composer with task context as an editable draft when the
   /// user opens the chat from the trigger bubble.
   final String? taskNotes;
+  // ponytail: nullable metadata keeps existing task-trigger constructors unchanged.
+  final String? scheduledTaskId;
+  final String? webhookEndpointId;
+  final String? webhookEndpointName;
+  final String? profileId;
+  final String? prompt;
   final DateTime arrivedAt;
 }
 
@@ -2148,15 +2159,18 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  /// Read the pending draft for [sessionId] without removing it. The composer
+  /// uses this to place the text before completing the one-shot consume.
+  String? composerDraftFor(String sessionId) =>
+      _composerDraftBySession[sessionId];
+
   /// Read and clear the draft for [sessionId]. Returns null if no draft was
   /// staged. One-shot — subsequent calls return null.
   ///
-  /// Issue #656: this is invoked from `_TranscriptPanel.build()`, so it MUST
-  /// NOT call `notifyListeners()` — firing a notify during build marks the
-  /// building widget dirty mid-build, which in release silently corrupts the
-  /// transcript panel's rebuild scheduling (dead clicks, no streaming). The
-  /// caller applies the returned draft directly to its TextEditingController
-  /// via a post-frame callback; no rebuild is required here.
+  /// Issue #656: this is invoked from a post-frame callback scheduled by
+  /// `_TranscriptPanel.build()`, so it MUST NOT call `notifyListeners()`.
+  /// The caller has already applied the draft to its TextEditingController;
+  /// no rebuild is required here.
   String? consumeComposerDraft(String sessionId) {
     return _composerDraftBySession.remove(sessionId);
   }
@@ -3083,9 +3097,11 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// If a trigger with the same `taskId` is already pending it is ignored so
   /// that a failed DELETE does not create duplicate bubbles.
   Future<void> handleIncomingTrigger(Map<String, dynamic> trigger) async {
-    final taskId = trigger['taskId'] as String? ??
-        trigger['task_id'] as String? ??
-        trigger['id']?.toString();
+    final webhookEndpointId = trigger['webhookEndpointId'] as String?;
+    final taskId =
+        (webhookEndpointId == null ? trigger['taskId'] as String? : null) ??
+            trigger['task_id'] as String? ??
+            trigger['id']?.toString();
     final taskTitle = trigger['taskTitle'] as String? ??
         trigger['task_title'] as String? ??
         trigger['title'] as String? ??
@@ -3106,6 +3122,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         taskId: taskId,
         taskTitle: taskTitle,
         taskNotes: taskNotes,
+        scheduledTaskId: trigger['scheduledTaskId'] as String?,
+        webhookEndpointId: webhookEndpointId,
+        webhookEndpointName: trigger['webhookEndpointName'] as String? ??
+            trigger['webhook_endpoint_name'] as String?,
+        profileId: trigger['profileId'] as String?,
+        prompt: trigger['prompt'] as String?,
         arrivedAt: DateTime.now(),
       ),
     );
@@ -3486,6 +3508,14 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       // OPC-M3-5: todo.updated event — replace the session's todo state in-place.
       // State is keyed per session; an update for session B must not affect A.
       _sessionTodosBySession[msg.sessionId] = List.of(msg.todos);
+    } else if (msg is SessionSpilloverMessage && msg.providerId == 'openai') {
+      // OpenAI (ChatGPT) account failover: the badge tracks the Anthropic
+      // account only, so just announce it (the row refresh follows).
+      _notificationsController.pushAgentNotification(
+        id: DateTime.now().millisecondsSinceEpoch,
+        title: 'OpenAI account switched',
+        body: 'Session hit a rate limit — continued on "${msg.toAccountId}".',
+      );
     } else if (msg is SessionSpilloverMessage) {
       // Dual-account spillover: the engine failed this session over to the
       // other Anthropic account after a rate limit. Flip the badge and toast.

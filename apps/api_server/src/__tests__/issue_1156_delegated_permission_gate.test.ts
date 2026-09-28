@@ -11,9 +11,9 @@
  *
  * Fix: treat a session as "headless" when it has a non-null
  * `parentSessionId` (delegated child — the sole writer of that column is
- * `upsertChildSession`) or when no local row resolves at all (create-vs-
- * permission race). Headless sessions auto-accept, UNLESS the pre-existing
- * hardline blocklist deny or plan-mode auto-deny already fired.
+ * `upsertChildSession`). Missing rows are not positive evidence of delegation
+ * and fail closed to a visible card. Headless sessions auto-accept, UNLESS the
+ * pre-existing hardline blocklist deny or plan-mode auto-deny already fired.
  *
  * Harness pattern copied from `issue_736_contract.test.ts`: real in-memory
  * SQLite rows via `AgentSessionsRepository`, fake only the true boundaries
@@ -22,7 +22,7 @@
  *
  * Criteria:
  *   c1 — delegated child (parentSessionId set, permission_mode NULL) auto-accepts.
- *   c2 — no local row resolves (race) → auto-accepts.
+ *   c2 — no local row resolves (race) → stays pending for a human.
  *   c3 — hardline-blocklisted bash command on a child → still denied.
  *   c4 — child explicitly in plan mode → still auto-denied.
  *   c5 — interactive session (parentSessionId NULL, permission_mode 'default')
@@ -180,9 +180,9 @@ describe('#1156 — delegated subagent permission gate', () => {
     expect(pendingAskFrames().length).toBe(0);
   });
 
-  // c2 — event whose SDK session id maps to no local row (create-vs-permission
-  // race) auto-accepts rather than hanging with no UI to answer it.
-  it('c2: no resolvable local row (race) auto-accepts', () => {
+  // c2 — absence of a row is not evidence that the session is delegated.
+  // Fail closed to a card until persisted parent/schedule metadata exists.
+  it('c2: no resolvable local row (race) stays pending', () => {
     // Deliberately no session row and no sessionMap entry for this SDK id —
     // _relayEvent's own localSessionId resolution (reverse map / durable
     // fallback) will fail to resolve a local id... but the gate requires a
@@ -195,9 +195,14 @@ describe('#1156 — delegated subagent permission gate', () => {
 
     relay(permissionEvent(NO_ROW_SDK_SESSION_ID, 'grep', 'perm-c2'));
 
-    expect(acceptCalls().length).toBe(1);
+    expect(acceptCalls().length).toBe(0);
     expect(rejectCalls().length).toBe(0);
-    expect(pendingAskFrames().length).toBe(0);
+    expect(pendingAskFrames()).toEqual([
+      expect.objectContaining({
+        sessionId: orphanLocalId,
+        permissionID: 'perm-c2',
+      }),
+    ]);
   });
 
   // c3 — hardline blocklist deny still wins on a delegated child.

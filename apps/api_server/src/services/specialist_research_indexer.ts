@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { env, resolveMemoryVaultPath } from '../config/env';
 import { getDb } from '../database/db';
@@ -93,6 +93,19 @@ export function canonicalizeResearchSourceUrl(value: string): string {
   return url.toString().replace(/\/$/, url.pathname === '/' && !url.search ? '' : '/');
 }
 
+/**
+ * Roots a research artifact path may be relative to: the memory vault, then the nearest enclosing
+ * Obsidian vault. Agents that write through the Obsidian MCP use vault-root paths
+ * (`Areas/Research/...`), while the default memory vault is that vault's `AGENT-MEMORY` subfolder.
+ */
+export function researchVaultRoots(): string[] {
+  const memory = path.resolve(resolveMemoryVaultPath());
+  for (let dir = path.dirname(memory); dir !== path.dirname(dir); dir = path.dirname(dir)) {
+    if (existsSync(path.join(dir, '.obsidian'))) return [memory, dir];
+  }
+  return [memory];
+}
+
 function validateVaultFile(vaultPath: string, expectedHash: string | null): string {
   if (path.isAbsolute(vaultPath) || vaultPath.split(/[\\/]/).includes('..')) {
     throw new Error(`path traversal rejected: ${vaultPath}`);
@@ -100,18 +113,22 @@ function validateVaultFile(vaultPath: string, expectedHash: string | null): stri
   if (path.extname(vaultPath).toLowerCase() !== '.md') {
     throw new Error(`invalid artifact extension: ${vaultPath}`);
   }
-  const root = resolveMemoryVaultPath();
-  const absolute = path.resolve(root, vaultPath);
-  if (!containsReal(root, absolute)) {
-    throw new Error(`symlink escape rejected: ${vaultPath}`);
+  let contents: Buffer | null = null;
+  for (const root of researchVaultRoots()) {
+    const absolute = path.resolve(root, vaultPath);
+    if (!existsSync(absolute)) continue;
+    if (!containsReal(root, absolute)) {
+      throw new Error(`symlink escape rejected: ${vaultPath}`);
+    }
+    try {
+      if (!statSync(absolute).isFile()) throw new Error('not a file');
+      contents = readFileSync(absolute);
+      break;
+    } catch {
+      throw new Error(`artifact missing or unreadable: ${vaultPath}`);
+    }
   }
-  let contents: Buffer;
-  try {
-    if (!statSync(absolute).isFile()) throw new Error('not a file');
-    contents = readFileSync(absolute);
-  } catch {
-    throw new Error(`artifact missing or unreadable: ${vaultPath}`);
-  }
+  if (!contents) throw new Error(`artifact missing or unreadable: ${vaultPath}`);
   const actualHash = createHash('sha256').update(contents).digest('hex');
   if (expectedHash && actualHash !== expectedHash) {
     throw new Error(`artifact hash mismatch: ${vaultPath}`);
@@ -239,11 +256,15 @@ function parseResearchPassCompletionPartially(value: unknown): {
   };
 }
 
+// The engine persists MCP tools as `<server>_<tool>`, so the Rhythm MCP server's
+// `rhythm_complete_research_pass` lands in transcripts as `rhythm_rhythm_complete_research_pass`.
+const COMPLETION_TOOL_NAMES = new Set(['rhythm_complete_research_pass', 'rhythm_rhythm_complete_research_pass']);
+
 function completionInputs(parts: unknown[]): unknown[] {
   return parts.flatMap((part) => {
     const record = asRecord(part);
     const state = asRecord(record?.state);
-    return record?.type === 'tool' && record.tool === 'rhythm_complete_research_pass' && state?.status === 'completed'
+    return record?.type === 'tool' && COMPLETION_TOOL_NAMES.has(String(record.tool)) && state?.status === 'completed'
       ? [state.input]
       : [];
   });
@@ -295,7 +316,8 @@ function persistCompletion(
         content_hash=excluded.content_hash,
         metadata_json=excluded.metadata_json
     `).run(
-      stableId('source', jobId, source.canonicalUrl),
+      // One row per run+url: parallel/repeated passes cite the same pages (#smoke: every source listed 2x).
+      stableId('source', projectRunId ?? jobId, source.canonicalUrl),
       projectId,
       projectRunId,
       jobId,

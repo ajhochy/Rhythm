@@ -13,7 +13,7 @@ import {
   TextInput,
 } from 'react-native-paper';
 
-import { Colors } from '@/constants/theme';
+import { Colors, Radii, Spacing } from '@/constants/theme';
 import { normalizeProfileIcon } from '@/components/ui/profile-icon';
 import {
   applyProfileDefaults,
@@ -289,7 +289,9 @@ export function SessionConfigurationSheet({
                           setPage('summary');
                           setQuery('');
                         }}
+                        descriptionNumberOfLines={0}
                         title={profile.label}
+                        titleNumberOfLines={0}
                       />
                     ))
                   : filteredModelGroups.map((group) => (
@@ -334,7 +336,9 @@ export function SessionConfigurationSheet({
                               setPage('summary');
                               setQuery('');
                             }}
+                            descriptionNumberOfLines={0}
                             title={model.label}
+                            titleNumberOfLines={0}
                           />
                         ))}
                       </List.Section>
@@ -364,41 +368,45 @@ export function SessionConfigurationSheet({
                   </Text>
                 ) : (
                   <>
-                    <View style={styles.field}>
+                    <View style={[styles.field, styles.groupedField, { backgroundColor: palette.surfaceAlt }]}>
                       <Text accessibilityLabel="Profile" variant="labelLarge">
                         Profile
                       </Text>
-                      <Button
+                      <List.Item
                         accessibilityLabel={`Profile, ${selectedProfile?.label ?? 'Unassigned'}`}
-                        contentStyle={styles.fieldButton}
+                        accessibilityRole="button"
                         disabled={busy || availableProfiles.length === 0}
-                        icon="account-outline"
-                        mode="outlined"
+                        description={selectedProfile?.profileId}
+                        descriptionNumberOfLines={0}
+                        left={(props) => <List.Icon {...props} icon="account-outline" />}
                         onPress={() => {
                           setQuery('');
                           setPage('profiles');
-                        }}>
-                        {selectedProfile?.label ?? 'Unassigned'}
-                      </Button>
+                        }}
+                        title={selectedProfile?.label ?? 'Unassigned'}
+                        titleNumberOfLines={0}
+                      />
                     </View>
-                    <View style={styles.field}>
+                    <View style={[styles.field, styles.groupedField, { backgroundColor: palette.surfaceAlt }]}>
                       <Text accessibilityLabel="Model" variant="labelLarge">
                         Model
                       </Text>
-                      <Button
+                      <List.Item
                         accessibilityLabel={`Model, ${selectedModelLabel(availableModels, draft.modelId)}`}
-                        contentStyle={styles.fieldButton}
+                        accessibilityRole="button"
                         disabled={busy || modelGroups.length === 0}
-                        icon="cube-outline"
-                        mode="outlined"
+                        description={draft.modelId}
+                        descriptionNumberOfLines={0}
+                        left={(props) => <List.Icon {...props} icon="cube-outline" />}
                         onPress={() => {
                           setQuery('');
                           setPage('models');
-                        }}>
-                        {selectedModelLabel(availableModels, draft.modelId)}
-                      </Button>
+                        }}
+                        title={selectedModelLabel(availableModels, draft.modelId)}
+                        titleNumberOfLines={0}
+                      />
                     </View>
-                    <View style={styles.field}>
+                    <View style={[styles.field, styles.groupedField, { backgroundColor: palette.surfaceAlt }]}>
                       <Text accessibilityLabel="Reasoning" variant="labelLarge">
                         Reasoning
                       </Text>
@@ -414,6 +422,7 @@ export function SessionConfigurationSheet({
                         value={draft.reasoning}
                       />
                     </View>
+                    <Divider />
                     <View style={styles.field}>
                       <Text
                         accessibilityLabel="Approval Policy"
@@ -493,9 +502,9 @@ export function SessionConfigurationSheet({
 
 const styles = StyleSheet.create({
   actions: { gap: 6 },
-  content: { gap: 16, paddingHorizontal: 24, paddingVertical: 12 },
-  dialog: { maxHeight: '90%' },
+  content: { gap: Spacing.x4, paddingHorizontal: Spacing.x6, paddingVertical: Spacing.x3 },
+  dialog: { borderRadius: Radii.sheet, maxHeight: '90%' },
   field: { gap: 8 },
-  fieldButton: { justifyContent: 'flex-start' },
+  groupedField: { borderRadius: Radii.grouped, padding: Spacing.x3 },
   scrollArea: { paddingHorizontal: 0 },
 });

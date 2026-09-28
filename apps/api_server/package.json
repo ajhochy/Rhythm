@@ -1,6 +1,7 @@
 {
   "name": "rhythm-api-server",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "type": "commonjs",
   "bin": {
@@ -26,7 +27,7 @@
   "dependencies": {
     "@opencode-ai/sdk": "file:vendor/opencode-ai-sdk",
     "@types/pg": "^8.20.0",
-    "better-sqlite3": "^12.8.0",
+    "better-sqlite3": "^13.0.3",
     "cors": "^2.8.5",
     "dotenv": "^17.3.1",
     "express": "^4.19.2",

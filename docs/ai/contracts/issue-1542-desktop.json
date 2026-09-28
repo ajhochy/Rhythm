@@ -1,0 +1,102 @@
+{
+  "issue": 1542,
+  "generated": "2026-09-19",
+  "criteria": [
+    {
+      "criterion_id": "issue-1542-desktop-c1",
+      "text": "Reject privileged Hermes IPC from the Rhythm renderer, subframes, and navigated or disposed documents.",
+      "mode": "unit",
+      "status": "pass",
+      "reason": "Fork scoped IPC suite rejects sibling/subframe/stale documents; shared native suite 1511 passed, 2 platform skips.",
+      "test_file": "apps/desktop/electron/embedded-host.test.ts",
+      "test_id": "issue-1542-desktop-c1"
+    },
+    {
+      "criterion_id": "issue-1542-desktop-c2",
+      "text": "Show actual Hermes Desktop chat, sidebar, history, model and profile controls inside the Rhythm Hermes tab.",
+      "mode": "ui",
+      "status": "pass",
+      "reason": "Signed native suite 6/6; actual Desktop sidebar, model/profile controls and Gateway ready visible. Outer header absent.",
+      "test_file": "apps/electron/test/hermes-desktop-native.test.mjs",
+      "test_id": "issue-1542-desktop-c2"
+    },
+    {
+      "criterion_id": "issue-1542-desktop-c3",
+      "text": "Switch away from Hermes and back without losing an unsent draft or live conversation.",
+      "mode": "ui",
+      "status": "pass",
+      "reason": "Real unsent draft survives tab navigation and full quit/relaunch (PID20650 to PID23369). Separate synthetic streamed turn continued across tab navigation and Stop cancelled it.",
+      "test_file": "apps/electron/test/hermes-desktop-native.test.mjs",
+      "test_id": "issue-1542-desktop-c3"
+    },
+    {
+      "criterion_id": "issue-1542-desktop-c4",
+      "text": "Populate an unsent context draft without sending it.",
+      "mode": "ui",
+      "status": "pass",
+      "reason": "Actual public Rhythm preload populates actual Desktop composer; read/draft phase observed zero chat submit frames.",
+      "test_file": "apps/electron/test/hermes-desktop-native.test.mjs",
+      "test_id": "issue-1542-desktop-c4"
+    },
+    {
+      "criterion_id": "issue-1542-desktop-c5",
+      "text": "Reuse compatible authenticated Hermes services; stop only services owned by this embedding.",
+      "mode": "integration",
+      "status": "pass",
+      "reason": "Root live borrowed-backend probe passed1/1 after a test-only mock Keychain switch removed the isolated authorization-sheet deadlock. Actual preload endpoint, authenticated read and borrowed process survival are asserted. Real candidate quit exited all37 owned descendants while standalone Hermes stayed alive. Full standalone UI/remote/auxiliary qualification remains separate.",
+      "test_file": "apps/electron/test/hermes-desktop-ownership-live.test.mjs",
+      "test_id": "issue-1542-desktop-c5"
+    },
+    {
+      "criterion_id": "issue-1542-desktop-c6",
+      "text": "Build the renderer, preload and native host from pinned fork source into the Rhythm package.",
+      "mode": "integration",
+      "status": "pass",
+      "reason": "403 measured artifact files pinned to fork 8ea642dbb6a8b8d65868c3e7a468c471914f037b; native Electron40 package rebuilt and Developer ID verified. Complete repeated package manifests matched with frozen models catalog. Local installed Python runtime remains a distribution dependency.",
+      "test_file": "apps/electron/test/hermes-desktop-artifact.test.mjs",
+      "test_id": "issue-1542-desktop-c6"
+    },
+    {
+      "criterion_id": "issue-1542-desktop-c7",
+      "text": "Keep existing Rhythm login, approval signer, API and engine startup working.",
+      "mode": "manual",
+      "status": "pass",
+      "reason": "Signed candidate restored existing authenticated Rhythm session, approval capability, and ready API/engine; no login protocol or account changes in this replacement."
+    },
+    {
+      "criterion_id": "issue-1542-desktop-c8",
+      "text": "Verify Desktop files, git, terminal, settings, profiles, plugins, browser and native permissions.",
+      "mode": "manual",
+      "status": "pass",
+      "reason": "Real native picker/file preview/Git diff/settings/plugins and browser HTTP page inspected; real file write/Git/PTY and camera denial automated. Microphone grant, physical voice, remote profiles/SSH and every auxiliary window remain broader qualification limits."
+    },
+    {
+      "criterion_id": "issue-1542-desktop-c9",
+      "text": "Launch the signed mega-branch app locally before pushing integration commits.",
+      "mode": "manual",
+      "status": "pass",
+      "reason": "Developer ID candidate launched outside both repositories with clean PATH, before these integration commits were pushed. Strict deep codesign verification passed; no notarization claim."
+    },
+    {
+      "criterion_id": "issue-1542-desktop-c10",
+      "text": "Open an existing saved conversation through the actual Hermes Desktop sidebar and display its transcript.",
+      "mode": "ui",
+      "status": "pass",
+      "test_file": "apps/electron/test/hermes-desktop-native.test.mjs",
+      "test_id": "issue-1542-desktop-c10",
+      "reason": "Signed native test selects an existing saved conversation in the real sidebar and asserts its transcript is visible."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [],
+  "partially_tested": [
+    "issue-1542-desktop-c5"
+  ],
+  "evidence_run": "docs/ai/runs/2026-09-19-hermes-desktop-replacement.md",
+  "qualification_limits": [
+    "Stable borrowed Hermes backend reuse/disposal and full standalone UI coexistence matrix",
+    "Physical microphone/voice and every remote/auxiliary Desktop path",
+    "Fresh self-contained pinned Python distribution and notarization",
+    "Original mega hosted ACP/write/device/icon acceptance; global marker absence not rechecked"
+  ]
+}

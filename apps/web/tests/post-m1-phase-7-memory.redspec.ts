@@ -40,7 +40,7 @@ test('post-m1-p7-c1a: live memory list and search round-trip the canonical persi
 
   await expect.poll(() => matching(seen, 'GET', '/agent-memory').length).toBeGreaterThan(0);
   await expect.poll(() => matching(seen, 'GET', '/agent-memory/search').length).toBeGreaterThan(0);
-  await expect(page.getByText(memory.content)).toBeVisible();
+  await expect(page.getByTestId(`memory-${memory.id}`)).toContainText(memory.content);
 });
 
 test('post-m1-p7-c1b: live memory renders canonical provenance verification lifecycle and trust fields', async ({ page }) => {
@@ -60,4 +60,89 @@ test('post-m1-p7-c1b: live memory renders canonical provenance verification life
   await expect(page.getByText('Phase 7 source')).toBeVisible();
   await expect(page.getByText(/human:phase-7/)).toBeVisible();
   await expect(page.getByText(/verified|reviewed/, { exact: true })).toHaveCount(0);
+});
+
+test('post-m1-p7-c1c: kind chips with counts, deprecated toggle, and load more page the live list', async ({ page }) => {
+  // Regression caught: rebuild-time created_at let 30 deprecated daily summaries fill the only page.
+  const rows = [
+    ...Array.from({ length: 60 }, (_, i) => ({ ...memory, id: `fact-${i}`, kind: 'fact', content: `Fact number ${i}` })),
+    { ...memory, id: 'pref-0', kind: 'preference', content: 'Preference canary' },
+    { ...memory, id: 'syn-0', kind: 'synthesis', status: 'deprecated', lifecycleState: 'deprecated', content: 'Deprecated summary canary' },
+  ];
+  const seen: SeenRequest[] = [];
+  await openPhase7Live(page, '/tools/brain', seen, async (route, request) => {
+    const url = new URL(request.url());
+    if (url.pathname !== '/agent-memory') return false;
+    const q = url.searchParams;
+    const base = rows.filter((row) => q.get('includeDeprecated') === 'true' || row.status !== 'deprecated');
+    const counts: Record<string, number> = {};
+    for (const row of base) counts[row.kind] = (counts[row.kind] ?? 0) + 1;
+    const filtered = base.filter((row) => !q.get('kind') || row.kind === q.get('kind'));
+    const offset = Number(q.get('offset') ?? 0);
+    const limit = Number(q.get('limit') ?? 50);
+    await fulfillJson(route, 200, { items: filtered.slice(offset, offset + limit), counts, total: filtered.length });
+    return true;
+  });
+
+  const list = page.getByRole('listbox', { name: 'Memories' });
+  await expect(list.getByRole('option')).toHaveCount(50);
+  await expect(page.getByTestId('brain-kind-all')).toContainText('61');
+  await expect(page.getByTestId('brain-kind-fact')).toContainText('60');
+  await expect(page.getByTestId('brain-kind-synthesis')).toContainText('0');
+  await expect(page.getByText('Deprecated summary canary')).toHaveCount(0);
+
+  await page.getByTestId('brain-load-more').click();
+  await expect(list.getByRole('option')).toHaveCount(61);
+  await expect(page.getByTestId('brain-load-more')).toHaveCount(0);
+  expect(matching(seen, 'GET', '/agent-memory').some((r) => r.search.includes('offset=50'))).toBe(true);
+
+  await page.getByTestId('brain-kind-preference').click();
+  await expect(page.getByTestId('brain-kind-preference')).toHaveAttribute('aria-selected', 'true');
+  await expect(list.getByRole('option')).toHaveCount(1);
+  await expect(list.getByText('Preference canary')).toBeVisible();
+
+  await page.getByTestId('brain-kind-synthesis').click();
+  await expect(list.getByRole('option')).toHaveCount(0);
+  await page.getByTestId('brain-show-deprecated').click();
+  await expect(page.getByTestId('brain-show-deprecated')).toBeChecked();
+  await expect(list.getByText('Deprecated summary canary')).toBeVisible();
+  await expect(page.getByTestId('brain-kind-synthesis')).toContainText('1');
+  expect(matching(seen, 'GET', '/agent-memory').some((r) => r.search.includes('includeDeprecated=true') && r.search.includes('kind=synthesis'))).toBe(true);
+});
+
+test('post-m1-p7-c1d: live memory row shows the derived title, not the whole content, and the inspector shows the full content', async ({ page }) => {
+  // Regression caught: the row title was the entire memory content, truncated and unreadable, and
+  // the inspector never rendered the content at all — only the detail fields.
+  const longContent = 'Root cause: the payload budget check multiplies transcript length by the wrong constant, so any session over 900 messages trips the 44KB cap even though the real body is well under it.';
+  const titled = { ...memory, id: 'memory-titled-1', content: longContent, title: 'Root cause: the payload budget check multiplies' };
+  const seen: SeenRequest[] = [];
+  await openPhase7Live(page, '/tools/brain', seen, async (route, request) => {
+    if (new URL(request.url()).pathname === '/agent-memory') {
+      await fulfillJson(route, 200, [titled]);
+      return true;
+    }
+    return false;
+  });
+
+  const row = page.getByTestId(`memory-${titled.id}`);
+  await expect(row.locator('strong')).toHaveText(titled.title);
+  await expect(row).not.toContainText(longContent);
+
+  await expect(page.getByTestId('brain-memory-content')).toContainText(longContent);
+});
+
+test('post-m1-p7-c1e: a memory row without a server-derived title falls back to its content', async ({ page }) => {
+  // Backward compatibility: an older server that has not shipped the `title` field yet.
+  const untitled = { ...memory, id: 'memory-untitled-1', content: 'Untitled fallback canary' };
+  delete (untitled as { title?: string }).title;
+  const seen: SeenRequest[] = [];
+  await openPhase7Live(page, '/tools/brain', seen, async (route, request) => {
+    if (new URL(request.url()).pathname === '/agent-memory') {
+      await fulfillJson(route, 200, [untitled]);
+      return true;
+    }
+    return false;
+  });
+
+  await expect(page.getByTestId(`memory-${untitled.id}`).locator('strong')).toHaveText(untitled.content);
 });

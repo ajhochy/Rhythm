@@ -14,8 +14,25 @@ export interface EngraphHit {
   distance?: number | null;
 }
 
+export type EngraphSearchStatus =
+  | 'ok'
+  | 'backend_unavailable'
+  | 'timeout'
+  | 'http_error'
+  | 'malformed'
+  | 'no_hits';
+
+export interface EngraphSearchResult {
+  hits: EngraphHit[];
+  status: EngraphSearchStatus;
+}
+
 export interface EngraphClient {
   search(query: string, topN: number): Promise<EngraphHit[]>;
+  /** Optional diagnostic surface; legacy/test clients may keep search() only. */
+  searchDetailed?(query: string, topN: number): Promise<EngraphSearchResult>;
+  /** Result of the most recent search() on this short-lived retrieval client. */
+  lastSearchResult?(): EngraphSearchResult | null;
 }
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
@@ -25,6 +42,8 @@ type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
  * service. It deliberately does not start, index, or otherwise manage Engraph.
  */
 export class EngraphHttpClient implements EngraphClient {
+  private lastResult: EngraphSearchResult | null = null;
+
   constructor(
     private readonly baseUrl = process.env.ENGRAPH_MEMORY_URL ?? '',
     private readonly fetchImpl: FetchLike = fetch,
@@ -39,13 +58,30 @@ export class EngraphHttpClient implements EngraphClient {
   ) {}
 
   async search(query: string, topN: number): Promise<EngraphHit[]> {
-    if (!query.trim()) return [];
+    const result = await this.runSearch(query, topN);
+    this.lastResult = result;
+    return result.hits;
+  }
+
+  async searchDetailed(query: string, topN: number): Promise<EngraphSearchResult> {
+    const hits = await this.search(query, topN);
+    return this.lastResult ?? { hits, status: hits.length > 0 ? 'ok' : 'no_hits' };
+  }
+
+  lastSearchResult(): EngraphSearchResult | null {
+    return this.lastResult;
+  }
+
+  private async runSearch(query: string, topN: number): Promise<EngraphSearchResult> {
+    if (!query.trim()) return { hits: [], status: 'no_hits' };
     let url: URL;
     try {
       url = new URL('/api/search', this.baseUrl);
-      if (url.protocol !== 'http:' || !['127.0.0.1', '::1'].includes(url.hostname)) return [];
+      if (url.protocol !== 'http:' || !['127.0.0.1', '::1'].includes(url.hostname)) {
+        return { hits: [], status: 'backend_unavailable' };
+      }
     } catch {
-      return [];
+      return { hits: [], status: 'backend_unavailable' };
     }
 
     try {
@@ -58,14 +94,23 @@ export class EngraphHttpClient implements EngraphClient {
         body: JSON.stringify({ query, top_n: topN }),
         signal: AbortSignal.timeout(this.timeoutMs),
       });
-      if (!response.ok) return [];
-      const body: unknown = await response.json();
+      if (!response.ok) return { hits: [], status: 'http_error' };
+      let body: unknown;
+      try {
+        body = await response.json();
+      } catch {
+        return { hits: [], status: 'malformed' };
+      }
+      if (
+        !Array.isArray(body)
+        && !(body && typeof body === 'object' && Array.isArray((body as { results?: unknown }).results))
+      ) {
+        return { hits: [], status: 'malformed' };
+      }
       const results = Array.isArray(body)
         ? body
-        : body && typeof body === 'object' && Array.isArray((body as { results?: unknown }).results)
-          ? (body as { results: unknown[] }).results
-          : [];
-      return results.flatMap((result) => {
+        : (body as { results: unknown[] }).results;
+      const hits = results.flatMap((result) => {
         if (!result || typeof result !== 'object') return [];
         const raw = result as {
           file_path?: unknown;
@@ -90,8 +135,13 @@ export class EngraphHttpClient implements EngraphClient {
           distance: finite(raw.distance),
         }];
       });
-    } catch {
-      return [];
+      return { hits, status: hits.length > 0 ? 'ok' : 'no_hits' };
+    } catch (err) {
+      const name = (err as { name?: string } | undefined)?.name;
+      return {
+        hits: [],
+        status: name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'http_error',
+      };
     }
   }
 }

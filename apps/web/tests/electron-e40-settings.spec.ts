@@ -20,5 +20,5 @@ test('E40: Settings is routed and links existing account, integration, mobile, a
   const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'); const shell = await readFile(new URL('../src/components/Shell.tsx', import.meta.url), 'utf8'); const page = await readFile(new URL('../src/pages/settings/index.tsx', import.meta.url), 'utf8');
   expect(app).toContain("route === '/settings'"); expect(shell).toContain("'Settings'");
   for (const path of ['/tools/agent-settings', '/integrations', '/mobile-access', '/tools/brain']) expect(page).toContain(path);
-  expect(page).toContain('isFacilitiesManager'); expect(page).toContain('emailNotificationsEnabled');
+  expect(page).toContain('isFacilitiesManager'); expect(page).toContain('emailNotificationsEnabled'); expect(page).toContain('ListInspector'); expect(page).toContain("useSelectedId('settingsSection')");
 });

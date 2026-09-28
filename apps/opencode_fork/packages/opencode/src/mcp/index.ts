@@ -35,6 +35,11 @@ import { signRhythmMcpCall, type RhythmMcpCallIdentity } from "@/security/rhythm
 
 const log = Log.create({ service: "mcp" })
 const DEFAULT_TIMEOUT = 30_000
+// Rhythm carried patch (mcp-list-bound): prompts/resources listing feeds the
+// per-directory Command state and the /command route. One unresponsive server
+// used to hold them for the SDK's 60s request default, so a cold directory
+// (e.g. a phone opening a new project) waited a minute. Cap each server's list.
+const LIST_TIMEOUT = 5_000
 const MCP_UI_EXTENSION = "io.modelcontextprotocol/ui"
 const MCP_APP_MIME_TYPE = "text/html;profile=mcp-app"
 
@@ -886,27 +891,48 @@ export const layer = Layer.effect(
       return result
     })
 
-    function collectFromConnected<T extends { name: string }>(
+    const collectFromConnected = Effect.fnUntraced(function* <T extends { name: string }>(
       s: State,
-      listFn: (c: Client) => Promise<T[]>,
-      label: string,
+      capability: "prompts" | "resources",
+      listFn: (c: Client, timeout: number) => Promise<T[]>,
     ) {
-      return Effect.forEach(
-        Object.entries(s.clients).filter(([name]) => s.status[name]?.status === "connected"),
-        ([clientName, client]) =>
-          fetchFromClient(clientName, client, listFn, label).pipe(Effect.map((items) => Object.entries(items ?? {}))),
+      const cfg = yield* cfgSvc.get()
+      const results = yield* Effect.forEach(
+        Object.entries(s.clients).filter(
+          // A server that did not advertise the capability is never asked: a
+          // hand-rolled stdio server that ignores unknown methods would
+          // otherwise hang the caller until the timeout.
+          ([name, client]) =>
+            s.status[name]?.status === "connected" && client.getServerCapabilities()?.[capability] !== undefined,
+        ),
+        ([clientName, client]) => {
+          const entry = cfg.mcp?.[clientName]
+          const configured = entry && isMcpConfigured(entry) ? entry.timeout : undefined
+          const timeout = Math.min(configured ?? cfg.experimental?.mcp_timeout ?? LIST_TIMEOUT, LIST_TIMEOUT)
+          return fetchFromClient(
+            clientName,
+            client,
+            (c) => withTimeout(listFn(c, timeout), timeout, `${capability} list timed out after ${timeout}ms`),
+            capability,
+          ).pipe(Effect.map((items) => Object.entries(items ?? {})))
+        },
         { concurrency: "unbounded" },
-      ).pipe(Effect.map((results) => Object.fromEntries<T & { client: string }>(results.flat())))
-    }
+      )
+      return Object.fromEntries<T & { client: string }>(results.flat())
+    })
 
     const prompts = Effect.fn("MCP.prompts")(function* () {
       const s = yield* InstanceState.get(state)
-      return yield* collectFromConnected(s, (c) => c.listPrompts().then((r) => r.prompts), "prompts")
+      return yield* collectFromConnected(s, "prompts", (c, timeout) =>
+        c.listPrompts(undefined, { timeout }).then((r) => r.prompts),
+      )
     })
 
     const resources = Effect.fn("MCP.resources")(function* () {
       const s = yield* InstanceState.get(state)
-      return yield* collectFromConnected(s, (c) => c.listResources().then((r) => r.resources), "resources")
+      return yield* collectFromConnected(s, "resources", (c, timeout) =>
+        c.listResources(undefined, { timeout }).then((r) => r.resources),
+      )
     })
 
     const withClient = Effect.fnUntraced(function* <A>(

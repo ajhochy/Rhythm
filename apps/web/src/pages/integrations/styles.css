@@ -17,6 +17,13 @@
 .pg-integrations .pg-integrations-readonly { min-height: 44px; display: flex; align-items: center; gap: 6px; margin-bottom: 12px; padding: 8px 11px; border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--fg-2); background: var(--surface-warm); }
 .pg-integrations .pg-integrations-mutations { min-width: 0; margin: 0; padding: 0; border: 0; }
 .pg-integrations .pg-integrations-mutations:disabled :disabled { opacity: .66; }
+.pg-integrations .pg-integrations-list-inspector .list-inspector-panes { min-height: 620px; }
+.pg-integrations .pg-integrations-list-inspector .list-inspector-detail { background: color-mix(in oklab, var(--surface), var(--bg) 4%); }
+.pg-integrations .pg-integrations-list-inspector .list-inspector-toolbar { align-items: stretch; }
+.pg-integrations .pg-integrations-list-inspector .list-inspector-toolbar > button { flex: 1 1 100%; }
+.pg-integrations .pg-integrations-list-inspector [data-testid="integration-inspector"] { min-width: 0; display: grid; gap: 18px; }
+.pg-integrations .pg-integrations-list-inspector .detail-header p { margin: 4px 0 0; color: var(--muted); }
+.pg-integrations .pg-integrations-list-count { width: 100%; color: var(--muted); font-family: var(--font-mono); font-size: 9px; text-align: center; }
 .pg-integrations .pg-integrations-workspace { min-width: 0; min-height: 620px; display: grid; grid-template-columns: minmax(440px, .92fr) minmax(360px, 1.08fr); border-block: 1px solid var(--border-soft); background: var(--surface); }
 .pg-integrations .pg-integrations-provider-list { min-width: 0; border-inline-end: 1px solid var(--border-soft); }
 .pg-integrations .pg-integrations-provider-list > header { min-height: 46px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--border); background: color-mix(in oklab, var(--surface), var(--bg) 3%); }
@@ -119,7 +126,7 @@
 .pg-integrations .dialog-panel { max-width: calc(100vw - 28px); }
 .pg-integrations .dialog-body { padding: 0; }
 .pg-integrations .pg-integrations-handoff { display: grid; justify-items: start; gap: 9px; padding: 18px; }
-.pg-integrations .pg-integrations-handoff-badge { min-height: 26px; display: inline-flex; align-items: center; padding: 3px 8px; border: 1px solid var(--accent); border-radius: var(--r-pill); color: var(--accent); font-family: var(--font-mono); font-size: 8px; font-weight: 700; letter-spacing: .08em; }
+.pg-integrations .pg-integrations-handoff-badge { min-height: 26px; display: inline-flex; align-items: center; padding: 3px 8px; border: 1px solid var(--accent); border-radius: var(--r-pill); color: color-mix(in oklab, var(--accent), var(--fg) 10%); font-family: var(--font-mono); font-size: 8px; font-weight: 700; letter-spacing: .08em; }
 .pg-integrations .pg-integrations-handoff h3 { margin: 0; font-size: 17px; }
 .pg-integrations .pg-integrations-handoff p { margin: 0; color: var(--muted); }
 .pg-integrations .pg-integrations-handoff code { max-width: 100%; padding: 9px 10px; overflow-wrap: anywhere; border: 1px solid var(--border-soft); border-radius: var(--r-sm); color: var(--fg-2); background: var(--bg); font-size: 9px; }

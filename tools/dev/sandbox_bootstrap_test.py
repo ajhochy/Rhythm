@@ -60,6 +60,7 @@ class Bootstrap(unittest.TestCase):
         values = dict(line.split('=', 1) for line in result.stdout.splitlines())
         self.assertEqual(values.get('RHYTHM_MCP_SERVER_BIN'), str(ROOT / 'apps/mcp_server/dist/index.js'))
         self.assertEqual(values.get('RHYTHM_AGENT_URL'), 'http://127.0.0.1:4098')
+        self.assertEqual(values.get('RHYTHM_OPENCODE_STARTUP_TIMEOUT_MS'), '60000')
         self.assertEqual(values.get('npm_config_offline'), 'true')
         self.assertEqual(values.get('npm_config_registry'), 'http://127.0.0.1:9')
         self.assertEqual(values.get('npm_config_cache'), '/private/tmp/e02-bootstrap-runtime/npm-cache')
@@ -67,6 +68,24 @@ class Bootstrap(unittest.TestCase):
         self.assertIn('[[ -f "$ROOT/apps/mcp_server/dist/index.js" ]] || fail', source)
         self.assertIn('bun run build --single --skip-install', source)
         self.assertIn('MODELS_DEV_API_JSON="$ROOT/apps/opencode_fork/packages/opencode/test/tool/fixtures/models-api.json"', source)
+
+    def test_explicit_offline_startup_flags_survive_environment_sanitization(self):
+        result = subprocess.run(
+            ['bash', '-c', 'source "$1"; env -i "${runtime_env[@]}" /usr/bin/env',
+             'bash', str(ROOT / 'tools/dev/sandbox.sh')],
+            env={
+                'PATH': os.environ['PATH'],
+                'HOME': '/private/tmp/e02-bootstrap-home',
+                'RHYTHM_SANDBOX_DIR': '/private/tmp/e02-bootstrap-runtime',
+                'OPENCODE_DISABLE_DEFAULT_PLUGINS': '1',
+                'OPENCODE_PURE': '1',
+                'RHYTHM_NUMBAT_MONITORING_DISABLED': '1',
+            },
+            capture_output=True, text=True, check=True)
+        values = dict(line.split('=', 1) for line in result.stdout.splitlines())
+        self.assertEqual(values.get('OPENCODE_DISABLE_DEFAULT_PLUGINS'), '1')
+        self.assertEqual(values.get('OPENCODE_PURE'), '1')
+        self.assertEqual(values.get('RHYTHM_NUMBAT_MONITORING_DISABLED'), '1')
 
     def test_failure_evidence_survives_runtime_removal(self):
         with tempfile.TemporaryDirectory(dir='/private/tmp', prefix='rhythm-e02-evidence-test-') as parent:

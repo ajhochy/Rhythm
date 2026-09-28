@@ -1,0 +1,22 @@
+{
+  "issue": 1559,
+  "date": "2026-09-23",
+  "test_command": "RHYTHM_ISSUE_1559_CONTRACT=1 npm exec -- playwright test --config tests/contract/issue-1559-playwright.config.ts",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "issue-1559-c1", "text": "First acceptance contract/failing rendered test rejecting only sessions.profiles, proving seven rows, MCP opens, profile alert visible; trace never reports success count for rejected call and honestly states failure.", "mode": "ui", "test": "apps/web/tests/contract/issue-1559.spec.ts", "status": "pass" },
+    { "criterion_id": "issue-1559-c2", "text": "Any one or all four load calls failing leaves all seven section rows rendered/selectable and keyboard accessible; Runtime/OpenCode server, Behavior and Keybindings remain reachable offline; ListInspector fatal error remains reserved/documented/tested for an unbuildable list.", "mode": "ui", "test": "apps/web/tests/contract/issue-1559.spec.ts", "status": "pass" },
+    { "criterion_id": "issue-1559-c3", "text": "Accounts/MCP/provider/profile each get section-local retry that calls only that request.", "mode": "ui", "test": "apps/web/tests/contract/issue-1559.spec.ts", "status": "pass" },
+    { "criterion_id": "issue-1559-c4", "text": "Per-section retrying/status; aria-disabled+guard, aria-busy, local role=status; sibling sections stay enabled and duplicate activation counts remain one.", "mode": "ui", "test": "apps/web/tests/contract/issue-1559.spec.ts", "status": "pass" },
+    { "criterion_id": "issue-1559-c5", "text": "Per-section generation/newest-started wins across load, retry and action reloads; load run generation prevents StrictMode/older Refresh overwrite, including delayed/out-of-order responses.", "mode": "ui", "test": "apps/web/tests/contract/issue-1559.spec.ts", "status": "pass" },
+    { "criterion_id": "issue-1559-c6", "text": "Focus stays on failing button or moves to persistent status after success; axe in states; desktop+narrow screenshots/overflow and 44px scoped button CSS.", "mode": "ui", "test": "apps/web/tests/contract/issue-1559.spec.ts", "status": "pass" },
+    { "criterion_id": "issue-1559-c7", "text": "Provider badges: unknown on initial failure, Last known on stale refresh failure, confirmed Connected/Not connected only after successful current read; needs-relogin only confirmed disconnected.", "mode": "ui", "test": "apps/web/tests/contract/issue-1559.spec.ts", "status": "pass" },
+    { "criterion_id": "issue-1559-c8", "text": "Split accounts/mcp load errors from mutation errors; action failures have no load Retry and exact retry labels remain.", "mode": "ui", "test": "apps/web/tests/contract/issue-1559.spec.ts", "status": "pass" },
+    { "criterion_id": "issue-1559-c9", "text": "One readSection owner for per-section generation/pending/status across load/retry/action; newer reads clear contradictory retry status for all four sections and action reloads.", "mode": "ui", "test": "apps/web/tests/contract/issue-1559.spec.ts", "status": "pass" },
+    { "criterion_id": "issue-1559-c10", "text": "A retry superseded by Refresh cannot leave a busy guard or allow stale response to update status/error/data, across all four sections.", "mode": "ui", "test": "apps/web/tests/contract/issue-1559.spec.ts", "status": "pass" },
+    { "criterion_id": "issue-1559-c11", "text": "Retry focus moves only if still on its origin or body after origin unmount; no setTimeout or focus theft after user moves, across all four sections.", "mode": "ui", "test": "apps/web/tests/contract/issue-1559.spec.ts", "status": "pass" },
+    { "criterion_id": "issue-1559-c12", "text": "checkProviderAuth ignores stale success and failure after a newer provider read, without contradicting its badge or dismissing its flow.", "mode": "ui", "test": "apps/web/tests/contract/issue-1559.spec.ts", "status": "pass" },
+    { "criterion_id": "issue-1559-c13", "text": "Unread provider badges display exact Status unknown without capitalization; detail headings are h3 with unchanged visual size.", "mode": "ui", "test": "apps/web/tests/contract/issue-1559.spec.ts", "status": "pass" }
+  ],
+  "not_tested": []
+}

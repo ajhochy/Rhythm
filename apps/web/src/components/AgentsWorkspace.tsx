@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../icons';
 import { isSessionOffline, sessionPresentation } from '../sessionState';
 import { emptyLiveProfile, useFixtures } from '../store';
@@ -6,16 +6,30 @@ import { Composer } from './Composer';
 import { FocusDialog } from './FocusDialog';
 import { Inspector } from './Inspector';
 import { ProfileAvatar } from './Profiles';
+import { RemoteComputers } from './RemoteComputers';
 import { SessionRail } from './SessionRail';
-import { Transcript } from './Transcript';
+import { Splitter } from './Splitter';
+import { formatCost, Transcript } from './Transcript';
 import { usePendingDecisions } from '../pending-decisions';
-
-function clamp(value: number, min: number, max: number) { return Math.min(max, Math.max(min, value)); }
+import { sessionLabel, accountOptionLabel, type AgentProject, type RichTranscriptMessage } from '../gateway/sessions';
+import { emitAgentNotification } from '../agentNotifications';
+import { useAuthUser } from '../gateway/auth';
+import {
+  matchSwitchSessionKey, matchesCancelTurnKey, matchesNewSessionKey,
+  readLocalUserPreferences, USER_PREFERENCES_CHANGED_EVENT,
+} from '../gateway/user-preferences';
 
 export function AgentsWorkspace() {
-  const { selected, sessions, profiles, models, accounts, sessionGatewayMode, saveSessionSettings, connectionMessage: fixtureConnectionMessage, liveSessionError, loading, summarizeSession, prepareLiveSession, startFreshSession, reconnectLiveSession, updateSession: updateFixtureSession, archiveSession, resumeSession, selectSession, notify, resumeGone, liveChildView, closeLiveChildView } = useFixtures();
+  const { selected, sessions, profiles, models, accounts, openaiAccounts, refreshCatalog, sessionGatewayMode, saveSessionSettings, connectionMessage: fixtureConnectionMessage, liveSessionError, loading, summarizeSession, prepareLiveSession, startFreshSession, reconnectLiveSession, updateSession: updateFixtureSession, archiveSession, resumeSession, selectSession, createSession, createLiveSession, selectLiveSession, cancelSession, notify, resumeGone, liveChildView, closeLiveChildView } = useFixtures();
+  const auth = useAuthUser();
+  const preferenceUserId = auth?.user.id ?? 'fixture';
   const live = sessionGatewayMode === 'live';
+  const sessionCost = selected.messages.reduce((total, message) => {
+    const cost = (message as RichTranscriptMessage).cost;
+    return total + (typeof cost === 'number' && Number.isFinite(cost) && cost > 0 ? cost : 0);
+  }, 0);
   const pending = usePendingDecisions(selected.id);
+  const [remoteOpen, setRemoteOpen] = useState(false);
   const [settingsError, setSettingsError] = useState('');
   const [savingSettings, setSavingSettings] = useState(false);
   const updateSession: typeof updateFixtureSession = (id, patch) => {
@@ -29,7 +43,65 @@ export function AgentsWorkspace() {
   const [railCollapsed, setRailCollapsed] = useState(compactLayout);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(compactLayout);
   const [sessionSettings, setSessionSettings] = useState(false);
+  // Accounts/models can go stale (added/removed elsewhere) while this session is idle in the
+  // background — force a refetch whenever the settings dialog that surfaces them opens.
+  const openSessionSettings = () => { void refreshCatalog({ force: true }); setSessionSettings(true); };
   const [prepareOpen, setPrepareOpen] = useState(false);
+  const [selectedProject, setSelectedProject] = useState<AgentProject | null>(null);
+  const [shortcutRevision, setShortcutRevision] = useState(0);
+  useEffect(() => {
+    const sync = () => setShortcutRevision((value) => value + 1);
+    window.addEventListener('storage', sync);
+    window.addEventListener(USER_PREFERENCES_CHANGED_EVENT, sync);
+    return () => { window.removeEventListener('storage', sync); window.removeEventListener(USER_PREFERENCES_CHANGED_EVENT, sync); };
+  }, []);
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
+      const target = event.target as HTMLElement | null;
+      const editing = target?.matches('input, textarea, select, [contenteditable="true"]') && target.dataset.testid !== 'composer-input';
+      if (editing) return;
+      const preferences = readLocalUserPreferences(preferenceUserId);
+      if (matchesNewSessionKey(event, preferences.newSessionKey)) {
+        event.preventDefault();
+        if (live) {
+          const profileId = profiles.find((profile) => profile.enabled && profile.selectable && profile.isDefault)?.id
+            ?? profiles.find((profile) => profile.enabled && profile.selectable)?.id;
+          if (profileId) void createLiveSession({ name: '', cwd: selectedProject?.cwd ?? selected.cwd, ...(selectedProject ? { projectId: selectedProject.id } : {}), profileId, isolateWorktree: false })
+            .catch((error) => notify(error instanceof Error ? error.message : 'Session creation failed'));
+        } else createSession();
+        return;
+      }
+      if (matchesCancelTurnKey(event, preferences.cancelTurnKey)) {
+        if (selected.status !== 'working') return;
+        event.preventDefault();
+        cancelSession(selected.id);
+        return;
+      }
+      const direction = matchSwitchSessionKey(event, preferences.switchSessionKey);
+      if (!direction) return;
+      const sessionIds = new Set(sessions.map((session) => session.id));
+      const railOrder = [...document.querySelectorAll<HTMLElement>('button[data-testid^="session-"]')]
+        .map((node) => node.dataset.testid?.slice('session-'.length) ?? '')
+        .filter((id) => sessionIds.has(id));
+      const current = railOrder.indexOf(selected.id);
+      if (current < 0 || railOrder.length < 2) return;
+      event.preventDefault();
+      const offset = direction === 'previous' ? -1 : 1;
+      const nextId = railOrder[(current + offset + railOrder.length) % railOrder.length];
+      if (nextId) { if (live) void selectLiveSession(nextId); else selectSession(nextId); }
+    };
+    document.addEventListener('keydown', keydown);
+    return () => document.removeEventListener('keydown', keydown);
+  }, [cancelSession, createLiveSession, createSession, live, notify, preferenceUserId, profiles, selectLiveSession, selectSession, selected.cwd, selected.id, selected.status, selectedProject, sessions, shortcutRevision]);
+  useEffect(() => {
+    const sync = () => emitAgentNotification({ v: 1, type: 'viewing', sessionId: selected.id || null,
+      displayed: Boolean(selected.id && !loading && !selectedProject && !liveChildView && window.location.hash.startsWith('#/agents')) }, live);
+    sync();
+    window.addEventListener('hashchange', sync);
+    return () => { window.removeEventListener('hashchange', sync); emitAgentNotification({ v: 1, type: 'viewing', sessionId: null, displayed: false }, live); };
+  }, [selected.id, loading, selectedProject, liveChildView, live]);
+  useEffect(() => { setSelectedProject(null); }, [selected.id]);
   const [retrying, setRetrying] = useState(false);
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
   const connectionMessage = live ? retrying ? 'Reconciling session…' : liveSessionError ?? (loading ? 'Loading session…' : fixtureConnectionMessage === 'Desktop connected' ? 'Session loaded' : fixtureConnectionMessage) : fixtureConnectionMessage;
@@ -111,15 +183,8 @@ export function AgentsWorkspace() {
     requestAnimationFrame(() => actionsRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus());
     return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', key); };
   }, [actionsOpen]);
-  const startResize = (side: 'rail' | 'inspector') => (event: React.PointerEvent) => {
-    event.currentTarget.setPointerCapture(event.pointerId);
-    const startX = event.clientX;
-    const start = side === 'rail' ? railWidth : inspectorWidth;
-    const move = (pointer: PointerEvent) => side === 'rail' ? setRailWidth(clamp(start + pointer.clientX - startX, 228, 380)) : setInspectorWidth(clamp(start - pointer.clientX + startX, 286, 470));
-    const stop = () => { document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', stop); notify(`${side === 'rail' ? 'Sessions rail' : 'Inspector'} resized`); };
-    document.addEventListener('pointermove', move);
-    document.addEventListener('pointerup', stop);
-  };
+  const resizeRail = useCallback((size: number) => { setRailWidth(size); setResizeAnnouncement(`Sessions rail width ${size} pixels`); }, []);
+  const resizeInspector = useCallback((size: number) => { setInspectorWidth(size); setResizeAnnouncement(`Inspector width ${size} pixels`); }, []);
   const toggleRail = () => {
     setRailCollapsed((value) => {
       if (compactLayout && value) setInspectorCollapsed(true);
@@ -132,26 +197,6 @@ export function AgentsWorkspace() {
       return !value;
     });
   };
-  const resizeWithKeys = (side: 'rail' | 'inspector') => (event: React.KeyboardEvent) => {
-    if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return;
-    event.preventDefault();
-    if (event.key === 'Home') {
-      if (side === 'rail') { setRailWidth(228); setResizeAnnouncement('Sessions rail width 228 pixels'); }
-      else { setInspectorWidth(286); setResizeAnnouncement('Inspector width 286 pixels'); }
-      return;
-    }
-    if (event.key === 'End') {
-      if (side === 'rail') { setRailWidth(380); setResizeAnnouncement('Sessions rail width 380 pixels'); }
-      else { setInspectorWidth(470); setResizeAnnouncement('Inspector width 470 pixels'); }
-      return;
-    }
-    const rtl = document.documentElement.dir === 'rtl';
-    const direction = event.key === 'ArrowRight' ? 1 : -1;
-    const delta = direction * (rtl ? -1 : 1) * 12;
-    if (side === 'rail') setRailWidth((value) => { const next = clamp(value + delta, 228, 380); setResizeAnnouncement(`Sessions rail width ${next} pixels`); return next; });
-    else setInspectorWidth((value) => { const next = clamp(value - delta, 286, 470); setResizeAnnouncement(`Inspector width ${next} pixels`); return next; });
-  };
-
   const moveActionsFocus = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
     const items = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemcheckbox"]')];
@@ -162,41 +207,48 @@ export function AgentsWorkspace() {
     items[next]?.focus();
   };
 
+  // #1374 — remote attach replaces the whole workspace surface rather than nesting inside the
+  // local conversation-pane grid, so the local session header/transcript/composer rows this
+  // component otherwise renders are entirely untouched by remote mode.
+  if (remoteOpen) return <RemoteComputers onClose={() => setRemoteOpen(false)} />;
+
   return (
     <section className="agents-workspace" aria-label="Agents workspace" style={{
       '--rail-width': railCollapsed ? '48px' : `${railWidth}px`,
-      '--inspector-resizer-width': inspectorCollapsed ? '0px' : '5px',
+      '--inspector-resizer-width': inspectorCollapsed ? '0px' : '8px',
       '--inspector-width': inspectorCollapsed ? 'var(--collapsed-inspector-width)' : `${inspectorWidth}px`,
     } as React.CSSProperties} data-od-id="agents-workspace">
-      <SessionRail collapsed={railCollapsed} onToggle={toggleRail} />
-      {!railCollapsed && <div className="resize-handle rail-resize" role="separator" aria-orientation="vertical" aria-label="Resize Agents rail" aria-valuemin={228} aria-valuemax={380} aria-valuenow={railWidth} aria-valuetext={`${railWidth} pixels`} tabIndex={0} onPointerDown={startResize('rail')} onKeyDown={resizeWithKeys('rail')} data-testid="rail-resizer" />}
-      <section className="conversation-pane" aria-label="Active agent session" data-od-id="active-agent-session">
+      <SessionRail collapsed={railCollapsed} onToggle={toggleRail} selectedProject={selectedProject} onSelectProject={setSelectedProject} onOpenRemoteComputers={() => setRemoteOpen(true)} />
+      {!railCollapsed && <Splitter orientation="vertical" storageKey="layout.agents.rail" min={228} max={380} defaultSize={280} onResize={resizeRail} ariaLabel="Resize Agents rail" className="rail-resize" testId="rail-resizer" />}
+      <section className="conversation-pane" aria-label={selectedProject ? 'Selected agent project' : 'Active agent session'} data-od-id="active-agent-session">
+        {selectedProject ? <div className="agent-project-empty" role="status" data-testid="selected-agent-project"><Icon name="worktree" size={28} /><h1>{selectedProject.name}</h1><p className="rail-project-path">{selectedProject.cwd}</p><p>No session selected. Use New session in the Agents rail to start here.</p><button className="secondary-button" type="button" onClick={() => setSelectedProject(null)}>Back to sessions</button></div> : <>
         <header className="session-header">
           <div className="session-identity">
             <ProfileAvatar profile={profile} />
             <div className="session-title-copy">
-              {readOnlyChild && <button className="child-breadcrumb" type="button" onClick={backToParent} aria-label={`Back to parent session ${parent ? parent.name : selected.name}`} data-testid="child-back"><Icon name="chevronRight" className="rotate-180" size={12} />{parent ? parent.name : selected.name}</button>}
-              <div className="identity-line"><strong>{profile.label}</strong>{selected.account && <button type="button" onClick={() => setSessionSettings(true)}>{selected.account}<Icon name="chevronDown" size={11} /></button>}<span className={`status-label ${presentation.tone}`}><i />{presentation.label}</span></div>
-              <h1>{liveChildView ? liveChildView.title : selected.name}</h1>
+              {readOnlyChild && <button className="child-breadcrumb" type="button" onClick={backToParent} aria-label={`Back to parent session ${sessionLabel(parent ?? selected).label}`} data-testid="child-back"><Icon name="chevronRight" className="rotate-180" size={12} />{parent ? parent.name : selected.name}</button>}
+              <div className="identity-line"><strong>{profile.label}</strong>{selected.account && <button type="button" onClick={openSessionSettings}>{selected.account}<Icon name="chevronDown" size={11} /></button>}<span className={`status-label ${presentation.tone}`}><i />{presentation.label}</span></div>
+              <h1 className={!liveChildView && sessionLabel(selected).fallback ? 'session-name-fallback' : undefined}>{liveChildView ? liveChildView.title : sessionLabel(selected).label}</h1>
               <div className="session-meta"><span><Icon name="branch" size={13} />{selected.branch}</span>{selected.dirtyCount > 0 && <span className="dirty-badge">{selected.dirtyCount} changed</span>}{selected.isolateWorktree && <span className="worktree-badge"><Icon name="worktree" size={12} />worktree</span>}{readOnlyChild && <span className="readonly-badge">Read only</span>}<span className="session-connection" aria-live="polite" data-testid="connection-status"><i className={`status-dot ${connectionMessage.toLowerCase().includes('offline') || connectionMessage.toLowerCase().includes('unavailable') ? 'offline' : 'working'}`} />{connectionMessage}</span></div>
               {resumeGone && resumeGone.id === selected.id && <div className="form-error" role="alert" data-testid="resume-gone-alert"><p>{resumeGone.message}</p><button className="secondary-button" type="button" disabled={lifecycleBusy} onClick={async () => { setLifecycleBusy(true); try { await startFreshSession(selected.id); } finally { setLifecycleBusy(false); } }}>Start fresh</button></div>}
             </div>
           </div>
           <div className="session-header-actions">
             {(waitingForDecision || latestAssistant) && <button className="text-button compact" type="button" onClick={goToActivity} data-testid="agent-go-to-activity">{waitingForDecision ? 'Go to decision' : 'Go to latest response'}</button>}
-            <span className="session-cost" title="Total session cost">${selected.cost.toFixed(3)}</span>
+            {sessionCost > 0 && <span className="session-cost" title="Total loaded session cost" data-testid="session-cost">{formatCost(sessionCost)}</span>}
             {recoverableConnection && <button className="secondary-button compact" type="button" disabled={retrying} onClick={() => void retryConnection()} data-testid="session-retry"><Icon name="refresh" className={retrying ? 'spin' : ''} size={14} />{retrying ? 'Retrying' : 'Reconnect'}</button>}
             <button className="icon-button small" type="button" disabled={lifecycleDisabled} onClick={() => void compactSession()} aria-label="Compact session" title="Compact session" data-testid="session-compact"><Icon name="spark" size={15} /></button>
             <button className="secondary-button prepare-button" type="button" disabled={lifecycleDisabled} onClick={() => setPrepareOpen(true)} data-testid="prepare-project" aria-label="Prepare project for agents" title="Prepare project for agents"><Icon name="worktree" size={14} /><span>Prepare project</span></button>
-            <div className="menu-anchor" ref={actionsRef}><button ref={actionsTriggerRef} className="icon-button small" type="button" aria-label="Session actions" aria-haspopup="menu" aria-expanded={actionsOpen} onClick={() => setActionsOpen((value) => !value)} data-testid="session-actions"><Icon name="more" size={16} /></button>{actionsOpen && <div className="menu-popover session-actions-menu" role="menu" aria-label="Session actions" onKeyDown={moveActionsFocus}><button role="menuitem" type="button" className="menu-item" onClick={() => { setActionsOpen(false); setSessionSettings(true); }} data-testid="session-actions-settings"><Icon name="rename" size={14} />Agent, model and session settings</button><button role="menuitemcheckbox" aria-checked={selected.fastMode} type="button" className="menu-item" onClick={() => { updateSession(selected.id, { fastMode: !selected.fastMode }); setActionsOpen(false); }} data-testid="session-actions-fast"><Icon name="activity" size={14} />{selected.fastMode ? 'Disable Fast mode' : 'Enable Fast mode'}</button><button role="menuitem" type="button" className="menu-item" disabled={lifecycleDisabled} onClick={() => { void compactSession(); setActionsOpen(false); }} data-testid="session-actions-compact"><Icon name="spark" size={14} />Compact session</button><button role="menuitem" type="button" className="menu-item" disabled={lifecycleDisabled} onClick={() => { setActionsOpen(false); setPrepareOpen(true); }} data-testid="session-actions-prepare"><Icon name="worktree" size={14} />Prepare project for agents</button><button role="menuitem" type="button" className="menu-item" disabled={live && (!selected.id || readOnlyChild)} onClick={() => { archiveSession(selected.id); setActionsOpen(false); }}><Icon name="archive" size={14} />Archive session</button><button role="menuitem" type="button" className="menu-item" onClick={() => { notify('Session view closed; selection remains in the rail'); setActionsOpen(false); }}><Icon name="close" size={14} />Close session view</button></div>}</div>
+            <div className="menu-anchor" ref={actionsRef}><button ref={actionsTriggerRef} className="icon-button small" type="button" aria-label="Session actions" aria-haspopup="menu" aria-expanded={actionsOpen} onClick={() => setActionsOpen((value) => !value)} data-testid="session-actions"><Icon name="more" size={16} /></button>{actionsOpen && <div className="menu-popover session-actions-menu" role="menu" aria-label="Session actions" onKeyDown={moveActionsFocus}><button role="menuitem" type="button" className="menu-item" onClick={() => { setActionsOpen(false); openSessionSettings(); }} data-testid="session-actions-settings"><Icon name="rename" size={14} />Agent, model and session settings</button><button role="menuitemcheckbox" aria-checked={selected.fastMode} type="button" className="menu-item" onClick={() => { updateSession(selected.id, { fastMode: !selected.fastMode }); setActionsOpen(false); }} data-testid="session-actions-fast"><Icon name="activity" size={14} />{selected.fastMode ? 'Disable Fast mode' : 'Enable Fast mode'}</button><button role="menuitem" type="button" className="menu-item" disabled={lifecycleDisabled} onClick={() => { void compactSession(); setActionsOpen(false); }} data-testid="session-actions-compact"><Icon name="spark" size={14} />Compact session</button><button role="menuitem" type="button" className="menu-item" disabled={lifecycleDisabled} onClick={() => { setActionsOpen(false); setPrepareOpen(true); }} data-testid="session-actions-prepare"><Icon name="worktree" size={14} />Prepare project for agents</button><button role="menuitem" type="button" className="menu-item" disabled={live && (!selected.id || readOnlyChild)} onClick={() => { archiveSession(selected.id); setActionsOpen(false); }}><Icon name="archive" size={14} />Archive session</button><button role="menuitem" type="button" className="menu-item" onClick={() => { notify('Session view closed; selection remains in the rail'); setActionsOpen(false); }}><Icon name="close" size={14} />Close session view</button></div>}</div>
           </div>
         </header>
         <span className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="agent-activity-status">{activityAnnouncement}</span>
         <div className="transcript-reader"><Transcript /></div>
         {!liveChildView && <Composer />}
+        </>}
       </section>
-      {!inspectorCollapsed && <div className="resize-handle inspector-resize" role="separator" aria-orientation="vertical" aria-label="Resize Inspector" aria-valuemin={286} aria-valuemax={470} aria-valuenow={inspectorWidth} aria-valuetext={`${inspectorWidth} pixels`} tabIndex={0} onPointerDown={startResize('inspector')} onKeyDown={resizeWithKeys('inspector')} data-testid="inspector-resizer" />}
-      <Inspector collapsed={inspectorCollapsed} onToggle={toggleInspector} />
+      {!inspectorCollapsed && <Splitter orientation="vertical" storageKey="layout.agents.inspector" min={286} max={470} defaultSize={336} onResize={resizeInspector} ariaLabel="Resize Inspector" resizeEdge="end" className="inspector-resize" testId="inspector-resizer" />}
+      {selectedProject ? <aside className={`inspector${inspectorCollapsed ? ' collapsed' : ''}`} aria-label="Project context" /> : <Inspector collapsed={inspectorCollapsed} onToggle={toggleInspector} />}
       <span className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="panel-resize-status">{resizeAnnouncement}</span>
 
       <FocusDialog open={sessionSettings} onClose={() => setSessionSettings(false)} title="Session settings" description="Update the fields supported by PATCH /agent-sessions/:id." testId="session-settings-dialog" wide>
@@ -206,8 +258,9 @@ export function AgentsWorkspace() {
           if (!live) { updateFixtureSession(selected.id, { name: String(data.get('name')), profileId: String(data.get('profile')), model: String(data.get('model')), thinkingBudget: String(data.get('thinking')), permissionMode: String(data.get('permission')), fastMode: data.get('fast') === 'on' }); setSessionSettings(false); notify('Session settings applied'); return; }
           const key = String(data.get('model')); const model = models.find(m => `${m.providerId}/${m.modelId}` === key);
           const account = String(data.get('account') ?? '');
+          const openaiAccount = String(data.get('openaiAccount') ?? '');
           setSavingSettings(true); setSettingsError('');
-          void saveSessionSettings(selected.id, { name: String(data.get('name')).trim(), profileId: String(data.get('profile')) || null, ...(model ? { providerId: model.providerId, modelId: model.modelId } : key === '' ? { providerId: null, modelId: null } : {}), thinkingBudget: data.get('thinking') === '' ? null : Number(data.get('thinking')), permissionMode: String(data.get('permission')), fastMode: data.get('fast') === 'on', ...(account && account !== selected.account ? { anthropicAccountId: account } : {}) })
+          void saveSessionSettings(selected.id, { name: String(data.get('name')).trim(), profileId: String(data.get('profile')) || null, ...(model ? { providerId: model.providerId, modelId: model.modelId } : key === '' ? { providerId: null, modelId: null } : {}), thinkingBudget: data.get('thinking') === '' ? null : Number(data.get('thinking')), permissionMode: String(data.get('permission')), fastMode: data.get('fast') === 'on', ...(account && account !== selected.account ? { anthropicAccountId: account } : {}), ...(openaiAccount && openaiAccount !== selected.openaiAccount ? { openaiAccountId: openaiAccount } : {}) })
             .then(() => { setSessionSettings(false); notify('Session settings saved and read back'); })
             .catch(error => setSettingsError(error instanceof Error ? error.message : 'Session settings failed'))
             .finally(() => setSavingSettings(false));
@@ -218,7 +271,8 @@ export function AgentsWorkspace() {
           <label className="field">Model<select name="model" defaultValue={live ? selected.providerId && selected.modelId ? `${selected.providerId}/${selected.modelId}` : '' : selected.model}>{live ? <><option value="">Profile default</option>{selected.providerId && selected.modelId && !models.some(m => m.providerId === selected.providerId && m.modelId === selected.modelId) && <option value={`${selected.providerId}/${selected.modelId}`}>{selected.modelId} (unavailable; retain)</option>}{models.map(m => <option key={`${m.providerId}/${m.modelId}`} value={`${m.providerId}/${m.modelId}`}>{m.label} · {m.providerId}</option>)}</> : <><option>gpt-5.6</option><option>gpt-5.6-codex</option><option>claude-sonnet-4</option></>}</select></label>
           <label className="field">Reasoning{live ? <><input type="number" min="0" step="1" name="thinking" defaultValue={selected.thinkingBudget} /><span>Token budget; blank uses the default.</span></> : <select name="thinking" defaultValue={selected.thinkingBudget}><option>Off</option><option>Low</option><option>Medium</option><option>High</option><option>X-High</option><option>Max</option></select>}</label>
           <label className="field">Permissions<select name="permission" defaultValue={selected.permissionMode}>{live ? <><option value="default">Default</option><option value="acceptEdits">Accept Edits</option><option value="plan">Plan</option><option value="bypassPermissions">Bypass permissions (trusted workspaces only)</option></> : <><option>Default</option><option>Accept Edits</option><option>Plan</option><option>Bypass</option></>}</select></label>
-          {live && <label className="field">Anthropic account<select name="account" defaultValue={selected.account ?? ''}><option value="">Keep current account</option>{selected.account && !accounts.some(a => a.id === selected.account) && <option value={selected.account}>{selected.account} (unavailable; retain)</option>}{accounts.map(a => <option value={a.id} key={a.id} disabled={!!a.status && a.status !== 'ok'}>{a.label} · {a.id}</option>)}</select></label>}
+          {live && <label className="field">Anthropic account<select name="account" defaultValue={selected.account ?? ''}><option value="">Keep current account</option>{selected.account && !accounts.some(a => a.id === selected.account) && <option value={selected.account}>{selected.account} (unavailable; retain)</option>}{accounts.map(a => <option value={a.id} key={a.id} disabled={!!a.status && a.status !== 'ok'}>{accountOptionLabel(a)}</option>)}</select></label>}
+          {live && selected.providerId === 'openai' && openaiAccounts.length > 0 && <label className="field">OpenAI account<select name="openaiAccount" defaultValue={selected.openaiAccount ?? ''} data-testid="session-openai-account"><option value="">Keep current account</option>{selected.openaiAccount && !openaiAccounts.some(a => a.id === selected.openaiAccount) && <option value={selected.openaiAccount}>{selected.openaiAccount} (unavailable; retain)</option>}{openaiAccounts.map(a => <option value={a.id} key={a.id} disabled={!!a.status && a.status !== 'ok'}>{accountOptionLabel(a)}</option>)}</select></label>}
           <label className="check-label"><input name="fast" type="checkbox" defaultChecked={selected.fastMode} />Fast mode</label>
           <footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setSessionSettings(false)}>Cancel</button><button className="primary-button" type="submit" disabled={savingSettings || live && (!selected.id || readOnlyChild)} data-testid="save-session-settings">{savingSettings ? 'Saving…' : 'Save settings'}</button></footer>
         </form>

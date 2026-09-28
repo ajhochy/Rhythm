@@ -1,0 +1,37 @@
+[WebServer] (node:72326) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:72678) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer]
+[WebServer] (!) Some chunks are larger than 500 kB after minification. Consider:
+[WebServer] - Using dynamic import() to code-split the application
+[WebServer] - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+[WebServer] - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+
+[WebServer] (node:72803) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+
+Running 14 tests using 1 worker
+
+(node:72820) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/14] tests/pages/settings-list-inspector.spec.ts:19:1 › issue-1521-c1: main Settings renders through the shared list-and-inspector primitive
+[2/14] tests/pages/settings-list-inspector.spec.ts:32:1 › issue-1521-c2: rows stay compact while two selections show their full inspectors
+[3/14] tests/pages/settings-list-inspector.spec.ts:56:1 › issue-1521-c3: every existing Settings action is reachable from an inspector
+[4/14] tests/pages/settings-list-inspector.spec.ts:104:1 › issue-1521-c4: device preferences persist per account and workspace values come from the gateway
+[5/14] tests/pages/settings-list-inspector.spec.ts:125:1 › issue-1521-c5: selection is inert and staff permissions remain read-only
+[6/14] tests/pages/settings-list-inspector.spec.ts:142:1 › issue-1521-c6: related destination rows navigate without duplicating editors
+[7/14] tests/pages/settings-list-inspector.spec.ts:157:1 › issue-1521-c7: keyboard, narrow, zoom, focus, and axe behavior remain usable
+[8/14] tests/pages/settings-list-inspector.spec.ts:189:1 › issue-1521-c8: loading error empty missing and unsaved states are explicit
+[9/14] tests/settings-behavior-1521.spec.ts:4:1 › issue-1521 review: saved send key controls Composer and survives reload
+[10/14] tests/shell.spec.ts:8:3 › product shell › renders and toggles theme when Studio storage access is sandboxed
+[11/14] tests/shell.spec.ts:22:3 › product shell › sandboxed View options report failed persistence without changing the current view
+[12/14] tests/shell.spec.ts:46:3 › product shell › sandboxed Settings preserve theme and keyboard drafts when device storage rejects changes
+[13/14] tests/shell.spec.ts:85:3 › product shell › navigates the shell and uses the responsive More overflow
+[14/14] tests/shell.spec.ts:100:3 › product shell › opens activity, notifications, account, theme, and endpoint controls
+  14 passed (39.0s)

@@ -1,0 +1,57 @@
+{
+  "issue": "task-bot-crossing-original-ui",
+  "date": "2026-09-26",
+  "test_command": "cd apps/electron && node --test test/colony-scene-routing-contract.test.mjs test/colony-native-view-contract.test.mjs && cd ../web && npm exec -- playwright test tests/pages/colony.spec.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-bot-crossing-original-ui-r1",
+      "text": "Accept the scene action.run request on the colony channel and dispatch to the existing createColonyActions().run({kind, id}); forward a rhythm-session open result to the Rhythm renderer.",
+      "mode": "integration",
+      "test": "apps/electron/test/colony-scene-routing-contract.test.mjs",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-bot-crossing-original-ui-r2",
+      "text": "Inject a Rhythm-owned skin stylesheet into the Colony WebContentsView with webContents.insertCSS, reapplied on each load, targeting only Bot Crossing HUD controls.",
+      "mode": "integration",
+      "test": "apps/electron/test/colony-native-view-contract.test.mjs",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-bot-crossing-original-ui-r3",
+      "text": "In the normal scene-available state the tab renders only the scene host filling the whole tab content area, with no Rhythm page header, rail, inspector, View/Task menus, or View/Disable buttons.",
+      "mode": "ui",
+      "test": "apps/web/tests/pages/colony.spec.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-bot-crossing-original-ui-r4",
+      "text": "Keep onboarding, error/rebuild states, and rail+inspector list view only as fallback when the scene is unavailable; Disable remains reachable in Settings → Bot Crossing.",
+      "mode": "ui",
+      "test": "apps/web/tests/pages/colony-fallback.spec.ts apps/web/tests/pages/colony-settings.spec.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-bot-crossing-original-ui-r5",
+      "text": "Repin PINNED_COLONY_SOURCE_COMMIT to the new Bot Crossing commit and update tests that reference the old hash.",
+      "mode": "integration",
+      "test": "apps/electron/test/colony-desktop-config.test.mjs",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-bot-crossing-original-ui-r6",
+      "text": "Capture and inspect standalone, embedded skinned, embedded menu-open, and Rhythm full-bleed PNG evidence; standalone and embedded must retain the same scene/HUD layout.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "All four requested PNGs were inspected at 1440x900; standalone and embedded HUD/scene positions match."
+    }
+  ],
+  "not_tested": []
+}

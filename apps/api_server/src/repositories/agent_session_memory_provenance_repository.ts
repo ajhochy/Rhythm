@@ -16,6 +16,18 @@ import { getDb } from '../database/db';
 
 const MAX_PROVENANCE_ENTRIES = 5;
 
+export type MemorySemanticStatus =
+  | 'disabled'
+  | 'backend_unavailable'
+  | 'timeout'
+  | 'http_error'
+  | 'malformed'
+  | 'no_hits'
+  | 'no_confidence'
+  | 'unmapped'
+  | 'lexical_gate'
+  | 'used';
+
 export interface MemoryProvenanceItem {
   memoryId: string;
   source: string | null;
@@ -26,6 +38,8 @@ export interface MemoryProvenanceItem {
   reason: string;
   excerptChars?: number;
   estimatedTokens?: number;
+  /** Body-free diagnostic outcome for the semantic retrieval lane. */
+  semanticStatus?: MemorySemanticStatus;
 }
 
 export interface MemoryProvenanceRecord {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../app/core/auth/auth_session_service.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../notifications/controllers/agent_approvals_controller.dart';
 import '../../notifications/models/agent_approval.dart';
@@ -63,7 +64,7 @@ class _InlineAgentApprovalCardState extends State<InlineAgentApprovalCard> {
 
   @override
   Widget build(BuildContext context) {
-    final controller = context.read<AgentApprovalsController>();
+    final controller = context.watch<AgentApprovalsController>();
 
     return Container(
       width: double.infinity,
@@ -132,11 +133,61 @@ class _InlineAgentApprovalCardState extends State<InlineAgentApprovalCard> {
                         ),
                       ),
                     ],
+                    if (approval.isHardline) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        "Bypass mode can't approve this",
+                        style: TextStyle(
+                          color: context.rhythm.warning,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (approval.laneReasonCopy case final reason?) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          reason,
+                          style: TextStyle(
+                            color: context.rhythm.textSecondary,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ],
                   ],
                 ),
               ),
             ],
           ),
+          if (controller.authState != AgentApprovalAuthState.ready) ...[
+            const SizedBox(height: 10),
+            Text(
+              controller.authMessage ?? 'Approval unavailable',
+              style: TextStyle(
+                color: context.rhythm.danger,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              controller.authDetail ??
+                  controller.lastDecisionError ??
+                  'Try the approval again.',
+              style: TextStyle(
+                color: context.rhythm.textSecondary,
+                fontSize: 11,
+              ),
+            ),
+            if (controller.authState == AgentApprovalAuthState.needsSignIn) ...[
+              const SizedBox(height: 4),
+              TextButton(
+                onPressed: () =>
+                    context.read<AuthSessionService>().signInWithGoogle(),
+                child: const Text('Sign in'),
+              ),
+            ],
+          ],
           const SizedBox(height: 10),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,

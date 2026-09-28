@@ -19,6 +19,7 @@ Future<bool?> showPlaybookEditorSheet(
   required Set<String> existingNames,
   required List<AgentConfig> availableAgents,
   PlaybookEntry? playbook,
+  AgentModelsDataSource? modelsDataSource,
 }) {
   return showModalBottomSheet<bool>(
     context: context,
@@ -35,6 +36,7 @@ Future<bool?> showPlaybookEditorSheet(
       existingNames: existingNames,
       availableAgents: availableAgents,
       playbook: playbook,
+      modelsDataSource: modelsDataSource,
     ),
   );
 }
@@ -46,6 +48,7 @@ class PlaybookEditorSheet extends StatefulWidget {
     required this.existingNames,
     required this.availableAgents,
     this.playbook,
+    this.modelsDataSource,
   });
 
   final AgentPlaybooksDataSource dataSource;
@@ -60,6 +63,9 @@ class PlaybookEditorSheet extends StatefulWidget {
 
   /// Non-null = edit mode (name is locked); null = create mode.
   final PlaybookEntry? playbook;
+
+  /// Optional catalog source for deterministic widget tests.
+  final AgentModelsDataSource? modelsDataSource;
 
   @override
   State<PlaybookEditorSheet> createState() => _PlaybookEditorSheetState();
@@ -99,9 +105,13 @@ class _PlaybookEditorSheetState extends State<PlaybookEditorSheet> {
   }
 
   Future<void> _loadCatalog() async {
-    final entries = await AgentModelsDataSource().fetchCatalog();
+    final entries = await (widget.modelsDataSource ?? AgentModelsDataSource())
+        .fetchCatalog();
     if (!mounted) return;
-    setState(() => _catalogModels = entries);
+    setState(
+      () => _catalogModels =
+          entries.where((entry) => entry.modelId.isNotEmpty).toList(),
+    );
   }
 
   Future<void> _loadContent() async {

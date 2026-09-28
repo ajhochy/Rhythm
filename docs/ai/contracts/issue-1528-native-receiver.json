@@ -1,0 +1,54 @@
+{
+  "issue": 1528,
+  "generated": "2026-09-24",
+  "criteria": [
+    {
+      "criterion_id": "issue-1528-c1",
+      "text": "**COL-03-AC1:** With Colony disabled, normal app startup performs zero harness reads and creates zero Colony children. Ten concurrent enable/open events create one scanner; repeated tab use does not create another.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Whole-issue acceptance remains UNVERIFIED. Node regressions prove disabled start creates no child, concurrent starts and serialized attaches coalesce, and sticky teardown blocks replacement. The full app startup/tab opt-in source-read receipt is not implemented."
+    },
+    {
+      "criterion_id": "issue-1528-c2",
+      "text": "**COL-03-AC2:** With live API/engine sentinel processes already running, scanner start, crash, retry, disable and app quit leave their PIDs/listeners unchanged and never bind/reclaim their ports.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Whole-issue acceptance remains UNVERIFIED. Node regressions prove unrelated sentinel preservation, owned-child-only termination, stop/crash waiter rejection, idempotent receiver stop and sticky unconfirmed-exit blocking. Packaged listener/process and app-quit receipts remain pending."
+    },
+    {
+      "criterion_id": "issue-1528-c3",
+      "text": "**COL-03-AC3:** Removing the packaged Node/scanner payload produces a clear unavailable state with no attempt to run system Node or a checkout; a version mismatch fails the handshake before scanning.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Whole-issue acceptance remains UNVERIFIED. Node regressions prove missing packaged runtime refusal, no development fallback and runtime capability/version refusal. Actual packaged Node binary, architecture and SQLite qualification remain pending."
+    },
+    {
+      "criterion_id": "issue-1528-c4",
+      "text": "**COL-03-AC4:** A disabled source is never opened; missing, locked or malformed source fixtures are diagnosed individually while healthy harness tasks remain visible. Worker crash loops stop at the documented retry bound.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Whole-issue acceptance remains UNVERIFIED. Node regressions prove unsafe/unknown source refusal before launch and bounded retry exhaustion. Native multi-source locked/malformed diagnostics and healthy-harness coexistence remain pending."
+    }
+  ],
+  "stack": "unknown",
+  "not_tested": [
+    "issue-1528-c1",
+    "issue-1528-c2",
+    "issue-1528-c3",
+    "issue-1528-c4"
+  ],
+  "scope": "Supporting native implementation slice. Node built-in JavaScript tests; no JavaScript enum in canonical schema. Whole-issue criteria remain explicitly UNVERIFIED.",
+  "supplemental_tests": {
+    "files": [
+      "apps/electron/test/colony-native-service-contract.test.mjs",
+      "apps/electron/test/colony-native-assets-contract.test.mjs",
+      "apps/electron/test/colony-native-view-contract.test.mjs",
+      "apps/electron/test/colony-native-frame-contract.test.mjs"
+    ],
+    "red": "17 failures, zero passes before product implementation",
+    "command": "node --test apps/electron/test/colony-native-service-contract.test.mjs apps/electron/test/colony-native-frame-contract.test.mjs apps/electron/test/colony-native-assets-contract.test.mjs",
+    "plan": "docs/ai/plans/2026-09-24-colony-native-receiver.md",
+    "checkpoint": "Current: lifecycle Node coverage includes late-bound exact-main-frame commitment without sibling authority. The latest outside native run passed 4/5; lazy late-bind receiver repair is implemented and native5 rerun remains pending outside the sandbox."
+  }
+}

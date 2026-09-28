@@ -52,7 +52,8 @@ test('Dashboard click-through covers refresh, capture, inspectors, completion, h
   await expect(page.getByTestId('page-trace')).not.toContainText('agent-sessions');
 
   await page.getByTestId('open-projects').click();
-  await expect(page).toHaveURL(/#\/projects$/);
+  await expect(page).toHaveURL(/#\/projects\?projectId=project-instance-instance-sunday-service-2026-08-16$/);
+  await expect(page.getByRole('option', { name: /Sunday Service - August 16/ })).toHaveAttribute('aria-selected', 'true');
   await openPage(page, '/dashboard');
   await page.getByTestId('unread-preview-thread-weekend-team').click();
   await expect(page).toHaveURL(/#\/messages\/thread-weekend-team$/);

@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import type { ComponentProps, ReactNode } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import {
   ActivityIndicator,
   Button,
@@ -7,7 +8,7 @@ import {
   Text,
 } from 'react-native-paper';
 
-import { Colors } from '@/constants/theme';
+import { Colors, Radii, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export type ToolScreenStateKind =
@@ -52,8 +53,8 @@ const DEFAULT_COPY: Record<
     message: 'The paired Mac no longer authorizes this iPhone or Rhythm account.',
   },
   'version-mismatch': {
-    title: 'Update required',
-    message: 'This Mac and iPhone use incompatible agent protocol versions. Update both and try again.',
+    title: 'Rhythm desktop needs an update',
+    message: 'This iPhone is paired, but the desktop version is not compatible. Update Rhythm on your Mac, then try again.',
   },
   'network-failure': {
     title: 'Mac unreachable',
@@ -71,6 +72,23 @@ const DEFAULT_COPY: Record<
     title: 'Could not load this screen',
     message: 'Check the connection to your Mac and try again.',
   },
+};
+
+const STATE_ICONS: Record<
+  ToolScreenStateKind,
+  ComponentProps<typeof MaterialCommunityIcons>['name']
+> = {
+  loading: 'progress-clock',
+  empty: 'archive-outline',
+  'offline-cache': 'cloud-off-outline',
+  'missing-scope': 'folder-outline',
+  'stale-project': 'folder-alert-outline',
+  'unauthorized-pairing': 'cellphone-key',
+  'version-mismatch': 'shield-alert-outline',
+  'network-failure': 'wifi-off',
+  'expired-auth': 'account-clock-outline',
+  forbidden: 'shield-lock-outline',
+  error: 'alert-circle-outline',
 };
 
 export function ToolScreenState({
@@ -91,57 +109,85 @@ export function ToolScreenState({
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
   const copy = DEFAULT_COPY[state];
+  const supportingMessage = state === 'version-mismatch'
+    ? 'Pairing and saved chats are unchanged.'
+    : undefined;
 
   return (
-    <View
-      accessibilityLiveRegion={state === 'loading' ? 'polite' : 'assertive'}
-      accessibilityRole="summary"
-      accessibilityLabel={`${title ?? copy.title}. ${message ?? copy.message}`}
+    <ScrollView
+      contentContainerStyle={styles.scrollContent}
       style={[styles.screen, { backgroundColor: palette.background }]}>
       <Surface
-        elevation={1}
-        style={[styles.panel, { backgroundColor: palette.surface }]}>
-        {state === 'loading' ? (
-          <ActivityIndicator
-            accessibilityLabel="Loading"
-            color={palette.tint}
-          />
-        ) : null}
-        <Text
-          accessibilityRole="header"
-          style={{ color: palette.text }}
-          variant="headlineSmall">
-          {title ?? copy.title}
-        </Text>
-        <Text style={{ color: palette.muted }} variant="bodyLarge">
-          {message ?? copy.message}
-        </Text>
+        elevation={0}
+        style={[styles.panel, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+        <View
+          accessibilityLiveRegion={state === 'loading' ? 'polite' : 'assertive'}
+          accessibilityRole="summary"
+          accessibilityLabel={`${title ?? copy.title}. ${message ?? copy.message}${supportingMessage ? ` ${supportingMessage}` : ''}`}
+          style={styles.statusCopy}>
+          {state === 'loading' ? (
+            <ActivityIndicator
+              accessibilityLabel="Loading"
+              color={palette.tint}
+            />
+          ) : (
+            <MaterialCommunityIcons
+              accessible={false}
+              color={palette.muted}
+              name={STATE_ICONS[state]}
+              size={28}
+            />
+          )}
+          <Text
+            accessibilityRole="header"
+            style={[styles.centeredText, { color: palette.text }]}
+            variant="headlineSmall">
+            {title ?? copy.title}
+          </Text>
+          <Text style={[styles.centeredText, { color: palette.muted }]} variant="bodyLarge">
+            {message ?? copy.message}
+          </Text>
+          {supportingMessage ? (
+            <Text style={[styles.centeredText, { color: palette.muted }]} variant="bodyMedium">
+              {supportingMessage}
+            </Text>
+          ) : null}
+        </View>
         {children}
         {actionLabel && onAction ? (
           <Button
             accessibilityLabel={actionLabel}
             mode="contained"
-            onPress={onAction}>
+            onPress={onAction}
+            style={styles.action}>
             {actionLabel}
           </Button>
         ) : null}
       </Surface>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   screen: {
-    alignItems: 'center',
     flex: 1,
+  },
+  scrollContent: {
+    alignItems: 'center',
+    flexGrow: 1,
     justifyContent: 'center',
-    padding: 24,
+    padding: Spacing.x6,
   },
   panel: {
-    borderRadius: 20,
-    gap: 12,
-    maxWidth: 640,
-    padding: 24,
+    alignItems: 'center',
+    borderRadius: Radii.grouped,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: Spacing.x3,
+    maxWidth: 480,
+    padding: Spacing.x6,
     width: '100%',
   },
+  action: { minHeight: 44 },
+  centeredText: { textAlign: 'center' },
+  statusCopy: { alignItems: 'center', gap: Spacing.x3 },
 });

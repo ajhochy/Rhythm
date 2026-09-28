@@ -750,10 +750,41 @@ describe('issue-933-c6: unverified-claim', () => {
 });
 
 describe('issue-933-c7: stale-redo (already-fixed issue worked again) + stale-fixed safeguard', () => {
+  it('#1500: fully tied timestamps produce the same decision for either repository order', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const a = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, taskTitle: 'Fix bug #1500', cwd: '/tmp', name: 'a', mcpRole: 'secretary' });
+    const b = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, taskTitle: 'Fix bug #1500 retry', cwd: '/tmp', name: 'b', mcpRole: 'secretary' });
+    const timestamp = new Date().toISOString();
+    const first = { ...a, createdAt: timestamp, updatedAt: timestamp, status: 'closed' as const };
+    const second = { ...b, createdAt: timestamp, updatedAt: timestamp, status: 'error' as const };
+    const { detectStaleRedoSignals } = await import('../services/workflow_failure_signal_extractor');
+    expect(detectStaleRedoSignals([first, second])).toEqual(detectStaleRedoSignals([second, first]));
+  });
+
+  it.each(['error', 'closed'] as const)('#1500: tied creation times use later update evidence (%s)', async (latestStatus) => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const older = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, taskTitle: 'Fix bug #1500', cwd: '/tmp', name: 'older', mcpRole: 'secretary' });
+    const newer = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, taskTitle: 'Fix bug #1500 retry', cwd: '/tmp', name: 'newer', mcpRole: 'secretary' });
+    const now = Date.now();
+    const created = new Date(now - 60_000).toISOString();
+    rawUpdate('agent_sessions', older.id, { created_at: created, updated_at: new Date(now - 30_000).toISOString(), last_activity_at: new Date(now - 30_000).toISOString(), status: latestStatus === 'error' ? 'closed' : 'error' });
+    rawUpdate('agent_sessions', newer.id, { created_at: created, updated_at: new Date(now).toISOString(), last_activity_at: new Date(now).toISOString(), status: latestStatus });
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+    const signal = signals.find((item) => item.category === 'stale-redo');
+    if (latestStatus === 'error') {
+      expect(signal).toBeDefined();
+      expect(signal?.confidence).toBe('high');
+    } else {
+      expect(signal).toBeUndefined();
+    }
+  });
+
   it('reworking the same issue # signals when the latest attempt is still not clean', async () => {
     const sessionsRepo = new AgentSessionsRepository();
     const s1 = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, taskTitle: 'Fix bug #42', cwd: '/tmp', name: 's1', mcpRole: 'secretary' });
     sessionsRepo.updateStatus(s1.id, 'closed');
+    rawUpdate('agent_sessions', s1.id, { created_at: new Date(Date.now() - 60_000).toISOString() });
     const s2 = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, taskTitle: 'Fix bug #42 again', cwd: '/tmp', name: 's2', mcpRole: 'secretary' });
     sessionsRepo.setErrorStatus(s2.id, 'still broken');
 

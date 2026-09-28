@@ -102,20 +102,30 @@ def call_tool(name, arguments):
     return {"isError": True, "content": [{"type": "text", "text": "Unknown tool."}]}
 
 
+def handle(request):
+    method, request_id = request.get("method"), request.get("id")
+    if method == "initialize": result = {"protocolVersion": request.get("params", {}).get("protocolVersion", "2024-11-05"), "capabilities": {"tools": {}}, "serverInfo": {"name": "rhythm-openmontage", "version": "1"}}
+    elif method == "tools/list": result = {"tools": TOOLS}
+    elif method == "tools/call":
+        params = request.get("params", {})
+        result = call_tool(params.get("name"), params.get("arguments", {}))
+    elif method == "ping": result = {}
+    elif request_id is None: return None  # notifications never get a reply
+    else:
+        # Answer every other request: a silent skip left clients (prompts/list,
+        # resources/list) waiting out their 60s request timeout.
+        return {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32601, "message": f"Method not found: {method}"}}
+    return {"jsonrpc": "2.0", "id": request_id, "result": result}
+
+
 def main():
     for line in sys.stdin:
         try:
-            request = json.loads(line)
-            method = request.get("method")
-            if method == "initialize": result = {"protocolVersion": request.get("params", {}).get("protocolVersion", "2024-11-05"), "capabilities": {"tools": {}}, "serverInfo": {"name": "rhythm-openmontage", "version": "1"}}
-            elif method == "tools/list": result = {"tools": TOOLS}
-            elif method == "tools/call":
-                params = request.get("params", {})
-                result = call_tool(params.get("name"), params.get("arguments", {}))
-            else: continue
-            print(json.dumps({"jsonrpc": "2.0", "id": request.get("id"), "result": result}), flush=True)
-        except (ValueError, TypeError):
+            response = handle(json.loads(line))
+        except (ValueError, TypeError, AttributeError):
             continue
+        if response is not None:
+            print(json.dumps(response), flush=True)
 
 
 if __name__ == "__main__":

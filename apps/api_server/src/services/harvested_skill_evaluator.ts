@@ -312,7 +312,7 @@ export interface EvaluateDeps {
    */
   rewriter?: RewriteCall;
   /** Injectable usage counter (defaults to countSkillToolUses). */
-  countUses?: () => Map<string, number>;
+  countUses?: () => Map<string, number> | Promise<Map<string, number>>;
   /** Injectable engine re-scan (defaults to opencodeClient.reloadSkills). */
   reload?: () => Promise<unknown>;
   /** Injectable proposals repo (defaults to a fresh AgentOrgProposalsRepository). */
@@ -623,7 +623,7 @@ async function evaluateHarvestedDraftsOnce(deps: EvaluateDeps): Promise<Evaluate
 
         if (!uses && !usageScanFailed) {
           try {
-            uses = countUses();
+            uses = await countUses();
           } catch (err) {
             usageScanFailed = true;
             logger.warn(`[harvest-eval] usage count failed (non-fatal): ${String(err)}`);

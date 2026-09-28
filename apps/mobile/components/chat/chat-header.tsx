@@ -1,8 +1,9 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Pressable, ScrollView, Text as NativeText, View } from 'react-native';
 import { useState } from 'react';
-import { Appbar, Button, Portal, ProgressBar, Text } from 'react-native-paper';
+import { Button, Portal, ProgressBar, Text } from 'react-native-paper';
 
+import { TopTab } from '@/components/chat/chat-controls';
 import { SessionConfigurationSheet } from '@/components/chat/session-configuration-sheet';
 import { Colors } from '@/constants/theme';
 import { getSessionSubtitle } from '@/lib/opencode/format';
@@ -37,6 +38,7 @@ type ChatHeaderProps = {
   isCreatingSession: boolean;
   diffCount: number;
   running: boolean;
+  presentationStatus?: string;
   showingChanges: boolean;
   onBack: () => void;
   onCloseMenu: () => void;
@@ -72,11 +74,9 @@ export function ChatHeader({
   currentSessionId,
   contextLimit,
   contextTokens,
-  isUsageLoading,
   insetsTop,
   isCreatingSession,
   diffCount,
-  running,
   showingChanges,
   onBack,
   onCloseMenu,
@@ -90,6 +90,7 @@ export function ChatHeader({
   onToggleConversationMode,
   onUpdateSessionPreferences,
   palette,
+  presentationStatus,
   selectedSession,
   sessionMenuVisible,
   sessions,
@@ -97,18 +98,16 @@ export function ChatHeader({
 }: ChatHeaderProps) {
   const [usageVisible, setUsageVisible] = useState(false);
   const [actionsVisible, setActionsVisible] = useState(false);
-  const connectionLabel = running
-    ? 'Running'
-    : connectionStatus === 'connected'
-      ? 'Connected'
-      : connectionStatus === 'connecting'
-        ? 'Connecting'
-        : connectionStatus === 'error'
-          ? 'Connection error'
-          : 'Offline';
-  const statusLabel = isUsageLoading
-    ? `${connectionLabel} · Syncing`
-    : connectionLabel;
+  const selectedProfileLabel = availableProfiles.find(
+    (profile) => profile.profileId === chatPreferences.profileId,
+  )?.label;
+  const selectedModelLabel = availableModels.find(
+    (model) => model.id === chatPreferences.modelId,
+  )?.label ?? chatPreferences.modelId;
+  const idleSubtitle = [selectedProfileLabel, selectedModelLabel]
+    .filter(Boolean)
+    .join(' · ');
+  const subtitle = presentationStatus || idleSubtitle || 'Chat';
   const usageLabel = usage.costStatus === 'pricing-unavailable' ? 'Pricing unavailable' : `Estimated API cost ${formatEstimatedCost(usage.cost)}`;
   const contextProgress = contextLimit && contextTokens !== undefined ? Math.min(contextTokens / contextLimit, 1) : undefined;
   const usageIcon = contextProgress === undefined
@@ -122,58 +121,71 @@ export function ChatHeader({
           : 'circle-slice-4';
   return (
     <>
-      <Appbar.Header
-        testID="compact-chat-header"
-        style={[styles.header, { backgroundColor: palette.surface, paddingTop: insetsTop, height: 64 + insetsTop }]}
-        statusBarHeight={0}
-        elevated>
-        <Appbar.BackAction
-          accessibilityLabel="Back to Agents"
-          onPress={onBack}
-        />
-        <View style={styles.headerMain}>
-          <Pressable accessibilityLabel="Choose chat" onPress={onOpenSessionMenu} style={({ pressed }) => [styles.headerSessionAnchor, pressed && styles.headerSessionAnchorPressed]}>
-            <View style={styles.headerSessionContent}>
-              <View style={styles.headerSessionTextWrap}>
-                <Text numberOfLines={1} variant="titleMedium" style={[styles.headerTitle, { color: palette.text }]}>
-                  {selectedSession?.title || 'Untitled chat'}
-                </Text>
-                <NativeText accessibilityLabel={`Chat status: ${statusLabel}`} numberOfLines={1} style={[styles.headerUsage, { color: palette.muted }]}>
-                  {statusLabel}
-                </NativeText>
-              </View>
-              <MaterialCommunityIcons name="chevron-down" size={20} color={palette.muted} />
-            </View>
-          </Pressable>
-        </View>
-        <View style={styles.headerActions}>
-          {diffCount > 0 || showingChanges ? (
-            <Button
-              accessibilityLabel={showingChanges ? 'Session' : `${diffCount} Files Changed`}
-              compact
-              icon={showingChanges ? 'message-outline' : 'file-document-edit-outline'}
-              onPress={onShowChanges}
-              style={styles.headerFilesButton}>
-              {showingChanges ? 'Session' : `${diffCount} Files Changed`}
-            </Button>
-          ) : null}
+      <View testID="compact-chat-header" style={{ backgroundColor: palette.surface }}>
+        <View style={{ paddingTop: insetsTop }}>
+          <View style={[styles.header, { backgroundColor: palette.surface }]}>
           <Pressable
-            accessibilityHint="Session configuration"
-            accessibilityLabel="Chat menu"
+            testID="chat-back-button"
+            accessibilityLabel="Back to Agents"
             accessibilityRole="button"
-            onPress={() => setActionsVisible(true)}
-            style={({ pressed }) => [
-              styles.headerAction,
-              pressed && styles.headerActionPressed,
-            ]}>
-            <MaterialCommunityIcons
-              name="dots-horizontal"
-              size={24}
-              color={palette.muted}
-            />
+            onPress={onBack}
+            style={({ pressed }) => [styles.headerBackButton, pressed && styles.headerActionPressed]}>
+            <NativeText style={[styles.headerBackGlyph, { color: palette.text }]}>‹</NativeText>
           </Pressable>
+          <View style={styles.headerMain}>
+            <Pressable accessibilityLabel="Choose chat" onPress={onOpenSessionMenu} style={({ pressed }) => [styles.headerSessionAnchor, pressed && styles.headerSessionAnchorPressed]}>
+              <View style={styles.headerSessionContent}>
+                <View style={styles.headerSessionTextWrap}>
+                  <Text numberOfLines={1} variant="titleMedium" style={[styles.headerTitle, { color: palette.text }]}>
+                    {selectedSession?.title || 'Untitled chat'}
+                  </Text>
+                  <NativeText numberOfLines={1} accessibilityLabel={`Chat status: ${subtitle}`} style={[styles.headerUsage, { color: palette.muted }]}>
+                    {subtitle}
+                  </NativeText>
+                </View>
+                <MaterialCommunityIcons name="chevron-down" size={20} color={palette.muted} />
+              </View>
+            </Pressable>
+          </View>
+          <View style={styles.headerActions}>
+            <Pressable
+              accessibilityHint="Session configuration"
+              accessibilityLabel="Chat menu"
+              accessibilityRole="button"
+              onPress={() => setActionsVisible(true)}
+              style={({ pressed }) => [
+                styles.headerAction,
+                pressed && styles.headerActionPressed,
+              ]}>
+              <MaterialCommunityIcons
+                name="dots-horizontal"
+                size={24}
+                color={palette.muted}
+              />
+            </Pressable>
+          </View>
+          </View>
         </View>
-      </Appbar.Header>
+        <View style={styles.chatSegmentedControl}>
+          <View pointerEvents="none" style={[styles.chatSegmentedVisual, { backgroundColor: palette.surfaceAlt }]} />
+          <TopTab
+            accessibilityLabel="Chat"
+            active={!showingChanges}
+            label={showingChanges ? 'Session' : 'Chat'}
+            onPress={() => {
+              if (showingChanges) onShowChanges();
+            }}
+          />
+          <TopTab
+            accessibilityLabel="Changes"
+            active={showingChanges}
+            label={diffCount > 0 ? `${diffCount} Files Changed` : 'Changes'}
+            onPress={() => {
+              if (!showingChanges) onShowChanges();
+            }}
+          />
+        </View>
+      </View>
       <SessionConfigurationSheet
         availableModels={availableModels}
         availableProfiles={availableProfiles}

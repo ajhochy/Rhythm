@@ -25,11 +25,13 @@ import {
   type ResearchProjectPatch,
   type ResearchProject,
   type ResearchProjectRun,
+  type ResearchGuidance,
 } from '../repositories/agent_research_repository';
 import { logger } from '../utils/logger';
+import { findSolePairedUserId } from '../repositories/mobile_devices_repository';
 import { writeGenericResearchReport } from '../services/generic_research_report';
 import * as AgentRunner from '../services/agent_runner';
-import { ResearchProjectOrchestrator } from '../services/research_project_orchestrator';
+import { ResearchProjectOrchestrator, missingSynthesisMessage } from '../services/research_project_orchestrator';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
 import { emitAppEvent } from '../utils/app_events';
@@ -40,6 +42,8 @@ import {
   type ResearchMagazineInput,
 } from '../services/research_magazine_renderer';
 import { ResearchDiscussionService } from '../services/research_discussion_service';
+import { normalizeModelPolicy } from '../services/research_model_policy';
+import { listAgentModelCatalog } from '../routes/agents_models_routes';
 
 const researchJobs = new AgentResearchRepository();
 const projectOrchestrator = new ResearchProjectOrchestrator(researchJobs);
@@ -57,7 +61,10 @@ function emitProjectUpdate(run: ResearchProjectRun): void {
 }
 
 function projectOwner(req: Request): number {
-  const owner = req.auth?.user.id;
+  // Same rule as tokenless local session creation: the loopback desktop belongs to the one user
+  // in this Mac's pairing history; with none (or several) the request stays unowned and fails.
+  const owner = req.auth?.user.id ??
+    (env.agentLocal && env.dbClient === 'sqlite' ? findSolePairedUserId(getDb()) ?? undefined : undefined);
   if (owner === undefined) throw AppError.unauthorized('Research projects require an authenticated owner');
   return owner;
 }
@@ -89,7 +96,35 @@ function requiredString(value: unknown, field: string): string {
   return value.trim();
 }
 
-function projectInput(body: Record<string, unknown>): ResearchProjectInput {
+// Defaults sized from real usage: run usage.tokens sums input+output+reasoning+cache read/write for
+// every model turn (agent_research_repository.ts hydrateRun), so each turn re-counts its cached
+// context. One observed evidence pass took 21 turns / ~1.4M tokens / ~4.5 min; 5M tokens and 30
+// minutes cover one evidence pass plus critic and synthesis with headroom.
+export const DEFAULT_RESEARCH_BUDGET = { maxPasses: 3, maxTokens: 5_000_000, maxCostUsd: 5, maxWallClockMs: 30 * 60_000 };
+const BUDGET_BOUNDS: Record<keyof typeof DEFAULT_RESEARCH_BUDGET, [number, number]> = {
+  maxPasses: [0, 10],
+  maxTokens: [50_000, 100_000_000],
+  maxCostUsd: [0, 1_000],
+  maxWallClockMs: [60_000, 6 * 60 * 60_000],
+};
+
+/** Omitted fields take the defaults; unknown keys are dropped. */
+export function projectBudget(value: unknown): Record<string, number> {
+  const input = optionalObject(value, 'budget');
+  const budget: Record<string, number> = { ...DEFAULT_RESEARCH_BUDGET };
+  for (const [key, [min, max]] of Object.entries(BUDGET_BOUNDS)) {
+    const raw = input[key];
+    if (raw === undefined || raw === null) continue;
+    const integer = key !== 'maxCostUsd';
+    if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < min || raw > max || (integer && !Number.isInteger(raw))) {
+      throw AppError.badRequest(`budget.${key} must be ${integer ? 'an integer' : 'a number'} between ${min} and ${max}`);
+    }
+    budget[key] = raw;
+  }
+  return budget;
+}
+
+async function projectInput(body: Record<string, unknown>): Promise<ResearchProjectInput> {
   return {
     name: requiredString(body.name, 'name'),
     question: requiredString(body.question, 'question'),
@@ -97,15 +132,15 @@ function projectInput(body: Record<string, unknown>): ResearchProjectInput {
     domain: optionalString(body.domain, 'domain'),
     profileId: optionalString(body.profileId, 'profileId'),
     passConfig: optionalArray(body.passConfig, 'passConfig'),
-    modelPolicy: optionalObject(body.modelPolicy, 'modelPolicy'),
+    modelPolicy: await normalizeModelPolicy(body.modelPolicy, () => listAgentModelCatalog()),
     criticConfig: optionalObject(body.criticConfig, 'criticConfig'),
     synthesisConfig: optionalObject(body.synthesisConfig, 'synthesisConfig'),
     scheduleRef: optionalString(body.scheduleRef, 'scheduleRef'),
-    budget: optionalObject(body.budget, 'budget'),
+    budget: projectBudget(body.budget),
   };
 }
 
-function projectPatch(body: Record<string, unknown>): ResearchProjectPatch {
+async function projectPatch(body: Record<string, unknown>): Promise<ResearchProjectPatch> {
   const patch: ResearchProjectPatch = {};
   if ('name' in body) patch.name = requiredString(body.name, 'name');
   if ('question' in body) patch.question = requiredString(body.question, 'question');
@@ -113,11 +148,11 @@ function projectPatch(body: Record<string, unknown>): ResearchProjectPatch {
   if ('domain' in body) patch.domain = optionalString(body.domain, 'domain');
   if ('profileId' in body) patch.profileId = optionalString(body.profileId, 'profileId');
   if ('passConfig' in body) patch.passConfig = optionalArray(body.passConfig, 'passConfig');
-  if ('modelPolicy' in body) patch.modelPolicy = optionalObject(body.modelPolicy, 'modelPolicy');
+  if ('modelPolicy' in body) patch.modelPolicy = await normalizeModelPolicy(body.modelPolicy, () => listAgentModelCatalog());
   if ('criticConfig' in body) patch.criticConfig = optionalObject(body.criticConfig, 'criticConfig');
   if ('synthesisConfig' in body) patch.synthesisConfig = optionalObject(body.synthesisConfig, 'synthesisConfig');
   if ('scheduleRef' in body) patch.scheduleRef = optionalString(body.scheduleRef, 'scheduleRef');
-  if ('budget' in body) patch.budget = optionalObject(body.budget, 'budget');
+  if ('budget' in body) patch.budget = projectBudget(body.budget);
   return patch;
 }
 
@@ -125,6 +160,25 @@ function triggerType(value: unknown): ResearchProjectRun['triggerType'] {
   if (value === undefined) return 'manual';
   if (value === 'manual' || value === 'scheduled' || value === 'follow-up') return value;
   throw AppError.badRequest('triggerType must be manual, scheduled, or follow-up');
+}
+
+const ARTIFACT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ANCHOR = /^[A-Za-z0-9_-]{1,120}$/;
+
+/** Reader comments carried into the next run's plan: bounded, plain text, no markup trust. */
+export function researchGuidance(value: unknown): ResearchGuidance[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 20) throw AppError.badRequest('guidance must be an array of at most 20 comments');
+  return value.map((item) => {
+    const entry = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+    const text = typeof entry.text === 'string' ? entry.text.trim() : '';
+    const quote = typeof entry.quote === 'string' ? entry.quote.trim() : '';
+    const anchor = entry.anchor === null || entry.anchor === undefined ? null : entry.anchor;
+    if (!text || text.length > 1000 || quote.length > 1000 || (anchor !== null && (typeof anchor !== 'string' || !ANCHOR.test(anchor)))) {
+      throw AppError.badRequest('each guidance comment needs text (<=1000 chars), an optional quote (<=1000) and a section anchor');
+    }
+    return { anchor: anchor as string | null, quote, text };
+  });
 }
 
 function magazineInput(project: ResearchProject, run: ResearchProjectRun): ResearchMagazineInput {
@@ -136,7 +190,7 @@ function magazineInput(project: ResearchProject, run: ResearchProjectRun): Resea
     return typeof stage?.report === 'string' && stage.report.trim() ? stage.report : null;
   };
   const synthesis = reportFor('synthesis');
-  if (!synthesis) throw AppError.conflict('The canonical synthesis is not available for this run');
+  if (!synthesis) throw new AppError(409, 'SYNTHESIS_UNAVAILABLE', missingSynthesisMessage(run));
   return {
     project: { id: project.id, name: project.name, question: project.question },
     run: {
@@ -301,7 +355,7 @@ export class AgentResearchController {
     try {
       const created = await researchJobs.createProject(
         projectOwner(req),
-        projectInput(req.body as Record<string, unknown>),
+        await projectInput(req.body as Record<string, unknown>),
       );
       res.status(201).json(created);
     } catch (err) { next(err); }
@@ -320,7 +374,7 @@ export class AgentResearchController {
       const project = await researchJobs.updateProject(
         req.params.projectId,
         projectOwner(req),
-        projectPatch(req.body as Record<string, unknown>),
+        await projectPatch(req.body as Record<string, unknown>),
       );
       if (!project) throw AppError.notFound('ResearchProject');
       res.json(project);
@@ -332,6 +386,24 @@ export class AgentResearchController {
       const project = await researchJobs.archiveProject(req.params.projectId, projectOwner(req));
       if (!project) throw AppError.notFound('ResearchProject');
       res.json(project);
+    } catch (err) { next(err); }
+  }
+
+  async setProjectMagazineArtifact(req: Request, res: Response, next: NextFunction) {
+    try {
+      const artifactId = (req.body as Record<string, unknown> | undefined)?.artifactId;
+      if (typeof artifactId !== 'string' || !ARTIFACT_ID.test(artifactId)) throw AppError.badRequest('artifactId must be a live artifact id');
+      const project = await researchJobs.setMagazineArtifact(req.params.projectId, projectOwner(req), artifactId.toLowerCase());
+      if (!project) throw AppError.notFound('ResearchProject');
+      res.json(project);
+    } catch (err) { next(err); }
+  }
+
+  async getSessionMagazine(req: Request, res: Response, next: NextFunction) {
+    try {
+      const link = await researchJobs.sessionMagazine(req.params.sessionId, projectOwner(req));
+      if (!link) throw AppError.notFound('ResearchDiscussion');
+      res.json(link);
     } catch (err) { next(err); }
   }
 
@@ -347,10 +419,12 @@ export class AgentResearchController {
   async createProjectRun(req: Request, res: Response, next: NextFunction) {
     try {
       const ownerUserId = projectOwner(req);
+      const body = (req.body ?? {}) as Record<string, unknown>;
       const run = await researchJobs.createProjectRun(
         req.params.projectId,
         ownerUserId,
-        triggerType((req.body as Record<string, unknown>).triggerType),
+        triggerType(body.triggerType),
+        researchGuidance(body.guidance),
       );
       if (!run) throw AppError.notFound('ResearchProject');
       res.status(201).json(run);
@@ -382,7 +456,8 @@ export class AgentResearchController {
 
   async exportProjectMagazine(req: Request, res: Response, next: NextFunction) {
     try {
-      const format = req.query.format;
+      // No UI omits ?format (web + Flutter both send it); a bare link defaults to the HTML report.
+      const format = req.query.format ?? 'html';
       if (format !== 'html' && format !== 'markdown') throw AppError.badRequest('format must be html or markdown');
       const owner = projectOwner(req);
       const [project, run] = await Promise.all([
@@ -415,6 +490,35 @@ export class AgentResearchController {
         rawIds as string[],
       );
       res.status(202).json(discussion);
+    } catch (err) { next(err); }
+  }
+
+  /**
+   * "Finish with current evidence": re-freezes the run budget from the project's current budget,
+   * then writes the synthesis from the evidence stages already done (no new passes, no critic).
+   * If the synthesis already exists this only re-freezes the budget (so a raised budget re-opens discussion).
+   */
+  async finishProjectRun(req: Request, res: Response, next: NextFunction) {
+    try {
+      const owner = projectOwner(req);
+      const [project, run] = await Promise.all([
+        researchJobs.getProject(req.params.projectId, owner),
+        researchJobs.getProjectRun(req.params.runId, owner),
+      ]);
+      if (!project || !run || run.projectId !== project.id) throw AppError.notFound('ResearchProjectRun');
+      if (['pending', 'running', 'resumable'].includes(run.status)) {
+        throw AppError.conflict('This run is still working; wait for it to stop, or cancel it, before finishing with current evidence');
+      }
+      const stages = Array.isArray(run.progress.stages) ? run.progress.stages as Array<Record<string, unknown>> : [];
+      const done = (role?: string) => stages.some((stage) => stage.status === 'done'
+        && (role ? stage.role === role : !['plan', 'critic', 'synthesis'].includes(String(stage.role))));
+      if (!done()) throw AppError.conflict('This run has no completed evidence to finish from. Retry the run instead.');
+      const refrozen = (await researchJobs.updateProjectRunBudget(run.id, owner, project.budget))!;
+      if (done('synthesis')) { res.json(refrozen); return; }
+      const started = (await researchJobs.updateProjectRunState(run.id, owner, { status: 'running', completedAt: null }))!;
+      emitProjectUpdate(started); res.status(202).json(started);
+      void projectOrchestrator.finishWithCurrentEvidence(run.id, owner).then(emitProjectUpdate)
+        .catch((error) => logger.error(`[ResearchProject] finish ${run.id} failed: ${String(error)}`));
     } catch (err) { next(err); }
   }
 

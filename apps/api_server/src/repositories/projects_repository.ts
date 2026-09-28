@@ -1,5 +1,6 @@
 import { getDb } from '../database/db';
 import type { Project } from '../models/project';
+import { realpathSync } from 'fs';
 
 interface ProjectRow {
   id: string;
@@ -131,8 +132,9 @@ export class ProjectsRepository {
   /**
    * Return the non-archived project whose `cwd` is an exact match or a
    * path-prefix of `sessionCwd`. When multiple match, returns the longest
-   * (e.g. nested projects). Strings are compared after stripping trailing
-   * slashes; no symlink resolution.
+   * (e.g. nested projects). Existing paths are resolved through realpath so
+   * symlinked and canonical spellings associate; missing paths fall back to
+   * lexical comparison.
    */
   /** Exact-cwd lookup (active rows only). Used by create() to reject duplicates. */
   findByExactCwd(cwd: string): Project | null {
@@ -146,22 +148,37 @@ export class ProjectsRepository {
   }
 
   findByCwdPrefix(sessionCwd: string): Project | null {
-    const normalized = sessionCwd.length > 1
-      ? sessionCwd.replace(/\/+$/, '')
-      : sessionCwd;
+    const normalizeLexically = (cwd: string): string =>
+      cwd.length > 1 ? cwd.replace(/\/+$/, '') : cwd;
+    const tryRealpath = (cwd: string): string | null => {
+      try {
+        return realpathSync.native(cwd);
+      } catch {
+        return null;
+      }
+    };
+    const lexicalSessionCwd = normalizeLexically(sessionCwd);
+    const realSessionCwd = tryRealpath(lexicalSessionCwd);
     const rows = getDb()
       .prepare(`SELECT * FROM projects WHERE archived_at IS NULL`)
       .all() as ProjectRow[];
 
-    let best: ProjectRow | null = null;
+    let best: { row: ProjectRow; normalizedCwd: string } | null = null;
     for (const row of rows) {
-      const projectCwd = row.cwd.length > 1 ? row.cwd.replace(/\/+$/, '') : row.cwd;
-      if (normalized === projectCwd || normalized.startsWith(projectCwd + '/')) {
-        if (!best || projectCwd.length > best.cwd.length) {
-          best = row;
+      const lexicalProjectCwd = normalizeLexically(row.cwd);
+      const realProjectCwd = tryRealpath(lexicalProjectCwd);
+      const normalizedSessionCwd = realSessionCwd && realProjectCwd
+        ? realSessionCwd
+        : lexicalSessionCwd;
+      const projectCwd = realSessionCwd && realProjectCwd
+        ? realProjectCwd
+        : lexicalProjectCwd;
+      if (normalizedSessionCwd === projectCwd || normalizedSessionCwd.startsWith(projectCwd + '/')) {
+        if (!best || projectCwd.length > best.normalizedCwd.length) {
+          best = { row, normalizedCwd: projectCwd };
         }
       }
     }
-    return best ? rowToModel(best) : null;
+    return best ? rowToModel(best.row) : null;
   }
 }

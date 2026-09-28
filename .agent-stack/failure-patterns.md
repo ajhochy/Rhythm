@@ -700,3 +700,41 @@
 - **Criteria affected**: session-opening-c1, session-opening-c2, session-opening-native.
 - **Root cause**: hash-only navigation preserves the old loaded document after generated asset replacement; full navigation deliberately clears auth.
 - **Suggested fix**: retain the refresh/sign-in handoff step and verify two exact live targets after it.
+
+## 2026-09-18 — Electron mega visual smoke — computer-use authorization block
+
+- **Result**: smoke BLOCKED on all 10 requested visual steps; per smoke policy this is a failed verification run. Verification did not claim the manual visual gate had passed, so there is no correctness divergence.
+- **Category**: none for product correctness; process issue `computer-use-authorization`; workflow W3 because TodoWrite was unavailable.
+- **Criteria affected**: mega-visual-c1 through mega-visual-c10.
+- **Root cause**: the control inventory listed the running Electron process, but app selection for Electron and Finder returned `Computer Use was not approved`, preventing UI observations and screenshots.
+- **Suggested fix**: preflight computer-use grants for the already-running Electron process and Finder before visual-smoke dispatch, then rerun all ten criteria without substituting static evidence for rendered behavior.
+
+## 2026-09-18 — Mega PR native smoke prerequisite mismatch
+
+- Result: native smoke blocked, no overall verification pass claimed.
+- Category: C5 environment configuration.
+- Root cause: process lacks the handoff bearer and public Google client configuration; requested local services are absent.
+- Follow-up: keep PR1544 open and distinguish startup health from authenticated native/hosted behavior.
+
+## 2026-09-19 — PR 1544 — Login and integration grants shared one endpoint
+
+- **Result**: smoke FAIL; previous acceptance was blocked, not claimed PASS.
+- **Category**: C1 missing integration-preservation contract; C5 native/hosted environment boundaries.
+- **Criteria affected**: desktop OAuth, M3, native workspace and hosted smoke.
+- **Root cause**: legacy login overwrote integration credentials; browser origin was rejected; protected native Keychain persistence did not finish.
+- **Suggested fix**: deploy separately capability-checked login-only OAuth, preserve existing provider rows, rerun actual native/signed and hosted behavior.
+
+## 2026-09-19 — #1542 actual Desktop signed integration
+
+- **Result**: selected signed native smoke PASS after repair; broader release/standalone compatibility remains open.
+- **Category**: C1 missing runtime contracts.
+- **Root cause**: hidden startup probes omitted outer request policy, real Browser inert bootstrap and full-process persistence.
+- **Repair**: real signed read/draft/native-tools suite, actual Browser navigation and two-phase typed-draft quit/relaunch proof.
+
+## 2026-09-24 — Issue 1558 — Takeover fixture smoke
+
+- Result: fixture smoke pass; packaged runtime not checked.
+- Category: none; zero correctness divergences.
+- Criteria checked manually: c1, c2, c3, c6.
+- Process: wrong initial E16/E20 config corrected; dedicated suites pass.
+- Follow-up: preserve runtime qualification boundaries.

@@ -69,6 +69,8 @@ export interface AgentConfig {
    */
   modelTierHint: string | null;
   defaultAnthropicAccountId: string | null;
+  /** Profile-level default OpenAI (ChatGPT) account id. Null = store default. */
+  defaultOpenaiAccountId?: string | null;
   /**
    * #1094 — OpenAI native `image_generation` tool grant, separate from
    * `allowedMcpsJson` (this is a provider-native/hosted tool, not an MCP
@@ -151,6 +153,8 @@ export interface AgentConfigInput {
   modelTierHint?: string | null;
   /** Task D — profile-level default Anthropic account id. Null = store default. */
   defaultAnthropicAccountId?: string | null;
+  /** Profile-level default OpenAI (ChatGPT) account id. Null = store default. */
+  defaultOpenaiAccountId?: string | null;
   /** #1094 — grant the OpenAI native image_generation tool. Default false. */
   imageGenerationEnabled?: boolean;
   /** #1118 — per-profile reasoning-effort value. Null/omitted = provider default. */
@@ -194,6 +198,7 @@ export interface AgentConfigRow {
   session_selectable: number;
   model_tier_hint: string | null;
   default_anthropic_account_id: string | null;
+  default_openai_account_id?: string | null;
   schedulable: number | null;
   image_generation_enabled: number;
   reasoning_effort: string | null;
@@ -322,6 +327,7 @@ function rowToModel(row: AgentConfigRow): RevisionedAgentConfig {
       : null,
     modelTierHint: row.model_tier_hint ?? null,
     defaultAnthropicAccountId: row.default_anthropic_account_id ?? null,
+    defaultOpenaiAccountId: row.default_openai_account_id ?? null,
     imageGenerationEnabled: (row.image_generation_enabled ?? 0) !== 0,
     reasoningEffort: row.reasoning_effort ?? null,
     locked: (row.locked ?? 0) !== 0,
@@ -512,9 +518,9 @@ export class AgentConfigsRepository {
            allowed_mcps_json, allowed_skills_json, core_permissions_json, allowed_delegates_json, can_resume,
            resume_command, session_id_pattern, output_marker, preset_id, sort_order,
            model_provider, model_id, oc_agent, session_selectable, model_tier_hint,
-           default_anthropic_account_id, schedulable, image_generation_enabled,
+           default_anthropic_account_id, default_openai_account_id, schedulable, image_generation_enabled,
            reasoning_effort, auto_approve_actions, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -541,6 +547,7 @@ export class AgentConfigsRepository {
         config.sessionSelectable === false ? 0 : 1,
         config.modelTierHint ?? null,
         config.defaultAnthropicAccountId ?? null,
+        config.defaultOpenaiAccountId ?? null,
         config.schedulable === undefined || config.schedulable === null
           ? null
           : config.schedulable ? 1 : 0,
@@ -553,7 +560,10 @@ export class AgentConfigsRepository {
     return this.getById(id)!;
   }
 
-  update(id: string, patch: Partial<AgentConfigInput>): RevisionedAgentConfig | null {
+  update(id: string, patch: Partial<AgentConfigInput>, expectedRevision?: number): RevisionedAgentConfig | null {
+    if (expectedRevision !== undefined && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)) {
+      throw new Error('Agent config CAS requires a non-negative integer revision');
+    }
     const existing = this.getById(id);
     if (!existing) return null;
 
@@ -636,6 +646,10 @@ export class AgentConfigsRepository {
       fields.push('default_anthropic_account_id = ?');
       values.push(patch.defaultAnthropicAccountId ?? null);
     }
+    if (patch.defaultOpenaiAccountId !== undefined) {
+      fields.push('default_openai_account_id = ?');
+      values.push(patch.defaultOpenaiAccountId ?? null);
+    }
     if (patch.reasoningEffort !== undefined) {
       fields.push('reasoning_effort = ?');
       values.push(patch.reasoningEffort ?? null);
@@ -657,11 +671,15 @@ export class AgentConfigsRepository {
     }
 
     values.push(id);
-    getDb()
-      .prepare(`UPDATE agent_configs SET ${fields.join(', ')} WHERE id = ?`)
-      .run(...values);
+    // Every assignment above comes from a fixed column name, never a request
+    // key. Bind revision in the UPDATE itself so validation-time races cannot
+    // overwrite another writer. RETURNING captures this write's exact result.
+    if (expectedRevision !== undefined) values.push(expectedRevision);
+    const row = getDb()
+      .prepare(`UPDATE agent_configs SET ${fields.join(', ')} WHERE id = ?${expectedRevision === undefined ? '' : ' AND revision = ?'} RETURNING *`)
+      .get(...values) as AgentConfigRow | undefined;
 
-    return this.getById(id);
+    return row ? rowToModel(row) : null;
   }
 
   /**

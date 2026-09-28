@@ -32,17 +32,10 @@ import { SessionsRepository } from '../repositories/sessions_repository';
 vi.mock('../services/opencode_engine', () => {
   const mockClient = {
     isReady: true,
-    listModels: vi.fn().mockImplementation((providerId: string) => {
-      const byProvider: Record<string, Array<{ id: string }>> = {
-        // Anthropic not authed in this scenario.
-        anthropic: [],
-        openrouter: [
-          { id: 'meta-llama/llama-3.3-70b-instruct' },
-          { id: 'anthropic/claude-opus-4.7' },
-        ],
-      };
-      return Promise.resolve(byProvider[providerId] ?? []);
-    }),
+    providerSnapshot: vi.fn().mockResolvedValue({ providers: [{ id: 'openrouter', connected: true, digest: 'r', models: [
+      { id: 'meta-llama/llama-3.3-70b-instruct', capabilities: { input: { text: true }, output: { text: true }, toolcall: true } },
+      { id: 'anthropic/claude-opus-4.7', capabilities: { input: { text: true }, output: { text: true }, toolcall: true } },
+    ] }] }),
     listAuthedProviders: vi.fn().mockResolvedValue(['openrouter']),
     statusMessage: 'ready',
     createSession: vi.fn().mockResolvedValue({ id: 'sdk-1' }),
@@ -55,7 +48,6 @@ vi.mock('../services/opencode_engine', () => {
     opencodeSessionMap: new Map<string, string>(),
   };
 });
-
 vi.mock('../services/opencode_stream_bridge', () => ({
   streamBridge: {
     streamSession: vi.fn().mockResolvedValue(undefined),

@@ -261,6 +261,61 @@ describe('OpencodeStreamBridge — transcript.append emission', () => {
     );
   });
 
+  it('1468:1468-S3-api-real-count-scoped-cap:3 stores and broadcasts an actionable Gemini declaration-cap error', () => {
+    const localId = new AgentSessionsRepository().listActive()[0].id;
+    sessionMap.clear();
+    sessionMap.set(localId, SDK_ID);
+
+    relay({
+      type: 'session.error',
+      properties: {
+        sessionID: SDK_ID,
+        error: {
+          data: {
+            message:
+              'The GenerateContentRequest proto is invalid: tools[0].function_declarations: [FIELD_INVALID] At most 512 function declarations can be specified.',
+          },
+        },
+      },
+    });
+
+    const errorFrame = broadcastSpy.mock.calls
+      .map((call) => call[0] as Record<string, unknown>)
+      .find((frame) => frame.type === 'error');
+    expect(errorFrame).toMatchObject({
+      errorClass: 'gemini_function_declaration_cap',
+      message: expect.stringContaining('512'),
+    });
+    expect(errorFrame?.message).toContain('unknown count');
+    expect(errorFrame?.message).toContain('MCP allowlist');
+
+    const stored = new AgentSessionsRepository().findById(localId);
+    expect(stored?.status).toBe('error');
+    expect(stored?.statusMessage).toBe(errorFrame?.message);
+  });
+
+  it('1468:1468-S3-api-real-count-scoped-cap:4 preserves the offered count from the fork guard', () => {
+    const localId = new AgentSessionsRepository().listActive()[0].id;
+    sessionMap.clear();
+    sessionMap.set(localId, SDK_ID);
+
+    relay({
+      type: 'session.error',
+      properties: {
+        sessionID: SDK_ID,
+        error: { data: { message: 'Gemini function-declaration cap: 605 > 512' } },
+      },
+    });
+
+    const errorFrame = broadcastSpy.mock.calls
+      .map((call) => call[0] as Record<string, unknown>)
+      .find((frame) => frame.type === 'error');
+    expect(errorFrame).toMatchObject({
+      errorClass: 'gemini_function_declaration_cap',
+      message: expect.stringContaining('offered 605'),
+    });
+  });
+
   it('on session.error with an unrelated message, does NOT tag errorClass', () => {
     const localId = sessionMap.keys().next().value as string;
     sessionMap.clear();

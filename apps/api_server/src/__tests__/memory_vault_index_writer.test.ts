@@ -120,7 +120,7 @@ describe('OKF memory-vault navigation indexes (#1194)', () => {
 
   it('serializes concurrent runs so an older scan cannot overwrite a newer one', async () => {
     note('fact/alpha.md', '---\nkind: fact\n---\nAlpha.');
-    const originalWriteFile = fsPromises.writeFile.bind(fsPromises);
+    const originalRename = fsPromises.rename.bind(fsPromises);
     let releaseFirstWrite!: () => void;
     const firstWriteReleased = new Promise<void>((resolve) => {
       releaseFirstWrite = resolve;
@@ -130,14 +130,14 @@ describe('OKF memory-vault navigation indexes (#1194)', () => {
       signalFirstWrite = resolve;
     });
     let blocked = false;
-    vi.spyOn(fsPromises, 'writeFile').mockImplementation(
-      async (...args: Parameters<typeof fsPromises.writeFile>) => {
+    vi.spyOn(fsPromises, 'rename').mockImplementation(
+      async (...args: Parameters<typeof fsPromises.rename>) => {
         if (!blocked) {
           blocked = true;
           signalFirstWrite();
           await firstWriteReleased;
         }
-        return originalWriteFile(...args);
+        return originalRename(...args);
       },
     );
 

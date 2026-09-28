@@ -1,27 +1,34 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createContext, SourceTextModule, SyntheticModule, runInContext } from 'node:vm';
 import test from 'node:test';
 import { exchangeDesktopAuthorizationCode } from '../src/google-oauth-core.mjs';
+import { AUTH_KEYS, GATEWAY_KEYS, UPDATE_KEYS } from '../src/security-smoke-receipt.mjs';
 
 const A = 'https://a.example', B = 'https://b.example';
 const decision = { approvalId: 'approval-1', status: 'approved', decisionNonce: 'nonce-1', payloadDigest: null };
 const tick = () => new Promise((r) => setImmediate(r));
 
 // Real main + config + preload; fake only Electron, OAuth browser interaction, signer and I/O.
-async function host(t, immediateLogin = false, Notification = { isSupported: () => false }) {
+async function host(t, immediateLogin = false, Notification = { isSupported: () => false }, onInitialBridge, initialSession) {
   const directory = await mkdtemp(join(tmpdir(), 'rhythm-e12a-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const handlers = new Map(), listeners = new Map(), protocols = new Map();
   const windows = [], logins = [], requests = [], signed = [], opened = [];
-  let quits = 0;
+  /** Resolves only after the actual preload bridge has been installed. */
+  let resolveInitialBridge;
+  const initialBridgeReady = new Promise((resolve) => { resolveInitialBridge = resolve; });
+  let quits = 0, exits = 0;
   const app = Object.assign(new EventEmitter(), {
     getPath: () => directory, requestSingleInstanceLock: () => true, isReady: () => false,
-    whenReady: async () => {}, getVersion: () => 'test', quit() { quits += 1; }, exit(code) { throw new Error(`startup ${code}`); },
+    whenReady: async () => {}, getVersion: () => 'test', quit() { quits += 1; }, exit() { exits += 1; },
   });
+  if (initialSession) {
+    await writeFile(join(directory, 'auth-session.bin'), Buffer.from(JSON.stringify({ productionApiBase: A, sessionToken: initialSession, user: { id: 1 } })));
+  }
   const preload = await readFile(new URL('../src/preload.cjs', import.meta.url), 'utf8');
   class Window {
     constructor() {
@@ -29,7 +36,8 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
       if (Notification.isSupported()) { this.isMinimized = () => false; this.focus = () => {}; }
       this.webContents = Object.assign(new EventEmitter(), {
         mainFrame: { url: '' }, getURL: () => this.webContents.mainFrame.url,
-        isDestroyed: () => this.destroyed, send() {}, setWindowOpenHandler() {}, executeJavaScript: async () => {},
+        isDestroyed: () => this.destroyed, send() {}, setWindowOpenHandler() {},
+        executeJavaScript: async () => {},
       });
       windows.push(this);
     }
@@ -46,11 +54,25 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
           invoke: (key, ...args) => handlers.get(key)(event(), ...args), on() {}, removeListener() {},
         },
       }) }));
+      if (onInitialBridge && windows.length === 1) {
+        await onInitialBridge(this.bridge);
+        resolveInitialBridge?.();
+        resolveInitialBridge = undefined;
+      }
       this.webContents.emit('did-finish-load');
+      resolveInitialBridge?.();
+      resolveInitialBridge = undefined;
     }
   }
-  class Server { status = { status: 'ready' }; onStatusChange() {} async start() {} }
-  const context = createContext({ process: Object.assign(new EventEmitter(), { argv: [], env: { RHYTHM_PRODUCTION_API_URL: A }, cwd: () => directory, stderr: { write(message) { throw new Error(message); } } }), URL, Response, Headers, console,
+  let agentServerOptions;
+  const starts = [];
+  class Server {
+    constructor(options) { this.options = options; agentServerOptions = options; }
+    status = { status: 'ready' };
+    onStatusChange() {}
+    async start() { starts.push(this.options?.relayConfigurationProvider?.()); }
+  }
+  const context = createContext({ process: Object.assign(new EventEmitter(), { argv: [], env: { RHYTHM_PRODUCTION_API_URL: A }, resourcesPath: join(directory, 'Resources'), cwd: () => directory, stderr: { write(message) { throw new Error(message); } } }), URL, Response, Headers, console,
     fetch: async (url, init) => { requests.push({ url, bearer: new Headers(init?.headers).get('authorization') }); return new Response('<html></html>'); },
   });
   const file = new URL('../src/main.mjs', import.meta.url);
@@ -59,20 +81,44 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
     let values;
     if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on: (key, fn) => listeners.set(key, fn), handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification, protocol: { registerSchemesAsPrivileged() {}, handle: (key, fn) => protocols.set(key, fn) }, safeStorage: { isEncryptionAvailable: () => true, encryptString: (value) => Buffer.from(value), decryptString: (value) => value.toString() }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: { openExternal(url) { opened.push(url); } }, dialog: { showErrorBox() {} } };
     else if (name === './agent-server.mjs') values = { AgentServerService: Server, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:4001', AGENT_SERVER_ENGINE_PORT: 4096, electronDbPath: () => join(directory, 'electron.db'), legacyFlutterDbPath: () => join(directory, 'legacy.db') };
+    else if (name === './hermes-server.mjs') values = { createHermesSupervisor: () => ({ getStatus: () => ({ state: 'disabled', port: 9121, url: 'http://127.0.0.1:9121' }), onStatus() {}, async start() {}, async stop() {} }) };
     else if (name === './desktop-google-oauth.mjs') values = { runDesktopGoogleOAuth: (options) => new Promise((resolve) => { logins.push({ options, resolve }); if (immediateLogin) resolve({ sessionToken: 'unexpected', user: { id: 1 } }); }) };
     else if (name === './human-approval-main-signer.mjs') values = { capability: async () => 'capability', signDecision: async (value) => { signed.push(value); return { signature: 'signature' }; } };
     else { values = { ...await import(name.startsWith('.') ? new URL(name, file).href : name) }; if (name === 'node:fs') values.existsSync = () => true; }
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
   });
   await module.evaluate();
-  for (let index = 0; index < 20 && windows.length === 0; index += 1) await tick();
+  await initialBridgeReady;
   return {
-    windows, logins, requests, signed, opened, handlers, listeners, quits: () => quits,
+    windows, logins, requests, signed, opened, handlers, listeners, agentServerOptions, starts, quits: () => quits, exits: () => exits,
     current: () => windows.at(-1),
     event: () => ({ sender: windows.at(-1).webContents, senderFrame: windows.at(-1).webContents.mainFrame }),
     artifact: () => protocols.get('rhythm-artifact')({ url: 'rhythm-artifact://app/00000000-0000-4000-8000-000000000801', method: 'GET' }),
   };
 }
+
+test('relay restoration: main supplies the persisted cloud session only at owned runtime startup', async (t) => {
+  const h = await host(t, false, undefined, undefined, 'persisted-session');
+  assert.equal(typeof h.agentServerOptions?.relayConfigurationProvider, 'function');
+  let relayConfiguration = h.agentServerOptions.relayConfigurationProvider();
+  assert.equal(relayConfiguration.token, 'persisted-session');
+  assert.equal(relayConfiguration.productionApiBase, A);
+  assert.deepEqual(h.starts.map(({ token, productionApiBase }) => ({ token, productionApiBase })), [{ token: 'persisted-session', productionApiBase: A }]);
+
+  await h.current().bridge.auth.logout();
+  relayConfiguration = h.agentServerOptions.relayConfigurationProvider();
+  assert.equal(relayConfiguration.token, undefined);
+  assert.equal(relayConfiguration.productionApiBase, A);
+  assert.equal(h.starts.length, 1);
+
+  const login = h.current().bridge.auth.signInWithGoogle();
+  h.logins[0].resolve({ sessionToken: 'new-session', user: { id: 1 } });
+  await login;
+  relayConfiguration = h.agentServerOptions.relayConfigurationProvider();
+  assert.equal(relayConfiguration.token, 'new-session');
+  assert.equal(relayConfiguration.productionApiBase, A);
+  assert.equal(h.starts.length, 1);
+});
 
 test('e12a-c1: selected server reaches the real desktop token/session exchange, not the build default', async (t) => {
   const h = await host(t);
@@ -164,8 +210,8 @@ test('e12a-c5: closed bounded privileged payloads reject before signing or confi
 test('e12a-c6: preload stays frozen and exposes no generic IPC or credential mutation', async (t) => {
   const h = await host(t), bridge = h.current().bridge;
   for (const value of [bridge, bridge.auth, bridge.gateway, bridge.humanApproval]) assert.equal(Object.isFrozen(value), true);
-  assert.deepEqual(Object.keys(bridge.auth), ['signInWithGoogle', 'currentSession', 'logout']);
-  assert.deepEqual(Object.keys(bridge.gateway), ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase']);
+  assert.deepEqual(Object.keys(bridge.auth), AUTH_KEYS);
+  assert.deepEqual(Object.keys(bridge.gateway), GATEWAY_KEYS);
 });
 
 test('e12a-c7: retained A notification click cannot queue or navigate in B; current clicks and cleanup still work', async (t) => {
@@ -232,9 +278,53 @@ test('E42: current session is main-owned and logout clears it before rebuilding'
   assert.equal(await h.current().bridge.auth.currentSession(), null);
 });
 
-test('E44: update capability opens only the fixed Rhythm Releases page', async (t) => {
+test('initial-load logout cannot make the old window fail startup after its replacement begins', async (t) => {
+  const h = await host(t, false, undefined, async (bridge) => bridge.auth.logout());
+  await tick();
+  assert.equal(h.windows.length, 2);
+  assert.equal(h.windows[0].destroyed, true);
+  assert.equal(h.current().destroyed, false);
+  assert.equal(h.exits(), 0);
+});
+
+test('issue-1542-c6 / E44: update capability opens only the fixed Rhythm Releases page', async (t) => {
   const h = await host(t); const bridge = h.current().bridge;
-  assert.deepEqual(Object.keys(bridge.updates), ['openDownloadPage']);
+  assert.deepEqual(Object.keys(bridge.updates), UPDATE_KEYS);
   await bridge.updates.openDownloadPage();
   assert.deepEqual(h.opened, ['https://github.com/ajhochy/Rhythm/releases']);
+});
+
+test('issue-1510: dismissing a pending approval does not repeat its native alert on re-sync', async (t) => {
+  const shown = [];
+  class Notification extends EventEmitter {
+    static isSupported() { return true; }
+    constructor(options) { super(); this.options = options; this.closed = false; }
+    show() { shown.push(this); }
+    close() { this.closed = true; this.emit('close'); }
+  }
+  const h = await host(t, false, Notification);
+  const approval = { id: 'approval-1510', sessionId: 'session-1510', status: 'pending' };
+  const sync = (rows) => h.listeners.get('rhythm:approval-notifications:sync')(h.event(), rows);
+  sync([approval, approval]);
+  assert.equal(shown.length, 1);
+  assert.notEqual(shown[0].options.silent, true, 'the first actionable approval keeps its configured OS alert');
+  shown[0].close();
+  for (let index = 0; index < 5; index += 1) sync([{ ...approval }]);
+  assert.equal(shown.length, 1, 'a dismissed pending ID must stay deduplicated across repeated snapshots');
+  sync([approval, { ...approval, id: 'approval-1510-next' }]);
+  assert.equal(shown.length, 2, 'new actionable approvals still alert');
+  sync([]);
+  assert.equal(shown[1].closed, true, 'resolved approvals are withdrawn');
+});
+
+
+test('trusted workspace reload retains the current session; untrusted navigation clears it', async (t) => {
+  const h = await host(t);
+  const login = h.current().bridge.auth.signInWithGoogle();
+  h.logins[0].resolve({ sessionToken: 'reload-session', user: { id: 1 } });
+  await login;
+  await h.current().loadURL('rhythm://app/index.html#/agents');
+  assert.equal((await h.current().bridge.auth.currentSession()).sessionToken, 'reload-session');
+  h.current().webContents.emit('did-start-navigation', {}, 'https://untrusted.invalid/', false, true);
+  assert.equal(await h.current().bridge.auth.currentSession(), null);
 });

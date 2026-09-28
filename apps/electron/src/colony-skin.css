@@ -1,0 +1,45 @@
+.hud {
+  --rhythm-bg: #252727;
+  --rhythm-surface: #2b2e2d;
+  --rhythm-raised: #363c39;
+  --rhythm-fg: #dedfdf;
+  --rhythm-fg-2: #bfc6c3;
+  --rhythm-muted: #abb2b0;
+  --rhythm-border: #697571;
+  --rhythm-border-soft: #3e4542;
+  --rhythm-accent: oklch(0.74 0.12 175);
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.hud :is(.side, .settings, .help .sheet, .thread-pop, .toast) {
+  color: var(--rhythm-fg);
+  border-color: var(--rhythm-border-soft);
+  border-radius: 16px;
+  background: var(--rhythm-surface);
+}
+
+.hud :is(button, input, select, textarea, .btn, .chip, .tag) {
+  color: var(--rhythm-fg-2);
+  border-color: var(--rhythm-border);
+  border-radius: 10px;
+  font-family: inherit;
+}
+
+.hud :is(button, .btn, .chip) {
+  background-color: var(--rhythm-raised);
+}
+
+.hud :is(button, input, select, textarea):focus-visible {
+  outline: 2px solid var(--rhythm-accent);
+  outline-offset: 2px;
+}
+
+.hud :is(.primary, button[aria-pressed='true'], .chip.on) {
+  color: #15201d;
+  border-color: var(--rhythm-accent);
+  background-color: var(--rhythm-accent);
+}
+
+.hud :is(.muted, small, .meta, .when, .wt, .path) {
+  color: var(--rhythm-muted);
+}

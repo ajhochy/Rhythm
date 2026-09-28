@@ -95,6 +95,8 @@ interface SkillListEntry {
   managed: boolean;
   /** #1055 — provenance for the Skills UI source badge. */
   source: SkillSource;
+  /** Frontmatter category tags (see parseSkillFrontmatter); absent when none. */
+  tags?: string[];
 }
 
 /**
@@ -224,6 +226,10 @@ opencodeSkillsRouter.get(
         if (!fm) return true; // no parseable frontmatter → no conditions → visible
         return isSkillVisible(fm, toolsetConfig);
       });
+      for (const entry of visibleEntries) {
+        const tags = frontmatterByName.get(entry.name)?.tags;
+        if (tags) entry.tags = tags;
+      }
 
       if (req.query.withMetadata !== 'true') {
         res.json(visibleEntries);
@@ -240,7 +246,7 @@ opencodeSkillsRouter.get(
       // #929 — real skill-tool-invocation counts (not the legacy DB-preface hint
       // proxy). The ONLY usage signal available for a harvested draft, which has
       // no #792 sidecar row to increment (see skill_usage_tracker.ts header).
-      const realUses = countSkillToolUses();
+      const realUses = await countSkillToolUses();
 
       const withMetadata: SkillListEntryWithMetadata[] = visibleEntries.map((entry) => {
         const fm = frontmatterByName.get(entry.name);
@@ -349,6 +355,7 @@ async function upsertManagedSkill(
   content: string,
   res: Response,
   next: NextFunction,
+  tags?: string[],
 ): Promise<void> {
   try {
     if (!name || typeof name !== 'string' || name.trim() === '') {
@@ -364,7 +371,10 @@ async function upsertManagedSkill(
 
     let location: string;
     try {
-      location = writeManagedSkill({ name: name.trim(), description, body: content });
+      // tags omitted (undefined) → writeManagedSkill carries forward whatever
+      // tags the existing SKILL.md already has; an explicit array here (even
+      // []) wins over that.
+      location = writeManagedSkill({ name: name.trim(), description, body: content, tags });
     } catch (err) {
       if (err instanceof InvalidSkillNameError) {
         return next(new AppError(400, 'BAD_REQUEST', err.message));
@@ -397,12 +407,13 @@ async function upsertManagedSkill(
 opencodeSkillsRouter.post(
   '/',
   async (req: Request, res: Response, next: NextFunction) => {
-    const { name, description, content } = req.body as {
+    const { name, description, content, tags } = req.body as {
       name?: string;
       description?: string;
       content?: string;
+      tags?: string[];
     };
-    await upsertManagedSkill(name ?? '', description, content ?? '', res, next);
+    await upsertManagedSkill(name ?? '', description, content ?? '', res, next, tags);
   },
 );
 
@@ -412,11 +423,12 @@ opencodeSkillsRouter.put(
   '/:name',
   async (req: Request, res: Response, next: NextFunction) => {
     const { name } = req.params;
-    const { description, content } = req.body as {
+    const { description, content, tags } = req.body as {
       description?: string;
       content?: string;
+      tags?: string[];
     };
-    await upsertManagedSkill(name, description, content ?? '', res, next);
+    await upsertManagedSkill(name, description, content ?? '', res, next, tags);
   },
 );
 

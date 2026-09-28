@@ -6,6 +6,7 @@ import { OAUTH_DUMMY_KEY } from "../auth"
 import os from "os"
 import { setTimeout as sleep } from "node:timers/promises"
 import { createServer } from "http"
+import { hasCodexAccounts, markCodexSpillover, resolveCodexAccount } from "./codex-accounts"
 
 const log = Log.create({ service: "plugin.codex" })
 
@@ -424,6 +425,74 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
             const currentAuth = await getAuth()
             if (currentAuth.type !== "oauth") return fetch(requestInput, init)
 
+            // Build headers
+            const headers = new Headers()
+            if (init?.headers) {
+              if (init.headers instanceof Headers) {
+                init.headers.forEach((value, key) => headers.set(key, value))
+              } else if (Array.isArray(init.headers)) {
+                for (const [key, value] of init.headers) {
+                  if (value !== undefined) headers.set(key, String(value))
+                }
+              } else {
+                for (const [key, value] of Object.entries(init.headers)) {
+                  if (value !== undefined) headers.set(key, String(value))
+                }
+              }
+            }
+
+            // Rewrite URL to Codex endpoint
+            const parsed =
+              requestInput instanceof URL
+                ? requestInput
+                : new URL(typeof requestInput === "string" ? requestInput : requestInput.url)
+            const url =
+              parsed.pathname.includes("/v1/responses") || parsed.pathname.includes("/chat/completions")
+                ? new URL(CODEX_API_ENDPOINT)
+                : parsed
+
+            const send = (access: string, accountId: string | undefined) => {
+              const h = new Headers(headers)
+              h.set("authorization", `Bearer ${access}`)
+              // ChatGPT-Account-Id header for organization subscriptions
+              if (accountId) h.set("ChatGPT-Account-Id", accountId)
+              else h.delete("ChatGPT-Account-Id")
+              return fetch(url, { ...init, headers: h })
+            }
+
+            // rhythm: per-request account from openai-accounts.json (see
+            // codex-accounts.ts). api_server owns every refresh there, so this
+            // path never refreshes or writes auth.json.
+            if (hasCodexAccounts()) {
+              const sessionId = headers.get("x-session-affinity") ?? headers.get("session_id") ?? undefined
+              let { account, fallbacks } = resolveCodexAccount(sessionId)
+              if (!account) {
+                throw new Error("Rhythm has no usable OpenAI account — reconnect one in Settings.")
+              }
+              let response = await send(account.access, account.chatgptAccountId)
+              // Body must be replayable to retry (the AI SDK sends JSON strings).
+              const replayable = init?.body === undefined || typeof init.body === "string"
+              if (response.status === 429 && replayable) {
+                for (const next of fallbacks) {
+                  log.info("codex account rate limited, spilling over", { from: account.id, to: next.id })
+                  const retry = await send(next.access, next.chatgptAccountId)
+                  if (retry.status === 429) continue
+                  markCodexSpillover(sessionId, account.id, next.id)
+                  account = next
+                  response = retry
+                  break
+                }
+              }
+              if (response.status === 401 && replayable) {
+                // api_server may have refreshed the token since this request started.
+                const latest = resolveCodexAccount(sessionId).account
+                if (latest && latest.access !== account.access) {
+                  response = await send(latest.access, latest.chatgptAccountId)
+                }
+              }
+              return response
+            }
+
             // Cast to include accountId field
             const authWithAccount = currentAuth as typeof currentAuth & { accountId?: string }
 
@@ -446,44 +515,7 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
               authWithAccount.accountId = newAccountId
             }
 
-            // Build headers
-            const headers = new Headers()
-            if (init?.headers) {
-              if (init.headers instanceof Headers) {
-                init.headers.forEach((value, key) => headers.set(key, value))
-              } else if (Array.isArray(init.headers)) {
-                for (const [key, value] of init.headers) {
-                  if (value !== undefined) headers.set(key, String(value))
-                }
-              } else {
-                for (const [key, value] of Object.entries(init.headers)) {
-                  if (value !== undefined) headers.set(key, String(value))
-                }
-              }
-            }
-
-            // Set authorization header with access token
-            headers.set("authorization", `Bearer ${currentAuth.access}`)
-
-            // Set ChatGPT-Account-Id header for organization subscriptions
-            if (authWithAccount.accountId) {
-              headers.set("ChatGPT-Account-Id", authWithAccount.accountId)
-            }
-
-            // Rewrite URL to Codex endpoint
-            const parsed =
-              requestInput instanceof URL
-                ? requestInput
-                : new URL(typeof requestInput === "string" ? requestInput : requestInput.url)
-            const url =
-              parsed.pathname.includes("/v1/responses") || parsed.pathname.includes("/chat/completions")
-                ? new URL(CODEX_API_ENDPOINT)
-                : parsed
-
-            return fetch(url, {
-              ...init,
-              headers,
-            })
+            return send(currentAuth.access, authWithAccount.accountId)
           },
         }
       },

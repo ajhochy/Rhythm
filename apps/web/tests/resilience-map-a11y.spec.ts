@@ -79,7 +79,7 @@ test.describe('determinism, contracts, accessibility, and control audit', () => 
 
   test('activates every visible primary workbench control with an observable result', async ({ page }) => {
     await openFixture(page);
-    await page.getByTestId('sessions-refresh').click(); await expect(page.getByTestId('toast-status')).toContainText('refreshed');
+    await page.getByRole('button', { name: 'View options', exact: true }).click(); await page.getByTestId('sessions-refresh').click(); await expect(page.getByTestId('toast-status')).toContainText('refreshed');
     await page.getByTestId('new-chat-instant').click(); await expect(page.getByRole('heading', { name: 'New chat 1' })).toBeVisible();
     await page.getByTestId('prepare-project').click(); await expect(page.getByTestId('prepare-project-dialog')).toBeVisible(); await page.getByTestId('confirm-prepare-project').click();
     const composerFast = page.getByTestId('composer-fast');
@@ -87,6 +87,6 @@ test.describe('determinism, contracts, accessibility, and control audit', () => 
     await composerFast.click();
     await expect(composerFast).toHaveAttribute('aria-pressed', fastBefore === 'true' ? 'false' : 'true');
     await page.getByTestId('inspector-context').click(); await expect(page.getByTestId('context-panel')).toBeVisible();
-    await page.getByTestId('tool-profiles').click(); await expect(page).toHaveURL(/#\/profiles/);
+    if (await page.getByTestId('rail-more').getAttribute('aria-expanded') !== 'true') await page.getByTestId('rail-more').click(); await page.getByTestId('tool-profiles').click(); await expect(page).toHaveURL(/#\/profiles/);
   });
 });

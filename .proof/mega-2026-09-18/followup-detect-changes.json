@@ -1,0 +1,21 @@
+Changes: 20 files, 38 symbols
+Affected processes: 0
+Risk level: low
+
+Changed symbols:
+  Symbol googleMobileExchange → apps/api_server/src/controllers/auth_controller.ts
+  Symbol AuthController → apps/api_server/src/controllers/auth_controller.ts
+  Symbol getMessages → apps/api_server/src/controllers/messages_controller.ts
+  Symbol createMessage → apps/api_server/src/controllers/messages_controller.ts
+  Symbol MessagesController → apps/api_server/src/controllers/messages_controller.ts
+  Symbol IntegrationAccountsRepository → apps/api_server/src/repositories/integration_accounts_repository.ts
+  Symbol upsertGoogleAccountAsync → apps/api_server/src/repositories/integration_accounts_repository.ts
+  Symbol upsertGoogleAccount → apps/api_server/src/repositories/integration_accounts_repository.ts
+  Symbol GoogleOAuthService → apps/api_server/src/services/google_oauth_service.ts
+  Symbol storeDesktopIntegration → apps/api_server/src/services/google_oauth_service.ts
+  Symbol assertDesktopConfigured → apps/api_server/src/services/google_oauth_service.ts
+  Symbol refreshAccessToken → apps/api_server/src/services/google_oauth_service.ts
+  Symbol runDesktopGoogleOAuth → apps/electron/src/desktop-google-oauth.mjs
+  Symbol server → apps/electron/src/desktop-google-oauth.mjs
+  Symbol buildGoogleAuthorizationUrl → apps/electron/src/google-oauth-core.mjs
+... and 23 more

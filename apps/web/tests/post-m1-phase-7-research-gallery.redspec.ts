@@ -6,13 +6,14 @@ const project = {
   goals: ['Preserve evidence'], domain: 'operations', profileId: 'research',
   passConfig: [{ role: 'evidence', profileId: 'research' }], modelPolicy: {},
   criticConfig: { enabled: true }, synthesisConfig: { enabled: true }, scheduleRef: null,
-  budget: { maxPasses: 1, maxTokens: 1000, maxCostUsd: 1, maxWallClockMs: 60_000 },
+  // The create dialog's defaults (a 1,000-token / 60 s budget used to exhaust every real run).
+  budget: { maxPasses: 3, maxTokens: 5_000_000, maxCostUsd: 5, maxWallClockMs: 1_800_000 },
   archivedAt: null, createdAt: '2026-08-15T10:00:00.000Z', updatedAt: '2026-08-15T10:00:00.000Z',
 };
 
 const run = {
   id: 'research-run-7', projectId: project.id, ownerUserId: 7, triggerType: 'manual',
-  configSnapshot: project, status: 'complete', progress: { passes: [] }, diagnostics: {},
+  configSnapshot: project, status: 'complete', progress: { passes: [], stages: [{ id: 'stage-synthesis-7', role: 'synthesis', status: 'done', report: '# Synthesis' }] }, diagnostics: {},
   startedAt: '2026-08-15T10:01:00.000Z', completedAt: '2026-08-15T10:02:00.000Z',
   createdAt: '2026-08-15T10:01:00.000Z', canonicalArtifact: { id: 'artifact-7' },
   artifacts: [{ id: 'artifact-7', artifact_role: 'canonical' }],

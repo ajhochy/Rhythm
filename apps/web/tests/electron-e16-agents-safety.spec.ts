@@ -1,3 +1,4 @@
+import { mkdir } from 'node:fs/promises';
 import { expect, test, type Page, type Route } from '@playwright/test';
 import { canonicalProfile, canonicalSession } from './post-m1-phase-5-live-fixtures';
 
@@ -10,11 +11,11 @@ const profiles = () => [
 ];
 const messages = [{ info: { id: 'task-output', role: 'output' }, parts: [{ id: 'task-part', type: 'tool', tool: 'task', state: { title: 'E16 child', status: 'completed', output: `task_id: ${child} (for resuming)` } }] }];
 
-async function open(page: Page, options: { working?: boolean; delayMention?: boolean; delayChild?: boolean } = {}) {
+async function open(page: Page, options: { working?: boolean; disabled?: boolean; delayMention?: boolean; delayChild?: boolean } = {}) {
   const denied: string[] = [];
   const requests: { method: string; path: string; body: any }[] = [];
   const frames: any[] = [];
-  const rows = [canonicalSession, { ...canonicalSession, id: b, sdkSessionId: 'sdk-b', name: 'E16 B', cwd: '/workspace/e16-b' }].map((row) => ({ ...row, status: options.working ? 'working' : 'idle' }));
+  const rows = [canonicalSession, { ...canonicalSession, id: b, sdkSessionId: 'sdk-b', name: 'E16 B', cwd: '/workspace/e16-b' }].map((row) => ({ ...row, status: options.working ? 'working' : options.disabled ? 'closed' : 'idle', sdkSessionId: options.disabled ? null : row.sdkSessionId }));
   const records = profiles();
   let releaseMention: (() => Promise<void>) | undefined;
   let releaseChild: (() => Promise<void>) | undefined;
@@ -31,7 +32,11 @@ async function open(page: Page, options: { working?: boolean; delayMention?: boo
       if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
       requests.push({ method: req.method(), path: url.pathname + url.search, body: req.postData() ? req.postDataJSON() : null });
       if (req.method() === 'GET') {
+        if (url.pathname === '/agents/usage-budget') return reply({ providers: [] });
+        if (url.pathname === '/workspaces/me/members') return reply([]);
+        if (/^\/agent-sessions\/[^/]+\/model-provenance$/.test(url.pathname)) return route.fulfill({ status: 404, headers, json: { error: 'No provenance yet' } });
         if (url.pathname === '/agents/models/catalog') return reply([{ provider: 'openai', modelId: 'gpt-5.6', displayName: 'GPT', authorized: true }]);
+        if (url.pathname === '/opencode/auth/openai/accounts') return reply({ accounts: [], defaultAccountId: null });
         if (url.pathname === '/opencode/auth/accounts') return reply({ accounts: ['account-old', 'account-edited'].map(id => ({ id, label: id })), defaultId: null });
         if (['/projects', '/shares', '/question'].includes(url.pathname)) return reply([]);
         // Do not accept the renderer's /agent-sessions//... requests.
@@ -74,6 +79,19 @@ async function open(page: Page, options: { working?: boolean; delayMention?: boo
     releaseMention: async () => { await expect.poll(() => Boolean(releaseMention)).toBe(true); await releaseMention!(); },
     releaseChild: async () => { await expect.poll(() => Boolean(releaseChild)).toBe(true); await releaseChild!(); },
   };
+}
+
+type DroppedFile = { name: string; type: string; bytes?: number[]; content?: string; size?: number };
+
+async function dispatchComposerFileEvent(page: Page, eventType: 'dragenter' | 'dragover' | 'dragleave' | 'drop', files: DroppedFile[]) {
+  return page.locator('[data-od-id="agent-composer"]').evaluate((element, input) => {
+    const transfer = new DataTransfer();
+    for (const file of input.files) {
+      const content = file.size === undefined ? file.content ?? new Uint8Array(file.bytes ?? []) : new Uint8Array(file.size);
+      transfer.items.add(new File([content], file.name, { type: file.type }));
+    }
+    return !element.dispatchEvent(new DragEvent(input.eventType, { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  }, { eventType, files });
 }
 
 test('e16-c1: bulk Cancel deselects without stopping either working agent', async ({ page }) => {
@@ -119,6 +137,84 @@ test('e16-c2: A files and delayed mention remain with A across A → B → A', a
   expect(net.denied).toEqual([]);
 });
 
+test('composer-drop-c1: real dropped files stay on chat, preview, and use the existing send pipeline', async ({ page }) => {
+  // Regression: browser drops navigated away because only the hidden file input accepted Files;
+  // the status, pending rows, URL, and emitted image data URL assertions fail if that returns.
+  const net = await open(page);
+  const url = page.url();
+  const files = [
+    { name: 'screenshot.png', type: 'image/png', bytes: [137, 80, 78, 71] },
+    { name: 'notes.txt', type: 'text/plain', content: 'notes' },
+  ];
+
+  await dispatchComposerFileEvent(page, 'dragenter', files);
+  await expect(page.getByText('Drop files to attach', { exact: true })).toBeVisible();
+  await mkdir('../../docs/ai/runs/artifacts/composer-drop-provider-model-search', { recursive: true });
+  await page.screenshot({ path: '../../docs/ai/runs/artifacts/composer-drop-provider-model-search/composer-drag-active.png' });
+  await dispatchComposerFileEvent(page, 'dragover', files);
+  await dispatchComposerFileEvent(page, 'dragleave', files);
+  await expect(page.getByText('Drop files to attach', { exact: true })).toHaveCount(0);
+  await dispatchComposerFileEvent(page, 'dragenter', files);
+  const prevented = await dispatchComposerFileEvent(page, 'drop', files);
+
+  expect(prevented).toBe(true);
+  await expect(page.getByText('Drop files to attach', { exact: true })).toHaveCount(0);
+  await expect(page).toHaveURL(url);
+  await expect(page.getByRole('region', { name: 'Pending attachments' })).toContainText('screenshot.png');
+  await expect(page.getByRole('region', { name: 'Pending attachments' })).toContainText('image/png');
+  await expect(page.getByRole('region', { name: 'Pending attachments' })).toContainText('notes.txt');
+  await page.screenshot({ path: '../../docs/ai/runs/artifacts/composer-drop-provider-model-search/composer-dropped-screenshot.png' });
+
+  await page.getByTestId('composer-send').click();
+  await expect.poll(() => net.frames.filter((frame) => frame.type === 'session.input').at(-1)).toMatchObject({
+    id: a,
+    parts: [
+      { type: 'file', mime: 'image/png', filename: 'screenshot.png', url: expect.stringMatching(/^data:image\/png;base64,/) },
+      { type: 'text', text: 'notes' },
+    ],
+  });
+});
+
+test('composer-drop-c2: PDF, other binary, and oversized drops retain existing send behavior', async ({ page }) => {
+  // Regression: routing dropped Files around the existing resolver could lose PDF data URLs,
+  // binary file: references, or the pre-send 20 MiB rejection that keeps the file pending.
+  const net = await open(page);
+  await dispatchComposerFileEvent(page, 'drop', [
+    { name: 'document.pdf', type: 'application/pdf', bytes: [37, 80, 68, 70] },
+    { name: 'archive.bin', type: 'application/octet-stream', bytes: [0, 1, 2] },
+  ]);
+  await page.getByTestId('composer-send').click();
+  await expect.poll(() => net.frames.filter((frame) => frame.type === 'session.input').at(-1)).toMatchObject({
+    id: a,
+    parts: [
+      { type: 'file', mime: 'application/pdf', filename: 'document.pdf', url: expect.stringMatching(/^data:application\/pdf;base64,/) },
+      { type: 'file', mime: 'application/octet-stream', filename: 'archive.bin', url: 'file:archive.bin' },
+    ],
+  });
+
+  const sentFrames = net.frames.filter((frame) => frame.type === 'session.input').length;
+  await dispatchComposerFileEvent(page, 'drop', [
+    { name: 'too-large.bin', type: 'application/octet-stream', size: 20 * 1024 * 1024 + 1 },
+  ]);
+  await page.getByTestId('composer-send').click();
+  const feedback = page.getByTestId('attachment-feedback');
+  await expect(feedback).toHaveAttribute('role', 'alert');
+  await expect(feedback).toContainText('Could not send: too-large.bin is larger than the 20 MiB limit.');
+  await expect(page.getByRole('region', { name: 'Pending attachments' })).toContainText('too-large.bin');
+  await page.waitForTimeout(100);
+  expect(net.frames.filter((frame) => frame.type === 'session.input')).toHaveLength(sentFrames);
+});
+
+test('composer-drop-c4: disabled live composer blocks navigation and explains rejected files', async ({ page }) => {
+  // Regression: disabled controls did not cover the form drop target; pending attachments and
+  // missing feedback assertions fail if read-only sessions silently accept or navigate on drop.
+  await open(page, { disabled: true });
+  const prevented = await dispatchComposerFileEvent(page, 'drop', [{ name: 'blocked.txt', type: 'text/plain', content: 'blocked' }]);
+  expect(prevented).toBe(true);
+  await expect(page.getByTestId('live-attachment-list')).toHaveCount(0);
+  await expect(page.getByTestId('attachment-feedback')).toContainText('This run has ended.');
+});
+
 test('e16-c3: ephemeral child cannot compose to parent and rail selection exits child', async ({ page }) => {
   const net = await open(page);
   await page.getByTestId(`open-child-${child}`).click();
@@ -144,13 +240,19 @@ test('e16-c3-race: delayed child response cannot replace another rail session', 
   expect(net.denied).toEqual([]);
 });
 
+// Profiles is a column browser: open a setting group before using its controls.
+const openGroup = (page: Page, name: string) => page.getByTestId('settings-column-groups').getByRole('option', { name, exact: true }).click();
+
 test('e16-c4-policy: edited permission/delegates override stale raw JSON and survive reload', async ({ page }) => {
   const net = await open(page);
-  await page.getByTestId('tool-profiles').click();
+  if (await page.getByTestId('rail-more').getAttribute('aria-expanded') !== 'true') await page.getByTestId('rail-more').click(); await page.getByTestId('tool-profiles').click();
   await page.getByTestId(`profile-${canonicalProfile.id}`).click();
+  await openGroup(page, 'Permissions');
   await expect(page.getByTestId('profile-permissions')).toHaveValue('{"bash":"ask"}');
-  await expect(page.getByTestId('delegate-phase-5-child-profile')).toBeChecked();
+  await page.getByText('Advanced (JSON)', { exact: true }).click();
   await page.getByTestId('profile-permissions').fill('{"bash":"deny"}');
+  await openGroup(page, 'Delegation');
+  await expect(page.getByTestId('delegate-phase-5-child-profile')).toBeChecked();
   await page.getByTestId('delegate-phase-5-child-profile').uncheck();
   await page.getByTestId('profile-save').click();
   await expect.poll(() => net.requests.filter((r) => r.method === 'PATCH').length).toBe(1);
@@ -160,15 +262,17 @@ test('e16-c4-policy: edited permission/delegates override stale raw JSON and sur
   expect(net.records[0]).toEqual({ ...canonicalProfile, corePermissionsJson: '{"bash":"deny"}', allowedDelegatesJson: '[]', defaultAnthropicAccountId: 'account-old' });
   await page.reload();
   await page.getByTestId(`profile-${canonicalProfile.id}`).click();
-  await expect(page.getByTestId('profile-permissions')).toHaveValue('{"bash":"deny"}');
   await expect(page.getByTestId('delegate-phase-5-child-profile')).not.toBeChecked();
+  await openGroup(page, 'Permissions');
+  await expect(page.getByTestId('profile-permissions')).toHaveValue('{"bash":"deny"}');
   expect(net.denied).toEqual([]);
 });
 
 test('e16-c4-account: canonical account ID edit and clear survive reload', async ({ page }) => {
   const net = await open(page);
-  await page.getByTestId('tool-profiles').click();
+  if (await page.getByTestId('rail-more').getAttribute('aria-expanded') !== 'true') await page.getByTestId('rail-more').click(); await page.getByTestId('tool-profiles').click();
   await page.getByTestId(`profile-${canonicalProfile.id}`).click();
+  await openGroup(page, 'Provider, model & account');
   await expect(page.getByTestId('profile-account')).toHaveValue('account-old');
   for (const account of ['account-edited', '']) {
     await page.getByTestId('profile-account').selectOption(account);
@@ -184,12 +288,15 @@ test('e16-c4-account: canonical account ID edit and clear survive reload', async
 
 test('e16-c4-unsupported: managed skills cannot claim to save; canonical auto-approve stays opt-in', async ({ page }) => {
   const net = await open(page);
-  await page.getByTestId('tool-profiles').click();
+  if (await page.getByTestId('rail-more').getAttribute('aria-expanded') !== 'true') await page.getByTestId('rail-more').click(); await page.getByTestId('tool-profiles').click();
   await page.getByTestId(`profile-${canonicalProfile.id}`).click();
+  await openGroup(page, 'Availability & defaults');
   await expect(page.getByTestId('profile-managed-skills')).toBeDisabled();
   await expect(page.getByText('Managed skills cannot be saved by this editor.')).toBeVisible();
+  await openGroup(page, 'Provider, model & account');
   await page.getByTestId('profile-account').scrollIntoViewIfNeeded();
   await page.screenshot({ path: '/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/opencode/e16-profile-controls.png' });
+  await openGroup(page, 'Permissions');
   await expect(page.getByTestId('profile-auto-approve')).not.toBeChecked();
   expect(net.requests.filter((r) => r.method !== 'GET')).toEqual([]);
   expect(net.denied).toEqual([]);

@@ -11,9 +11,8 @@
  *   • Anthropic  — minimal /v1/messages probe → `anthropic-ratelimit-unified-*`
  *                  headers (5h + 7d utilization + reset). OAuth access token via
  *                  CredentialsBridgeService (kept fresh from Claude Code).
- *   • OpenAI     — NOT available: the ChatGPT-plan OAuth token is rejected by
- *                  the standard API (401) and Codex's usage backend is
- *                  undocumented. Reported as `unavailable` (never faked).
+ *   • OpenAI     — GET ChatGPT Codex's read-only /backend-api/wham/usage;
+ *                  validates OAuth and both independent rolling windows.
  *
  * Tokens are read fresh per refresh from opencode's auth.json (google,
  * openrouter) / Claude Code creds (anthropic). Results are cached for
@@ -28,6 +27,7 @@ import { logger } from '../utils/logger';
 import { GEMINI_CODE_ASSIST_PROJECT_ID } from '../config/env';
 import { CredentialsBridgeService } from './credentials_bridge_service';
 import { anthropicAccountsService } from './anthropic_accounts_service';
+import { openaiAccountsService, identityFromTokens } from './openai_accounts_service';
 
 export type UsageBudgetKind = 'quota' | 'credits' | 'window' | 'unavailable';
 
@@ -56,6 +56,10 @@ export interface UsageBudgetProvider {
    * account's usage gauges simultaneously, not just the active/default one.
    */
   accountId?: string;
+  /** True for the account that is currently the provider's default/active one. */
+  isDefault?: boolean;
+  /** Account-scoped catalog availability with no credential or account data. */
+  entitledModels?: Record<string, boolean>;
 }
 
 export interface UsageBudgetSnapshot {
@@ -76,7 +80,9 @@ let _inflight: Promise<UsageBudgetSnapshot> | null = null;
 function readAuthJson(): Record<string, unknown> {
   try {
     if (!existsSync(AUTH_PATH)) return {};
-    return JSON.parse(readFileSync(AUTH_PATH, 'utf8')) as Record<string, unknown>;
+    const parsed: unknown = JSON.parse(readFileSync(AUTH_PATH, 'utf8'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown> : {};
   } catch {
     return {};
   }
@@ -269,26 +275,159 @@ async function fetchAnthropic(auth: Record<string, unknown>): Promise<UsageBudge
   return [await probeAnthropicAccount(token, base)];
 }
 
-function openAiUnavailable(): UsageBudgetProvider {
-  return {
-    provider: 'openai',
-    label: 'OpenAI',
-    kind: 'unavailable',
-    items: [],
-    reason:
-      'No usage API for the ChatGPT-plan token (standard API returns 401; Codex usage backend is undocumented).',
-  };
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const safeAccountId = (value: unknown): value is string =>
+  typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
+
+/**
+ * Probe ONE OpenAI (ChatGPT/Codex) account's usage window via the unofficial
+ * read-only Codex endpoint. Reject unknown shapes rather than invent quota.
+ * Never throws.
+ */
+async function probeOpenAIAccount(
+  access: string,
+  accountId: string,
+  base: UsageBudgetProvider,
+): Promise<UsageBudgetProvider> {
+  const unavailable = (reason: string): UsageBudgetProvider => ({ ...base, kind: 'unavailable', reason });
+  try {
+    const res = await fetch('https://chatgpt.com/backend-api/wham/usage', {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${access}`, 'ChatGPT-Account-Id': accountId,
+        'User-Agent': 'codex-cli', Accept: 'application/json' },
+      redirect: 'error',
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    });
+    if (!res.ok) return unavailable('OpenAI usage unavailable');
+    if (!/^application\/json(?:\s*;|\s*$)/i.test(res.headers.get('content-type') ?? '')) {
+      return unavailable('OpenAI usage response unavailable');
+    }
+    const data: unknown = await res.json();
+    if (!isRecord(data) || !isRecord(data.rate_limit)) return unavailable('OpenAI usage response unavailable');
+    const entitledEntries = isRecord(data.model_usage)
+      ? Object.entries(data.model_usage).flatMap(([modelId, value]) =>
+          modelId.length > 0 &&
+          modelId.length <= 256 &&
+          isRecord(value) &&
+          typeof value.available === 'boolean'
+            ? [[modelId, value.available] as const]
+            : [])
+      : [];
+    const items: Array<{ seconds: number; item: UsageBudgetItem }> = [];
+    for (const key of ['primary_window', 'secondary_window'] as const) {
+      const w = data.rate_limit[key];
+      if (!isRecord(w) || typeof w.used_percent !== 'number' ||
+          !Number.isFinite(w.used_percent) || w.used_percent < 0 || w.used_percent > 100 ||
+          typeof w.limit_window_seconds !== 'number' || !Number.isSafeInteger(w.limit_window_seconds) ||
+          w.limit_window_seconds <= 0) continue;
+      let resetAt: string | null = null;
+      if (w.reset_at != null) {
+        if (typeof w.reset_at !== 'number' || !Number.isInteger(w.reset_at) ||
+            w.reset_at < 946684800 || w.reset_at > 4102444800) continue;
+        resetAt = new Date(w.reset_at * 1000).toISOString();
+      } else if (w.reset_after_seconds != null) {
+        if (typeof w.reset_after_seconds !== 'number' || !Number.isInteger(w.reset_after_seconds) ||
+            w.reset_after_seconds <= 0 || w.reset_after_seconds > 31536000) continue;
+        resetAt = new Date(Date.now() + w.reset_after_seconds * 1000).toISOString();
+      }
+      const seconds = w.limit_window_seconds;
+      const label = seconds === 18000 ? '5h limit' : seconds === 604800 ? 'weekly' :
+        [[Math.floor(seconds / 3600), 'h'], [Math.floor(seconds % 3600 / 60), 'm'], [seconds % 60, 's']]
+          .filter(([count]) => count !== 0).map(([count, unit]) => `${count}${unit}`).join(' ');
+      items.push({ seconds, item: { label, remainingFraction: (100 - w.used_percent) / 100, resetAt } });
+    }
+    if (!items.length) return unavailable('OpenAI usage response unavailable');
+    items.sort((a, b) => a.seconds - b.seconds);
+    return {
+      ...base,
+      kind: 'window',
+      items: items.map(({ item }) => item),
+      ...(entitledEntries.length > 0
+        ? { entitledModels: Object.fromEntries(entitledEntries) }
+        : {}),
+    };
+  } catch {
+    // ponytail: fixed reason only; provider exceptions may carry credentials or response text.
+    return unavailable('OpenAI usage unavailable');
+  }
+}
+
+/**
+ * One UsageBudgetProvider entry PER connected OpenAI account, probed
+ * concurrently — the OpenAI sibling of fetchAnthropic (#907). Falls back to
+ * the legacy single-credential path (engine auth.json) when the accounts
+ * store has nothing yet.
+ */
+async function fetchOpenAI(auth: Record<string, unknown>): Promise<UsageBudgetProvider[]> {
+  const { accounts, defaultAccountId } = openaiAccountsService.listRedacted();
+
+  if (accounts.length > 0) {
+    return Promise.all(
+      accounts.map((account) => {
+        const base: UsageBudgetProvider = {
+          provider: 'openai',
+          label: `OpenAI — ${account.label}`,
+          kind: 'window',
+          items: [],
+          accountId: account.id,
+          isDefault: account.id === defaultAccountId,
+        };
+        if (account.status !== 'ok') {
+          return { ...base, kind: 'unavailable' as const, reason: 'Account needs re-login' };
+        }
+        const full = openaiAccountsService.getAccount(account.id);
+        const chatgptAccountId = full?.chatgptAccountId ?? identityFromTokens({ access_token: full?.access }).chatgptAccountId;
+        if (!full?.access || !chatgptAccountId) {
+          return { ...base, kind: 'unavailable' as const, reason: 'OpenAI account unavailable' };
+        }
+        return probeOpenAIAccount(full.access, chatgptAccountId, base);
+      }),
+    );
+  }
+
+  const base: UsageBudgetProvider = { provider: 'openai', label: 'OpenAI', kind: 'unavailable', items: [] };
+  const unavailable = (reason: string): UsageBudgetProvider => ({ ...base, reason });
+  const credential = auth.openai;
+  if (!isRecord(credential) || credential.type !== 'oauth' ||
+      typeof credential.access !== 'string' || !credential.access ||
+      typeof credential.expires !== 'number' || !Number.isFinite(credential.expires) ||
+      credential.expires <= Date.now()) return [unavailable('OpenAI credentials unavailable')];
+
+  let claims: unknown;
+  try {
+    const parts = credential.access.split('.');
+    if (parts.length !== 3 || !parts.every((part) => /^[A-Za-z0-9_-]+$/.test(part))) return [unavailable('OpenAI token unavailable')];
+    claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+  } catch {
+    return [unavailable('OpenAI token unavailable')];
+  }
+  if (!isRecord(claims) || typeof claims.exp !== 'number' ||
+      !Number.isFinite(claims.exp) || claims.exp * 1000 <= Date.now()) {
+    return [unavailable('OpenAI token unavailable')];
+  }
+  const nested = claims['https://api.openai.com/auth'];
+  const organizations = claims.organizations;
+  const candidates = [credential.accountId, claims.chatgpt_account_id,
+    isRecord(nested) ? nested.chatgpt_account_id : undefined,
+    Array.isArray(organizations) && isRecord(organizations[0]) ? organizations[0].id : undefined];
+  const accountId = candidates.find(safeAccountId);
+  if (!accountId) return [unavailable('OpenAI account unavailable')];
+
+  return [await probeOpenAIAccount(credential.access, accountId, base)];
 }
 
 async function buildSnapshot(): Promise<UsageBudgetSnapshot> {
   const auth = readAuthJson();
-  const [gemini, openrouter, anthropicAccounts] = await Promise.all([
+  const [gemini, openrouter, anthropicAccounts, openaiAccounts] = await Promise.all([
     fetchGemini(auth),
     fetchOpenRouter(auth),
     fetchAnthropic(auth),
+    fetchOpenAI(auth),
   ]);
   return {
-    providers: [...anthropicAccounts, openrouter, gemini, openAiUnavailable()],
+    providers: [...anthropicAccounts, openrouter, gemini, ...openaiAccounts],
     fetchedAt: new Date().toISOString(),
   };
 }
@@ -297,8 +436,18 @@ async function buildSnapshot(): Promise<UsageBudgetSnapshot> {
  * Return a usage-budget snapshot, served from a short-lived cache. Pass
  * `force` to bypass the cache (manual refresh).
  */
-export async function getUsageBudget(opts?: { force?: boolean }): Promise<UsageBudgetSnapshot> {
+export async function getUsageBudget(opts?: {
+  force?: boolean;
+  /** Read the existing cache without causing any provider network request. */
+  cachedOnly?: boolean;
+}): Promise<UsageBudgetSnapshot> {
   const now = Date.now();
+  if (opts?.cachedOnly) {
+    return _cache?.snapshot ?? {
+      providers: [],
+      fetchedAt: new Date(now).toISOString(),
+    };
+  }
   if (!opts?.force && _cache && now - _cache.at < CACHE_TTL_MS) {
     return _cache.snapshot;
   }

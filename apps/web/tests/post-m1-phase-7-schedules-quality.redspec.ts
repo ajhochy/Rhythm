@@ -45,6 +45,27 @@ test('post-m1-p7-c2h: durable schedule history uses canonical run rows and owned
   await expect.poll(() => matching(seen, 'GET', `/agent-sessions/${run.rootSessionId}`).length).toBe(1);
 });
 
+test('issue-1513-c4: opening a schedule run selects its owned root session in Agents', async ({ page }) => {
+  // Regression caught: the run lookup succeeds but generic /agents navigation
+  // leaves the previously selected conversation in the inspector.
+  const seen: SeenRequest[] = [];
+  const run = { id: 'schedule-run-owned', taskId: task.id, startedAt: '2026-08-15T10:00:00.000Z', endedAt: null, status: 'completed', error: null, rootSessionId: 'root-session-owned', createdAt: '2026-08-15T10:00:00.000Z' };
+  await openPhase7Live(page, '/tools/tasks', seen, async (route, request) => {
+    const url = new URL(request.url());
+    if (url.pathname === '/agent-schedules') return fulfillJson(route, 200, [task]).then(() => true);
+    if (url.pathname === `/agent-schedules/${task.id}/runs`) return fulfillJson(route, 200, [run]).then(() => true);
+    if (url.pathname === `/agent-sessions/${run.rootSessionId}`) {
+      const session = { id: run.rootSessionId, name: 'Owned schedule run', ownerUserId: 7, scope: 'scheduled', status: 'idle' };
+      return fulfillJson(route, 200, url.searchParams.has('transcriptLimit') ? { session, messages: [] } : { session }).then(() => true);
+    }
+    return false;
+  });
+
+  await page.getByTestId(`schedule-run-${run.id}`).click();
+  await expect(page.locator('.agents-workspace .session-header h1')).toHaveText('Owned schedule run');
+  await expect.poll(() => matching(seen, 'GET', `/agent-sessions/${run.rootSessionId}`).length).toBe(2);
+});
+
 test('post-m1-p7-c2i: live report card renders nullable and unmeasured owner-scoped run evidence', async ({ page }) => {
   // Regression caught: fixed 89%/83% scorecards are presented as live evidence.
   const seen: SeenRequest[] = [];

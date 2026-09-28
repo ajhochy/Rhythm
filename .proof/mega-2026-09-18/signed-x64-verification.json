@@ -1,0 +1,53 @@
+{
+  "at": "2026-09-19T16:34:11.074369+00:00",
+  "source": "70bcf2c96a9a74521d4b61f009bf47aa89557436",
+  "run": 35454150623,
+  "artifactId": 10587743120,
+  "architecture": "x64",
+  "archiveSha256": "336c9f80444918d5372e3d65967dec94f2df58b8728aef8959a10e37d43f8d5e",
+  "archiveBytes": 215918582,
+  "actionsArtifactDigest": "sha256:7ebf8090a826e21042a27ec24aff267ab3068a093d164ef0dd9427db09e188eb",
+  "checks": [
+    {
+      "command": [
+        "codesign",
+        "--verify",
+        "--deep",
+        "--strict",
+        ".proof/mega-2026-09-18/signed-35454150623-x64/extracted/Rhythm.app"
+      ],
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "spctl",
+        "--assess",
+        "--type",
+        "execute",
+        "--verbose",
+        ".proof/mega-2026-09-18/signed-35454150623-x64/extracted/Rhythm.app"
+      ],
+      "exitCode": 0,
+      "output": ".proof/mega-2026-09-18/signed-35454150623-x64/extracted/Rhythm.app: accepted\nsource=Notarized Developer ID"
+    },
+    {
+      "command": [
+        "xcrun",
+        "stapler",
+        "validate",
+        ".proof/mega-2026-09-18/signed-35454150623-x64/extracted/Rhythm.app"
+      ],
+      "exitCode": 0,
+      "output": "Processing: /Users/ajhochhalter/Documents/Rhythm/.mega-wt/integration/.proof/mega-2026-09-18/signed-35454150623-x64/extracted/Rhythm.app\nThe validate action worked!"
+    }
+  ],
+  "mainAndEngineArchitecture": "x86_64",
+  "embeddedSourceVersionPresent": true,
+  "iconSourceImagesMatched": 10,
+  "iconSha256": "94bc52da4d844672161301bf6301ce77528365ae4bc01a9aa8693cc6d1db63e5",
+  "sourceFilesMatched": 4,
+  "installed": false,
+  "localNativeLaunch": false,
+  "scratchRemoved": true
+}

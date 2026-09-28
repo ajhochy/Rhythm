@@ -32,6 +32,27 @@ export interface MobileOpenCodeOwnershipReader {
     ownerUserId: number,
     projectId: string,
   ): string | null;
+  resolveOrCreatePromptMessageId?(
+    ownerUserId: number,
+    projectId: string,
+    sessionId: string,
+    clientMessageId: string,
+    proposedEngineMessageId: string,
+  ): string;
+  /**
+   * Overwrites a mapping that was reserved but never accepted by the engine
+   * (the duplicate-check GET returned 404 for its id) with a freshly minted
+   * id. Conditional on the stale id so a concurrent rotation can't clobber
+   * another caller's write; always returns the row's current value.
+   */
+  rotatePromptMessageId?(
+    ownerUserId: number,
+    projectId: string,
+    sessionId: string,
+    clientMessageId: string,
+    staleEngineMessageId: string,
+    freshEngineMessageId: string,
+  ): string;
 }
 
 export interface MobileOpenCodeOwnershipStore
@@ -72,6 +93,16 @@ export function initializeMobileOpenCodeOwnershipSchema(
         project_id,
         resource_kind
       );
+
+    CREATE TABLE IF NOT EXISTS mobile_prompt_idempotency (
+      owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      client_message_id TEXT NOT NULL,
+      engine_message_id TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (owner_user_id, project_id, session_id, client_message_id)
+    );
   `);
 }
 
@@ -101,6 +132,50 @@ export class MobileOpenCodeOwnershipRepository
         owner_user_id: number | null;
         project_id: string | null;
       } | undefined;
+  }
+
+  resolveOrCreatePromptMessageId(
+    ownerUserId: number,
+    projectId: string,
+    sessionId: string,
+    clientMessageId: string,
+    proposedEngineMessageId: string,
+  ): string {
+    return this.db.transaction(() => {
+      this.db.prepare(
+        `INSERT OR IGNORE INTO mobile_prompt_idempotency
+          (owner_user_id, project_id, session_id, client_message_id, engine_message_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(ownerUserId, projectId, sessionId, clientMessageId, proposedEngineMessageId, new Date().toISOString());
+      const row = this.db.prepare(
+        `SELECT engine_message_id FROM mobile_prompt_idempotency
+          WHERE owner_user_id = ? AND project_id = ? AND session_id = ? AND client_message_id = ?`,
+      ).get(ownerUserId, projectId, sessionId, clientMessageId) as { engine_message_id: string };
+      return row.engine_message_id;
+    })();
+  }
+
+  rotatePromptMessageId(
+    ownerUserId: number,
+    projectId: string,
+    sessionId: string,
+    clientMessageId: string,
+    staleEngineMessageId: string,
+    freshEngineMessageId: string,
+  ): string {
+    return this.db.transaction(() => {
+      this.db.prepare(
+        `UPDATE mobile_prompt_idempotency
+            SET engine_message_id = ?, created_at = ?
+          WHERE owner_user_id = ? AND project_id = ? AND session_id = ? AND client_message_id = ?
+            AND engine_message_id = ?`,
+      ).run(freshEngineMessageId, new Date().toISOString(), ownerUserId, projectId, sessionId, clientMessageId, staleEngineMessageId);
+      const row = this.db.prepare(
+        `SELECT engine_message_id FROM mobile_prompt_idempotency
+          WHERE owner_user_id = ? AND project_id = ? AND session_id = ? AND client_message_id = ?`,
+      ).get(ownerUserId, projectId, sessionId, clientMessageId) as { engine_message_id: string };
+      return row.engine_message_id;
+    })();
   }
 
   claimResource(

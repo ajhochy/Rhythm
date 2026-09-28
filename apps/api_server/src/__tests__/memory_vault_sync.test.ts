@@ -268,7 +268,7 @@ describe('Memory-Vault mirror-sync (WI6)', () => {
 
     const summary = await syncMemoryVault({ vaultPath: vaultDir });
 
-    expect(RESERVED_VAULT_FILENAMES).toEqual(['index.md', 'log.md']);
+    expect(RESERVED_VAULT_FILENAMES).toEqual(['index.md', 'log.md', 'readme.md']);
     expect(isReservedVaultFilename('LOG-ARCHIVE-2025.MD')).toBe(true);
     expect(summary).toEqual({ scanned: 1, upserted: 1, deleted: 3 });
     const rows = await repo.listAsync(undefined, undefined, 50);

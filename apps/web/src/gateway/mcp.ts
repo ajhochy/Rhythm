@@ -12,6 +12,10 @@ export interface McpServer {
   needsCredentials: boolean;
   source: 'curated' | 'rhythm' | 'adhoc';
   tools: string[];
+  // Inspector header facts — sanitized locator only, never full args/url. Absent
+  // (undefined) on an older api_server that hasn't deployed this field yet.
+  transport?: { kind: 'stdio'; program: string } | { kind: 'remote'; host: string } | null;
+  usedByProfiles?: { count: number; names: string[] };
 }
 
 export interface AddMcpServerInput {

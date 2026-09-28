@@ -2,21 +2,26 @@
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { EventEmitter } from 'node:events';
-import { createContext, SourceTextModule, SyntheticModule } from 'node:vm';
+import { createContext, runInNewContext, SourceTextModule, SyntheticModule } from 'node:vm';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import test from 'node:test';
+import {
+  AGENT_SERVER_KEYS, AUTH_KEYS, BRIDGE_KEYS, COLONY_VIEW_KEYS, GATEWAY_KEYS,
+  HERMES_KEYS, HERMES_VIEW_KEYS, HUMAN_APPROVAL_KEYS, UPDATE_KEYS,
+} from '../src/security-smoke-receipt.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const shellRoot = resolve(here, '..');
 const electron = resolve(shellRoot, 'node_modules/.bin/electron');
 let smokeResult;
+let saveDialog = async () => ({ canceled: true });
 
 // Execute the real main module; replace only host boundaries, never its flag/lifecycle logic.
 // No Electron child, network, screenshot writes, timers, or real runtime ownership in this check.
-async function interactiveRuntime(argv, userData = '/fixture/interactive-user-data') {
+async function interactiveRuntime(argv, userData = '/fixture/interactive-user-data', selectDirectory = async () => ({ canceled: true, filePaths: [] }), autoQuit = true) {
   const calls = [], windows = [], handlers = new Map(), paths = new Map();
   const processBoundary = Object.assign(new EventEmitter(), {
     argv, env: { RHYTHM_LIVE_API_URL: 'http://127.0.0.1:4098', RHYTHM_LIVE_ENGINE_URL: 'http://127.0.0.1:4097', ...(userData ? { RHYTHM_SHELL_USER_DATA: userData } : {}) },
@@ -32,13 +37,16 @@ async function interactiveRuntime(argv, userData = '/fixture/interactive-user-da
     constructor() { calls.push('construct'); this.status = { status: 'stopped' }; }
     onStatusChange() { calls.push('subscribe'); }
     async start() { calls.push('start'); }
+    async restart() { calls.push('restart-agent'); return { ok: true }; }
     async stopGracefully() { calls.push('stop'); }
+    async stopForQuit() { calls.push('stop'); }
   }
   class Window {
     constructor(options) {
       this.options = options; windows.push(this);
-      this.webContents = Object.assign(new EventEmitter(), { send() {}, setWindowOpenHandler() {}, executeJavaScript: async () => {} });
+      this.webContents = Object.assign(new EventEmitter(), { mainFrame: { url: 'rhythm://app/index.html#/agents' }, isDestroyed: () => false, send() {}, setWindowOpenHandler() {}, executeJavaScript: async () => {} });
     }
+    static fromWebContents(contents) { return windows.find((window) => window.webContents === contents) ?? null; }
     isDestroyed() { return false; }
     async loadURL(url) { this.url = url; this.webContents.emit('did-finish-load'); }
   }
@@ -47,32 +55,42 @@ async function interactiveRuntime(argv, userData = '/fixture/interactive-user-da
   const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = '/fixture'; } });
   await module.link(async (name) => {
     let values;
-    if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: {}, dialog: { showErrorBox: () => calls.push('ownership-error'), showMessageBox: async () => { calls.push('migration'); return { response: 1 }; } } };
+    if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: { openExternal: async (url) => calls.push(['openExternal', url]) }, dialog: { showOpenDialog: selectDirectory, showSaveDialog: (...args) => saveDialog(...args), showErrorBox: () => calls.push('ownership-error'), showMessageBox: async () => { calls.push('migration'); return { response: 1 }; } } };
     else if (name === './agent-server.mjs') values = { AgentServerService: Server, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:4001', AGENT_SERVER_ENGINE_PORT: 4096, electronDbPath: () => '/fixture/electron.db', legacyFlutterDbPath: () => '/fixture/legacy.db' };
+    else if (name === './hermes-server.mjs') values = { createHermesSupervisor: () => ({ getStatus: () => ({ state: 'disabled', port: 9121, url: 'http://127.0.0.1:9121' }), onStatus() {}, async start() {}, async stop() {} }) };
     else if (name === './production-api-config.mjs') values = { createProductionApiConfig: () => ({ load: () => 'https://example.invalid' }), createProductionApiSetHandler: () => () => {} };
     else { values = { ...await import(name.startsWith('.') ? new URL(name, file).href : name) }; if (name === 'node:fs') values.existsSync = (path) => path !== '/fixture/electron.db'; }
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
   });
   await module.evaluate();
   await new Promise((done) => setImmediate(done));
-  app.emit('before-quit', { preventDefault: () => calls.push('prevent-quit') });
-  await new Promise((done) => setImmediate(done));
-  return { calls, windows, handlers, paths, processBoundary };
+  if (autoQuit) {
+    app.emit('before-quit', { preventDefault: () => calls.push('prevent-quit') });
+    await new Promise((done) => setImmediate(done));
+  }
+  return { app, calls, windows, handlers, paths, processBoundary };
 }
 
 test('interactive-runtime-c1: interactive smoke keeps the visible normal route', async () => {
   const result = await interactiveRuntime(['--interactive-smoke', '--allow-test-runtime-ports']);
-  assert.deepEqual(result.calls, [['lock', '/fixture/interactive-user-data']]);
+  assert.deepEqual(result.calls[0], ['lock', '/fixture/interactive-user-data']);
+  assert.ok(result.calls.includes('prevent-quit'));
+  assert.ok(result.calls.includes('quit'));
   assert.equal(result.windows.length, 1);
   assert.equal(result.windows[0].options.show, true);
   assert.equal(result.windows[0].url, 'rhythm://app/index.html#/agents');
 });
 
-test('interactive-runtime-c2: interactive smoke never owns or stops the external runtime', async () => {
+test('interactive-runtime-c2: interactive smoke leaves the external runtime unowned while Hermes has shutdown hooks', async () => {
   const result = await interactiveRuntime(['--interactive-smoke', '--allow-test-runtime-ports']);
-  assert.deepEqual(result.calls, [['lock', '/fixture/interactive-user-data']]);
-  assert.equal(result.processBoundary.listenerCount('SIGINT'), 0);
-  assert.equal(result.processBoundary.listenerCount('SIGTERM'), 0);
+  assert.deepEqual(result.calls[0], ['lock', '/fixture/interactive-user-data']);
+  assert.ok(!result.calls.includes('construct'));
+  assert.ok(!result.calls.includes('start'));
+  assert.ok(!result.calls.includes('stop'));
+  assert.ok(result.calls.includes('prevent-quit'));
+  assert.ok(result.calls.includes('quit'));
+  assert.equal(result.processBoundary.listenerCount('SIGINT'), 1);
+  assert.equal(result.processBoundary.listenerCount('SIGTERM'), 1);
   assert.equal(result.handlers.get('rhythm:agent-server:status')().status, 'stopped');
 });
 
@@ -95,6 +113,199 @@ test('interactive-runtime-c4: production still owns lifecycle; automated smoke s
   const smoke = await interactiveRuntime(['--smoke']);
   assert.equal(smoke.windows[0].options.show, false);
   for (const call of ['start', 'stop', 'migration', 'prevent-quit']) assert.ok(!smoke.calls.includes(call), call);
+});
+
+test('1555:electron-local-runtime-restart-ipc:5 preload exposes a frozen restart capability', async () => {
+  let bridge;
+  const calls = [];
+  runInNewContext(await readFile(resolve(shellRoot, 'src/preload.cjs'), 'utf8'), {
+    require(name) {
+      assert.equal(name, 'electron');
+      return {
+        contextBridge: { exposeInMainWorld: (key, value) => { assert.equal(key, 'rhythmShell'); bridge = value; } },
+        ipcRenderer: { on() {}, sendSync: () => 'https://example.invalid', invoke: async (...args) => { calls.push(args); return '/selected/project'; } },
+      };
+    },
+    process: { argv: [], env: {}, platform: 'darwin' },
+    window: { addEventListener() {} },
+  });
+  assert.deepEqual(Object.keys(bridge), BRIDGE_KEYS);
+  assert.equal(Object.isFrozen(bridge), true);
+  assert.deepEqual(Object.keys(bridge.agentServer), AGENT_SERVER_KEYS);
+  assert.equal(Object.isFrozen(bridge.agentServer), true);
+  assert.equal(await bridge.selectDirectory({ properties: ['openFile'] }), '/selected/project');
+  assert.deepEqual(calls, [['shell:select-directory']]);
+});
+
+test('task-safe-external-links-c2: preload exposes only openExternal to one IPC channel on bridge version 7', async () => {
+  let bridge;
+  const calls = [];
+  runInNewContext(await readFile(resolve(shellRoot, 'src/preload.cjs'), 'utf8'), {
+    require: () => ({
+      contextBridge: { exposeInMainWorld: (_key, value) => { bridge = value; } },
+      ipcRenderer: { on() {}, send() {}, sendSync: () => 'https://example.invalid', invoke: async (...args) => { calls.push(args); } },
+    }),
+    process: { argv: [], env: {}, platform: 'darwin' },
+    window: { addEventListener() {}, dispatchEvent() {} },
+  });
+  assert.equal(bridge.version, 7);
+  assert.equal(typeof bridge.openExternal, 'function');
+  await bridge.openExternal('https://example.com/path');
+  assert.deepEqual(calls, [['rhythm:shell:open-external', 'https://example.com/path']]);
+  assert.deepEqual(Object.keys(bridge), BRIDGE_KEYS);
+  assert.equal(Object.isFrozen(bridge), true);
+});
+
+test('task-safe-external-links-c3: main canonicalizes credential-free HTTP URLs and rejects malformed payloads before dispatch', async () => {
+  const runtime = await interactiveRuntime(['--interactive-smoke'], undefined, undefined, false);
+  const owner = runtime.windows[0];
+  const event = { sender: owner.webContents, senderFrame: owner.webContents.mainFrame };
+  const handler = runtime.handlers.get('rhythm:shell:open-external');
+  assert.equal(typeof handler, 'function');
+  await handler(event, 'HTTPS://Example.COM:443/a/../guide?q=1#start');
+  assert.deepEqual(runtime.calls.filter(Array.isArray).at(-1), ['openExternal', 'https://example.com/guide?q=1#start']);
+  await handler(event, 'http://Example.COM:80/plain');
+  assert.deepEqual(runtime.calls.filter(Array.isArray).at(-1), ['openExternal', 'http://example.com/plain']);
+  const dispatched = runtime.calls.filter((call) => Array.isArray(call) && call[0] === 'openExternal').length;
+  for (const payload of ['', 'x'.repeat(4097), 'not a url', 'https:example.com', ' https://example.com', 'https://example.com/\nnext', 'https://user@example.com', 'https://:secret@example.com', 'javascript:alert(1)', 'file:///tmp/a', 'data:text/plain,a', 'rhythm://settings']) {
+    await assert.rejects(handler(event, payload), /Invalid external URL/);
+  }
+  await assert.rejects(handler(event, 'https://example.com', 'extra'), /Invalid external URL/);
+  await assert.rejects(handler(event, { url: 'https://example.com' }), /Invalid external URL/);
+  assert.equal(runtime.calls.filter((call) => Array.isArray(call) && call[0] === 'openExternal').length, dispatched);
+  runtime.app.emit('before-quit', { preventDefault() {} });
+  await new Promise((done) => setImmediate(done));
+});
+
+test('task-safe-external-links-c8: external dispatch rejects foreign sender, frame, and document ownership', async () => {
+  const runtime = await interactiveRuntime(['--interactive-smoke'], undefined, undefined, false);
+  const owner = runtime.windows[0];
+  const event = { sender: owner.webContents, senderFrame: owner.webContents.mainFrame };
+  const handler = runtime.handlers.get('rhythm:shell:open-external');
+  for (const invalid of [{ sender: {}, senderFrame: event.senderFrame }, { ...event, senderFrame: { url: event.senderFrame.url } }, { ...event, senderFrame: undefined }]) {
+    await assert.rejects(handler(invalid, 'https://example.com'), /denied/);
+  }
+  for (const url of ['https://example.invalid', 'rhythm://other/index.html', 'rhythm-artifact://app/index.html']) {
+    event.senderFrame.url = url;
+    await assert.rejects(handler(event, 'https://example.com'), /denied/);
+  }
+  assert.equal(runtime.calls.some((call) => Array.isArray(call) && call[0] === 'openExternal'), false);
+  runtime.app.emit('before-quit', { preventDefault() {} });
+  await new Promise((done) => setImmediate(done));
+});
+
+test('directory-picker: owned native dialog returns only the first path string or null', async () => {
+  let response;
+  const dialogs = [];
+  const runtime = await interactiveRuntime(['--interactive-smoke'], undefined, async (owner, options) => {
+    dialogs.push({ owner, options }); return response;
+  });
+  const owner = runtime.windows[0];
+  const event = { sender: owner.webContents, senderFrame: owner.webContents.mainFrame };
+  const handler = runtime.handlers.get('shell:select-directory');
+  for (const [result, expected] of [
+    [{ canceled: false, filePaths: ['/Users/AJ/Project with spaces', '/second'], bookmarks: ['never exposed'] }, '/Users/AJ/Project with spaces'],
+    [{ canceled: true, filePaths: ['/discarded'] }, null],
+    [{ canceled: false, filePaths: [] }, null],
+    [{ canceled: false, filePaths: [''] }, null],
+    [{ canceled: false, filePaths: [123] }, '123'],
+  ]) {
+    response = result;
+    assert.equal(await handler(event), expected);
+    assert.equal(dialogs.at(-1).owner, owner);
+    assert.deepEqual(JSON.parse(JSON.stringify(dialogs.at(-1).options)), { properties: ['openDirectory', 'createDirectory'] });
+  }
+});
+
+test('directory-picker: foreign senders, frames, hosts and payloads cannot open the dialog', async () => {
+  let opened = 0;
+  const runtime = await interactiveRuntime(['--interactive-smoke'], undefined, async () => { opened++; return { canceled: true, filePaths: [] }; });
+  const owner = runtime.windows[0];
+  const event = { sender: owner.webContents, senderFrame: owner.webContents.mainFrame };
+  const handler = runtime.handlers.get('shell:select-directory');
+  for (const invalid of [{ sender: {}, senderFrame: event.senderFrame }, { ...event, senderFrame: { url: event.senderFrame.url } }, { ...event, senderFrame: undefined }]) {
+    await assert.rejects(handler(invalid), /denied/);
+  }
+  for (const url of ['https://example.invalid', 'rhythm://other/index.html', 'rhythm-artifact://app/index.html']) {
+    event.senderFrame.url = url;
+    await assert.rejects(handler(event), /denied/);
+  }
+  event.senderFrame.url = 'rhythm://app/index.html#/agents';
+  await assert.rejects(handler(event, { properties: ['openFile'] }), /Invalid IPC payload/);
+  owner.isDestroyed = () => true;
+  await assert.rejects(handler(event), /owner unavailable/);
+  assert.equal(opened, 0);
+});
+
+test('save-file: owned document saves text only where the native dialog points, with a sanitized suggested name', async () => {
+  const dir = await mkdtemp(resolve(tmpdir(), 'rhythm-save-file-'));
+  try {
+    const dialogs = [];
+    saveDialog = async (owner, options) => { dialogs.push({ owner, options }); return { canceled: false, filePath: resolve(dir, 'picked.html') }; };
+    const runtime = await interactiveRuntime(['--interactive-smoke'], undefined, undefined, false);
+    const owner = runtime.windows[0];
+    const event = { sender: owner.webContents, senderFrame: owner.webContents.mainFrame };
+    const handler = runtime.handlers.get('shell:save-file');
+    assert.equal(await handler(event, { suggestedName: '../../Week 4/run.html', contents: '<h1>Report</h1>' }), resolve(dir, 'picked.html'));
+    assert.equal(await readFile(resolve(dir, 'picked.html'), 'utf8'), '<h1>Report</h1>');
+    assert.equal(dialogs[0].owner, owner);
+    assert.equal(dialogs[0].options.defaultPath, resolve('/default-user-data', '-..-Week 4-run.html'));
+    assert.deepEqual(JSON.parse(JSON.stringify(dialogs[0].options.filters)), [{ name: 'HTML', extensions: ['html'] }]);
+    saveDialog = async () => ({ canceled: true, filePath: resolve(dir, 'never.md') });
+    assert.equal(await handler(event, { suggestedName: 'run.md', contents: '# r' }), null);
+    for (const [payload, extra] of [
+      [undefined, []], ['run.html', []], [{ suggestedName: 'run.exe', contents: 'x' }, []], [{ suggestedName: 'run.html' }, []],
+      [{ suggestedName: 'run.html', contents: 'x', path: '/etc/passwd' }, []], [{ suggestedName: 'run.html', contents: 'x' }, ['/tmp/x']],
+      [{ suggestedName: 'run.html', contents: 'x'.repeat(20 * 1024 * 1024 + 1) }, []],
+    ]) await assert.rejects(handler(event, payload, ...extra), /Invalid IPC payload/);
+    event.senderFrame.url = 'https://example.invalid';
+    await assert.rejects(handler(event, { suggestedName: 'run.html', contents: 'x' }), /denied/);
+    event.senderFrame.url = 'rhythm://app/index.html#/tools/deep-research';
+    saveDialog = async (window) => { window.webContents.mainFrame.url = 'https://example.invalid'; return { canceled: false, filePath: resolve(dir, 'stale.html') }; };
+    await assert.rejects(handler(event, { suggestedName: 'run.html', contents: 'x' }), /denied/);
+    await assert.rejects(readFile(resolve(dir, 'stale.html')), /ENOENT/);
+  } finally {
+    saveDialog = async () => ({ canceled: true });
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('save-file: preload forwards only the name and contents to one channel', async () => {
+  let bridge;
+  const calls = [];
+  runInNewContext(await readFile(resolve(shellRoot, 'src/preload.cjs'), 'utf8'), {
+    require: () => ({
+      contextBridge: { exposeInMainWorld: (_key, value) => { bridge = value; } },
+      ipcRenderer: { on() {}, send() {}, sendSync: () => 'https://example.invalid', invoke: async (...args) => { calls.push(args); return '/saved.html'; } },
+    }),
+    process: { argv: [], env: {}, platform: 'darwin' },
+    window: { addEventListener() {}, dispatchEvent() {} },
+  });
+  assert.equal(await bridge.saveFile('run.html', '<p>x</p>', '/etc/passwd'), '/saved.html');
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [['shell:save-file', { suggestedName: 'run.html', contents: '<p>x</p>' }]]);
+});
+
+test('directory-picker: navigation during selection cannot receive a stale path', async () => {
+  const runtime = await interactiveRuntime(['--interactive-smoke'], undefined, async (owner) => {
+    owner.webContents.mainFrame.url = 'https://example.invalid';
+    return { canceled: false, filePaths: ['/private/project'] };
+  });
+  const contents = runtime.windows[0].webContents;
+  await assert.rejects(runtime.handlers.get('shell:select-directory')({ sender: contents, senderFrame: contents.mainFrame }), /denied/);
+});
+
+test('1555:electron-local-runtime-restart-ipc:5 restart IPC accepts only the owned document with no payload', async () => {
+  const runtime = await interactiveRuntime([], undefined, undefined, false);
+  const owner = runtime.windows[0];
+  const event = { sender: owner.webContents, senderFrame: owner.webContents.mainFrame };
+  const handler = runtime.handlers.get('rhythm:agent-server:restart');
+  assert.equal(typeof handler, 'function');
+  assert.deepEqual(await handler(event), { ok: true });
+  assert.ok(runtime.calls.includes('restart-agent'));
+  await assert.rejects(handler({ sender: {}, senderFrame: event.senderFrame }), /denied/);
+  await assert.rejects(handler(event, { force: true }), /Invalid IPC payload/);
+  runtime.app.emit('before-quit', { preventDefault() {} });
+  await new Promise((done) => setImmediate(done));
 });
 
 test('slice-5-c1: resolves only files under the packaged web dist', async () => {
@@ -122,9 +333,9 @@ test('slice-5-c3: actual Electron launch loads the local agents route', async ()
 test('slice-5-c4: actual preload exposes only frozen versioned lifecycle, gateway configuration, Google auth, human-approval signing, and agent-server status', async () => {
   const result = await smoke();
   assert.deepEqual(result.runtime, { apiBase: 'http://127.0.0.1:4001', engineBase: 'http://127.0.0.1:4096', testOverride: false });
-  assert.deepEqual(result.bridge.keys, ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates']);
+  assert.deepEqual(result.bridge.keys, BRIDGE_KEYS);
   assert.equal(result.bridge.frozen, true);
-  assert.deepEqual(result.bridge.gateway.keys, ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase']);
+  assert.deepEqual(result.bridge.gateway.keys, GATEWAY_KEYS);
   assert.equal(result.bridge.gateway.frozen, true);
   assert.deepEqual(result.bridge.gateway.configured, {
     apiBase: true,
@@ -135,15 +346,24 @@ test('slice-5-c4: actual preload exposes only frozen versioned lifecycle, gatewa
     apiBase: 'http://127.0.0.1:4001',
     engineBase: 'http://127.0.0.1:4096',
   });
-  assert.deepEqual(result.bridge.auth.keys, ['signInWithGoogle', 'currentSession', 'logout']);
+  assert.deepEqual(result.bridge.auth.keys, AUTH_KEYS);
   assert.equal(result.bridge.auth.frozen, true);
   // post-m1-p7-c4e: a narrow, purpose-built surface only — never an arbitrary-sign primitive.
-  assert.deepEqual(result.bridge.humanApproval.keys, ['capability', 'signDecision']);
+  assert.deepEqual(result.bridge.humanApproval.keys, HUMAN_APPROVAL_KEYS);
   assert.equal(result.bridge.humanApproval.frozen, true);
-  assert.deepEqual(result.bridge.agentServer.keys, ['status', 'onStatusChange']);
+  assert.deepEqual(result.bridge.agentServer.keys, AGENT_SERVER_KEYS);
   assert.equal(result.bridge.agentServer.frozen, true);
-  assert.deepEqual(result.bridge.updates.keys, ['openDownloadPage']);
+  assert.deepEqual(result.bridge.updates.keys, UPDATE_KEYS);
   assert.equal(result.bridge.updates.frozen, true);
+  assert.deepEqual(result.bridge.hermes.keys, HERMES_KEYS);
+  assert.equal(result.bridge.hermes.frozen, true);
+  assert.deepEqual(result.bridge.hermesView.keys, HERMES_VIEW_KEYS);
+  assert.equal(result.bridge.hermesView.frozen, true);
+  assert.deepEqual(result.bridge.colonyView.keys, COLONY_VIEW_KEYS);
+  assert.equal(result.bridge.colonyView.frozen, true);
+  assert.equal(result.bridge.hermes.enabled, process.env.RHYTHM_HERMES_ENABLED !== '0');
+  assert.equal(result.bridge.hermes.status.state, process.env.RHYTHM_HERMES_ENABLED === '0' ? 'disabled' : 'stopped');
+  assert.equal(result.bridge.hermes.status.url, `http://127.0.0.1:${process.env.RHYTHM_HERMES_PORT ?? '9121'}`);
   assert.equal(result.bridge.nodeExposed, false);
 });
 
@@ -165,6 +385,11 @@ test('production repair: alternate local ports require an explicit smoke-only fl
 test('slice-5-c5: actual shell denies navigation, popups, permissions, and downloads', async () => {
   const result = await smoke();
   assert.deepEqual(result.denials, { navigation: true, popup: true, permission: true, download: true });
+  // window.open, <a target=_blank> and a main-frame navigation reach the (smoke-stubbed) system
+  // browser; javascript:/file:/custom-scheme/credentialed URLs never do, and no window is spawned.
+  assert.deepEqual(result.externalOpens, ['https://example.invalid/', 'https://example.invalid/anchor', 'https://example.invalid/navigate']);
+  assert.equal(result.windowCount, 1);
+  assert.match(result.url, /^rhythm:\/\/app\//);
   const missing = await runElectron(['.', '--smoke', '--missing-dist']);
   assert.equal(missing.code, 1);
   assert.match(missing.stderr, /requires built web assets/);

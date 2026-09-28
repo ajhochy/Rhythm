@@ -1,7 +1,12 @@
 import { useRouter } from 'expo-router';
-import { ScrollView, StyleSheet, View } from 'react-native';
-import { Avatar, Card, Text } from 'react-native-paper';
+import { StyleSheet, View } from 'react-native';
+import { Text } from 'react-native-paper';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
+import {
+  ToolCatalog,
+  type ToolCatalogGroup,
+} from '@/components/tools/tool-catalog';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import {
@@ -9,22 +14,29 @@ import {
   type ToolScreenId,
 } from '@/providers/services/rhythm-tools-service';
 
-const TOOL_COPY: Record<ToolScreenId, { description: string; icon: string }> = {
-  brain: { description: 'Search and maintain agent memory', icon: 'brain' },
-  research: { description: 'Start, follow, and review deep research', icon: 'book-search-outline' },
-  schedules: { description: 'Create jobs and run them on demand', icon: 'calendar-clock' },
-  webhooks: { description: 'Secure inbound automation endpoints', icon: 'webhook' },
-  profiles: { description: 'Agent prompts, models, scope, and delegation', icon: 'account-cog-outline' },
-  cookbook: { description: 'Reusable, profile-bound agent recipes', icon: 'book-open-variant' },
-  review: { description: 'Approve or reject optimizer proposals', icon: 'clipboard-check-outline' },
-  'report-card': { description: 'Completion, escalation, and quality trends', icon: 'chart-box-outline' },
-  email: { description: 'Cloud email signals, even while Mac is offline', icon: 'email-outline' },
-  gallery: { description: 'Cloud design previews and generated assets', icon: 'image-multiple-outline' },
-  skills: { description: 'View and author approved agent skills', icon: 'lightning-bolt-outline' },
-  playbooks: { description: 'Manage reusable slash-command workflows', icon: 'script-text-outline' },
-  mcp: { description: 'Connect and inspect MCP servers', icon: 'connection' },
-  models: { description: 'Providers, authentication, and model availability', icon: 'cpu-64-bit' },
+const TOOL_COPY: Record<ToolScreenId, { description: string; group: ToolCatalogGroup }> = {
+  brain: { description: 'Search and maintain agent memory', group: 'knowledge' },
+  research: { description: 'Start, follow, and review deep research', group: 'knowledge' },
+  schedules: { description: 'Create jobs and run them on demand', group: 'automation' },
+  webhooks: { description: 'Secure inbound automation endpoints', group: 'automation' },
+  profiles: { description: 'Agent prompts, models, scope, and delegation', group: 'automation' },
+  cookbook: { description: 'Reusable, profile-bound agent recipes', group: 'automation' },
+  review: { description: 'Approve or reject optimizer proposals', group: 'knowledge' },
+  'report-card': { description: 'Completion, escalation, and quality trends', group: 'knowledge' },
+  email: { description: 'Cloud email signals, even while Mac is offline', group: 'automation' },
+  gallery: { description: 'Cloud design previews and generated assets', group: 'automation' },
+  skills: { description: 'View and author approved agent skills', group: 'system' },
+  playbooks: { description: 'Manage reusable slash-command workflows', group: 'system' },
+  mcp: { description: 'Connect and inspect MCP servers', group: 'system' },
+  models: { description: 'Providers, authentication, and model availability', group: 'system' },
 };
+
+const TOOL_CATALOG_ITEMS = TOOL_SCREEN_MANIFEST.map((tool) => ({
+  id: tool.id,
+  title: tool.title,
+  group: TOOL_COPY[tool.id].group,
+  metadata: TOOL_COPY[tool.id].description,
+}));
 
 export default function ToolsScreen() {
   const router = useRouter();
@@ -32,45 +44,27 @@ export default function ToolsScreen() {
   const palette = Colors[colorScheme];
 
   return (
-    <View style={[styles.screen, { backgroundColor: palette.background }]}>
-      <ScrollView
-        accessibilityLabel="Agent tools"
-        contentContainerStyle={styles.content}>
+    <SafeAreaView edges={['top']} style={[styles.screen, { backgroundColor: palette.background }]}>
+      <View style={styles.header}>
         <Text accessibilityRole="header" style={[styles.largeTitle, { color: palette.text }]}>Tools</Text>
         <Text style={{ color: palette.muted }} variant="bodyLarge">
           Work with Rhythm’s knowledge, automation, operations, and connection
           tools through your paired Mac.
         </Text>
-        {TOOL_SCREEN_MANIFEST.map((tool) => {
-          const copy = TOOL_COPY[tool.id];
-          return (
-          <Card
-            accessibilityLabel={`${tool.title}. ${copy.description}`}
-            accessibilityRole="button"
-            key={tool.id}
-            mode="outlined"
-            onPress={() => router.push(tool.route as never)}
-            style={[styles.card, { borderColor: palette.border }]}>
-            <Card.Content style={styles.cardContent}>
-              <Avatar.Icon icon={copy.icon} size={44} />
-              <View style={styles.cardCopy}>
-                <Text variant="titleMedium" style={{ color: palette.text }}>{tool.title}</Text>
-                <Text variant="bodyMedium" style={{ color: palette.muted }}>{copy.description}</Text>
-              </View>
-            </Card.Content>
-          </Card>
-          );
-        })}
-      </ScrollView>
-    </View>
+      </View>
+      <ToolCatalog
+        items={TOOL_CATALOG_ITEMS}
+        onOpen={(id) => {
+          const destination = TOOL_SCREEN_MANIFEST.find((tool) => tool.id === id);
+          if (destination) router.push(destination.route as never);
+        }}
+      />
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { gap: 16, padding: 16, paddingBottom: 32 },
+  header: { gap: 8, paddingHorizontal: 16, paddingTop: 16 },
   largeTitle: { fontSize: 34, fontWeight: '700', lineHeight: 41 },
-  card: { borderRadius: 16 },
-  cardContent: { alignItems: 'center', flexDirection: 'row', gap: 12, minHeight: 72, paddingVertical: 12 },
-  cardCopy: { flex: 1, gap: 4, minWidth: 0 },
 });

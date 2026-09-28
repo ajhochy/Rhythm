@@ -1,0 +1,41 @@
+{
+  "at": "2026-09-19T15:23:01.881Z",
+  "collections": [
+    {
+      "route": "/tasks?status=all",
+      "status": 200,
+      "count": 1541,
+      "markerCount": 0
+    },
+    {
+      "route": "/facilities",
+      "status": 200,
+      "count": 18,
+      "markerCount": 0
+    },
+    {
+      "route": "/facilities/reservations",
+      "status": 200,
+      "count": 310,
+      "markerCount": 0
+    },
+    {
+      "route": "/project-templates",
+      "status": 200,
+      "count": 1,
+      "markerCount": 0
+    },
+    {
+      "route": "/automation-rules",
+      "status": 200,
+      "count": 3,
+      "markerCount": 0
+    },
+    {
+      "route": "/message-threads",
+      "status": 200,
+      "count": 7,
+      "markerCount": 0
+    }
+  ]
+}

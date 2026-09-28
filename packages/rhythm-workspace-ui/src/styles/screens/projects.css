@@ -1,0 +1,84 @@
+.rhythm-workspace-root .pg-projects { height: 100%; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; color: var(--rhythm-fg); background: color-mix(in oklab, var(--rhythm-bg), var(--rhythm-surface) 8%); }
+.rhythm-workspace-root .pg-projects .projects-header { min-width: 0; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; padding: 18px 22px; border-bottom: 1px solid var(--rhythm-border-soft); background: var(--rhythm-surface); }
+.rhythm-workspace-root .pg-projects .projects-heading h1 { margin: 2px 0 0; font-size: clamp(21px, 2vw, 27px); font-weight: 620; letter-spacing: -.025em; }
+.rhythm-workspace-root .pg-projects .projects-heading p { max-width: 60ch; margin: 4px 0 0; color: var(--rhythm-fg-muted); }
+.rhythm-workspace-root .pg-projects .projects-header > span { padding: 4px 8px; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-pill); color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 9px; }
+.rhythm-workspace-root .pg-projects .projects-scroll { min-width: 0; min-height: 0; overflow: auto; padding: 20px 24px 28px; display: grid; gap: 20px; }
+.rhythm-workspace-root .pg-projects .projects-state { min-height: 320px; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 18px auto; padding: 36px 24px; border-block: 1px solid var(--rhythm-border-soft); text-align: center; width: min(100%, 620px); }
+.rhythm-workspace-root .pg-projects .projects-state.danger { border-color: color-mix(in oklab, var(--rhythm-danger), var(--rhythm-border) 45%); }
+.rhythm-workspace-root .pg-projects .projects-state.warning { border-color: color-mix(in oklab, var(--rhythm-warning), var(--rhythm-border) 42%); }
+.rhythm-workspace-root .pg-projects .projects-state h2 { margin: 10px 0 4px; font-size: 20px; }
+.rhythm-workspace-root .pg-projects .projects-state p { max-width: 54ch; margin: 0 0 17px; color: var(--rhythm-fg-muted); }
+.rhythm-workspace-root .pg-projects .state-lines { width: min(100%, 340px); display: grid; gap: 7px; margin-top: 10px; }
+.rhythm-workspace-root .pg-projects .state-lines span { height: 8px; border-radius: var(--rhythm-radius-pill); background: var(--rhythm-surface-warm); }
+.rhythm-workspace-root .pg-projects .templates-rail { min-width: 0; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-md); padding: 16px; background: var(--rhythm-surface); }
+.rhythm-workspace-root .pg-projects .templates-rail > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.rhythm-workspace-root .pg-projects .templates-rail h2 { margin: 0; font-size: 15px; }
+.rhythm-workspace-root .pg-projects .template-list { display: grid; gap: 0; border-top: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-projects .template-row { display: grid; grid-template-columns: minmax(0, 1fr); border-bottom: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-projects .template-row[aria-selected="true"] { background: var(--rhythm-surface-warm); }
+.rhythm-workspace-root .pg-projects .template-select { width: 100%; min-height: 56px; display: grid; align-content: center; gap: 3px; padding: 8px 9px; border: 0; color: var(--rhythm-fg); background: transparent; cursor: pointer; text-align: start; }
+.rhythm-workspace-root .pg-projects .template-select strong { font-size: 12px; font-weight: 580; overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-projects .template-select span { color: var(--rhythm-fg-muted); font-size: 9px; }
+.rhythm-workspace-root .pg-projects .templates-rail > .primary-button { margin-top: 12px; }
+.rhythm-workspace-root .pg-projects .active-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.rhythm-workspace-root .pg-projects .active-toolbar h2 { margin: 0; font-size: 16px; }
+.rhythm-workspace-root .pg-projects .project-board { min-width: 0; display: grid; grid-template-columns: minmax(280px, .7fr) minmax(420px, 1.3fr); gap: 0; border-block: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-projects .project-list-pane { min-width: 0; border-inline-end: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-projects .instance-list { display: grid; gap: 0; }
+.rhythm-workspace-root .pg-projects .instance-row { border-bottom: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-projects .instance-row.selected { background: var(--rhythm-surface-warm); }
+.rhythm-workspace-root .pg-projects .instance-expand { width: 100%; min-height: 66px; display: grid; grid-template-columns: 82px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 10px; border: 0; color: var(--rhythm-fg); background: transparent; cursor: pointer; text-align: start; }
+.rhythm-workspace-root .pg-projects .instance-expand:hover { background: color-mix(in oklab, var(--rhythm-surface), var(--rhythm-fg) 5%); }
+.rhythm-workspace-root .pg-projects .instance-date { color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 9px; }
+.rhythm-workspace-root .pg-projects .instance-row-copy { min-width: 0; display: grid; gap: 2px; }
+.rhythm-workspace-root .pg-projects .instance-row-copy strong { font-size: 12px; font-weight: 590; overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-projects .instance-row-copy small { color: var(--rhythm-fg-muted); font-size: 9px; }
+.rhythm-workspace-root .pg-projects .status-badge { padding: 4px 8px; border: 1px solid var(--rhythm-border); border-radius: var(--rhythm-radius-pill); color: var(--rhythm-success); font-family: var(--rhythm-font-mono); font-size: 8px; }
+.rhythm-workspace-root .pg-projects .inline-empty { min-height: 200px; display: grid; place-content: center; justify-items: center; padding: 24px; color: var(--rhythm-fg-muted); text-align: center; }
+.rhythm-workspace-root .pg-projects .project-inspector { min-width: 0; padding: 0 18px 20px; background: color-mix(in oklab, var(--rhythm-surface), var(--rhythm-bg) 5%); }
+.rhythm-workspace-root .pg-projects .project-inspector.empty { display: grid; align-content: start; gap: 6px; padding-top: 20px; }
+.rhythm-workspace-root .pg-projects .project-inspector-header { min-width: 0; min-height: 70px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-projects .project-inspector-header h2 { margin: 0 0 4px; font-size: 18px; font-weight: 610; overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-projects .project-inspector-header p { margin: 0; color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 9px; }
+.rhythm-workspace-root .pg-projects .people-strip { padding: 12px 0; border-bottom: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-projects .people-strip h3 { margin: 0 0 8px; font-size: 12px; }
+.rhythm-workspace-root .pg-projects .people-list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.rhythm-workspace-root .pg-projects .person-chip { display: grid; grid-template-columns: 26px minmax(0, 1fr) 32px; align-items: center; gap: 6px; padding: 3px 4px 3px 6px; border: 1px solid var(--rhythm-border); border-radius: var(--rhythm-radius-pill); background: var(--rhythm-bg); }
+.rhythm-workspace-root .pg-projects .person-chip i { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; color: var(--rhythm-accent); background: var(--rhythm-surface-warm); font-style: normal; font-family: var(--rhythm-font-mono); font-size: 8px; }
+.rhythm-workspace-root .pg-projects .person-chip strong { font-size: 10px; overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-projects .timeline-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0 8px; }
+.rhythm-workspace-root .pg-projects .timeline-toolbar h3 { margin: 0; font-size: 13px; }
+.rhythm-workspace-root .pg-projects .milestone-list { display: grid; gap: 10px; }
+.rhythm-workspace-root .pg-projects .milestone-group { border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-sm); overflow: hidden; background: color-mix(in oklab, var(--rhythm-surface), var(--rhythm-bg) 4%); }
+.rhythm-workspace-root .pg-projects .milestone-group > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 11px; border-bottom: 1px solid var(--rhythm-border-soft); background: var(--rhythm-surface-warm); }
+.rhythm-workspace-root .pg-projects .milestone-group h4 { margin: 0; font-size: 11px; font-weight: 600; }
+.rhythm-workspace-root .pg-projects .instance-step { display: grid; grid-template-columns: 44px minmax(0, 1fr) 130px 40px; align-items: center; gap: 8px; padding: 9px 11px; border-bottom: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-projects .instance-step:last-child { border-bottom: 0; }
+.rhythm-workspace-root .pg-projects .step-check { display: grid; place-items: center; cursor: pointer; }
+.rhythm-workspace-root .pg-projects .step-copy strong { display: block; font-size: 11px; overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-projects .step-copy span { color: var(--rhythm-fg-muted); font-size: 9px; }
+.rhythm-workspace-root .pg-projects .milestone-select select { min-height: 36px; font-size: 9px; }
+.rhythm-workspace-root .pg-projects .project-dialog-form { display: grid; gap: 14px; }
+.rhythm-workspace-root .pg-projects .project-field { display: grid; gap: 4px; }
+.rhythm-workspace-root .pg-projects .project-field input, .rhythm-workspace-root .pg-projects .project-field textarea, .rhythm-workspace-root .pg-projects .project-field select { min-height: 44px; width: 100%; }
+.rhythm-workspace-root .pg-projects .dialog-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.rhythm-workspace-root .pg-projects .schedule-warning { margin: 0; padding: 8px 10px; border: 1px solid color-mix(in oklab, var(--rhythm-warning), var(--rhythm-border) 42%); border-radius: var(--rhythm-radius-sm); color: var(--rhythm-warning); background: color-mix(in oklab, var(--rhythm-warning), transparent 92%); }
+.rhythm-workspace-root .pg-projects .collaborator-options { display: grid; gap: 6px; }
+.rhythm-workspace-root .pg-projects button:disabled, .rhythm-workspace-root .pg-projects input:disabled, .rhythm-workspace-root .pg-projects select:disabled { cursor: not-allowed; }
+
+@media (max-width: 1080px) {
+  .rhythm-workspace-root .pg-projects .project-board { grid-template-columns: minmax(0, 1fr); }
+  .rhythm-workspace-root .pg-projects .project-list-pane { border-inline-end: 0; border-bottom: 1px solid var(--rhythm-border-soft); }
+}
+
+@media (max-width: 760px) {
+  .rhythm-workspace-root .pg-projects .projects-header { flex-wrap: wrap; align-items: flex-start; }
+  .rhythm-workspace-root .pg-projects .projects-scroll { padding: 14px; }
+  .rhythm-workspace-root .pg-projects .instance-step { grid-template-columns: 32px minmax(0, 1fr); }
+  .rhythm-workspace-root .pg-projects .milestone-select { grid-column: 1 / -1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rhythm-workspace-root .pg-projects * { transition: none; }
+}

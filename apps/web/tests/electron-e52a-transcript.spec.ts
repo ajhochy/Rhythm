@@ -20,7 +20,7 @@ async function open(page: Page) {
     if (/\/messages$/.test(url.pathname)) {
       olderRequests++;
       const fail = await new Promise<boolean>((resolve) => { release = (fail = false) => resolve(fail); });
-      return send(fail ? { error: 'Test page unavailable' } : { messages: Array.from({ length: 8 }, (_, i) => message(`older${i}`)), pageInfo: { hasMore: true, nextCursor: 'next' } }, fail ? 503 : 200);
+      return send(fail ? { error: 'Test page unavailable' } : { messages: Array.from({ length: 8 }, (_, i) => ({ ...message(`older${i}`), createdAt: '2026-08-31T00:00:00Z' })), pageInfo: { hasMore: true, nextCursor: 'next' } }, fail ? 503 : 200);
     }
     if (/^\/agent-sessions\/(parent|other)$/.test(url.pathname)) return send({ session: row(url.pathname.split('/').at(-1)!), messages, transcriptPage: { hasMore: true, nextCursor: 'before' } });
     if (url.pathname === '/agent-configs') return send([{ id: 'profile', label: 'Agent', enabled: true, sessionSelectable: true }]);
@@ -30,11 +30,23 @@ async function open(page: Page) {
   await page.goto('/agents');
   await expect(page.getByTestId('message-m29')).toBeAttached();
   await expect.poll(() => Boolean(socket)).toBe(true);
+  const sendStream = (id: string) => {
+    if (!messages.some((entry) => entry.sdkMessageId === id)) {
+      socket!.send(JSON.stringify({ v: 1, type: 'message.updated', id: 'parent', info: { id, role: 'assistant', time: { created: Date.now() } } }));
+      socket!.send(JSON.stringify({ v: 1, type: 'message.part.updated', id: 'parent', part: { id: `part-${id}`, messageID: id, type: 'text', text: '' } }));
+    }
+    socket!.send(JSON.stringify({ v: 1, type: 'message.part.delta', id: 'parent', messageId: id, partId: `part-${id}`, field: 'text', delta: '\nSTREAM OUTPUT\n'.repeat(20) }));
+  };
   return {
+    emit: async (event: Record<string, unknown>) => {
+      socket!.send(JSON.stringify({ v: 1, id: 'parent', ...event }));
+      await page.waitForTimeout(25);
+    },
     stream: async (id = 'm29') => {
-      socket!.send(JSON.stringify({ v: 1, type: 'message.part.delta', id: 'parent', messageId: id, partId: `part-${id}`, field: 'text', delta: '\nSTREAM OUTPUT\n'.repeat(20) }));
+      sendStream(id);
       await expect(page.getByTestId(`message-${id}`)).toContainText('STREAM OUTPUT');
     },
+    releaseWithAppend: (id: string) => { release(); sendStream(id); },
     requests: () => olderRequests, release: (fail = false) => release(fail),
   };
 }
@@ -55,6 +67,26 @@ async function anchor(page: Page) {
     await page.waitForTimeout(20);
   }
   throw new Error('Transcript never rendered a visible message for anchor inspection');
+}
+
+async function trackScrollTopWrites(page: Page) {
+  await page.addInitScript(() => {
+    const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop')!;
+    let writes = 0;
+    Object.defineProperty(Element.prototype, 'scrollTop', {
+      configurable: descriptor.configurable,
+      enumerable: descriptor.enumerable,
+      get: descriptor.get,
+      set(value) {
+        if ((this as Element).classList?.contains('transcript-scroll')) writes += 1;
+        descriptor.set!.call(this, value);
+      },
+    });
+    Object.assign(window, {
+      __transcriptScrollWrites: () => writes,
+      __resetTranscriptScrollWrites: () => { writes = 0; },
+    });
+  });
 }
 
 test('E52A-c1 pinned reader follows both streamed growth and appended output', async ({ page }) => {
@@ -157,4 +189,92 @@ test('E52A-c5 session and read-only child return restore independent reader posi
   const restoredChild = await anchor(page);
   expect(restoredChild.id).toBe(childAnchor.id);
   expect(Math.abs(restoredChild.offset - childAnchor.offset)).toBeLessThanOrEqual(1);
+});
+
+test('E52A-c6 one wheel-up unpins before the next streamed delta', async ({ page }) => {
+  const app = await open(page);
+  await expect.poll(() => gap(page)).toBeLessThan(2);
+  const bounds = await scroller(page).boundingBox();
+  expect(bounds).not.toBeNull();
+  await page.mouse.move(bounds!.x + bounds!.width / 2, bounds!.y + bounds!.height / 2);
+  await page.mouse.wheel(0, -24);
+  await expect.poll(() => gap(page)).toBeGreaterThan(0);
+  expect(await gap(page)).toBeLessThanOrEqual(48);
+  await app.stream();
+  await expect.poll(() => gap(page)).toBeGreaterThan(50);
+  await expect(page.getByRole('button', { name: 'New output', exact: true })).toBeVisible();
+});
+
+test('E52A-c7 three no-change reconciles do not announce new output', async ({ page }) => {
+  const app = await open(page);
+  await expect(page.getByTestId('message-m29').locator('time')).toHaveAttribute('datetime', '2026-09-01T00:00:00.000Z');
+  const noChange = { type: 'message.updated', info: { id: 'm29', role: 'assistant', time: { created: Date.parse('2026-09-01T00:00:00Z') } } };
+  await app.emit(noChange);
+  await readAt(page, 1000);
+  await expect(page.getByRole('button', { name: 'New output', exact: true })).toHaveCount(0);
+  for (let index = 0; index < 3; index += 1) {
+    await app.emit(noChange);
+  }
+  await expect(page.getByRole('button', { name: 'New output', exact: true })).toHaveCount(0);
+});
+
+test('E52A-c8 unpinned streaming performs zero scrollTop writes across 20 frames', async ({ page }) => {
+  await trackScrollTopWrites(page);
+  const app = await open(page);
+  await readAt(page, 1000);
+  await page.evaluate(() => (window as any).__resetTranscriptScrollWrites());
+  for (let index = 0; index < 20; index += 1) await app.stream();
+  expect(await page.evaluate(() => (window as any).__transcriptScrollWrites())).toBe(0);
+  await expect(page.getByRole('button', { name: 'New output', exact: true })).toBeVisible();
+});
+
+test('E52A-c9 unpinned visible usage updates announce new output', async ({ page }) => {
+  const app = await open(page);
+  await app.emit({ type: 'message.updated', info: { id: 'm29', role: 'assistant', time: { created: Date.parse('2026-09-01T00:00:00Z') } } });
+  await readAt(page, 1000);
+  await app.emit({ type: 'message.updated', info: {
+    id: 'm29', role: 'assistant', time: { created: Date.parse('2026-09-01T00:00:00Z') }, cost: 0.25,
+    tokens: { input: 100, output: 25, cache: { read: 10, write: 5 } },
+  } });
+  await expect(page.getByTestId('message-m29')).toContainText('Cost $0.25');
+  await expect(page.getByTestId('message-m29')).toContainText('Input 100 · Output 25 · Cache read 10 · Cache write 5');
+  await expect(page.getByRole('button', { name: 'New output', exact: true })).toBeVisible();
+});
+
+test('E52A-c10 unpinned same-ID visible tool detail updates announce new output', async ({ page }) => {
+  const app = await open(page);
+  const message = page.getByTestId('message-m12');
+  await app.emit({ type: 'message.part.updated', part: {
+    id: 'child-tool', messageID: 'm12', type: 'tool', tool: 'task',
+    state: { status: 'completed', input: { description: 'Child work' }, output: 'task_id: child-sdk' },
+  } });
+  await message.locator('.tool-block summary').click();
+  await readAt(page, 1000);
+  await app.emit({ type: 'message.part.updated', part: {
+    id: 'child-tool', messageID: 'm12', type: 'tool', tool: 'task',
+    state: { status: 'completed', input: { description: 'Updated child input' }, output: 'task_id: child-sdk\nUpdated child output', metadata: { phase: 'updated metadata' }, error: 'Updated child error' },
+  } });
+  await expect(message.locator('.tool-block')).toContainText('Updated child input');
+  await expect(message.locator('.tool-block')).toContainText('Updated child output');
+  await expect(message.locator('.tool-block')).toContainText('updated metadata');
+  await expect(message.locator('.tool-block')).toContainText('Updated child error');
+  await expect(page.getByRole('button', { name: 'New output', exact: true })).toBeVisible();
+});
+
+test('E52A-c11 concurrent prepend and append preserve anchor/focus and announce append', async ({ page }) => {
+  const app = await open(page);
+  await readAt(page, 0);
+  await page.getByTestId('load-older').click();
+  await expect.poll(app.requests).toBe(1);
+  await readAt(page, 1000);
+  await page.getByTestId('message-m4').evaluate((el) => el.focus({ preventScroll: true }));
+  const before = await anchor(page);
+  app.releaseWithAppend('new-during-prepend');
+  await expect(page.getByTestId('message-older0')).toBeAttached();
+  await expect(page.getByTestId('message-new-during-prepend')).toContainText('STREAM OUTPUT');
+  const after = await anchor(page);
+  expect(after.id).toBe(before.id);
+  expect(Math.abs(after.offset - before.offset)).toBeLessThanOrEqual(1);
+  await expect(page.getByTestId('message-m4')).toBeFocused();
+  await expect(page.getByRole('button', { name: 'New output', exact: true })).toBeVisible();
 });

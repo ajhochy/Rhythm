@@ -14,6 +14,7 @@ import type {
 import {
   asOpenCodeAgentId,
   asRhythmProfileId,
+  isUntitledSessionName,
 } from '../models/agent_session';
 import {
   appendRelayDelete,
@@ -71,6 +72,8 @@ interface AgentSessionRow {
   is_system: number;
   /** Task D — Anthropic account id this session is routed to. Null = engine default. */
   anthropic_account_id: string | null;
+  /** OpenAI (ChatGPT) account id this session is routed to. Null = store default. */
+  openai_account_id: string | null;
   owner_user_id: number | null;
   delegation_depth: number | null;
   /** USO B1 (#1028) — session classification. Legacy rows coalesce to a derived value. */
@@ -90,6 +93,7 @@ interface ParentSessionScopeRow {
   scheduled_task_id: string | null;
   is_system: number;
   anthropic_account_id: string | null;
+  openai_account_id: string | null;
   owner_user_id: number | null;
   delegation_depth: number | null;
   category: string;
@@ -104,6 +108,27 @@ interface PendingChildSessionRow {
   title: string;
   cwd: string;
   mcp_allowed_tools_json: string | null;
+}
+
+/**
+ * Display fallback for an untitled session: the first line of its first user
+ * prompt, trimmed and capped. One indexed lookup, and only for untitled rows.
+ */
+function firstPromptFor(sessionId: string): string | null {
+  try {
+    const row = getDb()
+      .prepare(
+        `SELECT stripped_text FROM agent_session_messages
+          WHERE session_id = ? AND role = 'input' AND trim(stripped_text) <> ''
+          ORDER BY created_at, id LIMIT 1`,
+      )
+      .get(sessionId) as { stripped_text: string } | undefined;
+    const line = row?.stripped_text.split('\n').map((l) => l.trim()).find(Boolean);
+    if (!line) return null;
+    return line.length > 80 ? `${line.slice(0, 79).trimEnd()}…` : line;
+  } catch {
+    return null;
+  }
 }
 
 function rowToModel(row: AgentSessionRow): AgentSession {
@@ -131,6 +156,7 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     thinkingBudget: row.thinking_budget ?? null,
     fastMode: row.fast_mode === 1,
     lastPreview: row.last_preview,
+    firstPrompt: isUntitledSessionName(row.name) ? firstPromptFor(row.id) : null,
     lastActivityAt: row.last_activity_at,
     archivedAt: row.archived_at ?? null,
     createdAt: row.created_at,
@@ -141,6 +167,7 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     parentSessionId: row.parent_session_id ?? null,
     isSystem: row.is_system === 1,
     anthropicAccountId: row.anthropic_account_id ?? null,
+    openaiAccountId: row.openai_account_id ?? null,
     ownerUserId: row.owner_user_id ?? null,
     delegationDepth: row.delegation_depth ?? 0,
     // USO B1 (#1028): read-time coalesce for any row the migration backfill
@@ -424,7 +451,7 @@ export class AgentSessionsRepository {
       .prepare(
         `SELECT id, task_id, task_title, agent_kind, project_id,
                 scheduled_task_id, is_system, anthropic_account_id,
-                owner_user_id, delegation_depth, category,
+                openai_account_id, owner_user_id, delegation_depth, category,
                 worktree_name, worktree_path, worktree_branch
            FROM agent_sessions
           WHERE sdk_session_id = ?
@@ -457,8 +484,9 @@ export class AgentSessionsRepository {
 
     if (existingRow) {
       // A repeated stream event is also a repair opportunity. Parent scope is
-      // authoritative, while an already-persisted child MCP allowlist wins
-      // over a missing/replayed event payload.
+      // authoritative, except that child-owned worktree metadata must survive
+      // a late/replayed event. An already-persisted child MCP allowlist also
+      // wins over a missing/replayed event payload.
       db.prepare(
         `UPDATE agent_sessions
             SET task_id = ?,
@@ -468,12 +496,13 @@ export class AgentSessionsRepository {
                 parent_session_id = ?,
                 is_system = ?,
                 anthropic_account_id = ?,
+                openai_account_id = ?,
                 owner_user_id = ?,
                 delegation_depth = ?,
                 category = ?,
-                worktree_name = ?,
-                worktree_path = ?,
-                worktree_branch = ?,
+                worktree_name = COALESCE(worktree_name, ?),
+                worktree_path = COALESCE(worktree_path, ?),
+                worktree_branch = COALESCE(worktree_branch, ?),
                 mcp_allowed_tools_json =
                   COALESCE(mcp_allowed_tools_json, ?),
                 updated_at = ?
@@ -486,6 +515,7 @@ export class AgentSessionsRepository {
         parentRow.id,
         parentRow.is_system,
         parentRow.anthropic_account_id,
+        parentRow.openai_account_id,
         parentRow.owner_user_id,
         childDelegationDepth,
         parentRow.category,
@@ -511,10 +541,10 @@ export class AgentSessionsRepository {
       `INSERT INTO agent_sessions
          (id, task_id, task_title, agent_kind, status, cwd, name, project_id,
           sdk_session_id, parent_session_id, mcp_allowed_tools_json,
-          scheduled_task_id, is_system, anthropic_account_id, owner_user_id,
-          delegation_depth, category, worktree_name, worktree_path,
+          scheduled_task_id, is_system, anthropic_account_id, openai_account_id,
+          owner_user_id, delegation_depth, category, worktree_name, worktree_path,
           worktree_branch, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+       VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                ?, ?, ?, ?, ?)`,
     ).run(
       childLocalId,
@@ -530,6 +560,7 @@ export class AgentSessionsRepository {
       parentRow.scheduled_task_id,
       parentRow.is_system,
       parentRow.anthropic_account_id,
+      parentRow.openai_account_id,
       parentRow.owner_user_id,
       childDelegationDepth,
       parentRow.category,
@@ -562,9 +593,9 @@ export class AgentSessionsRepository {
         `INSERT INTO agent_sessions
            (id, task_id, task_title, agent_kind, profile_id, status, cwd, name, project_id,
             permission_mode, mcp_role, mcp_allowed_tools_json, scheduled_task_id, is_system,
-            anthropic_account_id, owner_user_id, parent_session_id,
+            anthropic_account_id, openai_account_id, owner_user_id, parent_session_id,
             delegation_depth, category, approval_bypass_explicit, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -581,6 +612,7 @@ export class AgentSessionsRepository {
         dto.scheduledTaskId ?? null,
         dto.isSystem ? 1 : 0,
         dto.anthropicAccountId ?? null,
+        dto.openaiAccountId ?? null,
         dto.ownerUserId ?? null,
         dto.parentSessionId ?? null,
         dto.delegationDepth ?? 0,
@@ -978,6 +1010,16 @@ export class AgentSessionsRepository {
       .run(now, id).changes);
   }
 
+  /** OpenAI sibling of {@link setAnthropicAccountId} (codex plugin spillover, PATCH). */
+  setOpenaiAccountId(id: string, accountId: string | null): void {
+    const now = new Date().toISOString();
+    this.mutateAndReplicate(id, (db) => db
+      .prepare(
+        `UPDATE agent_sessions SET openai_account_id = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(accountId, now, id).changes);
+  }
+
   /**
    * Task D — Update the Anthropic account a session is routed to. Called by
    * the spillover intake when the engine plugin fails over in place.
@@ -1042,6 +1084,36 @@ export class AgentSessionsRepository {
       )
       .run(providerId, modelId, now, id).changes);
     return changes > 0 ? this.findById(id) : null;
+  }
+
+  /**
+   * #1485 S3a-2 — durably marks a freshly-created session as workflow-owned,
+   * atomically and BEFORE any engine work (called from the workflow stage
+   * dispatcher's `onSessionCreated`). `WHERE workflow_run_id IS NULL` makes
+   * this a one-shot write per session row (each dispatch attempt always
+   * creates a brand-new session, so this guards against an unexpected repeat
+   * call rather than a real steady-state race). Returns false when the
+   * binding could not be persisted — callers must fail the dispatch closed
+   * before the model is ever called.
+   */
+  bindWorkflowSession(id: string, workflowRunId: string, workflowStageExecutionId: string): boolean {
+    const changes = this.mutateAndReplicate(id, (db) => db
+      .prepare(
+        `UPDATE agent_sessions
+           SET workflow_run_id = ?, workflow_stage_execution_id = ?, updated_at = ?
+         WHERE id = ? AND workflow_run_id IS NULL`,
+      )
+      .run(workflowRunId, workflowStageExecutionId, new Date().toISOString(), id).changes);
+    return changes > 0;
+  }
+
+  /** #1485 S3b — is this session (or would a completion for it be) workflow-owned? */
+  getWorkflowBinding(id: string): { workflowRunId: string; workflowStageExecutionId: string } | null {
+    const row = getDb()
+      .prepare(`SELECT workflow_run_id, workflow_stage_execution_id FROM agent_sessions WHERE id = ?`)
+      .get(id) as { workflow_run_id: string | null; workflow_stage_execution_id: string | null } | undefined;
+    if (!row?.workflow_run_id || !row.workflow_stage_execution_id) return null;
+    return { workflowRunId: row.workflow_run_id, workflowStageExecutionId: row.workflow_stage_execution_id };
   }
 
   /**

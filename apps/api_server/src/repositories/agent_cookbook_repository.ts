@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { getDb, getPostgresPool } from '../database/db';
 import { env } from '../config/env';
+import { validateRecipeWorkflowV1 } from '../contracts/recipe_workflow_contract';
+
+export type AgentCookbookFormat = 'legacy' | 'v1';
 
 export interface AgentCookbook {
   id: string;
@@ -11,6 +14,24 @@ export interface AgentCookbook {
   ownerUserId: number | null;
   createdAt: string;
   updatedAt: string;
+  /** #1485 S1a — additive, nullable. NULL on every row until S3a workflow create ships. */
+  schemaVersion: number | null;
+  /** #1485 S1a — additive, nullable. NULL means legacy prompt recipe. */
+  definitionJson: string | null;
+  /**
+   * #1485 S1a/S3a-1 — derived, never stored: 'legacy' when definitionJson is
+   * NULL; 'v1' when schema_version === 1 AND definitionJson parses and
+   * validates cleanly against {@link validateRecipeWorkflowV1}. Anything else
+   * present-but-invalid (wrong version, malformed JSON, failed validation)
+   * reports 'legacy' rather than a new state — `explicit_upgrade_required` is
+   * intentionally withheld until S5 ships a real conversion path
+   * (docs/ai/current-plan-recipes-1485.md "Persistence and compatibility");
+   * exposing it earlier would be an alarming dead end with no way to act on
+   * it, and workflow create/update is expected to validate BEFORE persisting
+   * (see {@link CreateAgentCookbookInput.definitionJson}), so an invalid
+   * stored definition should not occur outside a corrupted row.
+   */
+  format: AgentCookbookFormat;
 }
 
 export interface CreateAgentCookbookInput {
@@ -20,9 +41,33 @@ export interface CreateAgentCookbookInput {
   boundConfigId?: string;
   /** Server-derived owner. NULL is reserved for trusted local/system recipes. */
   ownerUserId?: number | null;
+  /** #1485 S3a-1 — always 1 when definitionJson is provided. */
+  schemaVersion?: number | null;
+  /**
+   * #1485 S3a-1 — a v1 RecipeWorkflowDefinitionV1 JSON string. Callers are
+   * responsible for validating with {@link validateRecipeWorkflowV1} before
+   * calling create/update; this repository does not re-validate on write (it
+   * only derives read-time `format`), matching the plan's "workflow
+   * create/update validates before persistence" without duplicating that
+   * check in every call path (there is exactly one recipe_workflow_runner.ts
+   * caller today).
+   */
+  definitionJson?: string | null;
+}
+
+/** #1485 S3a-1 — see {@link AgentCookbook.format}. */
+function deriveFormat(schemaVersion: number | null, definitionJson: string | null): AgentCookbookFormat {
+  if (definitionJson == null || schemaVersion !== 1) return 'legacy';
+  try {
+    return validateRecipeWorkflowV1(JSON.parse(definitionJson)).valid ? 'v1' : 'legacy';
+  } catch {
+    return 'legacy';
+  }
 }
 
 function rowToModel(row: Record<string, unknown>): AgentCookbook {
+  const definitionJson = (row.definition_json as string | null) ?? null;
+  const schemaVersion = (row.schema_version as number | null) ?? null;
   return {
     id: row.id as string,
     title: row.title as string,
@@ -38,6 +83,9 @@ function rowToModel(row: Record<string, unknown>): AgentCookbook {
       typeof row.updated_at === 'string'
         ? row.updated_at
         : (row.updated_at as Date).toISOString(),
+    schemaVersion,
+    definitionJson,
+    format: deriveFormat(schemaVersion, definitionJson),
   };
 }
 
@@ -47,12 +95,15 @@ export class AgentCookbookRepository {
     const now = new Date().toISOString();
     const stepsJson = input.stepsJson ?? '[]';
 
+    const schemaVersion = input.definitionJson != null ? (input.schemaVersion ?? 1) : null;
+    const definitionJson = input.definitionJson ?? null;
+
     if (env.dbClient === 'postgres') {
       const r = await getPostgresPool().query(
         `INSERT INTO agent_cookbook
            (id, title, description, steps_json, bound_config_id, owner_user_id,
-            created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+            schema_version, definition_json, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
          RETURNING *`,
         [
           id,
@@ -61,6 +112,8 @@ export class AgentCookbookRepository {
           stepsJson,
           input.boundConfigId ?? null,
           input.ownerUserId ?? null,
+          schemaVersion,
+          definitionJson,
           now,
           now,
         ],
@@ -72,8 +125,8 @@ export class AgentCookbookRepository {
       .prepare(
         `INSERT INTO agent_cookbook
            (id, title, description, steps_json, bound_config_id, owner_user_id,
-            created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?)`,
+            schema_version, definition_json, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`,
       )
       .run(
         id,
@@ -82,6 +135,8 @@ export class AgentCookbookRepository {
         stepsJson,
         input.boundConfigId ?? null,
         input.ownerUserId ?? null,
+        schemaVersion,
+        definitionJson,
         now,
         now,
       );
@@ -171,6 +226,8 @@ export class AgentCookbookRepository {
       description: 'description',
       stepsJson: 'steps_json',
       boundConfigId: 'bound_config_id',
+      schemaVersion: 'schema_version',
+      definitionJson: 'definition_json',
     };
 
     for (const [k, col] of Object.entries(map)) {

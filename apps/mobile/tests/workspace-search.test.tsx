@@ -4,6 +4,7 @@ import { PaperProvider } from 'react-native-paper';
 import AgentWorkspaceScreen from '@/app/agents/workspace';
 
 const mockSearchWorkspaceFiles = jest.fn();
+const mockSelectProject = jest.fn();
 
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
@@ -20,8 +21,8 @@ jest.mock('@/components/chat/session-configuration-sheet', () => ({
 
 jest.mock('@/providers/opencode-provider', () => ({
   useOpencode: () => ({
-    activeProject: { id: 'rhythm', label: 'Rhythm', path: 'rhythm' },
-    activeProjectPath: 'rhythm',
+    activeProject: { id: 'rhythm', label: 'Rhythm', path: '/workspace/rhythm' },
+    activeProjectPath: '/workspace/rhythm',
     archiveSession: jest.fn(),
     archivedSessions: [],
     availableAgents: [],
@@ -31,7 +32,7 @@ jest.mock('@/providers/opencode-provider', () => ({
     connection: { status: 'connected' },
     createSession: jest.fn(),
     createWorktree: jest.fn(),
-    currentProjectPath: 'rhythm',
+    currentProjectPath: '/workspace/rhythm',
     currentSessionId: undefined,
     deleteSession: jest.fn(),
     getWorkspaceRawVcsDiff: jest.fn(),
@@ -43,7 +44,10 @@ jest.mock('@/providers/opencode-provider', () => ({
     listWorkspaceDirectory: jest.fn(),
     openSession: jest.fn(),
     openWorkspaceFile: jest.fn(),
-    projects: [{ id: 'rhythm', label: 'Rhythm', path: 'rhythm' }],
+    projects: [
+      { id: 'rhythm', label: 'Rhythm', path: '/workspace/rhythm' },
+      { id: 'other', label: 'Other', path: '/workspace/other' },
+    ],
     refreshArchivedSessions: jest.fn(),
     refreshSessions: jest.fn(),
     refreshWorkspaceCatalog: jest.fn(),
@@ -57,7 +61,7 @@ jest.mock('@/providers/opencode-provider', () => ({
     searchWorkspaceFiles: mockSearchWorkspaceFiles,
     searchWorkspaceSymbols: jest.fn(),
     searchWorkspaceText: jest.fn(),
-    selectProject: jest.fn(),
+    selectProject: mockSelectProject,
     selectedWorkspaceFile: undefined,
     serverRootPath: undefined,
     sessionPreviewById: {},
@@ -135,4 +139,22 @@ describe('Workspace file search relay feedback', () => {
 
     expect(rendered.getByText('Workspace search timed out. Try again.')).toBeTruthy();
   });
+});
+
+test('workspace route keeps project identity in one selector and switches scope', () => {
+  const rendered = render(
+    <PaperProvider>
+      <AgentWorkspaceScreen />
+    </PaperProvider>,
+  );
+
+  expect(rendered.getByText('Workspace', { exact: true })).toBeTruthy();
+  expect(rendered.getByLabelText('Rhythm. /workspace/rhythm')).toBeTruthy();
+  expect(rendered.getAllByText('Rhythm', { exact: true })).toHaveLength(1);
+  expect(rendered.getAllByText('/workspace/rhythm', { exact: true })).toHaveLength(1);
+
+  fireEvent.press(rendered.getByText('Rhythm', { exact: true }));
+  fireEvent.press(rendered.getByText('Other', { exact: true }));
+
+  expect(mockSelectProject).toHaveBeenCalledWith('/workspace/other');
 });

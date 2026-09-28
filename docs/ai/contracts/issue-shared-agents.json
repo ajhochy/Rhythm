@@ -1,0 +1,813 @@
+{
+  "contract_id": "issue-shared-agents",
+  "generated": "2026-09-24",
+  "plan": "docs/ai/plans/2026-09-24-shared-agents-interface-spec.md",
+  "pr": 1544,
+  "tracking_note": "Plan-based campaign contract. Criterion IDs and criterion text are frozen from §6; each owning slice supplies its executable test file before changing status.",
+  "criteria": [
+    {
+      "criterion_id": "C0-R1",
+      "text": "- **C0-R1.** The contract parses, and every §6 test ID appears exactly once.",
+      "mode": "unit",
+      "test_id": "C0-R1",
+      "status": "pending",
+      "test_file": "docs/ai/contracts/issue-shared-agents.test.mjs"
+    },
+    {
+      "criterion_id": "C0-H1",
+      "text": "- **C0-H1.** The validator passes on a tree containing a fixture `agent_bridge.py` that validates a loopback origin, and still fails when a `4001` literal appears anywhere under `plugins/rhythm`, across sibling worktrees (`test_real_repo_sibling_roots_are_clean`).",
+      "mode": "unit",
+      "test_id": "C0-H1",
+      "status": "pending",
+      "test_file": "tests/plugins/rhythm/test_rhythm_contracts.py"
+    },
+    {
+      "criterion_id": "C0-H2",
+      "text": "- **C0-H2.** The architecture flags are as stated.",
+      "mode": "unit",
+      "test_id": "C0-H2",
+      "status": "pending",
+      "test_file": "tests/plugins/rhythm/test_rhythm_contracts.py"
+    },
+    {
+      "criterion_id": "C0-H3",
+      "text": "- **C0-H3.** `bridge_operations` equals the §2.9 runtime table.",
+      "mode": "unit",
+      "test_id": "C0-H3",
+      "status": "pending",
+      "test_file": "tests/plugins/rhythm/test_rhythm_contracts.py"
+    },
+    {
+      "criterion_id": "SA-CAT-1",
+      "text": "- **SA-CAT-1.** `canonical` has exactly `CANONICAL_FIELDS`, each equal to `GET /agent-configs/:id`: raw JSON strings byte-equal, including unknown advanced keys and pattern order. An injected extra repository key is absent.",
+      "mode": "integration",
+      "test_id": "SA-CAT-1",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_bridge.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-CAT-2",
+      "text": "- **SA-CAT-2.** A table-driven test with one fixture per §1.6 row asserts readiness, codes and `fields`.",
+      "mode": "integration",
+      "test_id": "SA-CAT-2",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_projection.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-CAT-3",
+      "text": "- **SA-CAT-3.** Hermes readiness progresses: no grant → `runtime_not_connected`; no report → `runtime_not_reported`; provider not ready → `model_provider_unavailable`; then `supported`. A stale executor gives `delegated:false` with `executor_not_ready`.",
+      "mode": "integration",
+      "test_id": "SA-CAT-3",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_projection.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-CAT-4",
+      "text": "- **SA-CAT-4.** `pending-new-session` appears when the caller's `sessionRevision` is below the revision.",
+      "mode": "integration",
+      "test_id": "SA-CAT-4",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_projection.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-CAT-5",
+      "text": "- **SA-CAT-5.** `/shared-agents/v1/*` returns 401 without auth. User B never sees user A's grant-derived readiness, and `scope` differs per user.",
+      "mode": "integration",
+      "test_id": "SA-CAT-5",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_bridge.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-PROJ-1",
+      "text": "- **SA-PROJ-1.** The golden output matches exactly.",
+      "mode": "integration",
+      "test_id": "SA-PROJ-1",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_projection.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-PROJ-2",
+      "text": "- **SA-PROJ-2.** Flattening: wildcard keys (`{\"*\":\"deny\",\"read\":\"allow\"}`), key order, missing = ask, and hardline asks present and last-wins.",
+      "mode": "integration",
+      "test_id": "SA-PROJ-2",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_projection.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-PROJ-3",
+      "text": "- **SA-PROJ-3.** Roots and paths: fixtures for non-git, git and linked-worktree dirs give the right root and boundary; E is scalar; relative patterns stay verbatim; absolute and `~` patterns are inert; an E map is blocking.",
+      "mode": "integration",
+      "test_id": "SA-PROJ-3",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_projection.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-PROJ-4",
+      "text": "- **SA-PROJ-4.** `{\"edit\":\"deny\",\"write\":\"allow\"}` omits both `write_file` and `patch`; the orchestrator `write` rule is inert.",
+      "mode": "integration",
+      "test_id": "SA-PROJ-4",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_projection.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-PROJ-5",
+      "text": "- **SA-PROJ-5.** Delegation: `task:\"ask\"` gives per-target ask; a task map filters the roster; `rhythm_delegate_async` is forced deny for non-selectable managers; delegated launches get no delegation tools.",
+      "mode": "integration",
+      "test_id": "SA-PROJ-5",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_projection.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-PROJ-6",
+      "text": "- **SA-PROJ-6.** The plan overlay keeps an explicit terminal deny as deny.",
+      "mode": "integration",
+      "test_id": "SA-PROJ-6",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_projection.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-PROJ-7",
+      "text": "- **SA-PROJ-7.** Malformed `corePermissionsJson`, a skipped entry, or invalid JSON in any `*Json` field gives `permission_shape_unsupported`, and storage stays byte-identical.",
+      "mode": "integration",
+      "test_id": "SA-PROJ-7",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_projection.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-PROJ-8",
+      "text": "- **SA-PROJ-8.** A scanner-blocked prompt gives `instructions_blocked_by_scanner`.",
+      "mode": "integration",
+      "test_id": "SA-PROJ-8",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_projection.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-PROJ-9",
+      "text": "- **SA-PROJ-9.** Only the `RHYTHM_TOOL_MAP` tools are mapped, with the OpenCode MCP-key effect; other servers give `mcp_unmapped`; null gives `mcp_inherit_restricted`; skills give `skills_not_applied`.",
+      "mode": "integration",
+      "test_id": "SA-PROJ-9",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_projection.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-PROJ-10",
+      "text": "- **SA-PROJ-10.** Projection issue:\n  - a revision mismatch → 409;\n  - a lock between catalog and projection → `projection_unsupported`;\n  - an interactive projection with `!sessionSelectable` → `launch_kind_not_allowed`;\n  - a delegated projection without a valid lease → `lease_invalid`;\n  - a second projection for the same job → 409;\n  - a cwd under a protected directory → `cwd_invalid`;\n  - cwd is compared as a realpath.",
+      "mode": "integration",
+      "test_id": "SA-PROJ-10",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_bridge.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-PROJ-11",
+      "text": "- **SA-PROJ-11.** `check` returns the frozen snapshot byte-identical after the agent is edited, returns `projection_revoked` after a lock or disable, and returns 404 for a wrong `sessionKey`.",
+      "mode": "integration",
+      "test_id": "SA-PROJ-11",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_bridge.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-AUTH-1",
+      "text": "- **SA-AUTH-1.** Registrar: 403 or 503 on bad or missing credentials, else 201. An unresolved token gives `grant_identity_unresolved`. With a fixture where the local id differs from the cloud id, the grant stores the local id.",
+      "mode": "integration",
+      "test_id": "SA-AUTH-1",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_bridge.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-AUTH-2",
+      "text": "- **SA-AUTH-2.** The §2.8 error mapping holds, including a body over 64 KiB giving 413 `bridge_body_too_large` (not 500) and malformed JSON giving 400 `bridge_invalid_request`.",
+      "mode": "integration",
+      "test_id": "SA-AUTH-2",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_bridge.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-AUTH-3",
+      "text": "- **SA-AUTH-3.** A new grant replaces the old one; the old token gets 401; the old generation's claimed and running jobs become `unknown`/`runtime_retired`.",
+      "mode": "integration",
+      "test_id": "SA-AUTH-3",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_bridge.test.ts",
+      "evidence": "2026-09-25 expanded SA-AUTH-3 passed replacement, explicit DELETE, revoke-all, revoked-capability report refusal, and other-user isolation in the combined S1 gate (14 files passed, 192 tests passed); focused command: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_bridge.test.ts -t SA-AUTH-3 (1 passed)."
+    },
+    {
+      "criterion_id": "SA-AUTH-4",
+      "text": "- **SA-AUTH-4.** The cloud role, the relay role and a Postgres configuration all return 404 on `/agent-bridge/v1/*` and `/shared-agents/v1/*`. `/agent-delegation/status` on Postgres has no `crossRuntime` and never touches bridge tables.",
+      "mode": "integration",
+      "test_id": "SA-AUTH-4",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_bridge.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-AUTH-5",
+      "text": "- **SA-AUTH-5.** Capability, registrar, session-token, prompt and query sentinels never appear in captured logs or error bodies, including on the 413 and parse-error paths.",
+      "mode": "integration",
+      "test_id": "SA-AUTH-5",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_bridge.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-AUTH-6",
+      "text": "- **SA-AUTH-6.** Origin `app://hermes` gets 403 on `PATCH /agent-configs/:id` and on `GET /agent-bridge/v1/catalog`.",
+      "mode": "integration",
+      "test_id": "SA-AUTH-6",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_bridge.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-PATCH-1",
+      "text": "- **SA-PATCH-1.** A stale revision gives 409 `revision_conflict {currentRevision}` with no write. SA2-AC1..7 stay unchanged.",
+      "mode": "integration",
+      "test_id": "SA-PATCH-1",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_bridge.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-PATCH-2",
+      "text": "- **SA-PATCH-2.** A presentation-only patch applies. A non-presentation patch gives 202 and no write until the registrar decision:\n  - approve → the CAS write happens;\n  - reject, expiry or supersede → no write;\n  - a wrong `changesSha256` → 409;\n  - re-enabling a locked agent → `agent_locked`, distinct from `revision_conflict`.",
+      "mode": "integration",
+      "test_id": "SA-PATCH-2",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_bridge.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-DEL-1",
+      "text": "- **SA-DEL-1.** Hermes→Rhythm happy path:\n  - exactly one `run()` with `parentSessionId:null`, `bridgeOrigin`, the correct depth, local owner and validated cwd;\n  - `permissionMode:'default'` is observed on the child session;\n  - no escalation; `setChild` refuses a second child;\n  - the result is bounded; the first read delivers; a re-read is identical.",
+      "mode": "integration",
+      "test_id": "SA-DEL-1",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_delegation.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-DEL-2",
+      "text": "- **SA-DEL-2.** Zero `run()` calls for:\n  - a forged `projectionId` or `sessionKey`;\n  - a caller who is no longer a manager;\n  - a target outside either the frozen or the current roster;\n  - a delegate revoked after the projection was issued;\n  - a stale capability.",
+      "mode": "integration",
+      "test_id": "SA-DEL-2",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_delegation.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-DEL-3",
+      "text": "- **SA-DEL-3.** Idempotent replay yields one job; a conflicting replay gives 409.",
+      "mode": "integration",
+      "test_id": "SA-DEL-3",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_delegation.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-DEL-4",
+      "text": "- **SA-DEL-4.** The depth matrix holds across runtimes.",
+      "mode": "integration",
+      "test_id": "SA-DEL-4",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_delegation.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-DEL-5",
+      "text": "- **SA-DEL-5.** Rhythm→Hermes:\n  - `callerSdkSessionId` is required, and `callerSessionId` is rejected;\n  - with no grant or a stale executor: 503 and zero rows;\n  - a Hermes-unsupported target → 409;\n  - concurrent claims have exactly one winner;\n  - only the lease holder may report;\n  - the terminal result reaches the parent **once**, through the wake, with fenced text, and the row becomes `delivered`;\n  - status is metadata only.",
+      "mode": "integration",
+      "test_id": "SA-DEL-5",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_delegation.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-DEL-6",
+      "text": "- **SA-DEL-6.** Cancel/complete races end in one terminal state, and a raw UPDATE of a terminal row hits the trigger abort.",
+      "mode": "integration",
+      "test_id": "SA-DEL-6",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_delegation.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-DEL-7",
+      "text": "- **SA-DEL-7.** Restart reconciliation matches §3.2. Reconciliation from `unknown` is allowed only for the original lease holder. Nothing is ever relaunched.",
+      "mode": "integration",
+      "test_id": "SA-DEL-7",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_delegation.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-DEL-8",
+      "text": "- **SA-DEL-8.** A revision change between dispatch and claim gives `target_revision_changed`.",
+      "mode": "integration",
+      "test_id": "SA-DEL-8",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_delegation.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-DEL-9",
+      "text": "- **SA-DEL-9.** Bridge runs get no memory preface without `memory.search`, and do get it with the scope.",
+      "mode": "integration",
+      "test_id": "SA-DEL-9",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_delegation.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-MEM-1",
+      "text": "- **SA-MEM-1.** Scope gating, bounds, opaque refs and the `untrusted` label all hold.",
+      "mode": "integration",
+      "test_id": "SA-MEM-1",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_memory.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-MEM-2",
+      "text": "- **SA-MEM-2.** Stale, symlinked (a path component or the final file), traversal, oversize and inode-swapped entries are omitted, and the vault tree hash is unchanged.",
+      "mode": "integration",
+      "test_id": "SA-MEM-2",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_memory.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "SA-MEM-3",
+      "text": "- **SA-MEM-3.** Revoking the scope takes effect immediately; a change of vault identity gives `memory_vault_changed` and removes the scope.",
+      "mode": "integration",
+      "test_id": "SA-MEM-3",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_memory.test.ts",
+      "evidence": "2026-09-25 combined S1 gate: env -u RHYTHM_LIVE_ENGINE_URL -u RHYTHM_LIVE_URL npm exec -- vitest run src/__tests__/shared_agents_projection.test.ts src/__tests__/shared_agents_bridge.test.ts src/__tests__/shared_agents_memory.test.ts src/__tests__/shared_agents_delegation.test.ts src/__tests__/agent_delegation_auth.test.ts src/__tests__/async_delegation_wake_fence.test.ts src/__tests__/memory_injection_runner.test.ts src/__tests__/teacher_escalation.test.ts src/__tests__/issue_1040_agent_runner_streaming.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/migrations_replay_guard.test.ts src/services/__tests__/opencode_agent_writer.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts (14 files passed, 192 tests passed)."
+    },
+    {
+      "criterion_id": "MCP-DEL-1",
+      "text": "- **MCP-DEL-1.** `targetRuntime` is in the signed payload; `idempotencyKey` and `callerSdkSessionId` are in the body only; the OpenCode default is unchanged.",
+      "mode": "integration",
+      "test_id": "MCP-DEL-1",
+      "status": "pass",
+      "test_file": "apps/mcp_server/src/tools/agentDelegation.test.ts",
+      "evidence": "2026-09-25 cache-safe worktree command: npm exec -- vitest run --no-cache src/tools/agentDelegation.test.ts (1 file passed, 3 tests passed); node_modules/.bin/tsc --noEmit exited 0."
+    },
+    {
+      "criterion_id": "SA-LIVE-1",
+      "text": "- **SA-LIVE-1** (gated by `RHYTHM_SHARED_AGENTS_LIVE=1`, run only through `tools/dev/sandbox.sh` with `RHYTHM_SANDBOX_BRIDGE_REGISTRAR_SHA256`): with a synthetic local user and session, run grant → report → catalog → projection → Hermes→Rhythm dispatch → a real OpenCode child in the sandbox engine → result.",
+      "mode": "integration",
+      "test_id": "SA-LIVE-1",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/shared_agents_delegation_live_e2e.test.ts",
+      "evidence": "2026-09-25 repaired-code live gate: tools/dev/sandbox.sh up --foreground with synthetic read-only fixture/digest, prebuilt fork, and ports 7380/7381/7382; RHYTHM_SHARED_AGENTS_LIVE=1 RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_URL=http://127.0.0.1:7380 RHYTHM_SHARED_AGENTS_PROVIDER_URL=http://127.0.0.1:7383 npm exec -- vitest run src/__tests__/shared_agents_delegation_live_e2e.test.ts (1 file passed, 1 test passed); identical-environment tools/dev/sandbox.sh down exited 0 and ports 7380-7383 had no listeners."
+    },
+    {
+      "criterion_id": "EB-1",
+      "text": "- **EB-1.** The env carries only the digest, and inherited `RHYTHM_AGENT_BRIDGE_*` keys are stripped.",
+      "mode": "integration",
+      "test_id": "EB-1",
+      "status": "pass",
+      "test_file": "apps/electron/test/agent-server.test.mjs",
+      "evidence": "node --experimental-vm-modules --test --test-concurrency=1 test/hermes-agent-bridge.test.mjs test/agent-server.test.mjs (16/16 pass)"
+    },
+    {
+      "criterion_id": "EB-2",
+      "text": "- **EB-2.** On reuse there is no registrar: `mintForAttempt` returns `{}` and status is `runtime_unowned`.",
+      "mode": "integration",
+      "test_id": "EB-2",
+      "status": "pass",
+      "test_file": "apps/electron/test/hermes-agent-bridge.test.mjs",
+      "evidence": "node --experimental-vm-modules --test --test-concurrency=1 test/hermes-agent-bridge.test.mjs test/agent-server.test.mjs (16/16 pass)"
+    },
+    {
+      "criterion_id": "EB-3",
+      "text": "- **EB-3.** Mint makes no network call before returning, and returns a valid token plus the `http://127.0.0.1:<port>` origin. Registration runs in the background with the retry schedule and the exact body, and the session token is never logged.",
+      "mode": "integration",
+      "test_id": "EB-3",
+      "status": "pass",
+      "test_file": "apps/electron/test/hermes-agent-bridge.test.mjs",
+      "evidence": "node --experimental-vm-modules --test --test-concurrency=1 test/hermes-agent-bridge.test.mjs test/agent-server.test.mjs (16/16 pass)"
+    },
+    {
+      "criterion_id": "EB-4",
+      "text": "- **EB-4.** Retire sends DELETE. An identity change awaits `revokeAll`, and a failure keeps minting disabled. When the api_server becomes ready again, the same `C` is re-registered.",
+      "mode": "integration",
+      "test_id": "EB-4",
+      "status": "pass",
+      "test_file": "apps/electron/test/hermes-agent-bridge.test.mjs",
+      "evidence": "node --experimental-vm-modules --test --test-concurrency=1 test/hermes-agent-bridge.test.mjs test/agent-server.test.mjs (16/16 pass)"
+    },
+    {
+      "criterion_id": "EB-5",
+      "text": "- **EB-5.** A non-default profile or an unauthenticated user gets `{}`.",
+      "mode": "integration",
+      "test_id": "EB-5",
+      "status": "pass",
+      "test_file": "apps/electron/test/hermes-agent-bridge.test.mjs",
+      "evidence": "node --experimental-vm-modules --test --test-concurrency=1 test/hermes-agent-bridge.test.mjs test/agent-server.test.mjs (16/16 pass)"
+    },
+    {
+      "criterion_id": "EB-6",
+      "text": "- **EB-6.** The memory scope and vault id are sent only with consent; revoking consent calls revoke-scopes.",
+      "mode": "integration",
+      "test_id": "EB-6",
+      "status": "pass",
+      "test_file": "apps/electron/test/hermes-agent-bridge.test.mjs",
+      "evidence": "node --experimental-vm-modules --test --test-concurrency=1 test/hermes-agent-bridge.test.mjs test/agent-server.test.mjs (16/16 pass)"
+    },
+    {
+      "criterion_id": "EB-7",
+      "text": "- **EB-7.** A sentinel scan finds no `C`, `Rg` or session token in IPC returns, the preload or logs.",
+      "mode": "integration",
+      "test_id": "EB-7",
+      "status": "pass",
+      "test_file": "apps/electron/test/hermes-agent-bridge.test.mjs",
+      "evidence": "node --experimental-vm-modules --test --test-concurrency=1 test/hermes-agent-bridge.test.mjs test/agent-server.test.mjs (16/16 pass)"
+    },
+    {
+      "criterion_id": "EB-8",
+      "text": "- **EB-8.** Confirmation loop: long-poll; the dialog summary lists every field; the decision echoes `changesSha256`; with no window the result is `approve:false`; one dialog at a time.",
+      "mode": "integration",
+      "test_id": "EB-8",
+      "status": "pass",
+      "test_file": "apps/electron/test/hermes-agent-bridge.test.mjs",
+      "evidence": "node --experimental-vm-modules --test --test-concurrency=1 test/hermes-agent-bridge.test.mjs test/agent-server.test.mjs (16/16 pass)"
+    },
+    {
+      "criterion_id": "EB-9",
+      "text": "- **EB-9.** A `main.mjs` wiring contract test, in the style of `hermes-accounts-wiring-contract.test.mjs`.",
+      "mode": "integration",
+      "test_id": "EB-9",
+      "status": "pass",
+      "test_file": "apps/electron/test/hermes-agent-bridge.test.mjs",
+      "evidence": "node --experimental-vm-modules --test --test-concurrency=1 test/hermes-agent-bridge.test.mjs test/agent-server.test.mjs (16/16 pass)"
+    },
+    {
+      "criterion_id": "N1-AC1",
+      "text": "- **N1-AC1.** v2 is accepted; v1 restores unchanged; bad shapes, a null `allowed_tools` in v2, and an always-blocked tool in `allowed_tools` all give `policy_shape_invalid`.",
+      "mode": "integration",
+      "test_id": "N1-AC1",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "N1-AC2",
+      "text": "- **N1-AC2.** Paths come from the tool resolver: a relative path after `cd` resolves against the live cwd; `~` is expanded; a symlink pointing outside is treated as external; protected paths and HERMES_HOME are denied; a container backend is denied. The process cwd is deliberately different in the test.",
+      "mode": "integration",
+      "test_id": "N1-AC2",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "N1-AC3",
+      "text": "- **N1-AC3.** Terminal (marker files must be absent):\n  - with `ls *: allow`, running `ls && touch M` evaluates the `touch` segment;\n  - `true; dd if=…` → ask;\n  - `echo x | sh` → ask;\n  - `echo $(rm x)` → at least ask;\n  - `if true; then rm x; fi` → at least ask;\n  - a newline separates segments;\n  - a FILE-command argument outside the boundary gets E;\n  - a redirect into a protected path is denied;\n  - `workdir` outside the boundary gets E;\n  - exceeding the parser limit denies.",
+      "mode": "integration",
+      "test_id": "N1-AC3",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "N1-AC4",
+      "text": "- **N1-AC4.** `patch` in `mode:\"patch\"` is denied; replace mode is evaluated normally.",
+      "mode": "integration",
+      "test_id": "N1-AC4",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "N1-AC5",
+      "text": "- **N1-AC5.** `tool_effects` ask goes through native approval; a denied tool is neither offered nor dispatchable; an approval preview over 2048 chars or changed by redaction is denied without a prompt.",
+      "mode": "integration",
+      "test_id": "N1-AC5",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "N1-AC6",
+      "text": "- **N1-AC6.** Root-relative matching vectors, including the `root=\"/\"` case.",
+      "mode": "integration",
+      "test_id": "N1-AC6",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "N1-AC7",
+      "text": "- **N1-AC7.** Skill tools are blocked, and skill slash commands, completions and preloads are refused in v2 sessions.",
+      "mode": "integration",
+      "test_id": "N1-AC7",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "N1-AC8",
+      "text": "- **N1-AC8.** `current_policy()` is set on both dispatch paths, isolated per thread, and None when unbound.",
+      "mode": "integration",
+      "test_id": "N1-AC8",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "N1-AC9",
+      "text": "- **N1-AC9.** Errors surface as `unsupported_policy:<code>`; an exception without a code becomes `provider_failed`.",
+      "mode": "integration",
+      "test_id": "N1-AC9",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "N1-AC10",
+      "text": "- **N1-AC10.** The provider receives a realpath cwd only when the cwd was explicit.",
+      "mode": "integration",
+      "test_id": "N1-AC10",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "N1-AC11",
+      "text": "- **N1-AC11.** Null instructions and null reasoning behave as specified; invalid reasoning gives `reasoning_invalid`; an auth fallback gives `provider_runtime_mismatch`.",
+      "mode": "integration",
+      "test_id": "N1-AC11",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "N1-AC12",
+      "text": "- **N1-AC12.** After compression rotates the session id, tool calls are still authorized and approvals still reach the listener, on both dispatch paths.",
+      "mode": "integration",
+      "test_id": "N1-AC12",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "N1-AC13",
+      "text": "- **N1-AC13.** v2 restore uses `provider.restore`'s copy and ignores a tampered disk payload; a provider failure refuses the resume; `session_policy_turn_gate` refuses the turn after revocation.",
+      "mode": "integration",
+      "test_id": "N1-AC13",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "N1-AC14",
+      "text": "- **N1-AC14.** After a taint source runs, a gated tool resolves to ask (deny when headless), and the taint survives resume.",
+      "mode": "integration",
+      "test_id": "N1-AC14",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "N1-AC15",
+      "text": "- **N1-AC15.** v2 tool calls execute sequentially.",
+      "mode": "integration",
+      "test_id": "N1-AC15",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "N1-AC16",
+      "text": "- **N1-AC16.** Scalar-argument rules (`rhythm_delegate.targetAgentId`) are last-match.",
+      "mode": "integration",
+      "test_id": "N1-AC16",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "N1-LIVE-1",
+      "text": "- **N1-LIVE-1.** A real `session.create` plus `prompt.submit` with a fixture v2 provider: the provider request offers exactly the expected tools, the marker appears, and the denial is observed.",
+      "mode": "integration",
+      "test_id": "N1-LIVE-1",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "HP-1",
+      "text": "- **HP-1.** The handoff file is read once, unlinked, and its env var removed. The loader rejects a symlink, a mode other than 0600, the wrong owner, oversize content, bad JSON and a non-loopback origin.",
+      "mode": "integration",
+      "test_id": "HP-1",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "HP-2",
+      "text": "- **HP-2.** After loading, `build_subprocess_env` (both modes), `_scrub_child_env` with passthrough, the PTY child env and the compute-host child env contain neither the token nor any `HERMES_HOST_CAPABILIT*` key.",
+      "mode": "integration",
+      "test_id": "HP-2",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "HP-3",
+      "text": "- **HP-3.** The compute host receives capabilities through the frame, and `is_serving_process()` is False there.",
+      "mode": "integration",
+      "test_id": "HP-3",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "HP-4",
+      "text": "- **HP-4.** A required bundled plugin loads without writing config; a non-bundled name is ignored; serve startup discovers plugins deterministically.",
+      "mode": "integration",
+      "test_id": "HP-4",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "HP-5",
+      "text": "- **HP-5.** Driver: create, submit, interrupt, respond, close and events all work; open sessions are never evicted; error frames surface their codes.",
+      "mode": "integration",
+      "test_id": "HP-5",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "HP-6",
+      "text": "- **HP-6.** An unknown key in the policy entry survives compute-host transfer; the turn gate is invoked, tested with a stub gate.",
+      "mode": "integration",
+      "test_id": "HP-6",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "HP-7",
+      "text": "- **HP-7** (vitest). The embedded host:\n  - accepts only a valid token and origin for owned default attempts;\n  - writes a 0600 handoff file, and the env holds only its path;\n  - puts the token in `redactValues` and not in `acceptedEnvNames`;\n  - applies to both `prepare` consumers and to `createSpawnRuntime`;\n  - never adds it to `probeEnv`, borrowed runtimes or non-default profiles;\n  - removes stale handoff files;\n  - sets `HERMES_HOST_REQUIRED_PLUGINS`.",
+      "mode": "integration",
+      "test_id": "HP-7",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "RP-1",
+      "text": "- **RP-1.** Bridge client: origin from the capability, the header, the closed op table, no redirects, size caps, no token in errors or logs, encoded path params.",
+      "mode": "integration",
+      "test_id": "RP-1",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "RP-2",
+      "text": "- **RP-2.** Provider: selection grammar; `profile_unsupported`; `bridge_unavailable`; mapping of 409 bodies to codes; `ownerId` taken from the bridge; cwd passed through; `rhythm-job` accepted only from the worker's driver transports (else `transport_not_allowed`); `restore` and `check` implemented.",
+      "mode": "integration",
+      "test_id": "RP-2",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "RP-3",
+      "text": "- **RP-3.** Registration is idempotent across repeated `register(ctx)` calls.",
+      "mode": "integration",
+      "test_id": "RP-3",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "RP-4",
+      "text": "- **RP-4.** The bridge tools are hidden and refused outside v2 sessions; parent fields come from `current_policy()`; the idempotency key is one UUID per invocation, reused across HTTP retries.",
+      "mode": "integration",
+      "test_id": "RP-4",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "RP-5",
+      "text": "- **RP-5.** status, result and cancel are parent-scoped, and results carry the untrusted label.",
+      "mode": "integration",
+      "test_id": "RP-5",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "RP-6",
+      "text": "- **RP-6.** Memory search requires a v2 policy on the default profile, enforces bounds, maps the consent error, and labels results.",
+      "mode": "integration",
+      "test_id": "RP-6",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "RP-7",
+      "text": "- **RP-7.** Worker with the fake driver: claim → create with a `rhythm-job` selection → running report → submit → approval auto-deny → completion report; cancel → interrupt; the 204 loop; no second create after a crash; progress at least every 20 s.",
+      "mode": "integration",
+      "test_id": "RP-7",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "RP-8",
+      "text": "- **RP-8.** Worker start conditions and the single-instance guarantee hold, and the report cadence is as specified.",
+      "mode": "integration",
+      "test_id": "RP-8",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "RP-9",
+      "text": "- **RP-9.** Dashboard routes: closed schemas, agent-id validation, integer `sessionRevision`, 202 and save-status passthrough, no capability in responses, absent from `public_api`.",
+      "mode": "integration",
+      "test_id": "RP-9",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "UI-1",
+      "text": "- **UI-1.** Readiness chips and reasons render, and duplicate labels are disambiguated by id.",
+      "mode": "ui",
+      "test_id": "UI-1",
+      "status": "pass",
+      "test_file": "packages/rhythm-workspace-ui/tests/shared-agents.screen.test.ts",
+      "evidence": "npm test: 23 files, 255 tests passed"
+    },
+    {
+      "criterion_id": "UI-2",
+      "text": "- **UI-2.** Save sends only the changed fields plus `expectedRevision`, and untouched raw JSON stays byte-identical.",
+      "mode": "ui",
+      "test_id": "UI-2",
+      "status": "pass",
+      "test_file": "packages/rhythm-workspace-ui/tests/shared-agents.screen.test.ts",
+      "evidence": "npm test: 23 files, 255 tests passed"
+    },
+    {
+      "criterion_id": "UI-3",
+      "text": "- **UI-3.** A conflict keeps the draft.",
+      "mode": "ui",
+      "test_id": "UI-3",
+      "status": "pass",
+      "test_file": "packages/rhythm-workspace-ui/tests/shared-agents.screen.test.ts",
+      "evidence": "npm test: 23 files, 255 tests passed"
+    },
+    {
+      "criterion_id": "UI-4",
+      "text": "- **UI-4.** A change of `catalog.scope` clears state.",
+      "mode": "ui",
+      "test_id": "UI-4",
+      "status": "pass",
+      "test_file": "packages/rhythm-workspace-ui/tests/shared-agents.screen.test.ts",
+      "evidence": "npm test: 23 files, 255 tests passed"
+    },
+    {
+      "criterion_id": "UI-5",
+      "text": "- **UI-5.** Launch is gated by `hostRuntime` readiness and the interactive kind, and calls `launch(id, revision)`.",
+      "mode": "ui",
+      "test_id": "UI-5",
+      "status": "pass",
+      "test_file": "packages/rhythm-workspace-ui/tests/shared-agents.screen.test.ts",
+      "evidence": "npm test: 23 files, 255 tests passed"
+    },
+    {
+      "criterion_id": "UI-6",
+      "text": "- **UI-6.** Keyboard use, focus trap, read-only mode and the compact layout all work.",
+      "mode": "ui",
+      "test_id": "UI-6",
+      "status": "pass",
+      "test_file": "packages/rhythm-workspace-ui/tests/shared-agents.screen.test.ts",
+      "evidence": "npm test: 23 files, 255 tests passed"
+    },
+    {
+      "criterion_id": "UI-7",
+      "text": "- **UI-7.** The public-API test and the forbidden-terms sweep stay green.",
+      "mode": "ui",
+      "test_id": "UI-7",
+      "status": "pass",
+      "test_file": "packages/rhythm-workspace-ui/tests/public-api.test.ts; packages/rhythm-workspace-ui/tests/forbidden-imports.test.ts",
+      "evidence": "npm test: 23 files, 255 tests passed"
+    },
+    {
+      "criterion_id": "UI-8",
+      "text": "- **UI-8.** `onConfirmationRequired` shows the waiting state, and a `forbidden` rejection keeps the draft.",
+      "mode": "ui",
+      "test_id": "UI-8",
+      "status": "pass",
+      "test_file": "packages/rhythm-workspace-ui/tests/shared-agents.screen.test.ts",
+      "evidence": "npm test: 23 files, 255 tests passed"
+    },
+    {
+      "criterion_id": "UI-WEB-1",
+      "text": "- **UI-WEB-1.** The adapter calls the §5.2 routes; a 409 becomes `RhythmGatewayError('conflict')` and a 401 becomes `'forbidden'`.",
+      "mode": "ui",
+      "test_id": "UI-WEB-1",
+      "status": "fail",
+      "test_file": "apps/web/tests/pages/shared-agents.spec.ts",
+      "evidence": "Relay round 2 proved the real adapter loaded, but the production app page's CSP blocked the intercepted 4098 boundary before Playwright routing. The repaired spec uses the existing CSP-free Vite test page and retains exact route, bearer, PATCH body, 409 conflict and 401 forbidden assertions; parent rerun required."
+    },
+    {
+      "criterion_id": "HD-1",
+      "text": "- **HD-1.** `policySelection` reaches `session.create` as `policy_selection`, model, provider and effort are omitted, and the selection clears afterwards.",
+      "mode": "ui",
+      "test_id": "HD-1",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "HD-2",
+      "text": "- **HD-2.** The adapter uses only `ctx.rest`, the selection matches the interactive grammar, no credential strings appear, and save-status polling is bounded.",
+      "mode": "ui",
+      "test_id": "HD-2",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "HD-3",
+      "text": "- **HD-3.** The vendored dist hash equals S6's recorded build, taken after the latest #1540 vendor. PROVENANCE is updated.",
+      "mode": "ui",
+      "test_id": "HD-3",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "HD-4",
+      "text": "- **HD-4.** The `agents` tab round-trips through `rhythmRouteTarget`, and the route count is unchanged.",
+      "mode": "ui",
+      "test_id": "HD-4",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "X-1",
+      "text": "- **X-1:** Hermes `SessionPolicySnapshot.from_mapping(<S1 golden>)` accepts the snapshot, and S3's evaluator reproduces every expected effect in the S1 vector list.",
+      "mode": "integration",
+      "test_id": "X-1",
+      "status": "pending"
+    }
+  ],
+  "stack": "mixed",
+  "not_tested": []
+}

@@ -1,0 +1,56 @@
+{
+  "issue": 1515,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1515-c1",
+      "text": "Provide compact selectable room/space and reservation lists within the existing meaningful sections or filters.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/facilities-list-inspector.spec.ts",
+      "test_id": "selects two reservations and keeps details, editing, conflicts, and every item action in the inspector",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1515-c2",
+      "text": "Show the selected room or reservation details, editing controls, and relevant actions together in the main inspector.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/facilities-list-inspector.spec.ts",
+      "test_id": "selects two reservations and keeps details, editing, conflicts, and every item action in the inspector",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1515-c3",
+      "text": "Preserve room management, reservation editing, recurrence/group operations, conflict/availability feedback, and automation-reservation management. Keep calendar/schedule context available without making it the only route to details.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/facilities-list-inspector.spec.ts",
+      "test_id": "selects two reservations and keeps details, editing, conflicts, and every item action in the inspector",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1515-c4",
+      "text": "Mouse and keyboard selection update the correct inspector, with visible focus and selected state.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/facilities-list-inspector.spec.ts",
+      "test_id": "roves keyboard focus without changing selection until Enter or Space",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1515-c5",
+      "text": "Long titles/metadata, empty results, loading, errors, and read-only access remain usable; resizing does not clip essential controls.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/facilities-list-inspector.spec.ts",
+      "test_id": "keeps long room names and inspector controls reachable at narrow width and 200% zoom",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1515-c6",
+      "text": "Refresh and existing deep links preserve or restore the correct selection; missing/deleted items produce a clear state rather than stale details.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/facilities-list-inspector.spec.ts",
+      "test_id": "restores selection, preserves deep links, and shows stale or deleted IDs clearly",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

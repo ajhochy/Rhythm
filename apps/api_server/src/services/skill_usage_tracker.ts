@@ -38,6 +38,14 @@
  * Never throws — DB errors resolve to an empty map (fail toward "nothing
  * used yet"). No-op under Postgres (agent-execution tables are local-SQLite
  * only, same posture as org_exercised_tools_resolver.ts).
+ *
+ * 2026-09-17 disconnect triage — the scan is CHUNKED by message id and yields
+ * to the event loop between chunks. One synchronous pass over a 4 GB
+ * production history is a 14–30 s pread-bound stall of the Node main thread
+ * (native sample: StatementIterator::Next → sqlite3_step → pread) during
+ * which /health cannot answer, so the desktop HealthPoller declared the local
+ * agent server lost ~70 s after every turn. Total work is unchanged; only the
+ * blocking shape is.
  */
 
 import { getDb } from '../database/db';
@@ -60,12 +68,26 @@ interface SkillUsageRow {
  * small metadata fields needed for counting, so unrelated transcript bodies
  * never enter V8.
  */
-export function countSkillToolUses(): Map<string, number> {
+/** Messages scanned per event-loop turn. */
+// ponytail: fixed chunk; make it adaptive (by bytes) if a single chunk of
+// 129 MB rows still shows up in /health latency.
+const SCAN_CHUNK_ROWS = 100;
+
+const yieldToEventLoop = (): Promise<void> =>
+  new Promise((resolve) => setImmediate(resolve));
+
+export async function countSkillToolUses(): Promise<Map<string, number>> {
   if (env.dbClient === 'postgres') return new Map();
 
   try {
     const db = getDb();
-    const rows = db
+    const bounds = db
+      .prepare('SELECT MIN(id) AS lo, MAX(id) AS hi FROM agent_session_messages')
+      .get() as { lo: number | null; hi: number | null };
+    const counts = new Map<string, number>();
+    if (bounds.lo === null || bounds.hi === null) return counts;
+
+    const chunk = db
       .prepare(
         `WITH skill_parts AS (
            SELECT part.value AS part_json,
@@ -81,7 +103,8 @@ export function countSkillToolUses(): Map<string, number> {
                  ELSE '[]'
                END
              ) AS part
-            WHERE part.type = 'object'
+            WHERE m.id BETWEEN @lo AND @hi
+              AND part.type = 'object'
               AND (
                 SELECT field.value
                   FROM json_each(CASE WHEN part.type = 'object' THEN part.value ELSE '{}' END) AS field
@@ -163,22 +186,24 @@ export function countSkillToolUses(): Map<string, number> {
                ORDER BY field.id DESC
                LIMIT 1
             ) = 'text'`,
-      )
-      .iterate() as IterableIterator<SkillUsageRow>;
-
-    const counts = new Map<string, number>();
-    for (const row of rows) {
-      const eligibility = evaluateLearningSessionEligibility(
-        toLearningEligibilitySessionInput({
-          is_system: row.is_system,
-          category: row.category,
-          mcp_role: row.mcp_role,
-        }),
       );
-      if (!eligibility.eligible) continue;
 
-      const name = typeof row.skill_name === 'string' ? row.skill_name.trim() : '';
-      if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
+    for (let lo = bounds.lo; lo <= bounds.hi; lo += SCAN_CHUNK_ROWS) {
+      await yieldToEventLoop();
+      const rows = chunk.all({ lo, hi: lo + SCAN_CHUNK_ROWS - 1 }) as SkillUsageRow[];
+      for (const row of rows) {
+        const eligibility = evaluateLearningSessionEligibility(
+          toLearningEligibilitySessionInput({
+            is_system: row.is_system,
+            category: row.category,
+            mcp_role: row.mcp_role,
+          }),
+        );
+        if (!eligibility.eligible) continue;
+
+        const name = typeof row.skill_name === 'string' ? row.skill_name.trim() : '';
+        if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
+      }
     }
     return counts;
   } catch (err) {

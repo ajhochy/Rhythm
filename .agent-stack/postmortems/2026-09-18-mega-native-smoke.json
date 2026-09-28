@@ -1,0 +1,64 @@
+{
+  "run_id": "2026-09-18-mega-native-smoke",
+  "issue": 1544,
+  "date": "2026-09-18",
+  "smoke_result": "fail",
+  "verification_claimed": "FAIL",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "mega-native-1-through-8-and-10",
+      "text": "Run the requested native workspace visual checks through authenticated live mode.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "C5",
+      "notes": "GOOGLE_DESKTOP_CLIENT_ID absent; native sign-in cannot start. RHYTHM_LIVE_TOKEN absent; API4001/engine4096 have no listener."
+    },
+    {
+      "criterion_id": "mega-fork-mounted-workspace",
+      "text": "Rhythm workspace mounts in the installed Hermes host before M3/read/ACP/draft verification.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "C5",
+      "notes": "Exact final JSX-only package and native SDK-hook fingerprint verified; route element creation succeeds but workspace DOM is absent. M3/read/ACP/draft remains blocked."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "credential-config",
+      "description": "The handoff asserts a live bearer and running API/engine; executing process lacks these prerequisites.",
+      "detected_by": "boolean-only environment check, listener inspection, native sign-in error, hosted suite beforeAll assertion."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "failure-postmortem",
+      "project-state-updater"
+    ],
+    "skipped_skills": [],
+    "issues": [],
+    "notes": "Native and hosted acceptance remain blocked; local repairs and real isolated relay proof are recorded separately. No overall completion claim. Final records use the assigned repositories and script-only Dashboard publication."
+  },
+  "implementation_files": [
+    "apps/web/tests/helpers/mega-smoke-ownership.ts",
+    "apps/web/tests/live/mega-2026-09-18-smoke.spec.ts"
+  ],
+  "failure_output": "Error invoking remote method rhythm:auth:google-sign-in: GOOGLE_DESKTOP_CLIENT_ID is not set; cannot start Google sign-in.",
+  "overall_category": "C5",
+  "suggested_follow_up": "Rerun the native and hosted acceptance using the configured public OAuth client and authorized process bearer with the requested services available; keep draft PR1544 open."
+}

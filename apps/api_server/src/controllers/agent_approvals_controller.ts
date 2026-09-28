@@ -13,6 +13,7 @@ import { AppError } from '../errors/app_error';
 import {
   AgentApprovalsRepository,
   isAutoApproveProfile,
+  type AgentApproval,
   type AgentApprovalStatus,
 } from '../repositories/agent_approvals_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
@@ -29,6 +30,16 @@ import { agentApprovalContinuationService } from '../services/agent_approval_con
 const repo = new AgentApprovalsRepository();
 const security = new ExternalContentSecurityService();
 const sessions = new AgentSessionsRepository();
+
+function withApprovalLane(approval: AgentApproval) {
+  if (approval.taintId) {
+    return { ...approval, lane: 'hardline', laneReason: 'external_data_taint' } as const;
+  }
+  if (approval.securityAction) {
+    return { ...approval, lane: 'hardline', laneReason: 'consequential_action' } as const;
+  }
+  return { ...approval, lane: 'approval', laneReason: 'approval_gate' } as const;
+}
 
 export class AgentApprovalsController {
   create(req: Request, res: Response, next: NextFunction): void {
@@ -139,7 +150,7 @@ export class AgentApprovalsController {
         throw AppError.badRequest('status must be one of pending, approved, rejected, all');
       }
 
-      res.json(repo.list(status));
+      res.json(repo.list(status).map(withApprovalLane));
     } catch (err) {
       next(err);
     }

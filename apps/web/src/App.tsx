@@ -7,6 +7,8 @@ import { Shell, navigate } from './components/Shell';
 import { ToolWorkspace } from './components/ToolWorkspace';
 import { LiveArtifactsShell } from './pages/dashboard/LiveArtifactsShell';
 import { MobileAccessPage } from './pages/mobile-access';
+import { HermesPage } from './pages/hermes';
+import { ColonyPage } from './pages/colony';
 import { SettingsPage } from './pages/settings';
 import { PlannerPage } from './pages/planner';
 import { TasksPage } from './pages/tasks';
@@ -64,6 +66,8 @@ export function App() {
   else if (route === '/integrations' || route.startsWith('/integrations/')) content = <IntegrationsPage route={route} />;
   else if (route === '/profiles') content = <Profiles />;
   else if (route === '/endpoint-map') content = <EndpointMap />;
+  else if (route === '/hermes') content = <HermesPage />;
+  else if (route === '/colony') content = <ColonyPage />;
   else if (route === '/mobile-access') content = <MobileAccessPage />;
   else if (route === '/settings') content = <SettingsPage />;
   else if (route.startsWith('/tools/')) content = <ToolWorkspace slug={route.split('/')[2]} />;

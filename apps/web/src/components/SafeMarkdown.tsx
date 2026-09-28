@@ -1,9 +1,31 @@
-import { createElement, Fragment, useState, type ReactNode } from 'react';
+import { createElement, Fragment, useId, useState, type ReactNode } from 'react';
 import { marked, type Token, type Tokens } from 'marked';
 
 function Code({ text, language }: { text: string; language?: string }) {
   const [status, setStatus] = useState('');
   return <div><pre><code className={language ? `language-${language}` : undefined}>{text}</code></pre><button type="button" onClick={() => void navigator.clipboard.writeText(text).then(() => setStatus('Code copied'), () => setStatus('Code copy failed'))}>Copy code</button><span role="status">{status}</span></div>;
+}
+
+function ExternalLink({ href, children }: { href: string; children: ReactNode }) {
+  const [status, setStatus] = useState('');
+  const descriptionId = useId();
+  const openExternal = window.rhythmShell?.openExternal;
+  if (typeof openExternal !== 'function') return <span><span role="link" aria-disabled="true" title={href}>{children}</span><small> (External link opening unavailable: {href})</small></span>;
+  return <span><a href={href} title={href} rel="noopener noreferrer" aria-describedby={descriptionId} onClick={(event) => {
+    event.preventDefault();
+    setStatus('');
+    void openExternal(href).catch(() => setStatus('External link could not be opened.'));
+  }}>{children}</a><span id={descriptionId} className="sr-only">Opens {new URL(href).hostname} in the default browser.</span><small role="status">{status ? ` (${status})` : ''}</small></span>;
+}
+
+const MAGAZINE_LINK = /^#\/dashboard\?artifactId=[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?:&anchor=[A-Za-z0-9_-]{1,120})?$/i;
+
+function isSafeExternalHref(href: string): boolean {
+  if (!/^https?:\/\//i.test(href) || href.length > 4096 || /[\p{Cc}\p{Cf}\s]/u.test(href)) return false;
+  try {
+    const url = new URL(href);
+    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password;
+  } catch { return false; }
 }
 
 // Lexer only: React owns every DOM node. No HTML injection, image loads, or navigation.
@@ -31,8 +53,9 @@ function render(tokens: Token[]): ReactNode {
         node = <table><thead><tr>{table.header.map((cell, index) => <th key={index} scope="col">{render(cell.tokens)}</th>)}</tr></thead><tbody>{table.rows.map((row, index) => <tr key={index}>{row.map((cell, column) => <td key={column}>{render(cell.tokens)}</td>)}</tr>)}</tbody></table>; break;
       }
       case 'link': {
-        const safe = /^https?:\/\//i.test(token.href) && !/[\u0000-\u0020\u007f]/.test(token.href);
-        node = safe ? <span><span role="link" aria-disabled="true" title={token.href}>{nested()}</span><small> (External link opening unavailable: {token.href})</small></span> : <span>{nested()} (Unsafe link blocked)</span>; break;
+        // The one in-app link form: a research magazine section (#/dashboard?artifactId=<uuid>&anchor=<id>).
+        node = MAGAZINE_LINK.test(token.href) ? <a href={token.href}>{nested()}</a>
+          : isSafeExternalHref(token.href) ? <ExternalLink href={token.href}>{nested()}</ExternalLink> : <span>{nested()} (Unsafe link blocked)</span>; break;
       }
       case 'image': node = <span>{token.text} (Image loading disabled)</span>; break;
       case 'html': node = token.raw; break;

@@ -57,7 +57,7 @@ function noteFiles(dir = memoryDir, base = memoryDir): string[] {
     if (ent.isDirectory()) out.push(...noteFiles(full, base));
     else if (
       ent.name.endsWith('.md') &&
-      !['index.md', 'log.md'].includes(ent.name.toLowerCase())
+      !['index.md', 'log.md', 'readme.md'].includes(ent.name.toLowerCase())
     ) {
       out.push(path.relative(base, full));
     }

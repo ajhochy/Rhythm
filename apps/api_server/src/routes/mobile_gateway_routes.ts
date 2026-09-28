@@ -57,14 +57,19 @@ function catalogInteger(
   return Math.min(parsed, maximum);
 }
 
-export function createMobileGatewayRouter(): Router {
+export interface MobileGatewayRouterDependencies {
+  opencodeProxy?: MobileOpenCodeProxy;
+  sseProxy?: MobileSseProxy;
+}
+
+export function createMobileGatewayRouter(dependencies: MobileGatewayRouterDependencies = {}): Router {
   const router = Router();
   const cloudIdentity = new MobileCloudIdentityService();
   const requireCloudUser = requireMobileCloudUser(cloudIdentity);
   let controller: MobileGatewayController | null = null;
-  const opencodeProxy = new MobileOpenCodeProxy();
+  const opencodeProxy = dependencies.opencodeProxy ?? new MobileOpenCodeProxy();
   const activityController = new AgentActivityController();
-  const sseProxy = new MobileSseProxy();
+  const sseProxy = dependencies.sseProxy ?? new MobileSseProxy();
   const tailscaleServe = new TailscaleServeService();
   const mediaArtifacts = new MediaArtifactsController();
   const requireArtifactProjectScope = requireMobileProjectScope();
@@ -414,9 +419,12 @@ export function createMobileGatewayRouter(): Router {
           body: req.body,
           project: req.mobileProject!,
           userId: req.mobileDevice!.userId,
+          deviceId: req.mobileDevice!.id,
           accept: req.header('accept'),
           ownerUnscopedDiscovery:
             req.header('x-rhythm-session-discovery') === 'owner-unscoped',
+          remoteAttachDesktop:
+            req.header('x-rhythm-client-capability') === 'remote-attach-desktop-v1',
         });
         if (result.contentType) res.type(result.contentType);
         for (const [name, value] of Object.entries(result.headers ?? {})) {

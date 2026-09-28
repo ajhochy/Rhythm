@@ -56,6 +56,15 @@ vi.mock('../services/opencode_stream_bridge', () => ({
     stopStream: vi.fn(),
     clearErrorStatus: vi.fn(),
     clearPendingPermission: vi.fn(),
+    markPermissionReplied: (sessionId: string, permissionID: string) => {
+      broadcasts.push({
+        v: 1,
+        type: 'permission.replied',
+        sessionId,
+        permissionID,
+        directory: '/tmp/proj',
+      });
+    },
     getPendingPermission: vi.fn(),
   },
 }));

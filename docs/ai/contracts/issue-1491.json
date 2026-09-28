@@ -1,0 +1,13 @@
+{
+  "issue": 1491,
+  "date": "2026-09-24",
+  "test_command": "cd apps/api_server && npx vitest run src/__tests__/issue_1491_webhook_contract.test.ts src/__tests__/issue_1491_postgres_pre_role.test.ts src/__tests__/issue_1491_webhook_live_e2e.test.ts && cd ../desktop_flutter && flutter test test/features/agents/agent_trigger_watcher_test.dart",
+  "waiver": null,
+  "criteria": [
+    {"criterion_id":"issue-1491-c1","text":"HMAC-signed receive returning queued preserves configured target scheduled task/profile and event context (event type, target prompt, payload summary/body under trust-boundary rules, note path when configured) in the pending trigger","mode":"integration","test":"apps/api_server/src/__tests__/issue_1491_webhook_contract.test.ts","status":"pass"},
+    {"criterion_id":"issue-1491-c2","text":"arbitrary webhook payload remains clearly marked untrusted/external and cannot become instructions outside approved prompt template; API route is trust boundary, so validate size/types and avoid secret logging","mode":"integration","test":"apps/api_server/src/__tests__/issue_1491_webhook_contract.test.ts","status":"pass"},
+    {"criterion_id":"issue-1491-c3","text":"Flutter trigger watcher/controller/banner/session-start preserves target; banner has meaningful task title and action label based on configured target, not always Start Secretary; clicking starts/selects configured profile/session and prefills or sends intended sanitized prompt/context exactly once; existing scheduled triggers remain compatible; when an incoming webhook draft meets an occupied composer, preserve the existing text and pending draft without perpetually scheduling frames, then consume the pending draft exactly once after the composer is cleared","mode":"ui","test":"apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart","status":"pass"},
+    {"criterion_id":"issue-1491-c4","text":"env-gated live sandbox test creates endpoint/target, HMAC POST real route, polls real pending trigger, asserts preserved fields and single consume","mode":"live","test":"apps/api_server/src/__tests__/issue_1491_webhook_live_e2e.test.ts","status":"pass"}
+  ],
+  "not_tested": []
+}

@@ -1,4 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { apiPost, toolError, toolResult } from "../api_client.js";
 import { registerTool } from "./_tool.js";
@@ -191,7 +192,13 @@ export function registerAgentDelegationTools(
         .describe(
           "Optional manager context to prepend to the delegated prompt.",
         ),
+      isolateWorktree: z
+        .boolean()
+        .optional()
+        .describe("Create the child in an isolated worktree from the trusted parent session directory."),
+      worktreeName: z.string().optional().describe("Optional isolated worktree name."),
       model: z.object({ providerID: z.string(), modelID: z.string() }).optional(),
+      targetRuntime: z.enum(["opencode", "hermes"]).optional(),
       approval_id: z
         .string()
         .optional()
@@ -205,7 +212,10 @@ export function registerAgentDelegationTools(
         prompt,
         callerSessionId,
         context,
+        isolateWorktree,
+        worktreeName,
         model,
+        targetRuntime,
         approval_id,
       },
       extra,
@@ -221,13 +231,17 @@ export function registerAgentDelegationTools(
         prompt,
         ...(callerSessionId !== undefined && { callerSessionId }),
         ...(context !== undefined && { context }),
+        ...(isolateWorktree !== undefined && { isolateWorktree }),
+        ...(worktreeName !== undefined && { worktreeName }),
         ...(model !== undefined && { model }),
+        ...(targetRuntime !== undefined && { targetRuntime }),
       };
       // #1322 follow-up: the authoritative caller identity. A model cannot know
       // its own Rhythm session id and invents one when asked, so the server
       // resolves the session from this engine session id instead.
       const requestBody = {
         ...payload,
+        idempotencyKey: randomUUID(),
         ...(ctx?.sdkSessionId ? { callerSdkSessionId: ctx.sdkSessionId } : {}),
       };
       const gate = await authorizeOutboundAction({

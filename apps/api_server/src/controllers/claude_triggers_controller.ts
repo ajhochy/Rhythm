@@ -7,8 +7,11 @@ const repo = new ClaudeTriggersRepository();
 export class ClaudeTriggersController {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = req.auth!.user.id;
-      res.json(await repo.listForUser(userId));
+      res.json(
+        req.auth
+          ? await repo.listForUser(req.auth.user.id)
+          : await repo.listLocalUnowned(),
+      );
     } catch (err) { next(err); }
   }
 
@@ -16,10 +19,13 @@ export class ClaudeTriggersController {
     try {
       const id = Number(req.params.id);
       if (!Number.isFinite(id)) throw AppError.badRequest('id must be a number');
-      const userId = req.auth!.user.id;
-      const trigger = await repo.findByIdAndUser(id, userId);
-      if (!trigger) throw AppError.notFound('Trigger');
-      await repo.deleteAsync(id);
+      if (req.auth) {
+        const trigger = await repo.findByIdAndUser(id, req.auth.user.id);
+        if (!trigger) throw AppError.notFound('Trigger');
+        await repo.deleteAsync(id);
+      } else if (!(await repo.deleteLocalUnowned(id))) {
+        throw AppError.notFound('Trigger');
+      }
       res.status(204).end();
     } catch (err) { next(err); }
   }

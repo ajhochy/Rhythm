@@ -13,6 +13,8 @@ export interface TranscriptShare {
 }
 export interface InspectorTodo { id: string; content: string; status: string; priority: string }
 export interface MemoryProvenance { recorded: boolean; memoryIds: string[]; notePaths: string[]; items: unknown[] }
+/** #1576 S4 — which model(s) actually served a session's steps. See GET /agent-sessions/:id/model-provenance. */
+export interface ModelProvenance { available: boolean; reason?: 'local_only'; requestedModelId: string | null; servedModels: string[]; multiModel: boolean; routed: boolean; steps: { unattributed: number } }
 export interface SessionResource { id: string; kind: 'artifact' | 'mcp' }
 export class InspectorGatewayError extends Error {
   constructor(readonly status: number) { super(`Inspector request unavailable (${status})`); }
@@ -72,11 +74,12 @@ export function createInspectorGateway(apiBase: string, sharingApiBase: string, 
   return {
     todos: (id: string) => request<InspectorTodo[]>(`${session(id)}/todo`),
     provenance: (id: string) => request<MemoryProvenance>(`${session(id)}/memory-provenance`),
+    modelProvenance: (id: string) => request<ModelProvenance>(`${session(id)}/model-provenance`),
     messages: (id: string, before?: number) => request<{ messages: Array<{ parts?: unknown[] }>; pageInfo: { hasMore: boolean; nextCursor: number | null } }>(`${session(id)}/messages?limit=50${before ? `&before=${before}` : ''}`),
     resource: (id: string, callId: string) => request<{ mimeType: string; text: string }>(`${session(id)}/mcp-app-resource/${encodeURIComponent(callId)}`),
     review: (id: string) => request<PreparedShare>(`${session(id)}/shares/review`, 'GET', undefined, true, true),
     recipients: () => request<Array<{ userId: number; name: string; email?: string }>>('/workspaces/me/members', 'GET', undefined, true),
-    createShare: async (id: string, input: { reviewHash: string; review: ShareReview; explicitlyIncludedItemIds: string[]; recipientUserIds: number[] }) => {
+    createShare: async (id: string, input: { reviewHash: string; review: ShareReview; explicitlyIncludedItemIds: string[]; recipientUserIds: number[]; expiresAt?: string }) => {
       const fresh = await request<PreparedShare>(`${session(id)}/shares/review`, 'GET', undefined, true, true);
       if (fresh.reviewHash !== input.reviewHash) throw new InspectorGatewayError(409);
       const ids = new Set(input.review.items.map(item => item.id));
@@ -85,7 +88,8 @@ export function createInspectorGateway(apiBase: string, sharingApiBase: string, 
       // only the freshly checked local server's sanitized selected snapshot.
       return request<TranscriptShare>('/shares', 'POST', { reviewHash: fresh.reviewHash,
         review: { items: fresh.inclusiveSnapshot.items.filter(item => ids.has(item.id)) },
-        explicitlyIncludedItemIds: input.explicitlyIncludedItemIds, recipientUserIds: input.recipientUserIds }, true);
+        explicitlyIncludedItemIds: input.explicitlyIncludedItemIds, recipientUserIds: input.recipientUserIds,
+        ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}) }, true);
     },
     shares: () => request<TranscriptShare[]>('/shares', 'GET', undefined, true),
     share: (id: string) => request<TranscriptShare>(`/shares/${encodeURIComponent(id)}`, 'GET', undefined, true),

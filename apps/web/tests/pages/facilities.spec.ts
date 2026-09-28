@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { openPage } from '../helpers';
+import { expectInspectorHeading, selectRow } from '../helpers/list-inspector';
 
 async function expectNoBlockingAxe(page: Page, state: string) {
   const result = await new AxeBuilder({ page }).analyze();
@@ -16,8 +17,8 @@ async function expectNoOverflow(page: Page, width: number) {
 test('Facilities click-through covers schedule, reservation, room, and automation work', async ({ page }) => {
   await openPage(page, 'facilities');
   await expect(page.getByTestId('facilities-range-label')).toHaveText('Aug 10 - Aug 16, 2026');
-  const firstReservation = page.locator('[data-testid^="facility-reservation-open-"]').first();
-  await firstReservation.click();
+  await selectRow(page, 'Leadership sync');
+  await expectInspectorHeading(page, 'Leadership sync');
   // Regression caught: selected reservations required a second Edit action before fields and save were exposed.
   await expect(page.getByTestId('facility-reservation-direct-editor').getByTestId('facility-reservation-title')).toBeEnabled();
   await page.getByTestId('facilities-range-month').click();
@@ -36,7 +37,7 @@ test('Facilities click-through covers schedule, reservation, room, and automatio
   await expect(page.getByTestId('page-trace')).toContainText('POST /facilities/101/reservations');
 
   await page.getByTestId('facilities-mode-rooms').click();
-  await page.getByTestId('facility-room-103').click();
+  await selectRow(page, 'Prayer Room');
   await expect(page.getByTestId('facility-room-detail')).toContainText('Prayer Room');
   await page.getByTestId('facility-room-reserve').click();
   await expect(page.getByTestId('facility-room-choice-103')).toBeChecked();
@@ -47,7 +48,7 @@ test('Facilities click-through covers schedule, reservation, room, and automatio
   await facilityEditor.getByTestId('facility-name').fill('Hospitality Studio');
   await facilityEditor.getByTestId('facility-description').fill('A flexible welcome and care workspace.');
   await facilityEditor.getByTestId('facility-editor-submit').click();
-  await expect(page.getByTestId('facility-room-105')).toContainText('Hospitality Studio');
+  await expect(page.getByTestId('room-105')).toContainText('Hospitality Studio');
 
   await page.getByTestId('facility-automation-manage').click();
   await page.getByTestId('facility-automation-room-filter').selectOption('102');
@@ -58,8 +59,8 @@ test('Facilities click-through covers schedule, reservation, room, and automatio
 
 test('Facilities destructive confirmations cancel safely and identify their target', async ({ page }) => {
   await openPage(page, 'facilities/rooms');
-  const room = page.getByTestId('facility-room-101');
-  await room.getByTestId('facility-room-actions-101').click();
+  const room = page.getByTestId('room-101');
+  await page.getByTestId('facility-room-actions-101').click();
   await page.getByRole('menuitem', { name: 'Delete room' }).click();
   const confirmation = page.getByTestId('facility-delete-dialog');
   await expect(confirmation).toContainText('Sanctuary');
@@ -73,6 +74,8 @@ test('Facilities stays usable without horizontal overflow at required widths', a
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
     await openPage(page, 'facilities/rooms');
     await expect(page.getByTestId('facilities-responsive-primary')).toBeVisible();
+    const back = page.getByRole('button', { name: 'Back to list', exact: true });
+    if (await back.isVisible()) await back.click();
     await expect(page.getByTestId('facility-add-space')).toBeVisible();
     await expect(page.getByText('礼拝チーム室 🎵', { exact: true })).toBeVisible();
     await expectNoOverflow(page, width);

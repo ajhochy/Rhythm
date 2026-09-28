@@ -69,10 +69,13 @@ import { createHash } from 'node:crypto';
 
 import Database from 'better-sqlite3';
 import { Pool } from 'pg';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { env } from '../config/env';
+import * as database from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { runPostgresBootstrap } from '../database/postgres_bootstrap';
+import { ClaudeTriggersRepository } from '../repositories/claude_triggers_repository';
 
 const enabled = process.env.RHYTHM_LIVE_PG === '1';
 const describeLive = enabled ? describe : describe.skip;
@@ -210,6 +213,63 @@ describeLive('live Postgres bootstrap (RHYTHM_LIVE_PG=1)', () => {
     await runPostgresBootstrap(pool);
     const again = await postgresSchema(pool);
     expect([...again.keys()].sort()).toEqual([...pgTables.keys()].sort());
+  }, BOOTSTRAP_TIMEOUT_MS);
+
+  it('cloud-role bootstrap supports scheduled trigger reads without agent_webhook_endpoints', async () => {
+    const client = await pool.connect();
+    const original = {
+      role: env.role,
+      agentExecutionEnabled: env.agentExecutionEnabled,
+      dbClient: env.dbClient,
+    };
+    const poolSpy = vi
+      .spyOn(database, 'getPostgresPool')
+      .mockReturnValue(client as unknown as Pool);
+    try {
+      await client.query('BEGIN');
+      await client.query('DROP SCHEMA IF EXISTS public CASCADE');
+      await client.query('CREATE SCHEMA public');
+      env.role = 'cloud';
+      env.agentExecutionEnabled = false;
+      env.dbClient = 'postgres';
+      await runPostgresBootstrap(client as unknown as Pool);
+
+      expect(
+        await client.query(
+          `SELECT to_regclass('public.agent_webhook_endpoints') AS table_name`,
+        ),
+      ).toMatchObject({ rows: [{ table_name: null }] });
+
+      await client.query(
+        `INSERT INTO agent_scheduled_tasks(id, name, prompt, agent_config_id)
+         VALUES ($1, $2, $3, $4)`,
+        ['schedule-cloud-1491', 'Cloud webhook handoff', 'Inspect update', 'worship-profile'],
+      );
+      await client.query(
+        `INSERT INTO pending_claude_triggers(
+           task_id, triggered_by_user_id, scheduled_task_id, prompt, webhook_endpoint_id
+         ) VALUES (NULL, NULL, $1, $2, $3)`,
+        ['schedule-cloud-1491', 'Inspect update', 'endpoint-cloud-1491'],
+      );
+
+      const rows = await new ClaudeTriggersRepository().listAllAsync();
+      expect(rows).toMatchObject([
+        {
+          taskTitle: 'Cloud webhook handoff',
+          profileId: 'worship-profile',
+          prompt: 'Inspect update',
+          webhookEndpointId: 'endpoint-cloud-1491',
+          webhookEndpointName: null,
+        },
+      ]);
+    } finally {
+      await client.query('ROLLBACK');
+      env.role = original.role;
+      env.agentExecutionEnabled = original.agentExecutionEnabled;
+      env.dbClient = original.dbClient;
+      poolSpy.mockRestore();
+      client.release();
+    }
   }, BOOTSTRAP_TIMEOUT_MS);
 
   it('agrees with the SQLite migration on every shared table, against the REAL information_schema', () => {

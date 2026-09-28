@@ -1,0 +1,56 @@
+{
+  "issue": 1516,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1516-c1",
+      "text": "Use a compact left conversation list with title plus short preview/metadata; keep full conversation content out of the row.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/messages-list-inspector.spec.ts",
+      "test_id": "Messages selects conversations with mouse and keyboard without mutating unread state",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1516-c2",
+      "text": "Selecting a conversation opens its messages and relevant conversation details/functions in the main inspector.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/messages-list-inspector.spec.ts",
+      "test_id": "Messages keeps every item action and the composer inside the inspector",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1516-c3",
+      "text": "Keep the thread readable and its composer and conversation actions accessible within the inspector. Preserve existing search, creation, rename, delete, and message capabilities according to permissions.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/messages-list-inspector.spec.ts",
+      "test_id": "Messages keeps every item action and the composer inside the inspector",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1516-c4",
+      "text": "Mouse and keyboard selection update the correct inspector, with visible focus and selected state.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/messages-list-inspector.spec.ts",
+      "test_id": "Messages selects conversations with mouse and keyboard without mutating unread state",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1516-c5",
+      "text": "Long titles/metadata, empty results, loading, errors, and read-only access remain usable; resizing does not clip essential controls.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/messages-list-inspector.spec.ts",
+      "test_id": "Messages remains usable at 640px, 200% zoom, and with long row metadata",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1516-c6",
+      "text": "Refresh and existing deep links preserve or restore the correct selection; missing/deleted items produce a clear state rather than stale details.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/messages-list-inspector.spec.ts",
+      "test_id": "Messages restores selection and uses the shared missing state after deletion",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

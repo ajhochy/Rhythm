@@ -23,21 +23,12 @@ test.describe('child navigation and accessible resizing', () => {
 
   test('resizes all panels from the keyboard with clamps and live values', async ({ page }) => {
     await openFixture(page);
-    const tools = page.getByTestId('tools-resizer');
-    await expect(tools).toHaveAttribute('aria-label', 'Resize Tools panel');
-    await expect(tools).toHaveAttribute('aria-valuenow', '224');
-    await tools.focus();
-    await page.keyboard.press('ArrowUp');
-    await expect(tools).toHaveAttribute('aria-valuenow', '240');
-    await expect(tools).toHaveAttribute('aria-valuetext', '240 pixels');
-    await page.keyboard.press('Home');
-    await expect(tools).toHaveAttribute('aria-valuenow', '120');
-    await page.keyboard.press('End');
-    await expect(tools).toHaveAttribute('aria-valuenow', '320');
+    // The Tools panel is a More disclosure now, so the rail has no tools separator.
+    await expect(page.getByTestId('tools-resizer')).toHaveCount(0);
     const rail = page.getByTestId('rail-resizer');
     await rail.focus();
     await page.keyboard.press('ArrowRight');
-    await expect(rail).toHaveAttribute('aria-valuenow', '292');
+    await expect(rail).toHaveAttribute('aria-valuenow', '296');
     await page.keyboard.press('Home');
     await expect(rail).toHaveAttribute('aria-valuenow', '228');
     await page.keyboard.press('End');
@@ -45,8 +36,8 @@ test.describe('child navigation and accessible resizing', () => {
     const inspector = page.getByTestId('inspector-resizer');
     await inspector.focus();
     await page.keyboard.press('ArrowLeft');
-    await expect(inspector).toHaveAttribute('aria-valuenow', '348');
-    await expect(page.getByTestId('panel-resize-status')).toHaveText('Inspector width 348 pixels');
+    await expect(inspector).toHaveAttribute('aria-valuenow', '352');
+    await expect(page.getByTestId('panel-resize-status')).toHaveText('Inspector width 352 pixels');
     await page.keyboard.press('Home');
     await expect(inspector).toHaveAttribute('aria-valuenow', '286');
     await page.keyboard.press('End');

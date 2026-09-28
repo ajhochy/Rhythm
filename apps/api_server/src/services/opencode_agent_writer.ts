@@ -44,6 +44,66 @@ import {
 } from './profile_capability_surface';
 import { opencodeClient } from './opencode_engine';
 
+export type EffectivePermissionMap = Record<string, string | Record<string, string>>;
+
+function permissionPatternMatches(value: string, pattern: string): boolean {
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*')
+    .replace(/\?/g, '.');
+  return new RegExp(`^${escaped}$`, 's').test(value);
+}
+
+function applyAuthoredTaskRestrictions(
+  generated: Record<string, 'allow' | 'deny'>,
+  authored: Record<string, string>,
+): Record<string, string> {
+  const restricted: Record<string, string> = { '*': 'deny' };
+  for (const [target, generatedEffect] of Object.entries(generated)) {
+    if (target === '*' || generatedEffect === 'deny') continue;
+    let effect = 'ask';
+    for (const [pattern, action] of Object.entries(authored)) {
+      if (permissionPatternMatches(target, pattern)) effect = action;
+    }
+    if (effect !== 'deny') restricted[target] = effect;
+  }
+  return restricted;
+}
+
+/**
+ * The one engine-visible permission map used by both the file writer and the
+ * shared-agent translator. Object insertion order is part of the contract.
+ */
+export function computeEffectivePermissionMap(
+  config: AgentConfig,
+  roster: ReadonlyArray<Pick<AgentConfig, 'id'>> = [],
+): EffectivePermissionMap {
+  const permissions: EffectivePermissionMap = {
+    ...withHardlineBashEscalation(parseCorePermissions(config)),
+  };
+  const known = roster.length ? new Set(roster.map((entry) => entry.id)) : null;
+  const delegates = parseDelegateRoster(config).filter((id) => !known || known.has(id));
+  const authoredTask = permissions.task;
+  if (authoredTask === 'deny') {
+    permissions.task = 'deny';
+  } else {
+    const generatedTask = buildTaskDelegatePermissions(
+      config.isManager === true ? delegates : [],
+      config.id,
+    );
+    permissions.task = typeof authoredTask === 'object'
+      ? applyAuthoredTaskRestrictions(generatedTask, authoredTask)
+      : generatedTask;
+  }
+  if (config.isManager === true && config.sessionSelectable) {
+    if (permissions.rhythm_delegate_async === undefined) permissions.rhythm_delegate_async = 'allow';
+  } else {
+    permissions.rhythm_delegate_async = 'deny';
+  }
+  if (config.id === 'workflow-orchestrator') permissions.write = 'allow';
+  return permissions;
+}
+
 /**
  * #1039 — the fork memoizes its global config (agent registry) with an infinite
  * TTL, so a freshly written/edited/deleted agent `.md` is invisible to the
@@ -628,7 +688,7 @@ export function writeAgentProfileFile(config: AgentConfig): AgentProfileWriteRes
     // a profile's `bash {"*": "allow"}`. Applied here, before the projection
     // loop, so it flows through the prune/keep bookkeeping unchanged (`bash`
     // stays a single top-level permission key).
-    const corePermissions = withHardlineBashEscalation(parseCorePermissions(config));
+    const corePermissions = computeEffectivePermissionMap(config);
 
     if (existsSync(path)) {
       // Merge: preserve unmanaged frontmatter + keep body when no new prompt.
@@ -690,9 +750,7 @@ export function writeAgentProfileFile(config: AgentConfig): AgentProfileWriteRes
     fm = setPermissionValue(
       fm,
       'task',
-      corePermissions.task === 'deny'
-        ? 'deny'
-        : buildTaskDelegatePermissions(config.isManager === true ? delegateRoster : [], config.id),
+      corePermissions.task,
     );
     // #1123 — expose the additive async delegate tool only to manager profiles
     // that can own an interactive chat. Runtime API validation repeats the

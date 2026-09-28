@@ -129,6 +129,10 @@ describe('config-doctor C1 — recover partial result on timeout', () => {
     const msgsRepo = new AgentSessionMessagesRepository();
     const persisted = msgsRepo.listBySession(result.sessionId, 50);
     expect(persisted.some((m) => m.role === 'output' && m.rawText === GOOD_SUMMARY)).toBe(true);
+    expect(mockListMessages.mock.calls.some((call) =>
+      call[2]?.limit === 3 && call[2]?.caller === 'agent_runner.timeout_recovery'
+    )).toBe(true);
+    expect(mockListMessages.mock.calls.every((call) => call[2]?.limit <= 3)).toBe(true);
   });
 
   it('a timeout with truly no prior output still returns an empty result (no false positive)', async () => {

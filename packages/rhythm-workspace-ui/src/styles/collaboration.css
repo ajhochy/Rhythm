@@ -1,0 +1,10 @@
+/* Collaboration screen group (issue #4): Rhythms, Planner, Projects, Messages. Every rule here
+ * — and in every file it imports below — is scoped under .rhythm-workspace-root the same way
+ * src/styles/rhythm.css scopes the Tasks/Dashboard group; see tests/css-scoping.test.ts, which
+ * sweeps this whole styles/ tree, not just rhythm.css's own @import graph. This file is
+ * imported by rhythm.css so consumers receive every collaboration-screen stylesheet. */
+
+@import './screens/rhythms.css';
+@import './screens/planner.css';
+@import './screens/projects.css';
+@import './screens/messages.css';

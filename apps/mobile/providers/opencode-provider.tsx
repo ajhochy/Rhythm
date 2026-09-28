@@ -27,9 +27,10 @@ import {
   useState,
   type PropsWithChildren,
 } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 
 import { MOBILE_ATTACHMENT_LIMIT_BYTES } from '@/lib/attachments/limits';
+import { compressImageForUpload } from '@/lib/attachments/compress-image';
 import { MacOfflineError, summarizeError } from '@/lib/transport/api-error';
 import {
   connectionStatusForPresence,
@@ -73,6 +74,7 @@ import { aggregateSessionUsage, getLatestAssistantTurnUsage } from '@/lib/openco
 import { createFullFilePatch } from '@/lib/opencode/workspace-patch';
 import {
   clearPendingTaskFinishedNotification,
+  notifyQuestionRequired,
   notifyTaskFinished,
   trackPendingTaskFinishedNotification,
   type PendingNotificationOrigin,
@@ -392,11 +394,13 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     useState<OpenProjectSessionState>({ kind: 'idle' });
   const [sendingState, setSendingState] = useState<{ sessionId?: string; active: boolean }>({ active: false });
   const [promptError, setPromptError] = useState<{ message: string; occurredAt: number; sessionId?: string }>();
+  const [stoppedWorkingSoundSessions, setStoppedWorkingSoundSessions] = useState(new Set<string>());
   const pendingNotificationSessionIdsRef = useRef<Set<string>>(new Set());
   const busyNotificationSessionIdsRef = useRef<Set<string>>(new Set());
   const notificationRequestedAtRef = useRef(new Map<string, number>());
   const pendingNotificationOriginBySessionIdRef =
     useRef(new Map<string, PendingNotificationOrigin>());
+  const notifiedQuestionRequestIdsRef = useRef(new Set<string>());
   const promptSubmissionRef = useRef<{ active: boolean; sessionId?: string }>({ active: false });
   const uncertainPromptBySessionRef = useRef(new Map<string, {
     attachments: { uri: string; mime?: string; filename?: string }[];
@@ -478,6 +482,26 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   activeProjectPathRef.current = activeProjectPath;
   sessionsRef.current = sessions;
   currentSessionIdRef.current = currentSessionId;
+
+  const stopSessionWorkingSound = useCallback((sessionId?: string) => {
+    if (!sessionId) return;
+    // Keep terminal state sticky for this session so a stale busy event cannot
+    // restart a cancelled/finished/failed turn. Only explicit prompt submission
+    // opens the next turn generation via allowSessionWorkingSound.
+    setStoppedWorkingSoundSessions((current) => current.has(sessionId) ? current : new Set([...current, sessionId]));
+    if (sessionId === currentSessionIdRef.current) {
+      void stopWorkingSoundAsync().catch(() => undefined);
+    }
+  }, []);
+
+  const allowSessionWorkingSound = useCallback((sessionId: string) => {
+    setStoppedWorkingSoundSessions((current) => {
+      if (!current.has(sessionId)) return current;
+      const next = new Set(current);
+      next.delete(sessionId);
+      return next;
+    });
+  }, []);
 
   const clearTrackedPendingNotification = useCallback(
     async (sessionId: string) => {
@@ -2073,9 +2097,19 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         setTerminalConnection('error');
         if (!opened) reject(new Error('Could not connect to the terminal.'));
       };
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         if (generation !== terminalOpenGenerationRef.current) return;
-        if (terminalSocketRef.current === socket && opened) setTerminalConnection('idle');
+        if (terminalSocketRef.current === socket && opened) {
+          if (event.code === 1000) {
+            setTerminalConnection('idle');
+          } else {
+            setTerminalConnection('error');
+            const guidance = [1008, 4401, 4403].includes(event.code)
+              ? 'Terminal access was denied. Check the paired device and project, then select the terminal again.'
+              : 'Terminal connection was lost. Select the terminal again to reconnect.';
+            setTerminalOutput((current) => `${current}\n${guidance}`.trim());
+          }
+        }
         if (!opened) reject(new Error('The terminal connection closed before it was ready.'));
       };
     });
@@ -2188,14 +2222,19 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           nextSessions.find((session) => session.id === rememberedSessionId) ??
           nextSessions[0] ??
           (await createSession());
+        // Slash commands, VCS status and MCP diagnostics are not needed to
+        // show the chat, and on a cold engine directory they wait on every MCP
+        // server (a minute when one never answers). Load them behind the open.
+        settleBackgroundRead(() => Promise.all([
+          refreshServerFeatures(),
+          refreshDiagnostics(),
+        ]));
         await Promise.all([
           refreshMessages(targetSession.id, true),
           refreshSessionDiff(targetSession.id, true),
           refreshSessionTodos(targetSession.id),
           refreshPendingInteractions(),
           refreshChatCapabilities(),
-          refreshServerFeatures(),
-          refreshDiagnostics(),
         ]);
         if (!isCurrentClient(client)) {
           return undefined;
@@ -2246,6 +2285,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     refreshSessionDiff,
     refreshSessionTodos,
     sessions,
+    settleBackgroundRead,
   ]);
 
   const selectProject = useCallback((path: string) => {
@@ -2994,6 +3034,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           }).catch(() => undefined);
         }
 
+        allowSessionWorkingSound(sessionId);
         setSendingState({ active: true, sessionId });
         const selectedModel = executionPlan.persistAllowed
           ? availableModels.find(
@@ -3035,15 +3076,20 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         const preparedFileParts: { type: 'file'; mime: string; filename?: string; url: string }[] = [];
 
         if (attachments && attachments.length > 0) {
-          for (const att of attachments) {
-            const filename = att.filename || att.uri.split('/').pop();
-            const mime = att.mime || 'application/octet-stream';
+          for (const original of attachments) {
+            const originalName = original.filename || original.uri.split('/').pop();
+            const originalMime = original.mime || 'application/octet-stream';
 
             // Remote and picker-provided data URLs are already server-readable.
-            if (/^(?:https?:\/\/|data:)/i.test(att.uri)) {
-              preparedFileParts.push({ type: 'file', mime, filename, url: att.uri });
+            if (/^(?:https?:\/\/|data:)/i.test(original.uri)) {
+              preparedFileParts.push({ type: 'file', mime: originalMime, filename: originalName, url: original.uri });
               continue;
             }
+
+            // Downscale and re-encode photos first; the size limit applies to what is sent.
+            const att = await compressImageForUpload({ uri: original.uri, mime: originalMime, filename: originalName });
+            const filename = att.filename;
+            const mime = att.mime;
 
             try {
               const FileSystem = await import('expo-file-system/legacy');
@@ -3117,12 +3163,21 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             uncertainPromptBySessionRef.current.delete(sessionId);
           } else if (outcome === 'uncertain') {
             uncertainPromptBySessionRef.current.set(sessionId, uncertainAttempt);
+            settleBackgroundRead(() =>
+              pollForNewAssistantTurn({
+                baselineAssistantMessageIds,
+                isActive: () => isCurrentClient(client),
+                refreshMessages: () => refreshMessages(sessionId, true),
+              }));
+            scheduleSessionRefresh(sessionId, { sessions: true, messages: true, diff: true, todos: true, delayMs: 1000 });
+            return true;
           }
         }
         if (promptAccepted) {
           scheduleSessionRefresh(sessionId, { sessions: true, messages: true, diff: true, todos: true, delayMs: 1000 });
           return true;
         }
+        stopSessionWorkingSound(sessionId);
         setPromptError({
           message: summarizeError(error, 'OpenCode could not send that message.'),
           occurredAt: Date.now(),
@@ -3139,11 +3194,12 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         setSendingState({ active: false, sessionId: undefined });
       }
     },
-    [activeProjectPath, authoritativePreferencesForSession, availableModels, chatPreferences, clearTrackedPendingNotification, client, currentSessionId, fetchSessions, isCurrentClient, messagesBySession, persistSessionPreferences, refreshMessages, refreshSessionDiff, refreshSessionTodos, refreshSessions, rhythmAccount.user, scheduleSessionRefresh, sessions, settleBackgroundRead],
+    [activeProjectPath, allowSessionWorkingSound, authoritativePreferencesForSession, availableModels, chatPreferences, clearTrackedPendingNotification, client, currentSessionId, fetchSessions, isCurrentClient, messagesBySession, persistSessionPreferences, refreshMessages, refreshSessionDiff, refreshSessionTodos, refreshSessions, rhythmAccount.user, scheduleSessionRefresh, sessions, settleBackgroundRead, stopSessionWorkingSound],
   );
 
   const abortSession = useCallback(
     async (sessionId: string) => {
+      stopSessionWorkingSound(sessionId);
       pendingNotificationSessionIdsRef.current.delete(sessionId);
       busyNotificationSessionIdsRef.current.delete(sessionId);
       notificationRequestedAtRef.current.delete(sessionId);
@@ -3157,7 +3213,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         refreshSessionTodos(sessionId),
       ]);
     },
-    [clearTrackedPendingNotification, client, refreshMessages, refreshSessionDiff, refreshSessionTodos, refreshSessions],
+    [clearTrackedPendingNotification, client, refreshMessages, refreshSessionDiff, refreshSessionTodos, refreshSessions, stopSessionWorkingSound],
   );
 
   const speechInput = useSpeechInput({
@@ -3494,9 +3550,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     }
 
     if (isSessionRunning) {
-      return () => {
-        void stopWorkingSoundAsync().catch(() => undefined);
-      };
+      return;
     }
 
     void stopWorkingSoundAsync().catch(() => undefined);
@@ -3622,6 +3676,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           return;
         case 'session.status': {
           const sessionId = event.properties.sessionID;
+          if (event.properties.status.type === 'idle') {
+            stopSessionWorkingSound(sessionId);
+          }
           setSessionStatuses((current) => ({
             ...current,
             [sessionId]: event.properties.status,
@@ -3631,6 +3688,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         }
         case 'session.idle': {
           const sessionId = event.properties.sessionID;
+          stopSessionWorkingSound(sessionId);
           setSessionStatuses((current) => ({
             ...current,
             [sessionId]: { type: 'idle' },
@@ -3641,6 +3699,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         }
         case 'session.error': {
           const sessionId = event.properties.sessionID;
+          stopSessionWorkingSound(sessionId ?? currentSessionIdRef.current);
           const error = event.properties.error;
           const message = error && 'data' in error && error.data && 'message' in error.data
             ? error.data.message
@@ -3855,7 +3914,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       mounted = false;
       activeAbortController?.abort();
     };
-  }, [activeProjectPath, catalogClient, client, coalescedIdleRefresh, coalescedRefreshArchivedSessions, coalescedRefreshSessions, connection.status, pairedHostClient, pairedHostRecord?.relayUrl, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPairedHost, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, replaceSessionMessages, scheduleSessionRefresh, settings, settleBackgroundRead]);
+  }, [activeProjectPath, catalogClient, client, coalescedIdleRefresh, coalescedRefreshArchivedSessions, coalescedRefreshSessions, connection.status, pairedHostClient, pairedHostRecord?.relayUrl, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPairedHost, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, replaceSessionMessages, scheduleSessionRefresh, settings, settleBackgroundRead, stopSessionWorkingSound]);
 
   useEffect(
     () => () => {
@@ -3925,15 +3984,27 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     return () => clearInterval(interval);
   }, [activeProjectPath, connection.status, conversationPhase, conversationSessionId, currentSessionId, eventStreamStatus, refreshMessages, refreshPendingInteractions, refreshSessionDiff, refreshSessionTodos, refreshSessions, sendingState.active, sessionStatuses, settleBackgroundRead]);
 
+  const workingSoundBusy = !!currentSessionId && !stoppedWorkingSoundSessions.has(currentSessionId) && (
+    (sendingState.active && sendingState.sessionId === currentSessionId) ||
+    (!!sessionStatuses[currentSessionId] && sessionStatuses[currentSessionId].type !== 'idle')
+  );
   useEffect(() => {
-    const busy = sendingState.active || Object.values(sessionStatuses).some((status) => status.type !== 'idle');
-    const shouldPlay = Platform.OS !== 'web' && chatPreferences.workingSoundEnabled && busy && conversationPhase !== 'listening' && conversationPhase !== 'speaking';
-    if (shouldPlay) {
-      void startWorkingSoundAsync(chatPreferences.workingSoundVariant, chatPreferences.workingSoundVolume).catch(() => undefined);
-      return;
-    }
-    void stopWorkingSoundAsync().catch(() => undefined);
-  }, [chatPreferences.workingSoundEnabled, chatPreferences.workingSoundVariant, chatPreferences.workingSoundVolume, conversationPhase, sendingState.active, sessionStatuses]);
+    if (Platform.OS === 'web') return;
+    const syncWorkingSound = () => {
+      const shouldPlay = AppState.currentState === 'active' && connection.status === 'connected' && chatPreferences.workingSoundEnabled && workingSoundBusy && conversationPhase !== 'listening' && conversationPhase !== 'speaking';
+      if (shouldPlay) {
+        void startWorkingSoundAsync(chatPreferences.workingSoundVariant, chatPreferences.workingSoundVolume).catch(() => undefined);
+      } else {
+        void stopWorkingSoundAsync().catch(() => undefined);
+      }
+    };
+    syncWorkingSound();
+    const subscription = AppState.addEventListener('change', syncWorkingSound);
+    return () => {
+      subscription.remove();
+      void stopWorkingSoundAsync().catch(() => undefined);
+    };
+  }, [chatPreferences.workingSoundEnabled, chatPreferences.workingSoundVariant, chatPreferences.workingSoundVolume, connection.status, conversationPhase, currentSessionId, workingSoundBusy]);
 
   useEffect(() => {
     let cancelled = false;
@@ -4052,6 +4123,30 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     () => getCurrentPendingRequests(currentSessionId, sendingState.sessionId, pendingQuestionsBySession),
     [currentSessionId, pendingQuestionsBySession, sendingState.sessionId],
   );
+  const pendingQuestionSessionIds = useMemo(
+    () => Object.entries(pendingQuestionsBySession)
+      .filter(([, requests]) => requests.length > 0)
+      .map(([sessionId]) => sessionId),
+    [pendingQuestionsBySession],
+  );
+  useEffect(() => {
+    const pendingRequestIds = new Set<string>();
+    Object.values(pendingQuestionsBySession).flat().forEach((request) => {
+      pendingRequestIds.add(request.id);
+      if (notifiedQuestionRequestIdsRef.current.has(request.id)) return;
+      const session = sessions.find((candidate) => candidate.id === request.sessionID)
+        ?? openedSessionRecordCacheRef.current.get(request.sessionID)?.session;
+      const question = request.questions[0];
+      if (!session?.title || !question) return;
+      notifiedQuestionRequestIdsRef.current.add(request.id);
+      void notifyQuestionRequired(session.title, question).catch(() => undefined);
+    });
+    notifiedQuestionRequestIdsRef.current.forEach((requestId) => {
+      if (!pendingRequestIds.has(requestId)) {
+        notifiedQuestionRequestIdsRef.current.delete(requestId);
+      }
+    });
+  }, [pendingQuestionsBySession, sessions]);
   const configuredProviders = useMemo(() => getConfiguredProviders(availableProviders), [availableProviders]);
   const usagePricingByModel = useMemo(
     () => Object.fromEntries(availableModels.flatMap((model) => model.pricing ? [[`${model.providerID}/${model.modelID}`, model.pricing] as const] : [])),
@@ -4118,6 +4213,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       currentTodos,
       currentPendingPermissions,
       currentPendingQuestions,
+      pendingQuestionSessionIds,
       sessionPreviewById,
       isRefreshingSessions,
       isRefreshingMessages,
@@ -4269,6 +4365,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       currentTodos,
       currentPendingPermissions,
       currentPendingQuestions,
+      pendingQuestionSessionIds,
       chatPreferences,
       clearConversationFeedback,
       clearPromptError,

@@ -1,0 +1,68 @@
+{
+  "issue": 1542,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1542-c1",
+      "text": "**HRM-B3-AC1:** With the flag enabled and B2 ready, the Hermes sidebar route renders the real supervised dashboard inside the pinned Electron app; starting/failed states are legible, and navigation back to Rhythm works.",
+      "mode": "ui",
+      "test_file": "apps/electron/test/hermes-desktop-native.test.mjs",
+      "test_id": "issue-1542-desktop-c2: real Desktop sidebar and native connection are usable",
+      "status": "pending",
+      "reason": "Replacement evidence is recorded by docs/ai/contracts/issue-1542-desktop.json criteria issue-1542-desktop-c2 and issue-1542-desktop-c3. Re-run the native Desktop smoke on the final pinned artifact before passing this criterion."
+    },
+    {
+      "criterion_id": "issue-1542-c2",
+      "text": "**HRM-B3-AC2:** With `RHYTHM_HERMES_ENABLED=0`, no Hermes sidebar entry/view/channel is active; a direct route shows the disabled state and creates zero privileged actions or Hermes launch requests.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/hermes.spec.ts",
+      "test_id": "a disabled direct route explains that Hermes is off and never invokes the native host",
+      "status": "pending",
+      "reason": "Run apps/web/tests/pages/hermes.spec.ts in an environment where Playwright Chromium may launch."
+    },
+    {
+      "criterion_id": "issue-1542-c3",
+      "text": "**HRM-B3-AC3:** Runtime probes confirm Node integration off, context isolation/sandbox/web security on, no Rhythm bearer exposure and no access to parent DOM, filesystem/process APIs, arbitrary URLs or broad native IPC; only the Hermes-native auth handoff succeeds.",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-view.test.mjs",
+      "test_id": "issue-1542-desktop-c1: rejects a sibling Rhythm frame before resolving or creating an embedded host",
+      "status": "pending",
+      "reason": "Static isolation evidence is recorded by docs/ai/contracts/issue-1542-desktop.json criterion issue-1542-desktop-c1 and apps/electron/test/hermes-view.test.mjs. The real Electron runtime/auth probe must be re-run on the final pinned artifact before passing this criterion."
+    },
+    {
+      "criterion_id": "issue-1542-c4",
+      "text": "**HRM-B3-AC4:** Valid typed intents navigate to the requested session or open an editable draft with bounded, labelled Rhythm context; neither sends a message nor creates a legacy Rhythm agent session.",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-view.test.mjs",
+      "test_id": "issue-1542-c4: Hermes forwards a validated new-chat draft without submitting and navigates requested sessions",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1542-c5",
+      "text": "**HRM-B3-AC5:** Foreign/sibling frames, an unapproved origin, malformed or oversize messages, unknown methods and unsupported versions each produce zero native/session actions, zero sends and zero state writes.",
+      "mode": "unit",
+      "test_file": "apps/electron/test/hermes-protocol.test.mjs",
+      "test_id": "Hermes protocol rejects unknown versions/types, malformed DTOs and URL injection",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1542-c6",
+      "text": "**HRM-B3-AC6:** A stale document/channel after reload, navigation, route exit or disable produces zero actions; the replacement document can act only through its newly validated channel.",
+      "mode": "unit",
+      "test_file": "apps/electron/test/hermes-view.test.mjs",
+      "test_id": "Hermes reload revokes old generation; only the current main frame can reactivate",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1542-c7",
+      "text": "**HRM-B3-AC7:** Rendered route/status/disabled tests pass, keyboard focus enters and exits the embedded view predictably, and 200% zoom/RTL preserve accessible names and controls without nested interactive elements or inaccessible scroll regions.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/hermes.spec.ts",
+      "test_id": "the Desktop host remains keyboard-focusable and accessible at narrow RTL enlarged text",
+      "status": "pending",
+      "reason": "Prior Desktop rendering is recorded by docs/ai/contracts/issue-1542-desktop.json criterion issue-1542-desktop-c2 and apps/electron/test/hermes-desktop-native.test.mjs. Re-run the rendered web spec plus a real Electron focus-enter/focus-exit probe on the final pin before passing this criterion."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

@@ -561,6 +561,7 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
       ['POST', '/tui/submit-prompt', 'tui.submitPrompt'],
       ['GET', '/api/session', 'v2.session.list'],
       ['POST', '/sync/start', 'sync.start'],
+      ['GET', '/mcp/tools', 'mcp.tools'],
       ['GET', '/experimental/workspace', 'experimental.workspace.list'],
       ['GET', '/experimental/console', 'experimental.console.get'],
     ] as const;
@@ -637,6 +638,12 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
             id: 'safe',
             directory: projectRoot,
           }]), {
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        if (url.pathname === '/session/status' && init?.method === 'GET') {
+          // The real engine omits idle sessions from this map entirely.
+          return new Response(JSON.stringify({}), {
             headers: { 'Content-Type': 'application/json' },
           });
         }

@@ -1,0 +1,15 @@
+// Synthetic Ed25519 fixtures for local validator tests only.
+export const TEST_UPDATE_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAYEI2Mqn1i5L7ueuxYCfLhG8xrR6S0FxunGAAGHDt1Mc=
+-----END PUBLIC KEY-----
+`
+
+export const TEST_UPDATE_PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----
+MC4CAQAwBQYDK2VwBCIEIFd3Cly+irIKRqyI+y0XlGGprmCMTuUmJ+MKQjIUX6nH
+-----END PRIVATE KEY-----
+`
+
+export const UNTRUSTED_UPDATE_PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----
+MC4CAQAwBQYDK2VwBCIEIPe6Gs4fMluBsMwYEbTkmwnos5khRR36fIdhcytViSXQ
+-----END PRIVATE KEY-----
+`

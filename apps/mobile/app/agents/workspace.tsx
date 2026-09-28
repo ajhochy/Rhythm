@@ -1,13 +1,12 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Alert, Platform, Pressable, RefreshControl, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ActivityIndicator,
   Appbar,
   Button,
-  Card,
   Divider,
   IconButton,
   List,
@@ -19,7 +18,8 @@ import {
 } from 'react-native-paper';
 
 import { SessionConfigurationSheet } from '@/components/chat/session-configuration-sheet';
-import { Colors, Fonts } from '@/constants/theme';
+import { WorkspaceShell } from '@/components/workspace/workspace-shell';
+import { Colors, Fonts, Radii, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { formatRelativeTime, getSessionSubtitle } from '@/lib/opencode/format';
 import type { Session } from '@/lib/opencode/types';
@@ -379,52 +379,51 @@ export default function AgentWorkspaceScreen() {
   return (
     <>
       <Appbar.Header
-        style={[styles.header, { backgroundColor: palette.surface, paddingTop: insets.top, height: 64 + insets.top }]}
+        style={[styles.header, { backgroundColor: palette.surface, paddingTop: insets.top, minHeight: 64 + insets.top }]}
         statusBarHeight={0}
         elevated>
         <Appbar.BackAction
           accessibilityLabel="Back to Agents"
           onPress={() => router.replace('/(tabs)/agents')}
         />
-        <View style={styles.headerMain}>
-          <Menu
-            visible={projectMenuVisible}
-            onDismiss={() => setProjectMenuVisible(false)}
-            anchor={
-              <Pressable onPress={() => setProjectMenuVisible(true)} style={({ pressed }) => [styles.headerSelector, pressed && styles.headerSelectorPressed]}>
-                <View style={styles.headerCopy}>
-                  <Text numberOfLines={1} variant="titleMedium" style={[styles.headerTitle, { color: palette.text }]}>{activeProject?.label || 'Workspace'}</Text>
-                  <Text numberOfLines={1} variant="bodySmall" style={{ color: palette.muted }}>{connection.status === 'connected' ? activeProject?.path || currentProjectPath || serverRootPath : connection.message}</Text>
-                </View>
-                <MaterialCommunityIcons name="chevron-down" size={20} color={palette.muted} />
-              </Pressable>
-            }>
-            {projects.length === 0 ? <Menu.Item title="No projects available" disabled /> : null}
-            {projects.map((project) => <Menu.Item key={project.path} title={project.label} leadingIcon={project.path === activeProject?.path ? 'check' : undefined} onPress={() => { setProjectMenuVisible(false); selectProject(project.path); }} />)}
-          </Menu>
-        </View>
+        <Appbar.Content title="Workspace" />
         <View style={styles.headerActions}>
           <Appbar.Action testID="workspace-sync-button" icon="sync" accessibilityLabel="Sync projects" onPress={() => void refreshWorkspaceCatalog()} />
           <Appbar.Action testID="workspace-refresh-button" icon="refresh" accessibilityLabel="Refresh workspace" onPress={() => void handleRefresh()} />
           <Appbar.Action testID="workspace-new-chat-button" icon="plus" accessibilityLabel="New chat" disabled={!activeProject || isCreating} onPress={() => setNewChatSheetVisible(true)} />
         </View>
       </Appbar.Header>
-      <ScrollView
-        style={[styles.screen, { backgroundColor: palette.background }]}
-        contentContainerStyle={[styles.content, styles.centeredContent]}
-        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => void handleRefresh()} tintColor={palette.tint} />}>
-      <SegmentedButtons value={activePanel} onValueChange={(value) => setActivePanel(value as typeof activePanel)} buttons={[{ value: 'chats', label: 'Chats' }, { value: 'files', label: 'Files' }, { value: 'tools', label: 'Tools' }]} />
-
-      {activePanel === 'chats' ? <Card mode="contained" style={[styles.card, { backgroundColor: palette.surface }]}>
-        <Card.Title title={showArchived ? 'Archived chats' : 'Chats'} subtitle={showArchived ? 'Restore or permanently delete chats.' : activeProject ? 'Current and running chats appear first.' : 'Choose a project to load chats.'} right={() => <IconButton icon={showArchived ? 'archive-remove-outline' : 'archive-outline'} accessibilityLabel={showArchived ? 'Show active chats' : 'Show archived chats'} onPress={() => { setShowArchived((value) => !value); if (!showArchived) void refreshArchivedSessions(); }} />} />
-        <Card.Content style={styles.listContent}>
+      <WorkspaceShell
+        activeSegment={activePanel}
+        onSegmentChange={setActivePanel}
+        projectLabel={activeProject?.label || 'Workspace'}
+        projectPath={connection.status === 'connected' ? activeProject?.path || currentProjectPath || serverRootPath || '' : connection.message}
+        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => void handleRefresh()} tintColor={palette.tint} />}
+        scopeSelector={<Menu
+          visible={projectMenuVisible}
+          onDismiss={() => setProjectMenuVisible(false)}
+          anchor={
+            <Pressable onPress={() => setProjectMenuVisible(true)} style={({ pressed }) => [styles.scopeSelector, pressed && styles.headerSelectorPressed]}>
+              <View style={styles.headerCopy}>
+                <Text variant="titleMedium" style={[styles.headerTitle, { color: palette.text }]}>{activeProject?.label || 'Workspace'}</Text>
+                <Text selectable variant="bodySmall" style={{ color: palette.muted }}>{connection.status === 'connected' ? activeProject?.path || currentProjectPath || serverRootPath : connection.message}</Text>
+              </View>
+              <MaterialCommunityIcons name="chevron-down" size={20} color={palette.muted} />
+            </Pressable>
+          }>
+          {projects.length === 0 ? <Menu.Item title="No projects available" disabled /> : null}
+          {projects.map((project) => <Menu.Item key={project.path} title={project.label} leadingIcon={project.path === activeProject?.path ? 'check' : undefined} onPress={() => { setProjectMenuVisible(false); selectProject(project.path); }} />)}
+        </Menu>}
+        chatsContent={<View style={[styles.group, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+        <View style={styles.groupHeader}><View style={styles.groupHeaderCopy}><Text variant="titleLarge" style={{ color: palette.text }}>{showArchived ? 'Archived chats' : 'Chats'}</Text><Text style={{ color: palette.muted }}>{showArchived ? 'Restore or permanently delete chats.' : activeProject ? 'Current and running chats appear first.' : 'Choose a project to load chats.'}</Text></View><IconButton icon={showArchived ? 'archive-remove-outline' : 'archive-outline'} accessibilityLabel={showArchived ? 'Show active chats' : 'Show archived chats'} onPress={() => { setShowArchived((value) => !value); if (!showArchived) void refreshArchivedSessions(); }} /></View>
+        <View style={styles.listContent}>
           {showArchived ? archivedSessions.length === 0 ? <Text style={[styles.emptyText, { color: palette.muted }]}>No archived chats.</Text> : archivedSessions.map((session, index) => <View key={session.id}><View style={styles.archiveRow}><View style={styles.archiveCopy}><Text variant="titleMedium" style={{ color: palette.text }}>{session.title || 'Untitled chat'}</Text><Text style={{ color: palette.muted }}>{session.directory} · {formatRelativeTime(session.time.updated)}</Text></View><View style={styles.iconActions}><IconButton icon="restore" accessibilityLabel={`Restore ${session.title || 'Untitled chat'}`} loading={updatingArchivedSessionId === session.id} onPress={() => void handleArchivedSession(session.id, 'restore')} /><IconButton icon="delete-outline" iconColor={palette.danger} accessibilityLabel={`Delete ${session.title || 'Untitled chat'}`} disabled={updatingArchivedSessionId === session.id} onPress={() => confirmDestructive('Delete archived session?', `“${session.title || 'Untitled chat'}” and all of its data will be permanently deleted.`, 'Delete', () => void handleArchivedSession(session.id, 'delete'))} /></View></View>{index < archivedSessions.length - 1 ? <Divider /> : null}</View>) : <>{!activeProject ? <Text style={{ color: palette.muted }}>Select a project first.</Text> : null}{activeProject && orderedSessions.length === 0 ? <Text style={{ color: palette.muted }}>No chats in this workspace yet.</Text> : null}{orderedSessions.map((session, index) => renderSessionItem(session, index, orderedSessions.length))}</>}
-        </Card.Content>
-      </Card> : null}
+        </View>
+      </View>}
 
-      {activePanel === 'files' ? <Card mode="contained" style={[styles.card, { backgroundColor: palette.surface }]}>
-        <Card.Title title="Workspace files" subtitle={vcsInfo?.branch ? `Branch: ${vcsInfo.branch}` : 'Search and inspect files'} />
-        <Card.Content style={styles.fileSection}>
+        filesContent={<View style={[styles.group, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+        <View style={styles.groupHeader}><View style={styles.groupHeaderCopy}><Text variant="titleLarge" style={{ color: palette.text }}>Workspace files</Text><Text style={{ color: palette.muted }}>{vcsInfo?.branch ? `Branch: ${vcsInfo.branch}` : 'Search and inspect files'}</Text></View></View>
+        <View style={styles.fileSection}>
           <SegmentedButtons
             value={fileSearchMode}
             onValueChange={(value) => setFileSearchMode(value as typeof fileSearchMode)}
@@ -460,6 +459,7 @@ export default function AgentWorkspaceScreen() {
                 <List.Item
                   key={path}
                   title={path}
+                  titleNumberOfLines={0}
                   disabled={openingWorkspaceFilePath === path}
                   right={openingWorkspaceFilePath === path ? () => <ActivityIndicator accessibilityLabel={`Opening ${path}`} /> : undefined}
                   onPress={() => void handleOpenWorkspaceFile(path)}
@@ -470,6 +470,8 @@ export default function AgentWorkspaceScreen() {
                   key={result.id}
                   title={result.title}
                   description={result.description}
+                  titleNumberOfLines={0}
+                  descriptionNumberOfLines={0}
                   disabled={!result.path || openingWorkspaceFilePath === result.path}
                   right={result.path && openingWorkspaceFilePath === result.path ? () => <ActivityIndicator accessibilityLabel={`Opening ${result.path}`} /> : undefined}
                   onPress={result.path ? () => void handleOpenWorkspaceFile(result.path!) : undefined}
@@ -544,14 +546,13 @@ export default function AgentWorkspaceScreen() {
               )}
             </View>
           ) : null}
-        </Card.Content>
-      </Card> : null}
+        </View>
+      </View>}
 
-      {activePanel === 'tools' ? <Card mode="contained" style={[styles.card, { backgroundColor: palette.surface }]}>
-        <Card.Title
-          title="Project and worktrees"
-          subtitle="Update bounded project metadata, initialize Git, or manage isolated worktrees."
-          right={() => (
+        toolsContent={<View style={[styles.group, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+        <View style={styles.groupHeader}>
+          <View style={styles.groupHeaderCopy}><Text variant="titleLarge" style={{ color: palette.text }}>Project and worktrees</Text><Text style={{ color: palette.muted }}>Update bounded project metadata, initialize Git, or manage isolated worktrees.</Text></View>
+          {
             isRefreshingWorktrees
               ? <ActivityIndicator style={styles.headerAction} color={palette.tint} />
               : <IconButton
@@ -565,9 +566,9 @@ export default function AgentWorkspaceScreen() {
                       .finally(() => setIsRefreshingWorktrees(false));
                   }}
                 />
-          )}
-        />
-        <Card.Content style={styles.worktreeSection}>
+          }
+        </View>
+        <View style={styles.worktreeSection}>
           <View style={[styles.worktreeForm, compact && styles.compactFormRow]}>
             <TextInput
               testID="workspace-project-name"
@@ -675,9 +676,9 @@ export default function AgentWorkspaceScreen() {
               </View>
             );
           })}
-        </Card.Content>
-      </Card> : null}
-      </ScrollView>
+        </View>
+      </View>}
+      />
       <SessionConfigurationSheet
         availableModels={availableModels}
         availableProfiles={availableAgents}
@@ -695,18 +696,16 @@ export default function AgentWorkspaceScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  content: { padding: 16, gap: 16, paddingBottom: 28, width: '100%' },
-  centeredContent: { maxWidth: 1100, alignSelf: 'center' },
   header: { elevation: 0 },
-  headerMain: { alignSelf: 'stretch', flex: 1, justifyContent: 'center', minWidth: 0 },
   headerActions: { alignItems: 'center', flexDirection: 'row', flexShrink: 0 },
-  headerSelector: { alignItems: 'center', alignSelf: 'stretch', borderRadius: 14, flexDirection: 'row', gap: 8, justifyContent: 'center', marginRight: 8, minHeight: 48, paddingRight: 4 },
   headerSelectorPressed: { opacity: 0.82 },
   headerCopy: { flex: 1, minWidth: 0 },
   headerTitle: { fontFamily: Fonts.display, fontWeight: '700' },
+  scopeSelector: { alignItems: 'center', borderRadius: Radii.control, flexDirection: 'row', gap: Spacing.x2, minHeight: 48, width: '100%' },
   actions: { flexDirection: 'row', gap: 12 },
-  card: { borderRadius: 16 },
+  group: { borderRadius: Radii.grouped, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
+  groupHeader: { alignItems: 'center', flexDirection: 'row', gap: Spacing.x2, padding: Spacing.x4 },
+  groupHeaderCopy: { flex: 1, gap: Spacing.x1, minWidth: 0 },
   listContent: { paddingHorizontal: 0 },
   filterRow: { paddingHorizontal: 16, paddingBottom: 8, alignItems: 'flex-start' },
   headerAction: { marginRight: 16, alignSelf: 'center' },
@@ -728,7 +727,7 @@ const styles = StyleSheet.create({
   filePreview: { margin: 16, padding: 12, borderWidth: 1, borderRadius: 12, gap: 8 },
   fileEditor: { minHeight: 240 },
   selfStart: { alignSelf: 'flex-start' },
-  worktreeSection: { gap: 8 },
+  worktreeSection: { gap: 8, padding: Spacing.x4 },
   worktreeForm: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   code: { fontFamily: 'monospace', fontSize: 12 },
 });

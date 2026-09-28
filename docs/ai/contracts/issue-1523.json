@@ -1,0 +1,78 @@
+{
+  "issue": 1523,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1523-c1",
+      "text": "Retain the existing profile-list/inspector arrangement and selection flow. Focus changes on each profile's settings, functions, and action presentation.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/profiles-editor-redesign.spec.ts",
+      "test_id": "editor hierarchy, save/cancel and profile switching keep drafts on their original profile",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1523-c2",
+      "text": "Make the selected profile easy to understand at a glance: clear identity/status, meaningful section hierarchy, aligned labels/controls, readable descriptions, consistent spacing, and restrained visual treatment.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Visual acceptance by AJ is required for the redesigned profile inspector."
+    },
+    {
+      "criterion_id": "issue-1523-c3",
+      "text": "Give identity/instructions, provider/model/account, delegation, availability/defaults, capabilities, and permissions coherent groups with plain-language explanations where needed. Frequently used controls should be easy to find; advanced details should remain discoverable without overwhelming the editor.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/profiles-editor-redesign.spec.ts",
+      "test_id": "editor hierarchy, save/cancel and profile switching keep drafts on their original profile",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1523-c4",
+      "text": "Make long MCP/tool and skill lists manageable through clear grouping, selection summaries, and filtering or disclosure as appropriate. Preserve complete access to individual choices and communicate inherited/explicit selections accurately.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/profiles-editor-redesign.spec.ts",
+      "test_id": "capability summaries, disclosure, filtering and bulk edits retain individual choices",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1523-c5",
+      "text": "Provide understandable controls for common permission choices rather than requiring raw JSON for ordinary edits. Preserve full existing policy semantics, including inheritance, per-tool patterns, and advanced/unknown entries; retain an explicit advanced editing path where necessary and never silently flatten or discard policy data.",
+      "mode": "unit",
+      "test_file": "apps/web/src/components/profilePolicy.test.mjs",
+      "test_id": "unknown keys, inherited markers, advanced values and lexemes survive a targeted edit verbatim",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1523-c6",
+      "text": "Place profile-level actions consistently, with clear distinction between normal editing, immediate actions, and destructive actions. Preserve all existing profile functions and their authorization/confirmation requirements.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/profiles-editor-redesign.spec.ts",
+      "test_id": "create, duplicate and back also protect a dirty draft; rename waits for Save",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1523-c7",
+      "text": "Make save/cancel, unsaved changes, validation, saving, success, and failure states unambiguous. Switching profiles must not silently discard edits or apply them to the wrong profile.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/profiles-editor-redesign.spec.ts",
+      "test_id": "canonical fixture: pending save blocks switching and a failure retains the original draft for retry",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1523-c8",
+      "text": "Preserve actual live behavior and persistence for each setting. Fixture-only controls must not be presented as working live functionality.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: no automated live-backend persistence test was authored in this run."
+    },
+    {
+      "criterion_id": "issue-1523-c9",
+      "text": "Ensure keyboard navigation, focus, labels, read-only states, long content, and smaller windows remain usable; sticky actions must not cover fields.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/profiles-editor-redesign.spec.ts",
+      "test_id": "small windows, 200 percent zoom equivalent, RTL and long text keep controls reachable above the footer",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-1523-c2", "issue-1523-c8"]
+}

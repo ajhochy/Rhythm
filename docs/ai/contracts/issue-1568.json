@@ -1,0 +1,18 @@
+{
+  "issue": 1568,
+  "date": "2026-09-24",
+  "test_command": "cd apps/api_server && npm exec -- vitest run src/services/usage_budget_service.test.ts src/__tests__/issue_844_contract.test.ts",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "issue-1568-c1", "text": "Fixed read-only GET with bearer, safe account ID, codex-cli, Accept JSON, redirect error, 12s timeout, no body/retry", "mode": "unit", "test": "apps/api_server/src/services/usage_budget_service.test.ts", "status": "pass" },
+    { "criterion_id": "issue-1568-c2", "text": "OAuth credential and decoded numeric JWT exp validation; stored account ID then safe claims; malformed auth/JWT never throws or calls network", "mode": "unit", "test": "apps/api_server/src/services/usage_budget_service.test.ts", "status": "pass" },
+    { "criterion_id": "issue-1568-c3", "text": "Validate independent windows, finite used_percent 0..100, integer positive seconds and plausible reset; valid subset survives; labels and remaining fractions", "mode": "unit", "test": "apps/api_server/src/services/usage_budget_service.test.ts", "status": "pass" },
+    { "criterion_id": "issue-1568-c4", "text": "Reject HTTP/HTML/invalid JSON and exceptions with fixed safe reasons, no response/credential/claim leakage", "mode": "unit", "test": "apps/api_server/src/services/usage_budget_service.test.ts", "status": "pass" },
+    { "criterion_id": "issue-1568-c5", "text": "Existing configurable budget routing threshold, unavailable fail-open, override, tier hint and no cheaper route remain unchanged", "mode": "unit", "test": "apps/api_server/src/__tests__/issue_844_contract.test.ts", "status": "pass" },
+    { "criterion_id": "issue-1568-c6", "text": "Synthetic credential failures through real HTTP route in isolated sandbox without external ChatGPT requests", "mode": "live", "test": "apps/api_server/src/__tests__/issue_1568_live.test.ts", "status": "pass" },
+    { "criterion_id": "issue-1568-c7", "text": "G1 real account agrees with Codex at same moment", "mode": "manual", "test": null, "status": "not_tested", "reason": "No authorized real-account external request; requires owner manual cross-check" },
+    { "criterion_id": "issue-1568-c8", "text": "G2 existing UI renders usage without Flutter changes", "mode": "manual", "test": null, "status": "not_tested", "reason": "UI visual inspection delegated to verification stage" },
+    { "criterion_id": "issue-1568-c9", "text": "Cache hit at 59999ms, rebuild at 60001ms, force bypass and concurrent coalescing; failed refresh replaces success without stale results", "mode": "unit", "test": "apps/api_server/src/services/usage_budget_service.test.ts", "status": "pass" }
+  ],
+  "not_tested": ["issue-1568-c7", "issue-1568-c8"]
+}

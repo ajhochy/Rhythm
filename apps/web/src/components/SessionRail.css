@@ -1,0 +1,213 @@
+.rail-view-controls {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.rail-sort { min-width: 0; }
+.rail-sort select { min-height: 44px; font-size: 11px; }
+
+.rail-view-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 44px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg-2);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.rail-view-trigger:hover, .rail-view-trigger[aria-expanded="true"] { background: var(--surface-warm); }
+.session-rail .rail-view-menu {
+  inset-inline: 12px;
+  top: calc(100% - 4px);
+  width: auto;
+  max-height: min(420px, 65vh);
+  overflow-y: auto;
+  text-align: start;
+}
+:root[dir="rtl"] .session-rail .rail-view-menu { inset-inline: 12px; }
+
+.rail-view-item {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--fg);
+  background: transparent;
+  text-align: start;
+  cursor: pointer;
+}
+
+.rail-view-item:hover, .rail-view-item:focus-visible { background: var(--surface-warm); }
+.rail-option-mark { display: flex; align-items: center; }
+.rail-view-help { margin: 0 8px 8px; color: var(--muted); font-size: 12px; }
+.rail-view-label { margin: 8px 8px 2px; color: var(--fg-2); font-weight: 600; }
+.rail-archive-chip {
+  flex-shrink: 0;
+  min-height: 44px;
+  margin: 0 12px 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--fg);
+  background: var(--surface-warm);
+  font-size: 12px;
+  text-align: start;
+  cursor: pointer;
+}
+
+.rail-compact .session-row { min-height: 44px; }
+
+/* Dense rail (the default "Compact" spacing): one line per session under quiet project labels,
+   row menu on hover/focus. Mouse/trackpad only — touch keeps the 44px targets from the
+   any-pointer: coarse block in styles.css. The context line lives in the row tooltip. */
+@media (hover: hover) and (pointer: fine) {
+  .rail-compact .session-row, .rail-compact .child-session { min-height: 28px; padding: 3px 30px 3px 8px; }
+  .rail-compact .session-row-wrap.has-subagents > .session-row,
+  .rail-compact .session-row-wrap.has-subagents > .child-session { padding-inline-end: 4px; }
+  .rail-compact .session-copy strong { font-size: 13px; font-weight: 450; }
+  .rail-compact .session-row-wrap.has-subagents { grid-template-columns: minmax(0, 1fr) minmax(0, auto) 26px; }
+  .rail-compact .session-overflow-button { top: 2px; width: 24px; height: 24px; opacity: 0; }
+  .rail-compact .session-row-wrap:hover > .session-overflow-button,
+  .rail-compact .session-row-wrap:focus-within > .session-overflow-button,
+  .rail-compact .session-row-wrap:has(> .selected) > .session-overflow-button,
+  .rail-compact .session-overflow-button[aria-expanded="true"] { opacity: 1; }
+  .rail-compact .session-row-menu { top: 28px; }
+  .rail-compact .subagent-disclosure { min-height: 24px; }
+  .rail-compact .rail-load-children { min-height: 26px; }
+  .rail-compact .group-toggle { min-height: 26px; margin-top: 10px; font-size: 12px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+  .rail-compact .session-group:first-child .group-toggle { margin-top: 2px; }
+  .rail-compact .session-group-add { min-height: 26px; flex-basis: 26px; width: 26px; opacity: 0; }
+  .rail-compact .session-group-heading:hover .session-group-add,
+  .rail-compact .session-group-add:focus-visible { opacity: 1; }
+
+  .session-rail:has(.rail-compact) .rail-header { min-height: 42px; }
+  .session-rail:has(.rail-compact) .rail-primary-actions { grid-template-columns: minmax(0, 1fr) 30px; padding: 8px 10px 4px; }
+  .session-rail:has(.rail-compact) .rail-primary-actions > button { min-height: 30px; height: 30px; }
+}
+
+.rail-load-children {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-inline-start: calc(7px + (var(--child-depth, 1) * 7px));
+  width: calc(100% - 7px - (var(--child-depth, 1) * 7px));
+  min-height: 44px;
+  padding: 6px 9px;
+  border: 0;
+  border-inline-start: 1px solid var(--border-soft);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  text-align: start;
+  font-size: 12px;
+  font-weight: 400;
+  cursor: pointer;
+  overflow-anchor: none;
+}
+
+.rail-load-children > svg { flex-shrink: 0; }
+.rail-load-children:hover { color: var(--fg); background: var(--surface-warm); }
+.rail-load-children[aria-disabled="true"] { cursor: progress; }
+.rail-child-retry { color: var(--fg-2); text-decoration: underline; text-underline-offset: 3px; }
+
+.rail-add-project, .rail-project-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--fg-2);
+  background: transparent;
+  text-align: start;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.session-rail > .rail-add-project { flex-shrink: 0; margin: 0 12px 4px; }
+.rail-add-project:hover, .rail-project-select:hover, .rail-project-select[aria-pressed="true"] { background: var(--surface-warm); color: var(--fg); }
+.rail-empty-project { padding: 2px 12px 8px; color: var(--muted); font-size: 12px; }
+.rail-empty-project p { margin: 4px 0; }
+.rail-project-path { overflow-wrap: anywhere; white-space: normal; }
+.rail-project-error { padding: 8px; color: var(--fg-2); }
+.rail-project-error button { min-height: 44px; }
+.rail-project-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.rail-project-form > input { width: 100%; min-width: 0; }
+.rail-project-form > p { margin: 0 0 8px; color: var(--muted); }
+.rail-project-form .field { min-width: 0; }
+.rail-project-form button { min-height: 44px; }
+.rail-folder-picker { justify-self: start; }
+.agent-project-empty { margin: auto; padding: 24px; max-width: 520px; overflow-wrap: anywhere; }
+.agent-project-empty h1 { font-size: 22px; }
+.agent-project-empty p { color: var(--muted); }
+.agent-project-empty button { min-height: 44px; }
+.session-rail .group-toggle { grid-template-columns: 16px minmax(0, 1fr) auto; text-align: start; }
+.session-rail .group-toggle > span { overflow-wrap: anywhere; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-load-children .spin { animation: none; }
+}
+
+/* Rail header: title + search / ⋯ / collapse. The ⋯ menu holds sort, archived, spacing,
+   refresh and Add project, and spans the rail under the header. */
+.rail-header { position: relative; }
+.rail-header .rail-view-controls { position: static; display: flex; }
+.rail-header .rail-view-trigger { min-height: 0; padding: 0; }
+.session-rail .rail-header { min-height: 44px; padding-block: 6px; }
+.session-rail .rail-header .icon-button { width: 28px; height: 28px; border-color: transparent; background: transparent; box-shadow: none; }
+.session-rail .rail-header .icon-button:hover, .session-rail .rail-header .icon-button[aria-expanded="true"] { background: color-mix(in oklab, var(--surface), var(--fg) 8%); }
+.session-rail .rail-header .rail-view-menu { inset-inline: 8px; top: calc(100% - 2px); }
+
+/* New session / More: quiet list rows, advanced options on hover/focus (like the reference "+ New"). */
+.rail-new-session, .rail-more-toggle { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 8px; border: 0; border-radius: var(--r-sm); color: var(--fg); background: transparent; font-size: 13px; font-weight: 500; text-align: start; cursor: pointer; }
+.rail-new-session:hover, .rail-new-session:focus-visible, .rail-more-toggle:hover, .rail-more-toggle:focus-visible { background: color-mix(in oklab, var(--surface), var(--fg) 7%); }
+
+/* More: a disclosure above the account footer; tools are single-line rows, description in the tooltip. */
+.rail-more { flex: 0 1 auto; max-height: 50%; display: flex; flex-direction: column; padding: 4px 10px; border-top: 1px solid var(--border-soft); }
+.rail-more-toggle { width: 100%; flex: 0 0 auto; color: var(--fg-2); }
+.rail-more-toggle > svg { color: var(--muted); }
+.rail-more .tools-nav { min-height: 0; flex: 0 1 auto; overflow: auto; padding: 2px 0 0; }
+.rail-more .tools-nav[hidden] { display: none; }
+.rail-more .tools-nav button { grid-template-columns: 18px minmax(0, 1fr); min-height: 32px; font-size: 12px; }
+.rail-more .tools-nav strong { font-size: 12px; font-weight: 450; }
+.rail-new-session > svg { color: var(--accent); }
+.rail-primary-actions { align-items: center; }
+.rail-primary-actions > .icon-button { opacity: 0; }
+.rail-primary-actions:hover > .icon-button, .rail-primary-actions > .icon-button:focus-visible { opacity: 1; }
+
+/* Scope tabs: plain text tabs, active one underlined. (.session-rail prefix outranks styles.css.) */
+.session-rail .scope-tabs { display: flex; gap: 14px; padding: 0 8px; border-radius: 0; background: transparent; border-bottom: 1px solid var(--border-soft); }
+.session-rail .scope-tabs button { min-height: 30px; padding: 0; border-radius: 0; font-size: 12px; letter-spacing: 0; box-shadow: none; }
+.session-rail .scope-tabs button[aria-selected="true"] { background: transparent; box-shadow: inset 0 -2px 0 var(--accent); }
+
+@media (hover: hover) and (pointer: fine) {
+  .rail-view-item { min-height: 32px; padding-block: 4px; }
+  .rail-more-toggle, .rail-more .tools-nav button { min-height: 28px; padding-block: 2px; }
+}
+
+/* Touch keeps 44px targets; these selectors outrank the any-pointer: coarse block in styles.css. */
+@media (any-pointer: coarse) {
+  .rail-primary-actions > .icon-button { opacity: 1; }
+  .rail-new-session, .rail-more-toggle, .rail-more .tools-nav button, .rail-view-item, .session-rail .scope-tabs button { min-height: 44px; }
+  .session-rail .rail-header .icon-button { min-width: 44px; min-height: 44px; width: 44px; height: 44px; }
+  /* 44px compact rows: the 44px row menu must not hang below its row. */
+  .rail-compact .session-overflow-button { top: 0; }
+}
+
+/* Untitled session: first-prompt / "New session" fallback label, muted so it reads as derived. */
+.session-name-fallback { color: var(--muted); font-style: italic; }
+.session-copy strong.session-name-fallback { font-weight: 450; }

@@ -31,6 +31,13 @@ export interface TranscriptBlock {
   content: string;
   meta?: string;
   childSessionId?: string;
+  streaming?: boolean;
+  terminal?: boolean;
+  // 'file' blocks only: hosted-attachment reference (post-m1 thumbnail work). `content` already
+  // carries the url and `meta` the mime for legacy readers — these two are additive, needed only
+  // for the X-Rhythm-Project header when fetching `/artifacts/<id>` bytes from the local API.
+  artifactId?: string;
+  artifactProject?: string;
 }
 
 export interface ComposerAttachment {
@@ -56,6 +63,8 @@ export interface TranscriptMessage {
   blocks: TranscriptBlock[];
   attachments?: ComposerAttachment[];
   reverted?: boolean;
+  interrupted?: boolean;
+  uiKey?: string;
 }
 
 export interface PermissionRequest {
@@ -98,6 +107,8 @@ export interface LiveQuestionRequest {
 export interface Session {
   id: string;
   name: string;
+  /** First line of the first user prompt; the server sends it only while the session is untitled. */
+  firstPrompt?: string | null;
   scope: SessionScope;
   group: SessionGroup;
   status: SessionStatus;
@@ -113,6 +124,8 @@ export interface Session {
   dirtyCount: number;
   isolateWorktree: boolean;
   account?: string;
+  /** OpenAI (ChatGPT) account the session routes to (agent_sessions.openai_account_id). */
+  openaiAccount?: string;
   model: string;
   thinkingBudget: string;
   permissionMode: string;
@@ -191,6 +204,8 @@ export interface Profile {
   sessionSelectable?: boolean;
   modelTierHint?: string | null;
   defaultAnthropicAccountId?: string | null;
+  /** Per-profile OpenAI (ChatGPT) account; null uses the global default. */
+  defaultOpenaiAccountId?: string | null;
 }
 
 export interface TodoItem { id: string; label: string; done: boolean; }

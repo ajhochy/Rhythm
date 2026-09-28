@@ -13,6 +13,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { OpencodeClientService } from '../services/opencode_client_service';
+import { logger } from '../utils/logger';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -357,6 +358,46 @@ describe('wrapper method shapes (M3/M4 readiness)', () => {
     expect(sdkClient.session.messages).toHaveBeenCalledWith(
       expect.objectContaining({ path: { id: 'sdk-msg-id' } }),
     );
+  });
+
+  it('1503-A-transcript-fetch-instrumentation:1 warns once for a slow transcript fetch without logging message content', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    sdkClient.session.messages.mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return {
+        data: [{ info: { id: 'message-1' }, parts: [{ type: 'text', text: 'SECRET-CONTENT' }] }],
+      };
+    });
+
+    await svc.listMessages('sdk-slow', undefined, { caller: 'issue-1503-test' });
+
+    expect(warn).toHaveBeenCalledOnce();
+    const line = warn.mock.calls[0]!.join(' ');
+    expect(line).toMatch(/issue-1503-test/);
+    expect(line).toMatch(/messages=1/);
+    expect(line).toMatch(/elapsedMs=\d+/);
+    expect(line).not.toContain('SECRET-CONTENT');
+    warn.mockRestore();
+  });
+
+  it('1503-A-transcript-fetch-instrumentation:2 stays quiet below the env-overridden threshold', async () => {
+    process.env.RHYTHM_TRANSCRIPT_FETCH_WARN_MS = '500';
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    warn.mockClear();
+    sdkClient.session.messages.mockResolvedValue({ data: [] });
+    try {
+      await svc.listMessages('sdk-fast', undefined, { caller: 'issue-1503-fast-test' });
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.RHYTHM_TRANSCRIPT_FETCH_WARN_MS;
+    }
+  });
+
+  it('1503-A-transcript-fetch-instrumentation:3 preserves AppError on an SDK error envelope', async () => {
+    sdkClient.session.messages.mockResolvedValue({ error: { message: 'session missing' } });
+    await expect(
+      svc.listMessages('sdk-error', undefined, { caller: 'issue-1503-error-test' }),
+    ).rejects.toMatchObject({ statusCode: 502, code: 'SDK_ERROR' });
   });
 
   it('getTodo calls session.todo with path.id', async () => {

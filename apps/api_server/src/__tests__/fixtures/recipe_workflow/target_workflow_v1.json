@@ -1,0 +1,228 @@
+{
+  "schemaVersion": 1,
+  "entryStageId": "planning",
+  "budgets": {
+    "maxCostUsd": 50,
+    "maxTokens": 2000000,
+    "maxWallTimeMs": 21600000,
+    "maxStageExecutions": 200
+  },
+  "stages": [
+    {
+      "id": "planning",
+      "kind": "agent",
+      "profileId": "planning-agent",
+      "provider": { "providerId": "openai", "modelId": "gpt-5.1" },
+      "inputs": {
+        "goal": { "source": "runInput", "key": "goal", "type": "string" }
+      },
+      "output": { "fields": { "planId": "string", "planText": "string" } },
+      "next": "contrarian_review"
+    },
+    {
+      "id": "contrarian_review",
+      "kind": "agent",
+      "profileId": "planning-agent",
+      "provider": { "providerId": "anthropic", "modelId": "claude-opus-4" },
+      "differentProviderFromStageId": "planning",
+      "inputs": {
+        "plan": { "source": "stageOutput", "stageId": "planning", "field": "planText", "type": "string" }
+      },
+      "output": { "fields": { "critique": "string" } },
+      "next": "adjust_plan"
+    },
+    {
+      "id": "adjust_plan",
+      "kind": "agent",
+      "profileId": "planning-agent",
+      "provider": { "providerId": "openai", "modelId": "gpt-5.1" },
+      "inputs": {
+        "plan": { "source": "stageOutput", "stageId": "planning", "field": "planText", "type": "string" },
+        "critique": { "source": "stageOutput", "stageId": "contrarian_review", "field": "critique", "type": "string" }
+      },
+      "output": { "fields": { "finalPlan": "string" } },
+      "next": "issue_writer"
+    },
+    {
+      "id": "issue_writer",
+      "kind": "agent",
+      "profileId": "issue-writer",
+      "provider": { "providerId": "openai", "modelId": "gpt-5.1" },
+      "inputs": {
+        "finalPlan": { "source": "stageOutput", "stageId": "adjust_plan", "field": "finalPlan", "type": "string" }
+      },
+      "output": {
+        "fields": { "issueCount": "number" },
+        "items": { "keyField": "issueId", "fields": { "issueId": "string", "title": "string", "body": "string" } }
+      },
+      "next": "fan_out_issues"
+    },
+    {
+      "id": "fan_out_issues",
+      "kind": "fanOut",
+      "itemsFrom": { "stageId": "issue_writer" },
+      "itemKey": "issue",
+      "entryStageId": "acceptance_contract",
+      "join": "all",
+      "next": "approval",
+      "stages": [
+        {
+          "id": "acceptance_contract",
+          "kind": "agent",
+          "profileId": "issue-writer",
+          "provider": { "providerId": "openai", "modelId": "gpt-5.1" },
+          "inputs": {
+            "issueTitle": { "source": "currentItem", "field": "title", "type": "string" },
+            "issueBody": { "source": "currentItem", "field": "body", "type": "string" }
+          },
+          "output": { "fields": { "contractText": "string" } },
+          "next": "coder"
+        },
+        {
+          "id": "coder",
+          "kind": "agent",
+          "profileId": "coding-agent",
+          "provider": { "providerId": "openai", "modelId": "gpt-5.1-codex" },
+          "inputs": {
+            "contractText": { "source": "stageOutput", "stageId": "acceptance_contract", "field": "contractText", "type": "string" }
+          },
+          "output": { "fields": { "diffSummary": "string" } },
+          "next": "review"
+        },
+        {
+          "id": "review",
+          "kind": "agent",
+          "profileId": "verification-gate",
+          "provider": { "providerId": "anthropic", "modelId": "claude-sonnet-4.5" },
+          "differentProviderFromStageId": "coder",
+          "inputs": {
+            "diffSummary": { "source": "stageOutput", "stageId": "coder", "field": "diffSummary", "type": "string" }
+          },
+          "output": { "fields": { "outcome": "string", "reasons": "string" } },
+          "next": "review_verdict_gate"
+        },
+        {
+          "id": "review_verdict_gate",
+          "kind": "gate",
+          "producerStageId": "review",
+          "branches": { "pass": "smoke", "fail": "issue_blocked", "repair": "coder_repair" },
+          "onInvalid": "issue_blocked",
+          "loop": {
+            "loopId": "review_repair_loop",
+            "maxIterations": 3,
+            "maxCostUsd": 5,
+            "maxTokens": 200000,
+            "maxWallTimeMs": 1800000,
+            "exhaustedTarget": "issue_blocked"
+          }
+        },
+        {
+          "id": "coder_repair",
+          "kind": "agent",
+          "profileId": "coding-agent",
+          "provider": { "providerId": "openai", "modelId": "gpt-5.1-codex" },
+          "inputs": {
+            "diffSummary": { "source": "stageOutput", "stageId": "coder", "field": "diffSummary", "type": "string" },
+            "reasons": { "source": "stageOutput", "stageId": "review", "field": "reasons", "type": "string" }
+          },
+          "output": { "fields": { "diffSummary": "string" } },
+          "next": "review"
+        },
+        {
+          "id": "smoke",
+          "kind": "agent",
+          "profileId": "smoke-test-writer",
+          "provider": { "providerId": "openai", "modelId": "gpt-5.1" },
+          "inputs": {
+            "diffSummary": { "source": "stageOutput", "stageId": "coder", "field": "diffSummary", "type": "string" }
+          },
+          "output": { "fields": { "outcome": "string", "reasons": "string" } },
+          "next": "smoke_verdict_gate"
+        },
+        {
+          "id": "smoke_verdict_gate",
+          "kind": "gate",
+          "producerStageId": "smoke",
+          "branches": { "pass": "issue_done", "fail": "issue_blocked", "repair": "failure_triage" },
+          "onInvalid": "issue_blocked",
+          "loop": {
+            "loopId": "smoke_repair_loop",
+            "maxIterations": 3,
+            "maxCostUsd": 5,
+            "maxTokens": 200000,
+            "maxWallTimeMs": 1800000,
+            "exhaustedTarget": "issue_blocked"
+          }
+        },
+        {
+          "id": "failure_triage",
+          "kind": "agent",
+          "profileId": "failure-triage",
+          "provider": { "providerId": "openai", "modelId": "gpt-5.1" },
+          "inputs": {
+            "reasons": { "source": "stageOutput", "stageId": "smoke", "field": "reasons", "type": "string" }
+          },
+          "output": { "fields": { "triageNotes": "string" } },
+          "next": "smoke_repair"
+        },
+        {
+          "id": "smoke_repair",
+          "kind": "agent",
+          "profileId": "coding-agent",
+          "provider": { "providerId": "openai", "modelId": "gpt-5.1-codex" },
+          "inputs": {
+            "triageNotes": { "source": "stageOutput", "stageId": "failure_triage", "field": "triageNotes", "type": "string" }
+          },
+          "output": { "fields": { "diffSummary": "string" } },
+          "next": "smoke"
+        },
+        {
+          "id": "issue_done",
+          "kind": "agent",
+          "profileId": "coding-agent",
+          "terminal": true,
+          "inputs": {
+            "outcome": { "source": "stageOutput", "stageId": "smoke", "field": "outcome", "type": "string" }
+          },
+          "output": { "fields": { "status": "string" } }
+        },
+        {
+          "id": "issue_blocked",
+          "kind": "agent",
+          "profileId": "failure-triage",
+          "terminal": true,
+          "inputs": {},
+          "output": { "fields": { "status": "string" } }
+        }
+      ]
+    },
+    {
+      "id": "approval",
+      "kind": "approval",
+      "inputs": {
+        "summary": { "source": "stageOutput", "stageId": "adjust_plan", "field": "finalPlan", "type": "string" }
+      },
+      "onApprove": "shippable_pr",
+      "onReject": "workflow_rejected"
+    },
+    {
+      "id": "shippable_pr",
+      "kind": "agent",
+      "profileId": "coding-agent",
+      "provider": { "providerId": "openai", "modelId": "gpt-5.1-codex" },
+      "terminal": true,
+      "inputs": {
+        "finalPlan": { "source": "stageOutput", "stageId": "adjust_plan", "field": "finalPlan", "type": "string" }
+      },
+      "output": { "fields": { "prUrl": "string" } }
+    },
+    {
+      "id": "workflow_rejected",
+      "kind": "agent",
+      "profileId": "failure-triage",
+      "terminal": true,
+      "inputs": {},
+      "output": { "fields": { "status": "string" } }
+    }
+  ]
+}

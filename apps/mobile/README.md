@@ -191,3 +191,17 @@ environment. Never commit or print the token.
 - Profile: `development-simulator` (extends `development`; simulator-only development client).
 - EAS build `06192d33-6cc0-4ce4-8d8d-9e2d66416fe8` finished successfully: [Expo dashboard build details (requires account login)](https://expo.dev/accounts/ajhochys-team/projects/rhythm-mobile/builds/06192d33-6cc0-4ce4-8d8d-9e2d66416fe8). Remote native iOS compilation succeeded without Apple signing.
 - This artifact is simulator-only. Apple Distribution signing, physical-device installation, and physical-device behavior remain unverified.
+
+## Relay kill switch (#1373)
+
+Set `EXPO_PUBLIC_RHYTHM_RELAY_DISABLED=1` when building the mobile app to use
+the saved direct `.ts.net` pairing instead of the relay. Expo embeds this flag;
+changing a server environment variable does not change an installed app.
+The switch blocks relay adoption and account discovery/connect, while retaining
+the saved device credential and relay metadata. Direct fallback requires Tailscale.
+Relay-only cloud grants have no direct address: they fail with recovery guidance
+and stay saved. Rebuild without the flag to restore relay access.
+
+Socket-free check: `node --test tests/paired-host.test.mjs`.
+Rendered check (run by the orchestrator with available ports):
+`EXPO_PUBLIC_RHYTHM_RELAY_DISABLED=1 npx playwright test tests/e2e/issue-1373-relay-kill-switch.spec.mjs`.

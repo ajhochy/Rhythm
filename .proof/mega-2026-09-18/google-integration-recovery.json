@@ -1,0 +1,36 @@
+{
+  "at": "2026-09-19T15:35:16.306Z",
+  "status": 200,
+  "providers": [
+    {
+      "provider": "google_calendar",
+      "status": "connected",
+      "needsReauth": false,
+      "scopes": [
+        "https://www.googleapis.com/auth/calendar.readonly",
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/userinfo.profile",
+        "openid",
+        "https://www.googleapis.com/auth/calendar",
+        "https://www.googleapis.com/auth/gmail.send",
+        "https://www.googleapis.com/auth/userinfo.email"
+      ],
+      "expiresAt": "2026-09-19T16:35:08.780Z"
+    },
+    {
+      "provider": "gmail",
+      "status": "connected",
+      "needsReauth": false,
+      "scopes": [
+        "https://www.googleapis.com/auth/calendar.readonly",
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/userinfo.profile",
+        "openid",
+        "https://www.googleapis.com/auth/calendar",
+        "https://www.googleapis.com/auth/gmail.send",
+        "https://www.googleapis.com/auth/userinfo.email"
+      ],
+      "expiresAt": "2026-09-19T16:35:08.780Z"
+    }
+  ]
+}

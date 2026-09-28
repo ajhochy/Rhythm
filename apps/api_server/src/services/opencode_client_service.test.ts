@@ -20,6 +20,7 @@ import {
   augmentPathForOpencode,
   buildOpencodeServerOptions,
   resolveOpencodeCorsOrigins,
+  resolveOpencodeStartupTimeout,
 } from './opencode_client_service';
 import { expandMcpAllowlist } from './mcp_allowlist_expander';
 import type { McpRoleConfig } from './agent_profile_scope';
@@ -91,6 +92,25 @@ describe('RHYTHM_LOCAL_RENDERER_ORIGINS engine bridge', () => {
     expect(resolveOpencodeCorsOrigins('')).toEqual([]);
     expect(buildOpencodeServerOptions(4096, [])).toEqual({ port: 4096 });
   });
+});
+
+describe('RHYTHM_OPENCODE_STARTUP_TIMEOUT_MS engine bridge', () => {
+  it('forwards a bounded cold-start timeout to the SDK server options', () => {
+    expect(resolveOpencodeStartupTimeout('15000')).toBe(15_000);
+    expect(buildOpencodeServerOptions(7471, [], 15_000)).toEqual({
+      port: 7471,
+      timeout: 15_000,
+    });
+  });
+
+  it.each(['0', '4999', '60001', 'invalid'])(
+    'rejects an unsafe timeout override: %s',
+    (value) => {
+      expect(() => resolveOpencodeStartupTimeout(value)).toThrow(
+        'RHYTHM_OPENCODE_STARTUP_TIMEOUT_MS',
+      );
+    },
+  );
 });
 
 describe('augmentPathForOpencode', () => {

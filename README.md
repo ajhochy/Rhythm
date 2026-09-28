@@ -1,87 +1,135 @@
 # Rhythm
 
-Rhythm is a desktop-first planning hub for turning recurring responsibilities, annual projects, calendar signals, and inbox context into realistic weekly action plans.
+Rhythm is a desktop productivity and AI-agent workspace for church staff. It
+manages tasks, recurring rhythms, projects, messaging, and facility
+reservations, and gives staff a native surface for running AI coding/agent
+sessions (Claude, Codex, Hermes) against their own work.
 
-## Project overview
+## Clients
 
-Rhythm is designed for people who manage both day-to-day tasks and cyclical planning work (weekly/monthly/annual). It combines:
-- One-off tasks
-- Recurring task generation
-- Recurring annual project generation
-- Project template breakdown into scheduled steps
+Rhythm ships two desktop client implementations; see
+[docs/ai/project-state.md](docs/ai/project-state.md) for the current status
+of active work.
+
+- **`apps/desktop_flutter/`** — the Flutter macOS desktop client. Historically
+  the primary shipping client (signed, notarized, released via
+  `.github/workflows/desktop_release.yml`).
+- **`apps/electron/`** — an Electron shell that embeds the same API server
+  and adds native Hermes/Bot Crossing integration. Under active development
+  on the `mega/2026-09-18-mobile-electron-hermes` branch as a candidate for
+  the shipping desktop client; packaged locally with `npm run package:mac`
+  and `npm run sign:mac`, released via `.github/workflows/electron_release.yml`.
+  Check `docs/ai/project-state.md` before assuming either client is
+  production-ready — do not assume this file is current on that point.
+
+Both clients talk to the same backend and share the same feature set below.
+
+- **`apps/mobile/`** — the iOS companion app (`opencode-mobile`, Expo/React
+  Native), distributed via TestFlight. Lets a phone view and drive agent
+  sessions running on a paired Mac through the Cloud Gateway relay (see
+  `docs/ai/architecture.md`, "Remote access").
+
+## Key features
+
+- Tasks, recurring rhythms, and project templates with scheduled steps
 - Weekly planning workflow
-- Future sync boundaries with Gmail, Google Calendar, and Planning Center Online
-
-This is intentionally not a generic todo app; the core focus is planning orchestration.
+- Messaging (threads and messages) and facility reservations
+- AI agent sessions (Claude/Codex/Hermes) with skills, MCP servers, and
+  per-user profiles/permissions
+- Research projects and a live-artifact gallery, rendered in a sandboxed
+  WKWebView bridge on desktop
+- A memory vault surfaced through Obsidian
+- Mobile relay: pair a phone to a Mac and drive agent sessions remotely
 
 ## Monorepo layout
 
-- `apps/desktop_flutter/` — Flutter desktop client (macOS-first; Windows/Linux ready structure)
-- `apps/api_server/` — Node.js + TypeScript backend API
-- `docs/` — Product, engineering, and architecture decision records
-- `.github/` — Templates and CI scaffolding
+```
+apps/
+  desktop_flutter/   Flutter macOS desktop client
+  electron/          Electron desktop shell (embeds Hermes + Bot Crossing/Colony)
+  api_server/         Node.js/TypeScript Express API (SQLite locally, Postgres in production)
+  web/                React/Vite UI — team-weaver design reference + prototype
+  mobile/             iOS companion app (Expo/React Native, TestFlight)
+  mcp_server/         Rhythm's own MCP server (@ajhochy/rhythm-mcp-server)
+  opencode_fork/      Vendored, patched fork of the OpenCode agent engine
+packages/
+  rhythm-workspace-ui/ Host-neutral shared-agent workspace UI, used by web + Electron
+docs/ai/              Project state, architecture, decisions, and run logs
+.github/workflows/     CI and release workflows
+```
 
 ## Architecture summary
 
-Both frontend and backend follow MVC terminology with thin controllers:
-
 `View -> Controller -> Service -> Repository -> Data Source / External API`
 
-Controllers coordinate request/response and UI intent only. Business rules live in services. Repositories isolate persistence and remote API details.
+Controllers coordinate request/response and UI intent only; business rules
+live in services; repositories isolate persistence and remote API details.
+See [docs/ai/architecture.md](docs/ai/architecture.md) for the full picture,
+including the dual-server model (hosted production API vs. the local agent
+server), the Cloud Gateway relay, and the embedded OpenCode engine.
 
-Rhythm is desktop-first in UX, but server-first for real multi-user operation:
+## Local development
 
-- desktop, web, and mobile should use the same hosted backend in production
-- hosted server/database own collaborative data
-- local embedded server/database flows are for development and isolated testing
-
-See [docs/decisions/0006-server-first-runtime.md](docs/decisions/0006-server-first-runtime.md).
-
-## Desktop-first rationale
-
-Rhythm starts desktop-first to support high-information planning surfaces:
-- Multi-pane layout (navigation + planner + details)
-- Faster weekly planning across many entities
-- Better fit for power-user workflows and integrations
-
-macOS is the first runtime target, with clean structure to extend to Windows/Linux.
-
-## Local setup
-
-### Prerequisites
-- Flutter SDK (desktop enabled)
-- Node.js 20+
-- npm
-
-### Desktop app
 ```bash
-cd apps/desktop_flutter
-flutter pub get
-flutter run -d macos
+# API server (dev)
+cd apps/api_server && npm run dev        # http://localhost:4000 by default
+
+# Flutter desktop client
+cd apps/desktop_flutter && flutter pub get && flutter run -d macos
+
+# Electron desktop client
+cd apps/electron && npm run package:mac   # build a local candidate .app
+
+# React web prototype (design reference)
+cd apps/web && npm run dev                # http://localhost:5173
+
+# iOS mobile app
+cd apps/mobile && npm start
+
+# Rhythm's MCP server
+cd apps/mcp_server && npm run dev
 ```
 
-The desktop app can run with an embedded local API during development. That is a
-developer workflow, not the long-term collaborative production model.
+Each app's `package.json` has additional `test`/`typecheck`/`lint` scripts —
+check there before assuming a command exists.
 
-### API server
-```bash
-cd apps/api_server
-npm install
-npm run dev
-```
+## Building, signing, and releasing
 
-## Development principles
+- **Flutter:** `.github/workflows/desktop_release.yml` (`workflow_dispatch`)
+  builds, signs, notarizes, and publishes a GitHub Release.
+- **Electron:** `apps/electron/package.json` has `package:mac` (build) and
+  `sign:mac` (Developer ID sign; set `RHYTHM_SIGN_ONLY=1` for a sign-only
+  pass over an existing local build). `.github/workflows/electron_release.yml`
+  runs the same pipeline in CI.
+- **API server:** published as a container image via
+  `.github/workflows/api_deploy_synology.yml`; the Synology deployment step is
+  manual (see `docs/release/`).
+- **MCP server:** published to npm via
+  `.github/workflows/mcp_server_publish.yml`.
 
-- Keep controllers thin.
-- Keep domain logic in services.
-- Keep repositories as persistence/integration boundaries.
-- Generate concrete task instances ahead of time for recurring work.
-- Prefer bounded, explicit changes with clear acceptance criteria.
+## License
 
-## Future integrations
+Rhythm's own code is licensed under the [MIT License](LICENSE),
+Copyright (c) 2026 AJ Hochhalter.
 
-- Gmail (message/thread state)
-- Google Calendar (event timing)
-- Planning Center Online (service plan data)
+## Acknowledgements / third-party software
 
-Rhythm remains the source of truth for planning entities (tasks, weekly plans, project breakdown/scheduling).
+Rhythm forks, embeds, and bundles several open-source projects — full
+details, upstream links, and license texts are in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). In short:
+
+- **OpenCode** (`apps/opencode_fork/`) — Rhythm's agent execution engine is a
+  patched fork of the [opencode](https://github.com/anomalyco/opencode)
+  project (MIT).
+- **Hermes Agent** (embedded as "Hermes Desktop") — built by
+  [Nous Research](https://github.com/NousResearch/hermes-agent) (MIT),
+  packaged for Rhythm via `ajhochy/hermes-rhythm-plugin`.
+- **Bot Crossing** (embedded as "Colony") — a Rhythm fork/companion of the
+  original Bot Crossing project by Jarren Rocks (MIT).
+- **OpenMontage** — an optional, separately-installed MCP integration
+  licensed **AGPL-3.0**, materially different from the rest of this repo's
+  license terms; see THIRD_PARTY_NOTICES.md before distributing a build that
+  includes it.
+- Electron, Node.js, better-sqlite3, Expo/React Native, and Flutter/Dart are
+  also bundled or depended on; see THIRD_PARTY_NOTICES.md for versions and
+  license notes.

@@ -1,0 +1,133 @@
+{
+  "run_id": "2026-09-18-mega-visual-smoke",
+  "issue": null,
+  "date": "2026-09-18",
+  "smoke_result": "fail",
+  "verification_claimed": "unknown",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "mega-visual-c1",
+      "text": "List-and-inspector pages match Agents Tasks and preserve selection, keyboard, reload, long-title, and not-found behavior",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Blocked before first UI observation: Computer Use was not approved to use the running Electron process."
+    },
+    {
+      "criterion_id": "mega-visual-c2",
+      "text": "Agents View options replaces standalone archive and density rows and provides a visible archived-view return path",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Blocked by the Electron app-control denial."
+    },
+    {
+      "criterion_id": "mega-visual-c3",
+      "text": "Subagent continuation is compact, indented, and stable for long parent titles",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Blocked by the Electron app-control denial."
+    },
+    {
+      "criterion_id": "mega-visual-c4",
+      "text": "Add project opens the native folder picker, creates the marker project, selects it, and removes it before finish",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Blocked by the Electron app-control denial; no project row was created, so no cleanup was required."
+    },
+    {
+      "criterion_id": "mega-visual-c5",
+      "text": "Profiles keeps list and inspector structure with grouped controls, Advanced JSON, and an unobscuring sticky footer",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Blocked by the Electron app-control denial; no profile was changed."
+    },
+    {
+      "criterion_id": "mega-visual-c6",
+      "text": "Tasks and Agents chat are calmer in dark mode while preserving bounded chat width, with matched light and dark evidence",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Blocked by the Electron app-control denial; appearance was not changed."
+    },
+    {
+      "criterion_id": "mega-visual-c7",
+      "text": "Three representative dividers resize with appropriate cursors, persist after reload, and can be reset from Appearance",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Blocked by the Electron app-control denial."
+    },
+    {
+      "criterion_id": "mega-visual-c8",
+      "text": "Hermes shows an honest lifecycle, embeds the themed dashboard, and opens a draft without sending",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Blocked by the Electron app-control denial; Hermes Desktop was not touched."
+    },
+    {
+      "criterion_id": "mega-visual-c9",
+      "text": "Finder and Get Info display the Rhythm icon rather than the generic Electron atom",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Finder control was also denied. Static bundle evidence showed CFBundleIconFile=Rhythm and a Rhythm.icns containing the green Rhythm mark, but that is not Finder/Get Info proof."
+    },
+    {
+      "criterion_id": "mega-visual-c10",
+      "text": "At 200 percent zoom a representative list-inspector page and the Agents rail remain usable, and zoom is restored",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Blocked by the Electron app-control denial; zoom was not changed."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "computer-use-authorization",
+      "description": "The UI inventory listed the running Electron process, but both Electron and Finder rejected selection with a Computer Use approval denial, preventing every requested interactive and screenshot criterion.",
+      "detected_by": "cua.getState followed by cua.getApp for Electron by display name and bundle path, and cua.getApp for Finder."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "smoke-test",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "smoke-test",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W3",
+        "affected_skill": "failure-postmortem",
+        "description": "The completion checklist could not be expanded through TodoWrite because this session exposes no TodoWrite facility; the checklist was executed directly and recorded in commentary.",
+        "detected_by": "Available tool inventory and transcript inspection."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/web/src/components/ListInspector.tsx",
+    "apps/web/src/components/Splitter.tsx",
+    "apps/web/src/components/SessionRail.tsx",
+    "apps/web/src/components/Profiles.tsx",
+    "apps/web/src/components/ToolWorkspace.tsx",
+    "apps/web/src/pages/hermes/index.tsx",
+    "apps/electron/src/hermes-server.mjs",
+    "apps/electron/src/hermes-view.mjs",
+    "apps/electron/scripts/package-mac.mjs"
+  ],
+  "failure_output": "Computer Use was not approved to use Electron. Computer Use was not approved to use Finder.",
+  "overall_category": "none",
+  "suggested_follow_up": "Preflight computer-use grants for the already-running Electron process and Finder before dispatching the visual smoke, then rerun all ten criteria without substituting source or static package evidence."
+}

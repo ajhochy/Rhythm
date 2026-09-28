@@ -1,0 +1,72 @@
+{
+  "issue": 1513,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1513-c1",
+      "text": "Inventory every exposed Tools entry and include an explicit before/after checklist so no tool is missed.",
+      "mode": "unit",
+      "test_file": "apps/web/src/components/ToolWorkspace.contract.test.mjs",
+      "test_id": "issue-1513-c1: inventory names every exposed Agent Tool",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1513-c2",
+      "text": "Every tool presents selectable compact title/subtitle rows and a main inspector containing the selected item's details and existing functions.",
+      "mode": "unit",
+      "test_file": "apps/web/src/components/ToolWorkspace.contract.test.mjs",
+      "test_id": "issue-1513-c2: every in-scope Agent Tool adopts the shared ListInspector primitive",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1513-c3",
+      "text": "Reuse a common layout/row/inspector contract rather than creating page-specific variants of the same pattern.",
+      "mode": "unit",
+      "test_file": "apps/web/src/components/ToolWorkspace.contract.test.mjs",
+      "test_id": "issue-1513-c3: adopted tools do not retain page-specific list and split shells",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1513-c4",
+      "text": "Keep Agents → Tasks as the baseline and preserve its scheduling, history, and action behavior. Do not copy an existing defect merely to achieve visual parity.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/tools.spec.ts",
+      "test_id": "creates, edits, toggles, triggers, and deletes schedules; creates and revokes webhooks",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1513-c5",
+      "text": "Preserve specialized editors, artifact previews, review actions, and profile controls within the consistent structure.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/agent-tools-list-inspector.spec.ts",
+      "test_id": "issue-1513-c5: every item action remains reachable from its inspector",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1513-c6",
+      "text": "Mouse and keyboard selection update the correct inspector, with visible focus and selected state.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/agent-tools-list-inspector.spec.ts",
+      "test_id": "issue-1513-c6: mouse and keyboard selection update each inspector",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1513-c7",
+      "text": "Long titles/metadata, empty results, loading, errors, and read-only access remain usable; resizing does not clip essential controls.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/agent-tools-list-inspector.spec.ts",
+      "test_id": "issue-1513-c7: edge states remain accessible at narrow width and 200 percent zoom",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1513-c8",
+      "text": "Refresh and existing deep links preserve or restore the correct selection; missing/deleted items produce a clear state rather than stale details.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/agent-tools-list-inspector.spec.ts",
+      "test_id": "issue-1513-c8: deep links restore selection and missing ids show not found",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

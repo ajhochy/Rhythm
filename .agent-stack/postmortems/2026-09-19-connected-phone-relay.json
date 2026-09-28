@@ -1,0 +1,100 @@
+{
+  "run_id": "2026-09-19-connected-phone-relay",
+  "issue": null,
+  "date": "2026-09-19",
+  "smoke_result": "fail",
+  "verification_claimed": "FAIL",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1510-c4",
+      "text": "Disabling processing audio during an active turn stops it promptly. The off preference persists after relaunch.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "C5",
+      "notes": "Working sound was turned off through iPhone Mirroring and remained off after full termination/relaunch. Its original on preference was restored with a UI click before refresh, but final toggle read-back was interrupted by Mirroring scrolling/reconnect failures. No audibility or active-turn stop claim."
+    },
+    {
+      "criterion_id": "issue-1373-c1",
+      "text": "Mobile connects to its paired session transport through the Cloudflare relay with **no** Tailscale dependency, and the existing SSE/PTY/prompt contract is unchanged.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "C5",
+      "notes": "Before repair hosted relay macOnline=false and stale fingerprint. New signed candidate restored its existing session to its own API child; relay reports macOnline=true and the same hostId/fingerprint as local gateway. Phone shows Connected through Rhythm Cloud Gateway, received an assistant reply, and remained connected after background/reopen. Off-LAN and PTY are not covered."
+    },
+    {
+      "criterion_id": "issue-1175-c5",
+      "text": "A signed development build runs on a physical iPhone and verifies pairing, isolation failures, chat/SSE/PTY, approvals, every Tool, revocation, and background recovery; committed evidence uses only a non-sensitive model label, never a device UDID.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "C5",
+      "notes": "Existing signed development client loaded current mega JavaScript through isolated Metro. Xcode26.5 stalled before compilation in compiler probes with blocked service-owned pipes; three owned build attempts were cancelled. Fresh native artifact, complete device matrix, and TestFlight remain unverified."
+    },
+    {
+      "criterion_id": "issue-1175-c6",
+      "text": "A production iOS build and TestFlight submission complete through secure credential tooling without exposing or committing credentials.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "C5",
+      "notes": "Existing signed development client loaded current mega JavaScript through isolated Metro. Xcode26.5 stalled before compilation in compiler probes with blocked service-owned pipes; three owned build attempts were cancelled. Fresh native artifact, complete device matrix, and TestFlight remain unverified."
+    },
+    {
+      "criterion_id": "issue-1542-desktop-c5",
+      "text": "Reuse compatible authenticated Hermes services; stop only services owned by this embedding.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Root live probe passed1/1 with test-only mock Keychain. Actual candidate graceful quit removed all37 owned processes while standalone Hermes remained alive. No product Keychain bypass."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "P4",
+      "description": "Hosted smoke queried row visibility before post-response React attachment; cancelled engine test assumed output after150ms. Both needed observable readiness.",
+      "detected_by": "Native selection diagnostics targetcount0/backcount0 and isolated engine cancellation reproduction."
+    },
+    {
+      "process_category": "native-build-environment",
+      "description": "Xcode SwiftBuild failed to drain mandatory compiler-probe pipes; iPhone Mirroring intermittently disconnected while scrolling.",
+      "detected_by": "Owned process samples and CUA error outputs."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "verification-gate",
+      "failure-triage",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "failure-triage",
+      "verification-gate",
+      "acceptance-contract",
+      "smoke-test-writer",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": [],
+    "notes": "No TodoWrite tool is available; checklist is kept in docs/ai/plans/2026-09-19-device-and-remaining-repairs.md. Root corrected an initial speculative Hermes visibility attribution after normal native clicks disproved it; no proposed product edit retained."
+  },
+  "implementation_files": [
+    "apps/electron/src/agent-server.mjs",
+    "apps/electron/src/main.mjs",
+    "apps/mobile/app/(tabs)/agents.tsx",
+    "apps/mobile/app/(tabs)/tools.tsx",
+    "apps/opencode_fork/packages/opencode/test/session/prompt.test.ts"
+  ],
+  "failure_output": "Fresh native iPhone compilation stalled in clang -v -E -dM probes. CUA later reported Failed to start stream due to audio/video capture failure. Required external acceptance remains incomplete.",
+  "overall_category": "C5",
+  "suggested_follow_up": "Keep fresh native builds, physical audio, off-LAN relay and full installed-release proof separate from browser, development-client and public health evidence.",
+  "automated_gate": {
+    "command": "ai-workflow checks --level pr",
+    "stages_passed": 16,
+    "stages_failed": 0,
+    "log": "/tmp/rhythm-mega-pr-final-gate.log"
+  },
+  "hosted_final": "Automations passed; Facilities room POST succeeded but the marked option remained absent for5s; exact-marker cleanup succeeded. No further test cycle after the user asked how many remained."
+}

@@ -1,0 +1,40 @@
+{
+  "issue": 1496,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1496-c1",
+      "text": "`apps/electron/src/main.mjs`: add an IPC handler that calls `dialog.showOpenDialog({ properties: ['openDirectory'] })` and returns the selected path (or null on cancel).",
+      "mode": "unit",
+      "test_file": "apps/electron/test/electron-shell.test.mjs",
+      "test_id": "directory-picker: owned native dialog returns only the first path string or null",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1496-c2",
+      "text": "`apps/electron/src/preload.cjs`: expose one narrow `selectDirectory()` method via `contextBridge` — no broader filesystem surface.",
+      "mode": "unit",
+      "test_file": "apps/electron/test/electron-shell.test.mjs",
+      "test_id": "directory-picker: actual preload adds only a no-payload selectDirectory capability",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1496-c3",
+      "text": "`apps/web/src/components/SessionRail.tsx`: enable \"Browse…\" whenever `window.electron?.selectDirectory` (or equivalent) is present, call it, and fill the `cwd` field with the result. Keep manual path entry as the fallback when the API is absent (e.g. running in a plain browser) — do not remove it.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/directory-picker.spec.ts",
+      "test_id": "native directory picker is enabled with live history and updates cwd through a click",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1496-c4",
+      "text": "Add security-test coverage for the new IPC surface (the repo already has an IPC/security-smoke pattern in `apps/electron/src/security-smoke-receipt.mjs` and related tests) — assert the exposed API is scoped to this one method and returns only a path string, no arbitrary filesystem access.",
+      "mode": "unit",
+      "test_file": "apps/electron/test/security-smoke-receipt.test.mjs",
+      "test_id": "signed security smoke accepts the exact hardened bridge and denial receipt",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

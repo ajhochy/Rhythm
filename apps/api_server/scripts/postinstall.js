@@ -5,11 +5,8 @@
  * Two responsibilities:
  *   1. Make node-pty's prebuilt spawn-helper executable on macOS (it ships
  *      without the +x bit on some package mirrors).
- *   2. Force-rebuild better-sqlite3 against the Node binary that is running
- *      this script. Prebuild-install can pick a binary that mismatches the
- *      Node version the Flutter desktop app spawns the api_server with,
- *      which produces a NODE_MODULE_VERSION error and kills the server
- *      before it can bind to :4001. Tracked as issue #585.
+ *   2. Prove better-sqlite3's N-API prebuild loads and executes a query under
+ *      this Node. Fall back to a source rebuild only when that probe fails.
  *
  * We also write apps/api_server/.node-runtime.json with the install-time
  * Node path + ABI. The Flutter app reads this sentinel in dev so it spawns
@@ -41,6 +38,59 @@ function rebuildBetterSqlite3() {
   });
 }
 
+function probeBetterSqlite3(Database) {
+  const db = new Database(":memory:");
+  try {
+    const row = db.prepare("select 1 as x").get();
+    if (row?.x !== 1) {
+      throw new Error("better-sqlite3 query returned the wrong result");
+    }
+  } finally {
+    db.close();
+  }
+}
+
+function ensureBetterSqlite3({
+  loadDatabase = () => require("better-sqlite3"),
+  rebuild = rebuildBetterSqlite3,
+} = {}) {
+  try {
+    probeBetterSqlite3(loadDatabase());
+    console.log(
+      `[postinstall] better-sqlite3 N-API prebuild works under Node ${process.version}; skipping source rebuild.`,
+    );
+    return "prebuild";
+  } catch (err) {
+    console.warn(
+      `[postinstall] better-sqlite3 package-entry probe failed under Node ${process.version}; falling back to a source rebuild.`,
+    );
+    console.warn(err && err.message ? err.message : err);
+    rebuild();
+
+    // better-sqlite3 13 ships "gypfile": false with no install/postinstall
+    // script, so `npm rebuild --build-from-source` can exit 0 without
+    // compiling anything on a platform with no matching N-API prebuild.
+    // Re-probe (a fresh require -- Node evicts a module from its cache when
+    // it throws during load) instead of trusting the exec exit code alone.
+    try {
+      probeBetterSqlite3(loadDatabase());
+    } catch (rebuildErr) {
+      throw new Error(
+        `better-sqlite3 still cannot run a query after ` +
+          `'npm rebuild better-sqlite3 --build-from-source' under Node ${process.version} ` +
+          `(execPath=${process.execPath}, ABI=${process.versions.modules}). This platform likely ` +
+          `has no matching N-API prebuild and needs build tools (a C++ compiler, python3) available ` +
+          `to node-gyp. Rebuild error: ${rebuildErr && rebuildErr.message ? rebuildErr.message : rebuildErr}`,
+      );
+    }
+
+    console.log(
+      `[postinstall] better-sqlite3 works under Node ${process.version} after a source rebuild.`,
+    );
+    return "rebuilt";
+  }
+}
+
 function writeRuntimeSentinel() {
   const sentinel = {
     nodePath: process.execPath,
@@ -53,7 +103,11 @@ function writeRuntimeSentinel() {
   console.log(`[postinstall] Wrote ${dest}`);
 }
 
-function main() {
+function main({
+  ensure = ensureBetterSqlite3,
+  writeSentinel = writeRuntimeSentinel,
+  exit = process.exit,
+} = {}) {
   chmodNodePty();
 
   // Skip the rebuild + sentinel when SKIP_BETTER_SQLITE3_REBUILD is set so
@@ -65,16 +119,25 @@ function main() {
   }
 
   try {
-    rebuildBetterSqlite3();
+    ensure();
   } catch (err) {
     console.error(
-      "[postinstall] better-sqlite3 rebuild failed. Server will likely fail to start.",
+      "[postinstall] better-sqlite3 load/rebuild failed. Server will likely fail to start.",
     );
     console.error(err && err.message ? err.message : err);
-    process.exit(1);
+    exit(1);
+    return;
   }
 
-  writeRuntimeSentinel();
+  writeSentinel();
 }
 
-main();
+module.exports = {
+  ensureBetterSqlite3,
+  probeBetterSqlite3,
+  main,
+};
+
+if (require.main === module) {
+  main();
+}

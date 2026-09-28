@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   BROAD_TABLES,
@@ -23,7 +23,10 @@ describe('PR #1489 final harness race repair', () => {
     }
   });
 
-  afterEach(() => db.close());
+  afterEach(() => {
+    db.close();
+    vi.useRealTimers();
+  });
 
   it('snapshots broad and install surfaces in stable declared-key order', () => {
     db.prepare("INSERT INTO agent_configs (id, value) VALUES ('b', '2'), ('a', '1')").run();
@@ -61,9 +64,14 @@ describe('PR #1489 final harness race repair', () => {
   });
 
   it('pr-1489-absolute-c2: requires one continuous stable window and resets it on every digest change', async () => {
+    // ponytail: fake clock, not real timers — a real 1ms sleep under suite load can take far
+    // longer than 1ms, starving the lap count the assertion below depends on. vi.useFakeTimers()
+    // makes Date.now() and setTimeout advance together in lockstep, so the lap count is a
+    // property of the code path, not of the machine's scheduler.
+    vi.useFakeTimers();
     db.prepare("INSERT INTO agent_session_messages (id, value) VALUES ('message-1', 'pending')").run();
     let waits = 0;
-    const settled = await waitForBroadRowsToSettle(db, {
+    const settledPromise = waitForBroadRowsToSettle(db, {
       intervalMs: 1,
       stableMs: 5,
       timeoutMs: 100,
@@ -74,15 +82,20 @@ describe('PR #1489 final harness race repair', () => {
         await new Promise((resolve) => setTimeout(resolve, 1));
       },
     });
+    await vi.advanceTimersByTimeAsync(200);
+    const settled = await settledPromise;
 
     expect(waits).toBeGreaterThanOrEqual(6);
     expect(settled.agent_session_messages).toEqual([{ id: 'message-1', value: 'settled', unchanged: null }]);
   });
 
   it('bounds non-settlement errors to the exact latest row-field diff', async () => {
+    // ponytail: same fake-clock reasoning as the c2 test above — timeoutMs: 3 is too tight a
+    // deadline to survive real scheduler jitter under suite load.
+    vi.useFakeTimers();
     db.prepare("INSERT INTO agent_sessions (id, value, unchanged) VALUES ('session-1', '0', 'do-not-dump')").run();
     let update = 0;
-    await expect(waitForBroadRowsToSettle(db, {
+    const rejection = expect(waitForBroadRowsToSettle(db, {
       intervalMs: 1,
       timeoutMs: 3,
       sleep: async () => {
@@ -90,6 +103,8 @@ describe('PR #1489 final harness race repair', () => {
         await new Promise((resolve) => setTimeout(resolve, 1));
       },
     })).rejects.toThrow(/agent_sessions.*session-1.*value(?!.*do-not-dump)/);
+    await vi.advanceTimersByTimeAsync(50);
+    await rejection;
   });
 
   it('compares declared install snapshots byte-for-byte', () => {

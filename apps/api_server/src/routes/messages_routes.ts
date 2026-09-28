@@ -8,6 +8,7 @@ export const messagesRouter = Router();
 messagesRouter.use(requireAuth);
 messagesRouter.get('/', controller.getAllThreads.bind(controller));
 messagesRouter.post('/', controller.createThread.bind(controller));
+messagesRouter.delete('/:id', controller.deleteThread.bind(controller));
 messagesRouter.get('/:id/messages', controller.getMessages.bind(controller));
 messagesRouter.post('/:id/messages', controller.createMessage.bind(controller));
 messagesRouter.post('/:id/read', controller.markRead.bind(controller));

@@ -143,7 +143,7 @@ describe('simulated consolidation run writes to the vault, not prod (#806 AC4)',
         if (ent.isDirectory()) walk(full);
         else if (
           ent.name.endsWith('.md') &&
-          !['index.md', 'log.md'].includes(ent.name.toLowerCase())
+          !['index.md', 'log.md', 'readme.md'].includes(ent.name.toLowerCase())
         ) {
           noteFiles.push(full);
         }

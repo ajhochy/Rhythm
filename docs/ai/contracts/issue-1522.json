@@ -1,0 +1,64 @@
+{
+  "issue": 1522,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1522-c1",
+      "text": "Provide an obvious Add project action in the Agents tab, including when no projects or sessions exist.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agents-add-project.spec.ts",
+      "test_id": "add an empty project, reload, select it and create a correctly bound session without running an agent",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1522-c2",
+      "text": "Let the user provide a project name and choose a working directory using the native directory picker from #1496, with manual path entry available as an alternative.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agents-add-project.spec.ts",
+      "test_id": "native picker cancellation and form Escape preserve path, selection and focus without creating anything",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1522-c3",
+      "text": "Create through the existing agent-project API and preserve its directory validation and duplicate-project rules. Show understandable validation/error feedback and prevent duplicate submissions.",
+      "mode": "integration",
+      "test_file": "apps/web/tests/agents-add-project.spec.ts",
+      "test_id": "gateway preserves project fields, existing request auth and readable backend errors",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1522-c4",
+      "text": "After successful creation, the project appears and can be selected immediately even before it has any sessions. It remains available after refresh/relaunch.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agents-add-project.spec.ts",
+      "test_id": "add an empty project, reload, select it and create a correctly bound session without running an agent",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1522-c5",
+      "text": "Starting a session in the selected project uses the intended project identity and working directory; existing sessions and their grouping remain correct.",
+      "mode": "integration",
+      "test_file": "apps/web/tests/agents-add-project.spec.ts",
+      "test_id": "live sandbox project persists and a new session retains its exact directory and project identity",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1522-c6",
+      "text": "Canceling the form or directory picker creates nothing and preserves existing selection. The project-creation flow must not automatically run an agent, initialize instructions, switch branches, or modify files in the selected directory.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agents-add-project.spec.ts",
+      "test_id": "native picker cancellation and form Escape preserve path, selection and focus without creating anything",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1522-c7",
+      "text": "Keyboard access, loading/empty/error states, long names/paths, and the new project's empty-session state are usable.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/agents-add-project.spec.ts",
+      "test_id": "picker selection supports long paths and advanced creation inherits only the chosen project context",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

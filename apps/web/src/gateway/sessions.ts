@@ -36,6 +36,14 @@ export type SessionWireEvent = {
   callId?: string;
   questions?: unknown[];
   rejected?: boolean;
+  // session.spillover — apps/api_server/src/services/turn_redispatch.ts
+  // (cross-provider cascade hop) and routes/opencode_spillover_routes.ts
+  // (same-provider Anthropic account failover). `reason` is shared above.
+  fromAccountId?: string | null;
+  toAccountId?: string | null;
+  toProvider?: string;
+  toModel?: string;
+  toTier?: string;
 };
 export type SessionSocket = { send(frame: unknown): void; close(): void };
 export type TranscriptPageInfo = { nextCursor: string | null; hasMore: boolean };
@@ -60,9 +68,28 @@ export type SessionListQuery = {
 export type SessionListPage = { sessions: SessionCatalogEntry[]; ancestors: SessionCatalogEntry[]; pageInfo: TranscriptPageInfo };
 export type SessionSort = 'newest' | 'oldest' | 'name' | 'activity' | 'status';
 export type IdentityProfile = Profile & { autoApproveActions?: boolean; reasoningEffort?: string | null };
-export type ModelChoice = { providerId: string; modelId: string; label: string };
-export type AccountChoice = { id: string; label: string; status: string };
-export type SessionSettings = { name?: string; profileId?: string | null; providerId?: string | null; modelId?: string | null; thinkingBudget?: number | null; permissionMode?: string; fastMode?: boolean; anthropicAccountId?: string };
+// needsVerification: mirrors the #1572 catalog contract's available:'unknown' rows — the
+// provider is authorized and the model is not known-unavailable, but entitlement could not
+// be confirmed. Selectable, but the curation UI must show it as unverified rather than solid.
+export type ModelChoice = { providerId: string; modelId: string; label: string; contextLimit?: number; needsVerification?: boolean };
+export type AccountChoice = { id: string; label: string; status: string; isDefault?: boolean; email?: string };
+// Shared "<label> · default" / "<label> · needs sign-in" wording for every account picker
+// (session settings, new-session, Profiles). Marks default from the API's defaultAccountId
+// (via AccountChoice.isDefault), never from an account id that happens to spell "default".
+export const accountOptionLabel = (a: AccountChoice) => a.isDefault ? `${a.label} · default` : a.status && a.status !== 'ok' ? `${a.label} · needs sign-in` : a.label;
+export type ModelVisibilityEntry = { provider: string; modelId: string; visible: boolean };
+// #1580 S2 — one row per provider/model from GET /agents/models/catalog/full (unfiltered: includes
+// hidden and unavailable rows, unlike models()/gateway's picker-facing catalog). This is the
+// provider-first curation screen's data source; `visible` here already folds in the persisted
+// agent_model_visibility override, so it doubles as the switch's current on/off state.
+export type ModelCatalogEntry = {
+  provider: string; modelId: string; displayName: string;
+  authorized: boolean; available: boolean | 'unknown'; visible: boolean;
+  availabilityReason: string; connectUrl?: string;
+};
+export type CustomProviderInput = { providerId: string; name: string; baseURL: string; apiKey?: string };
+export type CustomProviderTestResult = { ok: true; providerId: string; modelCount: number; models: Array<{ id: string; name: string }> };
+export type SessionSettings = { name?: string; profileId?: string | null; providerId?: string | null; modelId?: string | null; thinkingBudget?: number | null; permissionMode?: string; fastMode?: boolean; anthropicAccountId?: string; openaiAccountId?: string };
 export type TurnOverride = { profileId?: string; modelOverride?: { providerId: string; modelId: string } };
 const statusOrder: Record<Session['status'], number> = { working: 0, starting: 1, idle: 2, error: 3, closed: 4, resumable: 5 };
 const compareText = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
@@ -95,12 +122,47 @@ export interface SessionFileDiffEntry { file: string; before: string; after: str
 export interface SessionVcsDiffEntry { file: string; patch?: string; additions: number; deletions: number; status?: string }
 // GET /projects/:id/branches — apps/api_server/src/controllers/projects_controller.ts:161-175.
 export interface ProjectBranches { current: string | null; local: string[]; recent: string[] }
+export interface AgentProject { id: string; name: string; cwd?: string; vcsBranch?: string | null; archivedAt?: string | null }
+
+function mapAgentProject(value: unknown): AgentProject {
+  const row = record(value);
+  return { id: string(row.id), name: string(row.name), cwd: string(row.cwd),
+    vcsBranch: typeof row.vcsBranch === 'string' ? row.vcsBranch : null,
+    archivedAt: typeof row.archivedAt === 'string' ? row.archivedAt : null };
+}
 
 export interface SessionGateway {
   readonly mode: GatewayMode;
   profiles(): Promise<IdentityProfile[]>;
   models?(): Promise<ModelChoice[]>;
+  // #1580 — GET/PATCH /agent-models/visibility (issue #609 endpoints). The curation screen
+  // reads current per-model visibility and writes it back as an exact {updates:[...]} batch;
+  // callers must re-run models() afterward to refresh every picker (see store.refreshModels).
+  modelVisibility?(): Promise<ModelVisibilityEntry[]>;
+  setModelVisibility?(updates: ModelVisibilityEntry[]): Promise<void>;
+  // #1580 S2 — GET /agents/models/catalog/full for the provider-first curation screen.
+  modelCatalogFull?(): Promise<ModelCatalogEntry[]>;
+  testCustomProvider?(input: CustomProviderInput): Promise<CustomProviderTestResult>;
+  saveCustomProvider?(input: CustomProviderInput): Promise<{ ok: true; pending?: boolean; providerId: string; modelCount: number }>;
   accounts?(): Promise<AccountChoice[]>;
+  startAccountLogin?(input: { accountId: string; label: string }): Promise<{ authorizationUrl: string }>;
+  completeAccountLogin?(input: { accountId: string; code: string }): Promise<void>;
+  setDefaultAccount?(accountId: string): Promise<void>;
+  removeAccount?(accountId: string): Promise<void>;
+  renameAccount?(accountId: string, label: string): Promise<void>;
+  // Multi-account OpenAI (ChatGPT/Codex OAuth) — /opencode/auth/openai/accounts. The default is
+  // the one account the engine uses for ALL OpenAI requests (no per-session selection).
+  openaiAccounts?(): Promise<AccountChoice[]>;
+  startOpenAIAccountLogin?(input: { accountId: string; label?: string }): Promise<{ authorizationUrl: string }>;
+  completeOpenAIAccountLogin?(input: { accountId: string; code: string }): Promise<void>;
+  setDefaultOpenAIAccount?(accountId: string): Promise<{ engineUpdated: boolean }>;
+  renameOpenAIAccount?(accountId: string, label: string): Promise<void>;
+  removeOpenAIAccount?(accountId: string): Promise<void>;
+  // Provider auth — apps/api_server/src/routes/opencode_auth_routes.ts:17-105.
+  authProviders?(): Promise<string[]>;
+  authorizeProvider?(provider: string, method: number): Promise<{ authUrl: string; instructions: string }>;
+  completeProviderAuth?(provider: string, code: string, method: number): Promise<void>;
+  saveProviderApiKey?(provider: string, apiKey: string): Promise<void>;
   patchSettings?(localId: string, input: SessionSettings): Promise<Session>;
   archive?(localId: string, archived: boolean): Promise<void>;
   fork?(localId: string, messageId: string): Promise<Session>;
@@ -108,9 +170,10 @@ export interface SessionGateway {
   init?(localId: string): Promise<void>;
   list(): Promise<Session[]>;
   listPage?(query: SessionListQuery): Promise<SessionListPage>;
-  projectLabels?(): Promise<{ id: string; name: string }[]>;
+  projectLabels?(): Promise<AgentProject[]>;
+  createProject?(input: { name: string; cwd: string }): Promise<AgentProject>;
   detail(localId: string): Promise<Session>;
-  create(input: { profileId: string; cwd: string; name: string; isolateWorktree: boolean; worktreeName?: string; branch?: string; createBranch?: boolean; stash?: 'stash' | 'discard'; taskId?: string; anthropicAccountId?: string }): Promise<Session>;
+  create(input: { profileId: string; cwd: string; name: string; projectId?: string; isolateWorktree: boolean; worktreeName?: string; branch?: string; createBranch?: boolean; stash?: 'stash' | 'discard'; taskId?: string; anthropicAccountId?: string }): Promise<Session>;
   // post-m1-phase-6 c1b/c2a: GET /:id/files/find-files?query&limit&type — returns relative paths.
   findFiles(localId: string, query: string, opts?: { limit?: number; type?: 'file' | 'directory' }): Promise<string[]>;
   // GET /:id/files/list?path — engine-shaped entries scoped to the session/worktree directory.
@@ -186,6 +249,18 @@ export interface ProfileMutation {
   sessionSelectable: boolean;
   modelTierHint: string | null;
   defaultAnthropicAccountId: string | null;
+  defaultOpenaiAccountId: string | null;
+}
+
+// #1580 — discards a response that started before a newer one began (a gateway or account
+// switch mid-flight). Mirrors the `generation` fencing already used by the transcript reducer:
+// begin() hands the caller a token to check with isCurrent() once its request resolves.
+export function createGenerationGuard() {
+  let generation = 0;
+  return {
+    begin: (): number => ++generation,
+    isCurrent: (token: number): boolean => token === generation,
+  };
 }
 
 export class SessionGatewayError extends Error {
@@ -220,6 +295,20 @@ async function response<T>(operation: string, request: Promise<Response>): Promi
   }
 }
 
+async function customProviderResponse<T>(request: Promise<Response>): Promise<T> {
+  try {
+    const result = await request;
+    if (!result.ok) {
+      const body = record(await result.clone().json().catch(() => null));
+      throw new SessionGatewayError(result.status, string(body.message, 'The provider request failed. Check the fields and try again.'));
+    }
+    return await result.json() as T;
+  } catch (error) {
+    if (error instanceof SessionGatewayError) throw error;
+    throw new SessionGatewayError(0, 'The local provider service is unavailable. Try again after the local runtime reconnects.');
+  }
+}
+
 const string = (value: unknown, fallback = '') => typeof value === 'string' ? value : fallback;
 const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' ? value as Record<string, unknown> : {};
 // A persisted message's canonical identity is its (possibly numeric) `sdkMessageId`/`id` —
@@ -238,11 +327,13 @@ const TASK_ID_PATTERN = /task_id:\s*(\S+)/;
 
 // Shared with the artifact host: retain the envelope, never interpret HTML here.
 export type McpContent = { type: string; text?: string; resource?: { uri: string; mimeType?: string; text?: string; blob?: string }; [key: string]: unknown };
+export type ToolAttachment = { mime: string; url: string; filename?: string; artifactId?: string; artifactProject?: string; size?: number };
 export type CanonicalTool = {
   name: string; callId: string; status: string; input?: unknown; output?: unknown; error?: unknown;
   metadata?: Record<string, unknown> & { content?: McpContent[] };
+  attachments?: ToolAttachment[];
 };
-export type RichTranscriptBlock = TranscriptBlock & { tool?: CanonicalTool };
+export type RichTranscriptBlock = TranscriptBlock & { tool?: CanonicalTool; streaming?: boolean; terminal?: boolean };
 export type RichTranscriptMessage = TranscriptMessage & {
   cost?: number; tokens?: { input?: number; output?: number; reasoning?: number; cache?: { read?: number; write?: number } };
 };
@@ -251,27 +342,36 @@ export const blockSource = (block: RichTranscriptBlock): string => block.tool ? 
 
 export function mapPart(raw: Record<string, unknown>, id: string): RichTranscriptBlock {
   const state = record(raw.state);
+  // Hosted attachments a tool result carries (e.g. `read` on an image) — state.attachments is a
+  // list of the same {type:'file',mime,url,artifactId,artifactProject,size} shape as a file part.
+  const rawAttachments = Array.isArray(state.attachments) ? state.attachments : [];
+  const attachments: ToolAttachment[] = rawAttachments
+    .map((entry) => record(entry))
+    .filter((entry) => string(entry.mime) && string(entry.url))
+    .map((entry) => ({ mime: string(entry.mime), url: string(entry.url), filename: string(entry.filename) || undefined, artifactId: string(entry.artifactId) || undefined, artifactProject: string(entry.artifactProject) || undefined, size: nonnegativeInteger(entry.size) }));
   const tool: CanonicalTool | undefined = raw.type === 'tool' ? {
     name: string(raw.tool, 'Tool'), callId: string(raw.callID), status: string(state.status, 'unknown'),
     input: state.input, output: state.output, error: state.error,
     metadata: state.metadata && typeof state.metadata === 'object' ? record(state.metadata) : undefined,
+    attachments: attachments.length ? attachments : undefined,
   } : undefined;
   if (raw.type === 'tool' && raw.tool === 'task') {
     const match = TASK_ID_PATTERN.exec(string(state.output));
-    return { id, kind: 'children', content: string(state.title, 'Child session'), meta: string(state.status), childSessionId: match?.[1], tool };
+    const terminal = state.status === 'completed' || state.status === 'error';
+    return { id, kind: 'children', content: string(state.title, 'Child session'), meta: string(state.status), childSessionId: match?.[1], tool, terminal, streaming: !terminal };
   }
   // post-m1-phase-4 c2d: preserve every other canonical part type instead of collapsing it to
   // markdown. Field vocabulary from apps/api_server/src/services/opencode_stream_bridge.ts:1250-1339.
-  if (raw.type === 'reasoning') return { id, kind: 'reasoning', title: 'Reasoning', content: string(raw.text) };
+  if (raw.type === 'reasoning') return { id, kind: 'reasoning', title: 'Reasoning', content: raw.text === '[REDACTED]' ? '' : string(raw.text), terminal: typeof record(raw.time).end === 'number', streaming: typeof record(raw.time).end !== 'number' };
   if (raw.type === 'tool') {
-    return { id, kind: 'tool', title: string(state.title, string(raw.tool, 'Tool')), content: canonicalText(state.output), meta: tool?.status, tool };
+    return { id, kind: 'tool', title: string(state.title, string(raw.tool, 'Tool')), content: canonicalText(state.output), meta: state.status === 'error' && record(state.metadata).interrupted === true ? 'Interrupted' : tool?.status, tool, terminal: state.status === 'completed' || state.status === 'error' };
   }
   if (raw.type === 'step-start') return { id, kind: 'step-start', content: string(raw.snapshot) };
   if (raw.type === 'step-finish') return { id, kind: 'step-finish', content: string(raw.snapshot), meta: string(raw.reason) };
   if (raw.type === 'compaction') return { id, kind: 'compaction', content: raw.auto === true ? 'Context compacted automatically' : 'Context compacted' };
-  if (raw.type === 'file') return { id, kind: 'file', title: string(raw.filename), content: string(raw.url), meta: string(raw.mime) };
+  if (raw.type === 'file') return { id, kind: 'file', title: string(raw.filename), content: string(raw.url), meta: string(raw.mime), artifactId: string(raw.artifactId) || undefined, artifactProject: string(raw.artifactProject) || undefined };
   if (raw.type === 'agent') { const source = record(raw.source); return { id, kind: 'agent', title: string(raw.name, 'Agent'), content: string(source.value) }; }
-  return { id, kind: 'markdown', content: string(raw.text, string(raw.content)) };
+  return { id, kind: 'markdown', content: string(raw.text, string(raw.content)), terminal: typeof record(raw.time).end === 'number', streaming: raw.type === 'text' && typeof record(raw.time).end !== 'number' };
 }
 
 export function mapMessage(value: unknown): RichTranscriptMessage {
@@ -288,6 +388,7 @@ export function mapMessage(value: unknown): RichTranscriptMessage {
     role: ['user', 'assistant', 'system'].includes(role) ? role as TranscriptMessage['role'] : 'system',
     createdAt: typeof record(info.time).created === 'number' && Number.isFinite(record(info.time).created) && Math.abs(record(info.time).created as number) <= 8640000000000000
       ? new Date(record(info.time).created as number).toISOString() : string(source.createdAt, new Date(0).toISOString()),
+    interrupted: record(info.error).name === 'MessageAbortedError',
     ...messageMetadata({ ...source, ...info }),
     blocks: parts.map((part, index) => mapPart(record(part), string(record(part).id, `${id}-${index}`))),
   };
@@ -313,6 +414,22 @@ export function reconcileMessageInfo(existing: TranscriptMessage | undefined, in
   };
 }
 
+/** Names that mean "no real title yet" (blank, client placeholders, the engine's default title). */
+const UNTITLED_SESSION_NAME = /^(|Untitled chat|Untitled session|Resumed|New session|(New|Child) session - \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)$/;
+
+/**
+ * Display label for a session: its name; else the first line of its first
+ * user prompt; else "New session". `fallback` marks the latter two so the UI
+ * can style them muted — an untitled session never renders as a blank row.
+ */
+export function sessionLabel(session: Pick<Session, 'name' | 'firstPrompt'>): { label: string; fallback: boolean } {
+  const name = session.name?.trim() ?? '';
+  if (!UNTITLED_SESSION_NAME.test(name)) return { label: name, fallback: false };
+  const prompt = session.firstPrompt?.split('\n').map((line) => line.trim()).find(Boolean);
+  if (prompt) return { label: prompt.length > 80 ? `${prompt.slice(0, 79).trimEnd()}…` : prompt, fallback: true };
+  return { label: 'New session', fallback: true };
+}
+
 export function toSessionViewModel(value: unknown, messages: unknown[] = [], transcriptPage?: unknown): SessionCatalogEntry {
   const source = record(value);
   const status = string(source.status, source.working === true ? 'working' : 'idle');
@@ -325,6 +442,7 @@ export function toSessionViewModel(value: unknown, messages: unknown[] = [], tra
     id: string(source.id), name: string(source.name, 'Untitled session'), scope: category === 'scheduled' ? 'scheduled' : category === 'self_improvement' || category === 'background' ? 'background' : 'chats',
     category, lastActivityAt: typeof source.lastActivityAt === 'string' ? source.lastActivityAt : null,
     lastPreview: typeof source.lastPreview === 'string' ? source.lastPreview : null,
+    ...(typeof source.firstPrompt === 'string' && source.firstPrompt.trim() ? { firstPrompt: source.firstPrompt.trim() } : {}),
     archivedAt: typeof source.archivedAt === 'string' ? source.archivedAt : null,
     hasChildren: source.hasChildren === true || childCount !== undefined && childCount > 0 || Array.isArray(source.children) && source.children.length > 0,
     ...(childCount !== undefined ? { childCount } : {}),
@@ -333,7 +451,7 @@ export function toSessionViewModel(value: unknown, messages: unknown[] = [], tra
     status: ['starting', 'working', 'idle', 'resumable', 'closed', 'error'].includes(status) ? status as Session['status'] : 'idle',
     statusMessage: typeof source.statusMessage === 'string' ? source.statusMessage : undefined,
     connectionState: 'online', profileId: string(source.profileId, string(source.profile_id)), projectId: string(source.projectId, string(source.project_id)), projectName: string(source.projectName),
-    cwd: string(source.cwd), branch: string(source.branch, 'main'), dirtyCount: 0, isolateWorktree: source.isolateWorktree === true || Boolean(source.worktreePath), account: string(source.anthropicAccountId),
+    cwd: string(source.cwd), branch: string(source.branch, 'main'), dirtyCount: 0, isolateWorktree: source.isolateWorktree === true || Boolean(source.worktreePath), account: string(source.anthropicAccountId), openaiAccount: string(source.openaiAccountId),
     // post-m1-phase-6 c3b/c3d/c3e: the resolved isolated-worktree identity — never defaulted
     // to 'main' or synthesized client-side. apps/api_server/src/__tests__/post_m1_phase_6_files_worktrees_contract.test.ts:96-100.
     worktreeName: typeof source.worktreeName === 'string' && source.worktreeName ? source.worktreeName : undefined,
@@ -395,6 +513,7 @@ function mapProfile(value: unknown): IdentityProfile {
     sessionSelectable: source.sessionSelectable !== false,
     modelTierHint: typeof source.modelTierHint === 'string' ? source.modelTierHint : null,
     defaultAnthropicAccountId: typeof source.defaultAnthropicAccountId === 'string' ? source.defaultAnthropicAccountId : null,
+    defaultOpenaiAccountId: typeof source.defaultOpenaiAccountId === 'string' ? source.defaultOpenaiAccountId : null,
   };
 }
 
@@ -419,23 +538,120 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
       const result = await response<{ ok?: boolean }>('Prepare project', request(`/agent-sessions/${encodeURIComponent(id)}/init`, { method: 'POST' }));
       if (result.ok !== true) throw new Error('Project initialization was not confirmed by the engine');
     },
+    // #1580: a row is selectable only when its provider is authorized AND the model itself
+    // is not known-unavailable — `available` is the #1572 tri-state (true/'unknown'/false).
+    // Previously this only checked `authorized`, so a disconnected or ineligible model still
+    // showed up as choosable; unavailable rows must instead fall through to the '(unavailable)'
+    // fallback option the pickers already render for a stale current selection.
     models: async () => {
       const rows = await response<unknown[]>('Load models', request('/agents/models/catalog'));
-      const choices = rows.map(record).filter(row => row.authorized === true && string(row.provider) && string(row.modelId))
-        .map(row => ({ providerId: string(row.provider), modelId: string(row.modelId), label: string(row.displayName, string(row.modelId)) }));
+      const choices = rows.map(record)
+        .filter(row => row.authorized === true && row.available !== false && string(row.provider) && string(row.modelId))
+        .map(row => ({
+          providerId: string(row.provider), modelId: string(row.modelId), label: string(row.displayName, string(row.modelId)),
+          needsVerification: row.available === 'unknown',
+          ...(typeof row.contextLimit === 'number' && Number.isFinite(row.contextLimit) && row.contextLimit > 0 ? { contextLimit: row.contextLimit } : {}),
+        }));
       return [...new Map(choices.map(row => [`${row.providerId}/${row.modelId}`, row])).values()];
     },
-    accounts: async () => {
-      const body = await response<{ accounts?: unknown[] }>('Load accounts', request('/opencode/auth/accounts'));
-      return (body.accounts ?? []).map(record).map(row => ({ id: string(row.id), label: string(row.label, string(row.id)), status: string(row.status) }));
+    modelVisibility: async () => {
+      const rows = await response<unknown[]>('Load model visibility', request('/agent-models/visibility'));
+      return rows.map(record).map(row => ({ provider: string(row.provider), modelId: string(row.modelId), visible: row.visible === true }));
     },
+    setModelVisibility: async (updates) => {
+      await response<unknown>('Save model visibility', request('/agent-models/visibility', { method: 'PATCH', body: JSON.stringify({ updates }) }));
+    },
+    // #1580 S2: de-duplicated by provider+modelId — the server fans one model out to several
+    // `agent` rows (claude-code/codex/gemini-cli/opencode); the curation screen only needs one
+    // row per actual model.
+    modelCatalogFull: async () => {
+      const rows = await response<unknown[]>('Load full model catalog', request('/agents/models/catalog/full'));
+      const seen = new Map<string, ModelCatalogEntry>();
+      for (const raw of rows.map(record)) {
+        const provider = string(raw.provider);
+        if (!provider) continue;
+        const modelId = string(raw.modelId);
+        const key = `${provider}\0${modelId}`;
+        if (seen.has(key)) continue;
+        seen.set(key, {
+          provider, modelId, displayName: string(raw.displayName, modelId || provider),
+          authorized: raw.authorized === true, available: raw.available === 'unknown' ? 'unknown' : raw.available === true,
+          visible: raw.visible !== false, availabilityReason: string(raw.availabilityReason),
+          ...(typeof raw.connectUrl === 'string' && raw.connectUrl ? { connectUrl: raw.connectUrl } : {}),
+        });
+      }
+      return [...seen.values()];
+    },
+    testCustomProvider: async (input) => customProviderResponse<CustomProviderTestResult>(request('/opencode/providers/test', { method: 'POST', body: JSON.stringify(input) })),
+    saveCustomProvider: async (input) => customProviderResponse<{ ok: true; pending?: boolean; providerId: string; modelCount: number }>(request('/opencode/providers', { method: 'PUT', body: JSON.stringify(input) })),
+    accounts: async () => {
+      const body = await response<{ accounts?: unknown[]; defaultAccountId?: string }>('Load accounts', request('/opencode/auth/accounts'));
+      return (body.accounts ?? []).map(record).map(row => ({
+        id: string(row.id),
+        label: string(row.label, string(row.id)),
+        status: string(row.status),
+        isDefault: string(row.id) === body.defaultAccountId,
+      }));
+    },
+    startAccountLogin: async (input) => {
+      const result = await response<{ authorizeUrl: string }>('Start account authorization', request('/opencode/auth/accounts/login-start', { method: 'POST', body: JSON.stringify(input) }));
+      return { authorizationUrl: result.authorizeUrl };
+    },
+    completeAccountLogin: async (input) => { await response<unknown>('Complete account authorization', request('/opencode/auth/accounts/login-complete', { method: 'POST', body: JSON.stringify(input) })); },
+    setDefaultAccount: async (accountId) => { await response<unknown>('Set default account', request('/opencode/auth/accounts/default', { method: 'PATCH', body: JSON.stringify({ accountId }) })); },
+    removeAccount: async (accountId) => { await response<unknown>('Remove account', request(`/opencode/auth/accounts/${encodeURIComponent(accountId)}`, { method: 'DELETE' })); },
+    renameAccount: async (accountId, label) => { await response<unknown>('Rename account', request(`/opencode/auth/accounts/${encodeURIComponent(accountId)}`, { method: 'PATCH', body: JSON.stringify({ label }) })); },
+    openaiAccounts: async () => {
+      const body = await response<{ accounts?: unknown[]; defaultAccountId?: string }>('Load OpenAI accounts', request('/opencode/auth/openai/accounts'));
+      return (body.accounts ?? []).map(record).map(row => ({
+        id: string(row.id),
+        label: string(row.label, string(row.id)),
+        status: string(row.status),
+        isDefault: string(row.id) === body.defaultAccountId,
+        ...(string(row.email) ? { email: string(row.email) } : {}),
+      }));
+    },
+    startOpenAIAccountLogin: async (input) => {
+      const result = await response<{ authorizeUrl: string }>('Start OpenAI account authorization', request('/opencode/auth/openai/accounts/login-start', { method: 'POST', body: JSON.stringify(input) }));
+      return { authorizationUrl: result.authorizeUrl };
+    },
+    completeOpenAIAccountLogin: async (input) => { await response<unknown>('Complete OpenAI account authorization', request('/opencode/auth/openai/accounts/login-complete', { method: 'POST', body: JSON.stringify(input) })); },
+    setDefaultOpenAIAccount: async (accountId) => {
+      const body = await response<{ engineUpdated?: boolean }>('Set default OpenAI account', request('/opencode/auth/openai/accounts/default', { method: 'PATCH', body: JSON.stringify({ accountId }) }));
+      return { engineUpdated: body.engineUpdated === true };
+    },
+    renameOpenAIAccount: async (accountId, label) => { await response<unknown>('Rename OpenAI account', request(`/opencode/auth/openai/accounts/${encodeURIComponent(accountId)}`, { method: 'PATCH', body: JSON.stringify({ label }) })); },
+    removeOpenAIAccount: async (accountId) => { await response<unknown>('Remove OpenAI account', request(`/opencode/auth/openai/accounts/${encodeURIComponent(accountId)}`, { method: 'DELETE' })); },
+    authProviders: async () => {
+      const body = await response<{ providers?: unknown[] }>('Load provider authorizations', request('/opencode/auth'));
+      return (body.providers ?? []).map((entry) => string(entry));
+    },
+    authorizeProvider: async (provider, method) => {
+      const body = await response<{ authUrl?: string; instructions?: string }>('Start provider authorization', request(`/opencode/auth/${encodeURIComponent(provider)}/authorize?method=${method}`));
+      return { authUrl: string(body.authUrl), instructions: string(body.instructions, '') };
+    },
+    completeProviderAuth: async (provider, code, method) => { await response<unknown>('Complete provider authorization', request(`/opencode/auth/${encodeURIComponent(provider)}/callback?code=${encodeURIComponent(code)}&method=${method}`)); },
+    saveProviderApiKey: async (provider, apiKey) => { await response<unknown>('Save provider API key', request(`/opencode/auth/${encodeURIComponent(provider)}`, { method: 'POST', body: JSON.stringify({ apiKey }) })); },
     patchSettings: async (id, input) => {
       await response<unknown>('Save session settings', request(`/agent-sessions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(input) }));
       const body = await response<{ session: unknown; messages?: unknown[]; transcriptPage?: unknown }>('Read session settings', request(`/agent-sessions/${encodeURIComponent(id)}?transcriptLimit=50`));
       return toSessionViewModel(body.session, body.messages ?? [], body.transcriptPage);
     },
     projectLabels: async () => (await response<unknown[]>('Load projects', request('/projects?includeArchived=true')))
-      .map((value) => ({ id: string(record(value).id), name: string(record(value).name) })),
+      .map(mapAgentProject),
+    createProject: async (input) => {
+      // ProjectsController uses the canonical AppError envelope, {error:{code,message}}.
+      // Adapt it here without changing error semantics for other session operations.
+      const pending = request('/projects', { method: 'POST', body: JSON.stringify({ name: input.name, cwd: input.cwd }) }).then(async (result) => {
+        if (!result.ok) {
+          const body = await result.clone().json().catch(() => null);
+          const message = record(record(body).error).message;
+          if (typeof message === 'string') throw new SessionGatewayError(result.status, message);
+        }
+        return result;
+      });
+      return mapAgentProject(await response<unknown>('Create project', pending));
+    },
     listPage: async (query) => {
       const params = new URLSearchParams({ limit: '100', scope: query.scope === 'background' ? 'self_improvement' : query.scope ?? 'chats' });
       if (query.projectId) params.set('projectId', query.projectId);

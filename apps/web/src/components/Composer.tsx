@@ -1,12 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { takeComposerSeed } from '../composerSeed';
 import { Icon } from '../icons';
 import { useGateway } from '../gateway/context';
+import { useAuthUser } from '../gateway/auth';
+import {
+  matchesSendMessageKey,
+  readLocalUserPreferences,
+  sendMessageKeyLabel,
+  USER_PREFERENCES_CHANGED_EVENT,
+  type SendMessageKey,
+} from '../gateway/user-preferences';
 import { isSessionOffline } from '../sessionState';
 import { useFixtures } from '../store';
 import type { ComposerAttachment } from '../types';
 import type { CommandEntry } from '../gateway/commands';
 import type { SessionSettings } from '../gateway/sessions';
 import { FocusDialog } from './FocusDialog';
+import { compressImageFile } from '../compressImage';
 
 const slashCommands = ['/summarize', '/review', '/status', '/compact'];
 // post-m1-phase-5 c1e: canonical PermissionMode values persisted across the PATCH boundary —
@@ -46,13 +56,17 @@ async function resolveLiveAttachment(file: File): Promise<ComposerAttachment> {
     return { id, type: 'text', path: file.name, filename: file.name, mime, size: file.size, truncated, content: truncated ? full.slice(0, MAX_LIVE_TEXT_ATTACHMENT_CHARS) : full };
   }
   if (mime.startsWith('image/') || mime === 'application/pdf') {
+    // Photos are downscaled/re-encoded first; the server then hosts the bytes as a media artifact.
+    const compressed = await compressImageFile(file);
+    const source: Blob = compressed?.blob ?? file;
     const dataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result));
       reader.onerror = () => reject(reader.error ?? new Error('Could not read file'));
-      reader.readAsDataURL(file);
+      reader.readAsDataURL(source);
     });
-    return { id, type: 'file', path: file.name, filename: file.name, mime, size: file.size, dataUrl };
+    const filename = compressed?.filename ?? file.name;
+    return { id, type: 'file', path: filename, filename, mime: compressed?.mime ?? mime, size: source.size, dataUrl };
   }
   // ponytail: browser file inputs cannot resolve a real filesystem path; best-effort
   // name-only reference. Upgrade if/when an Electron/native picker is wired in.
@@ -66,6 +80,9 @@ function mentionMatch(value: string) {
 export function Composer() {
   const { selected, profiles, models, catalogError, turnOverride, stageTurnOverride, saveSessionSettings, sendInput, sendLiveInput, sendLiveCommand, sessionGatewayMode, cancelSession, reconnect, updateSession, runShell, notify, liveChildView } = useFixtures();
   const gateway = useGateway();
+  const auth = useAuthUser();
+  const preferenceUserId = auth?.user.id ?? 'fixture';
+  const [sendKey, setSendKey] = useState<SendMessageKey>(() => readLocalUserPreferences(preferenceUserId).sendKey);
   const [draft, setDraft] = useState('');
   const [pendingModel, setPendingModel] = useState<string | null>(null);
   const [pendingProfile, setPendingProfile] = useState<string | null>(null);
@@ -91,6 +108,7 @@ export function Composer() {
   const [bypassConfirm, setBypassConfirm] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [attachmentFeedback, setAttachmentFeedback] = useState('');
+  const [fileDragActive, setFileDragActive] = useState(false);
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const [mentionState, setMentionState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [commandsUnavailable, setCommandsUnavailable] = useState(false);
@@ -126,9 +144,19 @@ export function Composer() {
   const attachments = selected.pendingAttachments ?? [];
 
   useEffect(() => {
-    setDraft(selected.queuedDraft || ''); setPickerOpen(false); setAttachmentFeedback(''); setSuggestionsDismissed(false); setHighlighted(0);
+    setDraft(takeComposerSeed(selected.id) ?? (selected.queuedDraft || '')); setPickerOpen(false); setAttachmentFeedback(''); setSuggestionsDismissed(false); setHighlighted(0);
   }, [selected.id, selected.queuedDraft]);
   useEffect(() => { setPendingModel(null); setPendingProfile(null); setSettingsError(''); }, [selected.id]);
+  useEffect(() => {
+    const syncSendKey = () => setSendKey(readLocalUserPreferences(preferenceUserId).sendKey);
+    syncSendKey();
+    window.addEventListener('storage', syncSendKey);
+    window.addEventListener(USER_PREFERENCES_CHANGED_EVENT, syncSendKey);
+    return () => {
+      window.removeEventListener('storage', syncSendKey);
+      window.removeEventListener(USER_PREFERENCES_CHANGED_EVENT, syncSendKey);
+    };
+  }, [preferenceUserId]);
   useEffect(() => {
     if (!pickerOpen) return;
     const outside = (event: MouseEvent) => {
@@ -153,6 +181,26 @@ export function Composer() {
         : (selected.status === 'closed' || selected.status === 'error') && !recoverableSdk
           ? 'This run has ended. Resume it or start fresh if its runtime session is unavailable.'
           : '';
+  const isFileDrag = (event: React.DragEvent) => event.dataTransfer.types.includes('Files');
+  const handleFileDrag = (event: React.DragEvent<HTMLFormElement>) => {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    if (event.type === 'dragenter' || event.type === 'dragover') {
+      event.dataTransfer.dropEffect = disabledReason || !live ? 'none' : 'copy';
+      setFileDragActive(live && !disabledReason);
+    } else if (event.type === 'dragleave' && !event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      setFileDragActive(false);
+    }
+  };
+  const handleFileDrop = (event: React.DragEvent<HTMLFormElement>) => {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    setFileDragActive(false);
+    if (disabledReason) { setAttachmentFeedback(disabledReason); notify(disabledReason); return; }
+    if (!live) return;
+    const files = Array.from(event.dataTransfer.files);
+    if (files.length > 0) setLiveFiles((current) => [...current, ...files]);
+  };
   const atMatch = mentionMatch(draft);
   const atQuery = atMatch?.[1].toLowerCase() ?? '';
   const mentionOptions = useMemo(() => fileFixtures.filter((file) => file.path.toLowerCase().includes(atQuery)), [atQuery]);
@@ -304,12 +352,13 @@ export function Composer() {
       event.preventDefault(); setHighlighted((value) => (value + (event.key === 'ArrowDown' ? 1 : -1) + suggestionCount) % suggestionCount); return;
     }
     if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
-    if (suggestionType && suggestionCount > 0 && event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); useHighlightedSuggestion(); return; }
-    if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit(); }
+    if (suggestionType && suggestionCount > 0 && event.key === 'Enter' && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) { event.preventDefault(); useHighlightedSuggestion(); return; }
+    if (matchesSendMessageKey(event, sendKey)) { event.preventDefault(); void submit(); }
   };
 
   return (
-    <form className={`composer ${offline ? 'offline' : ''}`} aria-label="Message composer" onSubmit={(event) => { event.preventDefault(); void submit(); }} data-od-id="agent-composer">
+    <form className={`composer ${offline ? 'offline' : ''} ${fileDragActive ? 'file-drag-active' : ''}`} aria-label="Message composer" onDragEnter={handleFileDrag} onDragOver={handleFileDrag} onDragLeave={handleFileDrag} onDrop={handleFileDrop} onSubmit={(event) => { event.preventDefault(); void submit(); }} data-od-id="agent-composer">
+      {fileDragActive && <div className="composer-drop-status" role="status">Drop files to attach</div>}
       {live && (settingsError || catalogError) && <p role="alert">{settingsError || catalogError}</p>}
       {live && (turnOverride.profileId || turnOverride.modelOverride) && <p role="status">Next turn only: {profiles.find(p => p.id === turnOverride.profileId)?.label} {turnOverride.modelOverride?.modelId}</p>}
       {offline && <div className="offline-queue" role="status" data-testid="offline-queue"><span><Icon name="background" size={15} /><strong>Desktop offline</strong> · input remains local until you reconnect.</span><button className="secondary-button" type="button" onClick={reconnect} data-testid="reconnect-button"><Icon name="refresh" size={14} />Reconnect &amp; flush</button></div>}
@@ -356,7 +405,7 @@ export function Composer() {
             ? <label className="icon-button small live-file-label" aria-label="Attach files" data-testid="composer-attach"><Icon name="attach" size={15} /><input type="file" multiple className="sr-only" onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length > 0) setLiveFiles((current) => [...current, ...files]); event.target.value = ''; }} disabled={Boolean(disabledReason)} data-testid="composer-live-file-input" /></label>
             : <div className="attachment-picker-anchor"><button ref={attachButtonRef} className="icon-button small" type="button" onClick={() => setPickerOpen((value) => !value)} aria-label="Attach files" aria-haspopup="menu" aria-expanded={pickerOpen} data-testid="composer-attach" disabled={Boolean(disabledReason)}><Icon name="attach" size={15} /></button>{pickerOpen && <div ref={pickerRef} className="attachment-picker menu-popover" role="menu" aria-label="Fixture files" data-testid="attachment-picker"><div className="menu-heading"><span>Attach files</span><small>Local fixture</small></div>{fileFixtures.map((file) => <button className="menu-item stacked" role="menuitem" type="button" key={file.id} onClick={() => { addFixture(file); setPickerOpen(false); requestAnimationFrame(() => attachButtonRef.current?.focus()); }} data-testid={`attachment-option-${file.id}`}><Icon name={file.outcome === 'binary' ? 'command' : 'file'} size={14} /><span><strong>{file.path}</strong><small>{file.description}</small></span></button>)}</div>}</div>}
         </div>
-        <small id="composer-help">Enter to send · Shift+Enter for newline</small>
+        <small id="composer-help">{sendKey === 'Enter' ? 'Enter to send · Shift+Enter for newline' : `${sendMessageKeyLabel(sendKey)} to send · Enter for newline`}</small>
       </div>
       <FocusDialog open={Boolean(pendingProfile)} onClose={() => setPendingProfile(null)} title="Apply agent selection" description="Use this agent for one turn or save it as the session default." testId="agent-scope-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setPendingProfile(null)}>Cancel</button><button className="secondary-button" type="button" data-testid="agent-this-turn" onClick={() => { if (pendingProfile) stageTurnOverride({ profileId: pendingProfile }); setPendingProfile(null); }}>This turn only</button><button className="primary-button" type="button" data-testid="agent-session-default" onClick={() => { if (pendingProfile) void persist({ profileId: pendingProfile }).then(ok => { if (ok) setPendingProfile(null); }); }}>Session default</button></div>{settingsError && <p role="alert">{settingsError}</p>}</FocusDialog>
       <FocusDialog open={Boolean(pendingModel)} onClose={() => setPendingModel(null)} title="Apply model selection" description={pendingModel ? `Use ${pendingModel} for this prompt or make it the session default.` : ''} testId="model-scope-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setPendingModel(null)}>Cancel</button><button className="secondary-button" type="button" onClick={() => void applyModel('turn')} data-testid="model-this-turn">This turn only</button><button className="primary-button" type="button" onClick={() => void applyModel('session')} data-testid="model-session-default">Session default</button></div>{settingsError && <p role="alert">{settingsError}</p>}</FocusDialog>

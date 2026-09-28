@@ -5,6 +5,7 @@ import {
   Card,
   Checkbox,
   Chip,
+  Divider,
   HelperText,
   List,
   Text,
@@ -13,7 +14,7 @@ import {
 
 import { NativeSelect, type NativeSelectOption } from '@/components/ui/native-select';
 import { renderProviderIcon } from '@/components/ui/provider-icon';
-import { Colors, Fonts } from '@/constants/theme';
+import { Colors, Fonts, MinimumTouchTarget, Radii, Spacing } from '@/constants/theme';
 import { formatTimestamp } from '@/lib/opencode/format';
 import type { NotificationDebugStatus } from '@/lib/notifications';
 import type { OpencodeConnectionSettings } from '@/lib/opencode/client';
@@ -45,10 +46,14 @@ export function DiagnosticsSection({
     <Card mode="contained" style={[styles.card, { backgroundColor: palette.surface }]}>
       <Card.Content style={styles.section}>
         <Text variant="titleLarge" style={[styles.title, { color: palette.text }]}>Server diagnostics</Text>
-        <List.Item title="Server" description={health ? `OpenCode ${health.version}` : 'Health endpoint unavailable'} right={() => <Chip compact>{health?.healthy ? 'Healthy' : 'Unknown'}</Chip>} />
-        <List.Item title="Realtime updates" description={eventStreamStatus === 'connected' ? 'Global event stream connected' : 'Polling fallback active'} right={() => <Chip compact>{eventStreamStatus}</Chip>} />
-        <List.Item title="Subsystems" description={`MCP ${mcpCount ?? 'n/a'} • LSP ${lspCount ?? 'n/a'} • Formatters ${formatterCount ?? 'n/a'}`} />
-        <Button mode="outlined" onPress={onRefresh}>Refresh diagnostics</Button>
+        <View style={[styles.groupedRows, { backgroundColor: palette.background }]}>
+          <List.Item title="Server" description={health ? `OpenCode ${health.version}` : 'Health endpoint unavailable'} right={() => <Chip compact>{health?.healthy ? 'Healthy' : 'Unknown'}</Chip>} />
+          <Divider style={{ backgroundColor: palette.border }} />
+          <List.Item title="Realtime updates" description={eventStreamStatus === 'connected' ? 'Global event stream connected' : 'Polling fallback active'} right={() => <Chip compact>{eventStreamStatus}</Chip>} />
+          <Divider style={{ backgroundColor: palette.border }} />
+          <List.Item title="Subsystems" description={`MCP ${mcpCount ?? 'n/a'} • LSP ${lspCount ?? 'n/a'} • Formatters ${formatterCount ?? 'n/a'}`} />
+        </View>
+        <Button mode="contained" onPress={onRefresh}>Refresh diagnostics</Button>
       </Card.Content>
     </Card>
   );
@@ -98,35 +103,37 @@ export function ConnectionSection({ connection, isConnecting, onReconnect, palet
             {connection.message}
           </Text>
         </View>
-        <TextInput
-          mode="outlined"
-          label="Server URL"
-          testID="settings-server-url-input"
-          value={settings.serverUrl}
-          onChangeText={(value) => updateSettings({ serverUrl: value })}
-          autoCapitalize="none"
-          autoCorrect={false}
-          placeholder="http://192.168.1.10:4096"
-        />
-        <TextInput
-          mode="outlined"
-          label="Username"
-          testID="settings-username-input"
-          value={settings.username}
-          onChangeText={(value) => updateSettings({ username: value })}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-        <TextInput
-          mode="outlined"
-          label="Password"
-          testID="settings-password-input"
-          value={settings.password}
-          onChangeText={(value) => updateSettings({ password: value })}
-          secureTextEntry
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
+        <View style={[styles.groupedFields, { backgroundColor: palette.background }]}>
+          <TextInput
+            mode="flat"
+            label="Server URL"
+            testID="settings-server-url-input"
+            value={settings.serverUrl}
+            onChangeText={(value) => updateSettings({ serverUrl: value })}
+            autoCapitalize="none"
+            autoCorrect={false}
+            placeholder="http://192.168.1.10:4096"
+          />
+          <TextInput
+            mode="flat"
+            label="Username"
+            testID="settings-username-input"
+            value={settings.username}
+            onChangeText={(value) => updateSettings({ username: value })}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <TextInput
+            mode="flat"
+            label="Password"
+            testID="settings-password-input"
+            value={settings.password}
+            onChangeText={(value) => updateSettings({ password: value })}
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+        </View>
         <Button testID="settings-reconnect-button" mode="contained" loading={isConnecting} onPress={onReconnect}>
           Reconnect
         </Button>
@@ -210,11 +217,29 @@ export function AiDefaultsSection({
           ) : null}
         </View>
 
-        <View style={styles.chipWrap}>
+        <View style={[styles.groupedRows, { backgroundColor: palette.background }]}>
           {configuredProviders.map((provider) => (
-            <Chip key={provider.id} icon={({ size, color }) => renderProviderIcon(provider.id, size, color)} compact onClose={() => onRemoveProvider(provider.id)}>
-              {getProviderCopy(provider.id, provider.label).label}
-            </Chip>
+            <List.Item
+              key={provider.id}
+              title={getProviderCopy(provider.id, provider.label).label}
+              description={provider.id}
+              titleNumberOfLines={0}
+              descriptionNumberOfLines={0}
+              left={() => (
+                <View style={styles.providerListIcon}>
+                  {renderProviderIcon(provider.id, 20, palette.tint)}
+                </View>
+              )}
+              right={() => (
+                <Button
+                  compact
+                  accessibilityHint="Removes provider"
+                  accessibilityLabel={getProviderCopy(provider.id, provider.label).label}
+                  onPress={() => onRemoveProvider(provider.id)}>
+                  Remove
+                </Button>
+              )}
+            />
           ))}
         </View>
         {availableProviders.length === 0 ? <HelperText type="info">Connect first to load providers.</HelperText> : null}
@@ -231,7 +256,8 @@ export function AiDefaultsSection({
                   key={provider.id}
                   id={provider.id}
                   title={getProviderCopy(provider.id, provider.label).label}
-                  description={`${selectedCount} of ${models.length} selected`}
+                  description={`${provider.id} · ${selectedCount} of ${models.length} selected`}
+                  descriptionNumberOfLines={0}
                   left={() => (
                     <View style={[styles.providerAccordionIconWrap, { backgroundColor: palette.surfaceAlt, borderColor: palette.border }]}>
                       {renderProviderIcon(provider.id, 20, palette.tint)}
@@ -247,7 +273,9 @@ export function AiDefaultsSection({
                       <List.Item
                         key={model.id}
                         title={model.label}
-                        description={model.supportsReasoning ? 'Reasoning supported' : 'Standard model'}
+                        description={`${model.id} · ${model.supportsReasoning ? 'Reasoning supported' : 'Standard model'}`}
+                        titleNumberOfLines={0}
+                        descriptionNumberOfLines={0}
                         titleStyle={{ color: palette.text }}
                         descriptionStyle={{ color: palette.muted }}
                         onPress={() => onModelToggle(model.id, checked)}
@@ -316,14 +344,14 @@ export function NotificationsSection({
           </View>
         </View>
         <View style={styles.actionRow}>
-          <Button mode="contained" disabled={notificationsEnabled} onPress={onEnableNotifications}>
+          <Button mode={notificationsEnabled ? 'outlined' : 'contained'} disabled={notificationsEnabled} onPress={onEnableNotifications}>
             Enable notifications
           </Button>
-          <Button mode="outlined" onPress={onOpenNotificationSettings}>
+          <Button mode={notificationsEnabled ? 'contained' : 'outlined'} onPress={onOpenNotificationSettings}>
             Notification settings
           </Button>
         </View>
-        <List.Section style={styles.infoListSection}>
+        <List.Section style={[styles.infoListSection, styles.groupedRows, { backgroundColor: palette.background }]}>
           <List.Item
             title="App settings"
             description="Review system settings for this app."
@@ -405,7 +433,7 @@ export function VoiceSection({
     <Card mode="contained" style={[styles.card, { backgroundColor: palette.surface }]}>
       <Card.Content style={styles.section}>
         <Text variant="titleLarge" style={[styles.title, { color: palette.text }]}>Voice</Text>
-        <List.Section style={styles.infoListSection}>
+        <List.Section style={[styles.infoListSection, styles.groupedRows, { backgroundColor: palette.background }]}>
           <SettingSwitchRow
             description="Prefer local speech recognition and avoid cloud fallback when possible."
             onValueChange={(value) => updateChatPreferences({ preferOnDeviceRecognition: value })}
@@ -435,7 +463,7 @@ export function VoiceSection({
             value={chatPreferences.resumeListeningAfterReply}
           />
         </List.Section>
-        <TextInput mode="outlined" label="Speech locale" placeholder="en-US" value={chatPreferences.speechLocale || ''} autoCapitalize="none" autoCorrect={false} onChangeText={(value) => updateChatPreferences({ speechLocale: value.trim() || undefined })} />
+        <TextInput mode="flat" style={[styles.groupedField, { backgroundColor: palette.background }]} label="Speech locale" placeholder="en-US" value={chatPreferences.speechLocale || ''} autoCapitalize="none" autoCorrect={false} onChangeText={(value) => updateChatPreferences({ speechLocale: value.trim() || undefined })} />
         <HelperText type="info">Leave empty to use the system default language for voice input and playback.</HelperText>
         <SettingSelectField label="Response scope" onValueChange={(value) => updateChatPreferences({ responseScope: value })} options={responseScopeOptions} palette={palette} selectedValue={selectedResponseScope.value} valueLabel={selectedResponseScope.label} />
         <HelperText type="info">{selectedResponseScope.description}</HelperText>
@@ -528,10 +556,12 @@ function NumericSlider({
         onResponderGrant={(event) => setFromPosition(event.nativeEvent.locationX)}
         onResponderMove={(event) => setFromPosition(event.nativeEvent.locationX)}
         onStartShouldSetResponder={() => true}
-        style={[styles.sliderTrack, { backgroundColor: palette.border }]}
+        style={styles.sliderTarget}
       >
-        <View style={[styles.sliderProgress, { backgroundColor: palette.tint, width: `${percentage}%` }]} />
-        <View style={[styles.sliderThumb, { backgroundColor: palette.tint, left: `${percentage}%` }]} />
+        <View style={[styles.sliderTrack, { backgroundColor: palette.border }]}>
+          <View style={[styles.sliderProgress, { backgroundColor: palette.tint, width: `${percentage}%` }]} />
+          <View style={[styles.sliderThumb, { backgroundColor: palette.tint, left: `${percentage}%` }]} />
+        </View>
       </View>
     </View>
   );
@@ -556,6 +586,8 @@ function SettingSwitchRow({
       description={description}
       titleStyle={{ color: palette.text }}
       descriptionStyle={{ color: palette.muted }}
+      descriptionNumberOfLines={0}
+      style={styles.settingRow}
       right={() => (
         <NativeSwitch
           ios_backgroundColor={palette.border}
@@ -611,7 +643,7 @@ function SettingSelectField<T extends string>({
           <View style={styles.settingSelectFieldContent}>
             <View style={styles.settingSelectTextWrap}>
               <NativeText style={[styles.settingSelectLabel, { color: palette.muted }]}>{label}</NativeText>
-              <NativeText numberOfLines={1} style={[styles.settingSelectValue, { color: palette.text }]}>
+              <NativeText style={[styles.settingSelectValue, { color: palette.text }]}>
                 {valueLabel}
               </NativeText>
             </View>
@@ -624,32 +656,37 @@ function SettingSelectField<T extends string>({
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: 16 },
-  section: { gap: 14 },
+  card: { borderRadius: Radii.grouped },
+  section: { gap: Spacing.x3 },
   title: { fontWeight: '600' },
-  connectionStatusCard: { borderRadius: 14, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12 },
-  numericSlider: { gap: 8 },
+  groupedRows: { borderRadius: Radii.control, overflow: 'hidden' },
+  groupedFields: { borderRadius: Radii.control, overflow: 'hidden' },
+  groupedField: { borderRadius: Radii.control, overflow: 'hidden' },
+  connectionStatusCard: { borderRadius: Radii.control, borderWidth: 1, paddingHorizontal: Spacing.x3, paddingVertical: Spacing.x3 },
+  numericSlider: { gap: Spacing.x2 },
   numericSliderHeader: { flexDirection: 'row', justifyContent: 'space-between' },
-  sliderTrack: { borderRadius: 999, height: 6, justifyContent: 'center', marginHorizontal: 8, marginVertical: 10 },
+  sliderTarget: { justifyContent: 'center', minHeight: MinimumTouchTarget, paddingHorizontal: Spacing.x2 },
+  sliderTrack: { borderRadius: Radii.pill, height: 6, justifyContent: 'center' },
   sliderProgress: { borderRadius: 999, height: 6 },
   sliderThumb: { borderRadius: 12, height: 24, marginLeft: -12, position: 'absolute', width: 24 },
   connectionStatusHeader: { gap: 6 },
   connectionStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   connectionStatusDot: { width: 10, height: 10, borderRadius: 999 },
-  providerHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  inlineSelectButton: { minHeight: 36, borderWidth: 1, borderRadius: 999, justifyContent: 'center', paddingHorizontal: 12 },
+  providerHeader: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.x3 },
+  inlineSelectButton: { minHeight: MinimumTouchTarget, borderWidth: 1, borderRadius: Radii.pill, justifyContent: 'center', paddingHorizontal: Spacing.x3 },
   inlineSelectButtonLabel: { fontFamily: Fonts.sans, fontSize: 14, fontWeight: '600' },
-  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  providerListIcon: { alignItems: 'center', justifyContent: 'center', minHeight: MinimumTouchTarget, width: 40 },
+  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.x2, minHeight: MinimumTouchTarget },
   infoListSection: { marginVertical: 0 },
-  settingSelectField: { borderRadius: 14, borderWidth: 1 },
+  settingRow: { minHeight: MinimumTouchTarget },
+  settingSelectField: { borderRadius: Radii.control, borderWidth: 1 },
   settingSelectFieldContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, minHeight: 54, paddingHorizontal: 14, paddingVertical: 10 },
   settingSelectTextWrap: { flex: 1, gap: 2 },
   settingSelectLabel: { fontFamily: Fonts.sans, fontSize: 12, fontWeight: '500' },
   settingSelectValue: { fontFamily: Fonts.sans, fontSize: 16, fontWeight: '600' },
   settingSelectChevron: { fontFamily: Fonts.mono, fontSize: 16, fontWeight: '700' },
   modelListSection: { gap: 10 },
-  providerAccordion: { borderRadius: 14, borderWidth: 1, overflow: 'hidden', marginBottom: 10 },
+  providerAccordion: { borderRadius: Radii.control, borderWidth: 1, overflow: 'hidden', marginBottom: Spacing.x2 },
   providerAccordionIconWrap: {
     width: 38,
     height: 38,

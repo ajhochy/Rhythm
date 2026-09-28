@@ -38,6 +38,11 @@ function requireAgentSessionOwner(
 
 agentSessionsRouter.param('id', requireAgentSessionOwner);
 
+function requirePromptAuth(req: Request, _res: Response, next: NextFunction): void {
+  if (!req.auth) return next(AppError.unauthorized('Missing bearer token'));
+  next();
+}
+
 /**
  * OPC-M4-4 — GET /agent-sessions/agents
  *
@@ -118,11 +123,21 @@ agentSessionsRouter.delete('/:id', controller.remove.bind(controller));
 agentSessionsRouter.delete('/:id/hard', controller.destroy.bind(controller));
 agentSessionsRouter.get('/:id/messages', controller.listMessages.bind(controller));
 agentSessionsRouter.post('/:id/resume', controller.resume.bind(controller));
+/**
+ * #1577 — push a prompt into an EXISTING session (the programmatic twin of a
+ * UI-typed composer message) and read the injection audit trail.
+ *
+ * Deliberately NOT gated on parentage: any session is promptable by any holder
+ * of the Rhythm API key, which is the trust boundary. The log is the control.
+ */
+agentSessionsRouter.post('/:id/prompt', requirePromptAuth, controller.prompt.bind(controller));
+agentSessionsRouter.get('/:id/prompt-log', requirePromptAuth, controller.promptLog.bind(controller));
 agentSessionsRouter.post('/:id/revert', controller.revert.bind(controller));
 agentSessionsRouter.post('/:id/unrevert', controller.unrevert.bind(controller));
 agentSessionsRouter.post('/:id/summarize', controller.summarize.bind(controller));
 agentSessionsRouter.get('/:id/todo', controller.getTodo.bind(controller));
 agentSessionsRouter.get('/:id/memory-provenance', controller.getMemoryProvenance.bind(controller));
+agentSessionsRouter.get('/:id/model-provenance', controller.getModelProvenance.bind(controller));
 agentSessionsRouter.get('/:id/tool-surface', controller.getToolSurface.bind(controller));
 agentSessionsRouter.get('/:id/children', controller.getChildren.bind(controller));
 agentSessionsRouter.get('/:id/children/:childSdkId/messages', controller.getChildMessages.bind(controller));

@@ -1,0 +1,85 @@
+{
+  "issue": 1524,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1524-c1",
+      "text": "Produce a route/tab/screen inventory identifying every pane boundary and verify each one. No multi-pane screen is exempt merely because it uses a different component or stylesheet.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: no covering automated test file from this run exists in this worktree."
+    },
+    {
+      "criterion_id": "issue-1524-c2",
+      "text": "Every boundary between adjacent view panes/columns can be resized by click-drag. Side-by-side columns resize horizontally; stacked panes resize vertically. Nested splits work independently.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: no covering automated test file from this run exists in this worktree."
+    },
+    {
+      "criterion_id": "issue-1524-c3",
+      "text": "Use a shared splitter/layout implementation with consistent hit areas, appropriate resize cursors, hover/focus feedback, and smooth drag behavior throughout the app.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: no covering automated test file from this run exists in this worktree."
+    },
+    {
+      "criterion_id": "issue-1524-c4",
+      "text": "Provide useful resizing ranges with minimum sizes that keep essential controls usable. Neighboring panes reflow correctly; no overlap, inaccessible actions, or accidental whole-window horizontal overflow.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: no covering automated test file from this run exists in this worktree."
+    },
+    {
+      "criterion_id": "issue-1524-c5",
+      "text": "Keep dragging reliable when the pointer leaves the divider or crosses embedded content such as artifact frames. Release/cancel always ends the gesture; no stuck drag, unintended text selection, or leaked pointer listeners.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: no covering automated test file from this run exists in this worktree."
+    },
+    {
+      "criterion_id": "issue-1524-c6",
+      "text": "Remember user-selected pane sizes across navigation, reopening a view, and app relaunch using stable layout-specific preference keys. Provide an accessible reset to sensible defaults.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: no covering automated test file from this run exists in this worktree."
+    },
+    {
+      "criterion_id": "issue-1524-c7",
+      "text": "Reconcile saved sizes with available window space, zoom, collapse/expand, and responsive layout changes. Restore useful dimensions when a pane reappears.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: no covering automated test file from this run exists in this worktree."
+    },
+    {
+      "criterion_id": "issue-1524-c8",
+      "text": "Each splitter is keyboard-operable with visible focus, an accessible name/orientation, and meaningful current/min/max size information. Keyboard and pointer adjustments use the same bounds.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: no covering automated test file from this run exists in this worktree."
+    },
+    {
+      "criterion_id": "issue-1524-c9",
+      "text": "Resizing preserves selection, unsaved edits, scroll usability, and ongoing session state. It must not recreate the selected record or trigger an application action.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: no covering automated test file from this run exists in this worktree."
+    },
+    {
+      "criterion_id": "issue-1524-c10",
+      "text": "Content that depends on container size, including terminals, editors, calendars, and artifact previews, responds correctly to pane resizing.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: no covering automated test file from this run exists in this worktree."
+    },
+    {
+      "criterion_id": "issue-1524-c11",
+      "text": "Document this as a shared UI requirement so future pages/tabs/screens inherit resizable panes rather than introducing new fixed-width splits.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: no automated test authored in this run."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-1524-c1", "issue-1524-c2", "issue-1524-c3", "issue-1524-c4", "issue-1524-c5", "issue-1524-c6", "issue-1524-c7", "issue-1524-c8", "issue-1524-c9", "issue-1524-c10", "issue-1524-c11"]
+}

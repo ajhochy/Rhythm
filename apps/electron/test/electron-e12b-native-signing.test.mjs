@@ -31,7 +31,7 @@ const reply = (request) => ({ available: true, publicKey, ...(request.operation 
 async function harness(behavior = (child, request) => { child.stdout.end(JSON.stringify(reply(request))); child.emit('close', 0); }) {
   const calls = [];
   assert.match(await readFile(file, 'utf8'), /import \{ spawn \} from 'node:child_process'/, 'native stdin boundary must replace the legacy CLI before exercising it');
-  const context = createContext({ Buffer, URL, console, setTimeout: (fn, ms) => { assert.equal(ms, 10_000); return setTimeout(fn, 20); }, clearTimeout, process: { platform: 'darwin', resourcesPath: '/packaged/Resources', env: { SECRET: 'must-not-inherit' } } });
+  const context = createContext({ Buffer, URL, console, setTimeout: (fn, ms) => { assert.ok([10_000, 120_000].includes(ms)); return setTimeout(fn, 20); }, clearTimeout, process: { platform: 'darwin', resourcesPath: '/packaged/Resources', env: { SECRET: 'must-not-inherit' } } });
   const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.url = file.href; } });
   await module.link(async (name) => {
     let values = { ...await import(name) };
@@ -124,11 +124,11 @@ test('e12b-c2: concurrent first-use calls serialize helper creation so registrat
   assert.equal(firstUseCount, 1, 'only one helper may own first-use key creation');
 });
 
-test('e12b-c7: Swift restricts permanent enclave key, fixed decision schema/digest and public-only export', async () => {
+test('e12b-c7: Swift restricts enclave key and encrypted handle, fixed decision schema/digest and public-only export', async () => {
   const path = new URL('../native/HumanApprovalSigner.swift', import.meta.url);
   assert.equal(await access(path).then(() => true, () => false), true, 'native Security.framework source must exist');
   const swift = await readFile(path, 'utf8');
-  for (const token of ['import Security', 'kSecAttrTokenIDSecureEnclave', 'kSecAttrIsPermanent', '.privateKeyUsage', 'kSecAttrAccessibleWhenUnlockedThisDeviceOnly', 'com.rhythm.desktop.human-approval.secure-enclave.v2', 'ecdsaSignatureDigestX962SHA256', 'SHA256.hash', 'rhythm-human-approval-v1', 'SECURE_ENCLAVE_UNAVAILABLE', '4097', 'SecCopyErrorMessageString']) {
+  for (const token of ['import Security', 'kSecAttrTokenIDSecureEnclave', 'SecureEnclave.P256.Signing.PrivateKey', 'encrypted-key-handle', 'dataRepresentation: data', '.privateKeyUsage', 'kSecAttrAccessibleWhenUnlockedThisDeviceOnly', 'com.rhythm.desktop.human-approval.secure-enclave.v2', 'ecdsaSignatureDigestX962SHA256', 'SHA256.hash', 'rhythm-human-approval-v1', 'SECURE_ENCLAVE_UNAVAILABLE', '4097', 'SecCopyErrorMessageString']) {
     if (token === 'SecCopyErrorMessageString') assert.ok(!swift.includes(token), 'never leak native diagnostics');
     else assert.ok(swift.includes(token), token);
   }

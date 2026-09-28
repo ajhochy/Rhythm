@@ -76,7 +76,8 @@ test('E23-c1 archive and restore consume persisted group, not closed/resumable g
   await expect.poll(() => state.operations).toContainEqual({ path: '/agent-sessions/e23-owned', body: { archived: true } });
   await expect(page.getByTestId('state')).toContainText('"group":"archived"');
   await expect(page.getByTestId('state')).toContainText('"status":"idle"');
-  await page.getByLabel('Archived sessions', { exact: true }).check();
+  await page.getByRole('button', { name: 'View options', exact: true }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'View archived sessions' }).click();
   await page.getByTestId('session-menu-e23-owned').click();
   await page.getByTestId('unarchive-e23-owned').click();
   await expect.poll(() => state.operations).toContainEqual({ path: '/agent-sessions/e23-owned', body: { archived: false } });
@@ -210,7 +211,8 @@ test('E23-c11 real sandbox archive/restore through workspace with persisted read
     await expect(page.getByTestId('state')).toContainText('"group":"archived"');
     const archived = (await (await client.get(`/agent-sessions/${id}`)).json()).session;
     expect(archived.archivedAt).toEqual(expect.any(String));
-    await page.getByLabel('Archived sessions', { exact: true }).check();
+    await page.getByRole('button', { name: 'View options', exact: true }).click();
+    await page.getByRole('menuitemcheckbox', { name: 'View archived sessions' }).click();
     await page.getByTestId(`session-menu-${id}`).click(); await page.getByTestId(`unarchive-${id}`).click();
     await expect(page.getByTestId('state')).toContainText('"group":"active"');
     const restored = (await (await client.get(`/agent-sessions/${id}`)).json()).session;

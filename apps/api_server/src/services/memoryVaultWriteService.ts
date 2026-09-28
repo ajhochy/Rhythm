@@ -28,7 +28,7 @@
  */
 
 import { promises as fs } from 'node:fs';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import path from 'node:path';
 
 import { resolveMemoryDirPath } from '../config/env';
@@ -92,6 +92,34 @@ export class MemoryWriteError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'MemoryWriteError';
+  }
+}
+
+function assertManagedNote(raw: string | undefined): void {
+  if (raw === undefined) throw new MemoryWriteError('MEMORY_NOTE_UNMANAGED');
+  const document = parseMemoryNote(raw);
+  if (!document.hasValidFrontmatter) throw new MemoryWriteError('MEMORY_NOTE_UNMANAGED');
+  const frontmatter = document.frontmatter;
+  if (!frontmatterString(frontmatter, 'id') ||
+      !(VALID_MEMORY_KINDS as readonly string[]).includes(String(frontmatter.kind))) {
+    throw new MemoryWriteError('MEMORY_NOTE_UNMANAGED');
+  }
+}
+
+const vaultMutationTails = new Map<string, Promise<void>>();
+async function withVaultMutationLock<T>(memoryDir: string, mutation: () => Promise<T>): Promise<T> {
+  const key = path.resolve(memoryDir);
+  const previous = vaultMutationTails.get(key) ?? Promise.resolve();
+  const ready = previous.catch(() => undefined);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const tail = ready.then(() => gate);
+  vaultMutationTails.set(key, tail);
+  await ready;
+  try { return await mutation(); }
+  finally {
+    release();
+    if (vaultMutationTails.get(key) === tail) vaultMutationTails.delete(key);
   }
 }
 
@@ -470,6 +498,7 @@ async function writeVaultNoteAtomic(
   rendered: string,
   beforePromotion?: (parent: string, destination: string) => Promise<void>,
   afterPromotion?: (parent: string, destination: string) => Promise<void>,
+  expectedRaw?: string | null,
 ): Promise<void> {
   const validated = await validatedVaultDestination(memoryDir, destination);
   const temporary = path.join(
@@ -495,6 +524,21 @@ async function writeVaultNoteAtomic(
       throw new MemoryWriteError(
         `Memory-vault destination changed during write: ${destination}`,
       );
+    }
+    if (expectedRaw !== undefined) {
+      let currentRaw: string | null;
+      try { currentRaw = await fs.readFile(validated.destination, 'utf8'); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        currentRaw = null;
+      }
+      // ponytail: a non-cooperating writer can still edit after this final
+      // digest check and before rename; there is no cross-process lock.
+      const digest = (value: string | null) => value === null
+        ? null : createHash('sha256').update(value).digest('hex');
+      if (digest(currentRaw) !== digest(expectedRaw)) {
+        throw new MemoryWriteError('MEMORY_NOTE_CONFLICT');
+      }
     }
     await fs.rename(temporary, validated.destination);
     await afterPromotion?.(validated.parent, validated.destination);
@@ -726,6 +770,7 @@ async function readNoteMeta(abs: string): Promise<{ id?: string; created?: strin
  * missing or malformed — never throws.
  */
 export interface ReadMemoryNote {
+  raw?: string;
   id?: string;
   created?: string;
   tags: string[];
@@ -743,6 +788,7 @@ export async function readNoteFull(abs: string): Promise<ReadMemoryNote> {
   }
   const document = parseMemoryNote(raw);
   return {
+    raw,
     id: frontmatterString(document.frontmatter, 'id'),
     created: frontmatterString(document.frontmatter, 'created'),
     tags: document.tags,
@@ -766,6 +812,8 @@ export interface MemoryVaultWriteOptions {
     parent: string,
     destination: string,
   ) => Promise<void>;
+  /** Test-only race barrier after a managed delete reads the note. */
+  beforeNoteDeletion?: (destination: string) => Promise<void>;
 }
 
 export interface VerifyMemoryOptions extends MemoryVaultWriteOptions {
@@ -814,6 +862,7 @@ export async function rememberToVault(
 
   const memoryDir = options.memoryDir ?? resolveMemoryDirPath();
   const index = options.index ?? new MemoryIndexService();
+  return withVaultMutationLock(memoryDir, async () => {
   const kindDir = path.join(memoryDir, kind);
 
   // --- DEDUP / MERGE-ON-CAPTURE -----------------------------------------------
@@ -834,6 +883,7 @@ export async function rememberToVault(
   let semanticMerge = false;
   let contentToWrite = content;
   let attributionMerge: AttributedMemoryMergeResult | undefined;
+  let expectedRaw: string | null = null;
 
   if (id) {
     // Find an existing note in this kind's dir carrying the same frontmatter id.
@@ -841,6 +891,8 @@ export async function rememberToVault(
     if (existingRel) {
       relPath = existingRel;
       const full = await readNoteFull(resolveWithinMemoryDir(memoryDir, existingRel));
+      assertManagedNote(full.raw);
+      expectedRaw = full.raw ?? null;
       createdToPreserve = full.created;
       frontmatterToPreserve = full.frontmatter;
       foundExisting = true;
@@ -855,8 +907,12 @@ export async function rememberToVault(
     relPath = path.join(kind, `${slug}.md`);
     // Reuse the existing note's id + created if the slug file already exists.
     const abs = resolveWithinMemoryDir(memoryDir, relPath);
+    // Refuse a symlinked destination before reading its target for dedup.
+    await validatedVaultDestination(memoryDir, abs);
     const exact = await readNoteFull(abs);
+    if (exact.raw !== undefined) assertManagedNote(exact.raw);
     if (exact.id) {
+      expectedRaw = exact.raw ?? null;
       id = exact.id;
       createdToPreserve = exact.created;
       frontmatterToPreserve = exact.frontmatter;
@@ -910,6 +966,7 @@ export async function rememberToVault(
           );
           createdToPreserve = meta2.created;
           frontmatterToPreserve = similar.frontmatter;
+          expectedRaw = similar.raw;
           foundExisting = true;
           semanticMerge = true;
           contentToWrite = attributionMerge.body;
@@ -1019,6 +1076,7 @@ export async function rememberToVault(
     rendered,
     options.beforeNotePromotion,
     options.afterNotePromotion,
+    expectedRaw,
   );
   await enqueueMemoryVaultLog(memoryDir, {
     reason: semanticMerge
@@ -1042,6 +1100,7 @@ export async function rememberToVault(
 
   logger.info(`[MemoryWrite] remembered note (kind=${kind} path=${vaultRelKey})`);
   return { id, path: vaultRelKey, kind };
+  });
 }
 
 const lifecycleMutationTails = new Map<string, Promise<void>>();
@@ -1093,7 +1152,7 @@ async function mutateMemoryLifecycle(
   const index = options.index ?? new MemoryIndexService();
   const relPath = vaultKeyToMemoryDirRelative(memoryDir, sourceId);
   const abs = resolveWithinMemoryDir(memoryDir, relPath);
-  return withLifecycleMutationLock(abs, async () => {
+  return withVaultMutationLock(memoryDir, () => withLifecycleMutationLock(abs, async () => {
     let raw: string;
     try {
       raw = await fs.readFile(abs, 'utf8');
@@ -1103,6 +1162,7 @@ async function mutateMemoryLifecycle(
     }
 
     const document = parseMemoryNote(raw);
+    assertManagedNote(raw);
     const auditRepo = new AgentMemoryRepository();
     const indexed = (await auditRepo.findBySourceIdsAsync(
       MEMORY_VAULT_SOURCE,
@@ -1191,6 +1251,7 @@ async function mutateMemoryLifecycle(
       rendered,
       options.beforeNotePromotion,
       options.afterNotePromotion,
+      raw,
     );
     if (lifecycleChanged) {
       await enqueueMemoryVaultLog(memoryDir, {
@@ -1218,7 +1279,7 @@ async function mutateMemoryLifecycle(
     await regenerateMemoryVaultNavigation(memoryDir);
 
     return { id, path: sourceId, kind: document.kind };
-  });
+  }));
 }
 
 /**
@@ -1262,7 +1323,7 @@ async function findNoteByIdInKind(
     return null;
   }
   for (const name of entries) {
-    if (!name.toLowerCase().endsWith('.md')) continue;
+    if (!name.toLowerCase().endsWith('.md') || isReservedVaultFilename(name)) continue;
     const abs = path.join(kindDir, name);
     const meta = await readNoteMeta(abs);
     if (meta.id === id) {
@@ -1293,6 +1354,7 @@ async function findBestSimilarNoteInKind(
   id: string;
   body: string;
   frontmatter: Record<string, unknown>;
+  raw: string;
 } | null> {
   let entries: string[];
   try {
@@ -1305,20 +1367,23 @@ async function findBestSimilarNoteInKind(
     id: string;
     body: string;
     frontmatter: Record<string, unknown>;
+    raw: string;
     score: number;
   } | null = null;
   for (const name of entries) {
-    if (!name.toLowerCase().endsWith('.md')) continue;
+    if (!name.toLowerCase().endsWith('.md') || isReservedVaultFilename(name)) continue;
     const abs = path.join(kindDir, name);
     const full = await readNoteFull(abs);
-    if (!full.id) continue;
     const score = textSimilarity(content, full.body);
+    if (score >= MEMORY_MERGE_THRESHOLD) assertManagedNote(full.raw);
+    if (!full.id || full.raw === undefined) continue;
     if (score >= MEMORY_MERGE_THRESHOLD && (!best || score > best.score)) {
       best = {
         relPath: path.relative(memoryDir, abs),
         id: full.id,
         body: full.body,
         frontmatter: full.frontmatter,
+        raw: full.raw,
         score,
       };
     }
@@ -1329,6 +1394,7 @@ async function findBestSimilarNoteInKind(
         id: best.id,
         body: best.body,
         frontmatter: best.frontmatter,
+        raw: best.raw,
       }
     : null;
 }
@@ -1348,6 +1414,7 @@ export async function forgetFromVault(
   options: MemoryVaultWriteOptions = {},
 ): Promise<void> {
   const memoryDir = options.memoryDir ?? resolveMemoryDirPath();
+  return withVaultMutationLock(memoryDir, async () => {
   // Map the canonical vault-root-relative key back to a memory-dir-relative
   // path for the existing boundary guard. Absolute / traversal inputs survive
   // as still-escaping relatives, so resolveWithinMemoryDir rejects them.
@@ -1357,6 +1424,14 @@ export async function forgetFromVault(
   const abs = resolveWithinMemoryDir(memoryDir, relPath);
   let removed = false;
   try {
+    const raw = await fs.readFile(abs, 'utf8');
+    assertManagedNote(raw);
+    await options.beforeNoteDeletion?.(abs);
+    const current = await fs.readFile(abs, 'utf8');
+    if (createHash('sha256').update(current).digest('hex') !==
+        createHash('sha256').update(raw).digest('hex')) {
+      throw new MemoryWriteError('MEMORY_NOTE_CONFLICT');
+    }
     await fs.unlink(abs);
     removed = true;
     logger.info(`[MemoryWrite] forgot note (path=${relPath})`);
@@ -1373,6 +1448,7 @@ export async function forgetFromVault(
     });
   }
   await regenerateMemoryVaultNavigation(memoryDir);
+  });
 }
 
 /**
@@ -1433,6 +1509,7 @@ async function findNoteAnywhereById(
     tags: string[];
     body: string;
     frontmatter: Record<string, unknown>;
+    raw?: string;
   } | null
 > {
   let kindDirs: string[];
@@ -1460,6 +1537,7 @@ async function findNoteAnywhereById(
       tags: full.tags,
       body: full.body,
       frontmatter: full.frontmatter,
+      raw: full.raw,
     };
   }
   return null;
@@ -1485,6 +1563,7 @@ async function readNoteAtRelPath(
   tags: string[];
   body: string;
   frontmatter: Record<string, unknown>;
+  raw?: string;
 } | null> {
   const kind = relPath.split(path.sep)[0] ?? '';
   if (!(VALID_MEMORY_KINDS as readonly string[]).includes(kind)) return null;
@@ -1505,6 +1584,7 @@ async function readNoteAtRelPath(
     tags: full.tags,
     body: full.body,
     frontmatter: full.frontmatter,
+    raw: full.raw,
   };
 }
 
@@ -1538,23 +1618,22 @@ export async function updateMemoryInVault(
   patch: UpdateMemoryPatch,
   options: MemoryVaultWriteOptions & {
     /**
-     * #886 — memory-dir-relative note path to fall back to when no note
-     * carries `rememberId` in its frontmatter. Lets the DB-row-id edit path
-     * (agentMemoryService.update) reach vault-synced notes that predate the
-     * frontmatter-`id` convention (several #801-era notes have none); the
-     * rewrite then backfills a fresh ULID into the note.
+     * Memory-dir-relative fallback when a DB row id lacks a frontmatter-id
+     * match. An unmanaged note (including a legacy id-less note) is refused.
      */
     relPathFallback?: string;
   } = {},
 ): Promise<RememberResult | null> {
   const memoryDir = options.memoryDir ?? resolveMemoryDirPath();
   const index = options.index ?? new MemoryIndexService();
+  return withVaultMutationLock(memoryDir, async () => {
 
   let found = await findNoteAnywhereById(memoryDir, rememberId);
   if (!found && options.relPathFallback) {
     found = await readNoteAtRelPath(memoryDir, options.relPathFallback);
   }
   if (!found) return null;
+  assertManagedNote(found.raw);
 
   const newKind = patch.kind !== undefined ? assertValidKind(patch.kind) : found.kind;
   const newContent = patch.content !== undefined ? patch.content : found.body;
@@ -1586,21 +1665,43 @@ export async function updateMemoryInVault(
   };
 
   const rendered = renderMemoryNote(fm, newContent);
+  const sourceDigest = createHash('sha256').update(found.raw ?? '').digest('hex');
+  const assertSourceUnchanged = async () => {
+    let current: string;
+    try { current = await fs.readFile(found.abs, 'utf8'); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      throw new MemoryWriteError('MEMORY_NOTE_CONFLICT');
+    }
+    if (createHash('sha256').update(current).digest('hex') !== sourceDigest) {
+      throw new MemoryWriteError('MEMORY_NOTE_CONFLICT');
+    }
+  };
   await writeVaultNoteAtomic(
     memoryDir,
     newAbs,
     rendered,
-    options.beforeNotePromotion,
+    async (parent, destination) => {
+      await options.beforeNotePromotion?.(parent, destination);
+      if (kindChanged) await assertSourceUnchanged();
+    },
     options.afterNotePromotion,
+    kindChanged ? null : found.raw ?? null,
   );
   const newVaultRelKey = toVaultRelativeKey(resolveVaultRootForMemoryDir(memoryDir), newAbs);
-  await enqueueMemoryVaultLog(memoryDir, {
-    reason: 'updated',
-    actor: DEFAULT_MEMORY_ACTOR,
-    noteSourceId: newVaultRelKey,
-  });
 
   if (kindChanged) {
+    try { await assertSourceUnchanged(); }
+    catch (error) {
+      // The new destination was absent before promotion. Remove only our
+      // unchanged bytes; an external edit to that destination is preserved.
+      try {
+        if (await fs.readFile(newAbs, 'utf8') === rendered) await fs.unlink(newAbs);
+      } catch (cleanupError) {
+        if ((cleanupError as NodeJS.ErrnoException).code !== 'ENOENT') throw cleanupError;
+      }
+      throw error;
+    }
     try {
       await fs.unlink(found.abs);
     } catch (err: unknown) {
@@ -1608,6 +1709,12 @@ export async function updateMemoryInVault(
     }
     await index.removeNote(oldVaultRelKey);
   }
+
+  await enqueueMemoryVaultLog(memoryDir, {
+    reason: 'updated',
+    actor: DEFAULT_MEMORY_ACTOR,
+    noteSourceId: newVaultRelKey,
+  });
 
   await index.upsertNote({
     sourceId: newVaultRelKey,
@@ -1617,4 +1724,5 @@ export async function updateMemoryInVault(
 
   logger.info(`[MemoryWrite] updated note (kind=${newKind} path=${newVaultRelKey})`);
   return { id: found.id, path: newVaultRelKey, kind: newKind };
+  });
 }

@@ -1,0 +1,98 @@
+.rhythm-workspace-root .pg-rhythms { height: 100%; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; color: var(--rhythm-fg); background: color-mix(in oklab, var(--rhythm-bg), var(--rhythm-surface) 8%); }
+.rhythm-workspace-root .pg-rhythms .rhythms-header { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px 22px; border-bottom: 1px solid var(--rhythm-border-soft); background: var(--rhythm-surface); }
+.rhythm-workspace-root .pg-rhythms .rhythms-heading h1 { margin: 2px 0 0; font-size: clamp(21px, 2vw, 27px); font-weight: 620; letter-spacing: -.025em; }
+.rhythm-workspace-root .pg-rhythms .rhythms-heading p { max-width: 60ch; margin: 4px 0 0; color: var(--rhythm-fg-muted); }
+.rhythm-workspace-root .pg-rhythms .rhythms-header-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; }
+.rhythm-workspace-root .pg-rhythms .rhythms-header-actions > span { padding: 4px 8px; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-pill); color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 9px; }
+.rhythm-workspace-root .pg-rhythms .rhythms-scroll { min-width: 0; min-height: 0; overflow: auto; padding: 20px 24px 28px; }
+.rhythm-workspace-root .pg-rhythms .rhythms-layout { min-width: 0; display: grid; grid-template-columns: minmax(440px, 1.45fr) minmax(320px, .9fr); gap: 20px; align-items: start; }
+.rhythm-workspace-root .pg-rhythms .rhythms-collection h2 { margin: 0 0 10px; font-size: 16px; font-weight: 610; }
+.rhythm-workspace-root .pg-rhythms .rhythms-list { display: grid; gap: 0; border-top: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-rhythms .rhythm-card { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 4px; border: 0; border-bottom: 1px solid var(--rhythm-border-soft); background: transparent; }
+.rhythm-workspace-root .pg-rhythms .rhythm-card:hover { background: color-mix(in oklab, var(--rhythm-surface), var(--rhythm-fg) 5%); }
+.rhythm-workspace-root .pg-rhythms .rhythm-card.paused { opacity: .76; }
+.rhythm-workspace-root .pg-rhythms .rhythm-card-copy h3 { margin: 2px 0; font-size: 14px; font-weight: 590; letter-spacing: -.012em; overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-rhythms .rhythm-card-copy p { margin: 0; color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 10px; }
+.rhythm-workspace-root .pg-rhythms .rhythm-card-copy .eyebrow { color: var(--rhythm-fg-muted); font-size: 9px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+.rhythm-workspace-root .pg-rhythms .rhythm-card-actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; flex-wrap: wrap; }
+.rhythm-workspace-root .pg-rhythms .rhythm-card-actions button { min-height: 44px; padding-inline: 10px; }
+.rhythm-workspace-root .pg-rhythms .rhythm-enabled-toggle { position: relative; min-height: 44px; display: flex; align-items: center; gap: 6px; padding: 0 7px; border-radius: var(--rhythm-radius-sm); color: var(--rhythm-fg-muted); cursor: pointer; }
+.rhythm-workspace-root .pg-rhythms .rhythm-enabled-toggle input { position: absolute; inset: 0; width: 44px; height: 44px; min-height: 44px; margin: 0; opacity: .001; }
+.rhythm-workspace-root .pg-rhythms .rhythm-enabled-toggle span { width: 34px; height: 20px; border: 1px solid var(--rhythm-border); border-radius: var(--rhythm-radius-pill); background: var(--rhythm-surface-warm); }
+.rhythm-workspace-root .pg-rhythms .rhythm-enabled-toggle span::after { content: ''; display: block; width: 14px; height: 14px; margin: 2px; border-radius: 50%; background: var(--rhythm-fg-muted); transition: transform .15s ease, background .15s ease; }
+.rhythm-workspace-root .pg-rhythms .rhythm-enabled-toggle input:checked + span::after { transform: translateX(14px); background: var(--rhythm-accent); }
+.rhythm-workspace-root .pg-rhythms .rhythm-enabled-toggle input:focus-visible + span { box-shadow: var(--rhythm-focus); }
+.rhythm-workspace-root .pg-rhythms .rhythm-enabled-toggle input:disabled + span { opacity: .5; }
+.rhythm-workspace-root .pg-rhythms .rhythm-enabled-toggle b { font-size: 10px; font-weight: 560; }
+.rhythm-workspace-root .pg-rhythms .rhythms-detail-column { min-width: 0; border-radius: var(--rhythm-radius-md); background: color-mix(in oklab, var(--rhythm-surface), var(--rhythm-bg) 5%); }
+.rhythm-workspace-root .pg-rhythms .rhythm-detail { min-width: 0; display: grid; gap: 17px; padding: 20px; }
+.rhythm-workspace-root .pg-rhythms .rhythm-detail > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding-bottom: 15px; border-bottom: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-rhythms .rhythm-detail h2 { margin: 3px 0; font-size: 20px; font-weight: 610; letter-spacing: -.02em; overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-rhythms .rhythm-detail > header p { margin: 0; color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 10px; }
+.rhythm-workspace-root .pg-rhythms .rhythm-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; margin: 0; border-block: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-rhythms .rhythm-metrics div { min-width: 0; padding: 10px 11px; border-inline-start: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-rhythms .rhythm-metrics div:nth-child(odd) { border-inline-start: 0; }
+.rhythm-workspace-root .pg-rhythms .rhythm-metrics dt { color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 8px; letter-spacing: .07em; text-transform: uppercase; }
+.rhythm-workspace-root .pg-rhythms .rhythm-metrics dd { margin: 3px 0 0; color: var(--rhythm-fg); font-size: 12px; font-weight: 570; overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-rhythms .rhythm-next { padding: 14px 0; border-block: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-rhythms .rhythm-next strong { display: block; margin-top: 4px; font-size: 15px; overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-rhythms .rhythm-next p { margin: 5px 0 0; color: var(--rhythm-fg-muted); }
+.rhythm-workspace-root .pg-rhythms .rhythm-edit { display: grid; gap: 12px; padding-top: 4px; border-top: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-rhythms .rhythm-collaborators, .rhythm-workspace-root .pg-rhythms .rhythm-detail-steps { display: grid; gap: 9px; padding-top: 4px; border-top: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-rhythms .rhythm-collaborators > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.rhythm-workspace-root .pg-rhythms .rhythm-collaborators h3, .rhythm-workspace-root .pg-rhythms .rhythm-detail-steps h3 { margin: 0; font-size: 13px; font-weight: 600; }
+.rhythm-workspace-root .pg-rhythms .rhythm-people { display: grid; gap: 5px; }
+.rhythm-workspace-root .pg-rhythms .rhythm-people > p { margin: 0; padding: 12px; border: 1px dashed var(--rhythm-border-soft); border-radius: var(--rhythm-radius-sm); color: var(--rhythm-fg-muted); }
+.rhythm-workspace-root .pg-rhythms .rhythm-person { min-width: 0; display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px 6px 6px 8px; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-sm); background: var(--rhythm-surface); }
+.rhythm-workspace-root .pg-rhythms .rhythm-person > span, .rhythm-workspace-root .pg-rhythms .rhythm-candidate > span { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: var(--rhythm-surface-warm); color: var(--rhythm-fg-secondary); font-family: var(--rhythm-font-mono); font-size: 9px; }
+.rhythm-workspace-root .pg-rhythms .rhythm-person strong { min-width: 0; font-size: 11px; overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-rhythms .rhythm-person button { min-height: 44px; border: 0; border-radius: var(--rhythm-radius-sm); color: var(--rhythm-danger); background: transparent; cursor: pointer; }
+.rhythm-workspace-root .pg-rhythms .rhythm-detail-steps ol { display: grid; gap: 0; margin: 0; padding: 0; border-top: 1px solid var(--rhythm-border-soft); list-style: none; }
+.rhythm-workspace-root .pg-rhythms .rhythm-detail-steps li { min-width: 0; display: grid; gap: 2px; padding: 9px 0; border-bottom: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-rhythms .rhythm-detail-steps li strong { font-size: 11px; overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-rhythms .rhythm-detail-steps li span { color: var(--rhythm-fg-muted); font-size: 9px; overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-rhythms .rhythm-add-step-form { display: grid; gap: 8px; padding-top: 8px; }
+.rhythm-workspace-root .pg-rhythms .rhythm-detail-empty { min-height: 0; display: grid; align-content: start; gap: 7px; padding: 24px; text-align: start; }
+.rhythm-workspace-root .pg-rhythms .rhythm-detail-empty h2 { margin: 2px 0; font-size: 17px; }
+.rhythm-workspace-root .pg-rhythms .rhythm-detail-empty p { max-width: 38ch; margin: 0; color: var(--rhythm-fg-muted); }
+.rhythm-workspace-root .pg-rhythms .rhythms-state { width: min(100%, 620px); min-height: 320px; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 18px auto; padding: 36px 24px; border-block: 1px solid var(--rhythm-border-soft); text-align: center; }
+.rhythm-workspace-root .pg-rhythms .rhythms-state.danger { border-color: color-mix(in oklab, var(--rhythm-danger), var(--rhythm-border) 45%); }
+.rhythm-workspace-root .pg-rhythms .rhythms-state.warning { border-color: color-mix(in oklab, var(--rhythm-warning), var(--rhythm-border) 42%); }
+.rhythm-workspace-root .pg-rhythms .rhythms-state h2 { margin: 10px 0 4px; font-size: 20px; }
+.rhythm-workspace-root .pg-rhythms .rhythms-state p { max-width: 54ch; margin: 0 0 17px; color: var(--rhythm-fg-muted); }
+.rhythm-workspace-root .pg-rhythms .rhythms-skeleton { width: min(100%, 360px); display: grid; gap: 7px; margin-top: 10px; }
+.rhythm-workspace-root .pg-rhythms .rhythms-skeleton span { height: 8px; border-radius: var(--rhythm-radius-pill); background: var(--rhythm-surface-warm); }
+.rhythm-workspace-root .pg-rhythms .dialog-panel { width: min(100%, 560px); }
+.rhythm-workspace-root .pg-rhythms .dialog-panel.dialog-wide { width: min(100%, 760px); }
+.rhythm-workspace-root .pg-rhythms .rhythm-rule-form { min-width: 0; display: grid; gap: 16px; }
+.rhythm-workspace-root .pg-rhythms .rhythm-rule-form input, .rhythm-workspace-root .pg-rhythms .rhythm-rule-form select { min-width: 0; min-height: 44px; width: 100%; }
+.rhythm-workspace-root .pg-rhythms .rhythm-schedule-fields { min-width: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.rhythm-workspace-root .pg-rhythms .rhythm-step-section { display: grid; gap: 9px; }
+.rhythm-workspace-root .pg-rhythms .rhythm-step-section > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.rhythm-workspace-root .pg-rhythms .rhythm-step-section h3 { margin: 0; font-size: 13px; }
+.rhythm-workspace-root .pg-rhythms .rhythm-step-empty { margin: 0; color: var(--rhythm-fg-muted); font-size: 10px; }
+.rhythm-workspace-root .pg-rhythms .rhythm-step { min-width: 0; margin: 0; padding: 11px; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-sm); display: grid; gap: 8px; }
+.rhythm-workspace-root .pg-rhythms .rhythm-sequential { min-height: 50px; display: flex; align-items: center; gap: 9px; padding: 7px 9px; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-sm); cursor: pointer; }
+.rhythm-workspace-root .pg-rhythms .rhythm-candidate-list { display: grid; gap: 6px; }
+.rhythm-workspace-root .pg-rhythms .rhythm-candidate { min-height: 52px; display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 9px; padding: 7px 9px; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-sm); color: var(--rhythm-fg); background: var(--rhythm-surface); cursor: pointer; text-align: start; }
+.rhythm-workspace-root .pg-rhythms .rhythm-candidate:hover { border-color: var(--rhythm-accent); background: var(--rhythm-surface-warm); }
+.rhythm-workspace-root .pg-rhythms button:disabled, .rhythm-workspace-root .pg-rhythms input:disabled, .rhythm-workspace-root .pg-rhythms select:disabled { cursor: not-allowed; }
+
+@media (max-width: 1080px) {
+  .rhythm-workspace-root .pg-rhythms .rhythms-layout { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 760px) {
+  .rhythm-workspace-root .pg-rhythms .rhythms-header { align-items: flex-start; flex-wrap: wrap; padding: 15px 16px; }
+  .rhythm-workspace-root .pg-rhythms .rhythms-scroll { padding: 14px; }
+  .rhythm-workspace-root .pg-rhythms .rhythm-card { grid-template-columns: minmax(0, 1fr); }
+  .rhythm-workspace-root .pg-rhythms .rhythm-card-actions { justify-content: flex-start; }
+}
+
+@media (forced-colors: active) {
+  .rhythm-workspace-root .pg-rhythms .rhythm-next { outline: 1px solid Highlight; outline-offset: -1px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rhythm-workspace-root .pg-rhythms .rhythm-enabled-toggle span::after { transition: none; }
+}

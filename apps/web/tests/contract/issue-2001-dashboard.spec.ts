@@ -126,7 +126,9 @@ test('issue-2001-c8: Planner Projects Messages and thread shortcuts use exact ro
 
   await openPage(page, '/dashboard');
   await page.getByTestId('open-projects').click();
-  await expect(page).toHaveURL(/#\/projects$/);
+  // Projects preserves its initial list selection in the URL after navigation.
+  await expect(page).toHaveURL(/#\/projects\?projectId=project-instance-instance-sunday-service-2026-08-16$/);
+  await expect(page.getByRole('option', { name: /Sunday Service - August 16/ })).toHaveAttribute('aria-selected', 'true');
 
   await openPage(page, '/dashboard');
   await page.getByTestId('open-messages').click();

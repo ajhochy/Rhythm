@@ -51,6 +51,9 @@ runtime_env=(
   "RHYTHM_MANAGED_SKILLS_DIR=$SB/home/.config/opencode/skills"
   "RHYTHM_CREATIVE_RESOURCES_DIR=$API_DIR/resources"
   "RHYTHM_OPENCODE_ENGINE_PORT=$ENGINE_PORT"
+  # Cold fork startup can exceed the SDK's production-default 5s on a busy
+  # development host; the sandbox keeps a bounded, explicit readiness budget.
+  "RHYTHM_OPENCODE_STARTUP_TIMEOUT_MS=60000"
   "RHYTHM_OPENCODE_BIN_DIR=${ENGINE_BIN%/opencode}"
   # #1332 — name the sandbox's engine session store EXPLICITLY.
   #
@@ -67,6 +70,9 @@ runtime_env=(
   "OPENCODE_DISABLE_EXTERNAL_SKILLS=1"
   "RHYTHM_API_BASE=http://127.0.0.1:$API_PORT"
   "RHYTHM_AGENT_URL=http://127.0.0.1:$API_PORT"
+  # Shared-agent live tests pass only the registrar digest into the isolated
+  # api_server. The registrar secret itself remains in the invoking test.
+  "RHYTHM_AGENT_BRIDGE_REGISTRAR_SHA256=${RHYTHM_SANDBOX_BRIDGE_REGISTRAR_SHA256:-}"
   "MAX_CONCURRENT_AGENT_RUNS=2"
   "AGENT_LOCAL=true"
   # Synthetic harness runs never inherit an operator's promotion opt-in.
@@ -94,6 +100,23 @@ if [[ "$RELAY_ENABLED" == 1 ]]; then
 fi
 
 fail() { printf 'sandbox: %s\n' "$*" >&2; exit 1; }
+
+# `env -i` is intentional, but these explicit offline/test-mode switches are
+# safe inputs that the engine and api_server need during deterministic live
+# verification. Accept only the enabled form so arbitrary caller values never
+# leak through the sanitized runtime boundary.
+append_enabled_runtime_flag() {
+  local name="$1"
+  case "${!name:-}" in
+    '') ;;
+    1) runtime_env+=("$name=1") ;;
+    *) fail "$name must be 1 when set" ;;
+  esac
+}
+append_enabled_runtime_flag OPENCODE_DISABLE_DEFAULT_PLUGINS
+append_enabled_runtime_flag OPENCODE_PURE
+append_enabled_runtime_flag RHYTHM_NUMBAT_MONITORING_DISABLED
+
 # Evidence is a sibling of the disposable runtime, never part of teardown.
 preserve_diagnostics() {
   [[ -d "$SB" && ! -L "$SB" && -O "$SB" ]] || return 0
@@ -120,9 +143,16 @@ PY
 validate_node() {
   [[ "$NODE_BIN" = /* && -f "$NODE_BIN" && -x "$NODE_BIN" ]] ||
     fail 'RHYTHM_SANDBOX_NODE_BIN (or command -v node) must resolve to an absolute executable file'
-  # Loading the JS wrapper alone is lazy: require the native addon, without a DB.
+  # Construct and query a database so better-sqlite3 loads its N-API prebuild.
+  # Resolve from API_DIR instead of reaching through the package exports map.
   env -i "${runtime_env[@]}" "$NODE_BIN" -e '
-    require(require.resolve("better-sqlite3/build/Release/better_sqlite3.node", {paths: [process.argv[1]]}));
+    const { createRequire } = require("node:module");
+    const requireFromApi = createRequire(process.argv[1] + "/package.json");
+    const Database = requireFromApi("better-sqlite3");
+    const db = new Database(":memory:");
+    const row = db.prepare("select 1 as x").get();
+    db.close();
+    if (row.x !== 1) process.exit(1);
   ' "$API_DIR" || fail "Node $NODE_BIN cannot load installed api_server better-sqlite3; select a compatible RHYTHM_SANDBOX_NODE_BIN"
 }
 listener() { lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true; }
@@ -286,6 +316,10 @@ safe_sandbox_path() {
   validate_port RHYTHM_SANDBOX_API_PORT "$API_PORT"
   validate_port RHYTHM_SANDBOX_ENGINE_PORT "$ENGINE_PORT"
   validate_port RHYTHM_SANDBOX_GATEWAY_PORT "$GATEWAY_PORT"
+  if [[ -n "${RHYTHM_SANDBOX_BRIDGE_REGISTRAR_SHA256:-}" &&
+        ! "${RHYTHM_SANDBOX_BRIDGE_REGISTRAR_SHA256}" =~ ^[0-9a-f]{64}$ ]]; then
+    fail "RHYTHM_SANDBOX_BRIDGE_REGISTRAR_SHA256 must be a lowercase sha256 digest"
+  fi
   [[ "$RELAY_ENABLED" == 0 || "$RELAY_ENABLED" == 1 ]] ||
     fail "RHYTHM_SANDBOX_RELAY must be 0 or 1"
   [[ "$API_PORT" != "$ENGINE_PORT" ]] || fail "sandbox API and engine ports must be different"
@@ -444,6 +478,18 @@ wait_in_foreground() {
   return "$wait_status"
 }
 
+build_engine() {
+  if [[ "${RHYTHM_SANDBOX_SKIP_ENGINE_BUILD:-0}" == 1 ]]; then
+    [[ -x "$ENGINE_BIN" ]] ||
+      fail "prebuilt engine is missing or not executable: $ENGINE_BIN"
+    return 0
+  fi
+  [[ "${RHYTHM_SANDBOX_SKIP_ENGINE_BUILD:-0}" == 0 ]] ||
+    fail 'RHYTHM_SANDBOX_SKIP_ENGINE_BUILD must be 0 or 1'
+  (cd "$ENGINE_DIR" && MODELS_DEV_API_JSON="$ROOT/apps/opencode_fork/packages/opencode/test/tool/fixtures/models-api.json" \
+    bun run build --single --skip-install --skip-embed-web-ui) >"$SB/engine-build.log" 2>&1
+}
+
 up() {
   local mode="${1:-background}"
   local api_pid
@@ -475,7 +521,7 @@ up() {
     sqlite3 "$SB/rhythm.db" 'UPDATE agent_scheduled_tasks SET enabled=0;'
   fi
 
-  (cd "$ENGINE_DIR" && MODELS_DEV_API_JSON="$ROOT/apps/opencode_fork/packages/opencode/test/tool/fixtures/models-api.json" bun run build --single --skip-install --skip-embed-web-ui) >"$SB/engine-build.log" 2>&1
+  build_engine
   (cd "$API_DIR" && npm run build)
   # up() builds the local MCP payload here; under `set -e` a failed build aborts
   # the run, so do NOT re-add a pre-build existence guard (it makes up() fail on

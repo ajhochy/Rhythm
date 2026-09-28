@@ -19,6 +19,8 @@ import { ClaudeTriggersRepository } from '../repositories/claude_triggers_reposi
 import { logger } from '../utils/logger';
 import { getDb, getPostgresPool } from '../database/db';
 import { env } from '../config/env';
+import { scanContextContent } from '../security/context_scanner';
+import { untrustedContext } from '../security/untrusted_fence';
 
 const repo = new AgentWebhookEndpointsRepository();
 const triggersRepo = new ClaudeTriggersRepository();
@@ -60,6 +62,14 @@ export class AgentWebhookController {
     try {
       const { name, eventTypes, targetScheduledTaskId, targetPrompt } = req.body as Record<string, unknown>;
       if (!name || typeof name !== 'string') throw AppError.badRequest('name is required');
+      if (name.length > 120 || (targetPrompt !== undefined &&
+        (typeof targetPrompt !== 'string' || targetPrompt.length > 4096)) ||
+        (targetScheduledTaskId !== undefined &&
+          (typeof targetScheduledTaskId !== 'string' || targetScheduledTaskId.length > 128)) ||
+        (eventTypes !== undefined && (!Array.isArray(eventTypes) || eventTypes.length > 32 ||
+          !eventTypes.every((event) => typeof event === 'string' && event.length > 0 && event.length <= 128)))) {
+        throw AppError.badRequest('Invalid webhook configuration');
+      }
       if (
         req.mobileDevice &&
         typeof targetScheduledTaskId === 'string' &&
@@ -169,10 +179,27 @@ export class AgentWebhookController {
         return;
       }
 
-      // Parse event type from payload (optional convention)
-      let payloadObj: Record<string, unknown> = {};
-      try { payloadObj = typeof req.body === 'object' ? req.body : JSON.parse(rawBody); } catch { /* ignore */ }
-      const eventType = (payloadObj.event ?? payloadObj.type ?? 'webhook') as string;
+      // ponytail: bound external text at the ingress; never promote it to instructions.
+      if (Buffer.byteLength(rawBody, 'utf8') > 65536) throw AppError.badRequest('Webhook payload too large');
+      let payloadObj: unknown;
+      try { payloadObj = typeof req.body === 'object' ? req.body : JSON.parse(rawBody); } catch {
+        throw AppError.badRequest('Invalid webhook JSON');
+      }
+      if (!payloadObj || typeof payloadObj !== 'object' || Array.isArray(payloadObj)) {
+        throw AppError.badRequest('Invalid webhook payload');
+      }
+      const payload = payloadObj as Record<string, unknown>;
+      const eventType = payload.event ?? payload.type ?? 'webhook';
+      if (typeof eventType !== 'string' || !eventType || eventType.length > 128 ||
+        ['summary', 'notePath'].some((key) => payload[key] !== undefined &&
+          (typeof payload[key] !== 'string' || (payload[key] as string).length > 512))) {
+        throw AppError.badRequest('Invalid webhook event context');
+      }
+      const notePath = payload.notePath;
+      if (typeof notePath === 'string' && (!notePath || notePath.startsWith('/') ||
+        notePath.includes('\\') || notePath.split('/').includes('..') || /[\x00-\x1f\x7f]/.test(notePath))) {
+        throw AppError.badRequest('Invalid webhook note path');
+      }
 
       // Check event type filter
       const allowedEvents = JSON.parse(endpoint.eventTypesJson) as string[];
@@ -182,8 +209,34 @@ export class AgentWebhookController {
       }
 
       // Build prompt for the trigger
-      const prompt = endpoint.targetPrompt
-        ?? `Webhook event received: ${eventType}\n\nPayload:\n${JSON.stringify(payloadObj, null, 2)}`;
+      const target = endpoint.targetScheduledTaskId
+        ? await new AgentScheduledTasksRepository().findByIdAsync(endpoint.targetScheduledTaskId)
+        : null;
+      const instructions = endpoint.targetPrompt ?? target?.prompt ?? 'Review the webhook event.';
+      // ponytail: scan decoded leaves and keys before JSON escaping hides commands.
+      const externalJson = JSON.stringify({ event: eventType, payload });
+      const text: string[] = [rawBody, externalJson];
+      const pending: unknown[] = [payload];
+      while (pending.length) {
+        const value = pending.pop();
+        if (Array.isArray(value)) pending.push(...value);
+        else if (value && typeof value === 'object') {
+          for (const [key, leaf] of Object.entries(value)) {
+            text.push(key.replace(/\s+/g, ' '));
+            pending.push(leaf);
+          }
+        } else if (typeof value === 'string') text.push(value.replace(/\s+/g, ' '));
+      }
+      const scan = scanContextContent(text.join('\n'), 'webhook event');
+      const external = externalJson.replace(/</g, '\\u003c');
+      const fenced = untrustedContext(scan.blocked ? scan.warning : external, 'webhook event');
+      let placed = false;
+      const templated = instructions.replace(/{{payload}}/g, () => {
+        if (placed) return '';
+        placed = true;
+        return fenced;
+      });
+      const prompt = placed ? templated : `${instructions}\n\n${fenced}`;
 
       // Insert pending trigger
       const now = new Date().toISOString();
@@ -218,7 +271,7 @@ export class AgentWebhookController {
 
       await repo.recordTriggerAsync(id);
 
-      logger.info(`[Webhook] Endpoint ${id} fired (event: ${eventType})`);
+      logger.info(`[Webhook] Endpoint ${id} queued`);
       res.json({ status: 'queued' });
     } catch (err) { next(err); }
   }

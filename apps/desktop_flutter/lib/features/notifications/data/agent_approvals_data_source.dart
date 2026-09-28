@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import '../../../app/core/auth/auth_session_store.dart';
 import '../../../app/core/constants/app_constants.dart';
+import '../../../app/core/errors/app_error.dart';
 import '../models/agent_approval.dart';
 import 'human_approval_signer.dart';
 
@@ -40,7 +41,10 @@ class _AgentApprovalsDataSourceImpl implements AgentApprovalsDataSource {
       headers: headers,
     );
     if (response.statusCode != 200) {
-      throw Exception('Failed to load agent approvals: ${response.statusCode}');
+      throw AppError(
+        'Failed to load agent approvals: ${response.statusCode}',
+        statusCode: response.statusCode,
+      );
     }
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
@@ -73,8 +77,10 @@ class _AgentApprovalsDataSourceImpl implements AgentApprovalsDataSource {
       }),
     );
     if (response.statusCode != 200) {
-      throw Exception(
-          'Failed to decide agent approval: ${response.statusCode}');
+      throw AppError(
+        'Failed to decide agent approval: ${response.statusCode}',
+        statusCode: response.statusCode,
+      );
     }
   }
 }

@@ -23,6 +23,48 @@ interface RelayOutboxDbRow {
   row_json: string | null;
 }
 
+const MIRROR_TABLES: ReadonlySet<string> = new Set<RelayMirrorTable>([
+  'agent_sessions',
+  'agent_session_messages',
+]);
+
+// Attachment bytes never cross the relay: a data: URL above this size becomes a placeholder, and
+// a row that is still oversized after that is sent without its parts. The uplink socket closes
+// on frames above 100 MiB, and resync would resend the same row forever.
+const RELAY_DATA_URL_MAX_CHARS = 64 * 1024;
+const RELAY_ROW_MAX_CHARS = 16 * 1024 * 1024;
+
+function stripDataUrls(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripDataUrls);
+  if (value === null || typeof value !== 'object') return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (typeof child === 'string' && child.startsWith('data:') && child.length > RELAY_DATA_URL_MAX_CHARS) {
+      out.omittedBytes = Math.floor((child.length - child.indexOf(',') - 1) * 0.75);
+      continue;
+    }
+    out[key] = stripDataUrls(child);
+  }
+  return out;
+}
+
+export function relaySafeRow(row: Record<string, unknown>): Record<string, unknown> {
+  const parts = row.parts_json;
+  if (typeof parts !== 'string' || !parts.includes('data:')) return row;
+  let safe = parts;
+  try {
+    safe = JSON.stringify(stripDataUrls(JSON.parse(parts)));
+  } catch {
+    // Unparseable parts cannot be inspected; the size cap below still applies.
+  }
+  const size = Object.values({ ...row, parts_json: safe })
+    .reduce<number>((total, value) => total + (typeof value === 'string' ? value.length : 0), 0);
+  return { ...row, parts_json: size > RELAY_ROW_MAX_CHARS ? '[]' : safe };
+}
+
+// One pending entry per record. An upsert carries no snapshot: the sender reads the live row, so
+// a message updated N times while streaming costs one small outbox row, not N growing copies.
+// Dropping superseded entries is safe because the relay applies any seq above its last applied.
 export class RelayOutboxRepository {
   append(
     tbl: string,
@@ -30,7 +72,9 @@ export class RelayOutboxRepository {
     pk: string,
     row: Record<string, unknown> | null,
   ): number {
-    const result = getDb()
+    const db = getDb();
+    db.prepare(`DELETE FROM relay_outbox WHERE tbl = ? AND pk = ?`).run(tbl, pk);
+    const result = db
       .prepare(
         `INSERT INTO relay_outbox (tbl, op, pk, row_json)
          VALUES (?, ?, ?, ?)`,
@@ -40,7 +84,8 @@ export class RelayOutboxRepository {
   }
 
   listSince(seq: number, limit: number): RelayOutboxRow[] {
-    const rows = getDb()
+    const db = getDb();
+    const rows = db
       .prepare(
         `SELECT seq, tbl, op, pk, row_json
            FROM relay_outbox
@@ -49,16 +94,19 @@ export class RelayOutboxRepository {
           LIMIT ?`,
       )
       .all(seq, limit) as RelayOutboxDbRow[];
-    return rows.map((row) => ({
-      seq: row.seq,
-      tbl: row.tbl,
-      op: row.op,
-      pk: row.pk,
-      row:
-        row.row_json === null
-          ? null
-          : JSON.parse(row.row_json) as Record<string, unknown>,
-    }));
+    return rows.map((row) => {
+      const base = { seq: row.seq, tbl: row.tbl, pk: row.pk };
+      if (row.op !== 'upsert') return { ...base, op: row.op, row: null };
+      const live = MIRROR_TABLES.has(row.tbl)
+        ? db.prepare(`SELECT * FROM ${row.tbl} WHERE id = ?`).get(row.pk) as
+          | Record<string, unknown>
+          | undefined
+        : undefined;
+      // Gone since it was queued (e.g. a cascade): the replica should drop it too.
+      return live
+        ? { ...base, op: 'upsert' as const, row: relaySafeRow(live) }
+        : { ...base, op: 'delete' as const, row: null };
+    });
   }
 
   pruneThrough(seq: number): void {
@@ -87,11 +135,8 @@ export function appendRelayUpsert(
   pk: string,
 ): void {
   if (!replicationEnabled()) return;
-  const row = db.prepare(`SELECT * FROM ${tbl} WHERE id = ?`).get(pk) as
-    | Record<string, unknown>
-    | undefined;
-  if (!row) return;
-  new RelayOutboxRepository().append(tbl, 'upsert', String(row.id), row);
+  if (!db.prepare(`SELECT 1 FROM ${tbl} WHERE id = ?`).get(pk)) return;
+  new RelayOutboxRepository().append(tbl, 'upsert', pk, null);
 }
 
 /** Call only from the transaction that deleted the mirror row. */

@@ -1,0 +1,42 @@
+.rhythm-workspace-root .list-inspector { container: rhythm-list-inspector / inline-size; min-width: 0; }
+.rhythm-workspace-root .list-inspector-panes { display: grid; grid-template-columns: minmax(240px, min(var(--list-inspector-list-width, 320px), calc(100% - 288px))) 8px minmax(0, 1fr); min-height: 420px; min-width: 0; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-md); background: var(--rhythm-surface); overflow: hidden; }
+.rhythm-workspace-root .list-inspector-rail { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 8px; background: var(--rhythm-surface-warm); }
+.rhythm-workspace-root .list-inspector-list { min-height: 44px; max-height: 65vh; overflow: auto; }
+.rhythm-workspace-root .list-inspector-row { display: grid; align-content: center; gap: 2px; min-height: 52px; padding: 6px 9px; border-radius: var(--rhythm-radius-sm); color: var(--rhythm-fg-secondary); cursor: pointer; text-align: start; }
+.rhythm-workspace-root .list-inspector-row:hover, .rhythm-workspace-root .list-inspector-row.selected { color: var(--rhythm-fg); background: var(--rhythm-surface-raised); box-shadow: inset 0 0 0 1px var(--rhythm-border); }
+.rhythm-workspace-root .list-inspector-row[aria-disabled="true"] { opacity: .58; cursor: not-allowed; }
+.rhythm-workspace-root .list-inspector-row strong, .rhythm-workspace-root .list-inspector-row small, .rhythm-workspace-root .list-inspector-badge { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rhythm-workspace-root .list-inspector-row-meta { display: flex; gap: 6px; min-width: 0; align-items: center; }
+.rhythm-workspace-root .list-inspector-row small, .rhythm-workspace-root .list-inspector-badge { color: var(--rhythm-fg-muted); font-size: 11px; }
+.rhythm-workspace-root .list-inspector-badge { margin-inline-start: auto; }
+.rhythm-workspace-root .list-inspector-group-label { padding: 8px 9px 4px; color: var(--rhythm-fg-muted); font-size: 11px; font-weight: 600; }
+.rhythm-workspace-root .list-inspector-toolbar, .rhythm-workspace-root .list-inspector-footer { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px; }
+.rhythm-workspace-root .list-inspector-search { display: block; margin-block: 4px 8px; }
+.rhythm-workspace-root .list-inspector-search input { width: 100%; min-height: 44px; padding: 8px; border: 1px solid var(--rhythm-border); border-radius: var(--rhythm-radius-sm); background: var(--rhythm-surface); color: var(--rhythm-fg); }
+.rhythm-workspace-root .list-inspector-state { padding: 9px; color: var(--rhythm-fg-muted); overflow-wrap: anywhere; }
+.rhythm-workspace-root .list-inspector-detail { min-width: 0; padding: 16px 18px 24px; overflow: auto; overflow-wrap: anywhere; }
+.rhythm-workspace-root .list-inspector-header h2 { margin: 5px 0 8px; font-size: 18px; }
+.rhythm-workspace-root .list-inspector-back { display: none; min-height: 44px; min-width: 44px; width: fit-content; }
+.rhythm-workspace-root .splitter { position: relative; z-index: 4; align-self: stretch; padding: 0; border: 0; background: transparent; touch-action: none; }
+.rhythm-workspace-root .splitter::after { content: ""; position: absolute; border-radius: var(--rhythm-radius-pill); background: var(--rhythm-border-soft); }
+.rhythm-workspace-root .splitter:hover::after, .rhythm-workspace-root .splitter:focus-visible::after { background: var(--rhythm-accent); transform: scale(1.35); }
+.rhythm-workspace-root .splitter-vertical { width: 8px; min-width: 8px; cursor: col-resize; }
+.rhythm-workspace-root .splitter-vertical::after { inset-block: 0; inset-inline-start: 3px; width: 2px; }
+.rhythm-workspace-root .splitter-horizontal { height: 8px; min-height: 8px; cursor: row-resize; }
+.rhythm-workspace-root .splitter-horizontal::after { inset-inline: 0; inset-block-start: 3px; height: 2px; }
+.rhythm-workspace-root .list-inspector-list:focus-visible,
+.rhythm-workspace-root .list-inspector-row:focus-visible,
+.rhythm-workspace-root .list-inspector-detail:focus-visible,
+.rhythm-workspace-root .list-inspector-back:focus-visible,
+.rhythm-workspace-root .splitter:focus-visible { outline: 2px solid var(--rhythm-accent); outline-offset: -2px; }
+
+.rhythm-workspace-root[data-rhythm-viewport="compact"] .list-inspector-panes { grid-template-columns: minmax(0, 1fr); }
+.rhythm-workspace-root[data-rhythm-viewport="compact"] .list-inspector-splitter { display: none; }
+.rhythm-workspace-root[data-rhythm-viewport="compact"] .list-inspector[data-pane="inspector"] .list-inspector-rail { display: none; }
+.rhythm-workspace-root[data-rhythm-viewport="compact"] .list-inspector[data-pane="list"] .list-inspector-detail { display: none; }
+.rhythm-workspace-root[data-rhythm-viewport="compact"] .list-inspector-back { display: inline-flex; }
+
+@media (forced-colors: active) {
+  .rhythm-workspace-root .list-inspector-row.selected { outline: 2px solid Highlight; outline-offset: -2px; }
+  .rhythm-workspace-root .splitter::after { background: CanvasText; }
+}

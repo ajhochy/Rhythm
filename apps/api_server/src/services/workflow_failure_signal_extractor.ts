@@ -524,9 +524,16 @@ function detectStaleRedoSignals(sessions: AgentSession[]): WorkflowFailureSignal
   for (const [issueNumber, group] of groups) {
     if (group.length < WORKFLOW_SIGNAL_MIN_REPEAT_COUNT) continue;
 
-    const sorted = [...group].sort(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-    );
+    const sorted = [...group].sort((a, b) => {
+      const createdOrder = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      if (createdOrder) return createdOrder;
+      // Same-tick attempts must not inherit the repository's newest-first order.
+      const updatedOrder = new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
+      if (updatedOrder) return updatedOrder;
+      // With no remaining time evidence, use a stable identity order rather
+      // than claiming that input order establishes chronology.
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
     const latest = sorted[sorted.length - 1];
 
     // #936 stale-fixed safeguard: the MOST RECENT attempt at this issue

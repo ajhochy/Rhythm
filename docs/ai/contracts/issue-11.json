@@ -1,0 +1,11 @@
+{
+  "issue": 11,
+  "title": "M7 ArtifactHostPort",
+  "criteria": [
+    { "criterion_id": "issue-11-c1", "text": "The shared ArtifactsScreen accepts a typed host-only artifact port and renders selected sanitized documents in an opaque-origin iframe with only allow-scripts.", "mode": "ui", "test_file": "packages/rhythm-workspace-ui/tests/contract/issue-11.test.ts" },
+    { "criterion_id": "issue-11-c2", "text": "The iframe document uses default-src none and denies network, forms, frames, objects, base URLs, popups, downloads, and top navigation through its sandbox/CSP boundary.", "mode": "ui", "test_file": "packages/rhythm-workspace-ui/tests/contract/issue-11.test.ts" },
+    { "criterion_id": "issue-11-c3", "text": "Capability messages are accepted only from the mounted frame with matching artifact session, bundle generation, state generation, and declared capability; stale or unknown messages never reach the host.", "mode": "ui", "test_file": "packages/rhythm-workspace-ui/tests/contract/issue-11.test.ts" },
+    { "criterion_id": "issue-11-c4", "text": "Hermes exposes only classified read paths for automation catalog/rule/preview and integration status/settings/read-only sync; write actions and external messaging remain unavailable.", "mode": "integration", "test_file": "tests/plugins/test_rhythm_m7_contract.py" }
+  ],
+  "not_tested": []
+}

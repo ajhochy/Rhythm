@@ -54,9 +54,13 @@ import {
   resolveMemoryDirPath,
 } from '../config/env';
 import { EngraphHttpClient, mapEngraphFileToSourceId } from './engraph_client';
-import type { EngraphClient } from './engraph_client';
-import type { MemoryProvenanceItem } from '../repositories/agent_session_memory_provenance_repository';
+import type { EngraphClient, EngraphSearchResult } from './engraph_client';
+import type {
+  MemoryProvenanceItem,
+  MemorySemanticStatus,
+} from '../repositories/agent_session_memory_provenance_repository';
 import { engraphManager } from './engraph_manager';
+import { logger } from '../utils/logger';
 import {
   extractMemoryBodyLinks,
   isActive,
@@ -496,7 +500,40 @@ export async function getRelevantMemoriesSemantic(
   // than the budget.
   engraph: EngraphClient = new EngraphHttpClient(undefined, undefined, getSemanticSearchBudgetMs()),
 ): Promise<AgentMemory[]> {
-  if (topN <= 0) return [];
+  return (await getRelevantMemoriesSemanticDetailed(
+    query,
+    ownerUserId,
+    topN,
+    repo,
+    engraph,
+  )).memories;
+}
+
+interface SemanticRetrievalResult {
+  memories: AgentMemory[];
+  status: Exclude<MemorySemanticStatus, 'disabled'>;
+  hitCount: number;
+}
+
+async function searchEngraph(
+  engraph: EngraphClient,
+  query: string,
+  topN: number,
+): Promise<EngraphSearchResult> {
+  const hits = await engraph.search(query, topN);
+  const detailed = engraph.lastSearchResult?.();
+  if (detailed) return detailed;
+  return { hits, status: hits.length > 0 ? 'ok' : 'no_hits' };
+}
+
+async function getRelevantMemoriesSemanticDetailed(
+  query: string,
+  ownerUserId?: number | null,
+  topN: number = DEFAULT_TOP_N,
+  repo: MemoryRepository = new AgentMemoryRepository(),
+  engraph: EngraphClient = new EngraphHttpClient(undefined, undefined, getSemanticSearchBudgetMs()),
+): Promise<SemanticRetrievalResult> {
+  if (topN <= 0) return { memories: [], status: 'no_hits', hitCount: 0 };
 
   const deadline = Date.now() + getSemanticSearchBudgetMs();
   const ftsPromise = getRelevantMemories(query, ownerUserId, topN, repo);
@@ -510,6 +547,10 @@ export async function getRelevantMemoriesSemantic(
     score: number | null;
     confidence: number;
   }>();
+  let hitCount = 0;
+  let hasQualifiedConfidence = false;
+  let hasMappedHit = false;
+  let hasJoinedCandidate = false;
   let candidateLimit = Math.max(
     topN * SEMANTIC_INITIAL_CANDIDATE_FACTOR,
     topN,
@@ -522,10 +563,20 @@ export async function getRelevantMemoriesSemantic(
   while (true) {
     const searchResult = await settleBeforeDeadline(
       deadline,
-      () => engraph.search(query, candidateLimit),
+      () => searchEngraph(engraph, query, candidateLimit),
     );
-    if (!searchResult.ok) return await ftsPromise;
-    const hits = searchResult.value;
+    if (!searchResult.ok) {
+      return { memories: await ftsPromise, status: 'timeout', hitCount };
+    }
+    const detailed = searchResult.value;
+    const hits = detailed.hits;
+    hitCount = Math.max(hitCount, hits.length);
+    if (detailed.status !== 'ok' && detailed.status !== 'no_hits') {
+      return { memories: await ftsPromise, status: detailed.status, hitCount };
+    }
+    if (detailed.status === 'no_hits') {
+      return { memories: await ftsPromise, status: 'no_hits', hitCount };
+    }
 
     // Engraph 1.7.2 exposes only an RRF rank score, not calibrated semantic
     // confidence. Path-only and score-only hits therefore fail closed. This
@@ -541,12 +592,14 @@ export async function getRelevantMemoriesSemantic(
       ) {
         continue;
       }
+      hasQualifiedConfidence = true;
       const sourceId = mapEngraphFileToSourceId(
         hit.file,
         memoryRoot,
         engraphVaultRoot,
       );
       if (!sourceId) continue;
+      hasMappedHit = true;
       if (!semanticHitBySourceId.has(sourceId)) sourceIds.push(sourceId);
       semanticHitBySourceId.set(sourceId, {
         score: typeof hit.score === 'number' && Number.isFinite(hit.score)
@@ -570,7 +623,9 @@ export async function getRelevantMemoriesSemantic(
           wanted ?? undefined,
         ),
       );
-      if (!joinResult.ok) return await ftsPromise;
+      if (!joinResult.ok) {
+        return { memories: await ftsPromise, status: 'timeout', hitCount };
+      }
 
       const candidatesBySourceId = new Map<string, AgentMemory[]>();
       for (const memory of joinResult.value) {
@@ -589,6 +644,7 @@ export async function getRelevantMemoriesSemantic(
         const candidates = candidatesBySourceId.get(sourceId);
         if (candidates?.length === 1 && isMemoryActive(candidates[0], today)) {
           const memory = candidates[0];
+          hasJoinedCandidate = true;
           const overlap = clearsAutomaticGate(query, memory);
           const hit = semanticHitBySourceId.get(sourceId);
           if (!overlap || !hit) continue;
@@ -616,7 +672,17 @@ export async function getRelevantMemoriesSemantic(
 
   const fts = await ftsPromise;
   const semantic = [...semanticBySourceId.values()];
-  if (semantic.length === 0) return fts;
+  if (semantic.length === 0) {
+    return {
+      memories: fts,
+      status: !hasQualifiedConfidence
+        ? 'no_confidence'
+        : !hasMappedHit || !hasJoinedCandidate
+          ? 'unmapped'
+          : 'lexical_gate',
+      hitCount,
+    };
+  }
   const fused = fuseMemoryRanks(fts, semantic, topN);
   for (const memory of fused) {
     if (fts.some((candidate) => candidate.id === memory.id)
@@ -625,7 +691,7 @@ export async function getRelevantMemoriesSemantic(
       if (evidence) retrievalEvidence.set(memory, { ...evidence, lane: 'hybrid' });
     }
   }
-  return fused;
+  return { memories: fused, status: 'used', hitCount };
 }
 
 export interface MemoryPreface {
@@ -642,6 +708,10 @@ export interface MemoryPreface {
   notePaths: (string | null)[];
   /** Body-free turn provenance for every bounded excerpt. */
   items: MemoryProvenanceItem[];
+  /** Outcome of the semantic lane, including explicit FTS-only disablement. */
+  semanticStatus: MemorySemanticStatus;
+  /** Largest hit count returned by Engraph during this turn. */
+  semanticHitCount: number;
 }
 
 export interface BuildMemoryPrefaceOptions {
@@ -661,8 +731,15 @@ export interface BuildMemoryPrefaceOptions {
   memoryDir?: string;
 }
 
-function emptyMemoryPreface(): MemoryPreface {
-  return { text: '', memoryIds: [], notePaths: [], items: [] };
+function emptyMemoryPreface(
+  semanticStatus: MemorySemanticStatus = 'disabled',
+  semanticHitCount = 0,
+): MemoryPreface {
+  return { text: '', memoryIds: [], notePaths: [], items: [], semanticStatus, semanticHitCount };
+}
+
+function logSemanticStatus(status: MemorySemanticStatus, hitCount: number): void {
+  logger.info(`[MemoryRetrieval] semantic status=${status} hits=${hitCount}`);
 }
 
 function boundedRelevantExcerpt(query: string, content: string): string {
@@ -814,20 +891,35 @@ export async function buildMemoryPreface(
   // always resolves [] whenever the manager is disabled/unhealthy, so this is
   // purely additive: with the manager left off (its default state), behavior
   // is unchanged from #1093/#1095.
-  const retrieve = opts.getRelevant ?? (
-    getAgentMemoryRetrievalMode() === 'hybrid'
-      ? (q: string, ownerUserId?: number | null, topN?: number) =>
-          getRelevantMemoriesSemantic(q, ownerUserId, topN, undefined, engraphManager.getRetrievalClient())
-      : getRelevantMemories
-  );
+  const mode = getAgentMemoryRetrievalMode();
+  let semanticStatus: MemorySemanticStatus = 'disabled';
+  let semanticHitCount = 0;
   let matches: AgentMemory[];
   try {
-    matches = await retrieve(query, ownerUserId, opts.topN ?? DEFAULT_TOP_N);
+    if (opts.getRelevant) {
+      matches = await opts.getRelevant(query, ownerUserId, opts.topN ?? DEFAULT_TOP_N);
+    } else if (mode === 'hybrid') {
+      const result = await getRelevantMemoriesSemanticDetailed(
+        query,
+        ownerUserId,
+        opts.topN ?? DEFAULT_TOP_N,
+        undefined,
+        engraphManager.getRetrievalClient(),
+      );
+      matches = result.memories;
+      semanticStatus = result.status;
+      semanticHitCount = result.hitCount;
+    } else {
+      matches = await getRelevantMemories(query, ownerUserId, opts.topN ?? DEFAULT_TOP_N);
+    }
   } catch {
     // A retrieval failure must never produce a partial/garbled preface — and the
     // call sites also wrap this in try/catch as a second backstop.
-    return emptyMemoryPreface();
+    semanticStatus = mode === 'hybrid' ? 'backend_unavailable' : 'disabled';
+    logSemanticStatus(semanticStatus, semanticHitCount);
+    return emptyMemoryPreface(semanticStatus, semanticHitCount);
   }
+  logSemanticStatus(semanticStatus, semanticHitCount);
   // Custom retrieval hooks and future lanes still cannot bypass lifecycle
   // gating, owner isolation, injectability, or absolute relevance.
   const today = currentDate();
@@ -855,7 +947,9 @@ export async function buildMemoryPreface(
     && isMemoryActive(memory, today)
     && clearsAutomaticGate(query, memory) !== null
   ));
-  if (!matches || matches.length === 0) return emptyMemoryPreface();
+  if (!matches || matches.length === 0) {
+    return emptyMemoryPreface(semanticStatus, semanticHitCount);
+  }
 
   const ranked = matches
     .map((memory, index) => ({
@@ -892,7 +986,7 @@ export async function buildMemoryPreface(
       relevance: candidate.relevance,
     });
   }
-  if (accepted.length === 0) return emptyMemoryPreface();
+  if (accepted.length === 0) return emptyMemoryPreface(semanticStatus, semanticHitCount);
 
   return {
     text: lines.join('\n'),
@@ -901,6 +995,8 @@ export async function buildMemoryPreface(
     // result traces back to a file. `sourceId` is the vault-relative path for
     // index rows derived from the Memory-Vault.
     notePaths: accepted.map(({ memory }) => memory.sourceId),
+    semanticStatus,
+    semanticHitCount,
     items: accepted.map(({ memory, excerpt, relevance }) => {
       const evidence = retrievalEvidence.get(memory);
       return {
@@ -914,6 +1010,7 @@ export async function buildMemoryPreface(
           ?? `lexical overlap ${relevance.matchedTokens}/${relevance.queryTokens} cleared threshold ${getAutomaticMemoryMinRelevance().toFixed(2)}`,
         excerptChars: excerpt.length,
         estimatedTokens: Math.ceil(excerpt.length / 4),
+        semanticStatus,
       };
     }),
   };

@@ -1,0 +1,53 @@
+.splitter {
+  position: relative;
+  z-index: 4;
+  flex: 0 0 8px;
+  align-self: stretch;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  touch-action: none;
+}
+
+.splitter::after {
+  content: "";
+  position: absolute;
+  border-radius: var(--r-pill);
+  background: var(--border-soft);
+  transition: background .12s ease, transform .12s ease;
+}
+
+.splitter:hover::after,
+.splitter:focus-visible::after {
+  background: var(--accent);
+  transform: scale(1.35);
+}
+
+.splitter-vertical {
+  width: 8px;
+  min-width: 8px;
+  cursor: col-resize;
+}
+
+.splitter-vertical::after {
+  inset-block: 0;
+  inset-inline-start: 3px;
+  width: 2px;
+}
+
+.splitter-horizontal {
+  height: 8px;
+  min-height: 8px;
+  cursor: row-resize;
+}
+
+.splitter-horizontal::after {
+  inset-inline: 0;
+  inset-block-start: 3px;
+  height: 2px;
+}
+
+@media (forced-colors: active) {
+  .splitter::after { background: CanvasText; }
+  .splitter:focus-visible::after { background: Highlight; }
+}

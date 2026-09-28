@@ -88,7 +88,7 @@ const classifications = new Set([
 test('issue-1174-c1: every bundled operation has exactly one classification and reason', () => {
   // Regression caught: a fork upgrade adds an endpoint, but the mobile contract
   // silently forwards it because no reviewer was forced to classify it.
-  assert.equal(bundledOperations.length, 133);
+  assert.equal(bundledOperations.length, 137);
   assert.equal(classifiedOperations.length, bundledOperations.length);
   assert.equal(
     new Set(classifiedOperations.map(({ operationId }) => operationId)).size,
@@ -150,7 +150,7 @@ test('issue-1174-c2: mobile contract is generated from bundled OpenCode 1.14.49'
   assert.equal(mobilePackage.dependencies['@opencode-ai/sdk'], '1.14.49');
   assert.equal(classificationInventory.source.engineVersion, '1.14.49');
   assert.equal(shippingContract.engineVersion, '1.14.49');
-  assert.equal(classificationInventory.source.operationCount, 133);
+  assert.equal(classificationInventory.source.operationCount, 137);
   assert.equal(classificationInventory.source.openapiSha256, openapiSha256);
   assert.equal(shippingContract.openapiSha256, openapiSha256);
   assert.match(

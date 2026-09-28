@@ -22,6 +22,7 @@ import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import type { AgentSkillInput } from '../models/agent_skill';
 
@@ -117,6 +118,32 @@ describe('memory injection — AgentRunner injects owner-scoped memory preface',
     expect(forwarded).toBe(PROMPT);
     expect(opts.system).toContain('## Known context (facts & preferences)');
     expect(opts.system).toContain('Alice standups preference is morning');
+  }, 30_000);
+
+  it('bridge-origin runs persist default permissions and gate owner memory by bridge scope', async () => {
+    const repo = new AgentMemoryRepository();
+    await repo.createAsync({ content: 'Alice standups preference is morning', ownerUserId: 1 });
+
+    const run = await freshRun();
+    const withoutScope = await run({
+      prompt: PROMPT,
+      ownerUserId: 1,
+      bridgeOrigin: { allowMemoryPreface: false },
+    });
+    const withScope = await run({
+      prompt: PROMPT,
+      ownerUserId: 1,
+      bridgeOrigin: { allowMemoryPreface: true },
+    });
+
+    const firstOptions = mockPrompt.mock.calls[0][4] as { permissionMode?: string; system?: string };
+    const secondOptions = mockPrompt.mock.calls[1][4] as { permissionMode?: string; system?: string };
+    expect(firstOptions.permissionMode).toBe('default');
+    expect(firstOptions.system ?? '').not.toContain('Alice standups preference is morning');
+    expect(secondOptions.permissionMode).toBe('default');
+    expect(secondOptions.system).toContain('Alice standups preference is morning');
+    expect(new AgentSessionsRepository().findById(withoutScope.sessionId)?.permissionMode).toBe('default');
+    expect(new AgentSessionsRepository().findById(withScope.sessionId)?.permissionMode).toBe('default');
   });
 
   // ── THE CRITICAL cross-user-leak test ──────────────────────────────────────

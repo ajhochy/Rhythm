@@ -27,6 +27,7 @@ import { AgentAsyncDelegationsRepository } from '../repositories/agent_async_del
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { opencodeClient } from './opencode_engine';
+import { getModelProvenance } from './model_provenance_service';
 import { AppError } from '../errors/app_error';
 import { logger } from '../utils/logger';
 
@@ -52,6 +53,8 @@ export interface DelegationStatusView {
   cancellable: boolean;
   /** Set only when the delegation itself failed to dispatch or run. */
   error: string | null;
+  /** #1576 S2 — distinct models that actually served the child's steps, if any. */
+  servedModels: string[];
 }
 
 const TERMINAL = new Set(['completed', 'notified', 'failed', 'cancelled']);
@@ -77,7 +80,14 @@ export function getDelegationStatus(parentSessionId: string): DelegationStatusVi
 
     let childSteps = 0;
     let latestEvent: DelegationStatusView['latestEvent'] = null;
+    let servedModels: string[] = [];
     if (row.childSessionId) {
+      try {
+        servedModels = getModelProvenance(row.childSessionId).servedModels;
+      } catch (err) {
+        // Ledger unavailable (e.g. Postgres deployment) must not break status.
+        logger.warn(`[AsyncDelegationStatus] served-model read failed for ${row.id}: ${String(err)}`);
+      }
       try {
         const msgs = messages.listBySessionStructured(row.childSessionId, 200);
         childSteps = msgs.filter((m) => m.role === 'output').length;
@@ -110,6 +120,7 @@ export function getDelegationStatus(parentSessionId: string): DelegationStatusVi
       latestEvent,
       cancellable: row.status === 'dispatched' || row.status === 'waking',
       error: row.errorText ?? null,
+      servedModels,
     };
   });
 }

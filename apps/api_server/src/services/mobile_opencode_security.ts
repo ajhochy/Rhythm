@@ -579,16 +579,6 @@ function resourceNotFound(): AppError {
   return AppError.notFound('Mobile OpenCode resource');
 }
 
-function messageRecord(
-  messages: unknown[],
-  messageId: string,
-): JsonRecord | undefined {
-  return messages.find((message) => {
-    if (!isRecord(message)) return false;
-    return stringField(message.info, 'id') === messageId;
-  }) as JsonRecord | undefined;
-}
-
 function partExists(message: JsonRecord, partId: string): boolean {
   return asArray(message.parts)
     .some((part) => stringField(part, 'id') === partId);
@@ -600,11 +590,17 @@ async function authorizeMessageAndPart(
   partId: string | undefined,
   fetchJson: MobileOpenCodeJsonFetcher,
 ): Promise<void> {
-  const messages = asArray(
-    await fetchJson(`/session/${encodeURIComponent(sessionId)}/message`),
+  const candidate = await fetchJson(
+    `/session/${encodeURIComponent(sessionId)}/message/${encodeURIComponent(messageId)}`,
   );
-  const message = messageRecord(messages, messageId);
-  if (!message || (partId && !partExists(message, partId))) {
+  const message = isRecord(candidate) ? candidate : undefined;
+  const info = message && isRecord(message.info) ? message.info : undefined;
+  if (
+    !message ||
+    stringField(info, 'id') !== messageId ||
+    stringField(info, 'sessionID') !== sessionId ||
+    (partId && !partExists(message, partId))
+  ) {
     throw resourceNotFound();
   }
 }

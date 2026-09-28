@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  InteractionManager,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -46,16 +47,38 @@ export function AgentsOverflowMenu({
   const { height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [menuVisible, setMenuVisible] = useState(false);
+  const menuOpenTask = useRef<ReturnType<
+    typeof InteractionManager.runAfterInteractions
+  > | null>(null);
   const selectedProject = chatController.projectId
     ? chatController.projects.find(
         (project) => project.path === chatController.projectId,
       )
     : null;
 
+  function dismissMenu() {
+    menuOpenTask.current?.cancel();
+    menuOpenTask.current = null;
+    setMenuVisible(false);
+  }
+
+  useEffect(() => () => menuOpenTask.current?.cancel(), []);
+
   function selectSection(nextSection: AgentCategory | 'activity') {
     if (nextSection !== 'chats') chatController.closeCreateSheet();
     onSectionChange(nextSection);
-    setMenuVisible(false);
+    dismissMenu();
+  }
+
+  function openMenu() {
+    menuOpenTask.current?.cancel();
+    // react-native-paper measures its portalled menu in the next microtask.
+    // Let a returning stack screen finish its transition first, otherwise that
+    // measurement can observe no portal ref and the Chats menu never appears.
+    menuOpenTask.current = InteractionManager.runAfterInteractions(() => {
+      menuOpenTask.current = null;
+      setMenuVisible(true);
+    });
   }
 
   return (
@@ -64,7 +87,7 @@ export function AgentsOverflowMenu({
         <Pressable
           accessibilityLabel="Chats menu"
           accessibilityRole="button"
-          onPress={() => setMenuVisible(true)}
+          onPress={openMenu}
           style={({ pressed }) => [
             styles.headerAction,
             pressed && styles.headerActionPressed,
@@ -76,7 +99,7 @@ export function AgentsOverflowMenu({
           />
         </Pressable>
       }
-      onDismiss={() => setMenuVisible(false)}
+      onDismiss={dismissMenu}
       visible={menuVisible}>
       <ScrollView
         accessibilityLabel="Chats menu options"

@@ -1,12 +1,18 @@
+import './Transcript.css';
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Icon } from '../icons';
 import { useFixtures } from '../store';
 import { useGateway } from '../gateway/context';
+import { useAuthUser } from '../gateway/auth';
+import { readLocalUserPreferences, shouldEscalatePermission, USER_PREFERENCES_CHANGED_EVENT } from '../gateway/user-preferences';
 import type { PendingApproval } from '../gateway/approvals';
 import type { LivePermissionRequest, LiveQuestionRequest, LiveQuestionItem, TranscriptMessage } from '../types';
 import { useDecisionReply, usePendingDecisions } from '../pending-decisions';
 import { SafeMarkdown } from './SafeMarkdown';
-import { blockSource, canonicalText, type RichTranscriptBlock, type RichTranscriptMessage } from '../gateway/sessions';
+import { Timestamp } from './Timestamp';
+import { blockSource, canonicalText, sessionLabel, type RichTranscriptBlock, type RichTranscriptMessage } from '../gateway/sessions';
+import { FocusDialog } from './FocusDialog';
+import { AttachmentThumbnail } from './AttachmentThumbnail';
 
 function MarkdownText({ content }: { content: string }) {
   return <SafeMarkdown content={content} />;
@@ -14,26 +20,71 @@ function MarkdownText({ content }: { content: string }) {
 
 function ToolDetails({ block }: { block: RichTranscriptBlock }) {
   const tool = block.tool;
-  return <details className="tool-block"><summary><code>{tool?.name ?? block.title}</code><small>{tool?.status ?? block.meta ?? 'Status unavailable'}</small></summary>{tool ? <dl>{(['input', 'output', 'metadata', 'error'] as const).map(field => tool[field] !== undefined && <Fragment key={field}><dt>{field}</dt><dd><pre>{canonicalText(tool[field])}</pre></dd></Fragment>)}</dl> : <pre>{block.content || 'Tool details unavailable'}</pre>}</details>;
+  return <details className="tool-block"><summary><code>{tool?.name ?? block.title}</code><small>{tool?.status ?? block.meta ?? 'Status unavailable'}</small></summary>{tool ? <dl>{(['input', 'output', 'metadata', 'error'] as const).map(field => tool[field] !== undefined && <Fragment key={field}><dt>{field}</dt><dd><pre tabIndex={0}>{canonicalText(tool[field])}</pre></dd></Fragment>)}</dl> : <pre tabIndex={0}>{block.content || 'Tool details unavailable'}</pre>}
+    {tool?.attachments && tool.attachments.length > 0 && <div className="message-attachments">{tool.attachments.map((attachment, index) => <AttachmentThumbnail key={`${block.id}-attachment-${index}`} mime={attachment.mime} url={attachment.url} artifactProject={attachment.artifactProject} filename={attachment.filename} fallback={<span><Icon name="file" size={13} />{attachment.filename ?? attachment.mime}</span>} />)}</div>}
+  </details>;
+}
+
+export function formatCost(cost: number): string {
+  const maximumFractionDigits = Math.max(2, Math.min(8, Math.ceil(-Math.log10(cost)) + 2));
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits }).format(cost);
 }
 
 function MessageUsage({ message }: { message: RichTranscriptMessage }) {
-  return message.cost !== undefined || message.tokens ? <small className="cost-line">{message.cost !== undefined && `Cost $${message.cost} · `}{message.tokens && `Input ${message.tokens.input ?? 'unknown'} · Output ${message.tokens.output ?? 'unknown'} · Cache read ${message.tokens.cache?.read ?? 'unknown'} · Cache write ${message.tokens.cache?.write ?? 'unknown'}`}</small> : null;
+  const counts = [message.tokens?.input, message.tokens?.output, message.tokens?.cache?.read, message.tokens?.cache?.write];
+  const hasTokens = counts.some(value => typeof value === 'number' && value > 0);
+  const hasCost = typeof message.cost === 'number' && Number.isFinite(message.cost) && message.cost > 0;
+  if (!hasTokens && !hasCost) return null;
+  const parts = [
+    hasCost ? `Cost ${formatCost(message.cost!)}` : '',
+    hasTokens ? `Input ${message.tokens?.input ?? 'unknown'} · Output ${message.tokens?.output ?? 'unknown'} · Cache read ${message.tokens?.cache?.read ?? 'unknown'} · Cache write ${message.tokens?.cache?.write ?? 'unknown'}` : '',
+  ].filter(Boolean);
+  return <small className="cost-line">{parts.join(' · ')}</small>;
 }
 
-function RichBlock({ block, onOpenChild }: { block: RichTranscriptBlock; onOpenChild(id: string, title: string): void }) {
+function reasoningLabel(content: string): string {
+  const bold = /^\s*\*\*([^\n]+?)\*\*/.exec(content)?.[1];
+  const firstLine = content.split('\n').find(line => line.trim()) ?? '';
+  const label = (bold ?? firstLine)
+    .replace(/^\s{0,3}(?:#{1,6}\s+|>\s*|[-*+]\s+|\d+\.\s+)/, '')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/<[^>]+>/g, '')
+    .replace(/(?:\*\*|__|~~|`+|\*|_)/g, '')
+    .replace(/\s+/g, ' ')
+    .trim() || 'Reasoning';
+  const limit = 80;
+  return label.length > limit ? `${label.slice(0, limit - 1).trimEnd()}…` : label;
+}
+
+function ReasoningBlock({ block, open, onOpenChange }: { block: RichTranscriptBlock; open: boolean; onOpenChange(open: boolean): void }) {
+  const [showAll, setShowAll] = useState(false);
+  const long = block.content.length > 800;
+  useEffect(() => { if (!long) setShowAll(false); }, [long]);
+  if (!block.content.trim()) return null;
+  return <details className="reasoning-block" open={open} data-streaming={block.streaming ? 'true' : undefined}>
+    <summary onClick={(event) => { event.preventDefault(); onOpenChange(!open); }}><Icon name="spark" size={14} />{reasoningLabel(block.content)}<span>{block.streaming ? 'Thinking…' : block.meta}</span></summary>
+    <div className={`reasoning-content${showAll ? ' expanded' : ''}`}><SafeMarkdown content={block.content} /></div>
+    {long && <button className="reasoning-show-more" type="button" aria-expanded={showAll} onClick={() => setShowAll((value) => !value)}>{showAll ? 'Show less' : 'Show more'}</button>}
+  </details>;
+}
+
+function RichBlock({ block, onOpenChild, reasoning }: { block: RichTranscriptBlock; onOpenChild(id: string, title: string): void; reasoning: { open: boolean; setOpen(open: boolean): void } }) {
   if (block.kind === 'markdown') return <MarkdownText content={block.content} />;
-  if (block.kind === 'reasoning') return <details className="reasoning-block"><summary><Icon name="spark" size={14} />{block.title}<span>{block.meta}</span></summary><p>{block.content}</p></details>;
+  if (block.kind === 'reasoning') return <ReasoningBlock block={block} open={reasoning.open} onOpenChange={reasoning.setOpen} />;
   if (block.kind === 'tool') return <ToolDetails block={block} />;
-  if (block.kind === 'diff') return <details className="tool-block" open><summary><Icon name="diff" size={14} /><strong>{block.title}</strong><small>{block.meta}</small></summary><pre className="diff-code">{block.content}</pre></details>;
-  if (block.kind === 'terminal') return <details className="tool-block"><summary><Icon name="terminal" size={14} /><strong>{block.title}</strong><small>{block.meta}</small></summary><pre>{block.content}</pre></details>;
+  if (block.kind === 'diff') return <details className="tool-block" open><summary><Icon name="diff" size={14} /><strong>{block.title}</strong><small>{block.meta}</small></summary><pre className="diff-code" tabIndex={0}>{block.content}</pre></details>;
+  if (block.kind === 'terminal') return <details className="tool-block"><summary><Icon name="terminal" size={14} /><strong>{block.title}</strong><small>{block.meta}</small></summary><pre tabIndex={0}>{block.content}</pre></details>;
   if (block.kind === 'todos') return <div className="inline-plan"><div><Icon name="todo" size={14} /><strong>{block.title}</strong><small>{block.meta}</small></div>{block.content.split('\n').map((item, index) => <span key={item}><i className={index < 3 ? 'done' : ''}>{index < 3 && <Icon name="check" size={11} />}</i>{item}</span>)}</div>;
   // c2j: opens by the block's own SDK child id — never the local session id. See mapPart
   // in gateway/sessions.ts, which extracts this id from a `task` tool part's output text.
   if (block.kind === 'children') return <>{block.tool && <ToolDetails block={block} />}<button className="child-chip" type="button" disabled={!block.childSessionId} onClick={() => block.childSessionId && onOpenChild(block.childSessionId, block.content)} aria-label={`Open child session ${block.content}`} data-testid={block.childSessionId ? `open-child-${block.childSessionId}` : undefined}><span><strong>{block.content}</strong><small>{block.meta}</small></span><Icon name="chevronRight" size={14} /></button></>;
   // c2d: canonical `file`, `step-start`, `step-finish`, `compaction`, and `agent` parts each
   // keep their own type instead of collapsing into a markdown block.
-  if (block.kind === 'file') return <div className="file-block" data-testid={`file-${block.id}`}><Icon name="file" size={14} /><strong>{block.title}</strong>{block.meta && <small>{block.meta}</small>}</div>;
+  if (block.kind === 'file') return <AttachmentThumbnail
+    mime={block.meta} url={block.content} artifactProject={block.artifactProject} filename={block.title}
+    fallback={<div className="file-block" data-testid={`file-${block.id}`}><Icon name="file" size={14} /><strong>{block.title}</strong>{block.meta && <small>{block.meta}</small>}</div>}
+  />;
   if (block.kind === 'step-start') return <div className="step-divider" role="separator" aria-label="Step started"><span>Step started</span></div>;
   if (block.kind === 'step-finish') return <div className="step-divider" role="separator" aria-label="Step finished"><span>Step finished{block.meta ? ` · ${block.meta}` : ''}</span></div>;
   if (block.kind === 'compaction') return <div className="compaction-divider"><span>{block.content}</span></div>;
@@ -79,12 +130,25 @@ function QuestionCard() {
 // (registerPermission's `permission.asked` frame). Each card owns only its reply state;
 // pending-decisions holds canonical requests independently of the legacy Session fields.
 function LivePermissionCard({ sessionId, permission }: { sessionId: string; permission: LivePermissionRequest }) {
+  const auth = useAuthUser();
+  const preferenceUserId = auth?.user.id ?? 'fixture';
+  const [requireDestructiveModal, setRequireDestructiveModal] = useState(() => readLocalUserPreferences(preferenceUserId).requireDestructiveModal);
   const [reason, setReason] = useState('');
   const { sending, error, send: reply } = useDecisionReply(sessionId, 'permissions', permission.permissionID);
+  useEffect(() => {
+    const sync = () => setRequireDestructiveModal(readLocalUserPreferences(preferenceUserId).requireDestructiveModal);
+    sync();
+    window.addEventListener('storage', sync);
+    window.addEventListener(USER_PREFERENCES_CHANGED_EVENT, sync);
+    return () => {
+      window.removeEventListener('storage', sync);
+      window.removeEventListener(USER_PREFERENCES_CHANGED_EVENT, sync);
+    };
+  }, [preferenceUserId]);
   const send = (decision: 'once' | 'always' | 'reject') => {
     void reply(gateway => gateway.reply(sessionId, permission.permissionID, decision, decision === 'reject' ? reason : undefined));
   };
-  return (
+  const card = (
     <section data-agent-decision="true" className="decision-card permission-card" aria-labelledby={`permission-${sessionId}-${permission.permissionID}`} tabIndex={-1} data-testid="permission-card">
       <div className="decision-icon"><Icon name="command" /></div>
       <div className="decision-main">
@@ -101,6 +165,15 @@ function LivePermissionCard({ sessionId, permission }: { sessionId: string; perm
       </div>
     </section>
   );
+  if (!shouldEscalatePermission(requireDestructiveModal, permission.tool)) return card;
+  return <FocusDialog
+    open
+    onClose={() => {}}
+    dismissible={false}
+    title={permission.title || 'Destructive tool confirmation'}
+    description="Review this destructive tool request before allowing or denying it. A decision is required to continue."
+    testId={`permission-dialog-${permission.permissionID}`}
+  >{card}</FocusDialog>;
 }
 
 // post-m1-phase-5 c1d: live-mode question card — renders the full canonical `questions` array
@@ -217,11 +290,11 @@ function PendingApprovalBanner({ sessionId }: { sessionId: string }) {
 
 type ReadingPosition = {
   top: number; pinned: boolean; anchor?: string; offset: number;
-  latest?: TranscriptMessage; unread: boolean;
+  firstId?: string; latestId?: string; revision?: string; unread: boolean; restorePending?: boolean; wheelUnpinned?: boolean;
 };
 
 export function Transcript() {
-  const { selected, sessions, selectSession, demo: fixtureDemo, loading, notify, loadOlder, revertSession, unrevertSession, forkSession, summarizeSession, sendInput: sendFixtureInput, sendLiveInput, sessionGatewayMode, liveChildView, openLiveChildSession } = useFixtures();
+  const { selected, sessions, selectSession, demo: fixtureDemo, loading, notify, loadOlder, revertSession, unrevertSession, forkSession, summarizeSession, sendInput: sendFixtureInput, sendLiveInput, sessionGatewayMode, liveChildView, openLiveChildSession, isCompletionArmed, toggleCompletionArm } = useFixtures();
   const demo = sessionGatewayMode === 'live' ? undefined : fixtureDemo;
   const sendInput = sessionGatewayMode === 'live' ? sendLiveInput : sendFixtureInput;
   const pending = usePendingDecisions(selected.id);
@@ -234,8 +307,19 @@ export function Transcript() {
   const positions = useRef(new Map<string, ReadingPosition>());
   const activeKey = useRef('');
   const key = liveChildView ? `child:${liveChildView.parentId}:${liveChildView.childId}` : `session:${selected.id}`;
+  const reasoningScope = liveChildView ? `${liveChildView.parentId}/${liveChildView.childId}` : selected.id;
   const messages = liveChildView?.messages ?? selected.messages;
+  const contentRevision = messages.map((rawMessage) => {
+    const message = rawMessage as RichTranscriptMessage;
+    return `${message.id}:${message.interrupted ? 1 : 0}:${message.cost ?? ''}:${message.tokens?.input ?? ''}:${message.tokens?.output ?? ''}:${message.tokens?.cache?.read ?? ''}:${message.tokens?.cache?.write ?? ''}:${message.blocks.map((rawBlock) => {
+      const block = rawBlock as RichTranscriptBlock;
+      const tool = block.tool;
+      return `${block.id}:${block.kind}:${block.title ?? ''}:${block.content}:${block.meta ?? ''}:${block.streaming ? 1 : 0}:${tool?.name ?? ''}:${tool?.status ?? ''}:${tool ? canonicalText(tool.input) : ''}:${tool ? canonicalText(tool.output) : ''}:${tool ? canonicalText(tool.metadata) : ''}:${tool ? canonicalText(tool.error) : ''}`;
+    }).join('|')}:${message.attachments?.map((attachment) => `${attachment.id}:${attachment.filename}:${attachment.truncated ? 1 : 0}`).join('|') ?? ''}`;
+  }).join('\n');
   const [newOutput, setNewOutput] = useState(false);
+  const reasoningStates = useRef(new Map<string, boolean>());
+  const [, setReasoningStateVersion] = useState(0);
   const pendingOlder = useRef(new Set<string>());
   const [olderStatus, setOlderStatus] = useState<Record<string, 'pending' | 'error' | undefined>>({});
 
@@ -248,7 +332,7 @@ export function Transcript() {
     const top = el.getBoundingClientRect().top;
     const first = [...el.querySelectorAll<HTMLElement>('[data-message-id]')].find((item) => item.getBoundingClientRect().bottom > top);
     position.top = el.scrollTop;
-    position.pinned = el.scrollHeight - el.clientHeight - el.scrollTop <= 48;
+    position.pinned = !position.wheelUnpinned && el.scrollHeight - el.clientHeight - el.scrollTop <= 48;
     position.anchor = first?.dataset.messageId;
     position.offset = first ? first.getBoundingClientRect().top - top : 0;
     if (position.pinned) { position.unread = false; setNewOutput(false); }
@@ -265,12 +349,25 @@ export function Transcript() {
   useLayoutEffect(() => {
     const changedSession = activeKey.current !== key;
     const position = positions.current.get(key) ?? { top: 0, pinned: true, offset: 0, unread: false };
+    if (changedSession) position.restorePending = true;
+    const first = messages.at(0);
     const latest = messages.at(-1);
-    if (!changedSession && position.latest && latest && position.latest !== latest && !position.pinned) position.unread = true;
-    position.latest = latest;
+    const oldFirstIndex = position.firstId ? messages.findIndex((message) => message.id === position.firstId) : -1;
+    const oldLatestIndex = position.latestId ? messages.findIndex((message) => message.id === position.latestId) : -1;
+    const prepended = !changedSession && Boolean(position.firstId && first && position.firstId !== first.id && oldFirstIndex > 0);
+    const appended = !changedSession && Boolean(position.latestId && latest && position.latestId !== latest.id && oldLatestIndex >= 0 && oldLatestIndex < messages.length - 1);
+    if (first && latest) {
+      if (!position.restorePending && position.revision !== undefined && position.revision !== contentRevision && !position.pinned && (!prepended || appended)) position.unread = true;
+      position.firstId = first.id;
+      position.latestId = latest.id;
+      position.revision = contentRevision;
+    }
     positions.current.set(key, position);
     activeKey.current = key;
-    restore(position);
+    if (first && (position.restorePending || position.pinned || prepended)) {
+      restore(position);
+      position.restorePending = false;
+    }
     setNewOutput(position.unread);
   });
   useLayoutEffect(() => {
@@ -278,7 +375,7 @@ export function Transcript() {
     if (!el) return;
     const observer = new ResizeObserver(() => {
       const position = positions.current.get(activeKey.current);
-      if (position) restore(position);
+      if (position?.pinned) restore(position);
     });
     observer.observe(el);
     if (el.firstElementChild) observer.observe(el.firstElementChild);
@@ -287,7 +384,7 @@ export function Transcript() {
   const jumpToLatest = () => {
     const position = positions.current.get(key);
     if (!position) return;
-    position.pinned = true; position.unread = false;
+    position.pinned = true; position.unread = false; position.wheelUnpinned = false;
     restore(position);
     setNewOutput(false);
     viewport.current?.focus({ preventScroll: true });
@@ -311,14 +408,23 @@ export function Transcript() {
     if (!child) { notify('Child session is unavailable in this fixture'); return; }
     selectSession(child.id); notify(`Loaded child transcript through GET /agent-sessions/${selected.id}/children/${child.id}/messages`);
   };
+  const richBlock = (block: RichTranscriptBlock) => {
+    const stateKey = `${reasoningScope}:${block.id}`;
+    const stored = reasoningStates.current.get(stateKey);
+    const open = stored ?? Boolean(block.streaming);
+    return <RichBlock block={block} onOpenChild={openChild} reasoning={{ open, setOpen: (next) => {
+      reasoningStates.current.set(stateKey, next);
+      setReasoningStateVersion((version) => version + 1);
+    } }} key={block.id} />;
+  };
   const renderContent = () => {
   // c2j: the child transcript is rendered read-only from its own fetched messages —
   // it is never selected into `sessions`, so the child's SDK id never becomes a local id.
   if (liveChildView) return (
     <section className="transcript" aria-label={`${liveChildView.title} · child transcript`} data-testid="transcript">
-      {liveChildView.messages.map((message) => <article className={`message ${message.role}`} key={message.id} data-message-id={message.id} tabIndex={-1} data-testid={`message-${message.id}`}>
-        <header><span className="message-role">{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Rhythm agent' : 'Session'}</span></header>
-        <div className="message-blocks">{message.blocks.map((block) => <RichBlock block={block} onOpenChild={openChild} key={block.id} />)}</div>
+      {liveChildView.messages.map((message) => <article className={`message ${message.role}`} key={message.id} data-message-id={message.id} tabIndex={-1} data-testid={`message-${message.id}`} aria-busy={message.blocks.some((block) => block.streaming) || undefined}>
+        <header><span className="message-role">{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Rhythm agent' : 'Session'}</span><Timestamp value={message.createdAt} />{message.interrupted && <span className="message-interrupted">Interrupted</span>}</header>
+        <div className="message-blocks">{message.blocks.map(richBlock)}</div>
         <MessageUsage message={message} /><button type="button" onClick={() => void copyMessage(message)} data-testid={`copy-${message.id}`}>Copy</button>
       </article>)}
     </section>
@@ -330,27 +436,27 @@ export function Transcript() {
   if (demo === 'resumable') return <section className="state-panel" data-testid="resumable-state"><Icon name="background" size={26} /><h2>Agent runtime unavailable</h2><p>The transcript and artifacts remain readable. Resume when the desktop runtime is available.</p><button className="primary-button" type="button" onClick={() => location.hash = '#/agents?demo=running'}>Resume fixture session</button></section>;
   if (demo === 'empty' || selected.messages.length === 0) return <section className="state-panel" data-testid="empty-state"><Icon name="agents" size={28} /><h2>{demo === 'empty' ? 'No sessions in this view' : 'Start this conversation'}</h2><p>{demo === 'empty' ? 'Adjust filters or start a new chat.' : 'Choose a starter or write a precise request below.'}</p><div className="starter-row"><button type="button" onClick={() => sendInput('Review the project context and propose the next safe step.')}>Review project context</button><button type="button" onClick={() => sendInput('Summarize current changes and unresolved decisions.')}>Summarize changes</button></div></section>;
   return (
-    <section className="transcript" aria-label={`${selected.name} transcript`} data-testid="transcript">
+    <section className="transcript" aria-label={`${sessionLabel(selected).label} transcript`} data-testid="transcript">
       {(sessionGatewayMode !== 'live' || selected.transcriptHasMore !== false) && <div className="load-older-wrap"><button className="text-button" type="button" disabled={olderStatus[selected.id] === 'pending'} onClick={() => void requestOlder()} data-testid="load-older"><Icon name="history" size={14} />{olderStatus[selected.id] === 'pending' ? 'Loading older messages…' : 'Load older messages'}</button>{olderStatus[selected.id] === 'error' && <p role="alert">Older messages could not be loaded. Try again.</p>}</div>}
       {selected.retry && <div className="retry-banner" role="status" data-testid="retry-status"><Icon name="refresh" className="spin" size={13} /><span>Retrying · attempt {selected.retry.attempt} · {selected.retry.reason}</span></div>}
       {selected.status === 'error' && selected.statusMessage && <p role="alert">{selected.statusMessage}</p>}
       {(selected.permission?.status === 'pending' || selected.question?.status === 'pending') && <div className="pending-trigger-banner" role="status"><span className="status-dot waiting" />Agent paused · {selected.permission?.status === 'pending' ? 'permission required before the tool can continue' : 'answer required before the plan can continue'}</div>}
       {selected.revertedMessageId && <div className="reverted-banner" role="status" data-testid="reverted-banner"><Icon name="undo" /><span>History is reverted at message {selected.revertedMessageId}. The retained transcript remains readable; restore to use it again.</span><button className="secondary-button" type="button" onClick={() => void unrevertSession(selected.id)} data-testid="unrevert">Restore history</button></div>}
-      {selected.messages.map((message) => <article id={`agent-message-${message.id}`} className={`message ${message.role}`} key={message.id} data-message-id={message.id} tabIndex={-1} data-testid={`message-${message.id}`}>
-        <header><span className="message-role">{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Rhythm agent' : 'Session'}</span><time dateTime={message.createdAt}>{message.createdAt}</time></header>
-        <div className="message-blocks">{message.blocks.map((block) => <RichBlock block={block} onOpenChild={openChild} key={block.id} />)}</div>
+      {selected.messages.map((message) => <article id={`agent-message-${message.id}`} className={`message ${message.role}`} key={message.id} data-message-id={message.id} tabIndex={-1} data-testid={`message-${message.id}`} aria-busy={message.blocks.some((block) => block.streaming) || undefined}>
+        <header><span className="message-role">{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Rhythm agent' : 'Session'}</span><Timestamp value={message.createdAt} />{message.interrupted && <span className="message-interrupted">Interrupted</span>}</header>
+        <div className="message-blocks">{message.blocks.map(richBlock)}</div>
         <MessageUsage message={message} />
         {message.attachments && message.attachments.length > 0 && <div className="message-attachments">{message.attachments.map((attachment) => <span key={attachment.id}><Icon name={attachment.type === 'file' ? 'command' : 'file'} size={13} />{attachment.filename}{attachment.truncated ? ' · first 100 KB' : ''}</span>)}</div>}
         {message.id === 'msg-user-handoff' && <div className="message-attachments"><span><Icon name="file" size={13} />run-sheet.md</span><span><Icon name="command" size={13} />/review</span></div>}
         {message.id === 'msg-assistant-handoff' && <div className="compaction-divider"><span>Context compacted · 8,420 tokens retained</span></div>}
-        <footer className="message-actions"><button type="button" onClick={() => void copyMessage(message)} data-testid={`copy-${message.id}`}><Icon name="copy" size={13} />Copy</button>{message.role === 'assistant' && !selected.parentId && <><button type="button" disabled={sessionGatewayMode === 'live' && selected.status === 'working'} onClick={() => void revertSession(selected.id, message.id)} data-testid={`revert-${message.id}`}><Icon name="undo" size={13} />Revert</button><button type="button" disabled={sessionGatewayMode === 'live' && selected.status === 'working'} onClick={() => forkSession(selected.id, message.id)} data-testid={`fork-${message.id}`}><Icon name="fork" size={13} />Fork</button><button type="button" disabled={sessionGatewayMode === 'live' && selected.status === 'working'} onClick={() => void summarizeSession(selected.id)} data-testid={`summarize-${message.id}`}><Icon name="spark" size={13} />Compact</button></>}</footer>
+        <footer className="message-actions"><button type="button" onClick={() => void copyMessage(message)} data-testid={`copy-${message.id}`}><Icon name="copy" size={13} />Copy</button>{sessionGatewayMode === 'live' && window.rhythmShell?.gateway && <button type="button" aria-pressed={isCompletionArmed(selected.id, message.id)} aria-label={isCompletionArmed(selected.id, message.id) ? 'Notification armed — tap to cancel' : 'Notify when session finishes'} title={isCompletionArmed(selected.id, message.id) ? 'Notification armed — tap to cancel' : 'Notify when session finishes'} onClick={() => toggleCompletionArm(selected.id, message.id)} data-testid={`notify-${message.id}`}><Icon name="bell" size={13} /></button>}{message.role === 'assistant' && !selected.parentId && <><button type="button" disabled={sessionGatewayMode === 'live' && selected.status === 'working'} onClick={() => void revertSession(selected.id, message.id)} data-testid={`revert-${message.id}`}><Icon name="undo" size={13} />Revert</button><button type="button" disabled={sessionGatewayMode === 'live' && selected.status === 'working'} onClick={() => forkSession(selected.id, message.id)} data-testid={`fork-${message.id}`}><Icon name="fork" size={13} />Fork</button><button type="button" disabled={sessionGatewayMode === 'live' && selected.status === 'working'} onClick={() => void summarizeSession(selected.id)} data-testid={`summarize-${message.id}`}><Icon name="spark" size={13} />Compact</button></>}</footer>
       </article>)}
-      {selected.queuedDraft && <article className="message user queued-message" aria-label="Queued local draft"><header><span className="message-role">You · queued locally</span><time>Not sent</time></header><p>{selected.queuedDraft}</p><small>Waiting for the direct desktop connection. Rhythm has not told the server this message exists.</small></article>}
+      {selected.queuedDraft && <article className="message user queued-message" aria-label="Queued local draft"><header><span className="message-role">You · queued locally</span><span>Not sent</span></header><p>{selected.queuedDraft}</p><small>Waiting for the direct desktop connection. Rhythm has not told the server this message exists.</small></article>}
       {sessionGatewayMode === 'live' && <PendingApprovalBanner sessionId={selected.id} />}
       {sessionGatewayMode !== 'live' && <PermissionCard />}
       {sessionGatewayMode !== 'live' && <QuestionCard />}
     </section>
   );
   };
-  return <><div className="transcript-scroll" ref={viewport} onScroll={remember} tabIndex={-1} aria-label="Transcript reading area">{renderContent()}{sessionGatewayMode === 'live' && !liveChildView && <>{[...pending.permissions.values()].map(permission => <LivePermissionCard key={`${selected.id}:${permission.permissionID}`} sessionId={selected.id} permission={permission} />)}{[...pending.questions.values()].map(question => <LiveQuestionCard key={`${selected.id}:${question.requestId}`} sessionId={selected.id} question={question} />)}</>}</div>{newOutput && <button className="primary-button transcript-new-output" type="button" onClick={jumpToLatest}>New output</button>}</>;
+  return <><div className="transcript-scroll" ref={viewport} onScroll={remember} onWheel={(event) => { const position = positions.current.get(activeKey.current); if (!position) return; if (event.deltaY < 0) { position.wheelUnpinned = true; position.pinned = false; } else if (event.deltaY > 0) position.wheelUnpinned = false; }} role="region" tabIndex={0} aria-label="Transcript reading area">{renderContent()}{sessionGatewayMode === 'live' && !liveChildView && <>{[...pending.permissions.values()].map(permission => <LivePermissionCard key={`${selected.id}:${permission.permissionID}`} sessionId={selected.id} permission={permission} />)}{[...pending.questions.values()].map(question => <LiveQuestionCard key={`${selected.id}:${question.requestId}`} sessionId={selected.id} question={question} />)}</>}</div>{newOutput && <button className="primary-button transcript-new-output" type="button" onClick={jumpToLatest}>New output</button>}</>;
 }

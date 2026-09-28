@@ -1,0 +1,91 @@
+.remote-computers {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.remote-computers-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.remote-computers-header h1 { font-size: 16px; margin: 0; }
+
+.remote-computers-body {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  min-height: 0;
+  flex: 1;
+}
+
+.remote-environment-list {
+  border-right: 1px solid var(--border-soft);
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.remote-environment-list ul, .remote-session-list, .remote-message-list { list-style: none; margin: 0; padding: 0; }
+
+.remote-environment-list li + li { margin-top: 4px; }
+
+.remote-environment-list button, .remote-session-list button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.remote-environment-list button:hover, .remote-session-list button:hover { background: var(--surface-warm); }
+.remote-environment-list button.selected { border-color: var(--accent); background: var(--surface-warm); }
+.remote-environment-list em { margin-left: auto; color: var(--muted); font-style: normal; font-size: 12px; }
+
+.remote-session-panel { padding: 16px 20px; overflow-y: auto; min-height: 0; }
+
+.remote-session-list li + li { margin-top: 6px; }
+.remote-session-list button { flex-direction: column; align-items: flex-start; gap: 2px; }
+.remote-session-list span { color: var(--muted); font-size: 12px; }
+
+.remote-state-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+
+.remote-unsupported-note { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
+
+.remote-message { padding: 8px 0; border-bottom: 1px solid var(--border-soft); }
+.remote-message strong { display: block; font-size: 11px; text-transform: uppercase; color: var(--muted); }
+.remote-message p { margin: 4px 0 0; white-space: pre-wrap; }
+
+.remote-decision {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+  margin: 12px 0;
+  border: 1px solid var(--warning);
+  border-radius: var(--r-sm);
+}
+
+.remote-composer { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.remote-composer label { font-size: 12px; color: var(--muted); }
+.remote-composer textarea { min-height: 72px; padding: 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--fg); font: inherit; }
+.remote-composer-actions { display: flex; gap: 8px; }

@@ -1,4 +1,5 @@
-import { Keyboard, TextInput, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Keyboard, Platform, ScrollView, TextInput, View } from 'react-native';
 import { Chip, IconButton, Surface, Text } from 'react-native-paper';
 
 import { Colors } from '@/constants/theme';
@@ -12,12 +13,13 @@ type Attachment = { uri: string; mime?: string; filename?: string };
 
 const MIN_INPUT_HEIGHT = 24;
 // Six 22-point lines; taller drafts scroll inside the native text view.
-const MAX_INPUT_HEIGHT = 132;
+const MAX_INPUT_HEIGHT = 84;
 
 type ChatComposerProps = {
   attachments: Attachment[];
   connectionStatus: GatewayConnectionStatus;
   conversation: { active: boolean; isListening: boolean; phase: string; statusLabel?: string };
+  contextLabel?: string;
   draft: string;
   insetsBottom: number;
   isCreatingSession: boolean;
@@ -61,29 +63,29 @@ export function ChatComposer({
   const sendDisabled = !hasComposerContent || connectionStatus !== 'connected' || isCreatingSession || isSpeechInputListening;
   const stopDisabled = connectionStatus !== 'connected' || !currentSessionId || isStoppingSession;
   const dictationDisabled = conversation.active || connectionStatus !== 'connected' || (!isSpeechInputListening && !isSpeechInputAvailable);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   return (
     <Surface
-      style={[styles.composer, { backgroundColor: palette.surface, borderTopColor: palette.border, paddingBottom: Math.max(insetsBottom, 12) }]}
+      testID="chat-composer"
+      style={[styles.composer, { backgroundColor: palette.surface, borderTopColor: palette.border, paddingBottom: keyboardVisible ? 4 : Math.max(insetsBottom, 4) }]}
       elevation={4}>
-      {conversation.active ? (
-        <View style={[styles.conversationBanner, { backgroundColor: `${palette.tint}10`, borderColor: `${palette.tint}28` }]}>
-          <View style={styles.conversationBannerHeader}>
-            <Text variant="labelLarge" style={{ color: palette.text }}>Conversation mode</Text>
-            <Chip compact icon={conversation.phase === 'speaking' ? 'volume-high' : 'microphone'}>{conversation.statusLabel || 'Active'}</Chip>
-          </View>
-          <Text variant="bodySmall" style={{ color: palette.muted }}>
-            Keep talking naturally while the app stays open. It listens, sends your turn, reads the reply, and then listens again.
-          </Text>
-        </View>
-      ) : null}
-
       {attachments.length > 0 ? (
-        <View style={styles.attachmentRow}>
+        <ScrollView testID="chat-attachment-strip" horizontal showsHorizontalScrollIndicator={false} style={styles.attachmentStrip} contentContainerStyle={styles.attachmentRow}>
           {attachments.map((att, idx) => (
             <View key={`${att.uri}-${idx}`} style={[styles.attachmentChip, { backgroundColor: palette.background }]}>
+              <IconButton icon={att.mime?.startsWith('image/') ? 'image-outline' : 'file-outline'} size={18} disabled style={styles.attachmentTypeIcon} />
               <Text numberOfLines={1} variant="labelLarge" style={[styles.attachmentLabel, { color: palette.text }]}>
-                {att.filename || att.uri}
+                {att.filename || 'Attachment'}
               </Text>
               <IconButton
                 accessibilityLabel={`Remove ${att.filename || 'attachment'}`}
@@ -94,7 +96,7 @@ export function ChatComposer({
               />
             </View>
           ))}
-        </View>
+        </ScrollView>
       ) : null}
 
       {draft.startsWith('/') && !draft.includes(' ') && commands.length > 0 ? (
@@ -107,32 +109,30 @@ export function ChatComposer({
         </View>
       ) : null}
 
-      {isSpeechInputListening || conversation.isListening ? (
-        <View style={styles.voiceStatusRow}>
-          <Chip compact icon="microphone" style={[styles.voiceStatusChip, { backgroundColor: `${palette.tint}14` }]}>
-            {conversation.active ? 'Conversation active' : 'Listening'}
-          </Chip>
-        </View>
-      ) : null}
-
       <View style={styles.composerDockRow}>
-        <View testID="chat-attachment-button">
-          <IconButton
-            accessibilityLabel="Add attachment"
-            accessibilityRole="button"
-            icon="plus"
-            size={20}
-            style={styles.composerPrimaryButton}
-            onPress={onAttach}
-          />
-        </View>
         <View style={[styles.inputShell, styles.inputShellFlex, { borderColor: palette.border, backgroundColor: palette.background }]}>
           <View style={styles.composerRow}>
+            <View testID="chat-attachment-button">
+              <IconButton
+                accessibilityLabel="Add attachment"
+                accessibilityRole="button"
+                icon="plus"
+                size={20}
+                style={styles.composerInlineButton}
+                onPress={onAttach}
+              />
+            </View>
             <TextInput
                accessibilityLabel="Message"
                testID="chat-prompt-input"
                value={draft}
                onChangeText={onDraftChange}
+               onFocus={() => {
+                 if (Platform.OS === 'web') setKeyboardVisible(true);
+               }}
+               onBlur={() => {
+                 if (Platform.OS === 'web') setTimeout(() => setKeyboardVisible(false), 0);
+               }}
                editable={!isSpeechInputListening}
                multiline
                scrollEnabled
@@ -153,48 +153,46 @@ export function ChatComposer({
                  },
                ]}
                textAlignVertical="top"
-             />
-
-            <IconButton
-              accessibilityLabel="Dismiss keyboard"
-              icon="keyboard-close"
-              size={20}
-              style={styles.composerDismissButton}
-              onPress={Keyboard.dismiss}
-            />
-
+              />
+            {keyboardVisible ? (
+              <IconButton
+                accessibilityLabel="Dismiss keyboard"
+                icon="keyboard-close"
+                size={18}
+                style={styles.composerDismissButton}
+                onPress={Keyboard.dismiss}
+              />
+            ) : null}
             <View testID="chat-dictation-button">
               <IconButton
                 accessibilityLabel={isSpeechInputListening ? 'Stop dictation' : 'Start dictation'}
                 accessibilityRole="button"
                 testID="chat-secondary-button"
                 icon={isSpeechInputListening ? 'microphone-off' : 'microphone'}
-                size={20}
-                selected={isSpeechInputListening}
+                size={18}
                 style={styles.composerVoiceButton}
                 disabled={dictationDisabled}
                 onPress={onToggleRecording}
               />
             </View>
+            <View testID={showSendAction ? 'chat-send-button' : 'chat-stop-button'}>
+              <IconButton
+                accessibilityLabel={showSendAction ? 'Send message' : 'Stop response'}
+                accessibilityRole="button"
+                accessibilityState={{ busy: !showSendAction && isStoppingSession }}
+                testID="chat-primary-button"
+                mode="contained"
+                icon={showSendAction ? 'send' : 'stop'}
+                size={20}
+                style={styles.composerPrimaryButton}
+                containerColor={palette.tint}
+                iconColor={palette.surface}
+                loading={!showSendAction && isStoppingSession}
+                disabled={showSendAction ? sendDisabled : stopDisabled}
+                onPress={onSend}
+              />
+            </View>
           </View>
-        </View>
-
-        <View testID={showSendAction ? 'chat-send-button' : 'chat-stop-button'}>
-          <IconButton
-            accessibilityLabel={showSendAction ? 'Send message' : 'Stop response'}
-            accessibilityRole="button"
-            accessibilityState={{ busy: !showSendAction && isStoppingSession }}
-            testID="chat-primary-button"
-            mode="contained"
-            icon={showSendAction ? 'send' : 'stop'}
-            size={20}
-            style={styles.composerPrimaryButton}
-            containerColor={palette.tint}
-            iconColor={palette.surface}
-            loading={!showSendAction && isStoppingSession}
-            disabled={showSendAction ? sendDisabled : stopDisabled}
-            onPress={onSend}
-          />
         </View>
       </View>
     </Surface>

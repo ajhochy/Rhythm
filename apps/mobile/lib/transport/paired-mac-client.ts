@@ -26,16 +26,13 @@ import {
 
 export class PairedMacClient {
   private readonly baseUrl: string;
-  private readonly directBaseUrl?: string;
   private readonly getDeviceToken: () => Promise<string>;
 
   constructor({
     baseUrl,
-    directBaseUrl,
     getDeviceToken,
   }: PairedMacClientOptions) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
-    this.directBaseUrl = directBaseUrl?.replace(/\/$/, '');
     this.getDeviceToken = getDeviceToken;
   }
 
@@ -194,13 +191,12 @@ export class PairedMacClient {
     ptyId: string,
     options: { ticket?: string; cursor?: string } = {},
   ): string {
-    const ptyBaseUrl = this.directBaseUrl ?? this.baseUrl;
     const url = new URL(
-      `${ptyBaseUrl}/mobile-gateway/pty/${encodeURIComponent(ptyId)}/connect`,
+      `${this.baseUrl}/mobile-gateway/pty/${encodeURIComponent(ptyId)}/connect`,
     );
 
-    // Protocol conversion: the Tailscale endpoint is always HTTPS, but
-    // WebSocket connections require the ws/wss scheme.
+    // Use the same selected transport as HTTP/SSE. When the relay kill switch
+    // is active, the paired host store selects the direct gateway as baseUrl.
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
 
     if (options.ticket) url.searchParams.set('ticket', options.ticket);

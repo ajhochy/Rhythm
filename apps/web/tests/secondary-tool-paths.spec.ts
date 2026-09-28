@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { openFixture } from './helpers';
+import { selectRow } from './helpers/list-inspector';
 
 async function expectTrace(page: Page, value: string) {
   await expect(page.getByTestId('tool-trace')).toContainText(value);
@@ -10,8 +11,8 @@ test('exercises every secondary Tool path with exact endpoint-ledger receipts', 
   await openFixture(page, '#/tools/brain');
   await page.getByTestId('brain-refresh').click();
   await expectTrace(page, '/agent-memory');
-  await page.getByTestId('brain-search').fill('handoff owner');
-  await expectTrace(page, '/agent-memory/search?q=handoff%20owner');
+  await page.getByRole('searchbox', { name: 'Search Agent memories' }).fill('handoff owner');
+  await expect(page.getByRole('option', { name: /Sunday handoffs/ })).toBeVisible();
 
   await openFixture(page, '#/tools/deep-research');
   await page.getByTestId('research-project-research-relay').click();
@@ -49,9 +50,9 @@ test('exercises every secondary Tool path with exact endpoint-ledger receipts', 
   await expect(page.getByTestId('skills-edit')).toHaveCount(0);
   await page.getByTestId('skills-refresh').click();
   await expectTrace(page, 'fixture://skills');
-  await page.getByTestId('skills-search').fill('does-not-exist');
-  await expect(page.getByText('No skills match')).toBeVisible();
-  await page.getByTestId('skills-clear-search').click();
+  await page.getByRole('searchbox', { name: 'Search Skills' }).fill('does-not-exist');
+  await expect(page.getByText('No results match your search.')).toBeVisible();
+  await page.getByRole('searchbox', { name: 'Search Skills' }).fill('');
 
   await openFixture(page, '#/tools/playbooks');
   await page.getByTestId('playbooks-item-status').click();
@@ -59,9 +60,9 @@ test('exercises every secondary Tool path with exact endpoint-ledger receipts', 
   await expect(page.getByTestId('playbooks-edit')).toHaveCount(0);
   await page.getByTestId('playbooks-refresh').click();
   await expectTrace(page, '/opencode/commands');
-  await page.getByTestId('playbooks-search').fill('does-not-exist');
-  await expect(page.getByText('No playbooks match')).toBeVisible();
-  await page.getByTestId('playbooks-clear-search').click();
+  await page.getByRole('searchbox', { name: 'Search Playbooks' }).fill('does-not-exist');
+  await expect(page.getByText('No results match your search.')).toBeVisible();
+  await page.getByRole('searchbox', { name: 'Search Playbooks' }).fill('');
 
   await openFixture(page, '#/tools/cookbook');
   await page.getByTestId('cookbook-refresh').click();
@@ -82,7 +83,7 @@ test('exercises every secondary Tool path with exact endpoint-ledger receipts', 
   await openFixture(page, '#/tools/email');
   await page.getByTestId('email-refresh').click();
   await expectTrace(page, '/integrations/gmail-signals');
-  await page.getByTestId('email-signal-email-relay').click();
+  await selectRow(page, 'Relay recovery notes');
   await expect(page.getByRole('heading', { name: 'Relay recovery notes' })).toBeVisible();
 
   await openFixture(page, '#/tools/gallery');
@@ -92,8 +93,9 @@ test('exercises every secondary Tool path with exact endpoint-ledger receipts', 
   await expect(page).toHaveURL(/#\/projects/);
 
   await openFixture(page, '#/tools/agent-settings');
-  await page.getByRole('button', { name: /Desktop endpoint/ }).click();
+  await selectRow(page, 'Runtime / OpenCode server');
+  await page.getByRole('button', { name: 'Desktop endpoint', exact: true }).click();
   await expectTrace(page, 'fixture://agent-settings/connection');
-  await page.getByRole('button', { name: /Offline buffering/ }).click();
+  await page.getByRole('button', { name: 'Offline buffering', exact: true }).click();
   await expectTrace(page, 'fixture://agent-settings/offline-buffer');
 });

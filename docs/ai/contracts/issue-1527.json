@@ -1,0 +1,58 @@
+{
+  "issue": 1527,
+  "generated": "2026-09-24",
+  "criteria": [
+    {
+      "criterion_id": "issue-1527-c1",
+      "text": "Each refusal case above is covered by a direct unit test and produces a distinct actionable error with zero import, zero native action and zero state write. Corrupting one byte of one artifact file fails the load.",
+      "mode": "unit",
+      "test_file": "apps/electron/test/colony-desktop-artifact.test.mjs",
+      "test_id": "issue-1527-c1: rejects each unprovable artifact with a distinct actionable reason and no import or write",
+      "status": "pass",
+      "reason": "Direct resolver suite 37/37 including parent-authored unsafe extra-file path regression; Electron typecheck passed. No tab, private channel, native import or packaging claim."
+    },
+    {
+      "criterion_id": "issue-1527-c2",
+      "text": "With `RHYTHM_COLONY_ARTIFACT_DIR` unset or pointing at a missing, dirty, wrong-commit or wrong-`electronMajor` artifact, the Colony tab reports why and stops; no alternative source is loaded and no partial UI is shown.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "This contract is limited to direct artifact resolver and refusal behavior. The Colony tab is not wired in this worktree; environment-to-UI reporting, fallback absence and partial-render behavior require later Electron UI integration."
+    },
+    {
+      "criterion_id": "issue-1527-c3",
+      "text": "In real pinned Electron, artifact-served JS/GLB assets load and a synthetic scan plus state round-trip works through private child IPC; no Colony TCP listener is created and upstream standalone HTTP behavior still passes.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Requires the pinned Electron runtime, private child IPC and upstream standalone parity work, all outside this resolver-only contract. No TCP listener coverage is claimed."
+    },
+    {
+      "criterion_id": "issue-1527-c4",
+      "text": "A sibling/foreign frame, stale/reloaded document, unknown method, malformed/oversize message and unsupported protocol version each produce zero native actions and zero state writes.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Requires the later private IPC protocol and Electron frame-lifetime implementation, outside this resolver-only contract."
+    },
+    {
+      "criterion_id": "issue-1527-c5",
+      "text": "The scene cannot access Rhythm bearer tokens, parent DOM, arbitrary URLs, filesystem APIs or process APIs; leaving/disabling the feature revokes the previous channel.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Requires the later preload, BrowserWindow and private channel security boundary, outside this resolver-only contract."
+    },
+    {
+      "criterion_id": "issue-1527-c6",
+      "text": "A 15,000-record snapshot is paged with stable generation/cursors and cancellation; a large archive beyond 64 KiB round-trips unchanged, while an interrupted state transfer commits nothing.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Requires the shared data contracts, paging and atomic chunk transfer implementation, outside this resolver-only contract."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-1527-c2",
+    "issue-1527-c3",
+    "issue-1527-c4",
+    "issue-1527-c5",
+    "issue-1527-c6"
+  ]
+}

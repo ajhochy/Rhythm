@@ -1,3 +1,4 @@
+import { AgentDesignsRepository } from './agent_designs_repository';
 import { env } from '../config/env';
 import { getDb, getPostgresPool } from '../database/db';
 import { createHash, randomUUID } from 'node:crypto';
@@ -51,12 +52,19 @@ export interface ResearchProjectInput {
 export interface ResearchProject extends ResearchProjectInput {
   id: string;
   ownerUserId: number;
+  /** Production live-artifact id of this project's magazine (one living document per project). */
+  magazineArtifactId: string | null;
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
 export type ResearchProjectPatch = Partial<ResearchProjectInput>;
+
+/** A reader's comment on a magazine section, carried into the next run's plan. */
+export interface ResearchGuidance { anchor: string | null; quote: string; text: string }
+
+export const magazineFrameUrl = (artifactId: string) => `rhythm-artifact://app/${artifactId}`;
 
 export interface ResearchProjectRun {
   id: string;
@@ -144,6 +152,7 @@ function projectRow(row: Record<string, unknown>): ResearchProject {
     synthesisConfig: parsedJson(row.synthesis_config_json, {}),
     scheduleRef: (row.schedule_ref as string | null) ?? null,
     budget: parsedJson(row.budget_json, {}),
+    magazineArtifactId: (row.magazine_artifact_id as string | null) ?? null,
     archivedAt: row.archived_at ? timestamp(row.archived_at) : null,
     createdAt: timestamp(row.created_at),
     updatedAt: timestamp(row.updated_at),
@@ -318,6 +327,48 @@ export class AgentResearchRepository {
     return this.getProject(id, ownerUserId);
   }
 
+  /**
+   * Link the project's magazine artifact and keep exactly one Gallery entry for it. The Gallery
+   * row points at the artifact's frame URL so it opens in the artifact viewer, never a file.
+   */
+  async setMagazineArtifact(id: string, ownerUserId: number, artifactId: string): Promise<ResearchProject | null> {
+    this.requireProjectsEnabled();
+    const project = await this.getProject(id, ownerUserId);
+    if (!project) return null;
+    const now = new Date().toISOString();
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query('UPDATE agent_research_projects SET magazine_artifact_id=$1, updated_at=$2 WHERE id=$3 AND owner_user_id=$4', [artifactId, now, id, ownerUserId]);
+    } else {
+      getDb().prepare('UPDATE agent_research_projects SET magazine_artifact_id=?, updated_at=? WHERE id=? AND owner_user_id=?').run(artifactId, now, id, ownerUserId);
+    }
+    const designs = new AgentDesignsRepository();
+    // ponytail: linear scan of the gallery; add an artifact_url index/lookup if galleries get large.
+    const all = await designs.listAllAsync();
+    const artifactUrl = magazineFrameUrl(artifactId);
+    if (project.magazineArtifactId && project.magazineArtifactId !== artifactId) {
+      const stale = all.find((design) => design.artifactUrl === magazineFrameUrl(project.magazineArtifactId!));
+      if (stale) await designs.deleteAsync(stale.id);
+    }
+    const title = `${project.name} — research magazine`;
+    const existing = all.find((design) => design.artifactUrl === artifactUrl);
+    if (!existing) await designs.createAsync({ title, provider: 'rhythm-research', artifactType: 'html', artifactUrl });
+    else if (existing.title !== title) await designs.updateAsync(existing.id, { title });
+    return this.getProject(id, ownerUserId);
+  }
+
+  /** The research project/run a discussion session was opened from, with its magazine. */
+  async sessionMagazine(sessionId: string, ownerUserId: number): Promise<{ projectId: string; runId: string | null; artifactId: string | null } | null> {
+    this.requireProjectsEnabled();
+    const sql = `SELECT q.project_id, q.project_run_id, p.magazine_artifact_id FROM agent_research_qa_links q
+      JOIN agent_research_projects p ON p.id=q.project_id
+      WHERE q.agent_session_id=%s AND q.owner_user_id=%s ORDER BY q.created_at DESC LIMIT 1`;
+    const row = (env.dbClient === 'postgres'
+      ? (await getPostgresPool().query(sql.replace('%s', '$1').replace('%s', '$2'), [sessionId, ownerUserId])).rows[0]
+      : getDb().prepare(sql.replace(/%s/g, '?')).get(sessionId, ownerUserId)) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return { projectId: String(row.project_id), runId: (row.project_run_id as string | null) ?? null, artifactId: (row.magazine_artifact_id as string | null) ?? null };
+  }
+
   async archiveProject(id: string, ownerUserId: number): Promise<ResearchProject | null> {
     this.requireProjectsEnabled();
     const now = new Date().toISOString();
@@ -338,6 +389,7 @@ export class AgentResearchRepository {
     projectId: string,
     ownerUserId: number,
     triggerType: ResearchProjectRun['triggerType'],
+    guidance: ResearchGuidance[] = [],
   ): Promise<ResearchProjectRun | null> {
     this.requireProjectsEnabled();
     const project = await this.getProject(projectId, ownerUserId);
@@ -358,6 +410,7 @@ export class AgentResearchRepository {
       scheduleRef: project.scheduleRef,
       budget: project.budget,
       triggerType,
+      ...(guidance.length ? { guidance } : {}),
       createdAt: now,
     };
     const values = [id, projectId, ownerUserId, triggerType, JSON.stringify(snapshot), now];
@@ -444,9 +497,17 @@ export class AgentResearchRepository {
   private async hydrateRun(row: Record<string, unknown>): Promise<ResearchProjectRun> {
     const base = baseRunRow(row);
     const artifacts = await this.listRunRows('agent_research_artifacts', base.id);
-    const sources = await this.listRunRows('agent_research_curated_sources', base.id);
+    // Rows registered before run+url idempotency carry one copy per pass; keep the first per URL.
+    const seenUrls = new Set<string>();
+    const sources = (await this.listRunRows('agent_research_curated_sources', base.id)).filter((source) => {
+      const url = String(source.canonical_url);
+      if (seenUrls.has(url)) return false;
+      seenUrls.add(url);
+      return true;
+    });
     const jobs = await this.listProjectPassJobs(base.id, base.ownerUserId);
     const messageRows = await this.listRunUsageRows(base.id);
+    const tokensBySession = new Map<string, number>();
     const usage = messageRows.reduce((total, message) => {
       const tokens = parsedJson<Record<string, unknown>>(message.tokens_json, {});
       const cache = tokens.cache && typeof tokens.cache === 'object'
@@ -456,6 +517,8 @@ export class AgentResearchRepository {
       ) + ['read', 'write'].reduce(
         (sum, key) => sum + (typeof cache[key] === 'number' ? Number(cache[key]) : 0), 0,
       );
+      const sessionId = String(message.session_id);
+      tokensBySession.set(sessionId, (tokensBySession.get(sessionId) ?? 0) + count);
       return { tokens: total.tokens + count, costUsd: total.costUsd + Number(message.cost ?? 0) };
     }, { tokens: 0, costUsd: 0 });
     const started = base.startedAt ?? base.createdAt;
@@ -472,6 +535,8 @@ export class AgentResearchRepository {
       stages: jobs.map((job) => ({
         id: job.id, role: job.passRole, ordinal: job.passOrdinal, status: job.status,
         profileId: job.agentProfileId, model: job.runConfig.model ?? null,
+        angle: typeof job.runConfig.angle === 'string' ? job.runConfig.angle : null,
+        tokens: job.agentSessionId ? tokensBySession.get(job.agentSessionId) ?? 0 : 0,
         report: job.report,
       })),
     };
@@ -486,19 +551,19 @@ export class AgentResearchRepository {
     };
   }
 
-  private async listRunUsageRows(runId: string): Promise<Array<{ tokens_json: unknown; cost: unknown }>> {
+  private async listRunUsageRows(runId: string): Promise<Array<{ session_id: unknown; tokens_json: unknown; cost: unknown }>> {
     if (env.dbClient === 'postgres') {
       return (await getPostgresPool().query(
-        `SELECT m.tokens_json, m.cost FROM agent_session_messages m
+        `SELECT m.session_id, m.tokens_json, m.cost FROM agent_session_messages m
           JOIN agent_research_jobs j ON j.agent_session_id=m.session_id
          WHERE j.project_run_id=$1`, [runId],
       )).rows;
     }
     return getDb().prepare(
-      `SELECT m.tokens_json, m.cost FROM agent_session_messages m
+      `SELECT m.session_id, m.tokens_json, m.cost FROM agent_session_messages m
         JOIN agent_research_jobs j ON j.agent_session_id=m.session_id
        WHERE j.project_run_id=?`,
-    ).all(runId) as Array<{ tokens_json: unknown; cost: unknown }>;
+    ).all(runId) as Array<{ session_id: unknown; tokens_json: unknown; cost: unknown }>;
   }
 
   private async listRunRows(table: 'agent_research_artifacts' | 'agent_research_curated_sources', runId: string): Promise<Record<string, unknown>[]> {
@@ -655,6 +720,24 @@ export class AgentResearchRepository {
           diagnostics_json=?, started_at=?, completed_at=?
          WHERE id=? AND owner_user_id=?`,
       ).run(...values);
+    }
+    return this.getProjectRun(id, ownerUserId);
+  }
+
+  /** Re-freezes a run's budget (used by "Finish with current evidence" so a raised project budget applies). */
+  async updateProjectRunBudget(id: string, ownerUserId: number, budget: Record<string, unknown>): Promise<ResearchProjectRun | null> {
+    const current = await this.getProjectRun(id, ownerUserId);
+    if (!current) return null;
+    const snapshot = JSON.stringify({ ...current.configSnapshot, budget });
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        'UPDATE agent_research_project_runs SET config_snapshot_json=$1 WHERE id=$2 AND owner_user_id=$3',
+        [snapshot, id, ownerUserId],
+      );
+    } else {
+      getDb().prepare(
+        'UPDATE agent_research_project_runs SET config_snapshot_json=? WHERE id=? AND owner_user_id=?',
+      ).run(snapshot, id, ownerUserId);
     }
     return this.getProjectRun(id, ownerUserId);
   }

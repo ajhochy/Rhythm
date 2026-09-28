@@ -19,17 +19,8 @@ test.describe('remaining Flutter parity edge cases', () => {
 
   test('matches Flutter keyboard resizing semantics for every desktop separator', async ({ page }) => {
     await openFixture(page);
-    const tools = page.getByTestId('tools-resizer');
-    await tools.focus();
-    await expect(tools).toHaveAttribute('aria-valuenow', '224');
-    await page.keyboard.press('ArrowUp');
-    await expect(tools).toHaveAttribute('aria-valuenow', '240');
-    await page.keyboard.press('ArrowDown');
-    await expect(tools).toHaveAttribute('aria-valuenow', '224');
-    await page.keyboard.press('Home');
-    await expect(tools).toHaveAttribute('aria-valuenow', '120');
-    await page.keyboard.press('End');
-    await expect(tools).toHaveAttribute('aria-valuenow', '320');
+    // The Tools panel is a More disclosure now, so the rail has no tools separator.
+    await expect(page.getByTestId('tools-resizer')).toHaveCount(0);
 
     const rail = page.getByTestId('rail-resizer');
     await rail.focus();
@@ -106,11 +97,11 @@ test.describe('remaining Flutter parity edge cases', () => {
       await expect(page.getByTestId(`tool-state-${state}`)).toBeVisible();
       if (state === 'empty') {
         await page.getByTestId('tool-load-example').click();
-        await expect(page.getByTestId('brain-list')).toBeVisible();
+        await expect(page.locator('.list-inspector')).toBeVisible();
       }
       if (state === 'server-error' || state === 'unavailable') {
         await page.getByTestId(state === 'server-error' ? 'tool-retry' : 'tool-check-again').click();
-        await expect(page.getByTestId('brain-list')).toBeVisible();
+        await expect(page.locator('.list-inspector')).toBeVisible();
       }
     }
   });
@@ -122,6 +113,7 @@ test.describe('remaining Flutter parity edge cases', () => {
     await expect(page.getByTestId('inspector-expand')).toBeVisible();
     await page.getByTestId('rail-expand').click();
     await expect(page.getByTestId('new-chat-instant')).toBeVisible();
+    await page.getByTestId('rail-more').click();
     await expect(page.getByTestId('tool-brain')).toBeVisible();
     await page.getByTestId('rail-collapse').click();
     await page.getByTestId('inspector-expand').click();

@@ -11,7 +11,34 @@ import 'package:rhythm_desktop/features/agent_configs/repositories/agent_configs
 import 'package:rhythm_desktop/features/agent_configs/data/agent_configs_data_source.dart';
 import 'package:rhythm_desktop/features/agent_playbooks/controllers/agent_playbooks_controller.dart';
 import 'package:rhythm_desktop/features/agent_playbooks/data/agent_playbooks_data_source.dart';
+import 'package:rhythm_desktop/features/agent_playbooks/views/_playbook_editor_sheet.dart';
 import 'package:rhythm_desktop/features/agent_playbooks/views/agent_playbooks_view.dart';
+import 'package:rhythm_desktop/features/agents/data/agent_models_data_source.dart';
+import 'package:rhythm_desktop/features/agents/models/catalog_model_entry.dart';
+
+class _FakeModelsDataSource extends AgentModelsDataSource {
+  @override
+  Future<List<CatalogModelEntry>> fetchCatalog() async => const [
+        CatalogModelEntry(
+          agent: 'codex',
+          provider: 'openai',
+          modelId: '',
+          displayName: 'openai',
+          route: 'direct',
+          authorized: false,
+          authProvider: 'openai',
+        ),
+        CatalogModelEntry(
+          agent: 'codex',
+          provider: 'openai',
+          modelId: 'gpt-5.6-sol',
+          displayName: 'gpt-5.6-sol',
+          route: 'direct',
+          authorized: true,
+          authProvider: 'openai',
+        ),
+      ];
+}
 
 class _FakeAgentPlaybooksDataSource implements AgentPlaybooksDataSource {
   List<PlaybookEntry> entries = [];
@@ -127,6 +154,29 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('No playbooks yet'), findsOneWidget);
+  });
+
+  testWidgets(
+      'review:review-findings.md:60 playbook model picker excludes provider Connect rows',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PlaybookEditorSheet(
+            dataSource: ds,
+            existingNames: const {},
+            availableAgents: const [],
+            modelsDataSource: _FakeModelsDataSource(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('playbook-model-picker')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('openai/openai'), findsNothing);
+    expect(find.text('openai/gpt-5.6-sol'), findsOneWidget);
   });
 
   testWidgets(

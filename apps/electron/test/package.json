@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "type": "module",
+  "main": "../scripts/electron-test-directory-entry.mjs"
+}

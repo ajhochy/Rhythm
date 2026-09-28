@@ -2,9 +2,9 @@ import { useLayoutEffect, useRef } from 'react';
 import { Icon } from '../icons';
 
 export function FocusDialog({
-  open, title, description, onClose, children, testId, wide = false,
+  open, title, description, onClose, children, testId, wide = false, dismissible = true,
 }: {
-  open: boolean; title: string; description?: string; onClose(): void; children: React.ReactNode; testId: string; wide?: boolean;
+  open: boolean; title: string; description?: string; onClose(): void; children: React.ReactNode; testId: string; wide?: boolean; dismissible?: boolean;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
@@ -63,14 +63,14 @@ export function FocusDialog({
 
   if (!open) return null;
   return (
-    <dialog ref={dialogRef} className="dialog-backdrop" aria-labelledby={`${testId}-title`} aria-describedby={description ? `${testId}-description` : undefined} onCancel={(event) => { event.preventDefault(); requestClose(); }} onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose(); }}>
+    <dialog ref={dialogRef} className="dialog-backdrop" aria-labelledby={`${testId}-title`} aria-describedby={description ? `${testId}-description` : undefined} onCancel={(event) => { event.preventDefault(); if (dismissible) requestClose(); }} onMouseDown={(event) => { if (dismissible && event.target === event.currentTarget) requestClose(); }}>
       <div className={`dialog-panel ${wide ? 'dialog-wide' : ''}`} data-testid={testId}>
         <header className="dialog-header">
           <div>
             <h2 id={`${testId}-title`}>{title}</h2>
             {description && <p id={`${testId}-description`}>{description}</p>}
           </div>
-          <button className="icon-button" type="button" onClick={requestClose} aria-label={`Close ${title}`} data-testid={`${testId}-close`}><Icon name="close" /></button>
+          {dismissible && <button className="icon-button" type="button" onClick={requestClose} aria-label={`Close ${title}`} data-testid={`${testId}-close`}><Icon name="close" /></button>}
         </header>
         <div className="dialog-body">{children}</div>
       </div>

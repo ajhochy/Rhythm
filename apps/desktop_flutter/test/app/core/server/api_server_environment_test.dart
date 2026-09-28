@@ -7,7 +7,15 @@ const _approvalDigest =
 const _approvalPublicKey = 'test-public-key';
 
 void main() {
-  test('dev launch pins npx to the ABI-selected Node executable', () {
+  test('better-sqlite3 13 N-API prebuild does not require a Node ABI match',
+      () {
+    expect(shouldEnforceBetterSqliteNodeAbi('^13.0.3'), isFalse);
+    expect(shouldEnforceBetterSqliteNodeAbi('13.1.0'), isFalse);
+    expect(shouldEnforceBetterSqliteNodeAbi('^12.8.0'), isTrue);
+    expect(shouldEnforceBetterSqliteNodeAbi(null), isTrue);
+  });
+
+  test('dev launch pins npx to the selected Node executable', () {
     final launch = buildDevApiServerLaunch(
       nodePath: '/runtime/node',
       npxPath: '/runtime/npx',

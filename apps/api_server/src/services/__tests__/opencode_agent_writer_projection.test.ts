@@ -233,6 +233,25 @@ describe('workflow-orchestrator file projection', () => {
     expect(projected).not.toContain('    "general": allow');
   });
 
+  it('preserves authored wildcard task restrictions in the final projected roster', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+    const manager = managerConfig('manager', 'Manager', 'Coordinate.', ['specialist', 'reviewer']);
+    manager.corePermissionsJson = JSON.stringify({
+      task: { '*': 'allow', 'special*': 'deny' },
+    });
+
+    writeAgentProfileFile(manager);
+
+    const projected = readFileSync(
+      join(state.home, '.config', 'opencode', 'agents', 'manager.md'),
+      'utf8',
+    );
+    expect(projected).not.toContain('    "specialist": allow');
+    expect(projected).toContain('    "reviewer": allow');
+  });
+
   it('issue-0-c6: workflow-orchestrator projection grants write', () => {
     state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
     const agentsDir = join(state.home, '.config', 'opencode', 'agents');

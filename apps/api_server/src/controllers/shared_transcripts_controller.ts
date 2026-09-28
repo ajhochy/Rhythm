@@ -65,9 +65,9 @@ export class SharedTranscriptsController {
       if (!Array.isArray(inclusions) || new Set(inclusions).size !== inclusions.length || inclusions.some(id => typeof id !== 'string' || !review.items.some(item => item.id === id))) {
         throw AppError.badRequest('Explicit inclusions must be unique selected item IDs');
       }
-      const now = Date.now(); const maxExpiry = now + 30 * 86400000;
+      const now = Date.now(); const maxExpiry = now + DEFAULT_EXPIRATION_MS;
       const expires = body.expiresAt === undefined ? maxExpiry : typeof body.expiresAt === 'string' ? Date.parse(body.expiresAt) : NaN;
-      if (!Number.isFinite(expires) || expires <= now || expires > maxExpiry) throw AppError.badRequest('Expiry must be within the next 30 days');
+      if (!Number.isFinite(expires) || expires <= now || expires > maxExpiry) throw AppError.badRequest('Expiry must be within the next 90 days');
       const actorId = req.auth!.user.id;
       if (!await repo.usersExist(recipients)) throw AppError.badRequest('Every recipient must be a Rhythm user');
       if (!await repo.recipientsShareWorkspace(actorId, recipients)) throw AppError.forbidden('Transcript recipients must belong to the publisher workspace');

@@ -51,10 +51,16 @@ test.describe('session rail and lifecycle', () => {
     await expect(page.getByText('No sessions match.')).toBeVisible();
     await expect(page.locator('.session-group')).toHaveCount(0);
     await page.getByTestId('session-search').fill('');
-    await page.getByTestId('session-sort').selectOption('name');
+    await page.getByRole('button', { name: 'View options', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: 'Name', exact: true }).click();
+    await page.getByRole('button', { name: 'View options', exact: true }).click();
+    await expect(page.getByRole('menuitemradio', { name: 'Name', exact: true })).toHaveAttribute('aria-checked', 'true');
+    await page.keyboard.press('Escape');
     await page.getByTestId('scope-scheduled').click();
     await expect(page.getByTestId('session-session-queued')).toContainText('Monday planning digest');
     await page.getByTestId('scope-background').click();
+    await expect(page.getByTestId('group-project-project-operations')).toHaveAttribute('aria-expanded', 'false');
+    await page.getByTestId('group-project-project-operations').click();
     await expect(page.getByTestId('session-session-stuck')).toContainText('Integration health sweep');
   });
 
@@ -66,6 +72,7 @@ test.describe('session rail and lifecycle', () => {
     await page.getByTestId('session-menu-session-sunday-handoff').click();
     await page.getByTestId('unarchive-session-sunday-handoff').click();
     await expect(page.getByTestId('toast-status')).toContainText('restored');
+    await page.getByTestId('group-project-project-rhythm-desktop').click();
     await page.getByTestId('session-session-completed').click();
     await page.getByTestId('session-menu-session-completed').click();
     await page.getByTestId('resume-session-completed').click();

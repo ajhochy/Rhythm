@@ -37,6 +37,11 @@ export const SECURITY_ACTIONS = [
   "delegation.start-async",
   // Stopping delegated work in flight — consequential, so gated like a write.
   "delegation.cancel",
+  // #1577 — pushing a prompt into another running session. The most
+  // consequential write there is: the target acts on those words with its own
+  // tools. Gated here so an agent that has absorbed untrusted content cannot
+  // relay it onward without crossing the approval boundary.
+  "session.prompt",
   "notification.send",
   "scheduled-task.create",
   "scheduled-task.cancel",

@@ -16,9 +16,11 @@ test('issue-1235-c1: every chat and tool surface owns exactly one compact header
   // Regression caught: Expo Router restores its native route header above an Appbar.
   assert.match(chatRoute, /<Stack\.Screen[\s\S]*?headerShown:\s*false/);
   assert.match(toolRoute, /<Stack\.Screen[\s\S]*?headerShown:\s*false/);
-  assert.equal((chatHeader.match(/<Appbar\.Header\b/g) ?? []).length, 1);
+  assert.equal((chatHeader.match(/testID="compact-chat-header"/g) ?? []).length, 1);
+  assert.doesNotMatch(chatHeader, /<Appbar\.(?:Header|BackAction)\b/);
   assert.equal((toolRoute.match(/<Appbar\.Header\b/g) ?? []).length, 1);
-  assert.equal((toolsTab.match(/<Appbar\.Header\b/g) ?? []).length, 1);
+  assert.equal((toolsTab.match(/accessibilityRole="header"/g) ?? []).length, 1);
+  assert.equal((toolsTab.match(/<Appbar\.Header\b/g) ?? []).length, 0);
   assert.equal((agentsTab.match(/accessibilityRole="header"/g) ?? []).length, 1);
   assert.equal((activityFeed.match(/<Appbar\.Header\b|variant="headlineSmall"/g) ?? []).length, 0);
 });
@@ -27,14 +29,14 @@ test('issue-1235-c2: chat header exposes navigation, title, status, and overflow
   // Regression caught: session usage replaces the concise state and administration menu.
   assert.match(chatHeader, /accessibilityLabel="Back to Agents"/);
   assert.match(chatHeader, /selectedSession\?\.title\s*\|\|\s*'Untitled chat'/);
-  assert.match(chatHeader, /statusLabel/);
+  assert.match(chatHeader, /presentationStatus\s*\|\|\s*idleSubtitle/);
   assert.match(chatHeader, /accessibilityLabel="Chat menu"/);
 });
 
 test('issue-1235-c3: Settings and Manage live in overflow and Files Changed is conditional', () => {
   // Regression caught: a permanent second selector row consumes chat transcript height.
-  assert.match(chatHeader, /title="Settings"/);
-  assert.match(chatHeader, /title="Manage"/);
+  assert.match(chatHeader, />\s*Settings\s*<\/Button>/);
+  assert.match(chatHeader, />\s*Manage\s*<\/Button>/);
   assert.match(chatHeader, /diffCount\s*>\s*0[\s\S]*Files Changed/);
   assert.doesNotMatch(chatView, /<View[^>]*styles\.tabsRow/);
   assert.doesNotMatch(chatView, />\s*Manage\s*<\/Button>/);
@@ -50,8 +52,10 @@ test('issue-1235-c4: tool identity and actions share the compact tool header', (
 test('issue-1235-c5: raw session IDs and breadcrumbs are never prominent titles', () => {
   // Regression caught: dynamic route parameters leak into native navigation titles.
   for (const source of [chatHeader, chatView, chatRoute]) {
-    assert.doesNotMatch(source, /title=\{(?:params\.)?sessionId\}|Agents\s*\/\s*Chats|Chats\s*\/\s*\{?sessionId/i);
+    assert.doesNotMatch(source, /\b(?:title|headerTitle)\s*[:=]\s*\{(?:params\.)?sessionId\}/);
+    assert.doesNotMatch(source, />\s*(?:Agents\s*\/\s*Chats|Chats\s*\/\s*\{?sessionId\}?)\s*</i);
   }
+  assert.match(chatHeader, /selectedSession\?\.title\s*\|\|\s*'Untitled chat'/);
   assert.match(chatRoute, /headerShown:\s*false/);
 });
 
@@ -69,6 +73,6 @@ test('issue-1235-c7: compact headers preserve platform-sized touch targets', () 
   // Regression caught: visual compression makes icon buttons smaller than 44 points.
   assert.match(chatHeader, /styles\.headerAction/);
   assert.match(read('apps/mobile/components/chat/chat-view-styles.ts'), /headerAction:\s*\{[^}]*minWidth:\s*44[^}]*minHeight:\s*44/s);
-  assert.match(agentsTab, /<Pressable[\s\S]*accessibilityLabel="Agents menu"/);
+  assert.match(agentsTab, /<Pressable[\s\S]*accessibilityLabel="Chats menu"[\s\S]*styles\.headerAction/);
   assert.match(agentsTab, /headerAction:\s*\{[\s\S]*minHeight:\s*44[\s\S]*minWidth:\s*44/);
 });

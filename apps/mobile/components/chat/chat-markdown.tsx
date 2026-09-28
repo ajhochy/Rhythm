@@ -2,6 +2,8 @@ import { type ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Text } from 'react-native-paper';
 
+import { Fonts, Radii, Spacing, TypeScale } from '@/constants/theme';
+
 function renderInlineMarkdown(text: string, color: string, codeColor: string): ReactNode[] {
   const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).filter(Boolean);
 
@@ -134,7 +136,8 @@ const styles = StyleSheet.create({
   markdownBulletRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   markdownBulletText: { flex: 1 },
   inlineCode: {
-    fontFamily: 'monospace',
+    fontFamily: Fonts.mono,
+    fontSize: TypeScale.meta,
     backgroundColor: 'rgba(0,0,0,0.08)',
     paddingHorizontal: 6,
     paddingVertical: 2,
@@ -143,13 +146,16 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   codeBlock: {
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: Radii.control,
+    padding: Spacing.x3,
     backgroundColor: 'rgba(0,0,0,0.08)',
+    minWidth: 0,
   },
   code: {
-    fontFamily: 'monospace',
-    fontSize: 12,
-    lineHeight: 18,
+    fontFamily: Fonts.mono,
+    fontSize: TypeScale.meta,
+    lineHeight: 19,
+    flexShrink: 1,
+    minWidth: 0,
   },
 });

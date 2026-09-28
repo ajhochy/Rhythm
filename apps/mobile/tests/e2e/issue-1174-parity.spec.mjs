@@ -16,7 +16,11 @@ async function openAgentsAction(page, name) {
     0,
     { timeout: 10_000 },
   );
-  await page.getByRole('button', { name: 'Chats menu', exact: true }).click();
+  const menuButton = page
+    .getByRole('button', { name: 'Chats menu', exact: true })
+    .locator('visible=true');
+  await expect(menuButton).toBeVisible();
+  await menuButton.click();
   const action = page
     .getByRole('menuitem', { name, exact: true })
     .locator('visible=true');
@@ -25,8 +29,7 @@ async function openAgentsAction(page, name) {
 }
 
 async function activateMenuItem(item) {
-  await item.focus();
-  await item.press('Enter');
+  await item.click();
 }
 
 async function openReadyChat(page, request) {

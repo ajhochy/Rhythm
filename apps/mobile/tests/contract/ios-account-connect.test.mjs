@@ -14,7 +14,7 @@ const stubs = `
 const HEALTH = {
   status: 'ready', hostId: 'host-1', userId: 7,
   gatewayVersion: '1', rhythmVersion: '0.1.0', opencodeVersion: '1.14.49',
-  contractFingerprint: 'f960fbd07a9495b8911ffd511e297307f2f9e6f7e400a0d36f0740aac96dfd56',
+  contractFingerprint: '75aaa1f1f99044e41d837fe72bd00c897f85ec2b1f77bf08a52b49ce2339b78b',
   minimumMobileVersion: '0.1.0',
   features: ['pairing', 'device-revocation', 'project-scope', 'opencode-http-proxy'],
 };

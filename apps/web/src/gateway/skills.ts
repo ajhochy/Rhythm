@@ -24,6 +24,8 @@ export interface SkillEntry {
   managed: boolean;
   source: 'managed' | 'org' | 'external';
   metadata?: SkillMetadata;
+  /** SKILL.md frontmatter `tags` / `category` / `metadata.*.tags`; absent when none. */
+  tags?: string[];
 }
 
 export interface SkillWriteInput { name: string; description?: string; content: string }

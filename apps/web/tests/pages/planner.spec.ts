@@ -94,7 +94,8 @@ test('planner: source-safe navigation and deterministic agent handoff', async ({
   await expect(page.getByTestId('planner-inspector')).toContainText('Source-owned by Weekend service rollout');
   await expect(page.getByTestId('planner-add-collaborator')).toHaveCount(0);
   await page.getByTestId('planner-open-projects').click();
-  await expect(page).toHaveURL(/#\/projects$/);
+  await expect(page).toHaveURL(/#\/projects\?projectId=project-instance-instance-sunday-service-2026-08-16$/);
+  await expect(page.getByRole('option', { name: /Sunday Service - August 16/ })).toHaveAttribute('aria-selected', 'true');
 
   await openPage(page, '/planner');
   await page.getByTestId('planner-task-task-wed').click();

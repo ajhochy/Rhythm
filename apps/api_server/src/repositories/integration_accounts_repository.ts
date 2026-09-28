@@ -46,6 +46,17 @@ function rowToAccount(row: IntegrationAccountRow): IntegrationAccount {
   };
 }
 
+function normalizedGoogleScopes(scope: string | null): string | null {
+  const scopes = new Set((scope ?? '').split(/\s+/).filter(Boolean));
+  return scopes.size ? [...scopes].sort().join(' ') : null;
+}
+
+function preserveGoogleCredential(existing: IntegrationAccount, incomingScope: string | null): boolean {
+  if (!existing.refreshToken || existing.status === 'error') return false;
+  const granted = new Set((incomingScope ?? '').split(/\s+/).filter(Boolean));
+  return (existing.scope ?? '').split(/\s+/).filter(Boolean).some(scope => !granted.has(scope));
+}
+
 export class IntegrationAccountsRepository {
   async findAllAsync(ownerId?: number): Promise<IntegrationAccount[]> {
     if (env.dbClient === 'postgres') {
@@ -170,33 +181,59 @@ export class IntegrationAccountsRepository {
     scope: string | null;
     tokenType: string | null;
     expiresAt: string | null;
+    preserveScopes?: boolean;
   }): Promise<IntegrationAccount[]> {
     if (env.dbClient === 'postgres') {
       const now = new Date().toISOString();
+      const incomingScope = data.preserveScopes ? normalizedGoogleScopes(data.scope) : data.scope;
       const providers: IntegrationProvider[] = ['google_calendar', 'gmail'];
       for (const provider of providers) {
-        const existing = await this.findByProviderAsync(provider, data.ownerId);
+        let existing = await this.findByProviderAsync(provider, data.ownerId);
         if (existing) {
-          await getPostgresPool().query(
-            `UPDATE integration_accounts
-             SET external_account_id = $1, email = $2, display_name = $3, status = $4,
-                 access_token = $5, refresh_token = $6, scope = $7, token_type = $8,
-                 expires_at = $9, error_message = NULL, updated_at = $10
-             WHERE id = $11`,
-            [
-              data.externalAccountId,
-              data.email,
-              data.displayName,
-              'connected',
-              data.accessToken,
-              data.refreshToken ?? existing.refreshToken,
-              data.scope,
-              data.tokenType,
-              data.expiresAt,
-              now,
-              existing.id,
-            ],
-          );
+          // ponytail: retry a credential compare-and-swap so overlapping grants stay coherent.
+          let updated = false;
+          for (let attempt = 0; attempt < 10 && !updated; attempt++) {
+            if (data.preserveScopes && preserveGoogleCredential(existing, incomingScope)) {
+              updated = true; // Keep every column of the existing credential, including identity and expiry.
+              break;
+            }
+            const result = await getPostgresPool().query(
+              `UPDATE integration_accounts
+               SET external_account_id = $1, email = $2, display_name = $3, status = $4,
+                   access_token = $5,
+                   refresh_token = CASE WHEN external_account_id = $1 THEN COALESCE($6, refresh_token) ELSE $6 END,
+                   scope = $7, token_type = $8,
+                   expires_at = $9, error_message = NULL, updated_at = $10
+               WHERE id = $11 AND scope IS NOT DISTINCT FROM $12 AND external_account_id = $13
+                 AND refresh_token IS NOT DISTINCT FROM $14 AND status = $15
+                 AND access_token IS NOT DISTINCT FROM $16`,
+              [
+                data.externalAccountId,
+                data.email,
+                data.displayName,
+                'connected',
+                data.accessToken,
+                data.refreshToken,
+                incomingScope,
+                data.tokenType,
+                data.expiresAt,
+                now,
+                existing.id,
+                existing.scope,
+                existing.externalAccountId,
+                existing.refreshToken,
+                existing.status,
+                existing.accessToken,
+              ],
+            );
+            updated = (result.rowCount ?? 0) > 0;
+            if (!updated) {
+              const latest = await this.findByProviderAsync(provider, data.ownerId);
+              if (!latest) throw new Error('Google integration account disappeared during update');
+              existing = latest;
+            }
+          }
+          if (!updated) throw new Error('Google integration scope update conflicted repeatedly');
         } else {
           await getPostgresPool().query(
             `INSERT INTO integration_accounts (
@@ -214,7 +251,7 @@ export class IntegrationAccountsRepository {
               'connected',
               data.accessToken,
               data.refreshToken,
-              data.scope,
+              incomingScope,
               data.tokenType,
               data.expiresAt,
               null,
@@ -243,18 +280,23 @@ export class IntegrationAccountsRepository {
     scope: string | null;
     tokenType: string | null;
     expiresAt: string | null;
+    preserveScopes?: boolean;
   }): IntegrationAccount[] {
     const now = new Date().toISOString();
+    const incomingScope = data.preserveScopes ? normalizedGoogleScopes(data.scope) : data.scope;
     const providers: IntegrationProvider[] = ['google_calendar', 'gmail'];
 
     for (const provider of providers) {
       const existing = this.findByProvider(provider, data.ownerId);
       if (existing) {
+        if (data.preserveScopes && preserveGoogleCredential(existing, incomingScope)) continue;
         getDb()
           .prepare(
-            `UPDATE integration_accounts
-             SET external_account_id = ?, email = ?, display_name = ?, status = ?,
-                 access_token = ?, refresh_token = ?, scope = ?, token_type = ?,
+             `UPDATE integration_accounts
+              SET external_account_id = ?, email = ?, display_name = ?, status = ?,
+                 access_token = ?,
+                 refresh_token = CASE WHEN external_account_id = ? THEN COALESCE(?, refresh_token) ELSE ? END,
+                 scope = ?, token_type = ?,
                  expires_at = ?, error_message = NULL, updated_at = ?
              WHERE id = ?`,
           )
@@ -264,8 +306,10 @@ export class IntegrationAccountsRepository {
             data.displayName,
             'connected',
             data.accessToken,
-            data.refreshToken ?? existing.refreshToken,
-            data.scope,
+            data.externalAccountId,
+            data.refreshToken,
+            data.refreshToken,
+            incomingScope,
             data.tokenType,
             data.expiresAt,
             now,
@@ -290,7 +334,7 @@ export class IntegrationAccountsRepository {
             'connected',
             data.accessToken,
             data.refreshToken,
-            data.scope,
+            incomingScope,
             data.tokenType,
             data.expiresAt,
             null,

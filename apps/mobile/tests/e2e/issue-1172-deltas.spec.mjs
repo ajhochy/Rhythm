@@ -30,8 +30,7 @@ async function openAgentsAction(page, name) {
 }
 
 async function activateMenuItem(item) {
-  await item.focus();
-  await item.press('Enter');
+  await item.click();
 }
 
 test('issue-1172-delta-c1/c2: lifecycle views, all projects, and fork are usable from Chats', async ({

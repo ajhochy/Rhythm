@@ -1,8 +1,10 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { openPage } from '../helpers';
+import { expectInspectorHeading, selectRow } from '../helpers/list-inspector';
 
 const calendarRuleId = 'rule-calendar-room';
+const calendarRuleName = 'Book a room for calendar events · 会場 📅';
 
 async function expectNoBlockingAxe(page: Page, state: string) {
   const result = await new AxeBuilder({ page }).analyze();
@@ -13,7 +15,7 @@ async function expectNoBlockingAxe(page: Page, state: string) {
 test('Automations click-through covers catalog creation, editing, confirmation-gated delete, preview, and resync', async ({ page }) => {
   await openPage(page, 'automations');
   await expect(page.getByTestId('page-automations')).toBeVisible();
-  await page.getByTestId(`automation-select-${calendarRuleId}`).click();
+  await selectRow(page, calendarRuleName);
   // Regression caught: selection left the inspector read-only until a separate edit dialog was opened.
   await expect(page.getByTestId('automation-direct-editor').getByTestId('automation-source')).toBeEnabled();
 
@@ -27,24 +29,25 @@ test('Automations click-through covers catalog creation, editing, confirmation-g
   const createdId = 'rule-wednesday-rehearsal-follow-up';
   const created = page.getByTestId(`automation-rule-${createdId}`);
   await expect(created).toContainText('Wednesday rehearsal follow-up');
-  await page.getByTestId(`automation-select-${createdId}`).click();
+  await selectRow(page, 'Wednesday rehearsal follow-up');
   const directEditor = page.getByTestId('automation-direct-editor');
   await directEditor.getByTestId('automation-name').fill('Wednesday rehearsal prep');
   await directEditor.getByTestId('automation-builder-submit').click();
   await expect(created).toContainText('Wednesday rehearsal prep');
 
-  await created.getByTestId(`automation-delete-${createdId}`).click();
+  await page.getByTestId(`automation-delete-${createdId}`).click();
   const confirmation = page.getByTestId('automation-delete-dialog');
   await expect(confirmation).toContainText('Wednesday rehearsal prep');
   await page.getByTestId('automation-delete-cancel').click();
   await expect(created).toBeVisible();
   await expect(page.getByTestId('page-trace').getByText(`DELETE /automation-rules/${createdId} → 204`, { exact: true })).toHaveCount(0);
 
-  await created.getByTestId(`automation-delete-${createdId}`).click();
+  await page.getByTestId(`automation-delete-${createdId}`).click();
   await page.getByTestId('automation-delete-confirm').click();
   await expect(created).toHaveCount(0);
   await expect(page.getByTestId('page-trace')).toContainText(`DELETE /automation-rules/${createdId} → 204`);
 
+  await selectRow(page, calendarRuleName);
   const inspect = page.getByTestId(`automation-inspect-${calendarRuleId}`);
   await inspect.click();
   await expect(page.getByTestId('automation-preview-dialog')).toContainText('会場');
@@ -76,8 +79,9 @@ test('Automations state and prerequisite journeys recover in place without exter
 
   await openPage(page, 'automations/not-a-rule');
   const trace = await page.getByTestId('page-trace').textContent();
-  await page.getByTestId('automations-back-to-list').click();
-  await expect(page).toHaveURL(/#\/automations$/);
+  await expectInspectorHeading(page, 'Item not found');
+  await selectRow(page, calendarRuleName);
+  await expect(page).toHaveURL(/#\/automations\?automationId=rule-calendar-room/);
   await expect(page.getByTestId('page-trace')).toHaveText(trace ?? '');
 });
 
@@ -85,7 +89,9 @@ test('Automations is responsive and axe-clean across representative page, dialog
   for (const width of [1024, 768, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
     await openPage(page, 'automations');
-    await expect(page.getByTestId('automations-new')).toBeVisible();
+    const create = page.getByTestId('automations-new');
+    if (!await create.isVisible()) await page.getByRole('button', { name: 'Back to list', exact: true }).click();
+    await expect(create).toBeVisible();
     const overflow = await page.evaluate(() => ({ client: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
     expect(overflow.scroll, `${width}px`).toBeLessThanOrEqual(overflow.client + 1);
   }

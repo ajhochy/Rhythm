@@ -17,6 +17,8 @@ import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { OpencodeClientService } from '../services/opencode_client_service';
+import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
+import { logger } from '../utils/logger';
 
 // ---------------------------------------------------------------------------
 // Hoisted shared state
@@ -212,5 +214,100 @@ describe('OPC-#710 — instant new session / auto-title', () => {
     });
     expect(session.id).toBeTruthy();
     expect(session.name).toBe('');
+  });
+
+  // ── Auto-naming regression: blank title made the engine skip auto-titling ──
+
+  function updatedStream(sdkId: string, title: string) {
+    return {
+      event: {
+        subscribe: () =>
+          Promise.resolve(
+            streamOf([
+              {
+                type: 'session.updated',
+                properties: {
+                  info: { id: sdkId, projectID: 'p', directory: CWD, title, version: '1', time: { created: 1, updated: 1 } },
+                },
+              } as unknown as Event,
+            ]),
+          ),
+      },
+    };
+  }
+
+  it('createSession omits a blank/placeholder title so the engine assigns its auto-titleable default', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    injectClient(service.ref, {
+      session: {
+        create: (opts: { body: Record<string, unknown> }) => {
+          bodies.push(opts.body);
+          return Promise.resolve({ data: { id: `ses_${bodies.length}` } });
+        },
+      },
+    });
+    await service.ref.createSession('', CWD);
+    await service.ref.createSession('Untitled chat', CWD);
+    await service.ref.createSession('  My chosen name  ', CWD);
+    expect('title' in bodies[0]).toBe(false);
+    expect('title' in bodies[1]).toBe(false);
+    expect(bodies[2].title).toBe('My chosen name');
+  });
+
+  it('engine default "New session - <iso>" title is not adopted as the session name', async () => {
+    const session = repo.insert({ agentKind: 'claude-code', taskId: null, taskTitle: null, cwd: CWD, name: '' });
+    sessionMap.set(session.id, 'sdkDefault');
+    injectClient(service.ref, updatedStream('sdkDefault', 'New session - 2026-09-28T12:00:00.000Z'));
+    await streamBridge.streamSession(session.id, 'sdkDefault', CWD);
+    await flush();
+    expect(repo.findById(session.id)?.name).toBe('');
+  });
+
+  it('a placeholder name ("Untitled chat") is replaced by the engine title', async () => {
+    const session = repo.insert({ agentKind: 'claude-code', taskId: null, taskTitle: null, cwd: CWD, name: 'Untitled chat' });
+    sessionMap.set(session.id, 'sdkPlaceholder');
+    injectClient(service.ref, updatedStream('sdkPlaceholder', 'Plan the Sunday set'));
+    await streamBridge.streamSession(session.id, 'sdkPlaceholder', CWD);
+    await flush();
+    expect(repo.findById(session.id)?.name).toBe('Plan the Sunday set');
+  });
+
+  it('a user-chosen name is never overwritten by a later engine title', async () => {
+    const session = repo.insert({ agentKind: 'claude-code', taskId: null, taskTitle: null, cwd: CWD, name: 'My renamed chat' });
+    sessionMap.set(session.id, 'sdkRenamed');
+    injectClient(service.ref, updatedStream('sdkRenamed', 'Engine generated title'));
+    await streamBridge.streamSession(session.id, 'sdkRenamed', CWD);
+    await flush();
+    expect(repo.findById(session.id)?.name).toBe('My renamed chat');
+  });
+
+  it('warns (once) when a session is still untitled after its second turn', () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+    const session = repo.insert({ agentKind: 'claude-code', taskId: null, taskTitle: null, cwd: CWD, name: '' });
+    const named = repo.insert({ agentKind: 'claude-code', taskId: null, taskTitle: null, cwd: CWD, name: 'Has a name' });
+    const bridge = streamBridge as unknown as { _warnIfStillUntitled(id: string): void };
+    // First idle: the engine's background title may still be in flight — no warning yet.
+    bridge._warnIfStillUntitled(session.id);
+    expect(warn.mock.calls.some((c) => String(c[0]).includes(session.id))).toBe(false);
+    // Second idle: still untitled → the namer failed → warn (once).
+    bridge._warnIfStillUntitled(session.id);
+    bridge._warnIfStillUntitled(session.id);
+    bridge._warnIfStillUntitled(named.id);
+    bridge._warnIfStillUntitled(named.id);
+    const messages = warn.mock.calls.map((c) => String(c[0]));
+    expect(messages.filter((m) => m.includes(session.id) && m.includes('still untitled'))).toHaveLength(1);
+    expect(messages.some((m) => m.includes(named.id))).toBe(false);
+    warn.mockRestore();
+  });
+
+  it('exposes firstPrompt (first line of the first user prompt) only while the session is untitled', () => {
+    const msgs = new AgentSessionMessagesRepository();
+    const untitled = repo.insert({ agentKind: 'claude-code', taskId: null, taskTitle: null, cwd: CWD, name: '' });
+    msgs.append(untitled.id, 'input', 'x', '  give me repo state in plain language.\nsecond line');
+    msgs.append(untitled.id, 'input', 'x', 'a later prompt');
+    expect(repo.findById(untitled.id)?.firstPrompt).toBe('give me repo state in plain language.');
+    const named = repo.insert({ agentKind: 'claude-code', taskId: null, taskTitle: null, cwd: CWD, name: 'Named' });
+    msgs.append(named.id, 'input', 'x', 'hello');
+    expect(repo.findById(named.id)?.firstPrompt).toBeNull();
   });
 });

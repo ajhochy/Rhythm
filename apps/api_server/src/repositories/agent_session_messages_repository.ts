@@ -1,4 +1,5 @@
 import { getDb } from '../database/db';
+import { hostPartAttachments } from '../services/attachment_hosting';
 import type { AgentSessionMessage, StructuredAgentSessionMessage } from '../models/agent_session';
 import {
   appendRelayDelete,
@@ -316,10 +317,18 @@ export class AgentSessionMessagesRepository {
         }
       }
 
-      const partId = part.id as string | undefined;
+      // Attachment bytes go to the media store; the row keeps a reference.
+      const session = db.prepare(
+        `SELECT id, project_id FROM agent_sessions WHERE id = ?`
+      ).get(sessionId) as { id: string; project_id: string | null } | undefined;
+      const stored = session
+        ? hostPartAttachments(part, { id: String(session.id), projectId: session.project_id })
+        : part;
+
+      const partId = stored.id as string | undefined;
       const idx = partId ? parts.findIndex((p) => p.id === partId) : -1;
-      if (idx >= 0) parts[idx] = part;
-      else parts.push(part);
+      if (idx >= 0) parts[idx] = stored;
+      else parts.push(stored);
 
       const rawText = parts
         .filter((p) => p.type === 'text' && typeof p.text === 'string')

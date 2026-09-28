@@ -1,5 +1,7 @@
 import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
-const source = '# Report\n\n- First\n- Second\n\n[Docs](https://example.com) [Bad](javascript:alert(1))\n\n```ts\nconst x = 1;\n```\n\n| Name | Value |\n| --- | --- |\n| A | 2 |\n\n<script>alert(1)</script>';
+import { mkdir } from 'node:fs/promises';
+import { resolve } from 'node:path';
+const source = '# Report\n\n- First\n- Second\n\n[Docs](https://Example.COM:443/a/../guide?q=1#start) [HTTP](http://example.com/plain) [Script](javascript:alert(1)) [File](file:///etc/passwd) [Data](data:text/html,bad) [Custom](rhythm://settings) [Space](<https://example.com/a b>) [Control](<https://example.com/a\u0007b>)\n\n```ts\nconst x = 1;\n```\n\n| Name | Value |\n| --- | --- |\n| A | 2 |\n\n<script>alert(1)</script>';
 const tool = { id: 'tool', type: 'tool', tool: 'mcp_demo', callID: 'call-1', state: { status: 'error', input: { query: 'actual argument' }, output: 'actual output', error: 'actual failure', metadata: { content: [{ type: 'resource', resource: { uri: 'ui://demo', mimeType: 'text/html', text: '<h1>App</h1>' } }], _meta: { ui: { resourceUri: 'ui://demo' } } } } };
 async function open(page: Page) {
   let socket: WebSocketRoute;
@@ -49,6 +51,117 @@ test('E25A-c5 safe semantic markdown and disabled external link, no HTML executi
   await expect(msg.getByRole('link', { name: /Docs/ })).toHaveAttribute('aria-disabled', 'true');
   await expect(msg).toContainText('External link opening unavailable');
   await expect(msg.locator('[href^="javascript:"], script, iframe')).toHaveCount(0);
+});
+
+test('task-safe-external-links-c1: safe transcript click uses the narrow bridge once without renderer navigation', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { externalCalls: string[] }).externalCalls = [];
+    (window as unknown as { rhythmShell: { openExternal(url: string): Promise<void> } }).rhythmShell = {
+      openExternal: async (url) => { (window as unknown as { externalCalls: string[] }).externalCalls.push(url); },
+    };
+  });
+  await open(page);
+  const before = page.url();
+  const link = page.getByRole('link', { name: 'Docs' });
+  await expect(link).toHaveAttribute('href', 'https://Example.COM:443/a/../guide?q=1#start');
+  await link.click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { externalCalls: string[] }).externalCalls)).toEqual(['https://Example.COM:443/a/../guide?q=1#start']);
+  expect(page.url()).toBe(before);
+});
+
+test('task-safe-external-links-c4: unsafe schemes stay blocked text and never cross IPC', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { externalCalls: string[] }).externalCalls = [];
+    (window as unknown as { rhythmShell: { openExternal(url: string): Promise<void> } }).rhythmShell = {
+      openExternal: async (url) => { (window as unknown as { externalCalls: string[] }).externalCalls.push(url); },
+    };
+  });
+  await open(page);
+  const message = page.getByTestId('message-m1');
+  for (const label of ['Script', 'File', 'Data', 'Custom', 'Space', 'Control']) await expect(message.getByRole('link', { name: label, exact: true })).toHaveCount(0);
+  await expect(message).toContainText('Unsafe link blocked');
+  expect(await page.evaluate(() => (window as unknown as { externalCalls: string[] }).externalCalls)).toEqual([]);
+  await expect(message.locator('script, iframe, img')).toHaveCount(0);
+});
+
+test('task-safe-external-links-c5: missing bridge stays disabled and OS rejection is announced without internals', async ({ page }) => {
+  await open(page);
+  const unavailable = page.getByRole('link', { name: 'Docs' });
+  await expect(unavailable).toHaveAttribute('aria-disabled', 'true');
+  await unavailable.press('Enter');
+  await expect(page).toHaveURL(/electron-e22-harness\.html/);
+
+  await page.addInitScript(() => {
+    (window as unknown as { rhythmShell: { openExternal(url: string): Promise<void> } }).rhythmShell = {
+      openExternal: async () => { throw new Error('sensitive OS detail'); },
+    };
+  });
+  await page.reload();
+  await open(page);
+  await page.getByRole('link', { name: 'Docs' }).click();
+  const status = page.getByTestId('message-m1').getByRole('status').filter({ hasText: 'External link could not be opened.' });
+  await expect(status).toHaveText(' (External link could not be opened.)');
+  await expect(status).not.toContainText('sensitive');
+});
+
+test('task-safe-external-links-c6: link preserves text and exposes destination with safe anchor attributes', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { rhythmShell: { openExternal(url: string): Promise<void> } }).rhythmShell = { openExternal: async () => {} };
+  });
+  await open(page);
+  const link = page.getByRole('link', { name: 'Docs' });
+  await expect(link).toHaveText('Docs');
+  await expect(link).toHaveAttribute('title', 'https://Example.COM:443/a/../guide?q=1#start');
+  await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  await expect(page.getByRole('link', { name: 'HTTP', exact: true })).toHaveAttribute('href', 'http://example.com/plain');
+});
+
+test('task-safe-external-links-c9: every enabled link has a stable non-hover default-browser description', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { rhythmShell: { openExternal(url: string): Promise<void> } }).rhythmShell = { openExternal: async () => {} };
+  });
+  await open(page);
+  for (const [name, hostname] of [['Docs', 'example.com'], ['HTTP', 'example.com']]) {
+    const link = page.getByRole('link', { name, exact: true });
+    const descriptionId = await link.getAttribute('aria-describedby');
+    expect(descriptionId).toBeTruthy();
+    const description = page.locator(`[id="${descriptionId}"]`);
+    await expect(description).toHaveClass(/\bsr-only\b/);
+    await expect(description).toHaveText(`Opens ${hostname} in the default browser.`);
+    await expect(link).toHaveAccessibleDescription(`Opens ${hostname} in the default browser.`);
+  }
+});
+
+test('task-safe-external-links-c10: mounted link-local status visibly separates a dispatch failure from link text', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { rhythmShell: { openExternal(url: string): Promise<void> } }).rhythmShell = {
+      openExternal: async () => { throw new Error('private dispatch detail'); },
+    };
+  });
+  await open(page);
+  const link = page.getByRole('link', { name: 'Docs', exact: true });
+  const status = link.locator('xpath=..').getByRole('status');
+  await expect(status).toBeAttached();
+  await expect(status).toHaveText('');
+  await link.click();
+  await expect(status).toHaveText(' (External link could not be opened.)');
+});
+
+test('task-safe-external-links-c7: keyboard activation dispatches once and durable evidence shows safe and blocked links', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { externalCalls: string[] }).externalCalls = [];
+    (window as unknown as { rhythmShell: { openExternal(url: string): Promise<void> } }).rhythmShell = {
+      openExternal: async (url) => { (window as unknown as { externalCalls: string[] }).externalCalls.push(url); },
+    };
+  });
+  await open(page);
+  const before = page.url();
+  await page.getByRole('link', { name: 'Docs' }).press('Enter');
+  await expect.poll(() => page.evaluate(() => (window as unknown as { externalCalls: string[] }).externalCalls)).toHaveLength(1);
+  expect(page.url()).toBe(before);
+  const artifactDir = resolve(process.cwd(), '../../docs/ai/runs/artifacts/safe-external-links');
+  await mkdir(artifactDir, { recursive: true });
+  await page.getByTestId('message-m1').screenshot({ path: resolve(artifactDir, 'transcript-safe-external-links.png') });
 });
 test('E25A-c6 copies canonical markdown and fenced code exactly', async ({ page }) => {
   await open(page);

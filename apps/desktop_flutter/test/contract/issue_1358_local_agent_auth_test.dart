@@ -21,6 +21,12 @@ void main() {
       final captured = <http.Request>[];
       final client = MockClient((request) async {
         captured.add(request);
+        if (request.url.path.contains('/mcp-app-resource/')) {
+          return http.Response(jsonEncode(<String, Object?>{}), 200);
+        }
+        if (request.url.path.contains('/mcp-app-capability/')) {
+          return http.Response(jsonEncode(<String, Object?>{}), 200);
+        }
         final body = request.url.path.endsWith('/usage-budget')
             ? {'providers': <Object>[]}
             : <Object>[];
@@ -34,8 +40,23 @@ void main() {
       await AgentModelsDataSource(client: client).fetchCatalog();
       await UsageBudgetDataSource(client: client).fetch();
       await AgentModelVisibilityDataSource(client: client).fetchVisibility();
+      final agents = AgentsDataSource(client: client);
+      await agents.fetchPendingPermissions('s1');
+      await agents.fetchMcpAppResource(
+        sessionId: 's1',
+        toolCallId: 'resource-call',
+      );
+      await agents.issueMcpAppCapability(
+        sessionId: 's1',
+        toolCallId: 'issue-call',
+      );
+      await agents.brokerMcpAppCapability(
+        sessionId: 's1',
+        toolCallId: 'broker-call',
+        encodedRequest: jsonEncode({'id': 'request-1'}),
+      );
 
-      expect(captured, hasLength(4));
+      expect(captured, hasLength(8));
       for (final request in captured) {
         expect(
           request.headers.containsKey('authorization'),

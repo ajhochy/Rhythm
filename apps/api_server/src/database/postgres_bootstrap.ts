@@ -593,6 +593,8 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       ON agent_scheduled_tasks(next_run_at)
       WHERE enabled = TRUE AND next_run_at IS NOT NULL
   `);
+  // Cloud and relay both read this nullable profile via the trigger queue.
+  await pool.query(`ALTER TABLE agent_scheduled_tasks ADD COLUMN IF NOT EXISTS agent_config_id TEXT`);
 
   // Extend pending_claude_triggers with scheduler context columns (additive,
   // all nullable). PROD-OWNED: the cloud role enqueues scheduled triggers into
@@ -654,6 +656,17 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
         project_id,
         resource_kind
       );
+
+    CREATE TABLE IF NOT EXISTS mobile_prompt_idempotency (
+      owner_user_id INTEGER NOT NULL
+        REFERENCES users(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      client_message_id TEXT NOT NULL,
+      engine_message_id TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (owner_user_id, project_id, session_id, client_message_id)
+    );
   `);
 
   // #1178 — production-owned transcript sharing is mounted in the cloud role,
@@ -1035,6 +1048,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES agent_research_projects(id) ON DELETE CASCADE`);
   await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS project_run_id TEXT REFERENCES agent_research_project_runs(id) ON DELETE CASCADE`);
   await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS pass_role TEXT`);
+  await pool.query(`ALTER TABLE agent_research_projects ADD COLUMN IF NOT EXISTS magazine_artifact_id TEXT`);
   await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS pass_ordinal INTEGER`);
   await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS run_config_json TEXT`);
   await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS progress_json TEXT`);
@@ -1141,6 +1155,11 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_agent_cookbook_created_at ON agent_cookbook(created_at)`,
   );
+  // #1485 S1a — same additive/nullable workflow columns as migrations.ts
+  // (SQLite). NULL definition_json means legacy; no execution runs on
+  // Postgres deployments regardless (see env.recipeWorkflowsEnabled callers).
+  await pool.query(`ALTER TABLE agent_cookbook ADD COLUMN IF NOT EXISTS schema_version INTEGER`);
+  await pool.query(`ALTER TABLE agent_cookbook ADD COLUMN IF NOT EXISTS definition_json TEXT`);
 
   // D1 — agent_designs: provider-neutral finished creative-media artifacts.
   await pool.query(`
@@ -1168,6 +1187,18 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_agent_designs_created_at ON agent_designs(created_at)`,
   );
+  // Gallery folders — mirrors migrations.ts (folder_id unfiled in code on folder delete).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_design_folders (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      sort_order INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`ALTER TABLE agent_designs ADD COLUMN IF NOT EXISTS folder_id TEXT`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_designs_folder_id ON agent_designs(folder_id)`);
 
   // P1-1 — agent_skills: shared, instance-wide self-improving skill library.
   // Skills are SHARED across all agents — there is intentionally NO owner_user_id.
@@ -1440,6 +1471,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(`
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS model_tier_hint TEXT;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS default_anthropic_account_id TEXT;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS default_openai_account_id TEXT;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS auto_approve_actions INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS schedulable INTEGER;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS image_generation_enabled INTEGER NOT NULL DEFAULT 0;
@@ -1465,10 +1497,6 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       ON agent_config_security_events(agent_config_id, created_at)
   `);
 
-  // agent_config_id: logical FK from scheduled tasks to agent_configs.id.
-  await pool.query(`
-    ALTER TABLE agent_scheduled_tasks ADD COLUMN IF NOT EXISTS agent_config_id TEXT;
-  `);
 
   // Per-task model override (the model-override change): nullable provider/model that, when
   // both set, override the bound profile's model for that scheduled run.
@@ -1497,6 +1525,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS sdk_session_id TEXT;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS mcp_allowed_tools_json TEXT;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS anthropic_account_id TEXT;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS openai_account_id TEXT;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS worktree_name TEXT;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS worktree_path TEXT;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS worktree_branch TEXT;
@@ -1650,6 +1679,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
            scheduled_task_id = parent.scheduled_task_id,
            is_system = parent.is_system,
            anthropic_account_id = parent.anthropic_account_id,
+           openai_account_id = parent.openai_account_id,
            owner_user_id = parent.owner_user_id,
            delegation_depth = COALESCE(parent.delegation_depth, 0) + 1,
            category = parent.category,
@@ -2384,4 +2414,87 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_tool_safety_reports_proposal
        ON tool_safety_reports(proposal_id)`,
   );
+
+  // #1485 S3a-2 — Postgres twin of the agent_sessions workflow-binding columns.
+  await pool.query(`ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS workflow_run_id TEXT`);
+  await pool.query(`ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS workflow_stage_execution_id TEXT`);
+
+  // #1485 S3a-1 — durable recipe-workflow runs. Postgres twin of
+  // migrations.ts; column set (including the '' item_key/item_id sentinel —
+  // see migrations.ts for why NULL cannot be used there) MUST stay identical.
+  // Execution never actually runs against a hosted/Postgres deployment (see
+  // recipe_workflow_runner.ts), so these rows exist for schema parity only.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS recipe_workflow_runs (
+      id TEXT PRIMARY KEY,
+      recipe_id TEXT NOT NULL REFERENCES agent_cookbook(id) ON DELETE CASCADE,
+      owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      definition_json TEXT NOT NULL,
+      input_json TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'pending',
+      pending_approval_id TEXT,
+      usage_cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
+      usage_tokens INTEGER NOT NULL DEFAULT 0,
+      stage_execution_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      updated_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      cancelled_at TEXT
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_recipe_workflow_runs_recipe
+       ON recipe_workflow_runs(recipe_id, created_at)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_recipe_workflow_runs_status
+       ON recipe_workflow_runs(status, updated_at)`,
+  );
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS recipe_workflow_stage_executions (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL REFERENCES recipe_workflow_runs(id) ON DELETE CASCADE,
+      stage_id TEXT NOT NULL,
+      item_key TEXT NOT NULL DEFAULT '',
+      item_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempt_id TEXT,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      profile_id TEXT,
+      configured_provider_id TEXT,
+      configured_model_id TEXT,
+      observed_provider_id TEXT,
+      observed_model_id TEXT,
+      outcome TEXT,
+      output_json TEXT,
+      item_data_json TEXT,
+      cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
+      tokens INTEGER NOT NULL DEFAULT 0,
+      provisional_session_id TEXT,
+      committed_session_id TEXT,
+      started_at TEXT,
+      completed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      updated_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      UNIQUE(run_id, stage_id, item_key, item_id)
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_recipe_workflow_stage_executions_run
+       ON recipe_workflow_stage_executions(run_id, status)`,
+  );
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS recipe_workflow_loop_usage (
+      run_id TEXT NOT NULL REFERENCES recipe_workflow_runs(id) ON DELETE CASCADE,
+      loop_id TEXT NOT NULL,
+      item_key TEXT NOT NULL DEFAULT '',
+      item_id TEXT NOT NULL DEFAULT '',
+      iterations INTEGER NOT NULL DEFAULT 0,
+      cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
+      tokens INTEGER NOT NULL DEFAULT 0,
+      started_at TEXT NOT NULL,
+      PRIMARY KEY (run_id, loop_id, item_key, item_id)
+    )
+  `);
 }

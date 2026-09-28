@@ -1,0 +1,23 @@
+{
+  "issue": 1576,
+  "date": "2026-09-24",
+  "test_command": "cd apps/api_server && npx vitest run src/__tests__/issue_1576_b1_ledger.test.ts",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "issue-1576-c1", "text": "Fresh/upgrade/idempotent SQLite dispatch-only schema; no backfill or historical fabrication; no served-step table or shared agent_sessions columns", "mode": "integration", "test": "apps/api_server/src/__tests__/issue_1576_b1_ledger.test.ts", "status": "pass" },
+    { "criterion_id": "issue-1576-c2", "text": "Structured local-only dispatch CRUD/outcome, stable ids/order/pagination, nullable SDK linkage, requested/resolved/final model and predecessor", "mode": "integration", "test": "apps/api_server/src/__tests__/issue_1576_b1_ledger.test.ts", "status": "pass" },
+    { "criterion_id": "issue-1576-c3", "text": "Existing hard delete and age purge cascade dispatches; real message-repository deletion retains dispatch; late write FK prevents resurrection", "mode": "integration", "test": "apps/api_server/src/__tests__/issue_1576_b1_ledger.test.ts", "status": "pass" },
+    { "criterion_id": "issue-1576-c4", "text": "Bounded identifier/reason shapes, owned origin/source and outcome enums, closed typed input, and discarded runtime extras without prompt/body columns or mutation on invalid input", "mode": "unit", "test": "apps/api_server/src/__tests__/issue_1576_b1_ledger.test.ts", "status": "pass" },
+    { "criterion_id": "issue-1576-c5", "text": "Postgres explicitly unavailable across all five repository methods before SQLite prepare; SQLite-only schema ownership and existing bootstrap parity", "mode": "integration", "test": "apps/api_server/src/__tests__/issue_1576_b1_ledger.test.ts", "status": "pass" },
+    { "criterion_id": "issue-1576-c6", "text": "Engine revert endpoint retains B1 dispatches", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "B1 exercises real message-repository deletion, not the engine revert endpoint; exercise only in a separately approved engine integration slice." },
+    { "criterion_id": "issue-1576-c7", "text": "HTTP route and served-model projection", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "B1 defines no HTTP route or served identity; defer API/engine integration to B2/B3." },
+    { "criterion_id": "issue-1576-c8", "text": "Live Postgres parity", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "B1 is explicitly SQLite-local; no live Postgres connection or parity claim." }
+  ],
+  "not_tested": ["issue-1576-c6", "issue-1576-c7", "issue-1576-c8"],
+  "caveats": [
+    "Closed DispatchInput shape is not a secret-content filter: identifier-like secrets can fit allowed fields, and runtime boolean fields coerce truthy/falsy values; callers must supply server-owned, sanitized metadata.",
+    "No repository owner/authorization check; no route or public API is shipped by B1.",
+    "Pagination limit is clamped to 1..200 (default 100) and ordered by SQLite rowid, not created_at/id; non-finite limit behavior is not contracted.",
+    "Sandbox startup/restart verified schema and FK metadata on a synthetic fixture, not served/runtime dispatch behavior or a Postgres server."
+  ]
+}

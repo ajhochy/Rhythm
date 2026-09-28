@@ -32,12 +32,17 @@ import {
 import { estimateToolSurface } from '../services/tool_surface_estimator';
 import { streamBridge } from '../services/opencode_stream_bridge';
 import { anthropicAccountsService } from '../services/anthropic_accounts_service';
-import { broadcastSessionUpdated, broadcastSessionRemoved } from '../services/ws_gateway';
+import { openaiAccountsService } from '../services/openai_accounts_service';
+import { broadcastSessionUpdated, broadcastSessionRemoved, handleInputFrame } from '../services/ws_gateway';
+import { AgentPromptInjectionsRepository } from '../repositories/agent_prompt_injections_repository';
+import { resolveCallerSessionId } from './agent_delegation_controller';
+import { verifyTrustedMcpCall } from '../security/trusted_mcp_call';
 import { logger } from '../utils/logger';
 import { getCuratorExtractStatus } from '../services/skill_extractor';
 import { getCuratorRefineStatus } from '../services/skill_refiner';
 import { getSyncStatus } from '../services/sync_orchestrator_service';
 import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
+import { getModelProvenance } from '../services/model_provenance_service';
 import {
   McpAppCapabilityBroker,
   McpAppCapabilityDenied,
@@ -193,10 +198,12 @@ function resolveWorktreeEngineDirectory(session: {
   worktreePath: string | null;
 }): string | null {
   if (!session.worktreePath) return null;
+  const primaryWorktreePath = getPrimaryWorktreePath(session.worktreePath);
+  if (primaryWorktreePath) return primaryWorktreePath;
   const projectCwd = session.projectId
     ? new ProjectsRepository().findById(session.projectId)?.cwd
     : null;
-  return projectCwd ?? getPrimaryWorktreePath(session.worktreePath) ?? session.worktreePath;
+  return projectCwd ?? session.worktreePath;
 }
 
 /**
@@ -211,7 +218,10 @@ async function backfillSessionModelFromOpencode(
   sdkSessionId: string,
 ): Promise<void> {
   try {
-    const messages = await opencodeClient.listMessages(sdkSessionId);
+    const messages = await opencodeClient.listMessages(sdkSessionId, undefined, {
+      limit: 20,
+      caller: 'agent_sessions.model_backfill',
+    });
     for (let i = messages.length - 1; i >= 0; i--) {
       // SDK shape is { info, parts }; tolerate a flat shape defensively.
       const m = messages[i] as unknown as Record<string, unknown>;
@@ -752,6 +762,7 @@ export class AgentSessionsController {
       let resolvedEngineAgentKind: string = '';
       // Task D — profile-level default Anthropic account (agent_configs).
       let profileDefaultAnthropicAccountId: string | null = null;
+      let profileDefaultOpenaiAccountId: string | null = null;
       if (typeof agentId === 'string' && agentId.trim() !== '') {
         normalizedAgentId = normalizeAgentId(agentId);
         const agentConfig = new AgentConfigsRepository().getById(normalizedAgentId);
@@ -767,6 +778,7 @@ export class AgentSessionsController {
             ? agentConfig.ocAgent
             : normalizedAgentId;
         profileDefaultAnthropicAccountId = agentConfig.defaultAnthropicAccountId ?? null;
+        profileDefaultOpenaiAccountId = agentConfig.defaultOpenaiAccountId ?? null;
       }
 
       // Task D — resolve the Anthropic account this session routes to:
@@ -790,6 +802,27 @@ export class AgentSessionsController {
         requestedAccountId ??
         profileDefaultAnthropicAccountId ??
         anthropicAccountsService.defaultAccount()?.id ??
+        null;
+
+      // OpenAI (ChatGPT) account — identical chain against openai-accounts.json.
+      if (
+        body.openaiAccountId !== undefined &&
+        body.openaiAccountId !== null &&
+        typeof body.openaiAccountId !== 'string'
+      ) {
+        throw AppError.badRequest('openaiAccountId must be a string or null');
+      }
+      const requestedOpenaiAccountId =
+        typeof body.openaiAccountId === 'string' && body.openaiAccountId.trim() !== ''
+          ? body.openaiAccountId
+          : null;
+      if (requestedOpenaiAccountId && !openaiAccountsService.getAccount(requestedOpenaiAccountId)) {
+        throw AppError.badRequest(`unknown openai account: '${requestedOpenaiAccountId}'`);
+      }
+      const resolvedOpenaiAccountId =
+        requestedOpenaiAccountId ??
+        profileDefaultOpenaiAccountId ??
+        openaiAccountsService.defaultAccount()?.id ??
         null;
 
       if (!cwd || typeof cwd !== 'string' || cwd.trim() === '') {
@@ -940,7 +973,7 @@ export class AgentSessionsController {
         }
         projectId = (raw as string | null) ?? null;
       } else {
-        const match = new ProjectsRepository().findByCwdPrefix(sessionCwd);
+        const match = new ProjectsRepository().findByCwdPrefix(expandedCwd);
         projectId = match?.id ?? null;
       }
 
@@ -986,6 +1019,7 @@ export class AgentSessionsController {
         mcpAllowedToolsJson,
         // Task D — resolved Anthropic account (null = engine default).
         anthropicAccountId: resolvedAccountId,
+        openaiAccountId: resolvedOpenaiAccountId,
         ownerUserId,
       };
 
@@ -1084,6 +1118,9 @@ export class AgentSessionsController {
       // when an account resolved; null means "engine default", no routing entry.
       if (resolvedAccountId) {
         anthropicAccountsService.setRouting(opencodeSession.id, resolvedAccountId);
+      }
+      if (resolvedOpenaiAccountId) {
+        openaiAccountsService.setRouting(opencodeSession.id, resolvedOpenaiAccountId);
       }
 
       // Start streaming Opencode events through the WebSocket gateway.
@@ -1258,6 +1295,22 @@ export class AgentSessionsController {
         }
       }
 
+      // OpenAI sibling — switch the session's ChatGPT account (no engine restart:
+      // the codex plugin re-reads the routing file per request).
+      if (body.openaiAccountId !== undefined) {
+        if (typeof body.openaiAccountId !== 'string' || body.openaiAccountId.trim() === '') {
+          throw AppError.badRequest('openaiAccountId must be a non-empty string');
+        }
+        const accountId = body.openaiAccountId;
+        if (!openaiAccountsService.getAccount(accountId)) {
+          throw AppError.badRequest(`unknown openai account: '${accountId}'`);
+        }
+        repo.setOpenaiAccountId(session.id, accountId);
+        if (session.sdkSessionId) {
+          openaiAccountsService.setRouting(session.sdkSessionId, accountId);
+        }
+      }
+
       // Issue #601 — archive / unarchive via PATCH { archived: boolean }
       if (body.archived !== undefined) {
         if (typeof body.archived !== 'boolean') {
@@ -1397,22 +1450,9 @@ export class AgentSessionsController {
         throw AppError.notFound('Permission request');
       }
 
-      // Keep the pre-#1340 reply route self-contained: existing Flutter clients
-      // depend on this route's canonical broadcast even when the newer pending-
-      // permission bridge state is unavailable (for example after a restart).
-      streamBridge.clearPendingPermission(session.id, permissionId);
-      const { broadcast } = await import('../services/ws_gateway');
-      broadcast({
-        v: 1,
-        type: 'permission.replied',
-        sessionId: session.id,
-        permissionID: permissionId,
-        directory: session.cwd,
-        tool: '',
-        patterns: [],
-        title: '',
-        createdAt: new Date().toISOString(),
-      });
+      // Keep legacy clients on the same cleanup/dedup path as the canonical
+      // reply route so pending metadata is preserved in the broadcast.
+      streamBridge.markPermissionReplied(session.id, permissionId);
 
       res.status(204).end();
     } catch (err) {
@@ -1697,6 +1737,147 @@ export class AgentSessionsController {
       const updated = repo.findById(session.id)!;
       broadcastSessionUpdated(updated);
       res.json(updated);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * #1577 — POST /agent-sessions/:id/prompt
+   *
+   * Push a prompt into an EXISTING session, exactly as if it had been typed
+   * into the app composer. Until this existed the only way in was the WS
+   * gateway, which only the desktop UI drives: `POST /agent-sessions` creates
+   * a new session, `/:id/resume` takes no prompt, and `/message-threads` is
+   * the human messaging system. So an external caller could spawn children
+   * under an orchestrator but could not instruct the orchestrator itself.
+   *
+   * Local agent server only (:4001). The engine, the session map and the
+   * SQLite session rows are all in this process — production (api.vcrcapps.com,
+   * behind Cloudflare) holds none of them, so there is nothing for a
+   * Cloudflare-side route to prompt.
+   *
+   * Implementation: delegate to `handleInputFrame`, the WS gateway's own
+   * `session.input` handler, with a shim that captures the error frames it
+   * would have written back to a socket. That handler is ~400 lines of
+   * per-turn behaviour — profile scope, MCP/skill allowlists, model
+   * resolution, auto-resume, memory/skill prefaces, experiment enrollment.
+   * Re-implementing any of it here would guarantee the two paths drift.
+   *
+   * AUTH: intentionally flat. Any session is promptable by any holder of the
+   * Rhythm API key; there is no parentage check, because the main use case is
+   * a caller prompting a session it did not create. The audit row below is
+   * the compensating control — see the table comment in migrations.ts.
+   *
+   * 202 on accept (the turn is enqueued, not finished).
+   */
+  async prompt(req: Request, res: Response, next: NextFunction): Promise<void> {
+    const audit = new AgentPromptInjectionsRepository();
+    let auditId: number | null = null;
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const isMcp = Object.prototype.hasOwnProperty.call(body, 'trustedCall');
+      let args = body;
+      let callerSdkSessionId: string | null = null;
+      let callerSessionId: string | null = null;
+      if (isMcp) {
+        let verified;
+        try {
+          verified = await verifyTrustedMcpCall(body.trustedCall, 'rhythm_prompt_session');
+        } catch {
+          throw new AppError(403, 'FORBIDDEN', 'Invalid trusted MCP call');
+        }
+        args = verified.arguments;
+        if (args.sessionId !== session.id) {
+          throw new AppError(403, 'FORBIDDEN', 'Trusted MCP target mismatch');
+        }
+        callerSdkSessionId = verified.context.sdkSessionId;
+        callerSessionId = resolveCallerSessionId({ callerSdkSessionId }) || null;
+      }
+      // ponytail: the target's stored profile always applies, including on signed MCP calls.
+      if (Object.prototype.hasOwnProperty.call(args, 'agent') ||
+          Object.prototype.hasOwnProperty.call(body, 'agent')) {
+        throw AppError.badRequest('agent override is not supported for existing sessions');
+      }
+      const text = typeof args.prompt === 'string' ? args.prompt.trim() : '';
+      if (!text) throw AppError.badRequest('prompt is required in the request body');
+
+      auditId = audit.record({
+        targetSessionId: session.id,
+        callerSessionId,
+        callerSdkSessionId,
+        callerUserId: req.auth?.user.id ?? null,
+        source: isMcp ? 'mcp' : 'http',
+        prompt: text,
+      });
+
+      // ponytail: capture the gateway's error frames instead of duplicating
+      // its logic. handleInputFrame only ever writes `{type:'error'}` frames.
+      const errors: string[] = [];
+      const socketShim = {
+        send(raw: string): void {
+          try {
+            const frame = JSON.parse(raw) as { type?: string; message?: unknown };
+            if (frame.type === 'error' && typeof frame.message === 'string') {
+              errors.push(frame.message);
+            }
+          } catch {
+            errors.push(raw);
+          }
+        },
+      };
+
+      await handleInputFrame(socketShim as unknown as Parameters<typeof handleInputFrame>[0], {
+        type: 'session.input',
+        id: session.id,
+        data: text,
+        // Optional per-turn passthroughs, same names the composer sends.
+        ...(!isMcp && body.modelOverride ? { modelOverride: body.modelOverride } : {}),
+        ...(!isMcp && body.thinking ? { thinking: body.thinking } : {}),
+        ...(!isMcp && typeof body.fastMode === 'boolean' ? { fastMode: body.fastMode } : {}),
+      }, { agent: session.profileId ?? undefined, origin: 'prompt_api' });
+
+      if (errors.length > 0) {
+        audit.settle(auditId, false, errors[0]);
+        throw new AppError(502, 'PROMPT_DISPATCH_FAILED', errors[0]);
+      }
+
+      audit.settle(auditId, true);
+      logger.info(
+        `[AgentSessionsController] prompt injected into session ${session.id} by ` +
+          `${callerSessionId ?? callerSdkSessionId ?? 'unattributed caller'} (audit #${auditId})`,
+      );
+      res.status(202).json({
+        sessionId: session.id,
+        accepted: true,
+        auditId,
+      });
+    } catch (err) {
+      if (auditId !== null && !(err instanceof AppError && err.statusCode === 502)) {
+        try {
+          audit.settle(auditId, false, String(err));
+        } catch {
+          /* audit settle must never mask the original failure */
+        }
+      }
+      next(err);
+    }
+  }
+
+  /** #1577 — GET /agent-sessions/:id/prompt-log. Who prompted this session. */
+  async promptLog(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const limitRaw = Number(req.query.limit);
+      const injections = new AgentPromptInjectionsRepository().listForSession(
+        session.id,
+        Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 50,
+      );
+      res.json({ sessionId: session.id, injections });
     } catch (err) {
       next(err);
     }
@@ -2047,6 +2228,20 @@ export class AgentSessionsController {
         notePaths: record.notePaths,
         items: record.items,
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * #1576 S2 — GET /:id/model-provenance: which model(s) actually served this
+   * session's steps, distinct from what was requested.
+   */
+  async getModelProvenance(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      res.json(getModelProvenance(session.id, session.modelId));
     } catch (err) {
       next(err);
     }

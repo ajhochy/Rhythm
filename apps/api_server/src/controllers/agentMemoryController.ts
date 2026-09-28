@@ -51,8 +51,20 @@ export class AgentMemoryController {
       const userId = req.auth?.user.id;
       const kind = typeof req.query.kind === 'string' ? req.query.kind : undefined;
       const limit = req.query.limit ? Math.min(200, parseInt(String(req.query.limit), 10)) : 50;
-      const items = await agentMemoryService.list(userId, kind, limit);
-      res.json(items);
+      const offset = Math.max(0, parseInt(String(req.query.offset ?? '0'), 10) || 0);
+      const includeDeprecated = req.query.includeDeprecated === 'true';
+      const items = await agentMemoryService.list(userId, kind, limit, {
+        offset,
+        includeDeprecated,
+      });
+      // Default stays a bare array for existing clients (Flutter, MCP, mobile).
+      if (req.query.withCounts !== 'true') {
+        res.json(items);
+        return;
+      }
+      const counts = await agentMemoryService.countByKind(userId, includeDeprecated);
+      const all = Object.values(counts).reduce((sum, n) => sum + n, 0);
+      res.json({ items, counts, total: kind ? counts[kind] ?? 0 : all, offset, limit });
     } catch (err) { next(err); }
   }
 

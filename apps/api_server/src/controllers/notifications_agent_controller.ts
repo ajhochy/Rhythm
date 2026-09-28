@@ -1,7 +1,9 @@
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
-import { getDb } from '../database/db';
-import { broadcast } from '../services/ws_gateway';
+import {
+  AGENT_NOTIFICATION_MAX_LENGTH,
+  pushAgentNotification,
+} from '../services/agent_notifications';
 
 export class NotificationsAgentController {
   post(req: Request, res: Response, next: NextFunction): void {
@@ -14,22 +16,14 @@ export class NotificationsAgentController {
       if (typeof body !== 'string' || body.trim().length === 0) {
         throw AppError.badRequest('body is required');
       }
-      if (title.length > 200) {
+      if (title.length > AGENT_NOTIFICATION_MAX_LENGTH) {
         throw AppError.badRequest('title must be 200 characters or fewer');
       }
-      if (body.length > 200) {
+      if (body.length > AGENT_NOTIFICATION_MAX_LENGTH) {
         throw AppError.badRequest('body must be 200 characters or fewer');
       }
 
-      const result = getDb()
-        .prepare(
-          `INSERT INTO agent_notifications (title, body) VALUES (?, ?) RETURNING id`,
-        )
-        .get(title.trim(), body.trim()) as { id: number };
-
-      broadcast({ v: 1, type: 'notification.push', id: result.id, title: title.trim(), body: body.trim() });
-
-      res.status(201).json({ id: result.id });
+      res.status(201).json({ id: pushAgentNotification(title, body) });
     } catch (err) {
       next(err);
     }

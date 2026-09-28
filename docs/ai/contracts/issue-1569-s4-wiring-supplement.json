@@ -1,0 +1,91 @@
+{
+  "issue": 1569,
+  "contract_id": "issue-1569-s4-wiring-supplement",
+  "generated": "2026-09-24",
+  "parent_contract": "docs/ai/contracts/issue-1569.json",
+  "original_criteria_count": 28,
+  "original_contract_sha256": "e855ea99936536158412e7881e54b41fac94715f2d671721518cf38dc2ded749",
+  "scope": "Actual Electron main/view/preload Accounts wiring. Native fork real connection-to-spawn proof and Accounts UI remain companion requirements.",
+  "criteria": [
+    {
+      "criterion_id": "S4-I1",
+      "text": "actual main/preload exposes metadata-only Accounts with no renderer authority",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-wiring-contract.test.mjs",
+      "test_id": "S4-I1: actual main/preload exposes metadata-only Accounts with no renderer authority",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-I2",
+      "text": "signed-out ordinary Hermes view still attaches without credential sharing",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-wiring-contract.test.mjs",
+      "test_id": "S4-I2: signed-out ordinary Hermes view still attaches without credential sharing",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-I3",
+      "text": "missing default home does not break signed-in ordinary Hermes startup",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-wiring-contract.test.mjs",
+      "test_id": "S4-I3: missing default home does not break signed-in ordinary Hermes startup",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-I4",
+      "text": "restored offline envelope feeds real view host; native receipt alone marks applied",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-wiring-contract.test.mjs",
+      "test_id": "S4-I4: restored offline envelope feeds real view host; native receipt alone marks applied",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-I5",
+      "text": "current frame only; confirmation returning after document replacement cannot grant",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-wiring-contract.test.mjs",
+      "test_id": "S4-I5: current frame only; confirmation returning after document replacement cannot grant",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-I6",
+      "text": "actual logout waits for owned host disposal and blocks old broker callbacks",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-wiring-contract.test.mjs",
+      "test_id": "S4-I6: actual logout waits for owned host disposal and blocks old broker callbacks",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-I7",
+      "text": "actual server change waits for owned host disposal and blocks old broker callbacks",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-wiring-contract.test.mjs",
+      "test_id": "S4-I7: actual server change waits for owned host disposal and blocks old broker callbacks",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-I8",
+      "text": "failed owned disposal cannot admit a new credential identity",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-wiring-contract.test.mjs",
+      "test_id": "S4-I8: failed owned disposal cannot admit a new credential identity",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-I9",
+      "text": "failed reload disposal remains a barrier to later logout and server change",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-wiring-contract.test.mjs",
+      "test_id": "S4-I9: failed reload disposal remains a barrier to later logout and server change",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "S4-I10",
+      "text": "pending attachment stop failure remains a later identity barrier",
+      "mode": "integration",
+      "test_file": "apps/electron/test/hermes-accounts-wiring-contract.test.mjs",
+      "test_id": "S4-I10: pending attachment stop failure remains a later identity barrier",
+      "status": "pass"
+    }
+  ]
+}

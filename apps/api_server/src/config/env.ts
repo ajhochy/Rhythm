@@ -73,14 +73,32 @@ export function expandHome(p: string): string {
 }
 
 /**
+ * The single source of truth for agent memory: the Obsidian AGENT-MEMORY vault,
+ * laid out `AGENT-MEMORY/<kind>/<slug>.md`. This is the DEFAULT (not merely the
+ * documented override) so that every process that spawns this server — the
+ * packaged Flutter app, the Electron shell, `npm run dev`, scripts — reaches the
+ * real vault with no env wiring at all. #885 wired MEMORY_VAULT_PATH into the
+ * Flutter spawn path only; the Electron shell (apps/electron/src/agent-server.mjs)
+ * never got it and kept reading the stale legacy vault. Fixing the default fixes
+ * every spawner at once.
+ *
+ * NOTE: the path contains a space. Every consumer must treat it as a plain
+ * filesystem path (fs / path.join), never interpolate it into a shell string.
+ */
+export const DEFAULT_MEMORY_VAULT_PATH = '~/Documents/Obsidian Vault/AGENT-MEMORY';
+
+/** Pre-#885 vault, kept only to document the `memory` subdir back-compat below. */
+export const LEGACY_MEMORY_VAULT_PATH = '~/Documents/Memory-Vault';
+
+/**
  * Issue #770 WI6: resolve the Memory-Vault path FRESH from process.env at call
  * time (with `~` expansion). `env.memoryVaultPath` snapshots this at module
  * load for documentation/most callers, but the mirror-sync resolves lazily so
  * the path can be overridden after import (e.g. by tests, or a late-loaded
- * .env). Default: ~/Documents/Memory-Vault.
+ * .env). Default: [DEFAULT_MEMORY_VAULT_PATH].
  */
 export function resolveMemoryVaultPath(): string {
-  return expandHome(process.env.MEMORY_VAULT_PATH ?? '~/Documents/Memory-Vault');
+  return expandHome(process.env.MEMORY_VAULT_PATH ?? DEFAULT_MEMORY_VAULT_PATH);
 }
 
 /**
@@ -93,15 +111,27 @@ export function resolveMemoryVaultPath(): string {
  * override the vault path). The write path treats this dir as the
  * path-traversal boundary — nothing is ever written or deleted outside it.
  *
- * Subfolder is `MEMORY_VAULT_SUBDIR` (default `memory`, back-compat). Set it to
- * an EMPTY string to write kind-folders directly under MEMORY_VAULT_PATH — e.g.
- * MEMORY_VAULT_PATH=`~/Documents/Obsidian Vault/AGENT-MEMORY` + MEMORY_VAULT_SUBDIR=``
- * → notes at `AGENT-MEMORY/<kind>/<slug>.md`. Keep MEMORY_VAULT_PATH scoped to a
- * dedicated agent-memory dir: the sync/index scanner reads it recursively, so it
- * must NOT be pointed at a whole multi-purpose Obsidian vault root.
+ * Subfolder is `MEMORY_VAULT_SUBDIR`. Its DEFAULT depends on whether the vault
+ * path was chosen explicitly (issue #803 + the #885 follow-up):
+ *
+ *   - MEMORY_VAULT_PATH unset  → default vault ([DEFAULT_MEMORY_VAULT_PATH]),
+ *     whose clean layout puts kind-folders at the root, so the subdir is ``.
+ *     Notes land at `AGENT-MEMORY/<kind>/<slug>.md`.
+ *   - MEMORY_VAULT_PATH set    → subdir stays `memory` for back-compat. Every
+ *     existing caller that points the vault at a temp fixture (the whole test
+ *     suite) or at the legacy vault keeps the `<vault>/memory/<kind>/` layout
+ *     it already has.
+ *
+ * An explicit MEMORY_VAULT_SUBDIR always wins over both, including an explicit
+ * empty string.
+ *
+ * Keep MEMORY_VAULT_PATH scoped to a dedicated agent-memory dir: the sync/index
+ * scanner reads it recursively, so it must NOT be pointed at a whole
+ * multi-purpose Obsidian vault root.
  */
 export function resolveMemoryDirPath(): string {
-  const sub = process.env.MEMORY_VAULT_SUBDIR ?? 'memory';
+  const sub =
+    process.env.MEMORY_VAULT_SUBDIR ?? (process.env.MEMORY_VAULT_PATH ? 'memory' : '');
   return sub ? path.join(resolveMemoryVaultPath(), sub) : resolveMemoryVaultPath();
 }
 
@@ -392,6 +422,20 @@ export const env = {
    */
   agentExecutionEnabled:
     deploymentRole !== 'cloud' && deploymentRole !== 'relay',
+  /** Shared-agent bridge exists only on the owned local SQLite runtime. */
+  bridgeEnabled:
+    deploymentRole !== 'cloud' && deploymentRole !== 'relay' &&
+    agentLocal && dbClientValue === 'sqlite',
+  agentBridgeRegistrarSha256:
+    (process.env.RHYTHM_AGENT_BRIDGE_REGISTRAR_SHA256 ?? '').trim(),
+  /**
+   * #1485 — durable recipe-workflow runner, default OFF through S4. Only the
+   * literal string 'true' enables it; unset or any other value stays off
+   * (same opt-in convention as omlxProviderEnabled below). Existing cookbook
+   * rows/behavior are unaffected regardless of this flag until S3a/S3b ship
+   * execution.
+   */
+  recipeWorkflowsEnabled: process.env.RHYTHM_RECIPE_WORKFLOWS_ENABLED === 'true',
   /** True only for the Synology relay container (RHYTHM_ROLE=relay). */
   isRelayRole: deploymentRole === 'relay',
   /**
@@ -608,10 +652,9 @@ export const env = {
    * display them. A leading `~` is expanded to the user's home dir. If the path
    * does not exist the sync is a no-op (never an error). Overridable via
    * MEMORY_VAULT_PATH (the test suite points this at a temp fixture dir).
+   * Default: [DEFAULT_MEMORY_VAULT_PATH].
    */
-  memoryVaultPath: expandHome(
-    process.env.MEMORY_VAULT_PATH ?? '~/Documents/Memory-Vault',
-  ),
+  memoryVaultPath: resolveMemoryVaultPath(),
   liveArtifactStorageDir: resolveLiveArtifactStorageDir(),
   /**
    * Issue #770 WI6: cron expression for the Memory-Vault mirror-sync job.

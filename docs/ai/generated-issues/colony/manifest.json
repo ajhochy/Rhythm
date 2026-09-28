@@ -1,0 +1,536 @@
+{
+  "plan_url": "https://github.com/ajhochy/Rhythm/blob/codex/colony-integration-plan/docs/ai/plans/2026-09-18-electron-colony.md",
+  "repo": "ajhochy/Rhythm",
+  "milestones": [
+    {
+      "key": "M1",
+      "title": "Colony M1 \u2014 Foundation and local runtime",
+      "description": "Adopt reviewed Bot Crossing source, prove the isolated embedded contracts and run a separately owned read-only scanner. Exit: real Electron uses local synthetic harness data without a localhost server, source writes, or changes to Rhythm API/engine ownership.",
+      "number": 105,
+      "url": "https://github.com/ajhochy/Rhythm/milestone/105"
+    },
+    {
+      "key": "M2",
+      "title": "Colony M2 \u2014 Rhythm-native UI and menus",
+      "description": "Design and implement the Colony workspace using Rhythm Electron conventions, exact task navigation, local opt-in/preferences, accessibility and bounded resource use. Exit: the native tab works through the real scanner; UI/menu review and failure-state tests pass.",
+      "number": 106,
+      "url": "https://github.com/ajhochy/Rhythm/milestone/106"
+    },
+    {
+      "key": "M3",
+      "title": "Colony M3 \u2014 Packaged Apple Silicon and Intel builds",
+      "description": "Extend existing Electron packaging and release CI with pinned Colony resources, bundled Node 22 capability checks, asset notices and architecture-specific signed/notarized ZIPs. Exit: both exact artifacts pass post-sign packaged smoke without a checkout or system Node.",
+      "number": 107,
+      "url": "https://github.com/ajhochy/Rhythm/milestone/107"
+    },
+    {
+      "key": "M4",
+      "title": "Colony M4 \u2014 Installed acceptance and opt-in rollout",
+      "description": "Qualify installed signed builds on Apple Silicon and Intel, including real task opening, account boundaries, upgrades and rollback. Exit: documented feature approval and all-user local opt-in rollout readiness; separate Electron host/cutover gates remain in force.",
+      "number": 108,
+      "url": "https://github.com/ajhochy/Rhythm/milestone/108"
+    }
+  ],
+  "issues": [
+    {
+      "id": "COL-01",
+      "title": "[COL-01] Pin upstream Colony source and emit a sealed embedded artifact",
+      "milestone": "M1",
+      "deps": [],
+      "labels": [
+        "enhancement",
+        "infrastructure",
+        "colony"
+      ],
+      "goal": "Create a reproducible, reviewable source boundary for Colony in the Rhythm repository while retaining the working standalone data model and read-only harness behavior.",
+      "files": [
+        "Proposed apps/colony/ source, package.json and lockfile",
+        "Proposed apps/colony/UPSTREAM.json and THIRD_PARTY_NOTICES.md",
+        "Proposed scripts/update-colony-source.mjs",
+        "Existing Bot Crossing package.json, LICENSE, tools/build-assets.mjs, public/assets, server and test directories as import inputs"
+      ],
+      "requirements": [
+        "Review the exact Bot fork revision and its draft stack before adoption; candidate 36d2c29989f567de0ac4d30a957610163cfc4d86 includes ajhochy/bot-crossing#4. Record source URLs, commit, import manifest and patch/update process.",
+        "Vendor a minimal pinned source/payload boundary under apps/colony; do not depend on a sibling checkout or git submodule being initialized at application launch.",
+        "Inventory source/artwork/icon licensing from the actual shipped inputs and preserve notices. Exclude data/*.json, local native-openers configuration, .env, transcripts, private screenshots, user audio and development credentials."
+      ],
+      "ac": [
+        "A clean checkout can install from lockfiles, run the imported adapter/state tests and build the scene without an adjacent Bot Crossing checkout; the manifest identifies the exact imported commit.",
+        "Running the documented import/build twice with the same pinned inputs produces the same tracked source/asset inventory or explicitly documented nondeterministic build fields.",
+        "The imported fixture suite preserves task IDs, parent/worker relationships, repository/checkout grouping and local archive/viewed state; before/after source-store evidence shows no harness writes.",
+        "The staged payload inventory includes applicable notices and zero developer state, auth material or private session evidence; a missing/unlicensed asset is a build failure."
+      ],
+      "tests": [
+        "Run the adopted Node test suite and production build from apps/colony; retain existing synthetic regression coverage rather than replacing it with import-path assertions.",
+        "Add an import manifest/inventory check and a negative fixture containing forbidden user-data files.",
+        "Record asset size baseline and hash input manifest for later package comparison."
+      ],
+      "file": "docs/ai/generated-issues/colony/col-01.md",
+      "number": 1526,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1526",
+      "order": 1
+    },
+    {
+      "id": "COL-02",
+      "title": "[COL-02] Verify the Colony artifact and add the isolated embedded bridge",
+      "milestone": "M1",
+      "deps": [
+        "COL-01"
+      ],
+      "labels": [
+        "enhancement",
+        "infrastructure",
+        "colony"
+      ],
+      "goal": "Expose the existing Colony data operations and 3D scene through explicit embedded contracts, without a public local HTTP server or broad native privileges.",
+      "files": [
+        "Proposed apps/colony/server/service.mjs and embedded worker entry",
+        "apps/colony/src/game/api.js and proposed embedded scene adapter",
+        "Proposed apps/electron/src/colony-protocol.mjs and colony-policy.mjs",
+        "apps/electron/src/main.mjs, preload.cjs; apps/web/index.html",
+        "Proposed apps/shared/colony-contract.* and contract tests"
+      ],
+      "requirements": [
+        "Extract shared service operations from the adopted API; keep the standalone HTTP adapter and its concurrency protections working. Define versioned DTOs and scene intents for selection, filters, camera, viewport, theme and visibility.",
+        "Serve only the bundled scene from a fixed separate custom origin; use a document-bound MessageChannel and narrow preload entry points. Validate host/frame identity, current document generation, method and payload at each privileged boundary.",
+        "Keep Node integration off and sandbox/context isolation/web security on. Do not enable bypassCSP or send auth/provider credentials to the scene. Pin implementation to APIs available in the existing Electron version.",
+        "Bound control requests to 64 KiB, pages/chunks to 1 MiB and inventory pages to 250 records; large local state uses bounded chunks, a 32 MiB aggregate limit and one validated atomic commit. No silent truncation."
+      ],
+      "ac": [
+        "In real pinned Electron, bundled JS/GLB assets load and a synthetic scan plus state round-trip works through private child IPC; no Colony TCP listener is created and standalone HTTP behavior still passes.",
+        "A sibling/foreign frame, stale/reloaded document, unknown method, malformed/oversize message and unsupported protocol version each produce zero native actions and zero state writes.",
+        "The scene cannot access Rhythm bearer tokens, parent DOM, arbitrary URLs, filesystem APIs or process APIs; leaving/disabling the feature revokes the previous channel.",
+        "A 15,000-record snapshot is paged with stable generation/cursors and cancellation; a large archive beyond 64 KiB round-trips unchanged, while an interrupted state transfer commits nothing."
+      ],
+      "tests": [
+        "Add service parity tests over shared HTTP/embedded fixtures, including archive conflicts and cancellation.",
+        "Run real Electron protocol/hostile-frame/message-lifetime tests on the pinned runtime; a plain browser test is not sufficient.",
+        "Falsify one sender-validation check and one chunk/atomic-commit guard to show the tests catch the failure."
+      ],
+      "file": "docs/ai/generated-issues/colony/col-02.md",
+      "number": 1527,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1527",
+      "order": 2
+    },
+    {
+      "id": "COL-03",
+      "title": "[COL-03] Manage the owned local scanner and source discovery",
+      "milestone": "M1",
+      "deps": [
+        "COL-02"
+      ],
+      "labels": [
+        "enhancement",
+        "infrastructure",
+        "colony"
+      ],
+      "goal": "Let Electron lazily start, supervise and stop one Colony scanner while preserving the ownership of every existing Rhythm and harness process.",
+      "files": [
+        "Proposed apps/electron/src/colony-service.mjs",
+        "apps/electron/src/main.mjs and preload.cjs",
+        "apps/colony/server embedded entry and source-discovery configuration",
+        "Proposed apps/electron/test/colony-ownership.test.mjs"
+      ],
+      "requirements": [
+        "Use the packaged Node executable and absolute packaged scanner entry, with an explicit version/capability handshake and sanitized environment. Packaged mode must never fall back to a developer checkout or ambient PATH.",
+        "Start only after local opt-in and first use; serialize concurrent starts. Define startup timeout, bounded restart attempts and user-visible recovery status. Stop only the child/process group spawned by this service.",
+        "Resolve enabled source paths on the main/worker side. Source toggles are applied before opening stores; aggregate per-source failures while retaining healthy results.",
+        "Git enrichment is optional. A clean Mac without Git/developer tools must still show local task paths with explicit unknown repository metadata, without triggering installation prompts or fetching tooling."
+      ],
+      "ac": [
+        "With Colony disabled, normal app startup performs zero harness reads and creates zero Colony children. Ten concurrent enable/open events create one scanner; repeated tab use does not create another.",
+        "With live API/engine sentinel processes already running, scanner start, crash, retry, disable and app quit leave their PIDs/listeners unchanged and never bind/reclaim their ports.",
+        "Removing the packaged Node/scanner payload produces a clear unavailable state with no attempt to run system Node or a checkout; a version mismatch fails the handshake before scanning.",
+        "A disabled source is never opened; missing, locked or malformed source fixtures are diagnosed individually while healthy harness tasks remain visible. Worker crash loops stop at the documented retry bound."
+      ],
+      "tests": [
+        "Use disposable fake child processes for deterministic ownership/startup/crash tests and verify unrelated sentinels survive.",
+        "Run a real packaged-Node worker against sanitized read-only harness fixtures and inspect listener/process receipts.",
+        "Snapshot/hash fixture stores before and after scanning; no harness DB/transcript writes are permitted."
+      ],
+      "file": "docs/ai/generated-issues/colony/col-03.md",
+      "number": 1528,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1528",
+      "order": 3
+    },
+    {
+      "id": "COL-04",
+      "title": "[COL-04] Design the Rhythm-native Colony workspace and menu system",
+      "milestone": "M2",
+      "deps": [],
+      "labels": [
+        "enhancement",
+        "ui-overhaul",
+        "colony"
+      ],
+      "goal": "Produce a concrete UI and menu design that makes Colony feel native to Rhythm Electron while retaining the 3D world and multi-harness clarity.",
+      "files": [
+        "docs/ai/plans/2026-09-18-electron-colony.md design brief",
+        "Proposed docs/design/colony/ annotated comps and action inventory",
+        "Visual references: apps/web/src/styles.css, components/Shell.tsx, Tasks and Agents workspaces",
+        "Reference: adopted Colony HUD, task card, filters and scene/view controls"
+      ],
+      "requirements": [
+        "Use Rhythm Tasks/Agents typography, tokens, icons, panel density, buttons, menus and resize/focus behavior as the visual authority. Preserve the world/characters; remove duplicate global chrome in embedded mode.",
+        "Define one Colony destination; a resizable repository/task rail, central scene and optional inspector; compact search/filters/status; and a native-style View menu for camera/world/sound/quality controls.",
+        "Map every current action to a final location, explicit deferment or removal. Use Open in Rhythm/Open in Codex, Show parent task and Archive from Colony/Restore to Colony. Do not expose unqualified new-session/terminal-resume actions.",
+        "Define dark/light, reduced-motion, keyboard, 200% text zoom, empty/error/stale/disabled states and a useful list fallback without WebGL."
+      ],
+      "ac": [
+        "The design packet includes annotated 1440x900, 1024x700 and 800x600 compositions, dark/light examples, selected-task and error/empty states, and the action/menu mapping with no unexplained lost action.",
+        "A reviewer can follow enable \u2192 filter \u2192 select bot/list task \u2192 inspect \u2192 open exact task, and archive \u2192 restore, using the annotated flow without guessing control placement.",
+        "All proposed controls identify an incumbent component/token or a small shared extraction; no duplicate branded header or standalone orange action system is introduced.",
+        "Keyboard order, shortcut conflicts, menu checked/disabled states, focus return, pane bounds and the 200% text-zoom layout are specified. Any unresolved material design decision is recorded before COL-05 begins."
+      ],
+      "tests": [
+        "Review side by side with current rendered Rhythm Tasks/Agents; include representative long paths/branches and synthetic parent/worker names.",
+        "Perform a bounded design/accessibility review of the packet; this issue does not claim rendered implementation or release qualification."
+      ],
+      "file": "docs/ai/generated-issues/colony/col-04.md",
+      "number": 1529,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1529",
+      "order": 4
+    },
+    {
+      "id": "COL-05",
+      "title": "[COL-05] Build the native Colony tab, task rail and inspector",
+      "milestone": "M2",
+      "deps": [
+        "COL-02",
+        "COL-04",
+        "COL-09"
+      ],
+      "labels": [
+        "enhancement",
+        "ui-overhaul",
+        "colony"
+      ],
+      "goal": "Implement the approved Colony workspace inside Rhythm using existing React UI conventions and the embedded scene contract.",
+      "files": [
+        "apps/web/src/App.tsx and components/Shell.tsx",
+        "Proposed apps/web/src/pages/colony/",
+        "apps/web/src/styles.css and reusable pane/menu components where necessary",
+        "apps/colony/src/main.js and embedded scene/HUD mode",
+        "Proposed apps/web/tests/colony/ rendered tests"
+      ],
+      "requirements": [
+        "Add the Colony route and existing navigation/overflow integration behind the local feature setting. Keep standalone Bot UI intact; suppress duplicate embedded controls.",
+        "Implement the approved searchable repository/task rail, central scene and inspector with shared filter/selection state, honest status/freshness and distinct repository/workspace/historical categories.",
+        "Use keyboard-adjustable, bounded, persistent splitters and preserve selection/camera when navigating away and back. Native UI owns controls; the scene communicates typed selection/focus intents."
+      ],
+      "ac": [
+        "Real clicks on a bot and its matching list row select the same unique task and inspector; changing a filter updates scene and list together, and removed/filtered selections do not show an unrelated task.",
+        "Historical locations are excluded by default and appear only when enabled; missing paths and unknown activity are labeled honestly, without inflated active-project or blocked-task counts.",
+        "At all three approved window sizes and 200% text zoom, path/branch details and action labels remain usable with no overlapping controls; dark/light views use the current Rhythm tokens.",
+        "Repeated navigation preserves camera/selection/pane widths; splitters support keyboard adjustment and reset. A disabled direct route renders the enablement explanation without scanning."
+      ],
+      "tests": [
+        "Rendered click/keyboard tests using the actual route and scene message path, including parent/worker, long-label and empty/filter fixtures.",
+        "Batch native Electron screenshots for desktop/narrow/dark/light states and compare against COL-04; fix material findings in a bounded pass."
+      ],
+      "file": "docs/ai/generated-issues/colony/col-05.md",
+      "number": 1530,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1530",
+      "order": 7
+    },
+    {
+      "id": "COL-06",
+      "title": "[COL-06] Connect exact task actions and Rhythm-native menus",
+      "milestone": "M2",
+      "deps": [
+        "COL-03",
+        "COL-05"
+      ],
+      "labels": [
+        "enhancement",
+        "integration",
+        "colony"
+      ],
+      "goal": "Make Colony menu actions open the exact intended task and use consistent Rhythm labels, keyboard behavior and failure feedback.",
+      "files": [
+        "apps/web/src/pages/colony/ action menus and inspector",
+        "apps/web/src/store.tsx and agentSessionLink.ts",
+        "Proposed apps/electron/src/colony-actions.mjs, policy and preload methods",
+        "Adopted harness native-opening adapters and capability descriptors",
+        "Native session-opening and Colony action smoke tests"
+      ],
+      "requirements": [
+        "Prerequisite: reviewed [Rhythm draft PR #1538](https://github.com/ajhochy/Rhythm/pull/1538), the codex/electron-session-opening companion receiver. Its scoped native evidence and three uninvestigated broad-suite failures remain explicit review inputs. Reuse the existing local-ID selection path for Rhythm; opening in the same app must not reload the renderer or sign the user out.",
+        "Use opaque inventory references. Resolve and validate known harness/task/checkout targets in privileged code; reject arbitrary commands, executable paths, URLs and stale/foreign refs.",
+        "Implement approved task and View menus with checked/disabled state, primary labels and focus restoration. Only qualified actions appear: exact open, parent inspection, local viewed/archive, Finder/copy path and user-triggered screenshot/view controls.",
+        "A Rhythm SDK-only child must resolve through its verified parent/child navigation contract or show an unavailable reason; never substitute an SDK ID for a local session ID or choose the first task."
+      ],
+      "ac": [
+        "From actual Colony controls, a Rhythm task outside the first page and a supported worker/parent open the requested visible identity while preserving authentication and the existing app/API/engine processes.",
+        "An installed supported external app opens the exact requested task; a missing app, stale task/ref or nonzero OS dispatch produces an actionable error with no success toast and no unrelated selection.",
+        "Malformed or injected refs/paths/URLs cause zero launches and writes. Opening/inspecting does not resume an agent turn, create a task or mutate the source harness.",
+        "Menus follow the approved mapping, keyboard navigation, checked states, Escape and focus return; shortcuts do not intercept typing in search, chat or terminals. Archive is explicitly local to Colony."
+      ],
+      "tests": [
+        "HTTP/IPC action contracts plus real native task identity receipts; use synthetic IDs in committed evidence.",
+        "Exercise a known-working sibling route as a control and repeat switching without reload; test unsupported SDK-only children explicitly."
+      ],
+      "file": "docs/ai/generated-issues/colony/col-06.md",
+      "number": 1531,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1531",
+      "order": 8
+    },
+    {
+      "id": "COL-07",
+      "title": "[COL-07] Add local opt-in, persistent preferences and reversible import",
+      "milestone": "M2",
+      "deps": [
+        "COL-03",
+        "COL-05"
+      ],
+      "labels": [
+        "enhancement",
+        "infrastructure",
+        "colony"
+      ],
+      "goal": "Give each desktop profile explicit control of local scanning and preserve Colony state safely across restarts, imports and upgrades.",
+      "files": [
+        "apps/web/src/pages/settings/ and Colony enablement/import UI",
+        "Proposed apps/electron/src/colony-preferences.mjs",
+        "Adopted state persistence/merge and identity-cache modules",
+        "Profile-scoped app userData and proposed versioned migration tests"
+      ],
+      "requirements": [
+        "Default off for every new account/profile. Explain local source scanning and allow source selection before any harness read. Do not sync source paths/history/settings to the hosted API.",
+        "Store Colony preferences and identity cache outside the signed bundle under a stable local profile key. Retain IDs, viewed/archive timestamps, grouping overrides and three-way conflict semantics.",
+        "Support explicit standalone-state file selection, preview, backup and atomic merge. Never move, delete or rewrite the original standalone state or any harness file. Handle large archives through the bounded state-transfer contract.",
+        "Sign-out/account switch revokes channels, stops scanning and clears visible/cache data from memory. Disable preserves local state; later opt-in restores it."
+      ],
+      "ac": [
+        "On first launch and after account switch, Colony is disabled and performs zero harness reads until that profile enables it; disabling stops the owned scanner without modifying source records.",
+        "After viewing/archiving/grouping tasks and restarting, exact preferences and IDs are restored. Concurrent stale saves merge or return an explicit conflict without silently dropping archives.",
+        "Importing a synthetic state with at least 7,000 archived entries shows a count preview, merges once after user action, preserves unrelated current state and leaves the source byte-for-byte unchanged. Repeating import is idempotent.",
+        "Corrupt, oversized, interrupted or unsupported-version imports leave the last valid state intact and explain recovery. A migration backup restores the documented previous compatible version."
+      ],
+      "tests": [
+        "End-to-end settings/enable/disable/account-switch and restart tests with fake profiles.",
+        "Filesystem before/after evidence for source preservation, large-state chunking, atomic failure, concurrent saves and downgrade/backup restoration."
+      ],
+      "file": "docs/ai/generated-issues/colony/col-07.md",
+      "number": 1532,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1532",
+      "order": 9
+    },
+    {
+      "id": "COL-08",
+      "title": "[COL-08] Complete resource behavior, accessibility and failure recovery",
+      "milestone": "M2",
+      "deps": [
+        "COL-05",
+        "COL-06",
+        "COL-07"
+      ],
+      "labels": [
+        "enhancement",
+        "colony"
+      ],
+      "goal": "Keep Colony responsive and usable with large inventories, hidden tabs, limited GPUs and failed local sources.",
+      "files": [
+        "apps/colony/src/core/engine.js, audio and scene lifecycle",
+        "apps/web/src/pages/colony/ loading/error/list views",
+        "Electron Colony scanner/bridge cancellation and telemetry counters",
+        "Proposed native performance/accessibility fixtures and smoke documentation"
+      ],
+      "requirements": [
+        "Pause animation/audio and scheduled scanning when the tab is hidden or app minimized; keep state for a quick return and refresh stale results on re-entry.",
+        "Render shell/progress immediately, use paged inventory and cached snapshots, expose freshness and cancel/retry. Preserve healthy-source results during partial failures.",
+        "Make all essential selection/filter/open/archive actions available in a semantic list when WebGL fails. Respect reduced motion, muted audio defaults, dark/light contrast and existing keyboard conventions."
+      ],
+      "ac": [
+        "Within one second of hiding/minimizing Colony, scene animation/audio and scheduled scans stop; returning restores the camera/selection and refreshes without creating a second scanner.",
+        "Across twenty tab switches there is no growing count of workers, WebGL contexts or listeners; scanner crash/retry never affects chat/API/engine usability.",
+        "On recorded reference hardware, cached 15,000-session inventory is usable within two seconds; cold work shows progress by one second and a bounded stale/cancel/retry state at sixty seconds. A 100-task low-preset scene meets the proposed 30 FPS budget on both reference Macs, or the issue remains open with a reviewed budget adjustment.",
+        "Keyboard-only and screen-reader users can select/filter/open/restore tasks through the list; WebGL loss, reduced motion, empty/disabled sources and missing native apps remain actionable without color-only cues."
+      ],
+      "tests": [
+        "Instrument actual native renderer visibility/counters and process counts, not just CSS hidden state.",
+        "Run large synthetic fixtures, keyboard/accessibility checks and a bounded native visual pass over failure/empty states.",
+        "Record hardware, OS, scene size, timings and limitations; do not use cold/warm measurements from a different app build as proof."
+      ],
+      "file": "docs/ai/generated-issues/colony/col-08.md",
+      "number": 1533,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1533",
+      "order": 10
+    },
+    {
+      "id": "COL-09",
+      "title": "[COL-09] Stage the sealed Colony artifact in the Mac package",
+      "milestone": "M3",
+      "deps": [
+        "COL-02",
+        "COL-03"
+      ],
+      "labels": [
+        "enhancement",
+        "infrastructure",
+        "colony"
+      ],
+      "goal": "Make the installed Rhythm app contain the Colony renderer, scanner, assets and compatible runtime without requiring development tooling.",
+      "files": [
+        "apps/electron/scripts/package-mac.mjs",
+        "Proposed Colony payload manifest/build script",
+        "apps/electron/src/colony-service.mjs and protocol resource lookup",
+        "apps/colony/ lockfile, production payload and notices",
+        "Proposed apps/electron/test/colony-package.test.mjs"
+      ],
+      "requirements": [
+        "Extend the existing packager and bundled Node 22 path. Pin a supported exact Node patch >=22.13 and verify node:sqlite, architecture and worker startup before accepting a payload.",
+        "Build with neutral environment inputs, stage only production resources and preserve licenses/source provenance. Store writable state in userData only.",
+        "Package the renderer/GLB assets so it can start offline; no npm install, art download, Homebrew lookup or sibling checkout may be needed at runtime.",
+        "Test a clean Mac with Git/developer tools unavailable as well as no system Node; preserve task discovery with honest metadata degradation and no installation prompt."
+      ],
+      "ac": [
+        "The packaged app starts Colony against synthetic stores with the repo checkout unavailable and PATH containing no Node/npm; all assets and scanner capabilities load from the bundle.",
+        "Removing or corrupting a declared resource fails package validation or produces a clear unavailable state at runtime; no development-path fallback masks the failure.",
+        "A payload inventory identifies source revisions, exact Node/architecture and dependency/asset hashes; scans find no user data, fixture identities/tokens, inherited Vite secrets or developer-specific paths.",
+        "Packaging leaves local preferences untouched and records archive/installed-size deltas; offline enablement works with empty sources and populated fixtures."
+      ],
+      "tests": [
+        "Use the actual unsigned .app on the host architecture for no-checkout/no-PATH/offline/missing-resource cases.",
+        "Run adopted scanner/state tests with the exact packaged Node, including a real read-only SQLite fixture.",
+        "Verify manifest and all source/art/icon notices against the staged payload."
+      ],
+      "file": "docs/ai/generated-issues/colony/col-09.md",
+      "number": 1534,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1534",
+      "order": 5
+    },
+    {
+      "id": "COL-10",
+      "title": "[COL-10] Make release CI the Colony artifact producer",
+      "milestone": "M3",
+      "deps": [
+        "COL-09"
+      ],
+      "labels": [
+        "enhancement",
+        "infrastructure",
+        "release",
+        "colony"
+      ],
+      "goal": "Build and verify Colony through the existing architecture-specific Electron signing/notarization pipeline.",
+      "files": [
+        ".github/workflows/electron_release.yml",
+        "apps/electron/scripts/sign-and-notarize-mac.mjs",
+        "apps/electron/scripts/package-mac.mjs and package receipt tooling",
+        "Proposed signed Colony smoke entry/configuration"
+      ],
+      "requirements": [
+        "Retain native arm64/x64 jobs and separate Rhythm-arm64.zip/Rhythm-x64.zip artifacts. Do not create a competing release channel or require universal binary assembly.",
+        "Sign all nested executable payloads before sealing the app, notarize/staple, verify codesign/spctl and run Colony smoke against the final signed bundle.",
+        "Publish/attach manifests, artifact hashes and test receipts through the existing approved release procedure; never embed signing credentials or runtime auth tokens. This issue implementation must not auto-publish without release authorization."
+      ],
+      "ac": [
+        "Both native architecture jobs build with the pinned inputs and confirm matching Electron/Node/scanner architecture and node:sqlite capability.",
+        "The exact final .app for each architecture passes strict signature assessment and notarization/staple checks, then a signed-bundle Colony enable/scan/disable smoke.",
+        "Downloaded final ZIP hashes match the published manifest, and extracted bundles preserve signatures and required licenses; an invalid/missing payload blocks that architecture from release.",
+        "Missing signing credentials or unavailable architecture execution is an explicit failed/open gate rather than a skipped pass; no unsigned artifact is represented as release-qualified."
+      ],
+      "tests": [
+        "Inspect both CI runs and retain artifact/version/SHA/architecture receipts.",
+        "Use the actual final signed artifacts for smoke; unsigned source Electron or browser e2e does not substitute.",
+        "Validate release notes and artifact naming remain within the existing Electron prerelease policy."
+      ],
+      "file": "docs/ai/generated-issues/colony/col-10.md",
+      "number": 1535,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1535",
+      "order": 6
+    },
+    {
+      "id": "COL-11",
+      "title": "[COL-11] Qualify installed signed Colony on Apple Silicon and Intel",
+      "milestone": "M4",
+      "deps": [
+        "COL-06",
+        "COL-08",
+        "COL-10"
+      ],
+      "labels": [
+        "enhancement",
+        "release",
+        "colony"
+      ],
+      "goal": "Prove that real users can install, enable and use Colony from the distributed signed apps on both supported Mac architectures.",
+      "files": [
+        "Proposed apps/electron/test/colony-installed/ native smoke harness",
+        "docs/testing/manual-smoke.md",
+        "docs/ai/contracts/colony-installed.json and run evidence",
+        "Existing session-opening native test helpers"
+      ],
+      "requirements": [
+        "Download the exact release-candidate archives, verify hashes and install into clean disposable test accounts on Apple Silicon and native Intel hardware/runner. Remove development checkout/PATH dependencies.",
+        "Exercise supported real Keychain/sign-in behavior separately from synthetic credential fixtures. Keep all fixture/session content out of committed public evidence.",
+        "Drive actual UI/menu input and assert visible exact-task identity, source-store preservation and owned-process behavior; include upgrades and rollback with existing local preferences."
+      ],
+      "ac": [
+        "Both installed signed architectures pass first launch disabled, enablement/source choice, empty/populated inventories, list/scene selection, archive/restore, Finder/copy and supported exact task/parent navigation.",
+        "Switching Rhythm tasks preserves authentication and the existing main/API/engine processes; missing external apps and unsupported task refs report accurately without launching another task.",
+        "Quit/relaunch, scanner crash/retry, disable/re-enable, account switch, offline use and low-GPU fallback preserve correct data boundaries and leave no orphan scanner.",
+        "An upgrade from the preceding compatible build and rollback/backup restoration retain local preferences and do not alter harness records. Evidence names artifact SHA, app version, OS, CPU and any unpassed case; no required case is silently skipped."
+      ],
+      "tests": [
+        "Run native installed-artifact behavioral tests, screenshots and synthetic-store before/after comparisons on both architectures.",
+        "Run real signing/Keychain checks in disposable accounts; mock Keychain and Rosetta alone do not qualify the Intel/real-credential gates.",
+        "Record failure postmortem and repair only demonstrated defects before repeating affected acceptance paths."
+      ],
+      "file": "docs/ai/generated-issues/colony/col-11.md",
+      "number": 1536,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1536",
+      "order": 11
+    },
+    {
+      "id": "COL-12",
+      "title": "[COL-12] Document and gate the all-user opt-in Colony release",
+      "milestone": "M4",
+      "deps": [
+        "COL-11"
+      ],
+      "labels": [
+        "enhancement",
+        "release",
+        "documentation",
+        "colony"
+      ],
+      "goal": "Prepare a supportable opt-in Colony release for all Rhythm Electron users while retaining the host app release and cutover boundaries.",
+      "files": [
+        "Proposed docs/release/colony-rollout.md and support guide",
+        "docs/testing/manual-smoke.md and docs/ai/project-state.md",
+        "Electron release notes/checklist and local feature settings documentation"
+      ],
+      "requirements": [
+        "Document the local-only data model, supported harness/action matrix, source permissions, archive semantics, import/backup behavior, disablement and troubleshooting.",
+        "Provide an artifact-specific approval checklist and bounded pilot using the signed builds from COL-11; rollout remains default-off and each profile opts in locally.",
+        "Keep host Electron release readiness and Flutter retirement separate. Reuse the host update mechanism; if updates are manual ZIP replacement, test/document that rather than asserting automatic updater coverage.",
+        "Prepare a rollback procedure that disables Colony and/or restores the previous compatible signed host plus local state backup without changing harness data."
+      ],
+      "ac": [
+        "The release packet links all required issue/test/artifact receipts and identifies the human release decision; missing architecture/signing/installed evidence keeps this issue open.",
+        "A new user receives the approved Electron build with Colony off, can understand and enable it locally, and can disable it without losing preferences or affecting ongoing agents.",
+        "The documented upgrade/rollback procedure is rehearsed with a preserved preference fixture and leaves source records and unrelated services unchanged.",
+        "The feature can be approved for all-user opt-in distribution without implying that global Electron replacement, production provider or Flutter cutover gates have passed; no release is published solely by closing this issue."
+      ],
+      "tests": [
+        "Perform a documentation walkthrough against the exact installed candidate and capture the bounded pilot/rollback result.",
+        "Verify support instructions, artifact links and compatibility matrix match the tested build."
+      ],
+      "file": "docs/ai/generated-issues/colony/col-12.md",
+      "number": 1537,
+      "url": "https://github.com/ajhochy/Rhythm/issues/1537",
+      "order": 12
+    }
+  ],
+  "epic": {
+    "number": 1525,
+    "url": "https://github.com/ajhochy/Rhythm/issues/1525",
+    "title": "[Colony] Rhythm-native workspace and packaged macOS rollout"
+  },
+  "publication_verified": true,
+  "planning_pr": "https://github.com/ajhochy/Rhythm/pull/1539",
+  "dashboard_revision": 4228,
+  "revised": "2026-09-21: realigned to the Hermes Desktop adoption shape; issues updated in place, no duplicates filed."
+}

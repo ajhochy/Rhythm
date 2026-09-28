@@ -80,9 +80,30 @@ test('issue-1356-c5: architecture, methods, operations, troubleshooting, and man
   for (const heading of ['Architecture', 'Supported methods', 'Operations', 'Troubleshooting']) {
     assert.match(guide, new RegExp(`^#+ ${heading}$`, 'im'), `missing ${heading} documentation`);
   }
+  assert.match(
+    guide,
+    /(?:open --env RHYTHM_MCP_APPS_MODE=|launchctl setenv RHYTHM_MCP_APPS_MODE)/,
+    'operations must show how to set the mode for a packaged app',
+  );
+  assert.match(guide, /ps eww/i, 'operations must include process-environment verification');
+  for (const process of ['desktop', 'API child', 'engine child']) {
+    assert.match(guide, new RegExp(`${process}[\\s\\S]{0,160}inherited`, 'i'));
+  }
   const smoke = read('docs/testing/manual-smoke.md');
   for (const token of ['MCP Apps', 'Open Design', 'rhythm_get_dashboard', 'off', 'readonly', 'interactive', 'packaged']) {
     assert.match(smoke, new RegExp(token, 'i'), `manual smoke omits ${token}`);
+  }
+  const packagedMatrix = smoke.match(
+    /### MCP Apps GA packaged matrix \(#1356\)([\s\S]*?)(?=\n## )/,
+  )?.[1] ?? '';
+  for (const field of [
+    'build SHA',
+    'macOS version',
+    'exact mode per run',
+    'pilot session/call IDs',
+    'approver name',
+  ]) {
+    assert.match(packagedMatrix, new RegExp(field, 'i'), `packaged smoke omits evidence field: ${field}`);
   }
 });
 

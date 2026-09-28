@@ -189,6 +189,7 @@ class ChatPart {
     this.fileMime,
     this.fileFilename,
     this.fileUrl,
+    this.fileArtifactProject,
     this.agentName,
   })  : _text = text,
         _toolArgs = toolArgs,
@@ -225,10 +226,14 @@ class ChatPart {
   /// OPC-M4-1: File-part fields. Non-null when [type] == 'file'.
   /// [fileMime] — MIME type, e.g. 'image/png', 'application/pdf'.
   /// [fileFilename] — original filename, e.g. 'photo.png'.
-  /// [fileUrl] — data URI: 'data:<mime>;base64,<payload>'.
+  /// [fileUrl] — data URI ('data:<mime>;base64,<payload>') or a hosted
+  /// attachment reference ('/artifacts/<id>', see [fileArtifactProject]).
   String? fileMime;
   String? fileFilename;
   String? fileUrl;
+
+  /// Scope for a hosted attachment (`fileUrl` = '/artifacts/<id>'), sent as X-Rhythm-Project.
+  String? fileArtifactProject;
 
   /// OPC-M4-4: Agent-part field. Non-null when [type] == 'agent'.
   /// Carries the name of the agent the session switched to (e.g. 'plan', 'build').
@@ -331,6 +336,8 @@ class ChatPart {
       if (fn != null) fileFilename = fn;
       final u = raw['url'] as String?;
       if (u != null) fileUrl = u;
+      final ap = raw['artifactProject'] as String?;
+      if (ap != null) fileArtifactProject = ap;
     } else if (raw['type'] == 'agent') {
       // OPC-M4-4: agent-switch marker. Carries the name of the switched-to agent.
       final n = raw['name'] as String?;

@@ -14,6 +14,8 @@ interface MockClientState {
   listToolsError: string
   listPromptsShouldFail: boolean
   listResourcesShouldFail: boolean
+  listPromptsShouldHang: boolean
+  capabilities: Record<string, object>
   prompts: Array<{ name: string; description?: string }>
   resources: Array<{ name: string; uri: string; description?: string }>
   closed: boolean
@@ -42,6 +44,8 @@ function getOrCreateClientState(name?: string): MockClientState {
       listToolsError: "listTools failed",
       listPromptsShouldFail: false,
       listResourcesShouldFail: false,
+      listPromptsShouldHang: false,
+      capabilities: { tools: {}, prompts: {}, resources: {} },
       prompts: [],
       resources: [],
       closed: false,
@@ -130,7 +134,7 @@ void mock.module("@modelcontextprotocol/sdk/client/index.js", () => ({
     }
 
     getServerCapabilities() {
-      return {}
+      return this._state?.capabilities ?? {}
     }
 
     setNotificationHandler(schema: unknown, handler: (...args: any[]) => any) {
@@ -152,6 +156,7 @@ void mock.module("@modelcontextprotocol/sdk/client/index.js", () => ({
     }
 
     async listPrompts() {
+      if (this._state?.listPromptsShouldHang) return new Promise(() => {}) // never answers, like openmontage
       if (this._state?.listPromptsShouldFail) {
         throw new Error("listPrompts failed")
       }
@@ -629,6 +634,66 @@ it.instance(
           type: "local",
           command: ["echo", "test"],
         },
+      },
+    },
+  },
+)
+
+it.instance(
+  "prompts() never asks a server that did not advertise prompts",
+  () =>
+    MCP.Service.use((mcp: MCPNS.Interface) =>
+      Effect.gen(function* () {
+        lastCreatedClientName = "tools-only-server"
+        const silent = getOrCreateClientState("tools-only-server")
+        silent.capabilities = { tools: {} }
+        silent.listPromptsShouldHang = true
+        yield* mcp.add("tools-only-server", { type: "local", command: ["echo", "test"] })
+
+        lastCreatedClientName = "prompt-ok-server"
+        getOrCreateClientState("prompt-ok-server").prompts = [{ name: "ok-prompt" }]
+        yield* mcp.add("prompt-ok-server", { type: "local", command: ["echo", "test"] })
+
+        const started = Date.now()
+        const prompts = yield* mcp.prompts()
+        expect(Date.now() - started).toBeLessThan(1_000)
+        expect(Object.keys(prompts)).toEqual(["prompt-ok-server:ok-prompt"])
+      }),
+    ),
+  {
+    config: {
+      mcp: {
+        "tools-only-server": { type: "local", command: ["echo", "test"] },
+        "prompt-ok-server": { type: "local", command: ["echo", "test"] },
+      },
+    },
+  },
+)
+
+it.instance(
+  "prompts() bounds a server that advertises prompts but never answers",
+  () =>
+    MCP.Service.use((mcp: MCPNS.Interface) =>
+      Effect.gen(function* () {
+        lastCreatedClientName = "hanging-server"
+        getOrCreateClientState("hanging-server").listPromptsShouldHang = true
+        yield* mcp.add("hanging-server", { type: "local", command: ["echo", "test"], timeout: 50 })
+
+        lastCreatedClientName = "prompt-ok-server"
+        getOrCreateClientState("prompt-ok-server").prompts = [{ name: "ok-prompt" }]
+        yield* mcp.add("prompt-ok-server", { type: "local", command: ["echo", "test"] })
+
+        const started = Date.now()
+        const prompts = yield* mcp.prompts()
+        expect(Date.now() - started).toBeLessThan(1_000)
+        expect(Object.keys(prompts)).toEqual(["prompt-ok-server:ok-prompt"])
+      }),
+    ),
+  {
+    config: {
+      mcp: {
+        "hanging-server": { type: "local", command: ["echo", "test"], timeout: 50 },
+        "prompt-ok-server": { type: "local", command: ["echo", "test"] },
       },
     },
   },

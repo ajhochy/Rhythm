@@ -203,10 +203,16 @@ class AgentServerController extends ChangeNotifier {
         }),
       );
 
+      // A live owned child that merely blocks its event loop for 15–30 s
+      // (post-turn history scans on a large database) must not be declared
+      // lost: with a 10 s request timeout and three consecutive failures the
+      // flip needs ~40 s of unresponsiveness. Real crashes are caught faster
+      // by the owned-process exit stream, not by this poller.
       _poller = HealthPoller(
         checkFn: () => _service.checkHealth(AppConstants.agentLocalBaseUrl),
         onHealthChanged: _onHealthChanged,
         interval: const Duration(seconds: 15),
+        failureThreshold: 3,
       );
       _poller!.start();
     } else if (_recoveryAttempts > 0) {

@@ -163,8 +163,18 @@ pass. Record failures, observed output, and follow-up ownership in the run note.
 ### MCP Apps GA packaged matrix (#1356)
 
 Run this matrix in a signed/packaged macOS build, not only Debug. Record the
-build SHA, macOS version, pilot call IDs, human approver, exact observed result,
-and sanitized screenshots in `docs/ai/runs/`. Any fail-open result blocks GA.
+following evidence for every run in `docs/ai/runs/`; any fail-open result blocks
+GA:
+
+- Build SHA
+- macOS version
+- Exact mode per run
+- Pilot session/call IDs for Open Design and `rhythm_get_dashboard`
+- Approver name (required before `interactive`)
+- Exact observed result and sanitized screenshots
+
+Use the packaged launch and three-process inheritance checks in
+`docs/ai/mcp-apps.md` before exercising either pilot.
 
 For each exact `RHYTHM_MCP_APPS_MODE` value below, fully restart the engine,
 API, and packaged desktop app, then exercise both **Open Design** and
@@ -190,7 +200,10 @@ accepts this complete packaged matrix.
 ```bash
 cd apps/api_server && npm test
 ```
-Ideally all tests pass. If better-sqlite3 ABI mismatch occurs, run `npm rebuild better-sqlite3` and retry.
+Ideally all tests pass. better-sqlite3 13 uses N-API prebuilds, so a
+`NODE_MODULE_VERSION` mismatch alone does not require a rebuild. If its package-entry
+query probe fails, rerun the api_server postinstall script; it falls back to a source
+rebuild only when the prebuild cannot load.
 
 ```bash
 cd apps/desktop_flutter && flutter test
@@ -423,9 +436,20 @@ credential, or webhook secret.
 
 #### Reviewed session-binding cleanup (#1363 — human-gated)
 
-Run this only against the local-agent SQLite database on the paired Mac. The
-command is dry-run-only unless `--apply` is explicitly present, and output paths
-must not already exist.
+<!-- BEGIN #1377 SESSION-BINDING DATABASE TARGETS -->
+The target is local-agent SQLite, not production Postgres. With both apps quit,
+identify every database currently in use:
+
+- Flutter: `~/Library/Application Support/Rhythm/rhythm.db`
+- Electron: `~/Library/Application Support/Rhythm Electron/rhythm.db`
+
+Electron copies the Flutter database on its first run, but the two files can
+diverge afterward. Each database in use needs its own dry-run, review, and audit
+path. Start with a read-only dry-run against a file copy, keeping the apps quit,
+before generating the candidate report from the in-use database. The command is
+dry-run-only unless `--apply` is explicitly present, and output paths must not
+already exist. Never automate the apply step.
+<!-- END #1377 SESSION-BINDING DATABASE TARGETS -->
 
 - [ ] Build the API CLI: `cd apps/api_server && npm run build`.
 - [ ] Generate the candidate report without mutation:
@@ -573,3 +597,56 @@ desktop instance.
   not be stopped by this owned-process path.
 - [ ] Repeated immediate crashes exhaust the three-attempt budget; Retry
   restores the budget. Normal app quit produces no replacement child.
+
+---
+
+## 16. Colony (Bot Crossing) installed acceptance — issue #1536
+
+Source-side prep for COL-11 lives in `apps/electron/test/colony-installed/`
+(`run.mjs` hash-verifies a release-candidate ZIP against its published
+manifest and builds the JSON evidence record; see
+`docs/ai/contracts/colony-installed.json` for the full COL-11-AC1..AC4 →
+harness-case/manual-step mapping). Everything the harness can drive
+automatically — enablement, inventories, archive/restore, exact navigation,
+task-switch process/auth preservation, quit/relaunch, crash/retry,
+disable/re-enable, offline use, upgrade/rollback — is that harness's job on
+real signed hardware, not this checklist's. This section covers only what a
+harness genuinely cannot assert: visual confirmation and real Keychain
+sign-in.
+
+**Requires:** the exact CI-signed arm64 and x64 release candidates from
+COL-10 (not a local/ad-hoc build — see the `colony-installed.json`
+boundary note), installed into clean disposable macOS accounts on native
+Apple Silicon and native Intel hardware. Mock Keychain and Rosetta do not
+qualify these steps.
+
+### 16.1 Setup
+
+- [ ] Download both `Rhythm-<arch>.zip` release candidates and verify each
+  against the published `colony-manifest-<arch>.json` SHA-256 before
+  installing (`node apps/electron/test/colony-installed/run.mjs
+  --zipPath=... --expectedSha256=... --appVersion=... --evidencePath=...`).
+- [ ] Install into a fresh, disposable macOS user account on each
+  architecture. Confirm no prior Rhythm state or Colony preferences exist.
+
+### 16.2 Visual click-through (per architecture)
+
+- [ ] Enable Bot Crossing and choose a local source. Confirm the 3D scene
+  renders and animates, and camera/selection visually track the task list.
+- [ ] Select a task in the list; confirm the scene highlights the matching
+  bot and the inspector shows matching detail (list/scene selection, COL-11-AC1).
+- [ ] Use "Show in Finder" on a task with a resolvable folder; confirm the
+  Finder window opens on the exact folder (COL-11-AC1).
+
+### 16.3 Real credentials (per architecture)
+
+- [ ] Sign out and sign back in with a real Keychain-backed Rhythm account;
+  confirm Colony's local profile-scoped preferences and cache survive the
+  account switch untouched, and that no Colony data leaks to the new
+  account's profile (COL-11-AC3).
+- [ ] On a Mac with a low-end/unsupported GPU (or forced low-power mode),
+  confirm Colony falls back to the low/list-safe presentation rather than
+  crashing or hanging (COL-11-AC3).
+
+Record artifact SHA, app version, OS build and CPU alongside each result.
+A step that could not be attempted is recorded as not-run, never omitted.

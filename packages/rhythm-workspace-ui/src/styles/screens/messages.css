@@ -1,0 +1,86 @@
+.rhythm-workspace-root .pg-messages { height: 100%; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; color: var(--rhythm-fg); background: color-mix(in oklab, var(--rhythm-bg), transparent 4%); }
+.rhythm-workspace-root .pg-messages .messages-page-header { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 16px 22px; border-bottom: 1px solid var(--rhythm-border-soft); background: var(--rhythm-surface); }
+.rhythm-workspace-root .pg-messages .messages-heading h1 { margin: 2px 0 0; font-size: clamp(21px, 2vw, 27px); font-weight: 620; letter-spacing: -.025em; }
+.rhythm-workspace-root .pg-messages .messages-heading p { margin: 4px 0 0; color: var(--rhythm-fg-muted); }
+.rhythm-workspace-root .pg-messages .messages-workspace { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(260px, 330px) minmax(0, 1fr); overflow: hidden; }
+.rhythm-workspace-root .pg-messages .messages-thread-rail, .rhythm-workspace-root .pg-messages .messages-conversation { min-width: 0; min-height: 0; background: var(--rhythm-surface); }
+.rhythm-workspace-root .pg-messages .messages-thread-rail { display: grid; grid-template-rows: auto auto minmax(0, 1fr); border-inline-end: 1px solid var(--rhythm-border-soft); overflow: hidden; }
+.rhythm-workspace-root .pg-messages .messages-rail-summary { min-height: 50px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 13px; border-bottom: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-messages .messages-rail-summary strong { font-size: 11px; font-weight: 590; }
+.rhythm-workspace-root .pg-messages .messages-rail-summary span { color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 9px; }
+.rhythm-workspace-root .pg-messages .messages-search { margin: 9px 10px; }
+.rhythm-workspace-root .pg-messages .messages-search input { width: 100%; min-height: 44px; }
+.rhythm-workspace-root .pg-messages .messages-thread-list { min-width: 0; min-height: 0; padding: 0 6px 12px; overflow: auto; }
+.rhythm-workspace-root .pg-messages .messages-thread-item { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: center; border-bottom: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-messages .messages-thread-row { min-width: 0; min-height: 64px; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 0 9px; padding: 8px 5px 8px 8px; border: 0; border-radius: var(--rhythm-radius-sm); color: var(--rhythm-fg-secondary); background: transparent; cursor: pointer; text-align: start; }
+.rhythm-workspace-root .pg-messages .messages-thread-row:hover { background: color-mix(in oklab, var(--rhythm-surface), var(--rhythm-fg) 6%); }
+.rhythm-workspace-root .pg-messages .messages-thread-row[aria-selected="true"] { color: var(--rhythm-fg); background: var(--rhythm-surface-warm); box-shadow: inset 2px 0 var(--rhythm-accent); }
+.rhythm-workspace-root .pg-messages .messages-thread-avatar { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid var(--rhythm-border-soft); border-radius: 50%; color: var(--rhythm-accent); background: color-mix(in oklab, var(--rhythm-surface-warm), var(--rhythm-bg) 18%); font-family: var(--rhythm-font-mono); font-size: 9px; }
+.rhythm-workspace-root .pg-messages .messages-thread-copy { min-width: 0; display: grid; gap: 2px; }
+.rhythm-workspace-root .pg-messages .messages-thread-copy strong { color: var(--rhythm-fg); font-size: 11px; font-weight: 580; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rhythm-workspace-root .pg-messages .messages-thread-copy small { color: var(--rhythm-fg-muted); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rhythm-workspace-root .pg-messages .messages-thread-row time { color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 8px; }
+.rhythm-workspace-root .pg-messages .messages-row-unread { min-width: 20px; height: 20px; display: grid; place-items: center; border-radius: var(--rhythm-radius-pill); color: var(--rhythm-accent-on); background: var(--rhythm-accent); font-family: var(--rhythm-font-mono); font-size: 8px; font-weight: 700; }
+.rhythm-workspace-root .pg-messages .messages-thread-actions { width: 44px; height: 44px; border-color: transparent; background: transparent; }
+.rhythm-workspace-root .pg-messages .messages-thread-menu { top: calc(100% + 2px); right: 2px; width: 184px; }
+.rhythm-workspace-root .pg-messages .messages-delete-action { color: var(--rhythm-danger); }
+.rhythm-workspace-root .pg-messages .messages-no-results { min-height: 200px; display: grid; place-content: center; justify-items: center; padding: 22px; text-align: center; }
+.rhythm-workspace-root .pg-messages .messages-conversation { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; background: color-mix(in oklab, var(--rhythm-surface), var(--rhythm-bg) 3%); }
+.rhythm-workspace-root .pg-messages .messages-conversation-header { min-width: 0; display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid var(--rhythm-border-soft); background: var(--rhythm-surface); }
+.rhythm-workspace-root .pg-messages .messages-conversation-heading { flex: 1 1 auto; min-width: 0; }
+.rhythm-workspace-root .pg-messages .messages-conversation-header h2 { margin: 3px 0 2px; font-size: 17px; font-weight: 600; letter-spacing: -.015em; overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-messages .messages-conversation-header p { margin: 0; color: var(--rhythm-fg-muted); font-size: 9px; overflow-wrap: anywhere; }
+.rhythm-workspace-root .pg-messages .messages-transcript { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; overflow: auto; padding: 18px clamp(16px, 4vw, 40px); }
+.rhythm-workspace-root .pg-messages .messages-message { width: min(76%, 600px); align-self: flex-start; padding: 10px 12px; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-md); background: var(--rhythm-surface); }
+.rhythm-workspace-root .pg-messages .messages-message header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.rhythm-workspace-root .pg-messages .messages-message strong { font-size: 10px; font-weight: 620; }
+.rhythm-workspace-root .pg-messages .messages-message time { color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 8px; white-space: nowrap; }
+.rhythm-workspace-root .pg-messages .messages-message p { margin: 5px 0 0; color: var(--rhythm-fg-secondary); overflow-wrap: anywhere; white-space: pre-wrap; }
+.rhythm-workspace-root .pg-messages .messages-transcript-empty { flex: 1; display: grid; place-items: center; color: var(--rhythm-fg-muted); text-align: center; }
+.rhythm-workspace-root .pg-messages .messages-composer { display: grid; gap: 4px; padding: 12px 18px; border-top: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-messages .messages-composer > label { color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 8px; text-transform: uppercase; }
+.rhythm-workspace-root .pg-messages .messages-composer > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
+.rhythm-workspace-root .pg-messages .messages-composer textarea { min-height: 54px; max-height: 112px; resize: vertical; }
+.rhythm-workspace-root .pg-messages .messages-send { min-width: 86px; min-height: 54px; }
+.rhythm-workspace-root .pg-messages .messages-composer small { color: var(--rhythm-fg-muted); font-size: 8px; }
+.rhythm-workspace-root .pg-messages .messages-composer p { margin: 1px 0 0; color: var(--rhythm-danger); font-size: 9px; }
+.rhythm-workspace-root .pg-messages .messages-selection-state, .rhythm-workspace-root .pg-messages .messages-state { min-height: 0; display: grid; place-content: center; justify-items: center; gap: 7px; padding: 32px; color: var(--rhythm-fg-muted); text-align: center; }
+.rhythm-workspace-root .pg-messages .messages-state { width: min(100%, 620px); min-height: 320px; margin: 16px auto; border-block: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .pg-messages .messages-state.danger { border-color: color-mix(in oklab, var(--rhythm-danger), var(--rhythm-border) 45%); }
+.rhythm-workspace-root .pg-messages .messages-state.warning { border-color: color-mix(in oklab, var(--rhythm-warning), var(--rhythm-border) 42%); }
+.rhythm-workspace-root .pg-messages .messages-state h2, .rhythm-workspace-root .pg-messages .messages-selection-state h2 { margin: 2px 0; color: var(--rhythm-fg); font-size: 18px; }
+.rhythm-workspace-root .pg-messages .messages-state p, .rhythm-workspace-root .pg-messages .messages-selection-state p { max-width: 52ch; margin: 0 0 7px; }
+.rhythm-workspace-root .pg-messages .messages-new-thread-form, .rhythm-workspace-root .pg-messages .messages-thread-edit-form, .rhythm-workspace-root .pg-messages .messages-thread-delete-confirmation { display: grid; gap: 14px; }
+.rhythm-workspace-root .pg-messages .messages-type-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.rhythm-workspace-root .pg-messages .messages-type-options label { min-height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-sm); cursor: pointer; }
+.rhythm-workspace-root .pg-messages .messages-field { display: grid; gap: 5px; color: var(--rhythm-fg-muted); font-size: 9px; }
+.rhythm-workspace-root .pg-messages .messages-field input { width: 100%; min-height: 44px; }
+.rhythm-workspace-root .pg-messages .messages-recipient-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.rhythm-workspace-root .pg-messages .messages-recipient-list > label { min-height: 52px; display: grid; grid-template-columns: auto 30px minmax(0, 1fr); align-items: center; gap: 8px; padding: 7px 9px; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-sm); cursor: pointer; }
+.rhythm-workspace-root .pg-messages .messages-recipient-list > label:has(input:checked) { border-color: var(--rhythm-accent); background: color-mix(in oklab, var(--rhythm-accent), transparent 93%); }
+.rhythm-workspace-root .pg-messages .messages-form-error { margin: 0; padding: 8px 10px; border: 1px solid color-mix(in oklab, var(--rhythm-danger), var(--rhythm-border) 45%); border-radius: var(--rhythm-radius-sm); color: var(--rhythm-fg); background: color-mix(in oklab, var(--rhythm-danger), transparent 90%); }
+.rhythm-workspace-root .pg-messages .messages-thread-delete-confirmation > p { margin: 0; color: var(--rhythm-fg-muted); }
+.rhythm-workspace-root .pg-messages :disabled { cursor: not-allowed; }
+
+@media (max-width: 900px) {
+  .rhythm-workspace-root .pg-messages .messages-workspace { grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); }
+}
+
+@media (max-width: 640px) {
+  .rhythm-workspace-root .pg-messages .messages-page-header { padding: 12px; }
+  .rhythm-workspace-root .pg-messages .messages-heading p { display: none; }
+  .rhythm-workspace-root .pg-messages .messages-workspace { grid-template-columns: minmax(0, 1fr); }
+  .rhythm-workspace-root .pg-messages .messages-workspace.has-selection .messages-thread-rail { display: none; }
+  .rhythm-workspace-root .pg-messages .messages-workspace:not(.has-selection) .messages-conversation { display: none; }
+  .rhythm-workspace-root .pg-messages .messages-transcript { padding: 12px; }
+  .rhythm-workspace-root .pg-messages .messages-message { width: min(88%, 600px); }
+  .rhythm-workspace-root .pg-messages .messages-recipient-list { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (forced-colors: active) {
+  .rhythm-workspace-root .pg-messages .messages-thread-row[aria-selected="true"], .rhythm-workspace-root .pg-messages .messages-message { border-color: CanvasText; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rhythm-workspace-root .pg-messages * { transition: none; }
+}

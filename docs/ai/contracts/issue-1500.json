@@ -1,0 +1,24 @@
+{
+  "issue": 1500,
+  "date": "2026-09-24",
+  "test_command": "cd apps/api_server && ./node_modules/.bin/vitest run src/__tests__/workflow_failure_signal_extractor.test.ts",
+  "criteria": [
+    {
+      "criterion_id": "issue-1500-c1",
+      "text": "Tied creation timestamps use update evidence to preserve failed retry signal and suppress resolved retry signal",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/workflow_failure_signal_extractor.test.ts",
+      "status": "pass",
+      "reason": "Both opposite-status cases RED before repair; full66GREEN."
+    },
+    {
+      "criterion_id": "issue-1500-c2",
+      "text": "Sequential fixture has explicit ordering and fully tied source ordering is deterministic",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/workflow_failure_signal_extractor.test.ts",
+      "status": "pass",
+      "reason": "Explicit chronological fixture plus full-tie input-order permutation regression; full66GREEN."
+    }
+  ],
+  "not_tested": []
+}

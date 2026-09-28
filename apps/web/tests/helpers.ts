@@ -11,7 +11,8 @@ export async function openFixture(page: Page, hash = '#/agents') {
   const route = hash.replace(/^#/, '').split('?')[0];
   const fixtureState = new URLSearchParams(hash.split('?')[1] ?? '').get('state');
   const readinessTestId = route === '/profiles'
-    ? fixtureState && fixtureState !== 'ready' ? `tool-state-${fixtureState}` : 'profile-create'
+    // The save footer is visible at every width; narrow Profiles hides the list column.
+    ? fixtureState && fixtureState !== 'ready' ? `tool-state-${fixtureState}` : 'profile-save-status'
     : route === '/endpoint-map'
       ? 'endpoint-table'
       : route.startsWith('/tools/')

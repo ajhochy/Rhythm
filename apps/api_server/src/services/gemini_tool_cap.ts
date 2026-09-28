@@ -23,9 +23,9 @@
  *      up to the remaining budget — this is the ALREADY-SCOPED, most
  *      deliberately-chosen part of the surface (a profile's explicit
  *      allowlist), so it is preferred over blanket "inherit-all" servers.
- *   3. `servers[]` (inherit-all servers, whose real tool count is unknown —
- *      see `PER_SERVER_INHERIT_ALL_ESTIMATE`) are kept next, in order, each
- *      charged at the flat per-server estimate, until the budget runs out.
+ *   3. `servers[]` (inherit-all servers) are kept next, in order, charged at
+ *      the real count supplied by the role config when available and the
+ *      conservative fallback estimate otherwise, until the budget runs out.
  *   4. Anything that doesn't fit is dropped. The function never throws and
  *      never silently succeeds without a flag: `trimmed` is true whenever
  *      anything was dropped, and `warning` carries a machine-readable,
@@ -57,14 +57,9 @@ export const GEMINI_BUILTIN_RESERVE = 12;
 /** Effective ceiling on MCP-derived (non-builtin) declarations. */
 export const GEMINI_MCP_TOOL_BUDGET = GEMINI_MAX_FUNCTION_DECLARATIONS - GEMINI_BUILTIN_RESERVE;
 
-/**
- * Flat per-server estimate for an "inherit-all" server entry (real count
- * unknown at this layer — mirrors `INHERIT_ALL_TOOL_COUNT_ESTIMATE` in
- * `tool_surface_estimator.ts`, duplicated rather than imported to keep this
- * guard's budget math independent/pure and because the two constants are
- * allowed to diverge if either module's calibration changes).
- */
+/** Fallback for callers that cannot supply a real inherit-all server count. */
 const PER_SERVER_INHERIT_ALL_ESTIMATE = 25;
+const DROPPED_NAME_LOG_LIMIT = 20;
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -99,8 +94,9 @@ export interface GeminiToolCapResult {
 export function capMcpAllowlistForProvider(
   allowlist: McpAllowlist,
   providerId: string | null | undefined,
+  toolCounts: Readonly<Record<string, number>> = {},
 ): GeminiToolCapResult {
-  const originalEstimatedCount = estimateCount(allowlist);
+  const originalEstimatedCount = estimateCount(allowlist, toolCounts);
 
   if (providerId !== 'google') {
     return {
@@ -136,21 +132,23 @@ export function capMcpAllowlistForProvider(
 
   const keptServers: string[] = [];
   for (const server of allowlist.servers) {
-    if (remaining < PER_SERVER_INHERIT_ALL_ESTIMATE) break;
+    const serverCount = countForServer(server, toolCounts);
+    if (remaining < serverCount) break;
     keptServers.push(server);
-    remaining -= PER_SERVER_INHERIT_ALL_ESTIMATE;
+    remaining -= serverCount;
   }
 
-  const droppedToolCount = allowlist.tools.length - keptTools.length;
-  const droppedServerCount = allowlist.servers.length - keptServers.length;
+  const droppedTools = allowlist.tools.slice(keptTools.length);
+  const droppedServers = allowlist.servers.slice(keptServers.length);
 
   const cappedAllowlist: McpAllowlist = { servers: keptServers, tools: keptTools };
-  const cappedEstimatedCount = estimateCount(cappedAllowlist);
+  const cappedEstimatedCount = estimateCount(cappedAllowlist, toolCounts);
 
   const warning =
     `[GeminiToolCap] tool surface exceeded Gemini's ${GEMINI_MAX_FUNCTION_DECLARATIONS}-function-declaration cap ` +
     `(estimated ${originalEstimatedCount}, budget ${GEMINI_MCP_TOOL_BUDGET} after builtin reserve) — trimmed to ` +
-    `${cappedEstimatedCount} (dropped ${droppedToolCount} explicit tool(s), ${droppedServerCount} inherit-all server(s)).`;
+    `${cappedEstimatedCount}; ${summarizeDropped('tools', droppedTools)}; ` +
+    `${summarizeDropped('servers', droppedServers)}. Reason: provider declaration cap.`;
 
   return {
     allowlist: cappedAllowlist,
@@ -161,8 +159,31 @@ export function capMcpAllowlistForProvider(
   };
 }
 
-function estimateCount(allowlist: McpAllowlist): number {
-  return allowlist.tools.length + allowlist.servers.length * PER_SERVER_INHERIT_ALL_ESTIMATE;
+function countForServer(
+  server: string,
+  toolCounts: Readonly<Record<string, number>>,
+): number {
+  const count = toolCounts[server];
+  return Number.isInteger(count) && count >= 0
+    ? count
+    : PER_SERVER_INHERIT_ALL_ESTIMATE;
+}
+
+function estimateCount(
+  allowlist: McpAllowlist,
+  toolCounts: Readonly<Record<string, number>>,
+): number {
+  return allowlist.tools.length + allowlist.servers.reduce(
+    (total, server) => total + countForServer(server, toolCounts),
+    0,
+  );
+}
+
+function summarizeDropped(kind: 'tools' | 'servers', names: string[]): string {
+  if (names.length === 0) return `dropped ${kind}: (none)`;
+  const shown = names.slice(0, DROPPED_NAME_LOG_LIMIT).join(', ');
+  const remainder = names.length - DROPPED_NAME_LOG_LIMIT;
+  return `dropped ${kind}: ${shown}${remainder > 0 ? `, +${remainder} more` : ''}`;
 }
 
 // ── Unscoped ("inherit-all") Gemini surface — #952 ──────────────────────────────

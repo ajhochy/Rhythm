@@ -149,6 +149,7 @@ export type OpencodeContextValue = {
   currentTodos: Todo[];
   currentPendingPermissions: PendingPermissionRequest[];
   currentPendingQuestions: PendingQuestionRequest[];
+  pendingQuestionSessionIds: string[];
   sessionPreviewById: Record<string, string>;
   isRefreshingSessions: boolean;
   isRefreshingMessages: boolean;

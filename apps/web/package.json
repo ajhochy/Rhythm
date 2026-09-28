@@ -2,6 +2,7 @@
   "name": "rhythm-desktop-agents",
   "private": true,
   "version": "1.0.0",
+  "license": "MIT",
   "description": "Deterministic Rhythm Desktop Agents web prototype",
   "type": "module",
   "scripts": {

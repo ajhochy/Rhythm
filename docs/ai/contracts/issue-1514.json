@@ -1,0 +1,79 @@
+{
+  "issue": 1514,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1514-c1",
+      "text": "Inventory the existing agent-menu configuration entries and Flutter settings controls; record their Electron destinations and identify missing functionality explicitly.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: no automated test authored in this run for the configuration-coverage matrix."
+    },
+    {
+      "criterion_id": "issue-1514-c2",
+      "text": "Provide a compact left list of configuration sections/items and show their actual current values, explanations, and supported controls in the main inspector.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/agent-settings-list-inspector.spec.ts",
+      "test_id": "selects different configuration sections and keeps scope visible",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1514-c3",
+      "text": "Restore access to the applicable Accounts, Behavior, Keybindings, runtime/server, and MCP configurations, alongside profile-related configuration and existing Auto-promotion controls. Reuse working configuration surfaces where available.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/agent-settings-list-inspector.spec.ts",
+      "test_id": "keeps every existing fixture action in the inspector",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1514-c4",
+      "text": "Clearly distinguish agent/profile, desktop-local, and workspace settings. Do not present a profile summary as the configuration editor.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/agent-settings-list-inspector.spec.ts",
+      "test_id": "selects different configuration sections and keeps scope visible",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1514-c5",
+      "text": "Load and save through the existing responsible service, with validation, pending state, failure feedback, and persistence after reopening. Unsupported capabilities must be explained rather than implemented as no-op controls.",
+      "mode": "integration",
+      "test_file": "apps/web/tests/bucket-a-rendered-repair.spec.ts",
+      "test_id": "bucket-a-rendered-settings-actions: account and MCP selection is inert until an inspector action is pressed",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1514-c6",
+      "text": "Preserve authorization, credential handling, destructive-tool approval behavior, and Auto-promotion eligibility/confirmation gates.",
+      "mode": "integration",
+      "test_file": "apps/web/tests/bucket-a-rendered-repair.spec.ts",
+      "test_id": "self-improvement-auto-promotion-live: default-off gating and explicit cloud-confirmed enable are authoritative",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1514-c7",
+      "text": "Mouse and keyboard selection update the correct inspector, with visible focus and selected state.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/agent-settings-list-inspector.spec.ts",
+      "test_id": "uses roving keyboard focus without changing selection until activation",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1514-c8",
+      "text": "Long titles/metadata, empty results, loading, errors, and read-only access remain usable; resizing does not clip essential controls.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/agent-settings-list-inspector.spec.ts",
+      "test_id": "uses one pane at 640px and remains unclipped at 200% zoom",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1514-c9",
+      "text": "Refresh and existing deep links preserve or restore the correct selection; missing/deleted items produce a clear state rather than stale details.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/agent-settings-list-inspector.spec.ts",
+      "test_id": "restores a valid deep link and shows a clear state for a deleted id",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-1514-c1"]
+}

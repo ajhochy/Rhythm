@@ -1,0 +1,536 @@
+.agent-settings-scope {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface-warm);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .02em;
+}
+
+.agent-settings-intro {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin-block-end: 18px;
+}
+
+.agent-settings-intro p,
+.agent-settings-gap p,
+.agent-settings-empty p,
+.agent-settings-mcp-list p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.agent-settings-gap,
+.agent-settings-empty {
+  display: grid;
+  gap: 6px;
+  margin-block: 16px;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  background: color-mix(in oklab, var(--surface), var(--bg) 5%);
+}
+
+.agent-settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block: 14px;
+}
+
+.agent-settings-local-preference {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  margin-block: 16px;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.agent-settings-local-preference > label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  cursor: pointer;
+}
+
+.agent-settings-keybinding-fields { display: grid; gap: 12px; max-width: 420px; margin-bottom: 14px; }
+.agent-settings-keybinding-fields label { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(180px, 1.35fr); gap: 12px; align-items: center; color: var(--fg-2); font-size: 13px; }
+.agent-settings-keybinding-fields select { min-width: 0; }
+
+.agent-settings-local-preference > label > span {
+  display: grid;
+  gap: 4px;
+}
+
+.agent-settings-local-preference small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.agent-settings-local-preference input[role="switch"] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
+}
+
+.agent-settings-actions > button,
+.agent-settings-records + button,
+.auto-promotion-card footer button,
+[data-testid="auto-promotion-dialog"] .dialog-actions button,
+[data-testid="agent-settings-mcp-remove-dialog"] .dialog-actions button,
+[data-testid="agent-settings-account-remove-dialog"] .dialog-actions button,
+.agent-settings-form button {
+  min-width: 44px;
+  min-height: 44px;
+  white-space: normal;
+}
+
+.agent-settings-browser .agent-settings-retry {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* Global badge capitalization must not rewrite the unknown provider copy. */
+.kind-badge.agent-settings-status-unknown {
+  text-transform: none;
+}
+
+.agent-settings-records,
+.agent-settings-mcp-list {
+  display: grid;
+  gap: 8px;
+  margin-block: 14px;
+}
+
+.agent-settings-records article {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+}
+
+.agent-settings-records article > span,
+.agent-settings-mcp-list article header > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.agent-settings-records small,
+.agent-settings-mcp-list small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.agent-settings-mcp-list article {
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.agent-settings-mcp-list article.status-connected {
+  border-color: color-mix(in oklab, var(--success), var(--border) 58%);
+}
+
+.agent-settings-mcp-list article.status-needs-auth {
+  border-color: var(--warning);
+}
+
+.agent-settings-mcp-list article.status-failed {
+  border-color: color-mix(in oklab, var(--danger), var(--border) 42%);
+  background: color-mix(in oklab, var(--danger), var(--surface) 96%);
+}
+
+.agent-settings-mcp-list article .kind-badge {
+  font-size: 11px;
+  text-transform: none;
+}
+
+.agent-settings-mcp-list article.status-connected .kind-badge {
+  border-color: var(--success);
+  color: color-mix(in oklab, var(--success), white 24%);
+}
+
+.agent-settings-mcp-list article.status-needs-auth .kind-badge {
+  border-color: var(--warning);
+  color: color-mix(in oklab, var(--warning), white 18%);
+}
+
+.agent-settings-mcp-list article.status-failed .kind-badge {
+  border-color: var(--danger);
+  color: color-mix(in oklab, var(--danger), white 28%);
+}
+
+.agent-settings-mcp-list p.agent-settings-mcp-error {
+  margin-block: 10px 0;
+  color: color-mix(in oklab, var(--danger), white 26%);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.agent-settings-mcp-search {
+  margin-block: 0 12px;
+}
+
+.agent-settings-add-disclosure {
+  margin-block-start: 18px;
+}
+
+.agent-settings-add-disclosure > summary {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 44px;
+  align-items: center;
+  cursor: pointer;
+}
+
+/* Every Agent Settings badge label is authored in sentence case; the global capitalize turns
+   "Needs login or key" into "Needs Login Or Key". */
+.agent-settings-browser .kind-badge { text-transform: none; }
+
+/* ponytail: fixed offset for app header + page header + tool-trace footer; swap for a flex-fill
+   layout if the page header ever grows. */
+.agent-settings-browser { --column-browser-height: max(420px, calc(100vh - 270px)); }
+.agent-settings-browser .column-browser-search { display: block; flex-basis: 100%; }
+.agent-settings-browser .column-browser-search input { width: 100%; min-height: 28px; padding: 4px 8px; font-size: 12px; }
+.agent-settings-mcp-tool-filter { margin: 8px 0 0; }
+.agent-settings-mcp-tool-filter input { width: 100%; min-height: 28px; padding: 4px 8px; font-size: 12px; }
+.agent-settings-mcp-tools { display: grid; gap: 1px; margin: 8px 0 0; padding: 0; list-style: none; border: 1px solid var(--border-soft); border-radius: var(--r-sm); overflow: hidden; }
+.agent-settings-mcp-tools li { background: var(--surface); }
+.agent-settings-mcp-tool-row {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  background: none;
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: start;
+  cursor: pointer;
+  min-height: unset;
+}
+.agent-settings-mcp-tool-row:hover,
+.agent-settings-mcp-tool-row[aria-expanded="true"] { background: color-mix(in oklab, var(--surface), var(--bg) 6%); }
+.agent-settings-mcp-tool-detail { padding: 0 10px 8px; color: var(--muted); font-family: var(--font-ui); font-size: 12px; line-height: 1.5; }
+.agent-settings-mcp-tools-empty { padding: 8px 10px; color: var(--muted); font-size: 12px; }
+
+.agent-settings-form {
+  display: grid;
+  gap: 12px;
+  margin-block: 16px;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.agent-settings-form h3,
+.agent-settings-form p {
+  margin: 0;
+}
+
+/* The semantic h3 follows the inspector h2 without changing its former h4 size. */
+.agent-settings-form h3,
+.agent-settings-subhead {
+  font-size: 1em;
+}
+
+.agent-settings-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.agent-settings-form input,
+.agent-settings-form select {
+  width: 100%;
+  min-height: 44px;
+}
+
+.agent-settings-form button,
+.agent-settings-gap button {
+  justify-self: start;
+}
+
+.agent-settings-mcp-list article header,
+.auto-promotion-card > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.auto-promotion-card > header p {
+  margin: 0;
+}
+
+.agent-settings-property-list {
+  display: grid;
+  gap: 10px;
+  margin-block: 14px;
+}
+
+.agent-settings-property-list > div {
+  display: grid;
+  grid-template-columns: minmax(112px, max-content) minmax(0, 1fr);
+  align-items: start;
+  justify-content: start;
+  gap: 8px 16px;
+}
+
+.agent-settings-property-list dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.agent-settings-property-list dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px 10px;
+  min-width: 0;
+  margin: 0;
+  color: var(--fg-2);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+
+.agent-settings-runtime-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block-start: 16px;
+  padding-block-start: 16px;
+  border-block-start: 1px solid var(--border-soft);
+}
+
+.agent-settings-runtime-owner-note {
+  margin-block: 8px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.agent-settings-status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.agent-settings-runtime-state {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-settings-runtime-value.status-healthy .agent-settings-runtime-state {
+  color: var(--success);
+}
+
+.agent-settings-runtime-value.status-checking .agent-settings-runtime-state {
+  color: var(--warning);
+}
+
+.agent-settings-runtime-value.status-failed .agent-settings-runtime-state {
+  color: var(--danger);
+}
+
+.agent-settings-status-indicator i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.agent-settings-runtime-value.status-healthy .agent-settings-status-indicator {
+  color: var(--success);
+}
+
+.agent-settings-runtime-value.status-checking .agent-settings-status-indicator {
+  color: var(--warning);
+}
+
+.agent-settings-runtime-value.status-failed .agent-settings-status-indicator,
+.agent-settings-runtime-error {
+  color: var(--danger);
+}
+
+.agent-settings-runtime-error {
+  flex-basis: 100%;
+  font-weight: 600;
+}
+
+.auto-promotion-card .kind-badge.unavailable {
+  border-color: var(--danger);
+  color: var(--danger);
+  text-transform: none;
+}
+
+.auto-promotion-error {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-block: 14px;
+  padding: 12px;
+  border: 1px solid color-mix(in oklab, var(--danger), var(--border) 45%);
+  border-radius: var(--r-md);
+  color: color-mix(in oklab, var(--danger), white 18%);
+  background: color-mix(in oklab, var(--danger), var(--surface) 94%);
+}
+
+.auto-promotion-error > span {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-weight: 800;
+}
+
+.auto-promotion-error p {
+  margin: 0;
+}
+
+.auto-promotion-error button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.auto-promotion-card footer {
+  margin-block-start: 14px;
+}
+
+@container column-browser (width < 720px) {
+  .agent-settings-mcp-list article header,
+  .auto-promotion-card > header {
+    flex-wrap: wrap;
+  }
+
+  .agent-settings-property-list > div,
+  .auto-promotion-error {
+    grid-template-columns: 1fr;
+  }
+}
+
+.agent-settings-records article.agent-settings-account {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.agent-settings-records article.agent-settings-account .agent-settings-actions {
+  margin-block: 0;
+  justify-content: flex-end;
+}
+
+.agent-settings-records article.needs-relogin {
+  border-color: var(--warning);
+}
+
+.agent-settings-records article.needs-relogin .kind-badge {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.agent-settings-subhead {
+  margin: 22px 0 0;
+}
+
+.agent-settings-subhead-note {
+  margin: 4px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.agent-settings-records article.agent-settings-account > form {
+  grid-column: 1 / -1;
+  margin-block: 10px 0;
+}
+
+.hermes-accounts-settings { margin-block: 0 28px; }
+.hermes-accounts-settings > header { margin-block-end: 20px; }
+.hermes-accounts-settings h3 { margin: 0 0 8px; }
+.hermes-accounts-settings p { max-width: 70ch; line-height: 1.5; margin: 6px 0; }
+.hermes-account-row { display: grid; grid-template-columns: minmax(90px, 140px) minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; min-width: 0; padding: 8px 0; border-bottom: 1px solid var(--border-soft); }
+.hermes-account-row > p { margin: 0; color: var(--fg-2); font-size: 12px; }
+.hermes-account-row small { color: var(--muted); }
+.hermes-account-state { color: var(--fg); font-weight: 600; }
+@container column-browser (width < 560px) { .hermes-account-row { grid-template-columns: minmax(0, 1fr); } }
+.hermes-accounts-memory { color: var(--muted); }
+
+/* #1580 S2 — provider-first model curation panel. min-width: 0 throughout so a long model id
+   or provider label wraps instead of forcing the list-inspector detail pane to scroll sideways. */
+.model-curation { min-width: 0; display: grid; gap: 12px; }
+.model-curation-search { max-width: 420px; }
+.custom-provider { max-width: 720px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-warm); }
+.custom-provider > summary { min-height: 44px; display: flex; align-items: center; padding: 0 12px; font-weight: 600; cursor: pointer; }
+.custom-provider-form { display: grid; gap: 12px; padding: 0 12px 12px; }
+.custom-provider-form p { margin: 0; color: var(--muted); font-size: 12px; }
+.custom-provider-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.custom-provider-fields label { min-width: 0; display: grid; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.custom-provider-fields input { width: 100%; min-width: 0; min-height: 44px; }
+.custom-provider-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.custom-provider-actions button { min-height: 44px; }
+.custom-provider .custom-provider-refresh { min-height: 44px; justify-self: start; }
+.custom-provider-status { min-height: 18px; }
+.custom-provider-status.is-error { color: var(--danger); }
+.model-curation-groups { min-width: 0; display: grid; gap: 10px; }
+.model-curation-group { min-width: 0; border: 1px solid var(--border); border-radius: var(--r-sm); overflow: hidden; }
+.model-curation-group-heading { min-width: 0; display: flex; align-items: center; gap: 8px; padding-inline-end: 10px; background: var(--surface-warm); }
+.model-curation-group-header {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+  border: 0; background: var(--surface-warm); color: var(--fg); font: inherit; text-align: left; cursor: pointer;
+}
+.model-curation-provider-search { flex: 0 1 220px; min-width: 120px; }
+.model-curation-provider-search input { width: 100%; min-height: 32px; padding-block: 5px; font-size: 11px; }
+.model-curation-group-header:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.model-curation-group-title { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.model-curation-status-connected { border-color: var(--success); color: var(--success); }
+.model-curation-status-needs-login { border-color: var(--warning); color: var(--warning); }
+.model-curation-status-unavailable { color: var(--muted); }
+.model-curation-group-body { min-width: 0; display: grid; gap: 2px; padding: 4px 12px 12px; }
+.model-curation-all-none { padding-block: 6px; border-bottom: 1px solid var(--border-soft); font-size: 11px; color: var(--muted); }
+.model-curation-row { min-width: 0; padding-block: 6px; }
+.model-curation-row-label { min-width: 0; display: grid; gap: 1px; overflow-wrap: anywhere; }
+.model-curation-row-label small { color: var(--muted); }
+.model-curation-empty { color: var(--muted); font-size: 12px; margin: 6px 0; }
+.model-curation-local-note { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 0; padding: 8px 0 0; color: var(--muted); overflow-wrap: anywhere; }
+
+@media (max-width: 560px) {
+  .custom-provider-fields { grid-template-columns: 1fr; }
+  .model-curation-group-heading { align-items: stretch; flex-direction: column; gap: 0; padding: 0 10px 10px; }
+  .model-curation-group-header { width: calc(100% + 20px); margin-inline: -10px; }
+  .model-curation-provider-search { flex-basis: auto; width: 100%; }
+  .model-curation-provider-search input { min-height: 44px; }
+}
+
+@media (pointer: coarse) {
+  .model-curation-provider-search input { min-height: 44px; }
+}

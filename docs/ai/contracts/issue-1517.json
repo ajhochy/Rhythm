@@ -1,0 +1,56 @@
+{
+  "issue": 1517,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "issue-1517-c1",
+      "text": "Keep template/active-project sections understandable while showing their items as compact title-and-metadata rows on the left.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/projects-list-inspector.spec.ts",
+      "test_id": "selects templates and active projects while keeping every item action in the inspector",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1517-c2",
+      "text": "Selecting a project or template shows its details and applicable functions in the main inspector.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/projects-list-inspector.spec.ts",
+      "test_id": "selects templates and active projects while keeping every item action in the inspector",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1517-c3",
+      "text": "Keep ownership, descriptions, steps/milestones, template editing, project start, and existing delete actions accessible from the selected item. Keep long step content in the inspector rather than expanding list rows.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/projects-list-inspector.spec.ts",
+      "test_id": "selects templates and active projects while keeping every item action in the inspector",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1517-c4",
+      "text": "Mouse and keyboard selection update the correct inspector, with visible focus and selected state.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/projects-list-inspector.spec.ts",
+      "test_id": "supports roving keyboard focus and selection across groups",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1517-c5",
+      "text": "Long titles/metadata, empty results, loading, errors, and read-only access remain usable; resizing does not clip essential controls.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/projects-list-inspector.spec.ts",
+      "test_id": "uses one pane at 640px and keeps long content and actions available at 200% zoom",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1517-c6",
+      "text": "Refresh and existing deep links preserve or restore the correct selection; missing/deleted items produce a clear state rather than stale details.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/pages/projects-list-inspector.spec.ts",
+      "test_id": "restores selection, shows missing and deleted ids, and never leaves stale actions",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

@@ -553,4 +553,23 @@ export class MessagesRepository {
     }
     this.markThreadUnread(threadId, userId);
   }
+
+  deleteThread(threadId: number, userId: number): void {
+    const result = getDb()
+      .prepare('DELETE FROM message_threads WHERE id = ? AND created_by = ?')
+      .run(threadId, userId);
+    if (result.changes === 0) throw AppError.notFound('MessageThread');
+  }
+
+  async deleteThreadAsync(threadId: number, userId: number): Promise<void> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        'DELETE FROM message_threads WHERE id = $1 AND created_by = $2',
+        [threadId, userId],
+      );
+      if (result.rowCount === 0) throw AppError.notFound('MessageThread');
+      return;
+    }
+    this.deleteThread(threadId, userId);
+  }
 }

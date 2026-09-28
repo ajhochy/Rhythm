@@ -3,6 +3,7 @@ import { env } from '../config/env';
 import { requireAuth } from '../middleware/auth_middleware';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { anthropicAccountsService } from '../services/anthropic_accounts_service';
+import { openaiAccountsService } from '../services/openai_accounts_service';
 import { broadcast, broadcastSessionUpdated } from '../services/ws_gateway';
 import { logger } from '../utils/logger';
 import {
@@ -102,10 +103,18 @@ opencodeSpilloverRouter.post('/', async (req: Request, res: Response) => {
     return;
   }
 
-  repo.setAnthropicAccountId(session.id, toAccountId);
-  anthropicAccountsService.setRouting(sdkSessionId, toAccountId);
+  // Same-provider account failover. providerID 'openai' comes from the codex
+  // plugin (codex-accounts.ts); absent = the Anthropic plugin (unchanged).
+  const isOpenAI = exhaustedProviderID === 'openai';
+  if (isOpenAI) {
+    repo.setOpenaiAccountId(session.id, toAccountId);
+    openaiAccountsService.setRouting(sdkSessionId, toAccountId);
+  } else {
+    repo.setAnthropicAccountId(session.id, toAccountId);
+    anthropicAccountsService.setRouting(sdkSessionId, toAccountId);
+  }
   logger.info(
-    `[Spillover] session ${session.id} (${sdkSessionId}) moved ${fromAccountId ?? '?'} → ${toAccountId} (${reason})`,
+    `[Spillover] session ${session.id} (${sdkSessionId}) moved ${isOpenAI ? 'openai ' : ''}${fromAccountId ?? '?'} → ${toAccountId} (${reason})`,
   );
 
   broadcast({
@@ -115,6 +124,7 @@ opencodeSpilloverRouter.post('/', async (req: Request, res: Response) => {
     fromAccountId,
     toAccountId,
     reason,
+    ...(isOpenAI ? { providerID: 'openai' } : {}),
   });
   const updated = repo.findById(session.id);
   if (updated) broadcastSessionUpdated(updated);

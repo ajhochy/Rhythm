@@ -1,0 +1,89 @@
+{
+  "issue": "task-safe-external-links",
+  "date": "2026-09-26",
+  "test_command": "cd apps/web && npm exec -- playwright test --config tests/electron-e25a-playwright.config.ts && cd ../electron && node --experimental-vm-modules --test test/electron-shell.test.mjs test/security-smoke-receipt.test.mjs",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-safe-external-links-c1",
+      "text": "A safe `https://` or `http://` markdown link in an agent transcript renders as a normal accessible link. Clicking or keyboard-activating it prevents renderer navigation and invokes a narrow `window.rhythmShell.openExternal(url)` capability. No `window.open`, popup, or renderer navigation.",
+      "mode": "ui",
+      "test": "apps/web/tests/electron-e25a-transcript.spec.ts",
+      "status": "pass",
+      "reason": "E25A Playwright proves one bridge call and unchanged page URL."
+    },
+    {
+      "criterion_id": "task-safe-external-links-c2",
+      "text": "Preload exposes only `openExternal(url)` → IPC. Bump bridge version if repo conventions require it and update exact closed-surface receipt/tests.",
+      "mode": "integration",
+      "test": "apps/electron/test/electron-shell.test.mjs",
+      "status": "pass",
+      "reason": "Preload test proves bridge version 7 and the single fixed IPC channel."
+    },
+    {
+      "criterion_id": "task-safe-external-links-c3",
+      "text": "Main IPC requires the owned main document and exactly one string payload. Reject empty/oversized (>4096), malformed URLs, any username/password, non-http(s) schemes, extra args, foreign sender/frame/document. Only after validation call Electron `shell.openExternal(canonicalUrl)`.",
+      "mode": "integration",
+      "test": "apps/electron/test/electron-shell.test.mjs",
+      "status": "pass",
+      "reason": "Electron tests cover canonical HTTP/HTTPS dispatch and the rejection matrix."
+    },
+    {
+      "criterion_id": "task-safe-external-links-c4",
+      "text": "`javascript:`, `file:`, `data:`, custom schemes and whitespace/control-character tricks remain rendered as blocked non-links and never cross IPC. Preserve React-owned DOM/no HTML/image execution.",
+      "mode": "ui",
+      "test": "apps/web/tests/electron-e25a-transcript.spec.ts",
+      "status": "pass",
+      "reason": "E25A proves unsafe schemes and whitespace/control destinations are non-links with zero bridge calls."
+    },
+    {
+      "criterion_id": "task-safe-external-links-c5",
+      "text": "In browser/dev without the Electron capability, safe links retain the current unavailable state (no navigation). If OS dispatch rejects, announce a concise `role=status`/alert failure without leaking internals.",
+      "mode": "ui",
+      "test": "apps/web/tests/electron-e25a-transcript.spec.ts",
+      "status": "pass",
+      "reason": "E25A covers disabled browser state and redacted local failure status."
+    },
+    {
+      "criterion_id": "task-safe-external-links-c6",
+      "text": "Preserve link text and expose destination via title/accessible description. Add `rel=\"noopener noreferrer\"` if an anchor is used, though navigation is prevented.",
+      "mode": "ui",
+      "test": "apps/web/tests/electron-e25a-transcript.spec.ts",
+      "status": "pass",
+      "reason": "E25A asserts exact text, title, href, and rel attributes."
+    },
+    {
+      "criterion_id": "task-safe-external-links-c7",
+      "text": "Playwright proves a safe click calls the bridge exactly once and page URL stays put; keyboard activation works; unsafe links are not links; missing bridge remains disabled; screenshot shows safe clickable link and blocked unsafe copy.",
+      "mode": "ui",
+      "test": "apps/web/tests/electron-e25a-transcript.spec.ts",
+      "status": "pass",
+      "reason": "E25A covers click, keyboard, unsafe and missing states and writes the durable screenshot."
+    },
+    {
+      "criterion_id": "task-safe-external-links-c8",
+      "text": "Electron tests prove allowlist/canonicalization and all rejection/ownership cases. Security receipt continues enforcing the exact frozen bridge surface. No generic shell or arbitrary IPC capability.",
+      "mode": "integration",
+      "test": "apps/electron/test/electron-shell.test.mjs; apps/electron/test/security-smoke-receipt.test.mjs",
+      "status": "pass",
+      "reason": "Focused Electron tests pass 26/26 and enforce the exact frozen version-7 bridge surface."
+    },
+    {
+      "criterion_id": "task-safe-external-links-c9",
+      "text": "Each enabled external link has a stable non-hover accessible description saying it opens `<hostname>` in the default browser, while preserving clean visible link text and title.",
+      "mode": "ui",
+      "test": "apps/web/tests/electron-e25a-transcript.spec.ts",
+      "status": "pass",
+      "reason": "E25A asserts each enabled link's aria-describedby target, sr-only text, and computed accessible description."
+    },
+    {
+      "criterion_id": "task-safe-external-links-c10",
+      "text": "The link-local live region remains mounted and renders failure with visible separation as ` (External link could not be opened.)`.",
+      "mode": "ui",
+      "test": "apps/web/tests/electron-e25a-transcript.spec.ts",
+      "status": "pass",
+      "reason": "E25A asserts the mounted empty live region and exact separated failure text."
+    }
+  ],
+  "not_tested": []
+}

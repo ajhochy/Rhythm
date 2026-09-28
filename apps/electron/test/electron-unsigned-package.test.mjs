@@ -3,13 +3,17 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { readFile, readdir, stat } from 'node:fs/promises';
+import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { FuseState, FuseV1Options, FuseVersion, getCurrentFuseWire } from '@electron/fuses';
 import { liveEnvironment } from '../../web/tests/live-environment.ts';
+import {
+  AGENT_SERVER_KEYS, AUTH_KEYS, BRIDGE_KEYS, COLONY_VIEW_KEYS, GATEWAY_KEYS,
+  HERMES_KEYS, HERMES_VIEW_KEYS, HUMAN_APPROVAL_KEYS, UPDATE_KEYS,
+} from '../src/security-smoke-receipt.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const electronRoot = resolve(here, '..');
@@ -19,6 +23,7 @@ const artifactRoot = resolve(electronRoot, 'dist/Rhythm.app');
 const packagedBinary = resolve(artifactRoot, 'Contents/MacOS/Rhythm');
 const packagedNode = resolve(artifactRoot, 'Contents/Resources/node/bin/node');
 const sourceWebDist = resolve(electronRoot, '../web/dist');
+const generatedModelsSnapshot = resolve(repositoryRoot, 'apps/opencode_fork/packages/opencode/src/provider/models-snapshot.js');
 const packagedWebDist = resolve(artifactRoot, 'Contents/Resources/app/web/dist');
 const packageCommand = ['npm', ['run', 'package:mac']];
 // Every poisoned value must be a string that can ONLY have come from the caller's environment.
@@ -95,6 +100,32 @@ test('slice-7-c1: one command produces the unsigned macOS app bundle', async () 
   );
 });
 
+test('rhythm-icon: packaged plist references the Rhythm artwork, with no Electron fallback', {
+  skip: !existsSync('/usr/bin/iconutil') && 'iconutil unavailable; inspect the macOS bundle on a macOS runner',
+}, async () => {
+  await assertPackagedBundle('rhythm-icon');
+  const resources = resolve(artifactRoot, 'Contents/Resources');
+  const plist = await run('plutil', ['-convert', 'json', '-o', '-', resolve(artifactRoot, 'Contents/Info.plist')]);
+  assert.equal(plist.code, 0, plist.stderr);
+  const metadata = JSON.parse(plist.stdout);
+  assert.equal(metadata.CFBundleIconFile, 'Rhythm');
+  if (Object.hasOwn(metadata, 'CFBundleIconName')) assert.equal(metadata.CFBundleIconName, 'Rhythm');
+  const icon = await readFile(resolve(resources, `${metadata.CFBundleIconFile}.icns`));
+  assert.equal(icon.toString('ascii', 0, 4), 'icns');
+  const inventory = JSON.parse(await readFile(resolve(resources, 'Rhythm.icns.json'), 'utf8'));
+  assert.equal(inventory.icon, 'Rhythm.icns');
+  assert.equal(inventory.sha256, createHash('sha256').update(icon).digest('hex'));
+  const appiconset = resolve(repositoryRoot, 'apps/desktop_flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset');
+  const contents = JSON.parse(await readFile(resolve(appiconset, 'Contents.json'), 'utf8'));
+  const retina = contents.images.find((image) => image.idiom === 'mac' && image.size === '512x512' && image.scale === '2x');
+  const source = await readFile(resolve(appiconset, retina.filename));
+  assert.equal(inventory.images.length, 10);
+  assert.deepEqual(inventory.images.find((image) => image.iconsetName === 'icon_512x512@2x.png'), {
+    iconsetName: 'icon_512x512@2x.png', source: retina.filename, pixels: 1024, sha256: createHash('sha256').update(source).digest('hex'),
+  });
+  assert.equal(existsSync(resolve(resources, 'electron.icns')), false);
+});
+
 test('slice-7-c2: packaged web assets byte-match apps/web/dist by SHA-256', async () => {
   // Regression caught: a stale renderer copy ships even though its file count matches.
   await assertPackagedBundle('slice-7-c2');
@@ -164,21 +195,27 @@ test('slice-7-c5: packaged binary preserves renderer isolation and fail-closed p
   await assertPackagedBundle('slice-7-c5');
   const receipt = await packagedSmoke(['--smoke', '--security-smoke']);
   assert.equal(receipt.bridge?.nodeExposed, false, 'slice-7-c5: Node is exposed in the packaged renderer');
-  assert.deepEqual(receipt.bridge?.keys, ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates'], 'slice-7-c5: packaged preload exposes capabilities beyond the approved closed surface');
+  assert.deepEqual(receipt.bridge?.keys, BRIDGE_KEYS, 'slice-7-c5: packaged preload exposes capabilities beyond the approved closed surface');
   assert.equal(receipt.bridge?.frozen, true, 'slice-7-c5: packaged lifecycle object is not frozen');
-  assert.deepEqual(receipt.bridge?.gateway?.keys, ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase'], 'slice-7-c5: packaged preload gateway configuration differs from the approved runtime values');
+  assert.deepEqual(receipt.bridge?.gateway?.keys, GATEWAY_KEYS, 'slice-7-c5: packaged preload gateway configuration differs from the approved runtime values');
   assert.equal(receipt.bridge?.gateway?.frozen, true, 'slice-7-c5: packaged gateway metadata is not frozen');
-  assert.deepEqual(receipt.bridge?.auth?.keys, ['signInWithGoogle', 'currentSession', 'logout'], 'slice-7-c5: packaged preload auth surface differs from the approved lifecycle');
+  assert.deepEqual(receipt.bridge?.auth?.keys, AUTH_KEYS, 'slice-7-c5: packaged preload auth surface differs from the approved lifecycle');
   assert.equal(receipt.bridge?.auth?.frozen, true, 'slice-7-c5: packaged auth surface is not frozen');
   // post-m1-p7-c4e: a narrow, purpose-built surface only — never an arbitrary-sign primitive
   // (no raw key export, no "sign these bytes" method; only capability() and the fixed-shape
   // signDecision(approvalId, status, decisionNonce, payloadDigest)).
-  assert.deepEqual(receipt.bridge?.humanApproval?.keys, ['capability', 'signDecision'], 'slice-7-c5: packaged preload human-approval surface is broader than capability+signDecision');
+  assert.deepEqual(receipt.bridge?.humanApproval?.keys, HUMAN_APPROVAL_KEYS, 'slice-7-c5: packaged preload human-approval surface is broader than capability+signDecision');
   assert.equal(receipt.bridge?.humanApproval?.frozen, true, 'slice-7-c5: packaged human-approval surface is not frozen');
-  assert.deepEqual(receipt.bridge?.agentServer?.keys, ['status', 'onStatusChange'], 'slice-7-c5: packaged preload agent-server surface is broader than status+onStatusChange');
+  assert.deepEqual(receipt.bridge?.agentServer?.keys, AGENT_SERVER_KEYS, 'slice-7-c5: packaged preload agent-server surface differs from the approved closed surface');
   assert.equal(receipt.bridge?.agentServer?.frozen, true, 'slice-7-c5: packaged agent-server surface is not frozen');
-  assert.deepEqual(receipt.bridge?.updates?.keys, ['openDownloadPage'], 'slice-7-c5: packaged update surface differs from the fixed download capability');
+  assert.deepEqual(receipt.bridge?.updates?.keys, UPDATE_KEYS, 'slice-7-c5: packaged update surface differs from the fixed download capability');
   assert.equal(receipt.bridge?.updates?.frozen, true, 'slice-7-c5: packaged update surface is not frozen');
+  assert.deepEqual(receipt.bridge?.hermes?.keys, HERMES_KEYS);
+  assert.equal(receipt.bridge?.hermes?.frozen, true);
+  assert.deepEqual(receipt.bridge?.hermesView?.keys, HERMES_VIEW_KEYS);
+  assert.equal(receipt.bridge?.hermesView?.frozen, true);
+  assert.deepEqual(receipt.bridge?.colonyView?.keys, COLONY_VIEW_KEYS);
+  assert.equal(receipt.bridge?.colonyView?.frozen, true);
   assert.equal(Number.isInteger(receipt.bridge?.value?.version), true, 'slice-7-c5: packaged lifecycle object has no integer version');
   assert.deepEqual(receipt.denials, {
     navigation: true,
@@ -198,9 +235,14 @@ test('slice-7-c6: packaging is deterministic, gitignored, and leak-free', async 
   const beforeArtifact = await sha256Manifest(artifactRoot);
   const beforeBranches = await repositoryState('branch', ['branch', '--format=%(refname)']);
   const beforeWorktrees = await worktreePaths();
-  const result = await run(...packageCommand);
-  assert.equal(result.code, 0, `slice-7-c6: repeated package command failed\n${result.stderr}`);
-  assert.deepEqual(await sha256Manifest(artifactRoot), beforeArtifact, 'slice-7-c6: repeated packaging changed the artifact byte manifest');
+  const catalog = await freezeGeneratedModelsCatalog();
+  try {
+    const result = await run(...packageCommand, electronRoot, { MODELS_DEV_API_JSON: catalog.path });
+    assert.equal(result.code, 0, `slice-7-c6: repeated package command failed with models catalog sha256 ${catalog.sha256}\n${result.stderr}`);
+    assert.deepEqual(await sha256Manifest(artifactRoot), beforeArtifact, `slice-7-c6: repeated packaging changed the artifact byte manifest with models catalog sha256 ${catalog.sha256}`);
+  } finally {
+    rmSync(catalog.directory, { recursive: true, force: true });
+  }
 
   const persistentUserDataExisted = existsSync(persistentUserData);
   const receipt = await packagedSmoke(['--smoke', '--cleanup-smoke'], sandboxEnvironment);
@@ -241,6 +283,18 @@ test('slice-7-c1b: release packaging embeds the requested version in the macOS b
 async function worktreePaths() {
   const porcelain = await repositoryState('worktree', ['worktree', 'list', '--porcelain']);
   return porcelain.split('\n').filter((line) => line.startsWith('worktree ')).sort();
+}
+
+async function freezeGeneratedModelsCatalog() {
+  const generated = await readFile(generatedModelsSnapshot, 'utf8');
+  const prefix = '// @ts-nocheck\n// Auto-generated by build.ts - do not edit\nexport const snapshot = ';
+  assert.equal(generated.startsWith(prefix) && generated.endsWith('\n'), true, 'slice-7-c6: fork build did not generate the expected models catalog snapshot');
+  const models = generated.slice(prefix.length, -1);
+  assert.doesNotThrow(() => JSON.parse(models), 'slice-7-c6: generated models catalog is not JSON');
+  const directory = mkdtempSync(resolve(tmpdir(), 'rhythm-models-catalog-'));
+  const path = resolve(directory, 'models.json');
+  await writeFile(path, models);
+  return { directory, path, sha256: createHash('sha256').update(models).digest('hex') };
 }
 
 async function assertPackagedBundle(criterionId) {

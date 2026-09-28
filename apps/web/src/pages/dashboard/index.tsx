@@ -669,11 +669,13 @@ function LiveDashboardPage({ route, active = true }: { route: string; active?: b
   const retry = () => retryStatus ? void toggleTask(retryStatus) : void load({ blocking: false });
   const selectedReadonly = workspaceReadonly || Boolean(selectedTask && sourceReadonly(selectedTask));
   const canManagePeople = Boolean(selectedTask && liveUserId !== null && selectedTask.ownerId === liveUserId && selectedTask.sourceType !== 'project_step' && !selectedReadonly);
+  // Date-only today label: local calendar rendering is intentional and is not a serialized instant.
+  const todayLabel = new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 
   return (
     <section className="page-shell pg-dashboard work-first-dashboard" data-testid="page-dashboard" aria-labelledby="dashboard-title" aria-busy={surfaceState === 'loading'}>
       <header className="dashboard-toolbar">
-        <div className="dashboard-heading"><h1 id="dashboard-title">Dashboard</h1><time>{new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</time></div>
+        <div className="dashboard-heading"><h1 id="dashboard-title">Dashboard</h1><time>{todayLabel}</time></div>
         <div className="dashboard-header-actions">
           <button className="text-button" type="button" onClick={() => navigate('/planner')} data-testid="open-planner">Open planner</button>
           <HeaderTaskAction onClick={() => setCreateOpen(true)} disabled={workspaceReadonly || mutationPending} testId="dashboard-header-add-task" />
