@@ -3,6 +3,7 @@ import { getDb, getPostgresPool } from '../database/db';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { toUtcIsoInstant } from '../repositories/agent_session_messages_repository';
+import { isUntitledSessionName } from '../models/agent_session';
 import { safeMobileSessionProfileState } from './mobile_profile_catalog';
 import {
   canUpdateMobileSessionState,
@@ -104,7 +105,8 @@ function decorate(
     const local = sessions.findBySdkSessionId(row.sdk_session_id);
     return {
       id: row.sdk_session_id,
-      title: row.name || 'Untitled chat',
+      // Untitled → first user prompt line, else the mobile placeholder.
+      title: isUntitledSessionName(row.name) ? local?.firstPrompt || 'Untitled chat' : row.name,
       status: row.status || 'idle',
       ...(row.parent_sdk_session_id
         ? { parentID: row.parent_sdk_session_id }

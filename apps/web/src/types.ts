@@ -107,6 +107,8 @@ export interface LiveQuestionRequest {
 export interface Session {
   id: string;
   name: string;
+  /** First line of the first user prompt; the server sends it only while the session is untitled. */
+  firstPrompt?: string | null;
   scope: SessionScope;
   group: SessionGroup;
   status: SessionStatus;

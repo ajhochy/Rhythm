@@ -11,7 +11,7 @@ import { SessionRail } from './SessionRail';
 import { Splitter } from './Splitter';
 import { formatCost, Transcript } from './Transcript';
 import { usePendingDecisions } from '../pending-decisions';
-import type { AgentProject, RichTranscriptMessage } from '../gateway/sessions';
+import { sessionLabel, type AgentProject, type RichTranscriptMessage } from '../gateway/sessions';
 import { emitAgentNotification } from '../agentNotifications';
 import { useAuthUser } from '../gateway/auth';
 import {
@@ -223,9 +223,9 @@ export function AgentsWorkspace() {
           <div className="session-identity">
             <ProfileAvatar profile={profile} />
             <div className="session-title-copy">
-              {readOnlyChild && <button className="child-breadcrumb" type="button" onClick={backToParent} aria-label={`Back to parent session ${parent ? parent.name : selected.name}`} data-testid="child-back"><Icon name="chevronRight" className="rotate-180" size={12} />{parent ? parent.name : selected.name}</button>}
+              {readOnlyChild && <button className="child-breadcrumb" type="button" onClick={backToParent} aria-label={`Back to parent session ${sessionLabel(parent ?? selected).label}`} data-testid="child-back"><Icon name="chevronRight" className="rotate-180" size={12} />{parent ? parent.name : selected.name}</button>}
               <div className="identity-line"><strong>{profile.label}</strong>{selected.account && <button type="button" onClick={() => setSessionSettings(true)}>{selected.account}<Icon name="chevronDown" size={11} /></button>}<span className={`status-label ${presentation.tone}`}><i />{presentation.label}</span></div>
-              <h1>{liveChildView ? liveChildView.title : selected.name}</h1>
+              <h1 className={!liveChildView && sessionLabel(selected).fallback ? 'session-name-fallback' : undefined}>{liveChildView ? liveChildView.title : sessionLabel(selected).label}</h1>
               <div className="session-meta"><span><Icon name="branch" size={13} />{selected.branch}</span>{selected.dirtyCount > 0 && <span className="dirty-badge">{selected.dirtyCount} changed</span>}{selected.isolateWorktree && <span className="worktree-badge"><Icon name="worktree" size={12} />worktree</span>}{readOnlyChild && <span className="readonly-badge">Read only</span>}<span className="session-connection" aria-live="polite" data-testid="connection-status"><i className={`status-dot ${connectionMessage.toLowerCase().includes('offline') || connectionMessage.toLowerCase().includes('unavailable') ? 'offline' : 'working'}`} />{connectionMessage}</span></div>
               {resumeGone && resumeGone.id === selected.id && <div className="form-error" role="alert" data-testid="resume-gone-alert"><p>{resumeGone.message}</p><button className="secondary-button" type="button" disabled={lifecycleBusy} onClick={async () => { setLifecycleBusy(true); try { await startFreshSession(selected.id); } finally { setLifecycleBusy(false); } }}>Start fresh</button></div>}
             </div>

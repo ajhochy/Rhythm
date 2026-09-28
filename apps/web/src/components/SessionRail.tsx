@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Icon, type IconName } from '../icons';
 import { useGateway } from '../gateway/context';
 import { useAuthUser } from '../gateway/auth';
-import { compareSessions, SessionGatewayError, type AgentProject, type ProjectBranches, type SessionCatalogEntry, type SessionSort, type TranscriptPageInfo } from '../gateway/sessions';
+import { compareSessions, sessionLabel, SessionGatewayError, type AgentProject, type ProjectBranches, type SessionCatalogEntry, type SessionSort, type TranscriptPageInfo } from '../gateway/sessions';
 import { readLocalUserPreferences, writeLocalUserPreferences } from '../gateway/user-preferences';
 import { isSessionRecoverable, sessionPresentation } from '../sessionState';
 import { useFixtures } from '../store';
@@ -433,7 +433,7 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
   const eligibleById = new Map(eligible.map((session) => [session.id, session]));
   const included = new Set<string>();
   for (const session of eligible) {
-    if (normalizedSearch && !`${session.name} ${session.lastPreview ?? ''}`.toLowerCase().includes(normalizedSearch.toLowerCase())) continue;
+    if (normalizedSearch && !`${sessionLabel(session).label} ${session.lastPreview ?? ''}`.toLowerCase().includes(normalizedSearch.toLowerCase())) continue;
     let current: SessionCatalogEntry | undefined = session;
     while (current && !included.has(current.id)) { included.add(current.id); current = current.parentId ? eligibleById.get(current.parentId) : undefined; }
   }
@@ -445,13 +445,14 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
     else childrenByParent.set(session.parentId, [...(childrenByParent.get(session.parentId) ?? []), session]);
   }
   const idsByName = new Map<string, string[]>();
-  for (const session of eligible) idsByName.set(session.name, [...(idsByName.get(session.name) ?? []), session.id]);
+  for (const session of eligible) { const { label } = sessionLabel(session); idsByName.set(label, [...(idsByName.get(label) ?? []), session.id]); }
   const uniqueName = (session: SessionCatalogEntry) => {
-    const ids = idsByName.get(session.name) ?? [];
-    if (ids.length < 2) return session.name;
+    const { label } = sessionLabel(session);
+    const ids = idsByName.get(label) ?? [];
+    if (ids.length < 2) return label;
     let length = Math.min(8, session.id.length);
     while (length < session.id.length && ids.some((id) => id !== session.id && id.startsWith(session.id.slice(0, length)))) length += 1;
-    return `${session.name} (${session.id.slice(0, length)})`;
+    return `${label} (${session.id.slice(0, length)})`;
   };
   visible.sort((a, b) => compareSessions(a, b, sort));
   for (const children of childrenByParent.values()) children.sort((a, b) => compareSessions(a, b, sort));
@@ -503,11 +504,11 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
       ? { tone: 'waiting', label: 'Waiting on you', waiting: true }
       : sessionPresentation(session);
     const parentSession = session.parentId ? sessionsById.get(session.parentId) : undefined;
-    const context = child ? `${parentSession?.name ?? 'Parent session'} · ${presentation.label}` : `${projects.get(session.projectId) || session.projectName || 'No project'} · ${presentation.label}`;
+    const context = child ? `${parentSession ? sessionLabel(parentSession).label : 'Parent session'} · ${presentation.label}` : `${projects.get(session.projectId) || session.projectName || 'No project'} · ${presentation.label}`;
     return (
     <div className={`session-row-wrap ${child ? 'child-wrap' : ''} ${disclosure ? 'has-subagents' : ''}`} key={session.id} data-session-menu={session.id} style={child ? { '--child-depth': childDepth(session) } as React.CSSProperties : undefined}>
       <button id={`session-${session.id}`} className={`${child ? 'child-session' : 'session-row'} ${!selectedProject && selectedId === session.id ? 'selected' : ''} ${selectedRows.includes(session.id) ? 'multi-selected' : ''}`} type="button" onClick={(event) => toggleRow(session.id, event.shiftKey || event.metaKey)} aria-current={!selectedProject && selectedId === session.id ? 'true' : undefined} aria-pressed={selectedRows.includes(session.id)} data-testid={`session-${session.id}`} title={compact ? [context, session.lastPreview].filter(Boolean).join('\n') : undefined}>
-        <span className={`status-dot ${presentation.tone}`} aria-hidden="true" /><span className="session-copy"><strong>{session.name}</strong>{compact ? <span className="sr-only">{presentation.label}</span> : <><small>{context}</small>{session.lastPreview && <small title={session.lastPreview}>{session.lastPreview}</small>}</>}</span>{presentation.waiting && <span className="attention-mark" role="img" aria-label="Waiting on you">!</span>}
+        <span className={`status-dot ${presentation.tone}`} aria-hidden="true" /><span className="session-copy"><strong className={sessionLabel(session).fallback ? 'session-name-fallback' : undefined} data-testid={`session-name-${session.id}`}>{sessionLabel(session).label}</strong>{compact ? <span className="sr-only">{presentation.label}</span> : <><small>{context}</small>{session.lastPreview && <small title={session.lastPreview}>{session.lastPreview}</small>}</>}</span>{presentation.waiting && <span className="attention-mark" role="img" aria-label="Waiting on you">!</span>}
       </button>
       {disclosure && <button id={`subagents-toggle-${session.id}`} className="subagent-disclosure" type="button" aria-label={disclosure.name} title={disclosure.name} aria-expanded={disclosure.expanded} aria-controls={`subagent-children-${session.id}`} onClick={() => setCollapsedParents((current) => { const next = new Set(current); if (next.has(session.id)) next.delete(session.id); else next.add(session.id); return next; })} data-testid={`subagents-${session.id}`}><Icon name={disclosure.expanded ? 'chevronDown' : 'chevronRight'} size={13} /><span>{disclosure.label}</span></button>}
       {!child && <><button className="session-overflow-button" type="button" aria-label={`${uniqueName(session)} actions`} aria-haspopup="menu" aria-expanded={rowMenuId === session.id} onClick={() => setRowMenuId((current) => current === session.id ? null : session.id)} data-testid={`session-menu-${session.id}`}><Icon name="more" size={15} /></button>{rowMenuId === session.id && <div className="menu-popover session-row-menu" role="menu" aria-label={`${uniqueName(session)} actions`}>

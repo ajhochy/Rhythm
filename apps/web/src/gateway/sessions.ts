@@ -410,6 +410,22 @@ export function reconcileMessageInfo(existing: TranscriptMessage | undefined, in
   };
 }
 
+/** Names that mean "no real title yet" (blank, client placeholders, the engine's default title). */
+const UNTITLED_SESSION_NAME = /^(|Untitled chat|Untitled session|Resumed|New session|(New|Child) session - \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)$/;
+
+/**
+ * Display label for a session: its name; else the first line of its first
+ * user prompt; else "New session". `fallback` marks the latter two so the UI
+ * can style them muted — an untitled session never renders as a blank row.
+ */
+export function sessionLabel(session: Pick<Session, 'name' | 'firstPrompt'>): { label: string; fallback: boolean } {
+  const name = session.name?.trim() ?? '';
+  if (!UNTITLED_SESSION_NAME.test(name)) return { label: name, fallback: false };
+  const prompt = session.firstPrompt?.split('\n').map((line) => line.trim()).find(Boolean);
+  if (prompt) return { label: prompt.length > 80 ? `${prompt.slice(0, 79).trimEnd()}…` : prompt, fallback: true };
+  return { label: 'New session', fallback: true };
+}
+
 export function toSessionViewModel(value: unknown, messages: unknown[] = [], transcriptPage?: unknown): SessionCatalogEntry {
   const source = record(value);
   const status = string(source.status, source.working === true ? 'working' : 'idle');
@@ -422,6 +438,7 @@ export function toSessionViewModel(value: unknown, messages: unknown[] = [], tra
     id: string(source.id), name: string(source.name, 'Untitled session'), scope: category === 'scheduled' ? 'scheduled' : category === 'self_improvement' || category === 'background' ? 'background' : 'chats',
     category, lastActivityAt: typeof source.lastActivityAt === 'string' ? source.lastActivityAt : null,
     lastPreview: typeof source.lastPreview === 'string' ? source.lastPreview : null,
+    ...(typeof source.firstPrompt === 'string' && source.firstPrompt.trim() ? { firstPrompt: source.firstPrompt.trim() } : {}),
     archivedAt: typeof source.archivedAt === 'string' ? source.archivedAt : null,
     hasChildren: source.hasChildren === true || childCount !== undefined && childCount > 0 || Array.isArray(source.children) && source.children.length > 0,
     ...(childCount !== undefined ? { childCount } : {}),

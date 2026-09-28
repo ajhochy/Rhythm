@@ -14,6 +14,7 @@ import type {
 import {
   asOpenCodeAgentId,
   asRhythmProfileId,
+  isUntitledSessionName,
 } from '../models/agent_session';
 import {
   appendRelayDelete,
@@ -109,6 +110,27 @@ interface PendingChildSessionRow {
   mcp_allowed_tools_json: string | null;
 }
 
+/**
+ * Display fallback for an untitled session: the first line of its first user
+ * prompt, trimmed and capped. One indexed lookup, and only for untitled rows.
+ */
+function firstPromptFor(sessionId: string): string | null {
+  try {
+    const row = getDb()
+      .prepare(
+        `SELECT stripped_text FROM agent_session_messages
+          WHERE session_id = ? AND role = 'input' AND trim(stripped_text) <> ''
+          ORDER BY created_at, id LIMIT 1`,
+      )
+      .get(sessionId) as { stripped_text: string } | undefined;
+    const line = row?.stripped_text.split('\n').map((l) => l.trim()).find(Boolean);
+    if (!line) return null;
+    return line.length > 80 ? `${line.slice(0, 79).trimEnd()}…` : line;
+  } catch {
+    return null;
+  }
+}
+
 function rowToModel(row: AgentSessionRow): AgentSession {
   return {
     id: row.id,
@@ -134,6 +156,7 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     thinkingBudget: row.thinking_budget ?? null,
     fastMode: row.fast_mode === 1,
     lastPreview: row.last_preview,
+    firstPrompt: isUntitledSessionName(row.name) ? firstPromptFor(row.id) : null,
     lastActivityAt: row.last_activity_at,
     archivedAt: row.archived_at ?? null,
     createdAt: row.created_at,

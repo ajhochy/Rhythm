@@ -10,7 +10,7 @@ import type { LivePermissionRequest, LiveQuestionRequest, LiveQuestionItem, Tran
 import { useDecisionReply, usePendingDecisions } from '../pending-decisions';
 import { SafeMarkdown } from './SafeMarkdown';
 import { Timestamp } from './Timestamp';
-import { blockSource, canonicalText, type RichTranscriptBlock, type RichTranscriptMessage } from '../gateway/sessions';
+import { blockSource, canonicalText, sessionLabel, type RichTranscriptBlock, type RichTranscriptMessage } from '../gateway/sessions';
 import { FocusDialog } from './FocusDialog';
 import { AttachmentThumbnail } from './AttachmentThumbnail';
 
@@ -436,7 +436,7 @@ export function Transcript() {
   if (demo === 'resumable') return <section className="state-panel" data-testid="resumable-state"><Icon name="background" size={26} /><h2>Agent runtime unavailable</h2><p>The transcript and artifacts remain readable. Resume when the desktop runtime is available.</p><button className="primary-button" type="button" onClick={() => location.hash = '#/agents?demo=running'}>Resume fixture session</button></section>;
   if (demo === 'empty' || selected.messages.length === 0) return <section className="state-panel" data-testid="empty-state"><Icon name="agents" size={28} /><h2>{demo === 'empty' ? 'No sessions in this view' : 'Start this conversation'}</h2><p>{demo === 'empty' ? 'Adjust filters or start a new chat.' : 'Choose a starter or write a precise request below.'}</p><div className="starter-row"><button type="button" onClick={() => sendInput('Review the project context and propose the next safe step.')}>Review project context</button><button type="button" onClick={() => sendInput('Summarize current changes and unresolved decisions.')}>Summarize changes</button></div></section>;
   return (
-    <section className="transcript" aria-label={`${selected.name} transcript`} data-testid="transcript">
+    <section className="transcript" aria-label={`${sessionLabel(selected).label} transcript`} data-testid="transcript">
       {(sessionGatewayMode !== 'live' || selected.transcriptHasMore !== false) && <div className="load-older-wrap"><button className="text-button" type="button" disabled={olderStatus[selected.id] === 'pending'} onClick={() => void requestOlder()} data-testid="load-older"><Icon name="history" size={14} />{olderStatus[selected.id] === 'pending' ? 'Loading older messages…' : 'Load older messages'}</button>{olderStatus[selected.id] === 'error' && <p role="alert">Older messages could not be loaded. Try again.</p>}</div>}
       {selected.retry && <div className="retry-banner" role="status" data-testid="retry-status"><Icon name="refresh" className="spin" size={13} /><span>Retrying · attempt {selected.retry.attempt} · {selected.retry.reason}</span></div>}
       {selected.status === 'error' && selected.statusMessage && <p role="alert">{selected.statusMessage}</p>}

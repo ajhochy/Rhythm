@@ -207,3 +207,7 @@
   /* 44px compact rows: the 44px row menu must not hang below its row. */
   .rail-compact .session-overflow-button { top: 0; }
 }
+
+/* Untitled session: first-prompt / "New session" fallback label, muted so it reads as derived. */
+.session-name-fallback { color: var(--muted); font-style: italic; }
+.session-copy strong.session-name-fallback { font-weight: 450; }

@@ -50,7 +50,7 @@ import {
   noteUserMessage,
   onSessionError,
 } from './turn_redispatch';
-import type { AgentSession, PermissionMode } from '../models/agent_session';
+import { isUntitledSessionName, type AgentSession, type PermissionMode } from '../models/agent_session';
 import { asyncDelegationCompletionService } from './async_delegation_completion_service';
 
 /**
@@ -1655,6 +1655,35 @@ export class OpencodeStreamBridge {
     return typeof finish?.reason === 'string' ? finish.reason : undefined;
   }
 
+  /** Idle count per session for the missing-auto-title check (warn at most once each). */
+  private readonly _titleIdleCount = new Map<string, number>();
+
+  /**
+   * The engine auto-titles a top-level session in the background during its
+   * FIRST turn and swallows any failure (e.g. the small model erroring). By the
+   * second turn boundary that title has long since landed, so a session still
+   * untitled then means the namer failed — log a warning instead of staying
+   * silent. Timer-free on purpose (see the bridge timer-inventory test).
+   */
+  private _warnIfStillUntitled(localSessionId: string): void {
+    const idles = (this._titleIdleCount.get(localSessionId) ?? 0) + 1;
+    if (idles > 2) return;
+    this._titleIdleCount.set(localSessionId, idles);
+    if (idles < 2) return;
+    try {
+      const session = this.sessionsRepo.findById(localSessionId);
+      if (session && !session.parentSessionId && !session.isSystem && isUntitledSessionName(session.name)) {
+        logger.warn(
+          `[OpencodeStreamBridge] session ${localSessionId} (sdk ${session.sdkSessionId ?? '?'}) is still untitled ` +
+            'after its second turn — the engine auto-title never arrived ' +
+            '(check the engine log for "failed to generate title" / small_model errors)',
+        );
+      }
+    } catch {
+      // best-effort diagnostic only
+    }
+  }
+
   private _relayEvent(
     event: import('@opencode-ai/sdk').RhythmEvent,
   ): void {
@@ -2130,6 +2159,7 @@ export class OpencodeStreamBridge {
         // #930 — turn boundary: drop the retained re-dispatch buffer. No-op
         // while a handoff decision is still in flight (see clearTurn docs).
         if (localSessionId) clearTurn(localSessionId);
+        if (localSessionId) this._warnIfStillUntitled(localSessionId);
         // OPC-M1-4: Check DB for error status instead of in-memory set.
         const idleSessionStatus = (() => {
           try {
@@ -2459,12 +2489,18 @@ export class OpencodeStreamBridge {
         // to ensure correct mapping.
         const updatedInfo = props.info as Record<string, unknown> | undefined;
         if (updatedInfo && localSessionId) {
-          const title = updatedInfo.title as string | undefined;
-          if (title && title.trim().length > 0) {
+          const title = typeof updatedInfo.title === 'string' ? updatedInfo.title.trim() : '';
+          // Adopt only a real engine title (not blank / the engine's default
+          // "New session - <iso>"), and only while the Rhythm name is still
+          // untitled — a user-chosen name is never overwritten.
+          if (!isUntitledSessionName(title)) {
             try {
-              this.sessionsRepo.updateFields(localSessionId, { name: title.trim() });
-              const updated = this.sessionsRepo.findById(localSessionId);
-              if (updated) broadcastSessionUpdated(updated);
+              const current = this.sessionsRepo.findById(localSessionId);
+              if (current && current.name !== title && isUntitledSessionName(current.name)) {
+                this.sessionsRepo.updateFields(localSessionId, { name: title });
+                const updated = this.sessionsRepo.findById(localSessionId);
+                if (updated) broadcastSessionUpdated(updated);
+              }
             } catch (err) {
               logger.error(
                 '[OpencodeStreamBridge] Failed to update session name from session.updated:',
@@ -2749,6 +2785,7 @@ export class OpencodeStreamBridge {
   /** Clean up all streams. */
   dispose(): void {
     this.disposed = true;
+    this._titleIdleCount.clear();
     for (const [, entry] of this.streamsByDirectory) {
       if (entry.questionPoll) clearInterval(entry.questionPoll);
       entry.abort.abort();

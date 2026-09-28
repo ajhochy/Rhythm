@@ -134,3 +134,32 @@ for (const theme of ['light', 'dark']) test(`narrow rail at 200 percent with RTL
   expect(axe.violations).toEqual([]);
   await rail.screenshot({ path: testInfo.outputPath(`view-options-${theme}-rtl-200.png`) });
 });
+
+test('an untitled session never renders as a blank row: first prompt, else "New session", muted', async ({ page }) => {
+  await page.goto('/agents');
+  const rail = page.getByRole('complementary', { name: 'Agents', exact: true });
+  await expect(rail.locator('[data-testid^="session-name-"]').first()).toBeVisible();
+  // Blank out two rows that are currently rendered in the rail.
+  const visibleIds = (await rail.locator('[data-testid^="session-name-"]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-testid')!.replace('session-name-', '')))).slice(0, 2);
+  const ids = await page.evaluate((targets) => {
+    const sessions = JSON.parse(localStorage.getItem('rhythm-agents-fixture-sessions') ?? '[]') as Array<Record<string, unknown>>;
+    const [withPrompt, bare] = targets.map((id) => sessions.find((session) => session.id === id)!);
+    withPrompt.name = '';
+    withPrompt.firstPrompt = '  give me repo state in plain language.\nsecond line';
+    bare.name = '';
+    delete bare.firstPrompt;
+    localStorage.setItem('rhythm-agents-fixture-sessions', JSON.stringify(sessions));
+    return { withPrompt: String(withPrompt.id), bare: String(bare.id) };
+  }, visibleIds);
+  await page.reload();
+  const promptName = rail.getByTestId(`session-name-${ids.withPrompt}`);
+  await expect(promptName).toHaveText('give me repo state in plain language.');
+  await expect(promptName).toHaveClass(/session-name-fallback/);
+  await expect(promptName).toHaveCSS('font-style', 'italic');
+  const bareName = rail.getByTestId(`session-name-${ids.bare}`);
+  await expect(bareName).toHaveText('New session');
+  await expect(bareName).toHaveClass(/session-name-fallback/);
+  // Named sessions keep their real name and normal styling.
+  const named = rail.locator('[data-testid^="session-name-"]:not(.session-name-fallback)').first();
+  await expect(named).not.toHaveText('');
+});

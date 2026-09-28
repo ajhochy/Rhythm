@@ -19,7 +19,7 @@ import {
   applySelectiveDeferral,
   toolCountsForRoleConfig,
 } from './tool_surface_estimator';
-import type { PermissionMode } from '../models/agent_session';
+import { isUntitledSessionName, type PermissionMode } from '../models/agent_session';
 import {
   ensureOmlxProviderConfig,
   detectAndUnloadCompetingOllamaModel,
@@ -1473,7 +1473,12 @@ export class OpencodeClientService {
     }
 
     try {
-      const body: Record<string, unknown> = { title };
+      // Omit a blank/placeholder title so the engine assigns its default
+      // "New session - <iso>" title — the ONLY title its first-turn
+      // auto-namer (SessionPrompt.ensureTitle → isDefaultTitle) will replace.
+      // Sending '' (instant-create since OPC-#710) or 'Untitled chat' made the
+      // engine skip auto-titling for every such session.
+      const body: Record<string, unknown> = isUntitledSessionName(title) ? {} : { title: title.trim() };
       if (parentSdkSessionId) {
         body.parentID = parentSdkSessionId;
       }

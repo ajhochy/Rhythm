@@ -19,6 +19,20 @@ export function asRhythmProfileId(value: string): RhythmProfileId {
 export function asOpenCodeAgentId(value: string): OpenCodeAgentId {
   return value as OpenCodeAgentId;
 }
+/**
+ * Session names that mean "no real title yet": blank, the placeholders Rhythm
+ * clients pass on create, and the engine's own default title. Blank/placeholder
+ * names are never sent to the engine as a title (so the engine auto-titles),
+ * and only these names may be replaced by an engine-generated title — a
+ * user-chosen name is never overwritten.
+ */
+const PLACEHOLDER_SESSION_NAMES = new Set(['', 'Untitled chat', 'Untitled session', 'Resumed', 'New session']);
+const ENGINE_DEFAULT_TITLE = /^(New session|Child session) - \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+export function isUntitledSessionName(name: string | null | undefined): boolean {
+  const trimmed = (name ?? '').trim();
+  return PLACEHOLDER_SESSION_NAMES.has(trimmed) || ENGINE_DEFAULT_TITLE.test(trimmed);
+}
+
 export type AgentSessionStatus = 'starting' | 'working' | 'idle' | 'resumable' | 'closed' | 'error';
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
@@ -97,6 +111,8 @@ export interface AgentSession {
   /** When true, ask the SDK to use fast-mode (lower latency, less thorough). */
   fastMode: boolean;
   lastPreview: string | null;
+  /** First line of the first user prompt; set only while the name is untitled (display fallback). */
+  firstPrompt?: string | null;
   lastActivityAt: string | null;
   archivedAt: string | null;
   createdAt: string;
