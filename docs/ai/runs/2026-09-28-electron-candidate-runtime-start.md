@@ -25,3 +25,10 @@ tags: [run, rhythm]
 - Engine "Timeout waiting for server to start after 5000ms" with a timer firing ~12s late = blocked event loop, not a slow engine. Cause was a 1.7 GB `relay_outbox` (9,790 rows, 8,155 message upserts of up to 19 MB each) drained synchronously.
 - Outbox is not being acked/pruned (count unchanged after drain) and grows ~0.8 GB/hour; Electron DB is 6 GB. Follow-up.
 - In-app Retry after `healthCheckTimeout` did not respawn the API server. Follow-up.
+
+## Follow-up: relay outbox (#1583)
+- Root cause of the buildup: per-update full-row snapshots (97% superseded), plus a self-reinforcing loop. Once draining blocked startup >45s, every launch was killed before the relay acked, so nothing was pruned.
+- Fix: one pending entry per record, live row read at send, boot-time compaction, backpressured 10-row drain.
+- Live: 7,622 rows / 1,201 MB → 737 pointer rows on boot; drained to 124 in 90s (relay acks every 100).
+- Checks: relay suites 63/63; full api_server 6,681 pass, 1 pre-existing failure (native_runtime_guard, better-sqlite3 13 guard vs borrowed main node_modules; fails without this change too).
+- The DB file stays 6 GB until a VACUUM; freed pages are reused.
