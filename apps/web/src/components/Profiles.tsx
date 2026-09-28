@@ -27,11 +27,13 @@ export function ProfileAvatar({ profile, size }: { profile: Profile; size?: 'lar
   return <span className={`profile-avatar${size ? ` ${size}` : ''}`} role="img" aria-label={`${profile.label} icon`}>{profileAvatarLabel(profile)}</span>;
 }
 
-type CapabilityChoice = { name: string; description?: string; testId: string };
-function CapabilityGroup({ name, choices, selected, inherited, filter, disabled, error, onChange }: {
+type CapabilityChoice = { name: string; description?: string; testId: string; managed?: boolean };
+function CapabilityGroup({ name, choices, selected, inherited, filter, disabled, error, onChange, onEdit, onDelete }: {
   name: string; choices: CapabilityChoice[]; selected: string[]; inherited: boolean; filter: string; disabled?: boolean;
   error?: string;
   onChange(selected: string[]): void;
+  onEdit?(name: string): void;
+  onDelete?(name: string): void;
 }) {
   const [expanded, setExpanded] = useState(true);
   const query = filter.trim().toLowerCase();
@@ -40,8 +42,8 @@ function CapabilityGroup({ name, choices, selected, inherited, filter, disabled,
   return <details className="profile-capability-group" open={query ? true : expanded} onToggle={event => { if (!query) setExpanded(event.currentTarget.open); }}>
     <summary><strong>{name}</strong><span>{choices.filter(choice => selected.includes(choice.name)).length} of {choices.length} selected</span><span className="profile-policy-source">{error ? 'Advanced' : inherited ? 'Inherited' : 'Explicit'}</span></summary>
     {error && <p role="alert" className="profile-feedback error">{error}</p>}
-    <div className="profile-group-actions"><button className="text-button" type="button" aria-label={`Select all in group: ${name}`} disabled={disabled || !choices.length} onClick={() => onChange([...new Set([...selected, ...choices.map(choice => choice.name)])])}>Select all in group</button><button className="text-button" type="button" aria-label={`Clear group: ${name}`} disabled={disabled || !selected.length} onClick={() => onChange([])}>Clear group</button></div>
-    <div className="profile-capability-choices">{visible.map(choice => <label key={choice.name} className="profile-check-choice"><input type="checkbox" checked={selected.includes(choice.name)} disabled={disabled} onChange={event => onChange(event.target.checked ? [...selected, choice.name] : selected.filter(item => item !== choice.name))} data-testid={choice.testId} /><span><strong>{choice.name}</strong>{choice.description && <small>{choice.description}</small>}</span></label>)}</div>
+    <div className="profile-group-actions"><button className="text-button" type="button" aria-label={`Select all ${query ? 'shown ' : ''}in group: ${name}`} disabled={disabled || !visible.length} onClick={() => onChange([...new Set([...selected, ...visible.map(choice => choice.name)])])}>Select all{query ? ' shown' : ''} in group</button><button className="text-button" type="button" aria-label={`Clear ${query ? 'shown ' : ''}group: ${name}`} disabled={disabled || !visible.some(choice => selected.includes(choice.name))} onClick={() => onChange(selected.filter(item => !visible.some(choice => choice.name === item)))}>Clear{query ? ' shown' : ''} group</button></div>
+    <div className="profile-capability-choices">{visible.map(choice => <div className="profile-skill-choice-row" key={choice.name}><label className="profile-check-choice"><input type="checkbox" checked={selected.includes(choice.name)} disabled={disabled} onChange={event => onChange(event.target.checked ? [...selected, choice.name] : selected.filter(item => item !== choice.name))} data-testid={choice.testId} /><span><strong>{choice.name}</strong>{choice.description && <small>{choice.description}</small>}</span></label>{choice.managed && (onEdit || onDelete) && <span className="profile-skill-row-actions">{onEdit && <button className="icon-button small" type="button" aria-label={`Edit skill ${choice.name}`} disabled={disabled} onClick={() => onEdit(choice.name)}><Icon name="rename" size={14} /></button>}{onDelete && <button className="icon-button small danger" type="button" aria-label={`Delete skill ${choice.name}`} disabled={disabled} onClick={() => onDelete(choice.name)}><Icon name="delete" size={14} /></button>}</span>}</div>)}</div>
     {!choices.length && <p>No tools are listed for this server.</p>}
   </details>;
 }
@@ -95,6 +97,14 @@ function PermissionsEditor({ raw, onChange }: { raw: string | null; onChange(val
 
 const draftSignature = ({ updatedAt: _updatedAt, isDefault: _isDefault, ...profile }: IdentityProfile) => JSON.stringify(profile);
 type ProfileNavigation = { kind: 'select'; id: string } | { kind: 'create' | 'duplicate' | 'back' };
+type SkillPolicyMode = 'all' | 'selected' | 'none';
+type SkillEditor = { mode: 'create' } | { mode: 'edit'; skill: SkillEntry };
+const skillModeFor = (raw: string | null | undefined): SkillPolicyMode => {
+  const parsed = parseSkillSelection(raw);
+  return parsed.inherited ? 'all' : parsed.selected.length ? 'selected' : 'none';
+};
+const stableNames = (names: string[]) => [...new Set(names)].sort((a, b) => a.localeCompare(b));
+const skillSlugPattern = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/;
 
 export function Profiles() {
   const { profiles, models, accounts, catalogError, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, notify, sessionGatewayMode } = useFixtures();
@@ -104,13 +114,20 @@ export function Profiles() {
   const [mcpCatalogError, setMcpCatalogError] = useState<string | null>(null);
   const [skillCatalog, setSkillCatalog] = useState<SkillEntry[]>([]);
   const [skillCatalogError, setSkillCatalogError] = useState<string | null>(null);
+  const skillCatalogRequest = useRef(0);
   const loadMcpCatalog = () => {
     setMcpCatalogError(null);
     gateway.domains.mcp!.list().then(setMcpCatalog).catch((err) => setMcpCatalogError(err instanceof Error ? err.message : 'MCP catalog failed to load'));
   };
-  const loadSkillCatalog = () => {
+  const loadSkillCatalog = async () => {
+    const request = ++skillCatalogRequest.current;
     setSkillCatalogError(null);
-    gateway.domains.skills!.list().then(setSkillCatalog).catch((err) => setSkillCatalogError(err instanceof Error ? err.message : 'Skill catalog failed to load'));
+    try {
+      const skills = await gateway.domains.skills!.list();
+      if (request === skillCatalogRequest.current) setSkillCatalog(skills);
+    } catch (err) {
+      if (request === skillCatalogRequest.current) setSkillCatalogError(err instanceof Error ? err.message : 'Skill catalog failed to load');
+    }
   };
   // Fired independently (not Promise.all): one catalog failing must never blank the other's
   // already-fetched rows.
@@ -126,6 +143,18 @@ export function Profiles() {
   const [search, setSearch] = useState(''); const [sort, setSort] = useState('name'); const [renaming, setRenaming] = useState(false); const [deleteOpen, setDeleteOpen] = useState(false);
   const selected = profiles.find((profile) => profile.id === selectedId) ?? profiles[0] ?? emptyLiveProfile();
   const [draft, setDraft] = useState<IdentityProfile>(structuredClone(selected));
+  const [skillMode, setSkillMode] = useState<SkillPolicyMode>(() => skillModeFor(selected.allowedSkillsJson));
+  const skillModeRef = useRef(skillMode); skillModeRef.current = skillMode;
+  const [skillFilter, setSkillFilter] = useState('');
+  const [skillEditor, setSkillEditor] = useState<SkillEditor | null>(null);
+  const [skillEditorName, setSkillEditorName] = useState('');
+  const [skillEditorDescription, setSkillEditorDescription] = useState('');
+  const [skillEditorContent, setSkillEditorContent] = useState('');
+  const [skillDelete, setSkillDelete] = useState<SkillEntry | null>(null);
+  const [skillMutation, setSkillMutation] = useState(false);
+  const [skillStatus, setSkillStatus] = useState('');
+  const [skillActionError, setSkillActionError] = useState('');
+  const skillDialogRequest = useRef(0);
   const [baseline, setBaseline] = useState(draftSignature(selected));
   const dirty = draftSignature(draft) !== baseline;
   const [pendingNavigation, setPendingNavigation] = useState<ProfileNavigation | null>(null);
@@ -161,7 +190,8 @@ export function Profiles() {
   const visible = useMemo(() => profiles.filter((profile) => `${profile.label} ${profile.modelProvider ?? ''} ${profile.modelId ?? ''}`.toLowerCase().includes(search.toLowerCase())).sort((a, b) => sort === 'updated' ? b.updatedAt.localeCompare(a.updatedAt) : sort === 'provider' ? (a.modelProvider ?? '').localeCompare(b.modelProvider ?? '') : a.label.localeCompare(b.label)), [profiles, search, sort]);
   const set = <K extends keyof IdentityProfile>(key: K, value: IdentityProfile[K]) => { setDraft((current) => ({ ...current, [key]: value })); setSaved(false); setSaveError(''); };
   const resetDraft = (profile: IdentityProfile) => {
-    setDraft(structuredClone(profile)); setBaseline(draftSignature(profile)); setRenaming(false); setSaveError(''); setSaved(false); setCapabilityFilter('');
+    skillDialogRequest.current++; setSkillEditor(null); setSkillDelete(null); setSkillMutation(false); setSkillActionError(''); setSkillStatus('');
+    setDraft(structuredClone(profile)); setSkillMode(skillModeFor(profile.allowedSkillsJson)); setBaseline(draftSignature(profile)); setRenaming(false); setSaveError(''); setSaved(false); setCapabilityFilter(''); setSkillFilter('');
   };
   useEffect(() => {
     if (!requestedProfileId || appliedProfileParam.current === requestedProfileId || dirty || saving) return;
@@ -215,15 +245,83 @@ export function Profiles() {
   const toggleArray = (key: 'allowedDelegates' | 'mcps' | 'skills', value: string) => set(key, draft[key].includes(value) ? draft[key].filter((item) => item !== value) : [...draft[key], value]);
   const mcpPolicy = parseMcpSelection(draft.allowedMcpsJson);
   const skillPolicy = parseSkillSelection(draft.allowedSkillsJson);
-  const skillSelections = skillPolicy.inherited ? skillCatalog.map(skill => skill.name) : skillPolicy.selected;
+  const skillSelections = skillPolicy.inherited ? stableNames(skillCatalog.map(skill => skill.name)) : stableNames(skillPolicy.selected);
   const setMcpGroup = (server: string, tools: string[]) => {
     try { set('allowedMcpsJson', editMcpGroup(mcpPolicy, server, tools, mcpCatalog)); }
     catch (error) { setSaveError((error as Error).message); }
   };
-  const setSkillGroup = (names: string[], groupNames: string[]) => set('allowedSkillsJson', JSON.stringify([...new Set([...skillSelections.filter(name => !groupNames.includes(name)), ...names])]));
+  const setSkillGroup = (names: string[], groupNames: string[]) => set('allowedSkillsJson', JSON.stringify(stableNames([...skillSelections.filter(name => !groupNames.includes(name)), ...names])));
   const availableMcpGroups = live ? [...new Set([...mcpCatalog.map(server => server.name), ...Object.keys(mcpPolicy.map ?? {})])] : [];
   const unavailableSkills = skillSelections.filter(name => !skillCatalog.some(skill => skill.name === name));
-  const skillSources = [...new Set(skillCatalog.map(skill => skill.source))];
+  const skillSources = (['managed', 'org', 'external'] as const).filter(source => skillCatalog.some(skill => skill.source === source));
+  const setSkillPolicyMode = (mode: SkillPolicyMode) => {
+    setSkillMode(mode);
+    if (mode === 'all') set('allowedSkillsJson', null);
+    else if (mode === 'none') set('allowedSkillsJson', '[]');
+    else if (skillMode === 'all') set('allowedSkillsJson', JSON.stringify(stableNames([...skillCatalog.map(skill => skill.name), ...skillPolicy.selected])));
+    else set('allowedSkillsJson', JSON.stringify(stableNames(skillPolicy.selected)));
+  };
+  const openCreateSkill = () => {
+    skillDialogRequest.current++; setSkillEditor({ mode: 'create' }); setSkillEditorName(''); setSkillEditorDescription(''); setSkillEditorContent(''); setSkillActionError('');
+  };
+  const openEditSkill = async (name: string) => {
+    const skill = skillCatalog.find(item => item.name === name);
+    if (!skill?.managed || skillMutation) return;
+    const request = ++skillDialogRequest.current; const profileId = draft.id;
+    setSkillMutation(true); setSkillActionError(''); setSkillStatus(`Loading ${name}…`);
+    try {
+      const result = await gateway.domains.skills!.content(name);
+      if (request !== skillDialogRequest.current || profileId !== draft.id) return;
+      setSkillEditor({ mode: 'edit', skill }); setSkillEditorName(name); setSkillEditorDescription(skill.description ?? ''); setSkillEditorContent(result.content); setSkillStatus('');
+    } catch (err) {
+      if (request === skillDialogRequest.current) { setSkillActionError(err instanceof Error ? err.message : 'Skill content could not be loaded'); setSkillStatus(''); }
+    } finally { if (request === skillDialogRequest.current) setSkillMutation(false); }
+  };
+  const submitSkill = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!skillEditor || skillMutation) return;
+    const request = ++skillDialogRequest.current; const profileId = draft.id; const editing = skillEditor;
+    const name = skillEditorName.trim(); const description = skillEditorDescription.trim() || undefined; const content = skillEditorContent;
+    setSkillMutation(true); setSkillActionError('');
+    try {
+      const savedSkill = editing.mode === 'create'
+        ? await gateway.domains.skills!.create({ name, description, content })
+        : await gateway.domains.skills!.update(editing.skill.name, { description, content });
+      if (request !== skillDialogRequest.current || profileId !== draft.id) return;
+      if (editing.mode === 'create' && skillModeRef.current === 'selected') {
+        setDraft(current => current.id === profileId ? { ...current, allowedSkillsJson: JSON.stringify(stableNames([...parseSkillSelection(current.allowedSkillsJson).selected, savedSkill.name])) } : current);
+        setSaved(false);
+      }
+      setSkillEditor(null); setSkillStatus(`${savedSkill.name} ${editing.mode === 'create' ? 'created' : 'updated'}. Profile access was not saved.`);
+      await loadSkillCatalog();
+    } catch (err) {
+      if (request === skillDialogRequest.current) setSkillActionError(err instanceof Error ? err.message : 'Skill could not be saved');
+    } finally { if (request === skillDialogRequest.current) setSkillMutation(false); }
+  };
+  const deleteSkill = async () => {
+    if (!skillDelete || skillMutation) return;
+    const target = skillDelete; const request = ++skillDialogRequest.current; const profileId = draft.id;
+    setSkillMutation(true); setSkillActionError('');
+    try {
+      await gateway.domains.skills!.remove(target.name);
+      if (request !== skillDialogRequest.current || profileId !== draft.id) return;
+      setDraft(current => {
+        if (current.id !== profileId || current.allowedSkillsJson === null) return current;
+        return { ...current, allowedSkillsJson: JSON.stringify(stableNames(parseSkillSelection(current.allowedSkillsJson).selected.filter(name => name !== target.name))) };
+      });
+      setSaved(false); setSkillDelete(null); setSkillStatus(`${target.name} deleted globally. Other profiles were not changed.`);
+      await loadSkillCatalog();
+    } catch (err) {
+      if (request === skillDialogRequest.current) setSkillActionError(err instanceof Error ? err.message : 'Skill could not be deleted');
+    } finally { if (request === skillDialogRequest.current) setSkillMutation(false); }
+  };
+  const skillQuery = skillFilter.trim().toLowerCase();
+  const allSkillChoices = [...skillCatalog.map(skill => skill.name), ...unavailableSkills];
+  const shownSkillNames = allSkillChoices.filter(name => {
+    const skill = skillCatalog.find(item => item.name === name);
+    return `${skill?.source ?? 'saved'} ${name} ${skill?.description ?? ''}`.toLowerCase().includes(skillQuery);
+  });
+  const skillSummary = skillMode === 'all' ? 'All skills' : skillMode === 'none' ? 'No skills' : `${skillSelections.length} selected`;
   const capabilitiesMatch = (value: string) => value.toLowerCase().includes(capabilityFilter.trim().toLowerCase());
   if (fixtureState !== 'ready' && fixtureState !== 'read-only') {
     const waiting = fixtureState === 'loading' || fixtureState === 'retrying';
@@ -264,9 +362,33 @@ export function Profiles() {
 
           </div></section>
           <section className="editor-section"><header><div><h3>Delegation</h3><p>Let this profile coordinate work and choose which profiles it may delegate to.</p></div><label className="switch-label"><input type="checkbox" checked={live ? draft.isManager === true : draft.managerAgent} onChange={(event) => set(live ? 'isManager' : 'managerAgent', event.target.checked)} data-testid="profile-manager" /><span />Manager agent</label></header><fieldset className="option-grid"><legend>Allowed delegates</legend>{profiles.filter((profile) => profile.id !== selected.id && (!live || profile.enabled && !profile.id.startsWith('profile-created-'))).map((profile) => <label key={profile.id}><input type="checkbox" checked={(live ? parseNameList(draft.allowedDelegatesJson) : draft.allowedDelegates).includes(profile.id)} onChange={() => { if (!live) toggleArray('allowedDelegates', profile.id); else { const list = parseNameList(draft.allowedDelegatesJson); set('allowedDelegatesJson', JSON.stringify(list.includes(profile.id) ? list.filter(id => id !== profile.id) : [...list, profile.id])); } }} data-testid={`delegate-${profile.id}`} /><ProfileAvatar profile={profile} size="tiny" /><span><strong>{profile.label}</strong><small>{profile.model}</small></span></label>)}</fieldset></section>
-          <section className="editor-section"><header><div><h3>Availability &amp; defaults</h3><p>Enabled profiles can run. Session-selectable profiles appear in the session picker. Choose a default in Actions below.</p></div></header><div className="switch-row"><label className="switch-label"><input type="checkbox" checked={draft.selectable} onChange={(event) => set('selectable', event.target.checked)} data-testid="profile-selectable" /><span />Session-selectable</label><label className="switch-label"><input type="checkbox" checked={draft.enabled} onChange={(event) => set('enabled', event.target.checked)} data-testid="profile-enabled" /><span />Enabled</label><label className="switch-label"><input type="checkbox" checked={draft.managedSkills} disabled={live} aria-describedby={live ? 'managed-skills-unavailable' : undefined} onChange={(event) => set('managedSkills', event.target.checked)} data-testid="profile-managed-skills" /><span />Managed skills</label></div>{live && <p id="managed-skills-unavailable">Managed skills cannot be saved by this editor.</p>}</section>
-          <section className="editor-section" aria-labelledby="profile-capabilities-title"><header><div><h3 id="profile-capabilities-title">Capabilities</h3><p>{live ? 'Choose tools from each server and skills from each source.' : 'Preview MCP servers and skills. Fixture choices do not change live access.'}</p></div><button className="secondary-button" type="button" onClick={() => { if (live) { loadMcpCatalog(); loadSkillCatalog(); } else notify('MCP servers and skills refreshed'); }} data-testid="profile-resync"><Icon name="refresh" size={14} />Refresh capabilities</button></header>
-            <label className="field profile-capability-filter">Filter tools and skills<input type="search" value={capabilityFilter} onChange={event => setCapabilityFilter(event.target.value)} placeholder="Server, tool, skill, or source" data-testid="profile-capability-filter" /></label>
+          <section className="editor-section"><header><div><h3>Availability &amp; defaults</h3><p>Enabled profiles can run. Session-selectable profiles appear in the session picker. Choose a default in Actions below.</p></div></header><div className="switch-row"><label className="switch-label"><input type="checkbox" checked={draft.selectable} onChange={(event) => set('selectable', event.target.checked)} data-testid="profile-selectable" /><span />Session-selectable</label><label className="switch-label"><input type="checkbox" checked={draft.enabled} onChange={(event) => set('enabled', event.target.checked)} data-testid="profile-enabled" /><span />Enabled</label>{!live && <label className="switch-label"><input type="checkbox" checked={draft.managedSkills} onChange={(event) => set('managedSkills', event.target.checked)} data-testid="profile-managed-skills" /><span />Managed skills</label>}</div></section>
+          {live && <section className="editor-section profile-skills-section" aria-labelledby="profile-skills-title"><header><div><h3 id="profile-skills-title">Allowed skills</h3><p>Choose profile access here. Creating, editing, or deleting a managed skill changes the global Rhythm catalog; it does not save this profile.</p></div><div className="profile-section-actions"><button className="secondary-button" type="button" onClick={() => void loadSkillCatalog()} disabled={skillMutation} aria-label="Refresh skill catalog"><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={openCreateSkill} disabled={skillMutation}><Icon name="plus" size={14} />Add skill</button></div></header>
+            <fieldset className="profile-skill-policy" role="radiogroup" aria-labelledby="profile-skills-title" disabled={!!skillPolicy.error}><legend className="sr-only">Allowed skills</legend>
+              <label><input type="radio" name="skill-policy" checked={skillMode === 'all'} onChange={() => setSkillPolicyMode('all')} /><span><strong>All skills</strong><small>Inherit the current catalog and automatically allow future skills.</small></span></label>
+              <label><input type="radio" name="skill-policy" checked={skillMode === 'selected'} onChange={() => setSkillPolicyMode('selected')} /><span><strong>Selected skills</strong><small>Allow only the explicit list below. Future skills are not added.</small></span></label>
+              <label><input type="radio" name="skill-policy" checked={skillMode === 'none'} onChange={() => setSkillPolicyMode('none')} /><span><strong>No skills</strong><small>Deny all skill access with an explicit empty list.</small></span></label>
+            </fieldset>
+            <div className="profile-skills-toolbar"><strong data-testid="profile-skills-summary">{skillSummary}</strong>{skillMode === 'selected' && <><button className="text-button" type="button" disabled={!shownSkillNames.length} onClick={() => set('allowedSkillsJson', JSON.stringify(stableNames([...skillSelections, ...shownSkillNames])))} aria-label={`Select all ${skillQuery ? 'shown ' : ''}skills`}>Select all{skillQuery ? ' shown' : ''}</button><button className="text-button" type="button" disabled={!shownSkillNames.some(name => skillSelections.includes(name))} onClick={() => set('allowedSkillsJson', JSON.stringify(skillSelections.filter(name => !shownSkillNames.includes(name))))} aria-label={`Clear all ${skillQuery ? 'shown ' : ''}skills`}>Clear all{skillQuery ? ' shown' : ''}</button></>}</div>
+            {skillPolicy.error && <p role="alert" className="profile-feedback error">{skillPolicy.error}</p>}
+            {skillCatalogError && <p role="alert" className="profile-feedback error">{skillCatalogError}. Existing policy and saved choices are unchanged.</p>}
+            {skillActionError && !skillEditor && !skillDelete && <p role="alert" className="profile-feedback error">{skillActionError}. Your editor and profile draft are unchanged.</p>}
+            <p className="profile-skill-status" role="status" aria-live="polite">{skillStatus}</p>
+            {skillMode === 'selected' && <>
+              <label className="field profile-capability-filter">Filter skills<input type="search" value={skillFilter} onChange={event => { setSkillFilter(event.target.value); setCapabilityFilter(event.target.value); }} placeholder="Name, description, or source" data-testid="profile-capability-filter" /></label>
+              <div className="profile-capability-catalog" data-testid="profile-skill-catalog">
+                {skillSources.map(source => {
+                  const skills = skillCatalog.filter(skill => skill.source === source).sort((a, b) => a.name.localeCompare(b.name));
+                  return <CapabilityGroup key={source} name={`${source} skills`} choices={skills.map(skill => ({ name: skill.name, description: skill.description, testId: `skill-${skill.name}`, managed: skill.managed }))} selected={skillSelections.filter(name => skills.some(skill => skill.name === name))} inherited={false} filter={skillFilter} disabled={!!skillPolicy.error || skillMutation} onChange={names => setSkillGroup(names, skills.map(skill => skill.name))} onEdit={name => void openEditSkill(name)} onDelete={name => { const skill = skillCatalog.find(item => item.name === name); if (skill?.managed) { skillDialogRequest.current++; setSkillDelete(skill); setSkillActionError(''); } }} />;
+                })}
+                {unavailableSkills.length > 0 && <CapabilityGroup name="Saved skills outside the catalog" choices={unavailableSkills.map(name => ({ name, testId: `skill-${name}`, description: 'Not in the current catalog; saved selection retained.' }))} selected={unavailableSkills} inherited={false} filter={skillFilter} disabled={!!skillPolicy.error || skillMutation} onChange={names => setSkillGroup(names, unavailableSkills)} />}
+                {!skillCatalogError && !skillCatalog.length && !unavailableSkills.length && <p>No skills found.</p>}
+                {skillFilter && !shownSkillNames.length && <p>No matching skills.</p>}
+              </div>
+            </>}
+          </section>}
+          <section className="editor-section" aria-labelledby="profile-capabilities-title"><header><div><h3 id="profile-capabilities-title">Capabilities</h3><p>{live ? 'Choose tools from each MCP server.' : 'Preview MCP servers and skills. Fixture choices do not change live access.'}</p></div><button className="secondary-button" type="button" onClick={() => { if (live) loadMcpCatalog(); else notify('MCP servers and skills refreshed'); }} data-testid="profile-resync"><Icon name="refresh" size={14} />Refresh capabilities</button></header>
+            <label className="field profile-capability-filter">Filter tools{!live && ' and skills'}<input type="search" value={capabilityFilter} onChange={event => setCapabilityFilter(event.target.value)} placeholder={live ? 'Server or tool' : 'Server, tool, skill, or source'} data-testid={live ? 'profile-mcp-filter' : 'profile-capability-filter'} /></label>
             {live && <p className="profile-policy-note">Inherited means this profile does not narrow that selection. Other engine rules still apply. Editing inherited access creates an explicit selection of the listed choices; future catalog additions are excluded.</p>}
             <div className="profile-capability-catalog" data-testid="profile-capability-catalog">
               <h4>MCP tools</h4>
@@ -282,18 +404,7 @@ export function Profiles() {
                 {!mcpCatalogError && !availableMcpGroups.length && <p>No MCP servers configured.</p>}
                 {capabilityFilter && availableMcpGroups.length > 0 && !availableMcpGroups.some(name => capabilitiesMatch(`${name} ${mcpCatalog.find(server => server.name === name)?.tools.join(' ') ?? ''} ${mcpGroupSelection(mcpPolicy, name, []).selected.join(' ')}`)) && <p>No matching MCP tools.</p>}
               </> : <CapabilityGroup name="Workspace MCP servers" choices={['GitNexus', 'Open Design', 'Web research'].map(name => ({ name, testId: `mcp-${name.toLowerCase().replace(' ', '-')}` }))} selected={draft.mcps} inherited={false} filter={capabilityFilter} onChange={names => set('mcps', names)} />}
-              <h4>Skills</h4>
-              {live ? <>
-                {skillCatalogError && <p role="alert">{skillCatalogError} Use Refresh capabilities to retry.</p>}
-                {skillPolicy.error && <p role="alert">{skillPolicy.error}</p>}
-                {skillSources.map(source => {
-                  const skills = skillCatalog.filter(skill => skill.source === source);
-                  return <CapabilityGroup key={source} name={`${source} skills`} choices={skills.map(skill => ({ name: skill.name, description: skill.description, testId: `skill-${skill.name}` }))} selected={skillSelections.filter(name => skills.some(skill => skill.name === name))} inherited={skillPolicy.inherited} filter={capabilityFilter} disabled={!!skillPolicy.error || !!skillCatalogError} onChange={names => setSkillGroup(names, skills.map(skill => skill.name))} />;
-                })}
-                {unavailableSkills.length > 0 && <CapabilityGroup name="Saved skills outside the catalog" choices={unavailableSkills.map(name => ({ name, testId: `skill-${name}`, description: 'Not in the current catalog; saved selection retained.' }))} selected={unavailableSkills} inherited={false} filter={capabilityFilter} disabled={!!skillPolicy.error} onChange={names => setSkillGroup(names, unavailableSkills)} />}
-                {!skillCatalogError && !skillCatalog.length && !unavailableSkills.length && <p>No skills found.</p>}
-                {capabilityFilter && skillCatalog.length > 0 && !skillCatalog.some(skill => capabilitiesMatch(`${skill.source} skills ${skill.name} ${skill.description ?? ''}`)) && !unavailableSkills.some(capabilitiesMatch) && <p>No matching skills.</p>}
-              </> : <CapabilityGroup name="Workspace skills" choices={['planning', 'verification', 'frontend', 'tests', 'research', 'citations'].map(name => ({ name, testId: `skill-${name}` }))} selected={draft.skills} inherited={false} filter={capabilityFilter} onChange={names => set('skills', names)} />}
+              {!live && <><h4>Skills</h4><CapabilityGroup name="Workspace skills" choices={['planning', 'verification', 'frontend', 'tests', 'research', 'citations'].map(name => ({ name, testId: `skill-${name}` }))} selected={draft.skills} inherited={false} filter={capabilityFilter} onChange={names => set('skills', names)} /></>}
             </div>
           </section>
           <section className="editor-section"><header><div><h3>Permissions</h3><p>Set the approval rules for core tools. Unchanged rules keep their existing behavior.</p></div></header>
@@ -319,6 +430,20 @@ export function Profiles() {
       </fieldset>
       <FocusDialog open={!!pendingNavigation} onClose={() => setPendingNavigation(null)} title="Discard unsaved changes?" description={`Your edits to ${draft.label || 'this profile'} have not been saved.`} testId="profile-unsaved-dialog"><div className="dialog-actions"><button className="primary-button" type="button" data-autofocus onClick={() => setPendingNavigation(null)} data-testid="profile-keep-editing">Keep editing</button><button className="secondary-button" type="button" onClick={() => { if (pendingNavigation) performNavigation(pendingNavigation); }} data-testid="profile-discard">Discard changes</button></div></FocusDialog>
       <FocusDialog open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Delete profile?" description={`${selected.label} will be removed from this workspace.`} testId="delete-profile-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setDeleteOpen(false)}>Keep profile</button><button className="danger-button" type="button" disabled={saving || readOnly || selected.isDefault} onClick={() => { if (savingRef.current || readOnly || selected.isDefault) return; const fallback = profiles.find((profile) => profile.id !== selected.id)?.id || ''; savingRef.current = true; setSaving(true); setSaveError(''); void deleteProfile(draft.id).then(() => { setSelectedId(fallback); resetDraft(profiles.find(profile => profile.id === fallback) ?? emptyLiveProfile()); setDeleteOpen(false); }).catch(error => setSaveError(error instanceof Error ? error.message : 'Profile deletion failed')).finally(() => { savingRef.current = false; setSaving(false); }); }} data-testid="confirm-profile-delete">Delete profile</button></div>{saveError && <p role="alert">{saveError}</p>}</FocusDialog>
+      <FocusDialog open={!!skillEditor} onClose={() => { if (!skillMutation) { skillDialogRequest.current++; setSkillEditor(null); setSkillActionError(''); } }} title={skillEditor?.mode === 'edit' ? 'Edit managed skill' : 'Add managed skill'} description="This skill is global to Rhythm. Its allowlist selection is profile-specific and is saved separately." testId="profile-skill-editor" wide dismissible={!skillMutation}>
+        <form className="form-grid profile-skill-form" onSubmit={event => void submitSkill(event)}>
+          <label className="field">Name<input name="name" value={skillEditorName} onChange={event => setSkillEditorName(event.target.value)} disabled={skillEditor?.mode === 'edit' || skillMutation} required pattern="[a-z0-9]+(?:[-_][a-z0-9]+)*" aria-invalid={skillEditor?.mode === 'create' && !!skillEditorName && !skillSlugPattern.test(skillEditorName) || undefined} aria-describedby="profile-skill-name-help" data-autofocus /></label>
+          <label className="field">Description<input name="description" value={skillEditorDescription} onChange={event => setSkillEditorDescription(event.target.value)} disabled={skillMutation} /></label>
+          <small id="profile-skill-name-help" className="span-2">Use a unique lower-case slug with letters, numbers, hyphens, or underscores. The name cannot change after creation.</small>
+          <label className="field span-2">Skill instructions<textarea name="content" value={skillEditorContent} onChange={event => setSkillEditorContent(event.target.value)} disabled={skillMutation} required rows={10} /></label>
+          {skillActionError && <p role="alert" className="profile-feedback error span-2">{skillActionError}. Your editor contents are kept.</p>}
+          <footer className="dialog-actions span-2"><button className="secondary-button" type="button" disabled={skillMutation} onClick={() => { skillDialogRequest.current++; setSkillEditor(null); setSkillActionError(''); }}>Cancel</button><button className="primary-button" type="submit" disabled={skillMutation || !skillEditorContent.trim() || skillEditor?.mode === 'create' && (!skillSlugPattern.test(skillEditorName) || skillCatalog.some(skill => skill.name.toLowerCase() === skillEditorName.toLowerCase()))}>{skillMutation ? 'Saving…' : skillEditor?.mode === 'edit' ? 'Save skill' : 'Create skill'}</button></footer>
+        </form>
+      </FocusDialog>
+      <FocusDialog open={!!skillDelete} onClose={() => { if (!skillMutation) { skillDialogRequest.current++; setSkillDelete(null); setSkillActionError(''); } }} title="Delete managed skill" description={skillDelete ? `Delete “${skillDelete.name}” globally from Rhythm? Other profiles may retain stale allowlist names; they are not changed.` : ''} testId="profile-skill-delete" dismissible={!skillMutation}>
+        {skillActionError && <p role="alert" className="profile-feedback error">{skillActionError}. The skill and profile selection are unchanged.</p>}
+        <div className="dialog-actions"><button className="secondary-button" type="button" disabled={skillMutation} onClick={() => { skillDialogRequest.current++; setSkillDelete(null); setSkillActionError(''); }}>Cancel</button><button className="danger-button" type="button" disabled={skillMutation} onClick={() => void deleteSkill()}>{skillMutation ? 'Deleting…' : 'Delete skill'}</button></div>
+      </FocusDialog>
     </section>
   );
 }

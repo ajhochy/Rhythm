@@ -69,8 +69,8 @@ test('capability summaries, disclosure, filtering and bulk edits retain individu
   await page.getByTestId('profile-capability-filter').fill('verification');
   await expect(page.getByTestId('skill-verification')).toBeVisible();
   await expect(page.getByTestId('skill-planning')).toHaveCount(0);
-  await skills.getByRole('button', { name: 'Select all in group: Workspace skills' }).click();
-  await expect(skills.locator('summary')).toContainText('6 of 6 selected');
+  await skills.getByRole('button', { name: 'Select all shown in group: Workspace skills' }).click();
+  await expect(skills.locator('summary')).toContainText('2 of 6 selected');
   await page.getByTestId('profile-capability-filter').fill('');
   await skills.locator('summary').click();
   await skills.getByRole('button', { name: 'Clear group: Workspace skills' }).click();
@@ -170,18 +170,27 @@ test('small windows, 200 percent zoom equivalent, RTL and long text keep control
 
 // Data fixtures through the existing E22 canonical gateway harness. No actual
 // engine/API requests are permitted; this is rendered contract evidence only.
-async function openCanonicalFixture(page: Page, options: { allowedMcpsJson?: string } = {}) {
+async function openCanonicalFixture(page: Page, options: { allowedMcpsJson?: string; allowedSkillsJson?: string | null } = {}) {
   const profiles = ['alpha', 'beta'].map(id => ({
     id, label: id, icon: 'AG', enabled: true, isAgent: true, isManager: false, sessionSelectable: true,
     modelProvider: 'custom', modelId: 'model-one', defaultAnthropicAccountId: null, systemPrompt: '',
-    allowedMcpsJson: options.allowedMcpsJson ?? '{"server":[], "other":["keep"]}', allowedSkillsJson: null as string | null,
+    allowedMcpsJson: options.allowedMcpsJson ?? '{"server":[], "other":["keep"]}', allowedSkillsJson: options.allowedSkillsJson === undefined ? null : options.allowedSkillsJson,
     allowedDelegatesJson: '[]', corePermissionsJson: '{"bash":{"*":"ask","git *":"allow"}, "future":{"x":"deny"}}',
     updatedAt: '2026-09-18T00:00:00Z',
   }));
   const writes: Array<{ id: string; body: Record<string, unknown> }> = [];
+  const skills = [
+    ...Array.from({ length: 24 }, (_, i) => ({ name: `skill-${i}`, description: `Skill ${i} description`, source: i < 12 ? 'managed' as const : 'org' as const, managed: i < 12, location: '' })),
+    { name: 'external-skill', description: 'External skill description', source: 'external' as const, managed: false, location: '' },
+  ];
+  const skillContent = new Map(skills.map(skill => [skill.name, `Instructions for ${skill.name}`]));
+  const skillWrites: Array<{ method: string; path: string; body?: Record<string, unknown> }> = [];
   let fail = false;
   let pending: (() => void) | undefined;
   let hold = false;
+  let skillPending: (() => void) | undefined;
+  let holdSkill = false;
+  let failSkillDelete = false;
   // Only this test's static origin may pass through. Every data endpoint below
   // is intercepted, and a missed configuration substitution fails closed.
   await page.route('**/*', route => new URL(route.request().url()).origin === new URL(test.info().project.use.baseURL!).origin ? route.continue() : route.abort('blockedbyclient'));
@@ -212,7 +221,25 @@ async function openCanonicalFixture(page: Page, options: { allowedMcpsJson?: str
       { name: 'server', source: 'curated', status: 'connected', tools: Array.from({ length: 60 }, (_, i) => `tool-${i}`) },
       { name: 'other', source: 'rhythm', status: 'connected', tools: ['keep'] },
     ]);
-    if (path === '/opencode/skills') return send(Array.from({ length: 24 }, (_, i) => ({ name: `skill-${i}`, description: `Skill ${i} description`, source: i < 12 ? 'managed' : 'org', managed: i < 12, location: '' })));
+    if (path.startsWith('/opencode/skills/')) {
+      const segments = path.split('/'); const name = decodeURIComponent(segments[3]);
+      if (request.method() === 'GET' && segments[4] === 'content') return send({ name, content: skillContent.get(name) ?? '' });
+      if (request.method() === 'PUT') {
+        const body = request.postDataJSON() as { description?: string; content: string }; skillWrites.push({ method: 'PUT', path, body });
+        const skill = skills.find(item => item.name === name)!; skill.description = body.description ?? ''; skillContent.set(name, body.content); return send(skill);
+      }
+      if (request.method() === 'DELETE') {
+        skillWrites.push({ method: 'DELETE', path });
+        if (failSkillDelete) return send({ error: 'Fixture skill delete rejected' }, 503);
+        const index = skills.findIndex(item => item.name === name); if (index >= 0) skills.splice(index, 1); skillContent.delete(name); return route.fulfill({ status: 204, body: '' });
+      }
+    }
+    if (path === '/opencode/skills' && request.method() === 'POST') {
+      const body = request.postDataJSON() as { name: string; description?: string; content: string }; skillWrites.push({ method: 'POST', path, body });
+      if (holdSkill) await new Promise<void>(resolve => { skillPending = resolve; });
+      const skill = { name: body.name, description: body.description ?? '', source: 'managed' as const, managed: true, location: '' }; skills.push(skill); skillContent.set(skill.name, body.content); return send(skill);
+    }
+    if (path === '/opencode/skills') return send(skills);
     if (path === '/agents/models/catalog') return send(['model-one', 'model-two'].map(modelId => ({ provider: 'custom', modelId, displayName: modelId, authorized: true })));
     if (path === '/opencode/auth/accounts') return send({ accounts: [{ id: 'account', label: 'Fixture account' }], defaultId: null });
     if (path === '/agent-sessions') return send({ sessions: [] });
@@ -222,7 +249,15 @@ async function openCanonicalFixture(page: Page, options: { allowedMcpsJson?: str
   await page.goto('/tests/electron-e22-harness.html');
   await page.getByRole('button', { name: 'Switch surface' }).click();
   await expect(page.getByTestId('profile-label')).toHaveValue('alpha');
-  return { writes, profiles, reject: (value: boolean) => { fail = value; }, hold: () => { hold = true; }, release: () => { hold = false; pending?.(); } };
+  return {
+    writes, profiles, skillWrites, skills,
+    reject: (value: boolean) => { fail = value; },
+    hold: () => { hold = true; },
+    release: () => { hold = false; pending?.(); },
+    holdSkill: () => { holdSkill = true; },
+    releaseSkill: () => { holdSkill = false; skillPending?.(); },
+    rejectSkillDelete: (value: boolean) => { failSkillDelete = value; },
+  };
 }
 
 test('canonical fixture: inheritance, large catalogs, grouped selection and policy survive gateway readback', async ({ page }) => {
@@ -230,12 +265,13 @@ test('canonical fixture: inheritance, large catalogs, grouped selection and poli
   const group = page.locator('.profile-capability-group').filter({ has: page.locator('summary strong', { hasText: /^server$/ }) });
   await expect(group.locator('summary')).toContainText('60 of 60 selected');
   await expect(group.locator('summary')).toContainText('Inherited');
-  await page.getByTestId('profile-capability-filter').fill('tool-59');
+  await page.getByTestId('profile-mcp-filter').fill('tool-59');
   await page.getByTestId('mcp-server-tool-59').uncheck();
   await expect(group.locator('summary')).toContainText('59 of 60 selected');
   await expect(group.locator('summary')).toContainText('Explicit');
-  await page.getByTestId('profile-capability-filter').fill('');
+  await page.getByTestId('profile-mcp-filter').fill('');
   await group.getByRole('button', { name: 'Clear group: server', exact: true }).click();
+  await page.getByRole('radio', { name: /^Selected skills/ }).check();
   await page.getByTestId('skill-skill-0').uncheck();
   await page.getByTestId('profile-model').selectOption('model-two');
   await page.getByTestId('profile-account').selectOption('account');
@@ -246,7 +282,7 @@ test('canonical fixture: inheritance, large catalogs, grouped selection and poli
   await expect(page.getByTestId('profile-save-status')).toHaveText('Profile saved');
   expect(fixture.profiles[0]).toMatchObject({ modelId: 'model-two', defaultAnthropicAccountId: 'account', isManager: true, allowedDelegatesJson: '["beta"]' });
   expect(JSON.parse(fixture.profiles[0].allowedMcpsJson)).toEqual({ other: ['keep'] });
-  expect(JSON.parse(fixture.profiles[0].allowedSkillsJson!)).toHaveLength(23);
+  expect(JSON.parse(fixture.profiles[0].allowedSkillsJson!)).toHaveLength(24);
   expect(fixture.profiles[0].corePermissionsJson).toBe('{"bash":{"*":"deny","git *":"allow"}, "future":{"x":"deny"}}');
   await page.getByTestId('profile-beta').click(); await page.getByTestId('profile-alpha').click();
   await expect(page.getByTestId('mcp-server-tool-59')).not.toBeChecked();
@@ -288,6 +324,266 @@ test('canonical fixture: pending save blocks switching and a failure retains the
   await expect(page.getByTestId('profile-save-status')).toHaveText('Profile saved');
   expect(fixture.writes.map(write => write.id)).toEqual(['alpha', 'alpha']);
   expect(fixture.profiles[0].label).toBe('Edited alpha'); expect(fixture.profiles[1].label).toBe('beta');
+});
+
+test('task-profile-allowed-skills-management-c1: Allowed skills exposes exact All, Selected, and No semantics', async ({ page }) => {
+  await openCanonicalFixture(page);
+  const policy = page.getByRole('radiogroup', { name: 'Allowed skills' });
+  await expect(policy).toBeVisible();
+  await expect(policy.getByRole('radio', { name: /^All skills/ })).toBeChecked();
+  await expect(policy).toContainText('future');
+  await expect(page.getByText(/cannot be saved/i)).toHaveCount(0);
+});
+
+test('task-profile-allowed-skills-management-c2: policy transitions preserve effective access without conflating null and empty lists', async ({ page }) => {
+  const fixture = await openCanonicalFixture(page);
+  await page.getByRole('radio', { name: /^Selected skills/ }).check();
+  await expect(page.getByTestId('profile-skills-summary')).toHaveText('25 selected');
+  await page.getByRole('radio', { name: /^No skills/ }).check();
+  await expect(page.getByTestId('profile-skills-summary')).toHaveText('No skills');
+  await page.getByRole('radio', { name: /^Selected skills/ }).check();
+  await expect(page.getByTestId('profile-skills-summary')).toHaveText('0 selected');
+  await page.getByTestId('profile-save').click();
+  expect(fixture.writes.at(-1)?.body.allowedSkillsJson).toBe('[]');
+  await page.getByRole('radio', { name: /^All skills/ }).check();
+  await page.getByTestId('profile-save').click();
+  expect(fixture.writes.at(-1)?.body.allowedSkillsJson).toBeNull();
+});
+
+test('task-profile-allowed-skills-management-c3: filtered bulk actions affect only shown skills and unknown saved names stay removable', async ({ page }) => {
+  await openCanonicalFixture(page);
+  await page.getByRole('radio', { name: /^Selected skills/ }).check();
+  await page.getByTestId('profile-capability-filter').fill('skill-1');
+  await page.getByRole('button', { name: 'Clear all shown skills' }).click();
+  await expect(page.getByRole('button', { name: 'Select all shown skills' })).toBeVisible();
+  await page.getByTestId('profile-capability-filter').fill('');
+  await expect(page.getByTestId('skill-skill-0')).toBeChecked();
+  await expect(page.getByTestId('skill-skill-1')).not.toBeChecked();
+});
+
+test('task-profile-allowed-skills-management-c4: catalog failure preserves policy controls and the dirty draft', async ({ page }) => {
+  await openCanonicalFixture(page);
+  await page.getByRole('radio', { name: /^Selected skills/ }).check();
+  await page.getByTestId('skill-skill-0').uncheck();
+  await page.route('**/opencode/skills', route => route.fulfill({ status: 503, json: { error: 'private path /tmp/do-not-leak' } }));
+  await page.getByRole('button', { name: 'Refresh skill catalog' }).click();
+  await expect(page.getByRole('radio', { name: /^Selected skills/ })).toBeChecked();
+  await expect(page.getByTestId('skill-skill-0')).not.toBeChecked();
+  await expect(page.getByRole('alert')).not.toContainText('/tmp/');
+});
+
+test('task-profile-allowed-skills-management-c5: save sends only changed skill policy and failure retains exact draft', async ({ page }) => {
+  const fixture = await openCanonicalFixture(page);
+  await page.getByRole('radio', { name: /^No skills/ }).check();
+  fixture.reject(true);
+  await page.getByTestId('profile-save').click();
+  await expect(page.getByRole('radio', { name: /^No skills/ })).toBeChecked();
+  expect(fixture.writes.at(-1)?.body).toEqual({ allowedSkillsJson: '[]' });
+});
+
+test('task-profile-allowed-skills-management-c6: add skill dialog validates a create-only slug and required instructions', async ({ page }) => {
+  await openCanonicalFixture(page);
+  await page.getByRole('button', { name: 'Add skill' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add managed skill' });
+  await expect(dialog).toContainText(/global/i);
+  await dialog.getByLabel('Name').fill('Not Valid');
+  await dialog.getByLabel('Skill instructions').fill('Do the work');
+  await expect(dialog.getByRole('button', { name: 'Create skill' })).toBeDisabled();
+});
+
+test('task-profile-allowed-skills-management-c7: create refreshes the catalog and auto-selects only in Selected policy', async ({ page }) => {
+  const fixture = await openCanonicalFixture(page);
+  const createSkill = async (name: string) => {
+    await page.getByRole('button', { name: 'Add skill' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Add managed skill' });
+    await dialog.getByLabel('Name').fill(name);
+    await dialog.getByLabel('Skill instructions').fill(`Instructions for ${name}`);
+    await dialog.getByRole('button', { name: 'Create skill' }).click();
+    await expect(dialog).toHaveCount(0);
+  };
+
+  await createSkill('created-under-all');
+  await expect(page.getByRole('radio', { name: /^All skills/ })).toBeChecked();
+  await page.getByRole('radio', { name: /^No skills/ }).check();
+  const noModeStatus = await page.getByTestId('profile-save-status').textContent();
+  await createSkill('created-under-none');
+  await expect(page.getByRole('radio', { name: /^No skills/ })).toBeChecked();
+  await expect(page.getByTestId('profile-save-status')).toHaveText(noModeStatus!);
+  await page.getByRole('radio', { name: /^Selected skills/ }).check();
+  await expect(page.getByTestId('skill-created-under-all')).not.toBeChecked();
+  await expect(page.getByTestId('skill-created-under-none')).not.toBeChecked();
+  await createSkill('created-under-selected');
+  await expect(page.getByTestId('skill-created-under-selected')).toBeChecked();
+  expect(fixture.skillWrites.filter(write => write.method === 'POST')).toHaveLength(3);
+  expect(fixture.writes).toHaveLength(0);
+});
+
+test('task-profile-allowed-skills-management-c8: only managed skills can fetch content and open Edit', async ({ page }) => {
+  await openCanonicalFixture(page);
+  await page.getByRole('radio', { name: /^Selected skills/ }).check();
+  await page.getByRole('button', { name: 'Edit skill skill-0' }).click();
+  await expect(page.getByRole('dialog', { name: 'Edit managed skill' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edit skill skill-13' })).toHaveCount(0);
+});
+
+test('task-profile-allowed-skills-management-c9: delete names the global skill and removes it from an explicit draft only after success', async ({ page }) => {
+  const fixture = await openCanonicalFixture(page, { allowedSkillsJson: '["skill-0"]' });
+  await expect(page.getByTestId('skill-skill-0')).toBeChecked();
+  await page.getByRole('button', { name: 'Delete skill skill-0' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Delete managed skill' });
+  await expect(dialog).toContainText('skill-0');
+  await expect(dialog).toContainText(/global/i);
+  fixture.rejectSkillDelete(true);
+  await dialog.getByRole('button', { name: 'Delete skill' }).click();
+  await expect(dialog).toBeVisible();
+  await expect(page.getByTestId('skill-skill-0')).toBeChecked();
+  expect(fixture.skills.some(skill => skill.name === 'skill-0')).toBe(true);
+  fixture.rejectSkillDelete(false);
+  await dialog.getByRole('button', { name: 'Delete skill' }).click();
+  await expect(page.getByTestId('skill-skill-0')).toHaveCount(0);
+  await page.getByTestId('profile-beta').click();
+  await page.getByTestId('profile-discard').click();
+  await expect(page.getByTestId('profile-beta')).toHaveClass(/selected/);
+  await expect(page.getByTestId('skill-skill-0')).toBeChecked();
+  expect(fixture.writes).toHaveLength(0);
+});
+
+test('task-profile-allowed-skills-management-c10: profile switching closes CRUD dialogs and mutation controls prevent double submit', async ({ page }) => {
+  const fixture = await openCanonicalFixture(page);
+  await page.getByRole('button', { name: 'Add skill' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add managed skill' });
+  await dialog.getByLabel('Name').fill('held-skill');
+  await dialog.getByLabel('Skill instructions').fill('Held instructions');
+  fixture.holdSkill();
+  await dialog.getByRole('button', { name: 'Create skill' }).click();
+  await expect.poll(() => fixture.skillWrites.filter(write => write.method === 'POST').length).toBe(1);
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: 'Saving…' })).toBeDisabled();
+  await dialog.locator('form').dispatchEvent('submit');
+  expect(fixture.skillWrites.filter(write => write.method === 'POST')).toHaveLength(1);
+  await page.evaluate(() => { window.location.hash = '#/profiles?profile=beta'; });
+  await expect(page.getByTestId('profile-beta')).toHaveClass(/selected/);
+  await expect(dialog).toHaveCount(0);
+  fixture.releaseSkill();
+  await expect.poll(() => fixture.skills.some(skill => skill.name === 'held-skill')).toBe(true);
+  await expect(page.getByTestId('profile-beta')).toHaveClass(/selected/);
+  await expect(page.getByTestId('profile-save-status')).toHaveText('No unsaved changes');
+  await expect(page.getByTestId('skill-held-skill')).toHaveCount(0);
+  expect(fixture.skillWrites.filter(write => write.method === 'POST')).toHaveLength(1);
+});
+
+test('task-profile-allowed-skills-management-c11: skill API errors are sanitized', async ({ page }) => {
+  await openCanonicalFixture(page);
+  await page.getByRole('radio', { name: /^Selected skills/ }).check();
+  await page.route('**/opencode/skills/skill-0/content', route => route.fulfill({ status: 500, json: { error: 'private /tmp/path/SKILL.md' } }));
+  await page.getByRole('button', { name: 'Edit skill skill-0' }).click();
+  await expect(page.getByRole('alert')).toContainText('Load skill content failed (500)');
+  await expect(page.getByRole('alert')).not.toContainText(/\/tmp|SKILL\.md/);
+  await page.getByRole('button', { name: 'Add skill' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add managed skill' });
+  await dialog.getByLabel('Name').fill('failed-skill');
+  await dialog.getByLabel('Skill instructions').fill('Keep these instructions');
+  await page.route('**/opencode/skills', route => route.request().method() === 'POST'
+    ? route.fulfill({ status: 500, json: { error: 'private /tmp/path/SKILL.md' } })
+    : route.fallback());
+  await dialog.getByRole('button', { name: 'Create skill' }).click();
+  await expect(page.getByRole('alert')).toHaveCount(1);
+  await expect(dialog.getByRole('alert')).toContainText('Create skill failed (500)');
+  await expect(dialog.getByRole('alert')).not.toContainText(/\/tmp|SKILL\.md/);
+  await expect(dialog.getByLabel('Skill instructions')).toHaveValue('Keep these instructions');
+});
+
+test('task-profile-allowed-skills-management-c12: policy and CRUD controls remain accessible at 720px', async ({ page }) => {
+  await page.setViewportSize({ width: 720, height: 500 });
+  await openCanonicalFixture(page);
+  // The E22 harness prints a raw JSON receipt beside the app; it is not part of the product surface.
+  await page.locator('#root > pre').evaluate(element => { element.hidden = true; });
+  const selected = page.getByRole('radio', { name: /^Selected skills/ });
+  await selected.focus();
+  await page.keyboard.press('Space');
+  await expect(selected).toBeChecked();
+  const add = page.getByRole('button', { name: 'Add skill' });
+  await add.focus();
+  await page.keyboard.press('Enter');
+  let dialog = page.getByRole('dialog', { name: 'Add managed skill' });
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(add).toBeFocused();
+  await page.keyboard.press('Enter');
+  dialog = page.getByRole('dialog', { name: 'Add managed skill' });
+  const cancel = dialog.getByRole('button', { name: 'Cancel' });
+  await cancel.focus();
+  await page.keyboard.press('Enter');
+  await expect(dialog).toHaveCount(0);
+  await expect(add).toBeFocused();
+  await page.keyboard.press('Enter');
+  dialog = page.getByRole('dialog', { name: 'Add managed skill' });
+  const result = await new AxeBuilder({ page }).analyze();
+  expect(result.violations).toEqual([]);
+  const targets = [
+    ...await page.locator('.profile-skill-policy > label').all(),
+    page.getByRole('button', { name: 'Refresh skill catalog' }), add,
+    page.getByRole('button', { name: 'Select all skills' }), page.getByRole('button', { name: 'Clear all skills' }),
+    page.getByTestId('profile-capability-filter'), page.getByTestId('skill-skill-0').locator('..'),
+    page.getByRole('button', { name: 'Edit skill skill-0' }), page.getByRole('button', { name: 'Delete skill skill-0' }),
+    dialog.getByLabel('Name'), dialog.getByLabel('Description'), dialog.getByRole('button', { name: 'Cancel' }), dialog.getByRole('button', { name: 'Create skill' }),
+  ];
+  for (const target of targets) {
+    const box = await target.boundingBox();
+    expect(box, 'control must be rendered').not.toBeNull();
+    expect(box!.width, 'control width must be at least 44px').toBeGreaterThanOrEqual(44);
+    expect(box!.height, 'control height must be at least 44px').toBeGreaterThanOrEqual(44);
+  }
+  expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  for (const [name, target] of [['document', page.locator('html')], ['workspace', page.getByTestId('profiles-workspace')], ['editor', page.locator('.profile-editor')]] as const) {
+    const width = await target.evaluate(element => ({ scroll: element.scrollWidth, client: element.clientWidth }));
+    expect(width.scroll <= width.client, `${name} must not overflow horizontally (${width.scroll} > ${width.client})`).toBe(true);
+  }
+});
+
+test('task-profile-allowed-skills-management-c13: unknown saved skills survive stable exact policy PATCH and dirty navigation guard', async ({ page }) => {
+  const fixture = await openCanonicalFixture(page, { allowedSkillsJson: '["z-unknown","skill-2","skill-2"]' });
+  await expect(page.getByRole('radio', { name: /^Selected skills/ })).toBeChecked();
+  await expect(page.getByTestId('skill-z-unknown')).toBeChecked();
+  await page.getByTestId('skill-z-unknown').evaluate((element: HTMLInputElement) => element.click());
+  await page.getByTestId('profile-beta').click();
+  await expect(page.getByTestId('profile-unsaved-dialog')).toBeVisible();
+  await page.getByTestId('profile-keep-editing').click();
+  await page.getByTestId('profile-save').click();
+  expect(fixture.writes.at(-1)?.body).toEqual({ allowedSkillsJson: '["skill-2"]' });
+  expect(fixture.profiles[0].allowedSkillsJson).toBe('["skill-2"]');
+});
+
+test('task-profile-allowed-skills-management-c14: managed CRUD stays global, external rows stay read-only, and policy screenshots are durable', async ({ page }) => {
+  const fixture = await openCanonicalFixture(page);
+  const artifacts = '../../docs/ai/artifacts/2026-09-27-profile-allowed-skills-management';
+  await page.screenshot({ path: `${artifacts}/all-skills-dark.png`, fullPage: true });
+  await page.getByRole('radio', { name: /^Selected skills/ }).check();
+  await page.getByTestId('profile-capability-filter').fill('skill-1');
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
+  await page.screenshot({ path: `${artifacts}/selected-filtered-light.png`, fullPage: true });
+  await page.getByTestId('profile-capability-filter').fill('');
+  await expect(page.getByRole('button', { name: 'Edit skill skill-13' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Delete skill skill-13' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Edit skill external-skill' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Delete skill external-skill' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Edit skill skill-0' }).click();
+  const edit = page.getByRole('dialog', { name: 'Edit managed skill' });
+  await expect(edit.getByLabel('Skill instructions')).toHaveValue('Instructions for skill-0');
+  await edit.getByLabel('Skill instructions').fill('Updated instructions');
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+  await page.screenshot({ path: `${artifacts}/edit-dialog-dark.png`, fullPage: true });
+  await edit.getByRole('button', { name: 'Save skill' }).click();
+  expect(fixture.skillWrites.at(-1)).toMatchObject({ method: 'PUT', path: '/opencode/skills/skill-0', body: { content: 'Updated instructions' } });
+  await page.getByRole('button', { name: 'Delete skill skill-0' }).click();
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
+  await page.screenshot({ path: `${artifacts}/delete-confirmation-light.png`, fullPage: true });
+  await page.getByRole('dialog', { name: 'Delete managed skill' }).getByRole('button', { name: 'Delete skill' }).click();
+  expect(fixture.skillWrites.at(-1)).toEqual({ method: 'DELETE', path: '/opencode/skills/skill-0' });
+  await page.getByRole('radio', { name: /^No skills/ }).check();
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+  await page.screenshot({ path: `${artifacts}/no-skills-dark.png`, fullPage: true });
 });
 
 test('live profile save survives a full UI reload', async ({ page }) => {
