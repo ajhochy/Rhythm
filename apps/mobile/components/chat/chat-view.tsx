@@ -1,6 +1,7 @@
 import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
@@ -153,6 +154,22 @@ export function ChatView() {
     () => availableModels.find((model) => model.providerID === selectedSession?.model?.providerID && model.modelID === selectedSession?.model?.id),
     [availableModels, selectedSession?.model?.id, selectedSession?.model?.providerID],
   );
+  const selectedProfileLabel = availableAgents.find(
+    (profile) => profile.profileId === chatPreferences.profileId,
+  )?.label;
+  const selectedModelLabel = availableModels.find(
+    (model) => model.id === chatPreferences.modelId,
+  )?.label ?? chatPreferences.modelId;
+  const contextLabel = [selectedProfileLabel, selectedModelLabel].filter(Boolean).join(' · ') || undefined;
+  const presentationStatus = currentPendingPermissions.length > 0
+    ? 'Waiting for approval'
+    : currentPendingQuestions.length > 0
+      ? 'One answer needed'
+      : running
+        ? 'Working'
+        : displayTranscript.length > 0
+          ? 'Finished'
+          : contextLabel;
   const visiblePromptError = promptError && (!promptError.sessionId || promptError.sessionId === currentSessionId)
     ? promptError.message
     : undefined;
@@ -436,6 +453,40 @@ export function ChatView() {
     }
   }
 
+  async function handleChooseExistingPhoto() {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        allowsMultipleSelection: true,
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 1,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      if (result.assets.some((asset) =>
+        typeof asset.fileSize === 'number' &&
+        asset.fileSize > MOBILE_ATTACHMENT_LIMIT_BYTES)) {
+        setSendFeedback('Photo exceeds the 10 MB attachment limit.');
+        return;
+      }
+
+      setSendFeedback(undefined);
+      updateAttachmentsState((current) => {
+        const next = [...current];
+        result.assets.forEach((asset) => {
+          if (!next.some((attachment) => attachment.uri === asset.uri)) {
+            next.push({
+              uri: asset.uri,
+              filename: asset.fileName || 'Attachment',
+              mime: asset.mimeType || 'image/jpeg',
+            });
+          }
+        });
+        return next;
+      });
+    } catch (error) {
+      setSendFeedback(summarizeError(error, 'Could not attach that photo.'));
+    }
+  }
+
   function handleAttach() {
     if (Platform.OS === 'web') {
       void handleChooseFile();
@@ -443,6 +494,7 @@ export function ChatView() {
     }
     Alert.alert('Add attachment', undefined, [
       { text: 'Take Photo', onPress: () => setCameraVisible(true) },
+      { text: 'Choose Existing Photo', onPress: () => void handleChooseExistingPhoto() },
       { text: 'Choose File', onPress: () => void handleChooseFile() },
       { text: 'Cancel', style: 'cancel' },
     ]);
@@ -554,6 +606,7 @@ export function ChatView() {
           isCreatingSession={isCreatingSession}
           diffCount={diffCount}
           running={running}
+          presentationStatus={presentationStatus}
           showingChanges={activeTab === 'changes'}
           onBack={navigateBackToChats}
           onCloseMenu={() => setSessionMenuVisible(false)}
@@ -821,10 +874,11 @@ export function ChatView() {
           </Card>
         ) : null}
 
-        <ChatComposer
+        {activeTab === 'session' ? <ChatComposer
           attachments={attachments}
           connectionStatus={connection.status}
           conversation={conversation}
+          contextLabel={contextLabel}
           currentSessionId={currentSessionId}
           commands={commands}
           draft={draft}
@@ -854,7 +908,7 @@ export function ChatView() {
           onToggleRecording={() => void handleToggleRecording()}
           palette={palette}
           showSendAction={showSendAction}
-        />
+        /> : null}
         </KeyboardAvoidingView>
       </View>
 

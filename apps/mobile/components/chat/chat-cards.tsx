@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { Button, Card, Chip, Divider, IconButton, List, Surface, Text, TextInput, TouchableRipple } from 'react-native-paper';
+import { Button, Card, Divider, IconButton, List, Menu, Surface, Text, TextInput, TouchableRipple } from 'react-native-paper';
 
 import { MarkdownText } from '@/components/chat/chat-markdown';
 import { getDiffPalette, buildPatchDiff, buildCollapsedDiffBlocks } from '@/components/chat/chat-diff';
@@ -13,11 +13,14 @@ import { summarizeTranscriptDetails } from '@/lib/opencode/transcript';
 import type { FileDiff } from '@/lib/opencode/types';
 
 function getPermissionTitle(request: PendingPermissionRequest) {
-  return request.permission
-    .split(/[._-]/g)
-    .filter(Boolean)
-    .map((part: string) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
+  const permission = request.permission.toLowerCase();
+  if (/(^|[._-])(edit|write|patch)([._-]|$)/.test(permission)) {
+    return 'Allow OpenCode to edit files?';
+  }
+  if (/(^|[._-])(bash|shell|command|exec)([._-]|$)/.test(permission)) {
+    return 'Allow OpenCode to run this command?';
+  }
+  return 'Allow this protected action?';
 }
 
 export function PendingInteractionsCard({
@@ -132,8 +135,8 @@ function QuestionRequestCard({
           </View>
         ))}
         <View style={styles.requestActionsRow}>
-          <Button mode="contained" disabled={!canSubmit} onPress={() => onReply(resolvedAnswers)}>Submit answer</Button>
-          <Button mode="text" textColor={palette.danger} onPress={onReject}>Reject</Button>
+          <Button style={styles.requestActionButton} mode="contained" disabled={!canSubmit} onPress={() => onReply(resolvedAnswers)}>Submit answer</Button>
+          <Button style={styles.requestActionButton} mode="outlined" textColor={palette.danger} onPress={onReject}>Reject</Button>
         </View>
       </Card.Content>
     </Card>
@@ -259,6 +262,7 @@ export function TranscriptMessage({
   const isUser = entry.role === 'user';
   const detailSummary = summarizeTranscriptDetails(entry.details);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
+  const [actionsVisible, setActionsVisible] = useState(false);
   const bubbleColor = isUser ? palette.surface : palette.surfaceAlt;
   const contentColor = palette.text;
 
@@ -266,6 +270,7 @@ export function TranscriptMessage({
     <View style={[styles.messageRow, isUser && styles.messageRowUser]}>
       <TouchableRipple borderless={false} rippleColor={`${palette.tint}22`} style={styles.messageTouchable} onLongPress={onCopy}>
         <Surface
+          accessibilityLabel={`${isUser ? 'You' : 'OpenCode'} message, ${formatTimestamp(entry.createdAt)}`}
           style={[
             styles.messageBubble,
             isUser ? styles.messageBubbleUser : styles.messageBubbleAssistant,
@@ -276,32 +281,6 @@ export function TranscriptMessage({
             copied ? styles.messageBubbleCopied : null,
           ]}
           elevation={0}>
-          <View style={styles.messageMeta}>
-            <Text variant="labelMedium" style={{ color: palette.muted }}>{isUser ? 'You' : 'OpenCode'}</Text>
-            <View style={styles.messageMetaRight}>
-              {copied ? (
-                <View style={[styles.copiedPill, { backgroundColor: `${palette.tint}18` }]}>
-                  <MaterialCommunityIcons name="check" size={12} color={palette.tint} />
-                  <Text variant="labelSmall" style={{ color: palette.tint }}>Copied</Text>
-                </View>
-              ) : null}
-              {canSpeak ? (
-                <IconButton
-                  accessibilityLabel={speaking ? 'Stop speaking assistant message' : 'Speak assistant message'}
-                  icon={speaking ? 'stop' : 'volume-high'}
-                  size={16}
-                  style={styles.messageActionButton}
-                  iconColor={palette.muted}
-                  onPress={onToggleSpeak}
-                />
-              ) : null}
-              {onFork ? <IconButton accessibilityLabel="Fork chat from this message" icon="source-fork" size={16} style={styles.messageActionButton} iconColor={palette.muted} onPress={onFork} /> : null}
-              {onRevert ? <IconButton accessibilityLabel="Revert chat to this message" icon="undo-variant" size={16} style={styles.messageActionButton} iconColor={palette.muted} onPress={onRevert} /> : null}
-              <Text variant="labelSmall" style={{ color: palette.muted }}>
-                {formatTimestamp(entry.createdAt)}
-              </Text>
-            </View>
-          </View>
           {entry.text ? (
             <MarkdownText
               text={entry.text}
@@ -311,27 +290,81 @@ export function TranscriptMessage({
           ) : null}
           {entry.error ? <Text variant="bodyMedium" style={{ color: palette.danger }}>{entry.error}</Text> : null}
           {!isUser && detailSummary.length > 0 ? (
-            <View>
-              <Button
+            <View style={styles.activityBlock}>
+              <Divider />
+              <TouchableRipple
                 accessibilityLabel={`${detailsExpanded ? 'Collapse' : 'Expand'} activity details`}
-                compact
-                icon={detailsExpanded ? 'chevron-up' : 'chevron-down'}
-                mode="text"
+                accessibilityRole="button"
+                accessibilityState={{ expanded: detailsExpanded }}
+                hitSlop={{ bottom: 6, left: 6, right: 6, top: 6 }}
                 onPress={() => setDetailsExpanded((expanded) => !expanded)}
                 style={styles.detailsDisclosure}>
-                {`Activity · ${detailSummary.join(' · ')}`}
-              </Button>
+                <View style={styles.detailsDisclosureRow}>
+                  <Text numberOfLines={1} variant="bodySmall" style={[styles.detailsDisclosureText, { color: palette.muted }]}>
+                    {`Activity · ${detailSummary.join(' · ')}`}
+                  </Text>
+                  <MaterialCommunityIcons name={detailsExpanded ? 'chevron-up' : 'chevron-down'} size={18} color={palette.muted} />
+                </View>
+              </TouchableRipple>
               {detailsExpanded ? (
                 <View style={styles.summaryRow}>
                   {detailSummary.map((item) => (
-                    <Chip key={item} compact mode="flat" style={[styles.summaryChip, { backgroundColor: palette.background }]}>
+                    <Text key={item} variant="bodySmall" style={{ color: palette.muted }}>
                       {item}
-                    </Chip>
+                    </Text>
                   ))}
                 </View>
               ) : null}
             </View>
           ) : null}
+          <View testID="message-actions" style={styles.messageActions}>
+            {copied ? (
+              <View style={[styles.copiedPill, { backgroundColor: `${palette.tint}18` }]}>
+                <MaterialCommunityIcons name="check" size={12} color={palette.tint} />
+                <Text variant="labelSmall" style={{ color: palette.tint }}>Copied</Text>
+              </View>
+            ) : null}
+            <Menu
+              visible={actionsVisible}
+              onDismiss={() => setActionsVisible(false)}
+              anchor={(
+                <IconButton
+                  accessibilityLabel="Message actions"
+                  icon="dots-horizontal"
+                  size={18}
+                  style={styles.messageActionButton}
+                  iconColor={palette.muted}
+                  onPress={() => setActionsVisible(true)}
+                />
+              )}>
+              <Menu.Item
+                accessibilityLabel="Copy message"
+                leadingIcon="content-copy"
+                title="Copy message"
+                onPress={() => {
+                  setActionsVisible(false);
+                  onCopy();
+                }}
+              />
+              {!isUser && canSpeak ? (
+                <Menu.Item
+                  accessibilityLabel={speaking ? 'Stop speaking assistant message' : 'Speak assistant message'}
+                  leadingIcon={speaking ? 'stop' : 'volume-high'}
+                  title={speaking ? 'Stop speaking assistant message' : 'Speak assistant message'}
+                  onPress={() => {
+                    setActionsVisible(false);
+                    onToggleSpeak();
+                  }}
+                />
+              ) : null}
+              {isUser && onFork ? (
+                <Menu.Item accessibilityLabel="Fork chat from this message" leadingIcon="source-fork" title="Fork chat from this message" onPress={() => { setActionsVisible(false); onFork(); }} />
+              ) : null}
+              {isUser && onRevert ? (
+                <Menu.Item accessibilityLabel="Revert chat to this message" leadingIcon="undo-variant" title="Revert chat to this message" onPress={() => { setActionsVisible(false); onRevert(); }} />
+              ) : null}
+            </Menu>
+          </View>
         </Surface>
       </TouchableRipple>
     </View>
@@ -355,13 +388,16 @@ function PermissionRequestCard({
       <Card.Content style={styles.requestCardContent}>
         <Text variant="labelLarge" style={{ color: palette.warning }}>Permission request</Text>
         <Text variant="titleMedium" style={{ color: palette.text }}>{getPermissionTitle(request)}</Text>
+        <Text variant="bodyMedium" style={{ color: palette.muted }}>OpenCode needs your approval before continuing.</Text>
         {request.patterns.length > 0 ? (
-          <Text variant="bodySmall" style={{ color: palette.muted }}>{request.patterns.join('\n')}</Text>
+          <View style={[styles.permissionTechnicalBlock, { backgroundColor: palette.surface }]}>
+            <Text variant="bodySmall" style={[styles.code, { color: palette.muted }]}>{request.patterns.join('\n')}</Text>
+          </View>
         ) : null}
         <View style={styles.requestActionsRow}>
-          <Button mode="contained" compact onPress={() => onReply('once')}>Allow once</Button>
-          <Button mode="contained-tonal" compact onPress={() => onReply('always')}>Always allow</Button>
-          <Button mode="text" compact textColor={palette.danger} onPress={() => onReply('reject')}>Deny</Button>
+          <Button style={styles.requestActionButton} mode="contained" compact onPress={() => onReply('once')}>Allow once</Button>
+          <Button style={styles.requestActionButton} mode="outlined" compact onPress={() => onReply('always')}>Always allow</Button>
+          <Button style={styles.requestDenyButton} mode="text" compact textColor={palette.danger} onPress={() => onReply('reject')}>Deny</Button>
         </View>
       </Card.Content>
     </Card>
@@ -391,32 +427,40 @@ const styles = StyleSheet.create({
   code: { fontFamily: Fonts.mono, fontSize: TypeScale.meta, lineHeight: 19, flexShrink: 1 },
   messageRow: { alignItems: 'flex-start' },
   messageRowUser: { alignItems: 'flex-end' },
-  messageTouchable: { alignSelf: 'stretch', borderRadius: 24 },
+  messageTouchable: { alignSelf: 'stretch', borderRadius: 16 },
   messageBubble: {
-    borderRadius: 24,
+    borderRadius: 16,
     borderWidth: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    gap: 8,
     flexShrink: 1,
+    maxWidth: '88%',
+    minHeight: 52,
     overflow: 'hidden',
+    paddingRight: 56,
+    position: 'relative',
   },
-  messageBubbleUser: { borderBottomRightRadius: 10, marginLeft: '8%', marginRight: 8, alignSelf: 'flex-end' },
-  messageBubbleAssistant: { borderBottomLeftRadius: 10, marginRight: '8%', marginLeft: 8, alignSelf: 'flex-start' },
+  messageBubbleUser: { alignSelf: 'flex-end' },
+  messageBubbleAssistant: { alignSelf: 'flex-start' },
   messageBubbleCopied: { shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
-  messageMeta: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
-  messageMetaRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  messageActions: { alignItems: 'center', bottom: 0, flexDirection: 'row', height: MinimumTouchTarget, position: 'absolute', right: 0 },
   messageActionButton: { height: MinimumTouchTarget, margin: 0, width: MinimumTouchTarget },
   copiedPill: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4 },
-  summaryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  detailsDisclosure: { alignSelf: 'flex-start', minHeight: MinimumTouchTarget },
-  summaryChip: { alignSelf: 'flex-start' },
+  activityBlock: { width: '100%' },
+  summaryRow: { gap: 4, paddingHorizontal: 4, paddingBottom: 4 },
+  detailsDisclosure: { height: 32, width: '100%' },
+  detailsDisclosureRow: { alignItems: 'center', flexDirection: 'row', height: 32, paddingHorizontal: 4 },
+  detailsDisclosureText: { flex: 1, minWidth: 0 },
   requestCard: { borderRadius: 18 },
   requestCardCompact: { borderRadius: 14 },
   requestCardContent: { gap: 10 },
-  requestActionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  requestActionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  requestActionButton: { flexBasis: '48%', flexGrow: 1, minHeight: MinimumTouchTarget },
+  requestDenyButton: { flexBasis: '100%', minHeight: MinimumTouchTarget },
+  permissionTechnicalBlock: { borderRadius: Radii.control, padding: Spacing.x2 },
   questionBlock: { gap: 8 },
   questionOption: { minHeight: MinimumTouchTarget },
-  questionOptionButton: { minHeight: MinimumTouchTarget },
+  questionOptionButton: { flexBasis: '100%', minHeight: MinimumTouchTarget },
   questionOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
 });

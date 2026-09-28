@@ -1,9 +1,10 @@
 import { cleanup, fireEvent, render } from '@testing-library/react-native';
 import type { ComponentProps } from 'react';
-import { FlatList } from 'react-native';
+import { FlatList, StyleSheet } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 
 import { ChatContent } from '@/components/chat/chat-content';
+import { styles as chatViewStyles } from '@/components/chat/chat-view-styles';
 import { Colors } from '@/constants/theme';
 import type { TranscriptEntry } from '@/lib/opencode/format';
 
@@ -94,4 +95,37 @@ test('existing chats open at the bottom without pulling a reader back down', () 
   fireEvent(nextTranscript, 'contentSizeChange', 320, 700);
   expect(scrollToEnd).toHaveBeenCalledTimes(1);
   expect(scrollToEnd).toHaveBeenCalledWith({ animated: false });
+});
+
+test('mobile-chat-ui-c8: completed idle tasks disappear while active progress stays inline and expandable', () => {
+  // Regression caught: a finished task summary remains as standalone chrome,
+  // or active task progress returns to an overlay that obscures the transcript.
+  const complete = [
+    { content: 'One', status: 'completed' },
+    { content: 'Two', status: 'completed' },
+  ] as never;
+  const rendered = render(
+    <PaperProvider>
+      <ChatContent {...props('session-a', [entry('1', 'Done')])} currentTodos={complete} />
+    </PaperProvider>,
+  );
+  expect(rendered.queryByText('2 of 2 tasks completed')).toBeNull();
+
+  rendered.rerender(
+    <PaperProvider>
+      <ChatContent
+        {...props('session-a', [entry('1', 'Working')])}
+        currentTodos={[
+          { content: 'One', status: 'completed' },
+          { content: 'Two', status: 'in_progress' },
+        ] as never}
+        running
+      />
+    </PaperProvider>,
+  );
+  expect(rendered.getByText('1 of 2 tasks completed')).toBeTruthy();
+  fireEvent.press(rendered.getByRole('button', { name: 'Expand tasks' }));
+  expect(rendered.getByText('Two')).toBeTruthy();
+  expect(chatViewStyles.todoHeader.minHeight).toBeLessThanOrEqual(44);
+  expect(StyleSheet.flatten(chatViewStyles.todoInline)).not.toHaveProperty('position');
 });

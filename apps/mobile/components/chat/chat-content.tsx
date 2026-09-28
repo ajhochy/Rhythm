@@ -127,10 +127,7 @@ export function ChatContent({
           testID="chat-transcript"
           data={displayTranscript}
           style={styles.scroll}
-          contentContainerStyle={[
-            styles.content,
-            currentTodos.length > 0 ? { paddingBottom: todosExpanded ? 320 : 76 } : null,
-          ]}
+          contentContainerStyle={styles.content}
           extraData={transcriptExtraData}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
@@ -192,8 +189,7 @@ export function ChatContent({
             </View>
           ) : null}
           ListEmptyComponent={(
-            <Card mode="contained" style={[styles.emptyCard, { backgroundColor: palette.surface }]}>
-              <Card.Content style={styles.emptyContent}>
+            <View style={styles.emptyContent}>
                 <Text variant="headlineSmall" style={[styles.emptyTitle, { color: palette.text }]}>Start a new task</Text>
                 <Text variant="bodyMedium" style={{ color: palette.muted }}>
                   Keep the prompt specific and OpenCode will inspect the workspace, show progress, and stream back file changes.
@@ -211,8 +207,7 @@ export function ChatContent({
                     </TouchableRipple>
                   ))}
                 </View>
-              </Card.Content>
-            </Card>
+            </View>
           )}
           ListFooterComponent={(
             <View style={styles.transcriptFooter}>
@@ -243,6 +238,36 @@ export function ChatContent({
                   </Text>
                 </View>
               ) : null}
+
+              {currentTodos.length > 0 && (running || completedTodoCount < currentTodos.length) ? (
+                <View style={[styles.todoInline, { borderColor: palette.border }]}>
+                  <TouchableRipple
+                    accessibilityLabel={todosExpanded ? 'Collapse tasks' : 'Expand tasks'}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: todosExpanded }}
+                    onPress={() => setTodosExpanded((expanded) => !expanded)}>
+                    <View style={styles.todoHeader}>
+                      <Text variant="labelLarge" style={[styles.todoSummary, { color: palette.muted }]}>
+                        {`${completedTodoCount} of ${currentTodos.length} tasks completed`}
+                      </Text>
+                      <MaterialCommunityIcons name={todosExpanded ? 'chevron-up' : 'chevron-down'} size={20} color={palette.muted} />
+                    </View>
+                  </TouchableRipple>
+                  {todosExpanded ? (
+                    <View style={styles.todoList}>
+                      {currentTodos.map((todo, index) => (
+                        <View key={`${todo.content}-${index}`} style={styles.todoItemRow}>
+                          <IconButton icon={todo.status === 'completed' ? 'check-circle' : todo.status === 'in_progress' ? 'progress-clock' : 'circle-outline'} size={20} disabled style={styles.todoStatusIcon} />
+                          <View style={styles.todoTextWrap}>
+                            <Text variant="bodyMedium" style={{ color: palette.text }}>{todo.content || 'Untitled task'}</Text>
+                            {todo.priority ? <Text variant="bodySmall" style={{ color: palette.muted }}>{todo.priority}</Text> : null}
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
             </View>
           )}
         />
@@ -260,9 +285,8 @@ export function ChatContent({
             </Card>
           ) : null}
 
-          <View style={styles.sectionStack}>
-          <Card mode="contained" style={[styles.sectionCard, { backgroundColor: palette.surface }]}>
-            <Card.Content style={styles.sectionHeaderCard}>
+          <View style={[styles.diffGroup, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+            <View style={styles.sectionHeaderCard}>
               <View>
                 <Text variant="titleMedium" style={{ color: palette.text }}>Latest turn diff</Text>
                 <Text variant="bodyMedium" style={{ color: palette.muted }}>
@@ -272,20 +296,15 @@ export function ChatContent({
                 </Text>
               </View>
               <Text variant="labelMedium" style={{ color: palette.tint }}>{isRefreshingDiffs ? 'Syncing' : status?.type || 'idle'}</Text>
-            </Card.Content>
-          </Card>
+            </View>
+            <Text variant="bodySmall" style={{ color: palette.muted }}>Review scope: changes from the latest turn.</Text>
 
           {currentDiffs.length === 0 && diffDetails.length === 0 ? (
-            <Card mode="contained" style={[styles.sectionCard, { backgroundColor: palette.surface }]}>
-              <Card.Content>
-                <Text variant="bodyMedium" style={{ color: palette.muted }}>No file changes yet.</Text>
-              </Card.Content>
-            </Card>
+            <Text variant="bodyMedium" style={{ color: palette.muted }}>No file changes yet.</Text>
           ) : null}
 
           {currentDiffs.length > 0 || diffDetails.length > 0 ? (
-            <Card mode="contained" style={[styles.sectionCard, { backgroundColor: palette.surface }]}>
-              <Card.Content style={styles.diffListCardContent}>
+            <View style={styles.diffListCardContent}>
                 {currentDiffs.map((diff) => {
                   const accordionId = `diff:${diff.file}`;
                   return <SessionDiffCard key={accordionId} diff={diff} expanded={expandedDiffId === accordionId} onPress={() => onExpandDiff(expandedDiffId === accordionId ? undefined : accordionId)} />;
@@ -296,42 +315,11 @@ export function ChatContent({
                       return <DiffCard key={detail.id} detail={detail} expanded={expandedDiffId === accordionId} onPress={() => onExpandDiff(expandedDiffId === accordionId ? undefined : accordionId)} />;
                     })
                   : null}
-              </Card.Content>
-            </Card>
+            </View>
           ) : null}
           </View>
         </ScrollView>
       )}
-
-      {activeTab === 'session' && currentTodos.length > 0 ? (
-        <Card mode="elevated" style={[styles.todoOverlay, { backgroundColor: palette.surface, borderColor: palette.border }]}>
-          <Card.Content style={styles.todoHeader}>
-            <Text variant="labelLarge" style={[styles.todoSummary, { color: palette.text }]}>
-              {`${completedTodoCount} of ${currentTodos.length} tasks completed`}
-            </Text>
-            <IconButton
-              accessibilityLabel={todosExpanded ? 'Collapse tasks' : 'Expand tasks'}
-              icon={todosExpanded ? 'chevron-down' : 'chevron-up'}
-              size={20}
-              style={styles.todoToggleButton}
-              onPress={() => setTodosExpanded((expanded) => !expanded)}
-            />
-          </Card.Content>
-          {todosExpanded ? (
-            <ScrollView style={styles.todoListScroll} contentContainerStyle={styles.todoList} nestedScrollEnabled>
-              {currentTodos.map((todo, index) => (
-                <View key={`${todo.content}-${index}`} style={styles.todoItemRow}>
-                  <IconButton icon={todo.status === 'completed' ? 'check-circle' : todo.status === 'in_progress' ? 'progress-clock' : 'circle-outline'} size={20} disabled style={styles.todoStatusIcon} />
-                  <View style={styles.todoTextWrap}>
-                    <Text variant="bodyMedium" style={{ color: palette.text }}>{todo.content || 'Untitled task'}</Text>
-                    {todo.priority ? <Text variant="bodySmall" style={{ color: palette.muted }}>{todo.priority}</Text> : null}
-                  </View>
-                </View>
-              ))}
-            </ScrollView>
-          ) : null}
-        </Card>
-      ) : null}
     </View>
   );
 }
