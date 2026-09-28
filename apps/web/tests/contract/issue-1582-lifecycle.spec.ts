@@ -37,8 +37,8 @@ async function open(page: Page, initial = [message('msg_1', 'one'), message('msg
   await page.route('**/tests/issue-1582-lifecycle-fixture.html', route => route.fulfill({ contentType: 'text/html', body: `<!doctype html><html lang="en"><body><div id="root"></div><script type="module">
     import RefreshRuntime from '/@react-refresh';
     RefreshRuntime.injectIntoGlobalHook(window); window.$RefreshReg$ = () => {}; window.$RefreshSig$ = () => type => type; window.__vite_plugin_react_preamble_installed__ = true;
-    const {default: React} = await import('/node_modules/.vite/deps/react.js');
-    const {default: {createRoot}} = await import('/node_modules/.vite/deps/react-dom_client.js');
+    const {default: React} = await import('/@id/react');
+    const {default: {createRoot}} = await import('/@id/react-dom/client');
     const {FixtureProvider,useFixtures} = await import('/src/store.tsx');
     const {composeGateway} = await import('/src/gateway/index.ts');
     const {GatewayProvider} = await import('/src/gateway/context.tsx');

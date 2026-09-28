@@ -1,0 +1,16 @@
+{
+  "issue": 1582,
+  "date": "2026-09-27",
+  "test_command": "node apps/web/tests/live/capture-transcript-frames.mjs --verify --require-all && cd apps/web && node --test tests/contract/issue-1582-transcript-reducer.test.mjs && npm exec -- playwright test --config tests/contract/issue-1582-playwright.config.ts && npm exec -- playwright test --config tests/electron-e52a-playwright.config.ts",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "issue-1582-b1", "text": "B1 production hydration: add a production-path UI test feeding captured nested-ID reasoning snapshot through live hydration + WS; renders `.reasoning-block`, never markdown.", "mode": "ui", "test": "apps/web/tests/contract/issue-1582-reasoning.spec.ts", "status": "pass" },
+    { "criterion_id": "issue-1582-b2", "text": "B2 scroll contracts: extend E52A with immediate single wheel-up unpin during streamed deltas; no false 'New output' during three no-change reconciles; zero scrollTop writes while unpinned across 20 streamed frames. Keep c1-c5 green.", "mode": "ui", "test": "apps/web/tests/electron-e52a-transcript.spec.ts", "status": "pass" },
+    { "criterion_id": "issue-1582-b3", "text": "B3 interruption: real/scripted cancel mid-reasoning must retain one assistant message, partial content, and a visible neutral Interrupted marker at message level if currently absent; no role=alert.", "mode": "ui", "test": "apps/web/tests/contract/issue-1582-reasoning.spec.ts", "status": "pass" },
+    { "criterion_id": "issue-1582-b4", "text": "B4 real sandbox scripted-provider qualification: reasoning DOM grows through >=2 samples while Working; final DOM part IDs/content match REST; switch away/back mid-turn no duplicates/gaps; cancel; compaction; attachment-only/mixed; plain script produces no reasoning; no raw ISO timestamps.", "mode": "live", "test": "apps/web/tests/live/capture-transcript-frames.mjs", "status": "pass" },
+    { "criterion_id": "issue-1582-b5", "text": "B5 packaged target: web typecheck/build/test:dist-smoke and relevant transcript unit/Playwright suites pass. Contract maps all criteria; run note exact checks, evidence, residual manual installed-app smoke.", "mode": "integration", "test": "apps/web/tests/dist-smoke.mjs", "status": "pass" },
+    { "criterion_id": "issue-1582-b6", "text": "B6 accessibility: transcript remains non-live, streaming article aria-busy, reasoning details keyboard accessible, interrupted marker neutral, reduced-motion behavior unchanged.", "mode": "ui", "test": "apps/web/tests/contract/issue-1582-reasoning.spec.ts", "status": "pass" },
+    { "criterion_id": "issue-1582-b7", "text": "Installed-app manual smoke for packaged Electron transcript", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "Browser, build, and dist-smoke evidence do not exercise the installed packaged Electron application; human installed-app transcript smoke remains pending." }
+  ],
+  "not_tested": ["issue-1582-b7"]
+}

@@ -6,7 +6,7 @@ const fixture = (name: string) => JSON.parse(readFileSync(new URL(`../fixtures/t
 const row = (id: string) => ({ id, name: id, status: 'idle', category: 'chats', profileId: 'profile', cwd: '/test', createdAt: '2026-09-24T10:00:00Z' });
 const capturedEvents = new Set(['message.updated', 'message.part.updated', 'message.part.delta', 'message.removed', 'message.part.removed', 'session.status', 'error']);
 
-async function open(page: Page, child = false) {
+async function open(page: Page, child = false, hydratedMessages: unknown[] = []) {
   let socket: WebSocketRoute | undefined;
   const parentMessages = child ? [{
     sdkMessageId: 'msg_parent', role: 'output', createdAt: '2026-09-24T10:00:00Z',
@@ -17,7 +17,7 @@ async function open(page: Page, child = false) {
     const url = new URL(route.request().url());
     const send = (json: unknown) => route.fulfill({ json });
     if (url.pathname === '/agent-sessions') return send({ sessions: [row('parent'), row('other')], pageInfo: { hasMore: false, nextCursor: null } });
-    if (url.pathname === '/agent-sessions/parent') return send({ session: row('parent'), messages: parentMessages, transcriptPage: { hasMore: false, nextCursor: null } });
+    if (url.pathname === '/agent-sessions/parent') return send({ session: row('parent'), messages: hydratedMessages.length ? hydratedMessages : parentMessages, transcriptPage: { hasMore: false, nextCursor: null } });
     if (url.pathname === '/agent-sessions/other') return send({ session: row('other'), messages: [], transcriptPage: { hasMore: false, nextCursor: null } });
     if (url.pathname.endsWith('/children/child-sdk/messages')) return send({ messages: [
       { sdkMessageId: 'child-valid', role: 'output', createdAt: '2026-09-24T13:01:00Z', parts: [{ id: 'child-valid-text', type: 'text', text: 'Valid child time' }] },
@@ -50,11 +50,27 @@ test('1582:live-thinking-presentation:1 captured reasoning grows before completi
   for (let index = 0; index <= firstDelta; index += 1) await app.send(frames[index]);
   const reasoning = page.locator('.reasoning-block');
   await expect(reasoning).toContainText('Plan');
+  await expect(reasoning.locator('xpath=ancestor::article')).toHaveAttribute('aria-busy', 'true');
   const first = await reasoning.innerText();
   await app.send(frames[firstDelta + 1]);
   const second = await reasoning.innerText();
   expect(second.length).toBeGreaterThan(first.length);
   expect(frames.slice(0, firstDelta + 2).some(frame => frame.type === 'session.status' && frame.working === false)).toBe(false);
+});
+
+test('1582:production-hydration: captured nested-ID reasoning stays reasoning through REST hydration and WS', async ({ page }) => {
+  const captured = fixture('reasoning') as { mid: { messages: unknown[] }, frames: Frame[] };
+  const app = await open(page, false, captured.mid.messages);
+  const assistant = captured.mid.messages.find((message: any) => message.parts.some((part: any) => part.type === 'reasoning')) as any;
+  const reasoningPart = assistant.parts.find((part: any) => part.type === 'reasoning');
+  const message = page.getByTestId(`message-${assistant.sdkMessageId}`);
+
+  await expect(message.locator('.reasoning-block')).toContainText('Plan');
+  await expect(message.locator('.message-blocks > .markdown-copy')).toHaveCount(0);
+  const delta = captured.frames.find(frame => frame.type === 'message.part.delta' && frame.messageId === assistant.sdkMessageId && frame.partId === reasoningPart.id)!;
+  await app.send(delta);
+  await expect(message.locator('.reasoning-block')).toContainText(String(delta.delta));
+  await expect(message.locator('.message-blocks > .markdown-copy')).toHaveCount(0);
 });
 
 test('1582:live-thinking-presentation:2 streaming defaults open and manual collapse survives deltas and session switches', async ({ page }) => {
@@ -64,7 +80,8 @@ test('1582:live-thinking-presentation:2 streaming defaults open and manual colla
   for (let index = 0; index <= deltas[0]; index += 1) await app.send(frames[index]);
   const reasoning = page.locator('.reasoning-block');
   await expect(reasoning).toHaveAttribute('open', '');
-  await reasoning.locator('summary').click();
+  await reasoning.locator('summary').focus();
+  await reasoning.locator('summary').press('Enter');
   await expect(reasoning).not.toHaveAttribute('open', '');
   await app.send(frames[deltas[1]]);
   await expect(reasoning).not.toHaveAttribute('open', '');
@@ -107,4 +124,18 @@ test('1582:live-thinking-presentation:5 child transcript timestamps preserve val
   await page.getByTestId('open-child-child-sdk').click();
   await expect(page.getByTestId('message-child-valid').locator('time')).toHaveAttribute('datetime', '2026-09-24T13:01:00.000Z');
   await expect(page.getByTestId('message-child-invalid').locator('[data-timestamp-fallback]')).toContainText('Time unavailable');
+});
+
+test('1582:interruption: captured cancel retains one partial assistant message with a neutral marker', async ({ page }) => {
+  const app = await open(page);
+  const captured = fixture('cancel') as { frames: Frame[] };
+  const interrupted = captured.frames.find((frame: any) => frame.type === 'message.updated' && frame.info?.error?.name === 'MessageAbortedError') as any;
+  await app.replay('cancel');
+
+  const message = page.getByTestId(`message-${interrupted.info.id}`);
+  await expect(message).toHaveCount(1);
+  await expect(message).toContainText('partial-');
+  const marker = message.getByText('Interrupted', { exact: true });
+  await expect(marker).toBeVisible();
+  await expect(marker).not.toHaveAttribute('role', 'alert');
 });
