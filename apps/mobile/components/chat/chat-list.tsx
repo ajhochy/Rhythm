@@ -47,6 +47,7 @@ type ProjectGroup = {
   key: string;
   label: string;
   path: string;
+  pendingQuestionCount: number;
   recentActivityAt?: number;
   rows: FlatChat[];
 };
@@ -164,6 +165,19 @@ export function ChatList({ controller }: ChatListProps) {
     });
     return counts;
   }, [chat.sessions]);
+  const pendingQuestionSessionIds = useMemo(
+    () => new Set(opencode.pendingQuestionSessionIds),
+    [opencode.pendingQuestionSessionIds],
+  );
+  const pendingQuestionCountByProject = useMemo(() => {
+    const counts = new Map<string, number>();
+    chat.sessions.forEach((session) => {
+      if (!pendingQuestionSessionIds.has(session.id)) return;
+      const key = session.projectId ?? session.routingProjectId ?? '__desktop__';
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    });
+    return counts;
+  }, [chat.sessions, pendingQuestionSessionIds]);
   const recentActivityByProject = useMemo(() => {
     const activity = new Map<string, number>();
     flattenChats(
@@ -186,6 +200,7 @@ export function ChatList({ controller }: ChatListProps) {
         key: project.path,
         label: project.label,
         path: project.path,
+        pendingQuestionCount: pendingQuestionCountByProject.get(project.path) ?? 0,
         recentActivityAt: recentActivityByProject.get(project.path),
         rows: [],
       });
@@ -201,6 +216,7 @@ export function ChatList({ controller }: ChatListProps) {
         key,
         label: key === '__desktop__' ? 'Desktop chats' : mirroredLabel ?? 'Unknown project',
         path: key === '__desktop__' ? 'Local desktop sessions' : key,
+        pendingQuestionCount: pendingQuestionCountByProject.get(key) ?? 0,
         recentActivityAt: recentActivityByProject.get(key),
         rows: [],
       };
@@ -223,7 +239,7 @@ export function ChatList({ controller }: ChatListProps) {
         if (right.recentActivityAt === undefined) return -1;
         return right.recentActivityAt - left.recentActivityAt || alphabetical;
       });
-  }, [activeCountByProject, controller.projectId, opencode.projects, projectSort, query, recentActivityByProject, rows]);
+  }, [activeCountByProject, controller.projectId, opencode.projects, pendingQuestionCountByProject, projectSort, query, recentActivityByProject, rows]);
   useEffect(() => {
     if (controller.lifecycle === 'all') return;
     const matchingProjectIds = flattenChats(readModel, 0, new Set(), true).map(
@@ -495,9 +511,12 @@ export function ChatList({ controller }: ChatListProps) {
         renderItem={({ item }) => {
           if (item.kind === 'project') {
             const stateLabel = item.expanded ? 'expanded' : 'collapsed';
+            const pendingLabel = item.group.pendingQuestionCount > 0
+              ? `, ${item.group.pendingQuestionCount} needs answer`
+              : '';
             return (
               <Pressable
-                accessibilityLabel={`${item.group.label}, ${item.group.activeCount} active, ${stateLabel}`}
+                accessibilityLabel={`${item.group.label}, ${item.group.activeCount} active${pendingLabel}, ${stateLabel}`}
                 accessibilityRole="button"
                 accessibilityState={{ expanded: item.expanded }}
                 onPress={() => setExpandedProjectIds((current) => {
@@ -510,11 +529,25 @@ export function ChatList({ controller }: ChatListProps) {
                   styles.projectHeader,
                   { backgroundColor: palette.surfaceAlt, opacity: pressed ? 0.78 : 1 },
                 ]}>
-                <View style={styles.projectHeaderText}>
+                <View
+                  style={styles.projectHeaderText}
+                  testID={`project-header-copy-${item.group.key}`}>
                   <Text style={[styles.projectTitle, { color: palette.text }]}>{item.group.label}</Text>
+                  <View
+                    style={styles.projectMetadata}
+                    testID={`project-header-metadata-${item.group.key}`}>
+                    <Text style={[styles.projectCount, { color: palette.muted }]}>{`${item.group.activeCount} active`}</Text>
+                    {item.group.pendingQuestionCount > 0 ? (
+                      <Text style={[styles.projectCount, { color: palette.danger }]}>
+                        {`${item.group.pendingQuestionCount} needs answer`}
+                      </Text>
+                    ) : null}
+                  </View>
                 </View>
-                <Text style={[styles.projectCount, { color: palette.muted }]}>{`${item.group.activeCount} active`}</Text>
-                <Text accessible={false} style={[styles.projectChevron, { color: palette.muted }]}>
+                <Text
+                  accessible={false}
+                  style={[styles.projectChevron, { color: palette.muted }]}
+                  testID={`project-header-chevron-${item.group.key}`}>
                   {item.expanded ? '⌄' : '›'}
                 </Text>
               </Pressable>
@@ -536,13 +569,14 @@ export function ChatList({ controller }: ChatListProps) {
             : projectsByPath.get(item.projectId ?? '')?.label ??
               mirroredProjectLabel ??
               'Unknown project';
-          const metadata = [projectLabel, item.status, hiddenSummary]
+          const needsAnswer = pendingQuestionSessionIds.has(item.id);
+          const metadata = [projectLabel, needsAnswer ? 'Needs answer' : item.status, hiddenSummary]
             .filter(Boolean)
             .join(' · ');
           const rowLabel = [
             item.title,
             `level ${item.depth + 1}`,
-            item.status,
+            needsAnswer ? 'Needs answer' : item.status,
             projectLabel,
             hiddenSummary,
           ].filter(Boolean).join(', ');
@@ -582,8 +616,11 @@ export function ChatList({ controller }: ChatListProps) {
                   ]}>
                   {item.title}
                 </Text>
-                <Text numberOfLines={2} style={{ color: palette.text }} variant="bodySmall">
-                  {metadata}
+                <Text
+                  numberOfLines={2}
+                  style={{ color: needsAnswer ? palette.danger : palette.text }}
+                  variant="bodySmall">
+                  {needsAnswer ? 'Needs answer' : metadata}
                 </Text>
                 <Text style={{ color: palette.muted }} variant="labelSmall">
                   {formatTimestamp(item.updatedAt)}
@@ -801,10 +838,11 @@ const styles = StyleSheet.create({
   list: { padding: Spacing.x2, paddingBottom: Spacing.x8 },
   emptyList: { flexGrow: 1 },
   projectHeader: { alignItems: 'center', borderRadius: Radii.grouped, flexDirection: 'row', gap: Spacing.x2, marginBottom: Spacing.x1, marginTop: Spacing.x2, minHeight: MinimumTouchTarget, paddingHorizontal: Spacing.x3, paddingVertical: Spacing.x2 },
-  projectHeaderText: { flex: 1, minWidth: 0 },
+  projectHeaderText: { flex: 1, flexShrink: 1, gap: 2, minWidth: 0 },
+  projectMetadata: { columnGap: Spacing.x2, flexDirection: 'row', flexWrap: 'wrap', minWidth: 0 },
   projectTitle: { fontFamily: Fonts.sans, fontSize: TypeScale.callout, fontWeight: '700' },
-  projectCount: { fontFamily: Fonts.sans, fontSize: TypeScale.footnote, fontWeight: '600' },
-  projectChevron: { fontSize: 24, lineHeight: 24 },
+  projectCount: { flexShrink: 1, fontFamily: Fonts.sans, fontSize: TypeScale.footnote, fontWeight: '600' },
+  projectChevron: { flexShrink: 0, fontSize: 24, lineHeight: 24 },
   emptyProject: { paddingHorizontal: 56, paddingVertical: Spacing.x3 },
   accountEmptySummary: { gap: Spacing.x2, padding: Spacing.x4 },
   row: { alignItems: 'center', flexDirection: 'row', minHeight: 72, paddingLeft: Spacing.x2 },
