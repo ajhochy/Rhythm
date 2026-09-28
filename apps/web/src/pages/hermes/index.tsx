@@ -2,6 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { hermesShell } from './bridge';
 import './styles.css';
 
+// The Hermes child is a native WebContentsView composited above all DOM, so no z-index can
+// lift a menu, dialog, or toast over it. Collapse the child while one is open (same rule as
+// Bot Crossing's overlayOpen in pages/colony/index.tsx).
+function overlayOpen() {
+  return Boolean(document.querySelector('.menu-popover, [role="dialog"], .toast[data-visible="true"]'));
+}
+
 function HermesHost({ onError, onAttached }: { onError(message: string): void; onAttached(fallbackReason: string | undefined): void }) {
   const host = useRef<HTMLDivElement>(null);
   const [opening, setOpening] = useState(true);
@@ -14,13 +21,16 @@ function HermesHost({ onError, onAttached }: { onError(message: string): void; o
       frame = requestAnimationFrame(() => {
         const rect = host.current?.getBoundingClientRect();
         if (!alive || !attached || !rect) return;
-        void hermesShell()?.hermesView?.setBounds({ x: rect.x, y: rect.y, width: rect.width, height: rect.height }).catch(() => {
+        const bounds = overlayOpen() ? { x: 0, y: 0, width: 0, height: 0 } : { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+        void hermesShell()?.hermesView?.setBounds(bounds).catch(() => {
           if (alive) onError('Hermes Desktop could not resize. Return to the Hermes tab to retry.');
         });
       });
     };
     const observer = new ResizeObserver(reportBounds);
     if (host.current) observer.observe(host.current);
+    const overlays = new MutationObserver(reportBounds);
+    overlays.observe(document.body, { attributes: true, childList: true, subtree: true, attributeFilter: ['data-visible', 'open', 'aria-expanded'] });
     window.addEventListener('scroll', reportBounds, true);
     window.addEventListener('resize', reportBounds);
     const attach = async () => {
@@ -43,6 +53,7 @@ function HermesHost({ onError, onAttached }: { onError(message: string): void; o
       alive = false;
       cancelAnimationFrame(frame);
       observer.disconnect();
+      overlays.disconnect();
       window.removeEventListener('scroll', reportBounds, true);
       window.removeEventListener('resize', reportBounds);
       // The child remains mounted across hash-only tab changes so desktop

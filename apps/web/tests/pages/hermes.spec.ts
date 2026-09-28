@@ -266,6 +266,24 @@ test('switching Rhythm tabs hides the child without detaching it and restores th
   expect(await nativeChildCount(page)).toBe(1);
 });
 
+test('an open header menu collapses the native child so the menu is not hidden behind it', async ({ page }) => {
+  await mockHermesDesktop(page);
+  await openPage(page, '/hermes');
+  const host = page.locator('[data-hermes-host]');
+  await expectVisibleBounds(page, host);
+
+  await page.getByTestId('background-activity-button').click();
+  await expect(page.locator('.menu-popover')).toBeVisible();
+  await page.clock.runFor(50);
+  await expect.poll(async () => await lastBounds(page)).toEqual({ x: 0, y: 0, width: 0, height: 0 });
+
+  const boundsWhileOpen = (await receipts(page, 'bounds')).length;
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.menu-popover')).toHaveCount(0);
+  await expectVisibleBounds(page, host, boundsWhileOpen);
+  expect(await receipts(page, 'detach')).toEqual([]);
+});
+
 test('a rejected attach explains the failure and Retry mounts the Desktop host again', async ({ page }) => {
   await mockHermesDesktop(page, {
     attachOutcomes: [
