@@ -32,3 +32,11 @@ tags: [run, rhythm]
 - Live: 7,622 rows / 1,201 MB → 737 pointer rows on boot; drained to 124 in 90s (relay acks every 100).
 - Checks: relay suites 63/63; full api_server 6,681 pass, 1 pre-existing failure (native_runtime_guard, better-sqlite3 13 guard vs borrowed main node_modules; fails without this change too).
 - The DB file stays 6 GB until a VACUUM; freed pages are reused.
+
+## Follow-up: attachments out of chat rows
+- Cause of multi-MB rows: read-tool images (full-res JPEGs) and uploads stored as base64 data: URLs in parts_json; the largest message was 136 MB (8 photos).
+- Fix: upsertPart hosts PNG/JPEG/WebP/GIF/PDF attachments (>8 KB) in the media store (pinned; project-less sessions use `session:<id>`); background backfill; relay strips data: URLs >64 KB and caps rows at 16 MB; engine image normalize re-enabled with keep-original fallback; mobile and Electron composers downscale to 2048 px before upload; Flutter renders `/artifacts/<id>`; `/artifacts` accepts tokenless AGENT_LOCAL loopback.
+- Live (Electron DB): backfill rewrote 874 messages, 1,652 artifacts / 1,053 MB (store 912 MB after dedupe); msg 69309 136 MB → 10.9 KB; sha256 identical before / on disk / served; 24 MB of non-attachment base64 (tool text, SVG) left inline; API + engine healthy throughout.
+- Not verified live: engine resize (fork build command denied; needs a rebuild), mobile compression (needs a new mobile build for expo-image-manipulator).
+- DB file still 5.6 GB until VACUUM (app closed).
+- Pre-existing failures: api native_runtime_guard; mobile issue-1387 offline contract ×4 (fail without these changes).
