@@ -18,6 +18,8 @@ Hermes clean integration: `/private/tmp/hermes-shared-integration`, `db0cba2d3c`
 - Colony: sealed artifact/shared protected state, private protocol, actual scene transport and owned observation worker/preload source are integrated in companion PR5 through `569cf72`. Parent latest 45 focused tests pass; preceding full256/build passed before bounded review repairs. Actual worker reads synthetic stores without mutation or native probes. Rhythm receiver/supervisor/frame contracts are being authored; native tab and final clean pin remain pending.
 - Memory: S5 concurrent-write/external-edit safety is integrated. S6 consent-scoped read-only Hermes search is not implemented; native working-memory files remain untouched. #1573 semantic-search diagnosis is documented; no relevance bypass accepted.
 - Org Reviewer context-budget repair is verified and pushed as `a73905de` on draft PR #1544: focused/full tests, API build, signed live sandbox, health, and teardown passed; no merge or deployment occurred.
+- Bot Crossing session opening is verified and pushed as `97c0f216` on draft PR #1544; packaged manual smoke remains pending.
+- Profile allowed-skills management is verified and pushed as `6f78fe68` on draft PR #1544; AJ-deferred manual shipping smoke remains pending.
 - #1572 preserved direct-provider candidate still has an unresolved availability defect and is not integrated. #1540 workspace UI port and #1576 B2 remain unfinished.
 
 ## Verification boundaries
