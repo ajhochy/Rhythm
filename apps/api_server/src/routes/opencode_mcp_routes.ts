@@ -137,7 +137,13 @@ opencodeMcpRouter.get(
     try {
       const statusMap = await opencodeClient.listMcp();
       const persistedConfigs = await opencodeClient.getPersistedMcpConfigs();
-      const profileUsage = buildProfileUsage();
+      // "Used by N profiles" is decoration: never let the profile lookup fail the list.
+      let profileUsage: ReturnType<typeof buildProfileUsage> = {};
+      try {
+        profileUsage = buildProfileUsage();
+      } catch (error) {
+        console.warn('[opencode-mcp] profile usage unavailable:', error);
+      }
       const unrestrictedProfiles = profileUsage['*']?.names ?? [];
       let toolIds: string[] = [];
       try {
