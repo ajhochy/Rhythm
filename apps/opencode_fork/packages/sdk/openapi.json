@@ -19895,6 +19895,27 @@
               "cache"
             ],
             "additionalProperties": false
+          },
+          "served": {
+            "type": "object",
+            "properties": {
+              "modelID": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "responseID": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "requestModelID": {
+                "type": "string",
+                "maxLength": 256
+              }
+            },
+            "required": [
+              "modelID"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [

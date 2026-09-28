@@ -2198,6 +2198,11 @@ export type StepFinishPart = {
             write: number;
         };
     };
+    served?: {
+        modelID: string;
+        responseID?: string;
+        requestModelID?: string;
+    };
 };
 export type StepStartPart = {
     id: string;
