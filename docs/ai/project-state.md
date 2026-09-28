@@ -10,9 +10,17 @@ AJ requested a pause after active agent turns finish. No new slices or combined 
 
 ## Current branches
 
-Rhythm integration: `mega/2026-09-18-mobile-electron-hermes`, `.mega-wt/integration`, [PR #1544](https://github.com/ajhochy/Rhythm/pull/1544), product HEAD `5cf6ddb8`.
+Rhythm integration: `mega/2026-09-18-mobile-electron-hermes`, [PR #1544](https://github.com/ajhochy/Rhythm/pull/1544), HEAD `21f26099` (2026-09-28). Local signed candidate: `/private/tmp/rhythm-mega-mobile-build13/apps/electron/dist/Rhythm.app` (worktree kept until smoke; `.mega-wt/integration` no longer exists).
 
 Hermes clean integration: `/private/tmp/hermes-shared-integration`, `db0cba2d3c`, companion draft PR17. Bot Crossing: `/private/tmp/bot-crossing-colony-artifact`, `a30b4c9`, companion draft PR5. Neither latest companion source is yet pinned into the Rhythm artifact.
+
+## 2026-09-28 candidate unblock (see [run](runs/2026-09-28-electron-candidate-runtime-start.md))
+
+- Local candidates must be Developer ID signed: `package:mac` then `RHYTHM_SIGN_ONLY=1 … npm run sign:mac`; ad-hoc builds cannot start the runtime and reset macOS privacy grants for other `com.rhythm.desktop` builds.
+- Relay outbox: one pending entry per record, live row at send, batched backpressured drain, data: URLs >64 KB stripped, rows capped at 16 MB (#1583).
+- Attachments are media artifacts, not inline parts_json (backfill done on AJ's Electron DB: 874 msgs, 1,053 MB). Engine tool-image resize fixed (photon via require(); Bun splitting bug). Mobile + Electron composers downscale uploads to 2048 px.
+- Fork SDK regenerated; engine contract fingerprint bumped to `75aaa1f1…` — next mobile build and Electron candidate must ship together. CI green at `469f12aa`.
+- Open: #1584 Retry/launch-hang and Electron attachment thumbnails in progress; DB VACUUM; manual UI smoke of the candidate.
 
 ## Included and active
 
