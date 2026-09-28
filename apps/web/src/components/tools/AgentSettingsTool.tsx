@@ -12,6 +12,7 @@ import {
   type LocalUserPreferences,
 } from '../../gateway/user-preferences';
 import { ColumnBrowser, type BrowserColumn, type ColumnItem } from '../ColumnBrowser';
+import { ExternalLink } from '../ExternalLink';
 import { FocusDialog } from '../FocusDialog';
 import { useSelectedId } from '../ListInspector';
 import { navigate } from '../Shell';
@@ -175,7 +176,7 @@ export function ProviderAuthFlowForm({ flow, code, pending, onCodeChange, onSubm
   return <div className="agent-settings-form" data-testid={`agent-settings-provider-flow-${flow.id}`}>
     <h3>Authorizing {flow.id}</h3>
     {flow.instructions && <p>{flow.instructions}</p>}
-    <p><a href={flow.authUrl} target="_blank" rel="noreferrer" data-testid="agent-settings-provider-authorization-link">Open {flow.id} authorization</a></p>
+    <p><ExternalLink href={flow.authUrl} linkTestId="agent-settings-provider-authorization-link" copyTestId="agent-settings-provider-authorization-copy">Open {flow.id} authorization</ExternalLink></p>
     {flow.method === 1
       ? <form className="agent-settings-form" onSubmit={onSubmit}><label>Callback URL or code<input required value={code} onChange={(event) => onCodeChange(event.target.value)} data-testid="agent-settings-provider-code" /></label><button className="primary-button" type="submit" disabled={pending} data-testid="agent-settings-provider-complete">Finish connecting</button></form>
       : <button className="primary-button" type="button" disabled={pending} onClick={onCheck} data-testid="agent-settings-provider-check">I finished sign-in — check connection</button>}
@@ -911,10 +912,10 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     const confirmed = providersCurrent && authProviders !== null;
     return { connected, confirmed, badge: authProviders === null ? 'Status unknown' : `${confirmed ? '' : 'Last known '}${connected ? 'Connected' : 'Not connected'}` };
   };
-  const accountAuthorizationForm = accountAuthorizationUrl && <form className="agent-settings-form" onSubmit={completeAccountLogin}><h3 data-testid="agent-settings-account-authorizing">Authorizing {accountDraft.label || accountDraft.accountId}</h3><a href={accountAuthorizationUrl} target="_blank" rel="noreferrer" data-testid="agent-settings-account-authorization-link">Open Anthropic authorization</a><label>Authorization code<input required value={accountDraft.code} onChange={(event) => setAccountDraft((current) => ({ ...current, code: event.target.value }))} data-testid="agent-settings-account-code" /></label><button className="primary-button" type="submit" disabled={actionPending('accounts')} data-testid="agent-settings-account-complete">Save account</button></form>;
+  const accountAuthorizationForm = accountAuthorizationUrl && <form className="agent-settings-form" onSubmit={completeAccountLogin}><h3 data-testid="agent-settings-account-authorizing">Authorizing {accountDraft.label || accountDraft.accountId}</h3><ExternalLink href={accountAuthorizationUrl} linkTestId="agent-settings-account-authorization-link" copyTestId="agent-settings-account-authorization-copy">Open Anthropic authorization</ExternalLink><label>Authorization code<input required value={accountDraft.code} onChange={(event) => setAccountDraft((current) => ({ ...current, code: event.target.value }))} data-testid="agent-settings-account-code" /></label><button className="primary-button" type="submit" disabled={actionPending('accounts')} data-testid="agent-settings-account-complete">Save account</button></form>;
   const openaiAuthorizationForm = openaiAuthorizationUrl && <form className="agent-settings-form" onSubmit={completeOpenaiLogin}>
     <h3 data-testid="agent-settings-openai-authorizing">Signing in {openaiDraft.label || openaiDraft.accountId}</h3>
-    <a href={openaiAuthorizationUrl} target="_blank" rel="noreferrer" data-testid="agent-settings-openai-authorization-link">Open ChatGPT sign-in</a>
+    <ExternalLink href={openaiAuthorizationUrl} linkTestId="agent-settings-openai-authorization-link" copyTestId="agent-settings-openai-authorization-copy">Open ChatGPT sign-in</ExternalLink>
     <label>Address after sign-in<input required value={openaiDraft.code} onChange={(event) => setOpenaiDraft((current) => ({ ...current, code: event.target.value }))} aria-describedby="agent-settings-openai-paste-help" data-testid="agent-settings-openai-code" /></label>
     <small id="agent-settings-openai-paste-help">After signing in, the browser will fail to load a localhost:1455 page — copy the whole address from the address bar and paste it here.</small>
     <button className="primary-button" type="submit" disabled={actionPending('openai')} data-testid="agent-settings-openai-complete">Save account</button>
@@ -1059,7 +1060,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
         {mcpActionError && <p role="alert">{mcpActionError}</p>}
         {actionPending('mcp') && <p role="status">{pendingAction ? `${pendingAction.key.split(':')[0]} ${pendingAction.key.split(':').slice(1).join(':')}`.trim() : 'Saving MCP configuration'}…</p>}
         {actionNotices.mcp && <p role="status">{actionNotices.mcp}</p>}
-        {mcpAuthorization && <div className="agent-settings-gap" role="status"><strong>{mcpAuthorization.name} authorization</strong><p><a href={mcpAuthorization.url} target="_blank" rel="noreferrer" data-testid="agent-settings-mcp-authorization-link">Open provider authorization</a></p><button className="secondary-button" type="button" disabled={actionPending('mcp', `oauth-status:${mcpAuthorization.name}`)} aria-busy={actionPending('mcp', `oauth-status:${mcpAuthorization.name}`)} onClick={() => void checkMcpOAuth()} data-testid="agent-settings-mcp-oauth-status">{actionPending('mcp', `oauth-status:${mcpAuthorization.name}`) ? 'Checking authorization…' : 'Check authorization status'}</button></div>}
+        {mcpAuthorization && <div className="agent-settings-gap" role="status"><strong>{mcpAuthorization.name} authorization</strong><p><ExternalLink href={mcpAuthorization.url} linkTestId="agent-settings-mcp-authorization-link" copyTestId="agent-settings-mcp-authorization-copy">Open provider authorization</ExternalLink></p><button className="secondary-button" type="button" disabled={actionPending('mcp', `oauth-status:${mcpAuthorization.name}`)} aria-busy={actionPending('mcp', `oauth-status:${mcpAuthorization.name}`)} onClick={() => void checkMcpOAuth()} data-testid="agent-settings-mcp-oauth-status">{actionPending('mcp', `oauth-status:${mcpAuthorization.name}`) ? 'Checking authorization…' : 'Check authorization status'}</button></div>}
       </>;
       const server = mcpServers.find((entry) => `mcp:${entry.name}` === itemId);
       if (!server) return {

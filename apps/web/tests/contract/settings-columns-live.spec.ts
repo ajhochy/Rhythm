@@ -35,6 +35,15 @@ async function openSettings(page: Page, hash = '#/tools/agent-settings', seed: P
     const body = method === 'GET' || method === 'DELETE' ? {} : request.postDataJSON() as Record<string, string>;
     if (path === '/health') return send({ healthy: true, status: 'ready' });
     if (path === '/opencode/auth/accounts' && method === 'GET') return send({ accounts: state.anthropic, defaultAccountId: state.anthropicDefault });
+    if (path === '/opencode/auth/accounts/login-start') {
+      state.mutations.push(`anthropic:start:${body.accountId}:${body.label ?? ''}`);
+      return send({ authorizeUrl: `https://auth.anthropic.example/authorize?account=${body.accountId}` });
+    }
+    if (path === '/opencode/auth/accounts/login-complete') {
+      state.mutations.push(`anthropic:complete:${body.accountId}:${body.code}`);
+      if (!state.anthropic.some((account) => account.id === body.accountId)) state.anthropic.push({ id: body.accountId, label: body.accountId, status: 'ok' });
+      return send({ ok: true });
+    }
     const anthropicRename = path.match(/^\/opencode\/auth\/accounts\/([a-z0-9-]+)$/);
     if (anthropicRename && method === 'PATCH') {
       state.mutations.push(`anthropic:rename:${anthropicRename[1]}:${body.label}`);
@@ -148,6 +157,40 @@ test('OpenAI: add a second account by pasting the callback address, then switch 
     'openai:default:openai-2',
     'openai:default:default',
   ]);
+});
+
+test('OpenAI and Anthropic sign-in links open through the shell bridge, and Copy link copies the URL', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as any).__openExternalCalls = [];
+    (window as any).rhythmShell = { openExternal: (url: string) => { (window as any).__openExternalCalls.push(url); return Promise.resolve(); } };
+    (window as any).__clipboard = [];
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: (text: string) => { (window as any).__clipboard.push(text); return Promise.resolve(); } } });
+  });
+  await openSettings(page, '#/tools/agent-settings?settingsSection=accounts');
+
+  // Anthropic: adding an account opens the authorization form with its sign-in link.
+  await page.getByTestId('agent-settings-account-add').click();
+  await page.getByTestId('agent-settings-account-id').fill('personal');
+  await page.getByTestId('agent-settings-account-label').fill('Personal');
+  await page.getByTestId('agent-settings-account-start').click();
+  const anthropicLink = page.getByTestId('agent-settings-account-authorization-link');
+  await expect(anthropicLink).toBeVisible();
+  const anthropicUrl = await anthropicLink.getAttribute('href');
+  await anthropicLink.click();
+  await expect.poll(() => (page.evaluate(() => (window as any).__openExternalCalls))).toEqual([anthropicUrl]);
+  await page.getByTestId('agent-settings-account-authorization-copy').click();
+  await expect.poll(() => (page.evaluate(() => (window as any).__clipboard))).toEqual([anthropicUrl]);
+
+  // OpenAI: adding an account opens its own sign-in link.
+  await page.getByTestId('agent-settings-openai-add').click();
+  await page.getByTestId('agent-settings-openai-label').fill('Personal');
+  await page.getByTestId('agent-settings-openai-start').click();
+  const openaiLink = page.getByTestId('agent-settings-openai-authorization-link');
+  const openaiUrl = await openaiLink.getAttribute('href');
+  await openaiLink.click();
+  await expect.poll(() => (page.evaluate(() => (window as any).__openExternalCalls))).toEqual([anthropicUrl, openaiUrl]);
+  await page.getByTestId('agent-settings-openai-authorization-copy').click();
+  await expect.poll(() => (page.evaluate(() => (window as any).__clipboard))).toEqual([anthropicUrl, openaiUrl]);
 });
 
 test('OpenAI: rename and remove an account', async ({ page }) => {
