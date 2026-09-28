@@ -316,7 +316,8 @@ function persistCompletion(
         content_hash=excluded.content_hash,
         metadata_json=excluded.metadata_json
     `).run(
-      stableId('source', jobId, source.canonicalUrl),
+      // One row per run+url: parallel/repeated passes cite the same pages (#smoke: every source listed 2x).
+      stableId('source', projectRunId ?? jobId, source.canonicalUrl),
       projectId,
       projectRunId,
       jobId,

@@ -231,6 +231,7 @@ contextBridge.exposeInMainWorld('rhythmShell', Object.freeze({
   agentServer,
   updates,
   selectDirectory: () => ipcRenderer.invoke('shell:select-directory'),
+  saveFile: (/** @type {string} */ suggestedName, /** @type {string} */ contents) => ipcRenderer.invoke('shell:save-file', { suggestedName, contents }),
   hermes,
   hermesView,
   colonyView,

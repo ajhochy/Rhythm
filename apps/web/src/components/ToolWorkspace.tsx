@@ -35,6 +35,23 @@ function parseJsonArray<T>(raw: string | null | undefined): T[] {
   catch { return []; }
 }
 
+// Electron denies downloads and popups, so exports go through the native save dialog there;
+// a plain browser gets a normal download.
+async function saveTextFile(name: string, text: string, type: string): Promise<boolean> {
+  const saveFile = window.rhythmShell?.saveFile;
+  if (saveFile) return (await saveFile(name, text)) !== null;
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const link = Object.assign(document.createElement('a'), { href: url, download: name });
+  document.body.append(link); link.click(); link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+  return true;
+}
+
+function researchExportName(projectName: string, runId: string, format: 'html' | 'markdown'): string {
+  const slug = projectName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'research';
+  return `${slug}-${runId.slice(0, 8)}.${format === 'html' ? 'html' : 'md'}`;
+}
+
 type Trace = { method: string; route: string; detail: string };
 type ToolSurfaceState = 'ready' | 'loading' | 'empty' | 'server-error' | 'forbidden' | 'unavailable' | 'readonly';
 type ToolStateCopy = { endpoint: string; emptyTitle: string; emptyDescription: string };
@@ -646,9 +663,8 @@ function LiveResearchTool() {
     if (!selected || !selectedRun) return;
     try {
       const text = await gateway.domains.research!.exportRun(selected.id, selectedRun.id, format);
-      const blobUrl = URL.createObjectURL(new Blob([text], { type: format === 'html' ? 'text/html' : 'text/markdown' }));
-      window.open(blobUrl, '_blank', 'noopener');
-      setTrace({ method: 'GET', route: `/agent-research/projects/${selected.id}/runs/${selectedRun.id}/export?format=${format}`, detail: `${format} export prepared` });
+      const saved = await saveTextFile(researchExportName(selected.name, selectedRun.id, format), text, format === 'html' ? 'text/html' : 'text/markdown');
+      setTrace({ method: 'GET', route: `/agent-research/projects/${selected.id}/runs/${selectedRun.id}/export?format=${format}`, detail: saved ? `${format === 'html' ? 'HTML' : 'Markdown'} export saved` : 'Export canceled' });
     } catch (err) { notify(err instanceof Error ? err.message : 'Research export failed'); }
   };
 
@@ -664,9 +680,9 @@ function LiveResearchTool() {
   const discuss = async () => {
     if (!selected || !selectedRun) return;
     try {
-      await gateway.domains.research!.startDiscussion(selected.id, selectedRun.id, []);
+      const { sessionId } = await gateway.domains.research!.startDiscussion(selected.id, selectedRun.id, []);
       setTrace({ method: 'POST', route: `/agent-research/projects/${selected.id}/runs/${selectedRun.id}/discussions`, detail: 'Discussion session created from selected artifacts' });
-      navigate('/agents');
+      navigate(`/agents?sessionId=${encodeURIComponent(sessionId)}`);
     } catch (err) { notify(err instanceof Error ? err.message : 'Discussion could not be started'); }
   };
 
@@ -746,6 +762,7 @@ function LiveResearchTool() {
             {canFinish && <button className="primary-button" type="button" onClick={() => void finishRun()} data-testid="research-finish">Finish with current evidence</button>}
             <button className="secondary-button compact" type="button" onClick={() => void openMagazine()} disabled={!hasSynthesis} aria-describedby={reportUnavailable ? 'research-report-unavailable' : undefined} data-testid="research-magazine">Magazine</button>
             <button className="secondary-button compact" type="button" onClick={() => void openExport('html')} disabled={!hasSynthesis} aria-describedby={reportUnavailable ? 'research-report-unavailable' : undefined} data-testid="research-export">Export HTML</button>
+            <button className="secondary-button compact" type="button" onClick={() => void openExport('markdown')} disabled={!hasSynthesis} aria-describedby={reportUnavailable ? 'research-report-unavailable' : undefined} data-testid="research-export-markdown">Export Markdown</button>
             <button className="secondary-button compact" type="button" onClick={() => void discuss()} disabled={!hasSynthesis} aria-describedby={reportUnavailable ? 'research-report-unavailable' : undefined} data-testid="research-discuss">Start discussion</button>
           </div>
         </article> : <p className="tool-empty-inline">No runs yet for this project.</p>}

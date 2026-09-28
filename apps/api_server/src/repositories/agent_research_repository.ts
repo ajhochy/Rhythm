@@ -444,7 +444,14 @@ export class AgentResearchRepository {
   private async hydrateRun(row: Record<string, unknown>): Promise<ResearchProjectRun> {
     const base = baseRunRow(row);
     const artifacts = await this.listRunRows('agent_research_artifacts', base.id);
-    const sources = await this.listRunRows('agent_research_curated_sources', base.id);
+    // Rows registered before run+url idempotency carry one copy per pass; keep the first per URL.
+    const seenUrls = new Set<string>();
+    const sources = (await this.listRunRows('agent_research_curated_sources', base.id)).filter((source) => {
+      const url = String(source.canonical_url);
+      if (seenUrls.has(url)) return false;
+      seenUrls.add(url);
+      return true;
+    });
     const jobs = await this.listProjectPassJobs(base.id, base.ownerUserId);
     const messageRows = await this.listRunUsageRows(base.id);
     const tokensBySession = new Map<string, number>();

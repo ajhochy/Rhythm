@@ -100,6 +100,22 @@ describe('research budget defaults, finish-with-current-evidence, and source reg
     expect(indexed.canonicalArtifact).toMatchObject({ vault_path: 'Areas/Research/General/Reports/evidence.md' });
   });
 
+  it('registers a source once per run when several passes cite it, and hides legacy per-pass duplicates', async () => {
+    const { db, vault, owner, repo, project, run } = await fixture({});
+    for (const [ordinal, sessionId] of ['evidence-a', 'evidence-b'].entries()) {
+      const job = await repo.createProjectPassJob({ projectId: project.id, projectRunId: run.id, ownerUserId: owner.id, question: 'q', role: 'evidence', ordinal, profileId: 'research', config: {} });
+      evidenceSession(db, vault, sessionId, job.id, run.id, 10, owner.id);
+      await repo.updateProjectPassJob(job.id, owner.id, { status: 'done', agentSessionId: sessionId, report: 'done' });
+      await indexResearchSession(sessionId);
+      await indexResearchSession(sessionId);
+    }
+    expect(db.prepare('SELECT COUNT(*) AS n FROM agent_research_curated_sources WHERE project_run_id=?').get(run.id)).toEqual({ n: 1 });
+    db.prepare(`INSERT INTO agent_research_curated_sources (id,project_id,project_run_id,canonical_url,capture_status) VALUES ('legacy-dup',?,?,?,'complete')`).run(project.id, run.id, SOURCE_URL);
+    const hydrated = (await repo.getProjectRun(run.id, owner.id))!;
+    expect(hydrated.sources.map((source) => source.canonical_url)).toEqual([SOURCE_URL]);
+    expect(hydrated.progress.sourceCount).toBe(1);
+  });
+
   it('budget exhaustion after an evidence pass still writes the synthesis, skipping the critic', async () => {
     const { db, vault, owner, repo, run } = await fixture({ maxPasses: 1, maxTokens: 50_000, maxCostUsd: 5, maxWallClockMs: 60_000 });
     const runner = { run: vi.fn(async (options: { prompt: string; onSessionCreated?: (id: string) => Promise<void> }) => {

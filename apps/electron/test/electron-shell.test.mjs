@@ -17,6 +17,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const shellRoot = resolve(here, '..');
 const electron = resolve(shellRoot, 'node_modules/.bin/electron');
 let smokeResult;
+let saveDialog = async () => ({ canceled: true });
 
 // Execute the real main module; replace only host boundaries, never its flag/lifecycle logic.
 // No Electron child, network, screenshot writes, timers, or real runtime ownership in this check.
@@ -54,7 +55,7 @@ async function interactiveRuntime(argv, userData = '/fixture/interactive-user-da
   const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = '/fixture'; } });
   await module.link(async (name) => {
     let values;
-    if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: { openExternal: async (url) => calls.push(['openExternal', url]) }, dialog: { showOpenDialog: selectDirectory, showErrorBox: () => calls.push('ownership-error'), showMessageBox: async () => { calls.push('migration'); return { response: 1 }; } } };
+    if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on() {}, handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification: {}, protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: { openExternal: async (url) => calls.push(['openExternal', url]) }, dialog: { showOpenDialog: selectDirectory, showSaveDialog: (...args) => saveDialog(...args), showErrorBox: () => calls.push('ownership-error'), showMessageBox: async () => { calls.push('migration'); return { response: 1 }; } } };
     else if (name === './agent-server.mjs') values = { AgentServerService: Server, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:4001', AGENT_SERVER_ENGINE_PORT: 4096, electronDbPath: () => '/fixture/electron.db', legacyFlutterDbPath: () => '/fixture/legacy.db' };
     else if (name === './hermes-server.mjs') values = { createHermesSupervisor: () => ({ getStatus: () => ({ state: 'disabled', port: 9121, url: 'http://127.0.0.1:9121' }), onStatus() {}, async start() {}, async stop() {} }) };
     else if (name === './production-api-config.mjs') values = { createProductionApiConfig: () => ({ load: () => 'https://example.invalid' }), createProductionApiSetHandler: () => () => {} };
@@ -234,6 +235,54 @@ test('directory-picker: foreign senders, frames, hosts and payloads cannot open 
   owner.isDestroyed = () => true;
   await assert.rejects(handler(event), /owner unavailable/);
   assert.equal(opened, 0);
+});
+
+test('save-file: owned document saves text only where the native dialog points, with a sanitized suggested name', async () => {
+  const dir = await mkdtemp(resolve(tmpdir(), 'rhythm-save-file-'));
+  try {
+    const dialogs = [];
+    saveDialog = async (owner, options) => { dialogs.push({ owner, options }); return { canceled: false, filePath: resolve(dir, 'picked.html') }; };
+    const runtime = await interactiveRuntime(['--interactive-smoke'], undefined, undefined, false);
+    const owner = runtime.windows[0];
+    const event = { sender: owner.webContents, senderFrame: owner.webContents.mainFrame };
+    const handler = runtime.handlers.get('shell:save-file');
+    assert.equal(await handler(event, { suggestedName: '../../Week 4/run.html', contents: '<h1>Report</h1>' }), resolve(dir, 'picked.html'));
+    assert.equal(await readFile(resolve(dir, 'picked.html'), 'utf8'), '<h1>Report</h1>');
+    assert.equal(dialogs[0].owner, owner);
+    assert.equal(dialogs[0].options.defaultPath, resolve('/default-user-data', '-..-Week 4-run.html'));
+    assert.deepEqual(JSON.parse(JSON.stringify(dialogs[0].options.filters)), [{ name: 'HTML', extensions: ['html'] }]);
+    saveDialog = async () => ({ canceled: true, filePath: resolve(dir, 'never.md') });
+    assert.equal(await handler(event, { suggestedName: 'run.md', contents: '# r' }), null);
+    for (const [payload, extra] of [
+      [undefined, []], ['run.html', []], [{ suggestedName: 'run.exe', contents: 'x' }, []], [{ suggestedName: 'run.html' }, []],
+      [{ suggestedName: 'run.html', contents: 'x', path: '/etc/passwd' }, []], [{ suggestedName: 'run.html', contents: 'x' }, ['/tmp/x']],
+      [{ suggestedName: 'run.html', contents: 'x'.repeat(20 * 1024 * 1024 + 1) }, []],
+    ]) await assert.rejects(handler(event, payload, ...extra), /Invalid IPC payload/);
+    event.senderFrame.url = 'https://example.invalid';
+    await assert.rejects(handler(event, { suggestedName: 'run.html', contents: 'x' }), /denied/);
+    event.senderFrame.url = 'rhythm://app/index.html#/tools/deep-research';
+    saveDialog = async (window) => { window.webContents.mainFrame.url = 'https://example.invalid'; return { canceled: false, filePath: resolve(dir, 'stale.html') }; };
+    await assert.rejects(handler(event, { suggestedName: 'run.html', contents: 'x' }), /denied/);
+    await assert.rejects(readFile(resolve(dir, 'stale.html')), /ENOENT/);
+  } finally {
+    saveDialog = async () => ({ canceled: true });
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('save-file: preload forwards only the name and contents to one channel', async () => {
+  let bridge;
+  const calls = [];
+  runInNewContext(await readFile(resolve(shellRoot, 'src/preload.cjs'), 'utf8'), {
+    require: () => ({
+      contextBridge: { exposeInMainWorld: (_key, value) => { bridge = value; } },
+      ipcRenderer: { on() {}, send() {}, sendSync: () => 'https://example.invalid', invoke: async (...args) => { calls.push(args); return '/saved.html'; } },
+    }),
+    process: { argv: [], env: {}, platform: 'darwin' },
+    window: { addEventListener() {}, dispatchEvent() {} },
+  });
+  assert.equal(await bridge.saveFile('run.html', '<p>x</p>', '/etc/passwd'), '/saved.html');
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [['shell:save-file', { suggestedName: 'run.html', contents: '<p>x</p>' }]]);
 });
 
 test('directory-picker: navigation during selection cannot receive a stale path', async () => {

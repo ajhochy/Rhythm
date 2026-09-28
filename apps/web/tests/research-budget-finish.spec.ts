@@ -243,3 +243,59 @@ test('lead and researcher pickers default from the live catalog, submit a modelP
     modelPolicy: { lead: { providerId: 'openai', modelId: 'gpt-5.6-sol' }, researcher: { providerId: 'openai', modelId: 'gpt-5.6-luna' } },
   });
 });
+
+const completeRun = { ...finishedRun, id: 'research-complete-run', status: 'complete', diagnostics: {} };
+async function openCompleteRun(page: import('@playwright/test').Page, seen: SeenRequest[]) {
+  await openPhase7Live(page, '/tools/deep-research', seen, async (route, request) => {
+    const url = new URL(request.url());
+    if (url.pathname === '/agent-research/projects') return fulfillJson(route, 200, [project]).then(() => true);
+    if (url.pathname === `/agent-research/projects/${project.id}/runs`) return fulfillJson(route, 200, [completeRun]).then(() => true);
+    if (url.pathname === `/agent-research/projects/${project.id}/runs/${completeRun.id}`) return fulfillJson(route, 200, completeRun).then(() => true);
+    if (url.pathname.endsWith('/export')) {
+      const markdown = url.searchParams.get('format') === 'markdown';
+      await route.fulfill({ status: 200, headers: { 'access-control-allow-origin': request.headers().origin ?? '*', 'content-type': markdown ? 'text/markdown' : 'text/html' }, body: markdown ? '# Week 4 report' : '<h1>Week 4 report</h1>' });
+      return true;
+    }
+    if (url.pathname.endsWith('/discussions')) return fulfillJson(route, 201, { sessionId: 'discussion-session-1', contextHash: 'hash' }).then(() => true);
+    return false;
+  });
+  await expect(page.getByRole('heading', { name: `Run ${completeRun.id}` })).toBeVisible();
+}
+
+// Regression: exports went to window.open(blob:), which Electron's popup policy silently drops.
+test('export saves through the desktop save bridge with a project-named file, HTML and Markdown', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __saved: unknown[] }).__saved = [];
+    (window as unknown as { rhythmShell: unknown }).rhythmShell = {
+      saveFile: async (name: string, contents: string) => { (window as unknown as { __saved: unknown[] }).__saved.push([name, contents]); return `/Users/test/Downloads/${name}`; },
+    };
+  });
+  let popups = 0;
+  page.on('popup', () => { popups++; });
+  const seen: SeenRequest[] = [];
+  await openCompleteRun(page, seen);
+  await page.getByTestId('research-export').click();
+  await page.getByTestId('research-export-markdown').click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __saved: unknown[] }).__saved)).toEqual([
+    ['fantasy-football-week-4-research.html', '<h1>Week 4 report</h1>'],
+    ['fantasy-football-week-4-research.md', '# Week 4 report'],
+  ]);
+  expect(popups).toBe(0);
+});
+
+test('export falls back to a browser download outside the desktop shell', async ({ page }) => {
+  const seen: SeenRequest[] = [];
+  await openCompleteRun(page, seen);
+  const download = page.waitForEvent('download');
+  await page.getByTestId('research-export').click();
+  expect((await download).suggestedFilename()).toBe('fantasy-football-week-4-research.html');
+});
+
+// Regression: Start discussion navigated to /agents without the new session, so it opened whatever was selected before.
+test('start discussion opens the exact created session', async ({ page }) => {
+  const seen: SeenRequest[] = [];
+  await openCompleteRun(page, seen);
+  await page.getByTestId('research-discuss').click();
+  await expect(page).toHaveURL(/#\/agents\?sessionId=discussion-session-1(&|$)/);
+  await expect.poll(() => matching(seen, 'GET', '/agent-sessions/discussion-session-1').length).toBeGreaterThan(0);
+});

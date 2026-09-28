@@ -24,6 +24,7 @@ declare global {
         restart(): Promise<{ ok: boolean; reason?: string; code?: string; status?: { errorMessage?: string | null } }>;
       };
       selectDirectory?: () => Promise<string | null>;
+      saveFile?: (suggestedName: string, contents: string) => Promise<string | null>;
       openExternal?: (url: string) => Promise<void>;
     };
   }

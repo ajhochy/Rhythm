@@ -754,6 +754,28 @@ if (hasSingleInstanceLock) {
     requireOwnedDocument(event);
     return canceled || !filePaths[0] ? null : String(filePaths[0]);
   });
+  // Renderer-built exports (research magazine/report). Downloads are denied app-wide, so the only
+  // write path is this: the renderer proposes a basename + text, the user picks the path natively.
+  const SAVE_FILE_MAX_CHARS = 20 * 1024 * 1024;
+  const SAVE_FILE_TYPES = { '.html': { name: 'HTML', extensions: ['html'] }, '.md': { name: 'Markdown', extensions: ['md'] } };
+  ipcMain.handle('shell:save-file', async (event, payload, ...args) => {
+    requireOwnedDocument(event);
+    const keys = payload && typeof payload === 'object' ? Object.keys(payload).sort().join(',') : '';
+    if (args.length || keys !== 'contents,suggestedName'
+      || typeof payload.suggestedName !== 'string' || typeof payload.contents !== 'string') throw new Error('Invalid IPC payload');
+    const suggestedName = payload.suggestedName.replace(/[\\/:\0-\x1f]/g, '-').replace(/^\.+/, '').slice(0, 160);
+    const extension = /\.(html|md)$/i.exec(suggestedName)?.[0].toLowerCase();
+    if (!extension || payload.contents.length > SAVE_FILE_MAX_CHARS) throw new Error('Invalid IPC payload');
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed()) throw new Error('Save dialog owner unavailable');
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
+      defaultPath: resolve(app.getPath('downloads'), suggestedName), filters: [SAVE_FILE_TYPES[extension]],
+    });
+    requireOwnedDocument(event);
+    if (canceled || typeof filePath !== 'string' || !isAbsolute(filePath)) return null;
+    await writeFile(filePath, payload.contents, 'utf8');
+    return filePath;
+  });
   // issue-1570-e: install an already-verified Hermes Desktop update from a local artifact
   // directory. No renderer payload, no network feed (deliberately out of scope — see #1570), and a
   // cancelled dialog performs no filesystem writes. Full verification (signature, sequence,
