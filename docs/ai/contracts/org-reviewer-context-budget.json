@@ -1,0 +1,89 @@
+{
+  "issue": "org-reviewer-context-budget",
+  "date": "2026-09-27",
+  "test_command": "cd apps/api_server && npx vitest run src/services/__tests__/org_reviewer_service.test.ts --no-file-parallelism && RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_URL=http://127.0.0.1:4098 RHYTHM_LIVE_ENGINE_URL=http://127.0.0.1:4097 RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-org-reviewer-context-sandbox DB_PATH=/private/tmp/rhythm-org-reviewer-context-sandbox/rhythm.db npx vitest run src/__tests__/org_reviewer_live.test.ts --no-file-parallelism -t 'org-reviewer-context-budget-c9'",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "org-reviewer-context-budget-c1",
+      "text": "Preserve MAX_CONTEXT_BYTES=44,000 and the MCP fenced output limit; do not increase either.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/org_reviewer_service.test.ts",
+      "status": "pass",
+      "reason": "Existing fenced-output regression and the new exact 44,000-byte assertions preserve both limits."
+    },
+    {
+      "criterion_id": "org-reviewer-context-budget-c2",
+      "text": "Overview reads with default args (7 days / default session limit) and `{windowDays:7, sessionLimit:1}` return useful context rather than 409 under realistic large DB skill/live MCP catalogs.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/org_reviewer_service.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "org-reviewer-context-budget-c3",
+      "text": "Compute fixed/completeness-required payload first, then allocate only remaining serialized byte budget to optional transcript/session/catalog data. Account for the actual pretty-serialized API response under MAX_CONTEXT_BYTES, not only compact per-item estimates.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/org_reviewer_service.test.ts",
+      "status": "pass",
+      "reason": "Repair attempt 1 proves added transcript pressure leaves deterministic static collection and catalog inclusion unchanged, then explicitly truncates or omits sessions from the remaining capacity."
+    },
+    {
+      "criterion_id": "org-reviewer-context-budget-c4",
+      "text": "If lower-priority catalogs/collections do not fit, bound them deterministically and expose explicit per-collection total/included/omitted or equivalent counts plus truncation flags. Preserve deterministic ordering and catalog hashes where applicable.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/org_reviewer_service.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "org-reviewer-context-budget-c5",
+      "text": "Never silently truncate completeness-required verification fields: session/message evidence references that are returned remain trustworthy; targetRef, targetRevision, targetStateHash, and complete currentState used to compute that hash remain exact. If a completeness-required target state alone cannot fit, fail closed rather than returning misleading partial state.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/org_reviewer_service.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "org-reviewer-context-budget-c6",
+      "text": "One session containing messages that fill the transcript allowance must still produce a response below MAX_CONTEXT_BYTES; transcript/session omission or clipping is explicit and deterministic.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/org_reviewer_service.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "org-reviewer-context-budget-c7",
+      "text": "Normal target-specific context reads succeed and retain deterministic `targetStateHash`; repeated unchanged reads produce the same target hash and deterministic bounded catalog/output selection (timestamps already stored are acceptable).",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/org_reviewer_service.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "org-reviewer-context-budget-c8",
+      "text": "Add focused regressions for large skill and MCP catalogs, full transcript pressure, final pretty-serialized response <44,000 bytes, default and sessionLimit:1 overview reads, target-specific reads, explicit truncation metadata, and deterministic hashes/output where applicable.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/org_reviewer_service.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "org-reviewer-context-budget-c9",
+      "text": "Add/run a real live sandbox API/MCP behavioral check proving the signed/default and sessionLimit:1 context path succeeds through the running backend/engine. If expanding the existing live suite is disproportionate, add the smallest env-gated live assertion against the real API surface and record any fixture limitation precisely.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/org_reviewer_live.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "org-reviewer-context-budget-c10",
+      "text": "Run focused unit tests, API TypeScript build/typecheck, and the relevant live sandbox verification. Record exact commands/results in the run note.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Focused unit, API build, sandbox restart/status, live signed MCP check, and GitNexus change detection are recorded in the run note."
+    }
+  ],
+  "not_tested": []
+}

@@ -179,6 +179,27 @@ describeLive('Org Reviewer real signed MCP boundary', () => {
     expect((await harness.queue()).map((proposal) => proposal.id).sort()).toEqual(beforeQueue);
   }, 180_000);
 
+  it('org-reviewer-context-budget-c9: signed default and sessionLimit:1 overview reads fit the real MCP boundary', async () => {
+    // Falsifies unit-only byte fitting that still 409s or exceeds the engine's
+    // fenced output limit with the sandbox's real skill and MCP catalogs.
+    for (const input of [{}, { windowDays: 7, sessionLimit: 1 }]) {
+      const result = await harness.call(READ, input);
+      expect(result.error, result.raw).toBe(false);
+      expect(result.value).toMatchObject({
+        windowDays: 7,
+        sessionLimit: 'sessionLimit' in input ? 1 : 40,
+        sessions: expect.any(Array),
+        collectionStats: expect.any(Object),
+        liveCapabilityCatalog: expect.objectContaining({
+          mcpToolCatalogHash: expect.any(String),
+          skillCatalogHash: expect.any(String),
+        }),
+      });
+      expect(Buffer.byteLength(JSON.stringify(result.value, null, 2), 'utf8')).toBeLessThan(44_000);
+      expect(Buffer.byteLength(result.raw, 'utf8')).toBeLessThan(50 * 1024);
+    }
+  }, 120_000);
+
   it('org-reviewer-c16: weekly reviewer replaces competing legacy schedules', async () => {
     // Falsifies legacy startup reconciliation silently re-enabling generators.
     const response = await json('/agent-schedules');

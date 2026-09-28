@@ -77,6 +77,13 @@ interface CurrentTarget {
   state: JsonRecord;
 }
 
+interface CollectionStats {
+  total: number;
+  included: number;
+  omitted: number;
+  truncated: boolean;
+}
+
 interface EvidenceInput {
   sessionId: string;
   messageId: string;
@@ -258,6 +265,30 @@ function projectedAgentFile(profileId: string): JsonRecord {
 
 function messageText(message: StructuredAgentSessionMessage): string {
   return message.strippedText || message.rawText;
+}
+
+function collectionStats(total: number, included = 0): CollectionStats {
+  return { total, included, omitted: total - included, truncated: included < total };
+}
+
+function prettyBytes(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value, null, 2), 'utf8');
+}
+
+function fitCollection(
+  result: JsonRecord,
+  destination: unknown[],
+  items: unknown[],
+  updateStats: (included: number) => void,
+): void {
+  for (const item of items) {
+    destination.push(item);
+    updateStats(destination.length);
+    if (prettyBytes(result) < MAX_CONTEXT_BYTES) continue;
+    destination.pop();
+    updateStats(destination.length);
+    break;
+  }
 }
 
 function stableDispatch(session: AgentSession): JsonRecord {
@@ -571,10 +602,12 @@ export class OrgReviewerService {
     }).slice(0, args.sessionLimit);
 
     let remainingBytes = MAX_TRANSCRIPT_BYTES;
-    const sessions: JsonRecord[] = [];
+    const sessionCandidates: JsonRecord[] = [];
     for (const session of candidates) {
+      const sourceMessages = this.messages.listBySessionStructured(session.id, 50);
       const messages: JsonRecord[] = [];
-      for (const message of this.messages.listBySessionStructured(session.id, 50)) {
+      let clippedMessage = false;
+      for (const message of sourceMessages) {
         const text = messageText(message).slice(0, MAX_EVIDENCE_QUOTE);
         const item = {
           messageId: String(message.sdkMessageId ?? message.id),
@@ -586,14 +619,19 @@ export class OrgReviewerService {
         const bytes = Buffer.byteLength(JSON.stringify(item), 'utf8');
         if (bytes > remainingBytes) break;
         remainingBytes -= bytes;
+        clippedMessage ||= item.truncated;
         messages.push(item);
       }
-      sessions.push({
+      sessionCandidates.push({
         ...stableDispatch(session),
         name: session.name,
         ownerScope: session.ownerUserId === null ? 'global' : 'reviewer-owner',
         createdAt: session.createdAt,
         messages,
+        messageStats: {
+          ...collectionStats(sourceMessages.length, messages.length),
+          truncated: clippedMessage || messages.length < sourceMessages.length,
+        },
       });
       if (remainingBytes <= 0) break;
     }
@@ -626,22 +664,45 @@ export class OrgReviewerService {
         changeTruncated: changeBytes.length > 4_000,
       };
     });
-    const result: JsonRecord = {
-      windowDays: args.windowDays,
-      sessionLimit: args.sessionLimit,
-      sessions,
-      profiles: this.configs.list().filter((profile) => relevantProfileIds.has(profile.id)).map(profileSummary),
-      skills: new AgentSkillsRepository().list().map((skill) => ({
+    const profiles = this.configs.list()
+      .filter((profile) => relevantProfileIds.has(profile.id))
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map(profileSummary);
+    const skills = new AgentSkillsRepository().list()
+      .sort((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id))
+      .map((skill) => ({
         id: skill.id,
         name: skill.title,
         status: skill.status,
         version: skill.version,
-      })),
-      schedules: visibleSchedules
-        .filter((task) => task.agentConfigId === null || relevantProfileIds.has(task.agentConfigId))
-        .map(scheduleSummary),
-      queue,
+      }));
+    const schedules = visibleSchedules
+      .filter((task) => task.agentConfigId === null || relevantProfileIds.has(task.agentConfigId))
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map(scheduleSummary);
+    const collectionTotals = {
+      sessions: candidates.length,
+      profiles: profiles.length,
+      skills: skills.length,
+      schedules: schedules.length,
+      queue: queue.length,
     };
+    const stats: Record<string, CollectionStats> = Object.fromEntries(
+      Object.entries(collectionTotals).map(([name, total]) => [name, collectionStats(total)]),
+    );
+    const result: JsonRecord = {
+      windowDays: args.windowDays,
+      sessionLimit: args.sessionLimit,
+      sessions: [],
+      profiles: [],
+      skills: [],
+      schedules: [],
+      queue: [],
+      collectionStats: stats,
+    };
+    let boundedCatalog: JsonRecord | null = null;
+    let mcpToolIds: string[] = [];
+    let liveSkills: string[] = [];
     if (args.targetRef) {
       const target = await this.resolveCurrentTarget(args.targetRef, reviewer.ownerUserId);
       result.targetRef = target.targetRef;
@@ -649,11 +710,47 @@ export class OrgReviewerService {
       result.targetStateHash = target.targetStateHash;
       result.currentState = target.state;
     } else {
-      result.liveCapabilityCatalog = await this.liveCapabilityCatalog();
+      const catalog = await this.liveCapabilityCatalog();
+      mcpToolIds = catalog.mcpToolIds as string[];
+      liveSkills = catalog.skills as string[];
+      result.liveCapabilityCatalog = {
+        ...catalog,
+        mcpToolIds: [],
+        mcpToolIncluded: 0,
+        mcpToolOmitted: catalog.mcpToolCount,
+        mcpToolsTruncated: Number(catalog.mcpToolCount) > 0,
+        skills: [],
+        skillIncluded: 0,
+        skillOmitted: catalog.skillCount,
+        skillsTruncated: Number(catalog.skillCount) > 0,
+      };
+      boundedCatalog = result.liveCapabilityCatalog as JsonRecord;
     }
-    if (Buffer.byteLength(JSON.stringify(result, null, 2), 'utf8') > MAX_CONTEXT_BYTES) {
+    if (prettyBytes(result) >= MAX_CONTEXT_BYTES) {
       throw AppError.conflict('Verified reviewer context exceeds the bounded review window');
     }
+    const fit = (name: keyof typeof collectionTotals, items: unknown[]) => {
+      fitCollection(result, result[name] as unknown[], items, (included) => {
+        stats[name] = collectionStats(collectionTotals[name], included);
+      });
+    };
+    fit('profiles', profiles);
+    fit('schedules', schedules);
+    fit('queue', queue);
+    fit('skills', skills);
+    if (boundedCatalog) {
+      fitCollection(result, boundedCatalog.mcpToolIds as unknown[], mcpToolIds, (included) => {
+        boundedCatalog!.mcpToolIncluded = included;
+        boundedCatalog!.mcpToolOmitted = Number(boundedCatalog!.mcpToolCount) - included;
+        boundedCatalog!.mcpToolsTruncated = included < Number(boundedCatalog!.mcpToolCount);
+      });
+      fitCollection(result, boundedCatalog.skills as unknown[], liveSkills, (included) => {
+        boundedCatalog!.skillIncluded = included;
+        boundedCatalog!.skillOmitted = Number(boundedCatalog!.skillCount) - included;
+        boundedCatalog!.skillsTruncated = included < Number(boundedCatalog!.skillCount);
+      });
+    }
+    fit('sessions', sessionCandidates);
     return result;
   }
 
@@ -812,10 +909,14 @@ export class OrgReviewerService {
       })),
       mcpToolIds: sortedToolIds.slice(0, 150),
       mcpToolCount: sortedToolIds.length,
+      mcpToolIncluded: Math.min(sortedToolIds.length, 150),
+      mcpToolOmitted: Math.max(sortedToolIds.length - 150, 0),
       mcpToolsTruncated: sortedToolIds.length > 150,
       mcpToolCatalogHash: sha256(sortedToolIds),
       skills: sortedSkills.slice(0, 150),
       skillCount: sortedSkills.length,
+      skillIncluded: Math.min(sortedSkills.length, 150),
+      skillOmitted: Math.max(sortedSkills.length - 150, 0),
       skillsTruncated: sortedSkills.length > 150,
       skillCatalogHash: sha256(sortedSkills),
     };
