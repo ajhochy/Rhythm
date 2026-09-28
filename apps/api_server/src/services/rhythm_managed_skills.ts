@@ -118,6 +118,13 @@ export interface ManagedSkillInput {
   description?: string;
   /** Markdown body (everything after the frontmatter). */
   body: string;
+  /**
+   * Category tags — top-level `tags:` in frontmatter. When omitted,
+   * `writeManagedSkill` carries forward whatever tags the existing SKILL.md at
+   * that location already has (see #1... tag-loss-on-rewrite fix); pass `[]`
+   * explicitly to clear them.
+   */
+  tags?: string[];
 }
 
 /**
@@ -256,8 +263,21 @@ export function renderSkillMarkdown(skill: ManagedSkillInput): string {
     // Quote to stay valid YAML even when the description has ':' etc.
     lines.push(`description: ${JSON.stringify(skill.description)}`);
   }
+  if (skill.tags && skill.tags.length > 0) {
+    lines.push(`tags: [${skill.tags.map((t) => JSON.stringify(t)).join(', ')}]`);
+  }
   lines.push('---', '', skill.body.endsWith('\n') ? skill.body.trimEnd() : skill.body, '');
   return lines.join('\n');
+}
+
+/** Existing `tags:` at a SKILL.md path, or undefined if unreadable/absent. */
+function existingTagsAt(location: string): string[] | undefined {
+  if (!existsSync(location)) return undefined;
+  try {
+    return parseSkillFrontmatter(readFileSync(location, 'utf8')).tags;
+  } catch {
+    return undefined;
+  }
 }
 
 // ── #949 — Drafts namespace (harvested skills) ─────────────────────────────
@@ -290,6 +310,7 @@ export interface DraftManagedSkillInput extends ManagedSkillInput {
   measureReason?: string;
   /** #969 — ISO timestamp of the most recent rewrite-needed → refiner attempt, if any. */
   rewriteAttemptedAt?: string;
+  /** Category tags — see {@link ManagedSkillInput.tags}. Inherited via {@link ManagedSkillInput}. */
 }
 
 /** The drafts subfolder under the managed root. */
@@ -319,6 +340,9 @@ export function renderDraftSkillMarkdown(skill: DraftManagedSkillInput): string 
   const lines = ['---', `name: ${skill.name}`];
   if (skill.description && skill.description.trim() !== '') {
     lines.push(`description: ${JSON.stringify(skill.description)}`);
+  }
+  if (skill.tags && skill.tags.length > 0) {
+    lines.push(`tags: [${skill.tags.map((t) => JSON.stringify(t)).join(', ')}]`);
   }
   lines.push(`status: ${skill.status ?? 'draft'}`);
   lines.push('source: harvested');
@@ -352,8 +376,9 @@ export function writeDraftManagedSkill(skill: DraftManagedSkillInput): string {
   const location = join(dir, 'SKILL.md');
   // This is the exact path the 2026-07-11 incident wrote through.
   assertNotEmptyingExistingBody(location, skill.body, `draft skill '${skill.name}'`);
+  const tags = skill.tags ?? existingTagsAt(location);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(location, renderDraftSkillMarkdown(skill), 'utf8');
+  writeFileSync(location, renderDraftSkillMarkdown({ ...skill, tags }), 'utf8');
   return location;
 }
 
@@ -454,6 +479,7 @@ export function moveDraftToDisabled(
     renderDraftSkillMarkdown({
       name,
       description: draft.frontmatter.description,
+      tags: draft.frontmatter.tags,
       body: draft.body,
       sourceSessionId: draft.frontmatter.sourceSession ?? '',
       confidence: draft.frontmatter.confidence ?? 0,
@@ -659,8 +685,9 @@ export function writeManagedSkill(skill: ManagedSkillInput): string {
   const location = join(dir, 'SKILL.md');
   // 2026-07-11 incident — hard invariant: an empty body never replaces a non-empty one.
   assertNotEmptyingExistingBody(location, skill.body, `managed skill '${skill.name}'`);
+  const tags = skill.tags ?? existingTagsAt(location);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(location, renderSkillMarkdown(skill), 'utf8');
+  writeFileSync(location, renderSkillMarkdown({ ...skill, tags }), 'utf8');
   return location;
 }
 

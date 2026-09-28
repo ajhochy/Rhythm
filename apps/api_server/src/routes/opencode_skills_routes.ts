@@ -355,6 +355,7 @@ async function upsertManagedSkill(
   content: string,
   res: Response,
   next: NextFunction,
+  tags?: string[],
 ): Promise<void> {
   try {
     if (!name || typeof name !== 'string' || name.trim() === '') {
@@ -370,7 +371,10 @@ async function upsertManagedSkill(
 
     let location: string;
     try {
-      location = writeManagedSkill({ name: name.trim(), description, body: content });
+      // tags omitted (undefined) → writeManagedSkill carries forward whatever
+      // tags the existing SKILL.md already has; an explicit array here (even
+      // []) wins over that.
+      location = writeManagedSkill({ name: name.trim(), description, body: content, tags });
     } catch (err) {
       if (err instanceof InvalidSkillNameError) {
         return next(new AppError(400, 'BAD_REQUEST', err.message));
@@ -403,12 +407,13 @@ async function upsertManagedSkill(
 opencodeSkillsRouter.post(
   '/',
   async (req: Request, res: Response, next: NextFunction) => {
-    const { name, description, content } = req.body as {
+    const { name, description, content, tags } = req.body as {
       name?: string;
       description?: string;
       content?: string;
+      tags?: string[];
     };
-    await upsertManagedSkill(name ?? '', description, content ?? '', res, next);
+    await upsertManagedSkill(name ?? '', description, content ?? '', res, next, tags);
   },
 );
 
@@ -418,11 +423,12 @@ opencodeSkillsRouter.put(
   '/:name',
   async (req: Request, res: Response, next: NextFunction) => {
     const { name } = req.params;
-    const { description, content } = req.body as {
+    const { description, content, tags } = req.body as {
       description?: string;
       content?: string;
+      tags?: string[];
     };
-    await upsertManagedSkill(name, description, content ?? '', res, next);
+    await upsertManagedSkill(name, description, content ?? '', res, next, tags);
   },
 );
 

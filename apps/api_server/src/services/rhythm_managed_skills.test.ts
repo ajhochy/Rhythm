@@ -73,6 +73,89 @@ describe('writeManagedSkill — #873 context scan integration', () => {
       expect(message).not.toContain('disregard all prior instructions');
     }
   });
+
+  // Regression test: renderSkillMarkdown/renderDraftSkillMarkdown used to
+  // rebuild frontmatter from only name/description(/draft metadata), so any
+  // `tags:` a skill had was erased on every rewrite (Settings UI edit, or the
+  // harvest evaluator/refiner rewriting a draft) — see
+  // skill_frontmatter.ts's tag parsing (959b0178).
+  it('an edit that omits tags carries forward the tags already on disk', async () => {
+    const { writeManagedSkill } = await import('./rhythm_managed_skills');
+    const location = writeManagedSkill({
+      name: 'tagged-skill',
+      description: 'Has tags',
+      body: 'Original body.',
+      tags: ['ops', 'reporting'],
+    });
+    expect(readFileSync(location, 'utf8')).toContain("tags: [\"ops\", \"reporting\"]");
+
+    // Settings-UI-style edit: only body changes, tags are not part of the payload.
+    writeManagedSkill({
+      name: 'tagged-skill',
+      description: 'Has tags',
+      body: 'Edited body.',
+    });
+    const after = readFileSync(location, 'utf8');
+    expect(after).toContain("tags: [\"ops\", \"reporting\"]");
+    expect(after).toContain('Edited body.');
+  });
+
+  it('an explicit tags array (including []) overrides the tags already on disk', async () => {
+    const { writeManagedSkill } = await import('./rhythm_managed_skills');
+    const location = writeManagedSkill({
+      name: 'retag-skill',
+      body: 'Body.',
+      tags: ['ops'],
+    });
+    expect(readFileSync(location, 'utf8')).toContain('tags: ["ops"]');
+
+    writeManagedSkill({ name: 'retag-skill', body: 'Body.', tags: [] });
+    expect(readFileSync(location, 'utf8')).not.toContain('tags:');
+  });
+});
+
+describe('writeDraftManagedSkill — tag preservation on refine rewrite', () => {
+  let tempDir: string;
+  let originalEnv: string | undefined;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'rhythm-managed-skills-draft-tags-'));
+    originalEnv = process.env.RHYTHM_MANAGED_SKILLS_DIR;
+    process.env.RHYTHM_MANAGED_SKILLS_DIR = tempDir;
+  });
+
+  afterEach(() => {
+    if (originalEnv === undefined) delete process.env.RHYTHM_MANAGED_SKILLS_DIR;
+    else process.env.RHYTHM_MANAGED_SKILLS_DIR = originalEnv;
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('a refiner rewrite that omits tags keeps the draft tags already on disk', async () => {
+    const { writeDraftManagedSkill } = await import('./rhythm_managed_skills');
+    const location = writeDraftManagedSkill({
+      name: 'harvested-thing',
+      description: 'A harvested skill',
+      body: 'v1 body',
+      sourceSessionId: 'sess-1',
+      confidence: 0.7,
+      tags: ['harvested', 'ops'],
+    });
+    expect(readFileSync(location, 'utf8')).toContain('tags: ["harvested", "ops"]');
+
+    // harvested_skill_evaluator.ts's refiner rewrite path: same input shape,
+    // but it never carries `tags` forward itself.
+    writeDraftManagedSkill({
+      name: 'harvested-thing',
+      description: 'A harvested skill',
+      body: 'v2 refined body',
+      sourceSessionId: 'sess-1',
+      confidence: 0.7,
+      status: 'rewrite-needed',
+    });
+    const after = readFileSync(location, 'utf8');
+    expect(after).toContain('tags: ["harvested", "ops"]');
+    expect(after).toContain('v2 refined body');
+  });
 });
 
 // ── #947 — sole skill source is ~/.config/opencode/skills ──────────────────
