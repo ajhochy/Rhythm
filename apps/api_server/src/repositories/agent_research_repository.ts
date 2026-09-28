@@ -447,6 +447,7 @@ export class AgentResearchRepository {
     const sources = await this.listRunRows('agent_research_curated_sources', base.id);
     const jobs = await this.listProjectPassJobs(base.id, base.ownerUserId);
     const messageRows = await this.listRunUsageRows(base.id);
+    const tokensBySession = new Map<string, number>();
     const usage = messageRows.reduce((total, message) => {
       const tokens = parsedJson<Record<string, unknown>>(message.tokens_json, {});
       const cache = tokens.cache && typeof tokens.cache === 'object'
@@ -456,6 +457,8 @@ export class AgentResearchRepository {
       ) + ['read', 'write'].reduce(
         (sum, key) => sum + (typeof cache[key] === 'number' ? Number(cache[key]) : 0), 0,
       );
+      const sessionId = String(message.session_id);
+      tokensBySession.set(sessionId, (tokensBySession.get(sessionId) ?? 0) + count);
       return { tokens: total.tokens + count, costUsd: total.costUsd + Number(message.cost ?? 0) };
     }, { tokens: 0, costUsd: 0 });
     const started = base.startedAt ?? base.createdAt;
@@ -472,6 +475,8 @@ export class AgentResearchRepository {
       stages: jobs.map((job) => ({
         id: job.id, role: job.passRole, ordinal: job.passOrdinal, status: job.status,
         profileId: job.agentProfileId, model: job.runConfig.model ?? null,
+        angle: typeof job.runConfig.angle === 'string' ? job.runConfig.angle : null,
+        tokens: job.agentSessionId ? tokensBySession.get(job.agentSessionId) ?? 0 : 0,
         report: job.report,
       })),
     };
@@ -486,19 +491,19 @@ export class AgentResearchRepository {
     };
   }
 
-  private async listRunUsageRows(runId: string): Promise<Array<{ tokens_json: unknown; cost: unknown }>> {
+  private async listRunUsageRows(runId: string): Promise<Array<{ session_id: unknown; tokens_json: unknown; cost: unknown }>> {
     if (env.dbClient === 'postgres') {
       return (await getPostgresPool().query(
-        `SELECT m.tokens_json, m.cost FROM agent_session_messages m
+        `SELECT m.session_id, m.tokens_json, m.cost FROM agent_session_messages m
           JOIN agent_research_jobs j ON j.agent_session_id=m.session_id
          WHERE j.project_run_id=$1`, [runId],
       )).rows;
     }
     return getDb().prepare(
-      `SELECT m.tokens_json, m.cost FROM agent_session_messages m
+      `SELECT m.session_id, m.tokens_json, m.cost FROM agent_session_messages m
         JOIN agent_research_jobs j ON j.agent_session_id=m.session_id
        WHERE j.project_run_id=?`,
-    ).all(runId) as Array<{ tokens_json: unknown; cost: unknown }>;
+    ).all(runId) as Array<{ session_id: unknown; tokens_json: unknown; cost: unknown }>;
   }
 
   private async listRunRows(table: 'agent_research_artifacts' | 'agent_research_curated_sources', runId: string): Promise<Record<string, unknown>[]> {

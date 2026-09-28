@@ -41,6 +41,8 @@ import {
   type ResearchMagazineInput,
 } from '../services/research_magazine_renderer';
 import { ResearchDiscussionService } from '../services/research_discussion_service';
+import { normalizeModelPolicy } from '../services/research_model_policy';
+import { listAgentModelCatalog } from '../routes/agents_models_routes';
 
 const researchJobs = new AgentResearchRepository();
 const projectOrchestrator = new ResearchProjectOrchestrator(researchJobs);
@@ -121,7 +123,7 @@ export function projectBudget(value: unknown): Record<string, number> {
   return budget;
 }
 
-function projectInput(body: Record<string, unknown>): ResearchProjectInput {
+async function projectInput(body: Record<string, unknown>): Promise<ResearchProjectInput> {
   return {
     name: requiredString(body.name, 'name'),
     question: requiredString(body.question, 'question'),
@@ -129,7 +131,7 @@ function projectInput(body: Record<string, unknown>): ResearchProjectInput {
     domain: optionalString(body.domain, 'domain'),
     profileId: optionalString(body.profileId, 'profileId'),
     passConfig: optionalArray(body.passConfig, 'passConfig'),
-    modelPolicy: optionalObject(body.modelPolicy, 'modelPolicy'),
+    modelPolicy: await normalizeModelPolicy(body.modelPolicy, () => listAgentModelCatalog()),
     criticConfig: optionalObject(body.criticConfig, 'criticConfig'),
     synthesisConfig: optionalObject(body.synthesisConfig, 'synthesisConfig'),
     scheduleRef: optionalString(body.scheduleRef, 'scheduleRef'),
@@ -137,7 +139,7 @@ function projectInput(body: Record<string, unknown>): ResearchProjectInput {
   };
 }
 
-function projectPatch(body: Record<string, unknown>): ResearchProjectPatch {
+async function projectPatch(body: Record<string, unknown>): Promise<ResearchProjectPatch> {
   const patch: ResearchProjectPatch = {};
   if ('name' in body) patch.name = requiredString(body.name, 'name');
   if ('question' in body) patch.question = requiredString(body.question, 'question');
@@ -145,7 +147,7 @@ function projectPatch(body: Record<string, unknown>): ResearchProjectPatch {
   if ('domain' in body) patch.domain = optionalString(body.domain, 'domain');
   if ('profileId' in body) patch.profileId = optionalString(body.profileId, 'profileId');
   if ('passConfig' in body) patch.passConfig = optionalArray(body.passConfig, 'passConfig');
-  if ('modelPolicy' in body) patch.modelPolicy = optionalObject(body.modelPolicy, 'modelPolicy');
+  if ('modelPolicy' in body) patch.modelPolicy = await normalizeModelPolicy(body.modelPolicy, () => listAgentModelCatalog());
   if ('criticConfig' in body) patch.criticConfig = optionalObject(body.criticConfig, 'criticConfig');
   if ('synthesisConfig' in body) patch.synthesisConfig = optionalObject(body.synthesisConfig, 'synthesisConfig');
   if ('scheduleRef' in body) patch.scheduleRef = optionalString(body.scheduleRef, 'scheduleRef');
@@ -333,7 +335,7 @@ export class AgentResearchController {
     try {
       const created = await researchJobs.createProject(
         projectOwner(req),
-        projectInput(req.body as Record<string, unknown>),
+        await projectInput(req.body as Record<string, unknown>),
       );
       res.status(201).json(created);
     } catch (err) { next(err); }
@@ -352,7 +354,7 @@ export class AgentResearchController {
       const project = await researchJobs.updateProject(
         req.params.projectId,
         projectOwner(req),
-        projectPatch(req.body as Record<string, unknown>),
+        await projectPatch(req.body as Record<string, unknown>),
       );
       if (!project) throw AppError.notFound('ResearchProject');
       res.json(project);
@@ -469,7 +471,7 @@ export class AgentResearchController {
       }
       const stages = Array.isArray(run.progress.stages) ? run.progress.stages as Array<Record<string, unknown>> : [];
       const done = (role?: string) => stages.some((stage) => stage.status === 'done'
-        && (role ? stage.role === role : stage.role !== 'critic' && stage.role !== 'synthesis'));
+        && (role ? stage.role === role : !['plan', 'critic', 'synthesis'].includes(String(stage.role))));
       if (!done()) throw AppError.conflict('This run has no completed evidence to finish from. Retry the run instead.');
       const refrozen = (await researchJobs.updateProjectRunBudget(run.id, owner, project.budget))!;
       if (done('synthesis')) { res.json(refrozen); return; }
