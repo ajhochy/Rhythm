@@ -82,6 +82,11 @@
 .profile-capability-group .profile-policy-source { display: inline-block; border: 1px solid var(--border-soft); padding: 1px 7px; border-radius: var(--r-sm); }
 .profile-group-actions { display: flex; flex-wrap: wrap; gap: 6px 16px; }
 .profile-capability-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 16px; }
+.profile-skill-choice-row { display: flex; align-items: center; min-width: 0; gap: 4px; }
+.profile-skill-choice-row .profile-check-choice { flex: 1; min-width: 0; }
+.profile-skill-row-actions { display: flex; flex: 0 0 auto; gap: 2px; }
+.profile-skill-row-actions .icon-button { min-width: 44px; min-height: 44px; }
+.profile-skill-row-actions .danger { color: color-mix(in oklab, var(--danger), var(--fg) 30%); }
 .profile-check-choice { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; padding: 10px 4px; cursor: pointer; }
 .profile-check-choice input { flex-shrink: 0; margin-block-start: 3px; }
 .profile-check-choice > span { min-width: 0; display: grid; gap: 4px; overflow-wrap: anywhere; }
@@ -103,6 +108,21 @@
 .profile-pattern-add > button { grid-column: 1 / -1; justify-self: start; }
 .profile-advanced textarea { font-family: var(--font-mono); }
 .profile-editor .check-label { margin-block-start: 16px; align-items: center; }
+.profile-section-actions, .profile-skills-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.profile-skill-policy { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; min-width: 0; margin: 0 0 14px; padding: 0; border: 0; }
+.profile-skill-policy > label { display: flex; align-items: flex-start; min-width: 0; min-height: 76px; gap: 9px; padding: 12px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); cursor: pointer; }
+.profile-skill-policy > label:has(input:checked) { border-color: var(--accent); background: color-mix(in oklab, var(--accent), transparent 92%); }
+.profile-skill-policy > label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.profile-skill-policy input { flex: 0 0 auto; margin-block-start: 3px; }
+.profile-skill-policy span { display: grid; min-width: 0; gap: 4px; overflow-wrap: anywhere; }
+.profile-skill-policy strong { font-size: 13px; }
+.profile-skill-policy small, .profile-skill-form > small { color: var(--fg-2); font-size: 11px; line-height: 1.45; }
+.profile-skills-toolbar { justify-content: flex-end; min-height: 44px; }
+.profile-skills-toolbar > strong { margin-inline-end: auto; font-size: 13px; }
+.profile-skill-status { min-height: 1.25em; }
+.profile-skill-form { min-width: 0; }
+.dialog-panel[data-testid='profile-skill-editor'] input { min-height: 44px; }
+.dialog-panel[data-testid^='profile-skill'] button { min-height: 44px; }
 .profile-action-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-block: 16px; }
 .profile-action-row > div { min-width: 0; }
 .profile-action-row > button { flex-shrink: 0; }
@@ -133,7 +153,7 @@
   .profile-editor .profile-editor-header { padding: 14px 16px; }
   .profile-editor-scroll { padding-inline: 16px; }
   .profile-editor .profile-save-footer { padding: 12px 16px; }
-  .profile-editor .form-grid, .profile-editor .option-grid, .profile-capability-choices, .profile-pattern-add { grid-template-columns: minmax(0, 1fr); }
+  .profile-editor .form-grid, .profile-editor .option-grid, .profile-capability-choices, .profile-pattern-add, .profile-skill-policy { grid-template-columns: minmax(0, 1fr); }
   .profile-editor .span-2 { grid-column: auto; }
   .profile-action-row { align-items: flex-start; flex-wrap: wrap; gap: 12px; }
 }
