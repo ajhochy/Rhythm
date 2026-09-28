@@ -967,6 +967,14 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   // pre-#844 caller) leaves this byte-for-byte unchanged: modelOverride ??
   // profileScope.model, no resolveTieredModel call, no extra logging.
   let resolvedModel = modelOverride ?? profileScope.model;
+  let requestedSource: import('../models/model_provenance').RequestedSource = modelOverride
+    ? 'turn_override'
+    : taskKind
+      ? 'tier'
+      : 'agent_config';
+  let requestedTier: string | null = profileScope.modelTierHint ?? (taskKind ? 'standard' : null);
+  let overrideApplied = modelOverride != null;
+  let downgraded = false;
   if (taskKind) {
     try {
       const { resolveTieredModel } = await import('./agent_model_resolver');
@@ -981,6 +989,9 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
         modelOverride: modelOverride ?? null,
       });
       resolvedModel = decision.route;
+      requestedTier = decision.tier;
+      overrideApplied = decision.overrideApplied;
+      downgraded = decision.downgradedForBudget;
     } catch (err) {
       // Non-fatal: tiered routing is a policy layer — a failure here must
       // never block a run. Fall back to the existing precedence.
@@ -1581,7 +1592,33 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     // "model produced no output" error on the headless/scheduler path (where
     // the raw `cwd` is undefined). Use effectiveCwd for prompt/listMessages/abort.
     const response = await _withinRunDeadline(
-      opencodeClient.prompt(sessionId, effectivePrompt, resolvedModel, effectiveCwd, promptOpts, beforeDispatch),
+      opencodeClient.prompt(
+        sessionId,
+        effectivePrompt,
+        resolvedModel,
+        effectiveCwd,
+        promptOpts,
+        beforeDispatch,
+        rhythmSessionId
+          ? {
+              sessionId: rhythmSessionId,
+              sdkSessionId: sessionId,
+              origin: 'agent_runner',
+              requestedSource,
+              requestedProviderId: modelOverride?.providerID ?? profileScope.model?.providerID ?? null,
+              requestedModelId: modelOverride?.modelID ?? profileScope.model?.modelID ?? null,
+              requestedTier,
+              resolvedProviderId: resolvedModel.providerID,
+              resolvedModelId: resolvedModel.modelID,
+              resolvedTier: requestedTier,
+              overrideApplied,
+              downgraded,
+              routeAuthed: null,
+              finalProviderId: resolvedModel.providerID,
+              finalModelId: resolvedModel.modelID,
+            }
+          : undefined,
+      ),
       deadlinePolicy,
       'prompt',
       async () =>

@@ -1983,7 +1983,16 @@ export class OpencodeStreamBridge {
 
               // #930 — record the turn's user-message id as the revert target
               // for a mid-run cross-provider re-dispatch.
-              if (role === 'user') noteUserMessage(localSessionId, sdkMessageId);
+              if (role === 'user') {
+                noteUserMessage(localSessionId, sdkMessageId);
+                if (env.dbClient === 'sqlite' && opencodeSessionId) {
+                  try {
+                    this.modelProvenanceRepo.linkOldestUserMessage(localSessionId, opencodeSessionId, sdkMessageId);
+                  } catch (err) {
+                    logger.error('[OpencodeStreamBridge] Failed to link dispatch user message:', err);
+                  }
+                }
+              }
 
               // Backfill the session's actual model from the assistant message
               // (opencode reports providerID/modelID even when the session was

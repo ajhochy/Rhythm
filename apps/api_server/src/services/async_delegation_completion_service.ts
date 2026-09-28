@@ -245,6 +245,21 @@ export class AsyncDelegationCompletionService {
         profileScope.model,
         parent.cwd,
         promptOpts,
+        undefined,
+        undefined,
+        {
+          sessionId: parentSessionId,
+          sdkSessionId: parentSdkSessionId,
+          origin: 'delegation_completion',
+          requestedSource: 'agent_config',
+          requestedProviderId: profileScope.model?.providerID ?? null,
+          requestedModelId: profileScope.model?.modelID ?? null,
+          resolvedProviderId: profileScope.model?.providerID ?? null,
+          resolvedModelId: profileScope.model?.modelID ?? null,
+          routeAuthed: null,
+          finalProviderId: profileScope.model?.providerID ?? null,
+          finalModelId: profileScope.model?.modelID ?? null,
+        },
       );
       if (!enqueued) {
         const delivered = await this.wasWakeDelivered(parent, wakeDelegations);

@@ -28,11 +28,29 @@ const server = http.createServer(async (req, res) => {
     for await (const data of req) buffers.push(data);
     body = JSON.parse(Buffer.concat(buffers).toString());
   } catch { res.writeHead(400).end(); return; }
-  const user = body.messages?.filter((m) => m.role === 'user').at(-1);
-  const text = typeof user?.content === 'string' ? user.content : JSON.stringify(user?.content ?? '');
-  const scenario = text.match(/S0:(plain|reasoning|tool|permission|question|cancel|error)/)?.[1];
+  const contentParts = (body.messages ?? []).flatMap((message) => Array.isArray(message.content) ? message.content : [{ type: 'text', text: message.content }]);
+  const contentTypes = [];
+  const collectTypes = (value) => {
+    if (Array.isArray(value)) { value.forEach(collectTypes); return; }
+    if (!value || typeof value !== 'object') return;
+    if (typeof value.type === 'string') contentTypes.push(value.type);
+    Object.values(value).forEach(collectTypes);
+  };
+  collectTypes(body.messages ?? []);
+  const nativeAttachmentTypes = contentTypes.filter((type) => ['file', 'image', 'image_url', 'input_file', 'input_image'].includes(type));
+  const text = contentParts.map((part) => typeof part?.text === 'string' ? part.text : '').join('\n');
+  const marker = text.match(/S0:(plain|reasoning|tool|permission|question|cancel|error|compaction|attachment-mixed)/)?.[1];
+  // Attachment-only arrives from the adapter as an empty user-content request;
+  // every non-attachment harness request carries an S0 marker.
+  const scenario = marker ?? 'attachment-only';
+  // The OpenAI-compatible adapter converts this synthetic FilePart to a text content part.
+  // Record only that transport type/count; never retain the converted payload.
+  const attachmentTypes = nativeAttachmentTypes.length ? nativeAttachmentTypes
+    : scenario === 'attachment-only' || scenario === 'attachment-mixed' ? [contentTypes.length ? 'text' : 'empty-content'] : [];
+  const summaryRequest = scenario === 'compaction' && /summar/i.test(text);
   const afterTool = body.messages?.some((m) => m.role === 'tool' || m.role === 'function');
-  const hit = { scenario, afterTool: Boolean(afterTool), tools: body.tools?.map((tool) => tool.function?.name) ?? [] };
+  // Evidence records shape only: never retain text content, data URIs, or attachment bytes.
+  const hit = { scenario, afterTool: Boolean(afterTool), tools: body.tools?.map((tool) => tool.function?.name) ?? [], contentTypes, attachmentTypes, attachmentCount: attachmentTypes.length, summaryRequest };
   hits.push(hit);
   if (!scenario) { res.writeHead(400).end('missing S0 scenario'); return; }
   if (scenario === 'error') {
@@ -68,6 +86,10 @@ const server = http.createServer(async (req, res) => {
     for (let i = 0; i < 200 && !res.destroyed; i++) await sleep(100);
     if (res.destroyed) return;
     send(chunk({ content: 'unexpected-completion' }));
+  } else if (scenario === 'compaction' && summaryRequest) {
+    send(chunk({ content: 'Synthetic compacted summary for issue 1582.' }));
+  } else if (scenario === 'attachment-only' || scenario === 'attachment-mixed') {
+    send(chunk({ content: `${scenario} received` }));
   } else {
     for (const part of (afterTool ? ['tool ', 'resolved'] : ['hello ', 'hello ', '🌱'])) {
       send(chunk({ content: part })); await sleep(180);

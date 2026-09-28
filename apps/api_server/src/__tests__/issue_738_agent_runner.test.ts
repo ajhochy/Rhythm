@@ -111,6 +111,7 @@ describe('#738 — AgentRunner', () => {
       process.cwd(),
       expect.objectContaining({ permissionMode: 'bypassPermissions' }),
       undefined,
+      undefined,
     );
   });
 
@@ -458,6 +459,13 @@ describe('#738 — AgentRunner', () => {
         permissionMode: 'default',
       }),
       undefined,
+      expect.objectContaining({
+        origin: 'agent_runner',
+        sessionId: result.sessionId,
+        sdkSessionId: 'sdk-session-1',
+        resolvedProviderId: 'openai',
+        resolvedModelId: 'gpt-5.6-sol',
+      }),
     );
   });
 

@@ -99,6 +99,47 @@ async function expectNoWrite(attempt: Promise<unknown>, statusCode = 400) {
   expect(configs.getById(targetId)?.systemPrompt).toBe(originalPrompt);
 }
 
+function installRealisticCatalogPressure(): void {
+  const skills = new AgentSkillsRepository();
+  for (let index = 0; index < 88; index++) {
+    skills.create({
+      title: `database-skill-${String(index).padStart(3, '0')}-${'x'.repeat(80)}`,
+      body: 'A bounded database skill summary fixture.',
+      confidence: 1,
+      status: 'active',
+    });
+  }
+  vi.mocked(opencodeClient.listMcpToolIds).mockResolvedValue(
+    Array.from({ length: 438 }, (_, index) => `fixture_mcp_${String(index).padStart(3, '0')}_${'t'.repeat(90)}`),
+  );
+  vi.mocked(opencodeClient.listSkills).mockResolvedValue(
+    Array.from({ length: 261 }, (_, index) => ({
+      name: `fixture-skill-${String(index).padStart(3, '0')}-${'s'.repeat(90)}`,
+      location: `/fixture/skills/${index}`,
+    })),
+  );
+}
+
+function installTranscriptPressure(): string {
+  const { row } = session(targetId);
+  for (let index = 0; index < 4; index++) {
+    messages.upsertStructured(
+      row.id,
+      `msg_pressure_${index}`,
+      'output',
+      JSON.stringify([{ type: 'text', text: `${String(index)}${'m'.repeat(3_999)}` }]),
+      null,
+      null,
+    );
+  }
+  return row.id;
+}
+
+function installRealisticContextPressure(): string {
+  installRealisticCatalogPressure();
+  return installTranscriptPressure();
+}
+
 beforeEach(async () => {
   db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
@@ -308,6 +349,125 @@ describe('OrgReviewerService bounded context and identity', () => {
     const rendered = `<<<UNTRUSTED_EXTERNAL_CONTENT>>>\n${JSON.stringify(context, null, 2)}\n<<<END_UNTRUSTED_EXTERNAL_CONTENT>>>`;
     expect(Buffer.byteLength(rendered, 'utf8')).toBeLessThan(50 * 1024);
     expect(rendered.split('\n').length).toBeLessThan(2000);
+  });
+
+  it.each([
+    ['default arguments', {}],
+    ['sessionLimit:1', { windowDays: 7, sessionLimit: 1 }],
+  ])('org-reviewer-context-budget-c2: returns useful overview context with %s under realistic catalog pressure', async (_label, args) => {
+    installRealisticContextPressure();
+    const context = await service.context(args, reviewer);
+    expect(context.sessions).toEqual(expect.any(Array));
+    expect(context.liveCapabilityCatalog).toEqual(expect.any(Object));
+    expect(Buffer.byteLength(JSON.stringify(context, null, 2), 'utf8')).toBeLessThan(44_000);
+  });
+
+  it('org-reviewer-context-budget-c3: establishes static inclusion before spending the remainder on transcripts', async () => {
+    installRealisticCatalogPressure();
+    const before = await service.context({}, reviewer) as {
+      collectionStats: Record<string, { total: number; included: number; omitted: number; truncated: boolean }>;
+      liveCapabilityCatalog: Record<string, number>;
+    };
+    installTranscriptPressure();
+    const after = await service.context({}, reviewer) as typeof before;
+
+    // The extra session is the risk-relevant state difference. A session-first
+    // allocator reduces one of these static prefixes when this transcript lands.
+    expect(after.collectionStats.sessions.total).toBe(before.collectionStats.sessions.total + 1);
+    expect({
+      profiles: after.collectionStats.profiles.included,
+      schedules: after.collectionStats.schedules.included,
+      queue: after.collectionStats.queue.included,
+      skills: after.collectionStats.skills.included,
+      mcpTools: after.liveCapabilityCatalog.mcpToolIncluded,
+      liveSkills: after.liveCapabilityCatalog.skillIncluded,
+    }).toEqual({
+      profiles: before.collectionStats.profiles.included,
+      schedules: before.collectionStats.schedules.included,
+      queue: before.collectionStats.queue.included,
+      skills: before.collectionStats.skills.included,
+      mcpTools: before.liveCapabilityCatalog.mcpToolIncluded,
+      liveSkills: before.liveCapabilityCatalog.skillIncluded,
+    });
+    expect(after.collectionStats.sessions.truncated).toBe(true);
+    expect(Buffer.byteLength(JSON.stringify(after, null, 2), 'utf8')).toBeLessThan(44_000);
+  });
+
+  it('org-reviewer-context-budget-c4: reports deterministic omission metadata for every bounded collection', async () => {
+    installRealisticContextPressure();
+    const context = await service.context({}, reviewer) as {
+      collectionStats: Record<string, { total: number; included: number; omitted: number; truncated: boolean }>;
+      liveCapabilityCatalog: Record<string, unknown>;
+    };
+    for (const name of ['sessions', 'profiles', 'skills', 'schedules', 'queue']) {
+      expect(context.collectionStats[name]).toEqual({
+        total: expect.any(Number),
+        included: expect.any(Number),
+        omitted: expect.any(Number),
+        truncated: expect.any(Boolean),
+      });
+      expect(context.collectionStats[name].included + context.collectionStats[name].omitted)
+        .toBe(context.collectionStats[name].total);
+    }
+    expect(context.liveCapabilityCatalog).toMatchObject({
+      mcpToolCount: 438,
+      mcpToolIncluded: expect.any(Number),
+      mcpToolOmitted: expect.any(Number),
+      mcpToolsTruncated: true,
+      mcpToolCatalogHash: expect.any(String),
+      skillCount: 261,
+      skillIncluded: expect.any(Number),
+      skillOmitted: expect.any(Number),
+      skillsTruncated: true,
+      skillCatalogHash: expect.any(String),
+    });
+  });
+
+  it('org-reviewer-context-budget-c5: retains exact target verification state instead of truncating it', async () => {
+    installRealisticContextPressure();
+    const targetRef = `agent_config:${targetId}`;
+    const first = await service.context({ targetRef }, reviewer);
+    const second = await service.context({ targetRef }, reviewer);
+    expect(first).toMatchObject({
+      targetRef,
+      targetRevision: configs.getById(targetId)?.revision ?? 0,
+      targetStateHash: expect.any(String),
+      currentState: { type: 'agent_config', profile: { systemPrompt: originalPrompt } },
+    });
+    expect(second.targetStateHash).toBe(first.targetStateHash);
+    expect(second.currentState).toEqual(first.currentState);
+  });
+
+  it('org-reviewer-context-budget-c6: keeps one full-pressure session below the cap with explicit clipping or omission', async () => {
+    const pressureSessionId = installRealisticContextPressure();
+    const context = await service.context({ windowDays: 7, sessionLimit: 1 }, reviewer) as {
+      sessions: Array<{ sessionId: string; messageStats: { total: number; included: number; omitted: number; truncated: boolean } }>;
+      collectionStats: Record<string, { total: number; included: number; omitted: number; truncated: boolean }>;
+    };
+    expect(Buffer.byteLength(JSON.stringify(context, null, 2), 'utf8')).toBeLessThan(44_000);
+    expect(context.collectionStats.sessions.total).toBe(1);
+    expect(context.collectionStats.sessions.included + context.collectionStats.sessions.omitted).toBe(1);
+    expect(context.collectionStats.sessions.truncated).toBe(true);
+    if (context.sessions.length > 0) {
+      expect(context.sessions).toHaveLength(1);
+      expect(context.sessions[0].sessionId).toBe(pressureSessionId);
+      expect(context.sessions[0].messageStats.total).toBe(4);
+      expect(context.sessions[0].messageStats.included + context.sessions[0].messageStats.omitted).toBe(4);
+      expect(context.sessions[0].messageStats.truncated).toBe(true);
+    } else {
+      expect(context.collectionStats.sessions).toMatchObject({ included: 0, omitted: 1 });
+    }
+  });
+
+  it('org-reviewer-context-budget-c7: repeats target hashes and bounded overview selection deterministically', async () => {
+    installRealisticContextPressure();
+    const targetRef = `agent_config:${targetId}`;
+    const firstTarget = await service.context({ targetRef }, reviewer);
+    const secondTarget = await service.context({ targetRef }, reviewer);
+    expect(secondTarget.targetStateHash).toBe(firstTarget.targetStateHash);
+    const firstOverview = await service.context({}, reviewer);
+    const secondOverview = await service.context({}, reviewer);
+    expect(secondOverview).toEqual(firstOverview);
   });
 
   it.each(['bypassPermissions', 'acceptEdits'] as const)('denies reviewer session permission override %s', async (permissionMode) => {

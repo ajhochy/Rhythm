@@ -42,11 +42,21 @@
     "final": 3
   },
   "compaction": {
-    "status": "BLOCKED",
-    "reason": "No bounded scripted compaction trigger without product changes"
+    "status": "PASS",
+    "ws": 54,
+    "mid": 2,
+    "final": 4
   },
-  "attachments": {
-    "status": "BLOCKED",
-    "reason": "No approved synthetic attachment fixture or entry-point qualification"
+  "attachment-only": {
+    "status": "PASS",
+    "ws": 29,
+    "mid": 2,
+    "final": 2
+  },
+  "attachment-mixed": {
+    "status": "PASS",
+    "ws": 30,
+    "mid": 2,
+    "final": 2
   }
 }

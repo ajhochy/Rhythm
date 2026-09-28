@@ -155,6 +155,15 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
       { providerID: 'google', modelID: 'gemini-2.5-pro' },
       '/tmp',
       expect.objectContaining({ agent: 'specialist', permissionMode: 'bypassPermissions' }),
+      undefined,
+      undefined,
+      expect.objectContaining({
+        origin: 'delegation',
+        sessionId: expect.any(String),
+        sdkSessionId: 'sdk-child-1',
+        resolvedProviderId: 'google',
+        resolvedModelId: 'gemini-2.5-pro',
+      }),
     );
     expect(
       new AgentAsyncDelegationsRepository().findByChildSessionId(result.sessionId),
@@ -183,6 +192,15 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
       'sdk-child-1', 'Use the selected model.',
       { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
       '/tmp', expect.any(Object),
+      undefined,
+      undefined,
+      expect.objectContaining({
+        origin: 'delegation',
+        sessionId: expect.any(String),
+        sdkSessionId: 'sdk-child-1',
+        resolvedProviderId: 'anthropic',
+        resolvedModelId: 'claude-sonnet-4-6',
+      }),
     );
   });
 
@@ -306,6 +324,15 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
       expect.anything(),
       '/tmp',
       expect.not.objectContaining({ noReply: true }),
+      undefined,
+      undefined,
+      expect.objectContaining({
+        origin: 'delegation_completion',
+        sessionId: parent.id,
+        sdkSessionId: 'sdk-parent',
+        resolvedProviderId: 'google',
+        resolvedModelId: 'gemini-2.5-pro',
+      }),
     );
   });
 

@@ -17,6 +17,7 @@
 import { env } from '../config/env';
 import { ModelProvenanceRepository } from '../repositories/model_provenance_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
+import type { DispatchRecord } from '../models/model_provenance';
 
 export interface ModelProvenanceProjection {
   available: boolean;
@@ -28,6 +29,8 @@ export interface ModelProvenanceProjection {
   multiModel: boolean;
   routed: boolean;
   steps: { unattributed: number };
+  /** Local-only ordered attempts; omitted with the existing Postgres unavailable projection. */
+  dispatches?: DispatchRecord[];
 }
 
 const provenanceRepo = new ModelProvenanceRepository();
@@ -69,5 +72,6 @@ export function getModelProvenance(sessionId: string, requestedModelId: string |
     multiModel: servedModels.length > 1,
     routed,
     steps: { unattributed },
+    dispatches: provenanceRepo.list(sessionId),
   };
 }

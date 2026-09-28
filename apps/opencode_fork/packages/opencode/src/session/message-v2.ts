@@ -229,6 +229,8 @@ export const StepStartPart = Schema.Struct({
 }).annotate({ identifier: "StepStartPart" })
 export type StepStartPart = Types.DeepMutable<Schema.Schema.Type<typeof StepStartPart>>
 
+const ServedIdentifier = Schema.String.check(Schema.isMaxLength(256))
+
 export const StepFinishPart = Schema.Struct({
   ...partBase,
   type: Schema.Literal("step-finish"),
@@ -245,6 +247,13 @@ export const StepFinishPart = Schema.Struct({
       write: Schema.Finite,
     }),
   }),
+  served: Schema.optional(
+    Schema.Struct({
+      modelID: ServedIdentifier,
+      responseID: Schema.optional(ServedIdentifier),
+      requestModelID: Schema.optional(ServedIdentifier),
+    }),
+  ),
 }).annotate({ identifier: "StepFinishPart" })
 export type StepFinishPart = Types.DeepMutable<Schema.Schema.Type<typeof StepFinishPart>>
 

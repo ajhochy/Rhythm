@@ -4,7 +4,7 @@ repo: Rhythm
 branch: mega/2026-09-18-mobile-electron-hermes
 pr: 1544
 issues: [task-profile-allowed-skills-management]
-status: verified-local/manual-smoke-deferred
+status: pushed-draft-pr-1544-automated-pass-manual-smoke-aj-deferred
 tags: [run, Rhythm]
 ---
 
@@ -84,7 +84,7 @@ WAIVED: evidence-only contract/run-note reconciliation with no behavior change; 
 - Verification gate: **PASS after repair attempt 2**. All/Selected/No exact semantics and managed profile allowed-skills CRUD completed locally.
 - Final evidence: profile plus neighbor Playwright **28 passed / 1 live-only skipped**; web typecheck/build/dist **pass**; API neighbors **65 passed** and build **pass**; live c15 **pass**; cleanup **zero**; health **pass**; independent UI/accessibility review **PASS**.
 - Repair rounds closed duplicate alerts, stale/double-submit/delete isolation, and keyboard/focus/44px/720px evidence gaps.
-- Residuals: broad fixture has 10 unrelated dynamic-import failures; GitNexus was unavailable; manual shipping-product smoke is deferred by AJ. The worktree remains dirty/diverged, and this workflow did not commit or push.
+- Residuals: broad fixture has 10 unrelated dynamic-import failures; GitNexus was unavailable; manual shipping-product smoke is deferred by AJ. Verified feature commit `6f78fe68` is pushed to draft PR #1544; automated verification is **PASS**.
 
 ## Final repair attempt 2 — verification-gate evidence
 
@@ -121,3 +121,5 @@ WAIVED: evidence-only contract/run-note reconciliation with no behavior change; 
 - c16 is `pass` and `not_tested` is empty because its automated and final independent-review requirements are now satisfied.
 - No image was inspected during the final reviewer pass or this reconciliation.
 - **Manual shipping-product smoke: PENDING / DEFERRED by AJ.** It was not run and is not claimed as passed.
+
+**Handoff:** Pushed to draft PR #1544 at `6f78fe68`; automated verification **PASS**; manual shipping smoke is **AJ-deferred / PENDING**.

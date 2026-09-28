@@ -103,7 +103,22 @@ describe('issue #1575 — isolated async delegation worktree contract', () => {
     expect(engine.createWorktree).toHaveBeenCalledWith('/repo/manager', { name: 'issue-1575-child' });
     expect(engine.createSession).toHaveBeenCalledWith(expect.any(String), worktreeDir, undefined, undefined, 'google', 'sdk-parent');
     expect(streamSession).toHaveBeenCalledWith(result.sessionId, 'sdk-child', worktreeDir);
-    expect(engine.promptAsync).toHaveBeenCalledWith('sdk-child', 'Inspect cwd.', expect.any(Object), worktreeDir, expect.any(Object));
+    expect(engine.promptAsync).toHaveBeenCalledWith(
+      'sdk-child',
+      'Inspect cwd.',
+      expect.any(Object),
+      worktreeDir,
+      expect.any(Object),
+      undefined,
+      undefined,
+      expect.objectContaining({
+        origin: 'delegation',
+        sessionId: expect.any(String),
+        sdkSessionId: 'sdk-child',
+        resolvedProviderId: 'google',
+        resolvedModelId: 'gemini-2.5-pro',
+      }),
+    );
     expect(engine.removeWorktree).not.toHaveBeenCalled();
   });
 

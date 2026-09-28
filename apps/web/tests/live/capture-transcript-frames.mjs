@@ -12,6 +12,7 @@ const root = process.cwd();
 assert(existsSync(resolve(root, 'tools/dev/sandbox.sh')), 'run from repo root');
 const require = createRequire(resolve(root, 'apps/api_server/package.json'));
 const WebSocket = require('ws');
+const Database = require('better-sqlite3');
 const fixtureRoot = `/private/tmp/rhythm-1582-s0-${randomUUID()}`;
 const sandbox = `${fixtureRoot}-runtime`;
 const output = resolve(root, 'apps/web/tests/fixtures/transcript');
@@ -23,8 +24,13 @@ const env = { ...process.env, RHYTHM_APPROVED_FIXTURE_ROOT: fixtureRoot,
   RHYTHM_LIVE_DB_PATH: `${fixtureRoot}/rhythm.db`, RHYTHM_SANDBOX_OPENCODE_CONFIG: `${fixtureRoot}/opencode.json`,
   RHYTHM_SANDBOX_DIR: sandbox, RHYTHM_SANDBOX_API_PORT: '6998', RHYTHM_SANDBOX_ENGINE_PORT: '6997',
   RHYTHM_SANDBOX_GATEWAY_PORT: '6999', RHYTHM_OPTIMIZER_MODE: 'shadow', DB_CLIENT: 'sqlite' };
-const names = ['plain', 'reasoning', 'tool', 'permission', 'question', 'cancel', 'error'];
-const results = {};
+const existingNames = ['plain', 'reasoning', 'tool', 'permission', 'question', 'cancel', 'error'];
+const b4Names = ['compaction', 'attachment-only', 'attachment-mixed'];
+const names = [...existingNames, ...b4Names];
+const b4Only = process.argv.includes('--b4-only');
+const results = b4Only && existsSync(resolve(output, 'capture-results.json'))
+  ? JSON.parse(readFileSync(resolve(output, 'capture-results.json'), 'utf8')) : {};
+delete results.attachments;
 let provider;
 let started = false;
 function command(bin, args, opts = {}) {
@@ -121,16 +127,29 @@ function verifySaved() {
       assert(evidence.frames.slice(0, firstDelta).some((f) => f.type === 'message.part.updated'), 'snapshot before delta');
       assert(evidence.frames.slice(firstDelta + 1).some((f) => f.type === 'message.part.updated'), 'snapshot after delta');
     }
+    if (name === 'compaction') {
+      assert(evidence.frames.some((f) => f.type === 'session.compacted'), 'session.compacted frame');
+      assert(evidence.final.messages.flatMap((m) => m.parts ?? []).some((p) => p.type === 'compaction'), 'persisted compaction part');
+      assert(JSON.stringify(evidence.final.messages).includes('Synthetic compacted summary for issue 1582.'), 'persisted summary text');
+      assert(evidence.provider.hits.some((hit) => hit.summaryRequest === true), 'summary provider request');
+    }
+    if (name === 'attachment-only' || name === 'attachment-mixed') {
+      assert.equal(evidence.input.fileParts, 1);
+      assert.equal(evidence.input.textParts, name === 'attachment-only' ? 0 : 1);
+      assert(evidence.provider.hits.every((hit) => hit.attachmentCount === 1));
+      assert(evidence.provider.hits.every((hit) => !Object.hasOwn(hit, 'content')));
+      assert(evidence.final.messages.flatMap((m) => m.parts ?? []).some((p) => p.type === 'file' && p.filename === 'issue-1582.png'), 'persisted file part');
+    }
     console.log(`verified ${name}: ${evidence.frames.length} WS / ${evidence.mid.messages.length} mid / ${evidence.final.messages.length} final / ${evidence.provider.hits.length} provider calls / ${evidence.provider.disconnects} disconnects`);
   }
 }
 if (process.argv.includes('--verify')) {
   verifySaved();
-  if (process.argv.includes('--require-all')) {
-    assert.fail('UNVERIFIED: compaction and attachment-only/mixed input are not captured — requires a bounded local compaction trigger and approved synthetic attachment entry-point fixture');
-  }
   process.exit(0);
 }
+
+const sanitizeEvidence = (value) => JSON.parse(JSON.stringify(value, (key, item) =>
+  key === 'url' && typeof item === 'string' && item.startsWith('data:') ? `${item.slice(0, item.indexOf(',') + 1)}[omitted]` : item));
 async function capture(name) {
   const session = await http('/agent-sessions', 'POST', {
     cwd: fixtureRoot, name: `S0 ${name}`, isolateWorktree: false,
@@ -208,6 +227,104 @@ async function capture(name) {
     await http(`/agent-sessions/${id}/hard`, 'DELETE').catch(() => {});
   }
 }
+
+async function captureAttachment(name) {
+  const session = await http('/agent-sessions', 'POST', {
+    cwd: fixtureRoot, name: `S0 ${name}`, isolateWorktree: false, permissionMode: 'default',
+  });
+  const id = session.id;
+  assert(session.sdkSessionId && id !== session.sdkSessionId);
+  const { ws, frames } = await listen(id);
+  const file = { type: 'file', mime: 'image/png', filename: 'issue-1582.png', url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==' };
+  const parts = name === 'attachment-mixed' ? [{ type: 'text', text: 'S0:attachment-mixed' }, file] : [file];
+  try {
+    ws.send(JSON.stringify({ v: 1, type: 'session.input', id, parts,
+      modelOverride: { providerId: 's0', modelId: 's0-local' }, agent: 'build' }));
+    await until(() => {
+      const failure = frames.find((f) => f.type === 'error');
+      if (failure) throw new Error(JSON.stringify(failure));
+      return frames.some((f) => f.type === 'message.part.delta');
+    }, `${name} first provider delta`, 60_000);
+    const mid = await http(`/agent-sessions/${id}/messages?limit=50`);
+    await until(async () => {
+      const detail = await http(`/agent-sessions/${id}`);
+      return detail.session?.status === 'idle' || detail.session?.status === 'error' ? detail : false;
+    }, `${name} terminal`, 75_000);
+    await delay(400);
+    const final = await http(`/agent-sessions/${id}/messages?limit=50`);
+    assertWire(frames, id, session.sdkSessionId);
+    const providerStatus = await fetch('http://127.0.0.1:6996/_s0/status').then((r) => r.json());
+    const hits = providerStatus.hits.filter((hit) => hit.scenario === name);
+    assert.equal(hits.length, 1, `${name}: one provider request`);
+    assert.equal(hits[0].attachmentCount, 1, JSON.stringify(hits[0]));
+    assert(hits[0].attachmentTypes.length === 1);
+    const finalParts = final.messages?.flatMap((message) => message.parts ?? []) ?? [];
+    assert(finalParts.some((part) => part.type === 'file' && part.filename === file.filename), `${name}: persisted file`);
+    assert(finalParts.some((part) => part.type === 'text' && part.text === `${name} received`), `${name}: assistant response`);
+    const evidence = sanitizeEvidence({ kind: 'captured', sourceCommit: command('git', ['rev-parse', 'HEAD']).trim(), scenario: name,
+      captureCommand: 'node apps/web/tests/live/capture-transcript-frames.mjs --b4-only',
+      sanitization: { 'session.id': 'preserved synthetic runtime ID', bearer: 'omitted at source',
+        prompt: 'generated S0 marker only', urls: 'loopback only', attachmentBytes: 'omitted' },
+      input: { textParts: parts.filter((part) => part.type === 'text').length, fileParts: 1, fileTypes: [file.mime] },
+      ids: { local: id, sdk: session.sdkSessionId }, frames, mid, final,
+      expectedFinal: `${name} received`, counts: { ws: frames.length, mid: mid.messages?.length, final: final.messages?.length },
+      provider: { hits, disconnects: providerStatus.disconnects } });
+    writeFileSync(resolve(output, `${name}.jsonl`), `${JSON.stringify(evidence)}\n`);
+    results[name] = { status: 'PASS', ws: frames.length, mid: mid.messages?.length, final: final.messages?.length };
+  } finally {
+    ws.close();
+    await http(`/agent-sessions/${id}/hard`, 'DELETE').catch(() => {});
+  }
+}
+
+async function captureCompaction() {
+  const name = 'compaction';
+  const session = await http('/agent-sessions', 'POST', {
+    cwd: fixtureRoot, name: 'S0 compaction', isolateWorktree: false, permissionMode: 'default',
+  });
+  const id = session.id;
+  assert(session.sdkSessionId && id !== session.sdkSessionId);
+  const { ws, frames } = await listen(id);
+  try {
+    ws.send(JSON.stringify({ v: 1, type: 'session.input', id,
+      data: 'S0:compaction — synthetic deterministic seed turn',
+      modelOverride: { providerId: 's0', modelId: 's0-local' }, agent: 'build' }));
+    await until(async () => {
+      const failure = frames.find((f) => f.type === 'error');
+      if (failure) throw new Error(JSON.stringify(failure));
+      const detail = await http(`/agent-sessions/${id}`);
+      return detail.session?.status === 'idle' ? detail : false;
+    }, 'compaction seed terminal', 75_000);
+    const mid = await http(`/agent-sessions/${id}/messages?limit=50`);
+    const db = new Database(`${sandbox}/rhythm.db`);
+    try { db.prepare('UPDATE agent_sessions SET provider_id = ?, model_id = ? WHERE id = ?').run('s0', 's0-local', id); }
+    finally { db.close(); }
+    await http(`/agent-sessions/${id}/summarize`, 'POST');
+    await until(() => frames.find((frame) => frame.type === 'session.compacted'), 'session.compacted', 75_000);
+    await delay(400);
+    const final = await http(`/agent-sessions/${id}/messages?limit=50`);
+    assertWire(frames, id, session.sdkSessionId);
+    const providerStatus = await fetch('http://127.0.0.1:6996/_s0/status').then((response) => response.json());
+    const hits = providerStatus.hits.filter((hit) => hit.scenario === name);
+    assert(hits.some((hit) => hit.summaryRequest === true), 'compaction summary reached provider');
+    const finalParts = final.messages?.flatMap((message) => message.parts ?? []) ?? [];
+    assert(finalParts.some((part) => part.type === 'compaction'), 'persisted compaction part');
+    assert(finalParts.some((part) => part.type === 'text' && part.text?.includes('Synthetic compacted summary for issue 1582.')), 'persisted summary');
+    const evidence = { kind: 'captured', sourceCommit: command('git', ['rev-parse', 'HEAD']).trim(), scenario: name,
+      captureCommand: 'node apps/web/tests/live/capture-transcript-frames.mjs --b4-only',
+      sanitization: { 'session.id': 'preserved synthetic runtime ID', bearer: 'omitted at source',
+        prompt: 'generated S0 marker only', urls: 'loopback only' },
+      ids: { local: id, sdk: session.sdkSessionId }, frames, mid, final,
+      expectedFinal: 'Synthetic compacted summary for issue 1582.',
+      counts: { ws: frames.length, mid: mid.messages?.length, final: final.messages?.length },
+      provider: { hits, disconnects: providerStatus.disconnects } };
+    writeFileSync(resolve(output, 'compaction.jsonl'), `${JSON.stringify(evidence)}\n`);
+    results[name] = { status: 'PASS', ws: frames.length, mid: mid.messages?.length, final: final.messages?.length };
+  } finally {
+    ws.close();
+    await http(`/agent-sessions/${id}/hard`, 'DELETE').catch(() => {});
+  }
+}
 try {
   for (const port of ports) {
     const check = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN'], { encoding: 'utf8' });
@@ -218,7 +335,7 @@ try {
   const config = JSON.parse(readFileSync(`${fixtureRoot}/opencode.json`, 'utf8'));
   config.mcp.rhythm.environment.RHYTHM_API_URL = base;
   config.provider = { s0: { npm: '@ai-sdk/openai-compatible', name: 'S0 local', models: {
-    's0-local': { id: 's0-local', name: 'S0 local', attachment: false, reasoning: true,
+    's0-local': { id: 's0-local', name: 'S0 local', attachment: true, reasoning: true,
       temperature: false, tool_call: true, release_date: '2025-01-01', limit: { context: 100000, output: 10000 },
       cost: { input: 0, output: 0 }, capabilities: { reasoning: true, toolcall: true,
         interleaved: { field: 'reasoning_content' } } },
@@ -235,13 +352,15 @@ try {
   await until(async () => fetch('http://127.0.0.1:6996/_s0/status').then((r) => r.ok).catch(() => false), 'local provider');
   command('tools/dev/sandbox.sh', ['up']); started = true;
   mkdirSync(output, { recursive: true });
-  for (const name of names) {
-    try { await capture(name); }
+  for (const name of b4Only ? b4Names : names) {
+    try {
+      if (name === 'compaction') await captureCompaction();
+      else if (name === 'attachment-only' || name === 'attachment-mixed') await captureAttachment(name);
+      else await capture(name);
+    }
     catch (error) { results[name] = { status: 'BLOCKED', reason: String(error) }; }
     console.log(`${name}: ${JSON.stringify(results[name])}`);
   }
-  results.compaction = { status: 'BLOCKED', reason: 'No bounded scripted compaction trigger without product changes' };
-  results.attachments = { status: 'BLOCKED', reason: 'No approved synthetic attachment fixture or entry-point qualification' };
   writeFileSync(resolve(output, 'capture-results.json'), `${JSON.stringify(results, null, 2)}\n`);
   verifySaved();
   if (stderr) console.error(`Provider stderr: ${stderr.slice(0, 500)}`);

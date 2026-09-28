@@ -284,7 +284,7 @@ function PendingApprovalBanner({ sessionId }: { sessionId: string }) {
 
 type ReadingPosition = {
   top: number; pinned: boolean; anchor?: string; offset: number;
-  latest?: TranscriptMessage; unread: boolean;
+  firstId?: string; latestId?: string; revision?: string; unread: boolean; restorePending?: boolean; wheelUnpinned?: boolean;
 };
 
 export function Transcript() {
@@ -303,6 +303,14 @@ export function Transcript() {
   const key = liveChildView ? `child:${liveChildView.parentId}:${liveChildView.childId}` : `session:${selected.id}`;
   const reasoningScope = liveChildView ? `${liveChildView.parentId}/${liveChildView.childId}` : selected.id;
   const messages = liveChildView?.messages ?? selected.messages;
+  const contentRevision = messages.map((rawMessage) => {
+    const message = rawMessage as RichTranscriptMessage;
+    return `${message.id}:${message.interrupted ? 1 : 0}:${message.cost ?? ''}:${message.tokens?.input ?? ''}:${message.tokens?.output ?? ''}:${message.tokens?.cache?.read ?? ''}:${message.tokens?.cache?.write ?? ''}:${message.blocks.map((rawBlock) => {
+      const block = rawBlock as RichTranscriptBlock;
+      const tool = block.tool;
+      return `${block.id}:${block.kind}:${block.title ?? ''}:${block.content}:${block.meta ?? ''}:${block.streaming ? 1 : 0}:${tool?.name ?? ''}:${tool?.status ?? ''}:${tool ? canonicalText(tool.input) : ''}:${tool ? canonicalText(tool.output) : ''}:${tool ? canonicalText(tool.metadata) : ''}:${tool ? canonicalText(tool.error) : ''}`;
+    }).join('|')}:${message.attachments?.map((attachment) => `${attachment.id}:${attachment.filename}:${attachment.truncated ? 1 : 0}`).join('|') ?? ''}`;
+  }).join('\n');
   const [newOutput, setNewOutput] = useState(false);
   const reasoningStates = useRef(new Map<string, boolean>());
   const [, setReasoningStateVersion] = useState(0);
@@ -318,7 +326,7 @@ export function Transcript() {
     const top = el.getBoundingClientRect().top;
     const first = [...el.querySelectorAll<HTMLElement>('[data-message-id]')].find((item) => item.getBoundingClientRect().bottom > top);
     position.top = el.scrollTop;
-    position.pinned = el.scrollHeight - el.clientHeight - el.scrollTop <= 48;
+    position.pinned = !position.wheelUnpinned && el.scrollHeight - el.clientHeight - el.scrollTop <= 48;
     position.anchor = first?.dataset.messageId;
     position.offset = first ? first.getBoundingClientRect().top - top : 0;
     if (position.pinned) { position.unread = false; setNewOutput(false); }
@@ -335,12 +343,25 @@ export function Transcript() {
   useLayoutEffect(() => {
     const changedSession = activeKey.current !== key;
     const position = positions.current.get(key) ?? { top: 0, pinned: true, offset: 0, unread: false };
+    if (changedSession) position.restorePending = true;
+    const first = messages.at(0);
     const latest = messages.at(-1);
-    if (!changedSession && position.latest && latest && position.latest !== latest && !position.pinned) position.unread = true;
-    position.latest = latest;
+    const oldFirstIndex = position.firstId ? messages.findIndex((message) => message.id === position.firstId) : -1;
+    const oldLatestIndex = position.latestId ? messages.findIndex((message) => message.id === position.latestId) : -1;
+    const prepended = !changedSession && Boolean(position.firstId && first && position.firstId !== first.id && oldFirstIndex > 0);
+    const appended = !changedSession && Boolean(position.latestId && latest && position.latestId !== latest.id && oldLatestIndex >= 0 && oldLatestIndex < messages.length - 1);
+    if (first && latest) {
+      if (!position.restorePending && position.revision !== undefined && position.revision !== contentRevision && !position.pinned && (!prepended || appended)) position.unread = true;
+      position.firstId = first.id;
+      position.latestId = latest.id;
+      position.revision = contentRevision;
+    }
     positions.current.set(key, position);
     activeKey.current = key;
-    restore(position);
+    if (first && (position.restorePending || position.pinned || prepended)) {
+      restore(position);
+      position.restorePending = false;
+    }
     setNewOutput(position.unread);
   });
   useLayoutEffect(() => {
@@ -348,7 +369,7 @@ export function Transcript() {
     if (!el) return;
     const observer = new ResizeObserver(() => {
       const position = positions.current.get(activeKey.current);
-      if (position) restore(position);
+      if (position?.pinned) restore(position);
     });
     observer.observe(el);
     if (el.firstElementChild) observer.observe(el.firstElementChild);
@@ -357,7 +378,7 @@ export function Transcript() {
   const jumpToLatest = () => {
     const position = positions.current.get(key);
     if (!position) return;
-    position.pinned = true; position.unread = false;
+    position.pinned = true; position.unread = false; position.wheelUnpinned = false;
     restore(position);
     setNewOutput(false);
     viewport.current?.focus({ preventScroll: true });
@@ -395,8 +416,8 @@ export function Transcript() {
   // it is never selected into `sessions`, so the child's SDK id never becomes a local id.
   if (liveChildView) return (
     <section className="transcript" aria-label={`${liveChildView.title} · child transcript`} data-testid="transcript">
-      {liveChildView.messages.map((message) => <article className={`message ${message.role}`} key={message.id} data-message-id={message.id} tabIndex={-1} data-testid={`message-${message.id}`}>
-        <header><span className="message-role">{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Rhythm agent' : 'Session'}</span><Timestamp value={message.createdAt} /></header>
+      {liveChildView.messages.map((message) => <article className={`message ${message.role}`} key={message.id} data-message-id={message.id} tabIndex={-1} data-testid={`message-${message.id}`} aria-busy={message.blocks.some((block) => block.streaming) || undefined}>
+        <header><span className="message-role">{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Rhythm agent' : 'Session'}</span><Timestamp value={message.createdAt} />{message.interrupted && <span className="message-interrupted">Interrupted</span>}</header>
         <div className="message-blocks">{message.blocks.map(richBlock)}</div>
         <MessageUsage message={message} /><button type="button" onClick={() => void copyMessage(message)} data-testid={`copy-${message.id}`}>Copy</button>
       </article>)}
@@ -415,8 +436,8 @@ export function Transcript() {
       {selected.status === 'error' && selected.statusMessage && <p role="alert">{selected.statusMessage}</p>}
       {(selected.permission?.status === 'pending' || selected.question?.status === 'pending') && <div className="pending-trigger-banner" role="status"><span className="status-dot waiting" />Agent paused · {selected.permission?.status === 'pending' ? 'permission required before the tool can continue' : 'answer required before the plan can continue'}</div>}
       {selected.revertedMessageId && <div className="reverted-banner" role="status" data-testid="reverted-banner"><Icon name="undo" /><span>History is reverted at message {selected.revertedMessageId}. The retained transcript remains readable; restore to use it again.</span><button className="secondary-button" type="button" onClick={() => void unrevertSession(selected.id)} data-testid="unrevert">Restore history</button></div>}
-      {selected.messages.map((message) => <article id={`agent-message-${message.id}`} className={`message ${message.role}`} key={message.id} data-message-id={message.id} tabIndex={-1} data-testid={`message-${message.id}`}>
-        <header><span className="message-role">{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Rhythm agent' : 'Session'}</span><Timestamp value={message.createdAt} /></header>
+      {selected.messages.map((message) => <article id={`agent-message-${message.id}`} className={`message ${message.role}`} key={message.id} data-message-id={message.id} tabIndex={-1} data-testid={`message-${message.id}`} aria-busy={message.blocks.some((block) => block.streaming) || undefined}>
+        <header><span className="message-role">{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Rhythm agent' : 'Session'}</span><Timestamp value={message.createdAt} />{message.interrupted && <span className="message-interrupted">Interrupted</span>}</header>
         <div className="message-blocks">{message.blocks.map(richBlock)}</div>
         <MessageUsage message={message} />
         {message.attachments && message.attachments.length > 0 && <div className="message-attachments">{message.attachments.map((attachment) => <span key={attachment.id}><Icon name={attachment.type === 'file' ? 'command' : 'file'} size={13} />{attachment.filename}{attachment.truncated ? ' · first 100 KB' : ''}</span>)}</div>}
@@ -431,5 +452,5 @@ export function Transcript() {
     </section>
   );
   };
-  return <><div className="transcript-scroll" ref={viewport} onScroll={remember} role="region" tabIndex={0} aria-label="Transcript reading area">{renderContent()}{sessionGatewayMode === 'live' && !liveChildView && <>{[...pending.permissions.values()].map(permission => <LivePermissionCard key={`${selected.id}:${permission.permissionID}`} sessionId={selected.id} permission={permission} />)}{[...pending.questions.values()].map(question => <LiveQuestionCard key={`${selected.id}:${question.requestId}`} sessionId={selected.id} question={question} />)}</>}</div>{newOutput && <button className="primary-button transcript-new-output" type="button" onClick={jumpToLatest}>New output</button>}</>;
+  return <><div className="transcript-scroll" ref={viewport} onScroll={remember} onWheel={(event) => { const position = positions.current.get(activeKey.current); if (!position) return; if (event.deltaY < 0) { position.wheelUnpinned = true; position.pinned = false; } else if (event.deltaY > 0) position.wheelUnpinned = false; }} role="region" tabIndex={0} aria-label="Transcript reading area">{renderContent()}{sessionGatewayMode === 'live' && !liveChildView && <>{[...pending.permissions.values()].map(permission => <LivePermissionCard key={`${selected.id}:${permission.permissionID}`} sessionId={selected.id} permission={permission} />)}{[...pending.questions.values()].map(question => <LiveQuestionCard key={`${selected.id}:${question.requestId}`} sessionId={selected.id} question={question} />)}</>}</div>{newOutput && <button className="primary-button transcript-new-output" type="button" onClick={jumpToLatest}>New output</button>}</>;
 }

@@ -4,7 +4,7 @@ repo: Rhythm
 branch: mega/2026-09-18-mobile-electron-hermes
 pr: 1544
 issues: [task-bot-crossing-open-rhythm-session]
-status: automated-pass-manual-smoke-pending
+status: pushed-draft-pr-1544-automated-pass-manual-smoke-pending
 tags: [run, Rhythm]
 ---
 
@@ -89,6 +89,7 @@ Evidence update validation:
 - Full Colony Playwright clean environment:
   `env -i HOME=/private/tmp/rhythm-bot-open-sandbox/home TMPDIR=/private/tmp/rhythm-bot-open-sandbox/tmp PATH=/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin PLAYWRIGHT_BROWSERS_PATH=/Users/ajhochhalter/Library/Caches/ms-playwright /bin/zsh -f -c 'npm exec -- playwright test --config tests/pages/colony-playwright.config.ts'`
   — first run had one transient pre-existing full-bleed geometry failure (29 passed); isolated retry passed, then the full confirmation run **passed 30/30**.
+- Verified feature commit `97c0f216` is pushed to draft PR #1544. Automated verification is **PASS**.
 - Session-link routing:
   `npm exec -- playwright test --config tests/gateway/session-opening-playwright.config.ts`
   in the same clean environment — **13 passed**, including `agentSessionLinkFromHash` selecting the exact local ID.
@@ -104,6 +105,8 @@ This evidence-only update did not run package commands or launch the live app. T
 ## Manual smoke pending
 
 After swapping to the packaged candidate, click **Open** on a Rhythm bot in Bot Crossing; the Agents tab must open the exact corresponding local session exactly once.
+
+**Handoff:** Packaged manual smoke remains **PENDING**.
 
 ## Notes
 

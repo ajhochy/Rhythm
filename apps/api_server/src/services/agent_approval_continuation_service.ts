@@ -114,6 +114,21 @@ export class AgentApprovalContinuationService {
           scope.model,
           session.cwd,
           promptOptions,
+          undefined,
+          undefined,
+          {
+            sessionId: session.id,
+            sdkSessionId,
+            origin: 'approval_continuation',
+            requestedSource: 'agent_config',
+            requestedProviderId: scope.model?.providerID ?? null,
+            requestedModelId: scope.model?.modelID ?? null,
+            resolvedProviderId: scope.model?.providerID ?? null,
+            resolvedModelId: scope.model?.modelID ?? null,
+            routeAuthed: null,
+            finalProviderId: scope.model?.providerID ?? null,
+            finalModelId: scope.model?.modelID ?? null,
+          },
         );
         if (accepted) {
           this.approvals.markContinuationDelivered(approval.id);
