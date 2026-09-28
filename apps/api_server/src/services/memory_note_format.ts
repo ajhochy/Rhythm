@@ -449,6 +449,31 @@ export function validateNoteSources(
   };
 }
 
+const MEMORY_TITLE_MAX_LENGTH = 80;
+// Sentence-ish boundaries: a period/question/exclamation/colon followed by
+// whitespace, or end of string. Colon is included because many memory notes
+// read as "topic: detail" (e.g. "ProPresenter build method: ...").
+const MEMORY_TITLE_BOUNDARY = /[.!?:](?:\s|$)/;
+
+/**
+ * Derives a short, human-scannable title for a memory row. Notes have no
+ * frontmatter `title` field (see NoteFrontmatter above) and a first markdown
+ * heading is rare in practice, so this falls back to the first sentence of
+ * `content`. The vault's own `sourceId` slug (see `slugForNote` in
+ * memoryVaultWriteService.ts) is itself just a truncated, punctuation-stripped
+ * copy of `content` — humanizing it would only reproduce a worse version of
+ * this same fallback, so it is not a separate branch here.
+ */
+export function deriveMemoryTitle(content: string): string {
+  const trimmed = content.trim();
+  const heading = /^#{1,6}[ \t]+(.+)$/m.exec(trimmed)?.[1]?.trim();
+  const candidate = heading || trimmed.split(MEMORY_TITLE_BOUNDARY)[0].trim() || trimmed;
+  if (candidate.length <= MEMORY_TITLE_MAX_LENGTH) return candidate;
+  const cut = candidate.slice(0, MEMORY_TITLE_MAX_LENGTH);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${lastSpace > 0 ? cut.slice(0, lastSpace) : cut}…`;
+}
+
 export function trustTier(
   frontmatter: Record<string, unknown>,
 ): MemoryTrustTier {

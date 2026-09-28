@@ -19,6 +19,7 @@ import { ColumnBrowser, type BrowserColumn } from './ColumnBrowser';
 import { FocusDialog } from './FocusDialog';
 import { ListInspector, useSelectedId } from './ListInspector';
 import { navigate } from './Shell';
+import { SafeMarkdown } from './SafeMarkdown';
 import { FixtureAgentSettingsTool, LiveSettingsTool } from './tools/AgentSettingsTool';
 import { SharedAgentsTool } from './tools/SharedAgentsTool';
 import './ToolWorkspace.css';
@@ -247,6 +248,17 @@ function LiveBrainTool() {
   const sources = selected ? parseJsonArray<{ id?: string; title?: string }>(selected.sourcesJson) : [];
   const verified = selected ? parseJsonArray<{ by?: string; at?: string }>(selected.verifiedJson) : [];
 
+  // Older servers may not send a derived title yet; fall back to raw content so the row still renders.
+  const memoryTitle = (memory: AgentMemory) => memory.title || memory.content;
+  // Everything after the title in `content` — a short lead-in for the row's muted secondary line.
+  // The title is a prefix of content (a heading line, or content up to the first sentence break),
+  // so stripping it plus its trailing punctuation gives the rest of the thought.
+  const memoryLead = (memory: AgentMemory) => {
+    const title = memoryTitle(memory).replace(/…$/, '');
+    const remainder = memory.content.startsWith(title) ? memory.content.slice(title.length) : '';
+    return remainder.replace(/^[\s:.!?]+/, '').split('\n')[0].trim();
+  };
+
   const typesColumn: BrowserColumn = {
     kind: 'list', key: 'types', label: 'Types', testId: 'brain-column-types',
     items: memoryKindFilters.map(([value, label]) => {
@@ -261,8 +273,8 @@ function LiveBrainTool() {
   const memoriesColumn: BrowserColumn = {
     kind: 'list', key: 'memories', label: 'Memories', testId: 'brain-column-memories', resizeKey: 'layout.list-inspector.brain-memories', stackedRows: true,
     items: error ? [] : visible.map((memory) => ({
-      id: memory.id, title: memory.content,
-      subtitle: [memory.kind, memory.lifecycleState ?? memory.status, formatTimestamp(memory.updatedAt)?.label].filter(Boolean).join(' · '),
+      id: memory.id, title: memoryTitle(memory),
+      subtitle: [memoryLead(memory), memory.kind, memory.lifecycleState ?? memory.status, formatTimestamp(memory.updatedAt)?.label].filter(Boolean).join(' · '),
       testId: `memory-${memory.id}`,
     })),
     selectedId: effectiveId,
@@ -281,11 +293,15 @@ function LiveBrainTool() {
   const inspectorColumn: BrowserColumn = {
     kind: 'panel', key: 'inspector', label: 'Details', testId: 'brain-column-inspector', bodyTestId: 'brain-inspector-detail',
     children: selected ? <>
-      <header className="detail-header"><div><span className="kind-badge">{selected.kind}</span></div></header>
+      <header className="detail-header"><div><span className="kind-badge">{selected.kind}</span><h2>{memoryTitle(selected)}</h2></div></header>
+      <div className="memory-content" data-testid="brain-memory-content"><SafeMarkdown content={selected.content} /></div>
       <dl className="tool-properties">
         <div><dt>Status</dt><dd>{selected.lifecycleState ?? selected.status}</dd></div>
         <div><dt>Trust</dt><dd>{selected.trustTier}</dd></div>
         {tags.length > 0 && <div><dt>Tags</dt><dd>{tags.join(' · ')}</dd></div>}
+        {selected.sourceId && <div><dt>Source</dt><dd>{selected.sourceId}</dd></div>}
+        <div><dt>Created</dt><dd><Timestamp value={selected.createdAt} /></dd></div>
+        <div><dt>Updated</dt><dd><Timestamp value={selected.updatedAt} /></dd></div>
       </dl>
       {sources.length > 0 && <p className="memory-meta">Sources: {sources.map((source) => source.title ?? source.id).filter(Boolean).join(', ')}</p>}
       {verified.length > 0 && <p className="memory-meta">Verified by {verified.map((entry) => `${entry.by ?? 'unknown'}${entry.at ? ` at ${entry.at}` : ''}`).join(', ')}</p>}

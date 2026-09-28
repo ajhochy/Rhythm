@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  deriveMemoryTitle,
   formatActor,
   extractMemoryBodyLinks,
   isActive,
@@ -586,5 +587,26 @@ describe('MEM-OKF #1188 lifecycle and trust metadata', () => {
       { status: 'stable' },
       { status: 'draft' },
     ]).status).toBe('draft');
+  });
+});
+
+describe('deriveMemoryTitle', () => {
+  it('prefers a markdown heading over the first sentence', () => {
+    expect(deriveMemoryTitle('# Prefers dark theme\n\nBody detail here.')).toBe('Prefers dark theme');
+  });
+
+  it('cuts the first sentence at a colon, period, or question mark', () => {
+    expect(deriveMemoryTitle('Org Reviewer 409 is a payload-budget bug: static catalogs exceed its cap.'))
+      .toBe('Org Reviewer 409 is a payload-budget bug');
+    expect(deriveMemoryTitle('ProPresenter build method (verified 2026-09-24). Write .pro files over SMB.'))
+      .toBe('ProPresenter build method (verified 2026-09-24)');
+  });
+
+  it('falls back to a word-boundary truncation under 80 chars when there is no sentence break', () => {
+    const content = 'a'.repeat(40) + ' ' + 'b'.repeat(60);
+    const title = deriveMemoryTitle(content);
+    expect(title.length).toBeLessThanOrEqual(81); // 80 chars + ellipsis
+    expect(title.endsWith('…')).toBe(true);
+    expect(title).not.toContain('bbb'.repeat(20)); // did not cut mid-word into a longer run
   });
 });

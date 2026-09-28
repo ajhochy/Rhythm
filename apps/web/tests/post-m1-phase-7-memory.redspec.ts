@@ -40,7 +40,7 @@ test('post-m1-p7-c1a: live memory list and search round-trip the canonical persi
 
   await expect.poll(() => matching(seen, 'GET', '/agent-memory').length).toBeGreaterThan(0);
   await expect.poll(() => matching(seen, 'GET', '/agent-memory/search').length).toBeGreaterThan(0);
-  await expect(page.getByText(memory.content)).toBeVisible();
+  await expect(page.getByTestId(`memory-${memory.id}`)).toContainText(memory.content);
 });
 
 test('post-m1-p7-c1b: live memory renders canonical provenance verification lifecycle and trust fields', async ({ page }) => {
@@ -108,4 +108,41 @@ test('post-m1-p7-c1c: kind chips with counts, deprecated toggle, and load more p
   await expect(list.getByText('Deprecated summary canary')).toBeVisible();
   await expect(page.getByTestId('brain-kind-synthesis')).toContainText('1');
   expect(matching(seen, 'GET', '/agent-memory').some((r) => r.search.includes('includeDeprecated=true') && r.search.includes('kind=synthesis'))).toBe(true);
+});
+
+test('post-m1-p7-c1d: live memory row shows the derived title, not the whole content, and the inspector shows the full content', async ({ page }) => {
+  // Regression caught: the row title was the entire memory content, truncated and unreadable, and
+  // the inspector never rendered the content at all — only the detail fields.
+  const longContent = 'Root cause: the payload budget check multiplies transcript length by the wrong constant, so any session over 900 messages trips the 44KB cap even though the real body is well under it.';
+  const titled = { ...memory, id: 'memory-titled-1', content: longContent, title: 'Root cause: the payload budget check multiplies' };
+  const seen: SeenRequest[] = [];
+  await openPhase7Live(page, '/tools/brain', seen, async (route, request) => {
+    if (new URL(request.url()).pathname === '/agent-memory') {
+      await fulfillJson(route, 200, [titled]);
+      return true;
+    }
+    return false;
+  });
+
+  const row = page.getByTestId(`memory-${titled.id}`);
+  await expect(row.locator('strong')).toHaveText(titled.title);
+  await expect(row).not.toContainText(longContent);
+
+  await expect(page.getByTestId('brain-memory-content')).toContainText(longContent);
+});
+
+test('post-m1-p7-c1e: a memory row without a server-derived title falls back to its content', async ({ page }) => {
+  // Backward compatibility: an older server that has not shipped the `title` field yet.
+  const untitled = { ...memory, id: 'memory-untitled-1', content: 'Untitled fallback canary' };
+  delete (untitled as { title?: string }).title;
+  const seen: SeenRequest[] = [];
+  await openPhase7Live(page, '/tools/brain', seen, async (route, request) => {
+    if (new URL(request.url()).pathname === '/agent-memory') {
+      await fulfillJson(route, 200, [untitled]);
+      return true;
+    }
+    return false;
+  });
+
+  await expect(page.getByTestId(`memory-${untitled.id}`).locator('strong')).toHaveText(untitled.content);
 });

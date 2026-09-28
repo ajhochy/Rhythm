@@ -6,6 +6,8 @@ export interface AgentMemory {
   id: string;
   kind: string;
   content: string;
+  /** Derived at read time server-side (see deriveMemoryTitle in memory_note_format.ts). */
+  title?: string;
   source: string | null;
   sourceId: string | null;
   tagsJson: string;

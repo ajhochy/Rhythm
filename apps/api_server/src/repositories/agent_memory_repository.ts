@@ -1,15 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { getDb, getPostgresPool } from '../database/db';
 import { env } from '../config/env';
-import type {
-  MemoryStatus,
-  MemoryTrustTier,
+import {
+  deriveMemoryTitle,
+  type MemoryStatus,
+  type MemoryTrustTier,
 } from '../services/memory_note_format';
 
 export interface AgentMemory {
   id: string;
   kind: string;
   content: string;
+  /** Derived at read time (see deriveMemoryTitle) — never stored, no schema change. */
+  title?: string;
   source: string | null;
   sourceId: string | null;
   tagsJson: string;
@@ -73,6 +76,7 @@ function rowToModel(row: Record<string, unknown>): AgentMemory {
     id: row.id as string,
     kind: (row.kind as string) ?? 'fact',
     content: row.content as string,
+    title: deriveMemoryTitle(row.content as string),
     source: (row.source as string | null) ?? null,
     sourceId: (row.source_id as string | null) ?? null,
     tagsJson: (row.tags_json as string) ?? '[]',
