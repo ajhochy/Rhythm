@@ -40,3 +40,10 @@ tags: [run, rhythm]
 - Not verified live: engine resize (fork build command denied; needs a rebuild), mobile compression (needs a new mobile build for expo-image-manipulator).
 - DB file still 5.6 GB until VACUUM (app closed).
 - Pre-existing failures: api native_runtime_guard; mobile issue-1387 offline contract ×4 (fail without these changes).
+
+## Rebuild at ca211da9 (Electron 40.10.2)
+- Landed: research magazine artifact/Ask/versions (760f8deb, 2cbe7084), MIT/notices/README (b2e57439), save-dialog typing (ca25bdcc), MCP inspector header facts (ca211da9).
+- Worktree `apps/electron/node_modules` symlink unlinked, `npm ci` → Electron 40.10.2. Hermes/Colony artifacts reused from the prior bundle (both electronMajor 40; Colony node 22.23.0).
+- package:mac → sign-only Developer ID (Team 56Q69NYP9H). Launch: API 200 + engine 200 in 9 s; engine `0.0.0-rhythm-ca211da9…`; `/opencode/mcp` serves transport + usedByProfiles.
+- EAS iOS production build 0a389102-e0e9-44ad-801d-3b7498fcc766; auto-submit to TestFlight queued on finish.
+- Open: OpenMontage is AGPL-3.0; bundled Node binary ships without its LICENSE; engine `/mcp/tools` exposes ids only (per-tool descriptions need a fork change).
