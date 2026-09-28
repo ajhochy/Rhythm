@@ -35,14 +35,35 @@ const repo = new AgentConfigsRepository();
  * config cache. Reload it after a successful projection without making the
  * already-persisted profile write depend on engine availability.
  */
-async function reloadAgentProfilesBestEffort(): Promise<void> {
-  try {
-    if (!(await opencodeClient.reloadConfig())) {
-      logger.warn('[AgentConfigsController] agent-profile config reload did not complete');
-    }
-  } catch (err) {
-    logger.warn(`[AgentConfigsController] agent-profile config reload failed: ${String(err)}`);
-  }
+// The engine reload re-lists every MCP server's prompts; one unresponsive server (e.g. a
+// hung stdio MCP) holds it for its ~60s request timeout. A save waits at most this long, the
+// reload finishes in the background, and saves arriving meanwhile coalesce into one follow-up.
+export const PROFILE_RELOAD_WAIT_MS = 2_000;
+let reloadInFlight: Promise<void> | null = null;
+let reloadAgain = false;
+
+function runProfileReload(): Promise<void> {
+  reloadInFlight = (async () => {
+    do {
+      reloadAgain = false;
+      try {
+        if (!(await opencodeClient.reloadConfig())) {
+          logger.warn('[AgentConfigsController] agent-profile config reload did not complete');
+        }
+      } catch (err) {
+        logger.warn(`[AgentConfigsController] agent-profile config reload failed: ${String(err)}`);
+      }
+    } while (reloadAgain);
+  })().finally(() => { reloadInFlight = null; });
+  return reloadInFlight;
+}
+
+export async function reloadAgentProfilesBestEffort(waitMs = PROFILE_RELOAD_WAIT_MS): Promise<void> {
+  // A save during an in-flight reload must still reach the engine: request one more pass.
+  const reload = reloadInFlight ? (reloadAgain = true, reloadInFlight) : runProfileReload();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([reload, new Promise<void>((resolve) => { timer = setTimeout(resolve, waitMs); })]);
+  clearTimeout(timer);
 }
 
 /**
