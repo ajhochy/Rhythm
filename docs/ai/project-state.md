@@ -6,7 +6,7 @@ Complete the unfinished Rhythm scope in draft mega PR #1544: Bot Crossing inside
 
 ## Current branches
 
-Rhythm integration: `mega/2026-09-18-mobile-electron-hermes`, `.mega-wt/integration`, [PR #1544](https://github.com/ajhochy/Rhythm/pull/1544), product HEAD `a4e7b506`. Current completion work is on `codex/finish-1576-1582`; changes are verified locally but not committed or pushed.
+Rhythm integration: `mega/2026-09-18-mobile-electron-hermes`, `.mega-wt/integration`, [draft PR #1544](https://github.com/ajhochy/Rhythm/pull/1544), product HEAD `a4e7b506`. Completion work is on `codex/finish-1576-1582` at HEAD `83dc468a`, confirmed equal to the remote mega head. Pushed commits: `ca651a34` (Complete routed-model provenance), `373c84d4` (Complete Electron transcript streaming), and `83dc468a` (Record provenance and transcript completion); no force push, merge, deployment, or release.
 
 Hermes clean integration: `/private/tmp/hermes-shared-integration`, `db0cba2d3c`, companion draft PR17. Bot Crossing: `/private/tmp/bot-crossing-colony-artifact`, `569cf72`, companion draft PR5. Neither latest companion source is yet pinned into the Rhythm artifact.
 
@@ -20,8 +20,8 @@ Hermes clean integration: `/private/tmp/hermes-shared-integration`, `db0cba2d3c`
 - Org Reviewer context-budget repair is verified and pushed as `a73905de` on draft PR #1544: focused/full tests, API build, signed live sandbox, health, and teardown passed; no merge or deployment occurred.
 - Bot Crossing session opening is verified and pushed as `97c0f216` on draft PR #1544; packaged manual smoke remains pending.
 - Profile allowed-skills management is verified and pushed as `6f78fe68` on draft PR #1544; AJ-deferred manual shipping smoke remains pending.
-- #1576 is complete locally: the trusted served-stamp/forgery guard, production dispatch ledgers, projection linkage, concrete OpenRouter model/gen-id proof, restart durability, and cleanup are verified. Full clean API: 6,680 passed; the existing unrelated fork permission test remains pre-existing.
-- #1582 automated completion is verified: native wheel/unread/anchor behavior, interruption/aria-busy, production hydration, ten live local captures including compaction and attachments, E52A 11/11, browser 15/15, reducer 34/34, and web typecheck/build/dist all pass. Installed-app transcript smoke B7 remains AJ-deferred and pending; this is not merge-ready.
+- #1576 is complete and pushed to draft PR #1544 in `ca651a34`: the trusted served-stamp/forgery guard, production dispatch ledgers, projection linkage, concrete OpenRouter model/gen-id proof, restart durability, and cleanup are verified. Full clean API: 6,680 passed; the existing unrelated fork permission test remains pre-existing.
+- #1582 automated completion is pushed to draft PR #1544 in `373c84d4`: native wheel/unread/anchor behavior, interruption/aria-busy, production hydration, ten live local captures including compaction and attachments, E52A 11/11, browser 15/15, reducer 34/34, and web typecheck/build/dist all pass. Installed-app transcript smoke B7 remains AJ-deferred and pending; this is not merge-ready.
 - Required final sandbox teardown succeeded; the sandbox was removed and diagnostics were preserved at `/private/tmp/rhythm-finish-partials-sandbox-20260927.evidence.C2M6AP`.
 - #1572 preserved direct-provider candidate still has an unresolved availability defect and is not integrated. #1540 workspace UI port remains unfinished.
 

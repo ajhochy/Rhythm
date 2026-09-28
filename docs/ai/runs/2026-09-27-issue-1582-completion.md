@@ -4,7 +4,7 @@ repo: Rhythm
 branch: codex/finish-1576-1582
 pr: 1544
 issues: [1582]
-status: manual-smoke-pending
+status: pushed-to-draft-pr-manual-smoke-pending
 tags: [run, Rhythm]
 ---
 
@@ -112,4 +112,4 @@ WAIVED: test-fixture and evidence-only repair with no product behavior change; v
 - #1576 compatibility gate repair used only the nine newly authorized API test files. First clean-env focused run: 8 files/64 tests passed with one stale DB-less AgentRunner provenance expectation; assertion-only repair followed. Exact rerun: 9 files/65 tests passed.
 - Full clean-env API suite: 709 files passed, 147 skipped; 6,680 tests passed, 284 skipped. Clean-env API build passed.
 - `issue-1576-completion.json` and `issue-1582-completion.json` parsed successfully; final `git diff --check` passed.
-- MANUAL-SMOKE-PENDING. Installed-app packaged Electron transcript smoke remains the sole explicit #1582 manual boundary; it was not performed. No image visual inspection occurred due provider limit; tracked screenshot metadata is nonzero. Required final sandbox teardown succeeded; the sandbox was removed and diagnostics were preserved at `/private/tmp/rhythm-finish-partials-sandbox-20260927.evidence.C2M6AP`. Current changes are not committed or pushed; target draft PR is #1544.
+- PUSHED-TO-DRAFT-PR-MANUAL-SMOKE-PENDING. Commit `373c84d4` completes Electron transcript streaming in draft PR #1544: https://github.com/ajhochy/Rhythm/pull/1544. Installed-app packaged Electron transcript smoke remains the sole explicit #1582 manual boundary; it was not performed, so this is not merge-ready. No image visual inspection occurred due provider limit; tracked screenshot metadata is nonzero. Required final sandbox teardown succeeded; the sandbox was removed and diagnostics were preserved at `/private/tmp/rhythm-finish-partials-sandbox-20260927.evidence.C2M6AP`. Follow-up recording commit `83dc468a` is also pushed; no force push, merge, deployment, or release.

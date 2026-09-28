@@ -4,7 +4,7 @@ repo: rhythm
 branch: codex/finish-1576-1582
 pr: 1544
 issues: [1576]
-status: verified-local
+status: pushed-to-draft-pr
 tags: [run, rhythm]
 ---
 
@@ -44,7 +44,7 @@ tags: [run, rhythm]
 - Live OpenRouter assertions proved the routed alias differed from the concrete served model and the response ID matched `^gen-`; no identifier value was printed or recorded.
 - Safe synthetic resolver/redispatch suites cover fallback and budget behavior. No production-only budget knob was fabricated; no additional provider credential was used.
 - Existing slim Inspector remains unchanged; no dispatch-history UI was added.
-- VERIFIED-LOCAL. Residual unrelated gate: the fork's existing `httpapi-session.test.ts` permission response case remains red as documented above. Current changes are not committed or pushed; target draft PR is #1544.
+- PUSHED-TO-DRAFT-PR. Commit `ca651a34` completes routed-model provenance in draft PR #1544: https://github.com/ajhochy/Rhythm/pull/1544. Residual unrelated gate: the fork's existing `httpapi-session.test.ts` permission response case remains red as documented above. Follow-up recording commit `83dc468a` is also pushed; no force push, merge, deployment, or release.
 
 ## Integrated repair attempt 1
 
