@@ -110,6 +110,8 @@ export function buildEnvironment({ baseEnv, port, enginePort, dbPathValue, human
   env.DB_PATH = dbPathValue;
   env.AGENT_LOCAL = 'true';
   env.RHYTHM_LOCAL_RENDERER_ORIGINS = 'rhythm://app';
+  // Research Projects are on for the Electron desktop; an explicit caller value still wins.
+  if (!Object.hasOwn(baseEnv, 'RHYTHM_RESEARCH_PROJECTS_ENABLED')) env.RHYTHM_RESEARCH_PROJECTS_ENABLED = 'true';
   env.HUMAN_APPROVAL_PUBLIC_KEY = humanApprovalPublicKey;
   env.HUMAN_APPROVAL_CAPABILITY_SHA256 = humanApprovalCapabilitySha256;
   if (typeof bridgeRegistrarSha256 === 'string' && /^[a-f0-9]{64}$/.test(bridgeRegistrarSha256)) {

@@ -191,3 +191,9 @@ test('post-m1-p7-c4d agent-server: findServerEntry resolves the real apps/api_se
 test('post-m1-p7-c4d agent-server: checkHealth is false for a port nothing listens on', async () => {
   assert.equal(await checkHealth('http://127.0.0.1:65000'), false);
 });
+
+test('agent-server: buildEnvironment turns Research Projects on unless the caller set the flag', () => {
+  const base = { port: 4098, enginePort: 4097, dbPathValue: '/tmp/r.db', humanApprovalPublicKey: 'k', humanApprovalCapabilitySha256: 'h', mcpRolesDir: undefined };
+  assert.equal(buildEnvironment({ ...base, baseEnv: {} }).RHYTHM_RESEARCH_PROJECTS_ENABLED, 'true');
+  assert.equal(buildEnvironment({ ...base, baseEnv: { RHYTHM_RESEARCH_PROJECTS_ENABLED: 'false' } }).RHYTHM_RESEARCH_PROJECTS_ENABLED, 'false');
+});

@@ -27,6 +27,7 @@ import {
   type ResearchProjectRun,
 } from '../repositories/agent_research_repository';
 import { logger } from '../utils/logger';
+import { findSolePairedUserId } from '../repositories/mobile_devices_repository';
 import { writeGenericResearchReport } from '../services/generic_research_report';
 import * as AgentRunner from '../services/agent_runner';
 import { ResearchProjectOrchestrator } from '../services/research_project_orchestrator';
@@ -57,7 +58,10 @@ function emitProjectUpdate(run: ResearchProjectRun): void {
 }
 
 function projectOwner(req: Request): number {
-  const owner = req.auth?.user.id;
+  // Same rule as tokenless local session creation: the loopback desktop belongs to the one user
+  // in this Mac's pairing history; with none (or several) the request stays unowned and fails.
+  const owner = req.auth?.user.id ??
+    (env.agentLocal && env.dbClient === 'sqlite' ? findSolePairedUserId(getDb()) ?? undefined : undefined);
   if (owner === undefined) throw AppError.unauthorized('Research projects require an authenticated owner');
   return owner;
 }
