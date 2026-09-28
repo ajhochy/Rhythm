@@ -278,7 +278,14 @@ export async function scanVaultNotes(vaultPath: string): Promise<ScannedNote[]> 
     }
     const parsed = parseNote(raw);
     // birthtime is epoch 0 on filesystems that do not record it → fall back to mtime.
-    const born = fileStat.birthtime.getTime() > 0 ? fileStat.birthtime : fileStat.mtime;
+    // birthtime later than mtime is also unreliable: macOS/APFS backdates birthtime
+    // when mtime is set earlier (e.g. via utimes), but Linux does not — there
+    // birthtime keeps the real file-creation instant, stranding it in the future
+    // relative to the mtime we intentionally backdated. Prefer mtime whenever it
+    // predates birthtime, since that's the more truthful "created" signal on Linux.
+    const born = fileStat.birthtime.getTime() > 0 && fileStat.birthtime.getTime() <= fileStat.mtime.getTime()
+      ? fileStat.birthtime
+      : fileStat.mtime;
     const createdAt = parsed.created ?? born.toISOString();
     notes.push({
       sourceId: rel,
