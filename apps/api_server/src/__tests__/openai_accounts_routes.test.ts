@@ -13,7 +13,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
-import { existsSync, rmSync } from 'fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 
 const ACCOUNTS_FILE = vi.hoisted(() => {
   const base = `${process.env.TMPDIR || '/tmp'}/rhythm-openai-accounts-routes-${process.pid}-${Math.random().toString(36).slice(2)}`;
@@ -91,7 +91,7 @@ describe('/opencode/auth/openai/accounts routes', () => {
     expect(url.searchParams.get('code_challenge_method')).toBe('S256');
   });
 
-  it('second account login keeps the first default and does not touch the engine; switching default pushes it', async () => {
+  it('second account login keeps the first default and does not touch the engine; switching default never rewrites auth.json', async () => {
     seed('first');
     const start = await fetch(`${baseUrl}/opencode/auth/openai/accounts/login-start`, { method: 'POST', ...json({ accountId: 'second', label: 'Personal' }) });
     const state = new URL(((await start.json()) as { authorizeUrl: string }).authorizeUrl).searchParams.get('state');
@@ -120,14 +120,18 @@ describe('/opencode/auth/openai/accounts routes', () => {
     expect(JSON.stringify(list)).not.toContain('SECRET');
     expect(engineStub.setOAuthCredentials).not.toHaveBeenCalled();
 
-    const sw = await fetch(`${baseUrl}/opencode/auth/openai/accounts/default`, { method: 'PATCH', ...json({ accountId: 'second' }) });
-    expect(await sw.json()).toEqual({ ok: true, defaultAccountId: 'second', engineUpdated: true });
-    expect(engineStub.setOAuthCredentials).toHaveBeenCalledWith('openai', {
-      access: 'ACCESS_SECRET',
-      refresh: 'REFRESH_SECRET',
-      expires: expect.any(Number),
-      accountId: 'ws-second',
-    });
+    // Engine already holds an openai oauth entry (the first account's seed).
+    const authDir = `${process.env.HOME}/.local/share/opencode`;
+    mkdirSync(authDir, { recursive: true });
+    writeFileSync(`${authDir}/auth.json`, JSON.stringify({ openai: { type: 'oauth', access: 'x', refresh: 'refresh-first', expires: 1 } }));
+    try {
+      const sw = await fetch(`${baseUrl}/opencode/auth/openai/accounts/default`, { method: 'PATCH', ...json({ accountId: 'second' }) });
+      expect(await sw.json()).toEqual({ ok: true, defaultAccountId: 'second', engineUpdated: true });
+      // Per-request routing: no auth.json write → no watcher-driven engine restart.
+      expect(engineStub.setOAuthCredentials).not.toHaveBeenCalled();
+    } finally {
+      rmSync(`${authDir}/auth.json`);
+    }
   });
 
   it('first account login becomes default and is pushed to the engine', async () => {
@@ -155,7 +159,7 @@ describe('/opencode/auth/openai/accounts routes', () => {
     const list = (await (await fetch(`${baseUrl}/opencode/auth/openai/accounts`)).json()) as { accounts: { id: string }[]; defaultAccountId: string };
     expect(list.accounts.map((x) => x.id)).toEqual(['b']);
     expect(list.defaultAccountId).toBe('b');
-    // Removed the default → engine re-pointed at the new default.
-    expect(engineStub.setOAuthCredentials).toHaveBeenCalledWith('openai', expect.objectContaining({ refresh: 'refresh-b' }));
+    // Removed the default → the new default applies per request; no engine write.
+    expect(engineStub.setOAuthCredentials).not.toHaveBeenCalled();
   });
 });

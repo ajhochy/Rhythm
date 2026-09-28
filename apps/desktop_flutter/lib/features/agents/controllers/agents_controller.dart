@@ -3508,6 +3508,14 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       // OPC-M3-5: todo.updated event — replace the session's todo state in-place.
       // State is keyed per session; an update for session B must not affect A.
       _sessionTodosBySession[msg.sessionId] = List.of(msg.todos);
+    } else if (msg is SessionSpilloverMessage && msg.providerId == 'openai') {
+      // OpenAI (ChatGPT) account failover: the badge tracks the Anthropic
+      // account only, so just announce it (the row refresh follows).
+      _notificationsController.pushAgentNotification(
+        id: DateTime.now().millisecondsSinceEpoch,
+        title: 'OpenAI account switched',
+        body: 'Session hit a rate limit — continued on "${msg.toAccountId}".',
+      );
     } else if (msg is SessionSpilloverMessage) {
       // Dual-account spillover: the engine failed this session over to the
       // other Anthropic account after a rate limit. Flip the badge and toast.

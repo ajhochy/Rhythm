@@ -2532,6 +2532,14 @@ export function runMigrations(db: Database.Database): void {
   if (!cfgColsForAcct.includes('default_anthropic_account_id')) {
     db.exec(`ALTER TABLE agent_configs ADD COLUMN default_anthropic_account_id TEXT`);
   }
+  // Multi-account OpenAI (ChatGPT/Codex) — the same pair for openai-accounts.json.
+  // Keep in sync with postgres_bootstrap.ts.
+  if (!sessColsForAcct.includes('openai_account_id')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN openai_account_id TEXT`);
+  }
+  if (!cfgColsForAcct.includes('default_openai_account_id')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN default_openai_account_id TEXT`);
+  }
   // One-time repair (runOnce): clears stale delegate rosters left on two
   // never-promoted profiles. Unguarded, this wiped a delegate a user grants
   // to a non-manager profile on every restart.

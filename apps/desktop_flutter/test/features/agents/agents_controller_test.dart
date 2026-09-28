@@ -1084,6 +1084,41 @@ void main() {
       expect(notifications.pushed.single.body, contains('personal'));
     });
 
+    test('OpenAI spillover notifies without touching the Anthropic badge',
+        () async {
+      final notifications = _FakeNotificationsController();
+      final localController = AgentsController(
+        fakeRepo,
+        _FakeAgentServerController(ready: true, anyAgent: true),
+        _FakeLocalNotificationService(),
+        notifications,
+      );
+      addTearDown(localController.dispose);
+      await localController.initialize();
+      fakeRepo.emit(
+        SessionCreatedMessage(
+          session: _makeSession('oa-sess', AgentSessionStatus.working),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      final parsed = AgentWsMessage.parse({
+        'v': 1,
+        'type': 'session.spillover',
+        'sessionId': 'oa-sess',
+        'fromAccountId': 'work',
+        'toAccountId': 'home',
+        'providerID': 'openai',
+      });
+      expect((parsed as SessionSpilloverMessage).providerId, 'openai');
+      fakeRepo.emit(parsed);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(localController.sessions.single.anthropicAccountId, isNull);
+      expect(notifications.pushed.single.title, 'OpenAI account switched');
+      expect(notifications.pushed.single.body, contains('home'));
+    });
+
     test(
       'spillover for an unknown session leaves other sessions untouched',
       () async {

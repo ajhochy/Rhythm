@@ -1458,6 +1458,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(`
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS model_tier_hint TEXT;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS default_anthropic_account_id TEXT;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS default_openai_account_id TEXT;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS auto_approve_actions INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS schedulable INTEGER;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS image_generation_enabled INTEGER NOT NULL DEFAULT 0;
@@ -1511,6 +1512,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS sdk_session_id TEXT;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS mcp_allowed_tools_json TEXT;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS anthropic_account_id TEXT;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS openai_account_id TEXT;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS worktree_name TEXT;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS worktree_path TEXT;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS worktree_branch TEXT;
@@ -1664,6 +1666,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
            scheduled_task_id = parent.scheduled_task_id,
            is_system = parent.is_system,
            anthropic_account_id = parent.anthropic_account_id,
+           openai_account_id = parent.openai_account_id,
            owner_user_id = parent.owner_user_id,
            delegation_depth = COALESCE(parent.delegation_depth, 0) + 1,
            category = parent.category,

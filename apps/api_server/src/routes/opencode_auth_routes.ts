@@ -294,10 +294,10 @@ function renameRoute(req: Request, res: Response, rename: (id: string, label: st
 }
 
 // ── Multi-account OpenAI (ChatGPT/Codex OAuth) ───────────────────────────────
-// Same shapes as the Anthropic routes above, under /openai/accounts. The
-// engine's codex plugin holds ONE global openai credential, so "default" is
-// the account the engine uses for every OpenAI request (no per-session
-// routing). Tokens never appear in responses.
+// Same shapes as the Anthropic routes above, under /openai/accounts. Like
+// Anthropic, the engine's codex plugin resolves the account per request from
+// openai-accounts.json (session routing → default), so switching the default
+// needs no engine write/restart. Tokens never appear in responses.
 
 const openaiOauth = new OpenAIOauthService(openaiAccountsService);
 
@@ -343,14 +343,14 @@ opencodeAuthRouter.post('/openai/accounts/login-complete', async (req: Request, 
     res.status(status).json({ error: result.reason, reason: result.reason });
     return;
   }
-  // Only the default is pushed; a second account leaves the engine's current login alone.
+  // Seeds auth.json only when the engine has no openai login yet (first account).
   if (openaiAccountsService.listRedacted().defaultAccountId === accountId) {
     await openaiAccountsService.pushDefaultToEngine(opencodeClient);
   }
   res.json({ account: redactOpenAI(accountId) });
 });
 
-// PATCH /openai/accounts/default {accountId} — switch which account the engine uses
+// PATCH /openai/accounts/default {accountId} — switch the global default (applies per request)
 opencodeAuthRouter.patch('/openai/accounts/default', async (req: Request, res: Response) => {
   const { accountId } = req.body as { accountId?: string };
   if (!accountId || !ACCOUNT_ID_RE.test(accountId)) {
@@ -363,7 +363,7 @@ opencodeAuthRouter.patch('/openai/accounts/default', async (req: Request, res: R
     return;
   }
   const engineUpdated = await openaiAccountsService.activate(opencodeClient, accountId);
-  // engineUpdated=false: engine not ready (boot pushes it) or account needs re-login.
+  // engineUpdated=false: engine not ready/seeded yet (boot seeds it) or account needs re-login.
   res.json({ ok: true, defaultAccountId: accountId, engineUpdated });
 });
 
@@ -371,7 +371,7 @@ opencodeAuthRouter.patch('/openai/accounts/:id', (req: Request, res: Response) =
   renameRoute(req, res, (id, label) => openaiAccountsService.renameAccount(id, label));
 });
 
-// DELETE /openai/accounts/:id — idempotent; re-points or logs out the engine if it was the default
+// DELETE /openai/accounts/:id — idempotent; logs the engine out when the last account goes
 opencodeAuthRouter.delete('/openai/accounts/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   if (!ACCOUNT_ID_RE.test(id)) {

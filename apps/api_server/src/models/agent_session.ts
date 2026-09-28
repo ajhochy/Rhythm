@@ -127,6 +127,8 @@ export interface AgentSession {
    * Null = engine default. Updated in place on rate-limit spillover.
    */
   anthropicAccountId: string | null;
+  /** OpenAI (ChatGPT) account this session's OpenAI requests route to (openai-accounts.json routing). Null = store default. */
+  openaiAccountId: string | null;
   /** Owner used for owner-scoped agent memory. Null means instance-global only. */
   ownerUserId: number | null;
   /** Delegation nesting depth for rhythm_delegate-created runs. Root sessions default to 0. */
@@ -216,6 +218,8 @@ export interface CreateAgentSessionDto {
   isSystem?: boolean;
   /** Dual Anthropic accounts (Task D) — resolved account id (body → profile → store default). Null = engine default. */
   anthropicAccountId?: string | null;
+  /** OpenAI (ChatGPT) account — same resolution chain as anthropicAccountId. */
+  openaiAccountId?: string | null;
   /** Owner used for owner-scoped agent memory. Null means instance-global only. */
   ownerUserId?: number | null;
   /** Delegation nesting depth. Root sessions default to 0. */

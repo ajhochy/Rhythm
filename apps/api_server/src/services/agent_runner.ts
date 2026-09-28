@@ -1300,6 +1300,32 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       }
     }
 
+    // OpenAI (ChatGPT) sibling. The codex plugin falls back to any other `ok`
+    // account when the default is dead, so block only when the default needs
+    // re-login AND no account is usable. Same fail-open rules as above.
+    if (resolvedModel.providerID === 'openai') {
+      try {
+        const { openaiAccountsService } = await import('./openai_accounts_service');
+        const account = openaiAccountsService.defaultAccount();
+        const anyUsable = openaiAccountsService.listRedacted().accounts.some((a) => a.status === 'ok');
+        if (account && account.status === 'needs_relogin' && !anyUsable) {
+          const msg = `AgentRunner: OpenAI account "${account.id}" needs re-login — its ChatGPT OAuth token expired and could not be refreshed. Re-authenticate it in Settings; scheduled runs cannot authenticate until then.`;
+          logger.warn(`[AgentRunner] ${msg}`);
+          _markSessionError(rhythmSessionId, msg);
+          return {
+            sessionId: rhythmSessionId ?? '',
+            result: '',
+            status: 'error',
+            error: msg,
+          };
+        }
+      } catch (err) {
+        logger.warn(
+          `[AgentRunner] OpenAI account preflight failed (non-fatal, proceeding): ${String(err)}`,
+        );
+      }
+    }
+
     // ── Create session ────────────────────────────────────────────────────────
     // #884: pass the already-resolved provider so createSession can trim the
     // MCP allowlist to Gemini's function-declaration cap when this run is

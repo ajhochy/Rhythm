@@ -834,9 +834,9 @@ async function main() {
 
       // Multi-account OpenAI (ChatGPT/Codex OAuth) — same store model as the
       // Anthropic block above. First run imports the engine's existing single
-      // openai login as account 'default'. The engine holds ONE openai
-      // credential, so the store default is pushed into auth.json (only when
-      // it differs, so a no-op boot never bounces the engine via the watcher).
+      // openai login as account 'default'. The codex plugin picks the account
+      // per request from the store; auth.json is only seeded when it has no
+      // openai login (switches/refreshes never rewrite it → no engine bounce).
       try {
         const { openaiAccountsService } = await import('./services/openai_accounts_service');
         openaiAccountsServiceRef = openaiAccountsService;

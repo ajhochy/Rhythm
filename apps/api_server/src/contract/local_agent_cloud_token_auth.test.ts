@@ -62,6 +62,15 @@ vi.mock('../services/anthropic_accounts_service', () => ({
   },
 }));
 
+vi.mock('../services/openai_accounts_service', () => ({
+  openaiAccountsService: {
+    defaultAccount: vi.fn(() => null),
+    getAccount: vi.fn(() => null),
+    setRouting: vi.fn(),
+  },
+  OpenAIOauthService: class {},
+}));
+
 interface HttpResult {
   status: number;
   body: unknown;

@@ -199,6 +199,13 @@ function validateBody(body: Record<string, unknown>, requireLabel = true): void 
   ) {
     throw AppError.badRequest('defaultAnthropicAccountId must be a string or null');
   }
+  if (
+    body.defaultOpenaiAccountId !== undefined &&
+    body.defaultOpenaiAccountId !== null &&
+    typeof body.defaultOpenaiAccountId !== 'string'
+  ) {
+    throw AppError.badRequest('defaultOpenaiAccountId must be a string or null');
+  }
 
   // #1118 — per-profile reasoning-effort value. Free-form (provider-specific
   // effort tiers differ, e.g. Anthropic's low/medium/high/xhigh/max vs
@@ -280,7 +287,7 @@ async function prepareAgentConfigPatch(
         'systemPrompt', 'allowedMcpsJson', 'allowedSkillsJson', 'corePermissionsJson',
         'allowedDelegatesJson', 'modelProvider', 'modelId', 'ocAgent', 'sessionSelectable',
         'schedulable', 'imageGenerationEnabled', 'modelTierHint', 'defaultAnthropicAccountId',
-        'reasoningEffort', 'autoApproveActions',
+        'defaultOpenaiAccountId', 'reasoningEffort', 'autoApproveActions',
       ]);
       if (Object.keys(body).some((key) => !editableFields.has(key))) {
         throw AppError.badRequest('Unknown or protected field in revisioned agent config edit');
@@ -346,6 +353,7 @@ async function prepareAgentConfigPatch(
     if (body.imageGenerationEnabled !== undefined) patch.imageGenerationEnabled = Boolean(body.imageGenerationEnabled);
     if (body.modelTierHint !== undefined) patch.modelTierHint = typeof body.modelTierHint === 'string' ? body.modelTierHint : null;
     if (body.defaultAnthropicAccountId !== undefined) patch.defaultAnthropicAccountId = typeof body.defaultAnthropicAccountId === 'string' ? body.defaultAnthropicAccountId : null;
+    if (body.defaultOpenaiAccountId !== undefined) patch.defaultOpenaiAccountId = typeof body.defaultOpenaiAccountId === 'string' ? body.defaultOpenaiAccountId : null;
     if (body.reasoningEffort !== undefined) patch.reasoningEffort = typeof body.reasoningEffort === 'string' ? body.reasoningEffort : null;
     if (body.autoApproveActions !== undefined) patch.autoApproveActions = Boolean(body.autoApproveActions);
 
@@ -570,6 +578,8 @@ export class AgentConfigsController {
         modelTierHint: typeof body.modelTierHint === 'string' ? body.modelTierHint : null,
         defaultAnthropicAccountId:
           typeof body.defaultAnthropicAccountId === 'string' ? body.defaultAnthropicAccountId : null,
+        defaultOpenaiAccountId:
+          typeof body.defaultOpenaiAccountId === 'string' ? body.defaultOpenaiAccountId : null,
         // #1118 — per-profile reasoning effort. Null = provider default.
         reasoningEffort: typeof body.reasoningEffort === 'string' ? body.reasoningEffort : null,
         // Config Doctor Track B — auto-approve this profile's protected actions. Default false.

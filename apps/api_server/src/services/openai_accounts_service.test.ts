@@ -104,19 +104,15 @@ describe('OpenAIAccountsService', () => {
     });
   });
 
-  it('switching default pushes that account (with ChatGPT workspace id) into the engine', async () => {
+  it('first account seeds auth.json; switching default never rewrites it (no watcher bounce)', async () => {
     const { store, service, engine, readEngine } = setup();
     store.upsertAccount(acct('a'));
     store.upsertAccount(acct('b'));
-    await service.pushDefaultToEngine(engine);
+    expect(await service.pushDefaultToEngine(engine)).toBe(true);
     expect(readEngine()).toMatchObject({ refresh: 'refresh-a', accountId: 'ws-a' });
     expect(await service.activate(engine, 'b')).toBe(true);
-    expect(engine.setOAuthCredentials).toHaveBeenLastCalledWith('openai', {
-      access: 'access-b',
-      refresh: 'refresh-b',
-      expires: expect.any(Number),
-      accountId: 'ws-b',
-    });
+    expect(engine.setOAuthCredentials).toHaveBeenCalledTimes(1);
+    expect(readEngine()).toMatchObject({ refresh: 'refresh-a' });
     expect(store.read().defaultAccountId).toBe('b');
   });
 
@@ -128,26 +124,40 @@ describe('OpenAIAccountsService', () => {
     expect(engine.setOAuthCredentials).not.toHaveBeenCalled();
   });
 
-  it('switching away first adopts the engine-rotated tokens of the outgoing default', async () => {
-    const { store, service, engine, writeEngine } = setup();
-    store.upsertAccount(acct('a', { expires: 1000 }));
-    store.upsertAccount(acct('b'));
-    writeEngine({ access: 'rotA', refresh: 'rotR', expires: 2000, accountId: 'ws-a' });
-    await service.activate(engine, 'b');
-    expect(service.getAccount('a')).toMatchObject({ access: 'rotA', refresh: 'rotR', expires: 2000 });
+  it('refreshAll adopts tokens an older engine rotated for the default (upgrade path)', async () => {
+    const { store, service, writeEngine } = setup();
+    store.upsertAccount(acct('a', { expires: Date.now() + 24 * 3600_000 }));
+    writeEngine({ access: 'rotA', refresh: 'rotR', expires: Date.now() + 48 * 3600_000, accountId: 'ws-a' });
+    await service.refreshAll();
+    expect(service.getAccount('a')).toMatchObject({ access: 'rotA', refresh: 'rotR' });
   });
 
-  it('refreshAll refreshes non-default accounts only (the engine refreshes the default)', async () => {
+  it('never adopts a stale seed that belongs to a different account (same workspace, other email)', async () => {
+    const { store, service, writeEngine } = setup();
+    store.upsertAccount(acct('b', { email: 'b@example.test' }));
+    writeEngine({
+      access: jwt({ email: 'a@example.test' }),
+      refresh: 'seed-a',
+      expires: Date.now() + 48 * 3600_000,
+      accountId: 'ws-b',
+    });
+    await service.refreshAll();
+    expect(service.getAccount('b')!.refresh).toBe('refresh-b');
+  });
+
+  it('refreshAll refreshes every expiring account, the default included (single refresher)', async () => {
     const fetchImpl = vi.fn(
       async () => new Response(JSON.stringify({ access_token: 'newA', refresh_token: 'newR', expires_in: 3600 }), { status: 200 }),
     ) as unknown as typeof fetch;
     const { store, service } = setup(fetchImpl);
     store.upsertAccount(acct('def', { expires: Date.now() + 1000 }));
     store.upsertAccount(acct('other', { expires: Date.now() + 1000 }));
+    store.upsertAccount(acct('fresh'));
     await service.refreshAll();
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(service.getAccount('def')).toMatchObject({ access: 'newA', refresh: 'newR', status: 'ok' });
     expect(service.getAccount('other')).toMatchObject({ access: 'newA', refresh: 'newR', status: 'ok' });
-    expect(service.getAccount('def')!.access).toBe('access-def');
+    expect(service.getAccount('fresh')!.access).toBe('access-fresh');
   });
 
   it('refresh failure marks needs_relogin; such a default is not pushed', async () => {
@@ -161,13 +171,15 @@ describe('OpenAIAccountsService', () => {
     expect(engine.setOAuthCredentials).not.toHaveBeenCalled();
   });
 
-  it('removing the default re-points the engine; removing the last logs it out', async () => {
+  it('removing the default leaves auth.json alone; removing the last logs the engine out', async () => {
     const { store, service, engine, readEngine } = setup();
     store.upsertAccount(acct('a'));
     store.upsertAccount(acct('b'));
+    store.setRouting('ses_1', 'a');
     await service.pushDefaultToEngine(engine);
     await service.removeAndReconcile(engine, 'a');
-    expect(readEngine()).toMatchObject({ refresh: 'refresh-b' });
+    expect(readEngine()).toMatchObject({ refresh: 'refresh-a' });
+    expect(store.read()).toMatchObject({ defaultAccountId: 'b', routing: {} });
     await service.removeAndReconcile(engine, 'b');
     expect(engine.removeAuth).toHaveBeenCalledWith('openai');
     expect(service.hasAccounts()).toBe(false);

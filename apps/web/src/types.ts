@@ -122,6 +122,8 @@ export interface Session {
   dirtyCount: number;
   isolateWorktree: boolean;
   account?: string;
+  /** OpenAI (ChatGPT) account the session routes to (agent_sessions.openai_account_id). */
+  openaiAccount?: string;
   model: string;
   thinkingBudget: string;
   permissionMode: string;

@@ -10,18 +10,23 @@ import { logger } from '../utils/logger';
  * Multi-account OpenAI (ChatGPT / Codex OAuth) — the OpenAI sibling of the
  * dual-Anthropic-accounts store, built on the same OAuthAccountsStore/Service.
  *
- * Key difference from Anthropic: the engine's built-in codex plugin
- * (apps/opencode_fork/packages/opencode/src/plugin/codex.ts) reads ONE global
- * `openai` entry from auth.json on every request; there is no per-request
- * account hook like the vendored rhythm-anthropic-accounts plugin. So
- * "which account is used" = which account api_server pushes into auth.json
- * (the store default). Selection is global, not per-session/per-profile.
+ * Same model as Anthropic: the engine's codex plugin
+ * (apps/opencode_fork/packages/opencode/src/plugin/codex.ts +
+ * codex-accounts.ts) reads THIS file per request and picks the account by
+ * session routing (sdkSessionId → accountId; written from the session's
+ * openaiAccountId, which folds in the profile default) → defaultAccountId,
+ * and fails over to another `ok` account on 429 (reported to
+ * POST /opencode/spillover with providerID 'openai').
  *
- * Single-refresher invariant (OpenAI refresh tokens rotate and are
- * single-use): the account currently in auth.json is refreshed by the ENGINE
- * (codex plugin refreshes on expiry and writes back); every other account is
- * refreshed by this service. Before any refresh/switch/removal we adopt the
- * engine's possibly-rotated tokens back into the store (syncFromEngine).
+ * Refresh ownership (OpenAI refresh tokens rotate and are single-use): this
+ * service refreshes EVERY account; the plugin is read-only while the file
+ * has accounts. auth.json only needs *an* openai oauth entry so the engine
+ * loads the codex loader at all — it is seeded once (first account) and never
+ * rewritten on a switch/refresh, so the auth.json watcher never bounces the
+ * engine. With the file absent the plugin keeps its legacy auth.json path.
+ *
+ * NOTE: requires an engine built with the codex-accounts plugin change. An
+ * older engine would keep using (and refreshing) the seeded auth.json token.
  */
 
 export const OPENAI_ISSUER = 'https://auth.openai.com';
@@ -32,7 +37,6 @@ export const CODEX_OAUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
  *  the user pastes the (failed-to-load) callback URL back into Rhythm. */
 export const CODEX_REDIRECT_URI = 'http://localhost:1455/auth/callback';
 const SCOPES = 'openid profile email offline_access';
-const REFRESH_BUFFER_MS = 20 * 60 * 1000;
 
 export interface OpenAIAccount extends OAuthAccount {
   /** ChatGPT workspace id → ChatGPT-Account-Id header. */
@@ -160,24 +164,22 @@ export class OpenAIAccountsService extends OAuthAccountsService<OpenAIAccount> {
   }
 
   /**
-   * Adopt tokens the engine rotated for the current default. Only when the
-   * engine entry is the same ChatGPT workspace and not older — a different
-   * workspace means someone used the legacy Providers "Connect" flow; that
-   * credential is left alone (the next push replaces it).
+   * Upgrade path: adopt tokens an OLDER engine (legacy codex plugin, which
+   * refreshed auth.json itself) rotated for the current default. Only when the
+   * engine entry is the same ChatGPT workspace (and same email when known) and
+   * not older — auth.json is no longer rewritten on a switch, so it may hold a
+   * different account's stale seed; that is never adopted.
    */
   syncFromEngine(): void {
     const def = this.defaultAccount();
     const cred = this.readEngineCredential();
     if (!def || !cred || cred.refresh === def.refresh) return;
     if (def.chatgptAccountId && cred.accountId && def.chatgptAccountId !== cred.accountId) return;
+    const engineEmail = identityFromTokens({ access_token: cred.access }).email;
+    if (def.email && engineEmail !== def.email) return;
     if (cred.expires < def.expires) return;
     this.store.upsertAccount({ ...def, access: cred.access, refresh: cred.refresh, expires: cred.expires, status: 'ok' });
     logger.info(`[OpenAIAccounts] adopted engine-rotated tokens for default account ${def.id}`);
-  }
-
-  /** The engine refreshes whatever is in auth.json; we refresh the rest. */
-  protected override shouldRefresh(account: OpenAIAccount): boolean {
-    return account.id !== this.store.read().defaultAccountId;
   }
 
   protected override applyRefresh(account: OpenAIAccount, refreshed: RefreshedTokens): OpenAIAccount {
@@ -193,17 +195,16 @@ export class OpenAIAccountsService extends OAuthAccountsService<OpenAIAccount> {
     await super.refreshAll();
   }
 
-  /** Push the default account into the engine when auth.json differs. */
+  /**
+   * Seed auth.json with the default when the engine has no openai oauth entry
+   * (so the codex loader runs). Never rewrites an existing entry: account
+   * choice is per request from the accounts file, so a switch or a token
+   * rotation needs no engine write — and therefore no engine restart.
+   */
   async pushDefaultToEngine(engine: OpenAIEngine): Promise<boolean> {
-    let acct = this.defaultAccount();
+    const acct = this.defaultAccount();
     if (!acct || acct.status !== 'ok' || !engine.isReady) return false;
-    if (this.readEngineCredential()?.refresh === acct.refresh) return true;
-    // Not in the engine yet → we are still its refresher; hand over a fresh token.
-    if (acct.expires - Date.now() <= REFRESH_BUFFER_MS) {
-      const next = await this.refreshAccount(acct);
-      if (!next) return false;
-      acct = next;
-    }
+    if (this.readEngineCredential()) return true;
     return engine.setOAuthCredentials('openai', {
       access: acct.access,
       refresh: acct.refresh,
@@ -212,21 +213,16 @@ export class OpenAIAccountsService extends OAuthAccountsService<OpenAIAccount> {
     });
   }
 
-  /** Switch the default and make the engine use it. */
+  /** Switch the global default. Takes effect on the next request — no engine write. */
   async activate(engine: OpenAIEngine, id: string): Promise<boolean> {
-    this.syncFromEngine(); // capture the outgoing default's latest tokens first
     this.store.setDefault(id);
     return this.pushDefaultToEngine(engine);
   }
 
-  /** Remove an account; re-point the engine (or log it out when none remain). */
+  /** Remove an account; log the engine out when none remain. */
   async removeAndReconcile(engine: OpenAIEngine, id: string): Promise<void> {
-    this.syncFromEngine();
-    const wasDefault = this.store.read().defaultAccountId === id;
     this.store.removeAccount(id);
-    if (!wasDefault || !engine.isReady) return;
-    if (!this.hasAccounts()) await engine.removeAuth('openai');
-    else await this.pushDefaultToEngine(engine);
+    if (!this.hasAccounts() && engine.isReady) await engine.removeAuth('openai');
   }
 }
 

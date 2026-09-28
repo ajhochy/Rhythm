@@ -72,7 +72,7 @@ export type IdentityProfile = Profile & { autoApproveActions?: boolean; reasonin
 // provider is authorized and the model is not known-unavailable, but entitlement could not
 // be confirmed. Selectable, but the curation UI must show it as unverified rather than solid.
 export type ModelChoice = { providerId: string; modelId: string; label: string; contextLimit?: number; needsVerification?: boolean };
-export type AccountChoice = { id: string; label: string; status: string; isDefault?: boolean };
+export type AccountChoice = { id: string; label: string; status: string; isDefault?: boolean; email?: string };
 export type ModelVisibilityEntry = { provider: string; modelId: string; visible: boolean };
 // #1580 S2 — one row per provider/model from GET /agents/models/catalog/full (unfiltered: includes
 // hidden and unavailable rows, unlike models()/gateway's picker-facing catalog). This is the
@@ -85,7 +85,7 @@ export type ModelCatalogEntry = {
 };
 export type CustomProviderInput = { providerId: string; name: string; baseURL: string; apiKey?: string };
 export type CustomProviderTestResult = { ok: true; providerId: string; modelCount: number; models: Array<{ id: string; name: string }> };
-export type SessionSettings = { name?: string; profileId?: string | null; providerId?: string | null; modelId?: string | null; thinkingBudget?: number | null; permissionMode?: string; fastMode?: boolean; anthropicAccountId?: string };
+export type SessionSettings = { name?: string; profileId?: string | null; providerId?: string | null; modelId?: string | null; thinkingBudget?: number | null; permissionMode?: string; fastMode?: boolean; anthropicAccountId?: string; openaiAccountId?: string };
 export type TurnOverride = { profileId?: string; modelOverride?: { providerId: string; modelId: string } };
 const statusOrder: Record<Session['status'], number> = { working: 0, starting: 1, idle: 2, error: 3, closed: 4, resumable: 5 };
 const compareText = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
@@ -429,7 +429,7 @@ export function toSessionViewModel(value: unknown, messages: unknown[] = [], tra
     status: ['starting', 'working', 'idle', 'resumable', 'closed', 'error'].includes(status) ? status as Session['status'] : 'idle',
     statusMessage: typeof source.statusMessage === 'string' ? source.statusMessage : undefined,
     connectionState: 'online', profileId: string(source.profileId, string(source.profile_id)), projectId: string(source.projectId, string(source.project_id)), projectName: string(source.projectName),
-    cwd: string(source.cwd), branch: string(source.branch, 'main'), dirtyCount: 0, isolateWorktree: source.isolateWorktree === true || Boolean(source.worktreePath), account: string(source.anthropicAccountId),
+    cwd: string(source.cwd), branch: string(source.branch, 'main'), dirtyCount: 0, isolateWorktree: source.isolateWorktree === true || Boolean(source.worktreePath), account: string(source.anthropicAccountId), openaiAccount: string(source.openaiAccountId),
     // post-m1-phase-6 c3b/c3d/c3e: the resolved isolated-worktree identity — never defaulted
     // to 'main' or synthesized client-side. apps/api_server/src/__tests__/post_m1_phase_6_files_worktrees_contract.test.ts:96-100.
     worktreeName: typeof source.worktreeName === 'string' && source.worktreeName ? source.worktreeName : undefined,
@@ -585,6 +585,7 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
         label: string(row.label, string(row.id)),
         status: string(row.status),
         isDefault: string(row.id) === body.defaultAccountId,
+        ...(string(row.email) ? { email: string(row.email) } : {}),
       }));
     },
     startOpenAIAccountLogin: async (input) => {

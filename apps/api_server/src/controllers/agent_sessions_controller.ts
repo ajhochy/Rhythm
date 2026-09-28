@@ -32,6 +32,7 @@ import {
 import { estimateToolSurface } from '../services/tool_surface_estimator';
 import { streamBridge } from '../services/opencode_stream_bridge';
 import { anthropicAccountsService } from '../services/anthropic_accounts_service';
+import { openaiAccountsService } from '../services/openai_accounts_service';
 import { broadcastSessionUpdated, broadcastSessionRemoved, handleInputFrame } from '../services/ws_gateway';
 import { AgentPromptInjectionsRepository } from '../repositories/agent_prompt_injections_repository';
 import { resolveCallerSessionId } from './agent_delegation_controller';
@@ -761,6 +762,7 @@ export class AgentSessionsController {
       let resolvedEngineAgentKind: string = '';
       // Task D — profile-level default Anthropic account (agent_configs).
       let profileDefaultAnthropicAccountId: string | null = null;
+      let profileDefaultOpenaiAccountId: string | null = null;
       if (typeof agentId === 'string' && agentId.trim() !== '') {
         normalizedAgentId = normalizeAgentId(agentId);
         const agentConfig = new AgentConfigsRepository().getById(normalizedAgentId);
@@ -776,6 +778,7 @@ export class AgentSessionsController {
             ? agentConfig.ocAgent
             : normalizedAgentId;
         profileDefaultAnthropicAccountId = agentConfig.defaultAnthropicAccountId ?? null;
+        profileDefaultOpenaiAccountId = agentConfig.defaultOpenaiAccountId ?? null;
       }
 
       // Task D — resolve the Anthropic account this session routes to:
@@ -799,6 +802,27 @@ export class AgentSessionsController {
         requestedAccountId ??
         profileDefaultAnthropicAccountId ??
         anthropicAccountsService.defaultAccount()?.id ??
+        null;
+
+      // OpenAI (ChatGPT) account — identical chain against openai-accounts.json.
+      if (
+        body.openaiAccountId !== undefined &&
+        body.openaiAccountId !== null &&
+        typeof body.openaiAccountId !== 'string'
+      ) {
+        throw AppError.badRequest('openaiAccountId must be a string or null');
+      }
+      const requestedOpenaiAccountId =
+        typeof body.openaiAccountId === 'string' && body.openaiAccountId.trim() !== ''
+          ? body.openaiAccountId
+          : null;
+      if (requestedOpenaiAccountId && !openaiAccountsService.getAccount(requestedOpenaiAccountId)) {
+        throw AppError.badRequest(`unknown openai account: '${requestedOpenaiAccountId}'`);
+      }
+      const resolvedOpenaiAccountId =
+        requestedOpenaiAccountId ??
+        profileDefaultOpenaiAccountId ??
+        openaiAccountsService.defaultAccount()?.id ??
         null;
 
       if (!cwd || typeof cwd !== 'string' || cwd.trim() === '') {
@@ -995,6 +1019,7 @@ export class AgentSessionsController {
         mcpAllowedToolsJson,
         // Task D — resolved Anthropic account (null = engine default).
         anthropicAccountId: resolvedAccountId,
+        openaiAccountId: resolvedOpenaiAccountId,
         ownerUserId,
       };
 
@@ -1093,6 +1118,9 @@ export class AgentSessionsController {
       // when an account resolved; null means "engine default", no routing entry.
       if (resolvedAccountId) {
         anthropicAccountsService.setRouting(opencodeSession.id, resolvedAccountId);
+      }
+      if (resolvedOpenaiAccountId) {
+        openaiAccountsService.setRouting(opencodeSession.id, resolvedOpenaiAccountId);
       }
 
       // Start streaming Opencode events through the WebSocket gateway.
@@ -1264,6 +1292,22 @@ export class AgentSessionsController {
         repo.setAnthropicAccountId(session.id, accountId);
         if (session.sdkSessionId) {
           anthropicAccountsService.setRouting(session.sdkSessionId, accountId);
+        }
+      }
+
+      // OpenAI sibling — switch the session's ChatGPT account (no engine restart:
+      // the codex plugin re-reads the routing file per request).
+      if (body.openaiAccountId !== undefined) {
+        if (typeof body.openaiAccountId !== 'string' || body.openaiAccountId.trim() === '') {
+          throw AppError.badRequest('openaiAccountId must be a non-empty string');
+        }
+        const accountId = body.openaiAccountId;
+        if (!openaiAccountsService.getAccount(accountId)) {
+          throw AppError.badRequest(`unknown openai account: '${accountId}'`);
+        }
+        repo.setOpenaiAccountId(session.id, accountId);
+        if (session.sdkSessionId) {
+          openaiAccountsService.setRouting(session.sdkSessionId, accountId);
         }
       }
 

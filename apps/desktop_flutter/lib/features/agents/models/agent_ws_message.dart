@@ -600,17 +600,22 @@ class SessionSpilloverMessage extends AgentWsMessage {
     required this.sessionId,
     required this.fromAccountId,
     required this.toAccountId,
+    this.providerId,
   });
 
   final String sessionId;
   final String fromAccountId;
   final String toAccountId;
 
+  /// 'openai' for a ChatGPT-account failover (codex plugin); null = Anthropic.
+  final String? providerId;
+
   factory SessionSpilloverMessage.fromJson(Map<String, dynamic> json) {
     return SessionSpilloverMessage(
       sessionId: asString(json['sessionId']) ?? '',
       fromAccountId: asString(json['fromAccountId']) ?? '',
       toAccountId: asString(json['toAccountId']) ?? '',
+      providerId: asString(json['providerID']),
     );
   }
 }

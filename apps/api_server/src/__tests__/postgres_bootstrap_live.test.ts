@@ -31,6 +31,7 @@ const agentSessionColumns = [
   'sdk_session_id',
   'mcp_allowed_tools_json',
   'anthropic_account_id',
+  'openai_account_id',
   'worktree_name',
   'worktree_path',
   'worktree_branch',

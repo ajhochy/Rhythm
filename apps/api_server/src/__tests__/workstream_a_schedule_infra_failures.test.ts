@@ -25,12 +25,16 @@ const {
   mockListMessages,
   mockPrompt,
   mockDefaultAccount,
+  mockOpenaiDefault,
+  mockOpenaiList,
 } = vi.hoisted(() => ({
   mockAbortSession: vi.fn(),
   mockCreateSession: vi.fn(),
   mockListMessages: vi.fn(),
   mockPrompt: vi.fn(),
   mockDefaultAccount: vi.fn(),
+  mockOpenaiDefault: vi.fn(),
+  mockOpenaiList: vi.fn(),
 }));
 
 vi.mock('../services/opencode_engine', () => ({
@@ -48,6 +52,10 @@ vi.mock('../services/opencode_engine', () => ({
 
 vi.mock('../services/anthropic_accounts_service', () => ({
   anthropicAccountsService: { defaultAccount: mockDefaultAccount },
+}));
+
+vi.mock('../services/openai_accounts_service', () => ({
+  openaiAccountsService: { defaultAccount: mockOpenaiDefault, listRedacted: mockOpenaiList },
 }));
 
 import {
@@ -104,6 +112,8 @@ describe('Workstream A — scheduled agent run infra failures', () => {
     mockListMessages.mockResolvedValue([]);
     // Default: a healthy account, so the preflight never interferes.
     mockDefaultAccount.mockReturnValue({ id: 'personal', status: 'ok' });
+    mockOpenaiDefault.mockReturnValue({ id: 'work', status: 'ok' });
+    mockOpenaiList.mockReturnValue({ accounts: [{ id: 'work', status: 'ok' }], defaultAccountId: 'work' });
   });
 
   afterEach(() => {
@@ -171,5 +181,26 @@ describe('Workstream A — scheduled agent run infra failures', () => {
     mockDefaultAccount.mockReturnValue(undefined);
     const noAccount = await run({ prompt: 'no account configured' });
     expect(noAccount.status).toBe('done');
+  });
+
+  it('class 2 (OpenAI): a dead default with no usable account fails fast; a usable fallback runs', async () => {
+    const openai = { providerID: 'openai', modelID: 'gpt-5.5' };
+    mockOpenaiDefault.mockReturnValue({ id: 'work', status: 'needs_relogin' });
+    mockOpenaiList.mockReturnValue({ accounts: [{ id: 'work', status: 'needs_relogin' }], defaultAccountId: 'work' });
+    const blocked = await run({ prompt: 'openai scan', modelOverride: openai });
+    expect(blocked.status).toBe('error');
+    expect(blocked.error).toMatch(/OpenAI account "work" needs re-login/);
+    expect(mockCreateSession).not.toHaveBeenCalled();
+
+    // The codex plugin falls back to another ok account, so that must still run.
+    mockOpenaiList.mockReturnValue({
+      accounts: [{ id: 'work', status: 'needs_relogin' }, { id: 'home', status: 'ok' }],
+      defaultAccountId: 'work',
+    });
+    mockPrompt.mockResolvedValue({
+      info: { id: 'assistant-final', sessionID: 'sdk-wa' },
+      parts: [{ id: 'text-final', type: 'text', text: 'done' }],
+    });
+    expect((await run({ prompt: 'openai fallback', modelOverride: openai })).status).toBe('done');
   });
 });

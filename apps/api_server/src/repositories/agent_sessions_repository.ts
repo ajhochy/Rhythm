@@ -71,6 +71,8 @@ interface AgentSessionRow {
   is_system: number;
   /** Task D — Anthropic account id this session is routed to. Null = engine default. */
   anthropic_account_id: string | null;
+  /** OpenAI (ChatGPT) account id this session is routed to. Null = store default. */
+  openai_account_id: string | null;
   owner_user_id: number | null;
   delegation_depth: number | null;
   /** USO B1 (#1028) — session classification. Legacy rows coalesce to a derived value. */
@@ -90,6 +92,7 @@ interface ParentSessionScopeRow {
   scheduled_task_id: string | null;
   is_system: number;
   anthropic_account_id: string | null;
+  openai_account_id: string | null;
   owner_user_id: number | null;
   delegation_depth: number | null;
   category: string;
@@ -141,6 +144,7 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     parentSessionId: row.parent_session_id ?? null,
     isSystem: row.is_system === 1,
     anthropicAccountId: row.anthropic_account_id ?? null,
+    openaiAccountId: row.openai_account_id ?? null,
     ownerUserId: row.owner_user_id ?? null,
     delegationDepth: row.delegation_depth ?? 0,
     // USO B1 (#1028): read-time coalesce for any row the migration backfill
@@ -424,7 +428,7 @@ export class AgentSessionsRepository {
       .prepare(
         `SELECT id, task_id, task_title, agent_kind, project_id,
                 scheduled_task_id, is_system, anthropic_account_id,
-                owner_user_id, delegation_depth, category,
+                openai_account_id, owner_user_id, delegation_depth, category,
                 worktree_name, worktree_path, worktree_branch
            FROM agent_sessions
           WHERE sdk_session_id = ?
@@ -469,6 +473,7 @@ export class AgentSessionsRepository {
                 parent_session_id = ?,
                 is_system = ?,
                 anthropic_account_id = ?,
+                openai_account_id = ?,
                 owner_user_id = ?,
                 delegation_depth = ?,
                 category = ?,
@@ -487,6 +492,7 @@ export class AgentSessionsRepository {
         parentRow.id,
         parentRow.is_system,
         parentRow.anthropic_account_id,
+        parentRow.openai_account_id,
         parentRow.owner_user_id,
         childDelegationDepth,
         parentRow.category,
@@ -512,10 +518,10 @@ export class AgentSessionsRepository {
       `INSERT INTO agent_sessions
          (id, task_id, task_title, agent_kind, status, cwd, name, project_id,
           sdk_session_id, parent_session_id, mcp_allowed_tools_json,
-          scheduled_task_id, is_system, anthropic_account_id, owner_user_id,
-          delegation_depth, category, worktree_name, worktree_path,
+          scheduled_task_id, is_system, anthropic_account_id, openai_account_id,
+          owner_user_id, delegation_depth, category, worktree_name, worktree_path,
           worktree_branch, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+       VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                ?, ?, ?, ?, ?)`,
     ).run(
       childLocalId,
@@ -531,6 +537,7 @@ export class AgentSessionsRepository {
       parentRow.scheduled_task_id,
       parentRow.is_system,
       parentRow.anthropic_account_id,
+      parentRow.openai_account_id,
       parentRow.owner_user_id,
       childDelegationDepth,
       parentRow.category,
@@ -563,9 +570,9 @@ export class AgentSessionsRepository {
         `INSERT INTO agent_sessions
            (id, task_id, task_title, agent_kind, profile_id, status, cwd, name, project_id,
             permission_mode, mcp_role, mcp_allowed_tools_json, scheduled_task_id, is_system,
-            anthropic_account_id, owner_user_id, parent_session_id,
+            anthropic_account_id, openai_account_id, owner_user_id, parent_session_id,
             delegation_depth, category, approval_bypass_explicit, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -582,6 +589,7 @@ export class AgentSessionsRepository {
         dto.scheduledTaskId ?? null,
         dto.isSystem ? 1 : 0,
         dto.anthropicAccountId ?? null,
+        dto.openaiAccountId ?? null,
         dto.ownerUserId ?? null,
         dto.parentSessionId ?? null,
         dto.delegationDepth ?? 0,
@@ -977,6 +985,16 @@ export class AgentSessionsRepository {
          WHERE id = ?`,
       )
       .run(now, id).changes);
+  }
+
+  /** OpenAI sibling of {@link setAnthropicAccountId} (codex plugin spillover, PATCH). */
+  setOpenaiAccountId(id: string, accountId: string | null): void {
+    const now = new Date().toISOString();
+    this.mutateAndReplicate(id, (db) => db
+      .prepare(
+        `UPDATE agent_sessions SET openai_account_id = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(accountId, now, id).changes);
   }
 
   /**
