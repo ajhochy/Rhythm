@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import { FIXED_NOW } from '../fixtures';
 import { useGateway } from '../gateway/context';
 import type { AgentMemory } from '../gateway/memory';
@@ -8,6 +8,7 @@ import type { AgentRunQuality } from '../gateway/run-quality';
 import type { CommandEntry, ManagedCommandContent } from '../gateway/commands';
 import type { CookbookRecipe } from '../gateway/cookbook';
 import type { ResearchProject as LiveResearchProject, ResearchProjectRun } from '../gateway/research';
+import type { ModelChoice } from '../gateway/sessions';
 import type { AgentDesign } from '../gateway/designs';
 import type { GmailSignal } from '../gateway/integrations';
 import type { SkillEntry } from '../gateway/skills';
@@ -349,21 +350,53 @@ function ResearchTool() {
 
 // Live research projects — apps/web/src/gateway/research.ts's ResearchProject/ResearchProjectRun
 // mirror apps/api_server/src/repositories/agent_research_repository.ts:34-77. The quick-create
-// dialog surfaces name/question/domain/goals/budget; profileId/passConfig/modelPolicy/criticConfig/
-// synthesisConfig/scheduleRef use the redspec's documented starter defaults (a single
-// evidence-gathering pass, critic+synthesis enabled) rather than fixture-invented values.
+// dialog surfaces name/question/domain/goals/budget/models; profileId/passConfig/criticConfig/
+// synthesisConfig/scheduleRef use the redspec's documented starter defaults (one evidence-pass
+// template, critic+synthesis enabled) rather than fixture-invented values.
 // Mirrors DEFAULT_RESEARCH_BUDGET / BUDGET_BOUNDS in apps/api_server/src/controllers/agentResearchController.ts.
 // Run usage counts cached context on every model turn, so one evidence pass is routinely >1M tokens.
-const DEFAULT_RESEARCH_BUDGET = { maxPasses: 3, maxTokens: 5_000_000, maxCostUsd: 5, maxWallClockMs: 30 * 60_000 };
-const budgetNumber = (budget: Record<string, unknown>, key: keyof typeof DEFAULT_RESEARCH_BUDGET) =>
+type ResearchBudget = { maxPasses: number; maxTokens: number; maxCostUsd: number; maxWallClockMs: number };
+const DEFAULT_RESEARCH_BUDGET: ResearchBudget = { maxPasses: 3, maxTokens: 5_000_000, maxCostUsd: 5, maxWallClockMs: 30 * 60_000 };
+const RESEARCH_BUDGET_PRESETS: Array<{ id: string; label: string; budget: ResearchBudget }> = [
+  { id: 'quick', label: 'Quick', budget: { maxPasses: 1, maxTokens: 2_000_000, maxCostUsd: 2, maxWallClockMs: 10 * 60_000 } },
+  { id: 'standard', label: 'Standard', budget: DEFAULT_RESEARCH_BUDGET },
+  { id: 'deep', label: 'Deep', budget: { maxPasses: 6, maxTokens: 15_000_000, maxCostUsd: 15, maxWallClockMs: 90 * 60_000 } },
+];
+const budgetNumber = (budget: Record<string, unknown>, key: keyof ResearchBudget) =>
   typeof budget[key] === 'number' ? budget[key] as number : DEFAULT_RESEARCH_BUDGET[key];
-function ResearchBudgetFields({ budget = {} }: { budget?: Record<string, unknown> }) {
-  return <fieldset className="form-grid span-2" data-testid="research-budget-fields"><legend>Budget</legend>
-    <label className="field">Max passes<input name="maxPasses" type="number" min={1} max={10} step={1} required defaultValue={budgetNumber(budget, 'maxPasses')} /></label>
-    <label className="field">Token limit (millions)<input name="maxTokensMillions" type="number" min={0.05} max={100} step={0.05} required defaultValue={budgetNumber(budget, 'maxTokens') / 1_000_000} /></label>
-    <label className="field">Cost limit ($)<input name="maxCostUsd" type="number" min={0} max={1000} step={0.5} required defaultValue={budgetNumber(budget, 'maxCostUsd')} /></label>
-    <label className="field">Time limit (minutes)<input name="maxWallClockMinutes" type="number" min={1} max={360} step={1} required defaultValue={budgetNumber(budget, 'maxWallClockMs') / 60_000} /></label>
-    <p className="tool-empty-inline span-2">Tokens include cached context re-read on every model turn; a single evidence pass often uses over 1 million.</p>
+const toBudget = (budget: Record<string, unknown> = {}): ResearchBudget => ({
+  maxPasses: budgetNumber(budget, 'maxPasses'), maxTokens: budgetNumber(budget, 'maxTokens'),
+  maxCostUsd: budgetNumber(budget, 'maxCostUsd'), maxWallClockMs: budgetNumber(budget, 'maxWallClockMs'),
+});
+const presetFor = (budget: ResearchBudget) =>
+  RESEARCH_BUDGET_PRESETS.find((preset) => (Object.keys(budget) as Array<keyof ResearchBudget>).every((key) => preset.budget[key] === budget[key]))?.id ?? 'custom';
+const millions = (tokens: number) => (tokens / 1_000_000).toLocaleString('en-US', { maximumFractionDigits: 2 });
+const tokenCount = (tokens: number) => (tokens < 100_000
+  ? `${(tokens / 1_000).toLocaleString('en-US', { maximumFractionDigits: 1 })}K` : `${millions(tokens)}M`);
+const budgetSummary = (budget: Record<string, unknown>) => {
+  const value = toBudget(budget);
+  return `Up to ${value.maxPasses} ${value.maxPasses === 1 ? 'pass' : 'passes'} · ${tokenCount(value.maxTokens)} tokens · $${value.maxCostUsd.toLocaleString('en-US', { maximumFractionDigits: 2 })} · ${Math.round(value.maxWallClockMs / 60_000)} min`;
+};
+
+/** Budget editor: presets fill the fields; editing a field makes it Custom. Form names are read by budgetFromForm. */
+function ResearchBudgetFields({ budget }: { budget?: Record<string, unknown> }) {
+  const [value, setValue] = useState<ResearchBudget>(() => toBudget(budget));
+  const preset = presetFor(value);
+  const field = (key: keyof ResearchBudget, parse: (raw: number) => number) => (event: ChangeEvent<HTMLInputElement>) => {
+    const raw = event.currentTarget.valueAsNumber;
+    if (Number.isFinite(raw)) setValue((current) => ({ ...current, [key]: parse(raw) }));
+  };
+  const hint = (text: string) => <small className="research-field-hint">{text}</small>;
+  return <fieldset className="form-grid span-2 research-budget-fields" data-testid="research-budget-fields"><legend>Budget</legend>
+    <div className="segmented-control span-2" role="group" aria-label="Budget preset">
+      {RESEARCH_BUDGET_PRESETS.map((option) => <button key={option.id} type="button" aria-pressed={preset === option.id} onClick={() => setValue(option.budget)} data-testid={`research-budget-preset-${option.id}`}>{option.label}</button>)}
+      <button type="button" aria-pressed={preset === 'custom'} disabled={preset !== 'custom'} data-testid="research-budget-preset-custom">Custom</button>
+    </div>
+    <label className="field">Researchers (passes)<input name="maxPasses" type="number" min={1} max={10} step={1} required value={value.maxPasses} onChange={field('maxPasses', Math.round)} />{hint('Each researcher takes a different angle of the question.')}</label>
+    <label className="field">Token limit, in millions<input name="maxTokensMillions" type="number" min={0.05} max={100} step={0.05} required value={value.maxTokens / 1_000_000} onChange={field('maxTokens', (raw) => Math.round(raw * 1_000_000))} />{hint('Tokens count cached context on every turn; a pass typically uses 1–2M.')}</label>
+    <label className="field">Spending limit, in dollars<input name="maxCostUsd" type="number" min={0} max={1000} step={0.5} required value={value.maxCostUsd} onChange={field('maxCostUsd', (raw) => raw)} />{hint('Estimated provider cost; subscription models may report $0.')}</label>
+    <label className="field">Time limit, in minutes<input name="maxWallClockMinutes" type="number" min={1} max={360} step={1} required value={value.maxWallClockMs / 60_000} onChange={field('maxWallClockMs', (raw) => Math.round(raw) * 60_000)} />{hint('Counted from the start of a run; no new pass starts after it.')}</label>
+    <p className="tool-empty-inline span-2">When a limit is reached, running passes finish and the report is written from the evidence gathered so far.</p>
   </fieldset>;
 }
 const budgetFromForm = (data: FormData) => ({
@@ -372,16 +405,85 @@ const budgetFromForm = (data: FormData) => ({
   maxCostUsd: Number(data.get('maxCostUsd')),
   maxWallClockMs: Math.round(Number(data.get('maxWallClockMinutes')) * 60_000),
 });
-const budgetSummary = (budget: Record<string, unknown>) =>
-  `${budgetNumber(budget, 'maxPasses')} passes · ${(budgetNumber(budget, 'maxTokens') / 1_000_000).toLocaleString('en-US', { maximumFractionDigits: 2 })}M tokens · $${budgetNumber(budget, 'maxCostUsd').toFixed(2)} · ${Math.round(budgetNumber(budget, 'maxWallClockMs') / 60_000)} min`;
+
+// Lead/researcher model split — apps/api_server/src/services/research_model_policy.ts. `null` = the
+// research profile's own model. defaultResearchModels mirrors the server's defaults for prefill only;
+// the server re-validates every choice against the live catalog.
+type ResearchModelRef = { providerId: string; modelId: string };
+const modelKey = (ref: ResearchModelRef | null) => (ref ? `${ref.providerId}/${ref.modelId}` : '');
+function defaultResearchModels(models: ModelChoice[]): { lead: ResearchModelRef | null; researcher: ResearchModelRef | null } {
+  const has = (providerId: string, modelId: string) => (models.some((model) => model.providerId === providerId && model.modelId === modelId) ? { providerId, modelId } : null);
+  const opus = models.filter((model) => model.providerId === 'anthropic' && /^claude-opus-/.test(model.modelId) && !/-fast$/.test(model.modelId))
+    .map((model) => model.modelId)
+    .sort((a, b) => {
+      const [x, y] = [a, b].map((id) => (id.match(/\d+/g) ?? []).map(Number).filter((part) => part < 1000));
+      for (let i = 0; i < Math.max(x.length, y.length); i += 1) if ((y[i] ?? -1) !== (x[i] ?? -1)) return (y[i] ?? -1) - (x[i] ?? -1);
+      return 0;
+    })[0];
+  return {
+    lead: opus ? { providerId: 'anthropic', modelId: opus } : has('openai', 'gpt-5.6-sol'),
+    researcher: has('anthropic', 'claude-haiku-4-5') ?? has('openai', 'gpt-5.6-luna'),
+  };
+}
+const policyRef = (policy: Record<string, unknown>, side: 'lead' | 'researcher'): ResearchModelRef | null => {
+  const value = policy[side] as Record<string, unknown> | null | undefined;
+  return value && typeof value.providerId === 'string' && typeof value.modelId === 'string' ? { providerId: value.providerId, modelId: value.modelId } : null;
+};
+const hasModelPolicy = (policy: Record<string, unknown>) => 'lead' in policy || 'researcher' in policy;
+function modelName(models: ModelChoice[], id: unknown): string {
+  if (typeof id !== 'string' || !id) return 'Research profile model';
+  return models.find((model) => `${model.providerId}/${model.modelId}` === id)?.label ?? id;
+}
+
+/** Lead + researcher pickers; option values are "provider/model" ('' = research profile's model). */
+function ResearchModelFields({ policy }: { policy?: Record<string, unknown> }) {
+  const { models } = useFixtures();
+  const defaults = policy ? { lead: policyRef(policy, 'lead'), researcher: policyRef(policy, 'researcher') } : defaultResearchModels(models);
+  const picker = (side: 'lead' | 'researcher', label: string, hint: string) => {
+    const current = modelKey(defaults[side]);
+    return <label className="field">{label}
+      <select name={`${side}Model`} defaultValue={current} key={`${side}-${current}-${models.length}`} data-testid={`research-${side}-model`}>
+        <option value="">Research profile model</option>
+        {current && !models.some((model) => `${model.providerId}/${model.modelId}` === current) && <option value={current}>{current} (unavailable)</option>}
+        {models.map((model) => <option key={`${model.providerId}/${model.modelId}`} value={`${model.providerId}/${model.modelId}`}>{model.label} · {model.providerId}</option>)}
+      </select>
+      <small className="research-field-hint">{hint}</small>
+    </label>;
+  };
+  return <fieldset className="form-grid span-2" data-testid="research-model-fields"><legend>Models</legend>
+    {picker('lead', 'Lead model', 'Plans the research angles, reviews the evidence, and writes the final report.')}
+    {picker('researcher', 'Researcher model', 'Runs the evidence passes in parallel; a fast, inexpensive model works well.')}
+  </fieldset>;
+}
+const refFromForm = (data: FormData, side: 'lead' | 'researcher'): ResearchModelRef | null => {
+  const value = String(data.get(`${side}Model`) ?? '');
+  const slash = value.indexOf('/');
+  return slash > 0 ? { providerId: value.slice(0, slash), modelId: value.slice(slash + 1) } : null;
+};
+/** `{}` keeps a legacy project on the research profile; any chosen model (or an existing policy) opts into the split. */
+const modelPolicyFromForm = (data: FormData, existing: Record<string, unknown> = {}) => {
+  const lead = refFromForm(data, 'lead');
+  const researcher = refFromForm(data, 'researcher');
+  return lead || researcher || hasModelPolicy(existing) ? { lead, researcher } : {};
+};
+
+const researchStages = (run: ResearchProjectRun) =>
+  (Array.isArray(run.progress.stages) ? run.progress.stages : []).filter((stage): stage is Record<string, unknown> => Boolean(stage) && typeof stage === 'object');
 const stageDone = (run: ResearchProjectRun, match: (role: string) => boolean) =>
-  Array.isArray(run.progress.stages) && (run.progress.stages as Array<Record<string, unknown>>)
-    .some((stage) => stage.status === 'done' && typeof stage.role === 'string' && match(stage.role));
+  researchStages(run).some((stage) => stage.status === 'done' && typeof stage.role === 'string' && match(stage.role));
+const isEvidenceRole = (role: string) => !['plan', 'critic', 'synthesis'].includes(role);
+const stageTitle = (stage: Record<string, unknown>) => {
+  const role = String(stage.role ?? 'stage');
+  if (role === 'plan') return 'Plan';
+  if (role === 'critic') return 'Critic';
+  if (role === 'synthesis') return 'Final report';
+  return typeof stage.ordinal === 'number' ? `Researcher ${stage.ordinal + 1}` : role;
+};
 const ACTIVE_RUN_STATES = ['pending', 'running', 'resumable', 'working'];
 
 function LiveResearchTool() {
   const gateway = useGateway();
-  const { notify } = useFixtures();
+  const { notify, models } = useFixtures();
   const [projects, setProjects] = useState<LiveResearchProject[]>([]);
   const [selectedId, setSelectedId] = useSelectedId('researchProjectId');
   const [runs, setRuns] = useState<ResearchProjectRun[]>([]);
@@ -394,7 +496,8 @@ function LiveResearchTool() {
   const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-research/projects', detail: 'Loading research projects' });
   const effectiveId = selectedId ?? projects[0]?.id ?? null;
   const selected = projects.find((project) => project.id === effectiveId) ?? null;
-  const latestRun = runs.find((run) => run.id === selectedRunId) ?? runs[0] ?? null;
+  // Newest run by default; the history list selects any other.
+  const selectedRun = runs.find((run) => run.id === selectedRunId) ?? runs[0] ?? null;
   useEffect(() => { if (selectedId === null && projects[0]) setSelectedId(projects[0].id); }, [selectedId, projects, setSelectedId]);
 
   const loadProjects = async () => {
@@ -420,24 +523,35 @@ function LiveResearchTool() {
   }, [selected?.id]);
 
   useEffect(() => {
-    if (!selected || !latestRun) { setRunDetail(null); return; }
+    if (!selected || !selectedRun) { setRunDetail(null); return; }
     let active = true;
-    gateway.domains.research!.getRun(selected.id, latestRun.id)
+    gateway.domains.research!.getRun(selected.id, selectedRun.id)
       .then((run) => { if (active) setRunDetail(run); })
       .catch(() => { if (active) setRunDetail(null); });
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.id, latestRun?.id]);
+  }, [selected?.id, selectedRun?.id]);
 
-  // Keep an active run (including "Finish with current evidence") fresh until it stops.
+  /** One run changed (action response or poll): update the history row and, if shown, the detail. */
+  const applyRun = (run: ResearchProjectRun) => {
+    setRuns((current) => current.map((entry) => (entry.id === run.id ? run : entry)));
+    setRunDetail((current) => (current && current.id !== run.id ? current : run));
+  };
+
+  // Keep in-progress runs (including "Finish with current evidence") fresh until they stop.
+  const anyActive = runs.some((run) => ACTIVE_RUN_STATES.includes(run.status)) || (runDetail ? ACTIVE_RUN_STATES.includes(runDetail.status) : false);
   useEffect(() => {
-    if (!selected || !runDetail || !ACTIVE_RUN_STATES.includes(runDetail.status)) return;
+    if (!selected || !anyActive) return;
     const timer = window.setTimeout(() => {
-      gateway.domains.research!.getRun(selected.id, runDetail.id).then(setRunDetail).catch(() => undefined);
+      gateway.domains.research!.listRuns(selected.id).then((next) => {
+        setRuns(next);
+        const shown = next.find((run) => run.id === runDetail?.id);
+        if (shown) setRunDetail(shown);
+      }).catch(() => undefined);
     }, 5_000);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.id, runDetail]);
+  }, [selected?.id, runs, runDetail, anyActive]);
 
   const createProject = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -450,7 +564,7 @@ function LiveResearchTool() {
       domain: String(data.get('domain') || '') || null,
       profileId: 'research',
       passConfig: [{ role: 'evidence', profileId: 'research' }],
-      modelPolicy: {},
+      modelPolicy: modelPolicyFromForm(data),
       criticConfig: { enabled: true },
       synthesisConfig: { enabled: true },
       scheduleRef: null,
@@ -465,23 +579,28 @@ function LiveResearchTool() {
     } catch (err) { notify(err instanceof Error ? err.message : 'Research project creation failed'); }
   };
 
-  const saveBudget = async (event: FormEvent<HTMLFormElement>) => {
+  const saveSettings = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selected) return;
+    const data = new FormData(event.currentTarget);
+    const modelPolicy = modelPolicyFromForm(data, selected.modelPolicy);
     try {
-      const updated = await gateway.domains.research!.updateProject(selected.id, { budget: budgetFromForm(new FormData(event.currentTarget)) });
+      const updated = await gateway.domains.research!.updateProject(selected.id, {
+        budget: budgetFromForm(data),
+        ...(hasModelPolicy(modelPolicy) ? { modelPolicy } : {}),
+      });
       setProjects((current) => current.map((project) => (project.id === updated.id ? updated : project)));
-      setTrace({ method: 'PATCH', route: `/agent-research/projects/${selected.id}`, detail: 'Research budget updated' });
+      setTrace({ method: 'PATCH', route: `/agent-research/projects/${selected.id}`, detail: 'Research settings updated' });
       setBudgetDialog(false);
-    } catch (err) { notify(err instanceof Error ? err.message : 'Research budget update failed'); }
+    } catch (err) { notify(err instanceof Error ? err.message : 'Research settings update failed'); }
   };
 
   const finishRun = async () => {
-    if (!selected || !latestRun) return;
+    if (!selected || !selectedRun) return;
     try {
-      const run = await gateway.domains.research!.finishRun(selected.id, latestRun.id);
-      setRunDetail(run);
-      setTrace({ method: 'POST', route: `/agent-research/projects/${selected.id}/runs/${latestRun.id}/finish`, detail: 'Final report is being written from the current evidence' });
+      const run = await gateway.domains.research!.finishRun(selected.id, selectedRun.id);
+      applyRun(run);
+      setTrace({ method: 'POST', route: `/agent-research/projects/${selected.id}/runs/${selectedRun.id}/finish`, detail: 'Final report is being written from the current evidence' });
     } catch (err) { notify(err instanceof Error ? err.message : 'Research run could not be finished'); }
   };
 
@@ -505,54 +624,54 @@ function LiveResearchTool() {
   };
 
   const cancelRun = async () => {
-    if (!selected || !latestRun) return;
+    if (!selected || !selectedRun) return;
     try {
-      const run = await gateway.domains.research!.cancelRun(selected.id, latestRun.id);
-      setRunDetail(run);
-      setTrace({ method: 'POST', route: `/agent-research/projects/${selected.id}/runs/${latestRun.id}/cancel`, detail: 'Research run canceled' });
+      const run = await gateway.domains.research!.cancelRun(selected.id, selectedRun.id);
+      applyRun(run);
+      setTrace({ method: 'POST', route: `/agent-research/projects/${selected.id}/runs/${selectedRun.id}/cancel`, detail: 'Research run canceled' });
     } catch (err) { notify(err instanceof Error ? err.message : 'Research run cancel failed'); }
   };
 
   const resumeRun = async () => {
-    if (!selected || !latestRun) return;
+    if (!selected || !selectedRun) return;
     try {
-      const run = await gateway.domains.research!.resumeRun(selected.id, latestRun.id);
-      setRunDetail(run);
-      setTrace({ method: 'POST', route: `/agent-research/projects/${selected.id}/runs/${latestRun.id}/resume`, detail: 'Research run resumed' });
+      const run = await gateway.domains.research!.resumeRun(selected.id, selectedRun.id);
+      applyRun(run);
+      setTrace({ method: 'POST', route: `/agent-research/projects/${selected.id}/runs/${selectedRun.id}/resume`, detail: 'Research run resumed' });
     } catch (err) { notify(err instanceof Error ? err.message : 'Research run resume failed'); }
   };
 
   const openExport = async (format: 'html' | 'markdown') => {
-    if (!selected || !latestRun) return;
+    if (!selected || !selectedRun) return;
     try {
-      const text = await gateway.domains.research!.exportRun(selected.id, latestRun.id, format);
+      const text = await gateway.domains.research!.exportRun(selected.id, selectedRun.id, format);
       const blobUrl = URL.createObjectURL(new Blob([text], { type: format === 'html' ? 'text/html' : 'text/markdown' }));
       window.open(blobUrl, '_blank', 'noopener');
-      setTrace({ method: 'GET', route: `/agent-research/projects/${selected.id}/runs/${latestRun.id}/export?format=${format}`, detail: `${format} export prepared` });
+      setTrace({ method: 'GET', route: `/agent-research/projects/${selected.id}/runs/${selectedRun.id}/export?format=${format}`, detail: `${format} export prepared` });
     } catch (err) { notify(err instanceof Error ? err.message : 'Research export failed'); }
   };
 
   const openMagazine = async () => {
-    if (!selected || !latestRun) return;
+    if (!selected || !selectedRun) return;
     try {
-      const html = await gateway.domains.research!.magazine(selected.id, latestRun.id);
+      const html = await gateway.domains.research!.magazine(selected.id, selectedRun.id);
       window.open(URL.createObjectURL(new Blob([html], { type: 'text/html' })), '_blank', 'noopener');
-      setTrace({ method: 'GET', route: `/agent-research/projects/${selected.id}/runs/${latestRun.id}/magazine`, detail: 'Magazine view opened' });
+      setTrace({ method: 'GET', route: `/agent-research/projects/${selected.id}/runs/${selectedRun.id}/magazine`, detail: 'Magazine view opened' });
     } catch (err) { notify(err instanceof Error ? err.message : 'Magazine view failed'); }
   };
 
   const discuss = async () => {
-    if (!selected || !latestRun) return;
+    if (!selected || !selectedRun) return;
     try {
-      await gateway.domains.research!.startDiscussion(selected.id, latestRun.id, []);
-      setTrace({ method: 'POST', route: `/agent-research/projects/${selected.id}/runs/${latestRun.id}/discussions`, detail: 'Discussion session created from selected artifacts' });
+      await gateway.domains.research!.startDiscussion(selected.id, selectedRun.id, []);
+      setTrace({ method: 'POST', route: `/agent-research/projects/${selected.id}/runs/${selectedRun.id}/discussions`, detail: 'Discussion session created from selected artifacts' });
       navigate('/agents');
     } catch (err) { notify(err instanceof Error ? err.message : 'Discussion could not be started'); }
   };
 
   const sourceLabel = (source: Record<string, unknown>) => (typeof source.title === 'string' ? source.title : typeof source.canonical_url === 'string' ? source.canonical_url : typeof source.id === 'string' ? source.id : 'Untitled source');
   const hasSynthesis = runDetail ? stageDone(runDetail, (role) => role === 'synthesis') : false;
-  const hasEvidence = runDetail ? stageDone(runDetail, (role) => role !== 'critic' && role !== 'synthesis') : false;
+  const hasEvidence = runDetail ? stageDone(runDetail, isEvidenceRole) : false;
   const runActive = runDetail ? ACTIVE_RUN_STATES.includes(runDetail.status) : false;
   const budgetExhausted = runDetail?.diagnostics.budgetExhausted === true;
   const canFinish = Boolean(runDetail) && !runActive && hasEvidence && (!hasSynthesis || budgetExhausted);
@@ -561,6 +680,10 @@ function LiveResearchTool() {
     : hasEvidence ? `This run stopped before its final report (${runDetail.status.replace(/_/g, ' ')}). Finish with current evidence to write it from what was gathered.`
     : 'This run stopped before gathering any evidence, so there is no report. Adjust the budget if needed and start a new run.';
   const usageOverBudget = Boolean(runDetail && selected) && runDetail!.usage.tokens >= budgetNumber(selected!.budget, 'maxTokens');
+  const modelSummary = (policy: Record<string, unknown>) => (hasModelPolicy(policy)
+    ? `Lead: ${modelName(models, modelKey(policyRef(policy, 'lead')))} · Researchers: ${modelName(models, modelKey(policyRef(policy, 'researcher')))}`
+    : 'Models: research profile model for every stage (one researcher at a time)');
+  const stages = runDetail ? researchStages(runDetail) : [];
 
   return <ToolFrame slug="deep-research" title="Research Projects" description="Run multi-pass research, inspect evidence, and keep discussion and export actions attached to a project run." trace={trace}>
     <ListInspector
@@ -574,18 +697,45 @@ function LiveResearchTool() {
       emptyState={<EmptyState title="No research projects yet">Create a project to keep multi-pass evidence, sources, and discussion in one place.</EmptyState>}
       inspector={(item) => item && selected ? <>
         <header className="detail-header">
-          <div><p>{selected.question}</p><p className="tool-empty-inline" data-testid="research-budget-summary">Budget: {budgetSummary(selected.budget)}</p></div>
+          <div>
+            <p>{selected.question}</p>
+            <p className="tool-empty-inline research-settings-line">
+              <span data-testid="research-budget-summary">{budgetSummary(selected.budget)}</span>
+              <button className="text-button" type="button" onClick={() => setBudgetDialog(true)} disabled={Boolean(selected.archivedAt)} data-testid="research-edit-budget">Edit</button>
+            </p>
+            <p className="tool-empty-inline" data-testid="research-model-summary">{modelSummary(selected.modelPolicy)}</p>
+          </div>
           <div className="row-actions">
             <button className="secondary-button compact" type="button" onClick={() => void startRun()} data-testid="research-start-run"><Icon name="resume" size={13} />Start run</button>
-            <button className="secondary-button compact" type="button" onClick={() => setBudgetDialog(true)} disabled={Boolean(selected.archivedAt)} data-testid="research-edit-budget">Edit budget</button>
             <button className="text-danger-button" type="button" onClick={() => void archiveProject()} disabled={Boolean(selected.archivedAt)} data-testid="research-archive"><Icon name="archive" size={13} />Archive project</button>
           </div>
         </header>
+        {runs.length > 0 && <section className="research-runs" aria-label="Run history" data-testid="research-run-history">
+          <h4>Runs</h4>
+          <ul>{runs.map((run) => <li key={run.id}>
+            <button type="button" aria-pressed={run.id === selectedRun?.id} onClick={() => setSelectedRunId(run.id)} data-testid={`research-run-${run.id}`}>
+              <span className={`state-badge ${run.status}`}>{run.status.replace(/_/g, ' ')}</span>
+              <Timestamp value={run.startedAt ?? run.createdAt} />
+              <span>{tokenCount(run.usage.tokens)} tokens</span>
+              <span>{run.sources.length} {run.sources.length === 1 ? 'source' : 'sources'}</span>
+            </button>
+          </li>)}</ul>
+        </section>}
         {runDetail ? <article className="research-report">
           <span className={`state-badge ${runDetail.status}`}>{runDetail.status}</span>
           <h3>Run {runDetail.id}</h3>
           {runDetail.status === 'error' && <button className="primary-button" type="button" onClick={() => void resumeRun()} data-testid="research-resume">Resume</button>}
           {runActive && <button className="secondary-button compact" type="button" onClick={() => void cancelRun()} data-testid="research-cancel">Cancel</button>}
+          {stages.length > 0 && <section aria-label="Stages"><h4>Stages</h4>
+            <table className="research-stages" data-testid="research-stages"><thead><tr><th scope="col">Stage</th><th scope="col">Model</th><th scope="col">Status</th><th scope="col">Tokens</th></tr></thead>
+              <tbody>{stages.map((stage, index) => <tr key={typeof stage.id === 'string' ? stage.id : index} data-testid={`research-stage-${String(stage.role)}`}>
+                <td>{stageTitle(stage)}{typeof stage.angle === 'string' && stage.angle ? <small className="research-field-hint">{stage.angle}</small> : null}</td>
+                <td>{modelName(models, stage.model)}</td>
+                <td><span className={`state-badge ${String(stage.status)}`}>{String(stage.status)}</span></td>
+                <td>{typeof stage.tokens === 'number' ? stage.tokens.toLocaleString('en-US') : '—'}</td>
+              </tr>)}</tbody>
+            </table>
+          </section>}
           <section aria-label="Curated sources"><h4>Sources</h4>{runDetail.sources.length === 0 ? <p className="tool-empty-inline">No sources yet.</p> : <ul>{runDetail.sources.map((source, index) => <li key={typeof source.id === 'string' ? source.id : index}>{sourceLabel(source)}</li>)}</ul>}</section>
           <section aria-label="Run statistics"><h4>Usage</h4><p>{runDetail.usage.tokens} tokens · ${runDetail.usage.costUsd.toFixed(2)}</p></section>
           {budgetExhausted && <p className="tool-empty-inline" data-testid="research-budget-exhausted">Budget ran out ({Array.isArray(runDetail.diagnostics.reasons) ? runDetail.diagnostics.reasons.map(String).join(', ').replace(/_/g, ' ') : 'limit reached'}){runDetail.diagnostics.finishedWithCurrentEvidence === true ? '; the report was written from the evidence gathered so far, without a critic review.' : '.'}</p>}
@@ -600,8 +750,8 @@ function LiveResearchTool() {
         </article> : <p className="tool-empty-inline">No runs yet for this project.</p>}
       </> : <p>Select a research project to inspect its runs and evidence.</p>}
     />
-    <FocusDialog open={projectDialog} onClose={() => setProjectDialog(false)} title="Create research project" description="Define the project question and evidence goals." testId="research-project-dialog" wide><form className="form-grid" onSubmit={(event) => void createProject(event)}><label className="field">Project name<input name="name" required data-autofocus /></label><label className="field">Domain<input name="domain" defaultValue="operations" /></label><label className="field span-2">Research question<textarea name="question" required rows={3} /></label><label className="field span-2">Goals (one per line)<textarea name="goals" defaultValue="Preserve evidence" rows={3} /></label><ResearchBudgetFields /><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setProjectDialog(false)}>Cancel</button><button className="primary-button" type="submit" data-testid="research-project-create">Create project</button></footer></form></FocusDialog>
-    <FocusDialog open={budgetDialog && Boolean(selected)} onClose={() => setBudgetDialog(false)} title="Edit research budget" description="Applies to new runs, and to a stopped run when you finish it with current evidence." testId="research-budget-dialog" wide><form className="form-grid" onSubmit={(event) => void saveBudget(event)}><ResearchBudgetFields budget={selected?.budget} /><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setBudgetDialog(false)}>Cancel</button><button className="primary-button" type="submit" data-testid="research-budget-save">Save budget</button></footer></form></FocusDialog>
+    <FocusDialog open={projectDialog} onClose={() => setProjectDialog(false)} title="Create research project" description="Define the project question and evidence goals." testId="research-project-dialog" wide><form className="form-grid" onSubmit={(event) => void createProject(event)}><label className="field">Project name<input name="name" required data-autofocus /></label><label className="field">Domain<input name="domain" defaultValue="operations" /></label><label className="field span-2">Research question<textarea name="question" required rows={3} /></label><label className="field span-2">Goals (one per line)<textarea name="goals" defaultValue="Preserve evidence" rows={3} /></label><ResearchModelFields /><ResearchBudgetFields /><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setProjectDialog(false)}>Cancel</button><button className="primary-button" type="submit" data-testid="research-project-create">Create project</button></footer></form></FocusDialog>
+    <FocusDialog open={budgetDialog && Boolean(selected)} onClose={() => setBudgetDialog(false)} title="Research settings" description="Applies to new runs. Finishing a stopped run with current evidence uses the new budget too." testId="research-budget-dialog" wide><form className="form-grid" onSubmit={(event) => void saveSettings(event)}><ResearchModelFields policy={selected?.modelPolicy} /><ResearchBudgetFields budget={selected?.budget} /><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setBudgetDialog(false)}>Cancel</button><button className="primary-button" type="submit" data-testid="research-budget-save">Save settings</button></footer></form></FocusDialog>
   </ToolFrame>;
 }
 

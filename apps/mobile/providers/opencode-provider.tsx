@@ -2222,14 +2222,19 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           nextSessions.find((session) => session.id === rememberedSessionId) ??
           nextSessions[0] ??
           (await createSession());
+        // Slash commands, VCS status and MCP diagnostics are not needed to
+        // show the chat, and on a cold engine directory they wait on every MCP
+        // server (a minute when one never answers). Load them behind the open.
+        settleBackgroundRead(() => Promise.all([
+          refreshServerFeatures(),
+          refreshDiagnostics(),
+        ]));
         await Promise.all([
           refreshMessages(targetSession.id, true),
           refreshSessionDiff(targetSession.id, true),
           refreshSessionTodos(targetSession.id),
           refreshPendingInteractions(),
           refreshChatCapabilities(),
-          refreshServerFeatures(),
-          refreshDiagnostics(),
         ]);
         if (!isCurrentClient(client)) {
           return undefined;
@@ -2280,6 +2285,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     refreshSessionDiff,
     refreshSessionTodos,
     sessions,
+    settleBackgroundRead,
   ]);
 
   const selectProject = useCallback((path: string) => {
