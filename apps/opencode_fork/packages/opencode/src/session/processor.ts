@@ -496,14 +496,16 @@ export const layer: Layer.Layer<
                 typeof attachment.mime === "string" &&
                 typeof attachment.url === "string",
             )
-            // temporarily disabled
-            // const normalized = yield* Effect.forEach(toolAttachments, (attachment) =>
-            //   attachment.mime.startsWith("image/")
-            //     ? image.normalize(attachment).pipe(Effect.exit)
-            //     : Effect.succeed(Exit.succeed<MessageV2.FilePart>(attachment)),
-            // )
+            // Rhythm: downscale tool images (2000px / 4.5 MB base64 caps, see image/image.ts) before
+            // they reach the model and the transcript. A resize failure keeps the original image:
+            // dropping it would hide the file from the model entirely.
             const normalized = yield* Effect.forEach(toolAttachments, (attachment) =>
-              Effect.succeed(Exit.succeed<MessageV2.FilePart>(attachment)),
+              attachment.mime.startsWith("image/")
+                ? image.normalize(attachment).pipe(
+                    Effect.exit,
+                    Effect.map((exit) => (Exit.isSuccess(exit) ? exit : Exit.succeed<MessageV2.FilePart>(attachment))),
+                  )
+                : Effect.succeed(Exit.succeed<MessageV2.FilePart>(attachment)),
             )
             const omitted = normalized.filter(Exit.isFailure).length
             const attachments = normalized.filter(Exit.isSuccess).map((item) => item.value)
