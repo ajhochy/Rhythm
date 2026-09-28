@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { applyStructuredEdit, editMcpGroup, isAction, isRecord, mcpGroupSelection, parseMcpSelection, parsePolicy, parseSkillSelection, permissionDefault, serializePolicy } from './profilePolicy';
 import type { PermissionAction, StructuredEdit } from './profilePolicy';
 import './Profiles.css';
@@ -10,7 +10,8 @@ import { emptyLiveProfile, useFixtures } from '../store';
 import type { IdentityProfile } from '../gateway/sessions';
 import type { Profile } from '../types';
 import { FocusDialog } from './FocusDialog';
-import { Splitter } from './Splitter';
+import { ColumnBrowser, ColumnChecklist, type BrowserColumn } from './ColumnBrowser';
+import { useSelectedId } from './ListInspector';
 import { navigate } from './Shell';
 
 function parseNameList(raw: string | null | undefined): string[] {
@@ -25,27 +26,6 @@ export const profileAvatarLabel = (profile: Pick<Profile, 'icon' | 'label'>) => 
 export function ProfileAvatar({ profile, size }: { profile: Profile; size?: 'large' | 'tiny' }) {
   // ponytail: Flutter agent assets are not shipped by the web bundle, so avoid a known-broken img.
   return <span className={`profile-avatar${size ? ` ${size}` : ''}`} role="img" aria-label={`${profile.label} icon`}>{profileAvatarLabel(profile)}</span>;
-}
-
-type CapabilityChoice = { name: string; description?: string; testId: string; managed?: boolean };
-function CapabilityGroup({ name, choices, selected, inherited, filter, disabled, error, onChange, onEdit, onDelete }: {
-  name: string; choices: CapabilityChoice[]; selected: string[]; inherited: boolean; filter: string; disabled?: boolean;
-  error?: string;
-  onChange(selected: string[]): void;
-  onEdit?(name: string): void;
-  onDelete?(name: string): void;
-}) {
-  const [expanded, setExpanded] = useState(true);
-  const query = filter.trim().toLowerCase();
-  const visible = choices.filter(choice => `${name} ${choice.name} ${choice.description ?? ''}`.toLowerCase().includes(query));
-  if (query && !visible.length) return null;
-  return <details className="profile-capability-group" open={query ? true : expanded} onToggle={event => { if (!query) setExpanded(event.currentTarget.open); }}>
-    <summary><strong>{name}</strong><span>{choices.filter(choice => selected.includes(choice.name)).length} of {choices.length} selected</span><span className="profile-policy-source">{error ? 'Advanced' : inherited ? 'Inherited' : 'Explicit'}</span></summary>
-    {error && <p role="alert" className="profile-feedback error">{error}</p>}
-    <div className="profile-group-actions"><button className="text-button" type="button" aria-label={`Select all ${query ? 'shown ' : ''}in group: ${name}`} disabled={disabled || !visible.length} onClick={() => onChange([...new Set([...selected, ...visible.map(choice => choice.name)])])}>Select all{query ? ' shown' : ''} in group</button><button className="text-button" type="button" aria-label={`Clear ${query ? 'shown ' : ''}group: ${name}`} disabled={disabled || !visible.some(choice => selected.includes(choice.name))} onClick={() => onChange(selected.filter(item => !visible.some(choice => choice.name === item)))}>Clear{query ? ' shown' : ''} group</button></div>
-    <div className="profile-capability-choices">{visible.map(choice => <div className="profile-skill-choice-row" key={choice.name}><label className="profile-check-choice"><input type="checkbox" checked={selected.includes(choice.name)} disabled={disabled} onChange={event => onChange(event.target.checked ? [...selected, choice.name] : selected.filter(item => item !== choice.name))} data-testid={choice.testId} /><span><strong>{choice.name}</strong>{choice.description && <small>{choice.description}</small>}</span></label>{choice.managed && (onEdit || onDelete) && <span className="profile-skill-row-actions">{onEdit && <button className="icon-button small" type="button" aria-label={`Edit skill ${choice.name}`} disabled={disabled} onClick={() => onEdit(choice.name)}><Icon name="rename" size={14} /></button>}{onDelete && <button className="icon-button small danger" type="button" aria-label={`Delete skill ${choice.name}`} disabled={disabled} onClick={() => onDelete(choice.name)}><Icon name="delete" size={14} /></button>}</span>}</div>)}</div>
-    {!choices.length && <p>No tools are listed for this server.</p>}
-  </details>;
 }
 
 const permissionCategories = [
@@ -107,7 +87,7 @@ const stableNames = (names: string[]) => [...new Set(names)].sort((a, b) => a.lo
 const skillSlugPattern = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/;
 
 export function Profiles() {
-  const { profiles, models, accounts, catalogError, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, notify, sessionGatewayMode } = useFixtures();
+  const { profiles, models, accounts, openaiAccounts, catalogError, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, notify, sessionGatewayMode } = useFixtures();
   const live = sessionGatewayMode === 'live';
   const gateway = useGateway();
   const [mcpCatalog, setMcpCatalog] = useState<McpServer[]>([]);
@@ -159,21 +139,15 @@ export function Profiles() {
   const dirty = draftSignature(draft) !== baseline;
   const [pendingNavigation, setPendingNavigation] = useState<ProfileNavigation | null>(null);
   const [capabilityFilter, setCapabilityFilter] = useState('');
-  const [profileRailWidth, setProfileRailWidth] = useState(260);
+  const [delegateFilter, setDelegateFilter] = useState('');
+  // Explicit "Selected tools" choice while the saved MCP map is still empty.
+  const [mcpSelectedPick, setMcpSelectedPick] = useState(false);
+  const [groupParam, setGroupParam] = useSelectedId('profileSection');
   const requestedState = live ? 'ready' : new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('state') ?? 'ready';
   const supportedStates = ['ready', 'loading', 'empty', 'first-use', 'no-results', 'failure', 'forbidden', 'read-only', 'unavailable'];
   const [fixtureState, setFixtureState] = useState(supportedStates.includes(requestedState) ? requestedState : 'ready');
   const readOnly = fixtureState === 'read-only';
   const retryTimer = useRef<number | undefined>(undefined);
-  const footerRef = useRef<HTMLElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const footer = footerRef.current;
-    if (!footer) return;
-    const measure = () => scrollRef.current?.style.setProperty('--profile-footer-height', `${footer.getBoundingClientRect().height}px`);
-    const observer = new ResizeObserver(measure); observer.observe(footer); measure();
-    return () => observer.disconnect();
-  }, [fixtureState]);
   // Catalog/readback refreshes may update status, but never overwrite an unsaved
   // draft. Navigation explicitly resets the draft and binds it to the chosen ID.
   useEffect(() => {
@@ -191,7 +165,7 @@ export function Profiles() {
   const set = <K extends keyof IdentityProfile>(key: K, value: IdentityProfile[K]) => { setDraft((current) => ({ ...current, [key]: value })); setSaved(false); setSaveError(''); };
   const resetDraft = (profile: IdentityProfile) => {
     skillDialogRequest.current++; setSkillEditor(null); setSkillDelete(null); setSkillMutation(false); setSkillActionError(''); setSkillStatus('');
-    setDraft(structuredClone(profile)); setSkillMode(skillModeFor(profile.allowedSkillsJson)); setBaseline(draftSignature(profile)); setRenaming(false); setSaveError(''); setSaved(false); setCapabilityFilter(''); setSkillFilter('');
+    setDraft(structuredClone(profile)); setSkillMode(skillModeFor(profile.allowedSkillsJson)); setBaseline(draftSignature(profile)); setRenaming(false); setSaveError(''); setSaved(false); setCapabilityFilter(''); setSkillFilter(''); setDelegateFilter(''); setMcpSelectedPick(false);
   };
   useEffect(() => {
     if (!requestedProfileId || appliedProfileParam.current === requestedProfileId || dirty || saving) return;
@@ -242,13 +216,26 @@ export function Profiles() {
     } catch (error) { setSaveError(error instanceof Error ? error.message : 'Profile could not be saved'); }
     finally { savingRef.current = false; setSaving(false); }
   };
-  const toggleArray = (key: 'allowedDelegates' | 'mcps' | 'skills', value: string) => set(key, draft[key].includes(value) ? draft[key].filter((item) => item !== value) : [...draft[key], value]);
   const mcpPolicy = parseMcpSelection(draft.allowedMcpsJson);
   const skillPolicy = parseSkillSelection(draft.allowedSkillsJson);
   const skillSelections = skillPolicy.inherited ? stableNames(skillCatalog.map(skill => skill.name)) : stableNames(skillPolicy.selected);
-  const setMcpGroup = (server: string, tools: string[]) => {
-    try { set('allowedMcpsJson', editMcpGroup(mcpPolicy, server, tools, mcpCatalog)); }
-    catch (error) { setSaveError((error as Error).message); }
+  // Chain edits so a bulk change across servers applies every group, not just the last.
+  const setMcpGroups = (edits: [string, string[]][]) => {
+    if (!edits.length) return;
+    try {
+      let raw = draft.allowedMcpsJson ?? null;
+      for (const [server, tools] of edits) raw = editMcpGroup(parseMcpSelection(raw), server, tools, mcpCatalog);
+      setMcpSelectedPick(true); set('allowedMcpsJson', raw);
+    } catch (error) { setSaveError((error as Error).message); }
+  };
+  // null = unrestricted, [] = deny-all (api_server migrations.ts profile scope notes).
+  const mcpEmpty = mcpPolicy.map !== null && !mcpPolicy.error && Object.keys(mcpPolicy.map).length === 0;
+  const mcpMode: SkillPolicyMode = mcpPolicy.map === null ? 'all' : mcpEmpty && !mcpSelectedPick ? 'none' : 'selected';
+  const setMcpMode = (mode: SkillPolicyMode) => {
+    setMcpSelectedPick(mode === 'selected');
+    if (mode === 'all') set('allowedMcpsJson', null);
+    else if (mode === 'none') set('allowedMcpsJson', '[]');
+    else if (mcpPolicy.map === null) set('allowedMcpsJson', JSON.stringify(Object.fromEntries(mcpCatalog.filter(server => server.tools.length).map(server => [server.name, server.tools]))));
   };
   const setSkillGroup = (names: string[], groupNames: string[]) => set('allowedSkillsJson', JSON.stringify(stableNames([...skillSelections.filter(name => !groupNames.includes(name)), ...names])));
   const availableMcpGroups = live ? [...new Set([...mcpCatalog.map(server => server.name), ...Object.keys(mcpPolicy.map ?? {})])] : [];
@@ -322,112 +309,189 @@ export function Profiles() {
     return `${skill?.source ?? 'saved'} ${name} ${skill?.description ?? ''}`.toLowerCase().includes(skillQuery);
   });
   const skillSummary = skillMode === 'all' ? 'All skills' : skillMode === 'none' ? 'No skills' : `${skillSelections.length} selected`;
-  const capabilitiesMatch = (value: string) => value.toLowerCase().includes(capabilityFilter.trim().toLowerCase());
   if (fixtureState !== 'ready' && fixtureState !== 'read-only') {
     const waiting = fixtureState === 'loading' || fixtureState === 'retrying';
     const recoverable = ['empty', 'first-use', 'no-results'].includes(fixtureState);
     const retryable = fixtureState === 'failure' || fixtureState === 'unavailable';
     return <section className="profiles-workspace profiles-state-workspace" aria-label="Agent profiles" data-testid="profiles-workspace"><button className="text-button profiles-state-back" type="button" onClick={() => navigate('/agents')}><Icon name="chevronRight" className="rotate-180" size={14} />Back to Agents</button><div className="tool-state-panel" role={fixtureState === 'failure' || fixtureState === 'forbidden' || fixtureState === 'unavailable' ? 'alert' : 'status'} aria-busy={waiting || undefined} data-testid={`tool-state-${fixtureState}`}><Icon name={waiting ? 'refresh' : fixtureState === 'forbidden' ? 'background' : 'profile'} className={waiting ? 'spin' : ''} size={26} /><h1>{waiting ? `${fixtureState === 'retrying' ? 'Retrying' : 'Loading'} Profiles` : fixtureState === 'first-use' ? 'Set up Profiles' : fixtureState === 'no-results' ? 'No matching profiles' : fixtureState === 'empty' ? 'No profiles yet' : fixtureState === 'forbidden' ? 'Access denied' : 'Profiles unavailable'}</h1><p>{fixtureState === 'forbidden' ? 'This workspace cannot manage profile policy.' : retryable ? 'The profile service did not return usable data.' : waiting ? 'Waiting for profile data.' : 'No profiles match this view.'}</p>{recoverable && <button className="secondary-button" type="button" onClick={() => setFixtureState('ready')} data-testid="tool-state-restore">Load profiles</button>}{retryable && <button className="primary-button" type="button" onClick={() => { setFixtureState('retrying'); retryTimer.current = window.setTimeout(() => setFixtureState('ready'), 240); }} data-testid="tool-state-retry">Retry</button>}</div></section>;
   }
-  return (
-    <section className="profiles-workspace profiles-resizable" style={{ '--profile-rail-width': `${profileRailWidth}px` } as React.CSSProperties} aria-label="Agent profiles" aria-describedby={fixtureState === 'read-only' ? 'profiles-readonly' : undefined} data-od-id="profiles-workspace" data-testid="profiles-workspace">
-      <aside className="profile-rail" aria-label="Profile list">
-        <header><button className="icon-button small" type="button" onClick={() => requestNavigation({ kind: 'back' })} disabled={saving} aria-label="Back to Agents" data-testid="profiles-back"><Icon name="chevronRight" className="rotate-180" /></button><div><h1>Profiles</h1><small>Agent identity &amp; policy</small></div></header>
-        <button className="primary-button full" type="button" onClick={() => requestNavigation({ kind: 'create' })} disabled={readOnly || saving} data-testid="profile-create"><Icon name="plus" size={15} />Create profile</button>
-        <label className="search-field"><Icon name="search" size={14} /><span className="sr-only">Search profiles</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search profiles" data-testid="profile-search" /></label>
-        <label className="sort-label">Sort profiles<select value={sort} onChange={(event) => setSort(event.target.value)} data-testid="profile-sort"><option value="name">Name</option><option value="updated">Updated</option><option value="provider">Provider</option></select></label>
-        <div className="profile-list">{visible.map((profile) => <button className={`profile-row ${selectedId === profile.id ? 'selected' : ''}`} type="button" key={profile.id} onClick={() => requestNavigation({ kind: 'select', id: profile.id })} disabled={saving} data-testid={`profile-${profile.id}`}><ProfileAvatar profile={profile} /><span><strong>{profile.label}</strong><small>{profile.modelProvider ?? 'Configured'} · {profile.modelId ?? 'Configured model'}</small></span>{profile.isDefault && <em>Default</em>}{!profile.enabled && <em>Disabled</em>}</button>)}</div>
-      </aside>
-      <Splitter orientation="vertical" storageKey="layout.profiles.rail" min={240} max={420} defaultSize={260} onResize={setProfileRailWidth} ariaLabel="Resize Profiles list" testId="profiles-rail-resizer" />
-      {!selected.id && <p role="status">No profiles configured. Create a profile to begin.</p>}
-      <fieldset className="profile-editor profile-editor-fieldset" aria-labelledby="profile-editor-title" aria-disabled={editorDisabled || undefined} aria-busy={saving}>
-        <div className="profile-editor-layout">
-      {fixtureState === 'read-only' && <div className="tool-readonly-banner profile-editor-readonly" role="status" id="profiles-readonly" data-testid="tool-state-read-only"><Icon name="background" size={15} /><span><strong>Read-only</strong> · Profiles remain inspectable, but policy changes are disabled.</span></div>}
-        <header className="profile-editor-header" tabIndex={0}><div className="editor-title"><ProfileAvatar profile={draft} size="large" /><div>
-          <div className="profile-title-line"><h2 id="profile-editor-title">{draft.label || 'Untitled profile'}</h2><button className="icon-button" type="button" onClick={() => setRenaming(true)} disabled={editorDisabled} aria-label="Rename profile inline" data-testid="profile-rename"><Icon name="rename" size={16} /></button></div>
-          {renaming && <div className="profile-inline-rename"><label className="sr-only" htmlFor="inline-profile-name">Profile name</label><input id="inline-profile-name" autoFocus value={draft.label} onChange={event => set('label', event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); setRenaming(false); } }} data-testid="profile-inline-name" /><button className="icon-button" type="button" onClick={() => setRenaming(false)} aria-label="Confirm rename" data-testid="profile-inline-confirm"><Icon name="check" size={16} /></button></div>}
-          <p>{draft.modelProvider ?? 'No provider preference'} · {draft.modelId ?? 'No model preference'}</p>
-          <div className="profile-status-line"><span>{draft.enabled ? 'Enabled' : 'Disabled'}</span><span>{draft.selectable ? 'Session-selectable' : 'Hidden from session picker'}</span>{selected.isDefault && <span>Default profile</span>}{(live ? draft.isManager : draft.managerAgent) && <span>Manager</span>}{live && draft.id.startsWith('profile-created-') && <span>New · not saved yet</span>}</div>
-        </div></div></header>
-        <form className="profile-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
-          <div className="profile-editor-scroll" ref={scrollRef} tabIndex={0} role="region" aria-label="Profile settings" data-testid="profile-editor-scroll">
-          <fieldset className="profile-editor-controls" disabled={editorDisabled}>
-          {live && catalogError && <p role="alert" className="profile-feedback error">{catalogError}</p>}
-          {missingDraft && dirty && <p role="alert">This profile is no longer available. Your draft has been kept. Cancel to load an available profile.</p>}
-          <section className="editor-section"><header><div><h3>Identity &amp; instructions</h3><p>How this profile appears and guides each session.</p></div></header><div className="form-grid"><label className="field">{!looksLikeAssetPath(draft.icon) && draft.icon.length <= 3 ? 'Icon label' : 'Icon value'}<input value={draft.icon} maxLength={!looksLikeAssetPath(draft.icon) && draft.icon.length <= 3 ? 3 : undefined} onChange={(event) => set('icon', !looksLikeAssetPath(draft.icon) && draft.icon.length <= 3 ? event.target.value.toUpperCase() : event.target.value)} data-testid="profile-icon" /></label><label className="field">Profile label<input required aria-invalid={!!nameError} aria-describedby={nameError ? "profile-name-error" : undefined} value={draft.label} onChange={(event) => set('label', event.target.value)} data-testid="profile-label" /></label><label className="field span-2">System prompt<textarea rows={5} value={draft.systemPrompt} onChange={(event) => set('systemPrompt', event.target.value)} data-testid="profile-system-prompt" /></label></div></section>
-          <section className="editor-section"><header><div><h3>Provider, model &amp; account</h3><p>Defaults used when a session begins with this profile.</p></div></header><div className="form-grid">
-            <label className="field">Provider<select value={draft.modelProvider ?? ''} onChange={(event) => { set('modelProvider', event.target.value || null); set('modelId', null); }} data-testid="profile-provider"><option value="">No preference</option>{live ? <>{draft.modelProvider && !models.some(m => m.providerId === draft.modelProvider) && <option value={draft.modelProvider} disabled>{draft.modelProvider} (unavailable)</option>}{[...new Set(models.map(m => m.providerId))].map(id => <option key={id} value={id}>{id}</option>)}</> : <><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="local">Local provider</option></>}</select></label>
-            <label className="field">Model<select value={draft.modelId ?? ''} onChange={(event) => set('modelId', event.target.value || null)} data-testid="profile-model"><option value="">No preference</option>{live ? <>{draft.modelId && !models.some(m => m.providerId === draft.modelProvider && m.modelId === draft.modelId) && <option value={draft.modelId} disabled>{draft.modelId} (unavailable)</option>}{models.filter(m => m.providerId === draft.modelProvider).map(m => <option key={m.modelId} value={m.modelId}>{m.label}</option>)}</> : <><option value="gpt-5.6">gpt-5.6</option><option value="gpt-5.6-codex">gpt-5.6-codex</option><option value="claude-sonnet-4">claude-sonnet-4</option><option value="claude-sonnet-4-6">claude-sonnet-4-6</option></>}</select></label>
-            <label className="field span-2">{live ? 'Default Anthropic account' : 'Default account'}{live ? <select value={draft.defaultAnthropicAccountId ?? ''} onChange={(event) => set('defaultAnthropicAccountId', event.target.value || null)} data-testid="profile-account"><option value="">No default</option>{draft.defaultAnthropicAccountId && !accounts.some(a => a.id === draft.defaultAnthropicAccountId) && <option value={draft.defaultAnthropicAccountId} disabled>{draft.defaultAnthropicAccountId} (unavailable)</option>}{accounts.map(a => <option key={a.id} value={a.id} disabled={!!a.status && a.status !== 'ok'}>{a.label} · {a.id}{a.status && a.status !== 'ok' ? ` (${a.status})` : ''}</option>)}</select> : <select value={draft.defaultAccount} onChange={(event) => set('defaultAccount', event.target.value)} data-testid="profile-account"><option>Rhythm workspace</option><option>Research account</option><option>Local account</option></select>}</label>
+  // Column 2 groups; each shows a one-line summary of the draft value.
+  const delegateIds = live ? parseNameList(draft.allowedDelegatesJson) : draft.allowedDelegates;
+  const delegateChoices = profiles.filter((profile) => profile.id !== selected.id && (!live || profile.enabled && !profile.id.startsWith('profile-created-')));
+  const setDelegates = (ids: string[]) => {
+    const kept = delegateIds.filter((id) => !delegateChoices.some((profile) => profile.id === id));
+    if (live) set('allowedDelegatesJson', JSON.stringify([...kept, ...ids])); else set('allowedDelegates', [...kept, ...ids]);
+  };
+  const mcpToolTotals = availableMcpGroups.reduce((totals, name) => {
+    const server = mcpCatalog.find((item) => item.name === name);
+    const group = mcpGroupSelection(mcpPolicy, name, server?.tools ?? []);
+    return { selected: totals.selected + group.selected.length, total: totals.total + new Set([...(server?.tools ?? []), ...group.selected]).size };
+  }, { selected: 0, total: 0 });
+  const mcpSummary = !live ? `${draft.mcps.length} MCPs · ${draft.skills.length} skills` : mcpPolicy.error ? 'Advanced policy' : mcpMode === 'all' ? 'All MCPs' : mcpMode === 'none' ? 'No MCPs' : `Selected · ${mcpToolTotals.selected} of ${mcpToolTotals.total} tools`;
+  let permissionSummary = 'Inherited';
+  try { const value = parsePolicy(policyRaw).value; if (value) permissionSummary = `${Object.keys(value).length} rule${Object.keys(value).length === 1 ? '' : 's'}`; } catch { permissionSummary = 'Invalid JSON'; }
+  const groups = [
+    { id: 'identity', title: 'Identity & instructions', subtitle: draft.systemPrompt.trim() ? `${draft.systemPrompt.trim().length} character prompt` : 'No instructions' },
+    { id: 'model', title: 'Provider, model & account', subtitle: `${draft.modelProvider ?? 'Any provider'} · ${draft.modelId ?? 'any model'}` },
+    { id: 'delegation', title: 'Delegation', subtitle: `${(live ? draft.isManager : draft.managerAgent) ? 'Manager · ' : ''}${delegateIds.length} delegation target${delegateIds.length === 1 ? '' : 's'}` },
+    { id: 'availability', title: 'Availability & defaults', subtitle: `${draft.enabled ? 'Enabled' : 'Disabled'} · ${draft.selectable ? 'Selectable' : 'Hidden'}` },
+    ...(live ? [{ id: 'skills', title: 'Allowed skills', subtitle: skillMode === 'all' ? 'All skills' : skillMode === 'none' ? 'No skills' : `Selected · ${skillSelections.length} of ${new Set(allSkillChoices).size}` }] : []),
+    { id: 'capabilities', title: 'Capabilities', subtitle: mcpSummary },
+    { id: 'permissions', title: 'Permissions', subtitle: permissionSummary },
+    { id: 'actions', title: 'Actions', subtitle: selected.isDefault ? 'Default profile' : 'Duplicate, default, delete' },
+  ];
+  const groupId = groups.some((group) => group.id === groupParam) ? groupParam! : 'identity';
+  const group = groups.find((entry) => entry.id === groupId)!;
+  const controls = (content: React.ReactNode) => <fieldset className="profile-editor-controls" disabled={editorDisabled}>{content}</fieldset>;
+  const skillDeleteRequest = (name: string) => { const skill = skillCatalog.find(item => item.name === name); if (skill?.managed) { skillDialogRequest.current++; setSkillDelete(skill); setSkillActionError(''); } };
+  const skillActions = (skill: SkillEntry) => skill.managed ? <>
+    <button className="icon-button small" type="button" aria-label={`Edit skill ${skill.name}`} disabled={!!skillPolicy.error || skillMutation} onClick={() => void openEditSkill(skill.name)}><Icon name="rename" size={13} /></button>
+    <button className="icon-button small danger" type="button" aria-label={`Delete skill ${skill.name}`} disabled={!!skillPolicy.error || skillMutation} onClick={() => skillDeleteRequest(skill.name)}><Icon name="delete" size={13} /></button>
+  </> : undefined;
 
-          </div></section>
-          <section className="editor-section"><header><div><h3>Delegation</h3><p>Let this profile coordinate work and choose which profiles it may delegate to.</p></div><label className="switch-label"><input type="checkbox" checked={live ? draft.isManager === true : draft.managerAgent} onChange={(event) => set(live ? 'isManager' : 'managerAgent', event.target.checked)} data-testid="profile-manager" /><span />Manager agent</label></header><fieldset className="option-grid"><legend>Allowed delegates</legend>{profiles.filter((profile) => profile.id !== selected.id && (!live || profile.enabled && !profile.id.startsWith('profile-created-'))).map((profile) => <label key={profile.id}><input type="checkbox" checked={(live ? parseNameList(draft.allowedDelegatesJson) : draft.allowedDelegates).includes(profile.id)} onChange={() => { if (!live) toggleArray('allowedDelegates', profile.id); else { const list = parseNameList(draft.allowedDelegatesJson); set('allowedDelegatesJson', JSON.stringify(list.includes(profile.id) ? list.filter(id => id !== profile.id) : [...list, profile.id])); } }} data-testid={`delegate-${profile.id}`} /><ProfileAvatar profile={profile} size="tiny" /><span><strong>{profile.label}</strong><small>{profile.model}</small></span></label>)}</fieldset></section>
-          <section className="editor-section"><header><div><h3>Availability &amp; defaults</h3><p>Enabled profiles can run. Session-selectable profiles appear in the session picker. Choose a default in Actions below.</p></div></header><div className="switch-row"><label className="switch-label"><input type="checkbox" checked={draft.selectable} onChange={(event) => set('selectable', event.target.checked)} data-testid="profile-selectable" /><span />Session-selectable</label><label className="switch-label"><input type="checkbox" checked={draft.enabled} onChange={(event) => set('enabled', event.target.checked)} data-testid="profile-enabled" /><span />Enabled</label>{!live && <label className="switch-label"><input type="checkbox" checked={draft.managedSkills} onChange={(event) => set('managedSkills', event.target.checked)} data-testid="profile-managed-skills" /><span />Managed skills</label>}</div></section>
-          {live && <section className="editor-section profile-skills-section" aria-labelledby="profile-skills-title"><header><div><h3 id="profile-skills-title">Allowed skills</h3><p>Choose profile access here. Creating, editing, or deleting a managed skill changes the global Rhythm catalog; it does not save this profile.</p></div><div className="profile-section-actions"><button className="secondary-button" type="button" onClick={() => void loadSkillCatalog()} disabled={skillMutation} aria-label="Refresh skill catalog"><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={openCreateSkill} disabled={skillMutation}><Icon name="plus" size={14} />Add skill</button></div></header>
-            <fieldset className="profile-skill-policy" role="radiogroup" aria-labelledby="profile-skills-title" disabled={!!skillPolicy.error}><legend className="sr-only">Allowed skills</legend>
-              <label><input type="radio" name="skill-policy" checked={skillMode === 'all'} onChange={() => setSkillPolicyMode('all')} /><span><strong>All skills</strong><small>Inherit the current catalog and automatically allow future skills.</small></span></label>
-              <label><input type="radio" name="skill-policy" checked={skillMode === 'selected'} onChange={() => setSkillPolicyMode('selected')} /><span><strong>Selected skills</strong><small>Allow only the explicit list below. Future skills are not added.</small></span></label>
-              <label><input type="radio" name="skill-policy" checked={skillMode === 'none'} onChange={() => setSkillPolicyMode('none')} /><span><strong>No skills</strong><small>Deny all skill access with an explicit empty list.</small></span></label>
-            </fieldset>
-            <div className="profile-skills-toolbar"><strong data-testid="profile-skills-summary">{skillSummary}</strong>{skillMode === 'selected' && <><button className="text-button" type="button" disabled={!shownSkillNames.length} onClick={() => set('allowedSkillsJson', JSON.stringify(stableNames([...skillSelections, ...shownSkillNames])))} aria-label={`Select all ${skillQuery ? 'shown ' : ''}skills`}>Select all{skillQuery ? ' shown' : ''}</button><button className="text-button" type="button" disabled={!shownSkillNames.some(name => skillSelections.includes(name))} onClick={() => set('allowedSkillsJson', JSON.stringify(skillSelections.filter(name => !shownSkillNames.includes(name))))} aria-label={`Clear all ${skillQuery ? 'shown ' : ''}skills`}>Clear all{skillQuery ? ' shown' : ''}</button></>}</div>
-            {skillPolicy.error && <p role="alert" className="profile-feedback error">{skillPolicy.error}</p>}
-            {skillCatalogError && <p role="alert" className="profile-feedback error">{skillCatalogError}. Existing policy and saved choices are unchanged.</p>}
-            {skillActionError && !skillEditor && !skillDelete && <p role="alert" className="profile-feedback error">{skillActionError}. Your editor and profile draft are unchanged.</p>}
-            <p className="profile-skill-status" role="status" aria-live="polite">{skillStatus}</p>
-            {skillMode === 'selected' && <>
-              <label className="field profile-capability-filter">Filter skills<input type="search" value={skillFilter} onChange={event => { setSkillFilter(event.target.value); setCapabilityFilter(event.target.value); }} placeholder="Name, description, or source" data-testid="profile-capability-filter" /></label>
-              <div className="profile-capability-catalog" data-testid="profile-skill-catalog">
-                {skillSources.map(source => {
-                  const skills = skillCatalog.filter(skill => skill.source === source).sort((a, b) => a.name.localeCompare(b.name));
-                  return <CapabilityGroup key={source} name={`${source} skills`} choices={skills.map(skill => ({ name: skill.name, description: skill.description, testId: `skill-${skill.name}`, managed: skill.managed }))} selected={skillSelections.filter(name => skills.some(skill => skill.name === name))} inherited={false} filter={skillFilter} disabled={!!skillPolicy.error || skillMutation} onChange={names => setSkillGroup(names, skills.map(skill => skill.name))} onEdit={name => void openEditSkill(name)} onDelete={name => { const skill = skillCatalog.find(item => item.name === name); if (skill?.managed) { skillDialogRequest.current++; setSkillDelete(skill); setSkillActionError(''); } }} />;
-                })}
-                {unavailableSkills.length > 0 && <CapabilityGroup name="Saved skills outside the catalog" choices={unavailableSkills.map(name => ({ name, testId: `skill-${name}`, description: 'Not in the current catalog; saved selection retained.' }))} selected={unavailableSkills} inherited={false} filter={skillFilter} disabled={!!skillPolicy.error || skillMutation} onChange={names => setSkillGroup(names, unavailableSkills)} />}
-                {!skillCatalogError && !skillCatalog.length && !unavailableSkills.length && <p>No skills found.</p>}
-                {skillFilter && !shownSkillNames.length && <p>No matching skills.</p>}
-              </div>
-            </>}
-          </section>}
-          <section className="editor-section" aria-labelledby="profile-capabilities-title"><header><div><h3 id="profile-capabilities-title">Capabilities</h3><p>{live ? 'Choose tools from each MCP server.' : 'Preview MCP servers and skills. Fixture choices do not change live access.'}</p></div><button className="secondary-button" type="button" onClick={() => { if (live) loadMcpCatalog(); else notify('MCP servers and skills refreshed'); }} data-testid="profile-resync"><Icon name="refresh" size={14} />Refresh capabilities</button></header>
-            <label className="field profile-capability-filter">Filter tools{!live && ' and skills'}<input type="search" value={capabilityFilter} onChange={event => setCapabilityFilter(event.target.value)} placeholder={live ? 'Server or tool' : 'Server, tool, skill, or source'} data-testid={live ? 'profile-mcp-filter' : 'profile-capability-filter'} /></label>
-            {live && <p className="profile-policy-note">Inherited means this profile does not narrow that selection. Other engine rules still apply. Editing inherited access creates an explicit selection of the listed choices; future catalog additions are excluded.</p>}
-            <div className="profile-capability-catalog" data-testid="profile-capability-catalog">
-              <h4>MCP tools</h4>
-              {live ? <>
-                {mcpCatalogError && <p role="alert">{mcpCatalogError} Use Refresh capabilities to retry.</p>}
-                {mcpPolicy.error && <p role="alert">{mcpPolicy.error}</p>}
-                {availableMcpGroups.map(name => {
-                  const server = mcpCatalog.find(item => item.name === name);
-                  const group = mcpGroupSelection(mcpPolicy, name, server?.tools ?? []);
-                  const names = [...new Set([...(server?.tools ?? []), ...group.selected])];
-                  return <CapabilityGroup key={name} name={name} choices={names.map(tool => ({ name: tool, description: server?.tools.includes(tool) ? undefined : 'Not in the current catalog; saved selection retained.', testId: `mcp-${name}-${tool}` }))} selected={group.selected} inherited={group.inherited} filter={capabilityFilter} error={group.error} disabled={!!mcpPolicy.error || !!mcpCatalogError || !server || !!group.error} onChange={tools => setMcpGroup(name, tools)} />;
-                })}
-                {!mcpCatalogError && !availableMcpGroups.length && <p>No MCP servers configured.</p>}
-                {capabilityFilter && availableMcpGroups.length > 0 && !availableMcpGroups.some(name => capabilitiesMatch(`${name} ${mcpCatalog.find(server => server.name === name)?.tools.join(' ') ?? ''} ${mcpGroupSelection(mcpPolicy, name, []).selected.join(' ')}`)) && <p>No matching MCP tools.</p>}
-              </> : <CapabilityGroup name="Workspace MCP servers" choices={['GitNexus', 'Open Design', 'Web research'].map(name => ({ name, testId: `mcp-${name.toLowerCase().replace(' ', '-')}` }))} selected={draft.mcps} inherited={false} filter={capabilityFilter} onChange={names => set('mcps', names)} />}
-              {!live && <><h4>Skills</h4><CapabilityGroup name="Workspace skills" choices={['planning', 'verification', 'frontend', 'tests', 'research', 'citations'].map(name => ({ name, testId: `skill-${name}` }))} selected={draft.skills} inherited={false} filter={capabilityFilter} onChange={names => set('skills', names)} /></>}
-            </div>
-          </section>
-          <section className="editor-section"><header><div><h3>Permissions</h3><p>Set the approval rules for core tools. Unchanged rules keep their existing behavior.</p></div></header>
-            <PermissionsEditor key={draft.id} raw={policyRaw} onChange={value => {
-              set('corePermissionsJson', value);
-              if (!live) { try { const parsed = parsePolicy(value).value; set('permissionRules', Object.fromEntries(Object.entries(parsed ?? {}).filter(([, rule]) => isAction(rule))) as IdentityProfile['permissionRules']); } catch { /* Keep invalid draft for correction. */ } }
-            }} />
-            {live && <label className="check-label"><input type="checkbox" checked={draft.autoApproveActions === true} onChange={event => set('autoApproveActions', event.target.checked)} data-testid="profile-auto-approve" />Auto-approve protected actions</label>}
-          </section>
-          <section className="editor-section profile-actions"><header><div><h3>Actions</h3><p>These actions take effect immediately. Save your edits first to include them in a duplicate.</p></div></header>
-            <div className="profile-action-row"><div><strong>Duplicate profile</strong><p>Create a copy of the saved profile{live ? ', then save it to create it on the server' : ''}.</p></div><button className="secondary-button" type="button" onClick={() => requestNavigation({ kind: 'duplicate' })} disabled={missingDraft || draft.id !== selected.id} data-testid="profile-duplicate"><Icon name="copy" size={14} />Duplicate</button></div>
-            <div className="profile-action-row"><div><strong>Default profile</strong><p>{live ? 'Local to this account; resets on reload. Save and enable the profile before choosing it.' : 'Use this profile when starting a new session.'}</p></div><button className="secondary-button" type="button" onClick={() => setDefaultProfile(draft.id)} disabled={missingDraft || draft.id !== selected.id || selected.isDefault || live && (!selected.enabled || !selected.selectable || selected.id.startsWith('profile-created-'))} title={selected.isDefault ? 'Already the default profile' : undefined} data-testid="profile-default"><Icon name="check" size={14} />{selected.isDefault ? 'Default' : 'Set default'}</button></div>
-            <div className="profile-action-row profile-destructive-action"><div><strong>Delete profile</strong><p>{selected.isDefault ? 'Choose another default profile before deleting this one.' : 'Remove this profile from the workspace. Confirmation is required.'}</p></div><button className="text-danger-button" type="button" onClick={() => selected.isDefault ? notify('Choose another default before deleting this profile') : setDeleteOpen(true)} disabled={missingDraft || draft.id !== selected.id} data-testid="profile-delete"><Icon name="delete" size={14} />Delete</button></div>
-          </section>
+  const inspector = (): React.ReactNode => {
+    switch (groupId) {
+      case 'identity': return <><p className="profile-group-note">How this profile appears and guides each session.</p><div className="form-grid"><label className="field">{!looksLikeAssetPath(draft.icon) && draft.icon.length <= 3 ? 'Icon label' : 'Icon value'}<input value={draft.icon} maxLength={!looksLikeAssetPath(draft.icon) && draft.icon.length <= 3 ? 3 : undefined} onChange={(event) => set('icon', !looksLikeAssetPath(draft.icon) && draft.icon.length <= 3 ? event.target.value.toUpperCase() : event.target.value)} data-testid="profile-icon" /></label><label className="field">Profile label<input required aria-invalid={!!nameError} aria-describedby={nameError ? "profile-name-error" : undefined} value={draft.label} onChange={(event) => set('label', event.target.value)} data-testid="profile-label" /></label><label className="field span-2">System prompt<textarea rows={10} value={draft.systemPrompt} onChange={(event) => set('systemPrompt', event.target.value)} data-testid="profile-system-prompt" /></label></div></>;
+      case 'model': return <><p className="profile-group-note">Defaults used when a session begins with this profile.</p><div className="form-grid">
+        <label className="field">Provider<select value={draft.modelProvider ?? ''} onChange={(event) => { set('modelProvider', event.target.value || null); set('modelId', null); }} data-testid="profile-provider"><option value="">No preference</option>{live ? <>{draft.modelProvider && !models.some(m => m.providerId === draft.modelProvider) && <option value={draft.modelProvider} disabled>{draft.modelProvider} (unavailable)</option>}{[...new Set(models.map(m => m.providerId))].map(id => <option key={id} value={id}>{id}</option>)}</> : <><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="local">Local provider</option></>}</select></label>
+        <label className="field">Model<select value={draft.modelId ?? ''} onChange={(event) => set('modelId', event.target.value || null)} data-testid="profile-model"><option value="">No preference</option>{live ? <>{draft.modelId && !models.some(m => m.providerId === draft.modelProvider && m.modelId === draft.modelId) && <option value={draft.modelId} disabled>{draft.modelId} (unavailable)</option>}{models.filter(m => m.providerId === draft.modelProvider).map(m => <option key={m.modelId} value={m.modelId}>{m.label}</option>)}</> : <><option value="gpt-5.6">gpt-5.6</option><option value="gpt-5.6-codex">gpt-5.6-codex</option><option value="claude-sonnet-4">claude-sonnet-4</option><option value="claude-sonnet-4-6">claude-sonnet-4-6</option></>}</select></label>
+        <label className="field span-2">{live ? 'Default Anthropic account' : 'Default account'}{live ? <select value={draft.defaultAnthropicAccountId ?? ''} onChange={(event) => set('defaultAnthropicAccountId', event.target.value || null)} data-testid="profile-account"><option value="">No default</option>{draft.defaultAnthropicAccountId && !accounts.some(a => a.id === draft.defaultAnthropicAccountId) && <option value={draft.defaultAnthropicAccountId} disabled>{draft.defaultAnthropicAccountId} (unavailable)</option>}{accounts.map(a => <option key={a.id} value={a.id} disabled={!!a.status && a.status !== 'ok'}>{a.label} · {a.id}{a.status && a.status !== 'ok' ? ` (${a.status})` : ''}</option>)}</select> : <select value={draft.defaultAccount} onChange={(event) => set('defaultAccount', event.target.value)} data-testid="profile-account"><option>Rhythm workspace</option><option>Research account</option><option>Local account</option></select>}</label>
+        {live && <label className="field span-2">Default OpenAI account<select value={draft.defaultOpenaiAccountId ?? ''} onChange={(event) => set('defaultOpenaiAccountId', event.target.value || null)} data-testid="profile-openai-account"><option value="">Use the global default</option>{draft.defaultOpenaiAccountId && !openaiAccounts.some(a => a.id === draft.defaultOpenaiAccountId) && <option value={draft.defaultOpenaiAccountId} disabled>{draft.defaultOpenaiAccountId} (unavailable)</option>}{openaiAccounts.map(a => <option key={a.id} value={a.id} disabled={!!a.status && a.status !== 'ok'}>{a.label} · {a.id}{a.status && a.status !== 'ok' ? ` (${a.status})` : ''}</option>)}</select></label>}
+      </div></>;
+      case 'delegation': return <><p className="profile-group-note">Let this profile coordinate work and choose which profiles it may delegate to.</p><label className="switch-label"><input type="checkbox" checked={live ? draft.isManager === true : draft.managerAgent} onChange={(event) => set(live ? 'isManager' : 'managerAgent', event.target.checked)} data-testid="profile-manager" /><span />Manager agent</label><p className="profile-group-summary" data-testid="profile-delegation-summary">{delegateIds.length} of {delegateChoices.length} profiles allowed as delegation targets</p></>;
+      case 'availability': return <><p className="profile-group-note">Enabled profiles can run. Session-selectable profiles appear in the session picker. Choose a default in Actions.</p><div className="switch-row"><label className="switch-label"><input type="checkbox" checked={draft.selectable} onChange={(event) => set('selectable', event.target.checked)} data-testid="profile-selectable" /><span />Session-selectable</label><label className="switch-label"><input type="checkbox" checked={draft.enabled} onChange={(event) => set('enabled', event.target.checked)} data-testid="profile-enabled" /><span />Enabled</label>{!live && <label className="switch-label"><input type="checkbox" checked={draft.managedSkills} onChange={(event) => set('managedSkills', event.target.checked)} data-testid="profile-managed-skills" /><span />Managed skills</label>}</div></>;
+      case 'skills': return <section className="profile-skills-section" aria-labelledby="profile-skills-title"><h3 id="profile-skills-title" className="sr-only">Allowed skills</h3><p className="profile-group-note">Choose profile access here. Creating, editing, or deleting a managed skill changes the global Rhythm catalog; it does not save this profile.</p>
+        <div className="profile-section-actions"><button className="secondary-button" type="button" onClick={() => void loadSkillCatalog()} disabled={skillMutation} aria-label="Refresh skill catalog"><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={openCreateSkill} disabled={skillMutation}><Icon name="plus" size={14} />Add skill</button></div>
+        <fieldset className="profile-skill-policy" role="radiogroup" aria-labelledby="profile-skills-title" disabled={!!skillPolicy.error}><legend className="sr-only">Allowed skills</legend>
+          <label><input type="radio" name="skill-policy" checked={skillMode === 'all'} onChange={() => setSkillPolicyMode('all')} /><span><strong>All skills</strong><small>Inherit the current catalog and automatically allow future skills.</small></span></label>
+          <label><input type="radio" name="skill-policy" checked={skillMode === 'selected'} onChange={() => setSkillPolicyMode('selected')} /><span><strong>Selected skills</strong><small>Allow only the explicit list. Future skills are not added.</small></span></label>
+          <label><input type="radio" name="skill-policy" checked={skillMode === 'none'} onChange={() => setSkillPolicyMode('none')} /><span><strong>No skills</strong><small>Deny all skill access with an explicit empty list.</small></span></label>
+        </fieldset>
+        <p className="profile-group-summary"><strong data-testid="profile-skills-summary">{skillSummary}</strong>{skillMode === 'selected' && <span> of {new Set(allSkillChoices).size} in the catalog</span>}</p>
+        {skillPolicy.error && <p role="alert" className="profile-feedback error">{skillPolicy.error}</p>}
+        {skillCatalogError && <p role="alert" className="profile-feedback error">{skillCatalogError}. Existing policy and saved choices are unchanged.</p>}
+        {skillActionError && !skillEditor && !skillDelete && <p role="alert" className="profile-feedback error">{skillActionError}. Your editor and profile draft are unchanged.</p>}
+        <p className="profile-skill-status" role="status" aria-live="polite">{skillStatus}</p>
+      </section>;
+      case 'capabilities': return <section aria-labelledby="profile-capabilities-title"><h3 id="profile-capabilities-title" className="sr-only">Capabilities</h3><p className="profile-group-note">{live ? 'Choose tools from each MCP server.' : 'Preview MCP servers and skills. Fixture choices do not change live access.'}</p>
+        <div className="profile-section-actions"><button className="secondary-button" type="button" onClick={() => { if (live) loadMcpCatalog(); else notify('MCP servers and skills refreshed'); }} data-testid="profile-resync"><Icon name="refresh" size={14} />Refresh capabilities</button></div>
+        {live && <>
+          <fieldset className="profile-skill-policy" role="radiogroup" aria-labelledby="profile-capabilities-title" disabled={!!mcpPolicy.error}><legend className="sr-only">MCP access</legend>
+            <label><input type="radio" name="mcp-policy" checked={mcpMode === 'all'} onChange={() => setMcpMode('all')} data-testid="profile-mcp-mode-all" /><span><strong>All MCPs</strong><small>Unrestricted: every server and tool, including future ones.</small></span></label>
+            <label><input type="radio" name="mcp-policy" checked={mcpMode === 'selected'} onChange={() => setMcpMode('selected')} data-testid="profile-mcp-mode-selected" /><span><strong>Selected tools</strong><small>Only the tools checked in the list.</small></span></label>
+            <label><input type="radio" name="mcp-policy" checked={mcpMode === 'none'} onChange={() => setMcpMode('none')} data-testid="profile-mcp-mode-none" /><span><strong>No MCPs</strong><small>Deny all MCP tools with an explicit empty list.</small></span></label>
           </fieldset>
-          </div>
-          <footer className="sticky-save profile-save-footer" ref={footerRef}>
-            <div className="profile-save-feedback"><p role="status" aria-live="polite" data-testid="profile-save-status">{readOnly ? 'Read-only profile' : saving ? 'Saving profile…' : dirty ? 'Unsaved changes' : saved ? 'Profile saved' : 'No unsaved changes'}</p>{nameError && <p id="profile-name-error" role="alert">{nameError}</p>}{policyError && <p role="alert">Fix the permission JSON before saving.</p>}{saveError && <p role="alert" className="profile-save-error">Could not save: {saveError}. Your edits are kept; try again.</p>}</div>
-            <div className="profile-save-buttons"><button className="secondary-button" type="button" onClick={() => resetDraft(selected)} disabled={editorDisabled || !dirty} data-testid="profile-cancel">Cancel changes</button><button className="primary-button" type="submit" disabled={editorDisabled || !!nameError || !!policyError || missingDraft || draft.id !== selected.id} data-testid="profile-save">{saving ? 'Saving…' : 'Save profile'}</button></div>
-          </footer>
-        </form>
+          <p className="profile-group-summary" data-testid="profile-mcp-summary">{mcpSummary}</p>
+          <p className="profile-policy-note">Inherited means this profile does not narrow that selection. Other engine rules still apply. Editing inherited access creates an explicit selection of the listed choices; future catalog additions are excluded.</p>
+          {mcpCatalogError && <p role="alert">{mcpCatalogError} Use Refresh capabilities to retry.</p>}
+          {mcpPolicy.error && <p role="alert">{mcpPolicy.error}</p>}
+        </>}
+      </section>;
+      case 'permissions': return <><p className="profile-group-note">Set the approval rules for core tools. Unchanged rules keep their existing behavior.</p>
+        <PermissionsEditor key={draft.id} raw={policyRaw} onChange={value => {
+          set('corePermissionsJson', value);
+          if (!live) { try { const parsed = parsePolicy(value).value; set('permissionRules', Object.fromEntries(Object.entries(parsed ?? {}).filter(([, rule]) => isAction(rule))) as IdentityProfile['permissionRules']); } catch { /* Keep invalid draft for correction. */ } }
+        }} />
+        {live && <label className="check-label"><input type="checkbox" checked={draft.autoApproveActions === true} onChange={event => set('autoApproveActions', event.target.checked)} data-testid="profile-auto-approve" />Auto-approve protected actions</label>}</>;
+      default: return <div className="profile-actions"><p className="profile-group-note">These actions take effect immediately. Save your edits first to include them in a duplicate.</p>
+        <div className="profile-action-row"><div><strong>Duplicate profile</strong><p>Create a copy of the saved profile{live ? ', then save it to create it on the server' : ''}.</p></div><button className="secondary-button" type="button" onClick={() => requestNavigation({ kind: 'duplicate' })} disabled={missingDraft || draft.id !== selected.id} data-testid="profile-duplicate"><Icon name="copy" size={14} />Duplicate</button></div>
+        <div className="profile-action-row"><div><strong>Default profile</strong><p>{live ? 'Local to this account; resets on reload. Save and enable the profile before choosing it.' : 'Use this profile when starting a new session.'}</p></div><button className="secondary-button" type="button" onClick={() => setDefaultProfile(draft.id)} disabled={missingDraft || draft.id !== selected.id || selected.isDefault || live && (!selected.enabled || !selected.selectable || selected.id.startsWith('profile-created-'))} title={selected.isDefault ? 'Already the default profile' : undefined} data-testid="profile-default"><Icon name="check" size={14} />{selected.isDefault ? 'Default' : 'Set default'}</button></div>
+        <div className="profile-action-row profile-destructive-action"><div><strong>Delete profile</strong><p>{selected.isDefault ? 'Choose another default profile before deleting this one.' : 'Remove this profile from the workspace. Confirmation is required.'}</p></div><button className="text-danger-button" type="button" onClick={() => selected.isDefault ? notify('Choose another default before deleting this profile') : setDeleteOpen(true)} disabled={missingDraft || draft.id !== selected.id} data-testid="profile-delete"><Icon name="delete" size={14} />Delete</button></div>
+      </div>;
+    }
+  };
+
+  // Column 4: the long checklists (skills, MCP tools, delegation targets).
+  const listColumn = (): BrowserColumn | null => {
+    const column = (label: string, content: React.ReactNode): BrowserColumn => ({ kind: 'panel', key: 'list', label, testId: 'settings-column-list', children: controls(content) });
+    if (groupId === 'delegation') return column('Delegation targets', <ColumnChecklist noun="delegation targets" filter={delegateFilter} onFilterChange={setDelegateFilter} filterLabel="Filter profiles" filterTestId="profile-delegate-filter"
+      groups={[{ id: 'delegates', rows: delegateChoices.map((profile) => ({ name: profile.id, label: profile.label, description: profile.model, checked: delegateIds.includes(profile.id), testId: `delegate-${profile.id}` })), onChange: setDelegates, emptyText: 'No other profiles can receive delegated work.' }]}
+      onSelectAll={(shown) => setDelegates([...new Set([...delegateIds.filter((id) => delegateChoices.some((profile) => profile.id === id)), ...shown])])}
+      onClear={(shown) => setDelegates(delegateIds.filter((id) => delegateChoices.some((profile) => profile.id === id) && !shown.includes(id)))} />);
+    if (groupId === 'skills' && live && skillMode === 'selected') return column('Skills', <div data-testid="profile-skill-catalog"><ColumnChecklist noun="skills" filter={skillFilter} onFilterChange={setSkillFilter} filterLabel="Filter skills" filterPlaceholder="Name, description, or source" filterTestId="profile-capability-filter" disabled={!!skillPolicy.error || skillMutation}
+      groups={[
+        ...skillSources.map((source) => {
+          const skills = skillCatalog.filter((skill) => skill.source === source);
+          return { id: source, label: `${source} skills`, rows: skills.map((skill) => ({ name: skill.name, description: skill.description, checked: skillSelections.includes(skill.name), testId: `skill-${skill.name}`, actions: skillActions(skill) })), onChange: (names: string[]) => setSkillGroup(names, skills.map((skill) => skill.name)) };
+        }),
+        ...(unavailableSkills.length ? [{ id: 'saved', label: 'Saved skills outside the catalog', rows: unavailableSkills.map((name) => ({ name, description: 'Not in the current catalog; saved selection retained.', checked: true, testId: `skill-${name}` })), onChange: (names: string[]) => setSkillGroup(names, unavailableSkills) }] : []),
+      ]}
+      onSelectAll={(shown) => set('allowedSkillsJson', JSON.stringify(stableNames([...skillSelections, ...shown])))}
+      onClear={(shown) => set('allowedSkillsJson', JSON.stringify(skillSelections.filter((name) => !shown.includes(name))))}
+      empty={!skillCatalogError && <p>No skills found.</p>} /></div>);
+    if (groupId !== 'capabilities') return null;
+    if (!live) return column('Capabilities list', <ColumnChecklist noun="capabilities" filter={capabilityFilter} onFilterChange={setCapabilityFilter} filterLabel="Filter tools and skills" filterPlaceholder="Server, tool, skill, or source" filterTestId="profile-capability-filter"
+      groups={[
+        { id: 'mcp', label: 'Workspace MCP servers', meta: <span className="profile-policy-source">Explicit</span>, rows: ['GitNexus', 'Open Design', 'Web research'].map((name) => ({ name, checked: draft.mcps.includes(name), testId: `mcp-${name.toLowerCase().replace(' ', '-')}` })), onChange: (names: string[]) => set('mcps', names) },
+        { id: 'skills', label: 'Workspace skills', meta: <span className="profile-policy-source">Explicit</span>, rows: ['planning', 'verification', 'frontend', 'tests', 'research', 'citations'].map((name) => ({ name, checked: draft.skills.includes(name), testId: `skill-${name}` })), onChange: (names: string[]) => set('skills', names) },
+      ]} />);
+    return column('MCP tools', <div data-testid="profile-capability-catalog"><ColumnChecklist noun="MCP tools" filter={capabilityFilter} onFilterChange={setCapabilityFilter} filterLabel="Filter tools" filterPlaceholder="Server or tool" filterTestId="profile-mcp-filter" sortGroups disabled={!!mcpPolicy.error || !!mcpCatalogError}
+      groups={availableMcpGroups.map((name) => {
+        const server = mcpCatalog.find((item) => item.name === name);
+        const selection = mcpGroupSelection(mcpPolicy, name, server?.tools ?? []);
+        const names = [...new Set([...(server?.tools ?? []), ...selection.selected])];
+        return { id: name, label: name, meta: <span className="profile-policy-source">{selection.error ? 'Advanced' : selection.inherited ? 'Inherited' : 'Explicit'}</span>, error: selection.error, disabled: !server || !!selection.error, emptyText: 'No tools are listed for this server.',
+          rows: names.map((tool) => ({ name: tool, description: server?.tools.includes(tool) ? undefined : 'Not in the current catalog; saved selection retained.', checked: selection.selected.includes(tool), testId: `mcp-${name}-${tool}` })),
+          onChange: (tools: string[]) => setMcpGroups([[name, tools]]) };
+      })}
+      onSelectAll={(shown) => setMcpGroups(availableMcpGroups.flatMap((name) => {
+        const server = mcpCatalog.find((item) => item.name === name);
+        const selection = mcpGroupSelection(mcpPolicy, name, server?.tools ?? []);
+        const add = (server?.tools ?? []).filter((tool) => shown.includes(tool));
+        return server && !selection.error && add.length ? [[name, [...new Set([...selection.selected, ...add])]] as [string, string[]]] : [];
+      }))}
+      onClear={(shown) => setMcpGroups(availableMcpGroups.flatMap((name) => {
+        const server = mcpCatalog.find((item) => item.name === name);
+        const selection = mcpGroupSelection(mcpPolicy, name, server?.tools ?? []);
+        return server && !selection.error && selection.selected.some((tool) => shown.includes(tool)) ? [[name, selection.selected.filter((tool) => !shown.includes(tool))] as [string, string[]]] : [];
+      }))}
+      empty={!mcpCatalogError && <p>No MCP servers configured.</p>} /></div>);
+  };
+
+  const columns: BrowserColumn[] = [
+    {
+      kind: 'list', key: 'profiles', label: 'Profiles', testId: 'settings-column-profiles', resizeKey: 'layout.profiles.rail',
+      items: visible.map((profile) => ({ id: profile.id, title: profile.label, subtitle: `${profile.modelProvider ?? 'Configured'} · ${profile.modelId ?? 'Configured model'}`, badge: [profile.isDefault && 'Default', !profile.enabled && 'Disabled'].filter(Boolean).join(' · ') || undefined, testId: `profile-${profile.id}`, leading: <ProfileAvatar profile={profile} size="tiny" />, disabled: saving })),
+      selectedId: selectedId || null,
+      onSelect: (id) => requestNavigation({ kind: 'select', id }),
+      adds: [{ label: 'New profile', testId: 'profile-create', disabled: readOnly || saving, onClick: () => requestNavigation({ kind: 'create' }) }],
+      emptyState: search ? 'No matching profiles.' : 'No profiles yet.',
+      header: <>
+        <button className="icon-button small" type="button" onClick={() => requestNavigation({ kind: 'back' })} disabled={saving} aria-label="Back to Agents" data-testid="profiles-back"><Icon name="chevronRight" className="rotate-180" /></button>
+        <div className="profile-list-tools">
+          <label className="profile-list-search"><Icon name="search" size={13} /><span className="sr-only">Search profiles</span><input value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') event.preventDefault(); }} placeholder="Search profiles" data-testid="profile-search" /></label>
+          <label className="profile-list-sort"><span className="sr-only">Sort profiles</span><select value={sort} onChange={(event) => setSort(event.target.value)} data-testid="profile-sort" aria-label="Sort profiles"><option value="name">Name</option><option value="updated">Updated</option><option value="provider">Provider</option></select></label>
         </div>
-      </fieldset>
+      </>,
+    },
+    {
+      kind: 'list', key: 'groups', label: 'Profile settings', testId: 'settings-column-groups', items: groups, selectedId: groupId, onSelect: setGroupParam,
+      header: <div className="profile-summary-header">
+        <div className="profile-title-line"><ProfileAvatar profile={draft} /><h3 id="profile-editor-title">{draft.label || 'Untitled profile'}</h3><button className="icon-button small" type="button" onClick={() => setRenaming(true)} disabled={editorDisabled} aria-label="Rename profile inline" data-testid="profile-rename"><Icon name="rename" size={14} /></button></div>
+        {renaming && <div className="profile-inline-rename"><label className="sr-only" htmlFor="inline-profile-name">Profile name</label><input id="inline-profile-name" autoFocus value={draft.label} disabled={editorDisabled} onChange={event => set('label', event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); setRenaming(false); } }} data-testid="profile-inline-name" /><button className="icon-button small" type="button" onClick={() => setRenaming(false)} aria-label="Confirm rename" data-testid="profile-inline-confirm"><Icon name="check" size={14} /></button></div>}
+        <div className="profile-status-line"><span>{draft.enabled ? 'Enabled' : 'Disabled'}</span><span>{draft.selectable ? 'Session-selectable' : 'Hidden from picker'}</span>{selected.isDefault && <span>Default</span>}{(live ? draft.isManager : draft.managerAgent) && <span>Manager</span>}{live && draft.id.startsWith('profile-created-') && <span>New · not saved yet</span>}</div>
+      </div>,
+    },
+    { kind: 'panel', key: 'inspector', label: group.title, testId: 'settings-column-inspector', bodyTestId: 'profile-inspector', children: controls(<div className="profile-inspector">
+      {live && catalogError && <p role="alert" className="profile-feedback error">{catalogError}</p>}
+      {missingDraft && dirty && <p role="alert">This profile is no longer available. Your draft has been kept. Cancel to load an available profile.</p>}
+      {inspector()}
+    </div>) },
+  ];
+  const list = listColumn();
+  if (list) columns.push(list);
+
+  return (
+    <section className="profiles-workspace profiles-columns" aria-label="Agent profiles" aria-describedby={fixtureState === 'read-only' ? 'profiles-readonly' : undefined} aria-busy={saving} data-od-id="profiles-workspace" data-testid="profiles-workspace">
+      {fixtureState === 'read-only' && <div className="tool-readonly-banner profile-editor-readonly" role="status" id="profiles-readonly" data-testid="tool-state-read-only"><Icon name="background" size={15} /><span><strong>Read-only</strong> · Profiles remain inspectable, but policy changes are disabled.</span></div>}
+      {!selected.id && <p role="status">No profiles configured. Create a profile to begin.</p>}
+      <form className="profile-columns-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+      <ColumnBrowser label="Profile editor" columns={columns} className="profile-columns" />
+      <footer className="profile-save-footer">
+        <div className="profile-save-feedback"><p role="status" aria-live="polite" data-testid="profile-save-status">{readOnly ? 'Read-only profile' : saving ? 'Saving profile…' : dirty ? 'Unsaved changes' : saved ? 'Profile saved' : 'No unsaved changes'}</p>{nameError && <p id="profile-name-error" role="alert">{nameError}</p>}{policyError && <p role="alert">Fix the permission JSON before saving.</p>}{saveError && <p role="alert" className="profile-save-error">Could not save: {saveError}. Your edits are kept; try again.</p>}</div>
+        <div className="profile-save-buttons"><button className="secondary-button" type="button" onClick={() => resetDraft(selected)} disabled={editorDisabled || !dirty} data-testid="profile-cancel">Cancel changes</button><button className="primary-button" type="submit" disabled={editorDisabled || !!nameError || !!policyError || missingDraft || draft.id !== selected.id} data-testid="profile-save">{saving ? 'Saving…' : 'Save profile'}</button></div>
+      </footer>
+      </form>
       <FocusDialog open={!!pendingNavigation} onClose={() => setPendingNavigation(null)} title="Discard unsaved changes?" description={`Your edits to ${draft.label || 'this profile'} have not been saved.`} testId="profile-unsaved-dialog"><div className="dialog-actions"><button className="primary-button" type="button" data-autofocus onClick={() => setPendingNavigation(null)} data-testid="profile-keep-editing">Keep editing</button><button className="secondary-button" type="button" onClick={() => { if (pendingNavigation) performNavigation(pendingNavigation); }} data-testid="profile-discard">Discard changes</button></div></FocusDialog>
       <FocusDialog open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Delete profile?" description={`${selected.label} will be removed from this workspace.`} testId="delete-profile-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setDeleteOpen(false)}>Keep profile</button><button className="danger-button" type="button" disabled={saving || readOnly || selected.isDefault} onClick={() => { if (savingRef.current || readOnly || selected.isDefault) return; const fallback = profiles.find((profile) => profile.id !== selected.id)?.id || ''; savingRef.current = true; setSaving(true); setSaveError(''); void deleteProfile(draft.id).then(() => { setSelectedId(fallback); resetDraft(profiles.find(profile => profile.id === fallback) ?? emptyLiveProfile()); setDeleteOpen(false); }).catch(error => setSaveError(error instanceof Error ? error.message : 'Profile deletion failed')).finally(() => { savingRef.current = false; setSaving(false); }); }} data-testid="confirm-profile-delete">Delete profile</button></div>{saveError && <p role="alert">{saveError}</p>}</FocusDialog>
       <FocusDialog open={!!skillEditor} onClose={() => { if (!skillMutation) { skillDialogRequest.current++; setSkillEditor(null); setSkillActionError(''); } }} title={skillEditor?.mode === 'edit' ? 'Edit managed skill' : 'Add managed skill'} description="This skill is global to Rhythm. Its allowlist selection is profile-specific and is saved separately." testId="profile-skill-editor" wide dismissible={!skillMutation}>

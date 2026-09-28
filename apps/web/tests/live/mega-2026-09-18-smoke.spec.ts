@@ -570,7 +570,8 @@ test.describe('Agent Settings — #1514', () => {
     await openLive(page, '/tools/agent-settings');
     await expect(page.getByTestId('tool-page-agent-settings')).toBeVisible();
     await verifyListInspectorSelection(page, 'Agent settings sections', writes, 'Agent Settings has fewer than two sections');
-    await expect(page.getByRole('option', { name: 'Profiles overview', exact: true })).toBeVisible();
+    // Profiles are edited only in the Profiles tool.
+    await expect(page.getByRole('option', { name: 'Profiles overview', exact: true })).toHaveCount(0);
     await expect(page.getByRole('option', { name: 'Accounts', exact: true })).toBeVisible();
     await expect(page.getByRole('option', { name: 'Runtime / OpenCode server', exact: true })).toBeVisible();
   });
@@ -645,13 +646,15 @@ test.describe('Profiles — #1523', () => {
     const writes = recordPageWrites(page);
     await openLive(page, '/profiles');
     await expect(page.getByTestId('profiles-workspace')).toBeVisible();
-    const rows = page.locator('.profile-row');
+    const rows = page.getByTestId('settings-column-profiles').getByRole('option');
     test.skip(await rows.count() === 0, 'No pre-existing live profile is available for read-only grouped-section assertions.');
-    for (const heading of ['Identity & instructions', 'Provider, model & account', 'Delegation', 'Availability & defaults', 'Capabilities', 'Permissions']) {
-      await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
+    const groups = page.getByTestId('settings-column-groups');
+    for (const name of ['Identity & instructions', 'Provider, model & account', 'Delegation', 'Availability & defaults', 'Allowed skills', 'Capabilities', 'Permissions']) {
+      await expect(groups.getByRole('option', { name, exact: true })).toBeVisible();
     }
+    await groups.getByRole('option', { name: 'Permissions', exact: true }).click();
     await expect(page.getByText('Advanced (JSON)', { exact: true })).toBeVisible();
-    await expect(page.locator('.profile-save-footer')).toHaveCSS('position', 'sticky');
+    await expect(page.locator('.profile-save-footer')).toBeInViewport();
     if (await rows.count() > 1) {
       const before = writes.length;
       await rows.nth(1).click();
@@ -678,6 +681,7 @@ test.describe('Profiles — #1523', () => {
     await expect(row).toContainText(name);
     await row.click();
     await expect(page.getByTestId('profile-system-prompt')).toHaveValue(`${marker} system prompt`);
+    await page.getByTestId('settings-column-groups').getByRole('option', { name: 'Actions', exact: true }).click();
     await page.getByTestId('profile-delete').click();
     await expect(page.getByTestId('delete-profile-dialog')).toBeVisible();
     await page.getByTestId('confirm-profile-delete').click();

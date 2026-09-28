@@ -37,6 +37,9 @@ export async function open(page: Page, empty = false) {
   return { writes, frames, profiles: () => profiles, session: () => session };
 }
 
+// Profiles is a column browser: open a setting group before using its controls.
+const openGroup = (page: import('@playwright/test').Page, name: string) => page.getByTestId('settings-column-groups').getByRole('option', { name, exact: true }).click();
+
 test('E22-c1 live catalogs replace fixture choices and empty profiles remain usable', async ({ page }) => {
   const h = await open(page, true);
   await expect(page.getByTestId('new-chat-instant')).toBeDisabled();
@@ -44,16 +47,19 @@ test('E22-c1 live catalogs replace fixture choices and empty profiles remain usa
   await page.getByRole('button', { name: 'Switch surface' }).click();
   await expect(page.getByTestId('profile-create')).toBeVisible();
   await page.getByTestId('profile-create').click();
+  await openGroup(page, 'Provider, model & account');
   await expect(page.getByTestId('profile-model').locator('option')).toHaveText(['No preference']);
   await expect(page.getByTestId('profile-provider').locator('option')).toHaveText(['No preference']);
   await expect(page.getByTestId('profile-account').locator('option')).toHaveText(['No default']);
+  await openGroup(page, 'Identity & instructions');
   await page.getByTestId('profile-label').fill('First real profile'); await page.getByTestId('profile-save').click();
   await expect.poll(() => h.profiles().find(p => p.label === 'First real profile')?.modelId).toBeNull();
 });
 
 test('E22-c2 profile duplicate is a POST draft with canonical nested policy; create/edit/delete readback', async ({ page }) => {
   const h = await open(page); await page.getByRole('button', { name: 'Switch surface' }).click();
-  await page.getByTestId('profile-duplicate').click(); await page.getByTestId('profile-label').fill('Copied identity');
+  await openGroup(page, 'Actions');
+  await page.getByTestId('profile-duplicate').click(); await openGroup(page, 'Identity & instructions'); await page.getByTestId('profile-label').fill('Copied identity');
   await page.getByTestId('profile-save').click();
   await expect.poll(() => h.writes.some(w => w.method === 'POST' && w.path === '/agent-configs')).toBe(true);
   const saved = h.profiles().find(p => p.label === 'Copied identity');
@@ -62,6 +68,7 @@ test('E22-c2 profile duplicate is a POST draft with canonical nested policy; cre
   await expect(page.getByTestId(`profile-${saved.id}`)).toBeVisible();
   await page.getByTestId('profile-label').fill('Edited identity'); await page.getByTestId('profile-save').click();
   await expect.poll(() => h.profiles().find(p => p.id === saved.id)?.label).toBe('Edited identity');
+  await openGroup(page, 'Actions');
   await page.getByTestId('profile-delete').click(); await page.getByTestId('confirm-profile-delete').click();
   await expect(page.getByTestId(`profile-${saved.id}`)).toHaveCount(0);
 });
@@ -100,19 +107,29 @@ test('E22-c4 agent/model override is explicit exactly once, then persisted defau
 
 test('E22-c6 policy controls round-trip canonical values, preserving pattern rules; managed skills explicitly unavailable', async ({ page }) => {
   const h = await open(page); await page.getByRole('button', { name: 'Switch surface' }).click();
+  await openGroup(page, 'Provider, model & account');
   await expect(page.getByTestId('profile-provider').locator('option[value=custom]')).toHaveCount(1);
   await expect(page.getByTestId('profile-provider').locator('option[value=unauthed]')).toHaveCount(0);
+  await page.getByTestId('profile-account').selectOption('account-22');
+  await openGroup(page, 'Availability & defaults');
   await expect(page.getByTestId('profile-managed-skills')).toBeDisabled();
+  await openGroup(page, 'Permissions');
   await expect(page.getByTestId('profile-auto-approve')).toBeVisible();
-  await page.getByTestId('profile-auto-approve').check(); await page.getByTestId('delegate-beta').check();
-  await page.getByTestId('profile-account').selectOption('account-22'); await page.getByTestId('profile-manager').check();
+  await page.getByTestId('profile-auto-approve').check();
+  await openGroup(page, 'Delegation');
+  await page.getByTestId('delegate-beta').check(); await page.getByTestId('profile-manager').check();
+  await openGroup(page, 'Allowed skills');
   await page.getByTestId('skill-skill-two').check();
   await page.getByTestId('profile-save').click();
   await expect.poll(() => h.profiles().find(p => p.id === 'alpha')).toMatchObject({ autoApproveActions: true, isManager: true, allowedSkillsJson: '["skill-one","skill-two"]', allowedDelegatesJson: '["beta"]', defaultAnthropicAccountId: 'account-22', corePermissionsJson: '{"bash":{"*":"ask","git status":"allow"}}' });
   await page.reload(); await page.getByRole('button', { name: 'Switch surface' }).click();
-  await expect(page.getByTestId('profile-auto-approve')).toBeChecked(); await expect(page.getByTestId('delegate-beta')).toBeChecked();
-  await expect(page.getByTestId('profile-account')).toHaveValue('account-22');
   await expect(page.getByTestId('skill-skill-two')).toBeChecked();
+  await openGroup(page, 'Delegation');
+  await expect(page.getByTestId('delegate-beta')).toBeChecked();
+  await openGroup(page, 'Provider, model & account');
+  await expect(page.getByTestId('profile-account')).toHaveValue('account-22');
+  await openGroup(page, 'Permissions');
+  await expect(page.getByTestId('profile-auto-approve')).toBeChecked();
   await page.getByText('Advanced (JSON)', { exact: true }).click();
   await page.getByTestId('profile-permissions').fill('not JSON');
   await expect(page.getByTestId('profile-save')).toBeDisabled();
@@ -123,7 +140,7 @@ test('E22-c6 policy controls round-trip canonical values, preserving pattern rul
 
 test('E22-c5 default is used for instant create; advanced submits real account/task/worktree values', async ({ page }) => {
   const h = await open(page); await page.getByRole('button', { name: 'Switch surface' }).click();
-  await page.getByTestId('profile-beta').click(); await page.getByTestId('profile-default').click();
+  await page.getByTestId('profile-beta').click(); await openGroup(page, 'Actions'); await page.getByTestId('profile-default').click();
   await expect(page.getByText(/local.*account|account.*local/i).first()).toBeVisible();
   await page.getByRole('button', { name: 'Switch surface' }).click(); await page.getByTestId('new-chat-instant').click();
   await expect.poll(() => h.writes.find(w => w.path === '/agent-sessions' && w.method === 'POST')?.body.profileId).toBe('beta');

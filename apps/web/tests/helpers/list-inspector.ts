@@ -1,7 +1,8 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page } from '@playwright/test';
 
-const roots = (page: Page) => page.locator('.list-inspector');
+// ColumnBrowser (Agent Settings, Profiles) shares the listbox/option contract.
+const roots = (page: Page) => page.locator('.list-inspector, .column-browser');
 const row = (page: Page, title: string) => roots(page).getByRole('option', { name: title, exact: true, includeHidden: true });
 
 export function usesNativeAxeLegacyMode(rawUrl: string): boolean {
@@ -15,19 +16,15 @@ export function usesNativeAxeLegacyMode(rawUrl: string): boolean {
 
 export async function selectRow(page: Page, title: string) {
   const target = row(page, title);
-  const back = roots(page).getByRole('button', { name: 'Back to list', exact: true });
+  const back = roots(page).getByRole('button', { name: /^Back to / }).filter({ visible: true }).first();
   // A live mutation can resolve before React commits its selected row. Wait
   // for that row to exist before deciding whether its rail is hidden.
   await expect(target).toHaveCount(1);
   // A narrow ListInspector intentionally presents either the inspector or the
   // rail. Follow its visible Back to list affordance before selecting another
   // row; never force a click through the hidden rail.
-  if (!await target.isVisible()) {
-    if (await back.isVisible()) {
-      await back.click();
-      await expect(target).toBeVisible();
-    }
-  }
+  // A column browser may need several Back steps (inspector → items → sections).
+  for (let step = 0; step < 4 && !await target.isVisible() && await back.isVisible(); step++) await back.click();
   await target.click();
   await expectSelected(page, title);
 }
@@ -35,7 +32,8 @@ export async function selectRow(page: Page, title: string) {
 export async function expectSelected(page: Page, title: string) {
   await expect(row(page, title)).toHaveAttribute('aria-selected', 'true');
   await expect(row(page, title)).toHaveClass(/\bselected\b/);
-  await expect(roots(page).locator('[role="option"][aria-selected="true"]')).toHaveCount(1);
+  // One selection per list; a column browser keeps one selected row in each column.
+  await expect(row(page, title).locator('xpath=ancestor::*[@role="listbox"][1]').locator('[role="option"][aria-selected="true"]')).toHaveCount(1);
 }
 
 export async function expectInspectorHeading(page: Page, text: string) {

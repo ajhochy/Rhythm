@@ -1221,6 +1221,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     ocAgent: profile.ocAgent ?? null, sessionSelectable: profile.selectable,
     modelTierHint: profile.modelTierHint ?? null,
     defaultAnthropicAccountId: profile.defaultAnthropicAccountId ?? null,
+    defaultOpenaiAccountId: profile.defaultOpenaiAccountId ?? null,
   });
   const updateProfile = async (id: string, patch: Partial<IdentityProfile>) => {
     const existing = profiles.find((profile) => profile.id === id);

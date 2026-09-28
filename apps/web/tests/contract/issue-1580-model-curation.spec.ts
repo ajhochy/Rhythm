@@ -17,6 +17,11 @@ function seedCatalog(): CatalogRow[] {
     // Not in providerCatalog (no in-app connect flow) and not authorized — exercises the
     // "configured through opencode.json" reduced-form branch.
     { provider: 'ollama', modelId: 'llama3-local', displayName: 'Llama 3 (local)', authorized: false, available: false, visible: true, availabilityReason: 'not_connected' },
+    // Single-login OAuth provider still connected from Models (method 0: re-check).
+    { provider: 'google', modelId: 'gemini-3', displayName: 'Gemini 3', authorized: false, available: false, visible: true, availabilityReason: 'not_connected' },
+    // Account-managed (Accounts owns sign-in); its models are still curated here.
+    { provider: 'anthropic', modelId: 'claude-opus-5', displayName: 'Claude Opus 5', authorized: true, available: true, visible: true, availabilityReason: 'available' },
+    { provider: 'anthropic', modelId: 'claude-haiku-5', displayName: 'Claude Haiku 5', authorized: true, available: true, visible: false, availabilityReason: 'hidden' },
   ];
 }
 
@@ -64,7 +69,7 @@ async function openModels(page: Page): Promise<ServerState> {
     if (url.pathname === '/agents/models/catalog/full') {
       state.catalogFullRequests++;
       if (state.fullCatalogFailures > 0) { state.fullCatalogFailures--; return route.fulfill({ status: 503, headers, json: { error: 'catalog_refresh_failed' } }); }
-      const rows = state.catalog.map((row) => row.provider === 'openai' ? { ...row, authorized: state.authProviders.includes('openai'), available: state.authProviders.includes('openai') } : row);
+      const rows = state.catalog.map((row) => ['openai', 'google'].includes(row.provider) ? { ...row, authorized: state.authProviders.includes(row.provider), available: state.authProviders.includes(row.provider) } : row);
       return route.fulfill({ status: 200, headers, json: rows });
     }
     if (url.pathname === '/agents/models/catalog') {
@@ -111,23 +116,53 @@ function addStudioCatalog(state: ServerState) {
 
 test('1580:S2:1 provider badges reflect connected/needs-login/unavailable, and Connect re-fetches the catalog and provider status in place', async ({ page }) => {
   const state = await openModels(page);
-  const openaiGroup = page.getByTestId('model-curation-group-openai');
+  const googleGroup = page.getByTestId('model-curation-group-google');
   const openrouterGroup = page.getByTestId('model-curation-group-openrouter');
   const ollamaGroup = page.getByTestId('model-curation-group-ollama');
-  await expect(openaiGroup).toContainText('Needs login or key');
+  await expect(googleGroup).toContainText('Needs login or key');
   await expect(openrouterGroup).toContainText('Connected');
   await expect(ollamaGroup).toContainText('Unavailable');
   await expect(ollamaGroup).toContainText('opencode.json');
 
   const beforeFull = state.catalogFullRequests;
-  await openaiGroup.getByTestId('agent-settings-provider-authorize-openai').click();
-  await expect(page.getByTestId('agent-settings-provider-flow-openai')).toBeVisible();
-  await page.getByTestId('agent-settings-provider-code').fill('disposable-code');
-  await page.getByTestId('agent-settings-provider-complete').click();
+  await googleGroup.getByTestId('agent-settings-provider-authorize-google').click();
+  await expect(page.getByTestId('agent-settings-provider-flow-google')).toBeVisible();
+  state.authProviders = ['google'];
+  await page.getByTestId('agent-settings-provider-check').click();
 
-  await expect(openaiGroup).toContainText('Connected');
+  await expect(googleGroup).toContainText('Connected');
   await expect.poll(() => state.catalogFullRequests > beforeFull).toBe(true);
-  await expect(page.getByTestId('agent-settings-provider-authorize-openai')).toHaveCount(0);
+  await expect(page.getByTestId('agent-settings-provider-authorize-google')).toHaveCount(0);
+});
+
+test('account-managed providers: Anthropic and OpenAI models are curated here, sign-in is managed in Accounts', async ({ page }) => {
+  const state = await openModels(page);
+  for (const provider of ['anthropic', 'openai']) {
+    const group = page.getByTestId(`model-curation-group-${provider}`);
+    await expect(group).toBeVisible();
+    // No connect or API-key flow for an account-managed provider.
+    await expect(group.getByTestId(`agent-settings-provider-${provider}`)).toHaveCount(0);
+    await expect(group.getByTestId(`agent-settings-provider-authorize-${provider}`)).toHaveCount(0);
+    await expect(group.getByTestId(`model-curation-open-accounts-${provider}`)).toHaveText('Managed in Accounts');
+  }
+  await expect(page.getByTestId('model-curation-group-anthropic')).toContainText('Connected');
+  await expect(page.getByTestId('model-curation-account-managed-anthropic')).toContainText('Signed in through Accounts');
+  await expect(page.getByTestId('model-curation-account-managed-openai')).toContainText('Not signed in');
+
+  // Anthropic's models are listed and toggleable like every other connected provider.
+  const haiku = page.getByTestId('model-curation-model-anthropic-claude-haiku-5').locator('input[type="checkbox"]');
+  await expect(page.getByTestId('model-curation-model-anthropic-claude-opus-5')).toBeVisible();
+  await expect(haiku).not.toBeChecked();
+  await haiku.click();
+  await expect.poll(() => state.patches.length).toBe(1);
+  expect(state.patches[0]).toEqual([{ provider: 'anthropic', modelId: 'claude-haiku-5', visible: true }]);
+  await expect(haiku).toBeChecked();
+
+  // The link goes to the Accounts category of the column layout.
+  await page.getByTestId('model-curation-open-accounts-anthropic').click();
+  await expect.poll(() => new URL(page.url()).hash).toContain('settingsSection=accounts');
+  await expect(page.getByRole('option', { name: 'Accounts', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('agent-settings-account-add')).toBeVisible();
 });
 
 test('1580:S2:2 search matches provider, raw model id, and display name, and the list never overflows its container', async ({ page }) => {
@@ -176,8 +211,9 @@ test('1580:S2:4 the provider all/none checkbox is tri-state and PATCHes only the
   // but every switch and the group all/none stay disabled until it is connected.
   await expect(page.getByTestId('model-curation-all-openai')).toBeDisabled();
   await expect(page.getByTestId('model-curation-model-openai-gpt-6').locator('input[type="checkbox"]')).toBeDisabled();
-  const openaiCard = page.getByTestId('agent-settings-provider-openai');
-  await expect(openaiCard).toBeVisible();
+  // OpenAI sign-in moved to Accounts (multi-account); Models points there instead of a Connect card.
+  await expect(page.getByTestId('agent-settings-provider-openai')).toHaveCount(0);
+  await expect(page.getByTestId('model-curation-open-accounts-openai')).toBeVisible();
 });
 
 test('1580:S2:5 a per-model switch PATCHes exactly one row and immediately refreshes the shared model catalog (picker source)', async ({ page }) => {
@@ -354,7 +390,7 @@ test('1580 layout: model rows are readable text and the settings pane fits betwe
   expect((await label.boundingBox())!.width).toBeGreaterThan(60);
   expect((await label.locator('strong').boundingBox())!.height).toBeLessThan(24);
 
-  const pane = page.locator('.agent-settings-list-inspector');
+  const pane = page.locator('.agent-settings-browser .column-browser-track');
   const footer = page.getByTestId('tool-trace');
   for (const height of [900, 1400]) {
     await page.setViewportSize({ width: 1440, height });

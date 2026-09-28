@@ -26,16 +26,19 @@ async function openSettings(page: Page) {
 test('1560-mcp-status-presentation:1 statuses have human labels and distinct card and badge treatments', async ({ page }) => {
   // Regression: connected, needs_auth and failed render as identical neutral cards with snake_case text.
   await openSettings(page);
-  const rows = ['gitnexus', 'notion', 'mailchimp'].map((name) => page.getByTestId(`agent-settings-mcp-${name}`));
-  await expect(rows[0]).toHaveClass(/status-connected/);
-  await expect(rows[1]).toHaveClass(/status-needs-auth/);
-  await expect(rows[2]).toHaveClass(/status-failed/);
-  await expect(rows[0].getByTestId('agent-settings-mcp-status-gitnexus')).toHaveText('Connected');
-  await expect(rows[1].getByTestId('agent-settings-mcp-status-notion')).toHaveText('Needs authorization');
-  await expect(rows[2].getByTestId('agent-settings-mcp-status-mailchimp')).toHaveText('Failed');
-  const borders = await Promise.all(rows.map((row) => row.evaluate((node) => getComputedStyle(node).borderColor)));
+  // Column layout: each server's card is the inspector for its row; the row carries the label too.
+  const expected = [['gitnexus', /status-connected/, 'Connected'], ['notion', /status-needs-auth/, 'Needs authorization'], ['mailchimp', /status-failed/, 'Failed']] as const;
+  const borders: string[] = []; const badgeColors: string[] = [];
+  for (const [name, className, label] of expected) {
+    await expect(page.getByTestId(`agent-settings-mcp-row-${name}`)).toContainText(label);
+    await page.getByTestId(`agent-settings-mcp-row-${name}`).click();
+    const row = page.getByTestId(`agent-settings-mcp-${name}`);
+    await expect(row).toHaveClass(className);
+    await expect(row.getByTestId(`agent-settings-mcp-status-${name}`)).toHaveText(label);
+    borders.push(await row.evaluate((node) => getComputedStyle(node).borderColor));
+    badgeColors.push(await row.locator('.kind-badge').evaluate((node) => getComputedStyle(node).color));
+  }
   expect(new Set(borders).size).toBe(3);
-  const badgeColors = await Promise.all(rows.map((row) => row.locator('.kind-badge').evaluate((node) => getComputedStyle(node).color)));
   expect(new Set(badgeColors).size).toBe(3);
 });
 

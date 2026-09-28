@@ -289,29 +289,35 @@ test('bucket-a-rendered-settings: fixture honesty and live loading/error/empty s
 
   let mode: 'delayed' | 'rejected' | 'empty' = 'delayed';
   await installLiveRoutes(page, async (route, url) => {
-    if (url.pathname !== '/agent-configs') return false;
+    if (url.pathname === '/agent-configs') { await fulfillJson(route, [profile]); return true; }
+    if (url.pathname !== '/opencode/auth/accounts') return false;
     if (mode === 'rejected') { await fulfillJson(route, { error: 'settings denied' }, 503); return true; }
     if (mode === 'delayed') await new Promise((resolve) => setTimeout(resolve, 500));
-    await fulfillJson(route, mode === 'empty' ? [] : [profile]);
+    await fulfillJson(route, { accounts: mode === 'empty' ? [] : [{ id: 'acct-1', label: 'Work account', status: 'ok' }] });
     return true;
   });
-  await page.goto('http://127.0.0.1:4181/#/tools/agent-settings');
+  await page.goto('http://127.0.0.1:4181/#/tools/agent-settings?settingsSection=accounts&settingsItem=add');
   await expect(page.getByText('Loading Agent settings sections…')).toBeVisible();
-  await expect(page.getByText('No agent profiles configured', { exact: true })).toHaveCount(0);
-  const setting = page.getByTestId(`agent-setting-${profile.id}`);
-  await expect(setting.locator('.profile-avatar')).toHaveText('AP');
-  await expect(setting).not.toContainText(assetIcon);
+  await expect(page.getByText('No provider accounts reported', { exact: true })).toHaveCount(0);
+  await expect(page.getByTestId('agent-settings-account-row-acct-1')).toContainText('Work account');
+  // Profiles left Agent Settings; the profile avatar fallback is asserted where profiles are listed.
+  await expect(page.getByRole('option', { name: /Profiles/ })).toHaveCount(0);
   await page.screenshot({ path: screenshotPath(testInfo, 'bucket-a-settings-honesty.png') });
 
   mode = 'rejected';
   await page.reload();
   await expect(page.getByTestId('list-inspector-detail').getByRole('alert')).toContainText('settings denied');
   await expect(page.getByRole('listbox', { name: 'Agent settings sections' }).getByRole('option')).toHaveCount(7);
-  await expect(page.getByText('No agent profiles configured', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('No provider accounts reported', { exact: true })).toHaveCount(0);
   mode = 'empty';
   await page.reload();
-  await expect(page.getByText('No agent profiles configured', { exact: true })).toBeVisible();
+  await expect(page.getByText('No provider accounts reported', { exact: true })).toBeVisible();
   await expect(page.getByTestId('agent-settings-error')).toHaveCount(0);
+
+  await page.goto('http://127.0.0.1:4181/#/profiles');
+  const row = page.getByTestId(`profile-${profile.id}`);
+  await expect(row.locator('.profile-avatar')).toHaveText('AP');
+  await expect(row).not.toContainText(assetIcon);
 });
 
 test('bucket-a-rendered-settings-actions: account and MCP selection is inert until an inspector action is pressed', async ({ page }) => {
@@ -353,20 +359,24 @@ test('bucket-a-rendered-settings-actions: account and MCP selection is inert unt
   await expect(page.getByTestId('list-inspector-detail')).toContainText('Desktop local');
   expect(mutations).toEqual([]);
 
+  // Selecting a section or a server row only changes the inspector; actions need a button press.
   await page.getByRole('option', { name: 'MCP servers', exact: true }).click();
-  await expect(page.getByTestId('agent-settings-mcp-planning')).toContainText('disconnected');
+  await page.getByTestId('agent-settings-mcp-row-planning').click();
+  await expect(page.getByTestId('agent-settings-mcp-status-planning')).toHaveText('Disconnected');
   expect(mutations).toEqual([]);
   await page.getByTestId('agent-settings-mcp-connect-planning').click();
   await expect.poll(() => mutations).toContain('connect:planning');
+  await page.getByTestId('agent-settings-mcp-row-rhythm').click();
   await page.getByTestId('agent-settings-mcp-disconnect-rhythm').click();
   await expect.poll(() => mutations).toContain('disconnect:rhythm');
+  await page.getByTestId('agent-settings-mcp-row-planning').click();
   await page.getByTestId('agent-settings-mcp-remove-planning').click();
   await page.getByTestId('agent-settings-mcp-remove-confirm').click();
   await expect.poll(() => mutations).toContain('remove:planning');
-  await expect(page.getByTestId('agent-settings-mcp-planning')).toHaveCount(0);
+  await expect(page.getByTestId('agent-settings-mcp-row-planning')).toHaveCount(0);
   await page.reload();
   await page.getByRole('option', { name: 'MCP servers', exact: true }).click();
-  await expect(page.getByTestId('agent-settings-mcp-planning')).toHaveCount(0);
+  await expect(page.getByTestId('agent-settings-mcp-row-planning')).toHaveCount(0);
 });
 
 test('self-improvement-review-live: closed tool safety, conditional confirmation, history, and server failures stay truthful', async ({ page }) => {

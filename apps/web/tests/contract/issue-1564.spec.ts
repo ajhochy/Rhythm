@@ -28,7 +28,8 @@ async function openSettings(page: Page, override?: (route: Route, path: string, 
     if (path === '/opencode/mcp') return route.fulfill({ status: 200, headers, json: servers });
     return route.fulfill({ status: 200, headers, json: {} });
   });
-  await page.goto('/#/tools/agent-settings?settingsSection=mcp');
+  // Column layout: the server list selects which server's card the inspector shows.
+  await page.goto('/#/tools/agent-settings?settingsSection=mcp&settingsItem=mcp%3Apropresenter');
   await expect(page.getByTestId('agent-settings-mcp-propresenter')).toBeVisible();
 }
 
@@ -53,7 +54,13 @@ for (const action of ['disconnect', 'connect', 'remove'] as const) {
     await trigger.click({ noWaitAfter: true });
     await expect(page.getByTestId('list-inspector-detail').getByRole('status').filter({ hasText: new RegExp(`${action}.*propresenter|propresenter.*${action}`, 'i') })).toBeVisible();
     await expect(trigger).toHaveAttribute('aria-busy', 'true');
-    await expect(page.getByTestId('agent-settings-mcp-connect-calendar')).toBeEnabled();
+    // Only the acting server is busy: other servers stay selectable and operable.
+    const calendar = page.getByTestId('agent-settings-mcp-row-calendar');
+    await expect(calendar).not.toHaveAttribute('aria-disabled', 'true');
+    if (action !== 'remove') {
+      await calendar.click();
+      await expect(page.getByTestId('agent-settings-mcp-connect-calendar')).toBeEnabled();
+    }
     held.release();
     servers[0].status = 'connected';
   });
@@ -82,6 +89,7 @@ test('1564-scoped-pending-and-notices:3 Accounts progress is visible only in Acc
     return false;
   });
   await page.getByRole('option', { name: 'Accounts', exact: true }).click();
+  await page.getByTestId('agent-settings-account-add').click();
   await page.getByTestId('agent-settings-account-id').fill('work');
   await page.getByTestId('agent-settings-account-start').click({ noWaitAfter: true });
   await expect(page.getByTestId('list-inspector-detail').getByRole('status').filter({ hasText: 'Saving account configuration' })).toBeVisible();

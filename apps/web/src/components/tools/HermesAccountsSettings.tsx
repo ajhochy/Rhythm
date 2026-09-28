@@ -3,14 +3,15 @@ import type { AiAccountProvider, AiAccountsStatus } from '../../ai-accounts';
 import { accountProviders, accountStatus, aiAccountsBridge } from './aiAccountsBridge';
 
 const labels = { openai: 'OpenAI', anthropic: 'Anthropic', google: 'Google', openrouter: 'OpenRouter' };
+// Plain-language copy: Hermes can borrow a plain API key Rhythm already has, never an OAuth sign-in.
 const sourceLabels = {
-  eligible: 'A Rhythm API key is available to share.',
-  'hermes-owned': 'Hermes has its own credential source. It takes precedence; sign-in validity has not been checked.',
-  'oauth-not-shareable': 'OAuth credentials are not shareable. Configure this provider in Hermes.',
-  'source-missing': 'No shareable Rhythm API key is present.',
-  'source-unavailable': 'Credential source status is unknown. Sharing cannot be enabled.',
+  eligible: 'Rhythm has an API key Hermes can use.',
+  'hermes-owned': 'Hermes uses its own sign-in for this provider.',
+  'oauth-not-shareable': "Signed in with your account, which can't be shared. Sign in to this provider in Hermes.",
+  'source-missing': "Rhythm doesn't have an API key for this provider.",
+  'source-unavailable': "Rhythm can't tell whether it has a key, so sharing is off.",
 };
-const applicationLabels = { absent: 'Not shared', configured: 'Configured for next start', applied: 'Applied to running Hermes', 'pending-next-start': 'Pending next start' };
+const applicationLabels = { absent: 'Not shared', configured: 'Will be shared when Hermes restarts', applied: 'Shared with Hermes', 'pending-next-start': 'Waiting for Hermes to restart' };
 const memoryLabels = {
   disabled: 'Memory search is disabled.',
   enabled: 'Memory search is enabled for the running Hermes default profile.',
@@ -67,28 +68,28 @@ export function HermesAccountsSettings() {
     } finally { submitting.current = false; setPending(false); }
   };
   return <section className="hermes-accounts-settings" aria-label="Hermes account sharing">
-    <header><h3>Hermes account sharing</h3><p>Choose which Rhythm API keys Hermes may use on its next start. Confirmation happens in the desktop app.</p></header>
+    <header><h3>Hermes account sharing</h3><p>Let Hermes use Rhythm's API keys, so you don't sign in twice. Changes apply the next time Hermes starts, after you confirm them in the desktop app.</p></header>
     {loading && <p role="status">Loading sharing status…</p>}
     {pending && <p role="status">Waiting for desktop confirmation…</p>}
     {notice && <p role="status">{notice}</p>}
     {error && <p role="alert">{error}</p>}
     {!loading && status?.availability !== 'available' && <p>Hermes account sharing is unavailable. Sign in to the desktop app and make sure the default Hermes profile is available.</p>}
-    {status?.childMayRetainCredential && <p role="note">Running Hermes may retain a previously shared key until it stops.</p>}
+    {status?.childMayRetainCredential && <p role="note">Hermes may keep using a key it already has until it restarts.</p>}
     {status?.availability === 'available' && accountProviders.map(provider => {
       const entry = status.providers![provider];
-      return <fieldset key={provider} className="hermes-account-row"><legend>{labels[provider]}</legend>
-        <div><p>{sourceLabels[entry.sharingEligibility]}</p><p><strong>{applicationLabels[entry.applicationState]}</strong></p></div>
+      return <div key={provider} role="group" aria-labelledby={`hermes-account-${provider}`} className="hermes-account-row">
+        <strong id={`hermes-account-${provider}`}>{labels[provider]}</strong>
+        <p><span className="hermes-account-state">{applicationLabels[entry.applicationState]}</span> · {sourceLabels[entry.sharingEligibility]}{entry.sharingEligibility === 'hermes-owned' && <small> Not checked by Rhythm.</small>}</p>
         {(entry.grantEnabled || entry.sharingEligibility === 'eligible') && <button type="button" className="secondary-button compact" disabled={loading || pending} onClick={() => void change(provider, entry.grantEnabled ? 'disable' : 'enable')}>{entry.grantEnabled ? 'Stop sharing' : 'Share with Hermes'}</button>}
-      </fieldset>;
+      </div>;
     })}
-    {status && <fieldset className="hermes-account-row hermes-accounts-memory"><legend>Rhythm memory search</legend>
-      <p>{memoryLabels[status.memory.state]}</p>
-      <p>Hermes may search the Rhythm vault read-only from its default profile. Access is revocable.</p>
+    {status && <div role="group" aria-labelledby="hermes-account-memory" className="hermes-account-row hermes-accounts-memory"><strong id="hermes-account-memory">Rhythm memory search</strong>
+      <p>{memoryLabels[status.memory.state]} Hermes can read the Rhythm vault but not change it; you can turn this off at any time.</p>
       {status.memory.state !== 'unavailable' && <button type="button" className="secondary-button compact" disabled={loading || pending}
         onClick={() => void changeMemory(status.memory.state === 'disabled' ? 'enable' : 'disable')}>
         {status.memory.state === 'disabled' ? 'Share memory search' : 'Stop sharing memory search'}
       </button>}
-    </fieldset>}
+    </div>}
     <button type="button" className="secondary-button compact" disabled={loading || pending} onClick={() => void refresh()}>Refresh sharing status</button>
   </section>;
 }

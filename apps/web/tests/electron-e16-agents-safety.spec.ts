@@ -36,6 +36,7 @@ async function open(page: Page, options: { working?: boolean; disabled?: boolean
         if (url.pathname === '/workspaces/me/members') return reply([]);
         if (/^\/agent-sessions\/[^/]+\/model-provenance$/.test(url.pathname)) return route.fulfill({ status: 404, headers, json: { error: 'No provenance yet' } });
         if (url.pathname === '/agents/models/catalog') return reply([{ provider: 'openai', modelId: 'gpt-5.6', displayName: 'GPT', authorized: true }]);
+        if (url.pathname === '/opencode/auth/openai/accounts') return reply({ accounts: [], defaultAccountId: null });
         if (url.pathname === '/opencode/auth/accounts') return reply({ accounts: ['account-old', 'account-edited'].map(id => ({ id, label: id })), defaultId: null });
         if (['/projects', '/shares', '/question'].includes(url.pathname)) return reply([]);
         // Do not accept the renderer's /agent-sessions//... requests.
@@ -239,14 +240,19 @@ test('e16-c3-race: delayed child response cannot replace another rail session', 
   expect(net.denied).toEqual([]);
 });
 
+// Profiles is a column browser: open a setting group before using its controls.
+const openGroup = (page: Page, name: string) => page.getByTestId('settings-column-groups').getByRole('option', { name, exact: true }).click();
+
 test('e16-c4-policy: edited permission/delegates override stale raw JSON and survive reload', async ({ page }) => {
   const net = await open(page);
   if (await page.getByTestId('rail-more').getAttribute('aria-expanded') !== 'true') await page.getByTestId('rail-more').click(); await page.getByTestId('tool-profiles').click();
   await page.getByTestId(`profile-${canonicalProfile.id}`).click();
+  await openGroup(page, 'Permissions');
   await expect(page.getByTestId('profile-permissions')).toHaveValue('{"bash":"ask"}');
-  await expect(page.getByTestId('delegate-phase-5-child-profile')).toBeChecked();
   await page.getByText('Advanced (JSON)', { exact: true }).click();
   await page.getByTestId('profile-permissions').fill('{"bash":"deny"}');
+  await openGroup(page, 'Delegation');
+  await expect(page.getByTestId('delegate-phase-5-child-profile')).toBeChecked();
   await page.getByTestId('delegate-phase-5-child-profile').uncheck();
   await page.getByTestId('profile-save').click();
   await expect.poll(() => net.requests.filter((r) => r.method === 'PATCH').length).toBe(1);
@@ -256,8 +262,9 @@ test('e16-c4-policy: edited permission/delegates override stale raw JSON and sur
   expect(net.records[0]).toEqual({ ...canonicalProfile, corePermissionsJson: '{"bash":"deny"}', allowedDelegatesJson: '[]', defaultAnthropicAccountId: 'account-old' });
   await page.reload();
   await page.getByTestId(`profile-${canonicalProfile.id}`).click();
-  await expect(page.getByTestId('profile-permissions')).toHaveValue('{"bash":"deny"}');
   await expect(page.getByTestId('delegate-phase-5-child-profile')).not.toBeChecked();
+  await openGroup(page, 'Permissions');
+  await expect(page.getByTestId('profile-permissions')).toHaveValue('{"bash":"deny"}');
   expect(net.denied).toEqual([]);
 });
 
@@ -265,6 +272,7 @@ test('e16-c4-account: canonical account ID edit and clear survive reload', async
   const net = await open(page);
   if (await page.getByTestId('rail-more').getAttribute('aria-expanded') !== 'true') await page.getByTestId('rail-more').click(); await page.getByTestId('tool-profiles').click();
   await page.getByTestId(`profile-${canonicalProfile.id}`).click();
+  await openGroup(page, 'Provider, model & account');
   await expect(page.getByTestId('profile-account')).toHaveValue('account-old');
   for (const account of ['account-edited', '']) {
     await page.getByTestId('profile-account').selectOption(account);
@@ -282,10 +290,13 @@ test('e16-c4-unsupported: managed skills cannot claim to save; canonical auto-ap
   const net = await open(page);
   if (await page.getByTestId('rail-more').getAttribute('aria-expanded') !== 'true') await page.getByTestId('rail-more').click(); await page.getByTestId('tool-profiles').click();
   await page.getByTestId(`profile-${canonicalProfile.id}`).click();
+  await openGroup(page, 'Availability & defaults');
   await expect(page.getByTestId('profile-managed-skills')).toBeDisabled();
   await expect(page.getByText('Managed skills cannot be saved by this editor.')).toBeVisible();
+  await openGroup(page, 'Provider, model & account');
   await page.getByTestId('profile-account').scrollIntoViewIfNeeded();
   await page.screenshot({ path: '/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/opencode/e16-profile-controls.png' });
+  await openGroup(page, 'Permissions');
   await expect(page.getByTestId('profile-auto-approve')).not.toBeChecked();
   expect(net.requests.filter((r) => r.method !== 'GET')).toEqual([]);
   expect(net.denied).toEqual([]);

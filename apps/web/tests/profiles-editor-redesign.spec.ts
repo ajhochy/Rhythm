@@ -1,15 +1,49 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { openFixture } from './helpers';
+
+// Profiles is a column browser: profiles → setting groups → inspector (→ long list).
+// Only the selected group's controls are rendered, so tests open a group first.
+const groupsColumn = (page: Page) => page.getByTestId('settings-column-groups');
+async function backUntil(page: Page, target: ReturnType<Page['getByTestId']>) {
+  for (let step = 0; step < 4 && !await target.isVisible(); step++) {
+    const back = page.locator('.column-browser-back:visible').first();
+    if (!await back.count()) break;
+    await back.click();
+  }
+}
+async function openGroup(page: Page, name: string) {
+  const row = groupsColumn(page).getByRole('option', { name, exact: true });
+  await backUntil(page, row);
+  await row.click();
+  // Narrow layouts hide the groups column after selection; assert on the rendered ARIA state.
+  await expect(groupsColumn(page).getByRole('option', { name, exact: true, includeHidden: true })).toHaveAttribute('aria-selected', 'true');
+}
+async function openProfile(page: Page, testId: string) {
+  const row = page.getByTestId(testId);
+  await backUntil(page, row);
+  await row.click();
+}
+/** Narrow layouts show one column; step forward from the policy inspector to its list. */
+async function showList(page: Page) {
+  const list = page.getByTestId('settings-column-list');
+  if (!await list.isVisible()) await page.locator('.column-browser-forward:visible').first().click();
+  await expect(list).toBeVisible();
+}
+const editorColumns = (page: Page) => page.locator('[data-testid="settings-column-groups"], [data-testid="settings-column-inspector"], [data-testid="settings-column-list"]');
+
+// Opt-in layout evidence: RHYTHM_SETTINGS_SHOTS=<dir> saves screenshots of the column layouts.
+const shot = async (page: Page, name: string) => { if (process.env.RHYTHM_SETTINGS_SHOTS) await page.screenshot({ path: `${process.env.RHYTHM_SETTINGS_SHOTS}/${name}.png` }); };
 
 test('editor hierarchy, save/cancel and profile switching keep drafts on their original profile', async ({ page }) => {
   await openFixture(page, '#/profiles');
   const original = await page.getByTestId('profile-label').inputValue();
-  await expect(page.locator('.profile-rail')).toBeVisible();
-  await expect(page.locator('.profile-editor h3')).toHaveText([
+  await expect(page.getByTestId('settings-column-profiles')).toBeVisible();
+  expect(await groupsColumn(page).getByRole('option').evaluateAll(rows => rows.map(row => row.getAttribute('aria-label')))).toEqual([
     'Identity & instructions', 'Provider, model & account', 'Delegation',
     'Availability & defaults', 'Capabilities', 'Permissions', 'Actions',
   ]);
+  await expect(groupsColumn(page).getByRole('option', { name: 'Identity & instructions' })).toHaveAttribute('aria-selected', 'true');
   await page.getByTestId('profile-label').fill('Unsaved coordinator');
   await page.getByTestId('profile-profile-builder').click();
   await expect(page.getByTestId('profile-unsaved-dialog')).toBeVisible();
@@ -38,11 +72,13 @@ test('create, duplicate and back also protect a dirty draft; rename waits for Sa
   await page.getByTestId('profile-inline-name').fill('Draft name');
   await page.getByTestId('profile-inline-confirm').click();
   await expect(page.getByTestId('profile-profile-coordinator')).toContainText('Rhythm Coordinator');
+  await openGroup(page, 'Actions');
   for (const control of ['profile-create', 'profile-duplicate', 'profiles-back']) {
     await page.getByTestId(control).click();
     await expect(page.getByTestId('profile-unsaved-dialog')).toBeVisible();
     await page.keyboard.press('Escape');
-    await expect(page.getByTestId('profile-label')).toHaveValue('Draft name');
+    await expect(page.locator('#profile-editor-title')).toHaveText('Draft name');
+    await expect(page.getByTestId('profile-save-status')).toHaveText('Unsaved changes');
   }
   await page.getByTestId('profile-save').click();
   await expect(page.getByTestId('profile-profile-coordinator')).toContainText('Draft name');
@@ -52,6 +88,7 @@ test('choosing a default during an edit does not get overwritten by Save', async
   await openFixture(page, '#/profiles');
   await page.getByTestId('profile-profile-builder').click();
   await page.getByTestId('profile-label').fill('Default builder');
+  await openGroup(page, 'Actions');
   await page.getByTestId('profile-default').click();
   await page.getByTestId('profile-save').click();
   await expect(page.getByTestId('profile-profile-builder')).toContainText('Default');
@@ -61,6 +98,7 @@ test('choosing a default during an edit does not get overwritten by Save', async
 
 test('capability summaries, disclosure, filtering and bulk edits retain individual choices', async ({ page }) => {
   await openFixture(page, '#/profiles');
+  await openGroup(page, 'Capabilities');
   const skills = page.locator('.profile-capability-group').filter({ has: page.locator('summary', { hasText: 'Workspace skills' }) });
   await expect(skills.locator('summary')).toContainText('2 of 6 selected');
   await expect(skills.locator('summary')).toContainText('Explicit');
@@ -85,6 +123,7 @@ test('capability summaries, disclosure, filtering and bulk edits retain individu
 
 test('structured permissions preserve advanced JSON, patterns and explicit defaults through save/readback', async ({ page }) => {
   await openFixture(page, '#/profiles');
+  await openGroup(page, 'Permissions');
   await page.getByText('Advanced (JSON)', { exact: true }).click();
   const raw = '{ "bash": {"*":"ask", "git *":"allow"}, "future": { "inherit": true, "weight": 1e+03 }, "marker":"inherit", "__proto__":"ask" }';
   await page.getByTestId('profile-permissions').fill(raw);
@@ -112,24 +151,37 @@ test('invalid names and JSON prevent saving without losing the draft', async ({ 
   await expect(page.getByTestId('profile-save')).toBeDisabled();
   await expect(page.getByTestId('profile-label')).toHaveAttribute('aria-invalid', 'true');
   await page.getByTestId('profile-label').fill('Valid label');
+  await openGroup(page, 'Permissions');
   await page.getByText('Advanced (JSON)', { exact: true }).click();
   await page.getByTestId('profile-permissions').fill('{bad');
   await expect(page.getByTestId('profile-save')).toBeDisabled();
   await expect(page.getByTestId('permission-bash')).toBeDisabled();
+  await expect(groupsColumn(page).getByRole('option', { name: 'Permissions' })).toContainText('Invalid JSON');
+  await openGroup(page, 'Identity & instructions');
   await expect(page.getByTestId('profile-label')).toHaveValue('Valid label');
+  await openGroup(page, 'Permissions');
+  // Invalid JSON keeps Advanced open.
   await page.getByTestId('profile-permissions').fill('{"bash":"ask"}');
   await expect(page.getByTestId('profile-save')).toBeEnabled();
   await page.getByTestId('profile-cancel').click();
+  await openGroup(page, 'Identity & instructions');
   await expect(page.getByTestId('profile-label')).toHaveValue('Rhythm Coordinator');
 });
 
 test('read-only profiles allow inspection with every edit and immediate action disabled', async ({ page }) => {
   await openFixture(page, '#/profiles?state=read-only');
-  const controls = page.locator('.profile-editor').locator('input, textarea, select, button');
-  for (const control of await controls.all()) await expect(control).toBeDisabled();
+  // Every group stays inspectable while each edit and immediate action is disabled.
+  for (const name of ['Identity & instructions', 'Provider, model & account', 'Delegation', 'Availability & defaults', 'Capabilities', 'Permissions', 'Actions']) {
+    await openGroup(page, name);
+    const controls = editorColumns(page).locator('input, textarea, select, button:not(.column-browser-back):not(.column-browser-forward):not(.column-checklist-sort)');
+    expect(await controls.count(), `${name} renders controls`).toBeGreaterThan(0);
+    for (const control of await controls.all()) await expect(control, name).toBeDisabled();
+  }
+  await openGroup(page, 'Permissions');
   await page.getByText('Advanced (JSON)', { exact: true }).click();
   await expect(page.getByTestId('profile-permissions')).toBeVisible();
   await page.getByTestId('profile-profile-builder').click();
+  await openGroup(page, 'Identity & instructions');
   await expect(page.getByTestId('profile-label')).toHaveValue('Implementation Partner');
   await expect(page.getByTestId('profile-create')).toBeDisabled();
   const result = await new AxeBuilder({ page }).include('.profiles-workspace').analyze();
@@ -144,15 +196,18 @@ test('small windows, 200 percent zoom equivalent, RTL and long text keep control
   await page.getByTestId('profile-system-prompt').focus();
   const outline = await page.getByTestId('profile-system-prompt').evaluate(element => getComputedStyle(element).outlineStyle);
   expect(outline).not.toBe('none');
+  await openGroup(page, 'Actions');
   for (const direction of ['ltr', 'rtl']) {
     await page.evaluate(dir => document.documentElement.dir = dir, direction);
-    const scroll = page.getByTestId('profile-editor-scroll');
+    // Narrow: one column at a time, and the save footer sits below the columns, never over them.
+    await expect(page.getByTestId('settings-column-inspector')).toBeVisible();
+    await expect(groupsColumn(page)).toBeHidden();
+    const body = page.getByTestId('profile-inspector');
     await page.getByTestId('profile-delete').scrollIntoViewIfNeeded();
-    const geometry = await scroll.evaluate(element => ({ scrollWidth: element.scrollWidth, width: element.clientWidth, bottom: element.getBoundingClientRect().bottom, padding: Number.parseFloat(getComputedStyle(element).paddingBottom) }));
+    const geometry = await body.evaluate(element => ({ scrollWidth: element.scrollWidth, width: element.clientWidth, bottom: element.getBoundingClientRect().bottom }));
     const footer = await page.locator('.profile-save-footer').boundingBox();
     const action = await page.getByTestId('profile-delete').boundingBox();
     expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width + 1);
-    expect(geometry.padding).toBeGreaterThanOrEqual(footer!.height - 1);
     expect(geometry.bottom).toBeLessThanOrEqual(footer!.y + 1);
     expect(action!.y + action!.height).toBeLessThanOrEqual(footer!.y);
     for (const id of ['profile-save', 'profile-cancel']) {
@@ -170,8 +225,8 @@ test('small windows, 200 percent zoom equivalent, RTL and long text keep control
 
 // Data fixtures through the existing E22 canonical gateway harness. No actual
 // engine/API requests are permitted; this is rendered contract evidence only.
-async function openCanonicalFixture(page: Page, options: { allowedMcpsJson?: string; allowedSkillsJson?: string | null } = {}) {
-  const profiles = ['alpha', 'beta'].map(id => ({
+async function openCanonicalFixture(page: Page, options: { allowedMcpsJson?: string; allowedSkillsJson?: string | null; extraProfiles?: string[] } = {}) {
+  const profiles = ['alpha', 'beta', ...options.extraProfiles ?? []].map(id => ({
     id, label: id, icon: 'AG', enabled: true, isAgent: true, isManager: false, sessionSelectable: true,
     modelProvider: 'custom', modelId: 'model-one', defaultAnthropicAccountId: null, systemPrompt: '',
     allowedMcpsJson: options.allowedMcpsJson ?? '{"server":[], "other":["keep"]}', allowedSkillsJson: options.allowedSkillsJson === undefined ? null : options.allowedSkillsJson,
@@ -242,6 +297,7 @@ async function openCanonicalFixture(page: Page, options: { allowedMcpsJson?: str
     if (path === '/opencode/skills') return send(skills);
     if (path === '/agents/models/catalog') return send(['model-one', 'model-two'].map(modelId => ({ provider: 'custom', modelId, displayName: modelId, authorized: true })));
     if (path === '/opencode/auth/accounts') return send({ accounts: [{ id: 'account', label: 'Fixture account' }], defaultId: null });
+    if (path === '/opencode/auth/openai/accounts') return send({ accounts: [{ id: 'openai-work', label: 'Work', status: 'ok' }, { id: 'openai-home', label: 'Home', status: 'ok', email: 'home@example.test' }], defaultAccountId: 'openai-work' });
     if (path === '/agent-sessions') return send({ sessions: [] });
     if (path.endsWith('/health')) return send({ status: 'ready' });
     return send([]);
@@ -262,6 +318,7 @@ async function openCanonicalFixture(page: Page, options: { allowedMcpsJson?: str
 
 test('canonical fixture: inheritance, large catalogs, grouped selection and policy survive gateway readback', async ({ page }) => {
   const fixture = await openCanonicalFixture(page);
+  await openGroup(page, 'Capabilities');
   const group = page.locator('.profile-capability-group').filter({ has: page.locator('summary strong', { hasText: /^server$/ }) });
   await expect(group.locator('summary')).toContainText('60 of 60 selected');
   await expect(group.locator('summary')).toContainText('Inherited');
@@ -271,12 +328,16 @@ test('canonical fixture: inheritance, large catalogs, grouped selection and poli
   await expect(group.locator('summary')).toContainText('Explicit');
   await page.getByTestId('profile-mcp-filter').fill('');
   await group.getByRole('button', { name: 'Clear group: server', exact: true }).click();
+  await openGroup(page, 'Allowed skills');
   await page.getByRole('radio', { name: /^Selected skills/ }).check();
   await page.getByTestId('skill-skill-0').uncheck();
+  await openGroup(page, 'Provider, model & account');
   await page.getByTestId('profile-model').selectOption('model-two');
   await page.getByTestId('profile-account').selectOption('account');
+  await openGroup(page, 'Delegation');
   await page.getByTestId('profile-manager').check();
   await page.getByTestId('delegate-beta').check();
+  await openGroup(page, 'Permissions');
   await page.getByTestId('permission-bash').selectOption('deny');
   await page.getByTestId('profile-save').click();
   await expect(page.getByTestId('profile-save-status')).toHaveText('Profile saved');
@@ -285,19 +346,23 @@ test('canonical fixture: inheritance, large catalogs, grouped selection and poli
   expect(JSON.parse(fixture.profiles[0].allowedSkillsJson!)).toHaveLength(24);
   expect(fixture.profiles[0].corePermissionsJson).toBe('{"bash":{"*":"deny","git *":"allow"}, "future":{"x":"deny"}}');
   await page.getByTestId('profile-beta').click(); await page.getByTestId('profile-alpha').click();
-  await expect(page.getByTestId('mcp-server-tool-59')).not.toBeChecked();
-  await expect(page.getByTestId('profile-account')).toHaveValue('account');
   await expect(page.getByTestId('permission-bash')).toHaveValue('deny');
+  await openGroup(page, 'Capabilities');
+  await expect(page.getByTestId('mcp-server-tool-59')).not.toBeChecked();
+  await openGroup(page, 'Provider, model & account');
+  await expect(page.getByTestId('profile-account')).toHaveValue('account');
 });
 
 test('canonical fixture: advanced MCP server policy is warned, locked, and preserved through unrelated saves', async ({ page }) => {
   const raw = '{"server":{"mode":"capability-rules","allowedTools":{"include":["tool-*"],"exclude":["tool-9"]},"approval":{"write":"ask"},"future":{"weight":1e+03}},"other":["keep"]}';
   const fixture = await openCanonicalFixture(page, { allowedMcpsJson: raw });
+  await openGroup(page, 'Capabilities');
   const group = page.locator('.profile-capability-group').filter({ has: page.locator('summary strong', { hasText: /^server$/ }) });
   await expect(group.locator('summary')).toContainText('Advanced');
   await expect(group.getByRole('alert')).toContainText('Advanced MCP policy');
   await expect(page.getByTestId('mcp-server-tool-0')).toBeDisabled();
   await expect(group.getByRole('button', { name: 'Select all in group: server' })).toBeDisabled();
+  await openGroup(page, 'Identity & instructions');
   await page.getByTestId('profile-label').fill('Advanced policy retained');
   await page.getByTestId('profile-save').click();
   await expect(page.getByTestId('profile-save-status')).toHaveText('Profile saved');
@@ -328,6 +393,7 @@ test('canonical fixture: pending save blocks switching and a failure retains the
 
 test('task-profile-allowed-skills-management-c1: Allowed skills exposes exact All, Selected, and No semantics', async ({ page }) => {
   await openCanonicalFixture(page);
+  await openGroup(page, 'Allowed skills');
   const policy = page.getByRole('radiogroup', { name: 'Allowed skills' });
   await expect(policy).toBeVisible();
   await expect(policy.getByRole('radio', { name: /^All skills/ })).toBeChecked();
@@ -337,6 +403,7 @@ test('task-profile-allowed-skills-management-c1: Allowed skills exposes exact Al
 
 test('task-profile-allowed-skills-management-c2: policy transitions preserve effective access without conflating null and empty lists', async ({ page }) => {
   const fixture = await openCanonicalFixture(page);
+  await openGroup(page, 'Allowed skills');
   await page.getByRole('radio', { name: /^Selected skills/ }).check();
   await expect(page.getByTestId('profile-skills-summary')).toHaveText('25 selected');
   await page.getByRole('radio', { name: /^No skills/ }).check();
@@ -352,6 +419,7 @@ test('task-profile-allowed-skills-management-c2: policy transitions preserve eff
 
 test('task-profile-allowed-skills-management-c3: filtered bulk actions affect only shown skills and unknown saved names stay removable', async ({ page }) => {
   await openCanonicalFixture(page);
+  await openGroup(page, 'Allowed skills');
   await page.getByRole('radio', { name: /^Selected skills/ }).check();
   await page.getByTestId('profile-capability-filter').fill('skill-1');
   await page.getByRole('button', { name: 'Clear all shown skills' }).click();
@@ -363,6 +431,7 @@ test('task-profile-allowed-skills-management-c3: filtered bulk actions affect on
 
 test('task-profile-allowed-skills-management-c4: catalog failure preserves policy controls and the dirty draft', async ({ page }) => {
   await openCanonicalFixture(page);
+  await openGroup(page, 'Allowed skills');
   await page.getByRole('radio', { name: /^Selected skills/ }).check();
   await page.getByTestId('skill-skill-0').uncheck();
   await page.route('**/opencode/skills', route => route.fulfill({ status: 503, json: { error: 'private path /tmp/do-not-leak' } }));
@@ -374,6 +443,7 @@ test('task-profile-allowed-skills-management-c4: catalog failure preserves polic
 
 test('task-profile-allowed-skills-management-c5: save sends only changed skill policy and failure retains exact draft', async ({ page }) => {
   const fixture = await openCanonicalFixture(page);
+  await openGroup(page, 'Allowed skills');
   await page.getByRole('radio', { name: /^No skills/ }).check();
   fixture.reject(true);
   await page.getByTestId('profile-save').click();
@@ -383,6 +453,7 @@ test('task-profile-allowed-skills-management-c5: save sends only changed skill p
 
 test('task-profile-allowed-skills-management-c6: add skill dialog validates a create-only slug and required instructions', async ({ page }) => {
   await openCanonicalFixture(page);
+  await openGroup(page, 'Allowed skills');
   await page.getByRole('button', { name: 'Add skill' }).click();
   const dialog = page.getByRole('dialog', { name: 'Add managed skill' });
   await expect(dialog).toContainText(/global/i);
@@ -393,6 +464,7 @@ test('task-profile-allowed-skills-management-c6: add skill dialog validates a cr
 
 test('task-profile-allowed-skills-management-c7: create refreshes the catalog and auto-selects only in Selected policy', async ({ page }) => {
   const fixture = await openCanonicalFixture(page);
+  await openGroup(page, 'Allowed skills');
   const createSkill = async (name: string) => {
     await page.getByRole('button', { name: 'Add skill' }).click();
     const dialog = page.getByRole('dialog', { name: 'Add managed skill' });
@@ -420,6 +492,7 @@ test('task-profile-allowed-skills-management-c7: create refreshes the catalog an
 
 test('task-profile-allowed-skills-management-c8: only managed skills can fetch content and open Edit', async ({ page }) => {
   await openCanonicalFixture(page);
+  await openGroup(page, 'Allowed skills');
   await page.getByRole('radio', { name: /^Selected skills/ }).check();
   await page.getByRole('button', { name: 'Edit skill skill-0' }).click();
   await expect(page.getByRole('dialog', { name: 'Edit managed skill' })).toBeVisible();
@@ -428,6 +501,7 @@ test('task-profile-allowed-skills-management-c8: only managed skills can fetch c
 
 test('task-profile-allowed-skills-management-c9: delete names the global skill and removes it from an explicit draft only after success', async ({ page }) => {
   const fixture = await openCanonicalFixture(page, { allowedSkillsJson: '["skill-0"]' });
+  await openGroup(page, 'Allowed skills');
   await expect(page.getByTestId('skill-skill-0')).toBeChecked();
   await page.getByRole('button', { name: 'Delete skill skill-0' }).click();
   const dialog = page.getByRole('dialog', { name: 'Delete managed skill' });
@@ -450,6 +524,7 @@ test('task-profile-allowed-skills-management-c9: delete names the global skill a
 
 test('task-profile-allowed-skills-management-c10: profile switching closes CRUD dialogs and mutation controls prevent double submit', async ({ page }) => {
   const fixture = await openCanonicalFixture(page);
+  await openGroup(page, 'Allowed skills');
   await page.getByRole('button', { name: 'Add skill' }).click();
   const dialog = page.getByRole('dialog', { name: 'Add managed skill' });
   await dialog.getByLabel('Name').fill('held-skill');
@@ -474,6 +549,7 @@ test('task-profile-allowed-skills-management-c10: profile switching closes CRUD 
 
 test('task-profile-allowed-skills-management-c11: skill API errors are sanitized', async ({ page }) => {
   await openCanonicalFixture(page);
+  await openGroup(page, 'Allowed skills');
   await page.getByRole('radio', { name: /^Selected skills/ }).check();
   await page.route('**/opencode/skills/skill-0/content', route => route.fulfill({ status: 500, json: { error: 'private /tmp/path/SKILL.md' } }));
   await page.getByRole('button', { name: 'Edit skill skill-0' }).click();
@@ -498,6 +574,7 @@ test('task-profile-allowed-skills-management-c12: policy and CRUD controls remai
   await openCanonicalFixture(page);
   // The E22 harness prints a raw JSON receipt beside the app; it is not part of the product surface.
   await page.locator('#root > pre').evaluate(element => { element.hidden = true; });
+  await openGroup(page, 'Allowed skills');
   const selected = page.getByRole('radio', { name: /^Selected skills/ });
   await selected.focus();
   await page.keyboard.press('Space');
@@ -521,29 +598,39 @@ test('task-profile-allowed-skills-management-c12: policy and CRUD controls remai
   dialog = page.getByRole('dialog', { name: 'Add managed skill' });
   const result = await new AxeBuilder({ page }).analyze();
   expect(result.violations).toEqual([]);
-  const targets = [
+  const measure = async (targets: Locator[], minimum: number) => {
+    for (const target of targets) {
+      const box = await target.boundingBox();
+      expect(box, 'control must be rendered').not.toBeNull();
+      expect(box!.width, `control width must be at least ${minimum}px`).toBeGreaterThanOrEqual(minimum);
+      expect(box!.height, `control height must be at least ${minimum}px`).toBeGreaterThanOrEqual(minimum);
+    }
+  };
+  // Inspector (policy) controls keep 44px targets.
+  await measure([
     ...await page.locator('.profile-skill-policy > label').all(),
     page.getByRole('button', { name: 'Refresh skill catalog' }), add,
+    dialog.getByLabel('Name'), dialog.getByLabel('Description'), dialog.getByRole('button', { name: 'Cancel' }), dialog.getByRole('button', { name: 'Create skill' }),
+  ], 44);
+  expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await page.keyboard.press('Escape');
+  // The dense list column uses 24px targets on this fine pointer (44px on coarse pointers, see the list spec).
+  await showList(page);
+  await measure([
     page.getByRole('button', { name: 'Select all skills' }), page.getByRole('button', { name: 'Clear all skills' }),
     page.getByTestId('profile-capability-filter'), page.getByTestId('skill-skill-0').locator('..'),
     page.getByRole('button', { name: 'Edit skill skill-0' }), page.getByRole('button', { name: 'Delete skill skill-0' }),
-    dialog.getByLabel('Name'), dialog.getByLabel('Description'), dialog.getByRole('button', { name: 'Cancel' }), dialog.getByRole('button', { name: 'Create skill' }),
-  ];
-  for (const target of targets) {
-    const box = await target.boundingBox();
-    expect(box, 'control must be rendered').not.toBeNull();
-    expect(box!.width, 'control width must be at least 44px').toBeGreaterThanOrEqual(44);
-    expect(box!.height, 'control height must be at least 44px').toBeGreaterThanOrEqual(44);
-  }
-  expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
-  for (const [name, target] of [['document', page.locator('html')], ['workspace', page.getByTestId('profiles-workspace')], ['editor', page.locator('.profile-editor')]] as const) {
+  ], 24);
+  for (const [name, target] of [['document', page.locator('html')], ['workspace', page.getByTestId('profiles-workspace')], ['list', page.getByTestId('settings-column-list')]] as const) {
     const width = await target.evaluate(element => ({ scroll: element.scrollWidth, client: element.clientWidth }));
     expect(width.scroll <= width.client, `${name} must not overflow horizontally (${width.scroll} > ${width.client})`).toBe(true);
   }
 });
 
+
 test('task-profile-allowed-skills-management-c13: unknown saved skills survive stable exact policy PATCH and dirty navigation guard', async ({ page }) => {
   const fixture = await openCanonicalFixture(page, { allowedSkillsJson: '["z-unknown","skill-2","skill-2"]' });
+  await openGroup(page, 'Allowed skills');
   await expect(page.getByRole('radio', { name: /^Selected skills/ })).toBeChecked();
   await expect(page.getByTestId('skill-z-unknown')).toBeChecked();
   await page.getByTestId('skill-z-unknown').evaluate((element: HTMLInputElement) => element.click());
@@ -557,6 +644,7 @@ test('task-profile-allowed-skills-management-c13: unknown saved skills survive s
 
 test('task-profile-allowed-skills-management-c14: managed CRUD stays global, external rows stay read-only, and policy screenshots are durable', async ({ page }) => {
   const fixture = await openCanonicalFixture(page);
+  await openGroup(page, 'Allowed skills');
   const artifacts = '../../docs/ai/artifacts/2026-09-27-profile-allowed-skills-management';
   await page.screenshot({ path: `${artifacts}/all-skills-dark.png`, fullPage: true });
   await page.getByRole('radio', { name: /^Selected skills/ }).check();
@@ -584,6 +672,167 @@ test('task-profile-allowed-skills-management-c14: managed CRUD stays global, ext
   await page.getByRole('radio', { name: /^No skills/ }).check();
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
   await page.screenshot({ path: `${artifacts}/no-skills-dark.png`, fullPage: true });
+});
+
+const checklistNames = (scope: Locator) => scope.locator('.column-check-name').allTextContents();
+const byName = (names: string[]) => [...names].sort((a, b) => a.localeCompare(b));
+
+test('column lists: skills sort by name both ways, filter, and select/clear only what is shown', async ({ page }) => {
+  await openCanonicalFixture(page);
+  await openGroup(page, 'Allowed skills');
+  await page.getByRole('radio', { name: /^Selected skills/ }).check();
+  const list = page.getByTestId('settings-column-list');
+  await expect(list).toBeVisible();
+  const managed = list.locator('.profile-capability-group').filter({ has: page.locator('summary strong', { hasText: /^managed skills$/ }) });
+  const managedNames = Array.from({ length: 12 }, (_, i) => `skill-${i}`);
+  const sort = list.getByTestId('column-checklist-sort');
+  await expect(sort).toHaveAccessibleName('Sort by name, A to Z');
+  await shot(page, 'settings-profiles-skills-list');
+  expect(await checklistNames(managed)).toEqual(byName(managedNames));
+  await sort.click();
+  await expect(sort).toHaveAccessibleName('Sort by name, Z to A');
+  expect(await checklistNames(managed)).toEqual(byName(managedNames).reverse());
+  await sort.click();
+  expect(await checklistNames(managed)).toEqual(byName(managedNames));
+  // Description is a truncated secondary line with the full text as a tooltip.
+  await expect(page.getByTestId('skill-skill-0').locator('..')).toHaveAttribute('title', 'skill-0 — Skill 0 description');
+
+  await list.getByRole('button', { name: 'Clear all skills' }).click();
+  await expect(page.getByTestId('profile-skills-summary')).toHaveText('0 selected');
+  await page.getByTestId('profile-capability-filter').fill('skill-1');
+  const shown = ['skill-1', ...Array.from({ length: 10 }, (_, i) => `skill-1${i}`)];
+  expect(byName(await checklistNames(list))).toEqual(byName(shown));
+  await list.getByRole('button', { name: 'Select all shown skills' }).click();
+  await expect(page.getByTestId('profile-skills-summary')).toHaveText(`${shown.length} selected`);
+  await page.getByTestId('profile-capability-filter').fill('');
+  await expect(page.getByTestId('skill-skill-1')).toBeChecked();
+  await expect(page.getByTestId('skill-skill-0')).not.toBeChecked();
+  await expect(groupsColumn(page).getByRole('option', { name: 'Allowed skills' })).toContainText(`Selected · ${shown.length} of 25`);
+  // Compact single-line rows on this fine pointer.
+  expect((await page.getByTestId('skill-skill-0').locator('..').boundingBox())!.height).toBeLessThanOrEqual(30);
+});
+
+test('column lists: MCP servers and tools sort by name; the policy choice lives in the inspector', async ({ page }) => {
+  const fixture = await openCanonicalFixture(page);
+  await openGroup(page, 'Capabilities');
+  const list = page.getByTestId('settings-column-list');
+  const groupNames = () => list.locator('.profile-capability-group > summary strong').allTextContents();
+  expect(await groupNames()).toEqual(['other', 'server']);
+  const server = list.locator('.profile-capability-group').filter({ has: page.locator('summary strong', { hasText: /^server$/ }) });
+  const tools = byName(Array.from({ length: 60 }, (_, i) => `tool-${i}`));
+  expect(await checklistNames(server)).toEqual(tools);
+  await list.getByTestId('column-checklist-sort').click();
+  expect(await groupNames()).toEqual(['server', 'other']);
+  expect(await checklistNames(server)).toEqual([...tools].reverse());
+  // All / Selected / None policy (null = unrestricted, [] = deny-all).
+  await expect(page.getByTestId('profile-mcp-mode-selected')).toBeChecked();
+  await page.getByTestId('profile-mcp-mode-all').check();
+  await expect(groupsColumn(page).getByRole('option', { name: 'Capabilities' })).toContainText('All MCPs');
+  await page.getByTestId('profile-save').click();
+  await expect(page.getByTestId('profile-save-status')).toHaveText('Profile saved');
+  expect(fixture.writes.at(-1)?.body).toEqual({ allowedMcpsJson: null });
+  await page.getByTestId('profile-mcp-mode-none').check();
+  await page.getByTestId('profile-save').click();
+  await expect(page.getByTestId('profile-save-status')).toHaveText('Profile saved');
+  expect(fixture.writes.at(-1)?.body).toEqual({ allowedMcpsJson: '[]' });
+  await expect(page.getByTestId('profile-mcp-summary')).toHaveText('No MCPs');
+});
+
+test('column lists: delegation targets sort, filter, select all and clear, then save', async ({ page }) => {
+  const fixture = await openCanonicalFixture(page, { extraProfiles: ['gamma', 'delta'] });
+  await openGroup(page, 'Delegation');
+  const list = page.getByTestId('settings-column-list');
+  expect(await checklistNames(list)).toEqual(['beta', 'delta', 'gamma']);
+  await list.getByTestId('column-checklist-sort').click();
+  expect(await checklistNames(list)).toEqual(['gamma', 'delta', 'beta']);
+  await page.getByTestId('profile-delegate-filter').fill('ga');
+  expect(await checklistNames(list)).toEqual(['gamma']);
+  await list.getByRole('button', { name: 'Select all shown delegation targets' }).click();
+  await page.getByTestId('profile-delegate-filter').fill('');
+  await expect(page.getByTestId('delegate-gamma')).toBeChecked();
+  await expect(page.getByTestId('delegate-beta')).not.toBeChecked();
+  await list.getByRole('button', { name: 'Select all delegation targets' }).click();
+  await expect(groupsColumn(page).getByRole('option', { name: 'Delegation' })).toContainText('3 delegation targets');
+  await list.getByRole('button', { name: 'Clear all delegation targets' }).click();
+  await page.getByTestId('delegate-delta').check();
+  await page.getByTestId('profile-save').click();
+  await expect(page.getByTestId('profile-save-status')).toHaveText('Profile saved');
+  expect(fixture.writes.at(-1)?.body).toEqual({ allowedDelegatesJson: '["delta"]' });
+});
+
+test('Provider, model & account: default OpenAI account picker saves through the profile draft', async ({ page }) => {
+  const fixture = await openCanonicalFixture(page);
+  await openGroup(page, 'Provider, model & account');
+  const picker = page.getByTestId('profile-openai-account');
+  await expect(picker).toHaveValue('');
+  await expect(picker.locator('option')).toHaveText(['Use the global default', 'Work · openai-work', 'Home · openai-home']);
+  await picker.selectOption('openai-home');
+  await expect(page.getByTestId('profile-save-status')).toHaveText('Unsaved changes');
+  await page.getByTestId('profile-save').click();
+  await expect(page.getByTestId('profile-save-status')).toHaveText('Profile saved');
+  expect(fixture.writes.at(-1)).toEqual({ id: 'alpha', body: { defaultOpenaiAccountId: 'openai-home' } });
+  await page.getByTestId('profile-beta').click(); await page.getByTestId('profile-alpha').click();
+  await expect(page.getByTestId('profile-openai-account')).toHaveValue('openai-home');
+  await page.getByTestId('profile-openai-account').selectOption('');
+  await page.getByTestId('profile-save').click();
+  await expect(page.getByTestId('profile-save-status')).toHaveText('Profile saved');
+  expect(fixture.writes.at(-1)?.body).toEqual({ defaultOpenaiAccountId: null });
+});
+
+test('column browser keyboard: arrows within Profiles, Enter/Right into settings, Left back', async ({ page }) => {
+  await openCanonicalFixture(page);
+  const alpha = page.getByTestId('profile-alpha');
+  await alpha.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByTestId('profile-beta')).toBeFocused();
+  await expect(alpha).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowRight');
+  await expect(groupsColumn(page).getByRole('option', { name: 'Identity & instructions' })).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(groupsColumn(page).getByRole('option', { name: 'Actions' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('profile-inspector')).toBeFocused();
+  await expect(page.getByTestId('profile-delete')).toBeVisible();
+  await page.keyboard.press('ArrowLeft');
+  await expect(groupsColumn(page).getByRole('option', { name: 'Actions' })).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(alpha).toBeFocused();
+  await expect.poll(() => new URL(page.url()).hash).toContain('profileSection=actions');
+});
+
+test('narrow Profiles drills in one column at a time with Back and forward to the list', async ({ page }) => {
+  await page.setViewportSize({ width: 720, height: 700 });
+  await openCanonicalFixture(page);
+  await page.locator('#root > pre').evaluate(element => { element.hidden = true; });
+  const columns = ['settings-column-profiles', 'settings-column-groups', 'settings-column-inspector'].map(id => page.getByTestId(id));
+  await expect(columns[2]).toBeVisible();
+  await expect(columns[0]).toBeHidden(); await expect(columns[1]).toBeHidden();
+  await page.getByRole('button', { name: 'Back to Profile settings', exact: true }).click();
+  await expect(columns[1]).toBeVisible(); await expect(columns[2]).toBeHidden();
+  await page.getByRole('button', { name: 'Back to Profiles', exact: true }).click();
+  await expect(columns[0]).toBeVisible();
+  await page.getByTestId('profile-beta').click();
+  await expect(columns[1]).toBeVisible();
+  await groupsColumn(page).getByRole('option', { name: 'Delegation' }).click();
+  await expect(columns[2]).toBeVisible();
+  await page.getByRole('button', { name: 'Delegation targets' }).click();
+  await expect(page.getByTestId('settings-column-list')).toBeVisible();
+  await expect(page.getByTestId('delegate-alpha')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test.describe('coarse pointers', () => {
+  test.use({ hasTouch: true });
+  test('list rows and row actions grow to 44px targets', async ({ page }) => {
+    await openCanonicalFixture(page, { allowedSkillsJson: '["skill-0"]' });
+    await openGroup(page, 'Allowed skills');
+    expect(await page.evaluate(() => matchMedia('(any-pointer: coarse)').matches)).toBe(true);
+    for (const target of [page.getByTestId('skill-skill-0').locator('..'), page.getByRole('button', { name: 'Edit skill skill-0' }), groupsColumn(page).getByRole('option', { name: 'Permissions' })]) {
+      const box = await target.boundingBox();
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+    }
+  });
 });
 
 test('live profile save survives a full UI reload', async ({ page }) => {

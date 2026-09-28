@@ -11,7 +11,7 @@ const profiles = Array.from({ length: 54 }, (_, index) => ({
   autoApproveActions: false, isDefault: index === 0, updatedAt: '2026-09-24T00:00:00Z',
 }));
 
-async function openSettings(page: Page) {
+async function routeProfiles(page: Page) {
   await page.route('http://127.0.0.1:7161/**', (route) => route.fulfill({ status: 200, json: {} }));
   await page.route('http://127.0.0.1:7160/**', async (route) => {
     const request = route.request();
@@ -19,61 +19,68 @@ async function openSettings(page: Page) {
     const headers = { 'access-control-allow-origin': request.headers()['origin'] ?? '*', 'access-control-allow-headers': 'authorization,content-type', 'access-control-allow-methods': 'GET,POST,PATCH,DELETE,OPTIONS' };
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
     if (path === '/agent-configs') return route.fulfill({ status: 200, headers, json: profiles });
-    if (path === '/opencode/auth/accounts') return route.fulfill({ status: 200, headers, json: { accounts: [] } });
-    if (path === '/opencode/auth' || path === '/opencode/mcp' || path === '/agents/models/catalog' || path === '/skills') return route.fulfill({ status: 200, headers, json: [] });
+    if (path === '/opencode/auth/accounts' || path === '/opencode/auth/openai/accounts') return route.fulfill({ status: 200, headers, json: { accounts: [] } });
+    if (path === '/opencode/auth' || path === '/opencode/mcp' || path === '/agents/models/catalog' || path === '/skills' || path === '/opencode/skills') return route.fulfill({ status: 200, headers, json: [] });
     return route.fulfill({ status: 200, headers, json: {} });
   });
-  await page.goto('/#/tools/agent-settings?settingsSection=profiles');
-  await expect(page.getByTestId('agent-setting-planning-agent')).toBeVisible();
 }
 
-test('1562-profiles-overview-navigable:1 profile row deep-links and selects the requested editor profile', async ({ page }) => {
-  // Regression: overview rows are inert and the editor always selects its default profile.
-  await openSettings(page);
-  const planning = page.getByTestId('agent-setting-planning-agent');
-  await planning.focus();
-  await page.keyboard.press('Enter');
-  await expect(page).toHaveURL(/#\/profiles\?profile=planning-agent$/);
+// The Profiles overview left Agent Settings: profiles are browsed and edited only in the Profiles tool.
+test('1562-profiles-overview-navigable:1 Agent Settings has no Profiles section and old deep links open the Profiles tool', async ({ page }) => {
+  await routeProfiles(page);
+  await page.goto('/#/tools/agent-settings?settingsSection=profiles');
+  const sections = page.getByRole('listbox', { name: 'Agent settings sections' });
+  await expect(sections.getByRole('option').first()).toBeVisible();
+  await expect(sections.getByRole('option', { name: /Profiles/ })).toHaveCount(0);
+  await expect(page.getByTestId('agent-setting-planning-agent')).toHaveCount(0);
+  await page.getByTestId('agent-settings-open-profiles').click();
+  await expect(page).toHaveURL(/#\/profiles/);
+  await expect(page.getByTestId('profile-planning-agent')).toBeVisible();
+});
+
+test('1562-profiles-overview-navigable:2 a profile deep link selects the requested editor profile', async ({ page }) => {
+  // Regression: the editor always selects its default profile.
+  await routeProfiles(page);
+  await page.goto('/#/profiles?profile=planning-agent');
   await expect(page.getByTestId('profile-planning-agent')).toHaveClass(/selected/);
   await expect(page.getByRole('heading', { name: 'Planning Agent', exact: true })).toBeVisible();
 });
 
-test('1562-profiles-overview-navigable:2 search matches label, provider and model', async ({ page }) => {
-  // Regression: finding one profile requires reading all 54 inert cards.
-  await openSettings(page);
-  const search = page.getByRole('searchbox', { name: 'Search profiles overview' });
+test('1562-profiles-overview-navigable:3 search matches label, provider and model', async ({ page }) => {
+  // Regression: finding one profile requires reading all 54 rows.
+  await routeProfiles(page);
+  await page.goto('/#/profiles');
+  const list = page.getByRole('listbox', { name: 'Profiles' });
+  await expect(list.getByRole('option')).toHaveCount(54);
   for (const value of ['planning', 'anthropic', 'claude-planner']) {
-    await search.fill(value);
-    await expect(page.locator('.agent-settings-profile-row')).toHaveCount(1);
-    await expect(page.getByTestId('agent-setting-planning-agent')).toBeVisible();
+    await page.getByTestId('profile-search').fill(value);
+    await expect(list.getByRole('option')).toHaveCount(1);
+    await expect(page.getByTestId('profile-planning-agent')).toBeVisible();
   }
 });
 
-test('1562-profiles-overview-navigable:3 disabled profiles are grouped and visibly marked', async ({ page }) => {
+test('1562-profiles-overview-navigable:4 disabled profiles are visibly marked', async ({ page }) => {
   // Regression: disabled rows are visually indistinguishable without reading muted metadata.
-  await openSettings(page);
-  const disabled = page.getByTestId('agent-settings-disabled-profiles');
-  await expect(disabled.getByRole('heading', { name: 'Disabled profiles' })).toBeVisible();
-  await expect(disabled.locator('.agent-settings-profile-row')).toHaveCount(2);
-  await expect(disabled.getByText('Disabled', { exact: true })).toHaveCount(2);
-});
-
-test('1562-profiles-overview-navigable:4 primary editor action precedes the first profile row', async ({ page }) => {
-  // Regression: the only editor action is appended after thousands of pixels of rows.
-  await openSettings(page);
-  const action = await page.getByTestId('agent-settings-open-profiles').boundingBox();
-  const first = await page.locator('.agent-settings-profile-row').first().boundingBox();
-  expect(action!.y).toBeLessThan(first!.y);
+  await routeProfiles(page);
+  await page.goto('/#/profiles');
+  await expect(page.getByRole('listbox', { name: 'Profiles' }).locator('em', { hasText: 'Disabled' })).toHaveCount(2);
 });
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
   test(`1562-profiles-overview-navigable:5 navigation stays reachable after profile scrolling at ${viewport.width}px`, async ({ page }) => {
-    // Regression: the page scroll carries settings navigation off-screen on long profile lists.
+    // Regression: the page scroll carries navigation off-screen on long profile lists.
     await page.setViewportSize(viewport);
-    await openSettings(page);
-    const detail = page.getByTestId('list-inspector-detail');
-    await detail.evaluate((node) => { node.scrollTop = node.scrollHeight; });
-    const navigation = viewport.width < 720 ? page.getByRole('button', { name: 'Back to list', exact: true }) : page.getByRole('listbox', { name: 'Agent settings sections' });
-    await expect(navigation).toBeInViewport();
+    await routeProfiles(page);
+    await page.goto('/#/profiles');
+    if (viewport.width < 900) {
+      await page.getByTestId('profile-inspector').evaluate((node) => { node.parentElement!.scrollTop = node.parentElement!.scrollHeight; });
+      await expect(page.getByRole('button', { name: 'Back to Profile settings', exact: true })).toBeInViewport();
+    } else {
+      const list = page.getByRole('listbox', { name: 'Profiles' });
+      await list.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+      await expect(page.getByTestId('profile-create')).toBeInViewport();
+      await expect(page.getByTestId('profile-search')).toBeInViewport();
+      await expect(page.getByTestId('profile-profile-54')).toBeInViewport();
+    }
   });
 }

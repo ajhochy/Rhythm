@@ -245,6 +245,7 @@ export interface ProfileMutation {
   sessionSelectable: boolean;
   modelTierHint: string | null;
   defaultAnthropicAccountId: string | null;
+  defaultOpenaiAccountId: string | null;
 }
 
 // #1580 — discards a response that started before a newer one began (a gateway or account
@@ -491,6 +492,7 @@ function mapProfile(value: unknown): IdentityProfile {
     sessionSelectable: source.sessionSelectable !== false,
     modelTierHint: typeof source.modelTierHint === 'string' ? source.modelTierHint : null,
     defaultAnthropicAccountId: typeof source.defaultAnthropicAccountId === 'string' ? source.defaultAnthropicAccountId : null,
+    defaultOpenaiAccountId: typeof source.defaultOpenaiAccountId === 'string' ? source.defaultOpenaiAccountId : null,
   };
 }
 

@@ -81,12 +81,14 @@ test('issue-1413-c1/c2: Skills has a live gateway branch while fixtures identify
   assert.match(fixtureCatalog, /fixture:\/\/skills/);
 });
 
-test('issue-1411-c1: Agent settings loads the real agent-config catalog in Live mode', () => {
+test('issue-1411-c1: Agent settings is live in Live mode and leaves profiles to the Profiles tool', () => {
   // Regression caught: Live mode always renders two local-only fixture rows.
+  // Superseded: the profile catalog left Agent Settings (it only duplicated the Profiles tool).
   assert.match(agentSettingsSource, /function LiveSettingsTool\(/);
-  assert.match(agentSettingsSource, /sessions\.profiles\(\)/);
   assert.match(source, /'agent-settings': live \? <LiveSettingsTool Frame=\{ToolFrame\} \/> : <FixtureAgentSettingsTool Frame=\{ToolFrame\} \/>/);
-  assert.match(agentSettingsSource, /route: '\/agent-configs'/);
+  assert.doesNotMatch(agentSettingsSource, /sessions\.profiles\(\)/);
+  assert.match(agentSettingsSource, /accounts: '\/opencode\/auth\/accounts'/);
+  assert.match(profilesSource, /updateProfile\(/);
 });
 
 test('task-bucket-a-ui-repair-c1: failed image and video previews reach the icon fallback', () => {
@@ -130,11 +132,12 @@ test('task-bucket-a-ui-repair-c4: fixture Settings explicitly says it is not con
   assert.doesNotMatch(settings, /Connected · local workspace/);
 });
 
-test('task-bucket-a-ui-repair-c5: live Settings uses the profile fallback instead of raw asset paths', () => {
-  // Regression caught: Flutter-only icon paths are printed verbatim in the Live Settings avatar.
-  const settings = agentSettingsSource.slice(agentSettingsSource.indexOf('function LiveSettingsTool'));
-  assert.match(settings, /profileAvatarLabel\(profile\)/);
-  assert.doesNotMatch(settings, /profile-avatar">\{profile\.icon\}/);
+test('task-bucket-a-ui-repair-c5: profile rows use the avatar fallback instead of raw asset paths', () => {
+  // Regression caught: Flutter-only icon paths are printed verbatim in a profile avatar.
+  // The profile list now lives only in the Profiles tool.
+  assert.match(profilesSource, /<ProfileAvatar profile=\{profile\}/);
+  assert.match(profilesSource, /profileAvatarLabel\(profile\)/);
+  assert.doesNotMatch(profilesSource, /profile-avatar[^>]*>\{profile\.icon\}/);
 });
 
 test('task-bucket-a-ui-repair-c6: profile initials take a Unicode code point, not a UTF-16 unit', () => {

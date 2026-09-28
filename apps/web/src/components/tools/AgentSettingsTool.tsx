@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type ComponentType, type FormEvent, type R
 import type { McpServer } from '../../gateway/mcp';
 import type { AccountChoice } from '../../gateway/sessions';
 import type { AutoPromotion } from '../../gateway/auto-promotion';
-import type { Profile } from '../../types';
 import { Icon } from '../../icons';
 import { useGateway } from '../../gateway/context';
 import { useAuthUser } from '../../gateway/auth';
@@ -12,9 +11,9 @@ import {
   SWITCH_SESSION_KEY_OPTIONS, USER_PREFERENCES_CHANGED_EVENT, writeLocalUserPreferences,
   type LocalUserPreferences,
 } from '../../gateway/user-preferences';
+import { ColumnBrowser, type BrowserColumn, type ColumnItem } from '../ColumnBrowser';
 import { FocusDialog } from '../FocusDialog';
-import { ListInspector, useSelectedId, type ListInspectorItem } from '../ListInspector';
-import { profileAvatarLabel } from '../Profiles';
+import { useSelectedId } from '../ListInspector';
 import { navigate } from '../Shell';
 import './AgentSettingsTool.css';
 import { HermesAccountsSettings } from './HermesAccountsSettings';
@@ -22,8 +21,8 @@ import { ModelCurationPanel } from './ModelCurationPanel';
 import { RuntimeGatewayError, type RuntimeInfo } from '../../gateway/runtime';
 
 type Trace = { method: string; route: string; detail: string };
-type LoadSection = 'profiles' | 'accounts' | 'mcp' | 'providers';
-type ActionScope = 'accounts' | 'providers' | 'mcp' | 'runtime';
+type LoadSection = 'accounts' | 'openai' | 'mcp' | 'providers';
+type ActionScope = 'accounts' | 'openai' | 'providers' | 'mcp' | 'runtime';
 type PendingAction = { scope: ActionScope; key: string };
 type RuntimeHealthState = { state: 'checking' | 'healthy' | 'failed' };
 
@@ -40,8 +39,9 @@ type AgentSettingsToolProps = {
   Frame: ComponentType<AgentSettingsFrameProps>;
 };
 
+// Profiles are edited only in the Profiles tool (/profiles); this page keeps the
+// settings no other tool owns.
 const sectionIds = {
-  profiles: 'profiles',
   autoPromotion: 'auto-promotion',
   accounts: 'accounts',
   models: 'models',
@@ -147,6 +147,9 @@ export const providerCatalog = [
   { id: 'openrouter', label: 'OpenRouter', kind: 'key' as const, method: 0, detail: 'Last-resort tier of the model fallback chain. Paste an OpenRouter API key.' },
 ];
 export type ProviderCatalogEntry = typeof providerCatalog[number];
+// Providers whose sign-in is multi-account and lives in Accounts. Models still curates
+// their models, but offers no connect form for them.
+export const ACCOUNT_MANAGED_PROVIDERS: Record<string, string> = { anthropic: 'Anthropic', openai: 'OpenAI' };
 export type ProviderAuthFlow = { id: string; authUrl: string; instructions: string; method: number };
 
 // #1580 S2: extracted so the new provider-first Models section can render an identical
@@ -197,26 +200,61 @@ const mcpStatusPresentation = (status: string) => {
   };
 };
 
-function useSettingsSelection() {
-  const [selectedId, setSelectedId] = useSelectedId('settingsSection');
-  useEffect(() => {
-    const route = window.location.hash.split('?')[0];
-    if (selectedId === null && route === '#/tools/agent-settings') setSelectedId(sectionIds.profiles);
-  }, [selectedId, setSelectedId]);
-  return [selectedId, setSelectedId] as const;
-}
-
-function baseItems(status: Partial<Record<keyof typeof sectionIds, string>> = {}, badges: Partial<Record<keyof typeof sectionIds, string>> = {}): ListInspectorItem[] {
+function baseItems(status: Partial<Record<keyof typeof sectionIds, string>> = {}, badges: Partial<Record<keyof typeof sectionIds, string>> = {}): ColumnItem[] {
   return [
-    { id: sectionIds.profiles, title: 'Profiles overview', subtitle: status.profiles ?? 'Agent identities, defaults, and model assignments' },
-    { id: sectionIds.autoPromotion, title: 'Auto-promotion', subtitle: status.autoPromotion ?? 'Workspace eligibility and confirmation gates', badge: badges.autoPromotion },
     { id: sectionIds.accounts, title: 'Accounts', subtitle: status.accounts ?? 'Authorized model provider accounts' },
     { id: sectionIds.models, title: 'Models', subtitle: status.models ?? 'Provider connections and model curation' },
+    { id: sectionIds.mcp, title: 'MCP servers', subtitle: status.mcp ?? 'Workspace tool connections and status' },
+    // ponytail: Auto-promotion stays here for now; it may belong with the Skills tool.
+    { id: sectionIds.autoPromotion, title: 'Auto-promotion', subtitle: status.autoPromotion ?? 'Workspace eligibility and confirmation gates', badge: badges.autoPromotion },
     { id: sectionIds.behavior, title: 'Behavior', subtitle: status.behavior ?? 'Destructive-tool confirmation policy' },
     { id: sectionIds.keybindings, title: 'Keybindings', subtitle: status.keybindings ?? 'Desktop keyboard shortcuts' },
     { id: sectionIds.runtime, title: 'Runtime / OpenCode server', subtitle: status.runtime ?? 'Desktop-local API and engine endpoints' },
-    { id: sectionIds.mcp, title: 'MCP servers', subtitle: status.mcp ?? 'Workspace tool connections and status' },
   ];
+}
+
+/** A category renders either one form, or an item list whose selection drives the inspector. */
+type SettingsView =
+  | { kind: 'form'; content: ReactNode }
+  | { kind: 'list'; label: string; items: ColumnItem[]; adds?: { id: string; label: string; testId: string }[]; emptyState?: ReactNode; header?: ReactNode; detail(itemId: string | null): { title: string; content: ReactNode } };
+
+/** URL-backed path: ?settingsSection=<category>&settingsItem=<item>. */
+function useSettingsPath() {
+  const [section, setSection] = useSelectedId('settingsSection');
+  const [item, setItem] = useSelectedId('settingsItem');
+  const selectSection = (id: string) => { if (id !== section) setItem(null); setSection(id); };
+  return { section: section ?? sectionIds.accounts, item, selectSection, setItem };
+}
+
+function SettingsBrowser({ categories, loading = false, emptyState, toolbar, view, path }: {
+  categories: ColumnItem[]; loading?: boolean; emptyState: ReactNode; toolbar: ReactNode;
+  view(sectionId: string): SettingsView | null; path: ReturnType<typeof useSettingsPath>;
+}) {
+  const category = categories.find((entry) => entry.id === path.section);
+  const inspector = (title: string, content: ReactNode): BrowserColumn => ({ kind: 'panel', key: 'inspector', label: title, testId: 'settings-column-inspector', bodyTestId: 'list-inspector-detail', children: content });
+  const columns: BrowserColumn[] = [{
+    kind: 'list', key: 'categories', label: 'Agent settings sections', testId: 'settings-column-categories', items: categories,
+    selectedId: category?.id ?? null, onSelect: path.selectSection, header: toolbar, loading, emptyState, resizeKey: 'layout.list-inspector.agent-settings-sections',
+  }];
+  const current = !loading && category ? view(category.id) : null;
+  if (!loading && !category) {
+    columns.push(inspector('Item not found', <><p role="status" aria-live="polite">This section was not found or is no longer available. Select another section from the list.</p>
+      {path.section === 'profiles' && <><p>Profiles are edited in the Profiles tool.</p><button className="primary-button" type="button" onClick={() => navigate('/profiles')} data-testid="agent-settings-open-profiles">Open Profiles</button></>}</>));
+  } else if (current?.kind === 'form') {
+    columns.push(inspector(category!.title, current.content));
+  } else if (current?.kind === 'list') {
+    const adds = current.adds ?? [];
+    const itemId = current.items.some((item) => item.id === path.item) || adds.some((add) => add.id === path.item) ? path.item
+      : current.items[0]?.id ?? adds[0]?.id ?? null;
+    columns.push({
+      kind: 'list', key: 'items', label: current.label, testId: 'settings-column-items', items: current.items,
+      selectedId: itemId, onSelect: path.setItem, emptyState: current.emptyState, header: current.header,
+      adds: adds.map((add) => ({ label: add.label, testId: add.testId, selected: itemId === add.id, onClick: () => path.setItem(add.id) })),
+    });
+    const detail = current.detail(itemId);
+    columns.push(inspector(detail.title, detail.content));
+  }
+  return <ColumnBrowser label="Agent settings" columns={columns} className="agent-settings-browser" />;
 }
 
 type AutoPromotionSettingsProps = {
@@ -270,12 +308,11 @@ export function AutoPromotionSettings({ state, loading, error, reload, reportErr
 }
 
 export function FixtureAgentSettingsTool({ Frame }: AgentSettingsToolProps) {
-  const [selectedId, setSelectedId] = useSettingsSelection();
+  const path = useSettingsPath();
   const [requireDestructiveModal, setRequireDestructiveModal] = useDestructiveModalPreference();
   const [keybindings, updateKeybindings, resetKeybindings] = useKeybindingPreferences();
   const [trace, setTrace] = useState<Trace>({ method: 'LOCAL', route: 'fixture://agent-settings', detail: 'Local runtime defaults loaded' });
   const items = baseItems({
-    profiles: 'Use the Profiles tool for profile editing',
     autoPromotion: 'Live workspace status required',
     accounts: 'Live local runtime required',
     models: 'Live local runtime required',
@@ -284,11 +321,8 @@ export function FixtureAgentSettingsTool({ Frame }: AgentSettingsToolProps) {
     runtime: 'Fixture preview · not connected',
     mcp: 'Live local runtime required',
   });
-  const inspector = (item: ListInspectorItem | null) => {
-    if (!item) return <p>Select a configuration section.</p>;
-    switch (item.id) {
-      case sectionIds.profiles:
-        return <><SectionIntro scope="Agent / profile">Profiles determine agent identity, model defaults, skills, MCP access, and permission rules.</SectionIntro><button className="primary-button" type="button" onClick={() => navigate('/profiles')} data-testid="agent-settings-open-profiles">Open profile editor</button></>;
+  const content = (id: string) => {
+    switch (id) {
       case sectionIds.autoPromotion:
         return <><SectionIntro scope="Workspace">Auto-promotion is controlled by workspace eligibility and always requires an explicit confirmation.</SectionIntro><GapNotice place="a signed-in live workspace">This fixture cannot read or change auto-promotion.</GapNotice></>;
       case sectionIds.accounts:
@@ -308,7 +342,9 @@ export function FixtureAgentSettingsTool({ Frame }: AgentSettingsToolProps) {
     }
   };
   return <Frame slug="agent-settings" title="Agent settings" description="Agent, desktop-local, and workspace configuration in one place." trace={trace}>
-    <ListInspector label="Agent settings sections" items={items} selectedId={selectedId} onSelect={setSelectedId} toolbar={<button className="secondary-button compact" type="button" onClick={() => setTrace({ method: 'LOCAL', route: 'fixture://agent-settings', detail: 'Local runtime defaults refreshed' })} data-testid="agent-settings-refresh"><Icon name="refresh" size={14} />Refresh</button>} inspector={inspector} />
+    <SettingsBrowser path={path} categories={items} emptyState="No configuration sections are available."
+      toolbar={<button className="secondary-button compact" type="button" onClick={() => setTrace({ method: 'LOCAL', route: 'fixture://agent-settings', detail: 'Local runtime defaults refreshed' })} data-testid="agent-settings-refresh"><Icon name="refresh" size={14} />Refresh</button>}
+      view={(id) => ({ kind: 'form', content: content(id) })} />
   </Frame>;
 }
 
@@ -316,18 +352,19 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const gateway = useGateway();
   const sessions = gateway.domains.sessions!;
   const mcp = gateway.domains.mcp!;
-  const [selectedId, setSelectedId] = useSettingsSelection();
+  const path = useSettingsPath();
+  const selectedId = path.section;
   const [requireDestructiveModal, setRequireDestructiveModal] = useDestructiveModalPreference();
   const [keybindings, updateKeybindings, resetKeybindings] = useKeybindingPreferences();
-  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [accounts, setAccounts] = useState<AccountChoice[]>([]);
+  const [openaiAccounts, setOpenaiAccounts] = useState<AccountChoice[]>([]);
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [autoPromotionState, setAutoPromotionState] = useState<AutoPromotion | null>(null);
   const [autoPromotionLoading, setAutoPromotionLoading] = useState(true);
   const [autoPromotionError, setAutoPromotionError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [profileError, setProfileError] = useState('');
   const [accountsError, setAccountsError] = useState('');
+  const [openaiError, setOpenaiError] = useState('');
   const [mcpError, setMcpError] = useState('');
   const [providerError, setProviderError] = useState('');
   const [accountActionError, setAccountActionError] = useState('');
@@ -336,7 +373,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const [retryStatus, setRetryStatus] = useState<Partial<Record<LoadSection, string>>>({});
   const retryInFlight = useRef(new Set<LoadSection>());
   const statusRefs = useRef<Partial<Record<LoadSection, HTMLParagraphElement | null>>>({});
-  const sectionGeneration = useRef<Record<LoadSection, number>>({ profiles: 0, accounts: 0, mcp: 0, providers: 0 });
+  const sectionGeneration = useRef<Record<LoadSection, number>>({ accounts: 0, openai: 0, mcp: 0, providers: 0 });
   const loadGeneration = useRef(0);
   const traceGeneration = useRef(0);
   const [runtimeStatus, setRuntimeStatus] = useState<Record<'api' | 'engine', RuntimeHealthState>>({ api: { state: 'checking' }, engine: { state: 'checking' } });
@@ -349,6 +386,10 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const [actionNotices, setActionNotices] = useState<Partial<Record<ActionScope, string>>>({});
   const [removing, setRemoving] = useState<McpServer | null>(null);
   const [removingAccount, setRemovingAccount] = useState<AccountChoice | null>(null);
+  const [removingOpenai, setRemovingOpenai] = useState<AccountChoice | null>(null);
+  const [openaiDraft, setOpenaiDraft] = useState({ accountId: '', label: '', code: '' });
+  const [openaiAuthorizationUrl, setOpenaiAuthorizationUrl] = useState('');
+  const [renameDraft, setRenameDraft] = useState<{ key: string; label: string } | null>(null);
   const [accountDraft, setAccountDraft] = useState({ accountId: '', label: '', code: '' });
   const [accountAuthorizationUrl, setAccountAuthorizationUrl] = useState('');
   const [authProviders, setAuthProviders] = useState<string[] | null>(null);
@@ -357,7 +398,6 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const [providerDraft, setProviderDraft] = useState<{ code: string; apiKey: Record<string, string> }>({ code: '', apiKey: {} });
   const [mcpDraft, setMcpDraft] = useState({ name: '', kind: 'remote' as 'remote' | 'local', value: '' });
   const [mcpSearch, setMcpSearch] = useState('');
-  const [profileSearch, setProfileSearch] = useState('');
   const [mcpCredentials, setMcpCredentials] = useState<Record<string, Record<string, string>>>({});
   const [mcpAuthorization, setMcpAuthorization] = useState<{ name: string; url: string } | null>(null);
   const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-configs', detail: 'Loading live agent configuration' });
@@ -386,7 +426,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   useEffect(() => { setActionNotices({}); }, [selectedId]);
   useEffect(() => { void loadAutoPromotion(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const routes: Record<LoadSection, string> = { profiles: '/agent-configs', accounts: '/opencode/auth/accounts', mcp: '/opencode/mcp', providers: '/opencode/auth' };
+  const routes: Record<LoadSection, string> = { accounts: '/opencode/auth/accounts', openai: '/opencode/auth/openai/accounts', mcp: '/opencode/mcp', providers: '/opencode/auth' };
   const readSection = async (section: LoadSection, kind: 'load' | 'retry' | 'action' = 'load') => {
     const generation = ++sectionGeneration.current[section];
     const current = () => generation === sectionGeneration.current[section];
@@ -397,14 +437,13 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     setRetryStatus((state) => ({ ...state, [section]: retry ? `Retrying ${section}…` : '' }));
     if (section === 'providers') setProvidersCurrent(false);
     try {
-      let result: number | string[] | undefined;
-      if (section === 'profiles') {
-        const value = await sessions.profiles();
-        if (current()) { setProfiles(value); setProfileError(''); }
-        result = value.length;
-      } else if (section === 'accounts') {
+      let result: string[] | undefined;
+      if (section === 'accounts') {
         const value = await (sessions.accounts?.() ?? Promise.resolve([]));
         if (current()) { setAccounts(value); setAccountsError(''); }
+      } else if (section === 'openai') {
+        const value = await (sessions.openaiAccounts?.() ?? Promise.resolve([]));
+        if (current()) { setOpenaiAccounts(value); setOpenaiError(''); }
       } else if (section === 'mcp') {
         const value = await mcp.list();
         if (current()) { setMcpServers(value); setMcpError(''); }
@@ -427,8 +466,8 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
       }
       if (current()) {
         const message = err instanceof Error ? err.message : `${section} could not be loaded`;
-        if (section === 'profiles') setProfileError(message);
         if (section === 'accounts') setAccountsError(message);
+        if (section === 'openai') setOpenaiError(message);
         if (section === 'mcp') setMcpError(message);
         if (section === 'providers') setProviderError(message);
       }
@@ -438,11 +477,11 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const load = async () => {
     const run = ++loadGeneration.current;
     const traceRun = ++traceGeneration.current;
-    const results = await Promise.allSettled((['profiles', 'accounts', 'mcp', 'providers'] as LoadSection[]).map((section) => readSection(section)));
+    const results = await Promise.allSettled((['accounts', 'openai', 'mcp', 'providers'] as LoadSection[]).map((section) => readSection(section)));
     if (run !== loadGeneration.current) return;
     if (traceRun === traceGeneration.current) {
-      const failed = results.flatMap((result, index) => result.status === 'rejected' ? [['profiles', 'accounts', 'MCP servers', 'providers'][index]] : []);
-      setTrace({ method: 'GET', route: '/agent-configs · /opencode/auth/accounts · /opencode/mcp · /opencode/auth', detail: failed.length ? `${failed.join(', ')} failed to load` : `${results[0].status === 'fulfilled' ? results[0].value : 0} agent profiles loaded` });
+      const failed = results.flatMap((result, index) => result.status === 'rejected' ? [['accounts', 'OpenAI accounts', 'MCP servers', 'providers'][index]] : []);
+      setTrace({ method: 'GET', route: '/opencode/auth/accounts · /opencode/auth/openai/accounts · /opencode/mcp · /opencode/auth', detail: failed.length ? `${failed.join(', ')} failed to load` : 'Agent settings loaded' });
     }
     setLoading(false);
   };
@@ -566,6 +605,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
       setAccountDraft({ accountId: '', label: '', code: '' });
       setAccountAuthorizationUrl('');
       setActionNotice('accounts', 'Account authorized and saved.');
+      path.setItem(`account:${accountDraft.accountId.trim()}`);
       setTrace({ method: 'POST', route: '/opencode/auth/accounts/login-complete', detail: 'Account authorization completed' });
     } catch (err) { setAccountActionError(err instanceof Error ? err.message : 'Account authorization could not be completed'); }
     finally { setPendingAction(null); }
@@ -590,9 +630,85 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
       await sessions.removeAccount(account.id);
       await reloadAccounts();
       setActionNotice('accounts', `${account.label} removed.`);
+      if (path.item === `account:${account.id}`) path.setItem(null);
       setTrace({ method: 'DELETE', route: `/opencode/auth/accounts/${encodeURIComponent(account.id)}`, detail: `${account.id} removed` });
     } catch (err) { setAccountActionError(err instanceof Error ? err.message : 'Account could not be removed'); }
     finally { setRemovingAccount(null); setPendingAction(null); }
+  };
+
+  // OpenAI (ChatGPT) accounts: the engine resolves the account per request (session or
+  // profile choice, else this default), so switching the default needs no engine restart.
+  const nextOpenaiAccountId = () => {
+    const ids = new Set(openaiAccounts.map((account) => account.id));
+    let n = openaiAccounts.length + 1;
+    while (ids.has(`openai-${n}`)) n++;
+    return `openai-${n}`;
+  };
+  const beginOpenaiLogin = async (accountId: string, label: string) => {
+    if (!sessions.startOpenAIAccountLogin) return;
+    setPendingAction({ scope: 'openai', key: `start:${accountId}` }); setAccountActionError(''); setActionNotice('openai', ''); setOpenaiAuthorizationUrl('');
+    setOpenaiDraft({ accountId, label, code: '' });
+    try {
+      const result = await sessions.startOpenAIAccountLogin({ accountId, ...(label ? { label } : {}) });
+      setOpenaiAuthorizationUrl(result.authorizationUrl);
+      setActionNotice('openai', 'Authorization started. Sign in to ChatGPT, then paste the address back here.');
+      setTrace({ method: 'POST', route: '/opencode/auth/openai/accounts/login-start', detail: `OpenAI authorization started for ${accountId}` });
+    } catch (err) { setAccountActionError(err instanceof Error ? err.message : 'OpenAI authorization could not be started'); }
+    finally { setPendingAction(null); }
+  };
+  const completeOpenaiLogin = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!sessions.completeOpenAIAccountLogin) return;
+    const accountId = openaiDraft.accountId;
+    setPendingAction({ scope: 'openai', key: `complete:${accountId}` }); setAccountActionError(''); setActionNotice('openai', '');
+    try {
+      await sessions.completeOpenAIAccountLogin({ accountId, code: openaiDraft.code.trim() });
+      await readSection('openai', 'action');
+      setOpenaiDraft({ accountId: '', label: '', code: '' }); setOpenaiAuthorizationUrl('');
+      setActionNotice('openai', 'OpenAI account signed in and saved.');
+      path.setItem(`openai:${accountId}`);
+      setTrace({ method: 'POST', route: '/opencode/auth/openai/accounts/login-complete', detail: `${accountId} authorization completed` });
+    } catch (err) { setAccountActionError(err instanceof Error ? err.message : 'OpenAI authorization could not be completed'); }
+    finally { setPendingAction(null); }
+  };
+  const setDefaultOpenai = async (account: AccountChoice) => {
+    if (!sessions.setDefaultOpenAIAccount) return;
+    setPendingAction({ scope: 'openai', key: `default:${account.id}` }); setAccountActionError(''); setActionNotice('openai', '');
+    try {
+      const { engineUpdated } = await sessions.setDefaultOpenAIAccount(account.id);
+      await readSection('openai', 'action');
+      setActionNotice('openai', engineUpdated ? `${account.label} is now the default OpenAI account, and the engine is signed in with it.` : `${account.label} is now the default OpenAI account.`);
+      setTrace({ method: 'PATCH', route: '/opencode/auth/openai/accounts/default', detail: `${account.id} set as default${engineUpdated ? ' · engine updated' : ''}` });
+    } catch (err) { setAccountActionError(err instanceof Error ? err.message : 'Default OpenAI account could not be saved'); }
+    finally { setPendingAction(null); }
+  };
+  const renameAccount = async (event: FormEvent, provider: 'anthropic' | 'openai', account: AccountChoice) => {
+    event.preventDefault();
+    const rename = provider === 'openai' ? sessions.renameOpenAIAccount : sessions.renameAccount;
+    const label = renameDraft?.label.trim() ?? '';
+    if (!rename || !label) return;
+    const scope = provider === 'openai' ? 'openai' : 'accounts';
+    setPendingAction({ scope, key: `rename:${account.id}` }); setAccountActionError(''); setActionNotice(scope, '');
+    try {
+      await rename(account.id, label);
+      await readSection(provider === 'openai' ? 'openai' : 'accounts', 'action');
+      setRenameDraft(null);
+      setActionNotice(scope, `Renamed to ${label}.`);
+      setTrace({ method: 'PATCH', route: `/opencode/auth/${provider === 'openai' ? 'openai/' : ''}accounts/${encodeURIComponent(account.id)}`, detail: `${account.id} renamed` });
+    } catch (err) { setAccountActionError(err instanceof Error ? err.message : 'Account could not be renamed'); }
+    finally { setPendingAction(null); }
+  };
+  const removeSelectedOpenai = async () => {
+    if (!removingOpenai || !sessions.removeOpenAIAccount) return;
+    const account = removingOpenai; setPendingAction({ scope: 'openai', key: `remove:${account.id}` }); setAccountActionError(''); setActionNotice('openai', '');
+    try {
+      await sessions.removeOpenAIAccount(account.id);
+      await readSection('openai', 'action');
+      setActionNotice('openai', `${account.label} removed.`);
+      if (path.item === `openai:${account.id}`) path.setItem(null);
+      setTrace({ method: 'DELETE', route: `/opencode/auth/openai/accounts/${encodeURIComponent(account.id)}`, detail: `${account.id} removed` });
+    } catch (err) { setAccountActionError(err instanceof Error ? err.message : 'OpenAI account could not be removed'); }
+    finally { setRemovingOpenai(null); setPendingAction(null); }
   };
 
   const runRuntimeCheck = async (service: 'api' | 'engine', interactive = true) => {
@@ -710,6 +826,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
       await mcp.remove(server.name);
       await reloadMcp();
       setActionNotice('mcp', `${server.name} removed.`);
+      if (path.item === `mcp:${server.name}`) path.setItem(null);
       setTrace({ method: 'DELETE', route: `/opencode/mcp/${encodeURIComponent(server.name)}`, detail: `${server.name} removed` });
     } catch (err) { setMcpActionError(err instanceof Error ? err.message : 'MCP server removal failed'); }
     finally { setRemoving(null); setPendingAction(null); }
@@ -722,6 +839,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
       await mcp.add({ name: mcpDraft.name.trim(), ...(mcpDraft.kind === 'remote' ? { url: mcpDraft.value.trim() } : { command: mcpDraft.value.trim() }) });
       await reloadMcp();
       setActionNotice('mcp', `${mcpDraft.name.trim()} added and saved.`);
+      path.setItem(`mcp:${mcpDraft.name.trim()}`);
       setTrace({ method: 'POST', route: '/opencode/mcp', detail: `${mcpDraft.name.trim()} added` });
       setMcpDraft({ name: '', kind: 'remote', value: '' });
     } catch (err) { setMcpActionError(err instanceof Error ? err.message : 'MCP server could not be added'); }
@@ -765,26 +883,22 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     finally { setPendingAction(null); }
   };
 
-  const defaultProfile = profiles.find((profile) => profile.isDefault);
-  const connectedAccounts = accounts.filter((account) => !accountNeedsRelogin(account)).length;
-  const staleAccounts = accounts.length - connectedAccounts;
+  const allAccounts = [...accounts, ...openaiAccounts];
+  const connectedAccounts = allAccounts.filter((account) => !accountNeedsRelogin(account)).length;
+  const staleAccounts = allAccounts.length - connectedAccounts;
   const connectedMcp = mcpServers.filter((server) => server.status === 'connected').length;
   const mcpAttentionRank = (server: McpServer) => server.status === 'failed' ? 0 : server.status === 'needs_auth' ? 1 : server.status === 'connected' ? 3 : 2;
   const visibleMcpServers = [...mcpServers]
     .sort((left, right) => mcpAttentionRank(left) - mcpAttentionRank(right) || left.name.localeCompare(right.name))
     .filter((server) => server.name.toLocaleLowerCase().includes((mcpServers.length > 10 ? mcpSearch : '').trim().toLocaleLowerCase()));
-  const visibleProfiles = profiles.filter((profile) => `${profile.label} ${profile.provider} ${profile.model}`.toLocaleLowerCase().includes(profileSearch.trim().toLocaleLowerCase()));
-  const enabledProfiles = visibleProfiles.filter((profile) => profile.enabled);
-  const disabledProfiles = visibleProfiles.filter((profile) => !profile.enabled);
   const autoPromotionSummary = autoPromotionError
     ? 'Unavailable'
     : autoPromotionState
       ? `${autoPromotionState.state.autoPromotionEnabled ? 'Enabled' : 'Disabled'} · ${autoPromotionState.state.autoPromotionEligible ? 'Eligible' : 'Not eligible'}`
       : 'Checking status…';
   const items = baseItems({
-    profiles: profileError || (profiles.length ? `${profiles.length} configured${defaultProfile ? ` · default ${defaultProfile.label}` : ''}` : 'No profiles configured'),
     autoPromotion: autoPromotionSummary,
-    accounts: accountsError || `${connectedAccounts} connected · ${accounts.length} available${staleAccounts ? ` · ${staleAccounts} need re-authorization` : ''}`,
+    accounts: accountsError || `${connectedAccounts} connected · ${allAccounts.length} available${staleAccounts ? ` · ${staleAccounts} need re-authorization` : ''}`,
     models: 'Provider-first curation',
     behavior: `${requireDestructiveModal ? 'Full dialog' : 'Inline approval'} · This device`,
     keybindings: `${sendMessageKeyLabel(keybindings.sendKey)} to send · This device`,
@@ -792,45 +906,119 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     mcp: mcpError || `${connectedMcp} connected · ${mcpServers.length} configured`,
   }, { autoPromotion: autoPromotionError ? 'Error' : undefined });
 
-  const profileRows = (rows: Profile[]) => rows.map((profile) => <button className={`agent-settings-profile-row${profile.enabled ? '' : ' disabled'}`} type="button" key={profile.id} onClick={() => navigate(`/profiles?profile=${encodeURIComponent(profile.id)}`)} data-testid={`agent-setting-${profile.id}`}><span className="profile-avatar" aria-hidden="true">{profileAvatarLabel(profile)}</span><span><strong>{profile.label}</strong><small>{profile.provider} · {profile.model}{profile.isDefault ? ' · Default' : ''}</small></span>{!profile.enabled && <em>Disabled</em>}</button>);
-  const profilesInspector = () => <><SectionIntro scope="Agent / profile">Profiles own identity, model defaults, delegation, skills, MCP access, and protected-action policy. Editing stays in the dedicated profile surface.</SectionIntro>{retryControl('profiles', profileError, 'Retry profiles')}<button className="primary-button" type="button" onClick={() => navigate('/profiles')} data-testid="agent-settings-open-profiles">Open profile editor</button>{!profileError && (profiles.length === 0 ? <div className="agent-settings-empty"><strong>No agent profiles configured</strong><p>Create a profile before starting a configured session.</p></div> : <><label className="list-inspector-search agent-settings-profile-search"><span className="sr-only">Search profiles overview</span><input type="search" value={profileSearch} onChange={(event) => setProfileSearch(event.target.value)} placeholder="Search profiles" /></label><div className="agent-settings-profile-groups">{enabledProfiles.length > 0 && <section aria-labelledby="agent-settings-enabled-heading"><h3 id="agent-settings-enabled-heading">Enabled profiles</h3><div className="agent-settings-profile-list">{profileRows(enabledProfiles)}</div></section>}{disabledProfiles.length > 0 && <section aria-labelledby="agent-settings-disabled-heading" data-testid="agent-settings-disabled-profiles"><h3 id="agent-settings-disabled-heading">Disabled profiles</h3><div className="agent-settings-profile-list">{profileRows(disabledProfiles)}</div></section>}{visibleProfiles.length === 0 && <div className="agent-settings-empty" role="status"><strong>No matching profiles</strong><p>Try a label, provider, or model.</p></div>}</div></>)}</>;
-  const accountsInspector = () => <>
-    <HermesAccountsSettings />
-    <SectionIntro scope="Desktop local">Anthropic accounts and every other model provider are authorized against the local OpenCode runtime.</SectionIntro>
-    {retryControl('accounts', accountsError, 'Retry accounts')}
-    {accountActionError && <p role="alert">{accountActionError}</p>}
-    {(actionPending('accounts') || actionPending('providers')) && <p role="status">Saving account configuration…</p>}
-    {(actionNotices.accounts || actionNotices.providers) && <p role="status">{actionNotices.accounts || actionNotices.providers}</p>}
-    {!accountsError && accounts.length === 0 && <div className="agent-settings-empty"><strong>No provider accounts reported</strong><p>Authorize an account below.</p></div>}
-    <div className="agent-settings-records">
-      {accounts.map((account) => <article key={account.id} className={`agent-settings-account${accountNeedsRelogin(account) ? ' needs-relogin' : ''}`} data-testid={`agent-settings-account-${account.id}`} data-account-status={account.status}><span><strong>{account.label}</strong><small>{account.status}{account.isDefault ? ' · Default' : ''}</small>{accountNeedsRelogin(account) && <span className="kind-badge" data-testid={`agent-settings-account-attention-${account.id}`}>Needs re-authorization</span>}</span><div className="agent-settings-actions">{accountNeedsRelogin(account) && <button className="primary-button" type="button" disabled={actionPending('accounts')} onClick={() => void beginAccountLogin(account.id, account.label)} data-testid={`agent-settings-account-relogin-${account.id}`}>Re-authorize</button>}{!account.isDefault && <button className="secondary-button" type="button" disabled={actionPending('accounts')} onClick={() => void setDefaultAccount(account)} data-testid={`agent-settings-account-default-${account.id}`}>Make default</button>}<button className="text-danger-button" type="button" disabled={actionPending('accounts')} onClick={() => setRemovingAccount(account)} data-testid={`agent-settings-account-remove-${account.id}`}>Remove</button></div></article>)}
-    </div>
-    <form className="agent-settings-form" onSubmit={startAccountLogin}>
-      <h3>Authorize Anthropic account</h3>
-      <label>Account ID<input required pattern="[a-z0-9-]{1,32}" value={accountDraft.accountId} onChange={(event) => setAccountDraft((current) => ({ ...current, accountId: event.target.value }))} data-testid="agent-settings-account-id" /></label>
-      <label>Label<input value={accountDraft.label} onChange={(event) => setAccountDraft((current) => ({ ...current, label: event.target.value }))} data-testid="agent-settings-account-label" /></label>
-      <button className="primary-button" type="submit" disabled={actionPending('accounts')} data-testid="agent-settings-account-start">Start authorization</button>
-    </form>
-    {accountAuthorizationUrl && <form className="agent-settings-form" onSubmit={completeAccountLogin}><h3 data-testid="agent-settings-account-authorizing">Authorizing {accountDraft.label || accountDraft.accountId}</h3><a href={accountAuthorizationUrl} target="_blank" rel="noreferrer" data-testid="agent-settings-account-authorization-link">Open Anthropic authorization</a><label>Authorization code<input required value={accountDraft.code} onChange={(event) => setAccountDraft((current) => ({ ...current, code: event.target.value }))} data-testid="agent-settings-account-code" /></label><button className="primary-button" type="submit" disabled={actionPending('accounts')} data-testid="agent-settings-account-complete">Save account</button></form>}
-    <h3 className="agent-settings-subhead">Model providers</h3>
-    <p className="agent-settings-subhead-note">OAuth and API-key providers are stored by the local OpenCode runtime, the same as in the Flutter settings screen.</p>
-    {retryControl('providers', providerError, 'Retry providers')}
-    <div className="agent-settings-records">
-      {providerCatalog.map((provider) => {
-        const connected = authProviders?.includes(provider.id) ?? false;
-        const confirmed = providersCurrent && authProviders !== null;
-        const badge = authProviders === null ? 'Status unknown' : `${confirmed ? '' : 'Last known '}${connected ? 'Connected' : 'Not connected'}`;
-        return <ProviderConnectCard key={provider.id} provider={provider} connected={connected} badge={badge} statusKnown={authProviders !== null} confirmed={confirmed} pending={actionPending('providers')}
-          apiKeyValue={providerDraft.apiKey[provider.id] ?? ''}
-          onApiKeyChange={(value) => setProviderDraft((current) => ({ ...current, apiKey: { ...current.apiKey, [provider.id]: value } }))}
-          onAuthorize={() => void startProviderAuth(provider)}
-          onSaveKey={(event) => void saveProviderApiKey(event, provider)} />;
-      })}
-    </div>
-    {providerFlow && <ProviderAuthFlowForm flow={providerFlow} code={providerDraft.code} pending={actionPending('providers')}
-      onCodeChange={(value) => setProviderDraft((current) => ({ ...current, code: value }))}
-      onSubmit={completeProviderAuth} onCheck={() => void checkProviderAuth()} />}
-  </>;
+  const providerBadge = (id: string) => {
+    const connected = authProviders?.includes(id) ?? false;
+    const confirmed = providersCurrent && authProviders !== null;
+    return { connected, confirmed, badge: authProviders === null ? 'Status unknown' : `${confirmed ? '' : 'Last known '}${connected ? 'Connected' : 'Not connected'}` };
+  };
+  const accountAuthorizationForm = accountAuthorizationUrl && <form className="agent-settings-form" onSubmit={completeAccountLogin}><h3 data-testid="agent-settings-account-authorizing">Authorizing {accountDraft.label || accountDraft.accountId}</h3><a href={accountAuthorizationUrl} target="_blank" rel="noreferrer" data-testid="agent-settings-account-authorization-link">Open Anthropic authorization</a><label>Authorization code<input required value={accountDraft.code} onChange={(event) => setAccountDraft((current) => ({ ...current, code: event.target.value }))} data-testid="agent-settings-account-code" /></label><button className="primary-button" type="submit" disabled={actionPending('accounts')} data-testid="agent-settings-account-complete">Save account</button></form>;
+  const openaiAuthorizationForm = openaiAuthorizationUrl && <form className="agent-settings-form" onSubmit={completeOpenaiLogin}>
+    <h3 data-testid="agent-settings-openai-authorizing">Signing in {openaiDraft.label || openaiDraft.accountId}</h3>
+    <a href={openaiAuthorizationUrl} target="_blank" rel="noreferrer" data-testid="agent-settings-openai-authorization-link">Open ChatGPT sign-in</a>
+    <label>Address after sign-in<input required value={openaiDraft.code} onChange={(event) => setOpenaiDraft((current) => ({ ...current, code: event.target.value }))} aria-describedby="agent-settings-openai-paste-help" data-testid="agent-settings-openai-code" /></label>
+    <small id="agent-settings-openai-paste-help">After signing in, the browser will fail to load a localhost:1455 page — copy the whole address from the address bar and paste it here.</small>
+    <button className="primary-button" type="submit" disabled={actionPending('openai')} data-testid="agent-settings-openai-complete">Save account</button>
+  </form>;
+  const renameForm = (provider: 'anthropic' | 'openai', account: AccountChoice) => {
+    const key = `${provider}:${account.id}`;
+    const prefix = provider === 'openai' ? 'agent-settings-openai' : 'agent-settings-account';
+    return <form className="agent-settings-form agent-settings-rename" onSubmit={(event) => void renameAccount(event, provider, account)}>
+      <label>Label<input required value={renameDraft?.key === key ? renameDraft.label : account.label} onChange={(event) => setRenameDraft({ key, label: event.target.value })} data-testid={`${prefix}-rename-${account.id}`} /></label>
+      <button className="secondary-button" type="submit" disabled={actionPending(provider === 'openai' ? 'openai' : 'accounts') || renameDraft?.key !== key || !renameDraft.label.trim() || renameDraft.label.trim() === account.label} data-testid={`${prefix}-rename-save-${account.id}`}>Rename</button>
+    </form>;
+  };
+  const openaiStatus = (account: AccountChoice) => accountNeedsRelogin(account) ? 'Needs re-login' : account.isDefault ? 'Default' : 'OK';
+  // Column 2 lists Anthropic and OpenAI accounts, the remaining model providers and Hermes sharing; column 3 inspects one.
+  const accountsView = (): SettingsView => ({
+    kind: 'list',
+    label: 'Accounts',
+    adds: [
+      { id: 'add', label: 'Add Anthropic account', testId: 'agent-settings-account-add' },
+      { id: 'add:openai', label: 'Add OpenAI account', testId: 'agent-settings-openai-add' },
+    ],
+    items: [
+      ...accounts.map((account) => ({ id: `account:${account.id}`, group: 'Anthropic', title: account.label, subtitle: `${account.email ? `${account.email} · ` : ''}${account.status}${account.isDefault ? ' · Default' : ''}`, badge: accountNeedsRelogin(account) ? 'Re-authorize' : undefined, testId: `agent-settings-account-row-${account.id}` })),
+      ...openaiAccounts.map((account) => ({ id: `openai:${account.id}`, group: 'OpenAI', title: account.label, subtitle: `${account.email ? `${account.email} · ` : ''}${openaiStatus(account)}`, badge: accountNeedsRelogin(account) ? 'Re-login' : undefined, testId: `agent-settings-openai-row-${account.id}` })),
+      ...providerCatalog.filter((provider) => !Object.hasOwn(ACCOUNT_MANAGED_PROVIDERS, provider.id)).map((provider) => ({ id: `provider:${provider.id}`, group: 'Model providers', title: provider.label, subtitle: providerBadge(provider.id).badge, testId: `agent-settings-provider-row-${provider.id}` })),
+      { id: 'hermes', group: 'Hermes', title: 'Hermes sharing', subtitle: 'Let Hermes use Rhythm API keys', testId: 'agent-settings-hermes-row' },
+    ],
+    detail: (itemId) => {
+      const chrome = <>
+        <SectionIntro scope="Desktop local">Anthropic and OpenAI accounts and every other model provider are authorized against the local OpenCode runtime.</SectionIntro>
+        {retryControl('accounts', accountsError, 'Retry accounts')}
+        {retryControl('openai', openaiError, 'Retry OpenAI accounts')}
+        {retryControl('providers', providerError, 'Retry providers')}
+        {accountActionError && <p role="alert">{accountActionError}</p>}
+        {(actionPending('accounts') || actionPending('openai') || actionPending('providers')) && <p role="status">Saving account configuration…</p>}
+        {(actionNotices.accounts || actionNotices.openai || actionNotices.providers) && <p role="status" data-testid="agent-settings-accounts-notice">{actionNotices.accounts || actionNotices.openai || actionNotices.providers}</p>}
+      </>;
+      const account = accounts.find((entry) => `account:${entry.id}` === itemId);
+      if (account) return {
+        title: account.label,
+        content: <>{chrome}<div className="agent-settings-records"><article className={`agent-settings-account${accountNeedsRelogin(account) ? ' needs-relogin' : ''}`} data-testid={`agent-settings-account-${account.id}`} data-account-status={account.status}><span><strong>{account.label}</strong><small>{account.email ? `${account.email} · ` : ''}{account.status}{account.isDefault ? ' · Default' : ''}</small>{accountNeedsRelogin(account) && <span className="kind-badge" data-testid={`agent-settings-account-attention-${account.id}`}>Needs re-authorization</span>}</span><div className="agent-settings-actions">{accountNeedsRelogin(account) && <button className="primary-button" type="button" disabled={actionPending('accounts')} onClick={() => void beginAccountLogin(account.id, account.label)} data-testid={`agent-settings-account-relogin-${account.id}`}>Re-authorize</button>}{!account.isDefault && <button className="secondary-button" type="button" disabled={actionPending('accounts')} onClick={() => void setDefaultAccount(account)} data-testid={`agent-settings-account-default-${account.id}`}>Make default</button>}<button className="text-danger-button" type="button" disabled={actionPending('accounts')} onClick={() => setRemovingAccount(account)} data-testid={`agent-settings-account-remove-${account.id}`}>Remove</button></div></article></div>{accountDraft.accountId === account.id && accountAuthorizationForm}{sessions.renameAccount && renameForm('anthropic', account)}</>,
+      };
+      const openai = openaiAccounts.find((entry) => `openai:${entry.id}` === itemId);
+      if (openai) return {
+        title: openai.label,
+        content: <>{chrome}
+          <div className="agent-settings-records"><article className={`agent-settings-account${accountNeedsRelogin(openai) ? ' needs-relogin' : ''}`} data-testid={`agent-settings-openai-account-${openai.id}`} data-account-status={openai.status}>
+            <span><strong>{openai.label}</strong><small>{openai.email ? `${openai.email} · ` : ''}{openaiStatus(openai)}</small>{accountNeedsRelogin(openai) && <span className="kind-badge" data-testid={`agent-settings-openai-attention-${openai.id}`}>Needs re-login</span>}</span>
+            <div className="agent-settings-actions">
+              {accountNeedsRelogin(openai) && <button className="primary-button" type="button" disabled={actionPending('openai')} onClick={() => void beginOpenaiLogin(openai.id, openai.label)} data-testid={`agent-settings-openai-relogin-${openai.id}`}>Sign in again</button>}
+              {!openai.isDefault && <button className="secondary-button" type="button" disabled={actionPending('openai')} onClick={() => void setDefaultOpenai(openai)} data-testid={`agent-settings-openai-default-${openai.id}`}>Use this account</button>}
+              <button className="text-danger-button" type="button" disabled={actionPending('openai')} onClick={() => setRemovingOpenai(openai)} data-testid={`agent-settings-openai-remove-${openai.id}`}>Remove</button>
+            </div>
+          </article></div>
+          <p className="agent-settings-subhead-note">Sessions and profiles that don't choose their own OpenAI account use the default account. Changing the default applies to new requests without restarting the engine.</p>
+          {openaiDraft.accountId === openai.id && openaiAuthorizationForm}
+          {sessions.renameOpenAIAccount && renameForm('openai', openai)}</>,
+      };
+      const provider = providerCatalog.find((entry) => `provider:${entry.id}` === itemId);
+      if (provider) {
+        const status = providerBadge(provider.id);
+        return {
+          title: provider.label,
+          content: <>{chrome}<p className="agent-settings-subhead-note">OAuth and API-key providers are stored by the local OpenCode runtime, the same as in the Flutter settings screen.</p>
+            <div className="agent-settings-records"><ProviderConnectCard provider={provider} connected={status.connected} badge={status.badge} statusKnown={authProviders !== null} confirmed={status.confirmed} pending={actionPending('providers')}
+              apiKeyValue={providerDraft.apiKey[provider.id] ?? ''}
+              onApiKeyChange={(value) => setProviderDraft((current) => ({ ...current, apiKey: { ...current.apiKey, [provider.id]: value } }))}
+              onAuthorize={() => void startProviderAuth(provider)}
+              onSaveKey={(event) => void saveProviderApiKey(event, provider)} /></div>
+            {providerFlow?.id === provider.id && <ProviderAuthFlowForm flow={providerFlow} code={providerDraft.code} pending={actionPending('providers')}
+              onCodeChange={(value) => setProviderDraft((current) => ({ ...current, code: value }))}
+              onSubmit={completeProviderAuth} onCheck={() => void checkProviderAuth()} />}</>,
+        };
+      }
+      if (itemId === 'hermes') return { title: 'Hermes sharing', content: <>{chrome}<HermesAccountsSettings /></> };
+      if (itemId === 'add:openai') {
+        const adding = openaiAuthorizationUrl && !openaiAccounts.some((entry) => entry.id === openaiDraft.accountId);
+        return {
+          title: 'Add OpenAI account',
+          content: <>{chrome}
+            <form className="agent-settings-form" onSubmit={(event) => { event.preventDefault(); void beginOpenaiLogin(openaiDraft.accountId && !openaiAccounts.some((entry) => entry.id === openaiDraft.accountId) ? openaiDraft.accountId : nextOpenaiAccountId(), openaiDraft.label.trim()); }}>
+              <h3>Sign in with ChatGPT</h3>
+              <p className="agent-settings-subhead-note">Adding another account does not change the default. Profiles and sessions can pick any signed-in account.</p>
+              <label>Label (optional)<input value={openaiDraft.label} onChange={(event) => setOpenaiDraft((current) => ({ ...current, label: event.target.value }))} placeholder="Work, Personal…" data-testid="agent-settings-openai-label" /></label>
+              <button className="primary-button" type="submit" disabled={actionPending('openai') || !sessions.startOpenAIAccountLogin} data-testid="agent-settings-openai-start">Start sign-in</button>
+            </form>
+            {adding && openaiAuthorizationForm}</>,
+        };
+      }
+      return {
+        title: 'Add Anthropic account',
+        content: <>{chrome}
+          {!accountsError && accounts.length === 0 && <div className="agent-settings-empty"><strong>No provider accounts reported</strong><p>Authorize an account below.</p></div>}
+          <form className="agent-settings-form" onSubmit={startAccountLogin}>
+            <h3>Authorize Anthropic account</h3>
+            <label>Account ID<input required pattern="[a-z0-9-]{1,32}" value={accountDraft.accountId} onChange={(event) => setAccountDraft((current) => ({ ...current, accountId: event.target.value }))} data-testid="agent-settings-account-id" /></label>
+            <label>Label<input value={accountDraft.label} onChange={(event) => setAccountDraft((current) => ({ ...current, label: event.target.value }))} data-testid="agent-settings-account-label" /></label>
+            <button className="primary-button" type="submit" disabled={actionPending('accounts')} data-testid="agent-settings-account-start">Start authorization</button>
+          </form>
+          {accountAuthorizationForm}</>,
+      };
+    },
+  });
+
   const modelsInspector = () => <>
     <SectionIntro scope="Desktop local">Connect providers, then choose which of their models appear in every session and profile model picker.</SectionIntro>
     <ModelCurationPanel
@@ -840,6 +1028,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
       startProviderAuth={startProviderAuth} completeProviderAuth={completeProviderAuth} checkProviderAuth={checkProviderAuth} saveProviderApiKey={saveProviderApiKey}
       providerPending={actionPending('providers')} providerActionError={accountActionError} providerNotice={actionNotices.providers ?? ''}
       onReloadLocalConfig={() => void reloadEngineConfig()} localConfigPending={actionPending('runtime', 'reload')}
+      onOpenAccounts={() => path.selectSection(sectionIds.accounts)}
     />
   </>;
   const runtimeValue = (service: 'api' | 'engine', label: string) => {
@@ -855,56 +1044,69 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     </dd>;
   };
   const runtimeInspector = () => <><SectionIntro scope="Desktop local">Rhythm uses a local API and OpenCode engine supplied by the trusted desktop host. Reload configuration first; restart only when reload cannot recover stale state.</SectionIntro><dl className="agent-settings-property-list"><div><dt>Local API</dt>{runtimeValue('api', 'Local API')}</div><div><dt>OpenCode engine</dt>{runtimeValue('engine', 'OpenCode engine')}</div><div><dt>Engine PID</dt><dd>{runtimeInfo?.engine?.pid ?? 'Unavailable'}</dd></div><div><dt>Boot ID</dt><dd>{runtimeInfo?.engine?.bootId ?? 'Unavailable'}</dd></div><div><dt>Version</dt><dd>{runtimeInfo?.engine?.version ?? 'Unavailable'}</dd></div><div><dt>Event bridge</dt><dd>{runtimeInfo?.engine ? runtimeInfo.engine.bridgeLive ? 'Live' : 'Unavailable' : 'Checking'}</dd></div><div><dt>Remote override</dt><dd>{runtimeInfo?.remoteOverride ?? 'Not set on this device'}</dd></div></dl>{runtimeInfoError && <p role="alert">{runtimeInfoError}</p>}<div className="agent-settings-actions"><button className="secondary-button" type="button" disabled={actionPending('runtime')} aria-busy={actionPending('runtime', 'api')} onClick={() => void runRuntimeCheck('api')} data-testid="agent-settings-check-api">{actionPending('runtime', 'api') ? 'Checking local API…' : 'Check local API'}</button><button className="secondary-button" type="button" disabled={actionPending('runtime')} aria-busy={actionPending('runtime', 'engine')} onClick={() => void runRuntimeCheck('engine')} data-testid="agent-settings-check-engine">{actionPending('runtime', 'engine') ? 'Checking OpenCode engine…' : 'Check OpenCode engine'}</button></div><div className="agent-settings-runtime-controls" data-testid="runtime-control-actions"><button className="primary-button" type="button" disabled={actionPending('runtime')} aria-busy={actionPending('runtime', 'reload')} onClick={() => void reloadEngineConfig()}>{actionPending('runtime', 'reload') ? 'Reloading…' : 'Reload engine config & skills'}</button><button className="secondary-button" type="button" disabled={actionPending('runtime')} onClick={() => setRestartEngineConfirm(true)}>Restart engine</button><button className="danger-button" type="button" disabled={actionPending('runtime') || !localRuntime.available || localRuntime.ownership === 'external'} onClick={() => void restartLocalRuntime()}>{localRuntime.status === 'failed' ? 'Retry local runtime' : 'Restart local runtime'}</button></div>{localRuntime.ownership === 'external' && <p className="agent-settings-runtime-owner-note">Restart unavailable: this runtime is owned by another app.</p>}{!localRuntime.available && <p className="agent-settings-runtime-owner-note">Restart unavailable outside the signed desktop app.</p>}{actionPending('runtime') && <p role="status">Updating the local runtime…</p>}{actionNotices.runtime && <p role="status">{actionNotices.runtime}</p>}{runtimeActionError && <p role="alert">{runtimeActionError}</p>}</>;
-  const mcpInspector = () => <>
-    <SectionIntro scope="Workspace">MCP servers provide tools to profiles. Changes are saved through the workspace MCP service.</SectionIntro>
-    {retryControl('mcp', mcpError, 'Retry MCP servers')}
-    {mcpActionError && <p role="alert">{mcpActionError}</p>}
-    {actionPending('mcp') && <p role="status">{pendingAction ? `${pendingAction.key.split(':')[0]} ${pendingAction.key.split(':').slice(1).join(':')}`.trim() : 'Saving MCP configuration'}…</p>}
-    {actionNotices.mcp && <p role="status">{actionNotices.mcp}</p>}
-    {mcpAuthorization && <div className="agent-settings-gap" role="status"><strong>{mcpAuthorization.name} authorization</strong><p><a href={mcpAuthorization.url} target="_blank" rel="noreferrer" data-testid="agent-settings-mcp-authorization-link">Open provider authorization</a></p><button className="secondary-button" type="button" disabled={actionPending('mcp', `oauth-status:${mcpAuthorization.name}`)} aria-busy={actionPending('mcp', `oauth-status:${mcpAuthorization.name}`)} onClick={() => void checkMcpOAuth()} data-testid="agent-settings-mcp-oauth-status">{actionPending('mcp', `oauth-status:${mcpAuthorization.name}`) ? 'Checking authorization…' : 'Check authorization status'}</button></div>}
-    {mcpServers.length > 10 && <label className="list-inspector-search agent-settings-mcp-search"><span className="sr-only">Search MCP servers</span><input type="search" value={mcpSearch} onChange={(event) => setMcpSearch(event.target.value)} placeholder="Search MCP servers" /></label>}
-    {!mcpError && mcpServers.length === 0 && <div className="agent-settings-empty"><strong>No MCP servers configured</strong><p>Add a local command or remote URL below.</p></div>}
-    <div className="agent-settings-mcp-list">{visibleMcpServers.map((server) => {
+  // Column 2 lists servers (attention first); column 3 inspects one server or the add form.
+  const mcpView = (): SettingsView => ({
+    kind: 'list',
+    label: 'MCP servers',
+    adds: [{ id: 'add', label: 'Add server', testId: 'agent-settings-mcp-add-item' }],
+    header: mcpServers.length > 10 ? <label className="column-browser-search agent-settings-mcp-search"><span className="sr-only">Search MCP servers</span><input type="search" value={mcpSearch} onChange={(event) => setMcpSearch(event.target.value)} placeholder="Search MCP servers" /></label> : undefined,
+    emptyState: mcpServers.length > 0 ? 'No matching MCP servers' : mcpError ? 'MCP servers unavailable' : 'No MCP servers configured',
+    items: visibleMcpServers.map((server) => ({ id: `mcp:${server.name}`, title: server.name, subtitle: mcpStatusPresentation(server.status).label, testId: `agent-settings-mcp-row-${server.name}` })),
+    detail: (itemId) => {
+      const chrome = <>
+        <SectionIntro scope="Workspace">MCP servers provide tools to profiles. Changes are saved through the workspace MCP service.</SectionIntro>
+        {retryControl('mcp', mcpError, 'Retry MCP servers')}
+        {mcpActionError && <p role="alert">{mcpActionError}</p>}
+        {actionPending('mcp') && <p role="status">{pendingAction ? `${pendingAction.key.split(':')[0]} ${pendingAction.key.split(':').slice(1).join(':')}`.trim() : 'Saving MCP configuration'}…</p>}
+        {actionNotices.mcp && <p role="status">{actionNotices.mcp}</p>}
+        {mcpAuthorization && <div className="agent-settings-gap" role="status"><strong>{mcpAuthorization.name} authorization</strong><p><a href={mcpAuthorization.url} target="_blank" rel="noreferrer" data-testid="agent-settings-mcp-authorization-link">Open provider authorization</a></p><button className="secondary-button" type="button" disabled={actionPending('mcp', `oauth-status:${mcpAuthorization.name}`)} aria-busy={actionPending('mcp', `oauth-status:${mcpAuthorization.name}`)} onClick={() => void checkMcpOAuth()} data-testid="agent-settings-mcp-oauth-status">{actionPending('mcp', `oauth-status:${mcpAuthorization.name}`) ? 'Checking authorization…' : 'Check authorization status'}</button></div>}
+      </>;
+      const server = mcpServers.find((entry) => `mcp:${entry.name}` === itemId);
+      if (!server) return {
+        title: 'Add MCP server',
+        content: <>{chrome}
+          {!mcpError && mcpServers.length === 0 && <div className="agent-settings-empty"><strong>No MCP servers configured</strong><p>Add a local command or remote URL below.</p></div>}
+          <form className="agent-settings-form" onSubmit={addMcp}>
+            <h3>Add MCP server</h3>
+            <label>Name<input required value={mcpDraft.name} onChange={(event) => setMcpDraft((current) => ({ ...current, name: event.target.value }))} data-testid="agent-settings-mcp-add-name" /></label>
+            <label>Connection type<select value={mcpDraft.kind} onChange={(event) => setMcpDraft((current) => ({ ...current, kind: event.target.value as 'remote' | 'local' }))} data-testid="agent-settings-mcp-add-kind"><option value="remote">Remote URL</option><option value="local">Local command</option></select></label>
+            <label>{mcpDraft.kind === 'remote' ? 'URL' : 'Command'}<input required type={mcpDraft.kind === 'remote' ? 'url' : 'text'} value={mcpDraft.value} onChange={(event) => setMcpDraft((current) => ({ ...current, value: event.target.value }))} data-testid="agent-settings-mcp-add-value" /></label>
+            <button className="primary-button" type="submit" disabled={actionPending('mcp', 'add')} aria-busy={actionPending('mcp', 'add')} data-testid="agent-settings-mcp-add">{actionPending('mcp', 'add') ? 'Adding server…' : 'Add server'}</button>
+          </form></>,
+      };
       const rowPending = pendingAction?.scope === 'mcp' && pendingAction.key.endsWith(`:${server.name}`);
       const disconnecting = actionPending('mcp', `disconnect:${server.name}`);
       const connecting = actionPending('mcp', `connect:${server.name}`);
       const authorizing = actionPending('mcp', `oauth:${server.name}`);
       const savingCredentials = actionPending('mcp', `credentials:${server.name}`);
       const presentation = mcpStatusPresentation(server.status);
-      return <article key={server.name} className={presentation.className} data-testid={`agent-settings-mcp-${server.name}`}><header><div><strong>{server.name}</strong><small>{server.source} · {server.tools.length} tools</small></div><span className="kind-badge" data-testid={`agent-settings-mcp-status-${server.name}`}>{presentation.label}</span></header>{server.error && <p className="agent-settings-mcp-error" role="alert"><span aria-hidden="true">!</span> {server.error}</p>}{server.needsCredentials && server.requiredEnv.length > 0 && <form className="agent-settings-form" onSubmit={(event) => void saveMcpCredentials(event, server)}><p>Credentials required</p>{server.requiredEnv.map((key) => <label key={key}>{key}<input required type="password" autoComplete="off" value={mcpCredentials[server.name]?.[key] ?? ''} onChange={(event) => setMcpCredentials((current) => ({ ...current, [server.name]: { ...current[server.name], [key]: event.target.value } }))} data-testid={`agent-settings-mcp-credential-${server.name}-${key}`} /></label>)}<button className="primary-button" type="submit" disabled={savingCredentials} aria-busy={savingCredentials} data-testid={`agent-settings-mcp-credentials-save-${server.name}`}>{savingCredentials ? 'Saving credentials…' : 'Save credentials'}</button></form>}<div className="agent-settings-actions">{server.status === 'connected' ? <button className="secondary-button" type="button" disabled={rowPending} aria-busy={disconnecting} onClick={() => void runMcpAction(server, 'disconnect')} data-testid={`agent-settings-mcp-disconnect-${server.name}`}>{disconnecting ? 'Disconnecting…' : 'Disconnect'}</button> : server.needsCredentials && server.requiredEnv.length === 0 ? <button className="primary-button" type="button" disabled={rowPending} aria-busy={authorizing} onClick={() => void startMcpOAuth(server)} data-testid={`agent-settings-mcp-oauth-${server.name}`}>{authorizing ? 'Authorizing…' : 'Authorize'}</button> : <button className="primary-button" type="button" disabled={rowPending || server.needsCredentials} aria-busy={connecting} onClick={() => void runMcpAction(server, 'connect')} data-testid={`agent-settings-mcp-connect-${server.name}`}>{connecting ? 'Connecting…' : 'Connect'}</button>}<button className="text-danger-button" type="button" disabled={rowPending} onClick={() => setRemoving(server)} data-testid={`agent-settings-mcp-remove-${server.name}`}>Remove</button></div></article>;
-    })}</div>
-    {mcpServers.length > 0 && visibleMcpServers.length === 0 && <div className="agent-settings-empty" role="status"><strong>No matching MCP servers</strong><p>Try a different server name.</p></div>}
-    <details className="agent-settings-add-disclosure" data-testid="agent-settings-mcp-add-disclosure">
-      <summary className="secondary-button">Add server</summary>
-      <form className="agent-settings-form" onSubmit={addMcp}>
-        <h3>Add MCP server</h3>
-        <label>Name<input required value={mcpDraft.name} onChange={(event) => setMcpDraft((current) => ({ ...current, name: event.target.value }))} data-testid="agent-settings-mcp-add-name" /></label>
-        <label>Connection type<select value={mcpDraft.kind} onChange={(event) => setMcpDraft((current) => ({ ...current, kind: event.target.value as 'remote' | 'local' }))} data-testid="agent-settings-mcp-add-kind"><option value="remote">Remote URL</option><option value="local">Local command</option></select></label>
-        <label>{mcpDraft.kind === 'remote' ? 'URL' : 'Command'}<input required type={mcpDraft.kind === 'remote' ? 'url' : 'text'} value={mcpDraft.value} onChange={(event) => setMcpDraft((current) => ({ ...current, value: event.target.value }))} data-testid="agent-settings-mcp-add-value" /></label>
-        <button className="primary-button" type="submit" disabled={actionPending('mcp', 'add')} aria-busy={actionPending('mcp', 'add')} data-testid="agent-settings-mcp-add">{actionPending('mcp', 'add') ? 'Adding server…' : 'Add server'}</button>
-      </form>
-    </details>
-  </>;
+      return {
+        title: server.name,
+        content: <>{chrome}<div className="agent-settings-mcp-list"><article className={presentation.className} data-testid={`agent-settings-mcp-${server.name}`}><header><div><strong>{server.name}</strong><small>{server.source} · {server.tools.length} tools</small></div><span className="kind-badge" data-testid={`agent-settings-mcp-status-${server.name}`}>{presentation.label}</span></header>{server.error && <p className="agent-settings-mcp-error" role="alert"><span aria-hidden="true">!</span> {server.error}</p>}{server.needsCredentials && server.requiredEnv.length > 0 && <form className="agent-settings-form" onSubmit={(event) => void saveMcpCredentials(event, server)}><p>Credentials required</p>{server.requiredEnv.map((key) => <label key={key}>{key}<input required type="password" autoComplete="off" value={mcpCredentials[server.name]?.[key] ?? ''} onChange={(event) => setMcpCredentials((current) => ({ ...current, [server.name]: { ...current[server.name], [key]: event.target.value } }))} data-testid={`agent-settings-mcp-credential-${server.name}-${key}`} /></label>)}<button className="primary-button" type="submit" disabled={savingCredentials} aria-busy={savingCredentials} data-testid={`agent-settings-mcp-credentials-save-${server.name}`}>{savingCredentials ? 'Saving credentials…' : 'Save credentials'}</button></form>}<div className="agent-settings-actions">{server.status === 'connected' ? <button className="secondary-button" type="button" disabled={rowPending} aria-busy={disconnecting} onClick={() => void runMcpAction(server, 'disconnect')} data-testid={`agent-settings-mcp-disconnect-${server.name}`}>{disconnecting ? 'Disconnecting…' : 'Disconnect'}</button> : server.needsCredentials && server.requiredEnv.length === 0 ? <button className="primary-button" type="button" disabled={rowPending} aria-busy={authorizing} onClick={() => void startMcpOAuth(server)} data-testid={`agent-settings-mcp-oauth-${server.name}`}>{authorizing ? 'Authorizing…' : 'Authorize'}</button> : <button className="primary-button" type="button" disabled={rowPending || server.needsCredentials} aria-busy={connecting} onClick={() => void runMcpAction(server, 'connect')} data-testid={`agent-settings-mcp-connect-${server.name}`}>{connecting ? 'Connecting…' : 'Connect'}</button>}<button className="text-danger-button" type="button" disabled={rowPending} onClick={() => setRemoving(server)} data-testid={`agent-settings-mcp-remove-${server.name}`}>Remove</button></div></article></div>
+          {server.tools.length > 0 && <><h3 className="agent-settings-subhead">Tools</h3><ul className="agent-settings-tool-names" data-testid={`agent-settings-mcp-tools-${server.name}`}>{[...server.tools].sort((a, b) => a.localeCompare(b)).map((tool) => <li key={tool}>{tool}</li>)}</ul></>}</>,
+      };
+    },
+  });
 
-  const inspector = (item: ListInspectorItem | null) => {
-    if (!item) return <p>Select a configuration section.</p>;
-    switch (item.id) {
-      case sectionIds.profiles: return profilesInspector();
-      case sectionIds.autoPromotion: return <><SectionIntro scope="Workspace">The server enforces administrator access, eligibility, regression checks, and explicit confirmation.</SectionIntro><AutoPromotionSettings state={autoPromotionState} loading={autoPromotionLoading} error={autoPromotionError} reload={loadAutoPromotion} reportError={setAutoPromotionError} /></>;
-      case sectionIds.accounts: return accountsInspector();
-      case sectionIds.models: return modelsInspector();
-      case sectionIds.behavior: return <><SectionIntro scope="Desktop local">This policy controls whether Bash, write, edit, and patch tool calls use a full destructive-action confirmation dialog.</SectionIntro><BehaviorSettings enabled={requireDestructiveModal} onChange={setRequireDestructiveModal} /></>;
-      case sectionIds.keybindings: return <><SectionIntro scope="Desktop local">Shortcuts cover send message, new session, cancel turn, and switch session.</SectionIntro><KeybindingsSettings preferences={keybindings} update={updateKeybindings} reset={resetKeybindings} /></>;
-      case sectionIds.runtime: return runtimeInspector();
-      case sectionIds.mcp: return mcpInspector();
+  const view = (id: string): SettingsView | null => {
+    switch (id) {
+      case sectionIds.autoPromotion: return { kind: 'form', content: <><SectionIntro scope="Workspace">The server enforces administrator access, eligibility, regression checks, and explicit confirmation.</SectionIntro><AutoPromotionSettings state={autoPromotionState} loading={autoPromotionLoading} error={autoPromotionError} reload={loadAutoPromotion} reportError={setAutoPromotionError} /></> };
+      case sectionIds.accounts: return accountsView();
+      case sectionIds.models: return { kind: 'form', content: modelsInspector() };
+      case sectionIds.behavior: return { kind: 'form', content: <><SectionIntro scope="Desktop local">This policy controls whether Bash, write, edit, and patch tool calls use a full destructive-action confirmation dialog.</SectionIntro><BehaviorSettings enabled={requireDestructiveModal} onChange={setRequireDestructiveModal} /></> };
+      case sectionIds.keybindings: return { kind: 'form', content: <><SectionIntro scope="Desktop local">Shortcuts cover send message, new session, cancel turn, and switch session.</SectionIntro><KeybindingsSettings preferences={keybindings} update={updateKeybindings} reset={resetKeybindings} /></> };
+      case sectionIds.runtime: return { kind: 'form', content: runtimeInspector() };
+      case sectionIds.mcp: return mcpView();
       default: return null;
     }
   };
 
   return <Frame slug="agent-settings" title="Agent settings" description="Agent, desktop-local, and workspace configuration in one place." trace={trace}>
-    <ListInspector className="agent-settings-list-inspector" label="Agent settings sections" items={items} selectedId={selectedId} onSelect={setSelectedId} loading={loading} toolbar={<button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="agent-settings-refresh"><Icon name="refresh" size={14} />Refresh</button>} inspector={inspector} emptyState={<p>No configuration sections are available.</p>} />
+    <SettingsBrowser path={path} categories={items} loading={loading} emptyState={<p>No configuration sections are available.</p>} view={view}
+      toolbar={<button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="agent-settings-refresh"><Icon name="refresh" size={14} />Refresh</button>} />
     <FocusDialog open={restartEngineConfirm} onClose={() => setRestartEngineConfirm(false)} title="Restart OpenCode engine?" description="Restarting drops in-flight turns and open permission prompts. Reload engine config and skills first whenever possible." testId="agent-settings-engine-restart-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setRestartEngineConfirm(false)}>Cancel</button><button className="danger-button" type="button" onClick={() => void restartEngine()}>Restart engine</button></div></FocusDialog>
     <FocusDialog open={Boolean(removing)} onClose={() => { if (!actionPending('mcp')) setRemoving(null); }} title="Remove MCP server?" description={removing ? `${removing.name} will be removed from this local workspace configuration.` : ''} testId="agent-settings-mcp-remove-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" disabled={actionPending('mcp')} onClick={() => setRemoving(null)}>Cancel</button><button className="danger-button" type="button" disabled={actionPending('mcp')} aria-busy={Boolean(removing && actionPending('mcp', `remove:${removing.name}`))} onClick={() => void removeMcp()} data-testid="agent-settings-mcp-remove-confirm">{removing && actionPending('mcp', `remove:${removing.name}`) ? 'Removing…' : 'Remove'}</button></div></FocusDialog>
+    <FocusDialog open={Boolean(removingOpenai)} onClose={() => { if (!actionPending('openai')) setRemovingOpenai(null); }} title="Remove OpenAI account?" description={removingOpenai ? `${removingOpenai.label} will be removed from Rhythm. If it is the active account, the engine switches to another account or signs out of OpenAI.` : ''} testId="agent-settings-openai-remove-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" disabled={actionPending('openai')} onClick={() => setRemovingOpenai(null)}>Cancel</button><button className="danger-button" type="button" disabled={actionPending('openai')} onClick={() => void removeSelectedOpenai()} data-testid="agent-settings-openai-remove-confirm">{removingOpenai && actionPending('openai', `remove:${removingOpenai.id}`) ? 'Removing…' : 'Remove'}</button></div></FocusDialog>
     <FocusDialog open={Boolean(removingAccount)} onClose={() => { if (!actionPending('accounts')) setRemovingAccount(null); }} title="Remove account?" description={removingAccount ? `${removingAccount.label} will be removed from the local OpenCode account store.` : ''} testId="agent-settings-account-remove-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" disabled={actionPending('accounts')} onClick={() => setRemovingAccount(null)}>Cancel</button><button className="danger-button" type="button" disabled={actionPending('accounts')} aria-busy={Boolean(removingAccount && actionPending('accounts', `remove:${removingAccount.id}`))} onClick={() => void removeSelectedAccount()} data-testid="agent-settings-account-remove-confirm">{removingAccount && actionPending('accounts', `remove:${removingAccount.id}`) ? 'Removing…' : 'Remove'}</button></div></FocusDialog>
   </Frame>;
 }

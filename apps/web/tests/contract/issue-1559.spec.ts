@@ -4,9 +4,9 @@ import AxeBuilder from '@axe-core/playwright';
 // This suite needs its own intercepted live-gateway webServer, not default fixture discovery.
 test.skip(process.env.RHYTHM_ISSUE_1559_CONTRACT !== '1', 'Run with the issue-1559 live-gateway Playwright config');
 
-const paths = ['/agent-configs', '/opencode/auth/accounts', '/opencode/mcp', '/opencode/auth'];
-// #1580 S2 added the "Models" section between Accounts and Behavior.
-const names = ['Profiles overview', 'Auto-promotion', 'Accounts', 'Models', 'Behavior', 'Keybindings', 'Runtime / OpenCode server', 'MCP servers'];
+// Profiles left Agent Settings (edited in the Profiles tool); OpenAI accounts took its load slot.
+const paths = ['/opencode/auth/openai/accounts', '/opencode/auth/accounts', '/opencode/mcp', '/opencode/auth'];
+const names = ['Accounts', 'Models', 'MCP servers', 'Auto-promotion', 'Behavior', 'Keybindings', 'Runtime / OpenCode server'];
 
 async function openSettings(page: Page, failed: Set<string>, override?: (route: Route, path: string, count: number) => Promise<boolean>) {
   const counts: Record<string, number> = Object.fromEntries(paths.map((path) => [path, 0]));
@@ -47,9 +47,16 @@ const deferred = () => {
 
 async function showSectionList(page: Page) {
   const list = page.locator('[role="listbox"][aria-label="Agent settings sections"]');
-  if (!await list.isVisible()) await page.getByRole('button', { name: 'Back to list' }).click();
+  // Narrow column browser: step Back (inspector → items → sections) until the list shows.
+  for (let step = 0; step < 3 && !await list.isVisible(); step++) await page.locator('.column-browser-back:visible').first().click();
   await expect(list).toBeVisible();
   return list;
+}
+
+/** Accounts lists accounts, providers and Hermes as items; provider controls live in each provider's inspector. */
+async function selectProvider(page: Page, id: string) {
+  await selectSection(page, 'Accounts');
+  await page.getByTestId(`agent-settings-provider-row-${id}`).click();
 }
 
 async function selectSection(page: Page, name: string) {
@@ -59,22 +66,25 @@ async function selectSection(page: Page, name: string) {
 
 async function rowsRemainAccessible(page: Page) {
   const list = await showSectionList(page);
-  await expect(list.getByRole('option')).toHaveCount(8);
+  await expect(list.getByRole('option')).toHaveCount(7);
   for (const name of names) await expect(list.getByRole('option', { name, exact: true })).toBeVisible();
-  await list.getByRole('option', { name: 'Profiles overview' }).focus();
-  await page.keyboard.press('End');
+  await list.getByRole('option', { name: 'Runtime / OpenCode server' }).focus();
+  await page.keyboard.press('Home');
+  await expect(list.getByRole('option', { name: 'Accounts' })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
   await expect(list.getByRole('option', { name: 'MCP servers' })).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('list-inspector-detail')).toContainText('MCP servers provide tools');
 }
 
-test('issue-1559-c1: rejected profiles stays in its overview while all seven sections and MCP remain keyboard reachable', async ({ page }) => {
-  // Regression: passing a profile fetch error into ListInspector disables every option.
-  await openSettings(page, new Set(['/agent-configs']));
+test('issue-1559-c1: rejected OpenAI accounts stay in Accounts while all seven sections and MCP remain keyboard reachable', async ({ page }) => {
+  // Regression: passing a section fetch error into the section list disables every option.
+  await openSettings(page, new Set(['/opencode/auth/openai/accounts']));
   await expect(page.getByTestId('tool-trace')).toContainText('failed');
-  await expect(page.getByTestId('tool-trace')).not.toContainText('0 agent profiles loaded');
+  await expect(page.getByTestId('tool-trace')).not.toContainText('Agent settings loaded');
   await rowsRemainAccessible(page);
-  await selectSection(page, 'Profiles overview');
+  await selectSection(page, 'Accounts');
   await expect(page.getByTestId('list-inspector-detail').getByRole('alert')).toContainText('offline');
   await expect(page.getByTestId('agent-settings-error')).toHaveCount(0);
 });
@@ -88,8 +98,8 @@ test('issue-1559-c2: all four rejected loads keep seven rows and offline-only se
     await expect(page.getByTestId('list-inspector-detail')).toContainText(name === 'Behavior' ? 'destructive-action' : name === 'Keybindings' ? 'Shortcuts cover' : 'Local API');
   }
   await expect(page.getByTestId('tool-trace')).toContainText('failed');
-  await expect(page.getByTestId('tool-trace')).not.toContainText('0 agent profiles loaded');
-  const accessibility = await new AxeBuilder({ page }).include('.list-inspector').analyze();
+  await expect(page.getByTestId('tool-trace')).not.toContainText('Agent settings loaded');
+  const accessibility = await new AxeBuilder({ page }).include('.column-browser').analyze();
   expect(accessibility.violations).toEqual([]);
 });
 
@@ -107,7 +117,7 @@ test('issue-1559-c3: each section-local retry calls only its own failed request'
   const failed = new Set(paths);
   const counts = await openSettings(page, failed);
   for (const [section, path, label] of [
-    ['Profiles overview', '/agent-configs', 'Retry profiles'],
+    ['Accounts', '/opencode/auth/openai/accounts', 'Retry OpenAI accounts'],
     ['Accounts', '/opencode/auth/accounts', 'Retry accounts'],
     ['Accounts', '/opencode/auth', 'Retry providers'],
     ['MCP servers', '/opencode/mcp', 'Retry MCP servers'],
@@ -126,18 +136,19 @@ test('issue-1559-c4: in-flight retries ignore duplicate activation and keep sibl
   // Regression: rapid activations issue duplicate requests or disable unrelated settings.
   const wait = deferred();
   let armed = false;
-  const counts = await openSettings(page, new Set(['/agent-configs', '/opencode/mcp']), async (route, path, count) => {
-    if (armed && path === '/agent-configs') { await wait.gate; await route.fulfill({ status: 200, json: [] }); return true; }
+  const counts = await openSettings(page, new Set(['/opencode/auth/openai/accounts', '/opencode/mcp']), async (route, path, count) => {
+    if (armed && path === '/opencode/auth/openai/accounts') { await wait.gate; await route.fulfill({ status: 200, json: { accounts: [] } }); return true; }
     return false;
   });
   armed = true;
-  const before = counts['/agent-configs'];
-  const retry = page.getByRole('button', { name: 'Retry profiles' });
+  const before = counts['/opencode/auth/openai/accounts'];
+  await selectSection(page, 'Accounts');
+  const retry = page.getByRole('button', { name: 'Retry OpenAI accounts' });
   await retry.click();
   await expect(retry).toHaveAttribute('aria-disabled', 'true');
   await expect(retry).toHaveAttribute('aria-busy', 'true');
   await retry.dispatchEvent('click');
-  await expect.poll(() => counts['/agent-configs']).toBe(before + 1);
+  await expect.poll(() => counts['/opencode/auth/openai/accounts']).toBe(before + 1);
   await selectSection(page, 'MCP servers');
   await expect(page.getByRole('button', { name: 'Retry MCP servers' })).toHaveAttribute('aria-disabled', 'false');
   await selectSection(page, 'Runtime / OpenCode server');
@@ -151,20 +162,22 @@ test('issue-1559-c5: newest-started section read wins over older Refresh and ret
   let armed = false;
   let started = 0;
   let oldResponseFinished = false;
-  const counts = await openSettings(page, new Set(['/agent-configs']), async (route, path, count) => {
-    if (armed && path === '/agent-configs' && ++started === 1) { await slow.gate; await route.fulfill({ status: 503, json: { error: 'old refresh failure' } }); oldResponseFinished = true; return true; }
-    if (armed && path === '/agent-configs') { await route.fulfill({ status: 200, json: [{ id: 'latest', label: 'Latest profile', enabled: true, provider: 'openai', model: 'new' }] }); return true; }
+  const counts = await openSettings(page, new Set(['/opencode/auth/openai/accounts']), async (route, path, count) => {
+    if (armed && path === '/opencode/auth/openai/accounts' && ++started === 1) { await slow.gate; await route.fulfill({ status: 503, json: { error: 'old refresh failure' } }); oldResponseFinished = true; return true; }
+    if (armed && path === '/opencode/auth/openai/accounts') { await route.fulfill({ status: 200, json: { accounts: [{ id: 'latest', label: 'Latest account', status: 'ok' }], defaultAccountId: 'latest' } }); return true; }
     return false;
   });
   armed = true;
-  const before = counts['/agent-configs'];
+  const before = counts['/opencode/auth/openai/accounts'];
+  await selectSection(page, 'Accounts');
   await page.getByTestId('agent-settings-refresh').click();
-  await expect.poll(() => counts['/agent-configs']).toBe(before + 1);
-  await page.getByRole('button', { name: 'Retry profiles' }).click();
-  await expect(page.getByTestId('list-inspector-detail')).toContainText('Latest profile');
+  await expect.poll(() => counts['/opencode/auth/openai/accounts']).toBe(before + 1);
+  await page.getByRole('button', { name: 'Retry OpenAI accounts' }).click();
+  const items = page.getByTestId('settings-column-items');
+  await expect(items).toContainText('Latest account');
   slow.release();
   await expect.poll(() => oldResponseFinished).toBe(true);
-  await expect(page.getByTestId('list-inspector-detail')).toContainText('Latest profile');
+  await expect(items).toContainText('Latest account');
   await expect(page.getByTestId('list-inspector-detail')).not.toContainText('old refresh failure');
 });
 
@@ -172,25 +185,26 @@ test('issue-1559-c6: failed retry retains focus; success moves focus to persiste
   // Regression: removing a focused Retry button drops keyboard focus to the document.
   let attempts = 0;
   let armed = false;
-  await openSettings(page, new Set(['/agent-configs']), async (route, path) => {
-    if (armed && path === '/agent-configs') {
+  await openSettings(page, new Set(['/opencode/auth/openai/accounts']), async (route, path) => {
+    if (armed && path === '/opencode/auth/openai/accounts') {
       attempts++;
-      await route.fulfill({ status: attempts === 1 ? 503 : 200, json: attempts === 1 ? { error: 'still offline' } : [] });
+      await route.fulfill({ status: attempts === 1 ? 503 : 200, json: attempts === 1 ? { error: 'still offline' } : { accounts: [] } });
       return true;
     }
     return false;
   });
   armed = true;
-  const retry = page.getByRole('button', { name: 'Retry profiles' });
+  await selectSection(page, 'Accounts');
+  const retry = page.getByRole('button', { name: 'Retry OpenAI accounts' });
   await retry.focus();
   await retry.click();
   await expect(retry).toBeFocused();
   await expect(page.getByRole('alert')).toContainText('still offline');
   await retry.click();
-  await expect(page.getByTestId('agent-settings-profiles-status')).toBeFocused();
-  await expect(page.getByTestId('agent-settings-profiles-status')).toHaveAttribute('role', 'status');
+  await expect(page.getByTestId('agent-settings-openai-status')).toBeFocused();
+  await expect(page.getByTestId('agent-settings-openai-status')).toHaveAttribute('role', 'status');
   for (const state of ['success']) {
-    const accessibility = await new AxeBuilder({ page }).include('.list-inspector').analyze();
+    const accessibility = await new AxeBuilder({ page }).include('.column-browser').analyze();
     expect(accessibility.violations, state).toEqual([]);
   }
 });
@@ -199,25 +213,26 @@ test('issue-1559-c6: failed and retrying states retain 44px target, axe and narr
   // Regression: narrow retry targets overflow or lose accessible status during a pending request.
   const slow = deferred();
   let armed = false;
-  await openSettings(page, new Set(['/agent-configs']), async (route, path) => {
-    if (armed && path === '/agent-configs') { await slow.gate; await route.fulfill({ status: 503, json: { error: 'still offline' } }); return true; }
+  await openSettings(page, new Set(['/opencode/auth/openai/accounts']), async (route, path) => {
+    if (armed && path === '/opencode/auth/openai/accounts') { await slow.gate; await route.fulfill({ status: 503, json: { error: 'still offline' } }); return true; }
     return false;
   });
   armed = true;
+  await selectSection(page, 'Accounts');
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 820 });
-    const button = page.getByRole('button', { name: 'Retry profiles' });
+    const button = page.getByRole('button', { name: 'Retry OpenAI accounts' });
     await expect(button).toBeVisible();
     const box = await button.boundingBox();
     expect(box!.width).toBeGreaterThanOrEqual(44);
     expect(box!.height).toBeGreaterThanOrEqual(44);
-    expect(await page.locator('.list-inspector').evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
-    expect((await new AxeBuilder({ page }).include('.list-inspector').analyze()).violations).toEqual([]);
+    expect(await page.locator('.column-browser').evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+    expect((await new AxeBuilder({ page }).include('.column-browser').analyze()).violations).toEqual([]);
     await page.screenshot({ path: testInfo.outputPath(`issue-1559-error-${width}.png`) });
   }
-  await page.getByRole('button', { name: 'Retry profiles' }).click();
-  await expect(page.getByTestId('agent-settings-profiles-status')).toContainText('Retrying profiles');
-  expect((await new AxeBuilder({ page }).include('.list-inspector').analyze()).violations).toEqual([]);
+  await page.getByRole('button', { name: 'Retry OpenAI accounts' }).click();
+  await expect(page.getByTestId('agent-settings-openai-status')).toContainText('Retrying openai');
+  expect((await new AxeBuilder({ page }).include('.column-browser').analyze()).violations).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath('issue-1559-retrying-narrow.png') });
   slow.release();
 });
@@ -225,30 +240,30 @@ test('issue-1559-c6: failed and retrying states retain 44px target, axe and narr
 test('issue-1559-c7: provider badges distinguish unknown, last known and confirmed disconnected', async ({ page }) => {
   // Regression: a failed provider read is shown as confirmed disconnected and asks for re-login.
   let providerOnline = false;
-  let providerIds = ['openai'];
+  let providerIds = ['google'];
   const counts = await openSettings(page, new Set(['/opencode/auth']), async (route, path) => {
     if (path === '/opencode/auth' && providerOnline) { await route.fulfill({ status: 200, json: { providers: providerIds } }); return true; }
     return false;
   });
-  await selectSection(page, 'Accounts');
-  const badge = page.getByTestId('agent-settings-provider-status-openai');
+  await selectProvider(page, 'google');
+  const badge = page.getByTestId('agent-settings-provider-status-google');
   await expect(badge).toHaveText('Status unknown');
-  await expect(page.getByTestId('agent-settings-provider-openai')).not.toHaveClass(/needs-relogin/);
+  await expect(page.getByTestId('agent-settings-provider-google')).not.toHaveClass(/needs-relogin/);
   providerOnline = true;
   await page.getByRole('button', { name: 'Retry providers' }).click();
   await expect(badge).toHaveText('Connected');
   providerIds = [];
   await page.getByTestId('agent-settings-refresh').click();
   await expect(badge).toHaveText('Not connected');
-  await expect(page.getByTestId('agent-settings-provider-openai')).toHaveClass(/needs-relogin/);
-  providerIds = ['openai'];
+  await expect(page.getByTestId('agent-settings-provider-google')).toHaveClass(/needs-relogin/);
+  providerIds = ['google'];
   await page.getByTestId('agent-settings-refresh').click();
   await expect(badge).toHaveText('Connected');
   providerOnline = false;
   await page.getByTestId('agent-settings-refresh').click();
   await expect.poll(() => counts['/opencode/auth']).toBeGreaterThanOrEqual(5);
   await expect(badge).toHaveText('Last known Connected');
-  await expect(page.getByTestId('agent-settings-provider-openai')).not.toHaveClass(/needs-relogin/);
+  await expect(page.getByTestId('agent-settings-provider-google')).not.toHaveClass(/needs-relogin/);
   providerOnline = true;
   await page.getByRole('button', { name: 'Retry providers' }).click();
   await expect(badge).toHaveText('Connected');
@@ -261,7 +276,7 @@ test('issue-1559-c8: mutation failures never become load failures or show a load
     return false;
   });
   await selectSection(page, 'MCP servers');
-  await page.getByTestId('agent-settings-mcp-add-disclosure').locator('summary').click();
+  await page.getByTestId('agent-settings-mcp-add-item').click();
   await page.getByTestId('agent-settings-mcp-add-name').fill('example');
   await page.getByTestId('agent-settings-mcp-add-value').fill('https://example.test/mcp');
   await page.getByTestId('agent-settings-mcp-add').click();
@@ -270,7 +285,7 @@ test('issue-1559-c8: mutation failures never become load failures or show a load
 });
 
 const sections = [
-  { key: 'profiles', option: 'Profiles overview', path: '/agent-configs', label: 'Retry profiles', ok: [] as unknown },
+  { key: 'openai', option: 'Accounts', path: '/opencode/auth/openai/accounts', label: 'Retry OpenAI accounts', ok: { accounts: [] } as unknown },
   { key: 'accounts', option: 'Accounts', path: '/opencode/auth/accounts', label: 'Retry accounts', ok: { accounts: [] } as unknown },
   { key: 'mcp', option: 'MCP servers', path: '/opencode/mcp', label: 'Retry MCP servers', ok: [] as unknown },
   { key: 'providers', option: 'Accounts', path: '/opencode/auth', label: 'Retry providers', ok: { providers: [] } as unknown },
@@ -300,9 +315,9 @@ for (const s of sections) {
         const box = await button.boundingBox();
         expect(box!.width).toBeGreaterThanOrEqual(44);
         expect(box!.height).toBeGreaterThanOrEqual(44);
-        expect(await page.locator('.list-inspector').evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+        expect(await page.locator('.column-browser').evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
-        expect((await new AxeBuilder({ page }).include('.list-inspector').analyze()).violations).toEqual([]);
+        expect((await new AxeBuilder({ page }).include('.column-browser').analyze()).violations).toEqual([]);
         await page.screenshot({ path: testInfo.outputPath(`issue-1559-${s.key}-${state}-${viewport.width}x${viewport.height}.png`) });
       }
     }
@@ -364,7 +379,7 @@ test('issue-1559-c12: stale provider check cannot dismiss flow or contradict new
     if (++started === 1) { await slow.gate; await route.fulfill({ status: 200, json: { providers: ['google'] } }); return true; }
     await route.fulfill({ status: 200, json: { providers: [] } }); return true;
   });
-  await selectSection(page, 'Accounts');
+  await selectProvider(page, 'google');
   await page.getByTestId('agent-settings-provider-authorize-google').click();
   await expect(page.getByTestId('agent-settings-provider-flow-google')).toBeVisible();
   armed = true;
@@ -386,11 +401,12 @@ for (const s of sections.filter((entry) => entry.key === 'mcp' || entry.key === 
     await expect(page.getByTestId(`agent-settings-${s.key}-status`)).toHaveText(`${s.key} still unavailable`);
     failed.delete(s.path);
     if (s.key === 'mcp') {
-      await page.getByTestId('agent-settings-mcp-add-disclosure').locator('summary').click();
+      await page.getByTestId('agent-settings-mcp-add-item').click();
       await page.getByTestId('agent-settings-mcp-add-name').fill('example');
       await page.getByTestId('agent-settings-mcp-add-value').fill('https://example.test/mcp');
       await page.getByTestId('agent-settings-mcp-add').click();
     } else {
+      await page.getByTestId('agent-settings-provider-row-opencode').click();
       await page.getByTestId('agent-settings-provider-key-opencode').fill('oc-key');
       await page.getByTestId('agent-settings-provider-key-save-opencode').click();
     }
@@ -408,7 +424,7 @@ test('issue-1559-c12: stale failed provider check cannot announce action error a
     if (++started === 1) { await slow.gate; await route.fulfill({ status: 503, json: { error: 'old check offline' } }); return true; }
     await route.fulfill({ status: 200, json: { providers: ['google'] } }); return true;
   });
-  await selectSection(page, 'Accounts');
+  await selectProvider(page, 'google');
   await page.getByTestId('agent-settings-provider-authorize-google').click();
   armed = true;
   await page.getByTestId('agent-settings-provider-check').click();
@@ -440,7 +456,11 @@ test('issue-1559-c13: unread provider badge displays exact Status unknown', asyn
   // Regression: the unknown badge is abbreviated or globally capitalized.
   await openSettings(page, new Set(['/opencode/auth']));
   await selectSection(page, 'Accounts');
-  for (const id of ['openai', 'google', 'opencode', 'openrouter']) {
+  // OpenAI moved to OpenAI accounts (multi-account); the other providers keep a Connect card.
+  await expect(page.getByTestId('agent-settings-provider-row-openai')).toHaveCount(0);
+  for (const id of ['google', 'opencode', 'openrouter']) {
+    await expect(page.getByTestId(`agent-settings-provider-row-${id}`)).toContainText('Status unknown');
+    await page.getByTestId(`agent-settings-provider-row-${id}`).click();
     const badge = page.getByTestId(`agent-settings-provider-status-${id}`);
     await expect(badge).toHaveText('Status unknown');
     expect(await badge.evaluate((el) => getComputedStyle(el).textTransform)).toBe('none');
@@ -513,7 +533,7 @@ test('1559-action-reload-section-retry:3 provider save reload failure exposes se
     }
     return false;
   });
-  await selectSection(page, 'Accounts');
+  await selectProvider(page, 'opencode');
   await page.getByTestId('agent-settings-provider-key-opencode').fill('test-key');
   await page.getByTestId('agent-settings-provider-key-save-opencode').click();
   await expect(page.getByRole('button', { name: 'Retry providers' })).toBeVisible();

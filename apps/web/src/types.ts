@@ -202,6 +202,8 @@ export interface Profile {
   sessionSelectable?: boolean;
   modelTierHint?: string | null;
   defaultAnthropicAccountId?: string | null;
+  /** Per-profile OpenAI (ChatGPT) account; null uses the global default. */
+  defaultOpenaiAccountId?: string | null;
 }
 
 export interface TodoItem { id: string; label: string; done: boolean; }

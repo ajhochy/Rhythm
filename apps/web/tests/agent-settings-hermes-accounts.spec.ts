@@ -37,7 +37,8 @@ test.beforeAll(async () => {
 async function open(page: Page, status: unknown, fixture = false, bridge = true) {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.route('https://accounts.test/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><html><body><div id="root"></div></body></html>' }));
-  await page.goto('https://accounts.test/#/tools/agent-settings?settingsSection=accounts');
+  // Live Accounts is an item list; Hermes sharing is its own item. The fixture renders one Accounts form.
+  await page.goto('https://accounts.test/#/tools/agent-settings?settingsSection=accounts&settingsItem=hermes');
   await page.evaluate(({ status, fixture, bridge }) => {
     const w = window as any; w.__fixture = fixture; w.__status = status; w.__mutations = []; w.__memoryMutations = [];
     if (bridge) w.rhythmShell = { aiAccounts: Object.freeze({
@@ -47,14 +48,14 @@ async function open(page: Page, status: unknown, fixture = false, bridge = true)
     }) };
   }, { status, fixture, bridge });
   await page.addScriptTag({ content: bundle });
-  if (process.env.RHYTHM_ACCOUNTS_VISUAL === '1') for (const file of ['src/styles.css', 'src/components/ListInspector.css', 'src/components/ToolWorkspace.css', 'src/components/tools/AgentSettingsTool.css']) await page.addStyleTag({ content: readFileSync(resolve(file), 'utf8') });
+  if (process.env.RHYTHM_ACCOUNTS_VISUAL === '1') for (const file of ['src/styles.css', 'src/components/ColumnBrowser.css', 'src/components/ToolWorkspace.css', 'src/components/tools/AgentSettingsTool.css']) await page.addStyleTag({ content: readFileSync(resolve(file), 'utf8') });
   await page.waitForTimeout(100);
   expect(errors).toEqual([]);
   await expect(page.getByRole('option', { name: 'Accounts', exact: true })).toBeVisible();
   return page.getByRole('region', { name: 'Hermes account sharing', exact: true });
 }
 
-test('S4-U1: live and fixture settings compose sharing inside the existing Accounts inspector', async ({ page }) => {
+test('S4-U1: live and fixture settings compose sharing inside the Accounts inspector column', async ({ page }) => {
   const data = await metadata();
   for (const fixture of [false, true]) {
     const sharing = await open(page, data.initial, fixture);
@@ -67,7 +68,7 @@ test('S4-U1: live and fixture settings compose sharing inside the existing Accou
 });
 test('S4-U2: configured applied and pending receipts have distinct honest labels', async ({ page }) => {
   const data = await metadata();
-  for (const [status, label] of [[data.configured, /Configured.*next.*start/i], [data.applied, /Applied.*running/i], [data.pending, /Pending.*next.*start/i]] as const) {
+  for (const [status, label] of [[data.configured, /Will be shared when Hermes restarts/], [data.applied, /Shared with Hermes/], [data.pending, /Waiting for Hermes to restart/]] as const) {
     const sharing = await open(page, status);
     await expect(sharing.getByRole('group', { name: 'OpenAI', exact: true })).toContainText(label);
   }
@@ -75,20 +76,21 @@ test('S4-U2: configured applied and pending receipts have distinct honest labels
 test('S4-U3: native precedence and OAuth source never offer enable', async ({ page }) => {
   const sharing = await open(page, (await metadata()).initial);
   const native = sharing.getByRole('group', { name: 'OpenRouter', exact: true });
-  await expect(native).toContainText(/Hermes.*own|Hermes.*configured/i);
+  await expect(native).toContainText(/Hermes uses its own sign-in/);
+  await expect(native).toContainText(/Not checked by Rhythm/);
   await expect(native.getByRole('button', { name: /enable|share/i })).toHaveCount(0);
   const oauth = sharing.getByRole('group', { name: 'Anthropic', exact: true });
-  await expect(oauth).toContainText(/OAuth.*not.*shar|OAuth.*unsupported/i);
+  await expect(oauth).toContainText(/can't be shared/);
   await expect(oauth.getByRole('button', { name: /enable|share/i })).toHaveCount(0);
 });
 test('S4-U4: enable waits for native confirmation then refreshes metadata', async ({ page }) => {
   const data = await metadata(); const sharing = await open(page, data.initial);
   const openai = sharing.getByRole('group', { name: 'OpenAI', exact: true });
   await openai.getByRole('button', { name: /share.*Hermes|enable sharing/i }).click();
-  await expect(openai).not.toContainText(/Applied|Configured.*next.*start/i);
+  await expect(openai).not.toContainText(/Shared with Hermes|Will be shared/);
   expect(await page.evaluate(() => (window as any).__mutations)).toEqual([mutation]);
   await page.evaluate(status => { (window as any).__status = status; (window as any).__confirm({ accepted: true }); }, data.configured);
-  await expect(openai).toContainText(/Configured.*next.*start/i);
+  await expect(openai).toContainText(/Will be shared when Hermes restarts/);
 });
 test('S4-U5: rejected native consent keeps prior state without success', async ({ page }) => {
   const sharing = await open(page, (await metadata()).initial);
@@ -96,15 +98,15 @@ test('S4-U5: rejected native consent keeps prior state without success', async (
   await openai.getByRole('button', { name: /share.*Hermes|enable sharing/i }).click();
   await page.evaluate(() => (window as any).__confirm({ accepted: false }));
   await expect(sharing).toContainText(/not changed|canceled|not enabled/i);
-  await expect(openai).not.toContainText(/Applied|Configured.*next.*start/i);
+  await expect(openai).not.toContainText(/Shared with Hermes|Will be shared/);
 });
 test('S4-U6: disable reports a retained running key until restart', async ({ page }) => {
   const data = await metadata(); const sharing = await open(page, data.applied);
   await sharing.getByRole('group', { name: 'OpenAI', exact: true }).getByRole('button', { name: /disable|stop sharing/i }).click();
   expect(await page.evaluate(() => (window as any).__mutations)).toEqual([{ ...mutation, action: 'disable' }]);
   await page.evaluate(status => { (window as any).__status = status; (window as any).__confirm({ accepted: true }); }, data.pending);
-  await expect(sharing).toContainText(/running.*retain|running.*still.*key/i);
-  await expect(sharing).toContainText(/Pending.*next.*start/i);
+  await expect(sharing).toContainText(/keep using a key it already has until it restarts/);
+  await expect(sharing).toContainText(/Waiting for Hermes to restart/);
 });
 test('S4-U7: unavailable or missing desktop bridge exposes no grant actions', async ({ page }) => {
   const data = await metadata();
@@ -117,11 +119,11 @@ test('S4-U7: unavailable or missing desktop bridge exposes no grant actions', as
 
 test('S4-U8: refresh clears old grants when the desktop identity becomes unavailable', async ({ page }) => {
   const data = await metadata(); const sharing = await open(page, data.applied);
-  await expect(sharing).toContainText(/Applied.*running/i);
+  await expect(sharing).toContainText(/Shared with Hermes/);
   await page.evaluate(status => { (window as any).__status = status; }, data.unavailable);
   await sharing.getByRole('button', { name: /refresh.*sharing|refresh.*status/i }).click();
   await expect(sharing).toContainText(/unavailable/i);
-  await expect(sharing).not.toContainText(/Applied.*running/i);
+  await expect(sharing).not.toContainText(/Shared with Hermes/);
   await expect(sharing.getByRole('button', { name: /enable|disable|share.*Hermes|stop sharing/i })).toHaveCount(0);
 });
 
@@ -176,7 +178,7 @@ test('S4-U9: real styles preserve desktop narrow keyboard access and existing Ac
   await expect(accounts).toHaveAttribute('aria-selected', 'true');
   await page.keyboard.press('Enter');
   await expect(sharing).toHaveCount(0);
-  await accounts.click(); await expect(sharing).toBeVisible();
+  await accounts.click(); await page.getByTestId('agent-settings-hermes-row').click(); await expect(sharing).toBeVisible();
   const action = sharing.getByRole('group', { name: 'OpenAI', exact: true }).getByRole('button', { name: 'Share with Hermes', exact: true });
   await action.focus(); await expect(action).toBeFocused();
   expect((await new AxeBuilder({ page }).include('.hermes-accounts-settings').analyze()).violations).toEqual([]);

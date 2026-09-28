@@ -3,7 +3,7 @@ import { Icon } from '../../icons';
 import { useGateway } from '../../gateway/context';
 import { createGenerationGuard, type CustomProviderInput, type ModelCatalogEntry } from '../../gateway/sessions';
 import { useFixtures } from '../../store';
-import { ProviderConnectCard, ProviderAuthFlowForm, providerCatalog, type ProviderCatalogEntry, type ProviderAuthFlow } from './AgentSettingsTool';
+import { ACCOUNT_MANAGED_PROVIDERS, ProviderConnectCard, ProviderAuthFlowForm, providerCatalog, type ProviderCatalogEntry, type ProviderAuthFlow } from './AgentSettingsTool';
 
 // #1580 S2 — Electron AI settings: provider-first model curation, modeled after Hermes
 // Desktop's model-visibility-dialog (searchable, grouped-by-provider, collapsible, tri-state
@@ -18,6 +18,7 @@ type ProviderGroup = {
   provider: string;
   label: string;
   status: ProviderStatus;
+  accountManaged: boolean;
   catalogEntry?: ProviderCatalogEntry;
   rows: ModelCatalogEntry[];
 };
@@ -28,7 +29,7 @@ const visibilityKey = (row: { provider: string; modelId: string }) => `${row.pro
 export function ModelCurationPanel({
   authProviders, providersCurrent, providerFlow, providerDraft, onApiKeyChange, onCodeChange,
   startProviderAuth, completeProviderAuth, checkProviderAuth, saveProviderApiKey,
-  providerPending, providerActionError, providerNotice, onReloadLocalConfig, localConfigPending,
+  providerPending, providerActionError, providerNotice, onReloadLocalConfig, localConfigPending, onOpenAccounts,
 }: {
   authProviders: string[] | null;
   providersCurrent: boolean;
@@ -45,6 +46,7 @@ export function ModelCurationPanel({
   providerNotice: string;
   onReloadLocalConfig(): void;
   localConfigPending: boolean;
+  onOpenAccounts?(): void;
 }) {
   const gateway = useGateway();
   const { refreshModels } = useFixtures();
@@ -92,10 +94,6 @@ export function ModelCurationPanel({
   const groups = useMemo<ProviderGroup[]>(() => {
     const byProvider = new Map<string, ModelCatalogEntry[]>();
     for (const row of catalog) {
-      // Anthropic accounts are a separate, already-shipped OAuth flow in the Accounts
-      // section (per-account login, not a single provider connect/API key) — this screen
-      // deliberately does not duplicate or relabel that as an "opencode.json" provider.
-      if (row.provider === 'anthropic') continue;
       if (!byProvider.has(row.provider)) byProvider.set(row.provider, []);
       // A provider the engine has never loaded surfaces only as a modelId:'' placeholder
       // row (server: agents_models_routes.ts ~342-358) — keep the group (for its Connect
@@ -105,11 +103,13 @@ export function ModelCurationPanel({
     // A known connect-flow provider with zero rows at all (not even a placeholder, e.g. the
     // engine snapshot omitted it) must still be offered so it can be connected from here.
     for (const entry of providerCatalog) if (!byProvider.has(entry.id)) byProvider.set(entry.id, []);
+    for (const id of Object.keys(ACCOUNT_MANAGED_PROVIDERS)) if (!byProvider.has(id)) byProvider.set(id, []);
     return [...byProvider.entries()].map(([provider, rows]) => {
       const catalogEntry = providerCatalog.find((entry) => entry.id === provider);
       const anyAuthorized = catalog.some((row) => row.provider === provider && row.authorized);
-      const status: ProviderStatus = anyAuthorized ? 'connected' : catalogEntry ? 'needs-login' : 'unavailable';
-      return { provider, label: catalogEntry?.label ?? provider, status, catalogEntry, rows: [...rows].sort((a, b) => a.displayName.localeCompare(b.displayName)) };
+      const accountManaged = Object.hasOwn(ACCOUNT_MANAGED_PROVIDERS, provider);
+      const status: ProviderStatus = anyAuthorized ? 'connected' : catalogEntry || accountManaged ? 'needs-login' : 'unavailable';
+      return { provider, label: ACCOUNT_MANAGED_PROVIDERS[provider] ?? catalogEntry?.label ?? provider, status, accountManaged, catalogEntry, rows: [...rows].sort((a, b) => a.displayName.localeCompare(b.displayName)) };
     }).sort((a, b) => a.label.localeCompare(b.label));
   }, [catalog]);
 
@@ -292,8 +292,11 @@ export function ModelCurationPanel({
                 </span>
               </label>;
             })}
+            {group.accountManaged && <p className="model-curation-local-note" data-testid={`model-curation-account-managed-${group.provider}`}>{group.status === 'connected' ? 'Signed in through Accounts.' : 'Not signed in. Sign in through Accounts to show these models.'}
+              {onOpenAccounts && <button className="text-button" type="button" onClick={onOpenAccounts} data-testid={`model-curation-open-accounts-${group.provider}`}>Managed in Accounts</button>}
+            </p>}
             {/* The card's styles are scoped to .agent-settings-records (its Accounts-section home). */}
-            {group.status === 'needs-login' && group.catalogEntry && <div className="agent-settings-records"><ProviderConnectCard
+            {group.status === 'needs-login' && !group.accountManaged && group.catalogEntry && <div className="agent-settings-records"><ProviderConnectCard
               provider={group.catalogEntry} connected={false} statusKnown={authProviders !== null}
               confirmed={providersCurrent && authProviders !== null} pending={providerPending}
               badge={authProviders === null ? 'Status unknown' : 'Not connected'}
@@ -301,7 +304,7 @@ export function ModelCurationPanel({
               onApiKeyChange={(value) => onApiKeyChange(group.catalogEntry!.id, value)}
               onAuthorize={() => void startProviderAuth(group.catalogEntry!)}
               onSaveKey={(event) => void saveProviderApiKey(event, group.catalogEntry!)} /></div>}
-            {group.status === 'needs-login' && providerFlow?.id === group.provider && <ProviderAuthFlowForm
+            {group.status === 'needs-login' && !group.accountManaged && providerFlow?.id === group.provider && <ProviderAuthFlowForm
               flow={providerFlow} code={providerDraft.code} pending={providerPending} onCodeChange={onCodeChange}
               onSubmit={completeProviderAuth} onCheck={() => void checkProviderAuth()} />}
             {group.status === 'unavailable' && <p className="model-curation-local-note">Configured through <code>opencode.json</code>, not through this screen. Reload the local runtime after editing it.

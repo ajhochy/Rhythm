@@ -98,7 +98,7 @@
   white-space: normal;
 }
 
-.list-inspector .agent-settings-retry {
+.agent-settings-browser .agent-settings-retry {
   min-width: 44px;
   min-height: 44px;
 }
@@ -113,78 +113,6 @@
   display: grid;
   gap: 8px;
   margin-block: 14px;
-}
-
-.agent-settings-profile-search {
-  margin-block: 14px 8px;
-}
-
-.agent-settings-profile-groups,
-.agent-settings-profile-groups > section,
-.agent-settings-profile-list {
-  display: grid;
-  gap: 8px;
-}
-
-.agent-settings-profile-groups {
-  gap: 18px;
-}
-
-.agent-settings-profile-groups h3 {
-  margin: 0;
-  font-size: 13px;
-}
-
-.agent-settings-profile-row {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  min-height: 54px;
-  padding: 10px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--r-sm);
-  color: var(--fg-2);
-  background: var(--surface);
-  text-align: start;
-  cursor: pointer;
-}
-
-.agent-settings-profile-row:hover {
-  border-color: var(--border);
-  background: var(--surface-warm);
-}
-
-.agent-settings-profile-row:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.agent-settings-profile-row > span:not(.profile-avatar) {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
-}
-
-.agent-settings-profile-row small {
-  color: var(--muted);
-  overflow-wrap: anywhere;
-}
-
-.agent-settings-profile-row em {
-  padding: 3px 7px;
-  border: 1px solid var(--warning);
-  border-radius: 999px;
-  color: var(--warning);
-  font-size: 10px;
-  font-style: normal;
-  font-weight: 650;
-}
-
-.agent-settings-profile-row.disabled {
-  border-color: color-mix(in oklab, var(--warning), var(--border-soft) 55%);
-  background: color-mix(in oklab, var(--warning), var(--surface) 97%);
 }
 
 .agent-settings-records article {
@@ -276,37 +204,15 @@
 
 /* Every Agent Settings badge label is authored in sentence case; the global capitalize turns
    "Needs login or key" into "Needs Login Or Key". */
-.agent-settings-list-inspector .kind-badge { text-transform: none; }
+.agent-settings-browser .kind-badge { text-transform: none; }
 
 /* ponytail: fixed offset for app header + page header + tool-trace footer; swap for a flex-fill
-   layout if the page header ever grows. The old 720px ceiling left tall windows half empty, and
-   the 180px offset tucked the pane's bottom under the footer. */
-.agent-settings-list-inspector {
-  height: calc(100vh - 270px);
-  min-height: 420px;
-}
-
-.agent-settings-list-inspector .list-inspector-panes {
-  height: 100%;
-  min-height: 0;
-}
-
-.agent-settings-list-inspector .list-inspector-rail {
-  overflow: hidden;
-}
-
-.agent-settings-list-inspector .list-inspector-list {
-  flex: 1;
-  max-height: none;
-}
-
-.agent-settings-list-inspector .list-inspector-header {
-  position: sticky;
-  z-index: 2;
-  top: -16px;
-  padding-block: 16px 8px;
-  background: var(--surface);
-}
+   layout if the page header ever grows. */
+.agent-settings-browser { --column-browser-height: max(420px, calc(100vh - 270px)); }
+.agent-settings-browser .column-browser-search { display: block; flex-basis: 100%; }
+.agent-settings-browser .column-browser-search input { width: 100%; min-height: 28px; padding: 4px 8px; font-size: 12px; }
+.agent-settings-tool-names { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0 0; padding: 0; list-style: none; }
+.agent-settings-tool-names li { padding: 1px 6px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); color: var(--fg-2); font-family: var(--font-mono); font-size: 11px; }
 
 .agent-settings-form {
   display: grid;
@@ -503,7 +409,7 @@
   margin-block-start: 14px;
 }
 
-@container list-inspector (width < 720px) {
+@container column-browser (width < 720px) {
   .agent-settings-mcp-list article header,
   .auto-promotion-card > header {
     flex-wrap: wrap;
@@ -553,9 +459,11 @@
 .hermes-accounts-settings > header { margin-block-end: 20px; }
 .hermes-accounts-settings h3 { margin: 0 0 8px; }
 .hermes-accounts-settings p { max-width: 70ch; line-height: 1.5; margin: 6px 0; }
-.hermes-account-row { min-width: 0; margin: 0 0 16px; padding: 12px 0 16px; border: 0; border-bottom: 1px solid var(--border); }
-.hermes-account-row legend { padding: 0; font-weight: 650; }
-.hermes-account-row button { margin-top: 8px; }
+.hermes-account-row { display: grid; grid-template-columns: minmax(90px, 140px) minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; min-width: 0; padding: 8px 0; border-bottom: 1px solid var(--border-soft); }
+.hermes-account-row > p { margin: 0; color: var(--fg-2); font-size: 12px; }
+.hermes-account-row small { color: var(--muted); }
+.hermes-account-state { color: var(--fg); font-weight: 600; }
+@container column-browser (width < 560px) { .hermes-account-row { grid-template-columns: minmax(0, 1fr); } }
 .hermes-accounts-memory { color: var(--muted); }
 
 /* #1580 S2 — provider-first model curation panel. min-width: 0 throughout so a long model id
