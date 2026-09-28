@@ -503,7 +503,15 @@ export const layer: Layer.Layer<
               attachment.mime.startsWith("image/")
                 ? image.normalize(attachment).pipe(
                     Effect.exit,
-                    Effect.map((exit) => (Exit.isSuccess(exit) ? exit : Exit.succeed<MessageV2.FilePart>(attachment))),
+                    Effect.map((exit) => {
+                      if (Exit.isSuccess(exit)) return exit
+                      log.warn("tool image resize failed; keeping original", {
+                        mime: attachment.mime,
+                        bytes: attachment.url.length,
+                        cause: Cause.pretty(exit.cause).slice(0, 500),
+                      })
+                      return Exit.succeed<MessageV2.FilePart>(attachment)
+                    }),
                   )
                 : Effect.succeed(Exit.succeed<MessageV2.FilePart>(attachment)),
             )

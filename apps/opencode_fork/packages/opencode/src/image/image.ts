@@ -66,8 +66,12 @@ export const layer = Layer.effect(
           // Patched photon-node reads this during module init so Bun compiled binaries use the embedded wasm path.
           ;(globalThis as typeof globalThis & { __OPENCODE_PHOTON_WASM_PATH?: string }).__OPENCODE_PHOTON_WASM_PATH =
             photonWasm
-          return await import("@silvia-odwyer/photon-node")
-        } catch {
+          // require(), not import(): with Bun.build splitting, a dynamic import of this CommonJS
+          // package emits a chunk referencing an undefined export binding (ReferenceError), so the
+          // compiled engine always reported Photon unavailable and never resized.
+          return require("@silvia-odwyer/photon-node") as typeof import("@silvia-odwyer/photon-node")
+        } catch (error) {
+          log.warn("photon unavailable", { error: error instanceof Error ? error.message : String(error) })
           return null
         }
       }),
