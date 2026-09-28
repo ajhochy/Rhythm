@@ -252,6 +252,13 @@ function LiveResources({ sessionId }: { sessionId: string }) {
   const [resources, setResources] = useState<SessionResource[]>([]); const [cursor, setCursor] = useState<number | null>(null);
   const [loading, setLoading] = useState(false); const [error, setError] = useState('');
   const [preview, setPreview] = useState<{ title: string; text: string } | null>(null);
+  // A research discussion's magazine is linked by the research project, not by a tool call.
+  const [magazineId, setMagazineId] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true; setMagazineId(null);
+    gateway.domains.research?.sessionMagazine(sessionId).then((link) => { if (active) setMagazineId(link.artifactId); }, () => undefined);
+    return () => { active = false; };
+  }, [gateway, sessionId]);
   const sequence = useRef(0);
   const load = async (before?: number) => {
     if (!api) return; setLoading(true); setError('');
@@ -281,7 +288,8 @@ function LiveResources({ sessionId }: { sessionId: string }) {
     <h3>Session resources</h3><p>Read-only previews. Interactive MCP actions are unavailable here.</p>
     <button className="text-button" type="button" disabled={loading} onClick={() => void load()}>Refresh resources</button>
     {error && <p role="alert">{error}</p>}{loading && <p role="status">Loading resource history…</p>}
-    {!resources.length && !loading && !error && <p>No resources found in loaded history.</p>}
+    {magazineId && <button className="secondary-button" type="button" onClick={() => navigate(`/dashboard?artifactId=${encodeURIComponent(magazineId)}`)} data-testid="session-research-magazine">Open research magazine</button>}
+    {!resources.length && !magazineId && !loading && !error && <p>No resources found in loaded history.</p>}
     {resources.map(resource => <button className="secondary-button" type="button" key={`${resource.kind}:${resource.id}`} onClick={() => void open(resource)}>Open {resource.kind === 'mcp' ? 'MCP resource' : 'artifact'} {resource.id}</button>)}
     {cursor && <button type="button" disabled={loading} onClick={() => void load(cursor)}>Load earlier resources</button>}
     {preview && <div className="artifact-preview"><iframe title={preview.title} sandbox="" referrerPolicy="no-referrer" srcDoc={preview.text} /></div>}

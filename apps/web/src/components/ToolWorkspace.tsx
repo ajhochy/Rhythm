@@ -21,6 +21,8 @@ import { FocusDialog } from './FocusDialog';
 import { ListInspector, useSelectedId } from './ListInspector';
 import { navigate } from './Shell';
 import { SafeMarkdown } from './SafeMarkdown';
+import { researchExportName, saveTextFile } from '../saveTextFile';
+import { guidanceFrom, magazineState, publishMagazine } from '../research/magazineArtifact';
 import { FixtureAgentSettingsTool, LiveSettingsTool } from './tools/AgentSettingsTool';
 import { SharedAgentsTool } from './tools/SharedAgentsTool';
 import { GalleryFolders, matchesGalleryFilter, type GalleryFilter } from './tools/GalleryFolders';
@@ -33,23 +35,6 @@ function parseJsonArray<T>(raw: string | null | undefined): T[] {
   if (!raw) return [];
   try { const parsed = JSON.parse(raw); return Array.isArray(parsed) ? parsed as T[] : []; }
   catch { return []; }
-}
-
-// Electron denies downloads and popups, so exports go through the native save dialog there;
-// a plain browser gets a normal download.
-async function saveTextFile(name: string, text: string, type: string): Promise<boolean> {
-  const saveFile = window.rhythmShell?.saveFile;
-  if (saveFile) return (await saveFile(name, text)) !== null;
-  const url = URL.createObjectURL(new Blob([text], { type }));
-  const link = Object.assign(document.createElement('a'), { href: url, download: name });
-  document.body.append(link); link.click(); link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
-  return true;
-}
-
-function researchExportName(projectName: string, runId: string, format: 'html' | 'markdown'): string {
-  const slug = projectName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'research';
-  return `${slug}-${runId.slice(0, 8)}.${format === 'html' ? 'html' : 'md'}`;
 }
 
 type Trace = { method: string; route: string; detail: string };
@@ -622,10 +607,19 @@ function LiveResearchTool() {
     } catch (err) { notify(err instanceof Error ? err.message : 'Research run could not be finished'); }
   };
 
+  // Comments readers left on the magazine's current version guide the next run's plan.
+  const magazineGuidance = async (project: LiveResearchProject) => {
+    const liveArtifacts = gateway.domains.liveArtifacts;
+    if (!project.magazineArtifactId || !liveArtifacts) return [];
+    try { return guidanceFrom(magazineState((await liveArtifacts.get(project.magazineArtifactId)).state)); }
+    catch { return []; }
+  };
+
   const startRun = async () => {
     if (!selected) return;
     try {
-      const run = await gateway.domains.research!.startRun(selected.id);
+      const guidance = await magazineGuidance(selected);
+      const run = await gateway.domains.research!.startRun(selected.id, guidance);
       setRuns((current) => [run, ...current]);
       setSelectedRunId(run.id);
       setTrace({ method: 'POST', route: `/agent-research/projects/${selected.id}/runs`, detail: 'Manual project run started with {triggerType:"manual"}' });
@@ -668,12 +662,29 @@ function LiveResearchTool() {
     } catch (err) { notify(err instanceof Error ? err.message : 'Research export failed'); }
   };
 
+  // The magazine is the project's living artifact: publish this run into it (idempotent), then open
+  // it in the sandboxed artifact viewer. window.open(blob:) is dropped by the desktop shell.
+  const publishedRuns = useRef(new Map<string, Promise<string>>());
+  const publish = (project: LiveResearchProject, run: ResearchProjectRun) => {
+    const key = `${project.id}:${run.id}`;
+    let pending = publishedRuns.current.get(key);
+    if (!pending) {
+      pending = publishMagazine(gateway.domains.research!, gateway.domains.liveArtifacts!, project, run).then((artifactId) => {
+        setProjects((current) => current.map((candidate) => candidate.id === project.id ? { ...candidate, magazineArtifactId: artifactId } : candidate));
+        return artifactId;
+      });
+      pending.catch(() => publishedRuns.current.delete(key));
+      publishedRuns.current.set(key, pending);
+    }
+    return pending;
+  };
   const openMagazine = async () => {
-    if (!selected || !selectedRun) return;
+    if (!selected || !runDetail) return;
+    if (!gateway.domains.liveArtifacts) { notify('Sign in to open the magazine'); return; }
     try {
-      const html = await gateway.domains.research!.magazine(selected.id, selectedRun.id);
-      window.open(URL.createObjectURL(new Blob([html], { type: 'text/html' })), '_blank', 'noopener');
-      setTrace({ method: 'GET', route: `/agent-research/projects/${selected.id}/runs/${selectedRun.id}/magazine`, detail: 'Magazine view opened' });
+      const artifactId = await publish(selected, runDetail);
+      setTrace({ method: 'GET', route: `/agent-research/projects/${selected.id}/runs/${runDetail.id}/magazine`, detail: 'Magazine published and opened' });
+      navigate(`/dashboard?artifactId=${encodeURIComponent(artifactId)}`);
     } catch (err) { notify(err instanceof Error ? err.message : 'Magazine view failed'); }
   };
 
@@ -685,6 +696,14 @@ function LiveResearchTool() {
       navigate(`/agents?sessionId=${encodeURIComponent(sessionId)}`);
     } catch (err) { notify(err instanceof Error ? err.message : 'Discussion could not be started'); }
   };
+
+  // A run that reaches its synthesis (completion or finish-with-current-evidence) is published into
+  // the magazine while this page watches it, so the Gallery and discussion see it without a click.
+  const synthesized = runDetail ? stageDone(runDetail, (role) => role === 'synthesis') : false;
+  useEffect(() => {
+    if (!selected || !runDetail || !synthesized || !gateway.domains.liveArtifacts || selected.archivedAt) return;
+    publish(selected, runDetail).catch(() => undefined);
+  }, [selected?.id, runDetail?.id, synthesized]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sourceLabel = (source: Record<string, unknown>) => (typeof source.title === 'string' ? source.title : typeof source.canonical_url === 'string' ? source.canonical_url : typeof source.id === 'string' ? source.id : 'Untitled source');
   const hasSynthesis = runDetail ? stageDone(runDetail, (role) => role === 'synthesis') : false;
@@ -1700,6 +1719,9 @@ function LiveGalleryTool() {
   const open = async (design: AgentDesign) => {
     try {
       const path = design.artifactUrl ?? '';
+      // Research magazines are live artifacts: open them in the sandboxed artifact viewer.
+      const liveArtifactId = /^rhythm-artifact:\/\/app\/([0-9a-f-]{36})$/i.exec(path)?.[1];
+      if (liveArtifactId) { navigate(`/dashboard?artifactId=${encodeURIComponent(liveArtifactId)}`); return; }
       if (isMediaDesign(design) && path) {
         // Videos/images open in-app; the blob URL sidesteps the no-cors guard block (see DesignsGateway.asset).
         const url = path.startsWith('/') ? URL.createObjectURL(await gateway.domains.designs!.asset(path)) : path;

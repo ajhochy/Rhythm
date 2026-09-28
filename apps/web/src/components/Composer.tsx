@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { takeComposerSeed } from '../composerSeed';
 import { Icon } from '../icons';
 import { useGateway } from '../gateway/context';
 import { useAuthUser } from '../gateway/auth';
@@ -143,7 +144,7 @@ export function Composer() {
   const attachments = selected.pendingAttachments ?? [];
 
   useEffect(() => {
-    setDraft(selected.queuedDraft || ''); setPickerOpen(false); setAttachmentFeedback(''); setSuggestionsDismissed(false); setHighlighted(0);
+    setDraft(takeComposerSeed(selected.id) ?? (selected.queuedDraft || '')); setPickerOpen(false); setAttachmentFeedback(''); setSuggestionsDismissed(false); setHighlighted(0);
   }, [selected.id, selected.queuedDraft]);
   useEffect(() => { setPendingModel(null); setPendingProfile(null); setSettingsError(''); }, [selected.id]);
   useEffect(() => {

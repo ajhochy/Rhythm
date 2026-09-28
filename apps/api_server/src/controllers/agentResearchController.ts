@@ -25,6 +25,7 @@ import {
   type ResearchProjectPatch,
   type ResearchProject,
   type ResearchProjectRun,
+  type ResearchGuidance,
 } from '../repositories/agent_research_repository';
 import { logger } from '../utils/logger';
 import { findSolePairedUserId } from '../repositories/mobile_devices_repository';
@@ -159,6 +160,25 @@ function triggerType(value: unknown): ResearchProjectRun['triggerType'] {
   if (value === undefined) return 'manual';
   if (value === 'manual' || value === 'scheduled' || value === 'follow-up') return value;
   throw AppError.badRequest('triggerType must be manual, scheduled, or follow-up');
+}
+
+const ARTIFACT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ANCHOR = /^[A-Za-z0-9_-]{1,120}$/;
+
+/** Reader comments carried into the next run's plan: bounded, plain text, no markup trust. */
+export function researchGuidance(value: unknown): ResearchGuidance[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 20) throw AppError.badRequest('guidance must be an array of at most 20 comments');
+  return value.map((item) => {
+    const entry = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+    const text = typeof entry.text === 'string' ? entry.text.trim() : '';
+    const quote = typeof entry.quote === 'string' ? entry.quote.trim() : '';
+    const anchor = entry.anchor === null || entry.anchor === undefined ? null : entry.anchor;
+    if (!text || text.length > 1000 || quote.length > 1000 || (anchor !== null && (typeof anchor !== 'string' || !ANCHOR.test(anchor)))) {
+      throw AppError.badRequest('each guidance comment needs text (<=1000 chars), an optional quote (<=1000) and a section anchor');
+    }
+    return { anchor: anchor as string | null, quote, text };
+  });
 }
 
 function magazineInput(project: ResearchProject, run: ResearchProjectRun): ResearchMagazineInput {
@@ -369,6 +389,24 @@ export class AgentResearchController {
     } catch (err) { next(err); }
   }
 
+  async setProjectMagazineArtifact(req: Request, res: Response, next: NextFunction) {
+    try {
+      const artifactId = (req.body as Record<string, unknown> | undefined)?.artifactId;
+      if (typeof artifactId !== 'string' || !ARTIFACT_ID.test(artifactId)) throw AppError.badRequest('artifactId must be a live artifact id');
+      const project = await researchJobs.setMagazineArtifact(req.params.projectId, projectOwner(req), artifactId.toLowerCase());
+      if (!project) throw AppError.notFound('ResearchProject');
+      res.json(project);
+    } catch (err) { next(err); }
+  }
+
+  async getSessionMagazine(req: Request, res: Response, next: NextFunction) {
+    try {
+      const link = await researchJobs.sessionMagazine(req.params.sessionId, projectOwner(req));
+      if (!link) throw AppError.notFound('ResearchDiscussion');
+      res.json(link);
+    } catch (err) { next(err); }
+  }
+
   async listProjectRuns(req: Request, res: Response, next: NextFunction) {
     try {
       const owner = projectOwner(req);
@@ -381,10 +419,12 @@ export class AgentResearchController {
   async createProjectRun(req: Request, res: Response, next: NextFunction) {
     try {
       const ownerUserId = projectOwner(req);
+      const body = (req.body ?? {}) as Record<string, unknown>;
       const run = await researchJobs.createProjectRun(
         req.params.projectId,
         ownerUserId,
-        triggerType((req.body as Record<string, unknown>).triggerType),
+        triggerType(body.triggerType),
+        researchGuidance(body.guidance),
       );
       if (!run) throw AppError.notFound('ResearchProject');
       res.status(201).json(run);

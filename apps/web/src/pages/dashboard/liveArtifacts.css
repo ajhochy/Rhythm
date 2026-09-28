@@ -41,3 +41,11 @@
 
 .artifact-collaborator-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .artifact-collaborator-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; }
+.live-artifact-surface iframe[hidden] { display: none; }
+.research-magazine-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.research-magazine-tools label { display: inline-flex; align-items: center; gap: 6px; }
+.research-magazine-meta { color: var(--muted); font-size: 13px; }
+.research-magazine-comments { flex-basis: 100%; max-height: 220px; overflow: auto; margin: 0; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; list-style: none; }
+.research-magazine-comments li + li { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 8px; }
+.research-magazine-comments blockquote, .research-magazine-tools blockquote { margin: 4px 0; padding-left: 8px; border-left: 3px solid var(--border); color: var(--muted); }
+.research-magazine-comments p { margin: 4px 0 0; }

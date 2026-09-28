@@ -5,6 +5,7 @@ export default defineConfig({
   testMatch: [
     'post-m1-phase-8-live-artifacts.redspec.ts',
     'post-m1-phase-8-html-import.redspec.ts',
+    'research-magazine-artifact.spec.ts',
     'gateway/post-m1-phase-8-live-artifacts.live.redspec.ts',
     'gateway/post-m1-phase-8-html-import.live.redspec.ts',
   ],

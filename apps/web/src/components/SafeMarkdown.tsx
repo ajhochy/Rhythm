@@ -18,6 +18,8 @@ function ExternalLink({ href, children }: { href: string; children: ReactNode })
   }}>{children}</a><span id={descriptionId} className="sr-only">Opens {new URL(href).hostname} in the default browser.</span><small role="status">{status ? ` (${status})` : ''}</small></span>;
 }
 
+const MAGAZINE_LINK = /^#\/dashboard\?artifactId=[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?:&anchor=[A-Za-z0-9_-]{1,120})?$/i;
+
 function isSafeExternalHref(href: string): boolean {
   if (!/^https?:\/\//i.test(href) || href.length > 4096 || /[\p{Cc}\p{Cf}\s]/u.test(href)) return false;
   try {
@@ -51,7 +53,9 @@ function render(tokens: Token[]): ReactNode {
         node = <table><thead><tr>{table.header.map((cell, index) => <th key={index} scope="col">{render(cell.tokens)}</th>)}</tr></thead><tbody>{table.rows.map((row, index) => <tr key={index}>{row.map((cell, column) => <td key={column}>{render(cell.tokens)}</td>)}</tr>)}</tbody></table>; break;
       }
       case 'link': {
-        node = isSafeExternalHref(token.href) ? <ExternalLink href={token.href}>{nested()}</ExternalLink> : <span>{nested()} (Unsafe link blocked)</span>; break;
+        // The one in-app link form: a research magazine section (#/dashboard?artifactId=<uuid>&anchor=<id>).
+        node = MAGAZINE_LINK.test(token.href) ? <a href={token.href}>{nested()}</a>
+          : isSafeExternalHref(token.href) ? <ExternalLink href={token.href}>{nested()}</ExternalLink> : <span>{nested()} (Unsafe link blocked)</span>; break;
       }
       case 'image': node = <span>{token.text} (Image loading disabled)</span>; break;
       case 'html': node = token.raw; break;

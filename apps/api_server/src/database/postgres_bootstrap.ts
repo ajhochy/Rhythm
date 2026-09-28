@@ -1048,6 +1048,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES agent_research_projects(id) ON DELETE CASCADE`);
   await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS project_run_id TEXT REFERENCES agent_research_project_runs(id) ON DELETE CASCADE`);
   await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS pass_role TEXT`);
+  await pool.query(`ALTER TABLE agent_research_projects ADD COLUMN IF NOT EXISTS magazine_artifact_id TEXT`);
   await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS pass_ordinal INTEGER`);
   await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS run_config_json TEXT`);
   await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS progress_json TEXT`);

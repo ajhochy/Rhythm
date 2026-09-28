@@ -16,10 +16,15 @@ export interface ResearchProject {
   synthesisConfig: Record<string, unknown>;
   scheduleRef: string | null;
   budget: Record<string, unknown>;
+  /** Production live-artifact id of the project's living magazine (null until first published). */
+  magazineArtifactId?: string | null;
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+/** A reader's section comment, fed to the next run's plan (agentResearchController.researchGuidance). */
+export interface ResearchGuidance { anchor: string | null; quote: string; text: string }
 
 export interface ResearchProjectInput {
   name: string;
@@ -68,7 +73,7 @@ export interface ResearchGateway {
   archiveProject(id: string): Promise<ResearchProject>;
   listRuns(projectId: string): Promise<ResearchProjectRun[]>;
   getRun(projectId: string, runId: string): Promise<ResearchProjectRun>;
-  startRun(projectId: string): Promise<ResearchProjectRun>;
+  startRun(projectId: string, guidance?: ResearchGuidance[]): Promise<ResearchProjectRun>;
   cancelRun(projectId: string, runId: string): Promise<ResearchProjectRun>;
   resumeRun(projectId: string, runId: string): Promise<ResearchProjectRun>;
   finishRun(projectId: string, runId: string): Promise<ResearchProjectRun>;
@@ -76,6 +81,8 @@ export interface ResearchGateway {
   startDiscussion(projectId: string, runId: string, selectedArtifactIds: string[]): Promise<ResearchDiscussion>;
   magazine(projectId: string, runId: string): Promise<string>;
   exportRun(projectId: string, runId: string, format: 'html' | 'markdown'): Promise<string>;
+  setMagazineArtifact(projectId: string, artifactId: string): Promise<ResearchProject>;
+  sessionMagazine(sessionId: string): Promise<{ projectId: string; runId: string | null; artifactId: string | null }>;
 }
 
 export class ResearchGatewayError extends Error {
@@ -119,7 +126,7 @@ export function createFixtureResearchGateway(): ResearchGateway {
   return {
     mode: 'fixture', listProjects: unsupported, createProject: unsupported, updateProject: unsupported, archiveProject: unsupported,
     listRuns: unsupported, getRun: unsupported, startRun: unsupported, cancelRun: unsupported, resumeRun: unsupported, finishRun: unsupported, retryPass: unsupported,
-    startDiscussion: unsupported, magazine: unsupported, exportRun: unsupported,
+    startDiscussion: unsupported, magazine: unsupported, exportRun: unsupported, setMagazineArtifact: unsupported, sessionMagazine: unsupported,
   };
 }
 
@@ -136,7 +143,7 @@ export function createLiveResearchGateway(apiBase: string, token: string | undef
     archiveProject: (id) => response<ResearchProject>('Archive research project', request(`${base}/${encodeURIComponent(id)}/archive`, { method: 'POST' })),
     listRuns: (projectId) => response<ResearchProjectRun[]>('Load research runs', request(`${base}/${encodeURIComponent(projectId)}/runs`)),
     getRun: (projectId, runId) => response<ResearchProjectRun>('Load research run', request(`${base}/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}`)),
-    startRun: (projectId) => response<ResearchProjectRun>('Start research run', request(`${base}/${encodeURIComponent(projectId)}/runs`, { method: 'POST', body: JSON.stringify({ triggerType: 'manual' }) })),
+    startRun: (projectId, guidance) => response<ResearchProjectRun>('Start research run', request(`${base}/${encodeURIComponent(projectId)}/runs`, { method: 'POST', body: JSON.stringify({ triggerType: 'manual', ...(guidance?.length ? { guidance } : {}) }) })),
     cancelRun: (projectId, runId) => response<ResearchProjectRun>('Cancel research run', request(`${base}/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST' })),
     resumeRun: (projectId, runId) => response<ResearchProjectRun>('Resume research run', request(`${base}/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}/resume`, { method: 'POST' })),
     finishRun: (projectId, runId) => response<ResearchProjectRun>('Finish research run', request(`${base}/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}/finish`, { method: 'POST' })),
@@ -144,5 +151,7 @@ export function createLiveResearchGateway(apiBase: string, token: string | undef
     startDiscussion: (projectId, runId, selectedArtifactIds) => response<ResearchDiscussion>('Start research discussion', request(`${base}/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}/discussions`, { method: 'POST', body: JSON.stringify({ selectedArtifactIds }) })),
     magazine: (projectId, runId) => textResponse('Load research magazine', request(`${base}/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}/magazine`)),
     exportRun: (projectId, runId, format) => textResponse('Export research run', request(`${base}/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}/export?format=${format}`)),
+    setMagazineArtifact: (projectId, artifactId) => response<ResearchProject>('Link research magazine', request(`${base}/${encodeURIComponent(projectId)}/magazine-artifact`, { method: 'PUT', body: JSON.stringify({ artifactId }) })),
+    sessionMagazine: (sessionId) => response<{ projectId: string; runId: string | null; artifactId: string | null }>('Load discussion magazine', request(`/agent-research/sessions/${encodeURIComponent(sessionId)}/magazine`)),
   };
 }

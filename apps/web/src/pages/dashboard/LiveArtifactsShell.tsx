@@ -7,6 +7,9 @@ import type { MessageThreadParticipant } from '../../gateway/messages';
 import type { UserPreferencesGateway } from '../../gateway/user-preferences';
 import { DashboardPage } from '.';
 import { Timestamp } from '../../components/Timestamp';
+import type { ResearchGateway } from '../../gateway/research';
+import { ARTIFACT_ID, ANCHOR } from '../../research/magazineArtifact';
+import { useResearchMagazine } from './ResearchMagazineTools';
 import './liveArtifacts.css';
 
 type TabStatus = 'loading' | 'ready' | 'unavailable' | 'deleted' | 'conflict' | 'error';
@@ -192,7 +195,7 @@ function SharingDialog({
 }
 
 function LiveArtifactSurface({
-  tab, onReload, setTabs, isOwner, liveArtifacts, listWorkspaceUsers,
+  tab, onReload, setTabs, isOwner, liveArtifacts, listWorkspaceUsers, research, focusAnchor,
 }: {
   tab: ArtifactTab;
   onReload(): void;
@@ -200,8 +203,14 @@ function LiveArtifactSurface({
   isOwner: boolean;
   liveArtifacts: LiveArtifactsGateway;
   listWorkspaceUsers(): Promise<MessageThreadParticipant[]>;
+  research?: ResearchGateway;
+  focusAnchor: string | null;
 }) {
   const [sharingOpen, setSharingOpen] = useState(false);
+  const magazine = useResearchMagazine({ detail: tab.detail, liveArtifacts, research, focusAnchor });
+  // Read through a ref so the bridge effect below never re-runs (and drops its port) on re-render.
+  const extraMethodsRef = useRef(magazine.handle);
+  extraMethodsRef.current = magazine.handle;
   // Referentially stable across renders (tab.id is fixed for this component's lifetime, setTabs
   // never changes identity) so it belongs in the bridge effect's deps without causing it to
   // re-run on every render — re-running would tear down the in-flight MessagePort handshake.
@@ -277,6 +286,11 @@ function LiveArtifactSurface({
             .catch((error) => respond({ error: error instanceof Error ? error.message : 'request_failed' }));
           return;
         }
+        const extra = typeof data.method === 'string' ? extraMethodsRef.current(data.method, data.params) : undefined;
+        if (extra) {
+          extra.then((result) => respond({ result })).catch((error) => respond({ error: error instanceof Error ? error.message : 'request_failed' }));
+          return;
+        }
         if (data.method !== 'pco.services.read') { respond({ error: 'unsupported_method' }); return; }
         if (!detail.declaredCapabilities.includes('pco.services.read')) { respond({ error: 'capability_not_declared' }); return; }
         if (!isValidPcoRequest(data.params)) { respond({ error: 'invalid_request' }); return; }
@@ -326,6 +340,8 @@ function LiveArtifactSurface({
           <button type="button" className="secondary-button" onClick={onReload}>Reload</button>
         </div>
       </header>
+      {magazine.toolbar}
+      {magazine.versionFrame}
       {/* sandbox="allow-scripts" (no allow-same-origin) keeps this an opaque, isolated origin: the
           artifact bundle is untrusted content and must never reach network, file, popup,
           navigation, or download primitives — apps/api_server/src/controllers/live_artifacts_controller.ts:64-69
@@ -335,6 +351,7 @@ function LiveArtifactSurface({
         data-testid="live-artifact-frame"
         title={detail.title}
         sandbox="allow-scripts"
+        hidden={magazine.viewingOld}
         {...(tab.frameUrl ? { src: tab.frameUrl } : { srcDoc: injectBrowserArtifactBridge(tab.html ?? '') })}
       />
       {isOwner && (
@@ -495,9 +512,10 @@ function HtmlImportDialog({ open, onClose, onConfirm, operationError }: {
 }
 
 function LiveArtifactsWorkspace({
-  route, artifactTabIds, liveArtifacts, userPreferences, setArtifactTabIds, currentUserId, listWorkspaceUsers,
+  route, artifactTabIds, liveArtifacts, userPreferences, setArtifactTabIds, currentUserId, listWorkspaceUsers, research,
 }: {
   route: string;
+  research?: ResearchGateway;
   artifactTabIds: string[];
   liveArtifacts: LiveArtifactsGateway;
   userPreferences: UserPreferencesGateway;
@@ -506,6 +524,7 @@ function LiveArtifactsWorkspace({
   listWorkspaceUsers(): Promise<MessageThreadParticipant[]>;
 }) {
   const [tabs, setTabs] = useState<ArtifactTab[]>([]);
+  const [seeded, setSeeded] = useState(false);
   // Dashboard is always the initial selection — never the last-active artifact tab.
   const [selected, setSelected] = useState<string>('dashboard');
   // App deliberately mounts this workspace with a fixed route prop. Observe visibility
@@ -540,6 +559,7 @@ function LiveArtifactsWorkspace({
       }
       if (active) {
         setTabs(loaded);
+        setSeeded(true);
         for (const tab of loaded) if (tab.detail) void loadTab(tab.id);
       }
     })();
@@ -607,6 +627,28 @@ function LiveArtifactsWorkspace({
     await persistTabIds(nextTabs.map((tab) => tab.id));
     await loadTab(id);
   }
+
+  // #/dashboard?artifactId=<uuid>[&anchor=<section>] opens (or selects) that artifact's tab — the
+  // target of the research page's Magazine button and of magazine section links in transcripts.
+  const [focusAnchors, setFocusAnchors] = useState<Record<string, string>>({});
+  const openArtifactRef = useRef(openArtifact);
+  openArtifactRef.current = openArtifact;
+  useEffect(() => {
+    if (!seeded) return undefined;
+    const openFromHash = () => {
+      const [path, query = ''] = window.location.hash.replace(/^#/, '').split('?');
+      if (path !== '/dashboard') return;
+      const params = new URLSearchParams(query);
+      const id = params.get('artifactId');
+      if (!id || !ARTIFACT_ID.test(id)) return;
+      const anchor = params.get('anchor');
+      if (anchor && ANCHOR.test(anchor)) setFocusAnchors((current) => ({ ...current, [id]: anchor }));
+      void openArtifactRef.current(id, 'Research magazine');
+    };
+    openFromHash();
+    window.addEventListener('hashchange', openFromHash);
+    return () => window.removeEventListener('hashchange', openFromHash);
+  }, [seeded]);
 
   async function confirmImport(input: { title: string; source: string }) {
     setOperationError('');
@@ -693,6 +735,8 @@ function LiveArtifactsWorkspace({
               isOwner={tab.detail?.ownerUserId === currentUserId}
               liveArtifacts={liveArtifacts}
               listWorkspaceUsers={listWorkspaceUsers}
+              research={research}
+              focusAnchor={focusAnchors[tab.id] ?? null}
             />
           </div>
         ))}
@@ -728,6 +772,7 @@ export function LiveArtifactsShell({ route }: { route: string }) {
       setArtifactTabIds={authUser.setArtifactTabIds}
       currentUserId={authUser.user.id}
       listWorkspaceUsers={() => messages.users()}
+      research={gateway.domains.research}
     />
   );
 }
