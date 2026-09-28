@@ -133,6 +133,9 @@ export interface IndexedNote {
   /** Vault-relative note path — the stable idempotency key (source_id). */
   sourceId: string;
   parsed: ParsedNote;
+  /** Note dates from the vault scan; omitted by live write paths (→ now). */
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export class MemoryIndexService {
@@ -174,8 +177,8 @@ export class MemoryIndexService {
     logger.info(`[MemoryIndex] startup clear complete: rows=${cleared}`);
 
     let indexed = 0;
-    for (const { sourceId, parsed } of notes) {
-      await this.upsertNote({ sourceId, parsed });
+    for (const note of notes) {
+      await this.upsertNote(note);
       indexed += 1;
       if (indexed % 100 === 0) {
         logger.info(`[MemoryIndex] startup rebuild progress: indexed=${indexed}`);
@@ -217,6 +220,8 @@ export class MemoryIndexService {
       trustTier: note.parsed.trustTier ?? 'unverified',
       autoInjectable: classifyVaultNoteInjectability(note.sourceId, note.parsed),
       ownerUserId: this.ownerUserId,
+      createdAt: note.createdAt,
+      updatedAt: note.updatedAt,
     });
   }
 

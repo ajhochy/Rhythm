@@ -140,6 +140,20 @@ export interface ParsedNote {
   trustTier?: MemoryTrustTier;
   /** Explicit frontmatter override; undefined delegates to safe path/kind rules. */
   autoInjectable?: boolean;
+  /** Frontmatter `created` (or legacy `date`) as an ISO instant, when valid. */
+  created?: string;
+  /** Frontmatter `updated` as an ISO instant, when valid. */
+  updated?: string;
+}
+
+/** Frontmatter date (YYYY-MM-DD, full instant, or YAML Date) → ISO instant. */
+export function noteTimestamp(value: unknown): string | undefined {
+  const date = value instanceof Date
+    ? value
+    : typeof value === 'string' && value.trim() !== ''
+      ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(value.trim()) ? `${value.trim()}T00:00:00.000Z` : value.trim())
+      : undefined;
+  return date && !Number.isNaN(date.valueOf()) ? date.toISOString() : undefined;
 }
 
 /**
@@ -179,6 +193,8 @@ export function parseNote(raw: string): ParsedNote {
     sources: document.sources,
     trustTier: deriveTrustTier(document.frontmatter),
     autoInjectable,
+    created: noteTimestamp(document.frontmatter.created ?? document.frontmatter.date),
+    updated: noteTimestamp(document.frontmatter.updated),
   };
 }
 
@@ -188,6 +204,10 @@ export interface ScannedNote {
   sourceId: string;
   /** Parsed frontmatter + body. */
   parsed: ParsedNote;
+  /** Frontmatter created, else file birthtime — never the scan time. */
+  createdAt: string;
+  /** Frontmatter updated, else file mtime. */
+  updatedAt: string;
 }
 
 /** Classify vault synthesis documents independently of their legacy frontmatter. */
@@ -248,13 +268,24 @@ export async function scanVaultNotes(vaultPath: string): Promise<ScannedNote[]> 
   const notes: ScannedNote[] = [];
   for (const rel of relativePaths) {
     let raw: string;
+    let fileStat: import('node:fs').Stats;
     try {
       raw = await fs.readFile(path.join(vaultPath, rel), 'utf8');
+      fileStat = await fs.stat(path.join(vaultPath, rel));
     } catch (err) {
       logger.warn(`[MemoryVaultScan] Could not read note "${rel}": ${String(err)}`);
       continue;
     }
-    notes.push({ sourceId: rel, parsed: parseNote(raw) });
+    const parsed = parseNote(raw);
+    // birthtime is epoch 0 on filesystems that do not record it → fall back to mtime.
+    const born = fileStat.birthtime.getTime() > 0 ? fileStat.birthtime : fileStat.mtime;
+    const createdAt = parsed.created ?? born.toISOString();
+    notes.push({
+      sourceId: rel,
+      parsed,
+      createdAt,
+      updatedAt: parsed.updated ?? fileStat.mtime.toISOString(),
+    });
   }
   return notes;
 }
@@ -324,7 +355,7 @@ export async function syncMemoryVault(
   const presentSourceIds = new Set<string>();
   let upserted = 0;
 
-  for (const { sourceId, parsed } of notes) {
+  for (const { sourceId, parsed, createdAt, updatedAt } of notes) {
     presentSourceIds.add(sourceId);
     await repo.upsertBySourceAsync({
       kind: classifyVaultNoteKind(sourceId, parsed.kind),
@@ -341,6 +372,8 @@ export async function syncMemoryVault(
       trustTier: parsed.trustTier ?? 'unverified',
       autoInjectable: classifyVaultNoteInjectability(sourceId, parsed),
       ownerUserId,
+      createdAt,
+      updatedAt,
     });
     upserted += 1;
   }

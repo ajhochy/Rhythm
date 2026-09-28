@@ -15,7 +15,7 @@
  * so it benefits from the same blast-radius isolation.
  */
 
-import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
+import { AgentMemoryRepository, type MemoryListOptions } from '../repositories/agent_memory_repository';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { recordSeedMarker, seedMarkerExists } from './seed_once';
 import { logger } from '../utils/logger';
@@ -77,8 +77,18 @@ export const agentMemoryService = {
   },
 
   /** List memories, optionally filtered by kind. */
-  async list(ownerUserId?: number, kind?: string, limit = 50) {
-    return memRepo.listAsync(ownerUserId, kind, limit);
+  async list(
+    ownerUserId?: number,
+    kind?: string,
+    limit = 50,
+    options: MemoryListOptions = {},
+  ) {
+    return memRepo.listAsync(ownerUserId, kind, limit, options);
+  },
+
+  /** Per-kind row counts (ignores the kind filter so every chip gets a number). */
+  async countByKind(ownerUserId?: number, includeDeprecated = true) {
+    return memRepo.countByKindAsync(ownerUserId, includeDeprecated);
   },
 
   /** Resolve either the derived index-row id or the frontmatter id returned by remember(). */

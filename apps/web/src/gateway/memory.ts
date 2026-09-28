@@ -26,11 +26,18 @@ export interface AgentMemory {
 
 export interface MemoryUpdateInput { content?: string; kind?: string; tags?: string[] }
 
+export interface MemoryListQuery { kind?: string; includeDeprecated?: boolean; offset?: number; limit?: number }
+// counts/total are absent when an older server answers with the bare array.
+export interface MemoryPage { items: AgentMemory[]; counts?: Record<string, number>; total?: number }
+
 export interface MemoryGateway {
   readonly mode: GatewayMode;
   // GET /agent-memory — apps/api_server/src/routes/agentMemoryRoutes.ts:18; owner-scoped
   // list per apps/api_server/src/repositories/agent_memory_repository.ts:301-315.
   list(): Promise<AgentMemory[]>;
+  // GET /agent-memory?withCounts=true&kind=&includeDeprecated=&offset=&limit= — paged list
+  // (non-deprecated first, newest updated first) plus per-kind counts.
+  listPage(query: MemoryListQuery): Promise<MemoryPage>;
   // GET /agent-memory/search?q= — apps/api_server/src/routes/agentMemoryRoutes.ts:19.
   search(query: string): Promise<AgentMemory[]>;
   // PATCH /agent-memory/:id — apps/api_server/src/controllers/agentMemoryController.ts:152-184.
@@ -59,7 +66,7 @@ async function response<T>(operation: string, pending: Promise<Response>): Promi
 
 export function createFixtureMemoryGateway(): MemoryGateway {
   const unsupported = async (): Promise<never> => { throw new MemoryGatewayError(0, 'Fixture memory gateway is unsupported'); };
-  return { mode: 'fixture', list: unsupported, search: unsupported, update: unsupported, remove: unsupported };
+  return { mode: 'fixture', list: unsupported, listPage: unsupported, search: unsupported, update: unsupported, remove: unsupported };
 }
 
 export function createLiveMemoryGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): MemoryGateway {
@@ -69,6 +76,15 @@ export function createLiveMemoryGateway(apiBase: string, token: string | undefin
   return {
     mode: 'live',
     list: () => response<AgentMemory[]>('Load memories', request('/agent-memory')),
+    listPage: async ({ kind, includeDeprecated, offset, limit }) => {
+      const params = new URLSearchParams({ withCounts: 'true' });
+      if (kind) params.set('kind', kind);
+      if (includeDeprecated) params.set('includeDeprecated', 'true');
+      if (offset) params.set('offset', String(offset));
+      if (limit) params.set('limit', String(limit));
+      const body = await response<AgentMemory[] | MemoryPage>('Load memories', request(`/agent-memory?${params}`));
+      return Array.isArray(body) ? { items: body } : body;
+    },
     search: (query) => response<AgentMemory[]>('Search memories', request(`/agent-memory/search?q=${encodeURIComponent(query)}`)),
     update: (id, patch) => response<AgentMemory>('Update memory', request(`/agent-memory/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) })),
     remove: (id) => response<void>('Delete memory', request(`/agent-memory/${encodeURIComponent(id)}`, { method: 'DELETE' })),

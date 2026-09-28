@@ -35,3 +35,6 @@
 .list-inspector .proposal-card {
   max-width: none;
 }
+
+.memory-filter-chips { display: flex; flex-wrap: wrap; gap: 4px; width: 100%; }
+.memory-chip-count { color: var(--muted); font-variant-numeric: tabular-nums; }

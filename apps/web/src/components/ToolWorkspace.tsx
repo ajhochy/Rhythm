@@ -176,43 +176,71 @@ function FixtureBrainTool() {
 // Live memory surface — apps/api_server/src/repositories/agent_memory_repository.ts:9-30 is the
 // canonical row shape. `lifecycleState` and `trustTier` are rendered verbatim from the server;
 // this must never fall back to the fixture's seeded 'verified'/'reviewed' display literals.
+const MEMORY_PAGE_SIZE = 50;
+const memoryKindFilters: Array<[kind: string, label: string]> = [
+  ['', 'All'], ['fact', 'Facts'], ['preference', 'Preferences'], ['project', 'Projects'], ['person', 'People'],
+  ['decision', 'Decisions'], ['context', 'Context'], ['synthesis', 'Summaries'],
+];
+
 function LiveBrainTool() {
   const gateway = useGateway();
   const [memories, setMemories] = useState<AgentMemory[]>([]);
   const [selectedId, setSelectedId] = useSelectedId('memoryId');
   const [query, setQuery] = useState('');
+  const [kind, setKind] = useState('');
+  const [showDeprecated, setShowDeprecated] = useState(false);
+  const [counts, setCounts] = useState<Record<string, number> | undefined>();
+  const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-memory', detail: 'Loading live memories' });
-  const effectiveId = selectedId ?? memories[0]?.id ?? null;
-  const selected = memories.find((item) => item.id === effectiveId) ?? null;
-  useEffect(() => { if (selectedId === null && memories[0]) setSelectedId(memories[0].id); }, [selectedId, memories, setSelectedId]);
+  const requestSeq = useRef(0);
+  // Server search ignores kind/deprecated, so apply both filters to search hits client-side.
+  const visible = query
+    ? memories.filter((memory) => (!kind || memory.kind === kind) && (showDeprecated || memory.status !== 'deprecated'))
+    : memories;
+  const effectiveId = selectedId ?? visible[0]?.id ?? null;
+  const selected = visible.find((item) => item.id === effectiveId) ?? null;
+  useEffect(() => { if (selectedId === null && visible[0]) setSelectedId(visible[0].id); }, [selectedId, visible, setSelectedId]);
 
-  const load = async () => {
+  const fetchPage = async (offset: number) => {
+    const seq = ++requestSeq.current;
+    // Load more keeps the current rows on screen; only a fresh page shows the list loading state.
+    const setBusy = offset === 0 ? setLoading : setLoadingMore;
     setError(null);
-    setLoading(true);
+    setBusy(true);
     try {
-      const next = await gateway.domains.memory!.list();
+      const page = await gateway.domains.memory!.listPage({ kind: kind || undefined, includeDeprecated: showDeprecated, offset, limit: MEMORY_PAGE_SIZE });
+      if (seq !== requestSeq.current) return;
+      const next = offset === 0 ? page.items : [...memories, ...page.items];
       setMemories(next);
-      setTrace({ method: 'GET', route: '/agent-memory', detail: `${next.length} memories loaded` });
-    } catch (err) { setError(err instanceof Error ? err.message : 'Memory list failed'); }
-    finally { setLoading(false); }
+      setCounts(page.counts);
+      setHasMore(page.total === undefined ? page.items.length === MEMORY_PAGE_SIZE : next.length < page.total);
+      const params = new URLSearchParams({ withCounts: 'true', ...(kind ? { kind } : {}), ...(showDeprecated ? { includeDeprecated: 'true' } : {}), ...(offset ? { offset: String(offset) } : {}) });
+      setTrace({ method: 'GET', route: `/agent-memory?${params}`, detail: `${next.length}${page.total === undefined ? '' : ` of ${page.total}`} memories loaded` });
+    } catch (err) { if (seq === requestSeq.current) setError(err instanceof Error ? err.message : 'Memory list failed'); }
+    finally { if (seq === requestSeq.current || offset > 0) setBusy(false); }
   };
-  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const load = () => { setQuery(''); return fetchPage(0); };
+  useEffect(() => { if (!query) void fetchPage(0); }, [kind, showDeprecated]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const search = async (value: string) => {
     setQuery(value);
+    if (!value) { void fetchPage(0); return; }
+    const seq = ++requestSeq.current;
     setError(null);
     setLoading(true);
     try {
-      const next = value ? await gateway.domains.memory!.search(value) : await gateway.domains.memory!.list();
+      const next = await gateway.domains.memory!.search(value);
+      if (seq !== requestSeq.current) return;
       setMemories(next);
-      setTrace(value
-        ? { method: 'GET', route: `/agent-memory/search?q=${encodeURIComponent(value)}`, detail: `${next.length} memories matched` }
-        : { method: 'GET', route: '/agent-memory', detail: `${next.length} memories loaded` });
-    } catch (err) { setError(err instanceof Error ? err.message : 'Memory search failed'); }
-    finally { setLoading(false); }
+      setHasMore(false);
+      setTrace({ method: 'GET', route: `/agent-memory/search?q=${encodeURIComponent(value)}`, detail: `${next.length} memories matched` });
+    } catch (err) { if (seq === requestSeq.current) setError(err instanceof Error ? err.message : 'Memory search failed'); }
+    finally { if (seq === requestSeq.current) setLoading(false); }
   };
+  const allCount = counts ? Object.values(counts).reduce((sum, n) => sum + n, 0) : undefined;
 
   const tags = selected ? parseJsonArray<string>(selected.tagsJson) : [];
   const sources = selected ? parseJsonArray<{ id?: string; title?: string }>(selected.sourcesJson) : [];
@@ -220,12 +248,18 @@ function LiveBrainTool() {
   return <ToolFrame slug="brain" title="Agent Memory" description="Search, inspect, and curate the persistent memories available to agent sessions." trace={trace}>
     <ListInspector
       label="Agent memories"
-      items={memories.map((memory) => ({ id: `memory-${memory.id}`, title: memory.content, subtitle: `${memory.kind} · ${memory.lifecycleState ?? memory.status}`, meta: parseJsonArray<string>(memory.tagsJson).join(' · '), badge: memory.trustTier }))}
+      items={visible.map((memory) => ({ id: `memory-${memory.id}`, title: memory.content, subtitle: `${memory.kind} · ${memory.lifecycleState ?? memory.status}`, meta: parseJsonArray<string>(memory.tagsJson).join(' · '), badge: memory.trustTier }))}
       selectedId={effectiveId === null ? null : `memory-${effectiveId}`}
       onSelect={(rowId) => setSelectedId(rowId.slice('memory-'.length))}
       loading={loading}
       error={error ? <section className="tool-state-panel error" data-testid="brain-error"><span className="tool-state-code">Error</span><p>{error}</p></section> : undefined}
-      toolbar={<><label className="list-inspector-search"><span className="sr-only">Search Agent memories</span><input type="search" value={query} onChange={(event) => void search(event.target.value)} placeholder="Search memories…" data-testid="brain-search" /></label><button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="brain-refresh"><Icon name="refresh" size={14} />Refresh</button></>}
+      toolbar={<><label className="list-inspector-search"><span className="sr-only">Search Agent memories</span><input type="search" value={query} onChange={(event) => void search(event.target.value)} placeholder="Search memories…" data-testid="brain-search" /></label><button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="brain-refresh"><Icon name="refresh" size={14} />Refresh</button>
+        <div className="memory-filter-chips" role="group" aria-label="Filter memories by kind">{memoryKindFilters.map(([value, label]) => {
+          const count = value ? counts?.[value] ?? (counts ? 0 : undefined) : allCount;
+          return <button key={value || 'all'} className={`toggle-button ${kind === value ? 'active' : ''}`} type="button" aria-pressed={kind === value} onClick={() => setKind(value)} data-testid={`brain-kind-${value || 'all'}`}>{label}{count !== undefined && <small className="memory-chip-count">{count}</small>}</button>;
+        })}</div>
+        <button className={`toggle-button ${showDeprecated ? 'active' : ''}`} type="button" aria-pressed={showDeprecated} onClick={() => setShowDeprecated((value) => !value)} data-testid="brain-show-deprecated">Show deprecated</button></>}
+      listFooter={hasMore && !query ? <button className="secondary-button compact" type="button" disabled={loading || loadingMore} onClick={() => void fetchPage(memories.length)} data-testid="brain-load-more">{loadingMore ? 'Loading…' : 'Load more'}</button> : undefined}
       emptyState={<EmptyState title="No memories found">Try a different phrase, or clear the search to reload the live list.</EmptyState>}
       inspector={(item) => item && selected ? <>
         <header className="detail-header"><div><span className="kind-badge">{selected.kind}</span><p>{selected.lifecycleState ?? selected.status} · {selected.trustTier}{tags.length > 0 ? ` · ${tags.join(' · ')}` : ''}</p></div></header>

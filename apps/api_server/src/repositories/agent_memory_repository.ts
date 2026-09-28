@@ -106,6 +106,17 @@ function rowToModel(row: Record<string, unknown>): AgentMemory {
   };
 }
 
+export interface MemoryListOptions {
+  offset?: number;
+  includeDeprecated?: boolean;
+}
+
+/** Renumber `?` placeholders as `$1..$n` for pg (callers never embed a literal `?`). */
+function toPgPlaceholders(sql: string): string {
+  let n = 0;
+  return sql.replace(/\?/g, () => `$${++n}`);
+}
+
 function changeRowToModel(row: Record<string, unknown>): AgentMemoryChange {
   return {
     id: row.id as string,
@@ -429,49 +440,77 @@ export class AgentMemoryRepository {
     return (rows as Record<string, unknown>[]).map(rowToModel);
   }
 
-  async listAsync(ownerUserId?: number, kind?: string, limit = 50): Promise<AgentMemory[]> {
-    if (env.dbClient === 'postgres') {
-      const conditions: string[] = [];
-      const params: unknown[] = [];
-      if (ownerUserId != null) {
-        params.push(ownerUserId);
-        // Vault-synced notes are instance-global (owner NULL). Authenticated
-        // readers must see those alongside their own private rows.
-        conditions.push(
-          `(owner_user_id = $${params.length} OR owner_user_id IS NULL)`,
-        );
-      }
-      if (kind) { conditions.push(`kind = $${params.length + 1}`); params.push(kind); }
-      params.push(limit);
-      const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-      const r = await getPostgresPool().query(
-        `SELECT id, kind, content, source, source_id, tags_json,
+  /**
+   * List order: non-deprecated first, then most recently updated, then id.
+   * `includeDeprecated` defaults to true here so internal full-scan callers
+   * keep seeing every row; the HTTP list endpoint opts out by default.
+   */
+  async listAsync(
+    ownerUserId?: number,
+    kind?: string,
+    limit = 50,
+    options: MemoryListOptions = {},
+  ): Promise<AgentMemory[]> {
+    const { where, params } = this._listFilters(
+      ownerUserId, kind, options.includeDeprecated ?? true,
+    );
+    const order = `ORDER BY CASE WHEN status = 'deprecated' THEN 1 ELSE 0 END,
+                   updated_at DESC, id ASC`;
+    const columns = `id, kind, content, source, source_id, tags_json,
                 status, stale_after, verified_json, sources_json,
                 generated_by, generated_at, trust_tier, auto_injectable,
-                owner_user_id, created_at, updated_at
-         FROM agent_memory ${where} ORDER BY created_at DESC LIMIT $${params.length}`,
+                owner_user_id, created_at, updated_at`;
+    params.push(limit, Math.max(0, options.offset ?? 0));
+    if (env.dbClient === 'postgres') {
+      const r = await getPostgresPool().query(
+        toPgPlaceholders(
+          `SELECT ${columns} FROM agent_memory ${where} ${order} LIMIT ? OFFSET ?`,
+        ),
         params,
       );
       return r.rows.map(rowToModel);
     }
+    const rows = getDb().prepare(
+      `SELECT ${columns} FROM agent_memory ${where} ${order} LIMIT ? OFFSET ?`,
+    ).all(...params);
+    return (rows as Record<string, unknown>[]).map(rowToModel);
+  }
 
+  /** Row counts per kind under the same owner/deprecated filters as listAsync. */
+  async countByKindAsync(
+    ownerUserId?: number,
+    includeDeprecated = true,
+  ): Promise<Record<string, number>> {
+    const { where, params } = this._listFilters(ownerUserId, undefined, includeDeprecated);
+    const sql = `SELECT kind, COUNT(*) AS n FROM agent_memory ${where} GROUP BY kind`;
+    const rows = env.dbClient === 'postgres'
+      ? (await getPostgresPool().query(toPgPlaceholders(sql), params)).rows
+      : getDb().prepare(sql).all(...params) as Record<string, unknown>[];
+    const counts: Record<string, number> = {};
+    for (const row of rows) counts[String(row.kind)] = Number(row.n);
+    return counts;
+  }
+
+  /** Shared WHERE clause, written with `?` placeholders (Postgres renumbers). */
+  private _listFilters(
+    ownerUserId: number | undefined,
+    kind: string | undefined,
+    includeDeprecated: boolean,
+  ): { where: string; params: unknown[] } {
     const conditions: string[] = [];
     const params: unknown[] = [];
     if (ownerUserId != null) {
+      // Vault-synced notes are instance-global (owner NULL). Authenticated
+      // readers must see those alongside their own private rows.
       conditions.push('(owner_user_id = ? OR owner_user_id IS NULL)');
       params.push(ownerUserId);
     }
     if (kind) { conditions.push('kind = ?'); params.push(kind); }
-    params.push(limit);
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    const rows = getDb().prepare(
-      `SELECT id, kind, content, source, source_id, tags_json,
-              status, stale_after, verified_json, sources_json,
-              generated_by, generated_at, trust_tier, auto_injectable,
-              owner_user_id, created_at, updated_at
-       FROM agent_memory ${where} ORDER BY created_at DESC LIMIT ?`,
-    ).all(...params);
-    return (rows as Record<string, unknown>[]).map(rowToModel);
+    if (!includeDeprecated) conditions.push(`status != 'deprecated'`);
+    return {
+      where: conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '',
+      params,
+    };
   }
 
   /**
@@ -500,8 +539,13 @@ export class AgentMemoryRepository {
     trustTier?: MemoryTrustTier;
     autoInjectable?: boolean;
     ownerUserId?: number | null;
+    /** Note's own dates (frontmatter / file stat); default = now. An existing row keeps its created_at. */
+    createdAt?: string;
+    updatedAt?: string;
   }): Promise<boolean> {
     const now = new Date().toISOString();
+    const createdAt = input.createdAt ?? now;
+    const updatedAt = input.updatedAt ?? input.createdAt ?? now;
 
     if (env.dbClient === 'postgres') {
       const existing = await getPostgresPool().query(
@@ -522,7 +566,7 @@ export class AgentMemoryRepository {
             input.verifiedJson ?? '[]', input.sourcesJson ?? '[]',
             input.generatedBy ?? null, input.generatedAt ?? null,
             input.trustTier ?? 'unverified', input.autoInjectable ?? false,
-            now, existing.rows[0].id,
+            updatedAt, existing.rows[0].id,
           ],
         );
         return false;
@@ -541,7 +585,7 @@ export class AgentMemoryRepository {
           input.verifiedJson ?? '[]', input.sourcesJson ?? '[]',
           input.generatedBy ?? null, input.generatedAt ?? null,
           input.trustTier ?? 'unverified', input.autoInjectable ?? false,
-          input.ownerUserId ?? null, now, now,
+          input.ownerUserId ?? null, createdAt, updatedAt,
         ],
       );
       return true;
@@ -576,7 +620,7 @@ export class AgentMemoryRepository {
         input.generatedAt ?? null,
         input.trustTier ?? 'unverified',
         input.autoInjectable ? 1 : 0,
-        now,
+        updatedAt,
         existing.id,
       );
       this._ftsInsert(existing.rowid, input.content, input.kind, input.tagsJson);
@@ -603,8 +647,8 @@ export class AgentMemoryRepository {
       input.trustTier ?? 'unverified',
       input.autoInjectable ? 1 : 0,
       input.ownerUserId ?? null,
-      now,
-      now,
+      createdAt,
+      updatedAt,
     );
     const inserted = getDb()
       .prepare(`SELECT rowid FROM agent_memory WHERE id = ?`)

@@ -61,3 +61,51 @@ test('post-m1-p7-c1b: live memory renders canonical provenance verification life
   await expect(page.getByText(/human:phase-7/)).toBeVisible();
   await expect(page.getByText(/verified|reviewed/, { exact: true })).toHaveCount(0);
 });
+
+test('post-m1-p7-c1c: kind chips with counts, deprecated toggle, and load more page the live list', async ({ page }) => {
+  // Regression caught: rebuild-time created_at let 30 deprecated daily summaries fill the only page.
+  const rows = [
+    ...Array.from({ length: 60 }, (_, i) => ({ ...memory, id: `fact-${i}`, kind: 'fact', content: `Fact number ${i}` })),
+    { ...memory, id: 'pref-0', kind: 'preference', content: 'Preference canary' },
+    { ...memory, id: 'syn-0', kind: 'synthesis', status: 'deprecated', lifecycleState: 'deprecated', content: 'Deprecated summary canary' },
+  ];
+  const seen: SeenRequest[] = [];
+  await openPhase7Live(page, '/tools/brain', seen, async (route, request) => {
+    const url = new URL(request.url());
+    if (url.pathname !== '/agent-memory') return false;
+    const q = url.searchParams;
+    const base = rows.filter((row) => q.get('includeDeprecated') === 'true' || row.status !== 'deprecated');
+    const counts: Record<string, number> = {};
+    for (const row of base) counts[row.kind] = (counts[row.kind] ?? 0) + 1;
+    const filtered = base.filter((row) => !q.get('kind') || row.kind === q.get('kind'));
+    const offset = Number(q.get('offset') ?? 0);
+    const limit = Number(q.get('limit') ?? 50);
+    await fulfillJson(route, 200, { items: filtered.slice(offset, offset + limit), counts, total: filtered.length });
+    return true;
+  });
+
+  const list = page.getByRole('listbox', { name: 'Agent memories' });
+  await expect(list.getByRole('option')).toHaveCount(50);
+  await expect(page.getByTestId('brain-kind-all')).toContainText('61');
+  await expect(page.getByTestId('brain-kind-fact')).toContainText('60');
+  await expect(page.getByTestId('brain-kind-synthesis')).toContainText('0');
+  await expect(page.getByText('Deprecated summary canary')).toHaveCount(0);
+
+  await page.getByTestId('brain-load-more').click();
+  await expect(list.getByRole('option')).toHaveCount(61);
+  await expect(page.getByTestId('brain-load-more')).toHaveCount(0);
+  expect(matching(seen, 'GET', '/agent-memory').some((r) => r.search.includes('offset=50'))).toBe(true);
+
+  await page.getByTestId('brain-kind-preference').click();
+  await expect(page.getByTestId('brain-kind-preference')).toHaveAttribute('aria-pressed', 'true');
+  await expect(list.getByRole('option')).toHaveCount(1);
+  await expect(list.getByText('Preference canary')).toBeVisible();
+
+  await page.getByTestId('brain-kind-synthesis').click();
+  await expect(list.getByRole('option')).toHaveCount(0);
+  await page.getByTestId('brain-show-deprecated').click();
+  await expect(page.getByTestId('brain-show-deprecated')).toHaveAttribute('aria-pressed', 'true');
+  await expect(list.getByText('Deprecated summary canary')).toBeVisible();
+  await expect(page.getByTestId('brain-kind-synthesis')).toContainText('1');
+  expect(matching(seen, 'GET', '/agent-memory').some((r) => r.search.includes('includeDeprecated=true') && r.search.includes('kind=synthesis'))).toBe(true);
+});
