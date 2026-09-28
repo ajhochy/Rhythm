@@ -65,6 +65,12 @@ export interface SkillFrontmatter {
    * per turn forever. See harvested_skill_evaluator.ts's rewrite sweep.
    */
   rewriteAttemptedAt?: string;
+  /**
+   * Category tags for grouping in the Skills UI: top-level `tags` + `category`,
+   * plus any `tags` nested under `metadata` (e.g. Hermes' `metadata.hermes.tags`).
+   * Absent when the skill declares none.
+   */
+  tags?: string[];
 }
 
 const EMPTY_FRONTMATTER: SkillFrontmatter = {
@@ -288,6 +294,20 @@ function parseSimpleBlockList(lines: string[], startIdx: number, baseIndent: num
  * found), which is exactly the "behaves as before" regression contract each
  * issue requires for skills that don't declare these fields.
  */
+/** Collect a `tags:` list (inline or block) at any depth inside the block starting at startIdx. */
+function collectNestedTags(lines: string[], startIdx: number, baseIndent: number, into: string[]): void {
+  for (let i = startIdx; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.trim() === '') continue;
+    const indent = indentOf(line);
+    if (indent <= baseIndent) return;
+    const trimmed = line.trim();
+    const inline = /^tags:\s*(\[.*\])\s*$/.exec(trimmed);
+    if (inline) into.push(...parseInlineList(inline[1]));
+    else if (/^tags:\s*$/.test(trimmed)) into.push(...parseSimpleBlockList(lines, i + 1, indent));
+  }
+}
+
 export function parseSkillFrontmatter(content: string): SkillFrontmatter {
   try {
     const block = extractFrontmatterBlock(content ?? '');
@@ -300,6 +320,7 @@ export function parseSkillFrontmatter(content: string): SkillFrontmatter {
       fallbackForToolsets: [],
       pythonDependencies: [],
     };
+    const tags: string[] = [];
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -359,6 +380,21 @@ export function parseSkillFrontmatter(content: string): SkillFrontmatter {
         continue;
       }
 
+      const tagsInline = /^tags:\s*(\[.*\])\s*$/.exec(trimmed);
+      if (tagsInline) {
+        tags.push(...parseInlineList(tagsInline[1]));
+        continue;
+      }
+      if (/^tags:\s*$/.test(trimmed)) {
+        tags.push(...parseSimpleBlockList(lines, i + 1, 0));
+        continue;
+      }
+      const categoryMatch = /^category:\s*(.+)$/.exec(trimmed);
+      if (categoryMatch) {
+        tags.push(unquote(categoryMatch[1]));
+        continue;
+      }
+
       const inlineEnvMatch = /^required_environment_variables:\s*(\[.*\])\s*$/.exec(trimmed);
       if (inlineEnvMatch) {
         // Inline flow-list of bare names (rare, but tolerate it): treat each
@@ -385,10 +421,13 @@ export function parseSkillFrontmatter(content: string): SkillFrontmatter {
         const { requiresToolsets, fallbackForToolsets } = parseMetadataRhythmBlock(lines, i + 1, 0);
         result.requiresToolsets = requiresToolsets;
         result.fallbackForToolsets = fallbackForToolsets;
+        collectNestedTags(lines, i + 1, 0, tags);
         continue;
       }
     }
 
+    const uniqueTags = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
+    if (uniqueTags.length) result.tags = uniqueTags;
     return result;
   } catch {
     return { ...EMPTY_FRONTMATTER };

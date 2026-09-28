@@ -417,9 +417,9 @@ export function Profiles() {
     if (groupId === 'skills' && live && skillMode === 'selected') return column('Skills', <div data-testid="profile-skill-catalog"><ColumnChecklist noun="skills" filter={skillFilter} onFilterChange={setSkillFilter} filterLabel="Filter skills" filterPlaceholder="Name, description, or source" filterTestId="profile-capability-filter" disabled={!!skillPolicy.error || skillMutation}
       groups={[{ id: 'all', rows: skillRows, onChange: (names: string[]) => setSkillGroup(names, allSkillChoices) }]}
       groupings={[
+        // Multi-tag skills appear under each tag; tags come from SKILL.md frontmatter via GET /opencode/skills.
+        ...(skillCatalog.some((skill) => skill.tags?.length) ? [{ id: 'tag', label: 'tag', groups: groupRowsBy(skillRows, (row) => skillCatalog.find((skill) => skill.name === row.name)?.tags ?? [], 'Untagged', setSkillGroup) }] : []),
         { id: 'source', label: 'source', groups: groupRowsBy(skillRows, (row) => [skillCatalog.find((skill) => skill.name === row.name)?.source ?? 'saved'], 'saved', setSkillGroup) },
-        // ponytail: the catalog API has no tags yet; this option appears once SkillEntry.tags does.
-        ...(skillCatalog.some((skill) => skill.tags?.length) ? [{ id: 'tag', label: 'tag', groups: groupRowsBy(skillRows, (row) => skillCatalog.find((skill) => skill.name === row.name)?.tags ?? [], 'No tag', setSkillGroup) }] : []),
       ]}
       onSelectAll={(shown) => set('allowedSkillsJson', JSON.stringify(stableNames([...skillSelections, ...shown])))}
       onClear={(shown) => set('allowedSkillsJson', JSON.stringify(skillSelections.filter((name) => !shown.includes(name))))}

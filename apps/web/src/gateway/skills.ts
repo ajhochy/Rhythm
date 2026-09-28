@@ -24,7 +24,7 @@ export interface SkillEntry {
   managed: boolean;
   source: 'managed' | 'org' | 'external';
   metadata?: SkillMetadata;
-  /** Not served yet; SKILL.md frontmatter `tags` is the intended source. */
+  /** SKILL.md frontmatter `tags` / `category` / `metadata.*.tags`; absent when none. */
   tags?: string[];
 }
 

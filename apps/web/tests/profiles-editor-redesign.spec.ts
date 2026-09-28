@@ -766,7 +766,7 @@ test('column lists: skills group by source and by tag, collapsed with counts and
   const sort = list.getByTestId('column-checklist-sort');
   const groupNames = () => list.locator('.profile-capability-group > summary strong').allTextContents();
   const groupFor = (name: string) => list.locator('.profile-capability-group').filter({ has: page.locator('summary strong', { hasText: new RegExp(`^${name}$`) }) });
-  await expect(sort.locator('option')).toHaveText(['Name A→Z', 'Name Z→A', 'Group by source', 'Group by tag']);
+  await expect(sort.locator('option')).toHaveText(['Name A→Z', 'Name Z→A', 'Group by tag', 'Group by source']);
 
   await sort.selectOption({ label: 'Group by source' });
   expect(await groupNames()).toEqual(['external', 'managed', 'org']);
@@ -774,12 +774,12 @@ test('column lists: skills group by source and by tag, collapsed with counts and
   await expect(groupFor('managed').locator('summary')).toContainText('12 of 12 selected');
 
   await sort.selectOption({ label: 'Group by tag' });
-  // A skill with several tags is listed under each; untagged skills go last under "No tag".
-  expect(await groupNames()).toEqual(['design', 'research', 'No tag']);
+  // A skill with several tags is listed under each; untagged skills go last under "Untagged".
+  expect(await groupNames()).toEqual(['design', 'research', 'Untagged']);
   await expect(list.locator('.profile-capability-group[open]')).toHaveCount(0);
   expect(await checklistNames(groupFor('design'))).toEqual(['skill-0', 'skill-1']);
   expect(await checklistNames(groupFor('research'))).toEqual(['external-skill', 'skill-0']);
-  await expect(groupFor('No tag').locator('summary')).toContainText('of 22 selected');
+  await expect(groupFor('Untagged').locator('summary')).toContainText('of 22 selected');
   await groupFor('design').locator('summary').click();
   await groupFor('design').getByRole('button', { name: 'Clear group: design' }).click();
   await expect(page.getByTestId('profile-skills-summary')).toHaveText('23 selected');

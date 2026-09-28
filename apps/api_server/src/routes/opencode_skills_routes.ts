@@ -95,6 +95,8 @@ interface SkillListEntry {
   managed: boolean;
   /** #1055 — provenance for the Skills UI source badge. */
   source: SkillSource;
+  /** Frontmatter category tags (see parseSkillFrontmatter); absent when none. */
+  tags?: string[];
 }
 
 /**
@@ -224,6 +226,10 @@ opencodeSkillsRouter.get(
         if (!fm) return true; // no parseable frontmatter → no conditions → visible
         return isSkillVisible(fm, toolsetConfig);
       });
+      for (const entry of visibleEntries) {
+        const tags = frontmatterByName.get(entry.name)?.tags;
+        if (tags) entry.tags = tags;
+      }
 
       if (req.query.withMetadata !== 'true') {
         res.json(visibleEntries);
