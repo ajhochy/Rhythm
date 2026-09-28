@@ -1,24 +1,34 @@
 import { act, cleanup, fireEvent, render } from '@testing-library/react-native';
 import { useState } from 'react';
-import { StyleSheet } from 'react-native';
+import { Keyboard, StyleSheet } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 
 import { ChatComposer } from '@/components/chat/chat-composer';
+import { styles as chatViewStyles } from '@/components/chat/chat-view-styles';
 import { Colors } from '@/constants/theme';
 
 const MIN_INPUT_HEIGHT = 24;
 const MAX_INPUT_HEIGHT = 132;
 
-function ComposerHarness({ initialDraft = '' }: { initialDraft?: string }) {
+function ComposerHarness({
+  attachments = [],
+  contextLabel,
+  initialDraft = '',
+}: {
+  attachments?: { filename?: string; mime?: string; uri: string }[];
+  contextLabel?: string;
+  initialDraft?: string;
+}) {
   const [draft, setDraft] = useState(initialDraft);
 
   return (
     <PaperProvider>
       <ChatComposer
-        attachments={[]}
+        attachments={attachments}
         commands={[]}
         connectionStatus="connected"
         conversation={{ active: false, isListening: false, phase: 'off' }}
+        contextLabel={contextLabel}
         draft={draft}
         insetsBottom={0}
         isCreatingSession={false}
@@ -126,5 +136,46 @@ describe('ChatComposer native multiline sizing', () => {
     expect(screen.getByTestId('chat-dictation-button')).toBeTruthy();
     expect(screen.getByTestId('chat-send-button')).toBeTruthy();
     expect(screen.getByLabelText('Message')).toHaveProp('multiline', true);
+  });
+
+  test('mobile-chat-ui-c2: keyboard dismissal is conditional and the empty composer stays compact', () => {
+    // Regression caught: the old permanent keyboard toolbar remains visible
+    // and pushes the one-line composer beyond the approved compact height.
+    let showKeyboard: (() => void) | undefined;
+    jest.spyOn(Keyboard, 'addListener').mockImplementation((event, listener) => {
+      if (event === 'keyboardDidShow') showKeyboard = () => listener({} as never);
+      return { remove: jest.fn() } as never;
+    });
+    const screen = render(<ComposerHarness />);
+    expect(screen.queryByLabelText('Dismiss keyboard')).toBeNull();
+
+    act(() => showKeyboard?.());
+    expect(screen.getByLabelText('Dismiss keyboard')).toBeTruthy();
+
+    const composer = StyleSheet.flatten(screen.getByTestId('chat-composer').props.style);
+    expect(chatViewStyles.composerMetadataRow.minHeight + chatViewStyles.inputShell.minHeight + composer.paddingTop + composer.paddingBottom).toBeLessThanOrEqual(96);
+  });
+
+  test('mobile-chat-ui-c3: three attachments stay in one horizontal strip and never display a URI', () => {
+    // Regression caught: attachment chips wrap vertically or reveal a private
+    // native URI when image-picker cannot supply a filename.
+    const screen = render(<ComposerHarness attachments={[
+      { filename: 'one.jpg', mime: 'image/jpeg', uri: 'file:///private/one.jpg' },
+      { filename: 'two.pdf', mime: 'application/pdf', uri: 'file:///private/two.pdf' },
+      { mime: 'image/png', uri: 'file:///private/secret-library-id' },
+    ]} />);
+
+    expect(screen.getByTestId('chat-attachment-strip')).toHaveProp('horizontal', true);
+    expect(screen.getByText('Attachment')).toBeTruthy();
+    expect(screen.queryByText('file:///private/secret-library-id')).toBeNull();
+    expect(chatViewStyles.attachmentStrip.maxHeight).toBeLessThanOrEqual(52);
+  });
+
+  test('mobile-chat-ui-c4: metadata uses profile and model context instead of generic Message copy', () => {
+    // Regression caught: the compact metadata row throws away useful session
+    // context and replaces it with the generic word Message.
+    const screen = render(<ComposerHarness contextLabel="Build · Model" />);
+    expect(screen.getByText('Build · Model')).toBeTruthy();
+    expect(screen.queryByText('Message')).toBeNull();
   });
 });

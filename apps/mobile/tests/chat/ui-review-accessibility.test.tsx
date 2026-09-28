@@ -1,6 +1,6 @@
 import { fireEvent, render } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
-import { Button as PaperButton, PaperProvider } from 'react-native-paper';
+import { Button as PaperButton, Chip as PaperChip, IconButton as PaperIconButton, PaperProvider, Surface as PaperSurface, TouchableRipple as PaperTouchableRipple } from 'react-native-paper';
 
 import { PendingInteractionsCard, TranscriptMessage } from '@/components/chat/chat-cards';
 import { ControlButton } from '@/components/chat/chat-controls';
@@ -48,6 +48,37 @@ test('question choices expose their selection mode and checked state', () => {
   expect(optionButton('Alpha')?.props.accessibilityState).toEqual(expect.objectContaining({ checked: false }));
   fireEvent.press(alpha);
   expect(optionButton('Alpha')?.props.accessibilityState).toEqual(expect.objectContaining({ checked: true }));
+  expect(StyleSheet.flatten(oneButton?.props.style)).toEqual(expect.objectContaining({ flexBasis: '100%' }));
+});
+
+test('mobile-chat-ui-c7: permission copy is human and actions use two columns plus full-width deny', () => {
+  // Regression caught: protocol slugs are title-cased as technical jargon and
+  // all three decisions wrap into equally prominent compact buttons.
+  const screen = render(
+    <PaperProvider>
+      <PendingInteractionsCard
+        onPermissionReply={jest.fn()}
+        onQuestionReject={jest.fn()}
+        onQuestionReply={jest.fn()}
+        permissions={[
+          { id: 'edit', permission: 'edit', patterns: ['src/**'], sessionID: 'session-1' },
+          { id: 'bash', permission: 'bash', patterns: ['npm test'], sessionID: 'session-1' },
+          { id: 'other', permission: 'external_action', patterns: [], sessionID: 'session-1' },
+        ] as never}
+        questions={[]}
+      />
+    </PaperProvider>,
+  );
+
+  expect(screen.getByText('Allow OpenCode to edit files?')).toBeTruthy();
+  expect(screen.getByText('Allow OpenCode to run this command?')).toBeTruthy();
+  expect(screen.getByText('Allow this protected action?')).toBeTruthy();
+  expect(screen.getAllByText(/OpenCode needs your approval/)).toHaveLength(3);
+  const buttons = screen.UNSAFE_getAllByType(PaperButton);
+  const deny = buttons.find((button) => button.props.children === 'Deny');
+  const allowOnce = buttons.find((button) => button.props.children === 'Allow once');
+  expect(StyleSheet.flatten(allowOnce?.props.style)).toEqual(expect.objectContaining({ flexBasis: '48%' }));
+  expect(StyleSheet.flatten(deny?.props.style)).toEqual(expect.objectContaining({ flexBasis: '100%' }));
 });
 
 test('chat segments keep visible state copy separate from the Changes accessible name', () => {
@@ -94,10 +125,46 @@ test('chat segments keep visible state copy separate from the Changes accessible
 
   screen.rerender(<PaperProvider><ChatHeader {...props} diffCount={0} /></PaperProvider>);
   expect(screen.getByRole('tab', { name: 'Changes' })).toHaveTextContent('Changes');
+
+  expect(
+    StyleSheet.flatten(chatViewStyles.header).minHeight +
+    StyleSheet.flatten(chatViewStyles.chatSegmentedControl).height +
+    StyleSheet.flatten(chatViewStyles.chatSegmentedControl).marginBottom,
+  ).toBeLessThanOrEqual(108);
 });
 
-test('transcript icon actions have context-correct labels without changing callbacks', () => {
-  // Regression caught: unlabeled icons are announced only as volume, fork, and undo.
+test('mobile-chat-ui-c1: idle header omits healthy connection clutter and promotes work state', () => {
+  // Regression caught: Connected/Syncing permanently consumes the subtitle
+  // instead of leaving profile/model context visible while idle.
+  const props = {
+    availableModels: [{ id: 'provider/model', label: 'Model', providerID: 'provider', modelID: 'model' }] as never,
+    availableProfiles: [{ label: 'Build', profileId: 'build' }] as never,
+    availableProviders: [],
+    chatPreferences: { modelId: 'provider/model', profileId: 'build' } as never,
+    connectionStatus: 'connected' as const,
+    conversation: { active: false, phase: 'off' as const },
+    currentSessionId: 'session-1', diffCount: 0, insetsTop: 0,
+    isCreatingSession: false, isUsageLoading: true,
+    onBack: jest.fn(), onCloseMenu: jest.fn(), onConfirmStopConversation: jest.fn(),
+    onCreateSession: jest.fn(), onManage: jest.fn(), onOpenSession: jest.fn(),
+    onOpenSessionMenu: jest.fn(), onOpenSettings: jest.fn(), onShowChanges: jest.fn(),
+    onToggleConversationMode: jest.fn(), onUpdateSessionPreferences: jest.fn(async () => ({} as never)),
+    palette: Colors.light, running: false,
+    selectedSession: { id: 'session-1', title: 'Test chat' } as never,
+    sessionMenuVisible: false, sessions: [], showingChanges: false,
+    usage: { cost: 0, costStatus: 'free', providers: [] } as never,
+  };
+  const screen = render(<PaperProvider><ChatHeader {...props} /></PaperProvider>);
+  expect(screen.getByText('Build · Model')).toBeTruthy();
+  expect(screen.queryByText(/Connected|Syncing/)).toBeNull();
+
+  screen.rerender(<PaperProvider><ChatHeader {...props} presentationStatus="Working" running /></PaperProvider>);
+  expect(screen.getByText('Working')).toBeTruthy();
+});
+
+test('mobile-chat-ui-c5: message actions stay behind one quiet overflow without changing callbacks', () => {
+  // Regression caught: every message permanently renders a copy/speak/fork/revert toolbar.
+  const onCopy = jest.fn();
   const onToggleSpeak = jest.fn();
   const onFork = jest.fn();
   const onRevert = jest.fn();
@@ -105,8 +172,8 @@ test('transcript icon actions have context-correct labels without changing callb
     <PaperProvider>
       <TranscriptMessage
         canSpeak
-        entry={{ createdAt: 1, details: [], id: 'message-1', role: 'assistant', text: 'Reply' }}
-        onCopy={jest.fn()}
+        entry={{ createdAt: 1, details: [], id: 'message-1', role: 'user', text: 'Reply' }}
+        onCopy={onCopy}
         onFork={onFork}
         onRevert={onRevert}
         onToggleSpeak={onToggleSpeak}
@@ -114,25 +181,103 @@ test('transcript icon actions have context-correct labels without changing callb
     </PaperProvider>,
   );
 
-  fireEvent.press(screen.getByRole('button', { name: 'Speak assistant message' }));
-  fireEvent.press(screen.getByRole('button', { name: 'Fork chat from this message' }));
-  fireEvent.press(screen.getByRole('button', { name: 'Revert chat to this message' }));
-  expect(onToggleSpeak).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole('button', { name: 'Copy message' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Fork chat from this message' })).toBeNull();
+  const overflow = screen.getByRole('button', { name: 'Message actions' });
+  const overflowIcon = screen.UNSAFE_getAllByType(PaperIconButton).find((button) => button.props.accessibilityLabel === 'Message actions');
+  expect(StyleSheet.flatten(overflowIcon?.props.style)).toEqual(expect.objectContaining({ height: MinimumTouchTarget, width: MinimumTouchTarget }));
+
+  fireEvent.press(overflow);
+  fireEvent.press(screen.getByRole('menuitem', { name: 'Copy message' }));
+  fireEvent.press(screen.getByRole('button', { name: 'Message actions' }));
+  fireEvent.press(screen.getByRole('menuitem', { name: 'Fork chat from this message' }));
+  fireEvent.press(screen.getByRole('button', { name: 'Message actions' }));
+  fireEvent.press(screen.getByRole('menuitem', { name: 'Revert chat to this message' }));
+  expect(onCopy).toHaveBeenCalledTimes(1);
   expect(onFork).toHaveBeenCalledTimes(1);
   expect(onRevert).toHaveBeenCalledTimes(1);
+  expect(screen.queryByText('OpenCode')).toBeNull();
 
   screen.rerender(
     <PaperProvider>
       <TranscriptMessage
         canSpeak
         entry={{ createdAt: 1, details: [], id: 'message-1', role: 'assistant', text: 'Reply' }}
-        onCopy={jest.fn()}
+        onCopy={onCopy}
         onToggleSpeak={onToggleSpeak}
         speaking
       />
     </PaperProvider>,
   );
-  expect(screen.getByRole('button', { name: 'Stop speaking assistant message' })).toBeTruthy();
+  fireEvent.press(screen.getByRole('button', { name: 'Message actions' }));
+  fireEvent.press(screen.getByRole('menuitem', { name: 'Stop speaking assistant message' }));
+  expect(onToggleSpeak).toHaveBeenCalledTimes(1);
+});
+
+test('mobile-chat-ui-c6: activity is one accessible quiet disclosure with text-only expanded rows', () => {
+  // Regression caught: activity returns to an outlined button plus chip/card soup.
+  const screen = render(
+    <PaperProvider>
+      <TranscriptMessage
+        entry={{
+          createdAt: 1,
+          details: [
+            { body: 'patch', id: 'patch-1', kind: 'patch', label: 'Changed file' },
+            { body: 'file', id: 'file-1', kind: 'file', label: 'File' },
+          ],
+          id: 'message-1',
+          role: 'assistant',
+          text: 'Reply',
+        }}
+        onCopy={jest.fn()}
+        onToggleSpeak={jest.fn()}
+      />
+    </PaperProvider>,
+  );
+
+  const disclosure = screen.getByRole('button', { name: 'Expand activity details' });
+  expect(disclosure).toHaveProp('accessibilityState', expect.objectContaining({ expanded: false }));
+  fireEvent.press(disclosure);
+  expect(screen.getByRole('button', { name: 'Collapse activity details' })).toHaveProp('accessibilityState', expect.objectContaining({ expanded: true }));
+  expect(screen.getByText('Updated 1 patch')).toBeTruthy();
+  expect(screen.getByText('1 file')).toBeTruthy();
+  expect(screen.UNSAFE_queryAllByType(PaperChip)).toHaveLength(0);
+});
+
+test('mobile-chat-geometry-c1: message actions are overlaid and activity keeps a compact visual row', () => {
+  // Regression caught: the 44pt overflow and activity hit target each consume
+  // their own vertical row, doubling a one-line bubble to roughly 102pt.
+  const user = render(
+    <PaperProvider>
+      <TranscriptMessage
+        entry={{ createdAt: 1, details: [], id: 'user-1', role: 'user', text: 'Short' }}
+        onCopy={jest.fn()}
+        onToggleSpeak={jest.fn()}
+      />
+    </PaperProvider>,
+  );
+  const userSurface = user.UNSAFE_getAllByType(PaperSurface).find((surface) => surface.props.accessibilityLabel?.startsWith('You message'));
+  const bubbleStyle = StyleSheet.flatten(userSurface?.props.style);
+  expect(bubbleStyle).toEqual(expect.objectContaining({ minHeight: 52, paddingRight: 56 }));
+  expect(bubbleStyle.minHeight).toBeGreaterThanOrEqual(48);
+  expect(bubbleStyle.minHeight).toBeLessThanOrEqual(58);
+  expect(StyleSheet.flatten(user.getByTestId('message-actions').props.style)).toEqual(expect.objectContaining({ bottom: 0, position: 'absolute', right: 0 }));
+
+  const assistant = render(
+    <PaperProvider>
+      <TranscriptMessage
+        entry={{ createdAt: 1, details: [{ body: 'patch', id: 'patch-1', kind: 'patch', label: 'Changed file' }], id: 'assistant-1', role: 'assistant', text: 'Done' }}
+        onCopy={jest.fn()}
+        onToggleSpeak={jest.fn()}
+      />
+    </PaperProvider>,
+  );
+  const disclosure = assistant.UNSAFE_getAllByType(PaperTouchableRipple).find((item) => item.props.accessibilityLabel === 'Expand activity details');
+  const disclosureStyle = StyleSheet.flatten(disclosure?.props.style);
+  expect(disclosureStyle.height).toBeGreaterThanOrEqual(30);
+  expect(disclosureStyle.height).toBeLessThanOrEqual(32);
+  expect(disclosureStyle.minHeight).toBeUndefined();
+  expect(disclosure?.props.hitSlop).toEqual({ bottom: 6, left: 6, right: 6, top: 6 });
 });
 
 test('reviewed chat controls retain 44 point touch targets and prototype radius', () => {

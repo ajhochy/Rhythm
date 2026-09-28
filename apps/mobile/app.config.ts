@@ -161,6 +161,13 @@ const config: ExpoConfig = {
         barcodeScannerEnabled: true,
       },
     ],
+    [
+      'expo-image-picker',
+      {
+        photosPermission:
+          'Allow $(PRODUCT_NAME) to access photos you choose for chat attachments.',
+      },
+    ],
     'expo-notifications',
     'expo-background-task',
     [

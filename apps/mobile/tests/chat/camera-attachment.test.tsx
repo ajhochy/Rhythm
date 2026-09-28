@@ -13,6 +13,7 @@ import { ChatView } from '@/components/chat/chat-view';
 import { MOBILE_ATTACHMENT_LIMIT_BYTES } from '@/lib/attachments/limits';
 
 const mockGetDocumentAsync = jest.fn();
+const mockLaunchImageLibraryAsync = jest.fn();
 const mockGetCameraPermission = jest.fn();
 const mockRequestCameraPermission = jest.fn();
 const mockTakePictureAsync = jest.fn();
@@ -32,6 +33,10 @@ jest.mock('expo-document-picker', () => {
     getDocumentAsync,
   };
 });
+jest.mock('expo-image-picker', () => ({
+  MediaTypeOptions: { Images: 'Images' },
+  launchImageLibraryAsync: (...args: unknown[]) => mockLaunchImageLibraryAsync(...args),
+}));
 jest.mock('expo-camera', () => {
   const React = jest.requireActual('react');
   const ReactNative = jest.requireActual('react-native');
@@ -97,15 +102,21 @@ jest.mock('@/lib/voice/use-speech-input', () => ({
     stop: jest.fn(),
   }),
 }));
-jest.mock('@/components/chat/chat-header', () => ({ ChatHeader: () => null }));
+jest.mock('@/components/chat/chat-header', () => {
+  const ReactNative = jest.requireActual('react-native');
+  return { ChatHeader: ({ presentationStatus }: { presentationStatus?: string }) => (
+    <ReactNative.Text testID="chat-presentation-status">{presentationStatus}</ReactNative.Text>
+  ) };
+});
 jest.mock('@/components/chat/chat-content', () => ({ ChatContent: () => null }));
 jest.mock('@/components/chat/session-configuration-sheet', () => ({
   SessionConfigurationSheet: () => null,
 }));
 jest.mock('@/components/chat/chat-composer', () => {
   const ReactNative = jest.requireActual('react-native');
-  return { ChatComposer: ({ attachments, onAttach, onSend }: {
+  return { ChatComposer: ({ attachments, contextLabel, onAttach, onSend }: {
     attachments: { filename?: string; mime?: string; uri: string }[];
+    contextLabel?: string;
     onAttach: () => void;
     onSend: () => void;
   }) => (
@@ -121,6 +132,7 @@ jest.mock('@/components/chat/chat-composer', () => {
           {`${attachment.filename}|${attachment.mime}|${attachment.uri}`}
         </ReactNative.Text>
       ))}
+      <ReactNative.Text testID="chat-composer-context">{contextLabel}</ReactNative.Text>
       <ReactNative.Pressable accessibilityLabel="Send message" onPress={onSend}>
         <ReactNative.Text>Send</ReactNative.Text>
       </ReactNative.Pressable>
@@ -199,7 +211,7 @@ function renderChat() {
 
 async function pressNativeAttachmentChoice(
   screen: ReturnType<typeof renderChat>,
-  label: 'Choose File' | 'Take Photo',
+  label: 'Choose Existing Photo' | 'Choose File' | 'Take Photo',
 ) {
   fireEvent.press(screen.getByTestId('chat-attachment-button'));
   const [, , actions] = jest.mocked(Alert.alert).mock.calls.at(-1)!;
@@ -214,6 +226,7 @@ describe('native camera chat attachments', () => {
     mockCameraPermission = { canAskAgain: true, granted: true, status: 'granted' };
     mockCapturedFileSize = 1024;
     mockGetDocumentAsync.mockResolvedValue({ canceled: true });
+    mockLaunchImageLibraryAsync.mockResolvedValue({ canceled: true });
     mockGetCameraPermission.mockResolvedValue(mockCameraPermission);
     mockRequestCameraPermission.mockResolvedValue({
       canAskAgain: true,
@@ -222,6 +235,14 @@ describe('native camera chat attachments', () => {
     });
     mockTakePictureAsync.mockResolvedValue({ uri: 'file:///camera/capture.jpg' });
     mockSendPrompt.mockResolvedValue(true);
+    Object.assign(mockOpencodeState, {
+      availableAgents: [],
+      availableModels: [],
+      currentPendingPermissions: [],
+      currentPendingQuestions: [],
+      currentTranscript: [],
+      sendingState: { active: false },
+    });
     jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
     jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation();
     jest.spyOn(Linking, 'openSettings').mockResolvedValue(undefined);
@@ -235,7 +256,7 @@ describe('native camera chat attachments', () => {
     Object.defineProperty(Platform, 'OS', { configurable: true, value: originalPlatform });
   });
 
-  test('mobile-camera-c1: native activation offers exactly camera, file, and cancel choices', () => {
+  test('mobile-photo-c1: native activation offers exactly camera, existing photo, file, and cancel choices', () => {
     // Regression caught: native activation opens the document picker directly,
     // so the exact three-action assertion fails and camera is unreachable.
     const screen = renderChat();
@@ -246,10 +267,112 @@ describe('native camera chat attachments', () => {
     const [, , actions] = jest.mocked(Alert.alert).mock.calls[0];
     expect(actions?.map((action) => action.text)).toEqual([
       'Take Photo',
+      'Choose Existing Photo',
       'Choose File',
       'Cancel',
     ]);
     expect(mockGetDocumentAsync).not.toHaveBeenCalled();
+  });
+
+  test('mobile-photo-c2: direct system picker selects multiple image assets with safe fallbacks', async () => {
+    // Regression caught: a broad permission preflight runs before the selected-
+    // asset picker, only one image is selected, or a missing name exposes a URI.
+    mockLaunchImageLibraryAsync.mockResolvedValue({
+      canceled: false,
+      assets: [
+        { fileName: 'Choir.jpg', fileSize: 1024, mimeType: 'image/jpeg', uri: 'file:///photos/choir.jpg' },
+        { fileName: null, fileSize: 2048, mimeType: null, uri: 'file:///photos/private-library-id' },
+      ],
+    });
+    const screen = renderChat();
+
+    await pressNativeAttachmentChoice(screen, 'Choose Existing Photo');
+
+    expect(mockLaunchImageLibraryAsync).toHaveBeenCalledWith(expect.objectContaining({
+      allowsMultipleSelection: true,
+      mediaTypes: 'Images',
+    }));
+    expect(screen.getAllByTestId('draft-attachment').map((row) => row.props.children)).toEqual([
+      'Choir.jpg|image/jpeg|file:///photos/choir.jpg',
+      'Attachment|image/jpeg|file:///photos/private-library-id',
+    ]);
+    await act(async () => fireEvent.press(screen.getByLabelText('Send message')));
+    expect(mockSendPrompt).toHaveBeenCalledWith('session-1', '', [
+      { filename: 'Choir.jpg', mime: 'image/jpeg', uri: 'file:///photos/choir.jpg' },
+      { filename: 'Attachment', mime: 'image/jpeg', uri: 'file:///photos/private-library-id' },
+    ]);
+  });
+
+  test('mobile-photo-c3: existing-photo choice launches the selected-assets picker without a permission alert', async () => {
+    // Regression caught: the app requests broad library access or inserts a
+    // denial/Settings alert before iOS can present its selected-assets picker.
+    const screen = renderChat();
+
+    await pressNativeAttachmentChoice(screen, 'Choose Existing Photo');
+
+    expect(mockLaunchImageLibraryAsync).toHaveBeenCalledTimes(1);
+    expect(Alert.alert).toHaveBeenCalledTimes(1);
+    expect(jest.mocked(Alert.alert).mock.calls[0][0]).toBe('Add attachment');
+  });
+
+  test('mobile-photo-c5: oversized and duplicate library assets preserve the existing guards', async () => {
+    // Regression caught: photo-library assets bypass the 10 MB and URI
+    // duplicate guards that protect camera and file attachments.
+    mockLaunchImageLibraryAsync
+      .mockResolvedValueOnce({
+        canceled: false,
+        assets: [{ fileName: 'too-large.png', fileSize: MOBILE_ATTACHMENT_LIMIT_BYTES + 1, mimeType: 'image/png', uri: 'file:///photos/large.png' }],
+      })
+      .mockResolvedValue({
+        canceled: false,
+        assets: [
+          { fileName: 'first.png', fileSize: 20, mimeType: 'image/png', uri: 'file:///photos/same.png' },
+          { fileName: 'duplicate.png', fileSize: 20, mimeType: 'image/png', uri: 'file:///photos/same.png' },
+        ],
+      });
+    const screen = renderChat();
+
+    await pressNativeAttachmentChoice(screen, 'Choose Existing Photo');
+    expect(screen.queryAllByTestId('draft-attachment')).toHaveLength(0);
+    expect(screen.getByText('Photo exceeds the 10 MB attachment limit.')).toBeTruthy();
+
+    await pressNativeAttachmentChoice(screen, 'Choose Existing Photo');
+    expect(screen.getAllByTestId('draft-attachment')).toHaveLength(1);
+  });
+
+  test('mobile-chat-ui-c9: ChatView derives specific header status and composer context from existing state', () => {
+    // Regression caught: the header collapses distinct approval/question/work/
+    // finished states into generic waiting copy and composer context says Message.
+    Object.assign(mockOpencodeState, {
+      availableAgents: [{ label: 'Build', profileId: 'build' }],
+      availableModels: [{ id: 'model', label: 'Model' }],
+      chatPreferences: { ...mockOpencodeState.chatPreferences, profileId: 'build' },
+      currentPendingPermissions: [{ id: 'permission-1' }],
+    });
+    const screen = renderChat();
+    expect(screen.getByTestId('chat-presentation-status')).toHaveTextContent('Waiting for approval');
+    expect(screen.getByTestId('chat-composer-context')).toHaveTextContent('Build · Model');
+
+    Object.assign(mockOpencodeState, {
+      currentPendingPermissions: [],
+      currentPendingQuestions: [{ id: 'question-1' }],
+    });
+    screen.rerender(<PaperProvider><ChatView /></PaperProvider>);
+    expect(screen.getByTestId('chat-presentation-status')).toHaveTextContent('One answer needed');
+
+    Object.assign(mockOpencodeState, {
+      currentPendingQuestions: [],
+      sendingState: { active: true },
+    });
+    screen.rerender(<PaperProvider><ChatView /></PaperProvider>);
+    expect(screen.getByTestId('chat-presentation-status')).toHaveTextContent('Working');
+
+    Object.assign(mockOpencodeState, {
+      currentTranscript: [{ createdAt: 1, details: [], id: 'assistant-1', role: 'assistant', text: 'Done' }],
+      sendingState: { active: false },
+    });
+    screen.rerender(<PaperProvider><ChatView /></PaperProvider>);
+    expect(screen.getByTestId('chat-presentation-status')).toHaveTextContent('Finished');
   });
 
   test('mobile-camera-c2: choose file preserves the existing multiple-file picker and duplicate behavior', async () => {
