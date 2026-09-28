@@ -35,3 +35,29 @@ test('post-m1-p1-c4c: the host acquires one instance lock and routes second-inst
     'host must bind the single-instance lock and route both Electron URL events through one funnel',
   );
 });
+
+test('external-links-c1: one validator canonicalizes credential-free http(s) and rejects everything else', () => {
+  assert.equal(policy.externalHttpUrl('HTTPS://Example.COM:443/a/../guide?q=1#start'), 'https://example.com/guide?q=1#start');
+  assert.equal(policy.externalHttpUrl('http://example.com/plain'), 'http://example.com/plain');
+  for (const value of ['', 'x'.repeat(4097), `https://example.com/${'x'.repeat(4096)}`, 'not a url', 'https:example.com', ' https://example.com',
+    'https://example.com/\nnext', 'https://example.com/​zw', 'https://user@example.com', 'https://:secret@example.com',
+    'javascript:alert(1)', 'file:///tmp/a', 'data:text/plain,a', 'rhythm://app/index.html', 'rhythm-artifact://x', 'custom-scheme://open',
+    undefined, null, 42, { href: 'https://example.com' }]) {
+    assert.equal(policy.externalHttpUrl(value), null, String(value).slice(0, 40));
+  }
+});
+
+test('external-links-c2: external opens are capped per sliding window', () => {
+  let t = 0;
+  const allow = policy.createExternalOpenLimiter(3, 1000, () => t);
+  assert.deepEqual([allow(), allow(), allow(), allow()], [true, true, true, false]);
+  t = 999; assert.equal(allow(), false);
+  t = 1000; assert.deepEqual([allow(), allow(), allow(), allow()], [true, true, true, false]);
+});
+
+test('external-links-c3: IPC, window-open and will-navigate share the validator; the window handler always denies', () => {
+  assert.match(mainSource, /rhythm:shell:open-external[\s\S]{0,200}externalHttpUrl\(value\)/);
+  assert.match(mainSource, /setWindowOpenHandler\(\(\{ url \}\) => \{\s*denials\.popup = true;\s*openLinkExternally\(url\);\s*return \{ action: 'deny' \};/);
+  assert.match(mainSource, /on\('will-navigate', \(event\) => \{\s*denials\.navigation = true;\s*event\.preventDefault\(\);\s*openLinkExternally\(event\.url\);/);
+  assert.doesNotMatch(mainSource, /action: 'allow'/);
+});

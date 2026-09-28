@@ -11,7 +11,7 @@ import { GOOGLE_DESKTOP_CLIENT_ID, RHYTHM_AUTH_API_BASE } from './build-config.m
 import { runDesktopGoogleOAuth } from './desktop-google-oauth.mjs';
 import * as humanApprovalSigner from './human-approval-main-signer.mjs';
 import { createHermesSupervisor } from './hermes-server.mjs';
-import { deepLinkFromArgv, resolveAsset, validateRequest, webDist } from './policy.mjs';
+import { createExternalOpenLimiter, deepLinkFromArgv, externalHttpUrl, resolveAsset, validateRequest, webDist } from './policy.mjs';
 import { createProductionApiConfig, createProductionApiSetHandler } from './production-api-config.mjs';
 import { resolveGoogleDesktopClientId } from './runtime-config.mjs';
 import { validateSecuritySmokeReceipt } from './security-smoke-receipt.mjs';
@@ -742,13 +742,9 @@ if (hasSingleInstanceLock) {
   });
   ipcMain.handle('rhythm:shell:open-external', async (event, value, ...args) => {
     requireOwnedDocument(event);
-    if (args.length || typeof value !== 'string' || !/^https?:\/\//i.test(value) || value.length > 4096 || /[\p{Cc}\p{Cf}\s]/u.test(value)) {
-      throw new Error('Invalid external URL');
-    }
-    let url;
-    try { url = new URL(value); } catch { throw new Error('Invalid external URL'); }
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Invalid external URL');
-    await shell.openExternal(url.href);
+    const href = args.length ? null : externalHttpUrl(value);
+    if (!href) throw new Error('Invalid external URL');
+    await shell.openExternal(href);
   });
   ipcMain.handle('shell:select-directory', async (event, ...args) => {
     requireOwnedDocument(event); requireNoPayload(args);
@@ -1026,6 +1022,18 @@ if (hasSingleInstanceLock) {
     });
 
     const denials = { navigation: false, popup: false, permission: false, download: false };
+    /** @type {string[]} */
+    const smokeExternalOpens = [];
+    // ponytail: 5 opens / 5s sliding window; add a user-gesture check if Electron ever exposes one here.
+    const allowExternalOpen = createExternalOpenLimiter(5, 5_000);
+    /** Hand an ordinary http(s) link to the system browser; anything else is just dropped. @param {unknown} value */
+    const openLinkExternally = (value) => {
+      const href = externalHttpUrl(value);
+      if (!href || !allowExternalOpen()) return;
+      // Smoke runs must never launch the developer's real browser; record instead.
+      if (isSmoke) smokeExternalOpens.push(href);
+      else void shell.openExternal(href).catch(() => undefined);
+    };
     /** @type {((blocked: boolean) => void) | undefined} */
     let resolveArtifactNavigationDenied;
     const artifactNavigationDenied = isArtifactFrameSmoke
@@ -1105,9 +1113,12 @@ if (hasSingleInstanceLock) {
         } else invalidateAuthentication();
       }
     });
+    // The window never leaves rhythm://app: every main-frame navigation is cancelled, and an
+    // ordinary http(s) target is routed to the system browser instead.
     window.webContents.on('will-navigate', (event) => {
       denials.navigation = true;
       event.preventDefault();
+      openLinkExternally(event.url);
     });
     window.webContents.on('will-frame-navigate', (event) => {
       if (event.isMainFrame) return;
@@ -1121,8 +1132,10 @@ if (hasSingleInstanceLock) {
         event.preventDefault();
       }
     });
-    window.webContents.setWindowOpenHandler(() => {
+    // No BrowserWindow is ever created from web content; target=_blank / window.open go to the OS browser.
+    window.webContents.setWindowOpenHandler(({ url }) => {
       denials.popup = true;
+      openLinkExternally(url);
       return { action: 'deny' };
     });
     window.webContents.on('did-finish-load', () => {
@@ -1266,7 +1279,10 @@ if (hasSingleInstanceLock) {
 })`);
     if (bridge?.hermes) bridge.hermes.status = await mainWindow.webContents.executeJavaScript('window.rhythmShell.hermes.getStatus()');
     await mainWindow.webContents.executeJavaScript(`window.open('https://example.invalid')`);
-    await mainWindow.webContents.executeJavaScript(`location.href = 'https://example.invalid'`).catch(() => undefined);
+    await mainWindow.webContents.executeJavaScript(`for (const url of ['javascript:alert(1)', 'file:///etc/hosts', 'rhythm-custom://open', 'https://user:secret@example.invalid/']) window.open(url)`);
+    await mainWindow.webContents.executeJavaScript(`(() => { const a = document.createElement('a'); a.href = 'https://example.invalid/anchor'; a.target = '_blank'; a.rel = 'noopener'; document.body.append(a); a.click(); a.remove(); })()`);
+    await mainWindow.webContents.executeJavaScript(`location.href = 'file:///etc/hosts'`).catch(() => undefined);
+    await mainWindow.webContents.executeJavaScript(`location.href = 'https://example.invalid/navigate'`).catch(() => undefined);
     await mainWindow.webContents.executeJavaScript(`navigator.geolocation.getCurrentPosition(() => {}, () => {})`);
     mainWindow.webContents.session.downloadURL('rhythm://app/index.html');
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
@@ -1437,6 +1453,8 @@ if (hasSingleInstanceLock) {
       bridge,
       runtime: { apiBase, engineBase, testOverride: allowTestRuntimePorts },
       denials: isSecuritySmoke ? { ...denials, malformedProtocol } : denials,
+      externalOpens: smokeExternalOpens,
+      windowCount: BrowserWindow.getAllWindows().length,
       environment: isLiveSmoke ? { mode: liveRead?.status === 200 ? 'Live' : 'Unavailable' } : undefined,
       liveRead,
       profileSecurity,

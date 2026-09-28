@@ -336,6 +336,11 @@ test('production repair: alternate local ports require an explicit smoke-only fl
 test('slice-5-c5: actual shell denies navigation, popups, permissions, and downloads', async () => {
   const result = await smoke();
   assert.deepEqual(result.denials, { navigation: true, popup: true, permission: true, download: true });
+  // window.open, <a target=_blank> and a main-frame navigation reach the (smoke-stubbed) system
+  // browser; javascript:/file:/custom-scheme/credentialed URLs never do, and no window is spawned.
+  assert.deepEqual(result.externalOpens, ['https://example.invalid/', 'https://example.invalid/anchor', 'https://example.invalid/navigate']);
+  assert.equal(result.windowCount, 1);
+  assert.match(result.url, /^rhythm:\/\/app\//);
   const missing = await runElectron(['.', '--smoke', '--missing-dist']);
   assert.equal(missing.code, 1);
   assert.match(missing.stderr, /requires built web assets/);

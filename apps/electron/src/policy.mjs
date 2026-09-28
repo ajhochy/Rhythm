@@ -49,3 +49,33 @@ export function resolveAsset(pathname) {
   if (!file.startsWith(`${webDist}${sep}`) || !existsSync(file)) return null;
   return statSync(file).isFile() ? file : null;
 }
+
+/**
+ * The one gate for handing a URL to the OS browser (IPC, window.open, link clicks, navigation).
+ * Returns the canonical href for a credential-free http(s) URL, otherwise null.
+ * @param {unknown} value
+ */
+export function externalHttpUrl(value) {
+  if (typeof value !== 'string' || !/^https?:\/\//i.test(value) || value.length > 4096 || /[\p{Cc}\p{Cf}\s]/u.test(value)) return null;
+  let url;
+  try { url = new URL(value); } catch { return null; }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
+  return url.href;
+}
+
+/**
+ * Electron exposes no user-gesture flag on window-open or will-navigate, so a runaway page
+ * script is bounded by count instead: at most `max` opens per sliding `windowMs`.
+ * @param {number} max @param {number} windowMs @param {() => number} [now]
+ */
+export function createExternalOpenLimiter(max, windowMs, now = Date.now) {
+  /** @type {number[]} */
+  const recent = [];
+  return () => {
+    const t = now();
+    while (recent.length && t - recent[0] >= windowMs) recent.shift();
+    if (recent.length >= max) return false;
+    recent.push(t);
+    return true;
+  };
+}
