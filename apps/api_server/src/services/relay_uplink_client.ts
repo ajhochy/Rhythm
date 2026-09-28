@@ -52,6 +52,12 @@ const ARTIFACT_BASE64_LIMIT_BYTES = 8 * 1024 * 1024;
 const PTY_MAX_FRAME_BYTES = 1024 * 1024;
 const PTY_MAX_PENDING_BYTES = 1024 * 1024;
 const PTY_MAX_WIRE_BUFFER_BYTES = 2 * 1024 * 1024;
+// Outbox rows can be multi-MB message snapshots and a backlog can reach GBs. Drain in small
+// batches, yielding between them, so replication never starves the event loop (the engine's
+// startup timer shares it) and never buffers the whole backlog in the socket.
+const OUTBOX_BATCH_ROWS = 25;
+const OUTBOX_MAX_BUFFERED_BYTES = 8 * 1024 * 1024;
+const OUTBOX_BACKPRESSURE_WAIT_MS = 50;
 
 function safeDiagnosticId(value: unknown): string {
   return typeof value === 'string' && /^[A-Za-z0-9_-]{1,256}$/.test(value)
@@ -87,6 +93,8 @@ export class RelayUplinkClient {
   private hubTask: Promise<void> | null = null;
   private inflightRpc = 0;
   private lastSentSeq = 0;
+  private drainToken = 0;
+  private draining = false;
   private readonly pendingInbound: Array<{
     frame: UplinkFrame;
     socket: WebSocket;
@@ -522,69 +530,71 @@ export class RelayUplinkClient {
   }
 
   private handleResync(socket: WebSocket, frame: CtrlResyncFrame): void {
-    let throughSeq = frame.sinceSeq;
     this.lastSentSeq = frame.sinceSeq;
-    try {
-      const outbox = new RelayOutboxRepository();
-      while (true) {
-        const rows = outbox.listSince(throughSeq, 500);
-        if (rows.length === 0) break;
-        for (const row of rows) {
-          const sent = this.sendFrameOn(socket, {
-            ch: 'repl',
-            t: 'row',
-            seq: row.seq,
-            tbl: row.tbl,
-            op: row.op,
-            pk: row.pk,
-            ...(row.row === null ? {} : { row: row.row }),
-          });
-          if (!sent) return;
-          throughSeq = row.seq;
-          this.lastSentSeq = row.seq;
-        }
-        if (rows.length < 500) break;
-      }
-    } catch {
-      // Preserve Phase-1 behavior for harnesses without an initialized DB.
-    }
-    if (!this.sendFrameOn(socket, {
-      ch: 'ctrl',
-      t: 'resync-done',
-      throughSeq,
-    })) {
-      return;
-    }
-    this.flushOutbox();
+    // resync-done follows every replayed row, including any live tail written meanwhile.
+    this.drainOutbox(socket, () => {
+      this.sendFrameOn(socket, {
+        ch: 'ctrl',
+        t: 'resync-done',
+        throughSeq: this.lastSentSeq,
+      });
+    });
   }
 
   /** Send the durable live tail after the last row emitted on this socket. */
   flushOutbox(): void {
     const socket = this.socket;
     if (!this.ready || !socket || socket.readyState !== WebSocket.OPEN) return;
-    try {
-      const outbox = new RelayOutboxRepository();
-      while (true) {
-        const rows = outbox.listSince(this.lastSentSeq, 500);
-        for (const row of rows) {
-          const sent = this.sendFrameOn(socket, {
-            ch: 'repl',
-            t: 'row',
-            seq: row.seq,
-            tbl: row.tbl,
-            op: row.op,
-            pk: row.pk,
-            ...(row.row === null ? {} : { row: row.row }),
-          });
-          if (!sent) return;
-          this.lastSentSeq = row.seq;
-        }
-        if (rows.length < 500) break;
+    // An in-flight drain already owns lastSentSeq and will reach the new rows.
+    if (this.draining) return;
+    this.drainOutbox(socket);
+  }
+
+  /**
+   * The first batch is sent synchronously, so a small live tail still precedes the envelope
+   * the caller publishes next. Larger backlogs continue on later ticks. A newer drain (a
+   * resync on a new socket) supersedes this one.
+   */
+  private drainOutbox(socket: WebSocket, onDone?: () => void): void {
+    const token = ++this.drainToken;
+    this.draining = true;
+    const finish = (caughtUp: boolean): void => {
+      if (token !== this.drainToken) return;
+      this.draining = false;
+      if (caughtUp) onDone?.();
+    };
+    const step = (): void => {
+      if (token !== this.drainToken) return;
+      if (!this.running || socket.readyState !== WebSocket.OPEN) return finish(false);
+      if (socket.bufferedAmount > OUTBOX_MAX_BUFFERED_BYTES) {
+        setTimeout(step, OUTBOX_BACKPRESSURE_WAIT_MS);
+        return;
       }
-    } catch {
-      // Persistence and event fan-out must remain fail-soft if replication is
-      // unavailable; reconnect/resync will retry every durable row later.
-    }
+      let rows;
+      try {
+        rows = new RelayOutboxRepository().listSince(this.lastSentSeq, OUTBOX_BATCH_ROWS);
+      } catch {
+        // Persistence must remain fail-soft (and harnesses may lack a DB);
+        // reconnect/resync will retry every durable row later.
+        return finish(true);
+      }
+      for (const row of rows) {
+        const sent = this.sendFrameOn(socket, {
+          ch: 'repl',
+          t: 'row',
+          seq: row.seq,
+          tbl: row.tbl,
+          op: row.op,
+          pk: row.pk,
+          ...(row.row === null ? {} : { row: row.row }),
+        });
+        if (!sent) return finish(false);
+        this.lastSentSeq = row.seq;
+      }
+      if (rows.length < OUTBOX_BATCH_ROWS) return finish(true);
+      setImmediate(step);
+    };
+    step();
   }
 
   private pumpRpcQueue(): void {
