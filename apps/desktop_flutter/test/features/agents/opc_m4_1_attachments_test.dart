@@ -482,4 +482,52 @@ void main() {
       expect(rehydratedPart.fileUrl, equals(streamedPart.fileUrl));
     },
   );
+
+  // ── Hosted attachments: '/artifacts/<id>' references load from the local server ──
+
+  testWidgets(
+    'hosted image reference renders a network thumbnail scoped to its artifact project',
+    (tester) async {
+      final repo = _StubAgentsRepository();
+      final ctrl = _buildController(repo);
+      const msgId = 'hosted-msg';
+      final part = ChatPart.fromJson(msgId, {
+        'id': 'part-hosted',
+        'type': 'file',
+        'mime': 'image/jpeg',
+        'filename': 'Chapel front.jpg',
+        'url': '/artifacts/abc-123',
+        'artifactProject': 'session:s-1',
+      });
+      expect(part.fileArtifactProject, equals('session:s-1'));
+
+      ctrl.setMessageForTest(ChatMessage(
+        id: msgId,
+        sessionId: 'hosted-session',
+        role: 'user',
+        createdAt: _kEpoch,
+      ));
+      ctrl.setChatPartForTest(part);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MultiProvider(
+            providers: [
+              ChangeNotifierProvider<AgentsController>.value(value: ctrl),
+            ],
+            child: Scaffold(
+              body: UserBubbleTestHarness(parts: ctrl.chatPartsFor(msgId)),
+            ),
+          ),
+          theme: AppTheme.light(),
+        ),
+      );
+
+      final image = tester.widget<Image>(
+          find.byKey(const Key('file-image-thumbnail-part-hosted')));
+      final provider = image.image as NetworkImage;
+      expect(provider.url, equals('http://localhost:4001/artifacts/abc-123'));
+      expect(provider.headers, equals({'X-Rhythm-Project': 'session:s-1'}));
+    },
+  );
 }

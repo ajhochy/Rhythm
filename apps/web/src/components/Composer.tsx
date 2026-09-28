@@ -15,6 +15,7 @@ import type { ComposerAttachment } from '../types';
 import type { CommandEntry } from '../gateway/commands';
 import type { SessionSettings } from '../gateway/sessions';
 import { FocusDialog } from './FocusDialog';
+import { compressImageFile } from '../compressImage';
 
 const slashCommands = ['/summarize', '/review', '/status', '/compact'];
 // post-m1-phase-5 c1e: canonical PermissionMode values persisted across the PATCH boundary —
@@ -54,13 +55,17 @@ async function resolveLiveAttachment(file: File): Promise<ComposerAttachment> {
     return { id, type: 'text', path: file.name, filename: file.name, mime, size: file.size, truncated, content: truncated ? full.slice(0, MAX_LIVE_TEXT_ATTACHMENT_CHARS) : full };
   }
   if (mime.startsWith('image/') || mime === 'application/pdf') {
+    // Photos are downscaled/re-encoded first; the server then hosts the bytes as a media artifact.
+    const compressed = await compressImageFile(file);
+    const source: Blob = compressed?.blob ?? file;
     const dataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result));
       reader.onerror = () => reject(reader.error ?? new Error('Could not read file'));
-      reader.readAsDataURL(file);
+      reader.readAsDataURL(source);
     });
-    return { id, type: 'file', path: file.name, filename: file.name, mime, size: file.size, dataUrl };
+    const filename = compressed?.filename ?? file.name;
+    return { id, type: 'file', path: filename, filename, mime: compressed?.mime ?? mime, size: source.size, dataUrl };
   }
   // ponytail: browser file inputs cannot resolve a real filesystem path; best-effort
   // name-only reference. Upgrade if/when an Electron/native picker is wired in.

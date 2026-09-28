@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/core/agents/agent_server_controller.dart';
+import '../../../app/core/constants/app_constants.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../agent_configs/controllers/agent_configs_controller.dart';
 import '../../settings/views/settings_view.dart';
@@ -2221,6 +2222,28 @@ class _UserBubble extends StatelessWidget {
   Widget _buildFilePart(BuildContext context, ChatPart part) {
     final mime = part.fileMime ?? '';
     final url = part.fileUrl ?? '';
+
+    // Hosted attachment: bytes live in the local agent server's media store.
+    if (mime.startsWith('image/') && url.startsWith('/artifacts/')) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 4),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(RhythmRadius.sm),
+          child: Image.network(
+            '${AppConstants.agentLocalBaseUrl}$url',
+            key: Key('file-image-thumbnail-${part.id}'),
+            headers: {
+              if (part.fileArtifactProject != null)
+                'X-Rhythm-Project': part.fileArtifactProject!,
+            },
+            width: 200,
+            height: 200,
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => _buildFileChip(context, part),
+          ),
+        ),
+      );
+    }
 
     if (mime.startsWith('image/') && url.contains(';base64,')) {
       // Decode the data URI payload.
