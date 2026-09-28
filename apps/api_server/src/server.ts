@@ -211,6 +211,7 @@ async function main() {
   // shutdown handler can stop the N-account refresh loop. Nullable for the
   // 'cloud' role where the agent runtime — and this loop — never starts.
   let anthropicAccountsServiceRef: { stopRefreshLoop: () => void } | null = null;
+  let openaiAccountsServiceRef: { stopRefreshLoop: () => void } | null = null;
 
   if (env.agentExecutionEnabled) {
     // Seed and project Researcher before any scheduler or page-launched run can
@@ -831,6 +832,27 @@ async function main() {
         logger.warn(`[server] Claude auto-bridge errored (non-fatal): ${String(e)}`);
       }
 
+      // Multi-account OpenAI (ChatGPT/Codex OAuth) — same store model as the
+      // Anthropic block above. First run imports the engine's existing single
+      // openai login as account 'default'. The engine holds ONE openai
+      // credential, so the store default is pushed into auth.json (only when
+      // it differs, so a no-op boot never bounces the engine via the watcher).
+      try {
+        const { openaiAccountsService } = await import('./services/openai_accounts_service');
+        openaiAccountsServiceRef = openaiAccountsService;
+        openaiAccountsService.migrateFromEngine();
+        if (openaiAccountsService.hasAccounts()) {
+          openaiAccountsService.startRefreshLoop();
+          await openaiAccountsService.refreshAll();
+          const ok = await openaiAccountsService.pushDefaultToEngine(opencodeClient);
+          logger.info(
+            `[server] openai accounts store live (default='${openaiAccountsService.defaultAccount()?.id}') — engine ${ok ? 'in sync' : 'not updated'}`,
+          );
+        }
+      } catch (e) {
+        logger.warn(`[server] openai accounts init errored (non-fatal): ${String(e)}`);
+      }
+
       // #856/#1278 — arm the auth.json watcher only after restoreAuth and the
       // rest of boot-time credential reconciliation have finished. Those
       // server-owned writes belong to this initialization pass and must not
@@ -973,6 +995,7 @@ async function main() {
     // Dual-accounts Task B — stop the accounts refresh loop (timer is unref'd,
     // but a refresh mid-shutdown would burn a single-use refresh token).
     try { anthropicAccountsServiceRef?.stopRefreshLoop(); } catch (_) { /* ignore */ }
+    try { openaiAccountsServiceRef?.stopRefreshLoop(); } catch (_) { /* ignore */ }
 
     try { relayUplink?.stop(); } catch (_) { /* ignore */ }
 

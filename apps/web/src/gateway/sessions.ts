@@ -145,6 +145,15 @@ export interface SessionGateway {
   completeAccountLogin?(input: { accountId: string; code: string }): Promise<void>;
   setDefaultAccount?(accountId: string): Promise<void>;
   removeAccount?(accountId: string): Promise<void>;
+  renameAccount?(accountId: string, label: string): Promise<void>;
+  // Multi-account OpenAI (ChatGPT/Codex OAuth) — /opencode/auth/openai/accounts. The default is
+  // the one account the engine uses for ALL OpenAI requests (no per-session selection).
+  openaiAccounts?(): Promise<AccountChoice[]>;
+  startOpenAIAccountLogin?(input: { accountId: string; label?: string }): Promise<{ authorizationUrl: string }>;
+  completeOpenAIAccountLogin?(input: { accountId: string; code: string }): Promise<void>;
+  setDefaultOpenAIAccount?(accountId: string): Promise<{ engineUpdated: boolean }>;
+  renameOpenAIAccount?(accountId: string, label: string): Promise<void>;
+  removeOpenAIAccount?(accountId: string): Promise<void>;
   // Provider auth — apps/api_server/src/routes/opencode_auth_routes.ts:17-105.
   authProviders?(): Promise<string[]>;
   authorizeProvider?(provider: string, method: number): Promise<{ authUrl: string; instructions: string }>;
@@ -568,6 +577,27 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
     completeAccountLogin: async (input) => { await response<unknown>('Complete account authorization', request('/opencode/auth/accounts/login-complete', { method: 'POST', body: JSON.stringify(input) })); },
     setDefaultAccount: async (accountId) => { await response<unknown>('Set default account', request('/opencode/auth/accounts/default', { method: 'PATCH', body: JSON.stringify({ accountId }) })); },
     removeAccount: async (accountId) => { await response<unknown>('Remove account', request(`/opencode/auth/accounts/${encodeURIComponent(accountId)}`, { method: 'DELETE' })); },
+    renameAccount: async (accountId, label) => { await response<unknown>('Rename account', request(`/opencode/auth/accounts/${encodeURIComponent(accountId)}`, { method: 'PATCH', body: JSON.stringify({ label }) })); },
+    openaiAccounts: async () => {
+      const body = await response<{ accounts?: unknown[]; defaultAccountId?: string }>('Load OpenAI accounts', request('/opencode/auth/openai/accounts'));
+      return (body.accounts ?? []).map(record).map(row => ({
+        id: string(row.id),
+        label: string(row.label, string(row.id)),
+        status: string(row.status),
+        isDefault: string(row.id) === body.defaultAccountId,
+      }));
+    },
+    startOpenAIAccountLogin: async (input) => {
+      const result = await response<{ authorizeUrl: string }>('Start OpenAI account authorization', request('/opencode/auth/openai/accounts/login-start', { method: 'POST', body: JSON.stringify(input) }));
+      return { authorizationUrl: result.authorizeUrl };
+    },
+    completeOpenAIAccountLogin: async (input) => { await response<unknown>('Complete OpenAI account authorization', request('/opencode/auth/openai/accounts/login-complete', { method: 'POST', body: JSON.stringify(input) })); },
+    setDefaultOpenAIAccount: async (accountId) => {
+      const body = await response<{ engineUpdated?: boolean }>('Set default OpenAI account', request('/opencode/auth/openai/accounts/default', { method: 'PATCH', body: JSON.stringify({ accountId }) }));
+      return { engineUpdated: body.engineUpdated === true };
+    },
+    renameOpenAIAccount: async (accountId, label) => { await response<unknown>('Rename OpenAI account', request(`/opencode/auth/openai/accounts/${encodeURIComponent(accountId)}`, { method: 'PATCH', body: JSON.stringify({ label }) })); },
+    removeOpenAIAccount: async (accountId) => { await response<unknown>('Remove OpenAI account', request(`/opencode/auth/openai/accounts/${encodeURIComponent(accountId)}`, { method: 'DELETE' })); },
     authProviders: async () => {
       const body = await response<{ providers?: unknown[] }>('Load provider authorizations', request('/opencode/auth'));
       return (body.providers ?? []).map((entry) => string(entry));

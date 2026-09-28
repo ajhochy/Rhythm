@@ -1035,7 +1035,10 @@ export class OpencodeClientService {
           const refresh = creds.refresh;
           const expires = creds.expires;
           if (typeof access === 'string' && typeof refresh === 'string' && typeof expires === 'number') {
-            await this.setOAuthCredentials(providerId, { access, refresh, expires });
+            // Keep the ChatGPT workspace id (openai) — dropping it loses the
+            // ChatGPT-Account-Id header the codex plugin sends.
+            const accountId = typeof creds.accountId === 'string' ? creds.accountId : undefined;
+            await this.setOAuthCredentials(providerId, { access, refresh, expires, ...(accountId ? { accountId } : {}) });
             restored++;
           }
         }
@@ -2308,7 +2311,7 @@ export class OpencodeClientService {
    */
   async setOAuthCredentials(
     providerId: string,
-    creds: { access: string; refresh: string; expires: number },
+    creds: { access: string; refresh: string; expires: number; accountId?: string },
   ): Promise<boolean> {
     if (!this.client) return false;
     try {
@@ -2319,7 +2322,9 @@ export class OpencodeClientService {
           access: creds.access,
           refresh: creds.refresh,
           expires: creds.expires,
-        },
+          // Engine Auth.Oauth schema accepts optional accountId (vendored d.ts omits it).
+          ...(creds.accountId ? { accountId: creds.accountId } : {}),
+        } as { type: 'oauth'; access: string; refresh: string; expires: number },
       });
       return raw.data === true;
     } catch (err) {

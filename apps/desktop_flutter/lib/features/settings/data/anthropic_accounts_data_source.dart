@@ -28,12 +28,18 @@ class AnthropicAccount {
 }
 
 class AnthropicAccountsDataSource {
-  AnthropicAccountsDataSource({http.Client? client})
-      : _client = client ?? http.Client();
+  /// [path] defaults to the Anthropic store; pass [openaiAccountsPath] for the
+  /// OpenAI (ChatGPT/Codex) store — same wire shapes on both.
+  AnthropicAccountsDataSource({
+    http.Client? client,
+    String path = '/opencode/auth/accounts',
+  })  : _client = client ?? http.Client(),
+        _base = '${AppConstants.agentLocalBaseUrl}$path';
+
+  static const openaiAccountsPath = '/opencode/auth/openai/accounts';
 
   final http.Client _client;
-  final String _base =
-      '${AppConstants.agentLocalBaseUrl}/opencode/auth/accounts';
+  final String _base;
 
   Future<({List<AnthropicAccount> accounts, String? defaultAccountId})>
       list() async {

@@ -43,6 +43,7 @@ if (process.env.RHYTHM_LIVE_E2E !== '1') {
   // do with their change. Points at a path inside runRoot that does not exist,
   // which the store reads as "no accounts" and the preflight fails open on.
   process.env.RHYTHM_ACCOUNTS_FILE = path.join(runRoot, 'anthropic-accounts.json');
+  process.env.RHYTHM_OPENAI_ACCOUNTS_FILE = path.join(runRoot, 'openai-accounts.json');
   // The scheduler's wake gate shells out to `pmset` to decide whether a person
   // is at the machine. Without this pin, every scheduler test would pass or
   // fail depending on whether the developer's display happened to be asleep
