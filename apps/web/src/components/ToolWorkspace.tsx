@@ -9,7 +9,7 @@ import type { CommandEntry, ManagedCommandContent } from '../gateway/commands';
 import type { CookbookRecipe } from '../gateway/cookbook';
 import type { ResearchProject as LiveResearchProject, ResearchProjectRun } from '../gateway/research';
 import type { ModelChoice } from '../gateway/sessions';
-import type { AgentDesign } from '../gateway/designs';
+import type { AgentDesign, AgentDesignFolder } from '../gateway/designs';
 import type { GmailSignal } from '../gateway/integrations';
 import type { SkillEntry } from '../gateway/skills';
 import { Icon } from '../icons';
@@ -23,6 +23,7 @@ import { navigate } from './Shell';
 import { SafeMarkdown } from './SafeMarkdown';
 import { FixtureAgentSettingsTool, LiveSettingsTool } from './tools/AgentSettingsTool';
 import { SharedAgentsTool } from './tools/SharedAgentsTool';
+import { GalleryFolders, matchesGalleryFilter, type GalleryFilter } from './tools/GalleryFolders';
 import './ToolWorkspace.css';
 
 // Parses a JSON array field defensively — live rows always carry these as JSON text
@@ -1605,24 +1606,73 @@ function designBrowserUrl(design: AgentDesign, apiBase: string | undefined) {
 function LiveGalleryTool() {
   const gateway = useGateway();
   const { notify } = useFixtures();
+  const api = gateway.domains.designs!;
   const [designs, setDesigns] = useState<AgentDesign[]>([]);
+  const [folders, setFolders] = useState<AgentDesignFolder[]>([]);
+  const [filter, setFilter] = useState<GalleryFilter>('all');
   const [selectedId, setSelectedId] = useSelectedId('designId');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-designs', detail: 'Loading creative designs' });
-  const effectiveId = selectedId ?? designs[0]?.id ?? null;
-  const selected = designs.find((design) => design.id === effectiveId) ?? null;
-  useEffect(() => { if (selectedId === null && designs[0]) setSelectedId(designs[0].id); }, [selectedId, designs, setSelectedId]);
+  const [renaming, setRenaming] = useState(false);
+  const [confirm, setConfirm] = useState<{ folder: AgentDesignFolder } | { design: AgentDesign } | null>(null);
+  const visible = designs.filter((design) => matchesGalleryFilter(design, filter));
+  const selected = visible.find((design) => design.id === selectedId) ?? visible[0] ?? null;
+  const effectiveId = selected?.id ?? null;
+  useEffect(() => { if (selectedId === null && visible[0]) setSelectedId(visible[0].id); }, [selectedId, visible, setSelectedId]);
+  useEffect(() => { setRenaming(false); }, [effectiveId]);
 
   const load = async () => {
     setError(null);
     setLoading(true);
     try {
-      const next = await gateway.domains.designs!.list();
+      // ponytail: a folders failure (e.g. an older API without the route) leaves the gallery usable, unfiled.
+      const [next, nextFolders] = await Promise.all([api.list(), api.listFolders().catch(() => [] as AgentDesignFolder[])]);
       setDesigns(next);
+      setFolders(nextFolders);
       setTrace({ method: 'GET', route: '/agent-designs', detail: `${next.length} designs loaded` });
     } catch (err) { setError(err instanceof Error ? err.message : 'Creative designs failed to load'); }
     finally { setLoading(false); }
+  };
+  /** Runs a gallery mutation, recording its trace; failures surface as a notice and rethrow. */
+  const mutate = async <T,>(method: string, route: string, detail: string, action: () => Promise<T>) => {
+    try {
+      const result = await action();
+      setTrace({ method, route, detail });
+      return result;
+    } catch (err) { notify(err instanceof Error ? err.message : `${detail} failed`); throw err; }
+  };
+  const replaceDesign = (next: AgentDesign) => setDesigns((current) => current.map((design) => design.id === next.id ? next : design));
+  const moveDesign = (designId: string, folderId: string | null) => {
+    const design = designs.find((item) => item.id === designId);
+    if (!design || (design.folderId ?? null) === folderId) return;
+    const target = folderId ? folders.find((folder) => folder.id === folderId)?.name ?? 'folder' : 'Unfiled';
+    void mutate('PATCH', `/agent-designs/${designId}`, `Moved ${design.title ?? designId} to ${target}`, () => api.update(designId, { folderId })).then(replaceDesign, () => undefined);
+  };
+  const confirmDelete = async () => {
+    if (!confirm) return;
+    if ('folder' in confirm) {
+      const { folder } = confirm;
+      await mutate('DELETE', `/agent-designs/folders/${folder.id}`, `Deleted folder ${folder.name}`, () => api.deleteFolder(folder.id)).then(() => {
+        setFolders((current) => current.filter((item) => item.id !== folder.id));
+        setDesigns((current) => current.map((design) => design.folderId === folder.id ? { ...design, folderId: null } : design));
+        if (filter === folder.id) setFilter('all');
+      }, () => undefined);
+    } else {
+      const { design } = confirm;
+      await mutate('DELETE', `/agent-designs/${design.id}`, `Removed ${design.title ?? design.id} from the gallery`, () => api.remove(design.id)).then(() => {
+        setDesigns((current) => current.filter((item) => item.id !== design.id));
+        setSelectedId(null);
+      }, () => undefined);
+    }
+    setConfirm(null);
+  };
+  const renameDesign = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const title = String(new FormData(event.currentTarget).get('title') ?? '').trim();
+    setRenaming(false);
+    if (!selected || !title || title === selected.title) return;
+    void mutate('PATCH', `/agent-designs/${selected.id}`, `Renamed design to ${title}`, () => api.update(selected.id, { title })).then(replaceDesign, () => undefined);
   };
   useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1653,21 +1703,42 @@ function LiveGalleryTool() {
   };
 
   return <ToolFrame slug="gallery" title="Creative Media" description="Browse agent designs and launch a Creative Media session from the selected artifact context." trace={trace}>
+    <div className="gallery-layout">
+    <GalleryFolders
+      folders={folders}
+      designs={designs}
+      filter={filter}
+      onFilter={(next) => { setFilter(next); setSelectedId(null); }}
+      onCreate={async (name) => { const folder = await mutate('POST', '/agent-designs/folders', `Created folder ${name}`, () => api.createFolder(name)); setFolders((current) => [...current, folder]); }}
+      onRename={async (folder, name) => { const next = await mutate('PATCH', `/agent-designs/folders/${folder.id}`, `Renamed folder to ${name}`, () => api.renameFolder(folder.id, name)); setFolders((current) => current.map((item) => item.id === next.id ? next : item)); }}
+      onRequestDelete={(folder) => setConfirm({ folder })}
+      onMove={moveDesign}
+    />
     <ListInspector
       label="Creative Media artifacts"
-      items={designs.map((design) => ({ id: `design-${design.id}`, title: design.title ?? design.id, subtitle: design.provider ?? 'unknown provider', meta: design.artifactType ?? 'unknown', leading: <DesignThumb design={design} /> }))}
+      items={visible.map((design) => ({ id: `design-${design.id}`, title: design.title ?? design.id, subtitle: design.provider ?? 'unknown provider', meta: design.artifactType ?? 'unknown', leading: <DesignThumb design={design} />, dragData: design.id }))}
       selectedId={effectiveId === null ? null : `design-${effectiveId}`}
       onSelect={(rowId) => setSelectedId(rowId.slice('design-'.length))}
       loading={loading}
       error={error ? <section className="tool-state-panel error" data-testid="gallery-error"><span className="tool-state-code">Error</span><p>{error}</p></section> : undefined}
       toolbar={<button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="gallery-refresh"><Icon name="refresh" size={14} />Refresh</button>}
-      emptyState={<EmptyState title="No creative artifacts yet">Generated images, documents, and interactive artifacts will collect here.</EmptyState>}
-      inspector={(item) => item && selected ? <><div className="tool-inspector-preview"><DesignPreview key={selected.id} design={selected} /></div><section className="gallery-detail" aria-live="polite" data-testid="gallery-detail"><span className="tool-icon"><Icon name={selected.artifactType === 'html' ? 'artifact' : 'gallery'} /></span><div><span className="eyebrow">Selected artifact</span><p>{selected.artifactType ?? 'unknown'} · {selected.provider ?? 'unknown provider'}</p></div></section><div className="row-actions"><button className="text-button" type="button" onClick={() => void open(selected)} data-testid={`gallery-open-${selected.id}`}>Open deliverable</button>{browserUrl && openExternal && <button className="text-button" type="button" onClick={() => void openExternal(browserUrl).catch(() => notify('Could not open the browser'))} data-testid={`gallery-browser-${selected.id}`}>Open in browser</button>}{selected.projectUrl && <button className="text-button" type="button" onClick={() => { setTrace({ method: 'LOCAL', route: selected.projectUrl!, detail: 'Opened project preview' }); navigate('/projects'); }} data-testid={`gallery-project-${selected.id}`}>Open project</button>}<button className="primary-button" type="button" onClick={() => void launch()} data-testid="gallery-launch"><Icon name="gallery" size={14} />Launch Creative Media</button></div></> : <p>Select an artifact to inspect its preview and actions.</p>}
+      emptyState={filter === 'all' ? <EmptyState title="No creative artifacts yet">Generated images, documents, and interactive artifacts will collect here.</EmptyState> : <EmptyState title="Nothing here yet">Drag artifacts onto this folder, or use Move to in the inspector.</EmptyState>}
+      inspector={(item) => item && selected ? <><div className="tool-inspector-preview"><DesignPreview key={selected.id} design={selected} /></div><section className="gallery-detail" aria-live="polite" data-testid="gallery-detail"><span className="tool-icon"><Icon name={selected.artifactType === 'html' ? 'artifact' : 'gallery'} /></span><div><span className="eyebrow">Selected artifact</span>{renaming
+        ? <form onSubmit={renameDesign}><input name="title" aria-label="Design title" defaultValue={selected.title ?? ''} autoFocus maxLength={200} data-testid="gallery-design-rename-input" onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); setRenaming(false); } }} onBlur={(event) => event.currentTarget.form?.requestSubmit()} /></form>
+        : <strong className="gallery-design-title" onDoubleClick={() => setRenaming(true)}>{selected.title ?? selected.id}</strong>}<p>{selected.artifactType ?? 'unknown'} · {selected.provider ?? 'unknown provider'}</p>
+        <label className="gallery-move">Move to <select value={selected.folderId ?? ''} onChange={(event) => moveDesign(selected.id, event.target.value || null)} data-testid="gallery-move-select"><option value="">Unfiled</option>{folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label></div></section><div className="row-actions"><button className="text-button" type="button" onClick={() => void open(selected)} data-testid={`gallery-open-${selected.id}`}>Open deliverable</button>{browserUrl && openExternal && <button className="text-button" type="button" onClick={() => void openExternal(browserUrl).catch(() => notify('Could not open the browser'))} data-testid={`gallery-browser-${selected.id}`}>Open in browser</button>}{selected.projectUrl && <button className="text-button" type="button" onClick={() => { setTrace({ method: 'LOCAL', route: selected.projectUrl!, detail: 'Opened project preview' }); navigate('/projects'); }} data-testid={`gallery-project-${selected.id}`}>Open project</button>}<button className="text-button" type="button" onClick={() => setRenaming(true)} data-testid="gallery-design-rename">Rename</button><button className="text-danger-button" type="button" onClick={() => setConfirm({ design: selected })} data-testid="gallery-design-delete">Delete</button><button className="primary-button" type="button" onClick={() => void launch()} data-testid="gallery-launch"><Icon name="gallery" size={14} />Launch Creative Media</button></div></> : <p>Select an artifact to inspect its preview and actions.</p>}
     />
+    </div>
     <FocusDialog open={viewer !== null} title={viewer?.design.title ?? 'Deliverable'} onClose={closeViewer} testId="gallery-viewer" wide>
       {viewer && (videoArtifactTypes.has(designType(viewer.design))
         ? <video className="gallery-viewer-media" src={viewer.url} controls autoPlay data-testid="gallery-viewer-video" />
         : <img className="gallery-viewer-media" src={viewer.url} alt={viewer.design.title ?? 'Deliverable'} data-testid="gallery-viewer-image" />)}
+    </FocusDialog>
+    <FocusDialog open={confirm !== null} title={confirm ? ('folder' in confirm ? `Delete folder “${confirm.folder.name}”?` : `Delete “${confirm.design.title ?? confirm.design.id}”?`) : 'Delete'} onClose={() => setConfirm(null)} testId="gallery-confirm">
+      {confirm && <p data-testid="gallery-confirm-text">{'folder' in confirm
+        ? (() => { const n = designs.filter((design) => design.folderId === confirm.folder.id).length; return `Its ${n} ${n === 1 ? 'item moves' : 'items move'} to Unfiled.`; })()
+        : 'Removes it from the gallery. The file stays on disk.'}</p>}
+      <div className="row-actions"><button className="secondary-button" type="button" onClick={() => setConfirm(null)}>Cancel</button><button className="danger-button" type="button" onClick={() => void confirmDelete()} data-testid="gallery-confirm-delete">{confirm && 'folder' in confirm ? 'Delete folder' : 'Delete'}</button></div>
     </FocusDialog>
   </ToolFrame>;
 }

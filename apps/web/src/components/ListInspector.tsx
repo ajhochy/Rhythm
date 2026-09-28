@@ -2,7 +2,10 @@ import { useCallback, useId, useLayoutEffect, useRef, useState, useSyncExternalS
 import './ListInspector.css';
 import { Splitter } from './Splitter';
 
-export type ListInspectorItem = { id: string; title: string; subtitle?: string; meta?: string; badge?: string; group?: string; disabled?: boolean; leading?: ReactNode };
+export type ListInspectorItem = { id: string; title: string; subtitle?: string; meta?: string; badge?: string; group?: string; disabled?: boolean; leading?: ReactNode; dragData?: string };
+
+/** dataTransfer type carrying an item's `dragData` (HTML5 drag and drop). */
+export const LIST_ITEM_DRAG_TYPE = 'application/x-rhythm-list-item';
 
 const selectionEvent = 'rhythm:list-inspector-selection';
 
@@ -168,6 +171,8 @@ export function ListInspector({ label, items, groups, selectedId, onSelect, tool
               className={`list-inspector-row${item.leading ? ' has-leading' : ''}${item.id === selectedId ? ' selected' : ''}`}
               data-item-id={item.id}
               data-testid={item.id}
+              draggable={item.dragData ? true : undefined}
+              onDragStart={item.dragData ? (event) => { event.dataTransfer.setData(LIST_ITEM_DRAG_TYPE, item.dragData!); event.dataTransfer.effectAllowed = 'move'; } : undefined}
               onFocus={() => setFocusedId(item.id)}
               onClick={(event) => { if (!item.disabled) { event.currentTarget.focus(); select(item); } }}
             >

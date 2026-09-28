@@ -4,7 +4,7 @@ import { publicAgentDesign } from '../repositories/agent_designs_repository';
 
 // Local designs never expose their file path; they point at the routes that serve them so the
 // gallery can show a poster (mp4) or the image itself.
-const base = { id: 'd 1', title: 't', provider: 'local', projectUrl: null, canvaUrl: null, sessionId: null, createdAt: '2026-09-28T00:00:00.000Z', artifactUrl: null, thumbnailUrl: null };
+const base = { id: 'd 1', title: 't', provider: 'local', projectUrl: null, canvaUrl: null, sessionId: null, folderId: null, createdAt: '2026-09-28T00:00:00.000Z', artifactUrl: null, thumbnailUrl: null };
 
 describe('publicAgentDesign', () => {
   it('local mp4: artifact + poster routes, no file path', () => {

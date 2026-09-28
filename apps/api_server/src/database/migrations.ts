@@ -2162,6 +2162,19 @@ export function runMigrations(db: Database.Database): void {
   if (!agentDesignCols.includes('project_url')) db.exec(`ALTER TABLE agent_designs ADD COLUMN project_url TEXT`);
   db.exec(`UPDATE agent_designs SET project_url = canva_url, provider = COALESCE(provider, 'canva') WHERE canva_url IS NOT NULL AND project_url IS NULL`);
   db.exec(`UPDATE agent_designs SET provider = 'local' WHERE file_path IS NOT NULL AND provider IS NULL`);
+  // Gallery folders (single level). agent_designs.folder_id is a logical FK; deleting a folder
+  // unfiles its designs in AgentDesignsRepository (ON DELETE SET NULL semantics in code).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_design_folders (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      sort_order INTEGER,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+  `);
+  if (!agentDesignCols.includes('folder_id')) db.exec(`ALTER TABLE agent_designs ADD COLUMN folder_id TEXT`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_designs_folder_id ON agent_designs(folder_id)`);
 
   // ── Agent Config Profile Extensions ──────────────────────────────────────
   // Add manager/specialist profile columns to agent_configs (additive).

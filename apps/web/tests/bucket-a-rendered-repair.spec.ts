@@ -219,6 +219,92 @@ test('bucket-a-rendered-gallery: API-relative posters, list thumbnails and the i
   expect(assetRequests).toContain('fetch /agent-designs/local-video/artifact');
 });
 
+test('bucket-a-rendered-gallery-folders: create, rename, drag/menu move, and delete folders and designs', async ({ page }, testInfo) => {
+  const design = (id: string, title: string) => ({ id, title, provider: 'canva', artifactType: 'png', artifactUrl: null, thumbnailUrl: null, projectUrl: null, canvaUrl: null, sessionId: null, folderId: null as string | null, createdAt: '2026-08-20T00:00:00.000Z' });
+  const designs = [design('banner', 'Easter banner'), design('slide', 'Youth slide')];
+  const folders: { id: string; name: string; sortOrder: number; createdAt: string; updatedAt: string }[] = [];
+  const calls: string[] = [];
+  await installLiveRoutes(page, async (route, url) => {
+    if (!url.pathname.startsWith('/agent-designs')) return false;
+    const method = route.request().method();
+    const body = method === 'GET' || method === 'DELETE' ? {} : route.request().postDataJSON() as Record<string, string | null>;
+    calls.push(`${method} ${url.pathname} ${JSON.stringify(body)}`);
+    const [, , second, third] = url.pathname.split('/');
+    if (second === 'folders') {
+      if (method === 'GET') await fulfillJson(route, folders);
+      else if (method === 'POST') { const folder = { id: `folder-${folders.length + 1}`, name: String(body.name), sortOrder: folders.length, createdAt: '', updatedAt: '' }; folders.push(folder); await fulfillJson(route, folder, 201); }
+      else if (method === 'PATCH') { const folder = folders.find((item) => item.id === third)!; folder.name = String(body.name); await fulfillJson(route, folder); }
+      else { folders.splice(folders.findIndex((item) => item.id === third), 1); designs.forEach((item) => { if (item.folderId === third) item.folderId = null; }); await route.fulfill({ status: 204 }); }
+      return true;
+    }
+    if (!second) { await fulfillJson(route, designs); return true; }
+    const target = designs.find((item) => item.id === second)!;
+    if (method === 'PATCH') { Object.assign(target, body); await fulfillJson(route, target); }
+    else if (method === 'DELETE') { designs.splice(designs.indexOf(target), 1); await route.fulfill({ status: 204 }); }
+    else await fulfillJson(route, target);
+    return true;
+  });
+  await page.goto('/#/tools/gallery', { waitUntil: 'domcontentloaded' });
+  const nav = page.getByTestId('gallery-folders');
+  await expect(page.getByRole('option', { name: 'Easter banner' })).toBeVisible();
+
+  // Create two folders.
+  for (const name of ['Sundays', 'Scratch']) {
+    await page.getByTestId('gallery-folder-new').click();
+    await page.getByTestId('gallery-folder-new-input').fill(name);
+    await page.getByTestId('gallery-folder-new-input').press('Enter');
+    await expect(nav.getByRole('button', { name: new RegExp(`^${name}`) })).toBeVisible();
+  }
+
+  // Rename via the row menu.
+  await page.getByTestId('gallery-folder-menu-folder-1').click();
+  await page.getByTestId('gallery-folder-rename-folder-1').click();
+  await page.getByTestId('gallery-folder-rename-input').fill('Easter');
+  await page.getByTestId('gallery-folder-rename-input').press('Enter');
+  await expect(nav.getByRole('button', { name: /^Easter/ })).toBeVisible();
+  expect(calls).toContain('PATCH /agent-designs/folders/folder-1 {"name":"Easter"}');
+
+  // Drag a design onto the folder.
+  await page.getByRole('option', { name: 'Easter banner' }).dragTo(page.getByTestId('gallery-folder-folder-1'));
+  await expect.poll(() => calls).toContain('PATCH /agent-designs/banner {"folderId":"folder-1"}');
+  await expect(page.getByTestId('gallery-folder-folder-1')).toContainText('1');
+
+  // Keyboard/menu alternative: Move to.
+  await page.getByRole('option', { name: 'Youth slide' }).click();
+  await page.getByTestId('gallery-move-select').selectOption({ label: 'Scratch' });
+  await expect.poll(() => calls).toContain('PATCH /agent-designs/slide {"folderId":"folder-2"}');
+
+  // Filter by folder.
+  await nav.getByRole('button', { name: /^Easter/ }).click();
+  await expect(page.getByRole('option', { name: 'Easter banner' })).toBeVisible();
+  await expect(page.getByRole('option', { name: 'Youth slide' })).toHaveCount(0);
+
+  // Rename a design inline.
+  await page.getByTestId('gallery-design-rename').click();
+  await page.getByTestId('gallery-design-rename-input').fill('Easter hero');
+  await page.getByTestId('gallery-design-rename-input').press('Enter');
+  await expect(page.getByRole('option', { name: 'Easter hero' })).toBeVisible();
+  expect(calls).toContain('PATCH /agent-designs/banner {"title":"Easter hero"}');
+  await page.screenshot({ path: screenshotPath(testInfo, 'bucket-a-gallery-folders.png') });
+
+  // Delete the folder: its item moves to Unfiled.
+  await page.getByTestId('gallery-folder-menu-folder-1').click();
+  await page.getByTestId('gallery-folder-delete-folder-1').click();
+  await expect(page.getByTestId('gallery-confirm-text')).toHaveText('Its 1 item moves to Unfiled.');
+  await page.getByTestId('gallery-confirm-delete').click();
+  await expect(page.getByTestId('gallery-folder-folder-1')).toHaveCount(0);
+  await nav.getByRole('button', { name: /^Unfiled/ }).click();
+  await expect(page.getByRole('option', { name: 'Easter hero' })).toBeVisible();
+
+  // Delete a design: gallery record only.
+  await page.getByRole('option', { name: 'Easter hero' }).click();
+  await page.getByTestId('gallery-design-delete').click();
+  await expect(page.getByTestId('gallery-confirm-text')).toHaveText('Removes it from the gallery. The file stays on disk.');
+  await page.getByTestId('gallery-confirm-delete').click();
+  await expect(page.getByRole('option', { name: 'Easter hero' })).toHaveCount(0);
+  expect(calls).toContain('DELETE /agent-designs/banner {}');
+});
+
 test('bucket-a-rendered-agent-tools: live Webhooks is explicit and Email uses live gateway records', async ({ page }) => {
   const signal = {
     id: 'live-signal-1', ownerId: 42, externalId: 'external-live-1', threadId: 'thread-live-1',

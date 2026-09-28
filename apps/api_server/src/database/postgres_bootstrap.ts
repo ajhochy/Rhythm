@@ -1186,6 +1186,18 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_agent_designs_created_at ON agent_designs(created_at)`,
   );
+  // Gallery folders — mirrors migrations.ts (folder_id unfiled in code on folder delete).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_design_folders (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      sort_order INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`ALTER TABLE agent_designs ADD COLUMN IF NOT EXISTS folder_id TEXT`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_designs_folder_id ON agent_designs(folder_id)`);
 
   // P1-1 — agent_skills: shared, instance-wide self-improving skill library.
   // Skills are SHARED across all agents — there is intentionally NO owner_user_id.

@@ -14,6 +14,13 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 
 const repo = new AgentDesignsRepository();
 
+/** A trimmed, non-empty display name of at most 200 characters. */
+function requiredName(value: unknown, field: string): string {
+  const name = typeof value === 'string' ? value.trim() : '';
+  if (!name || name.length > 200) throw AppError.badRequest(`${field} must be 1-200 characters`);
+  return name;
+}
+
 export class AgentDesignsController {
   async list(_req: Request, res: Response, next: NextFunction) {
     try {
@@ -111,6 +118,60 @@ export class AgentDesignsController {
     try {
       const deleted = await repo.deleteAsync(req.params.id);
       if (!deleted) throw AppError.notFound('AgentDesign');
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async update(req: Request, res: Response, next: NextFunction) {
+    try {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const patch: { title?: string; folderId?: string | null } = {};
+      if (body.title !== undefined) patch.title = requiredName(body.title, 'title');
+      if (body.folderId !== undefined) {
+        if (body.folderId !== null && typeof body.folderId !== 'string') throw AppError.badRequest('folderId must be a string or null');
+        if (body.folderId !== null && !(await repo.findFolderAsync(body.folderId))) throw AppError.badRequest('Unknown folderId');
+        patch.folderId = body.folderId;
+      }
+      if (!(await repo.findByIdAsync(req.params.id))) throw AppError.notFound('AgentDesign');
+      res.json(publicAgentDesign((await repo.updateAsync(req.params.id, patch))!));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async listFolders(_req: Request, res: Response, next: NextFunction) {
+    try {
+      res.json(await repo.listFoldersAsync());
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async createFolder(req: Request, res: Response, next: NextFunction) {
+    try {
+      const name = requiredName((req.body as Record<string, unknown> | undefined)?.name, 'name');
+      res.status(201).json(await repo.createFolderAsync(name));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async renameFolder(req: Request, res: Response, next: NextFunction) {
+    try {
+      const name = requiredName((req.body as Record<string, unknown> | undefined)?.name, 'name');
+      const folder = await repo.renameFolderAsync(req.params.id, name);
+      if (!folder) throw AppError.notFound('AgentDesignFolder');
+      res.json(folder);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async removeFolder(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!(await repo.deleteFolderAsync(req.params.id))) throw AppError.notFound('AgentDesignFolder');
       res.status(204).end();
     } catch (err) {
       next(err);
