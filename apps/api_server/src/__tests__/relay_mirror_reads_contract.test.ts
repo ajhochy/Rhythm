@@ -305,9 +305,10 @@ describe('Track 5 contract — relay-served mirror reads', () => {
     expect(unknown.status).toBe(503);
   });
 
-  it('tunnels a mirror-miss to the Mac when it is online', async () => {
+  it('issue-1387-c8: tunnels transcript reads to the online Mac instead of a stale mirror', async () => {
     const relay = await startRelay(fixture);
     cleanups.push(() => relay.close());
+    const { sdkSessionId } = await seedMirror(fixture.userId);
 
     // Connect a fake Mac and finish the handshake so macOnline = true.
     const frames: UplinkFrame[] = [];
@@ -360,7 +361,7 @@ describe('Track 5 contract — relay-served mirror reads', () => {
       const req = await waitFor(
         (f): f is RpcReqFrame => f.ch === 'rpc' && f.t === 'req',
       );
-      expect(req.path).toContain('/session/ses_not_mirrored/message');
+      expect(req.path).toContain(`/session/${sdkSessionId}/message`);
       socket.send(
         serializeUplinkFrame({
           ch: 'rpc',
@@ -375,10 +376,12 @@ describe('Track 5 contract — relay-served mirror reads', () => {
       );
     })();
 
-    const response = await get(relay, '/session/ses_not_mirrored/message');
+    const response = await get(relay, `/session/${sdkSessionId}/message`);
     await answering;
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain('msg_live');
+    const text = await response.text();
+    expect(text).toContain('msg_live');
+    expect(text).not.toContain('served from the relay mirror');
   });
 
   it('issue-1387-c7: tunnels owner catalog pages to the online Mac instead of a stale relay mirror', async () => {

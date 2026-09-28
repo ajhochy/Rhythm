@@ -521,6 +521,13 @@ export function createRelayGatewayRouter(
     requireDevice,
     async (req, res, next) => {
       try {
+        // A connected Mac is authoritative for the active transcript. The
+        // mirror is intentionally the offline fallback; serving it while the
+        // uplink is healthy can hide newly accepted user and assistant turns.
+        if (uplink.isMacOnline()) {
+          await tunnelRequest(uplink, req, res, next);
+          return;
+        }
         const project = relayProject(req);
         const query = new URL(req.originalUrl, 'http://relay.local')
           .searchParams;
