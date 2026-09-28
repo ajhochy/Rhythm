@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { runInNewContext } from 'node:vm'
 
 import { bindColonySceneChannel } from '../src/colony-view.mjs'
 
@@ -23,7 +25,7 @@ class MessageChannelMain {
   }
 }
 
-function fixture() {
+function fixture({ onHostEvent, sessionId = 'session-known' } = {}) {
   const ipcMain = new EventEmitter()
   const sceneFrame = { detached: false, url: ENTRY, postMessage() {}, send() {} }
   const sceneContents = Object.assign(new EventEmitter(), {
@@ -35,7 +37,7 @@ function fixture() {
   const hostContents = Object.assign(new EventEmitter(), {
     mainFrame: hostFrame,
     events: [],
-    send(channel, message) { this.events.push({ channel, message }) },
+    send(channel, message) { this.events.push({ channel, message }); onHostEvent?.(channel, message) },
   })
   let workerRequests = 0
   const actionCalls = []
@@ -50,7 +52,7 @@ function fixture() {
     ownsThreadId: (threadId) => threadId === 'task-known',
     runAction: async (value) => {
       actionCalls.push(value)
-      return { ok: true, kind: 'rhythm-session', sessionId: 'session-known' }
+      return { ok: true, kind: 'rhythm-session', sessionId }
     },
     onSceneEvent: (event, payload) => hostContents.send('colony:view:event', { attachment: 'attachment-1', event, payload }),
     service: {
@@ -96,6 +98,43 @@ test('scene action.run dispatches through main policy and forwards Rhythm naviga
   ])
   assert.deepEqual(f.port.messages, [{ v: 1, documentId: 'document-1', id: 'request-1', ok: true, result: { ok: true, kind: 'rhythm-session', sessionId: 'session-known' } }])
   assert.equal(f.workerRequests(), 0)
+  await f.channel.dispose()
+})
+
+test('task-bot-crossing-open-c4 native action crosses the real preload once and navigates to the exact local session hash', async () => {
+  // Regression caught: isolated scene and renderer tests pass while preload silently drops scene.action.
+  let bridge
+  const ipcRenderer = Object.assign(new EventEmitter(), {
+    sendSync: () => 'https://api.example.test',
+    send() {},
+    invoke: async (channel) => channel === 'colony:view:attach'
+      ? { ok: true, attachment: 'attachment-1' }
+      : undefined,
+  })
+  runInNewContext(await readFile(new URL('../src/preload.cjs', import.meta.url), 'utf8'), {
+    require: () => ({ contextBridge: { exposeInMainWorld(_key, value) { bridge = value } }, ipcRenderer }),
+    process: { argv: [], env: {}, platform: 'darwin' },
+    window: { addEventListener() {}, dispatchEvent() {} },
+    CustomEvent: class {},
+  })
+  await bridge.colonyView.attach()
+  let hash = '#/colony'
+  let navigations = 0
+  bridge.colonyView.onEvent((message) => {
+    if (message.event === 'scene.action' && message.payload.kind === 'rhythm-session' && typeof message.payload.sessionId === 'string') {
+      hash = `#/agents?sessionId=${encodeURIComponent(message.payload.sessionId)}`
+      navigations++
+    }
+  })
+  const f = fixture({
+    sessionId: 'local-session-42',
+    onHostEvent: (channel, message) => ipcRenderer.emit(channel, {}, message),
+  })
+  f.port.emit('message', { data: { v: 1, documentId: 'document-1', id: 'request-1', method: 'action.run', payload: { kind: 'open', id: 'task-known' } } })
+  await tick()
+  assert.deepEqual(f.actionCalls, [{ kind: 'open', id: 'task-known' }])
+  assert.equal(hash, '#/agents?sessionId=local-session-42')
+  assert.equal(navigations, 1)
   await f.channel.dispose()
 })
 
