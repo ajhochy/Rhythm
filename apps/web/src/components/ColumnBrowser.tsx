@@ -194,25 +194,44 @@ export function ColumnBrowser({ label, columns, className }: { label: string; co
 }
 
 /** name is the selection identity; label (default name) is what is shown and sorted. */
-export type ChecklistRow = { name: string; label?: string; description?: string; checked: boolean; testId: string; actions?: ReactNode };
+export type ChecklistRow = { name: string; label?: string; description?: string; checked: boolean; testId: string; actions?: ReactNode; /** Extra filter text, not shown. */ keywords?: string };
 export type ChecklistGroup = { id: string; label?: string; meta?: ReactNode; rows: ChecklistRow[]; error?: string; disabled?: boolean; emptyText?: string; onChange(selected: string[]): void };
 
-/** Long checkbox list for a list column: filter, name sort, bulk actions, optional collapsible groups. */
-export function ColumnChecklist({ noun, groups, filter, onFilterChange, filterLabel, filterPlaceholder, filterTestId, disabled, sortGroups, onSelectAll, onClear, empty }: {
-  noun: string; groups: ChecklistGroup[]; filter: string; onFilterChange(value: string): void;
+/** An alternative way to bucket the same rows, offered as "Group by <label>" in the Sort / Group control. */
+export type ChecklistGrouping = { id: string; label: string; groups: ChecklistGroup[] };
+
+/** Buckets rows by keys(row); a row with several keys appears under each, keyless rows under `none` (last). */
+export function groupRowsBy(rows: ChecklistRow[], keys: (row: ChecklistRow) => string[], none: string, onChange: (selected: string[], groupNames: string[]) => void): ChecklistGroup[] {
+  const buckets = new Map<string, ChecklistRow[]>();
+  for (const row of rows) for (const key of keys(row).length ? keys(row) : [none]) buckets.set(key, [...buckets.get(key) ?? [], row]);
+  return [...buckets.keys()].sort((a, b) => (a === none ? 1 : 0) - (b === none ? 1 : 0) || a.localeCompare(b)).map((key) => {
+    const bucket = buckets.get(key)!;
+    return { id: key, label: key, rows: bucket, onChange: (selected: string[]) => onChange(selected, bucket.map((row) => row.name)) };
+  });
+}
+
+/** Long checkbox list for a list column: filter, Sort / Group (name both ways, optional groupings), bulk actions, collapsible groups. */
+export function ColumnChecklist({ noun, groups, groupings = [], filter, onFilterChange, filterLabel, filterPlaceholder, filterTestId, disabled, sortGroups, defaultCollapsed, onSelectAll, onClear, empty }: {
+  noun: string; groups: ChecklistGroup[]; groupings?: ChecklistGrouping[]; filter: string; onFilterChange(value: string): void;
   filterLabel: string; filterPlaceholder?: string; filterTestId?: string; disabled?: boolean; sortGroups?: boolean;
+  /** Labelled groups start closed; a filter still opens every group with a match. Groupings always start closed. */
+  defaultCollapsed?: boolean;
   /** Receives the names currently shown (after filtering). */
   onSelectAll?(shown: string[]): void; onClear?(shown: string[]): void; empty?: ReactNode;
 }) {
-  const [direction, setDirection] = useState<'asc' | 'desc'>('asc');
+  const [mode, setMode] = useState('asc');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const grouping = groupings.find((entry) => `group:${entry.id}` === mode);
+  const direction = mode === 'desc' ? 'desc' : 'asc';
+  const collapsedKey = (id: string) => `${mode.startsWith('group:') ? mode : 'natural'}:${id}`;
+  const closedByDefault = Boolean(grouping) || Boolean(defaultCollapsed);
   const query = filter.trim().toLowerCase();
   const order = (a: string, b: string) => direction === 'asc' ? a.localeCompare(b) : b.localeCompare(a);
-  const visible = groups.map((group) => ({
+  const visible = (grouping?.groups ?? groups).map((group) => ({
     ...group,
-    shown: group.rows.filter((row) => `${group.label ?? ''} ${row.name} ${row.label ?? ''} ${row.description ?? ''}`.toLowerCase().includes(query)).sort((a, b) => order(a.label ?? a.name, b.label ?? b.name)),
+    shown: group.rows.filter((row) => `${group.label ?? ''} ${row.name} ${row.label ?? ''} ${row.description ?? ''} ${row.keywords ?? ''}`.toLowerCase().includes(query)).sort((a, b) => order(a.label ?? a.name, b.label ?? b.name)),
   })).filter((group) => !query || group.shown.length);
-  if (sortGroups) visible.sort((a, b) => order(a.label ?? '', b.label ?? ''));
+  if (sortGroups && !grouping) visible.sort((a, b) => order(a.label ?? '', b.label ?? ''));
   const shownNames = [...new Set(visible.flatMap((group) => group.shown.map((row) => row.name)))];
   const shownChecked = visible.some((group) => group.shown.some((row) => row.checked));
   const shownWord = query ? ' shown' : '';
@@ -228,7 +247,10 @@ export function ColumnChecklist({ noun, groups, filter, onFilterChange, filterLa
   return <div className="column-checklist">
     <div className="column-checklist-toolbar">
       <label className="column-checklist-filter"><span className="sr-only">{filterLabel}</span><Icon name="search" size={13} /><input type="search" value={filter} onChange={(event) => onFilterChange(event.target.value)} placeholder={filterPlaceholder ?? filterLabel} data-testid={filterTestId} /></label>
-      <button className="text-button column-checklist-sort" type="button" onClick={() => setDirection((current) => current === 'asc' ? 'desc' : 'asc')} aria-label={`Sort by name, ${direction === 'asc' ? 'A to Z' : 'Z to A'}`} data-testid="column-checklist-sort">{direction === 'asc' ? 'A→Z' : 'Z→A'}</button>
+      <label className="column-checklist-sort-label"><span className="sr-only">Sort / Group {noun}</span><select className="column-checklist-sort" value={mode} onChange={(event) => setMode(event.target.value)} data-testid="column-checklist-sort">
+        <option value="asc">Name A→Z</option><option value="desc">Name Z→A</option>
+        {groupings.map((entry) => <option key={entry.id} value={`group:${entry.id}`}>Group by {entry.label}</option>)}
+      </select></label>
       {onSelectAll && <button className="text-button" type="button" disabled={disabled || !shownNames.length} onClick={() => onSelectAll(shownNames)} aria-label={`Select all ${query ? 'shown ' : ''}${noun}`}>Select all{shownWord}</button>}
       {onClear && <button className="text-button" type="button" disabled={disabled || !shownChecked} onClick={() => onClear(shownNames)} aria-label={`Clear all ${query ? 'shown ' : ''}${noun}`}>Clear all{shownWord}</button>}
     </div>
@@ -236,7 +258,7 @@ export function ColumnChecklist({ noun, groups, filter, onFilterChange, filterLa
       const errorNote = group.error && <p role="alert" className="column-checklist-error">{group.error}</p>;
       if (!group.label) return <div key={group.id} className="column-check-group">{errorNote}{rows(group)}{!group.rows.length && group.emptyText && <p className="column-checklist-empty">{group.emptyText}</p>}</div>;
       const selectedCount = group.rows.filter((row) => row.checked).length;
-      return <details key={group.id} className="column-check-group profile-capability-group" open={query ? true : !collapsed[group.id]} onToggle={(event) => { if (!query) { const open = event.currentTarget.open; setCollapsed((current) => ({ ...current, [group.id]: !open })); } }}>
+      return <details key={group.id} className="column-check-group profile-capability-group" open={query ? true : !(collapsed[collapsedKey(group.id)] ?? (closedByDefault && !group.error))} onToggle={(event) => { if (!query) { const open = event.currentTarget.open; setCollapsed((current) => ({ ...current, [collapsedKey(group.id)]: !open })); } }}>
         <summary><strong>{group.label}</strong><span>{selectedCount} of {group.rows.length} selected</span>{group.meta}</summary>
         {errorNote}
         <div className="column-check-group-actions">

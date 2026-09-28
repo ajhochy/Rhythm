@@ -128,7 +128,7 @@ test.describe('inspector and profile workflows', () => {
     await group('Provider, model & account');
     await page.getByTestId('profile-provider').selectOption('Anthropic');
     await page.getByTestId('profile-model').selectOption('claude-sonnet-4');
-    await group('Capabilities');
+    await group('MCPs');
     await page.getByTestId('mcp-gitnexus').check();
     await page.getByTestId('skill-verification').check();
     await group('Permissions');
@@ -142,7 +142,7 @@ test.describe('inspector and profile workflows', () => {
     await expect(page.getByTestId('toast-status')).toContainText('Default');
     await page.getByTestId('profile-duplicate').click();
     await expect(page.getByRole('heading', { name: /copy/ })).toBeVisible();
-    await group('Capabilities');
+    await group('MCPs');
     await page.getByTestId('profile-resync').click();
     await expect(page.getByTestId('toast-status')).toContainText('refreshed');
     await group('Actions');

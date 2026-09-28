@@ -215,7 +215,14 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     if (!live) return true;
     const token = modelsGuard.current.begin();
     try {
-      const rows = await gateway.domains.sessions?.models?.() ?? [];
+      let rows = await gateway.domains.sessions?.models?.() ?? [];
+      // The API answers a timed-out engine read with 200 [] (not an error), which left every
+      // picker empty for the whole renderer lifetime. Re-ask a couple of times before
+      // trusting an empty catalog. ponytail: fixed backoff; real "no providers" costs ~4.5s.
+      for (let attempt = 1; !rows.length && attempt <= 2 && modelsGuard.current.isCurrent(token); attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 1_500 * attempt));
+        if (modelsGuard.current.isCurrent(token)) rows = await gateway.domains.sessions?.models?.() ?? [];
+      }
       if (modelsGuard.current.isCurrent(token)) setModels(rows);
       return true;
     } catch {

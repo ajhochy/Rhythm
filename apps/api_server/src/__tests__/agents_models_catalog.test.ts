@@ -167,6 +167,15 @@ describe('engine-authoritative model catalog routes', () => {
     ]);
   });
 
+  it('an explicit visibility opt-in surfaces a non-default direct model; hiding every default leaves only the opt-ins', async () => {
+    snapshot.mockResolvedValue({ providers: [provider('openai', [eligible('gpt-5.6-sol'), eligible('gpt-6-sol')])] });
+    getDb().prepare(`INSERT INTO agent_model_visibility (provider, model_id, visible) VALUES
+      ('openai', 'gpt-6-sol', 1), ('openai', 'gpt-5.6-sol', 0)`).run();
+    const ids = (await rows('/agents/models/catalog')).filter((row) => row.provider === 'openai').map((row) => row.modelId);
+    expect(ids).toEqual(['gpt-6-sol']);
+    expect(await rows()).toContainEqual(expect.objectContaining({ provider: 'openai', modelId: 'gpt-6-sol', visible: true }));
+  });
+
   it('1572:1572-S1:1 connected curated direct models remain selectable while entitlement is unverified', async () => {
     snapshot.mockResolvedValue({ providers: [provider('openai', [
       eligible('gpt-5.6-sol'), eligible('gpt-5.6-terra'), eligible('gpt-4.1'),

@@ -240,3 +240,42 @@ test('Anthropic: rename an account from its inspector', async ({ page }) => {
   await expect(inspectorTitle(page)).toHaveText('Team Claude');
   expect(state.mutations).toEqual(['anthropic:rename:work:Team Claude']);
 });
+
+test('Profiles on the live gateway: provider/model options come from the catalog, MCPs label, MCP servers start collapsed', async ({ page }) => {
+  await openSettings(page);
+  const profile = {
+    id: 'alpha', label: 'Alpha', icon: 'AG', enabled: true, isAgent: true, isManager: false, sessionSelectable: true,
+    modelProvider: 'openai', modelId: 'gpt-5.6-sol', defaultAnthropicAccountId: null, systemPrompt: '',
+    allowedMcpsJson: '{"gitnexus":["query"]}', allowedSkillsJson: null, allowedDelegatesJson: '[]', corePermissionsJson: null, updatedAt: '2026-09-28T00:00:00Z',
+  };
+  const catalog = [
+    { provider: 'anthropic', modelId: 'claude-opus-5-5', displayName: 'Claude Opus 5.5', authorized: true, available: 'unknown' },
+    { provider: 'openai', modelId: 'gpt-6-sol', displayName: 'GPT-6 Sol', authorized: true, available: 'unknown' },
+    { provider: 'openai', modelId: 'gpt-6-luna', displayName: 'GPT-6 Luna', authorized: true, available: false },
+    { provider: 'openrouter', modelId: 'deepseek/deepseek-v4-pro', displayName: 'DeepSeek V4 Pro', authorized: true, available: true },
+  ];
+  await page.route(/127\.0\.0\.1:7591\/(agent-configs|agents\/models\/catalog)$/, (route) => {
+    const headers = { 'access-control-allow-origin': route.request().headers().origin ?? '*', 'access-control-allow-headers': 'authorization,content-type', 'access-control-allow-methods': 'GET,POST,PATCH,DELETE,OPTIONS' };
+    if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
+    return route.fulfill({ headers, json: route.request().url().endsWith('/agent-configs') ? [profile] : catalog });
+  });
+  await page.goto('/#/profiles');
+  await page.reload();
+  const groups = page.getByTestId('settings-column-groups');
+  await groups.getByRole('option', { name: 'Provider, model & account', exact: true }).click();
+  const provider = page.getByTestId('profile-provider');
+  await expect(provider.locator('option')).toHaveText(['No preference', 'anthropic', 'openai', 'openrouter']);
+  // A known-unavailable model is not offered; the saved-but-gone one is marked unavailable.
+  await expect(page.getByTestId('profile-model').locator('option')).toHaveText(['No preference', 'gpt-5.6-sol (unavailable)', 'GPT-6 Sol']);
+  await provider.selectOption('openrouter');
+  await expect(page.getByTestId('profile-model').locator('option')).toHaveText(['No preference', 'DeepSeek V4 Pro']);
+
+  await groups.getByRole('option', { name: 'MCPs', exact: true }).click();
+  await expect(page.getByTestId('settings-column-inspector').getByRole('heading', { level: 2 })).toHaveText('MCPs');
+  await expect(page.getByTestId('settings-column-inspector')).toContainText('including servers added later');
+  const list = page.getByTestId('settings-column-list');
+  await expect(list.locator('.profile-capability-group')).toHaveCount(2);
+  await expect(list.locator('.profile-capability-group[open]')).toHaveCount(0);
+  await page.getByTestId('profile-mcp-filter').fill('impact');
+  await expect(page.getByTestId('mcp-gitnexus-impact')).toBeVisible();
+});

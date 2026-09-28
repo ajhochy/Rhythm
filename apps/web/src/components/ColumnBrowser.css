@@ -107,6 +107,7 @@
 .column-checklist-filter input:focus { outline: none; }
 .column-checklist-filter:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
 .column-checklist :is(.text-button) { min-height: 24px; font-size: 12px; }
+.column-checklist-sort { min-height: 28px; max-width: 100%; padding: 0 6px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--fg); font-size: 12px; }
 .column-check-group { min-width: 0; }
 .column-check-group > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 28px; padding: 4px 2px; color: var(--fg); font-size: 12px; cursor: pointer; }
 .column-check-group > summary > span { color: var(--muted); }
@@ -126,7 +127,7 @@
 .column-check-row input:focus-visible, .column-check-group > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 @media (any-pointer: coarse) {
-  .column-browser-row, .column-browser-add, .column-check-row, .column-check-row > label, .column-check-group > summary, .column-checklist-filter input, .column-checklist .text-button { min-height: 44px; }
+  .column-browser-row, .column-browser-add, .column-check-row, .column-check-row > label, .column-check-group > summary, .column-checklist-filter input, .column-checklist .text-button, .column-checklist-sort { min-height: 44px; }
   .column-check-actions { opacity: 1; }
   .column-check-actions .icon-button, .column-check-actions .icon-button.small { width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
 }

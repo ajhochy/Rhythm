@@ -649,7 +649,7 @@ test.describe('Profiles — #1523', () => {
     const rows = page.getByTestId('settings-column-profiles').getByRole('option');
     test.skip(await rows.count() === 0, 'No pre-existing live profile is available for read-only grouped-section assertions.');
     const groups = page.getByTestId('settings-column-groups');
-    for (const name of ['Identity & instructions', 'Provider, model & account', 'Delegation', 'Availability & defaults', 'Allowed skills', 'Capabilities', 'Permissions']) {
+    for (const name of ['Identity & instructions', 'Provider, model & account', 'Delegation', 'Availability & defaults', 'Allowed skills', 'MCPs', 'Permissions']) {
       await expect(groups.getByRole('option', { name, exact: true })).toBeVisible();
     }
     await groups.getByRole('option', { name: 'Permissions', exact: true }).click();

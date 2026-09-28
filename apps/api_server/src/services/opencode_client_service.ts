@@ -1113,7 +1113,9 @@ export class OpencodeClientService {
     if (!this.client) return Promise.reject(new Error('engine_unverified'));
     const client = this.client;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 750);
+    // Wall-clock budget on this process's timer: a startup request burst stalled the event
+    // loop ~1.1s, so 750ms aborted a 15ms engine read and the picker catalog came back [].
+    const timeout = setTimeout(() => controller.abort(), 2_500);
     const read = async (): Promise<ProviderSnapshot> => {
       const raw = await client.config.providers({ signal: controller.signal });
       if (controller.signal.aborted || raw.error || !raw.data || !Array.isArray(raw.data.providers)) {

@@ -41,7 +41,7 @@ test('editor hierarchy, save/cancel and profile switching keep drafts on their o
   await expect(page.getByTestId('settings-column-profiles')).toBeVisible();
   expect(await groupsColumn(page).getByRole('option').evaluateAll(rows => rows.map(row => row.getAttribute('aria-label')))).toEqual([
     'Identity & instructions', 'Provider, model & account', 'Delegation',
-    'Availability & defaults', 'Capabilities', 'Permissions', 'Actions',
+    'Availability & defaults', 'MCPs', 'Permissions', 'Actions',
   ]);
   await expect(groupsColumn(page).getByRole('option', { name: 'Identity & instructions' })).toHaveAttribute('aria-selected', 'true');
   await page.getByTestId('profile-label').fill('Unsaved coordinator');
@@ -98,7 +98,7 @@ test('choosing a default during an edit does not get overwritten by Save', async
 
 test('capability summaries, disclosure, filtering and bulk edits retain individual choices', async ({ page }) => {
   await openFixture(page, '#/profiles');
-  await openGroup(page, 'Capabilities');
+  await openGroup(page, 'MCPs');
   const skills = page.locator('.profile-capability-group').filter({ has: page.locator('summary', { hasText: 'Workspace skills' }) });
   await expect(skills.locator('summary')).toContainText('2 of 6 selected');
   await expect(skills.locator('summary')).toContainText('Explicit');
@@ -171,7 +171,7 @@ test('invalid names and JSON prevent saving without losing the draft', async ({ 
 test('read-only profiles allow inspection with every edit and immediate action disabled', async ({ page }) => {
   await openFixture(page, '#/profiles?state=read-only');
   // Every group stays inspectable while each edit and immediate action is disabled.
-  for (const name of ['Identity & instructions', 'Provider, model & account', 'Delegation', 'Availability & defaults', 'Capabilities', 'Permissions', 'Actions']) {
+  for (const name of ['Identity & instructions', 'Provider, model & account', 'Delegation', 'Availability & defaults', 'MCPs', 'Permissions', 'Actions']) {
     await openGroup(page, name);
     const controls = editorColumns(page).locator('input, textarea, select, button:not(.column-browser-back):not(.column-browser-forward):not(.column-checklist-sort)');
     expect(await controls.count(), `${name} renders controls`).toBeGreaterThan(0);
@@ -225,10 +225,10 @@ test('small windows, 200 percent zoom equivalent, RTL and long text keep control
 
 // Data fixtures through the existing E22 canonical gateway harness. No actual
 // engine/API requests are permitted; this is rendered contract evidence only.
-async function openCanonicalFixture(page: Page, options: { allowedMcpsJson?: string; allowedSkillsJson?: string | null; extraProfiles?: string[] } = {}) {
+async function openCanonicalFixture(page: Page, options: { allowedMcpsJson?: string; allowedSkillsJson?: string | null; extraProfiles?: string[]; catalog?: Array<Record<string, unknown>> | (() => Array<Record<string, unknown>>); modelProvider?: string; modelId?: string; skillTags?: Record<string, string[]> } = {}) {
   const profiles = ['alpha', 'beta', ...options.extraProfiles ?? []].map(id => ({
     id, label: id, icon: 'AG', enabled: true, isAgent: true, isManager: false, sessionSelectable: true,
-    modelProvider: 'custom', modelId: 'model-one', defaultAnthropicAccountId: null, systemPrompt: '',
+    modelProvider: options.modelProvider ?? 'custom', modelId: options.modelId ?? 'model-one', defaultAnthropicAccountId: null, systemPrompt: '',
     allowedMcpsJson: options.allowedMcpsJson ?? '{"server":[], "other":["keep"]}', allowedSkillsJson: options.allowedSkillsJson === undefined ? null : options.allowedSkillsJson,
     allowedDelegatesJson: '[]', corePermissionsJson: '{"bash":{"*":"ask","git *":"allow"}, "future":{"x":"deny"}}',
     updatedAt: '2026-09-18T00:00:00Z',
@@ -237,7 +237,7 @@ async function openCanonicalFixture(page: Page, options: { allowedMcpsJson?: str
   const skills = [
     ...Array.from({ length: 24 }, (_, i) => ({ name: `skill-${i}`, description: `Skill ${i} description`, source: i < 12 ? 'managed' as const : 'org' as const, managed: i < 12, location: '' })),
     { name: 'external-skill', description: 'External skill description', source: 'external' as const, managed: false, location: '' },
-  ];
+  ].map(skill => options.skillTags?.[skill.name] ? { ...skill, tags: options.skillTags[skill.name] } : skill);
   const skillContent = new Map(skills.map(skill => [skill.name, `Instructions for ${skill.name}`]));
   const skillWrites: Array<{ method: string; path: string; body?: Record<string, unknown> }> = [];
   let fail = false;
@@ -295,7 +295,7 @@ async function openCanonicalFixture(page: Page, options: { allowedMcpsJson?: str
       const skill = { name: body.name, description: body.description ?? '', source: 'managed' as const, managed: true, location: '' }; skills.push(skill); skillContent.set(skill.name, body.content); return send(skill);
     }
     if (path === '/opencode/skills') return send(skills);
-    if (path === '/agents/models/catalog') return send(['model-one', 'model-two'].map(modelId => ({ provider: 'custom', modelId, displayName: modelId, authorized: true })));
+    if (path === '/agents/models/catalog') return send((typeof options.catalog === 'function' ? options.catalog() : options.catalog) ?? ['model-one', 'model-two'].map(modelId => ({ provider: 'custom', modelId, displayName: modelId, authorized: true })));
     if (path === '/opencode/auth/accounts') return send({ accounts: [{ id: 'account', label: 'Fixture account' }], defaultId: null });
     if (path === '/opencode/auth/openai/accounts') return send({ accounts: [{ id: 'openai-work', label: 'Work', status: 'ok' }, { id: 'openai-home', label: 'Home', status: 'ok', email: 'home@example.test' }], defaultAccountId: 'openai-work' });
     if (path === '/agent-sessions') return send({ sessions: [] });
@@ -318,7 +318,7 @@ async function openCanonicalFixture(page: Page, options: { allowedMcpsJson?: str
 
 test('canonical fixture: inheritance, large catalogs, grouped selection and policy survive gateway readback', async ({ page }) => {
   const fixture = await openCanonicalFixture(page);
-  await openGroup(page, 'Capabilities');
+  await openGroup(page, 'MCPs');
   const group = page.locator('.profile-capability-group').filter({ has: page.locator('summary strong', { hasText: /^server$/ }) });
   await expect(group.locator('summary')).toContainText('60 of 60 selected');
   await expect(group.locator('summary')).toContainText('Inherited');
@@ -327,6 +327,9 @@ test('canonical fixture: inheritance, large catalogs, grouped selection and poli
   await expect(group.locator('summary')).toContainText('59 of 60 selected');
   await expect(group.locator('summary')).toContainText('Explicit');
   await page.getByTestId('profile-mcp-filter').fill('');
+  // Server groups start collapsed; the filter opened them, clearing it closes them again.
+  await expect(group).not.toHaveAttribute('open', '');
+  await group.locator('summary').click();
   await group.getByRole('button', { name: 'Clear group: server', exact: true }).click();
   await openGroup(page, 'Allowed skills');
   await page.getByRole('radio', { name: /^Selected skills/ }).check();
@@ -347,7 +350,7 @@ test('canonical fixture: inheritance, large catalogs, grouped selection and poli
   expect(fixture.profiles[0].corePermissionsJson).toBe('{"bash":{"*":"deny","git *":"allow"}, "future":{"x":"deny"}}');
   await page.getByTestId('profile-beta').click(); await page.getByTestId('profile-alpha').click();
   await expect(page.getByTestId('permission-bash')).toHaveValue('deny');
-  await openGroup(page, 'Capabilities');
+  await openGroup(page, 'MCPs');
   await expect(page.getByTestId('mcp-server-tool-59')).not.toBeChecked();
   await openGroup(page, 'Provider, model & account');
   await expect(page.getByTestId('profile-account')).toHaveValue('account');
@@ -356,7 +359,7 @@ test('canonical fixture: inheritance, large catalogs, grouped selection and poli
 test('canonical fixture: advanced MCP server policy is warned, locked, and preserved through unrelated saves', async ({ page }) => {
   const raw = '{"server":{"mode":"capability-rules","allowedTools":{"include":["tool-*"],"exclude":["tool-9"]},"approval":{"write":"ask"},"future":{"weight":1e+03}},"other":["keep"]}';
   const fixture = await openCanonicalFixture(page, { allowedMcpsJson: raw });
-  await openGroup(page, 'Capabilities');
+  await openGroup(page, 'MCPs');
   const group = page.locator('.profile-capability-group').filter({ has: page.locator('summary strong', { hasText: /^server$/ }) });
   await expect(group.locator('summary')).toContainText('Advanced');
   await expect(group.getByRole('alert')).toContainText('Advanced MCP policy');
@@ -683,17 +686,22 @@ test('column lists: skills sort by name both ways, filter, and select/clear only
   await page.getByRole('radio', { name: /^Selected skills/ }).check();
   const list = page.getByTestId('settings-column-list');
   await expect(list).toBeVisible();
-  const managed = list.locator('.profile-capability-group').filter({ has: page.locator('summary strong', { hasText: /^managed skills$/ }) });
-  const managedNames = Array.from({ length: 12 }, (_, i) => `skill-${i}`);
+  const allNames = [...Array.from({ length: 24 }, (_, i) => `skill-${i}`), 'external-skill'];
   const sort = list.getByTestId('column-checklist-sort');
-  await expect(sort).toHaveAccessibleName('Sort by name, A to Z');
+  await expect(sort).toHaveAccessibleName('Sort / Group skills');
+  await expect(sort.locator('option')).toHaveText(['Name A→Z', 'Name Z→A', 'Group by source']);
   await shot(page, 'settings-profiles-skills-list');
-  expect(await checklistNames(managed)).toEqual(byName(managedNames));
-  await sort.click();
-  await expect(sort).toHaveAccessibleName('Sort by name, Z to A');
-  expect(await checklistNames(managed)).toEqual(byName(managedNames).reverse());
-  await sort.click();
-  expect(await checklistNames(managed)).toEqual(byName(managedNames));
+  // Name sorts are one flat list across every source.
+  await expect(list.locator('.profile-capability-group')).toHaveCount(0);
+  expect(await checklistNames(list)).toEqual(byName(allNames));
+  await sort.selectOption({ label: 'Name Z→A' });
+  expect(await checklistNames(list)).toEqual(byName(allNames).reverse());
+  await sort.selectOption({ label: 'Name A→Z' });
+  expect(await checklistNames(list)).toEqual(byName(allNames));
+  // The source still filters a flat list.
+  await page.getByTestId('profile-capability-filter').fill('external');
+  expect(await checklistNames(list)).toEqual(['external-skill']);
+  await page.getByTestId('profile-capability-filter').fill('');
   // Description is a truncated secondary line with the full text as a tooltip.
   await expect(page.getByTestId('skill-skill-0').locator('..')).toHaveAttribute('title', 'skill-0 — Skill 0 description');
 
@@ -714,20 +722,32 @@ test('column lists: skills sort by name both ways, filter, and select/clear only
 
 test('column lists: MCP servers and tools sort by name; the policy choice lives in the inspector', async ({ page }) => {
   const fixture = await openCanonicalFixture(page);
-  await openGroup(page, 'Capabilities');
+  await openGroup(page, 'MCPs');
   const list = page.getByTestId('settings-column-list');
   const groupNames = () => list.locator('.profile-capability-group > summary strong').allTextContents();
   expect(await groupNames()).toEqual(['other', 'server']);
   const server = list.locator('.profile-capability-group').filter({ has: page.locator('summary strong', { hasText: /^server$/ }) });
   const tools = byName(Array.from({ length: 60 }, (_, i) => `tool-${i}`));
   expect(await checklistNames(server)).toEqual(tools);
-  await list.getByTestId('column-checklist-sort').click();
+  // Server groups start collapsed; the filter opens groups with a match.
+  await expect(list.locator('.profile-capability-group[open]')).toHaveCount(0);
+  await expect(page.getByTestId('mcp-server-tool-1')).toBeHidden();
+  await page.getByTestId('profile-mcp-filter').fill('tool-1');
+  await expect(server).toHaveAttribute('open', '');
+  await expect(page.getByTestId('mcp-server-tool-1')).toBeVisible();
+  await page.getByTestId('profile-mcp-filter').fill('');
+  await expect(server).not.toHaveAttribute('open', '');
+  await server.locator('summary').click();
+  await expect(page.getByTestId('mcp-server-tool-1')).toBeVisible();
+  const sort = list.getByTestId('column-checklist-sort');
+  await expect(sort.locator('option')).toHaveText(['Name A→Z', 'Name Z→A']);
+  await sort.selectOption({ label: 'Name Z→A' });
   expect(await groupNames()).toEqual(['server', 'other']);
   expect(await checklistNames(server)).toEqual([...tools].reverse());
   // All / Selected / None policy (null = unrestricted, [] = deny-all).
   await expect(page.getByTestId('profile-mcp-mode-selected')).toBeChecked();
   await page.getByTestId('profile-mcp-mode-all').check();
-  await expect(groupsColumn(page).getByRole('option', { name: 'Capabilities' })).toContainText('All MCPs');
+  await expect(groupsColumn(page).getByRole('option', { name: 'MCPs' })).toContainText('All MCPs');
   await page.getByTestId('profile-save').click();
   await expect(page.getByTestId('profile-save-status')).toHaveText('Profile saved');
   expect(fixture.writes.at(-1)?.body).toEqual({ allowedMcpsJson: null });
@@ -738,12 +758,81 @@ test('column lists: MCP servers and tools sort by name; the policy choice lives 
   await expect(page.getByTestId('profile-mcp-summary')).toHaveText('No MCPs');
 });
 
+test('column lists: skills group by source and by tag, collapsed with counts and per-group select/clear', async ({ page }) => {
+  await openCanonicalFixture(page, { skillTags: { 'skill-0': ['design', 'research'], 'skill-1': ['design'], 'external-skill': ['research'] } });
+  await openGroup(page, 'Allowed skills');
+  await page.getByRole('radio', { name: /^Selected skills/ }).check();
+  const list = page.getByTestId('settings-column-list');
+  const sort = list.getByTestId('column-checklist-sort');
+  const groupNames = () => list.locator('.profile-capability-group > summary strong').allTextContents();
+  const groupFor = (name: string) => list.locator('.profile-capability-group').filter({ has: page.locator('summary strong', { hasText: new RegExp(`^${name}$`) }) });
+  await expect(sort.locator('option')).toHaveText(['Name A→Z', 'Name Z→A', 'Group by source', 'Group by tag']);
+
+  await sort.selectOption({ label: 'Group by source' });
+  expect(await groupNames()).toEqual(['external', 'managed', 'org']);
+  await expect(list.locator('.profile-capability-group[open]')).toHaveCount(0);
+  await expect(groupFor('managed').locator('summary')).toContainText('12 of 12 selected');
+
+  await sort.selectOption({ label: 'Group by tag' });
+  // A skill with several tags is listed under each; untagged skills go last under "No tag".
+  expect(await groupNames()).toEqual(['design', 'research', 'No tag']);
+  await expect(list.locator('.profile-capability-group[open]')).toHaveCount(0);
+  expect(await checklistNames(groupFor('design'))).toEqual(['skill-0', 'skill-1']);
+  expect(await checklistNames(groupFor('research'))).toEqual(['external-skill', 'skill-0']);
+  await expect(groupFor('No tag').locator('summary')).toContainText('of 22 selected');
+  await groupFor('design').locator('summary').click();
+  await groupFor('design').getByRole('button', { name: 'Clear group: design' }).click();
+  await expect(page.getByTestId('profile-skills-summary')).toHaveText('23 selected');
+  await expect(groupFor('research').locator('summary')).toContainText('1 of 2 selected');
+  await expect(page.getByTestId('skill-skill-0').first()).not.toBeChecked();
+  await expect(page.getByTestId('skill-skill-2')).toBeChecked();
+  await groupFor('research').locator('summary').click();
+  await groupFor('research').getByRole('button', { name: 'Select all in group: research' }).click();
+  await expect(page.getByTestId('profile-skills-summary')).toHaveText('24 selected');
+  await expect(page.getByTestId('skill-skill-1')).not.toBeChecked();
+});
+
+test('Provider, model & account: providers and models come from the live catalog; switching provider swaps models', async ({ page }) => {
+  const catalog = [
+    { provider: 'anthropic', modelId: 'claude-sonnet-5-5', displayName: 'Claude Sonnet 5.5', authorized: true, available: 'unknown' },
+    { provider: 'anthropic', modelId: 'claude-opus-5-5', displayName: 'Claude Opus 5.5', authorized: true, available: 'unknown' },
+    { provider: 'openai', modelId: 'gpt-6-sol', displayName: 'GPT-6 Sol', authorized: true, available: 'unknown' },
+    { provider: 'openrouter', modelId: 'deepseek/deepseek-v4-pro', displayName: 'DeepSeek V4 Pro', authorized: true, available: true },
+    { provider: 'github-copilot', modelId: '', displayName: 'github-copilot', authorized: false, available: false },
+  ];
+  const fixture = await openCanonicalFixture(page, { catalog, modelProvider: 'openai', modelId: 'gpt-5.6-sol' });
+  await openGroup(page, 'Provider, model & account');
+  const provider = page.getByTestId('profile-provider');
+  const model = page.getByTestId('profile-model');
+  await expect(provider).toHaveValue('openai');
+  await expect(provider.locator('option')).toHaveText(['No preference', 'anthropic', 'openai', 'openrouter']);
+  // Only the saved model that the catalog no longer offers is marked unavailable.
+  await expect(model.locator('option')).toHaveText(['No preference', 'gpt-5.6-sol (unavailable)', 'GPT-6 Sol']);
+  await provider.selectOption('anthropic');
+  await expect(model).toHaveValue('');
+  await expect(model.locator('option')).toHaveText(['No preference', 'Claude Sonnet 5.5', 'Claude Opus 5.5']);
+  await model.selectOption('claude-opus-5-5');
+  await page.getByTestId('profile-save').click();
+  await expect(page.getByTestId('profile-save-status')).toHaveText('Profile saved');
+  expect(fixture.writes.at(-1)).toEqual({ id: 'alpha', body: { modelProvider: 'anthropic', modelId: 'claude-opus-5-5' } });
+});
+
+test('Provider, model & account: an empty first catalog read (engine timeout) is retried', async ({ page }) => {
+  let reads = 0;
+  const catalog = () => ++reads === 1 ? [] : [{ provider: 'openai', modelId: 'gpt-6-sol', displayName: 'GPT-6 Sol', authorized: true, available: 'unknown' }];
+  await openCanonicalFixture(page, { catalog, modelProvider: 'openai', modelId: 'gpt-6-sol' });
+  await openGroup(page, 'Provider, model & account');
+  await expect(page.getByTestId('profile-provider').locator('option')).toHaveText(['No preference', 'openai'], { timeout: 10_000 });
+  await expect(page.getByTestId('profile-model').locator('option')).toHaveText(['No preference', 'GPT-6 Sol']);
+  expect(reads).toBeGreaterThanOrEqual(2);
+});
+
 test('column lists: delegation targets sort, filter, select all and clear, then save', async ({ page }) => {
   const fixture = await openCanonicalFixture(page, { extraProfiles: ['gamma', 'delta'] });
   await openGroup(page, 'Delegation');
   const list = page.getByTestId('settings-column-list');
   expect(await checklistNames(list)).toEqual(['beta', 'delta', 'gamma']);
-  await list.getByTestId('column-checklist-sort').click();
+  await list.getByTestId('column-checklist-sort').selectOption({ label: 'Name Z→A' });
   expect(await checklistNames(list)).toEqual(['gamma', 'delta', 'beta']);
   await page.getByTestId('profile-delegate-filter').fill('ga');
   expect(await checklistNames(list)).toEqual(['gamma']);

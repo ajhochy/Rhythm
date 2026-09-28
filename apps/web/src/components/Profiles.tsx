@@ -10,7 +10,7 @@ import { emptyLiveProfile, useFixtures } from '../store';
 import type { IdentityProfile } from '../gateway/sessions';
 import type { Profile } from '../types';
 import { FocusDialog } from './FocusDialog';
-import { ColumnBrowser, ColumnChecklist, type BrowserColumn } from './ColumnBrowser';
+import { ColumnBrowser, ColumnChecklist, groupRowsBy, type BrowserColumn, type ChecklistRow } from './ColumnBrowser';
 import { useSelectedId } from './ListInspector';
 import { navigate } from './Shell';
 
@@ -240,7 +240,6 @@ export function Profiles() {
   const setSkillGroup = (names: string[], groupNames: string[]) => set('allowedSkillsJson', JSON.stringify(stableNames([...skillSelections.filter(name => !groupNames.includes(name)), ...names])));
   const availableMcpGroups = live ? [...new Set([...mcpCatalog.map(server => server.name), ...Object.keys(mcpPolicy.map ?? {})])] : [];
   const unavailableSkills = skillSelections.filter(name => !skillCatalog.some(skill => skill.name === name));
-  const skillSources = (['managed', 'org', 'external'] as const).filter(source => skillCatalog.some(skill => skill.source === source));
   const setSkillPolicyMode = (mode: SkillPolicyMode) => {
     setSkillMode(mode);
     if (mode === 'all') set('allowedSkillsJson', null);
@@ -336,7 +335,7 @@ export function Profiles() {
     { id: 'delegation', title: 'Delegation', subtitle: `${(live ? draft.isManager : draft.managerAgent) ? 'Manager · ' : ''}${delegateIds.length} delegation target${delegateIds.length === 1 ? '' : 's'}` },
     { id: 'availability', title: 'Availability & defaults', subtitle: `${draft.enabled ? 'Enabled' : 'Disabled'} · ${draft.selectable ? 'Selectable' : 'Hidden'}` },
     ...(live ? [{ id: 'skills', title: 'Allowed skills', subtitle: skillMode === 'all' ? 'All skills' : skillMode === 'none' ? 'No skills' : `Selected · ${skillSelections.length} of ${new Set(allSkillChoices).size}` }] : []),
-    { id: 'capabilities', title: 'Capabilities', subtitle: mcpSummary },
+    { id: 'capabilities', title: 'MCPs', subtitle: mcpSummary },
     { id: 'permissions', title: 'Permissions', subtitle: permissionSummary },
     { id: 'actions', title: 'Actions', subtitle: selected.isDefault ? 'Default profile' : 'Duplicate, default, delete' },
   ];
@@ -348,6 +347,10 @@ export function Profiles() {
     <button className="icon-button small" type="button" aria-label={`Edit skill ${skill.name}`} disabled={!!skillPolicy.error || skillMutation} onClick={() => void openEditSkill(skill.name)}><Icon name="rename" size={13} /></button>
     <button className="icon-button small danger" type="button" aria-label={`Delete skill ${skill.name}`} disabled={!!skillPolicy.error || skillMutation} onClick={() => skillDeleteRequest(skill.name)}><Icon name="delete" size={13} /></button>
   </> : undefined;
+  const skillRows: ChecklistRow[] = [
+    ...skillCatalog.map((skill) => ({ name: skill.name, description: skill.description, checked: skillSelections.includes(skill.name), testId: `skill-${skill.name}`, actions: skillActions(skill), keywords: [skill.source, ...skill.tags ?? []].join(' ') })),
+    ...unavailableSkills.map((name) => ({ name, description: 'Not in the current catalog; saved selection retained.', checked: true, testId: `skill-${name}`, keywords: 'saved' })),
+  ];
 
   const inspector = (): React.ReactNode => {
     switch (groupId) {
@@ -373,17 +376,17 @@ export function Profiles() {
         {skillActionError && !skillEditor && !skillDelete && <p role="alert" className="profile-feedback error">{skillActionError}. Your editor and profile draft are unchanged.</p>}
         <p className="profile-skill-status" role="status" aria-live="polite">{skillStatus}</p>
       </section>;
-      case 'capabilities': return <section aria-labelledby="profile-capabilities-title"><h3 id="profile-capabilities-title" className="sr-only">Capabilities</h3><p className="profile-group-note">{live ? 'Choose tools from each MCP server.' : 'Preview MCP servers and skills. Fixture choices do not change live access.'}</p>
-        <div className="profile-section-actions"><button className="secondary-button" type="button" onClick={() => { if (live) loadMcpCatalog(); else notify('MCP servers and skills refreshed'); }} data-testid="profile-resync"><Icon name="refresh" size={14} />Refresh capabilities</button></div>
+      case 'capabilities': return <section aria-labelledby="profile-capabilities-title"><h3 id="profile-capabilities-title" className="sr-only">MCPs</h3><p className="profile-group-note">{live ? 'Choose tools from each MCP server.' : 'Preview MCP servers and skills. Fixture choices do not change live access.'}</p>
+        <div className="profile-section-actions"><button className="secondary-button" type="button" onClick={() => { if (live) loadMcpCatalog(); else notify('MCP servers and skills refreshed'); }} data-testid="profile-resync"><Icon name="refresh" size={14} />Refresh MCPs</button></div>
         {live && <>
           <fieldset className="profile-skill-policy" role="radiogroup" aria-labelledby="profile-capabilities-title" disabled={!!mcpPolicy.error}><legend className="sr-only">MCP access</legend>
-            <label><input type="radio" name="mcp-policy" checked={mcpMode === 'all'} onChange={() => setMcpMode('all')} data-testid="profile-mcp-mode-all" /><span><strong>All MCPs</strong><small>Unrestricted: every server and tool, including future ones.</small></span></label>
+            <label><input type="radio" name="mcp-policy" checked={mcpMode === 'all'} onChange={() => setMcpMode('all')} data-testid="profile-mcp-mode-all" /><span><strong>All MCPs</strong><small>Unrestricted: every server and tool, including servers added later.</small></span></label>
             <label><input type="radio" name="mcp-policy" checked={mcpMode === 'selected'} onChange={() => setMcpMode('selected')} data-testid="profile-mcp-mode-selected" /><span><strong>Selected tools</strong><small>Only the tools checked in the list.</small></span></label>
             <label><input type="radio" name="mcp-policy" checked={mcpMode === 'none'} onChange={() => setMcpMode('none')} data-testid="profile-mcp-mode-none" /><span><strong>No MCPs</strong><small>Deny all MCP tools with an explicit empty list.</small></span></label>
           </fieldset>
           <p className="profile-group-summary" data-testid="profile-mcp-summary">{mcpSummary}</p>
           <p className="profile-policy-note">Inherited means this profile does not narrow that selection. Other engine rules still apply. Editing inherited access creates an explicit selection of the listed choices; future catalog additions are excluded.</p>
-          {mcpCatalogError && <p role="alert">{mcpCatalogError} Use Refresh capabilities to retry.</p>}
+          {mcpCatalogError && <p role="alert">{mcpCatalogError} Use Refresh MCPs to retry.</p>}
           {mcpPolicy.error && <p role="alert">{mcpPolicy.error}</p>}
         </>}
       </section>;
@@ -409,23 +412,22 @@ export function Profiles() {
       onSelectAll={(shown) => setDelegates([...new Set([...delegateIds.filter((id) => delegateChoices.some((profile) => profile.id === id)), ...shown])])}
       onClear={(shown) => setDelegates(delegateIds.filter((id) => delegateChoices.some((profile) => profile.id === id) && !shown.includes(id)))} />);
     if (groupId === 'skills' && live && skillMode === 'selected') return column('Skills', <div data-testid="profile-skill-catalog"><ColumnChecklist noun="skills" filter={skillFilter} onFilterChange={setSkillFilter} filterLabel="Filter skills" filterPlaceholder="Name, description, or source" filterTestId="profile-capability-filter" disabled={!!skillPolicy.error || skillMutation}
-      groups={[
-        ...skillSources.map((source) => {
-          const skills = skillCatalog.filter((skill) => skill.source === source);
-          return { id: source, label: `${source} skills`, rows: skills.map((skill) => ({ name: skill.name, description: skill.description, checked: skillSelections.includes(skill.name), testId: `skill-${skill.name}`, actions: skillActions(skill) })), onChange: (names: string[]) => setSkillGroup(names, skills.map((skill) => skill.name)) };
-        }),
-        ...(unavailableSkills.length ? [{ id: 'saved', label: 'Saved skills outside the catalog', rows: unavailableSkills.map((name) => ({ name, description: 'Not in the current catalog; saved selection retained.', checked: true, testId: `skill-${name}` })), onChange: (names: string[]) => setSkillGroup(names, unavailableSkills) }] : []),
+      groups={[{ id: 'all', rows: skillRows, onChange: (names: string[]) => setSkillGroup(names, allSkillChoices) }]}
+      groupings={[
+        { id: 'source', label: 'source', groups: groupRowsBy(skillRows, (row) => [skillCatalog.find((skill) => skill.name === row.name)?.source ?? 'saved'], 'saved', setSkillGroup) },
+        // ponytail: the catalog API has no tags yet; this option appears once SkillEntry.tags does.
+        ...(skillCatalog.some((skill) => skill.tags?.length) ? [{ id: 'tag', label: 'tag', groups: groupRowsBy(skillRows, (row) => skillCatalog.find((skill) => skill.name === row.name)?.tags ?? [], 'No tag', setSkillGroup) }] : []),
       ]}
       onSelectAll={(shown) => set('allowedSkillsJson', JSON.stringify(stableNames([...skillSelections, ...shown])))}
       onClear={(shown) => set('allowedSkillsJson', JSON.stringify(skillSelections.filter((name) => !shown.includes(name))))}
       empty={!skillCatalogError && <p>No skills found.</p>} /></div>);
     if (groupId !== 'capabilities') return null;
-    if (!live) return column('Capabilities list', <ColumnChecklist noun="capabilities" filter={capabilityFilter} onFilterChange={setCapabilityFilter} filterLabel="Filter tools and skills" filterPlaceholder="Server, tool, skill, or source" filterTestId="profile-capability-filter"
+    if (!live) return column('MCPs list', <ColumnChecklist noun="MCPs and skills" filter={capabilityFilter} onFilterChange={setCapabilityFilter} filterLabel="Filter tools and skills" filterPlaceholder="Server, tool, skill, or source" filterTestId="profile-capability-filter"
       groups={[
         { id: 'mcp', label: 'Workspace MCP servers', meta: <span className="profile-policy-source">Explicit</span>, rows: ['GitNexus', 'Open Design', 'Web research'].map((name) => ({ name, checked: draft.mcps.includes(name), testId: `mcp-${name.toLowerCase().replace(' ', '-')}` })), onChange: (names: string[]) => set('mcps', names) },
         { id: 'skills', label: 'Workspace skills', meta: <span className="profile-policy-source">Explicit</span>, rows: ['planning', 'verification', 'frontend', 'tests', 'research', 'citations'].map((name) => ({ name, checked: draft.skills.includes(name), testId: `skill-${name}` })), onChange: (names: string[]) => set('skills', names) },
       ]} />);
-    return column('MCP tools', <div data-testid="profile-capability-catalog"><ColumnChecklist noun="MCP tools" filter={capabilityFilter} onFilterChange={setCapabilityFilter} filterLabel="Filter tools" filterPlaceholder="Server or tool" filterTestId="profile-mcp-filter" sortGroups disabled={!!mcpPolicy.error || !!mcpCatalogError}
+    return column('MCPs', <div data-testid="profile-capability-catalog"><ColumnChecklist noun="MCP tools" filter={capabilityFilter} onFilterChange={setCapabilityFilter} filterLabel="Filter tools" filterPlaceholder="Server or tool" filterTestId="profile-mcp-filter" sortGroups defaultCollapsed disabled={!!mcpPolicy.error || !!mcpCatalogError}
       groups={availableMcpGroups.map((name) => {
         const server = mcpCatalog.find((item) => item.name === name);
         const selection = mcpGroupSelection(mcpPolicy, name, server?.tools ?? []);

@@ -256,7 +256,10 @@ export async function listAgentModelCatalog(options?: { includeHidden?: boolean 
         } else if (customEndpoint || local) {
           policyVisible = configuredModel;
         } else if (Object.hasOwn(PROVIDER_TO_AGENT_KIND, provider.id)) {
-          policyVisible = visibleDirectIds.has(model.id);
+          // An explicit curation opt-in (visible=1) wins over the curated-family default,
+          // exactly as for aggregators; otherwise "show" on a non-default direct model
+          // (e.g. openai/gpt-6-sol) was silently ignored.
+          policyVisible = visibility.get(key) ?? visibleDirectIds.has(model.id);
         } else {
           // Zen, env-authenticated providers and models.dev providers remain
           // engine-managed rather than being mistaken for custom endpoints.
