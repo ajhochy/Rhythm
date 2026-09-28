@@ -150,6 +150,14 @@ export async function resolveHermesDesktopArtifact({
     || !manifest.integrity || typeof manifest.integrity !== 'object') {
     throw new Error(`Hermes Desktop artifact manifest is incompatible with Rhythm Electron ${expectedElectronMajor}. Rebuild it from the pinned Hermes fork source.`);
   }
+  // A factory artifact that records its exact Electron must match the running
+  // one too: a Rhythm packaged from a stale node_modules/electron (e.g. a
+  // worktree symlinked to main's Electron 33) otherwise loads a 40-built host
+  // whose backend WebSocket probe fails forever and Hermes sits on "connecting".
+  if (!installed && typeof manifest.electronVersion === 'string' && typeof expectedElectronVersion === 'string'
+    && manifest.electronVersion !== expectedElectronVersion) {
+    throw new Error(`Hermes Desktop artifact is incompatible: it was built for Electron ${manifest.electronVersion} but Rhythm is running Electron ${expectedElectronVersion}. Repackage Rhythm with the pinned Electron (check apps/electron/node_modules is not a symlink to another checkout).`);
+  }
   if (installed) {
     if (typeof expectedElectronVersion !== 'string' || manifest.electronVersion !== expectedElectronVersion) {
       throw new Error(`Hermes Desktop artifact is incompatible with Rhythm Electron ${expectedElectronMajor}; exact Electron ${expectedElectronVersion || 'version unavailable'} is required.`);

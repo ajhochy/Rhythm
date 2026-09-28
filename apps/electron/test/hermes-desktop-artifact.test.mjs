@@ -13,7 +13,7 @@ import { TEST_UPDATE_PRIVATE_KEY, TEST_UPDATE_PUBLIC_KEY, UNTRUSTED_UPDATE_PRIVA
 const digest = (value) => `sha256-${createHash('sha256').update(value).digest('base64')}`
 const WRONG_SOURCE_COMMIT = '0000000000000000000000000000000000000000'
 
-async function writeArtifact(root, { sourceCommit = PINNED_HERMES_DESKTOP_SOURCE_COMMIT, tamperRenderer = false } = {}) {
+async function writeArtifact(root, { sourceCommit = PINNED_HERMES_DESKTOP_SOURCE_COMMIT, tamperRenderer = false, electronVersion } = {}) {
   const renderer = '<main id="hermes-desktop">Desktop workspace</main>'
   const host = 'export async function createEmbeddedHermesHost() { return { dispose: async () => {}, handleIntent: async () => ({ ok: true }) } }\n'
   const preload = 'window.hermesDesktop = {}\n'
@@ -30,6 +30,7 @@ async function writeArtifact(root, { sourceCommit = PINNED_HERMES_DESKTOP_SOURCE
       product: 'hermes-desktop',
       sourceCommit,
       electronMajor: 40,
+      ...(electronVersion ? { electronVersion } : {}),
       files: {
         renderer: 'renderer/index.html',
         host: 'electron/embedded-host.mjs',
@@ -95,6 +96,20 @@ async function writeV2Artifact(root, {
   }
   return manifest
 }
+
+test('hermes-connecting: a factory artifact built for another exact Electron fails fast with an actionable reason', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'rhythm-hermes-artifact-electron-'))
+  await writeArtifact(root, { electronVersion: '40.10.2' })
+  const policy = { artifactRoot: root, expectedElectronMajor: 40, expectedSourceCommit: PINNED_HERMES_DESKTOP_SOURCE_COMMIT }
+  // The packaged candidate ran Electron 33.4.11 (node_modules symlinked to main): no global
+  // WebSocket, so the 40-built host's /api/ws probe failed and Hermes looped on "connecting".
+  await assert.rejects(
+    () => resolveHermesDesktopArtifact({ ...policy, expectedElectronVersion: '33.4.11' }),
+    /built for Electron 40\.10\.2 but Rhythm is running Electron 33\.4\.11/,
+  )
+  const artifact = await resolveHermesDesktopArtifact({ ...policy, expectedElectronVersion: '40.10.2' })
+  assert.equal(artifact.manifest.electronVersion, '40.10.2')
+})
 
 const installedPolicy = {
   artifactSource: 'installed',

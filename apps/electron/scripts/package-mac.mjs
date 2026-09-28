@@ -179,6 +179,13 @@ const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const packageNodeMajor = Number.parseInt(process.versions.node.split('.')[0], 10);
 if (packageNodeMajor !== 22) throw new Error(`Electron release packaging requires Node 22; received ${process.versions.node}`);
 const sourceApp = resolve(electronRoot, 'node_modules/electron/dist/Electron.app');
+// The pinned Hermes/Colony artifacts are built for this exact Electron. A worktree whose
+// node_modules is symlinked to another checkout silently packages that checkout's Electron.
+const pinnedElectron = JSON.parse(await readFile(resolve(electronRoot, 'package.json'), 'utf8')).devDependencies.electron;
+const installedElectron = JSON.parse(await readFile(resolve(electronRoot, 'node_modules/electron/package.json'), 'utf8')).version;
+if (installedElectron !== pinnedElectron) {
+  throw new Error(`node_modules/electron is ${installedElectron} but package.json pins ${pinnedElectron}; run npm ci in apps/electron (replace a symlinked node_modules first).`);
+}
 const distRoot = resolve(electronRoot, 'dist');
 const artifact = resolve(distRoot, 'Rhythm.app');
 // Official Electron tooling recognizes the framework only inside a .app bundle.
