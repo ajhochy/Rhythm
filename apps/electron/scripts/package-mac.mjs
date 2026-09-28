@@ -352,6 +352,14 @@ await resolveColonyArtifact({
 await run('codesign', ['--force', '--sign', '-', stagingArtifact]);
 await rename(stagingArtifact, artifact);
 process.stdout.write(`Packaged ${artifact} with an ad-hoc signature.\n`);
+// An ad-hoc build cannot start the agent runtime (the approval helper only serves a team-signed
+// parent) and, sharing com.rhythm.desktop, resets macOS privacy grants for every other build.
+process.stdout.write([
+  'WARNING: this ad-hoc build cannot start the local agent runtime and will re-trigger macOS',
+  'privacy prompts for other Rhythm builds. For a local candidate, sign it before launching:',
+  '  RHYTHM_SIGN_ONLY=1 APPLE_SIGNING_IDENTITY=<SHA-1> APPLE_TEAM_ID=<team> npm run sign:mac',
+  '',
+].join('\n'));
 } finally {
   await rm(stagingArtifact, { recursive: true, force: true });
 }
