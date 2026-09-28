@@ -1,14 +1,14 @@
 import { act, cleanup, fireEvent, render } from '@testing-library/react-native';
 import { useState } from 'react';
 import { Keyboard, StyleSheet } from 'react-native';
-import { PaperProvider } from 'react-native-paper';
+import { IconButton as PaperIconButton, PaperProvider } from 'react-native-paper';
 
 import { ChatComposer } from '@/components/chat/chat-composer';
 import { styles as chatViewStyles } from '@/components/chat/chat-view-styles';
 import { Colors } from '@/constants/theme';
 
 const MIN_INPUT_HEIGHT = 24;
-const MAX_INPUT_HEIGHT = 132;
+const MAX_INPUT_HEIGHT = 84;
 
 function ComposerHarness({
   attachments = [],
@@ -81,7 +81,7 @@ describe('ChatComposer native multiline sizing', () => {
     expect(inputStyle(input)?.minHeight).toBe(MIN_INPUT_HEIGHT);
   });
 
-  test('issue-5-c2: keeps native scrolling active and caps intrinsic growth at 132 points', () => {
+  test('issue-5-c2: keeps native scrolling active and caps intrinsic growth inside the 92 point dock', () => {
     // Regression caught: enabling iOS scrolling only after the cap hides the caret
     // when a paste reaches the cap before UIScrollView caret tracking is active.
     const screen = render(<ComposerHarness />);
@@ -138,9 +138,9 @@ describe('ChatComposer native multiline sizing', () => {
     expect(screen.getByLabelText('Message')).toHaveProp('multiline', true);
   });
 
-  test('mobile-chat-ui-c2: keyboard dismissal is conditional and the empty composer stays compact', () => {
-    // Regression caught: the old permanent keyboard toolbar remains visible
-    // and pushes the one-line composer beyond the approved compact height.
+  test('task-chat-polish-c4: one dock holds all controls and meets keyboard geometry', () => {
+    // Regression caught: metadata and keyboard/mic rows stack above the input,
+    // making the keyboard-visible composer substantially taller than 56 points.
     let showKeyboard: (() => void) | undefined;
     jest.spyOn(Keyboard, 'addListener').mockImplementation((event, listener) => {
       if (event === 'keyboardDidShow') showKeyboard = () => listener({} as never);
@@ -151,12 +151,23 @@ describe('ChatComposer native multiline sizing', () => {
 
     act(() => showKeyboard?.());
     expect(screen.getByLabelText('Dismiss keyboard')).toBeTruthy();
+    expect(screen.queryByText('Build · Model')).toBeNull();
 
     const composer = StyleSheet.flatten(screen.getByTestId('chat-composer').props.style);
-    expect(chatViewStyles.composerMetadataRow.minHeight + chatViewStyles.inputShell.minHeight + composer.paddingTop + composer.paddingBottom).toBeLessThanOrEqual(96);
+    expect(chatViewStyles.inputShell.minHeight + composer.paddingTop + composer.paddingBottom).toBeLessThanOrEqual(56);
+    expect(composer.paddingBottom).toBe(4);
+    expect(chatViewStyles.inputShell.maxHeight).toBe(92);
+    expect(chatViewStyles.inputShell.borderRadius).toBeGreaterThanOrEqual(20);
+    expect(chatViewStyles.inputShell.borderRadius).toBeLessThanOrEqual(24);
+    for (const label of ['Add attachment', 'Dismiss keyboard', 'Start dictation', 'Send message']) {
+      const control = screen.UNSAFE_getAllByType(PaperIconButton).find(
+        (button) => button.props.accessibilityLabel === label,
+      );
+      expect(StyleSheet.flatten(control?.props.style)).toEqual(expect.objectContaining({ height: 44, width: 44 }));
+    }
   });
 
-  test('mobile-chat-ui-c3: three attachments stay in one horizontal strip and never display a URI', () => {
+  test('task-chat-polish-c5: attachment chips fit two-up in a 48 point strip and never display a URI', () => {
     // Regression caught: attachment chips wrap vertically or reveal a private
     // native URI when image-picker cannot supply a filename.
     const screen = render(<ComposerHarness attachments={[
@@ -168,14 +179,29 @@ describe('ChatComposer native multiline sizing', () => {
     expect(screen.getByTestId('chat-attachment-strip')).toHaveProp('horizontal', true);
     expect(screen.getByText('Attachment')).toBeTruthy();
     expect(screen.queryByText('file:///private/secret-library-id')).toBeNull();
-    expect(chatViewStyles.attachmentStrip.maxHeight).toBeLessThanOrEqual(52);
+    expect(chatViewStyles.attachmentStrip.maxHeight).toBe(48);
+    expect(chatViewStyles.attachmentChip).toEqual(expect.objectContaining({ width: 168, height: 44 }));
+    expect(chatViewStyles.attachmentRow.gap).toBe(8);
+    expect(168 * 2 + 8).toBeLessThanOrEqual(375 - 24);
+    expect(chatViewStyles.attachmentRemoveButton).toEqual(expect.objectContaining({ height: 44, width: 44 }));
   });
 
-  test('mobile-chat-ui-c4: metadata uses profile and model context instead of generic Message copy', () => {
-    // Regression caught: the compact metadata row throws away useful session
-    // context and replaces it with the generic word Message.
+  test('task-chat-polish-c4-context: composer omits duplicated profile and model metadata', () => {
+    // Regression caught: profile/model context returns as a separate composer row
+    // even though the same context is already visible in the header.
     const screen = render(<ComposerHarness contextLabel="Build · Model" />);
-    expect(screen.getByText('Build · Model')).toBeTruthy();
+    expect(screen.queryByText('Build · Model')).toBeNull();
     expect(screen.queryByText('Message')).toBeNull();
+  });
+
+  test('task-chat-polish-c6: measured keyboard composer targets are bounded by real rows only', () => {
+    // Regression caught: invisible guessed spacers or attachment wrapping make
+    // one/two attachment layouts exceed the physical-device height budget.
+    const dock = chatViewStyles.inputShell.maxHeight;
+    const strip = chatViewStyles.attachmentStrip.maxHeight;
+    const keyboardPadding = 4;
+    expect(chatViewStyles.inputShell.minHeight + keyboardPadding).toBeLessThanOrEqual(56);
+    expect(chatViewStyles.inputShell.minHeight + strip + keyboardPadding).toBeLessThanOrEqual(104);
+    expect(dock + strip + keyboardPadding).toBeLessThanOrEqual(148);
   });
 });

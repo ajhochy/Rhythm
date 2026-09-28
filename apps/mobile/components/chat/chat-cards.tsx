@@ -263,7 +263,7 @@ export function TranscriptMessage({
   const detailSummary = summarizeTranscriptDetails(entry.details);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [actionsVisible, setActionsVisible] = useState(false);
-  const bubbleColor = isUser ? palette.surface : palette.surfaceAlt;
+  const bubbleColor = isUser ? palette.surface : 'transparent';
   const contentColor = palette.text;
 
   return (
@@ -276,7 +276,7 @@ export function TranscriptMessage({
             isUser ? styles.messageBubbleUser : styles.messageBubbleAssistant,
             {
               backgroundColor: bubbleColor,
-              borderColor: copied ? palette.tint : palette.border,
+              borderColor: copied ? palette.tint : isUser ? palette.border : 'transparent',
             },
             copied ? styles.messageBubbleCopied : null,
           ]}
@@ -429,22 +429,13 @@ const styles = StyleSheet.create({
   messageRowUser: { alignItems: 'flex-end' },
   messageTouchable: { alignSelf: 'stretch', borderRadius: 16 },
   messageBubble: {
-    borderRadius: 16,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
     gap: 8,
     flexShrink: 1,
-    maxWidth: '88%',
-    minHeight: 52,
-    overflow: 'hidden',
-    paddingRight: 56,
-    position: 'relative',
   },
-  messageBubbleUser: { alignSelf: 'flex-end' },
-  messageBubbleAssistant: { alignSelf: 'flex-start' },
+  messageBubbleUser: { alignSelf: 'flex-end', borderRadius: 16, borderWidth: 1, maxWidth: '80%', paddingHorizontal: 12, paddingVertical: 10 },
+  messageBubbleAssistant: { alignSelf: 'stretch', backgroundColor: 'transparent', borderRadius: 0, borderWidth: 0, maxWidth: '100%', overflow: 'visible', paddingHorizontal: 0, paddingVertical: 0 },
   messageBubbleCopied: { shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
-  messageActions: { alignItems: 'center', bottom: 0, flexDirection: 'row', height: MinimumTouchTarget, position: 'absolute', right: 0 },
+  messageActions: { alignItems: 'center', alignSelf: 'flex-end', flexDirection: 'row', minHeight: MinimumTouchTarget },
   messageActionButton: { height: MinimumTouchTarget, margin: 0, width: MinimumTouchTarget },
   copiedPill: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4 },
   activityBlock: { width: '100%' },

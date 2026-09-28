@@ -998,7 +998,7 @@ describe('issue-1387 send-time relay loss', () => {
     expect(mockWorkingSoundActive).toBe(false);
   }, 15_000);
 
-  test('issue-1387-uncertain-refresh: uncertain acceptance schedules one bounded refresh after 1s', async () => {
+  test('issue-1387-uncertain-refresh: uncertain acceptance schedules one refresh and one bounded assistant poll', async () => {
     // Regression caught: provisional acceptance returns without a convergence
     // read, or installs a repeating refresh loop after transport recovery.
     mockPromptOutcome = 'accepted-visible';
@@ -1028,6 +1028,19 @@ describe('issue-1387 send-time relay loss', () => {
     await act(async () => {
       await expect(mockLatestSubmission).resolves.toBe(true);
     });
+
+    const postPromptRefresh = jest.requireMock(
+      '@/providers/services/post-prompt-refresh',
+    );
+    expect(postPromptRefresh.pollForNewAssistantTurn).toHaveBeenCalledTimes(1);
+    expect(postPromptRefresh.pollForNewAssistantTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baselineAssistantMessageIds: expect.any(Set),
+        isActive: expect.any(Function),
+        refreshMessages: expect.any(Function),
+      }),
+    );
+    expect(mockPromptAsync).toHaveBeenCalledTimes(1);
 
     const sessionService = jest.requireMock('@/providers/services/session-service');
     mockReconciliationReadsFail = false;

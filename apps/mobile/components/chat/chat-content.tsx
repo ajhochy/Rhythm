@@ -2,8 +2,10 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
+  Pressable,
   RefreshControl,
   ScrollView,
+  Text as NativeText,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -135,6 +137,11 @@ export function ChatContent({
           maintainVisibleContentPosition={{
             minIndexForVisible: 0,
           }}
+          onLayout={() => {
+            if (transcriptNearBottomRef.current) {
+              transcriptRef.current?.scrollToEnd({ animated: false });
+            }
+          }}
           onContentSizeChange={() => {
             if (
               displayTranscript.length === 0 ||
@@ -167,16 +174,16 @@ export function ChatContent({
             </View>
           )}
           ListHeaderComponent={hasOlderMessages || connection.status === 'error' ? (
-            <View style={styles.transcriptItem}>
+            <View style={styles.transcriptHeader}>
               {hasOlderMessages ? (
-                <Button
-                  compact
+                <Pressable
+                  accessibilityRole="button"
                   disabled={isRefreshingMessages}
-                  loading={isRefreshingMessages}
-                  mode="text"
-                  onPress={onLoadOlderMessages}>
-                  Load earlier messages
-                </Button>
+                  onPress={onLoadOlderMessages}
+                  style={({ pressed }) => [styles.paginationRow, pressed && { opacity: 0.7 }]}>
+                  {isRefreshingMessages ? <ActivityIndicator color={palette.muted} size="small" /> : null}
+                  <NativeText style={[styles.paginationLabel, { color: palette.muted }]}>Load earlier messages</NativeText>
+                </Pressable>
               ) : null}
               {connection.status === 'error' ? (
                 <Card mode="contained" style={[styles.noticeCard, { backgroundColor: palette.surface }]}>
@@ -239,7 +246,7 @@ export function ChatContent({
                 </View>
               ) : null}
 
-              {currentTodos.length > 0 && (running || completedTodoCount < currentTodos.length) ? (
+              {pendingInteractions === 0 && currentTodos.length > 0 && (running || completedTodoCount < currentTodos.length) ? (
                 <View style={[styles.todoInline, { borderColor: palette.border }]}>
                   <TouchableRipple
                     accessibilityLabel={todosExpanded ? 'Collapse tasks' : 'Expand tasks'}

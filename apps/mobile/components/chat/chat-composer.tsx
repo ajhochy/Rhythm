@@ -13,7 +13,7 @@ type Attachment = { uri: string; mime?: string; filename?: string };
 
 const MIN_INPUT_HEIGHT = 24;
 // Six 22-point lines; taller drafts scroll inside the native text view.
-const MAX_INPUT_HEIGHT = 132;
+const MAX_INPUT_HEIGHT = 84;
 
 type ChatComposerProps = {
   attachments: Attachment[];
@@ -42,7 +42,6 @@ export function ChatComposer({
   attachments,
   connectionStatus,
   conversation,
-  contextLabel,
   currentSessionId,
   commands,
   draft,
@@ -75,49 +74,11 @@ export function ChatComposer({
     };
   }, []);
 
-  const composerState = conversation.active
-    ? conversation.statusLabel || 'Conversation active'
-    : isSpeechInputListening
-      ? 'Listening'
-      : contextLabel;
-
   return (
     <Surface
       testID="chat-composer"
-      style={[styles.composer, { backgroundColor: palette.surface, borderTopColor: palette.border, paddingBottom: Math.max(insetsBottom, 2) }]}
+      style={[styles.composer, { backgroundColor: palette.surface, borderTopColor: palette.border, paddingBottom: keyboardVisible ? 4 : Math.max(insetsBottom, 4) }]}
       elevation={4}>
-      <View style={styles.composerMetadataRow}>
-        {composerState ? (
-          <Text numberOfLines={1} variant="labelMedium" style={[styles.composerStateLabel, { color: palette.muted }]}>
-            {composerState}
-          </Text>
-        ) : <View style={styles.composerStateLabel} />}
-        <View style={styles.composerMetadataActions}>
-          {keyboardVisible ? (
-            <IconButton
-              accessibilityLabel="Dismiss keyboard"
-              icon="keyboard-close"
-              size={18}
-              style={styles.composerDismissButton}
-              onPress={Keyboard.dismiss}
-            />
-          ) : null}
-          <View testID="chat-dictation-button">
-            <IconButton
-              accessibilityLabel={isSpeechInputListening ? 'Stop dictation' : 'Start dictation'}
-              accessibilityRole="button"
-              testID="chat-secondary-button"
-              icon={isSpeechInputListening ? 'microphone-off' : 'microphone'}
-              size={18}
-              selected={isSpeechInputListening}
-              style={styles.composerVoiceButton}
-              disabled={dictationDisabled}
-              onPress={onToggleRecording}
-            />
-          </View>
-        </View>
-      </View>
-
       {attachments.length > 0 ? (
         <ScrollView testID="chat-attachment-strip" horizontal showsHorizontalScrollIndicator={false} style={styles.attachmentStrip} contentContainerStyle={styles.attachmentRow}>
           {attachments.map((att, idx) => (
@@ -193,6 +154,27 @@ export function ChatComposer({
                ]}
                textAlignVertical="top"
               />
+            {keyboardVisible ? (
+              <IconButton
+                accessibilityLabel="Dismiss keyboard"
+                icon="keyboard-close"
+                size={18}
+                style={styles.composerDismissButton}
+                onPress={Keyboard.dismiss}
+              />
+            ) : null}
+            <View testID="chat-dictation-button">
+              <IconButton
+                accessibilityLabel={isSpeechInputListening ? 'Stop dictation' : 'Start dictation'}
+                accessibilityRole="button"
+                testID="chat-secondary-button"
+                icon={isSpeechInputListening ? 'microphone-off' : 'microphone'}
+                size={18}
+                style={styles.composerVoiceButton}
+                disabled={dictationDisabled}
+                onPress={onToggleRecording}
+              />
+            </View>
             <View testID={showSendAction ? 'chat-send-button' : 'chat-stop-button'}>
               <IconButton
                 accessibilityLabel={showSendAction ? 'Send message' : 'Stop response'}

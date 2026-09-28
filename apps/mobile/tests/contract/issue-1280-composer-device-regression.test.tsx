@@ -7,7 +7,7 @@ import { ChatComposer } from '@/components/chat/chat-composer';
 import { Colors } from '@/constants/theme';
 
 const MIN_INPUT_HEIGHT = 24;
-const MAX_INPUT_HEIGHT = 132;
+const MAX_INPUT_HEIGHT = 84;
 
 function ComposerHarness() {
   const [draft, setDraft] = useState('');
@@ -61,7 +61,7 @@ describe('issue #1280 native composer regression contract', () => {
     expect(inputStyle(input)?.minHeight).toBe(MIN_INPUT_HEIGHT);
   });
 
-  test('issue-1280-c2: a long draft keeps the intrinsic 132pt cap and native scrolling without a synthetic content-size event', () => {
+  test('issue-1280-c2: a long draft keeps the intrinsic dock cap and native scrolling without a synthetic content-size event', () => {
     // Regression caught: replacing intrinsic measurement with a fixed height
     // leaves long drafts one line tall even though scrolling remains enabled.
     const screen = render(<ComposerHarness />);

@@ -21,6 +21,48 @@ describe('post-prompt response refresh', () => {
     expect(refreshMessages).toHaveBeenCalledTimes(2);
     expect(sleep).toHaveBeenCalledTimes(2);
   });
+
+  test('task-chat-convergence-c1: transient refresh failures consume bounded attempts until assistant text appears', async () => {
+    // Regression caught: one transient transcript read rejection terminates the
+    // convergence poll and leaves an accepted response permanently stale.
+    const sleep = jest.fn(async () => undefined);
+    const refreshMessages = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('relay restarting'))
+      .mockRejectedValueOnce(new Error('gateway warming'))
+      .mockResolvedValueOnce([
+        message('user-new', 'user', 'Respond ok'),
+        message('assistant-new', 'assistant', 'ok'),
+      ]);
+
+    await expect(pollForNewAssistantTurn({
+      baselineAssistantMessageIds: new Set(['assistant-old']),
+      delaysMs: [1, 2, 3, 4],
+      refreshMessages,
+      sleep,
+    })).resolves.toBe(true);
+
+    expect(refreshMessages).toHaveBeenCalledTimes(3);
+    expect(sleep).toHaveBeenCalledTimes(3);
+  });
+
+  test('task-chat-convergence-c2: failed refreshes stop after the configured finite delays', async () => {
+    // Regression caught: transient-error recovery accidentally installs an
+    // unbounded retry timer instead of respecting the existing attempt list.
+    const sleep = jest.fn(async () => undefined);
+    const refreshMessages = jest.fn(async () => {
+      throw new Error('still unavailable');
+    });
+
+    await expect(pollForNewAssistantTurn({
+      baselineAssistantMessageIds: new Set(),
+      delaysMs: [1, 2, 3],
+      refreshMessages,
+      sleep,
+    })).resolves.toBe(false);
+    expect(refreshMessages).toHaveBeenCalledTimes(3);
+    expect(sleep).toHaveBeenCalledTimes(3);
+  });
 });
 
 function message(id: string, role: 'user' | 'assistant', text: string) {

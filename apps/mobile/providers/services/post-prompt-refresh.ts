@@ -84,7 +84,12 @@ export async function pollForNewAssistantTurn({
     await sleep(delayMs);
     if (!isActive()) return false;
 
-    const messages = await refreshMessages();
+    let messages: SessionMessageRecord[];
+    try {
+      messages = await refreshMessages();
+    } catch {
+      continue;
+    }
     const completed = messages.some((message) =>
       message.info.role === 'assistant' &&
       message.info.summary !== true &&

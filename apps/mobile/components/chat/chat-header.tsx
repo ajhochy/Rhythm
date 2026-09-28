@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Pressable, ScrollView, Text as NativeText, View } from 'react-native';
 import { useState } from 'react';
-import { Appbar, Button, Portal, ProgressBar, Text } from 'react-native-paper';
+import { Button, Portal, ProgressBar, Text } from 'react-native-paper';
 
 import { TopTab } from '@/components/chat/chat-controls';
 import { SessionConfigurationSheet } from '@/components/chat/session-configuration-sheet';
@@ -122,13 +122,16 @@ export function ChatHeader({
   return (
     <>
       <View testID="compact-chat-header" style={{ backgroundColor: palette.surface }}>
-        <Appbar.Header
-          style={[styles.header, { backgroundColor: palette.surface, paddingTop: insetsTop }]}
-          statusBarHeight={0}>
-          <Appbar.BackAction
+        <View style={{ paddingTop: insetsTop }}>
+          <View style={[styles.header, { backgroundColor: palette.surface }]}>
+          <Pressable
+            testID="chat-back-button"
             accessibilityLabel="Back to Agents"
+            accessibilityRole="button"
             onPress={onBack}
-          />
+            style={({ pressed }) => [styles.headerBackButton, pressed && styles.headerActionPressed]}>
+            <NativeText style={[styles.headerBackGlyph, { color: palette.text }]}>‹</NativeText>
+          </Pressable>
           <View style={styles.headerMain}>
             <Pressable accessibilityLabel="Choose chat" onPress={onOpenSessionMenu} style={({ pressed }) => [styles.headerSessionAnchor, pressed && styles.headerSessionAnchorPressed]}>
               <View style={styles.headerSessionContent}>
@@ -136,7 +139,7 @@ export function ChatHeader({
                   <Text numberOfLines={1} variant="titleMedium" style={[styles.headerTitle, { color: palette.text }]}>
                     {selectedSession?.title || 'Untitled chat'}
                   </Text>
-                  <NativeText accessibilityLabel={`Chat status: ${subtitle}`} style={[styles.headerUsage, { color: palette.muted }]}>
+                  <NativeText numberOfLines={1} accessibilityLabel={`Chat status: ${subtitle}`} style={[styles.headerUsage, { color: palette.muted }]}>
                     {subtitle}
                   </NativeText>
                 </View>
@@ -161,8 +164,10 @@ export function ChatHeader({
               />
             </Pressable>
           </View>
-        </Appbar.Header>
-        <View style={[styles.chatSegmentedControl, { backgroundColor: palette.surfaceAlt }]}>
+          </View>
+        </View>
+        <View style={styles.chatSegmentedControl}>
+          <View pointerEvents="none" style={[styles.chatSegmentedVisual, { backgroundColor: palette.surfaceAlt }]} />
           <TopTab
             accessibilityLabel="Chat"
             active={!showingChanges}

@@ -16,7 +16,8 @@ test('issue-1235-c1: every chat and tool surface owns exactly one compact header
   // Regression caught: Expo Router restores its native route header above an Appbar.
   assert.match(chatRoute, /<Stack\.Screen[\s\S]*?headerShown:\s*false/);
   assert.match(toolRoute, /<Stack\.Screen[\s\S]*?headerShown:\s*false/);
-  assert.equal((chatHeader.match(/<Appbar\.Header\b/g) ?? []).length, 1);
+  assert.equal((chatHeader.match(/testID="compact-chat-header"/g) ?? []).length, 1);
+  assert.doesNotMatch(chatHeader, /<Appbar\.(?:Header|BackAction)\b/);
   assert.equal((toolRoute.match(/<Appbar\.Header\b/g) ?? []).length, 1);
   assert.equal((toolsTab.match(/<Appbar\.Header\b/g) ?? []).length, 1);
   assert.equal((agentsTab.match(/accessibilityRole="header"/g) ?? []).length, 1);
@@ -27,14 +28,14 @@ test('issue-1235-c2: chat header exposes navigation, title, status, and overflow
   // Regression caught: session usage replaces the concise state and administration menu.
   assert.match(chatHeader, /accessibilityLabel="Back to Agents"/);
   assert.match(chatHeader, /selectedSession\?\.title\s*\|\|\s*'Untitled chat'/);
-  assert.match(chatHeader, /statusLabel/);
+  assert.match(chatHeader, /presentationStatus\s*\|\|\s*idleSubtitle/);
   assert.match(chatHeader, /accessibilityLabel="Chat menu"/);
 });
 
 test('issue-1235-c3: Settings and Manage live in overflow and Files Changed is conditional', () => {
   // Regression caught: a permanent second selector row consumes chat transcript height.
-  assert.match(chatHeader, /title="Settings"/);
-  assert.match(chatHeader, /title="Manage"/);
+  assert.match(chatHeader, />\s*Settings\s*<\/Button>/);
+  assert.match(chatHeader, />\s*Manage\s*<\/Button>/);
   assert.match(chatHeader, /diffCount\s*>\s*0[\s\S]*Files Changed/);
   assert.doesNotMatch(chatView, /<View[^>]*styles\.tabsRow/);
   assert.doesNotMatch(chatView, />\s*Manage\s*<\/Button>/);

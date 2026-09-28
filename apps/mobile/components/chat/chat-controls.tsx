@@ -5,6 +5,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { NativeSelect, type NativeSelectOption } from '@/components/ui/native-select';
 import { Colors, Fonts, MinimumTouchTarget, Radii, Spacing, TypeScale } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { styles as chatViewStyles } from '@/components/chat/chat-view-styles';
 
 export function SelectControl<T extends string>({
   disabled = false,
@@ -118,7 +119,7 @@ export function TopTab({ accessibilityLabel, active, label, onPress }: { accessi
       accessibilityState={{ selected: active }}
       style={styles.topTab}
       onPress={onPress}>
-      <View style={[styles.topTabInner, active && { backgroundColor: palette.surface }]}>
+      <View style={[styles.topTabInner, chatViewStyles.topTabVisual, active && { backgroundColor: palette.surface }]}>
         <Text style={[styles.topTabLabel, { color: active ? palette.text : palette.muted, fontWeight: active ? '700' : '500' }]}>
           {label}
         </Text>
@@ -163,14 +164,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  topTab: { flex: 1, minHeight: MinimumTouchTarget, padding: Spacing.x1 },
+  topTab: { flex: 1, minHeight: MinimumTouchTarget, alignItems: 'center', justifyContent: 'center' },
   topTabInner: {
     alignItems: 'center',
     borderRadius: Radii.control,
-    flex: 1,
     justifyContent: 'center',
-    minHeight: MinimumTouchTarget - Spacing.x2,
     paddingHorizontal: Spacing.x3,
+    width: '100%',
   },
   topTabLabel: {
     fontFamily: Fonts.sans,

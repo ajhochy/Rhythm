@@ -131,6 +131,14 @@ test('chat segments keep visible state copy separate from the Changes accessible
     StyleSheet.flatten(chatViewStyles.chatSegmentedControl).height +
     StyleSheet.flatten(chatViewStyles.chatSegmentedControl).marginBottom,
   ).toBeLessThanOrEqual(108);
+  expect(StyleSheet.flatten(chatViewStyles.header).height).toBe(52);
+  expect(StyleSheet.flatten(chatViewStyles.chatSegmentedControl)).toEqual(expect.objectContaining({
+    height: 44,
+    marginHorizontal: 16,
+  }));
+  expect(StyleSheet.flatten((chatViewStyles as unknown as Record<string, object>).topTabVisual)).toEqual(expect.objectContaining({ height: 32 }));
+  expect(screen.getByTestId('chat-back-button')).toHaveTextContent('‹');
+  expect(StyleSheet.flatten(screen.getByTestId('chat-back-button').props.style)).toEqual(expect.objectContaining({ height: 44, width: 44 }));
 });
 
 test('mobile-chat-ui-c1: idle header omits healthy connection clutter and promotes work state', () => {
@@ -244,9 +252,9 @@ test('mobile-chat-ui-c6: activity is one accessible quiet disclosure with text-o
   expect(screen.UNSAFE_queryAllByType(PaperChip)).toHaveLength(0);
 });
 
-test('mobile-chat-geometry-c1: message actions are overlaid and activity keeps a compact visual row', () => {
-  // Regression caught: the 44pt overflow and activity hit target each consume
-  // their own vertical row, doubling a one-line bubble to roughly 102pt.
+test('task-chat-polish-c3: messages use document flow without assistant chrome or action gutter', () => {
+  // Regression caught: assistant responses return to outlined clipped cards or
+  // reserve a permanent 56 point action gutter inside every message.
   const user = render(
     <PaperProvider>
       <TranscriptMessage
@@ -258,10 +266,15 @@ test('mobile-chat-geometry-c1: message actions are overlaid and activity keeps a
   );
   const userSurface = user.UNSAFE_getAllByType(PaperSurface).find((surface) => surface.props.accessibilityLabel?.startsWith('You message'));
   const bubbleStyle = StyleSheet.flatten(userSurface?.props.style);
-  expect(bubbleStyle).toEqual(expect.objectContaining({ minHeight: 52, paddingRight: 56 }));
-  expect(bubbleStyle.minHeight).toBeGreaterThanOrEqual(48);
-  expect(bubbleStyle.minHeight).toBeLessThanOrEqual(58);
-  expect(StyleSheet.flatten(user.getByTestId('message-actions').props.style)).toEqual(expect.objectContaining({ bottom: 0, position: 'absolute', right: 0 }));
+  expect(bubbleStyle).toEqual(expect.objectContaining({
+    borderRadius: 16,
+    maxWidth: '80%',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  }));
+  expect(bubbleStyle.paddingRight).toBeUndefined();
+  expect(StyleSheet.flatten(user.getByTestId('message-actions').props.style)).toEqual(expect.objectContaining({ alignSelf: 'flex-end', minHeight: 44 }));
+  expect(StyleSheet.flatten(user.getByTestId('message-actions').props.style).position).toBeUndefined();
 
   const assistant = render(
     <PaperProvider>
@@ -272,6 +285,18 @@ test('mobile-chat-geometry-c1: message actions are overlaid and activity keeps a
       />
     </PaperProvider>,
   );
+  const assistantSurface = assistant.UNSAFE_getAllByType(PaperSurface).find((surface) => surface.props.accessibilityLabel?.startsWith('OpenCode message'));
+  const assistantStyle = StyleSheet.flatten(assistantSurface?.props.style);
+  expect(assistantStyle).toEqual(expect.objectContaining({
+    alignSelf: 'stretch',
+    backgroundColor: 'transparent',
+    borderRadius: 0,
+    borderWidth: 0,
+    maxWidth: '100%',
+    overflow: 'visible',
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+  }));
   const disclosure = assistant.UNSAFE_getAllByType(PaperTouchableRipple).find((item) => item.props.accessibilityLabel === 'Expand activity details');
   const disclosureStyle = StyleSheet.flatten(disclosure?.props.style);
   expect(disclosureStyle.height).toBeGreaterThanOrEqual(30);
