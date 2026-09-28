@@ -1,11 +1,18 @@
 import type { NextFunction, Request, Response } from 'express';
 
+import { env } from '../config/env';
 import { AppError } from '../errors/app_error';
 import {
   InvalidByteRangeError,
+  type MediaArtifact,
   MediaArtifactStore,
   parseByteRange,
 } from '../services/media_artifact_store';
+
+/** A tokenless loopback caller (AGENT_LOCAL) is the desktop itself; everyone else is owner-checked. */
+function mayAccess(store: MediaArtifactStore, artifact: MediaArtifact, userId: number | undefined): boolean {
+  return userId === undefined ? env.agentLocal === true : store.canUserAccessArtifact(artifact, userId);
+}
 
 function requestedProject(req: Request): string {
   const project = req.mobileProject?.id ??
@@ -21,10 +28,8 @@ export class MediaArtifactsController {
       const artifact = await store.findProjectArtifact(req.params.id, requestedProject(req));
       if (!artifact) throw AppError.notFound('Media artifact');
       const userId = req.mobileDevice?.userId ?? req.auth?.user.id;
-      if (userId === undefined || !store.canUserAccessArtifact(artifact, userId)) {
-        throw AppError.notFound('Media artifact');
-      }
-      res.set('X-Rhythm-Artifact-Owner-ID', String(userId));
+      if (!mayAccess(store, artifact, userId)) throw AppError.notFound('Media artifact');
+      if (userId !== undefined) res.set('X-Rhythm-Artifact-Owner-ID', String(userId));
       res.set('X-Rhythm-Artifact-Project-ID', artifact.project);
       res.set('X-Rhythm-Artifact-Session-ID', artifact.session);
       let range;
@@ -60,7 +65,7 @@ export class MediaArtifactsController {
       const project = requestedProject(req);
       const artifact = await store.findProjectArtifact(req.params.id, project);
       const userId = req.mobileDevice?.userId ?? req.auth?.user.id;
-      if (!artifact || userId === undefined || !store.canUserAccessArtifact(artifact, userId)) {
+      if (!artifact || !mayAccess(store, artifact, userId)) {
         throw AppError.notFound('Media artifact');
       }
       const updated = await store.setPinned(

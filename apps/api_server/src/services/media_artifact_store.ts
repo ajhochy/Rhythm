@@ -160,21 +160,7 @@ export class MediaArtifactStore {
       throw new Error('Only generated image and video media can be registered');
     }
     const bytes = readFileSync(input.filePath);
-    const checksum = createHash('sha256').update(bytes).digest('hex');
-    const storageKey = `${checksum.slice(0, 2)}/${checksum}`;
-    const destination = this.resolveStoragePath(storageKey);
-    mkdirSync(dirname(destination), { recursive: true });
-    this.assertStoragePath(storageKey);
-    if (!existsSync(destination)) {
-      const temporary = `${destination}.${randomUUID()}.tmp`;
-      writeFileSync(temporary, bytes, { flag: 'wx' });
-      try {
-        renameSync(temporary, destination);
-      } catch (error) {
-        rmSync(temporary, { force: true });
-        if (!existsSync(destination)) throw error;
-      }
-    }
+    const { checksum, storageKey } = this.writeBlob(bytes);
 
     const artifact: MediaArtifact = {
       id: randomUUID(),
@@ -295,6 +281,49 @@ export class MediaArtifactStore {
       removedBytes += 1;
     }
     return { removedMetadata, removedBytes };
+  }
+
+  /** Content-addressed write; identical bytes share one file. */
+  private writeBlob(bytes: Buffer): { checksum: string; storageKey: string } {
+    const checksum = createHash('sha256').update(bytes).digest('hex');
+    const storageKey = `${checksum.slice(0, 2)}/${checksum}`;
+    const destination = this.resolveStoragePath(storageKey);
+    mkdirSync(dirname(destination), { recursive: true });
+    this.assertStoragePath(storageKey);
+    if (!existsSync(destination)) {
+      const temporary = `${destination}.${randomUUID()}.tmp`;
+      writeFileSync(temporary, bytes, { flag: 'wx' });
+      try {
+        renameSync(temporary, destination);
+      } catch (error) {
+        rmSync(temporary, { force: true });
+        if (!existsSync(destination)) throw error;
+      }
+    }
+    return { checksum, storageKey };
+  }
+
+  /**
+   * Synchronous SQLite-only registration for chat attachments, so it can run inside the
+   * message-write transaction. Attachments are pinned: a transcript references them for as
+   * long as the message exists, so the retention sweep must not collect them.
+   */
+  registerAttachmentBytesSync(input: {
+    bytes: Buffer; mime: string; project: string; session: string;
+  }): MediaArtifact {
+    if (!this.db) throw new Error('Attachment hosting requires the local SQLite store');
+    const { checksum, storageKey } = this.writeBlob(input.bytes);
+    this.db.prepare(
+      `INSERT INTO media_artifacts
+         (id, project, session, mime, size, checksum, created_at, storage_key, pinned)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+       ON CONFLICT(project, session, checksum) DO UPDATE SET pinned = 1`,
+    ).run(randomUUID(), input.project, input.session, input.mime, input.bytes.length,
+      checksum, new Date().toISOString(), storageKey);
+    const stored = this.db.prepare(
+      `SELECT * FROM media_artifacts WHERE project = ? AND session = ? AND checksum = ?`,
+    ).get(input.project, input.session, checksum) as MediaArtifactRow;
+    return rowToArtifact(stored);
   }
 
   createByteStream(artifact: MediaArtifact, range: ByteRange | null) {

@@ -135,6 +135,12 @@ async function main() {
   );
   startTranscriptSharePurgeJobIfEnabled({ env: process.env, dbClient: env.dbClient });
 
+  // Move attachment bytes embedded in old transcripts into the media store (local SQLite only).
+  if (process.env.VITEST !== 'true' && env.dbClient === 'sqlite') {
+    const { startAttachmentBackfill } = await import('./jobs/attachment_backfill_job');
+    startAttachmentBackfill();
+  }
+
   // #1309 — sweep expired unpinned media at boot and daily. This runs in both
   // local and cloud roles because either can own the configured durable root.
   if (process.env.VITEST !== 'true') {
