@@ -897,7 +897,10 @@ if (hasSingleInstanceLock) {
         message: snapshot.errorMessage ?? 'Rhythm could not start its local runtime.',
         buttons: ['Retry', 'Close'], defaultId: 0, cancelId: 1,
       }).then(({ response }) => {
-        if (response === 0 && !shuttingDown) void agentServer?.start();
+        // A parentless macOS alert runs modally and resolves before start()'s in-flight promise
+        // clears, so start() returned that stale failure and never respawned (#1584). restart()
+        // awaits the stale start, waits for released ports, then spawns a fresh generation.
+        if (response === 0 && !shuttingDown) void agentServer?.restart();
       });
     }
   });
@@ -1132,6 +1135,18 @@ if (hasSingleInstanceLock) {
       }
     });
     window.on?.('closed', () => { if (mainWindow === window) clearAgentNotifications(); });
+    // ponytail: a dead renderer reloads once per 10s; a crash loop surfaces instead of spinning headless.
+    let lastRendererCrash = 0;
+    window.webContents.on('render-process-gone', (_event, details) => {
+      if (shuttingDown || details?.reason === 'clean-exit' || window.isDestroyed()) return;
+      process.stderr.write(`Rhythm renderer exited: ${details?.reason}\n`);
+      if (Date.now() - lastRendererCrash < 10_000) {
+        dialog.showErrorBox('Rhythm window stopped', `The Rhythm window stopped responding (${details?.reason}). Quit and reopen Rhythm.`);
+        return;
+      }
+      lastRendererCrash = Date.now();
+      window.webContents.reload();
+    });
     await window.loadURL(pendingDeepLink ?? 'rhythm://app/index.html#/agents');
     if (mainWindow !== window || window.isDestroyed()) return;
     pendingDeepLink = null;

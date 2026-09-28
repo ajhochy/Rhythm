@@ -211,6 +211,10 @@ export class AgentServerService {
    * that was in fact healthy 5s before the deadline — see
    * docs/ai/runs/2026-09-21-desktop-agents-never-start.md. Env override exists for tests. */
   #readyBudgetMs = Number(process.env.RHYTHM_AGENT_READY_BUDGET_MS) || 45_000;
+  /** Every pre-spawn await is bounded: a step wedged behind a macOS prompt fails visibly instead of
+   * leaving a windowless app. The approval helper keeps its own 120s Keychain window plus slack. */
+  #preSpawnBudgetMs = Number(process.env.RHYTHM_AGENT_PRESPAWN_BUDGET_MS) || 15_000;
+  #capabilityBudgetMs = Number(process.env.RHYTHM_AGENT_PRESPAWN_BUDGET_MS) || 125_000;
   #abort = new AbortController();
   #release = () => {};
   /** @type {AgentServerFailureReason | undefined} */
@@ -273,7 +277,20 @@ export class AgentServerService {
   /** @param {unknown} error */
   reportStartupFailure(error) {
     this.#appendStderr(error instanceof Error ? error.message : String(error));
-    this.#setFailed('startupFailed', 'Rhythm could not start its local runtime. Check disk permissions, then quit and reopen Rhythm to retry.');
+    const stalled = /** @type {{ stalledStep?: string } | undefined} */ (error)?.stalledStep;
+    this.#setFailed('startupFailed', stalled
+      ? `Rhythm's local runtime startup stalled while ${stalled}. Answer any pending macOS prompt, then Retry.`
+      : 'Rhythm could not start its local runtime. Check disk permissions, then quit and reopen Rhythm to retry.');
+  }
+
+  /** @template T @param {Promise<T> | T} step @param {string} label @param {number} [budgetMs] @returns {Promise<T>} */
+  #bounded(step, label, budgetMs = this.#preSpawnBudgetMs) {
+    /** @type {NodeJS.Timeout | undefined} */
+    let timer;
+    const stalled = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(Object.assign(new Error(`startup stalled ${label} after ${budgetMs}ms`), { stalledStep: label })), budgetMs);
+    });
+    return /** @type {Promise<T>} */ (Promise.race([step, stalled])).finally(() => clearTimeout(timer));
   }
 
   /** @param {number} generation */
@@ -287,7 +304,7 @@ export class AgentServerService {
 
     const occupied = [];
     for (const port of [AGENT_SERVER_PORT, AGENT_SERVER_ENGINE_PORT]) {
-      if (!await portAvailable(port)) occupied.push(port);
+      if (!await this.#bounded(portAvailable(port), `checking port ${port}`)) occupied.push(port);
     }
     if (occupied.length) {
       const healthy = await runningRhythmRuntime();
@@ -306,13 +323,14 @@ export class AgentServerService {
 
     let material;
     try {
-      material = await capabilityMaterial();
+      material = await this.#bounded(capabilityMaterial(), 'reading the approval identity', this.#capabilityBudgetMs);
     } catch (error) {
+      this.#appendStderr(error instanceof Error ? error.message : String(error));
       this.#setFailed('approvalCredentialsUnavailable', 'Rhythm could not access its approval identity. Complete any macOS Keychain authorization, then retry.');
       return this.status;
     }
 
-    const nodePath = await findNode();
+    const nodePath = await this.#bounded(findNode(), 'locating Node.js');
     if (!nodePath) {
       this.#setFailed('nodeNotFound', "Couldn't find Node.js on this Mac. Install Node 20 or newer from nodejs.org and try again.");
       return this.status;
@@ -325,7 +343,7 @@ export class AgentServerService {
     }
 
     const targetDbPath = electronDbPath();
-    await mkdir(dirname(targetDbPath), { recursive: true });
+    await this.#bounded(mkdir(dirname(targetDbPath), { recursive: true }), 'creating the data folder');
     const legacyDb = legacyFlutterDbPath();
     if (!existsSync(targetDbPath) && process.env.RHYTHM_ELECTRON_MIGRATE_LEGACY === '1' && existsSync(legacyDb)) {
       const migrationScript = resolve(serverInfo.workingDir, 'scripts/migrate_desktop_db.mjs');
@@ -335,7 +353,7 @@ export class AgentServerService {
 
     let relayConfiguration;
     try {
-      relayConfiguration = await this.#relayConfigurationProvider?.();
+      relayConfiguration = await this.#bounded(this.#relayConfigurationProvider?.(), 'reading relay settings');
     } catch {
       // A failed secure-store/config read leaves the uplink disabled; never log bearer material.
       relayConfiguration = undefined;
@@ -439,11 +457,13 @@ export class AgentServerService {
     }
     const starting = this.#starting;
     const hadOwnedChild = Boolean(this.#process);
+    // A timed-out owned child is already stopped, but its engine grandchild can still hold 4096.
+    const waitForPorts = hadOwnedChild || this.#ownership === 'electron';
     this.#restarting = (async () => {
       if (hadOwnedChild || starting) await this.stopGracefully();
       await starting?.catch(() => {});
       if (this.#shuttingDown) return { ok: false, reason: 'shutting_down', code: 'shutting_down' };
-      if (hadOwnedChild && !await this.#waitForRuntimePortsReleased()) {
+      if (waitForPorts && !await this.#waitForRuntimePortsReleased()) {
         this.#setFailed('portConflict', 'The previous local runtime is still releasing its ports. Wait a moment, then Retry local runtime.');
         return { ok: false, reason: 'ports_not_released', code: 'ports_not_released', status: this.status };
       }
