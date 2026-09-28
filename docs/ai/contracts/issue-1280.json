@@ -12,18 +12,19 @@
     },
     {
       "criterion_id": "issue-1280-c2",
-      "text": "The chat composer grows up to a 132pt cap, then switches to internal scrolling.",
+      "text": "The chat composer keeps intrinsic multiline growth to an 84pt input cap, then scrolls internally, while the keyboard-visible stack stays within 56pt without attachments, 104pt with one or two attachments, and 148pt with attachments plus a maximum draft.",
       "mode": "ui",
       "test_file": "apps/mobile/tests/contract/issue-1280-composer-device-regression.test.tsx",
-      "test_id": "issue-1280-c2: a long draft keeps the intrinsic 132pt cap and native scrolling without a synthetic content-size event",
-      "status": "pass"
+      "test_id": "issue-1280-c2: a long draft keeps the intrinsic dock cap and native scrolling without a synthetic content-size event",
+      "status": "pass",
+      "reason": "The executable contract verifies the intrinsic 84pt input cap and native scrolling; focused composer geometry assertions verify the keyboard-visible 56pt, 104pt, and 148pt stack limits."
     },
     {
       "criterion_id": "issue-1280-c3",
       "text": "A human must confirm on a real iPhone before this is called done.",
       "mode": "manual",
       "status": "pending",
-      "reason": "Requires typing and pasting multi-line drafts in a signed development build on physical iPhone hardware."
+      "reason": "Requires signed physical iPhone smoke covering multiline typing and paste growth, shrink after deletion/clear, and keyboard-visible 56pt/104pt/148pt stack geometry."
     }
   ],
   "stack": "typescript",
