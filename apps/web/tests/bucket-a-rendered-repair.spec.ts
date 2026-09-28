@@ -174,6 +174,51 @@ test('bucket-a-rendered-gallery: broken image and video replace media with type 
   await page.screenshot({ path: screenshotPath(testInfo, 'bucket-a-gallery-media-fallback.png') });
 });
 
+test('bucket-a-rendered-gallery: API-relative posters, list thumbnails and the in-app video viewer load through fetch', async ({ page }, testInfo) => {
+  // Regression caught: in Electron, <img>/<video> pointed straight at the local API are no-cors requests
+  // (no Origin, Sec-Fetch-Site: cross-site) that the local surface guard 403s and Chromium ORB-blocks,
+  // so posters never render and "Open deliverable" could not play a video. Assets must go through fetch().
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const designs = [
+    { id: 'local-video', title: 'Local video', provider: 'local', artifactType: 'mp4', artifactUrl: '/agent-designs/local-video/artifact', thumbnailUrl: '/agent-designs/local-video/thumbnail', projectUrl: null, canvaUrl: null, sessionId: null, createdAt: '2026-08-20T00:00:00.000Z' },
+    { id: 'local-page', title: 'Local page', provider: 'local', artifactType: 'html', artifactUrl: '/agent-designs/local-page/artifact', thumbnailUrl: null, projectUrl: null, canvaUrl: null, sessionId: null, createdAt: '2026-08-20T00:00:00.000Z' },
+  ];
+  const assetRequests: string[] = [];
+  await installLiveRoutes(page, async (route, url) => {
+    if (url.pathname === '/agent-designs') { await fulfillJson(route, designs); return true; }
+    if (url.pathname.startsWith('/agent-designs/')) {
+      assetRequests.push(`${route.request().resourceType()} ${url.pathname}`);
+      if (url.pathname.endsWith('/thumbnail')) await route.fulfill({ status: 200, contentType: 'image/png', body: png });
+      else await route.fulfill({ status: 200, contentType: url.pathname.includes('video') ? 'video/mp4' : 'text/html', body: 'bytes' });
+      return true;
+    }
+    return false;
+  });
+  await page.goto('/#/tools/gallery', { waitUntil: 'domcontentloaded' });
+  const poster = page.getByTestId('list-inspector-detail').getByTestId('gallery-preview-image');
+  await expect(poster).toHaveAttribute('src', /^blob:/);
+  await expect.poll(() => poster.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+  const thumb = page.getByTestId('gallery-thumb-local-video');
+  await expect(thumb).toHaveAttribute('src', /^blob:/);
+  await expect(page.getByTestId('gallery-thumb-local-page')).toHaveCount(0);
+
+  await page.getByTestId('gallery-open-local-video').click();
+  const video = page.getByTestId('gallery-viewer-video');
+  await expect(video).toBeVisible();
+  await expect(video).toHaveAttribute('src', /^blob:/);
+  await expect(video).toHaveAttribute('controls', '');
+  await page.screenshot({ path: screenshotPath(testInfo, 'bucket-a-gallery-video-viewer.png') });
+  await page.getByTestId('gallery-viewer-close').click();
+  await expect(video).toHaveCount(0);
+
+  await page.getByRole('option', { name: 'Local page' }).click();
+  await page.getByTestId('gallery-open-local-page').click();
+  await expect.poll(() => assetRequests).toContain('fetch /agent-designs/local-page/artifact');
+  await expect(page.getByTestId('gallery-viewer-video')).toHaveCount(0);
+  expect(assetRequests.every((entry) => entry.startsWith('fetch '))).toBe(true);
+  expect(assetRequests).toContain('fetch /agent-designs/local-video/artifact');
+});
+
 test('bucket-a-rendered-agent-tools: live Webhooks is explicit and Email uses live gateway records', async ({ page }) => {
   const signal = {
     id: 'live-signal-1', ownerId: 42, externalId: 'external-live-1', threadId: 'thread-live-1',

@@ -50,6 +50,10 @@
   box-shadow: inset 0 0 0 1px var(--border);
 }
 
+.list-inspector-row.has-leading { grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; }
+.list-inspector-row.has-leading > :not(.list-inspector-row-leading) { grid-column: 2; }
+.list-inspector-row-leading { grid-row: 1 / span 2; display: grid; place-items: center; }
+.list-inspector-row-leading:empty { display: none; }
 .list-inspector-row[aria-disabled="true"] { opacity: .58; cursor: not-allowed; }
 .list-inspector-row strong { overflow: hidden; font-size: 11px; font-weight: 560; text-overflow: ellipsis; white-space: nowrap; }
 .list-inspector-row-meta { display: flex; gap: 6px; min-width: 0; align-items: center; }

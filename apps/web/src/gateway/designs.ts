@@ -26,9 +26,11 @@ export interface DesignsGateway {
   readonly mode: GatewayMode;
   // GET /agent-designs — agentDesignsRoutes.ts:11.
   list(): Promise<AgentDesign[]>;
-  // GET /agent-designs/:id/artifact — agentDesignsRoutes.ts:13. Opens the actual deliverable
-  // rather than a fixture preview; callers get back the raw bytes/text and content-type.
-  artifact(design: AgentDesign): Promise<{ contentType: string; body: string }>;
+  // GET an API-relative design asset (/agent-designs/:id/artifact or /thumbnail) as bytes.
+  // <img>/<video> can't load these directly: a no-cors media request carries no Origin, so the
+  // local API's surface guard 403s it (Sec-Fetch-Site: cross-site) and Chromium ORB-blocks the
+  // JSON body. fetch() sends the allowed renderer Origin; callers display the Blob via blob: URLs.
+  asset(path: string): Promise<Blob>;
   // POST /agent-sessions seeded from this design's canonical id/artifact context — there is no
   // dedicated "launch" endpoint; a Creative Media session is just a session created with designId
   // in its body so the server can seed context from the design it names.
@@ -44,7 +46,7 @@ const failureText = (status: number, operation: string) =>
 
 export function createFixtureDesignsGateway(): DesignsGateway {
   const unsupported = async (): Promise<never> => { throw new DesignsGatewayError(0, 'Fixture designs gateway is unsupported'); };
-  return { mode: 'fixture', list: unsupported, artifact: unsupported, launch: unsupported };
+  return { mode: 'fixture', list: unsupported, asset: unsupported, launch: unsupported };
 }
 
 export function createLiveDesignsGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): DesignsGateway {
@@ -59,13 +61,13 @@ export function createLiveDesignsGateway(apiBase: string, token: string | undefi
       if (!result.ok) throw new DesignsGatewayError(result.status, failureText(result.status, 'Load creative designs'));
       return await result.json() as AgentDesign[];
     },
-    artifact: async (design) => {
-      if (!design.artifactUrl) throw new DesignsGatewayError(404, 'This design has no stored artifact');
+    asset: async (path) => {
+      if (!path.startsWith('/agent-designs/')) throw new DesignsGatewayError(404, 'This design has no stored artifact');
       let result: Response;
-      try { result = await fetcher(`${apiBase}${design.artifactUrl}`, { headers: auth }); }
+      try { result = await fetcher(`${apiBase}${path}`, { headers: auth }); }
       catch { throw new DesignsGatewayError(0, failureText(0, 'Open deliverable')); }
       if (!result.ok) throw new DesignsGatewayError(result.status, failureText(result.status, 'Open deliverable'));
-      return { contentType: result.headers.get('content-type') ?? 'application/octet-stream', body: await result.text() };
+      return await result.blob();
     },
     launch: async (designId) => {
       let result: Response;

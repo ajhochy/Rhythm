@@ -1401,19 +1401,55 @@ function LiveEmailTool() {
 const imageArtifactTypes = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif']);
 const videoArtifactTypes = new Set(['mp4', 'webm', 'mov']);
 
+const designType = (design: AgentDesign) => design.artifactType?.toLowerCase() ?? '';
+const isMediaDesign = (design: AgentDesign) => imageArtifactTypes.has(designType(design)) || videoArtifactTypes.has(designType(design));
+
+/** API-relative design asset -> blob: URL via DesignsGateway.asset (see why there); absolute URLs pass through. */
+function useDesignAsset(path: string | null) {
+  const designs = useGateway().domains.designs;
+  const [state, setState] = useState<{ path: string | null; url: string | null; failed: boolean }>({ path: null, url: null, failed: false });
+  const local = Boolean(path?.startsWith('/'));
+  useEffect(() => {
+    if (!path || !local || !designs) return;
+    let alive = true;
+    let made: string | null = null;
+    designs.asset(path).then((blob) => {
+      made = URL.createObjectURL(blob);
+      if (alive) setState({ path, url: made, failed: false }); else URL.revokeObjectURL(made);
+    }, () => { if (alive) setState({ path, url: null, failed: true }); });
+    return () => { alive = false; if (made) URL.revokeObjectURL(made); };
+  }, [path, local, designs]);
+  if (!path) return { url: null, failed: false };
+  if (!local) return { url: path, failed: false };
+  return state.path === path ? state : { url: null, failed: false };
+}
+
 function DesignPreview({ design }: { design: AgentDesign }) {
-  const [failed, setFailed] = useState(false);
-  const apiBase = useGateway().environment?.apiBase;
-  // Local designs carry API-relative routes (/agent-designs/:id/...); resolve them against the API.
-  const resolve = (url: string | null) => url && url.startsWith('/') ? (apiBase ? `${apiBase}${url}` : null) : url;
-  const artifactUrl = resolve(design.artifactUrl);
-  const thumbnailUrl = resolve(design.thumbnailUrl);
-  const type = design.artifactType?.toLowerCase() ?? '';
-  const previewUrl = thumbnailUrl ?? ((imageArtifactTypes.has(type) || videoArtifactTypes.has(type)) ? artifactUrl : null);
-  if (!failed && videoArtifactTypes.has(type) && artifactUrl) return <><video src={artifactUrl} poster={thumbnailUrl ?? undefined} muted preload="metadata" aria-hidden="true" onError={() => setFailed(true)} /><span>{design.artifactType}</span></>;
-  if (!failed && previewUrl) return <><img src={previewUrl} alt="" onError={() => setFailed(true)} /><span>{design.artifactType ?? 'unknown'}</span></>;
+  const isVideo = videoArtifactTypes.has(designType(design));
+  // ponytail: a video without a poster previews from its full artifact bytes; the API always sends an mp4 poster.
+  const path = design.thumbnailUrl ?? (isMediaDesign(design) ? design.artifactUrl : null);
+  const asset = useDesignAsset(path);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const src = asset.failed || asset.url === failedSrc ? null : asset.url;
+  if (src && isVideo && path === design.artifactUrl) return <><video src={src} muted preload="metadata" aria-hidden="true" onError={() => setFailedSrc(src)} /><span>{design.artifactType}</span></>;
+  if (src) return <><img src={src} alt="" data-testid="gallery-preview-image" onError={() => setFailedSrc(src)} /><span>{design.artifactType ?? 'unknown'}</span></>;
   // ponytail: the API's thumbnailUrl is nullable, so rows without a real asset stay honest.
   return <><Icon name={design.artifactType === 'html' ? 'artifact' : 'gallery'} size={28} /><span>{design.artifactType ?? 'unknown'}</span></>;
+}
+
+function DesignThumb({ design }: { design: AgentDesign }) {
+  const path = design.thumbnailUrl ?? (imageArtifactTypes.has(designType(design)) ? design.artifactUrl : null);
+  const { url } = useDesignAsset(path);
+  const [failed, setFailed] = useState(false);
+  return url && !failed ? <img className="gallery-row-thumb" src={url} alt="" data-testid={`gallery-thumb-${design.id}`} onError={() => setFailed(true)} /> : null;
+}
+
+/** http(s) address of a deliverable for the system browser; a top-level navigation passes the local API guard. */
+function designBrowserUrl(design: AgentDesign, apiBase: string | undefined) {
+  const url = design.artifactUrl;
+  if (!url) return null;
+  if (url.startsWith('/')) return apiBase ? `${apiBase}${url}` : null;
+  return /^https?:\/\//i.test(url) ? url : null;
 }
 
 function LiveGalleryTool() {
@@ -1440,9 +1476,19 @@ function LiveGalleryTool() {
   };
   useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const [viewer, setViewer] = useState<{ design: AgentDesign; url: string } | null>(null);
+  const closeViewer = () => setViewer((current) => { if (current?.url.startsWith('blob:')) URL.revokeObjectURL(current.url); return null; });
+  const browserUrl = selected ? designBrowserUrl(selected, gateway.environment?.apiBase) : null;
+  const openExternal = window.rhythmShell?.openExternal;
   const open = async (design: AgentDesign) => {
     try {
-      await gateway.domains.designs!.artifact(design);
+      const path = design.artifactUrl ?? '';
+      if (isMediaDesign(design) && path) {
+        // Videos/images open in-app; the blob URL sidesteps the no-cors guard block (see DesignsGateway.asset).
+        const url = path.startsWith('/') ? URL.createObjectURL(await gateway.domains.designs!.asset(path)) : path;
+        closeViewer();
+        setViewer({ design, url });
+      } else await gateway.domains.designs!.asset(path);
       setTrace({ method: 'GET', route: design.artifactUrl ?? `/agent-designs/${design.id}/artifact`, detail: `Opened ${design.title ?? design.id} deliverable` });
     } catch (err) { notify(err instanceof Error ? err.message : 'Deliverable could not be opened'); }
   };
@@ -1459,15 +1505,20 @@ function LiveGalleryTool() {
   return <ToolFrame slug="gallery" title="Creative Media" description="Browse agent designs and launch a Creative Media session from the selected artifact context." trace={trace}>
     <ListInspector
       label="Creative Media artifacts"
-      items={designs.map((design) => ({ id: `design-${design.id}`, title: design.title ?? design.id, subtitle: design.provider ?? 'unknown provider', meta: design.artifactType ?? 'unknown' }))}
+      items={designs.map((design) => ({ id: `design-${design.id}`, title: design.title ?? design.id, subtitle: design.provider ?? 'unknown provider', meta: design.artifactType ?? 'unknown', leading: <DesignThumb design={design} /> }))}
       selectedId={effectiveId === null ? null : `design-${effectiveId}`}
       onSelect={(rowId) => setSelectedId(rowId.slice('design-'.length))}
       loading={loading}
       error={error ? <section className="tool-state-panel error" data-testid="gallery-error"><span className="tool-state-code">Error</span><p>{error}</p></section> : undefined}
       toolbar={<button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="gallery-refresh"><Icon name="refresh" size={14} />Refresh</button>}
       emptyState={<EmptyState title="No creative artifacts yet">Generated images, documents, and interactive artifacts will collect here.</EmptyState>}
-      inspector={(item) => item && selected ? <><div className="tool-inspector-preview"><DesignPreview design={selected} /></div><section className="gallery-detail" aria-live="polite" data-testid="gallery-detail"><span className="tool-icon"><Icon name={selected.artifactType === 'html' ? 'artifact' : 'gallery'} /></span><div><span className="eyebrow">Selected artifact</span><p>{selected.artifactType ?? 'unknown'} · {selected.provider ?? 'unknown provider'}</p></div></section><div className="row-actions"><button className="text-button" type="button" onClick={() => void open(selected)} data-testid={`gallery-open-${selected.id}`}>Open deliverable</button>{selected.projectUrl && <button className="text-button" type="button" onClick={() => { setTrace({ method: 'LOCAL', route: selected.projectUrl!, detail: 'Opened project preview' }); navigate('/projects'); }} data-testid={`gallery-project-${selected.id}`}>Open project</button>}<button className="primary-button" type="button" onClick={() => void launch()} data-testid="gallery-launch"><Icon name="gallery" size={14} />Launch Creative Media</button></div></> : <p>Select an artifact to inspect its preview and actions.</p>}
+      inspector={(item) => item && selected ? <><div className="tool-inspector-preview"><DesignPreview key={selected.id} design={selected} /></div><section className="gallery-detail" aria-live="polite" data-testid="gallery-detail"><span className="tool-icon"><Icon name={selected.artifactType === 'html' ? 'artifact' : 'gallery'} /></span><div><span className="eyebrow">Selected artifact</span><p>{selected.artifactType ?? 'unknown'} · {selected.provider ?? 'unknown provider'}</p></div></section><div className="row-actions"><button className="text-button" type="button" onClick={() => void open(selected)} data-testid={`gallery-open-${selected.id}`}>Open deliverable</button>{browserUrl && openExternal && <button className="text-button" type="button" onClick={() => void openExternal(browserUrl).catch(() => notify('Could not open the browser'))} data-testid={`gallery-browser-${selected.id}`}>Open in browser</button>}{selected.projectUrl && <button className="text-button" type="button" onClick={() => { setTrace({ method: 'LOCAL', route: selected.projectUrl!, detail: 'Opened project preview' }); navigate('/projects'); }} data-testid={`gallery-project-${selected.id}`}>Open project</button>}<button className="primary-button" type="button" onClick={() => void launch()} data-testid="gallery-launch"><Icon name="gallery" size={14} />Launch Creative Media</button></div></> : <p>Select an artifact to inspect its preview and actions.</p>}
     />
+    <FocusDialog open={viewer !== null} title={viewer?.design.title ?? 'Deliverable'} onClose={closeViewer} testId="gallery-viewer" wide>
+      {viewer && (videoArtifactTypes.has(designType(viewer.design))
+        ? <video className="gallery-viewer-media" src={viewer.url} controls autoPlay data-testid="gallery-viewer-video" />
+        : <img className="gallery-viewer-media" src={viewer.url} alt={viewer.design.title ?? 'Deliverable'} data-testid="gallery-viewer-image" />)}
+    </FocusDialog>
   </ToolFrame>;
 }
 

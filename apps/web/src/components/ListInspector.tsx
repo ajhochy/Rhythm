@@ -2,7 +2,7 @@ import { useCallback, useId, useLayoutEffect, useRef, useState, useSyncExternalS
 import './ListInspector.css';
 import { Splitter } from './Splitter';
 
-export type ListInspectorItem = { id: string; title: string; subtitle?: string; meta?: string; badge?: string; group?: string; disabled?: boolean };
+export type ListInspectorItem = { id: string; title: string; subtitle?: string; meta?: string; badge?: string; group?: string; disabled?: boolean; leading?: ReactNode };
 
 const selectionEvent = 'rhythm:list-inspector-selection';
 
@@ -165,12 +165,13 @@ export function ListInspector({ label, items, groups, selectedId, onSelect, tool
               aria-disabled={item.disabled || undefined}
               aria-describedby={item.subtitle || item.meta || item.badge ? `${instanceId}-meta-${encodeURIComponent(item.id)}` : undefined}
               tabIndex={item.id === rovingId ? 0 : -1}
-              className={`list-inspector-row${item.id === selectedId ? ' selected' : ''}`}
+              className={`list-inspector-row${item.leading ? ' has-leading' : ''}${item.id === selectedId ? ' selected' : ''}`}
               data-item-id={item.id}
               data-testid={item.id}
               onFocus={() => setFocusedId(item.id)}
               onClick={(event) => { if (!item.disabled) { event.currentTarget.focus(); select(item); } }}
             >
+              {item.leading && <span className="list-inspector-row-leading" aria-hidden="true">{item.leading}</span>}
               <strong title={item.title}>{item.title}</strong>
               <span className="list-inspector-row-meta" id={`${instanceId}-meta-${encodeURIComponent(item.id)}`}>
                 {(item.subtitle || item.meta) && <small title={[item.subtitle, item.meta].filter(Boolean).join(' · ')}>{[item.subtitle, item.meta].filter(Boolean).join(' · ')}</small>}
