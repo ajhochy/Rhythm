@@ -33,6 +33,11 @@ export interface TranscriptBlock {
   childSessionId?: string;
   streaming?: boolean;
   terminal?: boolean;
+  // 'file' blocks only: hosted-attachment reference (post-m1 thumbnail work). `content` already
+  // carries the url and `meta` the mime for legacy readers — these two are additive, needed only
+  // for the X-Rhythm-Project header when fetching `/artifacts/<id>` bytes from the local API.
+  artifactId?: string;
+  artifactProject?: string;
 }
 
 export interface ComposerAttachment {

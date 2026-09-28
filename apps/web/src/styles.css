@@ -312,6 +312,9 @@ code, pre { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .compaction-divider::before, .compaction-divider::after { content: ""; flex: 1; height: 1px; background: var(--border-soft); }
 .file-block, .agent-block { display: flex; align-items: center; gap: 7px; margin-top: 9px; padding: 7px 10px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); color: var(--fg-2); background: var(--surface); font-size: 11px; }
 .file-block small { margin-left: auto; color: var(--muted); font-family: var(--font-mono); font-size: 9px; }
+.attachment-thumbnail-wrap { display: inline-flex; flex-direction: column; gap: 4px; margin: 9px 0 0; }
+.attachment-thumbnail { display: block; max-width: 200px; max-height: 200px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); object-fit: contain; background: var(--surface); }
+.attachment-thumbnail-wrap figcaption { color: var(--muted); font-family: var(--font-mono); font-size: 9px; }
 .step-divider { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--muted); font-family: var(--font-mono); font-size: 9px; }
 .step-divider::before, .step-divider::after { content: ""; flex: 1; height: 1px; background: var(--border-soft); }
 .live-file-label { position: relative; overflow: hidden; cursor: pointer; }

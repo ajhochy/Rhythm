@@ -48,7 +48,7 @@ export interface GatewayHealth {
 
 export interface RendererGateway {
   readonly mode: GatewayMode;
-  readonly environment: { apiPort: string; enginePort: string } | null;
+  readonly environment: { apiPort: string; enginePort: string; apiBase: string } | null;
   readonly domains: GatewayDomainContracts;
   readonly health: {
     api(): Promise<GatewayHealth>;
@@ -148,7 +148,7 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
 
   return {
     mode: 'live',
-    environment: { apiPort: new URL(apiBase).port, enginePort: new URL(engineBase).port },
+    environment: { apiPort: new URL(apiBase).port, enginePort: new URL(engineBase).port, apiBase },
     // The signed-in cloud bearer belongs only on production requests. The local API mirrors
     // Flutter's localHeaders() trust boundary: a present cloud bearer must be omitted because
     // AGENT_LOCAL fails closed on invalid Authorization instead of using the local bypass.

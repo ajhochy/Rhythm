@@ -313,9 +313,11 @@ const TASK_ID_PATTERN = /task_id:\s*(\S+)/;
 
 // Shared with the artifact host: retain the envelope, never interpret HTML here.
 export type McpContent = { type: string; text?: string; resource?: { uri: string; mimeType?: string; text?: string; blob?: string }; [key: string]: unknown };
+export type ToolAttachment = { mime: string; url: string; filename?: string; artifactId?: string; artifactProject?: string; size?: number };
 export type CanonicalTool = {
   name: string; callId: string; status: string; input?: unknown; output?: unknown; error?: unknown;
   metadata?: Record<string, unknown> & { content?: McpContent[] };
+  attachments?: ToolAttachment[];
 };
 export type RichTranscriptBlock = TranscriptBlock & { tool?: CanonicalTool; streaming?: boolean; terminal?: boolean };
 export type RichTranscriptMessage = TranscriptMessage & {
@@ -326,10 +328,18 @@ export const blockSource = (block: RichTranscriptBlock): string => block.tool ? 
 
 export function mapPart(raw: Record<string, unknown>, id: string): RichTranscriptBlock {
   const state = record(raw.state);
+  // Hosted attachments a tool result carries (e.g. `read` on an image) — state.attachments is a
+  // list of the same {type:'file',mime,url,artifactId,artifactProject,size} shape as a file part.
+  const rawAttachments = Array.isArray(state.attachments) ? state.attachments : [];
+  const attachments: ToolAttachment[] = rawAttachments
+    .map((entry) => record(entry))
+    .filter((entry) => string(entry.mime) && string(entry.url))
+    .map((entry) => ({ mime: string(entry.mime), url: string(entry.url), filename: string(entry.filename) || undefined, artifactId: string(entry.artifactId) || undefined, artifactProject: string(entry.artifactProject) || undefined, size: nonnegativeInteger(entry.size) }));
   const tool: CanonicalTool | undefined = raw.type === 'tool' ? {
     name: string(raw.tool, 'Tool'), callId: string(raw.callID), status: string(state.status, 'unknown'),
     input: state.input, output: state.output, error: state.error,
     metadata: state.metadata && typeof state.metadata === 'object' ? record(state.metadata) : undefined,
+    attachments: attachments.length ? attachments : undefined,
   } : undefined;
   if (raw.type === 'tool' && raw.tool === 'task') {
     const match = TASK_ID_PATTERN.exec(string(state.output));
@@ -345,7 +355,7 @@ export function mapPart(raw: Record<string, unknown>, id: string): RichTranscrip
   if (raw.type === 'step-start') return { id, kind: 'step-start', content: string(raw.snapshot) };
   if (raw.type === 'step-finish') return { id, kind: 'step-finish', content: string(raw.snapshot), meta: string(raw.reason) };
   if (raw.type === 'compaction') return { id, kind: 'compaction', content: raw.auto === true ? 'Context compacted automatically' : 'Context compacted' };
-  if (raw.type === 'file') return { id, kind: 'file', title: string(raw.filename), content: string(raw.url), meta: string(raw.mime) };
+  if (raw.type === 'file') return { id, kind: 'file', title: string(raw.filename), content: string(raw.url), meta: string(raw.mime), artifactId: string(raw.artifactId) || undefined, artifactProject: string(raw.artifactProject) || undefined };
   if (raw.type === 'agent') { const source = record(raw.source); return { id, kind: 'agent', title: string(raw.name, 'Agent'), content: string(source.value) }; }
   return { id, kind: 'markdown', content: string(raw.text, string(raw.content)), terminal: typeof record(raw.time).end === 'number', streaming: raw.type === 'text' && typeof record(raw.time).end !== 'number' };
 }

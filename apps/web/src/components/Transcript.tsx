@@ -12,6 +12,7 @@ import { SafeMarkdown } from './SafeMarkdown';
 import { Timestamp } from './Timestamp';
 import { blockSource, canonicalText, type RichTranscriptBlock, type RichTranscriptMessage } from '../gateway/sessions';
 import { FocusDialog } from './FocusDialog';
+import { AttachmentThumbnail } from './AttachmentThumbnail';
 
 function MarkdownText({ content }: { content: string }) {
   return <SafeMarkdown content={content} />;
@@ -19,7 +20,9 @@ function MarkdownText({ content }: { content: string }) {
 
 function ToolDetails({ block }: { block: RichTranscriptBlock }) {
   const tool = block.tool;
-  return <details className="tool-block"><summary><code>{tool?.name ?? block.title}</code><small>{tool?.status ?? block.meta ?? 'Status unavailable'}</small></summary>{tool ? <dl>{(['input', 'output', 'metadata', 'error'] as const).map(field => tool[field] !== undefined && <Fragment key={field}><dt>{field}</dt><dd><pre tabIndex={0}>{canonicalText(tool[field])}</pre></dd></Fragment>)}</dl> : <pre tabIndex={0}>{block.content || 'Tool details unavailable'}</pre>}</details>;
+  return <details className="tool-block"><summary><code>{tool?.name ?? block.title}</code><small>{tool?.status ?? block.meta ?? 'Status unavailable'}</small></summary>{tool ? <dl>{(['input', 'output', 'metadata', 'error'] as const).map(field => tool[field] !== undefined && <Fragment key={field}><dt>{field}</dt><dd><pre tabIndex={0}>{canonicalText(tool[field])}</pre></dd></Fragment>)}</dl> : <pre tabIndex={0}>{block.content || 'Tool details unavailable'}</pre>}
+    {tool?.attachments && tool.attachments.length > 0 && <div className="message-attachments">{tool.attachments.map((attachment, index) => <AttachmentThumbnail key={`${block.id}-attachment-${index}`} mime={attachment.mime} url={attachment.url} artifactProject={attachment.artifactProject} filename={attachment.filename} fallback={<span><Icon name="file" size={13} />{attachment.filename ?? attachment.mime}</span>} />)}</div>}
+  </details>;
 }
 
 export function formatCost(cost: number): string {
@@ -78,7 +81,10 @@ function RichBlock({ block, onOpenChild, reasoning }: { block: RichTranscriptBlo
   if (block.kind === 'children') return <>{block.tool && <ToolDetails block={block} />}<button className="child-chip" type="button" disabled={!block.childSessionId} onClick={() => block.childSessionId && onOpenChild(block.childSessionId, block.content)} aria-label={`Open child session ${block.content}`} data-testid={block.childSessionId ? `open-child-${block.childSessionId}` : undefined}><span><strong>{block.content}</strong><small>{block.meta}</small></span><Icon name="chevronRight" size={14} /></button></>;
   // c2d: canonical `file`, `step-start`, `step-finish`, `compaction`, and `agent` parts each
   // keep their own type instead of collapsing into a markdown block.
-  if (block.kind === 'file') return <div className="file-block" data-testid={`file-${block.id}`}><Icon name="file" size={14} /><strong>{block.title}</strong>{block.meta && <small>{block.meta}</small>}</div>;
+  if (block.kind === 'file') return <AttachmentThumbnail
+    mime={block.meta} url={block.content} artifactProject={block.artifactProject} filename={block.title}
+    fallback={<div className="file-block" data-testid={`file-${block.id}`}><Icon name="file" size={14} /><strong>{block.title}</strong>{block.meta && <small>{block.meta}</small>}</div>}
+  />;
   if (block.kind === 'step-start') return <div className="step-divider" role="separator" aria-label="Step started"><span>Step started</span></div>;
   if (block.kind === 'step-finish') return <div className="step-divider" role="separator" aria-label="Step finished"><span>Step finished{block.meta ? ` · ${block.meta}` : ''}</span></div>;
   if (block.kind === 'compaction') return <div className="compaction-divider"><span>{block.content}</span></div>;
