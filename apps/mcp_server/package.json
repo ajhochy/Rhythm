@@ -1,6 +1,7 @@
 {
   "name": "@ajhochy/rhythm-mcp-server",
   "version": "0.6.2",
+  "license": "MIT",
   "description": "MCP server for Rhythm — manage tasks, projects, and rhythms via Claude",
   "repository": {
     "type": "git",

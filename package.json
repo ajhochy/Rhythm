@@ -1,6 +1,7 @@
 {
   "name": "rhythm",
   "version": "2.0.0",
+  "license": "MIT",
   "private": true,
   "workspaces": [
     "apps/api_server"
