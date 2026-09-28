@@ -36,5 +36,7 @@
   max-width: none;
 }
 
-.memory-filter-chips { display: flex; flex-wrap: wrap; gap: 4px; width: 100%; }
-.memory-chip-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+.brain-search-row { display: flex; align-items: center; gap: 6px; width: 100%; }
+.brain-search-row .column-checklist-filter { flex: 1 1 auto; }
+.brain-show-deprecated { display: flex; align-items: center; gap: 6px; padding: 4px 6px; color: var(--fg-2); font-size: 12px; }
+.brain-show-deprecated input { margin: 0; }

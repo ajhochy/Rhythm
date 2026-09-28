@@ -84,7 +84,7 @@ test('post-m1-p7-c1c: kind chips with counts, deprecated toggle, and load more p
     return true;
   });
 
-  const list = page.getByRole('listbox', { name: 'Agent memories' });
+  const list = page.getByRole('listbox', { name: 'Memories' });
   await expect(list.getByRole('option')).toHaveCount(50);
   await expect(page.getByTestId('brain-kind-all')).toContainText('61');
   await expect(page.getByTestId('brain-kind-fact')).toContainText('60');
@@ -97,14 +97,14 @@ test('post-m1-p7-c1c: kind chips with counts, deprecated toggle, and load more p
   expect(matching(seen, 'GET', '/agent-memory').some((r) => r.search.includes('offset=50'))).toBe(true);
 
   await page.getByTestId('brain-kind-preference').click();
-  await expect(page.getByTestId('brain-kind-preference')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('brain-kind-preference')).toHaveAttribute('aria-selected', 'true');
   await expect(list.getByRole('option')).toHaveCount(1);
   await expect(list.getByText('Preference canary')).toBeVisible();
 
   await page.getByTestId('brain-kind-synthesis').click();
   await expect(list.getByRole('option')).toHaveCount(0);
   await page.getByTestId('brain-show-deprecated').click();
-  await expect(page.getByTestId('brain-show-deprecated')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('brain-show-deprecated')).toBeChecked();
   await expect(list.getByText('Deprecated summary canary')).toBeVisible();
   await expect(page.getByTestId('brain-kind-synthesis')).toContainText('1');
   expect(matching(seen, 'GET', '/agent-memory').some((r) => r.search.includes('includeDeprecated=true') && r.search.includes('kind=synthesis'))).toBe(true);

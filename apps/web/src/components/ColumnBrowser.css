@@ -89,7 +89,12 @@
 .column-browser-row:hover, .column-browser-row.selected { color: var(--fg); background: var(--surface-warm); }
 .column-browser-row.selected { box-shadow: inset 0 0 0 1px var(--border); }
 .column-browser-row[aria-disabled="true"] { opacity: .58; cursor: not-allowed; }
+.column-browser-row.muted { opacity: .55; }
+.column-browser-list[data-stacked] .column-browser-row { flex-direction: column; align-items: stretch; justify-content: center; gap: 1px; min-height: 40px; padding-block: 4px; }
+.column-browser-list[data-stacked] .column-browser-row > strong,
+.column-browser-list[data-stacked] .column-browser-row > small { flex: 0 0 auto; width: 100%; text-align: start; }
 .column-browser-state { margin: 0; padding: 8px 12px; color: var(--muted); font-size: 12px; }
+.column-browser-footer { flex: 0 0 auto; padding: 6px 8px; border-top: 1px solid var(--border-soft); }
 
 .column-browser-body { flex: 1 1 auto; min-height: 0; padding: 4px 14px 20px; overflow: auto; overflow-wrap: anywhere; }
 .column-browser :is(.column-browser-row, .column-browser-body, .column-browser-add):focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

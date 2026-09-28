@@ -15,6 +15,7 @@ import { Icon } from '../icons';
 import { Timestamp } from './Timestamp';
 import { formatTimestamp } from '../timestamps';
 import { useFixtures } from '../store';
+import { ColumnBrowser, type BrowserColumn } from './ColumnBrowser';
 import { FocusDialog } from './FocusDialog';
 import { ListInspector, useSelectedId } from './ListInspector';
 import { navigate } from './Shell';
@@ -245,28 +246,54 @@ function LiveBrainTool() {
   const tags = selected ? parseJsonArray<string>(selected.tagsJson) : [];
   const sources = selected ? parseJsonArray<{ id?: string; title?: string }>(selected.sourcesJson) : [];
   const verified = selected ? parseJsonArray<{ by?: string; at?: string }>(selected.verifiedJson) : [];
+
+  const typesColumn: BrowserColumn = {
+    kind: 'list', key: 'types', label: 'Types', testId: 'brain-column-types',
+    items: memoryKindFilters.map(([value, label]) => {
+      const count = value ? counts?.[value] ?? (counts ? 0 : undefined) : allCount;
+      return { id: value || 'all', title: label, subtitle: count === undefined ? undefined : String(count), muted: Boolean(value) && count === 0, testId: `brain-kind-${value || 'all'}` };
+    }),
+    selectedId: kind || 'all',
+    onSelect: (id) => setKind(id === 'all' ? '' : id),
+    footer: <label className="brain-show-deprecated"><input type="checkbox" checked={showDeprecated} onChange={(event) => setShowDeprecated(event.target.checked)} data-testid="brain-show-deprecated" />Show deprecated</label>,
+  };
+
+  const memoriesColumn: BrowserColumn = {
+    kind: 'list', key: 'memories', label: 'Memories', testId: 'brain-column-memories', resizeKey: 'layout.list-inspector.brain-memories', stackedRows: true,
+    items: error ? [] : visible.map((memory) => ({
+      id: memory.id, title: memory.content,
+      subtitle: [memory.kind, memory.lifecycleState ?? memory.status, formatTimestamp(memory.updatedAt)?.label].filter(Boolean).join(' · '),
+      testId: `memory-${memory.id}`,
+    })),
+    selectedId: effectiveId,
+    onSelect: setSelectedId,
+    loading,
+    header: <div className="brain-search-row">
+      <label className="column-checklist-filter"><span className="sr-only">Search Agent memories</span><Icon name="search" size={13} /><input type="search" value={query} onChange={(event) => void search(event.target.value)} placeholder="Search memories…" data-testid="brain-search" /></label>
+      <button className="icon-button small" type="button" onClick={() => void load()} aria-label="Refresh memories" data-testid="brain-refresh"><Icon name="refresh" size={14} /></button>
+    </div>,
+    emptyState: error
+      ? <section className="tool-state-panel error" data-testid="brain-error"><span className="tool-state-code">Error</span><p>{error}</p></section>
+      : <EmptyState title="No memories found">Try a different phrase, or clear the search to reload the live list.</EmptyState>,
+    footer: hasMore && !query ? <button className="secondary-button compact" type="button" disabled={loading || loadingMore} onClick={() => void fetchPage(memories.length)} data-testid="brain-load-more">{loadingMore ? 'Loading…' : 'Load more'}</button> : undefined,
+  };
+
+  const inspectorColumn: BrowserColumn = {
+    kind: 'panel', key: 'inspector', label: 'Details', testId: 'brain-column-inspector', bodyTestId: 'brain-inspector-detail',
+    children: selected ? <>
+      <header className="detail-header"><div><span className="kind-badge">{selected.kind}</span></div></header>
+      <dl className="tool-properties">
+        <div><dt>Status</dt><dd>{selected.lifecycleState ?? selected.status}</dd></div>
+        <div><dt>Trust</dt><dd>{selected.trustTier}</dd></div>
+        {tags.length > 0 && <div><dt>Tags</dt><dd>{tags.join(' · ')}</dd></div>}
+      </dl>
+      {sources.length > 0 && <p className="memory-meta">Sources: {sources.map((source) => source.title ?? source.id).filter(Boolean).join(', ')}</p>}
+      {verified.length > 0 && <p className="memory-meta">Verified by {verified.map((entry) => `${entry.by ?? 'unknown'}${entry.at ? ` at ${entry.at}` : ''}`).join(', ')}</p>}
+    </> : <p>Select a memory to inspect its details.</p>,
+  };
+
   return <ToolFrame slug="brain" title="Agent Memory" description="Search, inspect, and curate the persistent memories available to agent sessions." trace={trace}>
-    <ListInspector
-      label="Agent memories"
-      items={visible.map((memory) => ({ id: `memory-${memory.id}`, title: memory.content, subtitle: `${memory.kind} · ${memory.lifecycleState ?? memory.status}`, meta: parseJsonArray<string>(memory.tagsJson).join(' · '), badge: memory.trustTier }))}
-      selectedId={effectiveId === null ? null : `memory-${effectiveId}`}
-      onSelect={(rowId) => setSelectedId(rowId.slice('memory-'.length))}
-      loading={loading}
-      error={error ? <section className="tool-state-panel error" data-testid="brain-error"><span className="tool-state-code">Error</span><p>{error}</p></section> : undefined}
-      toolbar={<><label className="list-inspector-search"><span className="sr-only">Search Agent memories</span><input type="search" value={query} onChange={(event) => void search(event.target.value)} placeholder="Search memories…" data-testid="brain-search" /></label><button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="brain-refresh"><Icon name="refresh" size={14} />Refresh</button>
-        <div className="memory-filter-chips" role="group" aria-label="Filter memories by kind">{memoryKindFilters.map(([value, label]) => {
-          const count = value ? counts?.[value] ?? (counts ? 0 : undefined) : allCount;
-          return <button key={value || 'all'} className={`toggle-button ${kind === value ? 'active' : ''}`} type="button" aria-pressed={kind === value} onClick={() => setKind(value)} data-testid={`brain-kind-${value || 'all'}`}>{label}{count !== undefined && <small className="memory-chip-count">{count}</small>}</button>;
-        })}</div>
-        <button className={`toggle-button ${showDeprecated ? 'active' : ''}`} type="button" aria-pressed={showDeprecated} onClick={() => setShowDeprecated((value) => !value)} data-testid="brain-show-deprecated">Show deprecated</button></>}
-      listFooter={hasMore && !query ? <button className="secondary-button compact" type="button" disabled={loading || loadingMore} onClick={() => void fetchPage(memories.length)} data-testid="brain-load-more">{loadingMore ? 'Loading…' : 'Load more'}</button> : undefined}
-      emptyState={<EmptyState title="No memories found">Try a different phrase, or clear the search to reload the live list.</EmptyState>}
-      inspector={(item) => item && selected ? <>
-        <header className="detail-header"><div><span className="kind-badge">{selected.kind}</span><p>{selected.lifecycleState ?? selected.status} · {selected.trustTier}{tags.length > 0 ? ` · ${tags.join(' · ')}` : ''}</p></div></header>
-        {sources.length > 0 && <p className="memory-meta">Sources: {sources.map((source) => source.title ?? source.id).filter(Boolean).join(', ')}</p>}
-        {verified.length > 0 && <p className="memory-meta">Verified by {verified.map((entry) => `${entry.by ?? 'unknown'}${entry.at ? ` at ${entry.at}` : ''}`).join(', ')}</p>}
-      </> : <p>Select a memory to inspect its details.</p>}
-    />
+    <ColumnBrowser label="Agent memories" columns={[typesColumn, memoriesColumn, inspectorColumn]} className="brain-browser" />
   </ToolFrame>;
 }
 

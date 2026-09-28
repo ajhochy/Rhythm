@@ -8,7 +8,7 @@ import './ColumnBrowser.css';
  * The host derives the columns from its own selection state; this component owns
  * layout, per-column scrolling, roving keyboard focus, and the narrow drill-in view.
  */
-export type ColumnItem = { id: string; title: string; subtitle?: string; badge?: string; group?: string; testId?: string; leading?: ReactNode; disabled?: boolean };
+export type ColumnItem = { id: string; title: string; subtitle?: string; badge?: string; group?: string; testId?: string; leading?: ReactNode; disabled?: boolean; muted?: boolean };
 type ColumnBase = { key: string; label: string; testId: string; header?: ReactNode };
 export type ListColumn = ColumnBase & {
   kind: 'list';
@@ -21,6 +21,10 @@ export type ListColumn = ColumnBase & {
   emptyState?: ReactNode;
   /** Persisted Splitter width key; omit for a fixed-width column. */
   resizeKey?: string;
+  /** Pinned below the rows (not part of the scroll area) — e.g. a "show deprecated" checkbox or a "Load more" button. */
+  footer?: ReactNode;
+  /** Title on its own line with the subtitle beneath it (muted), instead of the default single dense line. For rows whose title is often too long to leave room for an inline subtitle. */
+  stackedRows?: boolean;
 };
 export type PanelColumn = ColumnBase & { kind: 'panel'; title?: string; bodyTestId?: string; children: ReactNode };
 export type BrowserColumn = ListColumn | PanelColumn;
@@ -51,7 +55,7 @@ function ListRows({ column, instanceId, focusedId, setFocusedId, rowRefs }: {
         aria-disabled={item.disabled || undefined}
         aria-describedby={item.subtitle ? `${instanceId}-${column.key}-d-${encodeURIComponent(item.id)}` : undefined}
         tabIndex={item.id === rovingId ? 0 : -1}
-        className={`column-browser-row${selected ? ' selected' : ''}`}
+        className={`column-browser-row${selected ? ' selected' : ''}${item.muted ? ' muted' : ''}`}
         data-item-id={item.id}
         data-testid={item.testId ?? item.id}
         title={detail ? `${item.title} · ${detail}` : item.title}
@@ -159,6 +163,7 @@ export function ColumnBrowser({ label, columns, className }: { label: string; co
           key={column.key}
           className={`column-browser-column column-browser-${column.kind}`}
           data-shown={index === shown || undefined}
+          data-stacked={column.kind === 'list' && column.stackedRows || undefined}
           data-testid={column.testId}
           aria-labelledby={headingId}
           style={width ? { flexBasis: width, width } : undefined}
@@ -177,6 +182,7 @@ export function ColumnBrowser({ label, columns, className }: { label: string; co
             </div>
             {column.loading ? <p className="column-browser-state" role="status">Loading {column.label}…</p>
               : !column.items.length && <div className="column-browser-state" role="status">{column.emptyState ?? 'Nothing here yet.'}</div>}
+            {column.footer && <div className="column-browser-footer">{column.footer}</div>}
           </> : <div className="column-browser-body" tabIndex={0} data-testid={column.bodyTestId}>{column.children}</div>}
         </section>,
         column.kind === 'list' && column.resizeKey
