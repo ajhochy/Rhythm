@@ -6,6 +6,7 @@ import * as TaskManager from 'expo-task-manager';
 import { Platform } from 'react-native';
 
 import { buildClient } from '@/lib/opencode/client';
+import type { PendingQuestionRequest } from '@/lib/opencode/client';
 import { parseStoredConnectionSettings } from '@/lib/opencode/connection-persistence';
 import { RHYTHM_ACCOUNT_META_KEY } from '@/lib/auth/rhythm-session-store';
 import {
@@ -347,6 +348,23 @@ export async function clearPendingTaskFinishedNotification(
 
 export async function notifyTaskFinished(title: string, body: string) {
   await scheduleLocalNotification(title, body);
+}
+
+export async function notifyQuestionRequired(
+  sessionTitle: string,
+  question: PendingQuestionRequest['questions'][number],
+) {
+  if (!canUseNotifications()) return;
+  const permissions = await Notifications.getPermissionsAsync();
+  if (!permissions.granted) return;
+
+  const prompt = [question.header?.trim(), question.question?.trim()]
+    .filter(Boolean)
+    .join(' — ');
+  await scheduleLocalNotification(
+    'Answer needed',
+    `${sessionTitle.trim()}: ${prompt}`,
+  );
 }
 
 export async function sendTestNotificationAsync() {

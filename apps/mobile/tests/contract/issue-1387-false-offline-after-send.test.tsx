@@ -40,6 +40,17 @@ let mockPersistenceError: Error | undefined;
 let mockReconciliationReadsFail = false;
 let mockSessionStatus: 'busy' | 'idle' = 'idle';
 let mockWorkingSoundActive = false;
+let mockPendingQuestions: {
+  id: string;
+  sessionID: string;
+  questions: {
+    custom: boolean;
+    header: string;
+    multiple: boolean;
+    options: never[];
+    question: string;
+  }[];
+}[] = [];
 let mockPromptOutcome:
   | 'accepted-then-offline'
   | 'accepted-visible'
@@ -186,6 +197,11 @@ const session = {
   time: { created: 1, updated: 2 },
   rhythm: sessionExecutionState,
 };
+const mockOtherSession = {
+  ...session,
+  id: 'ses-other',
+  title: 'Other planning chat',
+};
 
 function message(
   id: string,
@@ -292,8 +308,10 @@ jest.mock('@/lib/opencode/client', () => ({
   }),
   listPendingInteractions: jest.fn(async () => ({
     permissions: [],
-    questions: [],
+    questions: mockPendingQuestions,
   })),
+  rejectPendingQuestion: jest.fn(async () => undefined),
+  replyToPendingQuestion: jest.fn(async () => undefined),
 }));
 
 jest.mock('@/providers/services/mobile-gateway-service', () => {
@@ -332,7 +350,7 @@ jest.mock('@/providers/services/session-service', () => ({
   listArchivedSessions: jest.fn(async () => []),
   listCommands: jest.fn(async () => []),
   listSessions: jest.fn(async () => ({
-    sessions: [session],
+    sessions: [session, mockOtherSession],
     statuses: { [SESSION_ID]: { type: mockSessionStatus } },
   })),
   getSessionMessages: jest.fn(async () => {
@@ -405,6 +423,7 @@ jest.mock('@/lib/opencode/global-event-stream', () => ({
 
 jest.mock('@/lib/notifications', () => ({
   clearPendingTaskFinishedNotification: jest.fn(async () => undefined),
+  notifyQuestionRequired: jest.fn(async () => undefined),
   notifyTaskFinished: jest.fn(async () => undefined),
   trackPendingTaskFinishedNotification: jest.fn(async () => undefined),
 }));
@@ -512,6 +531,52 @@ function SendHarness() {
   );
 }
 
+function PendingQuestionHarness() {
+  const {
+    currentSessionId,
+    currentPendingQuestions,
+    pendingQuestionSessionIds,
+    rejectQuestion,
+    refreshCurrentSession,
+    replyToQuestion,
+  } = useOpencode();
+  return (
+    <View>
+      <Text testID="pending-question-current-session">
+        {currentSessionId ?? ''}
+      </Text>
+      <Text testID="pending-question-session-ids">
+        {pendingQuestionSessionIds.join(',')}
+      </Text>
+      <Text testID="pending-question-current-count">
+        {String(currentPendingQuestions.length)}
+      </Text>
+      <Text testID="pending-question-provider-mounted">mounted</Text>
+      <Pressable
+        testID="refresh-pending-questions"
+        onPress={() => void refreshCurrentSession()}>
+        <Text>Refresh pending questions</Text>
+      </Pressable>
+      <Pressable
+        testID="reply-current-question"
+        onPress={() => {
+          const request = currentPendingQuestions[0];
+          if (request) void replyToQuestion(request.id, [['Continue']]);
+        }}>
+        <Text>Reply to current question</Text>
+      </Pressable>
+      <Pressable
+        testID="reject-current-question"
+        onPress={() => {
+          const request = currentPendingQuestions[0];
+          if (request) void rejectQuestion(request.id);
+        }}>
+        <Text>Reject current question</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 describe('issue-1387 send-time relay loss', () => {
   beforeEach(() => {
     mockAcceptedPromptCount = 0;
@@ -524,7 +589,176 @@ describe('issue-1387 send-time relay loss', () => {
     mockReconciliationReadsFail = false;
     mockSessionStatus = 'idle';
     mockWorkingSoundActive = false;
+    mockPendingQuestions = [];
     mockPromptOutcome = 'accepted-then-offline';
+  });
+
+  test('task-mobile-question-state-c1-c6: all pending sessions publish and request IDs dedupe until resolved', async () => {
+    // Regression caught: provider exposes only the open session, repeats notifications on refresh,
+    // or never permits a genuinely reintroduced request to notify again after resolution.
+    mockPendingQuestions = [
+      {
+        id: 'question-current',
+        sessionID: SESSION_ID,
+        questions: [{
+          custom: false,
+          header: 'Current',
+          multiple: false,
+          options: [],
+          question: 'Current question?',
+        }],
+      },
+      {
+        id: 'question-other',
+        sessionID: 'ses-other',
+        questions: [{
+          custom: false,
+          header: 'Other',
+          multiple: false,
+          options: [],
+          question: 'Other question?',
+        }],
+      },
+    ];
+    const screen = render(
+      <PaperProvider>
+        <PairedHostProvider>
+          <OpencodeProvider>
+            <PendingQuestionHarness />
+            <AgentChatDetailScreen />
+          </OpencodeProvider>
+        </PairedHostProvider>
+      </PaperProvider>,
+    );
+    const notifyQuestionRequired = jest.requireMock(
+      '@/lib/notifications',
+    ).notifyQuestionRequired;
+
+    await waitFor(() => {
+      expect(screen.getByTestId('pending-question-session-ids').props.children).toBe(
+        `${SESSION_ID},ses-other`,
+      );
+      expect(screen.getByTestId('pending-question-current-session').props.children).toBe(
+        SESSION_ID,
+      );
+      expect(notifyQuestionRequired).toHaveBeenCalledTimes(2);
+    });
+    expect(notifyQuestionRequired).toHaveBeenCalledWith(
+      'Relay QA',
+      expect.objectContaining({ header: 'Current' }),
+    );
+    expect(notifyQuestionRequired).toHaveBeenCalledWith(
+      'Other planning chat',
+      expect.objectContaining({ header: 'Other' }),
+    );
+
+    fireEvent.press(screen.getByTestId('refresh-pending-questions'));
+    await waitFor(() => expect(notifyQuestionRequired).toHaveBeenCalledTimes(2));
+
+    mockPendingQuestions = [];
+    fireEvent.press(screen.getByTestId('refresh-pending-questions'));
+    await waitFor(() => {
+      expect(screen.getByTestId('pending-question-session-ids').props.children).toBe('');
+    });
+
+    mockPendingQuestions = [
+      {
+        id: 'question-other',
+        sessionID: 'ses-other',
+        questions: [{
+          custom: false,
+          header: 'Other',
+          multiple: false,
+          options: [],
+          question: 'Other question?',
+        }],
+      },
+    ];
+    fireEvent.press(screen.getByTestId('refresh-pending-questions'));
+    await waitFor(() => expect(notifyQuestionRequired).toHaveBeenCalledTimes(3));
+  });
+
+  test('task-mobile-question-state-c7: notification rejection preserves pending state, dedupe, reply, and reject', async () => {
+    // Regression caught: a rejected native notification promise escapes the provider effect,
+    // unmounts the consumer, duplicates on refresh, or breaks question resolution actions.
+    mockPendingQuestions = [{
+      id: 'question-notification-fails',
+      sessionID: SESSION_ID,
+      questions: [{
+        custom: false,
+        header: 'Failure path',
+        multiple: false,
+        options: [],
+        question: 'Can this still be answered?',
+      }],
+    }];
+    const notifyQuestionRequired = jest.requireMock(
+      '@/lib/notifications',
+    ).notifyQuestionRequired;
+    notifyQuestionRequired.mockRejectedValueOnce(new Error('notifications unavailable'));
+    const replyToPendingQuestion = jest.requireMock(
+      '@/lib/opencode/client',
+    ).replyToPendingQuestion;
+    const rejectPendingQuestion = jest.requireMock(
+      '@/lib/opencode/client',
+    ).rejectPendingQuestion;
+    const screen = render(
+      <PaperProvider>
+        <PairedHostProvider>
+          <OpencodeProvider>
+            <PendingQuestionHarness />
+            <AgentChatDetailScreen />
+          </OpencodeProvider>
+        </PairedHostProvider>
+      </PaperProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('pending-question-session-ids').props.children).toBe(SESSION_ID);
+      expect(screen.getByTestId('pending-question-current-count').props.children).toBe('1');
+      expect(notifyQuestionRequired).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.getByTestId('pending-question-provider-mounted').props.children).toBe('mounted');
+
+    fireEvent.press(screen.getByTestId('refresh-pending-questions'));
+    await waitFor(() => expect(notifyQuestionRequired).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId('pending-question-current-count').props.children).toBe('1');
+
+    fireEvent.press(screen.getByTestId('reply-current-question'));
+    await waitFor(() => {
+      expect(replyToPendingQuestion).toHaveBeenCalledWith(
+        expect.anything(),
+        'question-notification-fails',
+        [['Continue']],
+      );
+      expect(screen.getByTestId('pending-question-session-ids').props.children).toBe('');
+    });
+
+    mockPendingQuestions = [{
+      id: 'question-reject-remains-usable',
+      sessionID: SESSION_ID,
+      questions: [{
+        custom: false,
+        header: 'Reject path',
+        multiple: false,
+        options: [],
+        question: 'Can this still be rejected?',
+      }],
+    }];
+    fireEvent.press(screen.getByTestId('refresh-pending-questions'));
+    await waitFor(() => {
+      expect(screen.getByTestId('pending-question-current-count').props.children).toBe('1');
+      expect(notifyQuestionRequired).toHaveBeenCalledTimes(2);
+    });
+    fireEvent.press(screen.getByTestId('reject-current-question'));
+    await waitFor(() => {
+      expect(rejectPendingQuestion).toHaveBeenCalledWith(
+        expect.anything(),
+        'question-reject-remains-usable',
+      );
+      expect(screen.getByTestId('pending-question-session-ids').props.children).toBe('');
+    });
+    expect(screen.getByTestId('pending-question-provider-mounted').props.children).toBe('mounted');
   });
 
   afterEach(() => {

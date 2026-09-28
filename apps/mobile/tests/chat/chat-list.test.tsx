@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 
@@ -69,6 +69,8 @@ const defaultProjects = [
   { label: 'Empty project', path: '/projects/empty' },
 ];
 let mockProjects = defaultProjects;
+let mockPendingQuestionSessionIds: string[] = [];
+let mockColorScheme: 'light' | 'dark' = 'light';
 let mockChatState = {
   error: null as string | null,
   isLoading: false,
@@ -82,6 +84,9 @@ let mockPairedHostState = {
 };
 
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush }) }));
+jest.mock('@/hooks/use-color-scheme', () => ({
+  useColorScheme: () => mockColorScheme,
+}));
 jest.mock('@/components/chat/session-configuration-sheet', () => ({
   SessionConfigurationSheet: () => null,
 }));
@@ -95,6 +100,7 @@ jest.mock('@/providers/opencode-provider', () => ({
       status: 'idle',
     },
     configuredProviders: [],
+    pendingQuestionSessionIds: mockPendingQuestionSessionIds,
     projects: mockProjects,
   }),
 }));
@@ -149,7 +155,7 @@ function screen({ expandProjects = true }: { expandProjects?: boolean } = {}) {
     </PaperProvider>,
   );
   if (expandProjects) {
-    const disclosure = rendered.queryByLabelText(/Alpha project, \d+ active, collapsed/);
+    const disclosure = rendered.queryByLabelText(/Alpha project, \d+ active(?:, \d+ needs answer)?, collapsed/);
     if (disclosure) fireEvent.press(disclosure);
   }
   return rendered;
@@ -167,6 +173,8 @@ describe('ChatList hierarchy', () => {
       sessions: mockSessions,
     };
     mockProjects = defaultProjects;
+    mockPendingQuestionSessionIds = [];
+    mockColorScheme = 'light';
     mockPairedHostState = {
       bootstrapState: 'idle',
       message: 'Offline',
@@ -182,6 +190,77 @@ describe('ChatList hierarchy', () => {
     expect(rendered.getByText('2 active')).toBeTruthy();
     expect(rendered.getByLabelText('Empty project, 0 active, collapsed')).toBeTruthy();
     expect(rendered.queryByTestId('chat-row-parent')).toBeNull();
+  });
+
+  test('task-mobile-question-state-c2: pending rows override idle copy with an accessible Needs answer warning', () => {
+    // Regression caught: a waiting chat still reads as idle and gives no visible or VoiceOver action cue.
+    mockPendingQuestionSessionIds = ['sibling'];
+    const rendered = screen();
+
+    expect(rendered.getByText('Needs answer')).toBeTruthy();
+    expect(rendered.getByLabelText(/Sibling chat.*Needs answer/)).toBeTruthy();
+    expect(within(rendered.getByTestId('chat-row-open-sibling')).queryByText(/idle/i)).toBeNull();
+  });
+
+  test('task-mobile-question-state-ui-c1-light: Needs answer uses the AA danger token in light theme', () => {
+    // Regression caught: 13pt warning text uses the non-AA light warning color on the raised surface.
+    mockPendingQuestionSessionIds = ['sibling'];
+    const light = screen();
+    expect(StyleSheet.flatten(light.getByText('Needs answer').props.style)).toEqual(
+      expect.objectContaining({ color: Colors.light.danger }),
+    );
+  });
+
+  test('task-mobile-question-state-ui-c1-dark: Needs answer uses the AA danger token in dark theme', () => {
+    // Regression caught: the contrast repair hard-codes the light token instead of following the dark palette.
+    mockPendingQuestionSessionIds = ['sibling'];
+    mockColorScheme = 'dark';
+    const dark = screen();
+    expect(StyleSheet.flatten(dark.getByText('Needs answer').props.style)).toEqual(
+      expect.objectContaining({ color: Colors.dark.danger }),
+    );
+  });
+
+  test('task-mobile-question-state-c3: collapsed project headers announce pending questions without changing active counts', () => {
+    // Regression caught: collapsed-by-default projects hide every indication that a session needs an answer.
+    mockPendingQuestionSessionIds = ['child', 'sibling'];
+    const rendered = screen({ expandProjects: false });
+
+    expect(rendered.getByText('2 needs answer')).toBeTruthy();
+    expect(rendered.getByLabelText('Alpha project, 2 active, 2 needs answer, collapsed')).toBeTruthy();
+    expect(rendered.queryByTestId('chat-row-child')).toBeNull();
+  });
+
+  test('task-mobile-question-state-ui-c2: project header metadata wraps inside one shrinking text column', () => {
+    // Regression caught: enlarged metadata remains beside the title and pushes the trailing chevron off a 375pt screen.
+    mockPendingQuestionSessionIds = ['child', 'sibling'];
+    const rendered = screen({ expandProjects: false });
+    const header = rendered.getByLabelText('Alpha project, 2 active, 2 needs answer, collapsed');
+    const copy = rendered.getByTestId('project-header-copy-/projects/alpha');
+    const metadata = rendered.getByTestId('project-header-metadata-/projects/alpha');
+
+    expect(within(copy).getByText('Alpha project')).toBeTruthy();
+    expect(within(metadata).getByText('2 active')).toBeTruthy();
+    expect(within(metadata).getByText('2 needs answer')).toBeTruthy();
+    expect(StyleSheet.flatten(copy.props.style)).toEqual(
+      expect.objectContaining({ flex: 1, flexShrink: 1, minWidth: 0 }),
+    );
+    expect(StyleSheet.flatten(metadata.props.style)).toEqual(
+      expect.objectContaining({ flexDirection: 'row', flexWrap: 'wrap', minWidth: 0 }),
+    );
+    expect(StyleSheet.flatten(header.props.style)).toEqual(
+      expect.objectContaining({ minHeight: 44 }),
+    );
+    expect(rendered.getByTestId('project-header-chevron-/projects/alpha')).toBeTruthy();
+  });
+
+  test('task-mobile-question-state-c4: projects and rows without pending questions show no false indicator', () => {
+    // Regression caught: a stale project badge remains after the last pending request resolves.
+    const rendered = screen({ expandProjects: false });
+
+    expect(rendered.queryByText(/needs answer/i)).toBeNull();
+    expect(rendered.queryByLabelText(/needs answer/i)).toBeNull();
+    expect(rendered.getByLabelText('Alpha project, 2 active, collapsed')).toBeTruthy();
   });
 
   test('task-mobile-project-list-c1-statuses: active counts follow every AgentChatService lifecycle status', () => {

@@ -73,6 +73,7 @@ import { aggregateSessionUsage, getLatestAssistantTurnUsage } from '@/lib/openco
 import { createFullFilePatch } from '@/lib/opencode/workspace-patch';
 import {
   clearPendingTaskFinishedNotification,
+  notifyQuestionRequired,
   notifyTaskFinished,
   trackPendingTaskFinishedNotification,
   type PendingNotificationOrigin,
@@ -398,6 +399,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const notificationRequestedAtRef = useRef(new Map<string, number>());
   const pendingNotificationOriginBySessionIdRef =
     useRef(new Map<string, PendingNotificationOrigin>());
+  const notifiedQuestionRequestIdsRef = useRef(new Set<string>());
   const promptSubmissionRef = useRef<{ active: boolean; sessionId?: string }>({ active: false });
   const uncertainPromptBySessionRef = useRef(new Map<string, {
     attachments: { uri: string; mime?: string; filename?: string }[];
@@ -4103,6 +4105,30 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     () => getCurrentPendingRequests(currentSessionId, sendingState.sessionId, pendingQuestionsBySession),
     [currentSessionId, pendingQuestionsBySession, sendingState.sessionId],
   );
+  const pendingQuestionSessionIds = useMemo(
+    () => Object.entries(pendingQuestionsBySession)
+      .filter(([, requests]) => requests.length > 0)
+      .map(([sessionId]) => sessionId),
+    [pendingQuestionsBySession],
+  );
+  useEffect(() => {
+    const pendingRequestIds = new Set<string>();
+    Object.values(pendingQuestionsBySession).flat().forEach((request) => {
+      pendingRequestIds.add(request.id);
+      if (notifiedQuestionRequestIdsRef.current.has(request.id)) return;
+      const session = sessions.find((candidate) => candidate.id === request.sessionID)
+        ?? openedSessionRecordCacheRef.current.get(request.sessionID)?.session;
+      const question = request.questions[0];
+      if (!session?.title || !question) return;
+      notifiedQuestionRequestIdsRef.current.add(request.id);
+      void notifyQuestionRequired(session.title, question).catch(() => undefined);
+    });
+    notifiedQuestionRequestIdsRef.current.forEach((requestId) => {
+      if (!pendingRequestIds.has(requestId)) {
+        notifiedQuestionRequestIdsRef.current.delete(requestId);
+      }
+    });
+  }, [pendingQuestionsBySession, sessions]);
   const configuredProviders = useMemo(() => getConfiguredProviders(availableProviders), [availableProviders]);
   const usagePricingByModel = useMemo(
     () => Object.fromEntries(availableModels.flatMap((model) => model.pricing ? [[`${model.providerID}/${model.modelID}`, model.pricing] as const] : [])),
@@ -4169,6 +4195,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       currentTodos,
       currentPendingPermissions,
       currentPendingQuestions,
+      pendingQuestionSessionIds,
       sessionPreviewById,
       isRefreshingSessions,
       isRefreshingMessages,
@@ -4320,6 +4347,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       currentTodos,
       currentPendingPermissions,
       currentPendingQuestions,
+      pendingQuestionSessionIds,
       chatPreferences,
       clearConversationFeedback,
       clearPromptError,
