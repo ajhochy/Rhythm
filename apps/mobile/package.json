@@ -1,7 +1,7 @@
 {
   "name": "opencode-mobile",
   "main": "expo-router/entry",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "scripts": {
     "start": "EXPO_APP_VARIANT=development NODE_ENV=development expo start",
     "start:dev-client": "EXPO_APP_VARIANT=development NODE_ENV=development expo start --dev-client",
