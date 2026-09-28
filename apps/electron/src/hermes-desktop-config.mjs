@@ -2,9 +2,13 @@
 // Runtime checks prevent a mutable local Hermes installation from being loaded.
 export const PINNED_HERMES_DESKTOP_SOURCE_COMMIT = 'd747cbd9e81870704347738cb702d3f229818557';
 
-// TODO(issue-1570): AJ must replace this empty trust set with the release
-// public key before installed artifact updates can be accepted.
+// Ed25519 release key (issue-1570). The private half is only the CI secret
+// HERMES_DESKTOP_MANIFEST_SIGNING_KEY; add a key here before rotating it, remove the old one after.
 /** @type {readonly string[]} */
-export const HERMES_DESKTOP_UPDATE_PUBLIC_KEYS = Object.freeze([]);
+export const HERMES_DESKTOP_UPDATE_PUBLIC_KEYS = Object.freeze([
+    '-----BEGIN PUBLIC KEY-----\n' +
+    'MCowBQYDK2VwAyEAjidRmAIdnyxRi7gXe3NuNI6OcSMQlHyDOssEXgiwmF4=\n' +
+    '-----END PUBLIC KEY-----\n',
+]);
 export const HERMES_DESKTOP_MINIMUM_VERSION = '0.20.5';
 export const HERMES_DESKTOP_SUPPORTED_HOST_API_VERSIONS = Object.freeze([1]);
