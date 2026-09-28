@@ -321,6 +321,7 @@ export function parseSkillFrontmatter(content: string): SkillFrontmatter {
       pythonDependencies: [],
     };
     const tags: string[] = [];
+    const topLevelTags: string[] = [];
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -382,11 +383,11 @@ export function parseSkillFrontmatter(content: string): SkillFrontmatter {
 
       const tagsInline = /^tags:\s*(\[.*\])\s*$/.exec(trimmed);
       if (tagsInline) {
-        tags.push(...parseInlineList(tagsInline[1]));
+        topLevelTags.push(...parseInlineList(tagsInline[1]));
         continue;
       }
       if (/^tags:\s*$/.test(trimmed)) {
-        tags.push(...parseSimpleBlockList(lines, i + 1, 0));
+        topLevelTags.push(...parseSimpleBlockList(lines, i + 1, 0));
         continue;
       }
       const categoryMatch = /^category:\s*(.+)$/.exec(trimmed);
@@ -426,7 +427,9 @@ export function parseSkillFrontmatter(content: string): SkillFrontmatter {
       }
     }
 
-    const uniqueTags = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
+    // An explicit top-level `tags:` is Rhythm's curated grouping and wins over
+    // `category:` and Hermes' `metadata.hermes.tags` (kept for Hermes itself).
+    const uniqueTags = [...new Set((topLevelTags.length ? topLevelTags : tags).map((tag) => tag.trim()).filter(Boolean))];
     if (uniqueTags.length) result.tags = uniqueTags;
     return result;
   } catch {

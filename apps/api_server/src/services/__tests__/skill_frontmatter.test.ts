@@ -154,13 +154,15 @@ describe('parseSkillFrontmatter', () => {
     expect(parseSkillFrontmatter(md).pythonDependencies).toEqual([]);
   });
 
-  it('collects category tags from top-level tags/category and nested metadata tags', () => {
+  it('uses an explicit top-level tags list over category and nested metadata tags', () => {
     const md = [
       '---', 'name: t', 'category: meta', 'tags: [search, web]',
       'metadata:', '  hermes:', '    tags: [search, fallback]', '    fallback_for_toolsets: [web]', '---', 'body',
     ].join('\n');
     const fm = parseSkillFrontmatter(md);
-    expect(fm.tags).toEqual(['meta', 'search', 'web', 'fallback']);
+    expect(fm.tags).toEqual(['search', 'web']);
+    const fallback = parseSkillFrontmatter(['---', 'name: h', 'category: meta', 'metadata:', '  hermes:', '    tags: [search]', '---', 'b'].join('\n'));
+    expect(fallback.tags).toEqual(['meta', 'search']);
     expect(fm.fallbackForToolsets).toEqual([]); // not under metadata.rhythm — unchanged behavior
     expect(parseSkillFrontmatter(['---', 'name: plain', '---', 'body'].join('\n')).tags).toBeUndefined();
   });
