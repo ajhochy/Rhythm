@@ -47,3 +47,9 @@ tags: [run, rhythm]
 - package:mac → sign-only Developer ID (Team 56Q69NYP9H). Launch: API 200 + engine 200 in 9 s; engine `0.0.0-rhythm-ca211da9…`; `/opencode/mcp` serves transport + usedByProfiles.
 - EAS iOS production build 0a389102-e0e9-44ad-801d-3b7498fcc766; auto-submit to TestFlight queued on finish.
 - Open: OpenMontage is AGPL-3.0; bundled Node binary ships without its LICENSE; engine `/mcp/tools` exposes ids only (per-tool descriptions need a fork change).
+
+## Smoke round 2 fixes (rebuilt + relaunched)
+- More menu behind Hermes: Hermes page zero-sizes its native view while popups are open (328f865d). PASS.
+- Bot Crossing: scene relabel slimmed + 24 MiB thread budget (f23472a9); preload lacked `action.run` → fixed in bot-crossing `2bb12c46` (branch codex/colony-embedded-action-run, + 1500 threads/source cap), repinned (3e5fa144). PASS.
+- Skill tags: API returns tags (959b0178); rewrites preserve tags (431435c0); top-level `tags:` wins over category/Hermes metadata (2f0f66d8). 259 SKILL.md files in ~/.config/opencode/skills tagged with an 18-tag taxonomy (backup in session scratchpad); stubs explore/fable/research moved to Trash. API serves 257/261 tagged (built-in + 3 plugin-cache ponytail skills untagged).
+- TestFlight: EAS build 14 (0a389102) submitted (4e96d952).
