@@ -1,8 +1,17 @@
 import { test, expect, type Page } from '@playwright/test';
 const profile = (id: string) => ({ id, label: id, icon: 'AG', enabled: true, isAgent: true, isManager: false, sessionSelectable: true, modelProvider: 'custom', modelId: 'profile-model', allowedMcpsJson: '{}', allowedSkillsJson: '["skill-one"]', allowedDelegatesJson: '[]', corePermissionsJson: '{"bash":{"*":"ask","git status":"allow"}}', autoApproveActions: false, updatedAt: '2026-09-11T00:00:00Z' });
-export async function open(page: Page, empty = false) {
+export async function open(page: Page, empty = false, sessionOverrides: Record<string, unknown> = {}) {
   let profiles: any[] = empty ? [] : [profile('alpha'), profile('beta'), { ...profile('disabled'), enabled: false }];
-  let session: any = { id: 'selected', name: 'Selected', profileId: 'alpha', opencodeAgentId: 'alpha', providerId: 'custom', modelId: 'default-model', thinkingBudget: 2048, permissionMode: 'default', fastMode: false, cwd: '/tmp/e22', branch: 'e22-base', status: 'idle', createdAt: '2026-09-11T00:00:00Z' };
+  let session: any = { id: 'selected', name: 'Selected', profileId: 'alpha', opencodeAgentId: 'alpha', providerId: 'custom', modelId: 'default-model', thinkingBudget: 2048, permissionMode: 'default', fastMode: false, cwd: '/tmp/e22', branch: 'e22-base', status: 'idle', createdAt: '2026-09-11T00:00:00Z', ...sessionOverrides };
+  // Mutable so a test can simulate an account added/re-defaulted from Agent Settings, in another
+  // tab or process, while this session's picker is already loaded — the fixture starts with the
+  // single account every other E22 test expects; #1580-follow-up tests reassign this mid-test.
+  let openaiAccounts: { id: string; label: string; status: string }[] = [{ id: 'default', label: 'Actual OpenAI account', status: 'ok' }];
+  let openaiDefaultId = 'default';
+  // Same idea for the model catalog: stands in for a Models-panel visibility toggle (that
+  // panel lives in ToolWorkspace.tsx, out of scope here) so tests can assert a picker sees the
+  // change without a reload, exactly like the accounts catalog above.
+  let modelIds = ['profile-model', 'default-model', 'turn-model'];
   const writes: { path: string; method: string; body: any }[] = []; const frames: any[] = [];
   await page.routeWebSocket(/\/ws\/agents$/, ws => ws.onMessage(data => { const frame = JSON.parse(String(data)); frames.push(frame); if (frame.type === 'session.input') ws.send(JSON.stringify({ type: 'session.status', id: frame.id, status: 'idle' })); }));
   await page.route(/https:\/\/e22.invalid|http:\/\/127.0.0.1:(4199|4197)/, route => {
@@ -22,8 +31,9 @@ export async function open(page: Page, empty = false) {
     }
     if (path === '/agent-configs') return send(profiles);
     if (path === '/opencode/skills') return send([{ name: 'skill-one', managed: true, source: 'managed', location: '/managed/skill-one' }, { name: 'skill-two', managed: true, source: 'managed', location: '/managed/skill-two' }]);
-    if (path === '/agents/models/catalog') return send(empty ? [] : ['profile-model', 'default-model', 'turn-model'].map(modelId => ({ provider: 'custom', modelId, displayName: modelId, authorized: true })).concat([{ provider: 'unauthed', modelId: 'hidden-model', displayName: 'Hidden', authorized: false }]));
+    if (path === '/agents/models/catalog') return send(empty ? [] : modelIds.map(modelId => ({ provider: 'custom', modelId, displayName: modelId, authorized: true })).concat([{ provider: 'unauthed', modelId: 'hidden-model', displayName: 'Hidden', authorized: false }]));
     if (path === '/opencode/auth/accounts') return send({ accounts: empty ? [] : [{ id: 'account-22', label: 'Actual account' }], defaultId: null });
+    if (path === '/opencode/auth/openai/accounts') return send({ accounts: empty ? [] : openaiAccounts, defaultAccountId: openaiDefaultId });
     if (path === '/tasks') return send([{ id: 'task-22', title: 'Actual task', status: 'open' }]);
     if (path.endsWith('/branches')) return send({ current: 'e22-base', local: ['e22-base', 'other-branch'], recent: [] });
     if (path === '/agent-sessions' && method === 'POST') { session = { ...session, ...body, id: 'created-session' }; return send(session); }
@@ -34,7 +44,9 @@ export async function open(page: Page, empty = false) {
   });
   await page.goto('/tests/electron-e22-harness.html');
   await expect(page.getByTestId('state')).toContainText('default-model');
-  return { writes, frames, profiles: () => profiles, session: () => session };
+  const setOpenaiAccounts = (accounts: { id: string; label: string; status: string }[], defaultId: string) => { openaiAccounts = accounts; openaiDefaultId = defaultId; };
+  const setModelIds = (ids: string[]) => { modelIds = ids; };
+  return { writes, frames, profiles: () => profiles, session: () => session, setOpenaiAccounts, setModelIds };
 }
 
 // Profiles is a column browser: open a setting group before using its controls.
@@ -152,4 +164,49 @@ test('E22-c5 default is used for instant create; advanced submits real account/t
   await page.getByTestId('advanced-create').click();
   await expect.poll(() => h.writes.filter(w => w.path === '/agent-sessions' && w.method === 'POST').at(-1)?.body).toMatchObject({ name: 'Advanced', profileId: 'beta', taskId: 'task-22', anthropicAccountId: 'account-22', cwd: '/tmp/e22-chosen', isolateWorktree: true, worktreeName: 'e22-worktree', branch: 'e22-selected-branch', createBranch: true });
   expect(h.writes.at(-1)?.body.stash).toBeUndefined();
+});
+
+// #1580-follow-up: the OpenAI account picker was fetched once on mount and never again, and
+// marked "default" off an id that happened to spell 'default' rather than the API's
+// defaultAccountId — so a second account added from Agent Settings never appeared, and the
+// wrong option looked selected as default. Session settings now force-refreshes the catalog
+// on open (store.tsx refreshCatalog) and renders the default from AccountChoice.isDefault
+// (gateway/sessions.ts accountOptionLabel).
+test('E22-c8 OpenAI account picker refreshes on open and marks the true default', async ({ page }) => {
+  const h = await open(page, false, { providerId: 'openai', modelId: 'default-model' });
+  await page.getByTestId('session-actions').click(); await page.getByTestId('session-actions-settings').click();
+  let dialog = page.getByTestId('session-settings-dialog');
+  const picker = () => dialog.getByTestId('session-openai-account');
+  await expect(picker().locator('option')).toHaveText(['Keep current account', 'Actual OpenAI account · default']);
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
+
+  // Simulate a second account added and made default from Agent Settings elsewhere while this
+  // session's picker was already loaded.
+  h.setOpenaiAccounts([{ id: 'default', label: 'Actual OpenAI account', status: 'ok' }, { id: 'openai-2', label: 'Second account', status: 'ok' }], 'openai-2');
+
+  await page.getByTestId('session-actions').click(); await page.getByTestId('session-actions-settings').click();
+  dialog = page.getByTestId('session-settings-dialog');
+  await expect(picker().locator('option')).toHaveText(['Keep current account', 'Actual OpenAI account', 'Second account · default']);
+});
+
+// #1580-follow-up: hiding a model in Agent Settings → Models must reach every open picker,
+// including Session settings, without a reload. The Models panel itself lives in
+// ToolWorkspace.tsx (out of scope here); setModelIds stands in for its visibility PATCH +
+// refreshModels() call, so this asserts the store-catalog side of that contract — the same
+// dialog-open force-refresh this suite already covers for OpenAI accounts (E22-c8).
+test('E22-c9 the session settings model picker drops a hidden model without reload', async ({ page }) => {
+  const h = await open(page);
+  await page.getByTestId('session-actions').click(); await page.getByTestId('session-actions-settings').click();
+  let dialog = page.getByTestId('session-settings-dialog');
+  const modelSelect = () => dialog.locator('[name=model]');
+  await expect(modelSelect().locator('option')).toHaveText(['Profile default', 'profile-model · custom', 'default-model · custom', 'turn-model · custom']);
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
+
+  h.setModelIds(['profile-model', 'default-model']);
+
+  await page.getByTestId('session-actions').click(); await page.getByTestId('session-actions-settings').click();
+  dialog = page.getByTestId('session-settings-dialog');
+  await expect(modelSelect().locator('option')).toHaveText(['Profile default', 'profile-model · custom', 'default-model · custom']);
 });

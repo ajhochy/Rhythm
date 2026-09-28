@@ -854,7 +854,7 @@ test('Provider, model & account: default OpenAI account picker saves through the
   await openGroup(page, 'Provider, model & account');
   const picker = page.getByTestId('profile-openai-account');
   await expect(picker).toHaveValue('');
-  await expect(picker.locator('option')).toHaveText(['Use the global default', 'Work · openai-work', 'Home · openai-home']);
+  await expect(picker.locator('option')).toHaveText(['Use the global default', 'Work · default', 'Home']);
   await picker.selectOption('openai-home');
   await expect(page.getByTestId('profile-save-status')).toHaveText('Unsaved changes');
   await page.getByTestId('profile-save').click();

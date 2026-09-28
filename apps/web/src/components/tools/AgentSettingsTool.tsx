@@ -5,6 +5,7 @@ import type { AutoPromotion } from '../../gateway/auto-promotion';
 import { Icon } from '../../icons';
 import { useGateway } from '../../gateway/context';
 import { useAuthUser } from '../../gateway/auth';
+import { useFixtures } from '../../store';
 import {
   CANCEL_TURN_KEY_OPTIONS, DEFAULT_LOCAL_USER_PREFERENCES, NEW_SESSION_KEY_OPTIONS,
   readLocalUserPreferences, SEND_MESSAGE_KEY_OPTIONS, sendMessageKeyLabel,
@@ -201,6 +202,13 @@ const mcpStatusPresentation = (status: string) => {
   };
 };
 
+// Inspector header fact line: a sanitized locator only (program name / host —
+// never args, env, or a full URL, any of which may carry secrets).
+function mcpTransportSummary(server: McpServer): string | null {
+  if (!server.transport) return null;
+  return server.transport.kind === 'remote' ? `Remote · ${server.transport.host}` : `Local · ${server.transport.program}`;
+}
+
 function baseItems(status: Partial<Record<keyof typeof sectionIds, string>> = {}, badges: Partial<Record<keyof typeof sectionIds, string>> = {}): ColumnItem[] {
   return [
     { id: sectionIds.accounts, title: 'Accounts', subtitle: status.accounts ?? 'Authorized model provider accounts' },
@@ -353,6 +361,9 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const gateway = useGateway();
   const sessions = gateway.domains.sessions!;
   const mcp = gateway.domains.mcp!;
+  // Every account mutation below also nudges the shared store catalog (store.tsx), so
+  // Session settings / new-session / Profiles account pickers reflect it without a reopen.
+  const { refreshCatalog } = useFixtures();
   const path = useSettingsPath();
   const selectedId = path.section;
   const [requireDestructiveModal, setRequireDestructiveModal] = useDestructiveModalPreference();
@@ -401,6 +412,10 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const [mcpSearch, setMcpSearch] = useState('');
   const [mcpCredentials, setMcpCredentials] = useState<Record<string, Record<string, string>>>({});
   const [mcpAuthorization, setMcpAuthorization] = useState<{ name: string; url: string } | null>(null);
+  const [mcpToolFilter, setMcpToolFilter] = useState('');
+  const [expandedMcpTool, setExpandedMcpTool] = useState<string | null>(null);
+  // A new inspector selection starts with a clean tool search and no expanded row.
+  useEffect(() => { setMcpToolFilter(''); setExpandedMcpTool(null); }, [path.item]);
   const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-configs', detail: 'Loading live agent configuration' });
   const actionPending = (scope: ActionScope, key?: string) => pendingAction?.scope === scope && (key === undefined || pendingAction.key === key);
   const setActionNotice = (scope: ActionScope, notice: string) => setActionNotices((current) => ({
@@ -603,6 +618,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     try {
       await sessions.completeAccountLogin({ accountId: accountDraft.accountId.trim(), code: accountDraft.code.trim() });
       await reloadAccounts();
+      void refreshCatalog({ force: true });
       setAccountDraft({ accountId: '', label: '', code: '' });
       setAccountAuthorizationUrl('');
       setActionNotice('accounts', 'Account authorized and saved.');
@@ -618,6 +634,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     try {
       await sessions.setDefaultAccount(account.id);
       await reloadAccounts();
+      void refreshCatalog({ force: true });
       setActionNotice('accounts', `${account.label} is now the default account.`);
       setTrace({ method: 'PATCH', route: '/opencode/auth/accounts/default', detail: `${account.id} set as default` });
     } catch (err) { setAccountActionError(err instanceof Error ? err.message : 'Default account could not be saved'); }
@@ -630,6 +647,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     try {
       await sessions.removeAccount(account.id);
       await reloadAccounts();
+      void refreshCatalog({ force: true });
       setActionNotice('accounts', `${account.label} removed.`);
       if (path.item === `account:${account.id}`) path.setItem(null);
       setTrace({ method: 'DELETE', route: `/opencode/auth/accounts/${encodeURIComponent(account.id)}`, detail: `${account.id} removed` });
@@ -665,6 +683,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     try {
       await sessions.completeOpenAIAccountLogin({ accountId, code: openaiDraft.code.trim() });
       await readSection('openai', 'action');
+      void refreshCatalog({ force: true });
       setOpenaiDraft({ accountId: '', label: '', code: '' }); setOpenaiAuthorizationUrl('');
       setActionNotice('openai', 'OpenAI account signed in and saved.');
       path.setItem(`openai:${accountId}`);
@@ -678,6 +697,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     try {
       const { engineUpdated } = await sessions.setDefaultOpenAIAccount(account.id);
       await readSection('openai', 'action');
+      void refreshCatalog({ force: true });
       setActionNotice('openai', engineUpdated ? `${account.label} is now the default OpenAI account, and the engine is signed in with it.` : `${account.label} is now the default OpenAI account.`);
       setTrace({ method: 'PATCH', route: '/opencode/auth/openai/accounts/default', detail: `${account.id} set as default${engineUpdated ? ' · engine updated' : ''}` });
     } catch (err) { setAccountActionError(err instanceof Error ? err.message : 'Default OpenAI account could not be saved'); }
@@ -693,6 +713,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     try {
       await rename(account.id, label);
       await readSection(provider === 'openai' ? 'openai' : 'accounts', 'action');
+      void refreshCatalog({ force: true });
       setRenameDraft(null);
       setActionNotice(scope, `Renamed to ${label}.`);
       setTrace({ method: 'PATCH', route: `/opencode/auth/${provider === 'openai' ? 'openai/' : ''}accounts/${encodeURIComponent(account.id)}`, detail: `${account.id} renamed` });
@@ -705,6 +726,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     try {
       await sessions.removeOpenAIAccount(account.id);
       await readSection('openai', 'action');
+      void refreshCatalog({ force: true });
       setActionNotice('openai', `${account.label} removed.`);
       if (path.item === `openai:${account.id}`) path.setItem(null);
       setTrace({ method: 'DELETE', route: `/opencode/auth/openai/accounts/${encodeURIComponent(account.id)}`, detail: `${account.id} removed` });

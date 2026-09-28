@@ -73,6 +73,10 @@ export type IdentityProfile = Profile & { autoApproveActions?: boolean; reasonin
 // be confirmed. Selectable, but the curation UI must show it as unverified rather than solid.
 export type ModelChoice = { providerId: string; modelId: string; label: string; contextLimit?: number; needsVerification?: boolean };
 export type AccountChoice = { id: string; label: string; status: string; isDefault?: boolean; email?: string };
+// Shared "<label> · default" / "<label> · needs sign-in" wording for every account picker
+// (session settings, new-session, Profiles). Marks default from the API's defaultAccountId
+// (via AccountChoice.isDefault), never from an account id that happens to spell "default".
+export const accountOptionLabel = (a: AccountChoice) => a.isDefault ? `${a.label} · default` : a.status && a.status !== 'ok' ? `${a.label} · needs sign-in` : a.label;
 export type ModelVisibilityEntry = { provider: string; modelId: string; visible: boolean };
 // #1580 S2 — one row per provider/model from GET /agents/models/catalog/full (unfiltered: includes
 // hidden and unavailable rows, unlike models()/gateway's picker-facing catalog). This is the

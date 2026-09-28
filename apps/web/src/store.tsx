@@ -55,6 +55,11 @@ interface FixtureContextValue {
   // #1580: re-fetches the model catalog on demand (e.g. right after a visibility PATCH) so
   // every picker reflects curation immediately, without a restart or session switch.
   refreshModels(): Promise<boolean>;
+  // Accounts + model catalog are fetched together on mount and are otherwise static in React
+  // state — anything that opens a picker or just mutated an account/model elsewhere must call
+  // this to see the change without a reload. `force` skips the staleness check (dialogs opening
+  // want a guaranteed-fresh list); omitted, it only refetches past `maxAgeMs` (default 30s).
+  refreshCatalog(opts?: { force?: boolean; maxAgeMs?: number }): Promise<void>;
   turnOverride: TurnOverride; stageTurnOverride(patch: TurnOverride): void;
   saveSessionSettings(id: string, input: SessionSettings): Promise<void>;
   selectedId: string; selected: Session; scope: SessionScope; theme: Theme; inspectorTab: InspectorTab; demo: DemoState;
@@ -230,16 +235,41 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
   }, [gateway, live]);
+  // Same fencing as modelsGuard — a stale accounts/openaiAccounts response must never
+  // overwrite a fresher one raced in by refreshCatalog() or the mount effect below.
+  const accountsGuard = useRef(createGenerationGuard());
+  const refreshAccounts = useCallback(async () => {
+    if (!live) return;
+    const token = accountsGuard.current.begin();
+    await Promise.all([
+      gateway.domains.sessions?.accounts?.().then(rows => { if (accountsGuard.current.isCurrent(token)) setAccounts(rows); }).catch(() => { if (accountsGuard.current.isCurrent(token)) setCatalogError(value => `${value} Account catalog unavailable`.trim()); }),
+      // Optional catalog: a failure only hides the OpenAI account picker.
+      gateway.domains.sessions?.openaiAccounts?.().then(rows => { if (accountsGuard.current.isCurrent(token)) setOpenaiAccounts(rows); }).catch(() => {}),
+    ]);
+  }, [gateway, live]);
+  // Last time models+accounts were both refetched — lets openers of a picker/dialog and the
+  // window-focus listener skip a redundant round trip when the catalog is still fresh.
+  const catalogFetchedAt = useRef(0);
+  const refreshCatalog = useCallback(async (opts?: { force?: boolean; maxAgeMs?: number }) => {
+    if (!live) return;
+    if (!opts?.force && Date.now() - catalogFetchedAt.current < (opts?.maxAgeMs ?? 30_000)) return;
+    catalogFetchedAt.current = Date.now();
+    await Promise.allSettled([refreshModels(), refreshAccounts()]);
+  }, [live, refreshModels, refreshAccounts]);
   useEffect(() => {
     if (!live) return;
-    let active = true;
     setModels([]); setAccounts([]); setOpenaiAccounts([]); setCatalogError('');
-    void refreshModels();
-    void gateway.domains.sessions?.accounts?.().then(rows => { if (active) setAccounts(rows); }).catch(() => { if (active) setCatalogError(value => `${value} Account catalog unavailable`.trim()); });
-    // Optional catalog: a failure only hides the OpenAI account picker.
-    void gateway.domains.sessions?.openaiAccounts?.().then(rows => { if (active) setOpenaiAccounts(rows); }).catch(() => {});
-    return () => { active = false; };
-  }, [gateway, live, refreshModels]);
+    void refreshCatalog({ force: true });
+  }, [gateway, live, refreshCatalog]);
+  useEffect(() => {
+    if (!live) return;
+    // #1580-follow-up: a picker showing what Agent Settings just changed in another tab, or
+    // simply a long-idle renderer, refreshes once the window regains focus if the catalog is
+    // more than a minute old — cheap enough to always check, no visibility-change wiring needed.
+    const onFocus = () => void refreshCatalog({ maxAgeMs: 60_000 });
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [live, refreshCatalog]);
   const [todos, setTodos] = useState<TodoItem[]>(() => structuredClone(seedTodos));
   const [selectedId, setSelectedId] = useState(() => {
     if (!live) {
@@ -1271,7 +1301,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   };
 
   const notificationUnreadCount = notifications.length + pushNotifications.length;
-  const value = useMemo<FixtureContextValue>(() => ({ prepareLiveSession, startFreshSession, reconnectLiveSession, models, accounts, openaiAccounts, catalogError, refreshModels, turnOverride: turnOverrides.current[selectedId] ?? {}, stageTurnOverride, saveSessionSettings, sessions, profiles, todos, files: seedFiles, diff: seedDiff, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, setUnreadThreads, liveMessageThreads, setLiveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, selectSession, setScope, setTheme, setInspectorTab, setDemo, notify, createSession, updateSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, forkSession, revertSession, unrevertSession, summarizeSession, loadOlder, replyPermission, answerQuestion, rejectQuestion, sendInput, reconnect, runShell, setActiveFile, resetWorktree, removeWorktree, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, resetFixtures, sessionGatewayMode: gateway.mode, liveSessionError, createLiveSession, deleteLiveSession, refreshLiveSessions, selectLiveSession, sendLiveInput, sendLiveCommand, resumeGone, dismissResumeGone, liveChildView, openLiveChildSession, closeLiveChildView, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, replyLivePermission, replyLiveQuestion, rejectLiveQuestion, updatePermissionMode, pendingApprovals, decideApproval, isCompletionArmed, toggleCompletionArm }), [models, accounts, openaiAccounts, catalogError, refreshModels, overrideVersion, sessions, profiles, todos, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, liveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, gateway.mode, liveSessionError, resumeGone, liveChildView, notifications, pushNotifications, notificationUnreadCount, pendingApprovals, armedKeys]);
+  const value = useMemo<FixtureContextValue>(() => ({ prepareLiveSession, startFreshSession, reconnectLiveSession, models, accounts, openaiAccounts, catalogError, refreshModels, refreshCatalog, turnOverride: turnOverrides.current[selectedId] ?? {}, stageTurnOverride, saveSessionSettings, sessions, profiles, todos, files: seedFiles, diff: seedDiff, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, setUnreadThreads, liveMessageThreads, setLiveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, selectSession, setScope, setTheme, setInspectorTab, setDemo, notify, createSession, updateSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, forkSession, revertSession, unrevertSession, summarizeSession, loadOlder, replyPermission, answerQuestion, rejectQuestion, sendInput, reconnect, runShell, setActiveFile, resetWorktree, removeWorktree, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, resetFixtures, sessionGatewayMode: gateway.mode, liveSessionError, createLiveSession, deleteLiveSession, refreshLiveSessions, selectLiveSession, sendLiveInput, sendLiveCommand, resumeGone, dismissResumeGone, liveChildView, openLiveChildSession, closeLiveChildView, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, replyLivePermission, replyLiveQuestion, rejectLiveQuestion, updatePermissionMode, pendingApprovals, decideApproval, isCompletionArmed, toggleCompletionArm }), [models, accounts, openaiAccounts, catalogError, refreshModels, refreshCatalog, overrideVersion, sessions, profiles, todos, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, liveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, gateway.mode, liveSessionError, resumeGone, liveChildView, notifications, pushNotifications, notificationUnreadCount, pendingApprovals, armedKeys]);
   return <FixtureContext.Provider value={value}>{children}</FixtureContext.Provider>;
 }
 
