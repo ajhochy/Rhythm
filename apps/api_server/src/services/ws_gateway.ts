@@ -331,7 +331,7 @@ export async function handleCommandFrame(
 export async function handleInputFrame(
   ws: WebSocket,
   msg: Record<string, unknown>,
-  trustedTurn?: { agent?: string | null },
+  trustedTurn?: { agent?: string | null; origin?: 'prompt_api' },
 ): Promise<void> {
   const id = msg.id as string | undefined;
 
@@ -540,10 +540,15 @@ export async function handleInputFrame(
   // treated as "not google" (no cap applied) here — the prompt-send path's own
   // undefined-model guard still runs unchanged below.
   let resolvedTurnModel: { providerID: string; modelID: string } | undefined;
+  let resolvedTurnProvenance: {
+    requestedSource: import('../models/model_provenance').RequestedSource;
+    requestedTier: string | null;
+    routeAuthed: boolean | null;
+  } | undefined;
   if (agentKind) {
     try {
-      const { resolveModelForSessionTurn } = await import('./agent_model_resolver');
-      resolvedTurnModel = await resolveModelForSessionTurn({
+      const { resolveModelForSessionTurnWithProvenance } = await import('./agent_model_resolver');
+      const resolution = await resolveModelForSessionTurnWithProvenance({
         agentId: trustedScopeAgent ?? agentKind,
         sessionProviderId,
         sessionModelId,
@@ -553,6 +558,8 @@ export async function handleInputFrame(
         // silently reverting to the stale stored provider/model.
         sessionId: id,
       });
+      resolvedTurnModel = resolution.route;
+      resolvedTurnProvenance = resolution;
     } catch (err) {
       console.error(`[ws_gateway] early model resolution for Gemini tool cap failed (non-fatal):`, err);
     }
@@ -894,6 +901,7 @@ export async function handleInputFrame(
       // C2-D (S4) — real prompt-dispatch boundary hook; see
       // OpencodeClientService.promptAsync's C2-C contract.
       beforeDispatch?: () => Promise<void>,
+      provenance?: import('../models/model_provenance').DispatchInput,
     ) => Promise<boolean>;
 
     // The fork SDK accepts a per-turn `system` field. Keep retrieved context in
@@ -1070,7 +1078,31 @@ export async function handleInputFrame(
             );
           }
         : undefined;
-    const promptOk = await promptFn(opencodeId, forwardData, model, cwd, sdkOpts, forwardParts, beforeDispatch);
+    const promptOk = await promptFn(
+      opencodeId,
+      forwardData,
+      model,
+      cwd,
+      sdkOpts,
+      forwardParts,
+      beforeDispatch,
+      resolvedTurnProvenance
+        ? {
+            sessionId: id,
+            sdkSessionId: opencodeId,
+            origin: trustedTurn?.origin ?? 'ws_input',
+            requestedSource: resolvedTurnProvenance.requestedSource,
+            requestedProviderId: model?.providerID ?? null,
+            requestedModelId: model?.modelID ?? null,
+            requestedTier: resolvedTurnProvenance.requestedTier,
+            resolvedProviderId: model?.providerID ?? null,
+            resolvedModelId: model?.modelID ?? null,
+            routeAuthed: resolvedTurnProvenance.routeAuthed,
+            finalProviderId: model?.providerID ?? null,
+            finalModelId: model?.modelID ?? null,
+          }
+        : undefined,
+    );
     if (!promptOk && reservedEnrollmentForCommit) {
       // The boundary hook never ran (client readiness disappeared between
       // session creation and this call) or ran but the SDK itself still

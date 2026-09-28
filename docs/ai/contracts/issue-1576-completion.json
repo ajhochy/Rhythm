@@ -1,0 +1,44 @@
+{
+  "issue": 1576,
+  "date": "2026-09-27",
+  "test_command": "cd apps/opencode_fork/packages/opencode && bun test test/session/served-provenance.test.ts && cd ../../../../../api_server && npx vitest run src/__tests__/issue_1576_dispatch_writes.test.ts src/__tests__/issue_1576_projection.test.ts src/__tests__/issue_1576_b1_ledger.test.ts && RHYTHM_LIVE_E2E=1 npx vitest run src/__tests__/issue_1576_routed_provenance_live_e2e.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1576-c1",
+      "text": "A1 fork trusted stamp: StepFinishPart optional `served` exactly `{modelID, responseID?, requestModelID?}` matching frozen api_server contract. finish-step uses provider response model/id; SDK-generated aitxt ids omitted; fallback model is wire `model.api.id`; strings bounded 256. Client `updatePart` cannot forge/replace/remove stored served; absent stays absent. History returns served. Retry success records successful attempt.",
+      "mode": "integration",
+      "test": "apps/opencode_fork/packages/opencode/test/session/served-provenance.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1576-c2",
+      "text": "A2 dispatch writes: wire existing repository into prompt/promptAsync non-fatally; pending before SDK, accepted/rejected after, no-op rejected. Add optional server-owned provenance. Resolution wrapper retains old API while adding source/requested tier/routeAuthed. Real callers provide trusted origins; WS cannot forge origin. Fallback rows link predecessor. User message.updated links oldest matching non-rejected row within 60s idempotently. Projection adds deterministic dispatches while existing keys remain compatible; Postgres local_only behavior remains.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1576_dispatch_writes.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1576-c3",
+      "text": "A3 tests: fork served tests; focused API b1/projection/new dispatch/resolver/redispatch/parity tests; fork typecheck/build; API typecheck/build.",
+      "mode": "integration",
+      "test": "apps/opencode_fork/packages/opencode/test/session/served-provenance.test.ts; apps/api_server/src/__tests__/issue_1576_dispatch_writes.test.ts; existing focused suites and builds",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1576-c4",
+      "text": "A4 live sandbox: after rebuild/restart, use real OpenRouter probe/session to prove routed alias gets concrete served model + gen id and projection links dispatch. Also prove forged served PATCH cannot alter it, restart durability, and nonexistent model produces no fabricated served identity. Run fallback/budget cases only with safe synthetic config/knobs; precondition unmet is explicit, not PASS. Cleanup disposable sessions/rows.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/issue_1576_routed_provenance_live_e2e.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1576-c5",
+      "text": "A5 evidence: contract maps every criterion; run note exact commands/results, no secrets. Existing slim Inspector may remain; do not add dispatch-history UI. Real-provider probe is authorized but no other provider credential use.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass"
+    }
+  ],
+  "not_tested": []
+}

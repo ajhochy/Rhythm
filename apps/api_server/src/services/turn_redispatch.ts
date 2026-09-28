@@ -47,6 +47,7 @@ import {
   type ProviderErrorClass,
 } from './model_fallback';
 import type { McpRoleConfig } from './agent_profile_scope';
+import { ModelProvenanceRepository } from '../repositories/model_provenance_repository';
 
 export interface RetainedTurn {
   sdkSessionId: string;
@@ -537,6 +538,7 @@ export async function redispatchTurn(
 
   const providerID = st.currentProviderID;
   const modelID = st.currentModelID;
+  let dispatchId: string | undefined;
   try {
     // Error-first ordering: the bridge may have finalized status='error'
     // before the route intake ran. No-op otherwise.
@@ -556,6 +558,30 @@ export async function redispatchTurn(
       providerID,
     );
     if (!prepared) throw new Error(`session preparation failed for ${providerID}`);
+    let predecessorId: string | null = null;
+    try {
+      predecessorId = new ModelProvenanceRepository().list(localSessionId, { limit: 200 }).at(-1)?.id ?? null;
+    } catch {
+      // Provenance is non-fatal under Postgres or a partially upgraded local DB.
+    }
+    try {
+      dispatchId = new ModelProvenanceRepository().insert({
+        sessionId: localSessionId,
+        sdkSessionId: turn.sdkSessionId,
+        origin: 'fallback_redispatch',
+        requestedSource: 'fallback_chain',
+        requestedProviderId: turn.model?.providerID ?? null,
+        requestedModelId: turn.model?.modelID ?? null,
+        resolvedProviderId: providerID,
+        resolvedModelId: modelID,
+        routeAuthed: null,
+        finalProviderId: providerID,
+        finalModelId: modelID,
+        predecessorId,
+      }).id;
+    } catch {
+      // Provenance must never prevent the actual fallback attempt.
+    }
     const ok = await d.prompt(
       turn.sdkSessionId,
       turn.data,
@@ -565,6 +591,9 @@ export async function redispatchTurn(
       turn.parts,
     );
     if (!ok) throw new Error('promptAsync declined the re-dispatch');
+    if (dispatchId) {
+      try { new ModelProvenanceRepository().setOutcome(dispatchId, 'accepted'); } catch { /* non-fatal */ }
+    }
     st.phase = 'active';
     turn.model = { providerID, modelID };
     logger.info(
@@ -572,6 +601,9 @@ export async function redispatchTurn(
     );
     return true;
   } catch (err) {
+    if (dispatchId) {
+      try { new ModelProvenanceRepository().setOutcome(dispatchId, 'rejected'); } catch { /* non-fatal */ }
+    }
     logger.error(
       `[TurnRedispatch] session ${localSessionId}: re-dispatch failed — finalizing original error:`,
       err,

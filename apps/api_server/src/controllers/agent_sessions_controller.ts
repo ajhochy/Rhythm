@@ -1794,7 +1794,7 @@ export class AgentSessionsController {
         ...(!isMcp && body.modelOverride ? { modelOverride: body.modelOverride } : {}),
         ...(!isMcp && body.thinking ? { thinking: body.thinking } : {}),
         ...(!isMcp && typeof body.fastMode === 'boolean' ? { fastMode: body.fastMode } : {}),
-      }, session.profileId ? { agent: session.profileId } : undefined);
+      }, { agent: session.profileId ?? undefined, origin: 'prompt_api' });
 
       if (errors.length > 0) {
         audit.settle(auditId, false, errors[0]);

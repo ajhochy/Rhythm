@@ -133,6 +133,24 @@ export class ModelProvenanceRepository {
     return changed === 1 || this.get(id)?.sdkUserMessageId === sdkUserMessageId;
   }
 
+  /** Link the oldest eligible attempt for one SDK session; repeated events are idempotent. */
+  linkOldestUserMessage(sessionId: string, sdkSessionId: string, sdkUserMessageId: string): boolean {
+    localOnly();
+    if (![sessionId, sdkSessionId, sdkUserMessageId].every((value) => safeIdentifier.test(value))) {
+      throw new Error('Invalid SDK message linkage');
+    }
+    const existing = getDb().prepare(`SELECT id FROM agent_turn_dispatches
+      WHERE session_id = ? AND sdk_session_id = ? AND sdk_user_message_id = ? LIMIT 1`)
+      .get(sessionId, sdkSessionId, sdkUserMessageId) as { id: string } | undefined;
+    if (existing) return true;
+    const candidate = getDb().prepare(`SELECT id FROM agent_turn_dispatches
+      WHERE session_id = ? AND sdk_session_id = ? AND sdk_user_message_id IS NULL
+        AND outcome != 'rejected' AND julianday(created_at) >= julianday('now', '-60 seconds')
+      ORDER BY rowid ASC LIMIT 1`)
+      .get(sessionId, sdkSessionId) as { id: string } | undefined;
+    return candidate ? this.linkUserMessage(candidate.id, sdkUserMessageId) : false;
+  }
+
   /**
    * #1576 S2 — record one step-finish's served identity. Idempotent: a
    * re-delivered event for the same (session, message, part) leaves exactly

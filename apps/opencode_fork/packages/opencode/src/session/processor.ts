@@ -29,6 +29,30 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import * as DateTime from "effect/DateTime"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 
+type ServedIdentity = NonNullable<MessageV2.StepFinishPart["served"]>
+
+function bounded(value: unknown) {
+  return typeof value === "string" && value.length > 0 && value.length <= 256 ? value : undefined
+}
+
+export function servedIdentityFromFinishStep(
+  value: unknown,
+  wireModelID: string,
+  requestModelID: string,
+): ServedIdentity {
+  const response =
+    typeof value === "object" && value !== null && "response" in value &&
+    typeof value.response === "object" && value.response !== null
+      ? (value.response as Record<string, unknown>)
+      : {}
+  const responseID = bounded(response.id)
+  return {
+    modelID: bounded(response.modelId) ?? wireModelID,
+    ...(responseID && !responseID.startsWith("aitxt-") ? { responseID } : {}),
+    ...(bounded(requestModelID) ? { requestModelID } : {}),
+  }
+}
+
 const DOOM_LOOP_THRESHOLD = 3
 const log = Log.create({ service: "session.processor" })
 
@@ -606,6 +630,7 @@ export const layer: Layer.Layer<
               type: "step-finish",
               tokens: usage.tokens,
               cost: usage.cost,
+              served: servedIdentityFromFinishStep(value, ctx.model.api.id, ctx.model.id),
             })
             yield* session.updateMessage(ctx.assistantMessage)
             if (ctx.snapshot) {

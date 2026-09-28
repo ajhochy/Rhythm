@@ -87,6 +87,12 @@ vi.mock('../services/agent_model_resolver', () => ({
     providerID: 'anthropic',
     modelID: 'claude-opus-4-7',
   }),
+  resolveModelForSessionTurnWithProvenance: vi.fn().mockResolvedValue({
+    route: { providerID: 'anthropic', modelID: 'claude-opus-4-7' },
+    requestedSource: 'agent_config',
+    requestedTier: null,
+    routeAuthed: null,
+  }),
 }));
 
 // ---------------------------------------------------------------------------

@@ -48,6 +48,16 @@ import * as SessionError from "./session-errors"
 const mcpAppExecutionGate = createMcpAppExecutionGate()
 const mcpAppInputValidator = new AjvJsonSchemaValidator()
 
+export function preserveTrustedServed(
+  stored: MessageV2.Part | undefined,
+  payload: MessageV2.Part,
+): MessageV2.Part {
+  const next = { ...payload } as MessageV2.Part & { served?: MessageV2.StepFinishPart["served"] }
+  if (stored?.type === "step-finish" && stored.served) next.served = stored.served
+  else delete next.served
+  return next
+}
+
 export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", (handlers) =>
   Effect.gen(function* () {
     const session = yield* Session.Service
@@ -633,7 +643,12 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       ) {
         return yield* new HttpApiError.BadRequest({})
       }
-      return yield* session.updatePart(payload)
+      const stored = yield* session.getPart({
+        sessionID: ctx.params.sessionID,
+        messageID: ctx.params.messageID,
+        partID: ctx.params.partID,
+      })
+      return yield* session.updatePart(preserveTrustedServed(stored, payload))
     })
 
     return handlers

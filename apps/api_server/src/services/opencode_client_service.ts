@@ -29,6 +29,29 @@ import {
   clearTrustedMcpVerifier,
   initializeTrustedMcpVerifier,
 } from '../security/trusted_mcp_call';
+import type { DispatchInput } from '../models/model_provenance';
+import { ModelProvenanceRepository } from '../repositories/model_provenance_repository';
+
+const modelProvenanceRepo = new ModelProvenanceRepository();
+
+function beginDispatch(input?: DispatchInput): string | undefined {
+  if (!input) return undefined;
+  try {
+    return modelProvenanceRepo.insert(input).id;
+  } catch (err) {
+    logger.warn('[OpencodeClientService] provenance pending write failed (non-fatal):', err);
+    return undefined;
+  }
+}
+
+function settleDispatch(id: string | undefined, outcome: 'accepted' | 'rejected'): void {
+  if (!id) return;
+  try {
+    modelProvenanceRepo.setOutcome(id, outcome);
+  } catch (err) {
+    logger.warn('[OpencodeClientService] provenance outcome write failed (non-fatal):', err);
+  }
+}
 
 /**
  * MCP-6 — resolves a FRESH OAuth access token for a curated server's
@@ -1872,6 +1895,7 @@ export class OpencodeClientService {
     directory?: string,
     opts?: Record<string, unknown>,
     beforeDispatch?: () => Promise<void>,
+    provenance?: DispatchInput,
   ): Promise<{ info: import('@opencode-ai/sdk').Message; parts: Array<import('@opencode-ai/sdk').Part> } | null> {
     if (!this.client) return null;
     const requestArgs = {
@@ -1893,14 +1917,18 @@ export class OpencodeClientService {
         throw new Error('OpencodeClientService: pre-dispatch hook failed — prompt not sent');
       }
     }
+    const dispatchId = beginDispatch(provenance);
     try {
       const raw = await this.client.session.prompt(requestArgs);
       if (raw.error || !raw.data) {
+        settleDispatch(dispatchId, 'rejected');
         logger.error(`[OpencodeClientService] prompt error for ${sessionId}:`, raw.error);
         return null;
       }
+      settleDispatch(dispatchId, 'accepted');
       return raw.data;
     } catch (err) {
+      settleDispatch(dispatchId, 'rejected');
       logger.error(`[OpencodeClientService] prompt failed for session ${sessionId}:`, err);
       return null;
     }
@@ -1930,6 +1958,7 @@ export class OpencodeClientService {
     opts?: Record<string, unknown>,
     parts?: Array<import('@opencode-ai/sdk').PartInput>,
     beforeDispatch?: () => Promise<void>,
+    provenance?: DispatchInput,
   ): Promise<boolean> {
     if (!this.client) return false;
     // OPC-M4-1: use the caller-supplied parts array when present; otherwise
@@ -1959,9 +1988,11 @@ export class OpencodeClientService {
         throw new Error('OpencodeClientService: pre-dispatch hook failed — prompt not sent');
       }
     }
+    const dispatchId = beginDispatch(provenance);
     try {
       const raw = await this.client.session.promptAsync(requestArgs);
       if (raw.error) {
+        settleDispatch(dispatchId, 'rejected');
         logger.error(`[OpencodeClientService] promptAsync error for ${sessionId}:`, raw.error);
         return false;
       }
@@ -1980,17 +2011,21 @@ export class OpencodeClientService {
       if (raw.data !== undefined) {
         // Back-compat for older/fake SDK transports that returned a body on
         // success. The generated fork client uses the 204 branch below.
+        settleDispatch(dispatchId, 'accepted');
         return true;
       }
       const httpStatus = raw.response?.status;
       if (httpStatus === 204) {
+        settleDispatch(dispatchId, 'accepted');
         return true;
       }
+      settleDispatch(dispatchId, 'rejected');
       logger.warn(
         `[OpencodeClientService] promptAsync silent no-op for ${sessionId}: SDK returned neither data nor error (model may not be supported; HTTP status=${httpStatus ?? 'unknown'})`,
       );
       return false;
     } catch (err) {
+      settleDispatch(dispatchId, 'rejected');
       logger.error(`[OpencodeClientService] promptAsync failed for session ${sessionId}:`, err);
       return false;
     }

@@ -7,6 +7,7 @@ import {
   eligibleModel,
   preferredVisibleDirectModelId,
 } from './provider_catalog_policy';
+import type { RequestedSource } from '../models/model_provenance';
 
 /**
  * OPC-M1-1: Server-side provider-to-agent-kind mapping.
@@ -421,18 +422,24 @@ async function resolveModelFromAgentConfigs(agentId: string): Promise<ModelRoute
  * usage-limit error every time. Persisting a real override here (not in
  * ws_gateway, which stays a thin caller) closes that gap for both origins.
  */
-export async function resolveModelForSessionTurn(opts: {
+export interface SessionTurnModelOptions {
   agentId: string;
   sessionProviderId: string | null;
   sessionModelId: string | null;
   perTurnOverride?: { providerId?: string; modelId?: string } | null;
+  requestedTier?: string | null;
   /**
    * #1108 — local agent_sessions.id to persist a successful override onto.
    * Omit to preserve the exact pre-#1108 behavior (override applies to this
    * call's return value only, never written back).
    */
   sessionId?: string;
-}): Promise<ModelRoute | undefined> {
+}
+
+async function resolveSessionTurnBase(opts: SessionTurnModelOptions): Promise<{
+  route: ModelRoute | undefined;
+  requestedSource: RequestedSource;
+}> {
   const override = opts.perTurnOverride;
   if (override?.providerId && override.modelId) {
     if (
@@ -450,14 +457,40 @@ export async function resolveModelForSessionTurn(opts: {
         );
       }
     }
-    return { providerID: override.providerId, modelID: override.modelId };
+    return { route: { providerID: override.providerId, modelID: override.modelId }, requestedSource: 'turn_override' };
   }
   if (opts.sessionProviderId && opts.sessionModelId) {
-    return { providerID: opts.sessionProviderId, modelID: opts.sessionModelId };
+    return { route: { providerID: opts.sessionProviderId, modelID: opts.sessionModelId }, requestedSource: 'session' };
   }
   const fromAgentConfigs = await resolveModelFromAgentConfigs(opts.agentId);
-  if (fromAgentConfigs) return fromAgentConfigs;
-  return resolveModelForAgent(opts.agentId);
+  if (fromAgentConfigs) return { route: fromAgentConfigs, requestedSource: 'agent_config' };
+  return { route: await resolveModelForAgent(opts.agentId), requestedSource: 'agent_default' };
+}
+
+export async function resolveModelForSessionTurn(opts: SessionTurnModelOptions): Promise<ModelRoute | undefined> {
+  return (await resolveSessionTurnBase(opts)).route;
+}
+
+export async function resolveModelForSessionTurnWithProvenance(opts: SessionTurnModelOptions): Promise<{
+  route: ModelRoute | undefined;
+  requestedSource: RequestedSource;
+  requestedTier: string | null;
+  routeAuthed: boolean | null;
+}> {
+  const resolved = await resolveSessionTurnBase(opts);
+  let routeAuthed: boolean | null = null;
+  if (resolved.route) {
+    try {
+      routeAuthed = (await opencodeClient.listAuthedProviders()).includes(resolved.route.providerID);
+    } catch {
+      routeAuthed = null;
+    }
+  }
+  return {
+    ...resolved,
+    requestedTier: opts.requestedTier ?? null,
+    routeAuthed,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────

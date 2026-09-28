@@ -385,6 +385,21 @@ export async function delegateToAgentAsync(
       runModel,
       effectiveCwd,
       promptOpts,
+      undefined,
+      undefined,
+      {
+        sessionId: childRow.id,
+        sdkSessionId: childSession.id,
+        origin: 'delegation',
+        requestedSource: 'agent_config',
+        requestedProviderId: runModel.providerID,
+        requestedModelId: runModel.modelID,
+        resolvedProviderId: runModel.providerID,
+        resolvedModelId: runModel.modelID,
+        routeAuthed: null,
+        finalProviderId: runModel.providerID,
+        finalModelId: runModel.modelID,
+      },
     );
     if (!enqueued) {
       throw AppError.internal('failed to enqueue async delegated prompt');
