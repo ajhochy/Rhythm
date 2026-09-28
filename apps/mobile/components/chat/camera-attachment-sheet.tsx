@@ -22,7 +22,7 @@ import {
   Radii,
   Spacing,
 } from '@/constants/theme';
-import { MOBILE_ATTACHMENT_LIMIT_BYTES } from '@/lib/attachments/limits';
+import { MOBILE_IMAGE_SOURCE_LIMIT_BYTES } from '@/lib/attachments/limits';
 
 type CameraAttachmentSheetProps = {
   onCapture: (attachment: ChatAttachment) => void;
@@ -96,8 +96,8 @@ export function CameraAttachmentSheet({
       } catch {
         // File metadata is best-effort; the send path still reads the capture.
       }
-      if (typeof size === 'number' && size > MOBILE_ATTACHMENT_LIMIT_BYTES) {
-        showError('Photo exceeds the 10 MB attachment limit.');
+      if (typeof size === 'number' && size > MOBILE_IMAGE_SOURCE_LIMIT_BYTES) {
+        showError('Photo exceeds the 50 MB attachment limit.');
         return;
       }
       onCapture({

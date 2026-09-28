@@ -21,7 +21,7 @@ import { SessionConfigurationSheet } from '@/components/chat/session-configurati
 import { styles } from '@/components/chat/chat-view-styles';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { MOBILE_ATTACHMENT_LIMIT_BYTES } from '@/lib/attachments/limits';
+import { attachmentPickLimitBytes, MOBILE_IMAGE_SOURCE_LIMIT_BYTES } from '@/lib/attachments/limits';
 import { type TranscriptEntry } from '@/lib/opencode/format';
 import {
   findEditableUserTextPart,
@@ -424,8 +424,8 @@ export function ChatView() {
       }
       if (result.assets.some((asset) =>
         typeof asset.size === 'number' &&
-        asset.size > MOBILE_ATTACHMENT_LIMIT_BYTES)) {
-        setSendFeedback('File exceeds the 10 MB attachment limit.');
+        asset.size > attachmentPickLimitBytes(asset.mimeType))) {
+        setSendFeedback('File exceeds the attachment limit (10 MB, or 50 MB for photos).');
         return;
       }
 
@@ -463,8 +463,8 @@ export function ChatView() {
       if (result.canceled || !result.assets?.length) return;
       if (result.assets.some((asset) =>
         typeof asset.fileSize === 'number' &&
-        asset.fileSize > MOBILE_ATTACHMENT_LIMIT_BYTES)) {
-        setSendFeedback('Photo exceeds the 10 MB attachment limit.');
+        asset.fileSize > MOBILE_IMAGE_SOURCE_LIMIT_BYTES)) {
+        setSendFeedback('Photo exceeds the 50 MB attachment limit.');
         return;
       }
 

@@ -10,7 +10,7 @@ import {
 import { PaperProvider } from 'react-native-paper';
 
 import { ChatView } from '@/components/chat/chat-view';
-import { MOBILE_ATTACHMENT_LIMIT_BYTES } from '@/lib/attachments/limits';
+import { MOBILE_IMAGE_SOURCE_LIMIT_BYTES } from '@/lib/attachments/limits';
 
 const mockGetDocumentAsync = jest.fn();
 const mockLaunchImageLibraryAsync = jest.fn();
@@ -316,12 +316,12 @@ describe('native camera chat attachments', () => {
   });
 
   test('mobile-photo-c5: oversized and duplicate library assets preserve the existing guards', async () => {
-    // Regression caught: photo-library assets bypass the 10 MB and URI
+    // Regression caught: photo-library assets bypass the 50 MB and URI
     // duplicate guards that protect camera and file attachments.
     mockLaunchImageLibraryAsync
       .mockResolvedValueOnce({
         canceled: false,
-        assets: [{ fileName: 'too-large.png', fileSize: MOBILE_ATTACHMENT_LIMIT_BYTES + 1, mimeType: 'image/png', uri: 'file:///photos/large.png' }],
+        assets: [{ fileName: 'too-large.png', fileSize: MOBILE_IMAGE_SOURCE_LIMIT_BYTES + 1, mimeType: 'image/png', uri: 'file:///photos/large.png' }],
       })
       .mockResolvedValue({
         canceled: false,
@@ -334,7 +334,7 @@ describe('native camera chat attachments', () => {
 
     await pressNativeAttachmentChoice(screen, 'Choose Existing Photo');
     expect(screen.queryAllByTestId('draft-attachment')).toHaveLength(0);
-    expect(screen.getByText('Photo exceeds the 10 MB attachment limit.')).toBeTruthy();
+    expect(screen.getByText('Photo exceeds the 50 MB attachment limit.')).toBeTruthy();
 
     await pressNativeAttachmentChoice(screen, 'Choose Existing Photo');
     expect(screen.getAllByTestId('draft-attachment')).toHaveLength(1);
@@ -464,16 +464,16 @@ describe('native camera chat attachments', () => {
   test('mobile-camera-c6: oversized captures stay recoverable and visible in the camera', async () => {
     // Regression caught: an oversized camera file is attached or closes the
     // camera; the limit error and still-open camera assertions fail.
-    mockCapturedFileSize = MOBILE_ATTACHMENT_LIMIT_BYTES + 1;
+    mockCapturedFileSize = MOBILE_IMAGE_SOURCE_LIMIT_BYTES + 1;
     const screen = renderChat();
     await pressNativeAttachmentChoice(screen, 'Take Photo');
 
     await act(async () => fireEvent.press(screen.getByTestId('camera-capture-button')));
 
     expect(screen.queryAllByTestId('draft-attachment')).toHaveLength(0);
-    expect(screen.getByText('Photo exceeds the 10 MB attachment limit.')).toBeTruthy();
+    expect(screen.getByText('Photo exceeds the 50 MB attachment limit.')).toBeTruthy();
     expect(AccessibilityInfo.announceForAccessibility).toHaveBeenCalledWith(
-      'Photo exceeds the 10 MB attachment limit.',
+      'Photo exceeds the 50 MB attachment limit.',
     );
     expect(screen.getByTestId('mock-camera-view')).toBeTruthy();
     expect(screen.getByTestId('camera-close-button')).toHaveProp(

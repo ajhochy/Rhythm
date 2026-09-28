@@ -30,6 +30,7 @@ import {
 import { AppState, Platform } from 'react-native';
 
 import { MOBILE_ATTACHMENT_LIMIT_BYTES } from '@/lib/attachments/limits';
+import { compressImageForUpload } from '@/lib/attachments/compress-image';
 import { MacOfflineError, summarizeError } from '@/lib/transport/api-error';
 import {
   connectionStatusForPresence,
@@ -3069,15 +3070,20 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         const preparedFileParts: { type: 'file'; mime: string; filename?: string; url: string }[] = [];
 
         if (attachments && attachments.length > 0) {
-          for (const att of attachments) {
-            const filename = att.filename || att.uri.split('/').pop();
-            const mime = att.mime || 'application/octet-stream';
+          for (const original of attachments) {
+            const originalName = original.filename || original.uri.split('/').pop();
+            const originalMime = original.mime || 'application/octet-stream';
 
             // Remote and picker-provided data URLs are already server-readable.
-            if (/^(?:https?:\/\/|data:)/i.test(att.uri)) {
-              preparedFileParts.push({ type: 'file', mime, filename, url: att.uri });
+            if (/^(?:https?:\/\/|data:)/i.test(original.uri)) {
+              preparedFileParts.push({ type: 'file', mime: originalMime, filename: originalName, url: original.uri });
               continue;
             }
+
+            // Downscale and re-encode photos first; the size limit applies to what is sent.
+            const att = await compressImageForUpload({ uri: original.uri, mime: originalMime, filename: originalName });
+            const filename = att.filename;
+            const mime = att.mime;
 
             try {
               const FileSystem = await import('expo-file-system/legacy');
