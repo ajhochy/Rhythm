@@ -55,7 +55,7 @@ const PTY_MAX_WIRE_BUFFER_BYTES = 2 * 1024 * 1024;
 // Outbox rows can be multi-MB message snapshots and a backlog can reach GBs. Drain in small
 // batches, yielding between them, so replication never starves the event loop (the engine's
 // startup timer shares it) and never buffers the whole backlog in the socket.
-const OUTBOX_BATCH_ROWS = 25;
+const OUTBOX_BATCH_ROWS = 10;
 const OUTBOX_MAX_BUFFERED_BYTES = 8 * 1024 * 1024;
 const OUTBOX_BACKPRESSURE_WAIT_MS = 50;
 
@@ -590,6 +590,11 @@ export class RelayUplinkClient {
         });
         if (!sent) return finish(false);
         this.lastSentSeq = row.seq;
+        // A single row can be many MB; stop mid-batch and let the socket drain.
+        if (socket.bufferedAmount > OUTBOX_MAX_BUFFERED_BYTES) {
+          setTimeout(step, OUTBOX_BACKPRESSURE_WAIT_MS);
+          return;
+        }
       }
       if (rows.length < OUTBOX_BATCH_ROWS) return finish(true);
       setImmediate(step);

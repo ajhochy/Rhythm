@@ -150,7 +150,7 @@ describe('Track 4 — outbox hooks', () => {
     vi.resetModules();
   });
 
-  it('message mutators append one verbatim outbox row each; applyPartDelta none', async () => {
+  it('message mutators keep one pending outbox entry per record; the wire row is the live row; applyPartDelta none', async () => {
     const { db, sessionPk } = await seedSessionAndMessage();
     const { AgentSessionMessagesRepository } = await import(
       '../repositories/agent_session_messages_repository'
@@ -168,12 +168,15 @@ describe('Track 4 — outbox hooks', () => {
     const partRow = afterPart[afterPart.length - 1]!;
     expect(partRow.tbl).toBe('agent_session_messages');
     expect(partRow.op).toBe('upsert');
-    const parsed = JSON.parse(partRow.row_json!) as Record<string, unknown>;
-    // Verbatim: the row_json IS the stored row.
+    // No per-update snapshot: the sender reads the live row.
+    expect(partRow.row_json).toBeNull();
+    const { RelayOutboxRepository } = await import('../repositories/relay_outbox_repository');
+    const wire = new RelayOutboxRepository()
+      .listSince(partRow.seq - 1, 1)[0]!;
     const stored = db
       .prepare('SELECT * FROM agent_session_messages WHERE id = ?')
-      .get(Number(parsed.id)) as Record<string, unknown>;
-    expect(parsed).toEqual(stored);
+      .get(Number(partRow.pk)) as Record<string, unknown>;
+    expect(wire.row).toEqual(stored);
 
     messages.upsertMessageInfo(
       sessionPk,
@@ -183,7 +186,10 @@ describe('Track 4 — outbox hooks', () => {
       null,
       JSON.stringify({ id: 'msg_ob_1', role: 'assistant' }),
     );
-    expect(outboxRows(db).length).toBe(before + 2);
+    // Coalesced: the second update replaces the pending entry for the same message.
+    const afterInfo = outboxRows(db);
+    expect(afterInfo.length).toBe(before + 1);
+    expect(afterInfo[afterInfo.length - 1]!.seq).toBeGreaterThan(partRow.seq);
 
     // applyPartDelta is excluded from replication by design.
     messages.applyPartDelta(
@@ -193,24 +199,54 @@ describe('Track 4 — outbox hooks', () => {
       'text',
       ' world',
     );
-    expect(outboxRows(db).length).toBe(before + 2);
+    expect(outboxRows(db).length).toBe(before + 1);
 
     messages.deleteBySdkMessageId(sessionPk, 'msg_ob_1');
     const afterDelete = outboxRows(db);
     expect(afterDelete[afterDelete.length - 1]!.op).toBe('delete');
+    expect(afterDelete.filter((row) => row.pk === partRow.pk)).toHaveLength(1);
   });
 
-  it('session insert/reconcile append outbox rows with verbatim payloads', async () => {
+  it('session insert/reconcile queue outbox entries that send the live row', async () => {
     const { db } = await seedSessionAndMessage();
     const rows = outboxRows(db);
     expect(rows.length).toBeGreaterThanOrEqual(1);
     expect(rows.some((row) => row.tbl === 'agent_sessions')).toBe(true);
     const sessionRow = rows.find((row) => row.tbl === 'agent_sessions')!;
-    const parsed = JSON.parse(sessionRow.row_json!) as Record<string, unknown>;
+    const { RelayOutboxRepository } = await import('../repositories/relay_outbox_repository');
+    const wire = new RelayOutboxRepository().listSince(sessionRow.seq - 1, 1)[0]!;
     const stored = db
       .prepare('SELECT * FROM agent_sessions WHERE id = ?')
-      .get(parsed.id) as Record<string, unknown>;
-    expect(parsed).toEqual(stored);
+      .get(sessionRow.pk) as Record<string, unknown>;
+    expect(wire.op).toBe('upsert');
+    expect(wire.row).toEqual(stored);
+  });
+
+  it('an upsert whose row vanished before sending goes out as a delete', async () => {
+    const { db } = await seedSessionAndMessage();
+    const { RelayOutboxRepository } = await import('../repositories/relay_outbox_repository');
+    const outbox = new RelayOutboxRepository();
+    const seq = outbox.append('agent_session_messages', 'upsert', '999999', null);
+    const [wire] = outbox.listSince(seq - 1, 1);
+    expect(wire).toMatchObject({ seq, op: 'delete', pk: '999999', row: null });
+    void db;
+  });
+
+  it('migrations compact a snapshot backlog to one pointer entry per record', async () => {
+    const { db } = await seedSessionAndMessage();
+    const insert = db.prepare(
+      `INSERT INTO relay_outbox (tbl, op, pk, row_json) VALUES (?, 'upsert', ?, ?)`,
+    );
+    for (let index = 0; index < 5; index += 1) {
+      insert.run('agent_session_messages', 'legacy-pk', JSON.stringify({ id: 'legacy-pk', n: index }));
+    }
+    const newest = (db.prepare(
+      `SELECT MAX(seq) AS seq FROM relay_outbox WHERE pk = 'legacy-pk'`,
+    ).get() as { seq: number }).seq;
+    const { runMigrations } = await import('../database/migrations');
+    runMigrations(db);
+    const legacy = outboxRows(db).filter((row) => row.pk === 'legacy-pk');
+    expect(legacy).toEqual([expect.objectContaining({ seq: newest, row_json: null })]);
   });
 
   it('hooks are inert without a configured relay', async () => {

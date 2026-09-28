@@ -145,6 +145,16 @@ export function runMigrations(db: Database.Database): void {
     );
   `);
 
+  // One pending entry per record (see RelayOutboxRepository). The index keeps the per-write
+  // replace cheap; the compaction collapses backlogs queued as full per-update snapshots.
+  // Idempotent and near-free once compact.
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_relay_outbox_tbl_pk ON relay_outbox (tbl, pk);
+    DELETE FROM relay_outbox
+     WHERE seq NOT IN (SELECT MAX(seq) FROM relay_outbox GROUP BY tbl, pk);
+    UPDATE relay_outbox SET row_json = NULL WHERE op = 'upsert' AND row_json IS NOT NULL;
+  `);
+
   const runOnce = (key: string, fn: () => void): void => {
     const done = db.prepare(`SELECT key FROM schema_meta WHERE key = ?`).get(key);
     if (done) return;
