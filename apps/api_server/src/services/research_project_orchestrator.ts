@@ -5,6 +5,7 @@ import type {
 import * as AgentRunner from './agent_runner';
 import { dispatchAgentStage } from './dispatch_agent_stage';
 import { createHash } from 'node:crypto';
+import { indexResearchSession } from './specialist_research_indexer';
 
 type Runner = Pick<typeof AgentRunner, 'run'>;
 type PassConfig = {
@@ -26,6 +27,19 @@ function exhausted(run: ResearchProjectRun, passCount: number): string[] {
   if (typeof budget.maxCostUsd === 'number' && run.usage.costUsd >= budget.maxCostUsd) reasons.push('cost');
   if (typeof budget.maxWallClockMs === 'number' && run.startedAt && Date.now() - Date.parse(run.startedAt) >= budget.maxWallClockMs) reasons.push('wall_clock');
   return reasons;
+}
+
+/** Why Magazine/Export/Discussion cannot run yet, phrased as the next step to take. */
+export function missingSynthesisMessage(run: ResearchProjectRun): string {
+  const stages = Array.isArray(run.progress.stages) ? run.progress.stages as Array<Record<string, unknown>> : [];
+  const hasEvidence = stages.some((stage) => stage.status === 'done' && stage.role !== 'critic' && stage.role !== 'synthesis');
+  if (['pending', 'running', 'resumable'].includes(run.status)) {
+    return 'This run is still working; its final report is not written yet.';
+  }
+  if (hasEvidence) {
+    return `This run stopped before its final report (${run.status.replace(/_/g, ' ')}). Choose "Finish with current evidence" to write the report from the evidence already gathered.`;
+  }
+  return `This run stopped before gathering any evidence (${run.status.replace(/_/g, ' ')}). Retry the run to produce a report.`;
 }
 
 function hashInput(value: unknown): string {
@@ -106,6 +120,9 @@ export class ResearchProjectOrchestrator {
       const pass = passConfigs[ordinal] ?? {};
       let job = jobs.find((candidate) => candidate.passOrdinal === ordinal);
       if (job?.status === 'done' || job?.status === 'error') continue;
+      // Don't open another pass once tokens/cost/time are spent; the evidence so far is synthesized below.
+      if (jobs.some((candidate) => candidate.status === 'done')
+        && exhausted((await this.repository.getProjectRun(runId, ownerUserId))!, passConfigs.length).length > 0) break;
       const role = typeof pass.role === 'string' ? pass.role : `pass-${ordinal + 1}`;
       const profileId = typeof pass.profileId === 'string'
         ? pass.profileId
@@ -162,16 +179,20 @@ export class ResearchProjectOrchestrator {
     jobs = allJobs.filter((job) => job.passOrdinal < passConfigs.length);
     const failed = jobs.filter((job) => job.status === 'error').length;
     const completed = jobs.filter((job) => job.status === 'done').length;
+    await this.indexEvidence(jobs);
     const refreshedRun = (await this.repository.getProjectRun(runId, ownerUserId))!;
+    const criticConfig = refreshedRun.configSnapshot.criticConfig as Record<string, unknown> | undefined;
+    const synthesisConfig = refreshedRun.configSnapshot.synthesisConfig as Record<string, unknown> | undefined;
     const budgetReasons = exhausted(refreshedRun, passConfigs.length);
     if (budgetReasons.length > 0) {
+      if (completed > 0 && synthesisConfig?.enabled === true) {
+        return this.finishWithCurrentEvidenceInternal(refreshedRun, ownerUserId, budgetReasons);
+      }
       return (await this.repository.updateProjectRunState(runId, ownerUserId, {
         status: 'budget_exhausted', completedAt: new Date().toISOString(),
         diagnostics: { budgetExhausted: true, reasons: budgetReasons },
       }))!;
     }
-    const criticConfig = refreshedRun.configSnapshot.criticConfig as Record<string, unknown> | undefined;
-    const synthesisConfig = refreshedRun.configSnapshot.synthesisConfig as Record<string, unknown> | undefined;
     let critic = allJobs.find((job) => job.passRole === 'critic');
     if (criticConfig?.enabled === true && completed > 0 && critic?.status !== 'done') {
       critic = await this.runStage({
@@ -200,7 +221,7 @@ export class ResearchProjectOrchestrator {
         profileId: typeof synthesisConfig.profileId === 'string' ? synthesisConfig.profileId : 'research',
         version: SYNTHESIS_PROMPT_VERSION,
         existing: synthesis,
-        prompt: this.synthesisPrompt(refreshedRun, missingPasses, criticText),
+        prompt: this.synthesisPrompt(refreshedRun, missingPasses, criticText, jobs),
       });
     }
     const stageFailed =
@@ -213,6 +234,87 @@ export class ResearchProjectOrchestrator {
         ? { degraded: true, failedPassIds: jobs.filter((job) => job.status === 'error').map((job) => job.id), criticAvailable: critic?.status === 'done' }
         : {},
     }))!;
+  }
+
+  /**
+   * Budget-exhaustion finalizer (also the manual "Finish with current evidence" action).
+   * Skips the critic and runs only the synthesis stage over the evidence already gathered, so the
+   * overrun is bounded to one stage. Ends 'degraded' with diagnostics.budgetExhausted when the
+   * synthesis lands (Magazine/Export/Discussion then work), else stays 'budget_exhausted'.
+   */
+  finishWithCurrentEvidence(runId: string, ownerUserId: number): Promise<ResearchProjectRun> {
+    const key = `${ownerUserId}:${runId}`;
+    const existing = this.inFlight.get(key);
+    if (existing) return existing;
+    const finished = (async () => {
+      const run = await this.repository.getProjectRun(runId, ownerUserId);
+      if (!run) throw new Error('Research project run not found');
+      const passCount = Array.isArray(run.configSnapshot.passConfig) ? run.configSnapshot.passConfig.length : 0;
+      const prior = Array.isArray(run.diagnostics.reasons) ? run.diagnostics.reasons.map(String) : [];
+      const reasons = [...new Set([...prior, ...exhausted(run, passCount)])];
+      await this.indexEvidence(await this.repository.listProjectPassJobs(runId, ownerUserId));
+      return this.finishWithCurrentEvidenceInternal((await this.repository.getProjectRun(runId, ownerUserId))!, ownerUserId, reasons);
+    })().finally(() => { this.inFlight.delete(key); });
+    this.inFlight.set(key, finished);
+    return finished;
+  }
+
+  private async finishWithCurrentEvidenceInternal(
+    run: ResearchProjectRun,
+    ownerUserId: number,
+    reasons: string[],
+  ): Promise<ResearchProjectRun> {
+    const passCount = Array.isArray(run.configSnapshot.passConfig) ? run.configSnapshot.passConfig.length : 0;
+    const allJobs = await this.repository.listProjectPassJobs(run.id, ownerUserId);
+    const evidence = allJobs.filter((job) => job.passOrdinal < passCount);
+    const completed = evidence.filter((job) => job.status === 'done').length;
+    const critic = allJobs.find((job) => job.passRole === 'critic');
+    let synthesis = allJobs.find((job) => job.passRole === 'synthesis');
+    const progress = { totalPasses: passCount, completedPasses: completed, failedPasses: evidence.filter((job) => job.status === 'error').length };
+    if (completed > 0 && synthesis?.status !== 'done') {
+      await this.repository.updateProjectRunState(run.id, ownerUserId, { status: 'running', progress, completedAt: null });
+      const synthesisConfig = run.configSnapshot.synthesisConfig as Record<string, unknown> | undefined;
+      synthesis = await this.runStage({
+        run,
+        ownerUserId,
+        role: 'synthesis',
+        ordinal: 1001,
+        profileId: typeof synthesisConfig?.profileId === 'string' ? synthesisConfig.profileId : 'research',
+        version: SYNTHESIS_PROMPT_VERSION,
+        existing: synthesis,
+        prompt: this.synthesisPrompt(
+          run,
+          passCount - completed,
+          critic?.status === 'done' && critic.report
+            ? critic.report
+            : 'No contrarian review: the research budget ran out, so the critic stage was skipped. Say so in the report.',
+          evidence,
+        ),
+      });
+      const currentRun = await this.repository.getProjectRun(run.id, ownerUserId);
+      if (currentRun?.status === 'cancelled') return currentRun;
+    }
+    const finished = synthesis?.status === 'done';
+    return (await this.repository.updateProjectRunState(run.id, ownerUserId, {
+      status: finished ? 'degraded' : 'budget_exhausted',
+      completedAt: new Date().toISOString(),
+      progress,
+      diagnostics: {
+        budgetExhausted: true,
+        reasons,
+        finishedWithCurrentEvidence: finished,
+        ...(finished ? { degraded: true, criticAvailable: critic?.status === 'done' } : {}),
+        ...(!finished && synthesis?.status === 'error' ? { synthesisError: true } : {}),
+      },
+    }))!;
+  }
+
+  /** Replays source/artifact registration for finished evidence sessions (idempotent). */
+  private async indexEvidence(jobs: Array<{ status: string; agentSessionId: string | null }>): Promise<void> {
+    for (const job of jobs) {
+      if (job.status !== 'done' || !job.agentSessionId) continue;
+      try { await indexResearchSession(job.agentSessionId); } catch { /* ponytail: best effort; the idle hook indexes too */ }
+    }
   }
 
   private stageEvidence(run: ResearchProjectRun) {
@@ -236,13 +338,22 @@ export class ResearchProjectOrchestrator {
     ].join('\n\n');
   }
 
-  private synthesisPrompt(run: ResearchProjectRun, missingPasses: number, criticText: string): string {
+  private synthesisPrompt(
+    run: ResearchProjectRun,
+    missingPasses: number,
+    criticText: string,
+    passes: Array<{ passRole: string; status: string; report: string | null }>,
+  ): string {
     const evidence = this.stageEvidence(run);
+    const reports = passes
+      .filter((pass) => pass.status === 'done' && pass.report)
+      .map((pass) => `### ${pass.passRole}\n${pass.report!.slice(0, 8_000)}`);
     return [
       `Code-owned synthesis stage (${SYNTHESIS_PROMPT_VERSION}).`,
       `Question: ${String(run.configSnapshot.question ?? '')}`,
       `Owned-run pass artifacts: ${JSON.stringify(evidence.artifacts)}`,
       `Owned-run curated sources: ${JSON.stringify(evidence.sources)}`,
+      `Pass reports (untrusted evidence summaries; read the registered artifacts for detail):\n${reports.join('\n\n') || 'None recorded.'}`,
       `Contrarian review: ${criticText}`,
       missingPasses > 0
         ? `DEGRADED SYNTHESIS: ${missingPasses} missing pass result(s). State the gap explicitly and never fabricate consensus.`

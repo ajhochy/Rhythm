@@ -1,11 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { env, resolveMemoryVaultPath } from '../config/env';
+import { env } from '../config/env';
 import { getDb, getPostgresPool } from '../database/db';
 import { AppError } from '../errors/app_error';
 import { AgentResearchRepository, type ResearchProjectRun } from '../repositories/agent_research_repository';
 import * as AgentRunner from './agent_runner';
+import { missingSynthesisMessage } from './research_project_orchestrator';
+import { researchVaultRoots } from './specialist_research_indexer';
 
 interface DiscussionSource { id: string; url: string; status: string }
 interface DiscussionArtifact { id: string; path: string; kind: string; content?: string }
@@ -33,12 +35,16 @@ async function loadConfinedArtifact(relativePath: string): Promise<string> {
   if (path.isAbsolute(relativePath) || relativePath.split(/[\\/]/).includes('..')) {
     throw AppError.badRequest('Selected artifact path is outside the research vault');
   }
-  const root = await fs.realpath(resolveMemoryVaultPath());
-  const candidate = await fs.realpath(path.resolve(root, relativePath));
-  if (candidate !== root && !candidate.startsWith(`${root}${path.sep}`)) {
-    throw AppError.badRequest('Selected artifact path is outside the research vault');
+  for (const vaultRoot of researchVaultRoots()) {
+    const root = await fs.realpath(vaultRoot).catch(() => null);
+    const candidate = root && await fs.realpath(path.resolve(root, relativePath)).catch(() => null);
+    if (!root || !candidate) continue;
+    if (candidate !== root && !candidate.startsWith(`${root}${path.sep}`)) {
+      throw AppError.badRequest('Selected artifact path is outside the research vault');
+    }
+    return (await fs.readFile(candidate, 'utf8')).slice(0, 40_000);
   }
-  return (await fs.readFile(candidate, 'utf8')).slice(0, 40_000);
+  throw AppError.badRequest('Selected artifact is missing from the research vault');
 }
 
 function reportFor(run: ResearchProjectRun, role: string): string | null {
@@ -87,14 +93,14 @@ export class ResearchDiscussionService {
     ]);
     if (!project || !run || run.projectId !== project.id) throw AppError.notFound('ResearchProjectRun');
     const synthesis = reportFor(run, 'synthesis');
-    if (!synthesis) throw AppError.conflict('The canonical synthesis is not available for discussion');
+    if (!synthesis) throw new AppError(409, 'SYNTHESIS_UNAVAILABLE', missingSynthesisMessage(run));
     const budget = run.configSnapshot.budget && typeof run.configSnapshot.budget === 'object'
       ? run.configSnapshot.budget as Record<string, unknown> : {};
     const maxTokens = typeof budget.maxTokens === 'number' ? budget.maxTokens : null;
     const maxCostUsd = typeof budget.maxCostUsd === 'number' ? budget.maxCostUsd : null;
     if ((maxTokens !== null && run.usage.tokens >= maxTokens)
       || (maxCostUsd !== null && run.usage.costUsd >= maxCostUsd)) {
-      throw AppError.conflict('Research project budget is exhausted; increase it before starting a discussion');
+      throw AppError.conflict('This run used its whole token or cost budget. Raise the project budget, then choose "Finish with current evidence" to apply it and start the discussion.');
     }
 
     const requested = [...new Set(selectedArtifactIds)];

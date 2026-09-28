@@ -306,10 +306,36 @@ function ResearchTool() {
 
 // Live research projects — apps/web/src/gateway/research.ts's ResearchProject/ResearchProjectRun
 // mirror apps/api_server/src/repositories/agent_research_repository.ts:34-77. The quick-create
-// dialog only surfaces name/question/domain/goals; profileId/passConfig/modelPolicy/criticConfig/
-// synthesisConfig/scheduleRef/budget use the redspec's documented starter defaults (a single
-// evidence-gathering pass, critic+synthesis enabled, a bounded budget) rather than fixture-invented
-// values, since the API requires all of them on create (agentResearchController.ts:92-106).
+// dialog surfaces name/question/domain/goals/budget; profileId/passConfig/modelPolicy/criticConfig/
+// synthesisConfig/scheduleRef use the redspec's documented starter defaults (a single
+// evidence-gathering pass, critic+synthesis enabled) rather than fixture-invented values.
+// Mirrors DEFAULT_RESEARCH_BUDGET / BUDGET_BOUNDS in apps/api_server/src/controllers/agentResearchController.ts.
+// Run usage counts cached context on every model turn, so one evidence pass is routinely >1M tokens.
+const DEFAULT_RESEARCH_BUDGET = { maxPasses: 3, maxTokens: 5_000_000, maxCostUsd: 5, maxWallClockMs: 30 * 60_000 };
+const budgetNumber = (budget: Record<string, unknown>, key: keyof typeof DEFAULT_RESEARCH_BUDGET) =>
+  typeof budget[key] === 'number' ? budget[key] as number : DEFAULT_RESEARCH_BUDGET[key];
+function ResearchBudgetFields({ budget = {} }: { budget?: Record<string, unknown> }) {
+  return <fieldset className="form-grid span-2" data-testid="research-budget-fields"><legend>Budget</legend>
+    <label className="field">Max passes<input name="maxPasses" type="number" min={1} max={10} step={1} required defaultValue={budgetNumber(budget, 'maxPasses')} /></label>
+    <label className="field">Token limit (millions)<input name="maxTokensMillions" type="number" min={0.05} max={100} step={0.05} required defaultValue={budgetNumber(budget, 'maxTokens') / 1_000_000} /></label>
+    <label className="field">Cost limit ($)<input name="maxCostUsd" type="number" min={0} max={1000} step={0.5} required defaultValue={budgetNumber(budget, 'maxCostUsd')} /></label>
+    <label className="field">Time limit (minutes)<input name="maxWallClockMinutes" type="number" min={1} max={360} step={1} required defaultValue={budgetNumber(budget, 'maxWallClockMs') / 60_000} /></label>
+    <p className="tool-empty-inline span-2">Tokens include cached context re-read on every model turn; a single evidence pass often uses over 1 million.</p>
+  </fieldset>;
+}
+const budgetFromForm = (data: FormData) => ({
+  maxPasses: Number(data.get('maxPasses')),
+  maxTokens: Math.round(Number(data.get('maxTokensMillions')) * 1_000_000),
+  maxCostUsd: Number(data.get('maxCostUsd')),
+  maxWallClockMs: Math.round(Number(data.get('maxWallClockMinutes')) * 60_000),
+});
+const budgetSummary = (budget: Record<string, unknown>) =>
+  `${budgetNumber(budget, 'maxPasses')} passes · ${(budgetNumber(budget, 'maxTokens') / 1_000_000).toLocaleString('en-US', { maximumFractionDigits: 2 })}M tokens · $${budgetNumber(budget, 'maxCostUsd').toFixed(2)} · ${Math.round(budgetNumber(budget, 'maxWallClockMs') / 60_000)} min`;
+const stageDone = (run: ResearchProjectRun, match: (role: string) => boolean) =>
+  Array.isArray(run.progress.stages) && (run.progress.stages as Array<Record<string, unknown>>)
+    .some((stage) => stage.status === 'done' && typeof stage.role === 'string' && match(stage.role));
+const ACTIVE_RUN_STATES = ['pending', 'running', 'resumable', 'working'];
+
 function LiveResearchTool() {
   const gateway = useGateway();
   const { notify } = useFixtures();
@@ -319,6 +345,7 @@ function LiveResearchTool() {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [runDetail, setRunDetail] = useState<ResearchProjectRun | null>(null);
   const [projectDialog, setProjectDialog] = useState(false);
+  const [budgetDialog, setBudgetDialog] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-research/projects', detail: 'Loading research projects' });
@@ -359,6 +386,16 @@ function LiveResearchTool() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id, latestRun?.id]);
 
+  // Keep an active run (including "Finish with current evidence") fresh until it stops.
+  useEffect(() => {
+    if (!selected || !runDetail || !ACTIVE_RUN_STATES.includes(runDetail.status)) return;
+    const timer = window.setTimeout(() => {
+      gateway.domains.research!.getRun(selected.id, runDetail.id).then(setRunDetail).catch(() => undefined);
+    }, 5_000);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id, runDetail]);
+
   const createProject = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -374,7 +411,7 @@ function LiveResearchTool() {
       criticConfig: { enabled: true },
       synthesisConfig: { enabled: true },
       scheduleRef: null,
-      budget: { maxPasses: 1, maxTokens: 1000, maxCostUsd: 1, maxWallClockMs: 60_000 },
+      budget: budgetFromForm(data),
     };
     try {
       const created = await gateway.domains.research!.createProject(input);
@@ -383,6 +420,26 @@ function LiveResearchTool() {
       setTrace({ method: 'POST', route: '/agent-research/projects', detail: 'Research project created' });
       setProjectDialog(false);
     } catch (err) { notify(err instanceof Error ? err.message : 'Research project creation failed'); }
+  };
+
+  const saveBudget = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selected) return;
+    try {
+      const updated = await gateway.domains.research!.updateProject(selected.id, { budget: budgetFromForm(new FormData(event.currentTarget)) });
+      setProjects((current) => current.map((project) => (project.id === updated.id ? updated : project)));
+      setTrace({ method: 'PATCH', route: `/agent-research/projects/${selected.id}`, detail: 'Research budget updated' });
+      setBudgetDialog(false);
+    } catch (err) { notify(err instanceof Error ? err.message : 'Research budget update failed'); }
+  };
+
+  const finishRun = async () => {
+    if (!selected || !latestRun) return;
+    try {
+      const run = await gateway.domains.research!.finishRun(selected.id, latestRun.id);
+      setRunDetail(run);
+      setTrace({ method: 'POST', route: `/agent-research/projects/${selected.id}/runs/${latestRun.id}/finish`, detail: 'Final report is being written from the current evidence' });
+    } catch (err) { notify(err instanceof Error ? err.message : 'Research run could not be finished'); }
   };
 
   const startRun = async () => {
@@ -450,7 +507,17 @@ function LiveResearchTool() {
     } catch (err) { notify(err instanceof Error ? err.message : 'Discussion could not be started'); }
   };
 
-  const sourceLabel = (source: Record<string, unknown>) => (typeof source.title === 'string' ? source.title : typeof source.id === 'string' ? source.id : 'Untitled source');
+  const sourceLabel = (source: Record<string, unknown>) => (typeof source.title === 'string' ? source.title : typeof source.canonical_url === 'string' ? source.canonical_url : typeof source.id === 'string' ? source.id : 'Untitled source');
+  const hasSynthesis = runDetail ? stageDone(runDetail, (role) => role === 'synthesis') : false;
+  const hasEvidence = runDetail ? stageDone(runDetail, (role) => role !== 'critic' && role !== 'synthesis') : false;
+  const runActive = runDetail ? ACTIVE_RUN_STATES.includes(runDetail.status) : false;
+  const budgetExhausted = runDetail?.diagnostics.budgetExhausted === true;
+  const canFinish = Boolean(runDetail) && !runActive && hasEvidence && (!hasSynthesis || budgetExhausted);
+  const reportUnavailable = !runDetail || hasSynthesis ? null
+    : runActive ? 'The final report is still being written. Magazine, export, and discussion unlock when it is ready.'
+    : hasEvidence ? `This run stopped before its final report (${runDetail.status.replace(/_/g, ' ')}). Finish with current evidence to write it from what was gathered.`
+    : 'This run stopped before gathering any evidence, so there is no report. Adjust the budget if needed and start a new run.';
+  const usageOverBudget = Boolean(runDetail && selected) && runDetail!.usage.tokens >= budgetNumber(selected!.budget, 'maxTokens');
 
   return <ToolFrame slug="deep-research" title="Research Projects" description="Run multi-pass research, inspect evidence, and keep discussion and export actions attached to a project run." trace={trace}>
     <ListInspector
@@ -464,9 +531,10 @@ function LiveResearchTool() {
       emptyState={<EmptyState title="No research projects yet">Create a project to keep multi-pass evidence, sources, and discussion in one place.</EmptyState>}
       inspector={(item) => item && selected ? <>
         <header className="detail-header">
-          <div><p>{selected.question}</p></div>
+          <div><p>{selected.question}</p><p className="tool-empty-inline" data-testid="research-budget-summary">Budget: {budgetSummary(selected.budget)}</p></div>
           <div className="row-actions">
             <button className="secondary-button compact" type="button" onClick={() => void startRun()} data-testid="research-start-run"><Icon name="resume" size={13} />Start run</button>
+            <button className="secondary-button compact" type="button" onClick={() => setBudgetDialog(true)} disabled={Boolean(selected.archivedAt)} data-testid="research-edit-budget">Edit budget</button>
             <button className="text-danger-button" type="button" onClick={() => void archiveProject()} disabled={Boolean(selected.archivedAt)} data-testid="research-archive"><Icon name="archive" size={13} />Archive project</button>
           </div>
         </header>
@@ -474,18 +542,23 @@ function LiveResearchTool() {
           <span className={`state-badge ${runDetail.status}`}>{runDetail.status}</span>
           <h3>Run {runDetail.id}</h3>
           {runDetail.status === 'error' && <button className="primary-button" type="button" onClick={() => void resumeRun()} data-testid="research-resume">Resume</button>}
-          {(runDetail.status === 'working' || runDetail.status === 'pending') && <button className="secondary-button compact" type="button" onClick={() => void cancelRun()} data-testid="research-cancel">Cancel</button>}
+          {runActive && <button className="secondary-button compact" type="button" onClick={() => void cancelRun()} data-testid="research-cancel">Cancel</button>}
           <section aria-label="Curated sources"><h4>Sources</h4>{runDetail.sources.length === 0 ? <p className="tool-empty-inline">No sources yet.</p> : <ul>{runDetail.sources.map((source, index) => <li key={typeof source.id === 'string' ? source.id : index}>{sourceLabel(source)}</li>)}</ul>}</section>
           <section aria-label="Run statistics"><h4>Usage</h4><p>{runDetail.usage.tokens} tokens · ${runDetail.usage.costUsd.toFixed(2)}</p></section>
+          {budgetExhausted && <p className="tool-empty-inline" data-testid="research-budget-exhausted">Budget ran out ({Array.isArray(runDetail.diagnostics.reasons) ? runDetail.diagnostics.reasons.map(String).join(', ').replace(/_/g, ' ') : 'limit reached'}){runDetail.diagnostics.finishedWithCurrentEvidence === true ? '; the report was written from the evidence gathered so far, without a critic review.' : '.'}</p>}
+          {reportUnavailable && <p className="tool-empty-inline" id="research-report-unavailable" data-testid="research-report-unavailable">{reportUnavailable}</p>}
+          {canFinish && <p className="tool-empty-inline">Finishing uses the project's current budget{usageOverBudget ? '. This run already used more tokens than that budget, so raise it first if you want to start a discussion afterwards.' : '.'}</p>}
           <div className="row-actions">
-            <button className="secondary-button compact" type="button" onClick={() => void openMagazine()} data-testid="research-magazine">Magazine</button>
-            <button className="secondary-button compact" type="button" onClick={() => void openExport('html')} data-testid="research-export">Export HTML</button>
-            <button className="secondary-button compact" type="button" onClick={() => void discuss()} data-testid="research-discuss">Start discussion</button>
+            {canFinish && <button className="primary-button" type="button" onClick={() => void finishRun()} data-testid="research-finish">Finish with current evidence</button>}
+            <button className="secondary-button compact" type="button" onClick={() => void openMagazine()} disabled={!hasSynthesis} aria-describedby={reportUnavailable ? 'research-report-unavailable' : undefined} data-testid="research-magazine">Magazine</button>
+            <button className="secondary-button compact" type="button" onClick={() => void openExport('html')} disabled={!hasSynthesis} aria-describedby={reportUnavailable ? 'research-report-unavailable' : undefined} data-testid="research-export">Export HTML</button>
+            <button className="secondary-button compact" type="button" onClick={() => void discuss()} disabled={!hasSynthesis} aria-describedby={reportUnavailable ? 'research-report-unavailable' : undefined} data-testid="research-discuss">Start discussion</button>
           </div>
         </article> : <p className="tool-empty-inline">No runs yet for this project.</p>}
       </> : <p>Select a research project to inspect its runs and evidence.</p>}
     />
-    <FocusDialog open={projectDialog} onClose={() => setProjectDialog(false)} title="Create research project" description="Define the project question and evidence goals." testId="research-project-dialog" wide><form className="form-grid" onSubmit={(event) => void createProject(event)}><label className="field">Project name<input name="name" required data-autofocus /></label><label className="field">Domain<input name="domain" defaultValue="operations" /></label><label className="field span-2">Research question<textarea name="question" required rows={3} /></label><label className="field span-2">Goals (one per line)<textarea name="goals" defaultValue="Preserve evidence" rows={3} /></label><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setProjectDialog(false)}>Cancel</button><button className="primary-button" type="submit" data-testid="research-project-create">Create project</button></footer></form></FocusDialog>
+    <FocusDialog open={projectDialog} onClose={() => setProjectDialog(false)} title="Create research project" description="Define the project question and evidence goals." testId="research-project-dialog" wide><form className="form-grid" onSubmit={(event) => void createProject(event)}><label className="field">Project name<input name="name" required data-autofocus /></label><label className="field">Domain<input name="domain" defaultValue="operations" /></label><label className="field span-2">Research question<textarea name="question" required rows={3} /></label><label className="field span-2">Goals (one per line)<textarea name="goals" defaultValue="Preserve evidence" rows={3} /></label><ResearchBudgetFields /><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setProjectDialog(false)}>Cancel</button><button className="primary-button" type="submit" data-testid="research-project-create">Create project</button></footer></form></FocusDialog>
+    <FocusDialog open={budgetDialog && Boolean(selected)} onClose={() => setBudgetDialog(false)} title="Edit research budget" description="Applies to new runs, and to a stopped run when you finish it with current evidence." testId="research-budget-dialog" wide><form className="form-grid" onSubmit={(event) => void saveBudget(event)}><ResearchBudgetFields budget={selected?.budget} /><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setBudgetDialog(false)}>Cancel</button><button className="primary-button" type="submit" data-testid="research-budget-save">Save budget</button></footer></form></FocusDialog>
   </ToolFrame>;
 }
 

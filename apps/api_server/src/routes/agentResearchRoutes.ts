@@ -20,6 +20,7 @@ router.get('/projects/:projectId/runs/:runId/export', (req, res, next) => contro
 router.post('/projects/:projectId/runs/:runId/discussions', (req, res, next) => controller.createProjectDiscussion(req, res, next));
 router.get('/projects/:projectId/runs/:runId', (req, res, next) => controller.getProjectRun(req, res, next));
 router.post('/projects/:projectId/runs/:runId/cancel', (req, res, next) => controller.cancelProjectRun(req, res, next));
+router.post('/projects/:projectId/runs/:runId/finish', (req, res, next) => controller.finishProjectRun(req, res, next));
 router.post('/projects/:projectId/runs/:runId/resume', (req, res, next) => controller.resumeProjectRun(req, res, next));
 router.post('/projects/:projectId/runs/:runId/passes/:passId/cancel', (req, res, next) => controller.cancelProjectPass(req, res, next));
 router.post('/projects/:projectId/runs/:runId/passes/:passId/retry', (req, res, next) => controller.retryProjectPass(req, res, next));

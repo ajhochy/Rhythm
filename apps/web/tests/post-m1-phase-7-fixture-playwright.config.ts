@@ -5,6 +5,7 @@ export default defineConfig({
   testMatch: [
     'post-m1-phase-7-memory.redspec.ts',
     'post-m1-phase-7-research-gallery.redspec.ts',
+    'research-budget-finish.spec.ts',
     'post-m1-phase-7-playbooks-cookbook.redspec.ts',
     'post-m1-phase-7-schedules-quality.redspec.ts',
     'post-m1-phase-7-notifications.redspec.ts',

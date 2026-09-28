@@ -659,6 +659,24 @@ export class AgentResearchRepository {
     return this.getProjectRun(id, ownerUserId);
   }
 
+  /** Re-freezes a run's budget (used by "Finish with current evidence" so a raised project budget applies). */
+  async updateProjectRunBudget(id: string, ownerUserId: number, budget: Record<string, unknown>): Promise<ResearchProjectRun | null> {
+    const current = await this.getProjectRun(id, ownerUserId);
+    if (!current) return null;
+    const snapshot = JSON.stringify({ ...current.configSnapshot, budget });
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        'UPDATE agent_research_project_runs SET config_snapshot_json=$1 WHERE id=$2 AND owner_user_id=$3',
+        [snapshot, id, ownerUserId],
+      );
+    } else {
+      getDb().prepare(
+        'UPDATE agent_research_project_runs SET config_snapshot_json=? WHERE id=? AND owner_user_id=?',
+      ).run(snapshot, id, ownerUserId);
+    }
+    return this.getProjectRun(id, ownerUserId);
+  }
+
   async markDownstreamStagesStale(runId: string, ownerUserId: number): Promise<number> {
     this.requireProjectsEnabled();
     if (!(await this.getProjectRun(runId, ownerUserId))) return 0;

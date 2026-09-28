@@ -885,9 +885,9 @@ Future<void> _showProjectEditor(
       text: project?.modelPolicy['model']?.toString() ?? '');
   final schedule = TextEditingController(text: project?.scheduleRef ?? '');
   final tokens = TextEditingController(
-      text: project?.budget['maxTokens']?.toString() ?? '50000');
+      text: project?.budget['maxTokens']?.toString() ?? '5000000');
   final cost = TextEditingController(
-      text: project?.budget['maxCostUsd']?.toString() ?? '10');
+      text: project?.budget['maxCostUsd']?.toString() ?? '5');
   bool critic = project?.criticConfig['enabled'] != false;
   bool synthesis = project?.synthesisConfig['enabled'] != false;
   bool submitting = false;
