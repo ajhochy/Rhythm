@@ -1287,9 +1287,14 @@ const videoArtifactTypes = new Set(['mp4', 'webm', 'mov']);
 
 function DesignPreview({ design }: { design: AgentDesign }) {
   const [failed, setFailed] = useState(false);
+  const apiBase = useGateway().environment?.apiBase;
+  // Local designs carry API-relative routes (/agent-designs/:id/...); resolve them against the API.
+  const resolve = (url: string | null) => url && url.startsWith('/') ? (apiBase ? `${apiBase}${url}` : null) : url;
+  const artifactUrl = resolve(design.artifactUrl);
+  const thumbnailUrl = resolve(design.thumbnailUrl);
   const type = design.artifactType?.toLowerCase() ?? '';
-  const previewUrl = design.thumbnailUrl ?? ((imageArtifactTypes.has(type) || videoArtifactTypes.has(type)) ? design.artifactUrl : null);
-  if (!failed && videoArtifactTypes.has(type) && design.artifactUrl) return <><video src={design.artifactUrl} poster={design.thumbnailUrl ?? undefined} muted preload="metadata" aria-hidden="true" onError={() => setFailed(true)} /><span>{design.artifactType}</span></>;
+  const previewUrl = thumbnailUrl ?? ((imageArtifactTypes.has(type) || videoArtifactTypes.has(type)) ? artifactUrl : null);
+  if (!failed && videoArtifactTypes.has(type) && artifactUrl) return <><video src={artifactUrl} poster={thumbnailUrl ?? undefined} muted preload="metadata" aria-hidden="true" onError={() => setFailed(true)} /><span>{design.artifactType}</span></>;
   if (!failed && previewUrl) return <><img src={previewUrl} alt="" onError={() => setFailed(true)} /><span>{design.artifactType ?? 'unknown'}</span></>;
   // ponytail: the API's thumbnailUrl is nullable, so rows without a real asset stay honest.
   return <><Icon name={design.artifactType === 'html' ? 'artifact' : 'gallery'} size={28} /><span>{design.artifactType ?? 'unknown'}</span></>;

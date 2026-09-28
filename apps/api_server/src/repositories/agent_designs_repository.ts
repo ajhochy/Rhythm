@@ -29,9 +29,21 @@ export interface CreateAgentDesignInput {
 }
 
 /** Never serialize local filesystem locations to API clients. */
+const PREVIEWABLE_IMAGE_TYPES = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif']);
+
+/**
+ * Local file paths never leave the server; a local design instead points at the routes that serve
+ * it (relative to the API base): /agent-designs/:id/artifact, and /thumbnail (poster) for mp4.
+ */
 export function publicAgentDesign(design: AgentDesign): Omit<AgentDesign, 'filePath'> {
-  const { filePath: _filePath, ...publicDesign } = design;
-  return publicDesign;
+  const { filePath, ...publicDesign } = design;
+  if (!filePath) return publicDesign;
+  const type = design.artifactType?.toLowerCase() ?? '';
+  const artifactUrl = publicDesign.artifactUrl ?? `/agent-designs/${encodeURIComponent(design.id)}/artifact`;
+  const thumbnailUrl = publicDesign.thumbnailUrl
+    ?? (type === 'mp4' ? `/agent-designs/${encodeURIComponent(design.id)}/thumbnail`
+      : PREVIEWABLE_IMAGE_TYPES.has(type) ? artifactUrl : null);
+  return { ...publicDesign, artifactUrl, thumbnailUrl };
 }
 
 function rowToModel(row: Record<string, unknown>): AgentDesign {
