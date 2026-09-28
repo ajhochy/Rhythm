@@ -27,6 +27,7 @@ import { logger } from '../utils/logger';
 import { GEMINI_CODE_ASSIST_PROJECT_ID } from '../config/env';
 import { CredentialsBridgeService } from './credentials_bridge_service';
 import { anthropicAccountsService } from './anthropic_accounts_service';
+import { openaiAccountsService, identityFromTokens } from './openai_accounts_service';
 
 export type UsageBudgetKind = 'quota' | 'credits' | 'window' | 'unavailable';
 
@@ -55,6 +56,8 @@ export interface UsageBudgetProvider {
    * account's usage gauges simultaneously, not just the active/default one.
    */
   accountId?: string;
+  /** True for the account that is currently the provider's default/active one. */
+  isDefault?: boolean;
   /** Account-scoped catalog availability with no credential or account data. */
   entitledModels?: Record<string, boolean>;
 }
@@ -278,40 +281,21 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const safeAccountId = (value: unknown): value is string =>
   typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 
-/** Unofficial read-only Codex endpoint: reject unknown shapes rather than invent quota. */
-async function fetchOpenAI(auth: Record<string, unknown>): Promise<UsageBudgetProvider> {
-  const base: UsageBudgetProvider = { provider: 'openai', label: 'OpenAI', kind: 'unavailable', items: [] };
-  const unavailable = (reason: string): UsageBudgetProvider => ({ ...base, reason });
-  const credential = auth.openai;
-  if (!isRecord(credential) || credential.type !== 'oauth' ||
-      typeof credential.access !== 'string' || !credential.access ||
-      typeof credential.expires !== 'number' || !Number.isFinite(credential.expires) ||
-      credential.expires <= Date.now()) return unavailable('OpenAI credentials unavailable');
-
-  let claims: unknown;
-  try {
-    const parts = credential.access.split('.');
-    if (parts.length !== 3 || !parts.every((part) => /^[A-Za-z0-9_-]+$/.test(part))) return unavailable('OpenAI token unavailable');
-    claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-  } catch {
-    return unavailable('OpenAI token unavailable');
-  }
-  if (!isRecord(claims) || typeof claims.exp !== 'number' ||
-      !Number.isFinite(claims.exp) || claims.exp * 1000 <= Date.now()) {
-    return unavailable('OpenAI token unavailable');
-  }
-  const nested = claims['https://api.openai.com/auth'];
-  const organizations = claims.organizations;
-  const candidates = [credential.accountId, claims.chatgpt_account_id,
-    isRecord(nested) ? nested.chatgpt_account_id : undefined,
-    Array.isArray(organizations) && isRecord(organizations[0]) ? organizations[0].id : undefined];
-  const accountId = candidates.find(safeAccountId);
-  if (!accountId) return unavailable('OpenAI account unavailable');
-
+/**
+ * Probe ONE OpenAI (ChatGPT/Codex) account's usage window via the unofficial
+ * read-only Codex endpoint. Reject unknown shapes rather than invent quota.
+ * Never throws.
+ */
+async function probeOpenAIAccount(
+  access: string,
+  accountId: string,
+  base: UsageBudgetProvider,
+): Promise<UsageBudgetProvider> {
+  const unavailable = (reason: string): UsageBudgetProvider => ({ ...base, kind: 'unavailable', reason });
   try {
     const res = await fetch('https://chatgpt.com/backend-api/wham/usage', {
       method: 'GET',
-      headers: { Authorization: `Bearer ${credential.access}`, 'ChatGPT-Account-Id': accountId,
+      headers: { Authorization: `Bearer ${access}`, 'ChatGPT-Account-Id': accountId,
         'User-Agent': 'codex-cli', Accept: 'application/json' },
       redirect: 'error',
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
@@ -370,16 +354,80 @@ async function fetchOpenAI(auth: Record<string, unknown>): Promise<UsageBudgetPr
   }
 }
 
+/**
+ * One UsageBudgetProvider entry PER connected OpenAI account, probed
+ * concurrently — the OpenAI sibling of fetchAnthropic (#907). Falls back to
+ * the legacy single-credential path (engine auth.json) when the accounts
+ * store has nothing yet.
+ */
+async function fetchOpenAI(auth: Record<string, unknown>): Promise<UsageBudgetProvider[]> {
+  const { accounts, defaultAccountId } = openaiAccountsService.listRedacted();
+
+  if (accounts.length > 0) {
+    return Promise.all(
+      accounts.map((account) => {
+        const base: UsageBudgetProvider = {
+          provider: 'openai',
+          label: `OpenAI — ${account.label}`,
+          kind: 'window',
+          items: [],
+          accountId: account.id,
+          isDefault: account.id === defaultAccountId,
+        };
+        if (account.status !== 'ok') {
+          return { ...base, kind: 'unavailable' as const, reason: 'Account needs re-login' };
+        }
+        const full = openaiAccountsService.getAccount(account.id);
+        const chatgptAccountId = full?.chatgptAccountId ?? identityFromTokens({ access_token: full?.access }).chatgptAccountId;
+        if (!full?.access || !chatgptAccountId) {
+          return { ...base, kind: 'unavailable' as const, reason: 'OpenAI account unavailable' };
+        }
+        return probeOpenAIAccount(full.access, chatgptAccountId, base);
+      }),
+    );
+  }
+
+  const base: UsageBudgetProvider = { provider: 'openai', label: 'OpenAI', kind: 'unavailable', items: [] };
+  const unavailable = (reason: string): UsageBudgetProvider => ({ ...base, reason });
+  const credential = auth.openai;
+  if (!isRecord(credential) || credential.type !== 'oauth' ||
+      typeof credential.access !== 'string' || !credential.access ||
+      typeof credential.expires !== 'number' || !Number.isFinite(credential.expires) ||
+      credential.expires <= Date.now()) return [unavailable('OpenAI credentials unavailable')];
+
+  let claims: unknown;
+  try {
+    const parts = credential.access.split('.');
+    if (parts.length !== 3 || !parts.every((part) => /^[A-Za-z0-9_-]+$/.test(part))) return [unavailable('OpenAI token unavailable')];
+    claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+  } catch {
+    return [unavailable('OpenAI token unavailable')];
+  }
+  if (!isRecord(claims) || typeof claims.exp !== 'number' ||
+      !Number.isFinite(claims.exp) || claims.exp * 1000 <= Date.now()) {
+    return [unavailable('OpenAI token unavailable')];
+  }
+  const nested = claims['https://api.openai.com/auth'];
+  const organizations = claims.organizations;
+  const candidates = [credential.accountId, claims.chatgpt_account_id,
+    isRecord(nested) ? nested.chatgpt_account_id : undefined,
+    Array.isArray(organizations) && isRecord(organizations[0]) ? organizations[0].id : undefined];
+  const accountId = candidates.find(safeAccountId);
+  if (!accountId) return [unavailable('OpenAI account unavailable')];
+
+  return [await probeOpenAIAccount(credential.access, accountId, base)];
+}
+
 async function buildSnapshot(): Promise<UsageBudgetSnapshot> {
   const auth = readAuthJson();
-  const [gemini, openrouter, anthropicAccounts, openai] = await Promise.all([
+  const [gemini, openrouter, anthropicAccounts, openaiAccounts] = await Promise.all([
     fetchGemini(auth),
     fetchOpenRouter(auth),
     fetchAnthropic(auth),
     fetchOpenAI(auth),
   ]);
   return {
-    providers: [...anthropicAccounts, openrouter, gemini, openai],
+    providers: [...anthropicAccounts, openrouter, gemini, ...openaiAccounts],
     fetchedAt: new Date().toISOString(),
   };
 }

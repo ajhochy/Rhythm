@@ -25,6 +25,21 @@ const anthropicMocks = vi.hoisted(() => ({
 }));
 vi.mock('./anthropic_accounts_service', () => ({ anthropicAccountsService: anthropicMocks }));
 
+// Same rationale as anthropicMocks: keep the OpenAI multi-account path
+// deterministic regardless of the host machine's real ~/Library/.../
+// openai-accounts.json. identityFromTokens is kept real (pure JWT parsing).
+const openaiMocks = vi.hoisted(() => ({
+  listRedacted: vi.fn<() => { accounts: Array<{ id: string; label: string; status: string }>; defaultAccountId: string | null }>(),
+  getAccount: vi.fn<(_id: string) => undefined | { id: string; label: string; status: string; access: string; refresh: string; expires: number; chatgptAccountId?: string }>(),
+}));
+vi.mock('./openai_accounts_service', () => ({
+  openaiAccountsService: openaiMocks,
+  // Real JWT-claims fallback is exercised only by the legacy single-credential
+  // path below, which always supplies chatgptAccountId directly; a no-op here
+  // keeps this mock free of the anthropic_accounts_service dependency chain.
+  identityFromTokens: () => ({}),
+}));
+
 vi.mock('fs', () => ({
   existsSync: vi.fn().mockReturnValue(false),
   readFileSync: vi.fn(),
@@ -46,6 +61,8 @@ beforeEach(() => {
   vi.mocked(readFileSync).mockReset();
   anthropicMocks.listRedacted.mockReset().mockReturnValue({ accounts: [], defaultAccountId: null });
   anthropicMocks.getAccount.mockReset().mockReturnValue(undefined);
+  openaiMocks.listRedacted.mockReset().mockReturnValue({ accounts: [], defaultAccountId: null });
+  openaiMocks.getAccount.mockReset().mockReturnValue(undefined);
   unexpectedFetch.mockClear();
   vi.stubGlobal('fetch', unexpectedFetch);
 });
@@ -440,5 +457,61 @@ describe('getUsageBudget — #907 multiple Anthropic accounts', () => {
       expect(entry.kind).toBe('unavailable');
       expect(entry.reason).toBe('Account needs re-login');
     }
+  });
+});
+
+// Issue: OpenAI usage should report per-account like Anthropic (#907's sibling)
+// now that the user has two ChatGPT/Codex accounts in openai_accounts_service.
+describe('getUsageBudget — multiple OpenAI accounts', () => {
+  const windowResponse = (used_percent: number) =>
+    new Response(
+      JSON.stringify({ rate_limit: { primary_window: { used_percent, limit_window_seconds: 18000, reset_at: 2_000_000_000 } } }),
+      { headers: { 'content-type': 'application/json' } },
+    );
+
+  it('returns one entry per stored account with distinct labels/accountIds, marks the default, and a needs_relogin account does not drop the working one', async () => {
+    openaiMocks.listRedacted.mockReturnValue({
+      accounts: [
+        { id: 'default', label: 'ajh@visaliacrc.com', status: 'ok' },
+        { id: 'openai-2', label: 'ajhochy', status: 'needs_relogin' },
+      ],
+      defaultAccountId: 'openai-2',
+    });
+    openaiMocks.getAccount.mockImplementation((id: string) =>
+      id === 'default'
+        ? { id, label: 'ajh@visaliacrc.com', status: 'ok', access: 'tok-default', refresh: 'r', expires: Date.now() + 1000, chatgptAccountId: 'acct-default' }
+        : undefined);
+    const fetchMock = vi.fn();
+    fetchMock.mockImplementation(async () => windowResponse(25));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const snapshot = await getUsageBudget({ force: true });
+    const entries = snapshot.providers.filter((p) => p.provider === 'openai');
+    expect(entries).toHaveLength(2);
+    const byId = Object.fromEntries(entries.map((e) => [e.accountId, e]));
+
+    expect(byId.default.label).toBe('OpenAI — ajh@visaliacrc.com');
+    expect(byId.default.kind).toBe('window');
+    expect(byId.default.isDefault).toBe(false);
+    expect(byId.default.items).toEqual([{ label: '5h limit', remainingFraction: 0.75, resetAt: new Date(2_000_000_000_000).toISOString() }]);
+
+    expect(byId['openai-2'].label).toBe('OpenAI — ajhochy');
+    expect(byId['openai-2'].kind).toBe('unavailable');
+    expect(byId['openai-2'].reason).toBe('Account needs re-login');
+    expect(byId['openai-2'].isDefault).toBe(true);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1].headers['ChatGPT-Account-Id']).toBe('acct-default');
+  });
+
+  it('falls back to the legacy single unlabeled entry when the accounts store is empty', async () => {
+    openaiMocks.listRedacted.mockReturnValue({ accounts: [], defaultAccountId: null });
+
+    const snapshot = await getUsageBudget({ force: true });
+    const entries = snapshot.providers.filter((p) => p.provider === 'openai');
+    expect(entries).toHaveLength(1);
+    expect(entries[0].label).toBe('OpenAI');
+    expect(entries[0].accountId).toBeUndefined();
+    expect(entries[0].kind).toBe('unavailable');
   });
 });
