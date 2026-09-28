@@ -1,0 +1,50 @@
+{
+  "issue": 1387,
+  "date": "2026-09-27",
+  "test_command": "npm test -- --runInBand tests/contract/issue-1387-false-offline-after-send.test.tsx tests/contract/ios-chat-integration.test.ts tests/post-prompt-refresh.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1387-c19",
+      "text": "A prompt accepted by the Mac before response loss is provisionally accepted on mobile, remains fenced against duplicate POSTs, preserves the open transcript, and converges through bounded reads.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/contract/issue-1387-false-offline-after-send.test.tsx: issue-1387-c19 and issue-1387-c19-accepted",
+      "status": "pass",
+      "evidence": "Repaired real-helper contract passed issue-1387-c19 and issue-1387-c19-accepted: first loss remained uncertain, recovered resend reconciled before posting, promptAsync stayed at one call, accepted-visible loss returned true with cleared draft/no prompt error, transcript converged to one user and one assistant turn."
+    },
+    {
+      "criterion_id": "issue-1387-c20",
+      "text": "A confirmed notAccepted prompt rejects, exposes a definitive error, restores the original draft, and stops dispatched working sound; a pre-dispatch persistence failure performs no POST or acceptance reconciliation.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/contract/issue-1387-false-offline-after-send.test.tsx: issue-1387-c20, issue-1387-working-sound, and ios-chat-integration-c3",
+      "status": "pass",
+      "evidence": "Repaired contract passed confirmed notAccepted rejection/draft/error, dispatched iOS working-sound start then stop, and pre-dispatch persistence rejection with zero promptAsync, zero status/message reconciliation, zero sound start, and restored draft."
+    },
+    {
+      "criterion_id": "ios-chat-integration-c3",
+      "text": "Failed sends restore only their session without overwriting newer typing; failures before dispatch restore without posting or reconciling acceptance.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/contract/ios-chat-integration.test.ts: ios-chat-integration-c3; apps/mobile/tests/contract/issue-1387-false-offline-after-send.test.tsx: ios-chat-integration-c3",
+      "status": "pass",
+      "evidence": "ios-chat-integration-c3 plus the provider pre-dispatch test passed; session-isolated restoration remains covered and profile persistence rejection never dispatches or reconciles."
+    },
+    {
+      "criterion_id": "ios-chat-integration-c4",
+      "text": "Uncertain prompt acceptance reconciles through reads, never retries the POST automatically, and schedules one bounded convergence refresh.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/contract/ios-chat-integration.test.ts: ios-chat-integration-c4; apps/mobile/tests/contract/issue-1387-false-offline-after-send.test.tsx: issue-1387-uncertain-refresh",
+      "status": "pass",
+      "evidence": "ios-chat-integration-c4 and issue-1387-uncertain-refresh passed using the actual reconcilePromptAcceptance implementation. The provider scheduled exactly one 1000ms bounded refresh and no second 1000ms timer; sessions/messages/diff/todos each refreshed once before the normal independent 5s safety poll."
+    },
+    {
+      "criterion_id": "issue-1285-c20",
+      "text": "After prompt_async accepts a mobile turn, mobile must refresh until the new assistant turn is observable so a connected-but-filtered event stream cannot leave the response invisible.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/post-prompt-refresh.test.ts: issue-1285-c20; apps/mobile/tests/contract/issue-1387-false-offline-after-send.test.tsx: issue-1387-c19",
+      "status": "pass",
+      "evidence": "issue-1285-c20 helper coverage and the issue-1387 converged transcript assertion passed; delayed assistant visibility remains read-polled without automatic POST retries."
+    }
+  ],
+  "not_tested": [],
+  "notes": "This repair intentionally includes only c19, c20, ios-chat-integration-c3/c4, and issue-1285-c20; it does not fabricate historical issue-1387 c1-c27 entries. RED evidence after removing the reconcile mock: 3 suites ran, 5 tests failed and 8 passed; failures exposed fixture timing/state assumptions and the previously forced notAccepted result. GREEN contract: 3 suites and 13 tests passed. Focused chat/provider gate: 16 suites and 115 tests passed; provider source contracts: 4 passed; lint: 0 errors/4 existing warnings; typecheck passed; full web E2E: 71 passed/1 skipped. Full Jest baseline: 42 suites passed, 2 failed; 207 tests passed, 4 known failures remained: issue-1387-c22 and c24 in issue-1387-offline-cold-relaunch.test.tsx, plus c26 and c27 in issue-1387-offline-sessions-state.test.tsx. Those four failures are outside this repair scope and are evidence notes, not waivers. No product code changed during evidence repair attempt 1."
+}

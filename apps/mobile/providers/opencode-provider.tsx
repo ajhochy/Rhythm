@@ -3149,6 +3149,8 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             uncertainPromptBySessionRef.current.delete(sessionId);
           } else if (outcome === 'uncertain') {
             uncertainPromptBySessionRef.current.set(sessionId, uncertainAttempt);
+            scheduleSessionRefresh(sessionId, { sessions: true, messages: true, diff: true, todos: true, delayMs: 1000 });
+            return true;
           }
         }
         if (promptAccepted) {
