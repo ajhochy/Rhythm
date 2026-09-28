@@ -29,7 +29,7 @@ test('E21-c5 real second HTTP client mutations reconcile visible rail and select
     expect(sockets).toHaveLength(1);
     await page.getByTestId('session-search-toggle').click();
     await page.getByTestId('session-search').fill(prefix);
-    await page.getByTestId('session-sort').selectOption('name');
+    await page.getByRole('button', { name: 'View options', exact: true }).click(); await page.getByTestId('session-sort-name').click();
     const other = await create('A-external');
     await expect(page.getByTestId(`session-${other}`)).toContainText(`${prefix}-A-external`);
     await expect(page.locator('button.session-row').first()).toHaveAttribute('data-testid', `session-${other}`);

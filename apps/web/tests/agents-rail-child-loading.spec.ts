@@ -42,8 +42,8 @@ async function open(page: Page, options: { hold?: boolean; failFirst?: boolean; 
   await page.route('**/tests/rail-children-fixture.html', route => route.fulfill({ contentType: 'text/html', body: `<!doctype html><html lang="en"><head><title>Rail fixture</title></head><body><div id="root"></div><script type="module">
     import RefreshRuntime from '/@react-refresh';
     RefreshRuntime.injectIntoGlobalHook(window); window.$RefreshReg$ = () => {}; window.$RefreshSig$ = () => type => type; window.__vite_plugin_react_preamble_installed__ = true;
-    const {default: React} = await import('/node_modules/.vite/deps/react.js');
-    const {default: {createRoot}} = await import('/node_modules/.vite/deps/react-dom_client.js');
+    const {default: React} = await import('/.vite/deps/react.js');
+    const {default: {createRoot}} = await import('/.vite/deps/react-dom_client.js');
     const {FixtureProvider, useFixtures} = await import('/src/store.tsx');
     const {composeGateway} = await import('/src/gateway/index.ts');
     const {GatewayProvider} = await import('/src/gateway/context.tsx');
@@ -125,7 +125,8 @@ for (const theme of ['light', 'dark']) test(`continuations are accessible at 200
   await open(page);
   await page.evaluate(theme => { document.documentElement.dataset.theme = theme; document.documentElement.dir = 'rtl'; document.documentElement.style.zoom = '2'; document.querySelector('main')!.style.width = '228px'; }, theme);
   const loader = page.locator('[data-load-parent="parent-one"]');
-  expect(await loader.evaluate(element => parseFloat(getComputedStyle(element).minHeight))).toBeGreaterThanOrEqual(44);
+  // Mouse/trackpad layout is the dense rail: WCAG 2.5.8 AA 24px minimum (touch keeps 44px, below).
+  expect(await loader.evaluate(element => parseFloat(getComputedStyle(element).minHeight))).toBeGreaterThanOrEqual(24);
   expect(await loader.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
   await loader.focus();
   await loader.press('Tab');
@@ -134,4 +135,15 @@ for (const theme of ['light', 'dark']) test(`continuations are accessible at 200
   const result = await new AxeBuilder({ page }).include('.session-rail').analyze();
   expect(result.violations).toEqual([]);
   await page.getByRole('complementary', { name: 'Agents', exact: true }).screenshot({ path: testInfo.outputPath(`child-loading-${theme}.png`) });
+});
+
+test.describe('touch', () => {
+  test.use({ hasTouch: true });
+  test('continuations keep 44px targets on a coarse pointer', async ({ page }) => {
+    await open(page);
+    expect(await page.evaluate(() => matchMedia('(any-pointer: coarse)').matches)).toBe(true);
+    const loader = page.locator('[data-load-parent="parent-one"]');
+    expect(await loader.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+    expect(await page.getByTestId('session-parent-one').evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+  });
 });

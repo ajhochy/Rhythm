@@ -34,11 +34,12 @@ test('selected focus and repeated reduced-motion toasts remain visible', async (
   await selected.focus();
   expect(await selected.evaluate((item) => getComputedStyle(item).outlineStyle)).not.toBe('none');
 
-  const refresh = page.getByTestId('sessions-refresh');
-  await refresh.click();
+  // Refresh lives in the rail header's View options menu.
+  const refresh = async () => { await page.getByRole('button', { name: 'View options', exact: true }).click(); await page.getByTestId('sessions-refresh').click(); };
+  await refresh();
   const toast = page.getByTestId('toast-status');
   await expect(toast).toHaveAttribute('data-visible', 'true');
-  await refresh.click();
+  await refresh();
   await expect(toast).toHaveAttribute('data-visible', 'true');
   await page.waitForTimeout(50);
   expect(Number(await toast.evaluate((item) => getComputedStyle(item).opacity))).toBeGreaterThan(0.9);

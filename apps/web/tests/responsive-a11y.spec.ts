@@ -19,6 +19,8 @@ for (const size of sizes) {
     await openFixture(page);
     await expectNoPageOverflow(page);
     if (await page.getByTestId('rail-expand').isVisible().catch(() => false)) await page.getByTestId('rail-expand').click();
+    // Tools sit behind the rail's More disclosure.
+    if (await page.getByTestId('rail-more').getAttribute('aria-expanded') !== 'true') await page.getByTestId('rail-more').click(); 
     for (const id of ['new-chat-instant', 'tool-profiles']) {
       const control = page.getByTestId(id);
       await control.scrollIntoViewIfNeeded();

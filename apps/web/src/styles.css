@@ -219,7 +219,6 @@ textarea { width: 100%; padding: 10px 12px; resize: vertical; }
 .subagent-disclosure span { overflow: hidden; text-overflow: ellipsis; }
 .subagent-disclosure:hover { color: var(--fg); }
 .rail-empty { margin: 0; padding: 6px 24px 9px; color: var(--muted); font-size: 10px; }
-.tools-resizer { flex-basis: 8px; border-top: 1px solid var(--border-soft); border-bottom: 1px solid var(--border-soft); }
 .tools-nav { min-height: 150px; flex: 0 0 auto; overflow: auto; padding: 6px 7px; }
 .rail-section-label { display: block; padding: 4px 8px 6px; }
 .tools-nav button, .rail-account button { width: 100%; min-height: 42px; display: grid; grid-template-columns: 20px minmax(0, 1fr) 14px; align-items: center; gap: 8px; padding: 5px 8px; border: 0; border-radius: var(--r-sm); color: var(--fg-2); background: transparent; cursor: pointer; text-align: left; }
@@ -885,7 +884,6 @@ code, pre { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
   .icon-button.small, .rail-glyph, .session-overflow-button, .file-viewer header button, .attachment-chip button { min-width: 44px; min-height: 44px; width: 44px; height: 44px; }
   .scope-tabs button, .tools-nav button, .rail-account button, .toggle-button, .prepare-button, .load-older-wrap button, .composer-selects select, .inspector-header [role="tab"], .message-actions button, .command-chips button, .todo-title, .file-list button, .group-toggle, .segmented-control button, .research-tabs button { min-height: 44px; }
   .check-label, .check-stack label, .switch-label, .capability-columns label, .radio-row { min-height: 44px; }
-  .tools-resizer { min-height: 16px; }
 }
 
 @media (forced-colors: active) {

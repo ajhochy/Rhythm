@@ -30,8 +30,8 @@ test('1565:remaining-literals-and-adhoc-formatters:1 live automation overview ha
     window.$RefreshReg$ = () => {};
     window.$RefreshSig$ = () => type => type;
     window.__vite_plugin_react_preamble_installed__ = true;
-    const { default: React } = await import('/node_modules/.vite/deps/react.js');
-    const { default: { createRoot } } = await import('/node_modules/.vite/deps/react-dom_client.js');
+    const { default: React } = await import('/.vite/deps/react.js');
+    const { default: { createRoot } } = await import('/.vite/deps/react-dom_client.js');
     const { FixtureProvider } = await import('/src/store.tsx');
     const { GatewayProvider } = await import('/src/gateway/context.tsx');
     const { composeGateway } = await import('/src/gateway/index.ts');

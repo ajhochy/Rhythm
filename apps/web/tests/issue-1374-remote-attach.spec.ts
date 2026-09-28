@@ -85,7 +85,7 @@ test('1374:remote-attach-ui:1 flag off shows no remote UI and leaves the local s
 test('1374:remote-attach-ui:2 lists computers, then sessions labeled "Running on <name>"', async ({ page }) => {
   await page.addInitScript(installRemoteFixture, baseConfig);
   await page.goto('/tests/electron-e22-harness.html');
-  await page.getByTestId('rail-remote-computers').click();
+  if (await page.getByTestId('rail-more').getAttribute('aria-expanded') !== 'true') await page.getByTestId('rail-more').click(); await page.getByTestId('rail-remote-computers').click();
   const list = page.getByRole('navigation', { name: 'Remote computers list' });
   await expect(list).toContainText('Rhythm Mac');
   await expect(list).toContainText('Kitchen Mac');
@@ -106,7 +106,7 @@ test('1374:remote-attach-ui:3 attaching streams the transcript', async ({ page }
     };
   });
   await page.goto('/tests/electron-e22-harness.html');
-  await page.getByTestId('rail-remote-computers').click();
+  if (await page.getByTestId('rail-more').getAttribute('aria-expanded') !== 'true') await page.getByTestId('rail-more').click(); await page.getByTestId('rail-remote-computers').click();
   await page.getByTestId('remote-environment-primary').click();
   await page.getByTestId('remote-session-ses_remote_1').click();
   const transcript = page.getByLabel('Remote session running on Rhythm Mac');
@@ -125,7 +125,7 @@ test('1374:remote-attach-ui:4 permission and question prompts are answerable', a
     };
   });
   await page.goto('/tests/electron-e22-harness.html');
-  await page.getByTestId('rail-remote-computers').click();
+  if (await page.getByTestId('rail-more').getAttribute('aria-expanded') !== 'true') await page.getByTestId('rail-more').click(); await page.getByTestId('rail-remote-computers').click();
   await page.getByTestId('remote-environment-primary').click();
   await page.getByTestId('remote-session-ses_remote_1').click();
   const decision = page.getByRole('group', { name: 'Permission requested' });
@@ -137,7 +137,7 @@ test('1374:remote-attach-ui:4 permission and question prompts are answerable', a
 test('1374:remote-attach-ui:5 Cancel stops the turn via the abort path', async ({ page }) => {
   await page.addInitScript(installRemoteFixture, baseConfig);
   await page.goto('/tests/electron-e22-harness.html');
-  await page.getByTestId('rail-remote-computers').click();
+  if (await page.getByTestId('rail-more').getAttribute('aria-expanded') !== 'true') await page.getByTestId('rail-more').click(); await page.getByTestId('rail-remote-computers').click();
   await page.getByTestId('remote-environment-primary').click();
   await page.getByTestId('remote-session-ses_remote_1').click();
   await page.getByRole('button', { name: 'Cancel' }).click();
@@ -147,7 +147,7 @@ test('1374:remote-attach-ui:5 Cancel stops the turn via the abort path', async (
 test('1374:remote-attach-ui:6 create, delete and worktree controls are disabled with an explanation', async ({ page }) => {
   await page.addInitScript(installRemoteFixture, baseConfig);
   await page.goto('/tests/electron-e22-harness.html');
-  await page.getByTestId('rail-remote-computers').click();
+  if (await page.getByTestId('rail-more').getAttribute('aria-expanded') !== 'true') await page.getByTestId('rail-more').click(); await page.getByTestId('rail-remote-computers').click();
   await page.getByTestId('remote-environment-primary').click();
   await page.getByTestId('remote-session-ses_remote_1').click();
   const transcript = page.getByLabel('Remote session running on Rhythm Mac');
@@ -160,7 +160,7 @@ test('1374:remote-attach-ui:6 create, delete and worktree controls are disabled 
 test('1374:remote-attach-ui:7 an offline Mac renders a distinct, actionable state', async ({ page }) => {
   await page.addInitScript(installRemoteFixture, baseConfig);
   await page.goto('/tests/electron-e22-harness.html');
-  await page.getByTestId('rail-remote-computers').click();
+  if (await page.getByTestId('rail-more').getAttribute('aria-expanded') !== 'true') await page.getByTestId('rail-more').click(); await page.getByTestId('rail-remote-computers').click();
   await page.getByTestId('remote-environment-kitchen').click();
   await expect(page.getByRole('alert')).toContainText('Kitchen Mac is offline');
   await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
@@ -169,7 +169,7 @@ test('1374:remote-attach-ui:7 an offline Mac renders a distinct, actionable stat
 test('1374:remote-attach-ui:8 a revoked grant renders a distinct state with Reconnect', async ({ page }) => {
   await page.addInitScript(installRemoteFixture, { ...baseConfig, responses: [{ method: 'GET', path: '/mobile-gateway/opencode/experimental/session', result: { state: 'revoked' } }] });
   await page.goto('/tests/electron-e22-harness.html');
-  await page.getByTestId('rail-remote-computers').click();
+  if (await page.getByTestId('rail-more').getAttribute('aria-expanded') !== 'true') await page.getByTestId('rail-more').click(); await page.getByTestId('rail-remote-computers').click();
   await page.getByTestId('remote-environment-primary').click();
   await expect(page.getByRole('alert')).toContainText('revoked');
   await expect(page.getByRole('button', { name: 'Reconnect' })).toBeVisible();
@@ -178,7 +178,7 @@ test('1374:remote-attach-ui:8 a revoked grant renders a distinct state with Reco
 test('1374:remote-attach-ui:9 a 409 session_busy prompt renders a distinct busy state', async ({ page }) => {
   await page.addInitScript(installRemoteFixture, { ...baseConfig, responses: [...baseConfig.responses, { method: 'POST', path: '/mobile-gateway/opencode/session/ses_remote_1/prompt_async', result: { state: 'ok', status: 409, body: JSON.stringify({ error: 'session_busy' }) } }] });
   await page.goto('/tests/electron-e22-harness.html');
-  await page.getByTestId('rail-remote-computers').click();
+  if (await page.getByTestId('rail-more').getAttribute('aria-expanded') !== 'true') await page.getByTestId('rail-more').click(); await page.getByTestId('rail-remote-computers').click();
   await page.getByTestId('remote-environment-primary').click();
   await page.getByTestId('remote-session-ses_remote_1').click();
   await page.getByLabel('Message').fill('are you there?');
@@ -215,7 +215,7 @@ test('1374:remote-attach-ui:11 retrying a failed prompt reuses the same clientMe
     };
   }, baseConfig);
   await page.goto('/tests/electron-e22-harness.html');
-  await page.getByTestId('rail-remote-computers').click();
+  if (await page.getByTestId('rail-more').getAttribute('aria-expanded') !== 'true') await page.getByTestId('rail-more').click(); await page.getByTestId('rail-remote-computers').click();
   await page.getByTestId('remote-environment-primary').click();
   await page.getByTestId('remote-session-ses_remote_1').click();
   await page.getByLabel('Message').fill('are you there?');
@@ -238,7 +238,7 @@ test('1374:remote-attach-ui:11 retrying a failed prompt reuses the same clientMe
 test('1374:remote-attach-ui:10 the computer list and an attached transcript have no serious or critical axe violations', async ({ page }) => {
   await page.addInitScript(installRemoteFixture, baseConfig);
   await page.goto('/tests/electron-e22-harness.html');
-  await page.getByTestId('rail-remote-computers').click();
+  if (await page.getByTestId('rail-more').getAttribute('aria-expanded') !== 'true') await page.getByTestId('rail-more').click(); await page.getByTestId('rail-remote-computers').click();
   let result = await new AxeBuilder({ page }).include('[aria-label="Remote computers"]').analyze();
   expect(result.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([]);
   await page.getByTestId('remote-environment-primary').click();

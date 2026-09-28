@@ -29,6 +29,8 @@ export type LocalUserPreferences = {
   sessionSort: SessionSort;
   archivedOnly: boolean;
   compact: boolean;
+  /** Agents rail "More" tools disclosure. */
+  toolsExpanded: boolean;
   requireDestructiveModal: boolean;
   newSessionKey: NewSessionKey;
   cancelTurnKey: CancelTurnKey;
@@ -36,7 +38,7 @@ export type LocalUserPreferences = {
 };
 
 export const DEFAULT_LOCAL_USER_PREFERENCES: LocalUserPreferences = {
-  theme: 'dark', sendKey: 'Enter', sessionSort: 'newest', archivedOnly: false, compact: false, requireDestructiveModal: false,
+  theme: 'dark', sendKey: 'Enter', sessionSort: 'newest', archivedOnly: false, compact: true, toolsExpanded: false, requireDestructiveModal: false,
   newSessionKey: 'Meta+N', cancelTurnKey: 'Escape', switchSessionKey: 'Meta+BracketLeft/Right',
 };
 export const USER_PREFERENCES_CHANGED_EVENT = 'rhythm:user-preferences-changed';
@@ -56,7 +58,9 @@ export function readLocalUserPreferences(
       sendKey: value.sendKey === 'Meta+Enter' ? 'Meta+Enter' : 'Enter',
       sessionSort: ['newest', 'oldest', 'name', 'activity', 'status'].includes(value.sessionSort ?? '') ? value.sessionSort! : 'newest',
       archivedOnly: value.archivedOnly === true,
-      compact: value.compact === true,
+      // Dense single-line rows are the default; Comfortable is opt-in.
+      compact: value.compact !== false,
+      toolsExpanded: value.toolsExpanded === true,
       requireDestructiveModal: value.requireDestructiveModal === true,
       newSessionKey: value.newSessionKey === 'Meta+Shift+N' ? 'Meta+Shift+N' : 'Meta+N',
       cancelTurnKey: value.cancelTurnKey === 'Meta+Period' ? 'Meta+Period' : 'Escape',

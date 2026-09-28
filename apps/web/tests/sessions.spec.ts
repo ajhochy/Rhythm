@@ -51,7 +51,11 @@ test.describe('session rail and lifecycle', () => {
     await expect(page.getByText('No sessions match.')).toBeVisible();
     await expect(page.locator('.session-group')).toHaveCount(0);
     await page.getByTestId('session-search').fill('');
-    await page.getByTestId('session-sort').selectOption('name');
+    await page.getByRole('button', { name: 'View options', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: 'Name', exact: true }).click();
+    await page.getByRole('button', { name: 'View options', exact: true }).click();
+    await expect(page.getByRole('menuitemradio', { name: 'Name', exact: true })).toHaveAttribute('aria-checked', 'true');
+    await page.keyboard.press('Escape');
     await page.getByTestId('scope-scheduled').click();
     await expect(page.getByTestId('session-session-queued')).toContainText('Monday planning digest');
     await page.getByTestId('scope-background').click();

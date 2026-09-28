@@ -35,8 +35,8 @@ async function open(page: Page, mode: 'live' | 'fixture', mock = true) {
   await page.route('**/tests/live-demo-contract.html', route => route.fulfill({ contentType: 'text/html', body: `<!doctype html><div id="root"></div><script type="module">
     import RefreshRuntime from '/@react-refresh';
     RefreshRuntime.injectIntoGlobalHook(window); window.$RefreshReg$ = () => {}; window.$RefreshSig$ = () => type => type; window.__vite_plugin_react_preamble_installed__ = true;
-    const {default: React} = await import('/node_modules/.vite/deps/react.js');
-    const {default: {createRoot}} = await import('/node_modules/.vite/deps/react-dom_client.js');
+    const {default: React} = await import('/.vite/deps/react.js');
+    const {default: {createRoot}} = await import('/.vite/deps/react-dom_client.js');
     const {App} = await import('/src/App.tsx');
     const {FixtureProvider, useFixtures} = await import('/src/store.tsx');
     const {composeGateway} = await import('/src/gateway/index.ts');

@@ -54,8 +54,8 @@ async function open(page: Page) {
   await page.route('**/tests/project-plus-fixture.html', route => route.fulfill({ contentType: 'text/html', body: `<!doctype html><html lang="en"><head><title>Project plus fixture</title></head><body><div id="root"></div><script type="module">
     import RefreshRuntime from '/@react-refresh';
     RefreshRuntime.injectIntoGlobalHook(window); window.$RefreshReg$ = () => {}; window.$RefreshSig$ = () => type => type; window.__vite_plugin_react_preamble_installed__ = true;
-    const {default: React} = await import('/node_modules/.vite/deps/react.js');
-    const {default: {createRoot}} = await import('/node_modules/.vite/deps/react-dom_client.js');
+    const {default: React} = await import('/.vite/deps/react.js');
+    const {default: {createRoot}} = await import('/.vite/deps/react-dom_client.js');
     const {FixtureProvider} = await import('/src/store.tsx');
     const {composeGateway} = await import('/src/gateway/index.ts');
     const {GatewayProvider} = await import('/src/gateway/context.tsx');

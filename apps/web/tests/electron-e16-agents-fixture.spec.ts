@@ -20,7 +20,7 @@ test('E16 fixture separation: Cancel and attachments stay local; profile fixture
   await expect(page.locator('.attachment-chip')).toHaveCount(0);
   await page.getByTestId('session-session-sunday-handoff').click();
   await expect(page.locator('.attachment-chip')).toHaveCount(1);
-  await page.getByTestId('tool-profiles').click();
+  if (await page.getByTestId('rail-more').getAttribute('aria-expanded') !== 'true') await page.getByTestId('rail-more').click(); await page.getByTestId('tool-profiles').click();
   await expect(page.getByTestId('profile-managed-skills')).toBeEnabled();
   await page.getByTestId('profile-account').selectOption('Research account');
   await page.getByTestId('profile-save').click();

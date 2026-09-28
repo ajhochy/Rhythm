@@ -26,19 +26,21 @@ test.describe('product shell', () => {
     const studio = page.frameLocator('[data-testid="studio-sandbox"]');
     await expect(studio.getByTestId('connection-status')).toBeVisible();
 
-    const sort = studio.getByTestId('session-sort');
-    await expect(sort).toHaveValue('newest');
-    await sort.selectOption('name');
-    await expect(sort).toHaveValue('newest');
+    const viewOptions = studio.getByRole('button', { name: 'View options' });
+    await viewOptions.click();
+    await expect(studio.getByRole('menuitemradio', { name: 'Date · newest' })).toHaveAttribute('aria-checked', 'true');
+    await studio.getByRole('menuitemradio', { name: 'Name', exact: true }).click();
     await expect(studio.getByTestId('toast-status')).toContainText('View preference could not be saved');
+    await viewOptions.click();
+    await expect(studio.getByRole('menuitemradio', { name: 'Date · newest' })).toHaveAttribute('aria-checked', 'true');
 
-    await studio.getByRole('button', { name: 'View options' }).click();
     await studio.getByRole('menuitemcheckbox', { name: 'View archived sessions' }).click();
-    await studio.getByRole('button', { name: 'View options' }).click();
+    await viewOptions.click();
     await expect(studio.getByRole('menuitemcheckbox', { name: 'View archived sessions' })).toHaveAttribute('aria-checked', 'false');
-    await studio.getByRole('menuitemradio', { name: 'Compact' }).click();
-    await studio.getByRole('button', { name: 'View options' }).click();
-    await expect(studio.getByRole('menuitemradio', { name: 'Comfortable' })).toHaveAttribute('aria-checked', 'true');
+    // Compact is the default spacing, so the rejected change is to Comfortable.
+    await studio.getByRole('menuitemradio', { name: 'Comfortable' }).click();
+    await viewOptions.click();
+    await expect(studio.getByRole('menuitemradio', { name: 'Compact' })).toHaveAttribute('aria-checked', 'true');
     await expect(studio.getByTestId('toast-status')).toContainText('View preference could not be saved');
     expect(uncaughtErrors).toEqual([]);
   });

@@ -82,11 +82,12 @@ test('E21-c4 unselected metadata changes update visible preview/activity order; 
   await page.clock.pauseAt(new Date('2026-09-18T13:00:00Z'));
   await expect.poll(() => h.details.length).toBeGreaterThan(initialDetails);
   const before = h.lists.length;
-  await page.getByTestId('session-sort').selectOption('activity');
+  await page.getByRole('button', { name: 'View options', exact: true }).click(); await page.getByTestId('session-sort-activity').click();
   const update = row('other', { name: 'External rename', lastPreview: 'external preview', lastActivityAt: '2026-09-11T00:00:00Z', status: 'error' });
   h.replace([row('selected'), update]);
   for (let i = 0; i < 20; i++) h.emit({ type: 'session.updated', session: update });
-  await expect(page.getByTestId('session-other')).toContainText('external preview');
+  // Compact (default) rows carry the preview in the row tooltip.
+  await expect(page.getByTestId('session-other')).toHaveAttribute('title', /external preview/);
   await expect(page.locator('button.session-row').first()).toHaveAttribute('data-testid', 'session-other');
   expect(h.lists.length).toBe(before);
   for (let i = 0; i < 100; i++) h.emit({ type: 'message.part.delta', id: 'selected', messageId: 'stream', partId: 'p', field: 'text', delta: 'x' });

@@ -9,7 +9,6 @@ import { useFixtures } from '../store';
 import type { Session, SessionScope } from '../types';
 import { FocusDialog } from './FocusDialog';
 import { navigate } from './Shell';
-import { Splitter } from './Splitter';
 import { usePendingSessionIds } from '../pending-decisions';
 import './SessionRail.css';
 
@@ -79,11 +78,13 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
   const [sort, setSort] = useState<SessionSort>(initialViewPreferences.sessionSort);
   const [archivedOnly, setArchivedOnly] = useState(initialViewPreferences.archivedOnly);
   const [compact, setCompact] = useState(initialViewPreferences.compact);
+  const [toolsExpanded, setToolsExpanded] = useState(initialViewPreferences.toolsExpanded);
   useEffect(() => {
     const preferences = readLocalUserPreferences(preferenceUserId);
     setSort(preferences.sessionSort);
     setArchivedOnly(preferences.archivedOnly);
     setCompact(preferences.compact);
+    setToolsExpanded(preferences.toolsExpanded);
   }, [preferenceUserId]);
   const saveViewPreference = (patch: Parameters<typeof writeLocalUserPreferences>[1], apply: () => void) => {
     try {
@@ -101,6 +102,9 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
   };
   const setCompactPreference = (value: boolean) => {
     saveViewPreference({ compact: value }, () => setCompact(value));
+  };
+  const setToolsExpandedPreference = (value: boolean) => {
+    saveViewPreference({ toolsExpanded: value }, () => setToolsExpanded(value));
   };
   const [viewOptionsOpen, setViewOptionsOpen] = useState(false);
   const viewOptionsRef = useRef<HTMLDivElement>(null);
@@ -317,7 +321,6 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [rowMenuId, setRowMenuId] = useState<string | null>(null);
-  const [toolsHeight, setToolsHeight] = useState(224);
   // #1558: only explicit user toggles persist; selection overrides are per-mount only.
   const [projectsOpen, setProjectsOpen] = useState<Record<string, boolean>>(() => readOpenProjects());
   const [selectionOpenProjects, setSelectionOpenProjects] = useState<Set<string>>(() => selected.id ? new Set([selected.projectId]) : new Set());
@@ -500,10 +503,11 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
       ? { tone: 'waiting', label: 'Waiting on you', waiting: true }
       : sessionPresentation(session);
     const parentSession = session.parentId ? sessionsById.get(session.parentId) : undefined;
+    const context = child ? `${parentSession?.name ?? 'Parent session'} · ${presentation.label}` : `${projects.get(session.projectId) || session.projectName || 'No project'} · ${presentation.label}`;
     return (
     <div className={`session-row-wrap ${child ? 'child-wrap' : ''} ${disclosure ? 'has-subagents' : ''}`} key={session.id} data-session-menu={session.id} style={child ? { '--child-depth': childDepth(session) } as React.CSSProperties : undefined}>
-      <button id={`session-${session.id}`} className={`${child ? 'child-session' : 'session-row'} ${!selectedProject && selectedId === session.id ? 'selected' : ''} ${selectedRows.includes(session.id) ? 'multi-selected' : ''}`} type="button" onClick={(event) => toggleRow(session.id, event.shiftKey || event.metaKey)} aria-current={!selectedProject && selectedId === session.id ? 'true' : undefined} aria-pressed={selectedRows.includes(session.id)} data-testid={`session-${session.id}`}>
-        <span className={`status-dot ${presentation.tone}`} aria-hidden="true" /><span className="session-copy"><strong>{session.name}</strong>{compact ? <small>{presentation.label}</small> : <><small>{child ? `${parentSession?.name ?? 'Parent session'} · ${presentation.label}` : `${projects.get(session.projectId) || session.projectName || 'No project'} · ${presentation.label}`}</small>{session.lastPreview && <small title={session.lastPreview}>{session.lastPreview}</small>}</>}</span>{presentation.waiting && <span className="attention-mark" role="img" aria-label="Waiting on you">!</span>}
+      <button id={`session-${session.id}`} className={`${child ? 'child-session' : 'session-row'} ${!selectedProject && selectedId === session.id ? 'selected' : ''} ${selectedRows.includes(session.id) ? 'multi-selected' : ''}`} type="button" onClick={(event) => toggleRow(session.id, event.shiftKey || event.metaKey)} aria-current={!selectedProject && selectedId === session.id ? 'true' : undefined} aria-pressed={selectedRows.includes(session.id)} data-testid={`session-${session.id}`} title={compact ? [context, session.lastPreview].filter(Boolean).join('\n') : undefined}>
+        <span className={`status-dot ${presentation.tone}`} aria-hidden="true" /><span className="session-copy"><strong>{session.name}</strong>{compact ? <span className="sr-only">{presentation.label}</span> : <><small>{context}</small>{session.lastPreview && <small title={session.lastPreview}>{session.lastPreview}</small>}</>}</span>{presentation.waiting && <span className="attention-mark" role="img" aria-label="Waiting on you">!</span>}
       </button>
       {disclosure && <button id={`subagents-toggle-${session.id}`} className="subagent-disclosure" type="button" aria-label={disclosure.name} title={disclosure.name} aria-expanded={disclosure.expanded} aria-controls={`subagent-children-${session.id}`} onClick={() => setCollapsedParents((current) => { const next = new Set(current); if (next.has(session.id)) next.delete(session.id); else next.add(session.id); return next; })} data-testid={`subagents-${session.id}`}><Icon name={disclosure.expanded ? 'chevronDown' : 'chevronRight'} size={13} /><span>{disclosure.label}</span></button>}
       {!child && <><button className="session-overflow-button" type="button" aria-label={`${uniqueName(session)} actions`} aria-haspopup="menu" aria-expanded={rowMenuId === session.id} onClick={() => setRowMenuId((current) => current === session.id ? null : session.id)} data-testid={`session-menu-${session.id}`}><Icon name="more" size={15} /></button>{rowMenuId === session.id && <div className="menu-popover session-row-menu" role="menu" aria-label={`${uniqueName(session)} actions`}>
@@ -549,15 +553,14 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
   return <aside className="session-rail" aria-label="Agents" data-od-id="sessions-tools-rail">
     <header className={`rail-header ${searchOpen ? 'searching' : ''}`}>
       {searchOpen ? <label className="rail-title-search"><Icon name="search" size={15} /><span className="sr-only">Search sessions</span><input ref={searchRef} value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { setSearch(''); setSearchOpen(false); requestAnimationFrame(() => searchToggleRef.current?.focus()); } }} placeholder="Search agents" data-testid="session-search" /></label> : <h2>Agents</h2>}
-      <div className="rail-header-actions"><button ref={searchToggleRef} className="icon-button small" type="button" onClick={() => { if (searchOpen) { setSearch(''); setSearchOpen(false); } else setSearchOpen(true); }} aria-label={searchOpen ? 'Close search' : 'Search agents'} aria-expanded={searchOpen} data-testid="session-search-toggle"><Icon name={searchOpen ? 'close' : 'search'} size={15} /></button><button className="icon-button small" type="button" onClick={() => { if (liveHistory) { setRefresh((value) => value + 1); setProjectRefresh((value) => value + 1); } else notify('Session list refreshed at Aug 12, 3:48 PM'); }} aria-label="Refresh sessions" data-testid="sessions-refresh"><Icon name="refresh" size={15} /></button><button className="icon-button small" type="button" onClick={onToggle} aria-label="Collapse Agents" data-testid="rail-collapse"><Icon name="collapse" size={16} /></button></div>
-    </header>
-    <div className="rail-primary-actions"><button className="primary-button" type="button" disabled={liveHistory && (!defaultProfileId || submitting)} onClick={() => { if (liveHistory) { setSubmitting(true); void createLiveSession({ name: '', cwd: selectedProject?.cwd ?? selected.cwd, ...(selectedProject ? { projectId: selectedProject.id } : {}), profileId: defaultProfileId, isolateWorktree: false }).then(() => onSelectProject(null)).catch(error => notify(error instanceof Error ? error.message : 'Session creation failed')).finally(() => setSubmitting(false)); } else createSession(); }} data-testid="new-chat-instant"><Icon name="plus" size={16} />New session</button><button className="icon-button" type="button" onClick={() => openAdvanced(selectedProject)} aria-label="Advanced new agent session" title="Advanced session options" data-testid="new-session-advanced"><Icon name="sliders" /></button></div>
-    <button className="rail-add-project" type="button" onClick={openProjectForm} data-testid="rail-add-project"><Icon name="plus" size={14} />Add project</button>
-    <div className="scope-tabs" role="tablist" aria-label="Session scopes" onKeyDown={moveScope}>{(['chats', 'scheduled', 'background'] as SessionScope[]).map((item) => <button role="tab" aria-selected={scope === item} tabIndex={scope === item ? 0 : -1} type="button" key={item} onClick={() => changeScope(item)} data-testid={`scope-${item}`}>{item === 'chats' ? 'Chats' : item === 'scheduled' ? 'Scheduled' : 'Background'}</button>)}</div>
-    <div className="rail-filters rail-view-controls" ref={viewOptionsRef} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setViewOptionsOpen(false); }}>
-      <label className="rail-sort"><span className="sr-only">Session sort</span><select value={sort} onChange={(event) => setSortPreference(event.target.value as SessionSort)} data-testid="session-sort"><option value="newest">Date · newest</option><option value="oldest">Date · oldest</option><option value="name">Name</option><option value="activity">Last activity</option><option value="status">Status</option></select></label>
-      <button ref={viewOptionsTriggerRef} className="rail-view-trigger" type="button" aria-haspopup="menu" aria-expanded={viewOptionsOpen} aria-controls={viewOptionsOpen ? 'rail-view-options' : undefined} onClick={() => { viewOptionsLastItem.current = false; setViewOptionsOpen((value) => !value); }} onKeyDown={(event) => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); viewOptionsLastItem.current = event.key === 'ArrowUp'; setViewOptionsOpen(true); } }}>View options<Icon name="chevronDown" size={13} /></button>
+      <div className="rail-header-actions"><button ref={searchToggleRef} className="icon-button small" type="button" onClick={() => { if (searchOpen) { setSearch(''); setSearchOpen(false); } else setSearchOpen(true); }} aria-label={searchOpen ? 'Close search' : 'Search agents'} aria-expanded={searchOpen} data-testid="session-search-toggle"><Icon name={searchOpen ? 'close' : 'search'} size={15} /></button><div className="rail-view-controls" ref={viewOptionsRef} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setViewOptionsOpen(false); }}>
+      <button ref={viewOptionsTriggerRef} className="icon-button small rail-view-trigger" type="button" aria-label="View options" title="View options" aria-haspopup="menu" aria-expanded={viewOptionsOpen} aria-controls={viewOptionsOpen ? 'rail-view-options' : undefined} onClick={() => { viewOptionsLastItem.current = false; setViewOptionsOpen((value) => !value); }} onKeyDown={(event) => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); viewOptionsLastItem.current = event.key === 'ArrowUp'; setViewOptionsOpen(true); } }}><Icon name="more" size={15} /></button>
       {viewOptionsOpen && <div id="rail-view-options" className="menu-popover rail-view-menu" role="menu" tabIndex={0} aria-label="View options" onKeyDown={moveViewOptionsFocus}>
+        {/* Sort is a radio group, not a <select>: a menu may only own menu items (axe aria-required-children), and arrow keys must reach it. */}
+        <div role="group" aria-labelledby="rail-sort-label" data-testid="session-sort">
+          <p role="presentation" id="rail-sort-label" className="rail-view-label">Sort</p>
+          {([['newest', 'Date · newest'], ['oldest', 'Date · oldest'], ['name', 'Name'], ['activity', 'Last activity'], ['status', 'Status']] as const).map(([value, label]) => <button className="rail-view-item" type="button" role="menuitemradio" tabIndex={-1} aria-checked={sort === value} key={value} onClick={() => { setSortPreference(value); closeViewOptions(); }} data-testid={`session-sort-${value}`}><span className="rail-option-mark" aria-hidden="true">{sort === value && <Icon name="check" size={14} />}</span><span>{label}</span></button>)}
+        </div>
         <button className="rail-view-item" type="button" role="menuitemcheckbox" tabIndex={-1} aria-checked={archivedOnly} aria-describedby="rail-archive-help" onClick={() => { setArchivedOnlyPreference(!archivedOnly); closeViewOptions(); }}><span className="rail-option-mark" aria-hidden="true">{archivedOnly && <Icon name="check" size={14} />}</span><span>View archived sessions</span></button>
         <p role="presentation" id="rail-archive-help" className="rail-view-help">Shows archived conversations instead of active ones. Does not archive anything.</p>
         <div role="group" aria-labelledby="rail-spacing-label" aria-describedby="rail-spacing-help">
@@ -565,8 +568,13 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
           <p role="presentation" id="rail-spacing-help" className="rail-view-help">Compact fits more sessions in the list</p>
           {(['Comfortable', 'Compact'] as const).map((spacing) => <button className="rail-view-item" type="button" role="menuitemradio" tabIndex={-1} aria-checked={compact === (spacing === 'Compact')} key={spacing} onClick={() => { setCompactPreference(spacing === 'Compact'); closeViewOptions(); }}><span className="rail-option-mark" aria-hidden="true">{compact === (spacing === 'Compact') && <Icon name="check" size={14} />}</span><span>{spacing}</span></button>)}
         </div>
+        <button className="rail-view-item" role="menuitem" tabIndex={-1} type="button" onClick={() => { closeViewOptions(); if (liveHistory) { setRefresh((value) => value + 1); setProjectRefresh((value) => value + 1); } else notify('Session list refreshed at Aug 12, 3:48 PM'); }} aria-label="Refresh sessions" data-testid="sessions-refresh"><span className="rail-option-mark" aria-hidden="true"><Icon name="refresh" size={14} /></span><span>Refresh sessions</span></button>
+        <button className="rail-view-item" role="menuitem" tabIndex={-1} type="button" onClick={() => { closeViewOptions(); openProjectForm(); }} data-testid="rail-add-project"><span className="rail-option-mark" aria-hidden="true"><Icon name="plus" size={14} /></span><span>Add project</span></button>
       </div>}
-    </div>
+    </div><button className="icon-button small" type="button" onClick={onToggle} aria-label="Collapse Agents" data-testid="rail-collapse"><Icon name="collapse" size={16} /></button></div>
+    </header>
+    <div className="rail-primary-actions"><button className="rail-new-session" type="button" disabled={liveHistory && (!defaultProfileId || submitting)} onClick={() => { if (liveHistory) { setSubmitting(true); void createLiveSession({ name: '', cwd: selectedProject?.cwd ?? selected.cwd, ...(selectedProject ? { projectId: selectedProject.id } : {}), profileId: defaultProfileId, isolateWorktree: false }).then(() => onSelectProject(null)).catch(error => notify(error instanceof Error ? error.message : 'Session creation failed')).finally(() => setSubmitting(false)); } else createSession(); }} data-testid="new-chat-instant"><Icon name="plus" size={16} />New session</button><button className="icon-button" type="button" onClick={() => openAdvanced(selectedProject)} aria-label="Advanced new agent session" title="Advanced session options" data-testid="new-session-advanced"><Icon name="sliders" /></button></div>
+    <div className="scope-tabs" role="tablist" aria-label="Session scopes" onKeyDown={moveScope}>{(['chats', 'scheduled', 'background'] as SessionScope[]).map((item) => <button role="tab" aria-selected={scope === item} tabIndex={scope === item ? 0 : -1} type="button" key={item} onClick={() => changeScope(item)} data-testid={`scope-${item}`}>{item === 'chats' ? 'Chats' : item === 'scheduled' ? 'Scheduled' : 'Background'}</button>)}</div>
     {archivedOnly && <button className="rail-archive-chip" type="button" onClick={() => setArchivedOnlyPreference(false)}>Archived sessions — Back to active</button>}
     {selectedRows.length > 0 && <div className="bulk-bar" role="toolbar" aria-label="Selected session actions"><strong>{selectedRows.length} selected</strong><button type="button" onClick={() => setSelectedRows([])}>Cancel</button><button type="button" onClick={() => setBulkDeleteOpen(true)}>Delete</button></div>}
     <div ref={sessionListRef} className={`session-list${compact ? ' rail-compact' : ''}`} role="region" tabIndex={0} aria-label={`${scope} sessions`} aria-busy={liveHistory && (!currentPage || currentPage.busy)}>
@@ -591,8 +599,11 @@ export function SessionRail({ collapsed, onToggle, selectedProject, onSelectProj
       {projectsError && <div className="rail-project-error" role="alert">{projectsError} <button type="button" onClick={() => setProjectRefresh((value) => value + 1)}>Retry projects</button></div>}
       {liveHistory && <>{(!currentPage || currentPage.busy) && <p role="status">Loading session history…</p>}{currentPage?.error && <div role="alert"><p>{currentPage.error}</p><button className="secondary-button" type="button" onClick={() => setRefresh((value) => value + 1)}>Reset session history</button></div>}{currentPage?.pages['']?.hasMore && <><p className="rail-empty">Order applies to loaded sessions. Load older history to include more.</p><button className="secondary-button" type="button" disabled={currentPage.busy || !!currentPage.error} onClick={() => void loadHistory(undefined, currentPage.pages[''].nextCursor ?? undefined)}>{normalizedSearch ? 'Load older matches' : 'Load older roots'}</button></>}</>}
     </div>
-    <Splitter orientation="horizontal" storageKey="layout.agents.tools" min={120} max={320} defaultSize={224} onResize={setToolsHeight} ariaLabel="Resize Tools panel" resizeEdge="end" className="tools-resizer" testId="tools-resizer" />
-    <nav className="tools-nav" aria-label="Agent tools" style={{ height: `${toolsHeight}px` }}><span className="rail-section-label">Tools</span>{remoteAttachEnabled && <button type="button" onClick={onOpenRemoteComputers} data-testid="rail-remote-computers"><Icon name="worktree" /><span><strong>Remote computers</strong><small>Continue a session from another Mac</small></span><Icon name="chevronRight" size={14} /></button>}{tools.map((tool) => <button type="button" onClick={() => openTool(tool.key)} key={tool.key} data-testid={`tool-${tool.key}`}><Icon name={tool.icon} /><span><strong>{tool.label}</strong><small>{tool.description}</small></span><Icon name="chevronRight" size={14} /></button>)}</nav>
+    {/* Tools collapse into one "More" disclosure so the session list takes the remaining height. */}
+    <nav className="rail-more" aria-label="Agent tools">
+      <button className="rail-more-toggle" type="button" aria-expanded={toolsExpanded} aria-controls="rail-more-tools" onClick={() => setToolsExpandedPreference(!toolsExpanded)} data-testid="rail-more"><Icon name={toolsExpanded ? 'chevronDown' : 'chevronRight'} size={14} />More</button>
+      <div id="rail-more-tools" className="tools-nav" hidden={!toolsExpanded}>{remoteAttachEnabled && <button type="button" onClick={onOpenRemoteComputers} title="Continue a session from another Mac" data-testid="rail-remote-computers"><Icon name="worktree" /><strong>Remote computers</strong></button>}{tools.map((tool) => <button type="button" onClick={() => openTool(tool.key)} key={tool.key} title={tool.description} data-testid={`tool-${tool.key}`}><Icon name={tool.icon} /><strong>{tool.label}</strong></button>)}</div>
+    </nav>
     <footer className="rail-account"><button type="button" onClick={() => navigate('/tools/agent-settings')} data-testid="rail-agent-settings"><span className="avatar">AJ</span><span><strong>AJ Hochhalter</strong><small>Agent settings</small></span><Icon name="settings" size={15} /></button></footer>
 
     <FocusDialog open={projectFormOpen} onClose={closeProjectForm} title="Add project" description="Give an existing working directory a name so you can start sessions in it." testId="add-project-dialog">

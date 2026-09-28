@@ -53,8 +53,8 @@ async function open(page: Page, options: { empty?: boolean; picker?: string | nu
     import RefreshRuntime from '/@react-refresh';
     RefreshRuntime.injectIntoGlobalHook(window); window.$RefreshReg$ = () => {}; window.$RefreshSig$ = () => type => type; window.__vite_plugin_react_preamble_installed__ = true;
     ${picker}
-    const {default: React} = await import('/node_modules/.vite/deps/react.js');
-    const {default: {createRoot}} = await import('/node_modules/.vite/deps/react-dom_client.js');
+    const {default: React} = await import('/.vite/deps/react.js');
+    const {default: {createRoot}} = await import('/.vite/deps/react-dom_client.js');
     const {FixtureProvider, useFixtures} = await import('/src/store.tsx');
     const {composeGateway} = await import('/src/gateway/index.ts');
     const {GatewayProvider} = await import('/src/gateway/context.tsx');
@@ -67,12 +67,14 @@ async function open(page: Page, options: { empty?: boolean; picker?: string | nu
     createRoot(document.getElementById('root')).render(h(GatewayProvider,{gateway},h(FixtureProvider,null,h(Probe))));
   </script></body></html>` }));
   await page.goto('/tests/add-project-fixture.html');
-  await expect(page.getByTestId('rail-add-project')).toBeVisible();
+  // Add project lives in the rail header's View options menu.
+  await expect(page.getByRole('button', { name: 'View options', exact: true })).toBeVisible();
   if (!options.empty) await expect(page.getByTestId('session-existing')).toBeVisible();
   return { projects, writes, release };
 }
 
 async function fillProject(page: Page, name = 'Research', cwd = '/fixture/research/') {
+  await page.getByRole('button', { name: 'View options', exact: true }).click();
   await page.getByTestId('rail-add-project').click();
   await expect(page.getByTestId('project-name')).toBeFocused();
   await page.getByTestId('project-name').fill(name);
@@ -166,7 +168,8 @@ test('native picker cancellation and form Escape preserve path, selection and fo
   await expect(page.getByTestId('project-cwd')).toHaveValue('/fixture/research/');
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('add-project-dialog')).toHaveCount(0);
-  await expect(page.getByTestId('rail-add-project')).toBeFocused();
+  // The menu item is gone once the form opens, so focus returns to the menu's trigger.
+  await expect(page.getByRole('button', { name: 'View options', exact: true })).toBeFocused();
   await expect(page.getByTestId('session-existing')).toHaveAttribute('aria-current', 'true');
   expect(fixture.writes).toEqual([]);
 });

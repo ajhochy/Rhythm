@@ -138,42 +138,34 @@ test.describe('shared Splitter', () => {
 
     await page.evaluate(() => {
       localStorage.setItem('layout.agents.rail', '9999');
-      localStorage.setItem('layout.agents.tools', '-1');
     });
     await page.reload();
     await expect(page.getByTestId('rail-resizer')).toHaveAttribute('aria-valuenow', '380');
-    await expect(page.getByTestId('tools-resizer')).toHaveAttribute('aria-valuenow', '120');
   });
 
   test('nested horizontal and vertical splitters remain independent', async ({ page }) => {
     await openFixture(page);
     const rail = page.getByTestId('rail-resizer');
-    const tools = page.getByTestId('tools-resizer');
     const inspector = page.getByTestId('inspector-resizer');
     const shell = page.getByTestId('shell-navigation-resizer');
 
-    await expect(tools).toHaveAccessibleName('Resize Tools panel');
-    await expect(tools).toHaveAttribute('aria-orientation', 'horizontal');
+    // The rail's Tools panel is a More disclosure now; no tools separator remains.
+    await expect(page.getByTestId('tools-resizer')).toHaveCount(0);
     await expect(shell).toHaveAccessibleName('Resize app navigation');
     await expect(shell).toHaveAttribute('aria-orientation', 'horizontal');
     await expect(inspector).toHaveAttribute('aria-orientation', 'vertical');
 
-    await tools.focus();
-    await page.keyboard.press('ArrowUp');
-    await expect(tools).toHaveAttribute('aria-valuenow', '240');
     await rail.focus();
     await page.keyboard.press('ArrowRight');
     await expect(rail).toHaveAttribute('aria-valuenow', '296');
-    await expect(tools).toHaveAttribute('aria-valuenow', '240');
     await inspector.focus();
     await page.keyboard.press('ArrowLeft');
     await expect(inspector).toHaveAttribute('aria-valuenow', '352');
 
     await expect.poll(() => page.evaluate(() => ({
       rail: localStorage.getItem('layout.agents.rail'),
-      tools: localStorage.getItem('layout.agents.tools'),
       inspector: localStorage.getItem('layout.agents.inspector'),
-    }))).toEqual({ rail: '296', tools: '240', inspector: '352' });
+    }))).toEqual({ rail: '296', inspector: '352' });
   });
 
   test('pointercancel releases capture, text selection, and drag listeners', async ({ page }) => {
@@ -236,7 +228,8 @@ test.describe('shared Splitter', () => {
     await openFixture(page);
     await expect(page.getByRole('separator', { name: 'Resize Agents rail' })).toBeVisible();
     await expect(page.getByRole('separator', { name: 'Resize Inspector' })).toBeVisible();
-    await expect(page.getByRole('separator', { name: 'Resize Tools panel' })).toBeVisible();
+    // Tools collapsed into the rail's More disclosure, so there is no Tools separator.
+    await expect(page.getByRole('separator', { name: 'Resize Tools panel' })).toHaveCount(0);
 
     await page.evaluate(() => { window.location.hash = '/tools/tasks'; });
     await expect(page.getByRole('separator', { name: 'Resize Scheduled agent jobs list' })).toBeVisible();

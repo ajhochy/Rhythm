@@ -241,7 +241,7 @@ test('e16-c3-race: delayed child response cannot replace another rail session', 
 
 test('e16-c4-policy: edited permission/delegates override stale raw JSON and survive reload', async ({ page }) => {
   const net = await open(page);
-  await page.getByTestId('tool-profiles').click();
+  if (await page.getByTestId('rail-more').getAttribute('aria-expanded') !== 'true') await page.getByTestId('rail-more').click(); await page.getByTestId('tool-profiles').click();
   await page.getByTestId(`profile-${canonicalProfile.id}`).click();
   await expect(page.getByTestId('profile-permissions')).toHaveValue('{"bash":"ask"}');
   await expect(page.getByTestId('delegate-phase-5-child-profile')).toBeChecked();
@@ -263,7 +263,7 @@ test('e16-c4-policy: edited permission/delegates override stale raw JSON and sur
 
 test('e16-c4-account: canonical account ID edit and clear survive reload', async ({ page }) => {
   const net = await open(page);
-  await page.getByTestId('tool-profiles').click();
+  if (await page.getByTestId('rail-more').getAttribute('aria-expanded') !== 'true') await page.getByTestId('rail-more').click(); await page.getByTestId('tool-profiles').click();
   await page.getByTestId(`profile-${canonicalProfile.id}`).click();
   await expect(page.getByTestId('profile-account')).toHaveValue('account-old');
   for (const account of ['account-edited', '']) {
@@ -280,7 +280,7 @@ test('e16-c4-account: canonical account ID edit and clear survive reload', async
 
 test('e16-c4-unsupported: managed skills cannot claim to save; canonical auto-approve stays opt-in', async ({ page }) => {
   const net = await open(page);
-  await page.getByTestId('tool-profiles').click();
+  if (await page.getByTestId('rail-more').getAttribute('aria-expanded') !== 'true') await page.getByTestId('rail-more').click(); await page.getByTestId('tool-profiles').click();
   await page.getByTestId(`profile-${canonicalProfile.id}`).click();
   await expect(page.getByTestId('profile-managed-skills')).toBeDisabled();
   await expect(page.getByText('Managed skills cannot be saved by this editor.')).toBeVisible();
