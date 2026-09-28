@@ -102,3 +102,52 @@ test('1528:main-wiring:6 actual preload exposes one frozen exact Colony bridge',
   await bridge.colonyView.detach()
   assert.deepEqual(calls.slice(-4).map(([name]) => name), ['colony:view:attach', 'colony:view:bounds', 'colony:action:run', 'colony:view:detach'])
 })
+
+test('task-bot-crossing-open-c1-c3 real preload forwards only an attached exact Rhythm scene action', async () => {
+  // Regression caught: preload drops the native scene.action result, or broadens the bridge to unsafe action payloads.
+  let bridge
+  const ipcRenderer = Object.assign(new EventEmitter(), {
+    sendSync: () => 'https://api.example.test',
+    send() {},
+    invoke: async (channel) => channel === 'colony:view:attach'
+      ? { ok: true, attachment: 'owned-attachment' }
+      : undefined,
+  })
+  runInNewContext(await readFile(new URL('../src/preload.cjs', import.meta.url), 'utf8'), {
+    require(name) {
+      assert.equal(name, 'electron')
+      return { contextBridge: { exposeInMainWorld(_key, value) { bridge = value } }, ipcRenderer }
+    },
+    process: { argv: [], env: {}, platform: 'darwin' },
+    window: { addEventListener() {}, dispatchEvent() {} },
+    CustomEvent: class {},
+  })
+
+  await bridge.colonyView.attach()
+  const received = []
+  bridge.colonyView.onEvent((message) => received.push(message))
+  const payload = { ok: true, kind: 'rhythm-session', sessionId: 'local-session-42' }
+  ipcRenderer.emit('colony:view:event', {}, { attachment: 'owned-attachment', event: 'scene.action', payload })
+  payload.sessionId = 'mutated-after-delivery'
+  ipcRenderer.emit('colony:view:event', {}, { attachment: 'owned-attachment', event: 'scene.select', payload: { threadId: 'task-known' } })
+  ipcRenderer.emit('colony:view:event', {}, { attachment: 'owned-attachment', event: 'scene.status', payload: { webgl: 'ready' } })
+
+  const rejected = [
+    { attachment: 'foreign', event: 'scene.action', payload: { ok: true, kind: 'rhythm-session', sessionId: 'local-session-42' } },
+    { attachment: 'owned-attachment', event: 'scene.action', payload: { ok: true, kind: 'rhythm-session', sessionId: 'local-session-42', extra: true } },
+    { attachment: 'owned-attachment', event: 'scene.action', payload: { ok: false, kind: 'rhythm-session', sessionId: 'local-session-42' } },
+    { attachment: 'owned-attachment', event: 'scene.action', payload: { ok: true, kind: 'external', sessionId: 'local-session-42' } },
+    { attachment: 'owned-attachment', event: 'scene.action', payload: { ok: true, kind: 'rhythm-session' } },
+    { attachment: 'owned-attachment', event: 'scene.action', payload: { ok: true, kind: 'rhythm-session', sessionId: 'sdk/session:42' } },
+    { attachment: 'owned-attachment', event: 'scene.action', payload: { ok: true, kind: 'rhythm-session', sessionId: 'x'.repeat(129) } },
+    { attachment: 'owned-attachment', event: 'scene.action', payload: [] },
+    { attachment: 'owned-attachment', event: 'arbitrary.action', payload: { ok: true, kind: 'rhythm-session', sessionId: 'local-session-42' } },
+  ]
+  for (const message of rejected) ipcRenderer.emit('colony:view:event', {}, message)
+
+  assert.deepEqual(JSON.parse(JSON.stringify(received)), [
+    { event: 'scene.action', payload: { ok: true, kind: 'rhythm-session', sessionId: 'local-session-42' } },
+    { event: 'scene.select', payload: { threadId: 'task-known' } },
+    { event: 'scene.status', payload: { webgl: 'ready' } },
+  ])
+})

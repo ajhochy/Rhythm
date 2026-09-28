@@ -64,10 +64,19 @@ test('1531:inspector-actions-and-task-view-menus-ui:2 Open in Rhythm changes has
   await mockColony(page);
   await openPage(page, '/colony');
   await page.getByTestId('rhythm:parent').click();
+  await page.evaluate(() => {
+    const target = window as Window & { __colonyHashChanges?: string[] };
+    target.__colonyHashChanges = [];
+    window.addEventListener('hashchange', () => target.__colonyHashChanges!.push(location.hash));
+  });
   await page.getByRole('button', { name: 'Open in Rhythm' }).click();
   await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/agents?sessionId=local-session-42');
   expect(await page.evaluate(() => (window as Window & { __survivesNavigation?: string }).__survivesNavigation)).toBe('marker');
-  expect(await actionCalls(page)).toEqual([{ kind: 'open', id: 'rhythm:parent' }]);
+  const opens = (await actionCalls(page)).filter(({ kind, id }) => kind === 'open' && id === 'rhythm:parent');
+  expect(opens).toHaveLength(1);
+  expect(await page.evaluate(() => (window as Window & { __colonyHashChanges?: string[] }).__colonyHashChanges)).toEqual(['#/agents?sessionId=local-session-42']);
+  await expect(page.locator('.colony-action-status[role="status"]')).toHaveCount(0);
+  await expect(page.locator('.colony-action-toast')).toHaveCount(0);
 });
 
 test('1531:inspector-actions-and-task-view-menus-ui:3 failed action shows only error and preserves selection', async ({ page }) => {

@@ -1,0 +1,73 @@
+{
+  "issue": "task-bot-crossing-open-rhythm-session",
+  "date": "2026-09-27",
+  "test_command": "cd apps/electron && node --experimental-vm-modules --test --test-concurrency=1 test/colony-main-wiring-contract.test.mjs test/colony-scene-routing-contract.test.mjs test/security-smoke-receipt.test.mjs && cd ../web && npm exec -- playwright test --config tests/pages/colony-playwright.config.ts && npm exec -- playwright test --config tests/gateway/session-opening-playwright.config.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-bot-crossing-open-c1",
+      "text": "Frozen preload colonyView.onEvent accepts scene.action in addition to existing select/status, but only when attachment matches and payload is exact {ok:true,kind:'rhythm-session',sessionId:<local-id>}. Local ID regex [A-Za-z0-9_-]{1,128}. Reject extra keys, SDK-looking unsafe punctuation beyond regex, false ok, other kind, missing/oversized id, arrays.",
+      "mode": "integration",
+      "test": "apps/electron/test/colony-main-wiring-contract.test.mjs",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-bot-crossing-open-c2",
+      "text": "Accepted event callback receives deep-cloned {event:'scene.action',payload}. Existing select/status unchanged. No generic arbitrary action/event bridge.",
+      "mode": "integration",
+      "test": "apps/electron/test/colony-main-wiring-contract.test.mjs",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-bot-crossing-open-c3",
+      "text": "Real preload VM test executes attach to establish attachment, subscribes, emits main-process scene.action, proves callback once with exact clone; malformed/foreign attachment ignored.",
+      "mode": "integration",
+      "test": "apps/electron/test/colony-main-wiring-contract.test.mjs",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-bot-crossing-open-c4",
+      "text": "Integrated contract proves native scene action → main action policy → preload event → renderer handler changes hash to exact #/agents?sessionId=local-session-42, and existing agentSessionLinkFromHash selects that local session. Avoid a mock that bypasses preload.",
+      "mode": "integration",
+      "test": "apps/electron/test/colony-scene-routing-contract.test.mjs; apps/web/tests/pages/colony.spec.ts; apps/web/tests/gateway/agent-session-link.spec.ts",
+      "status": "pass",
+      "reason": "Real scene channel and preload VM integration asserts the exact hash; maintained renderer and link-parser contracts assert consumption"
+    },
+    {
+      "criterion_id": "task-bot-crossing-open-c5",
+      "text": "Existing direct list-mode runAction still navigates once; no duplicate navigation/toast.",
+      "mode": "ui",
+      "test": "apps/web/tests/pages/colony-actions.spec.ts",
+      "status": "pass",
+      "reason": "Focused Playwright contract asserts exactly one open action, exactly one exact-session hashchange, and no success status or toast"
+    },
+    {
+      "criterion_id": "task-bot-crossing-open-c6",
+      "text": "Security receipt exact frozen bridge keys/version unchanged (method behavior only); security tests pass.",
+      "mode": "integration",
+      "test": "apps/electron/test/security-smoke-receipt.test.mjs",
+      "status": "pass",
+      "reason": "Existing maintained security receipt contract covers exact keys, frozen state, and version"
+    },
+    {
+      "criterion_id": "task-bot-crossing-open-c7",
+      "text": "UI no visible redesign; no UI designer needed unless screenshot changes.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Scoped production diff changes only preload method behavior, with no UI, CSS, or DOM layout change; the generated electron-m1 screenshot is unchanged"
+    },
+    {
+      "criterion_id": "task-bot-crossing-open-c8",
+      "text": "After swapping to the packaged candidate, clicking Open on a Rhythm bot opens the exact corresponding local session exactly once.",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "Requires manual functional smoke after swapping to the signed, unnotarized candidate"
+    }
+  ],
+  "not_tested": ["task-bot-crossing-open-c8"]
+}

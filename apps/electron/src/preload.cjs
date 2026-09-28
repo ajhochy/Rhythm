@@ -134,9 +134,13 @@ const colonyView = Object.freeze({
   /** @param {(message:{event:string,payload:unknown}) => void} callback */
   onEvent: (callback) => {
     const listener = (/** @type {unknown} */ _event, /** @type {any} */ message) => {
+      const sceneAction = message?.event === 'scene.action';
       if (!message || typeof message !== 'object' || Array.isArray(message) || Object.keys(message).length !== 3 ||
-        message.attachment !== colonyViewAttachment || !['scene.select', 'scene.status'].includes(message.event) ||
-        !message.payload || typeof message.payload !== 'object' || Array.isArray(message.payload)) return;
+        message.attachment !== colonyViewAttachment || (!sceneAction && !['scene.select', 'scene.status'].includes(message.event)) ||
+        !message.payload || typeof message.payload !== 'object' || Array.isArray(message.payload) ||
+        (sceneAction && (Object.keys(message.payload).sort().join(',') !== 'kind,ok,sessionId' || message.payload.ok !== true ||
+          message.payload.kind !== 'rhythm-session' || typeof message.payload.sessionId !== 'string' ||
+          !/^[A-Za-z0-9_-]{1,128}$/.test(message.payload.sessionId)))) return;
       callback({ event: message.event, payload: JSON.parse(JSON.stringify(message.payload)) });
     };
     ipcRenderer.on('colony:view:event', listener);
