@@ -402,4 +402,69 @@ test.describe('Agent Settings live persistence', () => {
     await page.reload();
     for (const [name, label] of [['calendar', 'Disconnected'], ['stripe', 'Connected'], ['notion', 'Connected']]) await expect(page.getByTestId(`agent-settings-mcp-row-${name}`)).toContainText(label);
   });
+
+  test('MCP inspector shows header facts, a sanitized failed-state error with its fix action, and a searchable/expandable tool list', async ({ page }) => {
+    const manyTools = Array.from({ length: 24 }, (_, index) => `tool_${String(index).padStart(2, '0')}`);
+    const servers = [
+      {
+        name: 'gitnexus', status: 'failed', error: 'MCP error -32000: Connection closed', requiredEnv: [], needsCredentials: false, source: 'curated' as const,
+        tools: [], transport: { kind: 'stdio' as const, program: 'npx' }, usedByProfiles: { count: 2, names: ['Work', 'Research'] },
+      },
+      {
+        name: 'notion', status: 'needs_auth', error: null, requiredEnv: [], needsCredentials: true, source: 'curated' as const,
+        tools: [], transport: { kind: 'remote' as const, host: 'mcp.notion.com' }, usedByProfiles: { count: 0, names: [] },
+      },
+      {
+        name: 'rhythm', status: 'connected', error: null, requiredEnv: [], needsCredentials: false, source: 'rhythm' as const,
+        tools: manyTools, transport: { kind: 'stdio' as const, program: 'node' }, usedByProfiles: { count: 1, names: ['Work'] },
+      },
+    ];
+
+    await openInterceptedLiveApp(page, '/#/tools/agent-settings?settingsSection=mcp', {
+      handleApi: async (route, request) => {
+        if (request.pathname === '/opencode/auth/accounts') {
+          await fulfillJson(route, 200, { accounts: [], defaultAccountId: null });
+          return true;
+        }
+        if (request.pathname === '/opencode/mcp' && request.method === 'GET') {
+          await fulfillJson(route, 200, servers);
+          return true;
+        }
+        if (request.pathname === '/opencode/mcp/notion/oauth/start' && request.method === 'POST') {
+          await fulfillJson(route, 200, { authorizationUrl: 'https://example.test/notion-authorize' });
+          return true;
+        }
+        return false;
+      },
+    });
+
+    // Failed server: sanitized error, a stdio program-name-only fact, and Reconnect as the fix action.
+    await page.getByTestId('agent-settings-mcp-row-gitnexus').click();
+    const gitnexus = page.getByTestId('agent-settings-mcp-gitnexus');
+    await expect(gitnexus).toContainText('Local · npx');
+    await expect(gitnexus).toContainText('0 tools');
+    await expect(gitnexus).toContainText('Used by 2 profiles');
+    await expect(gitnexus.getByRole('alert')).toContainText('MCP error -32000: Connection closed');
+    await expect(page.getByTestId('agent-settings-mcp-connect-gitnexus')).toHaveText('Reconnect');
+
+    // Needs-auth server: remote host-only fact, and Authenticate uses the ExternalLink authorization flow.
+    await page.getByTestId('agent-settings-mcp-row-notion').click();
+    const notion = page.getByTestId('agent-settings-mcp-notion');
+    await expect(notion).toContainText('Remote · mcp.notion.com');
+    await page.getByTestId('agent-settings-mcp-oauth-notion').click();
+    await expect(page.getByTestId('agent-settings-mcp-authorization-link')).toHaveAttribute('href', 'https://example.test/notion-authorize');
+
+    // Connected server with a long tool list: filter box appears past 20 tools, and a row expands in place.
+    await page.getByTestId('agent-settings-mcp-row-rhythm').click();
+    const rhythm = page.getByTestId('agent-settings-mcp-rhythm');
+    await expect(rhythm).toContainText('24 tools');
+    await expect(rhythm).toContainText('Used by 1 profile');
+    await expect(page.getByTestId('agent-settings-mcp-tools-filter-rhythm')).toBeVisible();
+    await expect(page.getByTestId('agent-settings-mcp-tools-rhythm').getByRole('button')).toHaveCount(24);
+    await page.getByTestId('agent-settings-mcp-tools-filter-rhythm').fill('tool_07');
+    await expect(page.getByTestId('agent-settings-mcp-tools-rhythm').getByRole('button')).toHaveCount(1);
+    await expect(page.getByTestId('agent-settings-mcp-tool-detail-rhythm-tool_07')).toHaveCount(0);
+    await page.getByTestId('agent-settings-mcp-tool-rhythm-tool_07').click();
+    await expect(page.getByTestId('agent-settings-mcp-tool-detail-rhythm-tool_07')).toBeVisible();
+  });
 });

@@ -1103,10 +1103,51 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
       const authorizing = actionPending('mcp', `oauth:${server.name}`);
       const savingCredentials = actionPending('mcp', `credentials:${server.name}`);
       const presentation = mcpStatusPresentation(server.status);
+      const isFailed = server.status === 'failed' || server.status === 'needs_client_registration';
+      const isOAuth = server.needsCredentials && server.requiredEnv.length === 0;
+      const usage = server.usedByProfiles;
+      const facts = [
+        server.source,
+        mcpTransportSummary(server),
+        `${server.tools.length} tools`,
+      ].filter(Boolean).join(' · ');
+      const sortedTools = [...server.tools].sort((a, b) => a.localeCompare(b));
+      const toolQuery = mcpToolFilter.trim().toLocaleLowerCase();
+      const visibleTools = server.tools.length > 20 && toolQuery
+        ? sortedTools.filter((tool) => tool.toLocaleLowerCase().includes(toolQuery))
+        : sortedTools;
       return {
         title: server.name,
-        content: <>{chrome}<div className="agent-settings-mcp-list"><article className={presentation.className} data-testid={`agent-settings-mcp-${server.name}`}><header><div><strong>{server.name}</strong><small>{server.source} · {server.tools.length} tools</small></div><span className="kind-badge" data-testid={`agent-settings-mcp-status-${server.name}`}>{presentation.label}</span></header>{server.error && <p className="agent-settings-mcp-error" role="alert"><span aria-hidden="true">!</span> {server.error}</p>}{server.needsCredentials && server.requiredEnv.length > 0 && <form className="agent-settings-form" onSubmit={(event) => void saveMcpCredentials(event, server)}><p>Credentials required</p>{server.requiredEnv.map((key) => <label key={key}>{key}<input required type="password" autoComplete="off" value={mcpCredentials[server.name]?.[key] ?? ''} onChange={(event) => setMcpCredentials((current) => ({ ...current, [server.name]: { ...current[server.name], [key]: event.target.value } }))} data-testid={`agent-settings-mcp-credential-${server.name}-${key}`} /></label>)}<button className="primary-button" type="submit" disabled={savingCredentials} aria-busy={savingCredentials} data-testid={`agent-settings-mcp-credentials-save-${server.name}`}>{savingCredentials ? 'Saving credentials…' : 'Save credentials'}</button></form>}<div className="agent-settings-actions">{server.status === 'connected' ? <button className="secondary-button" type="button" disabled={rowPending} aria-busy={disconnecting} onClick={() => void runMcpAction(server, 'disconnect')} data-testid={`agent-settings-mcp-disconnect-${server.name}`}>{disconnecting ? 'Disconnecting…' : 'Disconnect'}</button> : server.needsCredentials && server.requiredEnv.length === 0 ? <button className="primary-button" type="button" disabled={rowPending} aria-busy={authorizing} onClick={() => void startMcpOAuth(server)} data-testid={`agent-settings-mcp-oauth-${server.name}`}>{authorizing ? 'Authorizing…' : 'Authorize'}</button> : <button className="primary-button" type="button" disabled={rowPending || server.needsCredentials} aria-busy={connecting} onClick={() => void runMcpAction(server, 'connect')} data-testid={`agent-settings-mcp-connect-${server.name}`}>{connecting ? 'Connecting…' : 'Connect'}</button>}<button className="text-danger-button" type="button" disabled={rowPending} onClick={() => setRemoving(server)} data-testid={`agent-settings-mcp-remove-${server.name}`}>Remove</button></div></article></div>
-          {server.tools.length > 0 && <><h3 className="agent-settings-subhead">Tools</h3><ul className="agent-settings-tool-names" data-testid={`agent-settings-mcp-tools-${server.name}`}>{[...server.tools].sort((a, b) => a.localeCompare(b)).map((tool) => <li key={tool}>{tool}</li>)}</ul></>}</>,
+        content: <>{chrome}<div className="agent-settings-mcp-list"><article className={presentation.className} data-testid={`agent-settings-mcp-${server.name}`}>
+          <header>
+            <div>
+              <strong>{server.name}</strong>
+              <small>{facts}{usage && usage.count > 0 && <> · <span title={usage.names.join(', ')}>Used by {usage.count} profile{usage.count === 1 ? '' : 's'}</span></>}</small>
+            </div>
+            <span className="kind-badge" data-testid={`agent-settings-mcp-status-${server.name}`}>{presentation.label}</span>
+          </header>
+          {server.error && <p className="agent-settings-mcp-error" role="alert"><span aria-hidden="true">!</span> {server.error}</p>}
+          {server.needsCredentials && server.requiredEnv.length > 0 && <form className="agent-settings-form" onSubmit={(event) => void saveMcpCredentials(event, server)}><p>Credentials required</p>{server.requiredEnv.map((key) => <label key={key}>{key}<input required type="password" autoComplete="off" value={mcpCredentials[server.name]?.[key] ?? ''} onChange={(event) => setMcpCredentials((current) => ({ ...current, [server.name]: { ...current[server.name], [key]: event.target.value } }))} data-testid={`agent-settings-mcp-credential-${server.name}-${key}`} /></label>)}<button className="primary-button" type="submit" disabled={savingCredentials} aria-busy={savingCredentials} data-testid={`agent-settings-mcp-credentials-save-${server.name}`}>{savingCredentials ? 'Saving credentials…' : 'Save credentials'}</button></form>}
+          <div className="agent-settings-actions">
+            {server.status === 'connected'
+              ? <button className="secondary-button" type="button" disabled={rowPending} aria-busy={disconnecting} onClick={() => void runMcpAction(server, 'disconnect')} data-testid={`agent-settings-mcp-disconnect-${server.name}`}>{disconnecting ? 'Disconnecting…' : 'Disconnect'}</button>
+              : isOAuth
+                ? <button className="primary-button" type="button" disabled={rowPending} aria-busy={authorizing} onClick={() => void startMcpOAuth(server)} data-testid={`agent-settings-mcp-oauth-${server.name}`}>{authorizing ? 'Authenticating…' : 'Authenticate'}</button>
+                : <button className="primary-button" type="button" disabled={rowPending || server.needsCredentials} aria-busy={connecting} onClick={() => void runMcpAction(server, 'connect')} data-testid={`agent-settings-mcp-connect-${server.name}`}>{connecting ? (isFailed ? 'Reconnecting…' : 'Connecting…') : (isFailed ? 'Reconnect' : 'Connect')}</button>}
+            <button className="text-danger-button" type="button" disabled={rowPending} onClick={() => setRemoving(server)} data-testid={`agent-settings-mcp-remove-${server.name}`}>Remove</button>
+          </div>
+        </article></div>
+          {server.tools.length > 0 && <>
+            <h3 className="agent-settings-subhead">Tools</h3>
+            {server.tools.length > 20 && <label className="column-checklist-filter agent-settings-mcp-tool-filter"><span className="sr-only">Search tools</span><Icon name="search" size={13} /><input type="search" value={mcpToolFilter} onChange={(event) => setMcpToolFilter(event.target.value)} placeholder="Search tools" data-testid={`agent-settings-mcp-tools-filter-${server.name}`} /></label>}
+            <ul className="agent-settings-mcp-tools" data-testid={`agent-settings-mcp-tools-${server.name}`}>
+              {visibleTools.map((tool) => <li key={tool}>
+                <button type="button" className="agent-settings-mcp-tool-row" aria-expanded={expandedMcpTool === tool} onClick={() => setExpandedMcpTool((current) => current === tool ? null : tool)} data-testid={`agent-settings-mcp-tool-${server.name}-${tool}`}><code>{tool}</code></button>
+                {expandedMcpTool === tool && <div className="agent-settings-mcp-tool-detail" role="note" data-testid={`agent-settings-mcp-tool-detail-${server.name}-${tool}`}>Description and parameters for this tool aren't exposed by the local engine yet.</div>}
+              </li>)}
+              {!visibleTools.length && <li className="agent-settings-mcp-tools-empty" role="status">No matching tools</li>}
+            </ul>
+          </>}</>,
       };
     },
   });

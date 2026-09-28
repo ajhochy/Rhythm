@@ -211,8 +211,27 @@
 .agent-settings-browser { --column-browser-height: max(420px, calc(100vh - 270px)); }
 .agent-settings-browser .column-browser-search { display: block; flex-basis: 100%; }
 .agent-settings-browser .column-browser-search input { width: 100%; min-height: 28px; padding: 4px 8px; font-size: 12px; }
-.agent-settings-tool-names { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0 0; padding: 0; list-style: none; }
-.agent-settings-tool-names li { padding: 1px 6px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); color: var(--fg-2); font-family: var(--font-mono); font-size: 11px; }
+.agent-settings-mcp-tool-filter { margin: 8px 0 0; }
+.agent-settings-mcp-tool-filter input { width: 100%; min-height: 28px; padding: 4px 8px; font-size: 12px; }
+.agent-settings-mcp-tools { display: grid; gap: 1px; margin: 8px 0 0; padding: 0; list-style: none; border: 1px solid var(--border-soft); border-radius: var(--r-sm); overflow: hidden; }
+.agent-settings-mcp-tools li { background: var(--surface); }
+.agent-settings-mcp-tool-row {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  background: none;
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: start;
+  cursor: pointer;
+  min-height: unset;
+}
+.agent-settings-mcp-tool-row:hover,
+.agent-settings-mcp-tool-row[aria-expanded="true"] { background: color-mix(in oklab, var(--surface), var(--bg) 6%); }
+.agent-settings-mcp-tool-detail { padding: 0 10px 8px; color: var(--muted); font-family: var(--font-ui); font-size: 12px; line-height: 1.5; }
+.agent-settings-mcp-tools-empty { padding: 8px 10px; color: var(--muted); font-size: 12px; }
 
 .agent-settings-form {
   display: grid;

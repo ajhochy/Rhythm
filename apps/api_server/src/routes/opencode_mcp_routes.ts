@@ -24,10 +24,64 @@ import {
   type CuratedMcpServer,
 } from '../config/curated_mcp_servers';
 import { IntegrationsService } from '../services/integrations_service';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { resolveProfileMcpScope } from '../services/agent_profile_scope';
 
 export const opencodeMcpRouter = Router();
 
 const integrationsService = new IntegrationsService();
+const agentConfigsRepository = new AgentConfigsRepository();
+
+/**
+ * Inspector header fact (#MCP-inspector-redesign): transport kind + a
+ * SANITIZED locator only — the local command's program name (never its args
+ * or env, which may carry secrets) or the remote URL's host (never path/query).
+ * Derived from the persisted opencode.json config, same source as
+ * `getPersistedMcpConfigs()` above.
+ */
+function deriveTransport(config: Record<string, unknown> | undefined): { kind: 'stdio'; program: string } | { kind: 'remote'; host: string } | null {
+  if (!config) return null;
+  if (config.type === 'remote' && typeof config.url === 'string') {
+    try {
+      return { kind: 'remote', host: new URL(config.url).host };
+    } catch {
+      return null;
+    }
+  }
+  if (config.type === 'local' && Array.isArray(config.command) && typeof config.command[0] === 'string') {
+    const program = config.command[0].split('/').pop() || config.command[0];
+    return { kind: 'stdio', program };
+  }
+  return null;
+}
+
+/**
+ * Inspector header fact: how many profiles (agent configs) have this MCP
+ * server in scope, plus their labels for a hover tooltip. Cheap — a single
+ * `AgentConfigsRepository.list()` query, reused across every server in the
+ * response instead of re-querying per row.
+ *
+ * A profile with `allowedMcpsJson === null` ("unrestricted") has every server
+ * in scope, so it counts toward all of them.
+ */
+function buildProfileUsage(): Record<string, { count: number; names: string[] }> {
+  const usage: Record<string, string[]> = {};
+  const addTo = (server: string, label: string) => {
+    (usage[server] ??= []).push(label);
+  };
+  for (const config of agentConfigsRepository.list()) {
+    const resolved = resolveProfileMcpScope(config.allowedMcpsJson, 'profile', config.label);
+    if (resolved.shape === 'unrestricted') {
+      // Applied lazily below once every server name in this response is known.
+      addTo('*', config.label);
+    } else {
+      for (const server of resolved.servers) addTo(server, config.label);
+    }
+  }
+  return Object.fromEntries(
+    Object.entries(usage).map(([server, names]) => [server, { count: names.length, names }]),
+  );
+}
 
 /**
  * MCP-6 — build the token bridge resolver for a given Rhythm user. It reuses
@@ -83,6 +137,8 @@ opencodeMcpRouter.get(
     try {
       const statusMap = await opencodeClient.listMcp();
       const persistedConfigs = await opencodeClient.getPersistedMcpConfigs();
+      const profileUsage = buildProfileUsage();
+      const unrestrictedProfiles = profileUsage['*']?.names ?? [];
       let toolIds: string[] = [];
       try {
         toolIds = await opencodeClient.listMcpToolIds();
@@ -141,6 +197,9 @@ opencodeMcpRouter.get(
           needsCredentials = Object.values(envMap).some((v) => !v || v.trim() === '');
         }
 
+        const scoped = profileUsage[name];
+        const usedByNames = [...new Set([...(scoped?.names ?? []), ...unrestrictedProfiles])];
+
         return {
           name,
           ...entry,
@@ -149,6 +208,8 @@ opencodeMcpRouter.get(
           needsCredentials,
           source,
           tools,
+          transport: deriveTransport(config),
+          usedByProfiles: { count: usedByNames.length, names: usedByNames },
         };
       });
       res.json(entries);

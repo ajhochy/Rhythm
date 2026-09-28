@@ -16,7 +16,7 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
-import { setDb } from '../database/db';
+import { setDb, getDb } from '../database/db';
 import { AppError } from '../errors/app_error';
 
 // ---------------------------------------------------------------------------
@@ -457,6 +457,59 @@ describe('issue-mcp-1: env-map plumbing + entry surfacing', () => {
     ]);
     expect(listMcpToolIdsSpy).toHaveBeenCalledOnce();
     expect(listToolIdsSpy).not.toHaveBeenCalled();
+  });
+
+  // ── MCP inspector redesign — sanitized transport fact + profile usage count ──
+
+  it('mcp-inspector-1: GET /opencode/mcp derives a sanitized transport fact (program name / host only, never args/url) and profile usage counts', async () => {
+    listMcpSpy.mockResolvedValueOnce({
+      rhythm: { status: 'connected' },
+      notion: { status: 'needs_auth' },
+      adhoc: { status: 'connected' },
+    });
+    getPersistedMcpConfigsSpy.mockResolvedValueOnce({
+      rhythm: { type: 'local', command: ['/usr/local/bin/node', '/opt/rhythm/mcp/index.js', '--secret-flag', 'abc123'], environment: { TOKEN: 'shh' } },
+      notion: { type: 'remote', url: 'https://mcp.notion.com/mcp?token=shh' },
+    });
+
+    const db = getDb();
+    const insertProfile = db.prepare(`INSERT INTO agent_configs (id, label, icon, command, allowed_mcps_json) VALUES (?, ?, 'A', 'noop', ?)`);
+    insertProfile.run('scoped-to-rhythm', 'Work', JSON.stringify(['rhythm']));
+    insertProfile.run('scoped-to-notion', 'Research', JSON.stringify(['notion']));
+    insertProfile.run('unrestricted', 'Everything', null);
+
+    const res = await fetch(`${baseUrl}/opencode/mcp`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as Array<{ name: string; transport: unknown; usedByProfiles: { count: number; names: string[] } }>;
+
+    // Migrations seed built-in preset agent_configs rows (allowed_mcps_json = NULL,
+    // i.e. unrestricted), so the exact usedByProfiles.count also includes those —
+    // assert on internal consistency and on the fixture's own scoped/unrestricted
+    // profiles being present, not on an absolute total.
+    const rhythm = body.find((entry) => entry.name === 'rhythm')!;
+    // Program name only — the full path, flag, and secret arg never leak into the response.
+    expect(rhythm.transport).toEqual({ kind: 'stdio', program: 'node' });
+    expect(JSON.stringify(rhythm)).not.toContain('secret-flag');
+    expect(JSON.stringify(rhythm)).not.toContain('abc123');
+    expect(rhythm.usedByProfiles.count).toBe(rhythm.usedByProfiles.names.length);
+    expect(rhythm.usedByProfiles.names).toEqual(expect.arrayContaining(['Work', 'Everything']));
+    expect(rhythm.usedByProfiles.names).not.toContain('Research');
+
+    const notion = body.find((entry) => entry.name === 'notion')!;
+    // Host only — the token query string never leaks into the response.
+    expect(notion.transport).toEqual({ kind: 'remote', host: 'mcp.notion.com' });
+    expect(JSON.stringify(notion)).not.toContain('token=shh');
+    expect(notion.usedByProfiles.count).toBe(notion.usedByProfiles.names.length);
+    expect(notion.usedByProfiles.names).toEqual(expect.arrayContaining(['Research', 'Everything']));
+    expect(notion.usedByProfiles.names).not.toContain('Work');
+
+    const adhoc = body.find((entry) => entry.name === 'adhoc')!;
+    // No persisted config → no transport fact; no scoped profile grants it, only the
+    // unrestricted ones (this fixture's "Everything" plus any seeded built-in presets).
+    expect(adhoc.transport).toBeNull();
+    expect(adhoc.usedByProfiles.names).toEqual(expect.arrayContaining(['Everything']));
+    expect(adhoc.usedByProfiles.names).not.toContain('Work');
+    expect(adhoc.usedByProfiles.names).not.toContain('Research');
   });
 });
 
