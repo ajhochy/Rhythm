@@ -757,6 +757,7 @@ if (hasSingleInstanceLock) {
   // Renderer-built exports (research magazine/report). Downloads are denied app-wide, so the only
   // write path is this: the renderer proposes a basename + text, the user picks the path natively.
   const SAVE_FILE_MAX_CHARS = 20 * 1024 * 1024;
+  /** @type {Record<string, {name: string, extensions: string[]}>} */
   const SAVE_FILE_TYPES = { '.html': { name: 'HTML', extensions: ['html'] }, '.md': { name: 'Markdown', extensions: ['md'] } };
   ipcMain.handle('shell:save-file', async (event, payload, ...args) => {
     requireOwnedDocument(event);
