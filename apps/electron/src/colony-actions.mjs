@@ -94,8 +94,8 @@ export function createColonyActions(/** @type {any} */ options) {
       if (!thread || typeof thread !== 'object' || Array.isArray(thread)) return thread
       const next = /** @type {any} */ (plan(thread))
       const available = next.ok !== false
-      const reason = available ? 'Open this conversation' : next.reason
-      return { ...thread, canOpen: available, navigationReason: reason, openCapabilities: { app: { available, verified: available, reason } } }
+      // Only canOpen/navigationReason: the scene enables Open from them, and extra fields on thousands of records crowd its 32 MiB snapshot.
+      return { ...thread, canOpen: available, navigationReason: available ? 'Open this conversation' : next.reason }
     },
     async run(/** @type {any} */ value) {
       if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== 2 ||

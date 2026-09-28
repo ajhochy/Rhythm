@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { runInNewContext } from 'node:vm'
 
-import { bindColonySceneChannel } from '../src/colony-view.mjs'
+import { SCENE_THREAD_BUDGET, bindColonySceneChannel, fitSceneThreads } from '../src/colony-view.mjs'
 
 const ENTRY = 'rhythm-colony://app/index.html'
 
@@ -168,4 +168,35 @@ test('1530:host-inventory-path-task-rail-and-inspector:2 refuses non-scene reque
   await tick()
   assert.equal(f.workerRequests(), 0)
   assert.equal(f.port.closed, true)
+})
+
+test('bot-crossing-snapshot: scene threads stay inside the 1 MiB frame and the 24 MiB snapshot budget', () => {
+  // Regression caught: main's Open relabel grew a near-cap inventory past the scene's 32 MiB reassembly limit
+  // ("Inventory snapshot exceeds 32 MiB") and could push a full worker page past the 1 MiB frame.
+  const record = (i) => ({ id: `rhythm:${i}`, harness: 'rhythm', title: 'x'.repeat(120), preview: 'y'.repeat(4000), canOpen: false })
+  const page = (cursor, count) => ({ v: 1, documentId: 'd', id: 'request-1', ok: true,
+    result: { generation: 'g1', collection: 'threads', scannedAt: 1, records: Array.from({ length: count }, (_, i) => record(cursor + i)), nextCursor: String(cursor + count) } })
+  const relabel = (thread) => ({ ...thread, canOpen: true, navigationReason: 'z'.repeat(400) })
+
+  const first = page(0, 250)
+  let used = fitSceneThreads(first, { collection: 'threads', limit: 250 }, { generation: '', bytes: 0 }, relabel)
+  assert.ok(Buffer.byteLength(JSON.stringify(first)) <= 1024 * 1024)
+  assert.ok(first.result.records.length > 1 && first.result.records.length < 250)
+  assert.equal(first.result.nextCursor, String(first.result.records.length), 'trimmed tail is re-fetched from the next cursor')
+  assert.equal(first.result.records[0].canOpen, true)
+
+  let cursor = Number(first.result.nextCursor)
+  let total = first.result.records.length
+  for (let pages = 0; pages < 200 && cursor; pages++) {
+    const next = page(cursor, 200)
+    used = fitSceneThreads(next, { collection: 'threads', limit: 250, generation: 'g1', cursor: String(cursor) }, used, relabel)
+    total += next.result.records.length
+    cursor = next.result.nextCursor === null ? 0 : Number(next.result.nextCursor)
+    assert.ok(next.result.nextCursor === null || next.result.nextCursor === String(total), 'cursor matches what the scene accumulated')
+  }
+  assert.equal(cursor, 0, 'budget ends the collection with nextCursor:null')
+  assert.ok(used.bytes <= SCENE_THREAD_BUDGET && used.bytes > SCENE_THREAD_BUDGET - 8 * 1024)
+
+  const fresh = page(0, 1)
+  assert.equal(fitSceneThreads(fresh, { collection: 'threads' }, used, undefined).bytes, Buffer.byteLength(JSON.stringify(fresh.result.records[0])) + 1, 'a new pass resets the budget')
 })

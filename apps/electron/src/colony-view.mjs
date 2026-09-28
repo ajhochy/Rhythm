@@ -38,6 +38,36 @@ export function createColonyAssetHandler(artifact) {
   }
 }
 
+const FRAME_BYTES = 1024 * 1024
+// ponytail: the scene reassembles every page and aborts past 32 MiB total; stopping threads at 24 MiB leaves room for
+// projects/warnings. Threads arrive newest first, so only the oldest history is dropped. Upgrade path: a scanner-side cap.
+export const SCENE_THREAD_BUDGET = 24 * 1024 * 1024
+const jsonBytes = (/** @type {any} */ value) => Buffer.byteLength(JSON.stringify(value))
+
+/** Relabel Open from main policy and keep one scene threads page inside the frame and snapshot budgets.
+ * @param {any} response @param {any} request @param {{generation:string,bytes:number}} used @param {((thread:any)=>any)|undefined} sceneThread */
+export function fitSceneThreads(response, request, used, sceneThread) {
+  const page = response.result
+  // The worker marks every embedded thread unopenable; main owns opening, so it relabels Open here.
+  if (sceneThread) page.records = page.records.map(sceneThread)
+  const start = Number(request?.cursor ?? 0)
+  const next = request?.cursor === undefined || used.generation !== page.generation ? { generation: page.generation, bytes: 0 } : { ...used }
+  // Relabelling can push a full worker page past 1 MiB; hand the tail back through the cursor instead.
+  while (page.records.length > 1 && jsonBytes(response) > FRAME_BYTES) {
+    page.records.pop()
+    page.nextCursor = String(start + page.records.length)
+  }
+  let kept = 0
+  for (const record of page.records) {
+    const size = jsonBytes(record) + 1 // the scene counts each record's JSON plus one byte
+    if (next.bytes + size > SCENE_THREAD_BUDGET) { page.nextCursor = null; break }
+    next.bytes += size
+    kept++
+  }
+  page.records.length = kept
+  return next
+}
+
 /** Exact native frame/epoch boundary, also exercised by real Electron hostile-frame fixtures.
  * @param {any} options */
 export function bindColonySceneChannel(options) {
@@ -49,6 +79,7 @@ export function bindColonySceneChannel(options) {
   let transferred = false
   let port = /** @type {Electron.MessagePortMain | null} */ (null)
   let pendingVisibility = /** @type {any} */ (null)
+  let sceneThreads = { generation: '', bytes: 0 }
   let disposal = /** @type {Promise<void> | null} */ (null)
   const dispose = () => {
     if (disposal) return disposal
@@ -122,9 +153,8 @@ export function bindColonySceneChannel(options) {
           return
         }
         const response = await service.request(event.data)
-        // The worker marks every embedded thread unopenable; main owns opening, so it relabels Open here.
         if (event.data.method === 'inventory.page' && response?.ok === true && response.result?.collection === 'threads' &&
-          Array.isArray(response.result.records) && options.sceneThread) response.result.records = response.result.records.map(options.sceneThread)
+          Array.isArray(response.result.records)) sceneThreads = fitSceneThreads(response, event.data.payload, sceneThreads, options.sceneThread)
         validateColonyResponse(response, documentId)
         if (!revoked) port?.postMessage(response)
       } catch { void dispose() }
