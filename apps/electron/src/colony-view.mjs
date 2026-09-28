@@ -122,6 +122,9 @@ export function bindColonySceneChannel(options) {
           return
         }
         const response = await service.request(event.data)
+        // The worker marks every embedded thread unopenable; main owns opening, so it relabels Open here.
+        if (event.data.method === 'inventory.page' && response?.ok === true && response.result?.collection === 'threads' &&
+          Array.isArray(response.result.records) && options.sceneThread) response.result.records = response.result.records.map(options.sceneThread)
         validateColonyResponse(response, documentId)
         if (!revoked) port?.postMessage(response)
       } catch { void dispose() }
@@ -305,6 +308,7 @@ export function registerColonyView(options) {
         attachment:record.attachment, hostContents:win.webContents, hostFrame:event.senderFrame,
         hostAuthorized:() => current === record && !record.suspended && ownsHost(event),
         ownsThreadId:(/** @type {string} */ threadId) => options.ownsThreadId?.(threadId) === true,
+        runAction:options.runAction, sceneThread:options.sceneThread,
         onSceneEvent:(/** @type {string} */ sceneEvent, /** @type {any} */ payload) => {
           if (current === record && !disposed) win.webContents.send('colony:view:event', { attachment:record.attachment, event:sceneEvent, payload })
         } })

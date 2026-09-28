@@ -1051,7 +1051,9 @@ if (hasSingleInstanceLock) {
     /** Hand an ordinary http(s) link to the system browser; anything else is just dropped. @param {unknown} value */
     const openLinkExternally = (value) => {
       const href = externalHttpUrl(value);
-      if (!href || !allowExternalOpen()) return;
+      // Scheme only: the rest of a dropped URL may carry tokens.
+      if (!href) { console.warn(`[rhythm] dropped non-http(s) link (${typeof value === 'string' ? value.split(':', 1)[0].slice(0, 32) : typeof value}:)`); return; }
+      if (!allowExternalOpen()) { console.warn('[rhythm] dropped external link: rate limit'); return; }
       // Smoke runs must never launch the developer's real browser; record instead.
       if (isSmoke) smokeExternalOpens.push(href);
       else void shell.openExternal(href).catch(() => undefined);

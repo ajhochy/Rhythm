@@ -90,6 +90,7 @@ export function registerColonyHost(/** @type {any} */ options) {
     onDispose: resetInventory,
     ownsThreadId,
     runAction: (/** @type {any} */ value) => actions.run(value),
+    sceneThread: (/** @type {any} */ thread) => actions.sceneThread(thread),
     expectedSourceCommit: PINNED_COLONY_SOURCE_COMMIT,
     expectedElectronMajor: EXPECTED_COLONY_ELECTRON_MAJOR,
   })

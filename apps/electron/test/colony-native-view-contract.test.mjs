@@ -112,7 +112,7 @@ test('pre-commit navigation cannot reuse readiness queued by an older document',
   await boundary.channel.dispose()
 })
 
-async function lifecycleFixture(run) {
+async function lifecycleFixture(run, extra = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'colony-native-view-'))
   const artifactRoot = path.join(root, 'artifact')
   await makeArtifact(artifactRoot)
@@ -139,7 +139,7 @@ async function lifecycleFixture(run) {
   const bounds = []
   class WebContentsView {
     constructor() {
-      const frame = { detached: false, url: '', transferred: null, postMessage(_channel, _message, ports) { this.transferred = ports[0] }, send() {} }
+      const frame = { detached: false, url: '', transferred: null, postMessage(_channel, message, ports) { this.transferred = ports[0]; this.handoff = message }, send() {} }
       let url = ''
       let loading = false
       sceneContents = Object.assign(new EventEmitter(), {
@@ -167,7 +167,8 @@ async function lifecycleFixture(run) {
   }
   const ownerFrame = { url: 'rhythm://app/index.html#/colony' }
   let hostFocuses = 0
-  const ownerContents = Object.assign(new EventEmitter(), { mainFrame: ownerFrame, getZoomFactor: () => 1, focus: () => { hostFocuses++ } })
+  const hostEvents = []
+  const ownerContents = Object.assign(new EventEmitter(), { mainFrame: ownerFrame, getZoomFactor: () => 1, focus: () => { hostFocuses++ }, send: (channel, message) => hostEvents.push({ channel, message }) })
   const contentView = {
     children: [],
     addChildView(view) { this.children.push(view) },
@@ -182,6 +183,10 @@ async function lifecycleFixture(run) {
     stderr: { resume() {} },
     kill() { return true },
     send(message) {
+      if (message.method === 'inventory.page') queueMicrotask(() => child.emit('message', {
+        v: 1, documentId: message.documentId, id: message.id, ok: true,
+        result: { generation: 'g1', collection: 'threads', scannedAt: 1, nextCursor: null, records: [{ id: 'rhythm:one', harness: 'rhythm', canOpen: false, ref: { sessionId: 'local-1' } }] },
+      }))
       if (message.type === 'colony:init') queueMicrotask(() => child.emit('message', {
         type: 'colony:ready', v: 1, product: 'colony', documentId: message.documentId,
         capabilities: ['inventory-v1', 'state-v1', 'host-intents-v1', 'state-mark-v1', 'import-v1'], runtime: { node: process.versions.node, sqlite: true },
@@ -204,9 +209,10 @@ async function lifecycleFixture(run) {
     expectedSourceCommit: sourceCommit,
     stopTimeoutMs: 5,
     spawnChild: () => { launches++; return child },
+    ...extra,
   })
   const event = { sender: ownerContents, senderFrame: ownerFrame }
-  try { await run({ host, ipcMain, event, ownerFrame, ownerContents, partition, sceneContents: () => sceneContents, contentView, launches: () => launches, hostFocuses: () => hostFocuses, insertedCss, bounds }) }
+  try { await run({ hostEvents, host, ipcMain, event, ownerFrame, ownerContents, partition, sceneContents: () => sceneContents, contentView, launches: () => launches, hostFocuses: () => hostFocuses, insertedCss, bounds }) }
   finally {
     child.exitCode = 0
     child.emit('exit', 0, null)
@@ -324,5 +330,32 @@ test('sticky child-exit failure still completes local view and partition teardow
     assert.equal(partition.unhandled, true)
     assert.deepEqual(await attach(event), { ok: false, reason: 'Colony child exit could not be confirmed; replacement is blocked' })
     assert.equal(launches(), 1)
+  })
+})
+
+test('bot-crossing-open: the real native view wires scene action.run and Open labelling through main policy', async () => {
+  // Regression caught: registerColonyView never forwarded runAction to the scene channel, so the
+  // native Open button answered `result: undefined`; and the worker's canOpen:false stayed disabled.
+  const actionCalls = []
+  await lifecycleFixture(async ({ hostEvents, host, ipcMain, event, sceneContents }) => {
+    const result = await ipcMain.handlers.get('colony:view:attach')(event)
+    assert.equal(result.ok, true)
+    ipcMain.emit('colony:scene-ready', { sender: sceneContents(), senderFrame: sceneContents().mainFrame }, { v: 1, product: 'colony' })
+    const port = sceneContents().mainFrame.transferred.peer
+    const { documentId } = sceneContents().mainFrame.handoff
+    const send = (id, method, payload) => port.emit('message', { data: { v: 1, documentId, id, method, payload } })
+    const settle = async () => { for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve)) }
+    send('request-1', 'action.run', { kind: 'open', id: 'rhythm:one' })
+    send('request-2', 'inventory.page', { collection: 'threads', limit: 250 })
+    await settle()
+    assert.deepEqual(actionCalls, [{ kind: 'open', id: 'rhythm:one' }])
+    const responses = Object.fromEntries(port.messages.filter((message) => message.id).map((message) => [message.id, message]))
+    assert.deepEqual(responses['request-1'].result, { ok: true, kind: 'rhythm-session', sessionId: 'local-1' })
+    assert.equal(responses['request-2'].result.records[0].canOpen, true)
+    assert.deepEqual(hostEvents.filter(({ message }) => message.event === 'scene.action').map(({ message }) => message.payload), [{ ok: true, kind: 'rhythm-session', sessionId: 'local-1' }])
+    await host.disposeCurrent().catch(() => {})
+  }, {
+    runAction: async (value) => { actionCalls.push(value); return { ok: true, kind: 'rhythm-session', sessionId: 'local-1' } },
+    sceneThread: (thread) => ({ ...thread, canOpen: true }),
   })
 })

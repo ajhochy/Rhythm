@@ -73,12 +73,65 @@ test('1531:colony-main-action-policy:3 Codex opens the exact UUID only with an i
   assert.deepEqual(f.launches, [`codex://threads/${uuid}`])
   assert.match((await f.actions.run({ kind: 'open', id: 'codex:bad' })).reason, /verified Codex/i)
 
-  const missing = createColonyActions({ currentGeneration: () => 'g', resolveRecord: () => codex('codex:exact', uuid), app: { getApplicationNameForProtocol: () => '' }, shell: { openExternal: async () => { throw new Error('must not launch') } } })
+  const missing = createColonyActions({ openInTerminal: null, currentGeneration: () => 'g', resolveRecord: () => codex('codex:exact', uuid), app: { getApplicationNameForProtocol: () => '' }, shell: { openExternal: async () => { throw new Error('must not launch') } } })
   assert.match((await missing.run({ kind: 'open', id: 'codex:exact' })).reason, /not installed/i)
   const rejected = createColonyActions({ currentGeneration: () => 'g', resolveRecord: () => codex('codex:exact', uuid), app: { getApplicationNameForProtocol: () => 'Codex' }, shell: { openExternal: async () => { throw new Error('OS denied synthetic dispatch') } } })
   const failure = await rejected.run({ kind: 'open', id: 'codex:exact' })
   assert.equal(failure.ok, false)
   assert.match(failure.reason, /OS denied synthetic dispatch/)
+})
+
+test('bot-crossing-open: Claude Code opens only the exact claude:// session shape through the registered handler', async () => {
+  // Regression caught: Claude bots answered "does not support exact native opening" and Open did nothing.
+  const cli = '0f5d3c2a-1b2c-4d3e-8f90-123456789abc'
+  const records = new Map([
+    ['claude-code:desktop', { id: 'claude-code:desktop', harness: 'claude-code', ref: { desktopSessionId: `local_${cli}`, cliSessionId: cli } }],
+    ['claude-code:cli', { id: 'claude-code:cli', harness: 'claude-code', ref: { desktopSessionId: '', cliSessionId: cli } }],
+    ['claude-code:bad', { id: 'claude-code:bad', harness: 'claude-code', ref: { desktopSessionId: 'local_../../x', cliSessionId: `${cli}&evil=1` } }],
+    ['claude-code:array', { id: 'claude-code:array', harness: 'claude-code', ref: { cliSessionId: [cli] } }],
+  ])
+  const launches = []
+  const make = (handler) => createColonyActions({ openInTerminal: null, currentGeneration: () => 'g', resolveRecord: (id) => records.get(id),
+    app: { getApplicationNameForProtocol: (url) => url.startsWith('claude://') ? handler : '' }, shell: { openExternal: async (url) => { launches.push(url) } } })
+  const actions = make('Claude')
+  assert.deepEqual(await actions.run({ kind: 'open', id: 'claude-code:desktop' }), { ok: true, kind: 'external-app' })
+  assert.deepEqual(await actions.run({ kind: 'open', id: 'claude-code:cli' }), { ok: true, kind: 'external-app' })
+  assert.match((await actions.run({ kind: 'open', id: 'claude-code:bad' })).reason, /verified Claude Code/)
+  assert.match((await actions.run({ kind: 'open', id: 'claude-code:array' })).reason, /verified Claude Code/)
+  assert.deepEqual(launches, [`claude://claude.ai/epitaxy/local_${cli}`, `claude://resume?session=${cli}`])
+  assert.match((await make('').run({ kind: 'open', id: 'claude-code:cli' })).reason, /Claude is not installed/)
+  assert.equal(launches.length, 2)
+})
+
+test('bot-crossing-open: Codex without a codex:// handler resumes the exact UUID in Terminal with a quoted cwd', async () => {
+  // Regression caught: Codex CLI-only installs (no Codex.app) could never open a Codex bot.
+  const uuid = '01992f4e-7b3a-7c21-9f00-123456789abc'
+  const records = new Map([
+    ['codex:cwd', codex('codex:cwd', uuid, { ref: { sessionId: uuid, cwd: "/Users/me/it's here" } })],
+    ['codex:nocwd', codex('codex:nocwd', uuid, { ref: { sessionId: uuid, cwd: 'relative\n; rm -rf /' } })],
+    ['codex:bad', codex('codex:bad', `${uuid}; rm -rf /`)],
+  ])
+  const lines = []
+  const actions = createColonyActions({ openInTerminal: async (line) => { lines.push(line) }, currentGeneration: () => 'g', resolveRecord: (id) => records.get(id),
+    app: { getApplicationNameForProtocol: () => '' }, shell: { openExternal: async () => { throw new Error('must not launch') } } })
+  assert.deepEqual(await actions.run({ kind: 'open', id: 'codex:cwd' }), { ok: true, kind: 'external-app' })
+  assert.deepEqual(await actions.run({ kind: 'open', id: 'codex:nocwd' }), { ok: true, kind: 'external-app' })
+  assert.match((await actions.run({ kind: 'open', id: 'codex:bad' })).reason, /verified Codex/)
+  assert.deepEqual(lines, [`cd '/Users/me/it'\\''s here' && codex resume ${uuid}`, `codex resume ${uuid}`])
+})
+
+test('bot-crossing-open: sceneThread enables the scene Open button exactly when main can open the record', () => {
+  // Regression caught: the embedded worker marks every thread canOpen:false, so the scene's Open stayed disabled.
+  const actions = createColonyActions({ openInTerminal: null, app: { getApplicationNameForProtocol: () => '' }, shell: {} })
+  const open = actions.sceneThread(rhythm('rhythm:ok', 'local-1', { canOpen: false, openCapabilities: {}, navigationReason: 'Embedded observation only' }))
+  assert.equal(open.canOpen, true)
+  assert.deepEqual(open.openCapabilities, { app: { available: true, verified: true, reason: 'Open this conversation' } })
+  assert.equal(open.ref.sessionId, 'local-1')
+  const closed = actions.sceneThread(codex('codex:x', '01992f4e-7b3a-7c21-9f00-123456789abc', { canOpen: false }))
+  assert.equal(closed.canOpen, false)
+  assert.match(closed.navigationReason, /Codex is not installed/)
+  assert.equal(actions.sceneThread({ id: 'rhythm:bad', harness: 'rhythm', ref: { sessionId: '../x' } }).canOpen, false)
+  assert.equal(actions.sceneThread(null), null)
 })
 
 test('1531:colony-main-action-policy:4 reveal and copy use only an existing inventory checkout path', async (t) => {
