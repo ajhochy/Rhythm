@@ -232,6 +232,24 @@ describe('Track 4 — outbox hooks', () => {
     void db;
   });
 
+  it('never sends attachment bytes over the relay, and caps oversized rows', async () => {
+    const { relaySafeRow } = await import('../repositories/relay_outbox_repository');
+    const big = `data:image/jpeg;base64,${'A'.repeat(200_000)}`;
+    const small = 'data:image/png;base64,AAAA';
+    const parts = [{
+      type: 'tool',
+      state: { output: 'Image read successfully', attachments: [{ type: 'file', mime: 'image/jpeg', url: big }, { type: 'file', mime: 'image/png', url: small }] },
+    }];
+    const safe = relaySafeRow({ id: 1, parts_json: JSON.stringify(parts) });
+    const [first, second] = (JSON.parse(safe.parts_json as string)[0].state.attachments) as Record<string, unknown>[];
+    expect(first).toEqual({ type: 'file', mime: 'image/jpeg', omittedBytes: 150_000 });
+    expect(second!.url).toBe(small);
+    expect(relaySafeRow({ id: 2, parts_json: JSON.stringify([{ type: 'text', text: `mentions data: ${'x'.repeat(17 * 1024 * 1024)}` }]) }).parts_json)
+      .toBe('[]');
+    const plain = { id: 3, parts_json: '[{"type":"text","text":"hi"}]' };
+    expect(relaySafeRow(plain)).toBe(plain);
+  });
+
   it('migrations compact a snapshot backlog to one pointer entry per record', async () => {
     const { db } = await seedSessionAndMessage();
     const insert = db.prepare(

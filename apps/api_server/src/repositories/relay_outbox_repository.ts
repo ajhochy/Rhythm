@@ -28,6 +28,40 @@ const MIRROR_TABLES: ReadonlySet<string> = new Set<RelayMirrorTable>([
   'agent_session_messages',
 ]);
 
+// Attachment bytes never cross the relay: a data: URL above this size becomes a placeholder, and
+// a row that is still oversized after that is sent without its parts. The uplink socket closes
+// on frames above 100 MiB, and resync would resend the same row forever.
+const RELAY_DATA_URL_MAX_CHARS = 64 * 1024;
+const RELAY_ROW_MAX_CHARS = 16 * 1024 * 1024;
+
+function stripDataUrls(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripDataUrls);
+  if (value === null || typeof value !== 'object') return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (typeof child === 'string' && child.startsWith('data:') && child.length > RELAY_DATA_URL_MAX_CHARS) {
+      out.omittedBytes = Math.floor((child.length - child.indexOf(',') - 1) * 0.75);
+      continue;
+    }
+    out[key] = stripDataUrls(child);
+  }
+  return out;
+}
+
+export function relaySafeRow(row: Record<string, unknown>): Record<string, unknown> {
+  const parts = row.parts_json;
+  if (typeof parts !== 'string' || !parts.includes('data:')) return row;
+  let safe = parts;
+  try {
+    safe = JSON.stringify(stripDataUrls(JSON.parse(parts)));
+  } catch {
+    // Unparseable parts cannot be inspected; the size cap below still applies.
+  }
+  const size = Object.values({ ...row, parts_json: safe })
+    .reduce<number>((total, value) => total + (typeof value === 'string' ? value.length : 0), 0);
+  return { ...row, parts_json: size > RELAY_ROW_MAX_CHARS ? '[]' : safe };
+}
+
 // One pending entry per record. An upsert carries no snapshot: the sender reads the live row, so
 // a message updated N times while streaming costs one small outbox row, not N growing copies.
 // Dropping superseded entries is safe because the relay applies any seq above its last applied.
@@ -70,7 +104,7 @@ export class RelayOutboxRepository {
         : undefined;
       // Gone since it was queued (e.g. a cascade): the replica should drop it too.
       return live
-        ? { ...base, op: 'upsert' as const, row: live }
+        ? { ...base, op: 'upsert' as const, row: relaySafeRow(live) }
         : { ...base, op: 'delete' as const, row: null };
     });
   }
