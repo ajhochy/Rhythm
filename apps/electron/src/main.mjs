@@ -734,7 +734,11 @@ if (hasSingleInstanceLock) {
   ipcMain.handle('rhythm:auth:logout', async (event, ...args) => {
     requireOwnedDocument(event); requireNoPayload(args);
     invalidateAuthentication(); await accountsTransition;
-    if (rebuildMainWindow) { mainWindow?.destroy(); mainWindow = undefined; await rebuildMainWindow(); }
+    if (!rebuildMainWindow) return;
+    // Destroying the only window fires window-all-closed; changingServer keeps that from quitting.
+    changingServer = true;
+    try { mainWindow?.destroy(); mainWindow = undefined; await rebuildMainWindow(); }
+    finally { changingServer = false; }
   });
   ipcMain.handle('rhythm:updates:open-download', async (event, ...args) => {
     requireOwnedDocument(event); requireNoPayload(args);

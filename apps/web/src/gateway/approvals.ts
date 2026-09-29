@@ -1,4 +1,5 @@
 import type { GatewayMode } from '.';
+import { humanApprovalCapability } from '../security/humanApprovalSigner';
 
 // apps/api_server/src/controllers/agent_approvals_controller.ts:118-186
 // apps/api_server/src/routes/agent_approvals_routes.ts:40-53
@@ -57,7 +58,7 @@ export function createFixtureApprovalGateway(): ApprovalGateway {
   return { mode: 'fixture', listPending: unsupported, decide: unsupported };
 }
 
-export function createLiveApprovalGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch): ApprovalGateway {
+export function createLiveApprovalGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch, capability: () => Promise<string> = humanApprovalCapability): ApprovalGateway {
   if (!token?.trim()) throw new Error('Live configuration error: an explicit live token is required');
   const request = (path: string, init: RequestInit = {}, capability?: string) => fetcher(`${apiBase}${path}`, {
     ...init,
@@ -69,7 +70,7 @@ export function createLiveApprovalGateway(apiBase: string, token: string | undef
   });
   return {
     mode: 'live',
-    listPending: () => response<PendingApproval[]>(request('/agent-approvals?status=pending')),
+    listPending: async () => response<PendingApproval[]>(request('/agent-approvals?status=pending', {}, await capability())),
     decide: (approvalId, status, material) => response<PendingApproval>(request(`/agent-approvals/${encodeURIComponent(approvalId)}`, {
       method: 'PATCH',
       body: JSON.stringify({ status, signature: material.signature }),
