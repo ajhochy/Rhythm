@@ -165,3 +165,38 @@ The user asked for Providers settings in both Electron and mobile, where they ch
 - The request is `{model, state: <query>, questions}`. Each candidate becomes one Choice question: `{type:'choice', instructions:'Is this relevant to / does this describe the request? <candidate>', criteria:{yes:'relevant', no:'not relevant'}}`.
 - The score is `answers[q].probabilities.yes`.
 - Questions are batched in chunks (default 32).
+
+## Addendum: Routing scope and mobile routing through the proxy
+
+### Routing scope (per feature setting `routing.scope`)
+
+- `first_prompt` (default): the router runs on the first prompt of an auto session and persists
+  its pick. Later prompts reuse it. This keeps one model per conversation, keeps prompt caches
+  warm, and costs one reranker call per session.
+- `escalate_only`: the router runs on every prompt but only moves UP a tier, and only at
+  confidence ≥ `routing.escalateMinConfidence` (default 0.75). Downgrades never happen
+  mid-session.
+- `every_prompt`: today's behaviour.
+- The capacity layer keeps running on each prompt in all scopes (it reads only the cache).
+- Storage: `agent_sessions.router_decided_at TEXT NULL` on SQLite and Postgres. The value is set
+  when the router applies a pick (shadow also records a would-have pick in the decision log). The
+  pick lands in `providerId`/`modelId` while `modelMode` stays `auto`. Choosing Auto again in the
+  picker clears `router_decided_at`, so the next prompt is routed again.
+- Exposed in `GET/PUT /agent-decisions/config` as `routing: { scope, escalateMinConfidence }`,
+  with the same env precedence (`AGENT_DECISION_ROUTING_SCOPE`, `AGENT_DECISION_ESCALATE_MIN_CONFIDENCE`).
+
+### Mobile: route in the proxy, not the engine
+
+Mobile prompts already pass through the api_server: `/mobile-gateway/opencode/session/{id}/prompt_async`
+→ `MobileOpenCodeProxy.forward` → the engine. Routing there needs no engine (fork) change.
+
+- Before forwarding `session.prompt_async`, the proxy resolves the Rhythm session row for the
+  SDK session (`reconcileMobileSession` already maps it). If `modelMode === 'auto'`, it applies the
+  same scope rules as ws_gateway and rewrites the body's `model: {providerID, modelID}`.
+- Body `model` handling: absent → the routed pick, else the stored/profile model, else the engine
+  default; equal to the stored/profile model → an echo, replaced by the routed pick; a different
+  model → an explicit turn choice, forwarded unchanged.
+- Sessions created from mobile default to `auto`, like the desktop.
+- Mobile shows the pick via the existing SDK session/message payload (`modelID` on the assistant
+  message), so no new endpoint is needed.
+- The relay path (`relay_uplink_runtime`) reaches the same proxy, so it inherits this behaviour.
