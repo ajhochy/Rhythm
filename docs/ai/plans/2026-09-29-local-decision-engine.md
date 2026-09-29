@@ -112,3 +112,56 @@ The user asked for the model picker to offer **Auto (router)** as the default, s
   - While the session is auto, a turn sends no `modelOverride` unless the user staged a turn-only model.
   - Picking a specific model and choosing "session" scope PATCHes `fixed`.
   - The UI shows which model the router picked, when the session payload or provenance exposes it.
+
+## Addendum: Router backend settings (local / Jev / custom)
+
+The user asked for Providers settings in both Electron and mobile, where they choose the router model:
+
+- a **local** reranker;
+- **Jev** through its API;
+- a **custom** server, for example a model on another computer on the network.
+
+### Storage
+
+- A JSON file sits beside the other Rhythm app-support stores, with mode 0600.
+- API keys are write-only: GET returns `hasApiKey`, never the key.
+- Precedence: an explicitly set env var, then the saved settings, then the defaults.
+
+### API (local-only, inside the agent-execution gate, like `/agent-decisions`)
+
+**`GET /agent-decisions/config` returns:**
+
+```
+{
+  backend: 'local'|'jev'|'custom',
+  local:  { baseUrl, model, scoreScale },                    // loopback only
+  jev:    { baseUrl: 'https://api.typesafe.ai', model: 'jev-latest', hasApiKey },
+  custom: { baseUrl, model, scoreScale, hasApiKey },         // loopback, RFC1918/LAN http, or public https
+  timeoutMs,
+  remoteDataConsent: boolean,                                // required before jev/custom-remote are used
+  features: { model_routing, tool_ranking, memory_ranking, capacity_routing: 'default'|'off'|'shadow'|'on' },
+  lockedByEnv: string[],                                     // setting keys pinned by env vars (UI shows them read-only)
+  effective: { backend, baseUrl, model, features: {…effective mode for fixed sessions…} }
+}
+```
+
+**`PUT /agent-decisions/config`**
+
+- Takes a partial body of the same shape, plus a write-only `jev.apiKey` / `custom.apiKey`. An empty string clears the key.
+- 400 `{error, message}` codes: `invalid_url`, `consent_required`, `invalid_mode`, and so on.
+- Returns the GET shape.
+
+**`POST /agent-decisions/config/test`**
+
+- Takes an optional unsaved draft, merged over the saved settings.
+- Runs a three-document sample rerank.
+- Returns `{ok, backend, model, latencyMs, ranked:[{text, score}], message?}`.
+
+**Mobile** reaches the same three operations under `/mobile-gateway/tools/agent-decisions/...`. They are listed in `MOBILE_TOOL_OPERATIONS` with the `mac-global-admin` policy.
+
+### Jev adapter
+
+- `POST {baseUrl}/v1/systemone` with a Bearer key.
+- The request is `{model, state: <query>, questions}`. Each candidate becomes one Choice question: `{type:'choice', instructions:'Is this relevant to / does this describe the request? <candidate>', criteria:{yes:'relevant', no:'not relevant'}}`.
+- The score is `answers[q].probabilities.yes`.
+- Questions are batched in chunks (default 32).
