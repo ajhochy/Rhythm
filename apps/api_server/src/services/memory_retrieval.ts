@@ -50,6 +50,7 @@ import {
   getAgentMemoryRetrievalMode,
   getDecisionFeatureMode,
   getDecisionMemoryMinScore,
+  getDecisionMemoryTimeoutMs,
   getSemanticSearchBudgetMs,
   isMemoryLinkExpansionEnabled,
   resolveEngraphMemoryVaultRoot,
@@ -1095,8 +1096,8 @@ async function assembleMemoryPreface(
 
 const RERANK_MIN_POOL = 20;
 const RERANK_POOL_FACTOR = 4;
-const RERANK_POOL_MAX = 40;
-const RERANK_CANDIDATE_CHARS = 1500;
+const RERANK_POOL_MAX = 16;
+const RERANK_CANDIDATE_CHARS = 700;
 
 interface RerankPool {
   memories: AgentMemory[];
@@ -1247,6 +1248,7 @@ async function buildRerankedMemoryPreface(
     ? await rankCandidates(
       query,
       pool.memories.map((memory) => ({ id: memory.id, text: rerankCandidateText(memory) })),
+      { timeoutMs: getDecisionMemoryTimeoutMs() },
     )
     : { status: 'disabled', reason: pool ? 'no_candidates' : 'pool_error', latencyMs: 0 };
 

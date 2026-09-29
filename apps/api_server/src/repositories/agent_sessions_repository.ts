@@ -53,6 +53,7 @@ interface AgentSessionRow {
   provider_id: string | null;
   model_id: string | null;
   model_mode: string | null;
+  router_decided_at?: string | null;
   agent_mode: string | null;
   permission_mode: string | null;
   approval_bypass_explicit: number;
@@ -154,6 +155,7 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     providerId: row.provider_id ?? null,
     modelId: row.model_id ?? null,
     modelMode: normalizeSessionModelMode(row.model_mode),
+    routerDecidedAt: row.router_decided_at ?? null,
     agentMode: row.agent_mode ?? null,
     permissionMode: (row.permission_mode ?? 'default') as PermissionMode,
     approvalBypassExplicit: row.approval_bypass_explicit === 1,
@@ -958,9 +960,9 @@ export class AgentSessionsRepository {
       db.prepare(
         `INSERT INTO agent_sessions
            (id, task_id, task_title, agent_kind, profile_id, status, cwd, name, project_id,
-            sdk_session_id, owner_user_id, provider_id, model_id, category, archived_at, created_at,
+            sdk_session_id, owner_user_id, provider_id, model_id, model_mode, category, archived_at, created_at,
             updated_at)
-         VALUES (?, NULL, NULL, ?, ?, 'idle', ?, ?, ?, ?, ?, ?, ?, 'chat', ?, ?, ?)`,
+         VALUES (?, NULL, NULL, ?, ?, 'idle', ?, ?, ?, ?, ?, ?, ?, 'auto', 'chat', ?, ?, ?)`,
       ).run(
         id,
         input.opencodeAgentId ?? '',
@@ -1246,6 +1248,8 @@ export class AgentSessionsRepository {
     if (fields.modelMode !== undefined) {
       sets.push('model_mode = ?');
       values.push(normalizeSessionModelMode(fields.modelMode));
+      // Choosing Auto again forgets the router's earlier pick.
+      if (normalizeSessionModelMode(fields.modelMode) === 'auto') sets.push('router_decided_at = NULL');
     }
     if (fields.agentMode !== undefined) {
       sets.push('agent_mode = ?');
@@ -1274,6 +1278,25 @@ export class AgentSessionsRepository {
     this.mutateAndReplicate(id, (db) => db
       .prepare(`UPDATE agent_sessions SET ${sets.join(', ')} WHERE id = ?`)
       .run(...values).changes);
+  }
+
+  /** Persist the router's pick for an auto session; modelMode stays 'auto'. */
+  setRouterDecision(
+    id: string,
+    pick: { providerId: string; modelId: string; decidedAt: string },
+  ): void {
+    this.mutateAndReplicate(id, (db) => db
+      .prepare(
+        `UPDATE agent_sessions SET provider_id = ?, model_id = ?, router_decided_at = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(pick.providerId, pick.modelId, pick.decidedAt, new Date().toISOString(), id).changes);
+  }
+
+  /** Forget the router's pick so the next prompt is routed again. */
+  clearRouterDecision(id: string): void {
+    this.mutateAndReplicate(id, (db) => db
+      .prepare(`UPDATE agent_sessions SET router_decided_at = NULL, updated_at = ? WHERE id = ?`)
+      .run(new Date().toISOString(), id).changes);
   }
 
   /** Set or clear archived_at. Returns the updated row or null if not found. */

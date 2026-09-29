@@ -107,6 +107,8 @@ export interface AgentSession {
    * the fallback baseline. 'fixed' = the stored model is a pin. Legacy rows are 'fixed'.
    */
   modelMode: SessionModelMode;
+  /** ISO time the decision router last applied a pick (auto sessions); null = not routed yet. */
+  routerDecidedAt: string | null;
   agentMode: string | null;
   permissionMode: PermissionMode;
   /** Server-owned proof that a human selected bypassPermissions for this chat. */

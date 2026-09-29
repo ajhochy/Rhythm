@@ -3354,6 +3354,11 @@ If someone asks for creative work that needs a local capability:
   if (!agentSessionColsModelMode.includes('model_mode')) {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN model_mode TEXT NOT NULL DEFAULT 'fixed'`);
   }
+  // Routing scope: set when the decision router applied a pick to an auto
+  // session (first_prompt scope reuses it). NULL = not routed yet.
+  if (!agentSessionColsModelMode.includes('router_decided_at')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN router_decided_at TEXT`);
+  }
 
   // Delegated-session isolation repair. Only a child still classified Chat
   // whose resolved parent is non-Chat is eligible. Copy the parent's complete

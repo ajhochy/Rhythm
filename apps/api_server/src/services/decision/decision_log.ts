@@ -1,4 +1,4 @@
-import { env } from '../../config/env';
+import { env, getDecisionLogMaxRows } from '../../config/env';
 import { getDb } from '../../database/db';
 import { logger } from '../../utils/logger';
 
@@ -63,7 +63,10 @@ export interface DecisionSummary {
 
 const PREVIEW_CHARS = 160;
 const CALIBRATION_BINS = 5;
+/** Trim the table after every Nth insert (one DELETE, not per row). */
+const TRIM_EVERY = 500;
 let warned = false;
+let insertsSinceTrim = 0;
 
 function isPostgres(): boolean {
   return env.dbClient === 'postgres';
@@ -116,9 +119,30 @@ export function recordDecision(entry: DecisionLogEntry): void {
         preview,
         JSON.stringify(entry.detail ?? {}),
       );
+    insertsSinceTrim += 1;
+    if (insertsSinceTrim >= TRIM_EVERY) {
+      insertsSinceTrim = 0;
+      trimDecisionLog();
+    }
   } catch (err) {
     warnOnce(err);
   }
+}
+
+/** Delete the oldest rows beyond AGENT_DECISION_LOG_MAX_ROWS in one statement. */
+export function trimDecisionLog(): void {
+  const max = getDecisionLogMaxRows();
+  getDb()
+    .prepare(
+      `DELETE FROM agent_decision_log
+        WHERE id <= (SELECT id FROM agent_decision_log ORDER BY id DESC LIMIT 1 OFFSET ?)`,
+    )
+    .run(max);
+}
+
+/** Test-only: reset the insert counter. */
+export function resetDecisionLogCounterForTests(): void {
+  insertsSinceTrim = 0;
 }
 
 interface RawRow {

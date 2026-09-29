@@ -3,7 +3,12 @@ import Database from 'better-sqlite3';
 
 import { runMigrations } from '../../database/migrations';
 import { setDb } from '../../database/db';
-import { listDecisions, recordDecision, summarizeDecisions } from './decision_log';
+import {
+  listDecisions,
+  recordDecision,
+  resetDecisionLogCounterForTests,
+  summarizeDecisions,
+} from './decision_log';
 
 let db: Database.Database;
 let previous: Database.Database | null;
@@ -67,5 +72,27 @@ describe('decision log', () => {
     expect(() => recordDecision({ feature: 'x', mode: 'on', status: 'ok', applied: false })).not.toThrow();
     expect(listDecisions()).toEqual([]);
     expect(summarizeDecisions()).toEqual([]);
+  });
+});
+
+describe('decision log retention', () => {
+  afterEach(() => {
+    delete process.env.AGENT_DECISION_LOG_MAX_ROWS;
+    resetDecisionLogCounterForTests();
+  });
+
+  it('trims the oldest rows beyond the cap on every 500th insert', () => {
+    process.env.AGENT_DECISION_LOG_MAX_ROWS = '100';
+    resetDecisionLogCounterForTests();
+    const rec = (i: number) =>
+      recordDecision({ feature: 'model_routing', mode: 'shadow', status: 'ok', applied: false, chosen: `c${i}` });
+    for (let i = 0; i < 499; i++) rec(i);
+    const count = () => (db.prepare('SELECT COUNT(*) AS n FROM agent_decision_log').get() as { n: number }).n;
+    expect(count()).toBe(499);
+    rec(499);
+    expect(count()).toBe(100);
+    const rows = listDecisions({ limit: 500 });
+    expect(rows[0].chosen).toBe('c499');
+    expect(rows[rows.length - 1].chosen).toBe('c400');
   });
 });

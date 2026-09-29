@@ -18,9 +18,13 @@ import {
   isAutoAccountSession,
   markAutoAccountSession,
   pickAccount,
+  resetCapacityRefreshForTests,
 } from './capacity_router';
 
-const ENV = ['AGENT_DECISION_CAPACITY_ROUTING', 'AGENT_DECISION_CAPACITY_LOW_FRACTION'];
+const ENV = [
+  'AGENT_DECISION_CAPACITY_ROUTING', 'AGENT_DECISION_CAPACITY_LOW_FRACTION',
+  'AGENT_DECISION_CAPACITY_CROSS_AGENT',
+];
 let saved: Record<string, string | undefined>;
 let db: Database.Database;
 let prev: Database.Database | null;
@@ -51,6 +55,7 @@ beforeEach(() => {
   prev = setDb(db);
   getUsageBudget.mockReset();
   clearAutoAccountSessionsForTests();
+  resetCapacityRefreshForTests();
 });
 afterEach(() => {
   for (const k of ENV) {
@@ -142,7 +147,7 @@ describe('classifyRouteTier equivalence', () => {
 
 describe('chooseCapacityRoute', () => {
   // Providers that report usage; github-copilot has no usage data (unknown headroom).
-  const base = { agentId: 'claude-code', authedProviders: ['anthropic', 'openrouter', 'openai', 'google'] };
+  const base = { agentId: 'claude-code', authedProviders: ['anthropic', 'openrouter'] };
 
   it('keeps the base route on the best account when it has capacity', () => {
     const r = chooseCapacityRoute({
@@ -443,12 +448,14 @@ describe('applyCapacityRouting with Auto (router) sessions', () => {
     authedProviders: ['anthropic', 'openrouter'],
   };
 
-  it('unset env: only auto sessions are active, and source auto may change the model', async () => {
+  it('unset env: auto sessions only shadow (log, no change); on requires explicit setting', async () => {
     getUsageBudget.mockResolvedValue(lowAnthropic);
     expect(await applyCapacityRouting(input)).toBeNull();
-    const d = await applyCapacityRouting({ ...input, sessionAuto: true, currentAccountId: 'a' });
-    expect(d?.routeChanged).toBe(true);
-    expect(d?.route.providerID).toBe('openrouter');
+    expect(listDecisions({ feature: 'capacity_routing' })).toHaveLength(0);
+    expect(await applyCapacityRouting({ ...input, sessionAuto: true, currentAccountId: 'a' })).toBeNull();
+    const rows = listDecisions({ feature: 'capacity_routing' });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ mode: 'shadow', applied: false });
   });
 
   it('explicit off wins over sessionAuto', async () => {
@@ -459,7 +466,7 @@ describe('applyCapacityRouting with Auto (router) sessions', () => {
     expect(getUsageBudget).not.toHaveBeenCalled();
   });
 
-  it('autoPickAccountId honours sessionAuto when the env is unset', async () => {
+  it('autoPickAccountId stays null for auto sessions in shadow (env unset)', async () => {
     getUsageBudget.mockResolvedValue(
       snap(
         entry({ provider: 'anthropic', accountId: 'a' }, 0.3),
@@ -467,6 +474,115 @@ describe('applyCapacityRouting with Auto (router) sessions', () => {
       ),
     );
     expect(await autoPickAccountId('anthropic')).toBeNull();
+    expect(await autoPickAccountId('anthropic', { sessionAuto: true })).toBeNull();
+    process.env.AGENT_DECISION_CAPACITY_ROUTING = 'on';
     expect(await autoPickAccountId('anthropic', { sessionAuto: true })).toBe('b');
+  });
+});
+
+describe('cache self-priming', () => {
+  const input = {
+    agentId: 'claude-code',
+    baseRoute: OPUS,
+    requiredTier: 'frontier' as const,
+    requestedSource: 'agent_default',
+    authedProviders: ['anthropic', 'openrouter'],
+  };
+
+  it('an empty cache triggers exactly one non-blocking background refresh', async () => {
+    process.env.AGENT_DECISION_CAPACITY_ROUTING = 'on';
+    let release: (s: UsageBudgetSnapshot) => void = () => undefined;
+    getUsageBudget.mockImplementation((opts?: { cachedOnly?: boolean }) =>
+      opts?.cachedOnly ? Promise.resolve(snap()) : new Promise<UsageBudgetSnapshot>((r) => { release = r; }),
+    );
+    // The refresh never resolves until released; the turn path must not wait on it.
+    expect(await applyCapacityRouting(input)).toBeNull();
+    expect(await applyCapacityRouting(input)).toBeNull();
+    const refreshes = getUsageBudget.mock.calls.filter((c) => !c[0]?.cachedOnly);
+    expect(refreshes).toHaveLength(1);
+    release(snap());
+  });
+
+  it('a stale snapshot is used as-is and also refreshed', async () => {
+    process.env.AGENT_DECISION_CAPACITY_ROUTING = 'on';
+    getUsageBudget.mockImplementation((opts?: { cachedOnly?: boolean }) =>
+      Promise.resolve(opts?.cachedOnly ? snap(entry({ provider: 'anthropic', accountId: 'a' }, 0.6)) : snap()),
+    );
+    const d = await applyCapacityRouting(input);
+    expect(d?.accountId).toBe('a');
+    expect(getUsageBudget.mock.calls.filter((c) => !c[0]?.cachedOnly)).toHaveLength(1);
+  });
+
+  it('a fresh snapshot does not refresh', async () => {
+    process.env.AGENT_DECISION_CAPACITY_ROUTING = 'on';
+    const fresh = { ...snap(entry({ provider: 'anthropic', accountId: 'a' }, 0.6)), fetchedAt: new Date().toISOString() };
+    getUsageBudget.mockResolvedValue(fresh);
+    await applyCapacityRouting(input);
+    expect(getUsageBudget.mock.calls.filter((c) => !c[0]?.cachedOnly)).toHaveLength(0);
+  });
+});
+
+describe('cross-agent tier equivalence', () => {
+  const TERRA = { providerID: 'openai', modelID: 'gpt-5.6-terra' };
+  const authedProviders = ['anthropic', 'openai'];
+
+  it('all accounts low, standard job: sonnet at 9.9% beats terra at 6.5%', () => {
+    const r = chooseCapacityRoute({
+      agentId: 'claude-code',
+      requiredTier: 'standard',
+      baseRoute: SONNET,
+      authedProviders,
+      snapshot: snap(
+        entry({ provider: 'anthropic', accountId: 'a1' }, 0.099),
+        entry({ provider: 'anthropic', accountId: 'a2' }, 0.1),
+        entry({ provider: 'openai', accountId: 'o1' }, 0.065),
+      ),
+    });
+    expect(r.route).toEqual(SONNET);
+    expect(r.allLow).toBe(true);
+    expect(r.accountId).toBe('a2');
+  });
+
+  it('anthropic at 3%, openai at 40%, standard job: terra, flagged crossAgent', () => {
+    const snapshot = snap(
+      entry({ provider: 'anthropic', accountId: 'a1' }, 0.03),
+      entry({ provider: 'openai', accountId: 'o1' }, 0.4),
+    );
+    const r = chooseCapacityRoute({
+      agentId: 'claude-code', requiredTier: 'standard', baseRoute: SONNET, authedProviders, snapshot,
+    });
+    expect(r.route).toEqual(TERRA);
+    expect(r.accountId).toBe('o1');
+    expect(r.crossAgent).toBe(true);
+  });
+
+  it('the flag off restricts candidates to the agent table', () => {
+    process.env.AGENT_DECISION_CAPACITY_CROSS_AGENT = 'false';
+    const r = chooseCapacityRoute({
+      agentId: 'claude-code',
+      requiredTier: 'standard',
+      baseRoute: SONNET,
+      authedProviders,
+      snapshot: snap(
+        entry({ provider: 'anthropic', accountId: 'a1' }, 0.03),
+        entry({ provider: 'openai', accountId: 'o1' }, 0.4),
+      ),
+    });
+    expect(r.route.providerID).not.toBe('openai');
+    expect(r.crossAgent).toBeUndefined();
+  });
+
+  it('records crossAgent in the decision detail', async () => {
+    process.env.AGENT_DECISION_CAPACITY_ROUTING = 'on';
+    getUsageBudget.mockResolvedValue(snap(
+      entry({ provider: 'anthropic', accountId: 'a1' }, 0.03),
+      entry({ provider: 'openai', accountId: 'o1' }, 0.4),
+    ));
+    const d = await applyCapacityRouting({
+      agentId: 'claude-code', baseRoute: SONNET, requiredTier: 'standard',
+      requestedSource: 'agent_default', authedProviders,
+    });
+    expect(d?.route).toEqual(TERRA);
+    expect(listDecisions({ feature: 'capacity_routing' })[0].detail).toMatchObject({ crossAgent: true });
   });
 });

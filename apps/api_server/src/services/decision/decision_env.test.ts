@@ -3,7 +3,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   getDecisionBaseUrl,
   getDecisionFeatureMode,
+  getDecisionCapacityCrossAgent,
+  getDecisionLogMaxRows,
   getDecisionMemoryMinScore,
+  getDecisionMemoryTimeoutMs,
   getDecisionModel,
   getDecisionRoutingMinConfidence,
   getDecisionTimeoutMs,
@@ -17,7 +20,8 @@ const KEYS = [
   'AGENT_DECISION_MODEL_ROUTING', 'AGENT_DECISION_TOOL_RANKING', 'AGENT_DECISION_MEMORY_RANKING',
   'AGENT_DECISION_ROUTING_MIN_CONFIDENCE', 'AGENT_DECISION_TOOL_EAGER_SERVERS',
   'AGENT_DECISION_TOOL_MIN_SCORE', 'AGENT_DECISION_MEMORY_MIN_SCORE',
-  'AGENT_DECISION_CAPACITY_ROUTING',
+  'AGENT_DECISION_CAPACITY_ROUTING', 'AGENT_DECISION_MEMORY_TIMEOUT_MS',
+  'AGENT_DECISION_CAPACITY_CROSS_AGENT', 'AGENT_DECISION_LOG_MAX_ROWS',
 ];
 afterEach(() => { for (const k of KEYS) delete process.env[k]; });
 
@@ -73,18 +77,18 @@ describe('decision env getters', () => {
 });
 
 describe('getEffectiveDecisionMode', () => {
-  it('unset: auto sessions are on, everything else off', () => {
-    expect(getEffectiveDecisionMode('model_routing', { sessionAuto: true })).toBe('on');
-    expect(getEffectiveDecisionMode('capacity_routing', { sessionAuto: true })).toBe('on');
+  it('unset: auto sessions are shadow, everything else off', () => {
+    expect(getEffectiveDecisionMode('model_routing', { sessionAuto: true })).toBe('shadow');
+    expect(getEffectiveDecisionMode('capacity_routing', { sessionAuto: true })).toBe('shadow');
     expect(getEffectiveDecisionMode('model_routing', { sessionAuto: false })).toBe('off');
     expect(getEffectiveDecisionMode('model_routing')).toBe('off');
   });
 
   it('empty or unrecognised values count as unset', () => {
     process.env.AGENT_DECISION_MODEL_ROUTING = '  ';
-    expect(getEffectiveDecisionMode('model_routing', { sessionAuto: true })).toBe('on');
+    expect(getEffectiveDecisionMode('model_routing', { sessionAuto: true })).toBe('shadow');
     process.env.AGENT_DECISION_MODEL_ROUTING = 'yes';
-    expect(getEffectiveDecisionMode('model_routing', { sessionAuto: true })).toBe('on');
+    expect(getEffectiveDecisionMode('model_routing', { sessionAuto: true })).toBe('shadow');
     expect(getEffectiveDecisionMode('model_routing', { sessionAuto: false })).toBe('off');
   });
 
@@ -99,5 +103,26 @@ describe('getEffectiveDecisionMode', () => {
 
   it('tool/memory ranking stay env-only via getDecisionFeatureMode', () => {
     expect(getDecisionFeatureMode('tool_ranking')).toBe('off');
+  });
+});
+
+describe('memory timeout, cross-agent and log cap getters', () => {
+  it('memory timeout defaults to max(decision timeout, 800) and honours env', () => {
+    expect(getDecisionMemoryTimeoutMs()).toBe(800);
+    process.env.AGENT_DECISION_TIMEOUT_MS = '1200';
+    expect(getDecisionMemoryTimeoutMs()).toBe(1200);
+    process.env.AGENT_DECISION_MEMORY_TIMEOUT_MS = '300';
+    expect(getDecisionMemoryTimeoutMs()).toBe(300);
+    process.env.AGENT_DECISION_MEMORY_TIMEOUT_MS = '-1';
+    expect(getDecisionMemoryTimeoutMs()).toBe(1200);
+  });
+
+  it('cross-agent defaults true, off for false-y values; log cap defaults 20000', () => {
+    expect(getDecisionCapacityCrossAgent()).toBe(true);
+    process.env.AGENT_DECISION_CAPACITY_CROSS_AGENT = 'false';
+    expect(getDecisionCapacityCrossAgent()).toBe(false);
+    expect(getDecisionLogMaxRows()).toBe(20000);
+    process.env.AGENT_DECISION_LOG_MAX_ROWS = '50';
+    expect(getDecisionLogMaxRows()).toBe(50);
   });
 });

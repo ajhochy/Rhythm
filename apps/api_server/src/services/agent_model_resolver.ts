@@ -76,6 +76,7 @@ export const ROUTE_FALLBACKS_BY_AGENT: Record<string, ModelRoute[]> = {
   ],
   codex: [
     { providerID: 'openai', modelID: 'gpt-5.6-sol' },
+    { providerID: 'openai', modelID: 'gpt-5.6-terra' },
     { providerID: 'openai', modelID: 'gpt-5.3-codex' },
     { providerID: 'openai', modelID: 'gpt-5.4' },
     { providerID: 'openai', modelID: 'gpt-5.4-mini' },
@@ -652,6 +653,7 @@ export function classifyRouteTier(route: ModelRoute): ModelTier {
   ) {
     return 'cheap';
   }
+  // 'gpt-5.6-terra' and 'claude-sonnet-*' are the standard tier (the default).
   return 'standard';
 }
 

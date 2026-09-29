@@ -102,7 +102,7 @@ The user asked for the model picker to offer **Auto (router)** as the default, s
   - A different model is an explicit choice. It applies to that turn only, unless the client PATCHes `fixed`.
   - Frames sent without a `modelOverride` resolve normally: stored session model, else profile, else agent default.
 - **Resolver.** Auto sessions return `requestedSource: 'auto'`. The baseline route is the session model, else the profile model, else the agent default.
-- **What auto enables.** Auto sessions turn on `model_routing` and `capacity_routing`, whatever the unset environment says.
+- **What auto enables.** Auto sessions run `model_routing` and `capacity_routing` in `shadow` (log only) when the environment and saved setting are unset. They stay in shadow until validated; set the feature to On in Router settings (or the env var to `on`) to apply decisions.
   - If an env var is explicitly set to `off` or `shadow`, that still wins, so it works as a kill switch.
   - `fixed` sessions keep the current behaviour.
 - **Router fallback.** If the router fails or its confidence is low, the baseline route is used. A reranker server that isn't running gets a connection-refused on loopback, which costs about 1 ms.

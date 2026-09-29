@@ -571,84 +571,35 @@ export async function handleInputFrame(
       });
       resolvedTurnModel = resolution.route;
       resolvedTurnProvenance = resolution;
-      // Local decision engine: optional tier suggestion. No-op (no call) when
-      // AGENT_DECISION_MODEL_ROUTING is off; never overrides pinned sources.
-      try {
-        const { routeTurnTier } = await import('./decision/model_router');
-        const { classifyRouteTier, resolveTieredModel } = await import('./agent_model_resolver');
-        const routed = await routeTurnTier({
+      // Local decision engine (routing scope -> tier router -> capacity layer),
+      // shared with the mobile proxy. No-op when the features are off; never
+      // overrides pinned sources; never throws.
+      {
+        const { routeTurnForSession } = await import('./decision/turn_routing');
+        let routingRow: import('./decision/turn_routing').TurnRoutingSessionRow | null = null;
+        try {
+          routingRow = new AgentSessionsRepository().findById(id);
+        } catch {
+          routingRow = null;
+        }
+        const turnRouting = await routeTurnForSession({
+          sessionRow: routingRow,
+          sessionId: id,
           prompt: data ?? '',
           agentId: trustedScopeAgent ?? agentKind,
           requestedSource: resolution.requestedSource,
-          sessionId: id,
+          requestedTier: resolution.requestedTier,
+          baseRoute: resolution.route,
           sessionAuto: turnSessionAuto,
-          baselineTier: resolution.route ? classifyRouteTier(resolution.route) : null,
         });
-        if (routed.tier) {
-          const tiered = await resolveTieredModel({
-            agentId: trustedScopeAgent ?? agentKind,
-            explicitTierHint: routed.tier,
-          });
-          resolvedTurnModel = tiered.route;
+        if (turnRouting.applied) {
+          resolvedTurnModel = turnRouting.route;
           resolvedTurnProvenance = {
             ...resolution,
-            requestedSource: 'tier',
-            requestedTier: tiered.tier,
+            requestedSource: turnRouting.requestedSource as import('../models/model_provenance').RequestedSource,
+            requestedTier: turnRouting.requestedTier,
           };
         }
-      } catch (routeErr) {
-        console.error(`[ws_gateway] decision routing failed (non-fatal):`, routeErr);
-      }
-      // Usage-capacity routing (AGENT_DECISION_CAPACITY_ROUTING): no-op when off.
-      // Model changes only for agent_default/tier sources; account switches only
-      // for sessions whose account was auto-picked at create time.
-      try {
-        if (resolvedTurnModel) {
-          const {
-            applyCapacityRouting,
-            switchAutoSessionAccount,
-            usageProviderFor,
-          } = await import('./decision/capacity_router');
-          const { classifyRouteTier } = await import('./agent_model_resolver');
-          const capRow = new AgentSessionsRepository().findById(id);
-          const capUsage = usageProviderFor(resolvedTurnModel.providerID);
-          const capDecision = await applyCapacityRouting({
-            agentId: trustedScopeAgent ?? agentKind,
-            baseRoute: resolvedTurnModel,
-            // The routed tier (if the router applied one) is already reflected in
-            // the route, so classifying the current route yields the same tier.
-            requiredTier: classifyRouteTier(resolvedTurnModel),
-            requestedSource: resolvedTurnProvenance?.requestedSource ?? 'agent_default',
-            sessionId: id,
-            sessionAuto: turnSessionAuto,
-            currentAccountId:
-              capUsage === 'anthropic'
-                ? capRow?.anthropicAccountId ?? null
-                : capUsage === 'openai'
-                  ? capRow?.openaiAccountId ?? null
-                  : null,
-          });
-          if (capDecision) {
-            if (capDecision.routeChanged) {
-              resolvedTurnModel = capDecision.route;
-              if (resolvedTurnProvenance) {
-                resolvedTurnProvenance = {
-                  ...resolvedTurnProvenance,
-                  requestedSource: 'tier',
-                  requestedTier: classifyRouteTier(capDecision.route),
-                };
-              }
-            }
-            await switchAutoSessionAccount({
-              sessionId: id,
-              providerID: capDecision.route.providerID,
-              accountId: capDecision.accountId,
-              sessionAuto: turnSessionAuto,
-            });
-          }
-        }
-      } catch (capErr) {
-        console.error(`[ws_gateway] capacity routing failed (non-fatal):`, capErr);
       }
     } catch (err) {
       console.error(`[ws_gateway] early model resolution for Gemini tool cap failed (non-fatal):`, err);

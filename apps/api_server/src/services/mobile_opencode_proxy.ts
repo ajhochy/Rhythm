@@ -17,6 +17,7 @@ import {
   asRhythmProfileId,
 } from '../models/agent_session';
 import { logger } from '../utils/logger';
+import { routeMobilePromptBody } from './decision/mobile_prompt_routing';
 import {
   expandProfileSkillAllowlist,
   resolveProfileScope,
@@ -1365,12 +1366,23 @@ export class MobileOpenCodeProxy {
           requestProject,
           fetchJson,
         );
-      const scopedBody = sanitizedBody === undefined
+      const createScopedBody = sanitizedBody === undefined
         ? undefined
         : await applyMobileSessionCreateScope(
           sanitizedBody,
           operation.operationId,
         );
+      // Routing scope / router for Auto sessions (falls back to the original
+      // body on any failure). See decision/mobile_prompt_routing.ts.
+      const scopedBody = createScopedBody !== undefined &&
+          operation.operationId === 'session.prompt_async' &&
+          addressedSessionId
+        ? await routeMobilePromptBody({
+          sdkSessionId: addressedSessionId,
+          userId: input.userId,
+          body: createScopedBody,
+        })
+        : createScopedBody;
       const encodedBody = scopedBody === undefined
         ? undefined
         : JSON.stringify(scopedBody);

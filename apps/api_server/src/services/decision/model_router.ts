@@ -45,6 +45,12 @@ export interface RouteTurnTierInput {
   sessionAuto?: boolean;
   /** Test/caller override of the effective mode (wins over env and sessionAuto). */
   modeOverride?: DecisionMode;
+  /**
+   * Routing-scope gate, consulted once the classifier is confident. When it
+   * returns apply:false the tier is not applied (and the log row says so);
+   * shadow mode records the would-apply flag in the log detail.
+   */
+  scopeGate?: (label: ModelTier, confidence: number) => { apply: boolean; reason: string };
 }
 
 export interface RouteTurnTierResult {
@@ -86,7 +92,9 @@ export async function routeTurnTier(input: RouteTurnTierInput): Promise<RouteTur
       return { tier: null, applied: false, mode, reason: r.status };
     }
     const confident = r.confidence >= getDecisionRoutingMinConfidence();
-    const applied = mode === 'on' && confident;
+    const gate = input.scopeGate ? input.scopeGate(r.label, r.confidence) : null;
+    const gateOk = gate ? gate.apply : true;
+    const applied = mode === 'on' && confident && gateOk;
     recordDecision({
       feature: 'model_routing',
       mode,
@@ -99,14 +107,20 @@ export async function routeTurnTier(input: RouteTurnTierInput): Promise<RouteTur
       latencyMs: r.latencyMs,
       model: r.model,
       query: input.prompt,
-      detail: { scores: r.scores, margin: r.margin, requestedSource: input.requestedSource },
+      detail: {
+        scores: r.scores,
+        margin: r.margin,
+        requestedSource: input.requestedSource,
+        ...(gate ? { scope: gate.reason, wouldApply: confident && gateOk } : {}),
+      },
     });
     if (!applied) {
       return {
         tier: null,
         applied: false,
         mode,
-        reason: mode === 'shadow' ? 'shadow' : 'low_confidence',
+        reason:
+          mode === 'shadow' ? 'shadow' : confident && !gateOk ? `scope:${gate?.reason}` : 'low_confidence',
         confidence: r.confidence,
       };
     }

@@ -15,6 +15,13 @@ export type DecisionFeatureSetting = 'default' | 'off' | 'shadow' | 'on';
 export type DecisionFeatureKey =
   | 'model_routing' | 'tool_ranking' | 'memory_ranking' | 'capacity_routing';
 
+export type DecisionRoutingScope = 'first_prompt' | 'escalate_only' | 'every_prompt';
+export const DECISION_ROUTING_SCOPES: readonly DecisionRoutingScope[] = [
+  'first_prompt', 'escalate_only', 'every_prompt',
+];
+export const DEFAULT_ROUTING_SCOPE: DecisionRoutingScope = 'first_prompt';
+export const DEFAULT_ESCALATE_MIN_CONFIDENCE = 0.75;
+
 export const DECISION_FEATURE_KEYS: readonly DecisionFeatureKey[] = [
   'model_routing', 'tool_ranking', 'memory_ranking', 'capacity_routing',
 ];
@@ -29,6 +36,7 @@ export interface DecisionSettings {
   timeoutMs: number | null;
   remoteDataConsent: boolean;
   features: Record<DecisionFeatureKey, DecisionFeatureSetting>;
+  routing: { scope: DecisionRoutingScope; escalateMinConfidence: number };
 }
 
 export const DEFAULT_LOCAL_TIMEOUT_MS = 400;
@@ -47,6 +55,7 @@ export function defaultDecisionSettings(): DecisionSettings {
       model_routing: 'default', tool_ranking: 'default',
       memory_ranking: 'default', capacity_routing: 'default',
     },
+    routing: { scope: DEFAULT_ROUTING_SCOPE, escalateMinConfidence: DEFAULT_ESCALATE_MIN_CONFIDENCE },
   };
 }
 
@@ -96,7 +105,19 @@ export function normaliseDecisionSettings(raw: unknown): DecisionSettings {
         : null,
     remoteDataConsent: r.remoteDataConsent === true,
     features: { ...d.features },
+    routing: { ...d.routing },
   };
+  const routing = asObj(r.routing);
+  if ((DECISION_ROUTING_SCOPES as readonly unknown[]).includes(routing.scope)) {
+    out.routing.scope = routing.scope as DecisionRoutingScope;
+  }
+  if (
+    typeof routing.escalateMinConfidence === 'number' &&
+    routing.escalateMinConfidence > 0 &&
+    routing.escalateMinConfidence <= 1
+  ) {
+    out.routing.escalateMinConfidence = routing.escalateMinConfidence;
+  }
   for (const key of DECISION_FEATURE_KEYS) {
     const v = features[key];
     if (v === 'default' || v === 'off' || v === 'shadow' || v === 'on') out.features[key] = v;
@@ -155,6 +176,8 @@ const ENV_KEYS: Record<string, string> = {
   'features.tool_ranking': 'AGENT_DECISION_TOOL_RANKING',
   'features.memory_ranking': 'AGENT_DECISION_MEMORY_RANKING',
   'features.capacity_routing': 'AGENT_DECISION_CAPACITY_ROUTING',
+  'routing.scope': 'AGENT_DECISION_ROUTING_SCOPE',
+  'routing.escalateMinConfidence': 'AGENT_DECISION_ESCALATE_MIN_CONFIDENCE',
 };
 
 /** Setting keys pinned by explicitly set (non-empty) env vars. */

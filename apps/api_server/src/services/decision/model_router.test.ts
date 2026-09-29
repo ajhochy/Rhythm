@@ -88,10 +88,10 @@ describe('routeTurnTier with Auto (router) sessions', () => {
     expect(rerank).not.toHaveBeenCalled();
   });
 
-  it("unset env: requestedSource 'auto' + sessionAuto routes", async () => {
+  it("unset env: requestedSource 'auto' + sessionAuto shadows (scores, applies nothing)", async () => {
     const { client, rerank } = fake([0.1, 0.2, 0.9]);
     const r = await routeTurnTier({ ...base, requestedSource: 'auto', sessionAuto: true, client });
-    expect(r).toMatchObject({ tier: 'frontier', applied: true, mode: 'on' });
+    expect(r).toMatchObject({ tier: null, applied: false, mode: 'shadow' });
     expect(rerank).toHaveBeenCalledTimes(1);
   });
 

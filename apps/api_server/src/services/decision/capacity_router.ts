@@ -1,4 +1,5 @@
 import {
+  getDecisionCapacityCrossAgent,
   getDecisionCapacityLowFraction,
   getEffectiveDecisionMode,
 } from '../../config/env';
@@ -159,6 +160,8 @@ export interface CapacityRouteResult {
   accountId: string | null;
   allLow: boolean;
   reason: string;
+  /** True when the chosen route came from another agent's fallback table. */
+  crossAgent?: boolean;
 }
 
 interface Candidate {
@@ -198,7 +201,19 @@ export function chooseCapacityRoute(input: CapacityRouteInput): CapacityRouteRes
   }
 
   const candidates: Candidate[] = [];
-  const routes = ROUTE_FALLBACKS_BY_AGENT[input.agentId] ?? [];
+  const ownRoutes = ROUTE_FALLBACKS_BY_AGENT[input.agentId] ?? [];
+  const crossAgentOn = getDecisionCapacityCrossAgent();
+  // The agent's own table first (it wins ties), then every other agent's routes,
+  // so a low Anthropic base can reach an equivalent-tier OpenAI route.
+  const routes = [...ownRoutes];
+  if (crossAgentOn) {
+    for (const [agent, list] of Object.entries(ROUTE_FALLBACKS_BY_AGENT)) {
+      if (agent === input.agentId) continue;
+      for (const r of list) if (!routes.some((x) => sameRoute(x, r))) routes.push(r);
+    }
+  }
+  const isCross = (r: ModelRoute): boolean =>
+    crossAgentOn && !ownRoutes.some((x) => sameRoute(x, r)) && !sameRoute(r, base);
   routes.forEach((route, order) => {
     if (authed && !authed.has(route.providerID)) return;
     const tier = classifyRouteTier(route);
@@ -241,6 +256,7 @@ export function chooseCapacityRoute(input: CapacityRouteInput): CapacityRouteRes
       accountId: c.state.best?.accountId ?? null,
       allLow: false,
       reason: `base_provider_low_switched_to_${c.route.providerID}`,
+      ...(isCross(c.route) ? { crossAgent: true } : {}),
     };
   }
 
@@ -266,6 +282,7 @@ export function chooseCapacityRoute(input: CapacityRouteInput): CapacityRouteRes
     accountId: chosen.state.best?.accountId ?? null,
     allLow: true,
     reason: sameRoute(chosen.route, base) ? 'all_low_keep_base' : 'all_low_cheapest_capable',
+    ...(isCross(chosen.route) ? { crossAgent: true } : {}),
   };
 }
 
@@ -292,11 +309,38 @@ export function clearAutoAccountSessionsForTests(): void {
   autoAccountSessions.clear();
 }
 
+/** A cached snapshot older than this (or missing) triggers a background refresh. */
+const CACHE_REFRESH_AFTER_MS = 5 * 60_000;
+let refreshInFlight = false;
+
+/**
+ * Fire-and-forget refresh of the usage cache (one Anthropic probe request per
+ * refresh). Never awaited on the turn path, at most one in flight, errors swallowed.
+ */
+function primeUsageCache(): void {
+  if (refreshInFlight) return;
+  refreshInFlight = true;
+  void Promise.resolve()
+    .then(() => getUsageBudget())
+    .catch(() => undefined)
+    .finally(() => {
+      refreshInFlight = false;
+    });
+}
+
+export function resetCapacityRefreshForTests(): void {
+  refreshInFlight = false;
+}
+
+/** Cached snapshot (never a probe). Missing/stale (>5 min) also primes a background refresh. */
 async function readCachedSnapshot(): Promise<UsageBudgetSnapshot | null> {
   const snapshot = await getUsageBudget({ cachedOnly: true });
-  return snapshot && Array.isArray(snapshot.providers) && snapshot.providers.length > 0
-    ? snapshot
-    : null;
+  const usable = !!snapshot && Array.isArray(snapshot.providers) && snapshot.providers.length > 0;
+  const fetchedAt = usable ? Date.parse(snapshot.fetchedAt) : NaN;
+  if (!usable || !Number.isFinite(fetchedAt) || Date.now() - fetchedAt > CACHE_REFRESH_AFTER_MS) {
+    primeUsageCache();
+  }
+  return usable ? snapshot : null;
 }
 
 /**
@@ -348,7 +392,8 @@ const fmt = (r: ModelRoute, account: string | null | undefined): string =>
   `${r.providerID}/${r.modelID}@${account ?? 'default'}`;
 
 /**
- * Off -> null without reading anything. Reads only the cached usage snapshot.
+ * Off -> null without reading anything. Reads only the cached usage snapshot
+ * (a missing/stale one starts a background refresh, never awaited).
  * shadow -> logs and returns null. on -> returns the decision. Only
  * 'agent_default'/'tier'/'auto' sources may change the MODEL; pinned sources keep
  * their model and only get the best account for their provider. Never throws.
@@ -435,6 +480,7 @@ export async function applyCapacityRouting(
           reason: result.reason,
           requiredTier: input.requiredTier,
           requestedSource: input.requestedSource,
+          ...(result.crossAgent ? { crossAgent: true } : {}),
         },
       });
     }

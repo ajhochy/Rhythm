@@ -49,7 +49,7 @@ describe('decision settings store', () => {
     expect(getDecisionTimeoutMs()).toBe(400);
     expect(getDecisionScoreScale()).toBe('auto');
     expect(getDecisionFeatureMode('model_routing')).toBe('off');
-    expect(getEffectiveDecisionMode('model_routing', { sessionAuto: true })).toBe('on');
+    expect(getEffectiveDecisionMode('model_routing', { sessionAuto: true })).toBe('shadow');
   });
 
   it('saves atomically with mode 0600 and reloads on change', () => {
@@ -95,7 +95,7 @@ describe('decision settings store', () => {
     expect(getDecisionTimeoutMs()).toBe(1500);
     expect(getDecisionFeatureMode('model_routing')).toBe('shadow');
     expect(getEffectiveDecisionMode('tool_ranking')).toBe('on');
-    expect(getEffectiveDecisionMode('memory_ranking', { sessionAuto: true })).toBe('on');
+    expect(getEffectiveDecisionMode('memory_ranking', { sessionAuto: true })).toBe('shadow');
     updateConfig({ timeoutMs: 900 });
     expect(getDecisionTimeoutMs()).toBe(900);
   });

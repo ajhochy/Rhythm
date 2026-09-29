@@ -1,4 +1,8 @@
-import { getEffectiveDecisionMode } from '../../config/env';
+import {
+  getDecisionEscalateMinConfidence,
+  getDecisionRoutingScope,
+  getEffectiveDecisionMode,
+} from '../../config/env';
 import { CustomProviderError, validateEndpointUrl } from '../custom_provider_service';
 import {
   buildRerankClient,
@@ -8,6 +12,7 @@ import {
 import { rankCandidates } from './decision_engine';
 import {
   DECISION_FEATURE_KEYS,
+  DECISION_ROUTING_SCOPES,
   DEFAULT_LOCAL_TIMEOUT_MS,
   DEFAULT_REMOTE_TIMEOUT_MS,
   decisionLockedByEnv,
@@ -58,12 +63,14 @@ export function buildConfigView(settings: DecisionSettings = loadDecisionSetting
     timeoutMs: settings.timeoutMs ?? (settings.backend === 'local' ? DEFAULT_LOCAL_TIMEOUT_MS : DEFAULT_REMOTE_TIMEOUT_MS),
     remoteDataConsent: settings.remoteDataConsent,
     features: { ...settings.features },
+    routing: { ...settings.routing },
     lockedByEnv: decisionLockedByEnv(),
     effective: {
       backend: settings.backend,
       baseUrl: resolved.baseUrl,
       model: resolved.model,
       features,
+      routing: { scope: getDecisionRoutingScope(), escalateMinConfidence: getDecisionEscalateMinConfidence() },
     },
   };
 }
@@ -174,6 +181,23 @@ export function mergeConfig(base: DecisionSettings, body: unknown): DecisionSett
         bad('invalid_mode', `features.${key} must be default, off, shadow or on.`);
       }
       next.features[key as keyof DecisionSettings['features']] = value as DecisionSettings['features']['model_routing'];
+    }
+  }
+  if (body.routing !== undefined) {
+    if (!isObj(body.routing)) bad('invalid_routing_scope', 'routing must be an object.');
+    const r = body.routing as Record<string, unknown>;
+    if (r.scope !== undefined) {
+      if (typeof r.scope !== 'string' || !(DECISION_ROUTING_SCOPES as readonly string[]).includes(r.scope)) {
+        bad('invalid_routing_scope', 'routing.scope must be first_prompt, escalate_only or every_prompt.');
+      }
+      next.routing.scope = r.scope as DecisionSettings['routing']['scope'];
+    }
+    if (r.escalateMinConfidence !== undefined) {
+      const c = r.escalateMinConfidence;
+      if (typeof c !== 'number' || !Number.isFinite(c) || c <= 0 || c > 1) {
+        bad('invalid_confidence', 'routing.escalateMinConfidence must be a number greater than 0 and at most 1.');
+      }
+      next.routing.escalateMinConfidence = c as number;
     }
   }
   assertConsent(next);

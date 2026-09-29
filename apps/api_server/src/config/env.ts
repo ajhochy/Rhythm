@@ -288,8 +288,9 @@ export function getDecisionFeatureMode(
 /**
  * Effective mode for one turn. An explicitly set, recognised env value always
  * wins (explicit 'off' is a kill switch; 'shadow' stays shadow). When the env
- * var is unset/empty, Auto (router) sessions get 'on' and everything else 'off'.
- * Unrecognised values are treated as unset.
+ * var is unset/empty, a saved (non-'default') Router setting wins; otherwise Auto
+ * (router) sessions get 'shadow' (log only, until validated and set to On) and
+ * everything else 'off'. Unrecognised values are treated as unset.
  */
 export function getEffectiveDecisionMode(
   feature: keyof typeof DECISION_FEATURE_ENV,
@@ -299,13 +300,53 @@ export function getEffectiveDecisionMode(
   if (raw === 'off' || raw === 'shadow' || raw === 'on') return raw;
   const saved = loadDecisionSettings().features[feature];
   if (saved !== 'default') return saved;
-  return opts.sessionAuto ? 'on' : 'off';
+  return opts.sessionAuto ? 'shadow' : 'off';
+}
+
+/**
+ * Memory-ranking budget. Memory pools are larger than tool/route batches, so the
+ * default is max(getDecisionTimeoutMs(), 800). AGENT_DECISION_MEMORY_TIMEOUT_MS
+ * overrides it (positive integer).
+ */
+export function getDecisionMemoryTimeoutMs(): number {
+  const fromEnv = numberEnv('AGENT_DECISION_MEMORY_TIMEOUT_MS');
+  if (fromEnv !== null && Number.isInteger(fromEnv) && fromEnv > 0) return fromEnv;
+  return Math.max(getDecisionTimeoutMs(), 800);
+}
+
+/**
+ * Whether capacity routing may pick an equivalent-tier route from another agent's
+ * fallback table (e.g. Anthropic low -> OpenAI). Env only; default true.
+ */
+export function getDecisionCapacityCrossAgent(): boolean {
+  const raw = (process.env.AGENT_DECISION_CAPACITY_CROSS_AGENT ?? '').trim().toLowerCase();
+  if (['0', 'false', 'off', 'no'].includes(raw)) return false;
+  return true;
+}
+
+/** Max rows kept in agent_decision_log (default 20000). */
+export function getDecisionLogMaxRows(): number {
+  return positiveIntEnv('AGENT_DECISION_LOG_MAX_ROWS', 20_000);
 }
 
 /** Minimum classifier confidence, in (0,1], before a routing tier is applied. */
 export function getDecisionRoutingMinConfidence(): number {
   const parsed = numberEnv('AGENT_DECISION_ROUTING_MIN_CONFIDENCE');
   return parsed !== null && parsed > 0 && parsed <= 1 ? parsed : 0.55;
+}
+
+/** Routing scope: env > saved setting > 'first_prompt'. */
+export function getDecisionRoutingScope(): 'first_prompt' | 'escalate_only' | 'every_prompt' {
+  const raw = (process.env.AGENT_DECISION_ROUTING_SCOPE ?? '').trim().toLowerCase();
+  if (raw === 'first_prompt' || raw === 'escalate_only' || raw === 'every_prompt') return raw;
+  return loadDecisionSettings().routing.scope;
+}
+
+/** Min confidence, in (0,1], for escalate_only to move up a tier. Default 0.75. */
+export function getDecisionEscalateMinConfidence(): number {
+  const parsed = numberEnv('AGENT_DECISION_ESCALATE_MIN_CONFIDENCE');
+  if (parsed !== null && parsed > 0 && parsed <= 1) return parsed;
+  return loadDecisionSettings().routing.escalateMinConfidence;
 }
 
 /** How many top-ranked MCP servers stay eager; the rest are deferred. */
