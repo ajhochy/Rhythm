@@ -5,7 +5,7 @@
  *
  *   npx tsx scripts/decision_calibrate.ts [--agent claude-code] [--base-url http://127.0.0.1:8012]
  *     [--model qwen3-reranker-4b] [--score-scale auto|probability|logit] [--timeout-ms 30000]
- *     [--fake] [--json out.json] [--fixtures path.json]
+ *     [--fake] [--json out.json] [--fixtures path.json] [--static-catalog]
  *
  * Without --base-url/--model/--score-scale the backend is whatever the router
  * uses (saved Router settings + AGENT_DECISION_* env). --fake uses a token-overlap
@@ -14,7 +14,7 @@
 import fs from 'node:fs';
 
 import { getDecisionRoutingMinConfidence, type DecisionScoreScale } from '../src/config/env';
-import { classifyRouteTier, ROUTE_FALLBACKS_BY_AGENT } from '../src/services/agent_model_resolver';
+import { ROUTE_FALLBACKS_BY_AGENT } from '../src/services/agent_model_resolver';
 import {
   TIERS,
   compareMarginToConfidence,
@@ -36,7 +36,7 @@ import { classify } from '../src/services/decision/decision_engine';
 import { TIER_LABELS } from '../src/services/decision/model_router';
 import { CALIBRATION_FIXTURES, type CalibrationFixture } from './decision_calibrate/fixtures';
 import { FakeRerankClient } from './decision_calibrate/fake';
-import { expectedModelForTier, knownAgents } from './decision_calibrate/models';
+import { knownAgents, loadExpectationCatalog, type ExpectationCatalog } from './decision_calibrate/models';
 import { mean, percentile } from './decision_bench/metrics';
 
 const SETUP_DOC = 'docs/ai/decision-engine-setup.md';
@@ -51,6 +51,7 @@ interface Args {
   fake: boolean;
   json?: string;
   fixtures?: string;
+  staticCatalog?: boolean;
 }
 
 function fail(msg: string): never {
@@ -79,6 +80,7 @@ function parseArgs(argv: string[]): Args {
         break;
       }
       case '--fake': a.fake = true; break;
+      case '--static-catalog': a.staticCatalog = true; break;
       default: fail(`Unknown argument ${argv[i]}`);
     }
   }
@@ -119,6 +121,8 @@ const heading = (s: string) => console.log(`\n== ${s} ==`);
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const fixtures = loadFixtures(args.fixtures);
+  const catalog: ExpectationCatalog = await loadExpectationCatalog({ forceStatic: args.staticCatalog });
+  const expectedModelForTier = catalog.expectedModelForTier;
   const minConfidence = getDecisionRoutingMinConfidence();
   const overridden = args.baseUrl !== undefined || args.model !== undefined || args.scoreScale !== undefined;
   const client: RerankClient = args.fake
@@ -132,6 +136,8 @@ async function main(): Promise<void> {
       args.fake ? 'FAKE token-overlap (pipeline smoke test only)' : overridden ? `${args.baseUrl ?? 'env'} model=${args.model ?? 'env'} scale=${args.scoreScale ?? 'env/auto'}` : 'router default (settings + env)'
     } | min-confidence=${minConfidence} | prompts=${fixtures.length}`,
   );
+
+  console.log(`  ${catalog.label}${catalog.source === 'static' && !args.staticCatalog ? ' (engine catalog unavailable)' : ''}`);
 
   if (!args.fake) {
     const probe = await client.rerank('ping', ['pong'], args.timeoutMs ? { timeoutMs: args.timeoutMs } : undefined);
@@ -266,7 +272,8 @@ async function main(): Promise<void> {
           minConfidence,
           tierLabels: TIER_LABELS,
           tierModels: Object.fromEntries(TIERS.map((t) => [t, expectedModelForTier(args.agent, t)])),
-          routeTiers: (ROUTE_FALLBACKS_BY_AGENT[args.agent] ?? []).map((r) => ({ ...r, tier: classifyRouteTier(r) })),
+          catalog: { source: catalog.source, models: catalog.models.length },
+          routeTiers: catalog.routeTiers(args.agent),
           summary: { accuracy: acc, appliedAccuracy: appliedAcc, coverage: appliedRows.length / rows.length, perTier: pta, confusion: cm, direction: dir },
           confidenceSweep: confSweep,
           recommendation: { threshold: rec.threshold, envLine: rec.threshold === null ? null : envLineForThreshold(rec.threshold) },

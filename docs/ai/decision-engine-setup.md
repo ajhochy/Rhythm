@@ -112,6 +112,54 @@ Check the score scale with the smoke test for each, since servers differ in whet
 
 A hosted backend would be a new `RerankClient` implementation in `decision_client.ts`, returning the same `RerankResult` union. Nothing else in the engine changes. Today the client refuses any non-loopback base URL so that prompts and memories never leave the machine. A hosted backend would need an **explicit, separate opt-in** (its own env flag and a clear privacy decision), not a relaxation of the loopback guard.
 
+## Which models the router chooses among
+
+The router and the capacity layer choose among the models that are actually available now, not a
+hardcoded table (`services/decision/model_catalog.ts`).
+
+- **Live catalog.** `opencodeClient.providerSnapshot()` (the engine catalog) supplies per model:
+  price (`cost` in USD per 1M tokens), `releaseDate`, `family`, `reasoning`, context limit. The
+  routable set is: connected providers, minus ineligible models (deprecated, no text in/out, no
+  tool calls), minus the picker's visibility policy (newest Anthropic per family, Copilot approved
+  set, OpenAI and Google approved sets), minus models the cached usage snapshot says the account is not entitled to (only an
+  explicit `false` drops a model), minus models excluded in Router settings. The approved sets
+  (gpt-5.6-luna/terra/sol, the gemini set) always apply, so the router never picks an unapproved
+  direct model. Keyless local providers (ollama, omlx,
+  opencode) are included at zero cost and are always `cheap`. `-1m` / `:extended` / long-context
+  variants are used only when the current route already is one. The set is cached for 60 seconds
+  and dropped when Router settings change.
+- **Tiers come from output price (USD per 1M output tokens).** `cheap` at or below the cheap
+  cutoff, `frontier` at or above the frontier cutoff, otherwise `standard`. A model with no price
+  falls back to the name heuristic (`classifyRouteTier`); the settings table marks it
+  `tierSource: heuristic`.
+- **Cutoffs are derived (`tiers.mode: auto`, default).** Take the newest priced model per
+  provider+family, trim ultra-priced outliers (more than 5x the median), split the sorted distinct
+  prices in half and put each cutoff at the geometric midpoint of the largest log-price gap in its
+  half. With today's catalog that lands around $7.7 and $19.4 (gaps 5 to 12 and 15 to 25). Fewer
+  than three distinct prices falls back to the manual values (seed 6 / 25); cutoffs are clamped to
+  [$1, $100]. `tiers.mode: manual` uses `cheapMaxOutputUsd` / `frontierMinOutputUsd` as saved
+  (cheap must be lower than frontier, both above 0).
+- **Overrides and exclusions.** `tierOverrides` (`"provider/model": tier`) beats price and
+  heuristic (`tierSource: override`). `excludedModels` (`"provider/model"`) removes a model from
+  routing; it still shows in the settings table, flagged `excluded`.
+- **Selection.** Within a tier: the base route's provider first (keeps the session's account and
+  prompt cache), then the provider with the most usage headroom, then any; inside a provider the
+  lowest output price, then the newest release. Models priced at or above 5x the frontier cutoff
+  stay frontier but sort last (and their provider ranks last), so a $180 "pro" model never beats a
+  $25 to $30 one. With no live model at the tier the static resolver is used.
+- **Static fallback.** When the engine catalog is empty or unreachable the set is built from
+  `ROUTE_FALLBACKS_BY_AGENT` (every agent, authed providers only, heuristic tiers) and decisions
+  record `catalog: 'static'` (live is `catalog: 'live'`) in `agent_decision_log` detail for both
+  `model_routing` and `capacity_routing`.
+
+API: `GET /agent-decisions/config` returns `tiers: {mode, cheapMaxOutputUsd, frontierMinOutputUsd,
+derivedFromModels}`, `tierOverrides`, `excludedModels`, and `catalog: {fetchedAt, source, tiers,
+models: [{providerID, modelID, name, family, tier, tierSource, costOutputUsd, costInputUsd,
+releaseDate, contextLimit, excluded}]}` sorted by tier, provider, newest. `PUT` accepts `tiers`
+(`{mode:'auto'}` or `{mode:'manual', cheapMaxOutputUsd, frontierMinOutputUsd}`), `tierOverrides`
+(replaces the map) and `excludedModels` (replaces the list); errors are 400 `invalid_tier`,
+`invalid_threshold` or `invalid_body`.
+
 ## Capacity routing
 
 `AGENT_DECISION_CAPACITY_ROUTING` = `off` (default) | `shadow` | `on`.
@@ -128,12 +176,14 @@ Behaviour (`services/decision/capacity_router.ts`, no reranker needed):
 - Headroom per account = min `remainingFraction` across its windows. Unavailable entries are
   ignored. Unknown headroom is not "low" but ranks below any known non-low account.
 - Base provider has a non-low account: keep the model, use the account with the most headroom.
-- Base provider is low: switch to another authed provider with a route in the same capability
-  tier (else the cheapest higher tier) that has capacity, on its most-headroom account.
-- Cross-agent equivalence (`AGENT_DECISION_CAPACITY_CROSS_AGENT`, default on): candidates come
-  from the union of every agent's fallback table, filtered to authed providers, so a low Anthropic
-  base can move to the equivalent-tier OpenAI route (sonnet and gpt-5.6-terra are both `standard`;
-  opus and gpt-5.6-sol are `frontier`). The decision detail records `crossAgent: true` when used.
+- Base provider is low: switch to another provider with a live catalog model in the same tier band
+  (else the cheapest higher tier) that has capacity, on its most-headroom account. Equivalence is
+  by price band, not by name.
+- Cross-provider (`AGENT_DECISION_CAPACITY_CROSS_AGENT`, default on): candidates are the routable
+  live catalog (see "Which models the router chooses among"), so a low Anthropic base can move to
+  an equivalent-band OpenAI model. Off keeps candidates on the agent's own providers (plus
+  aggregators). The decision detail records `crossAgent: true` when used and `catalog`. Only when
+  the engine catalog is empty or unreachable are the `ROUTE_FALLBACKS_BY_AGENT` tables used.
 - Everything low: pick the lowest capability tier that still satisfies the job (never a cheaper
   one), then the provider/account with the MOST headroom. Models in one tier are treated as
   equivalent, so price never breaks ties.
@@ -218,9 +268,12 @@ npx tsx scripts/decision_calibrate.ts --fake                # pipeline smoke tes
 npx tsx scripts/decision_calibrate.ts --fixtures my.json    # [{prompt, expectedTier, why}]
 ```
 
-Expected models come from `ROUTE_FALLBACKS_BY_AGENT[agent]` (first route at the tier, all providers
-treated as authed), e.g. claude-opus-4-7 / claude-sonnet-4-6 / claude-haiku-4-5. Exit code is 0
-unless the backend is unreachable (1).
+Expected models come from the live catalog (`getRoutableModels`) when the engine is reachable, via
+the same `pickModelForTier` the router uses; `--static-catalog` forces `ROUTE_FALLBACKS_BY_AGENT[agent]`
+(first route at the tier, all providers treated as authed). The script prints which one was used
+(`catalog: live (N models)` or `catalog: static`) and falls back to static with a warning when the
+engine is down (`scripts/decision_bench.ts` accepts the same flag and prints the same line).
+Exit code is 0 unless the backend is unreachable (1).
 
 How to read it:
 

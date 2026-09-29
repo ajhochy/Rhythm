@@ -10,9 +10,11 @@ import {
   type ResolvedRouterConfig,
 } from './decision_client';
 import { rankCandidates } from './decision_engine';
+import { getCatalogForSettings, resetModelCatalogCache } from './model_catalog';
 import {
   DECISION_FEATURE_KEYS,
   DECISION_ROUTING_SCOPES,
+  ROUTER_TIER_NAMES,
   DEFAULT_LOCAL_TIMEOUT_MS,
   DEFAULT_REMOTE_TIMEOUT_MS,
   decisionLockedByEnv,
@@ -64,6 +66,9 @@ export function buildConfigView(settings: DecisionSettings = loadDecisionSetting
     remoteDataConsent: settings.remoteDataConsent,
     features: { ...settings.features },
     routing: { ...settings.routing },
+    tiers: { ...settings.tiers, derivedFromModels: 0 },
+    tierOverrides: { ...settings.tierOverrides },
+    excludedModels: [...settings.excludedModels],
     lockedByEnv: decisionLockedByEnv(),
     effective: {
       backend: settings.backend,
@@ -72,6 +77,41 @@ export function buildConfigView(settings: DecisionSettings = loadDecisionSetting
       features,
       routing: { scope: getDecisionRoutingScope(), escalateMinConfidence: getDecisionEscalateMinConfidence() },
     },
+  };
+}
+
+/** GET /agent-decisions/config: the settings view plus the live model catalog the router chooses among. */
+export async function buildConfigViewWithCatalog(settings: DecisionSettings = loadDecisionSettings()) {
+  const view = buildConfigView(settings);
+  const catalog = await getCatalogForSettings({ settings }).catch(() => null);
+  const effectiveTiers = catalog?.tiers ?? { ...settings.tiers, derivedFromModels: 0 };
+  const tierRank = { cheap: 0, standard: 1, frontier: 2 } as const;
+  return {
+    ...view,
+    catalog: {
+      fetchedAt: catalog?.fetchedAt ?? new Date().toISOString(),
+      source: catalog?.source ?? 'static',
+      models: (catalog?.models ?? [])
+        .map((m) => ({
+          providerID: m.providerID,
+          modelID: m.modelID,
+          name: m.name,
+          family: m.family,
+          tier: m.tier,
+          tierSource: m.tierSource,
+          costOutputUsd: m.costOutputUsd,
+          costInputUsd: m.costInputUsd,
+          releaseDate: m.releaseDate,
+          contextLimit: m.contextLimit,
+          excluded: m.excluded,
+        }))
+        .sort((a, b) =>
+          tierRank[a.tier] - tierRank[b.tier] ||
+          (a.providerID < b.providerID ? -1 : a.providerID > b.providerID ? 1 : 0) ||
+          (a.releaseDate === b.releaseDate ? 0 : a.releaseDate === null ? 1 : b.releaseDate === null ? -1 : a.releaseDate < b.releaseDate ? 1 : -1)),
+      tiers: effectiveTiers,
+    },
+    tiers: effectiveTiers,
   };
 }
 
@@ -200,8 +240,58 @@ export function mergeConfig(base: DecisionSettings, body: unknown): DecisionSett
       next.routing.escalateMinConfidence = c as number;
     }
   }
+  if (body.tiers !== undefined) {
+    if (!isObj(body.tiers)) bad('invalid_threshold', 'tiers must be an object.');
+    const t = body.tiers as Record<string, unknown>;
+    if (t.mode !== undefined && t.mode !== 'auto' && t.mode !== 'manual') {
+      bad('invalid_threshold', 'tiers.mode must be auto or manual.');
+    }
+    const hasValues = t.cheapMaxOutputUsd !== undefined || t.frontierMinOutputUsd !== undefined;
+    const mode = (t.mode as 'auto' | 'manual' | undefined) ?? (hasValues ? 'manual' : next.tiers.mode);
+    const cheap = t.cheapMaxOutputUsd === undefined ? next.tiers.cheapMaxOutputUsd : t.cheapMaxOutputUsd;
+    const frontier = t.frontierMinOutputUsd === undefined ? next.tiers.frontierMinOutputUsd : t.frontierMinOutputUsd;
+    // Values are validated whenever supplied, and always in manual mode.
+    if (hasValues || mode === 'manual') {
+      for (const v of [cheap, frontier]) {
+        if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) {
+          bad('invalid_threshold', 'tiers thresholds must be numbers greater than 0 (USD per 1M output tokens).');
+        }
+      }
+      if ((cheap as number) >= (frontier as number)) {
+        bad('invalid_threshold', 'tiers.cheapMaxOutputUsd must be lower than tiers.frontierMinOutputUsd.');
+      }
+      next.tiers.cheapMaxOutputUsd = cheap as number;
+      next.tiers.frontierMinOutputUsd = frontier as number;
+    }
+    next.tiers.mode = mode;
+  }
+  if (body.tierOverrides !== undefined) {
+    if (!isObj(body.tierOverrides)) bad('invalid_body', 'tierOverrides must be an object of "provider/model" to tier.');
+    const overrides: DecisionSettings['tierOverrides'] = {};
+    for (const [id, tier] of Object.entries(body.tierOverrides as Record<string, unknown>)) {
+      checkModelId('tierOverrides', id);
+      if (typeof tier !== 'string' || !(ROUTER_TIER_NAMES as readonly string[]).includes(tier)) {
+        bad('invalid_tier', `tierOverrides["${id.slice(0, 80)}"] must be cheap, standard or frontier.`);
+      }
+      overrides[id] = tier as DecisionSettings['tierOverrides'][string];
+    }
+    next.tierOverrides = overrides;
+  }
+  if (body.excludedModels !== undefined) {
+    if (!Array.isArray(body.excludedModels) || body.excludedModels.length > 5000) {
+      bad('invalid_body', 'excludedModels must be an array of "provider/model" strings.');
+    }
+    for (const id of body.excludedModels as unknown[]) checkModelId('excludedModels', id);
+    next.excludedModels = [...new Set(body.excludedModels as string[])];
+  }
   assertConsent(next);
   return next;
+}
+
+function checkModelId(field: string, id: unknown): void {
+  if (typeof id !== 'string' || id.length > 300 || !/^[^/\s]+\/\S+$/.test(id)) {
+    bad('invalid_body', `${field} entries must be "provider/model" strings.`);
+  }
 }
 
 /** Jev, and custom over anything but loopback, sends prompts off-device. */
@@ -222,7 +312,14 @@ function assertConsent(s: DecisionSettings): void {
 export function updateConfig(body: unknown) {
   const next = mergeConfig(loadDecisionSettings(), body);
   saveDecisionSettings(next);
+  resetModelCatalogCache();
   return buildConfigView(loadDecisionSettings());
+}
+
+/** PUT response: same shape as GET, catalog included. */
+export async function updateConfigWithCatalog(body: unknown) {
+  updateConfig(body);
+  return buildConfigViewWithCatalog(loadDecisionSettings());
 }
 
 const SAMPLE_QUERY = 'rename the variable foo to bar';

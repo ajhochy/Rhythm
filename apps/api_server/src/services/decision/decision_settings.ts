@@ -22,6 +22,12 @@ export const DECISION_ROUTING_SCOPES: readonly DecisionRoutingScope[] = [
 export const DEFAULT_ROUTING_SCOPE: DecisionRoutingScope = 'first_prompt';
 export const DEFAULT_ESCALATE_MIN_CONFIDENCE = 0.75;
 
+export type RouterTierName = 'cheap' | 'standard' | 'frontier';
+export const ROUTER_TIER_NAMES: readonly RouterTierName[] = ['cheap', 'standard', 'frontier'];
+/** USD per 1M output tokens: <= cheapMax is cheap, >= frontierMin is frontier, else standard. */
+export const DEFAULT_CHEAP_MAX_OUTPUT_USD = 6;
+export const DEFAULT_FRONTIER_MIN_OUTPUT_USD = 25;
+
 export const DECISION_FEATURE_KEYS: readonly DecisionFeatureKey[] = [
   'model_routing', 'tool_ranking', 'memory_ranking', 'capacity_routing',
 ];
@@ -37,6 +43,18 @@ export interface DecisionSettings {
   remoteDataConsent: boolean;
   features: Record<DecisionFeatureKey, DecisionFeatureSetting>;
   routing: { scope: DecisionRoutingScope; escalateMinConfidence: number };
+  /** Live-catalog tier bands by output price (USD per 1M tokens). */
+  tiers: {
+    /** auto: cutoffs derived from the routable catalog; manual: the two values below. */
+    mode: 'auto' | 'manual';
+    /** Manual cutoffs (also the auto-mode fallback when the catalog is too small to derive). */
+    cheapMaxOutputUsd: number;
+    frontierMinOutputUsd: number;
+  };
+  /** "provider/model" -> tier; wins over the price band and the name heuristic. */
+  tierOverrides: Record<string, RouterTierName>;
+  /** "provider/model" ids the router never picks. */
+  excludedModels: string[];
 }
 
 export const DEFAULT_LOCAL_TIMEOUT_MS = 400;
@@ -56,6 +74,13 @@ export function defaultDecisionSettings(): DecisionSettings {
       memory_ranking: 'default', capacity_routing: 'default',
     },
     routing: { scope: DEFAULT_ROUTING_SCOPE, escalateMinConfidence: DEFAULT_ESCALATE_MIN_CONFIDENCE },
+    tiers: {
+      mode: 'auto',
+      cheapMaxOutputUsd: DEFAULT_CHEAP_MAX_OUTPUT_USD,
+      frontierMinOutputUsd: DEFAULT_FRONTIER_MIN_OUTPUT_USD,
+    },
+    tierOverrides: {},
+    excludedModels: [],
   };
 }
 
@@ -106,7 +131,32 @@ export function normaliseDecisionSettings(raw: unknown): DecisionSettings {
     remoteDataConsent: r.remoteDataConsent === true,
     features: { ...d.features },
     routing: { ...d.routing },
+    tiers: { ...d.tiers },
+    tierOverrides: {},
+    excludedModels: [],
   };
+  const tiers = asObj(r.tiers);
+  if (tiers.mode === 'manual' || tiers.mode === 'auto') out.tiers.mode = tiers.mode;
+  const cheapMax = tiers.cheapMaxOutputUsd;
+  const frontierMin = tiers.frontierMinOutputUsd;
+  if (
+    typeof cheapMax === 'number' && typeof frontierMin === 'number' &&
+    Number.isFinite(cheapMax) && Number.isFinite(frontierMin) &&
+    cheapMax > 0 && frontierMin > cheapMax
+  ) {
+    out.tiers.cheapMaxOutputUsd = cheapMax;
+    out.tiers.frontierMinOutputUsd = frontierMin;
+  }
+  for (const [id, tier] of Object.entries(asObj(r.tierOverrides))) {
+    if (id.includes('/') && (ROUTER_TIER_NAMES as readonly unknown[]).includes(tier)) {
+      out.tierOverrides[id] = tier as RouterTierName;
+    }
+  }
+  if (Array.isArray(r.excludedModels)) {
+    out.excludedModels = [
+      ...new Set(r.excludedModels.filter((v): v is string => typeof v === 'string' && v.includes('/'))),
+    ];
+  }
   const routing = asObj(r.routing);
   if ((DECISION_ROUTING_SCOPES as readonly unknown[]).includes(routing.scope)) {
     out.routing.scope = routing.scope as DecisionRoutingScope;

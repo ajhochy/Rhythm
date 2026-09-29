@@ -1027,23 +1027,30 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   ) {
     try {
       const { routeTurnTier } = await import('./decision/model_router');
-      const { classifyRouteTier, resolveTieredModel } = await import('./agent_model_resolver');
+      const { routeModelForTier, getRouteTierClassifier } = await import('./decision/model_catalog');
+      const { classifyRouteTier: staticTier } = await import('./agent_model_resolver');
+      const classifyRouteTier = await getRouteTierClassifier().catch(() => staticTier);
       const agentIdForRoute = effectiveConfigId ?? 'claude-code';
       const routed = await routeTurnTier({
         prompt,
         agentId: agentIdForRoute,
         requestedSource: 'agent_default',
         baselineTier: resolvedModel ? classifyRouteTier(resolvedModel) : null,
+        ...(resolvedModel ? { baseRoute: resolvedModel } : {}),
       });
       if (routed.tier) {
-        const decision = await resolveTieredModel({
-          agentId: agentIdForRoute,
-          explicitTierHint: routed.tier,
-        });
+        // Same live-catalog pick as the interactive turn router (static table only as fallback).
+        const decision = routed.route
+          ? { route: routed.route, tier: routed.tier, downgradedForBudget: routed.downgradedForBudget ?? false }
+          : await routeModelForTier({
+              tier: routed.tier,
+              agentId: agentIdForRoute,
+              ...(resolvedModel ? { baseRoute: resolvedModel } : {}),
+            });
         resolvedModel = decision.route;
         requestedSource = 'tier';
         requestedTier = decision.tier;
-        downgraded = decision.downgradedForBudget;
+        downgraded = decision.downgradedForBudget ?? false;
       }
     } catch (err) {
       logger.warn(`[AgentRunner] decision routing failed (non-fatal): ${String(err)}`);
@@ -1057,7 +1064,9 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   ) {
     try {
       const { applyCapacityRouting } = await import('./decision/capacity_router');
-      const { classifyRouteTier } = await import('./agent_model_resolver');
+      const { classifyRouteTier: staticTier } = await import('./agent_model_resolver');
+      const { getRouteTierClassifier } = await import('./decision/model_catalog');
+      const classifyRouteTier = await getRouteTierClassifier().catch(() => staticTier);
       const capDecision = await applyCapacityRouting({
         agentId: effectiveConfigId ?? 'claude-code',
         baseRoute: resolvedModel,

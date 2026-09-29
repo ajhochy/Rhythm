@@ -2,6 +2,7 @@ import { getDecisionEscalateMinConfidence, getDecisionRoutingScope } from '../..
 import { AgentSessionsRepository } from '../../repositories/agent_sessions_repository';
 import type { RequestedSource } from '../../models/model_provenance';
 import { logger } from '../../utils/logger';
+import { getRouteTierClassifier, routeModelForTier } from './model_catalog';
 import type { ModelRoute } from '../agent_model_resolver';
 import type { DecisionOpts } from './decision_engine';
 import {
@@ -65,7 +66,9 @@ export async function routeTurnForSession(
   let requestedTier: string | null = input.requestedTier ?? null;
   let source: RouteTurnForSessionResult['source'] = 'baseline';
 
-  const { classifyRouteTier, resolveTieredModel } = await import('../agent_model_resolver');
+  const { classifyRouteTier: staticTier } = await import('../agent_model_resolver');
+  // Tier of a route = its live-catalog tier (price band / override), else the name heuristic.
+  const classifyRouteTier = await getRouteTierClassifier().catch(() => staticTier);
   const scope = getDecisionRoutingScope();
 
   try {
@@ -88,6 +91,7 @@ export async function routeTurnForSession(
         sessionId: input.sessionId,
         sessionAuto: input.sessionAuto,
         baselineTier: route ? classifyRouteTier(route) : null,
+        ...(route ? { baseRoute: route } : {}),
         ...(input.client ? { client: input.client } : {}),
         scopeGate: input.sessionAuto
           ? (label, confidence) =>
@@ -102,10 +106,13 @@ export async function routeTurnForSession(
           : undefined,
       });
       if (routed.tier) {
-        const tiered = await resolveTieredModel({
-          agentId: input.agentId,
-          explicitTierHint: routed.tier,
-        });
+        const tiered = routed.route
+          ? { route: routed.route, tier: routed.tier }
+          : await routeModelForTier({
+              tier: routed.tier,
+              agentId: input.agentId,
+              ...(route ? { baseRoute: route } : {}),
+            });
         route = tiered.route;
         requestedSource = 'tier';
         requestedTier = tiered.tier;

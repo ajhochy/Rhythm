@@ -3,10 +3,11 @@ import {
   getEffectiveDecisionMode,
 } from '../../config/env';
 import type { DecisionMode } from '../../config/env';
-import type { ModelTier } from '../agent_model_resolver';
+import type { ModelRoute, ModelTier } from '../agent_model_resolver';
 import { classify } from './decision_engine';
 import type { DecisionOpts } from './decision_engine';
 import { recordDecision } from './decision_log';
+import { routeModelForTier, type CatalogSource } from './model_catalog';
 
 /**
  * Only the built-in agent default, and Auto (router) sessions, are "soft"
@@ -40,6 +41,8 @@ export interface RouteTurnTierInput {
   sessionId?: string;
   /** Tier of the route the resolver picked, for shadow-mode agreement stats. */
   baselineTier?: ModelTier | null;
+  /** Current route: its provider is preferred when picking the model for the routed tier. */
+  baseRoute?: ModelRoute;
   client?: DecisionOpts['client'];
   /** True for Auto (router) sessions: an unset env var then means 'on'. */
   sessionAuto?: boolean;
@@ -59,6 +62,10 @@ export interface RouteTurnTierResult {
   mode: 'off' | 'shadow' | 'on';
   reason: string;
   confidence?: number;
+  /** Model picked for `tier` from the live catalog (static table when it is unreachable). */
+  route?: ModelRoute;
+  catalog?: CatalogSource;
+  downgradedForBudget?: boolean;
 }
 
 /**
@@ -95,6 +102,18 @@ export async function routeTurnTier(input: RouteTurnTierInput): Promise<RouteTur
     const gate = input.scopeGate ? input.scopeGate(r.label, r.confidence) : null;
     const gateOk = gate ? gate.apply : true;
     const applied = mode === 'on' && confident && gateOk;
+    let picked: Awaited<ReturnType<typeof routeModelForTier>> | null = null;
+    if (applied) {
+      try {
+        picked = await routeModelForTier({
+          tier: r.label,
+          agentId: input.agentId,
+          ...(input.baseRoute ? { baseRoute: input.baseRoute } : {}),
+        });
+      } catch {
+        picked = null;
+      }
+    }
     recordDecision({
       feature: 'model_routing',
       mode,
@@ -111,6 +130,12 @@ export async function routeTurnTier(input: RouteTurnTierInput): Promise<RouteTur
         scores: r.scores,
         margin: r.margin,
         requestedSource: input.requestedSource,
+        ...(picked
+          ? {
+              catalog: picked.catalog,
+              pickedModel: `${picked.route.providerID}/${picked.route.modelID}`,
+            }
+          : {}),
         ...(gate ? { scope: gate.reason, wouldApply: confident && gateOk } : {}),
       },
     });
@@ -124,7 +149,20 @@ export async function routeTurnTier(input: RouteTurnTierInput): Promise<RouteTur
         confidence: r.confidence,
       };
     }
-    return { tier: r.label, applied: true, mode, reason: 'ok', confidence: r.confidence };
+    return {
+      tier: r.label,
+      applied: true,
+      mode,
+      reason: 'ok',
+      confidence: r.confidence,
+      ...(picked
+        ? {
+            route: picked.route,
+            catalog: picked.catalog,
+            ...(picked.downgradedForBudget ? { downgradedForBudget: true } : {}),
+          }
+        : {}),
+    };
   } catch {
     return { tier: null, applied: false, mode, reason: 'error' };
   }

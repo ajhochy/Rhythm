@@ -4,6 +4,7 @@
  *   npx tsx scripts/decision_bench.ts [--base-url http://127.0.0.1:8012]
  *     [--model qwen3-reranker-4b] [--feature all|model_routing|tool_ranking|memory_ranking]
  *     [--json out.json] [--score-scale auto|probability|logit] [--timeout-ms 30000] [--fake]
+ *     [--static-catalog]
  *
  * --fake uses an in-process token-overlap scorer to smoke-test the pipeline
  * (its numbers say nothing about model quality).
@@ -13,6 +14,7 @@ import fs from 'node:fs';
 import { HttpRerankClient, type RerankClient, type RerankResult } from '../src/services/decision/decision_client';
 import { classify, rankCandidates } from '../src/services/decision/decision_engine';
 import { getDecisionMemoryMinScore, type DecisionScoreScale } from '../src/config/env';
+import { loadExpectationCatalog } from './decision_calibrate/models';
 import {
   ece,
   mean,
@@ -65,10 +67,11 @@ interface Args {
   fake: boolean;
   timeoutMs: number;
   scoreScale?: DecisionScoreScale;
+  staticCatalog: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
-  const a: Args = { baseUrl: 'http://127.0.0.1:8012', model: 'qwen3-reranker-4b', feature: 'all', fake: false, timeoutMs: 30000 };
+  const a: Args = { baseUrl: 'http://127.0.0.1:8012', model: 'qwen3-reranker-4b', feature: 'all', fake: false, timeoutMs: 30000, staticCatalog: false };
   const val = (i: number, flag: string) => {
     if (i + 1 >= argv.length) fail(`Missing value for ${flag}`);
     return argv[i + 1];
@@ -92,6 +95,7 @@ function parseArgs(argv: string[]): Args {
         break;
       }
       case '--fake': a.fake = true; break;
+      case '--static-catalog': a.staticCatalog = true; break;
       default: fail(`Unknown argument ${argv[i]}`);
     }
   }
@@ -241,6 +245,10 @@ async function main(): Promise<void> {
     }
   }
 
+  // Which models routing tiers resolve to: live engine catalog when reachable, else the static table.
+  const catalog = await loadExpectationCatalog({ forceStatic: args.staticCatalog });
+  console.log(`  ${catalog.label}`);
+
   const features = args.feature === 'all' ? ALL_FEATURES : [args.feature];
   const results: FeatureResult[] = [];
   for (const feature of features) {
@@ -252,7 +260,7 @@ async function main(): Promise<void> {
   }
 
   if (args.json) {
-    fs.writeFileSync(args.json, JSON.stringify({ generatedAt: new Date().toISOString(), fake: args.fake, baseUrl: args.baseUrl, model: args.fake ? 'fake-token-overlap' : args.model, results }, null, 2));
+    fs.writeFileSync(args.json, JSON.stringify({ generatedAt: new Date().toISOString(), fake: args.fake, catalog: { source: catalog.source, models: catalog.models.length }, baseUrl: args.baseUrl, model: args.fake ? 'fake-token-overlap' : args.model, results }, null, 2));
     console.log(`\nWrote ${args.json}`);
   }
   if (results.some((r) => r.failures > 0)) {

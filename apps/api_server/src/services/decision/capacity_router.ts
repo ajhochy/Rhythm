@@ -6,12 +6,14 @@ import {
 import type { DecisionMode } from '../../config/env';
 import { logger } from '../../utils/logger';
 import {
+  PROVIDER_TO_AGENT_KIND,
   ROUTE_FALLBACKS_BY_AGENT,
   classifyRouteTier,
   type ModelRoute,
   type ModelTier,
 } from '../agent_model_resolver';
 import { getUsageBudget } from '../usage_budget_service';
+import { comparePreference, getRoutableModels, type CatalogSource, type RoutableModel } from './model_catalog';
 import type { UsageBudgetProvider, UsageBudgetSnapshot } from '../usage_budget_service';
 import { recordDecision } from './decision_log';
 
@@ -153,6 +155,11 @@ export interface CapacityRouteInput {
   /** When set, only routes whose providerID is in this set are candidates. */
   authedProviders?: Iterable<string>;
   lowFraction?: number;
+  /**
+   * Live-catalog candidates (already connected/filtered/tiered). When set they replace
+   * the ROUTE_FALLBACKS_BY_AGENT tables, and a candidate's tier is its catalog tier.
+   */
+  candidates?: readonly RoutableModel[];
 }
 
 export interface CapacityRouteResult {
@@ -201,32 +208,54 @@ export function chooseCapacityRoute(input: CapacityRouteInput): CapacityRouteRes
   }
 
   const candidates: Candidate[] = [];
-  const ownRoutes = ROUTE_FALLBACKS_BY_AGENT[input.agentId] ?? [];
   const crossAgentOn = getDecisionCapacityCrossAgent();
-  // The agent's own table first (it wins ties), then every other agent's routes,
-  // so a low Anthropic base can reach an equivalent-tier OpenAI route.
-  const routes = [...ownRoutes];
-  if (crossAgentOn) {
-    for (const [agent, list] of Object.entries(ROUTE_FALLBACKS_BY_AGENT)) {
-      if (agent === input.agentId) continue;
-      for (const r of list) if (!routes.some((x) => sameRoute(x, r))) routes.push(r);
+  let isCross: (r: ModelRoute) => boolean;
+  if (input.candidates) {
+    // Live catalog: cross-provider equivalence is by tier band (price), not by name.
+    // With cross-agent off only this agent's own providers (and aggregators) qualify.
+    const ownProvider = (providerID: string): boolean =>
+      providerID === base.providerID ||
+      PROVIDER_TO_AGENT_KIND[providerID] === input.agentId ||
+      !PROVIDER_TO_AGENT_KIND[providerID];
+    isCross = (r) => crossAgentOn && !ownProvider(r.providerID);
+    // Same-tier ties: lowest output cost first, then newest release (stable over catalog order).
+    [...input.candidates].sort(comparePreference).forEach((m, order) => {
+      if (!crossAgentOn && !ownProvider(m.providerID)) return;
+      const route: ModelRoute = { providerID: m.providerID, modelID: m.modelID };
+      if (TIER_RANK[m.tier] < requiredRank) return;
+      if (LOCAL_PROVIDER_IDS.has(route.providerID) && m.tier !== 'cheap') return;
+      candidates.push({ route, tier: m.tier, state: providerState(route.providerID, headrooms, low), order });
+    });
+  } else {
+    const ownRoutes = ROUTE_FALLBACKS_BY_AGENT[input.agentId] ?? [];
+    // The agent's own table first (it wins ties), then every other agent's routes,
+    // so a low Anthropic base can reach an equivalent-tier OpenAI route.
+    const routes = [...ownRoutes];
+    if (crossAgentOn) {
+      for (const [agent, list] of Object.entries(ROUTE_FALLBACKS_BY_AGENT)) {
+        if (agent === input.agentId) continue;
+        for (const r of list) if (!routes.some((x) => sameRoute(x, r))) routes.push(r);
+      }
     }
+    isCross = (r) =>
+      crossAgentOn && !ownRoutes.some((x) => sameRoute(x, r)) && !sameRoute(r, base);
+    routes.forEach((route, order) => {
+      if (authed && !authed.has(route.providerID)) return;
+      const tier = classifyRouteTier(route);
+      if (TIER_RANK[tier] < requiredRank) return;
+      if (LOCAL_PROVIDER_IDS.has(route.providerID) && tier !== 'cheap') return;
+      candidates.push({ route, tier, state: providerState(route.providerID, headrooms, low), order });
+    });
   }
-  const isCross = (r: ModelRoute): boolean =>
-    crossAgentOn && !ownRoutes.some((x) => sameRoute(x, r)) && !sameRoute(r, base);
-  routes.forEach((route, order) => {
-    if (authed && !authed.has(route.providerID)) return;
-    const tier = classifyRouteTier(route);
-    if (TIER_RANK[tier] < requiredRank) return;
-    if (LOCAL_PROVIDER_IDS.has(route.providerID) && tier !== 'cheap') return;
-    candidates.push({ route, tier, state: providerState(route.providerID, headrooms, low), order });
-  });
   // The base route always stays a candidate for the all-low fallback, even when
   // it is not in the agent's fallback table.
   if (!candidates.some((c) => sameRoute(c.route, base))) {
     candidates.push({
       route: base,
-      tier: classifyRouteTier(base),
+      tier: input.candidates
+        ? input.candidates.find((m) => m.providerID === base.providerID && m.modelID === base.modelID)?.tier ??
+          classifyRouteTier(base)
+        : classifyRouteTier(base),
       state: baseState,
       order: -1,
     });
@@ -421,6 +450,23 @@ export async function applyCapacityRouting(
     }
 
     const pinned = !MODEL_REROUTE_SOURCES.has(input.requestedSource);
+    // Live catalog candidates (only for turns that may change the model); the static
+    // table is used only when the engine catalog is empty/unreachable.
+    let catalog: CatalogSource = 'static';
+    let candidates: RoutableModel[] | undefined;
+    if (!pinned) {
+      try {
+        const routable = await getRoutableModels({
+          agentId: input.agentId,
+          baseRoute: input.baseRoute,
+          ...(input.authedProviders ? { authed: input.authedProviders } : {}),
+        });
+        catalog = routable.source;
+        if (routable.source === 'live') candidates = routable.models;
+      } catch {
+        catalog = 'static';
+      }
+    }
     let result: CapacityRouteResult;
     if (pinned) {
       const state = providerState(input.baseRoute.providerID, accountHeadroom(snapshot), low);
@@ -438,6 +484,7 @@ export async function applyCapacityRouting(
         snapshot,
         authedProviders: authed,
         lowFraction: low,
+        ...(candidates ? { candidates } : {}),
       });
     }
 
@@ -480,6 +527,7 @@ export async function applyCapacityRouting(
           reason: result.reason,
           requiredTier: input.requiredTier,
           requestedSource: input.requestedSource,
+          catalog,
           ...(result.crossAgent ? { crossAgent: true } : {}),
         },
       });

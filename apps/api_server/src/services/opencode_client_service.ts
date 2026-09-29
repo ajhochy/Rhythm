@@ -93,7 +93,7 @@ type EngineStatus = 'uninitialized' | 'ready' | 'error' | 'reloading';
  * flagged, but once its opencode.json entry exists it needs no OAuth/API-key
  * credential either, exactly like `ollama`.
  */
-const KEYLESS_PROVIDER_IDS = new Set(['ollama', 'omlx', 'opencode']);
+export const KEYLESS_PROVIDER_IDS = new Set(['ollama', 'omlx', 'opencode']);
 const providerDigestKey = randomBytes(32);
 
 export type ProviderSnapshot = {
@@ -109,6 +109,11 @@ export type ProviderSnapshot = {
       apiId?: string;
       status?: string;
       contextLimit?: number;
+      /** USD per 1M tokens, straight from the engine catalog (absent when unpriced). */
+      cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+      releaseDate?: string;
+      family?: string;
+      reasoning?: boolean;
       capabilities?: {
         input?: { text?: boolean };
         output?: { text?: boolean };
@@ -1128,13 +1133,38 @@ export class OpencodeClientService {
             api?: { id?: string; url?: string };
             status?: string;
             capabilities?: ProviderSnapshot['providers'][number]['models'][number]['capabilities'];
+            cost?: {
+              input?: unknown; output?: unknown; cache_read?: unknown; cache_write?: unknown;
+              cache?: { read?: unknown; write?: unknown };
+            };
+            release_date?: unknown;
+            family?: unknown;
+            reasoning?: unknown;
           };
+          const price = (v: unknown): number | undefined =>
+            typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined;
+          const cost = model.cost
+            ? {
+                input: price(model.cost.input),
+                output: price(model.cost.output),
+                cacheRead: price(model.cost.cache_read ?? model.cost.cache?.read),
+                cacheWrite: price(model.cost.cache_write ?? model.cost.cache?.write),
+              }
+            : undefined;
+          const priced = cost
+            ? Object.fromEntries(Object.entries(cost).filter(([, v]) => v !== undefined))
+            : {};
           return {
             id: model.id ?? key,
             ...(typeof model.name === 'string' ? { name: model.name } : {}),
             ...(typeof model.api?.id === 'string' ? { apiId: model.api.id } : {}),
             ...(typeof model.status === 'string' ? { status: model.status } : {}),
             ...(typeof model.limit?.context === 'number' ? { contextLimit: model.limit.context } : {}),
+            ...(Object.keys(priced).length > 0 ? { cost: priced } : {}),
+            ...(typeof model.release_date === 'string' && model.release_date
+              ? { releaseDate: model.release_date } : {}),
+            ...(typeof model.family === 'string' && model.family ? { family: model.family } : {}),
+            ...(typeof model.reasoning === 'boolean' ? { reasoning: model.reasoning } : {}),
             ...(model.capabilities ? {
               capabilities: {
                 input: { text: model.capabilities.input?.text === true },
