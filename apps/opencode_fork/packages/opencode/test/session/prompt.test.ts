@@ -1818,10 +1818,17 @@ unix(
       Effect.gen(function* () {
         const { prompt, chat } = yield* boot()
 
+        const run = yield* SessionRunState.Service
         const a = yield* prompt
           .shell({ sessionID: chat.id, agent: "build", command: "sleep 30" })
           .pipe(Effect.forkChild)
-        yield* Effect.sleep(50)
+        // Wait until the first shell actually holds the session busy. A fixed
+        // 50ms sleep lost that race on loaded CI runners: the second shell then
+        // queued behind `sleep 30` and the test hung to its 30s timeout.
+        for (let i = 0; i < 250; i++) {
+          if (Exit.isFailure(yield* run.assertNotBusy(chat.id).pipe(Effect.exit))) break
+          yield* Effect.sleep(20)
+        }
 
         const exit = yield* prompt.shell({ sessionID: chat.id, agent: "build", command: "echo hi" }).pipe(Effect.exit)
         expect(Exit.isFailure(exit)).toBe(true)
