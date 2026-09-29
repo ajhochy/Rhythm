@@ -63,4 +63,15 @@ describe('Org Reviewer authentication route contract', () => {
     });
     expect([401, 403], await response.text()).toContain(response.status);
   });
+
+  it.each(['session', 'catalog'])('org-reviewer-session-context: reviewer %s pages require authenticated reviewer authority', async (route) => {
+    for (const body of [{ sessionId: 'any', kind: 'profiles' }, { trustedCall: { proof: { toolName: 'rhythm_read_org_review_context' } } }]) {
+      const response = await fetch(`${baseUrl}/agent-org-proposals/reviewer/${route}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      expect([401, 403], await response.text()).toContain(response.status);
+    }
+  });
 });
