@@ -1,6 +1,6 @@
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { useAgentChat } from '@/providers/agent-chat-provider';
 import { useOpencode } from '@/providers/opencode-provider';
@@ -19,13 +19,17 @@ export function useChatListController() {
   const [lifecycle, setLifecycle] =
     useState<AgentChatLifecycle | 'all'>('all');
   const [createSheetVisible, setCreateSheetVisible] = useState(false);
+  const [creationTargetProject, setCreationTargetProject] = useState<string>();
   const [creationProfiles, setCreationProfiles] = useState<AgentOption[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const createSheetRequest = useRef(0);
 
   useEffect(() => {
     if (!isFocused) {
+      createSheetRequest.current += 1;
       setCreateSheetVisible(false);
+      setCreationTargetProject(undefined);
     }
   }, [isFocused]);
 
@@ -37,8 +41,9 @@ export function useChatListController() {
     );
   }
 
-  async function openCreateSheet() {
-    const targetProject = targetProjectForNewChat();
+  async function openCreateSheet(targetProjectPath?: string) {
+    const request = ++createSheetRequest.current;
+    const targetProject = targetProjectPath ?? targetProjectForNewChat();
     if (!targetProject) {
       setFeedback('Choose a project before creating a chat.');
       return;
@@ -49,9 +54,13 @@ export function useChatListController() {
         opencode.availableAgents.length > 0
           ? opencode.availableAgents
           : await opencode.loadSessionProfiles(targetProject);
+      if (request !== createSheetRequest.current) return;
+      setCreationTargetProject(targetProject);
       setCreationProfiles(profiles);
       setCreateSheetVisible(true);
     } catch (reason) {
+      if (request !== createSheetRequest.current) return;
+      setCreationTargetProject(undefined);
       setFeedback(
         reason instanceof Error
           ? reason.message
@@ -64,7 +73,7 @@ export function useChatListController() {
     title: string | undefined,
     preferences: ChatPreferences,
   ) {
-    const targetProject = targetProjectForNewChat();
+    const targetProject = creationTargetProject ?? targetProjectForNewChat();
     if (!targetProject) {
       throw new Error('Choose a project before creating a chat.');
     }
@@ -78,7 +87,11 @@ export function useChatListController() {
 
   return {
     clearFeedback: () => setFeedback(null),
-    closeCreateSheet: () => setCreateSheetVisible(false),
+    closeCreateSheet: () => {
+      createSheetRequest.current += 1;
+      setCreateSheetVisible(false);
+      setCreationTargetProject(undefined);
+    },
     createChat,
     creationProfiles,
     createSheetVisible,

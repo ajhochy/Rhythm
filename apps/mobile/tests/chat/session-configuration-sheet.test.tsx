@@ -5,11 +5,12 @@ import {
   waitFor,
 } from '@testing-library/react-native';
 import { Children, Fragment, isValidElement } from 'react';
+import { StyleSheet } from 'react-native';
 import { Dialog, List, PaperProvider } from 'react-native-paper';
 
 import { SessionConfigurationSheet } from '@/components/chat/session-configuration-sheet';
 import { normalizeProfileIcon } from '@/components/ui/profile-icon';
-import { Colors } from '@/constants/theme';
+import { Colors, Spacing, TypeScale } from '@/constants/theme';
 import {
   defaultChatPreferences,
   type AgentOption,
@@ -175,5 +176,26 @@ describe('SessionConfigurationSheet', () => {
     expect(
       screen.getByRole('button', { name: 'Create' }).props.accessibilityState,
     ).toMatchObject({ disabled: true });
+  });
+
+  test('task-mobile-chat-list-polish-c5: summary uses compact rows instead of nested cards', () => {
+    // Regression caught: oversized nested cards push Reasoning and Approval Policy below the initial sheet viewport.
+    const screen = render(
+      sheet([secretary], defaultChatPreferences, jest.fn()),
+    );
+    const contentStyle = StyleSheet.flatten(
+      screen.getByTestId('session-configuration-content').props.style,
+    );
+
+    expect(contentStyle.gap).toBeLessThanOrEqual(Spacing.x2);
+    expect(contentStyle.paddingHorizontal).toBeLessThanOrEqual(Spacing.x4);
+    expect(screen.getByTestId('session-profile-row')).toBeTruthy();
+    expect(screen.getByTestId('session-model-row')).toBeTruthy();
+    expect(StyleSheet.flatten(screen.getByLabelText('Reasoning').props.style)).toEqual(
+      expect.objectContaining({ fontSize: TypeScale.footnote }),
+    );
+    expect(StyleSheet.flatten(screen.getByLabelText('Approval Policy').props.style)).toEqual(
+      expect.objectContaining({ fontSize: TypeScale.footnote }),
+    );
   });
 });

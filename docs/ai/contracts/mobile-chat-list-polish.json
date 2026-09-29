@@ -1,0 +1,92 @@
+{
+  "issue": "mobile-chat-list-polish",
+  "date": "2026-09-28",
+  "test_command": "cd apps/mobile && npx jest tests/chat/chat-list.test.tsx tests/chat/session-configuration-sheet.test.tsx",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-mobile-chat-list-polish-c1",
+      "text": "Project headers become compact, desktop-like rows while preserving existing test IDs.",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/chat-list.test.tsx",
+      "status": "pass",
+      "reason": "Focused Jest asserts transparent compact headers, type scale, spacing, and preserved identifiers."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-c2",
+      "text": "Session rows use 44 point minimum height, 13–14 point titles, small metadata and timestamp type, reduced gaps, and tight list padding.",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/chat-list.test.tsx",
+      "status": "pass",
+      "reason": "Focused Jest asserts 44 point row minimums and compact title and metadata type."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-c3",
+      "text": "Each non-desktop project header exposes a 44 point New chat action and creates the session in that header's project.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/chat-list.test.tsx",
+      "status": "pass",
+      "reason": "Regression test presses Empty project's header action and observes createChat receive /projects/empty while the active project is /projects/alpha."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-c4",
+      "text": "The Chats title and padding are smaller, and search occupies a full-width row separate from compact sort and New chat controls without collisions.",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/chat-list.test.tsx",
+      "status": "pass",
+      "reason": "Focused Jest asserts a full-width search row and separate 44 point action row; header source uses 22 point title and reduced padding."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-c5",
+      "text": "The session configuration summary uses compact Profile and Model List.Item rows, a tight Reasoning row, and compact Approval Policy controls while preserving accessibility and create/edit behavior.",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/session-configuration-sheet.test.tsx",
+      "status": "pass",
+      "reason": "Focused sheet Jest asserts compact List.Item rows, 8 point maximum gap, 16 point horizontal padding, and 13 point labels."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-c6",
+      "text": "Mobile lint, typecheck, and focused chat tests pass, and the full suite introduces no failures beyond the base branch.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/chat-list.test.tsx",
+      "status": "pass",
+      "reason": "Lint, typecheck, and 48 focused Jest tests pass. Full npm test reports 234 passed and the same 4 issue-1387 failures reproduced identically on base 3c520d56."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-race-c1",
+      "text": "Bind the create sheet and profile list to the latest exact resolved target project, ignoring stale out-of-order profile-load results.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/chat-list.test.tsx",
+      "status": "pass",
+      "reason": "Deterministic deferred loads resolve project B before project A and assert B profiles and create target remain current."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-race-c2",
+      "text": "A stale profile-load error cannot open, close, retarget, or add feedback to the current create sheet.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/chat-list.test.tsx",
+      "status": "pass",
+      "reason": "Deterministic deferred loads open project B before project A rejects and assert no stale feedback or target change."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-c4-visual",
+      "text": "Visual confirmation at 375–430 point widths shows no header/search overlap or clipped placeholder.",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "not_tested: needs manual TestFlight/simulator smoke"
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-c5-visual",
+      "text": "Reasoning and at least the start of Approval Policy are visible without scrolling on an 844 point viewport.",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "not_tested: needs manual TestFlight/simulator smoke"
+    }
+  ],
+  "not_tested": [
+    "task-mobile-chat-list-polish-c4-visual",
+    "task-mobile-chat-list-polish-c5-visual"
+  ]
+}
