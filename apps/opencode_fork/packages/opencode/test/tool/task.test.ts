@@ -896,12 +896,17 @@ describe("tool.task writer/reader contract (real opencode_agent_writer -> real C
   test("a profile written by the real opencode_agent_writer is parsed correctly by ConfigAgent + childMcpAllowlist/childSkillAllowlist", async () => {
     const scratchHome = await fs.mkdtemp(path.join(os.tmpdir(), "task-writer-contract-"))
     const env = { VITEST: process.env.VITEST, NODE_ENV: process.env.NODE_ENV }
+    const realOs = { ...os }
     try {
       // shouldWriteAgentFile() no-ops under VITEST/test env, and writes under
       // os.homedir() (bun's os.homedir() ignores $HOME, unlike Node's) — so
       // both must be overridden for the real writer to actually write, into a
       // scratch HOME rather than the developer's real ~/.config/opencode.
-      mock.module("os", () => ({ homedir: () => scratchHome, default: { homedir: () => scratchHome } }))
+      // mock.module patches the shared module record for the WHOLE bun test
+      // run (every file, not just this one) until restored — spread the real
+      // module so every other export (os.tmpdir, used by this suite's own
+      // fixture harness) keeps working, and restore it in `finally` below.
+      mock.module("os", () => ({ ...realOs, homedir: () => scratchHome, default: { ...realOs, homedir: () => scratchHome } }))
       process.env.VITEST = "false"
       process.env.NODE_ENV = "development"
 
@@ -948,6 +953,7 @@ describe("tool.task writer/reader contract (real opencode_agent_writer -> real C
       expect(childMcpAllowlist(child, model, parent)).toEqual({ servers: ["gitnexus"], tools: [] })
       expect(childSkillAllowlist(child, parent)).toEqual({ skills: ["coding-agent"] })
     } finally {
+      mock.module("os", () => ({ ...realOs, default: { ...realOs } }))
       process.env.VITEST = env.VITEST
       process.env.NODE_ENV = env.NODE_ENV
       await fs.rm(scratchHome, { recursive: true, force: true })
