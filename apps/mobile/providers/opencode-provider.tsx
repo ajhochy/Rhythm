@@ -70,6 +70,11 @@ import {
   findEditableUserTextPart,
   isTranscriptDisplayMessage,
 } from '@/lib/opencode/transcript';
+import {
+  applyTranscriptEvents,
+  createTranscriptEventBatcher,
+  type TranscriptEvent,
+} from '@/lib/opencode/transcript-events';
 import { aggregateSessionUsage, getLatestAssistantTurnUsage } from '@/lib/opencode/usage';
 import { createFullFilePatch } from '@/lib/opencode/workspace-patch';
 import {
@@ -482,6 +487,23 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const terminalSocketRef = useRef<WebSocket | undefined>(undefined);
   const terminalCursorByIdRef = useRef<Record<string, string>>({});
   const terminalOpenGenerationRef = useRef(0);
+  const transcriptBatcherRef = useRef<ReturnType<typeof createTranscriptEventBatcher> | null>(null);
+  if (!transcriptBatcherRef.current) {
+    transcriptBatcherRef.current = createTranscriptEventBatcher((events) => {
+      setMessagesBySession((current) => {
+        let next = current;
+        for (const event of events) {
+          const sessionId = event.properties.sessionID;
+          const messages = next[sessionId] || [];
+          const updated = applyTranscriptEvents(messages, [event], sessionId);
+          if (updated === messages) continue;
+          if (next === current) next = { ...current };
+          next[sessionId] = updated;
+        }
+        return next;
+      });
+    });
+  }
   settingsRef.current = settings;
   activeProjectPathRef.current = activeProjectPath;
   sessionsRef.current = sessions;
@@ -628,6 +650,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   );
 
   const clearProjectState = useCallback(() => {
+    transcriptBatcherRef.current?.cancel();
     cancelSessionRefreshTimers(sessionRefreshTimeoutsRef.current);
     sessionRefreshTimeoutsRef.current = {};
     sessionRefreshOptionsRef.current = {};
@@ -3700,7 +3723,6 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       }
       return true;
     };
-
     const handleEvent = (event: GlobalEvent['payload']) => {
       switch (event.type) {
         case 'session.created':
@@ -3720,11 +3742,12 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             ...current,
             [sessionId]: event.properties.status,
           }));
-          scheduleSessionRefresh(sessionId, { sessions: true, messages: true, diff: true, todos: true });
+          scheduleSessionRefresh(sessionId, { sessions: true, diff: true, todos: true });
           return;
         }
         case 'session.idle': {
           const sessionId = event.properties.sessionID;
+          transcriptBatcherRef.current?.flush();
           stopSessionWorkingSound(sessionId);
           setSessionStatuses((current) => ({
             ...current,
@@ -3757,7 +3780,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           return;
         }
         case 'message.updated': {
-          scheduleSessionRefresh(event.properties.sessionID, { messages: true });
+          transcriptBatcherRef.current?.push(event as TranscriptEvent);
           return;
         }
         case 'message.removed':
@@ -3771,6 +3794,10 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           scheduleSessionRefresh(event.properties.sessionID, { messages: true });
           return;
         case 'message.part.updated':
+        case 'message.part.delta': {
+          transcriptBatcherRef.current?.push(event as TranscriptEvent);
+          return;
+        }
         case 'message.part.removed': {
           scheduleSessionRefresh(event.properties.sessionID, { messages: true });
           return;
@@ -3958,6 +3985,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       cancelSessionRefreshTimers(sessionRefreshTimeoutsRef.current);
       sessionRefreshTimeoutsRef.current = {};
       sessionRefreshOptionsRef.current = {};
+      transcriptBatcherRef.current?.cancel();
       if (conversationResumeTimeoutRef.current) {
         clearTimeout(conversationResumeTimeoutRef.current);
       }
