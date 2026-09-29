@@ -890,73 +890,35 @@ describe("tool.task child scoping through projected profile frontmatter", () => 
 // every delegated child. Bun can import that package's TypeScript directly, so
 // this calls the REAL writer and feeds its REAL output into the REAL reader —
 // nothing here is reimplemented on either side.
-describe("tool.task writer/reader contract (real opencode_agent_writer -> real ConfigAgent.load)", () => {
+describe("tool.task writer/reader contract (opencode_agent_writer output -> real ConfigAgent.load)", () => {
   const model = { providerID: "test" }
 
-  test("a profile written by the real opencode_agent_writer is parsed correctly by ConfigAgent + childMcpAllowlist/childSkillAllowlist", async () => {
-    const scratchHome = await fs.mkdtemp(path.join(os.tmpdir(), "task-writer-contract-"))
-    const env = { VITEST: process.env.VITEST, NODE_ENV: process.env.NODE_ENV }
-    const realOs = { ...os }
+  // Consumer half of a two-sided contract. The fixture is REAL output captured
+  // from apps/api_server's writeAgentProfileFile; the producer half
+  // (opencode_agent_writer.contract.test.ts, api_server/vitest) asserts the
+  // writer still emits byte-identical bytes. Split because importing api_server
+  // here drags in its DB layer and fork CI has no better-sqlite3 — a coupled
+  // test could only ever pass locally, which is no protection at all.
+  test("the agent file the writer produces is parsed correctly by ConfigAgent + childMcpAllowlist/childSkillAllowlist", async () => {
+    const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "task-writer-contract-"))
     try {
-      // shouldWriteAgentFile() no-ops under VITEST/test env, and writes under
-      // os.homedir() (bun's os.homedir() ignores $HOME, unlike Node's) — so
-      // both must be overridden for the real writer to actually write, into a
-      // scratch HOME rather than the developer's real ~/.config/opencode.
-      // mock.module patches the shared module record for the WHOLE bun test
-      // run (every file, not just this one) until restored — spread the real
-      // module so every other export (os.tmpdir, used by this suite's own
-      // fixture harness) keeps working, and restore it in `finally` below.
-      mock.module("os", () => ({ ...realOs, homedir: () => scratchHome, default: { ...realOs, homedir: () => scratchHome } }))
-      process.env.VITEST = "false"
-      process.env.NODE_ENV = "development"
+      const agentsDir = path.join(scratch, "agents")
+      await fs.mkdir(agentsDir, { recursive: true })
+      const fixture = path.join(import.meta.dir, "..", "fixtures", "agent-writer", "writer-contract-child.md")
+      await fs.copyFile(fixture, path.join(agentsDir, "writer-contract-child.md"))
 
-      // Built at runtime (not a string literal) so tsgo/tsc cannot statically
-      // resolve and typecheck api_server's whole graph through this dynamic
-      // import — that package has its own tsconfig and pre-existing unrelated
-      // errors under this package's stricter settings. Bun resolves the
-      // module fine at runtime regardless.
-      const writerModulePath = ["..", "..", "..", "..", "..", "api_server", "src", "services", "opencode_agent_writer.ts"].join(
-        "/",
-      )
-      const { writeAgentProfileFile } = await import(writerModulePath)
-      const now = new Date().toISOString()
-      writeAgentProfileFile({
-        id: "writer-contract-child",
-        label: "Writer Contract Child",
-        icon: "smart_toy",
-        enabled: true,
-        isAgent: true,
-        isManager: false,
-        systemPrompt: "Do the thing.",
-        allowedMcpsJson: JSON.stringify(["gitnexus"]),
-        allowedSkillsJson: JSON.stringify(["coding-agent"]),
-        corePermissionsJson: null,
-        allowedDelegatesJson: null,
-        presetId: null,
-        sortOrder: 0,
-        createdAt: now,
-        updatedAt: now,
-        modelProvider: null,
-        modelId: null,
-        ocAgent: "writer-contract-child",
-        sessionSelectable: true,
-        modelTierHint: null,
-        defaultAnthropicAccountId: null,
-      } as any)
-
-      const loaded = await ConfigAgent.load(path.join(scratchHome, ".config", "opencode"))
-      const child = { options: loaded["writer-contract-child"]!.options ?? {} } as unknown as Agent.Info
-      // An unrestricted parent so any pass-through-to-parent bug (rather than a
+      const loaded = await ConfigAgent.load(scratch)
+      const entry = loaded["writer-contract-child"]
+      expect(entry).toBeDefined()
+      const child = { options: entry!.options ?? {} } as unknown as Agent.Info
+      // An unrestricted parent so a pass-through-to-parent bug (rather than a
       // parse failure) would still be caught by these exact-match assertions.
       const parent = { mcpAllowlist: undefined, skillAllowlist: undefined } as unknown as Session.Info
 
       expect(childMcpAllowlist(child, model, parent)).toEqual({ servers: ["gitnexus"], tools: [] })
       expect(childSkillAllowlist(child, parent)).toEqual({ skills: ["coding-agent"] })
     } finally {
-      mock.module("os", () => ({ ...realOs, default: { ...realOs } }))
-      process.env.VITEST = env.VITEST
-      process.env.NODE_ENV = env.NODE_ENV
-      await fs.rm(scratchHome, { recursive: true, force: true })
+      await fs.rm(scratch, { recursive: true, force: true })
     }
   })
 })
