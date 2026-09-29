@@ -14,6 +14,10 @@ import { ToolRegistry } from "@/tool/registry"
 import { modelStreamScheduler } from "@/session/model-stream-scheduler"
 import { disposeAllInstances } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
+import fs from "fs/promises"
+import os from "os"
+import path from "path"
+import { ConfigAgent } from "@/config/agent"
 
 afterEach(async () => {
   await disposeAllInstances()
@@ -794,5 +798,87 @@ describe("tool.task childMcpAllowlist", () => {
     const parent = { mcpAllowlist: undefined } as unknown as Session.Info
 
     expect(childMcpAllowlist(agent, model, parent)).toBeUndefined()
+  })
+})
+
+// The whole child-scoping design rests on one link the synthetic tests above
+// stub out: opencode_agent_writer projects a Rhythm profile's expanded scope
+// into ~/.config/opencode/agents/<id>.md frontmatter, ConfigAgent preserves it
+// in `agent.options`, and childMcpAllowlist reads it. These load REAL projected
+// frontmatter through ConfigAgent.load so the link is proven end to end.
+describe("tool.task child scoping through projected profile frontmatter", () => {
+  const model = { providerID: "test" }
+
+  // Verbatim `options:` lines as opencode_agent_writer emits them (single-line
+  // flow YAML), taken from the installed coding-agent.md / workflow-orchestrator.md.
+  const CHILD_OPTIONS =
+    '{"mcpAllowlist":{"servers":["gitnexus"],"tools":[]},"skillAllowlist":{"skills":["acceptance-contract","coding-agent"]},"effort":"xhigh"}'
+  const PARENT_OPTIONS =
+    '{"mcpAllowlist":{"servers":["gitnexus","obsidian","playwright","duckduckgo"],"tools":["rhythm_rhythm_ping","rhythm_rhythm_delegate"]},"skillAllowlist":{"skills":["workflow-orchestrator"]},"effort":"xhigh"}'
+
+  async function loadProjected() {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "task-scope-"))
+    await fs.mkdir(path.join(dir, "agents"), { recursive: true })
+    for (const [name, options] of [
+      ["coding-agent", CHILD_OPTIONS],
+      ["workflow-orchestrator", PARENT_OPTIONS],
+    ] as const) {
+      await fs.writeFile(
+        path.join(dir, "agents", `${name}.md`),
+        `---\nname: ${name}\ndescription: ${name}\nmode: all\noptions: ${options}\n---\nbody\n`,
+      )
+    }
+    try {
+      const loaded = await ConfigAgent.load(dir)
+      return {
+        child: { options: loaded["coding-agent"]!.options ?? {} } as unknown as Agent.Info,
+        parent: { options: loaded["workflow-orchestrator"]!.options ?? {} } as unknown as Agent.Info,
+      }
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  }
+
+  test("a projected child keeps its OWN scope, which differs from the dispatching parent's", async () => {
+    const { child, parent } = await loadProjected()
+    // The parent session is scoped from the parent's own projected profile.
+    const parentSession = {
+      mcpAllowlist: childMcpAllowlist(parent, model, {} as unknown as Session.Info),
+      skillAllowlist: childSkillAllowlist(parent, {} as unknown as Session.Info),
+    } as unknown as Session.Info
+
+    expect(parentSession.mcpAllowlist).toEqual({
+      servers: ["gitnexus", "obsidian", "playwright", "duckduckgo"],
+      tools: ["rhythm_rhythm_ping", "rhythm_rhythm_delegate"],
+    })
+
+    const childMcp = childMcpAllowlist(child, model, parentSession)
+    const childSkills = childSkillAllowlist(child, parentSession)
+
+    expect(childMcp).toEqual({ servers: ["gitnexus"], tools: [] })
+    expect(childSkills).toEqual({ skills: ["acceptance-contract", "coding-agent"] })
+    // The point of the whole design: the child is NOT the parent.
+    expect(childMcp).not.toEqual(parentSession.mcpAllowlist)
+    expect(childSkills).not.toEqual(parentSession.skillAllowlist)
+  })
+
+  test("a profile-less built-in child (general/explore is never projected) falls back to the parent", async () => {
+    const { parent } = await loadProjected()
+    const parentSession = {
+      mcpAllowlist: childMcpAllowlist(parent, model, {} as unknown as Session.Info),
+      skillAllowlist: childSkillAllowlist(parent, {} as unknown as Session.Info),
+    } as unknown as Session.Info
+    const builtin = { options: {} } as unknown as Agent.Info
+
+    expect(childMcpAllowlist(builtin, model, parentSession)).toEqual(parentSession.mcpAllowlist!)
+    expect(childSkillAllowlist(builtin, parentSession)).toEqual(parentSession.skillAllowlist!)
+  })
+
+  test("an unrestricted parent plus a profile-less child stays unrestricted", () => {
+    const builtin = { options: {} } as unknown as Agent.Info
+    const parentSession = { mcpAllowlist: undefined, skillAllowlist: undefined } as unknown as Session.Info
+
+    expect(childMcpAllowlist(builtin, model, parentSession)).toBeUndefined()
+    expect(childSkillAllowlist(builtin, parentSession)).toBeUndefined()
   })
 })

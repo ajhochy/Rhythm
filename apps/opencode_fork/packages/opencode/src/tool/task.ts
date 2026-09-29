@@ -48,11 +48,12 @@ export function childSkillAllowlist(agent: Agent.Info, parent: Session.Info): Se
   // skills (~89k first-turn tokens with 105 skills installed).
   const value = agent.options.skillAllowlist
   if (isSkillAllowlist(value)) return { skills: [...value.skills] }
-  // Profile declares no skill scope: inherit the PARENT session's scope rather
-  // than falling back to "all skills". undefined only survives if the parent is
-  // also unscoped (a genuinely unrestricted root). Never changes ROOT-session
-  // behavior — root scope is set per-turn by api_server ws_gateway, and those
-  // sessions never pass through this helper.
+  // Only a PROFILE-LESS child reaches here: the engine's native subagents
+  // (general/explore/scout/...) are not projected into
+  // ~/.config/opencode/agents/, so they carry no skill scope of their own.
+  // Fall back to the parent's scope rather than "all skills" — it is the
+  // tightest bound available for an agent that has no profile to resolve.
+  // undefined only survives if the parent is also unscoped.
   return parent.skillAllowlist
 }
 
@@ -61,18 +62,22 @@ export function childMcpAllowlist(
   model: { providerID: string },
   parent: Session.Info,
 ): Session.Info["mcpAllowlist"] {
-  // ConfigAgent preserves custom agent-file frontmatter in `options`. The
-  // resolved target profile carries its already-expanded session shape there,
-  // so the task tool does not re-implement api-server DB resolution or
-  // allowlist expansion.
+  // THE CHILD RESOLVES ITS OWN PROFILE — it never inherits the parent's scope.
+  // opencode_agent_writer projects every Rhythm profile to
+  // ~/.config/opencode/agents/<id>.md with `options.mcpAllowlist` produced by
+  // the SAME expandProfileMcpAllowlist() that scopes a top-level session, and
+  // ConfigAgent preserves that frontmatter in `agent.options`. So a
+  // coding-agent child dispatched by a workflow-orchestrator parent gets
+  // coding-agent's scope (1 server, 0 explicit tools), not the orchestrator's
+  // (4 servers, 8 tools) — measured 2026-09-29.
   const value = agent.options.mcpAllowlist
   if (!isMcpAllowlist(value)) {
-    // Profile declares no MCP scope (true of built-in child agents like
-    // general/explore, which are never projected into
-    // ~/.config/opencode/agents/): inherit the PARENT session's scope rather
-    // than falling back to "all tools, all servers". Mirrors
-    // childSkillAllowlist. undefined only survives if the parent is also
-    // unscoped (a genuinely unrestricted root).
+    // Only a PROFILE-LESS child reaches here: the engine's native subagents
+    // (general/explore/scout/...) are never projected, so there is no profile
+    // to resolve. Fall back to the parent's scope — the tightest bound
+    // available — rather than "all tools, all servers". This is the exception
+    // for profile-less built-ins, NOT the rule for children generally.
+    // undefined only survives if the parent is also unscoped.
     return parent.mcpAllowlist
   }
 

@@ -415,3 +415,117 @@ The three fixes proposed above are still correct in direction but are re-ranked:
 
 **$0.** No completion was requested from any provider. Every capture came from the
 local sink with a dummy API key.
+
+---
+
+# ADDENDUM (2026-09-29, later): child-session scoping — the §6 claim above is SUPERSEDED
+
+> **Superseded:** §6's "The real fix is one function … `childMcpAllowlist` fall back to
+> `parent.mcpAllowlist`" was the right *code* for the wrong *reason*. It described
+> child scoping as parent inheritance. It is not. Children resolve their own profile.
+> The parent fallback applies to profile-less built-ins only. Text above left intact.
+
+## The decisive measurement (OBSERVED)
+
+Loaded the real installed `~/.config/opencode/agents/*.md` through the engine's own
+`ConfigAgent.load()` and called `childMcpAllowlist` for a `coding-agent` child
+dispatched by a `workflow-orchestrator` parent:
+
+```
+parent  workflow-orchestrator mcp: {"servers":["gitnexus","obsidian","playwright","duckduckgo"],
+                                    "tools":[8 rhythm_* tools]}   skills: 42
+child   coding-agent           mcp: {"servers":["gitnexus"],"tools":[]}  skills: 7
+CHILD KEEPS OWN SCOPE: true
+explore (profile-less) child mcp: <parent's 4 servers + 8 tools>   (fallback)
+```
+
+The child does **not** inherit the parent. It never did — the existing
+`isMcpAllowlist(agent.options.mcpAllowlist)` branch already returned the child's own
+scope. AJ's requirement ("the coding agent should receive the scoping applied to its
+profile") **already holds for every real profile.** Cost: $0, no completion.
+
+## Why it already works (OBSERVED, code-cited)
+
+`apps/api_server/src/services/opencode_agent_writer.ts:778-790` projects each Rhythm
+profile to `~/.config/opencode/agents/<id>.md` with
+`options.mcpAllowlist = expandProfileMcpAllowlist(config.allowedMcpsJson, ...)` —
+**the same expander that scopes a top-level session**. `src/config/agent.ts` declares
+`options` as first-class frontmatter and `src/agent/agent.ts:303` merges it into
+`item.options`. So a child's allowlist is byte-identical to what the same profile gets
+as a root session. 44 of the 48 projected files carry `mcpAllowlist`; 37 carry
+`skillAllowlist`; `general` and `explore` are **not** projected (confirmed).
+
+## Every child-creating path
+
+| Path | Resolves child's own scope? | Evidence |
+|---|---|---|
+| Rhythm async delegation — `agent_delegation_service.ts:305,325` | **Yes.** `resolveProfileScope(targetId)` on the *target* id, then `profileScope.mcpRoleConfig` + `skillNames` into `createSession`. | OBSERVED (read) |
+| Engine-native `task` tool — `tool/task.ts` `childMcpAllowlist`/`childSkillAllowlist` | **Yes** for projected profiles (measured above). Profile-less built-ins fall back to the parent. | OBSERVED (measured) |
+| Root session — `agent_runner.ts:1335` | N/A (not a child); same expander. | OBSERVED (read) |
+| Mobile proxy — `mobile_opencode_proxy.ts:655-692` | N/A (root creation); `resolveProfileScope(profileId)`, strips client-supplied allowlists. | OBSERVED (read) |
+
+## What the orchestrator actually dispatches (OBSERVED, read-only rhythm.db)
+
+`agent_async_delegations` (n=1483) — **100% named Rhythm profiles, zero built-ins**:
+coding-agent 605, verification-gate 343, failure-triage 187, ui-ux-designer 94,
+planning-agent 72, project-state-updater 63, workflow-retrospective 41, fable 23, …
+
+Engine-native `task` calls parsed from `agent_session_messages.parts_json`, grouped by
+the *parent* session's `agent_kind`:
+
+| Parent | Named profile | `general`/`explore` |
+|---|---|---|
+| workflow-orchestrator | 545 (coding-agent 242, verification-gate 102, failure-triage 52, ui-ux-designer 41, project-state-updater 41, planning-agent 39, …) | 40 |
+| planning-agent | — | 127 |
+| secretary | ~250 | — |
+| fantasy-gm / ui-ux-designer / worship-* / coding-agent | — | 68 / 29 / 27 / 10 |
+
+Repo-wide across all task calls: **419 `general`+`explore` vs ~1046 named profiles.**
+So the `undefined` hole was a **real-world** hole (~29% of task dispatches), not a
+theoretical one — but it never touched a single real-profile child.
+
+## The fix
+
+Code behavior is unchanged from `bcce73c4` (it was correct). What changed:
+
+1. `src/tool/task.ts` — rewrote both helpers' rationale so it reads *"the child
+   resolves its own profile; profile-less built-ins fall back to the parent"*, not
+   *"children inherit the parent."* Cites the writer → frontmatter → `agent.options`
+   chain and the measured numbers.
+2. `test/tool/task.test.ts` — three new tests that load **real projected frontmatter**
+   through `ConfigAgent.load()`. The pre-existing three tests hand-built
+   `agent.options`, so they never proved the load-bearing link (writer projection →
+   frontmatter parse → `options` → helper). Now it is proven end to end.
+
+**Decision — profile-less children get the parent's scope.** They have no profile to
+resolve, and the parent's scope is the tightest available bound; "all servers" is not
+an option. This is the exception for built-ins, not the rule.
+
+## Mutation proof
+
+| Mutation | Result |
+|---|---|
+| A: child always inherits parent (`value = undefined`) — AJ's feared wrong shape | **19 pass / 5 fail** |
+| B: profile-less child returns `undefined` — the pre-`bcce73c4` hole | **21 pass / 3 fail** |
+| Restored | **24 pass / 0 fail** |
+
+## Per-profile scope, child == root
+
+```
+workflow-orchestrator  servers=4 explicitTools=8 skills=42
+coding-agent           servers=1 explicitTools=0 skills=7
+verification-gate      servers=0 explicitTools=9 skills=10
+failure-triage         servers=1 explicitTools=0 skills=3
+planning-agent         servers=1 explicitTools=9 skills=4
+project-state-updater  servers=0 explicitTools=0 skills=2
+ui-ux-designer         servers=2 explicitTools=0 skills=6
+secretary              servers=5 explicitTools=0 skills=10
+```
+
+Leaf tool counts and token sizes were **not** re-measured here — that needs an engine
+boot with live MCP connections. INFERRED, but on a strong basis: because the child's
+allowlist object is byte-identical to the root's, the prior root-session figures
+(coding-agent ~24 tools / ~34.4k; workflow-orchestrator 73 tools / ~62.8k) apply
+unchanged to those profiles as children.
+
+Cost of this addendum: **$0.**
