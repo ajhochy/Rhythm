@@ -41,20 +41,23 @@ export function isSkillAllowlist(value: unknown): value is NonNullable<Session.I
   return Array.isArray(candidate.skills) && candidate.skills.every((item): item is string => typeof item === "string")
 }
 
+// THE CHILD RESOLVES ITS OWN PROFILE — it never inherits the parent's scope by
+// default. opencode_agent_writer projects every Rhythm profile's expanded
+// scope into ~/.config/opencode/agents/<id>.md `options`, and ConfigAgent
+// preserves it in `agent.options`, so a delegated child normally has its own
+// mcp/skill scope to read (#1012, #1120). Only a PROFILE-LESS child — the
+// engine's native subagents (general/explore/scout/...) are never projected —
+// reaches the fallback: inherit the parent's scope, the tightest bound
+// available, rather than "everything". undefined only survives when the
+// parent is unscoped too.
+function childScope<T>(ownValue: unknown, isValid: (value: unknown) => value is T, parentValue: T | undefined): T | undefined {
+  if (isValid(ownValue)) return ownValue
+  return parentValue
+}
+
 export function childSkillAllowlist(agent: Agent.Info, parent: Session.Info): Session.Info["skillAllowlist"] {
-  // Mirror childMcpAllowlist (#1012): the projected profile carries its expanded
-  // skill scope in options.skillAllowlist (opencode_agent_writer). Read it so the
-  // task tool scopes the delegated child instead of injecting all discovered
-  // skills (~89k first-turn tokens with 105 skills installed).
-  const value = agent.options.skillAllowlist
-  if (isSkillAllowlist(value)) return { skills: [...value.skills] }
-  // Only a PROFILE-LESS child reaches here: the engine's native subagents
-  // (general/explore/scout/...) are not projected into
-  // ~/.config/opencode/agents/, so they carry no skill scope of their own.
-  // Fall back to the parent's scope rather than "all skills" — it is the
-  // tightest bound available for an agent that has no profile to resolve.
-  // undefined only survives if the parent is also unscoped.
-  return parent.skillAllowlist
+  const value = childScope(agent.options.skillAllowlist, isSkillAllowlist, parent.skillAllowlist)
+  return value ? { skills: [...value.skills] } : value
 }
 
 export function childMcpAllowlist(
@@ -62,24 +65,8 @@ export function childMcpAllowlist(
   model: { providerID: string },
   parent: Session.Info,
 ): Session.Info["mcpAllowlist"] {
-  // THE CHILD RESOLVES ITS OWN PROFILE — it never inherits the parent's scope.
-  // opencode_agent_writer projects every Rhythm profile to
-  // ~/.config/opencode/agents/<id>.md with `options.mcpAllowlist` produced by
-  // the SAME expandProfileMcpAllowlist() that scopes a top-level session, and
-  // ConfigAgent preserves that frontmatter in `agent.options`. So a
-  // coding-agent child dispatched by a workflow-orchestrator parent gets
-  // coding-agent's scope (1 server, 0 explicit tools), not the orchestrator's
-  // (4 servers, 8 tools) — measured 2026-09-29.
-  const value = agent.options.mcpAllowlist
-  if (!isMcpAllowlist(value)) {
-    // Only a PROFILE-LESS child reaches here: the engine's native subagents
-    // (general/explore/scout/...) are never projected, so there is no profile
-    // to resolve. Fall back to the parent's scope — the tightest bound
-    // available — rather than "all tools, all servers". This is the exception
-    // for profile-less built-ins, NOT the rule for children generally.
-    // undefined only survives if the parent is also unscoped.
-    return parent.mcpAllowlist
-  }
+  const value = childScope(agent.options.mcpAllowlist, isMcpAllowlist, parent.mcpAllowlist)
+  if (!value) return value
 
   return {
     servers: [...value.servers],

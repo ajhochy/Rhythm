@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, mock, test } from "bun:test"
 import { Cause, Effect, Exit, Fiber, Layer } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { Config } from "@/config/config"
@@ -880,5 +880,77 @@ describe("tool.task child scoping through projected profile frontmatter", () => 
 
     expect(childMcpAllowlist(builtin, model, parentSession)).toBeUndefined()
     expect(childSkillAllowlist(builtin, parentSession)).toBeUndefined()
+  })
+})
+
+// The frontmatter tests above prove ConfigAgent.load -> childXAllowlist works on
+// a HAND-WRITTEN copy of what opencode_agent_writer emits. The one link never
+// tested end to end is the writer itself (apps/api_server, a separate
+// package/runtime): a projection-format change there would silently unscope
+// every delegated child. Bun can import that package's TypeScript directly, so
+// this calls the REAL writer and feeds its REAL output into the REAL reader —
+// nothing here is reimplemented on either side.
+describe("tool.task writer/reader contract (real opencode_agent_writer -> real ConfigAgent.load)", () => {
+  const model = { providerID: "test" }
+
+  test("a profile written by the real opencode_agent_writer is parsed correctly by ConfigAgent + childMcpAllowlist/childSkillAllowlist", async () => {
+    const scratchHome = await fs.mkdtemp(path.join(os.tmpdir(), "task-writer-contract-"))
+    const env = { VITEST: process.env.VITEST, NODE_ENV: process.env.NODE_ENV }
+    try {
+      // shouldWriteAgentFile() no-ops under VITEST/test env, and writes under
+      // os.homedir() (bun's os.homedir() ignores $HOME, unlike Node's) — so
+      // both must be overridden for the real writer to actually write, into a
+      // scratch HOME rather than the developer's real ~/.config/opencode.
+      mock.module("os", () => ({ homedir: () => scratchHome, default: { homedir: () => scratchHome } }))
+      process.env.VITEST = "false"
+      process.env.NODE_ENV = "development"
+
+      // Built at runtime (not a string literal) so tsgo/tsc cannot statically
+      // resolve and typecheck api_server's whole graph through this dynamic
+      // import — that package has its own tsconfig and pre-existing unrelated
+      // errors under this package's stricter settings. Bun resolves the
+      // module fine at runtime regardless.
+      const writerModulePath = ["..", "..", "..", "..", "..", "api_server", "src", "services", "opencode_agent_writer.ts"].join(
+        "/",
+      )
+      const { writeAgentProfileFile } = await import(writerModulePath)
+      const now = new Date().toISOString()
+      writeAgentProfileFile({
+        id: "writer-contract-child",
+        label: "Writer Contract Child",
+        icon: "smart_toy",
+        enabled: true,
+        isAgent: true,
+        isManager: false,
+        systemPrompt: "Do the thing.",
+        allowedMcpsJson: JSON.stringify(["gitnexus"]),
+        allowedSkillsJson: JSON.stringify(["coding-agent"]),
+        corePermissionsJson: null,
+        allowedDelegatesJson: null,
+        presetId: null,
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+        modelProvider: null,
+        modelId: null,
+        ocAgent: "writer-contract-child",
+        sessionSelectable: true,
+        modelTierHint: null,
+        defaultAnthropicAccountId: null,
+      } as any)
+
+      const loaded = await ConfigAgent.load(path.join(scratchHome, ".config", "opencode"))
+      const child = { options: loaded["writer-contract-child"]!.options ?? {} } as unknown as Agent.Info
+      // An unrestricted parent so any pass-through-to-parent bug (rather than a
+      // parse failure) would still be caught by these exact-match assertions.
+      const parent = { mcpAllowlist: undefined, skillAllowlist: undefined } as unknown as Session.Info
+
+      expect(childMcpAllowlist(child, model, parent)).toEqual({ servers: ["gitnexus"], tools: [] })
+      expect(childSkillAllowlist(child, parent)).toEqual({ skills: ["coding-agent"] })
+    } finally {
+      process.env.VITEST = env.VITEST
+      process.env.NODE_ENV = env.NODE_ENV
+      await fs.rm(scratchHome, { recursive: true, force: true })
+    }
   })
 })
