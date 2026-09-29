@@ -2,7 +2,7 @@
 date: 2026-09-29
 repo: Rhythm
 branch: mobile/transcript-delta-streaming
-pr: null
+pr: 1587
 issues: [ST-1]
 status: pass
 tags: [run, Rhythm]
@@ -58,7 +58,7 @@ tags: [run, Rhythm]
 
 ## Notes
 
-- Approved scope is at `6af3563c` on `mobile/transcript-delta-streaming`, stacked on the PR #1585 branch.
+- Commit `86e28522` is pushed on `mobile/transcript-delta-streaming`; draft PR #1587 is open, stacked on the PR #1585 branch `mobile/chat-list-compact-project-create`.
 - Pre-existing dirty file `apps/mobile/package-lock.json` is outside ST-1 ownership and will not be changed.
 - `GITNEXUS-FALLBACK: query/impact were unavailable (Not connected); used exact-reference grep.` The local `handleEvent` closure has one SSE-loop invocation path and publishes through `messagesBySession` to transcript/usage/preview consumers. Assessed MEDIUM: shared provider state, but the approved edit is limited to three transcript event cases plus a pure helper; idle refresh, status, pending interactions, reconnect, and fetch-generation paths remain unchanged.
 - Repair impact: `GITNEXUS-FALLBACK: impact/context for getStableRecoveryEventId were unavailable (Not connected); exact-reference grep found provider SSE dedupe and dedupeRecoveryEvents plus issue-1172 tests.` Assessed LOW for a `message.part.delta`-only anonymous-event exception; explicit IDs and non-delta message/part/request recovery identities remain unchanged.
@@ -66,4 +66,4 @@ tags: [run, Rhythm]
 - Final verification started the isolated synthetic-fixture sandbox on `:4098/:4097/:4099`, confirmed API and engine readiness plus both health endpoints, and stopped it after the gate. The credential-free fake OpenCode server self-test and provider-controlled SSE stream supplied the transcript behavior evidence.
 - Visual/accessibility artifact: not applicable because this slice changes provider state/event handling and adds no rendered layout or interactive control. Existing auto-scroll behavior is covered by its maintained 8/8 suite and the Mobile CI browser gate.
 - Final gate status: full required mobile verification ran. Focused 12/12, combined 80/80, and Mobile CI foundation gates are green; full mobile Jest has only four exact parent-red issue-1387 failures. The provider lifecycle suite also exits cleanly under `--detectOpenHandles`.
-- Approved scope is stacked on the PR #1585 branch; no ST-1 commit, push, PR, merge, deploy, or live-service action occurred. Manual native smoke remains outstanding.
+- Automated verification passed for commit `86e28522`. Manual native streaming/auto-scroll smoke remains outstanding; the PR is not merged, deployed, or released.
