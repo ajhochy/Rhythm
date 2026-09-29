@@ -23,7 +23,7 @@ import {
 } from './agent_profile_scope';
 import { capMcpAllowlistForProvider } from './gemini_tool_cap';
 import { expandMcpAllowlist } from './mcp_allowlist_expander';
-import { OPENCODE_ENGINE_PORT } from './opencode_client_service';
+import { INTERACTIVE_TASK_PERMISSION, OPENCODE_ENGINE_PORT } from './opencode_client_service';
 import {
   getMobileOpenCodeOwnershipRepository,
 } from './mobile_opencode_ownership_runtime';
@@ -665,7 +665,9 @@ async function applyMobileSessionCreateScope(
   const permission = expandMobileCorePermissions(
     profile.corePermissionsJson,
   );
-  if (permission !== undefined) scopedBody.permission = permission;
+  // A phone chat is interactive: named profiles go through
+  // rhythm_delegate_async, task stays explore/general. Appended last (findLast).
+  scopedBody.permission = [...(permission ?? []), ...INTERACTIVE_TASK_PERMISSION];
 
   if (scope.mcpRoleConfig) {
     const toolCounts = toolCountsForRoleConfig(scope.mcpRoleConfig.mcpServers);

@@ -481,6 +481,106 @@ it.instance(
   { git: true },
 )
 
+// Rhythm: api_server appends task rules to interactive SESSION permission so a
+// manager's named-profile delegates are not reachable via `task`. The request
+// the model actually receives must advertise only what the session allows.
+const taskDescriptionSent = Effect.fn("test.taskDescriptionSent")(function* (
+  permission: Session.Info["permission"],
+) {
+  const { llm } = yield* useServerConfig((url) => ({
+    ...providerCfg(url),
+    agent: {
+      manager: {
+        description: "Manager agent",
+        mode: "primary",
+        permission: { task: { "*": "deny", explore: "allow", general: "allow", delegate: "allow" } },
+      },
+      delegate: { description: "Delegate agent", mode: "subagent" },
+    },
+  }))
+  const prompt = yield* SessionPrompt.Service
+  const sessions = yield* Session.Service
+  const chat = yield* sessions.create({ title: "Pinned", permission })
+  yield* prompt.prompt({
+    sessionID: chat.id,
+    agent: "manager",
+    noReply: true,
+    parts: [{ type: "text", text: "hello" }],
+  })
+  yield* llm.text("ok")
+  yield* prompt.loop({ sessionID: chat.id })
+  const body = (yield* llm.inputs).at(-1) as { tools?: Array<{ function?: { name?: string; description?: string } }> }
+  return body.tools?.find((t) => t.function?.name === "task")?.function?.description ?? ""
+})
+
+const interactiveTaskRules: NonNullable<Session.Info["permission"]> = [
+  { permission: "*", pattern: "*", action: "allow" },
+  { permission: "bash", pattern: "*", action: "ask" },
+  { permission: "task", pattern: "*", action: "deny" },
+  { permission: "task", pattern: "explore", action: "allow" },
+  { permission: "task", pattern: "general", action: "allow" },
+]
+
+it.instance(
+  "interactive session task rules hide named delegates from the advertised task tool",
+  () =>
+    Effect.gen(function* () {
+      const description = yield* taskDescriptionSent(interactiveTaskRules)
+      expect(description).toContain("- explore:")
+      expect(description).toContain("- general:")
+      expect(description).not.toContain("- delegate: Delegate agent")
+    }),
+  { git: true },
+)
+
+it.instance(
+  "headless session (no task rules) still advertises the manager's named delegates",
+  () =>
+    Effect.gen(function* () {
+      const description = yield* taskDescriptionSent([{ permission: "*", pattern: "*", action: "allow" }])
+      expect(description).toContain("- delegate: Delegate agent")
+      expect(description).toContain("- explore:")
+    }),
+  { git: true },
+)
+
+it.instance(
+  "interactive session task rules deny a named delegate at call time",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig((url) => ({
+        ...providerCfg(url),
+        agent: {
+          manager: {
+            description: "Manager agent",
+            mode: "primary",
+            permission: { task: { "*": "deny", explore: "allow", general: "allow", delegate: "allow" } },
+          },
+          delegate: { description: "Delegate agent", mode: "subagent" },
+        },
+      }))
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Pinned", permission: interactiveTaskRules })
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "manager",
+        noReply: true,
+        parts: [{ type: "text", text: "hello" }],
+      })
+      yield* llm.tool("task", { description: "x", prompt: "do it", subagent_type: "delegate" })
+      yield* llm.text("done")
+      yield* prompt.loop({ sessionID: chat.id })
+
+      const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
+      const parts = msgs.flatMap((m) => m.parts)
+      const tool = errorTool(parts)
+      expect(tool?.state.error ?? "").toMatch(/rule|denied|prevents/i)
+      expect(msgs.some((m) => m.info.role === "assistant" && m.info.agent === "delegate")).toBe(false)
+    }),
+  { git: true },
+)
+
 it.instance(
   "prompt emits v2 prompted and synthetic events",
   () =>

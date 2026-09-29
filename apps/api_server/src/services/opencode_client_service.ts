@@ -19,7 +19,7 @@ import {
   applySelectiveDeferral,
   toolCountsForRoleConfig,
 } from './tool_surface_estimator';
-import { isUntitledSessionName, type PermissionMode } from '../models/agent_session';
+import { isUntitledSessionName, type AgentSession, type PermissionMode } from '../models/agent_session';
 import {
   ensureOmlxProviderConfig,
   detectAndUnloadCompetingOllamaModel,
@@ -620,6 +620,30 @@ export interface OpencodeEngineIdentity {
   version: string;
   pid: number;
   bootId: string;
+}
+
+/**
+ * Interactive chat sessions spawn named Rhythm profiles only through
+ * `rhythm_delegate_async`, which resolves the target profile's own scope. The
+ * engine `task` tool stays open for `explore`/`general` fan-out (those inherit
+ * the parent's scope). Session rules are evaluated after the agent's, and the
+ * fork uses findLast, so these must be the LAST rules on the session — after
+ * any mode rules, including bypassPermissions' `*: allow`.
+ */
+export const INTERACTIVE_TASK_PERMISSION = [
+  { permission: 'task', pattern: '*', action: 'deny' },
+  { permission: 'task', pattern: 'explore', action: 'allow' },
+  { permission: 'task', pattern: 'general', action: 'allow' },
+] as const;
+
+/** Same predicate as the async-delegation gate in agent_delegation_service.ts. */
+export function isInteractiveChatSession(
+  session: Pick<AgentSession, 'category' | 'isSystem' | 'scheduledTaskId'> | null | undefined,
+): boolean {
+  return !!session &&
+    session.category === 'chat' &&
+    !session.isSystem &&
+    session.scheduledTaskId === null;
 }
 
 export class OpencodeClientService {
@@ -1427,6 +1451,9 @@ export class OpencodeClientService {
     // on the session (instead of prompt text or a caller-side check) covers
     // every bash invocation, including commands introduced by tools/agents.
     permissionMode?: PermissionMode,
+    // Interactive chat session (see isInteractiveChatSession): restrict the
+    // engine task tool to explore/general. Headless callers omit it.
+    interactive?: boolean,
     // #1222 — root-cause of the discarded-error bug: every failure branch
     // below used to collapse to a bare `null`, so callers (AgentRunner in
     // particular) could only ever report the generic "failed to create
@@ -1535,6 +1562,12 @@ export class OpencodeClientService {
           { permission: 'bash', pattern: '*', action: 'ask' },
         ];
       }
+      if (interactive) {
+        body.permission = [
+          ...((body.permission as unknown[] | undefined) ?? []),
+          ...INTERACTIVE_TASK_PERMISSION,
+        ];
+      }
       // #775 (skill-scope): pass the per-session skill allowlist on the create body.
       // The fork reads `skillAllowlist.skills` to scope the model's available skills.
       if (skillAllowlist !== undefined) {
@@ -1575,10 +1608,11 @@ export class OpencodeClientService {
   async updateSessionPermissionMode(
     sessionId: string,
     permissionMode: PermissionMode,
+    interactive?: boolean,
   ): Promise<boolean> {
     try {
       const client = await this.v2Client();
-      const permission = permissionMode === 'plan'
+      const modeRules = permissionMode === 'plan'
         ? [{ permission: 'bash' as const, pattern: '*', action: 'deny' as const }]
         : permissionMode === 'bypassPermissions'
           ? [
@@ -1586,6 +1620,12 @@ export class OpencodeClientService {
               { permission: 'bash' as const, pattern: '*', action: 'ask' as const },
             ]
           : [];
+      // The engine APPENDS a PATCHed ruleset to the session's existing rules,
+      // so re-append the task restriction to keep it last (a bypass `*: allow`
+      // would otherwise re-open task on an interactive session).
+      const permission = interactive
+        ? [...modeRules, ...INTERACTIVE_TASK_PERMISSION]
+        : modeRules;
       const raw = await client.session.update({ sessionID: sessionId, permission });
       if (raw.error) {
         logger.warn(

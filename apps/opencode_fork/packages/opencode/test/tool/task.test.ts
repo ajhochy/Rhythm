@@ -18,6 +18,7 @@ import fs from "fs/promises"
 import os from "os"
 import path from "path"
 import { ConfigAgent } from "@/config/agent"
+import { Permission } from "@/permission"
 
 afterEach(async () => {
   await disposeAllInstances()
@@ -196,6 +197,60 @@ describe("tool.task", () => {
           },
           alpha: {
             description: "Alpha agent",
+            mode: "subagent",
+          },
+        },
+      },
+    },
+  )
+
+  // Rhythm: interactive sessions append task rules to the SESSION ruleset
+  // (api_server INTERACTIVE_TASK_PERMISSION). The listing must honour them the
+  // same way call-time evaluation does (agent rules, then session, findLast).
+  it.instance(
+    "description applies session permission over the agent's named-delegate allows",
+    () =>
+      Effect.gen(function* () {
+        const agent = yield* Agent.Service
+        const manager = yield* agent.get("manager")
+        const registry = yield* ToolRegistry.Service
+        const describe = Effect.fnUntraced(function* (sessionPermission?: Session.Info["permission"]) {
+          const tools = yield* registry.tools({ ...ref, agent: manager!, sessionPermission })
+          return tools.find((tool) => tool.id === TaskTool.id)?.description ?? ""
+        })
+        const interactiveRules: NonNullable<Session.Info["permission"]> = [
+          { permission: "*", pattern: "*", action: "allow" },
+          { permission: "bash", pattern: "*", action: "ask" },
+          { permission: "task", pattern: "*", action: "deny" },
+          { permission: "task", pattern: "explore", action: "allow" },
+          { permission: "task", pattern: "general", action: "allow" },
+        ]
+
+        const headless = yield* describe()
+        expect(headless).toContain("- delegate: Delegate agent")
+        expect(headless).toContain("- explore:")
+        expect(headless).toContain("- general:")
+
+        const interactive = yield* describe(interactiveRules)
+        expect(interactive).not.toContain("- delegate: Delegate agent")
+        expect(interactive).toContain("- explore:")
+        expect(interactive).toContain("- general:")
+
+        // Call-time evaluation uses the same merged order (prompt.ts ask).
+        expect(Permission.evaluate("task", "delegate", manager!.permission, interactiveRules).action).toBe("deny")
+        expect(Permission.evaluate("task", "explore", manager!.permission, interactiveRules).action).toBe("allow")
+        expect(Permission.evaluate("task", "delegate", manager!.permission).action).toBe("allow")
+      }),
+    {
+      config: {
+        agent: {
+          manager: {
+            description: "Manager agent",
+            mode: "primary",
+            permission: { task: { "*": "deny", explore: "allow", general: "allow", delegate: "allow" } },
+          },
+          delegate: {
+            description: "Delegate agent",
             mode: "subagent",
           },
         },

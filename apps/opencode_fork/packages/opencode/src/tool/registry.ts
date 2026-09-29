@@ -79,6 +79,9 @@ export interface Interface {
     // Rhythm carried patch (skill-scope, #775): per-session skill allowlist used to
     // filter the skill list injected into the skill tool description.
     skillAllowlist?: Session.Info["skillAllowlist"]
+    // Rhythm carried patch: session rules override agent rules at call time
+    // (prompt.ts merges agent + session), so the advertised subagent list must too.
+    sessionPermission?: Session.Info["permission"]
   }) => Effect.Effect<Tool.Def[]>
 }
 
@@ -305,10 +308,13 @@ export const layer: Layer.Layer<
       ].join("\n")
     })
 
-    const describeTask = Effect.fn("ToolRegistry.describeTask")(function* (agent: Agent.Info) {
+    const describeTask = Effect.fn("ToolRegistry.describeTask")(function* (
+      agent: Agent.Info,
+      sessionPermission?: Session.Info["permission"],
+    ) {
       const items = (yield* agents.list()).filter((item) => item.mode !== "primary")
       const filtered = items.filter(
-        (item) => Permission.evaluate("task", item.name, agent.permission).action !== "deny",
+        (item) => Permission.evaluate("task", item.name, agent.permission, sessionPermission ?? []).action !== "deny",
       )
       const list = filtered.toSorted((a, b) => a.name.localeCompare(b.name))
       const description = list
@@ -352,7 +358,7 @@ export const layer: Layer.Layer<
             id: tool.id,
             description: [
               output.description,
-              tool.id === TaskTool.id ? yield* describeTask(input.agent) : undefined,
+              tool.id === TaskTool.id ? yield* describeTask(input.agent, input.sessionPermission) : undefined,
               tool.id === SkillTool.id ? yield* describeSkill(input.agent, input.skillAllowlist) : undefined,
             ]
               .filter(Boolean)
