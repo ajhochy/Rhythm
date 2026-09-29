@@ -2,7 +2,7 @@
 date: 2026-09-29
 repo: rhythm
 branch: fix/org-reviewer-session-context
-pr: pending
+pr: 1593
 issues: [org-reviewer-session-context]
 status: draft-pr-open
 tags: [run, rhythm]
