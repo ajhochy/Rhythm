@@ -200,3 +200,45 @@ Mobile prompts already pass through the api_server: `/mobile-gateway/opencode/se
 - Mobile shows the pick via the existing SDK session/message payload (`modelID` on the assistant
   message), so no new endpoint is needed.
 - The relay path (`relay_uplink_runtime`) reaches the same proxy, so it inherits this behaviour.
+
+## Addendum: Route among the LIVE model catalog, not a hardcoded table
+
+`ROUTE_FALLBACKS_BY_AGENT` and `classifyRouteTier`'s name substrings are generations stale. The
+router and the capacity layer must choose among the models that are actually available now.
+
+### Source of truth
+
+- `opencodeClient.providerSnapshot()` (engine catalog), extended to pass through per model:
+  `cost` ({input, output, cacheRead?, cacheWrite?} in USD per 1M tokens), `releaseDate`,
+  `family`, `reasoning`, in addition to the existing id/name/status/contextLimit/capabilities.
+- **Routable set** = connected providers ∩ `eligibleModel` (not deprecated, text in/out, tool calls)
+  ∩ `visibleDirectModelIds` policy ∩ usage-budget `entitledModels` when known ∩ not excluded in
+  Router settings. Keyless local providers (ollama, omlx, opencode) are included at zero cost.
+
+### Tiering (derived, not hardcoded)
+
+- By output price (USD / 1M output tokens): `cheap` ≤ `tiers.cheapMaxOutputUsd` (default 6),
+  `frontier` ≥ `tiers.frontierMinOutputUsd` (default 25), otherwise `standard`.
+- Missing cost → fall back to the name heuristic (`classifyRouteTier`); zero-cost local → cheap.
+- Per-model overrides in Router settings win: `tierOverrides: { "provider/model": tier }`.
+- Within a tier and provider prefer the newest `releaseDate`; `-1m` / long-context variants are
+  used only when the base route already was one.
+
+### Selection
+
+- Router: tier → candidates from the routable set. Prefer the base route's provider (keeps the
+  session's account and prompt cache), else the provider with the most usage headroom, else any.
+- Capacity: candidates are the routable set, so cross-provider equivalence is by tier band
+  (price), not by name. `ROUTE_FALLBACKS_BY_AGENT` is used only when the snapshot is empty
+  or the engine is unreachable, and the decision detail records `catalog: 'static'` in that case.
+- `GET /agent-decisions/config` returns `catalog: { fetchedAt, models: [{ providerID, modelID,
+  name, family, tier, tierSource: 'cost'|'heuristic'|'override', costOutputUsd, costInputUsd,
+  releaseDate, contextLimit, excluded }] , tiers: {cheapMaxOutputUsd, frontierMinOutputUsd} }`.
+  `PUT` accepts `tiers`, `tierOverrides`, `excludedModels`.
+- The calibration script and the bench print expected models from the live catalog when the
+  engine is reachable (`--static-catalog` to force the table) and print which catalog was used.
+
+### UI
+
+Router settings (Electron + mobile) show "Models the router chooses among": provider, model,
+tier (editable), $/M out, release date, exclude toggle; plus the two tier thresholds.
