@@ -242,3 +242,23 @@ router and the capacity layer must choose among the models that are actually ava
 
 Router settings (Electron + mobile) show "Models the router chooses among": provider, model,
 tier (editable), $/M out, release date, exclude toggle; plus the two tier thresholds.
+
+### Thresholds are derived from the catalog (addendum to live-catalog routing)
+
+Real prices from the vendored models.dev snapshot (newest per family, USD / 1M output tokens):
+haiku 5, gpt-5.4-mini 4.5, gemini-3-flash 3 · sonnet 15, gpt-5.4 15, gpt-5.3-codex 14,
+gemini-3.1-pro 12 · opus-4.7 25, gpt-5.5 30 · gpt-5.5-pro 180. The natural gaps are 5→10 and
+15→25, so:
+
+- `tiers.mode`: `auto` (default) | `manual`. In auto mode the two cutoffs are derived from the
+  routable catalog: take the newest priced model per family, sort by output price, and place the
+  cutoffs at the two largest gaps in log-price (midpoint of each gap). Guard rails: with fewer
+  than 3 distinct prices fall back to the last known manual values or the seed defaults (6 / 25);
+  a cutoff never goes below $1 or above $100.
+- GET returns `tiers: { mode, cheapMaxOutputUsd, frontierMinOutputUsd, derivedFromModels }`;
+  PUT accepts `{ mode: 'auto' }` or `{ mode: 'manual', cheapMaxOutputUsd, frontierMinOutputUsd }`.
+- Within a tier the order of preference is: the base route's provider → the provider with the most
+  usage headroom → the **lowest output cost** → the newest release. So gpt-5.5-pro ($180) never
+  wins frontier while opus ($25) or gpt-5.5 ($30) are available.
+- Ultra-priced models (≥ 5× the frontier cutoff) stay in frontier but sort last; users can exclude
+  them in the catalog table.
