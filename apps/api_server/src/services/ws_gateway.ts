@@ -7,6 +7,7 @@ import {
   agentConfigExecutionBlockReason,
 } from '../repositories/agent_configs_repository';
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
+import { isInteractiveChatSession } from './opencode_client_service';
 import { bridgePty, ptyEngineUrl } from './pty_proxy';
 import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
 import { buildMemoryPreface, isMemoryInjectionEnabled } from './memory_retrieval';
@@ -673,6 +674,7 @@ export async function handleInputFrame(
             resolvedTurnProviderId,
             undefined,
             sessionPermissionMode,
+            isInteractiveChatSession(dbSessionForResume),
           );
           // #1222 — createSession no longer returns a bare `null`; check `.id`
           // explicitly so a truthy `{ error }` failure object is never
@@ -716,6 +718,7 @@ export async function handleInputFrame(
           resolvedTurnProviderId,
           undefined,
           sessionPermissionMode,
+          isInteractiveChatSession(dbSessionForResume),
         );
         // #1222 — check `.id` explicitly (see comment on the sibling branch above).
         if (!opencodeSession.id) {

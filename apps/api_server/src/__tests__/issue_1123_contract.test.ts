@@ -145,6 +145,8 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
       undefined,
       'google',
       'sdk-parent',
+      undefined,
+      true, // async child of an interactive chat → task restricted to explore/general
     );
     expect(streamSessionSpy).toHaveBeenCalledWith(result.sessionId, 'sdk-child-1', '/tmp');
     expect(streamSessionSpy.mock.invocationCallOrder[0])
@@ -186,7 +188,7 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
     });
 
     expect(engineSpies.createSession).toHaveBeenCalledWith(
-      expect.any(String), '/tmp', undefined, undefined, 'anthropic', 'sdk-parent',
+      expect.any(String), '/tmp', undefined, undefined, 'anthropic', 'sdk-parent', undefined, true,
     );
     expect(engineSpies.promptAsync).toHaveBeenCalledWith(
       'sdk-child-1', 'Use the selected model.',

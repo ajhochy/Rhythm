@@ -612,6 +612,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         agent: input.agent,
         // Rhythm carried patch (skill-scope, #775): scope the skill tool description.
         skillAllowlist: input.session.skillAllowlist,
+        sessionPermission: input.session.permission,
       })) {
         const schema = ProviderTransform.schema(input.model, ToolJsonSchema.fromTool(item))
         tools[item.id] = tool({

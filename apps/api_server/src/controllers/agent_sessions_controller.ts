@@ -24,6 +24,7 @@ import {
   SESSION_SCOPES,
 } from '../models/agent_session';
 import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
+import { isInteractiveChatSession } from '../services/opencode_client_service';
 import { syncOpencodeAgentProfiles } from '../services/agent_profile_sync';
 import {
   isReservedAgentConfigId,
@@ -1097,6 +1098,7 @@ export class AgentSessionsController {
         undefined,
         undefined,
         permissionMode,
+        isInteractiveChatSession(session),
       );
       logger.info(`[Opencode][timing] opencodeClient.createSession took ${Date.now() - tSdkCreate}ms for session ${session.id}`);
       // #1222 — check `.id` explicitly: createSession no longer returns a bare
@@ -1357,6 +1359,7 @@ export class AgentSessionsController {
         !(await opencodeClient.updateSessionPermissionMode(
           session.sdkSessionId,
           fields.permissionMode,
+          isInteractiveChatSession(session),
         ))
       ) {
         throw new AppError(
@@ -2005,6 +2008,7 @@ export class AgentSessionsController {
           undefined,
           undefined,
           session.permissionMode,
+          isInteractiveChatSession(session),
         );
         // #1222 — check `.id` explicitly (see comment on the sibling create() path above).
         if (!opencodeSession.id) {

@@ -178,6 +178,41 @@ describe('SessionConfigurationSheet', () => {
     ).toMatchObject({ disabled: true });
   });
 
+  test('task-mobile-chat-list-polish-nc3: sheet is visible with Create disabled before the profile catalog resolves, then enables once it arrives', async () => {
+    // Regression caught (NC-3): openCreateSheet no longer awaits loadSessionProfiles, so the
+    // sheet mounts with an empty catalog first. Create must stay disabled through that window
+    // and only enable once profiles populate the SAME already-open sheet (no remount/visible flip).
+    const onCreate = jest.fn().mockResolvedValue(undefined);
+    const screen = render(
+      sheet([], defaultChatPreferences, onCreate),
+    );
+
+    // Sheet is visible immediately, with the loading/empty catalog, and Create is disabled.
+    expect(screen.getByLabelText('Chat title')).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'Create' }).props.accessibilityState,
+    ).toMatchObject({ disabled: true });
+
+    // Profiles resolve in the background while the sheet stays open (visible stays true).
+    screen.rerender(
+      sheet([secretary], defaultChatPreferences, onCreate),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: 'Create' }).props.accessibilityState,
+      ).toMatchObject({ disabled: false });
+    });
+
+    fireEvent.press(screen.getByText('Create'));
+    await waitFor(() => {
+      expect(onCreate).toHaveBeenCalledWith(
+        undefined,
+        expect.objectContaining({ profileId: secretary.profileId }),
+      );
+    });
+  });
+
   test('task-mobile-chat-list-polish-c5: summary uses compact rows instead of nested cards', () => {
     // Regression caught: oversized nested cards push Reasoning and Approval Policy below the initial sheet viewport.
     const screen = render(
