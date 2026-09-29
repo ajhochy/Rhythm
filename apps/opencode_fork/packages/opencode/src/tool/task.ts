@@ -56,13 +56,25 @@ export function childSkillAllowlist(agent: Agent.Info, parent: Session.Info): Se
   return parent.skillAllowlist
 }
 
-export function childMcpAllowlist(agent: Agent.Info, model: { providerID: string }): Session.Info["mcpAllowlist"] {
+export function childMcpAllowlist(
+  agent: Agent.Info,
+  model: { providerID: string },
+  parent: Session.Info,
+): Session.Info["mcpAllowlist"] {
   // ConfigAgent preserves custom agent-file frontmatter in `options`. The
   // resolved target profile carries its already-expanded session shape there,
   // so the task tool does not re-implement api-server DB resolution or
   // allowlist expansion.
   const value = agent.options.mcpAllowlist
-  if (!isMcpAllowlist(value)) return undefined
+  if (!isMcpAllowlist(value)) {
+    // Profile declares no MCP scope (true of built-in child agents like
+    // general/explore, which are never projected into
+    // ~/.config/opencode/agents/): inherit the PARENT session's scope rather
+    // than falling back to "all tools, all servers". Mirrors
+    // childSkillAllowlist. undefined only survives if the parent is also
+    // unscoped (a genuinely unrestricted root).
+    return parent.mcpAllowlist
+  }
 
   return {
     servers: [...value.servers],
@@ -164,7 +176,7 @@ export const TaskTool = Tool.define(
         (yield* sessions.create({
           parentID: ctx.sessionID,
           title: params.description + ` (@${next.name} subagent)`,
-          mcpAllowlist: childMcpAllowlist(next, model),
+          mcpAllowlist: childMcpAllowlist(next, model, parent),
           skillAllowlist: childSkillAllowlist(next, parent),
           permission: [
             ...deriveSubagentSessionPermission({

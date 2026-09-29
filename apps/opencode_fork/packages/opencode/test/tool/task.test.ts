@@ -8,7 +8,7 @@ import { MessageV2 } from "../../src/session/message-v2"
 import type { SessionPrompt } from "../../src/session/prompt"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { ModelID, ProviderID } from "../../src/provider/schema"
-import { TaskTool, childSkillAllowlist, isSkillAllowlist, type TaskPromptOps } from "../../src/tool/task"
+import { TaskTool, childMcpAllowlist, childSkillAllowlist, isSkillAllowlist, type TaskPromptOps } from "../../src/tool/task"
 import { Truncate } from "@/tool/truncate"
 import { ToolRegistry } from "@/tool/registry"
 import { modelStreamScheduler } from "@/session/model-stream-scheduler"
@@ -765,5 +765,34 @@ describe("tool.task childSkillAllowlist / isSkillAllowlist", () => {
     const parent = { skillAllowlist: undefined } as unknown as Session.Info
 
     expect(childSkillAllowlist(agent, parent)).toBeUndefined()
+  })
+})
+
+describe("tool.task childMcpAllowlist", () => {
+  const model = { providerID: "test" }
+
+  test("childMcpAllowlist inherits the parent session's scope when the profile declares none", () => {
+    // Regression (unscoped child-session inheritance): built-in child agents
+    // (general/explore) are never projected into ~/.config/opencode/agents/, so
+    // they carry no options.mcpAllowlist. Without this fallback the child got
+    // every MCP server/tool instead of the parent's scope.
+    const agent = { options: {} } as unknown as Agent.Info
+    const parent = { mcpAllowlist: { servers: ["rhythm"], tools: ["rhythm_a"] } } as unknown as Session.Info
+
+    expect(childMcpAllowlist(agent, model, parent)).toEqual({ servers: ["rhythm"], tools: ["rhythm_a"] })
+  })
+
+  test("childMcpAllowlist keeps the profile's own scope over the parent's", () => {
+    const agent = { options: { mcpAllowlist: { servers: ["own"], tools: ["own_a"] } } } as unknown as Agent.Info
+    const parent = { mcpAllowlist: { servers: ["rhythm"], tools: ["rhythm_a"] } } as unknown as Session.Info
+
+    expect(childMcpAllowlist(agent, model, parent)).toEqual({ servers: ["own"], tools: ["own_a"] })
+  })
+
+  test("childMcpAllowlist stays undefined when neither the profile nor the parent are scoped", () => {
+    const agent = { options: {} } as unknown as Agent.Info
+    const parent = { mcpAllowlist: undefined } as unknown as Session.Info
+
+    expect(childMcpAllowlist(agent, model, parent)).toBeUndefined()
   })
 })
