@@ -135,6 +135,14 @@ export function SessionConfigurationSheet({
     );
   }, [availableProfiles, mode, preferences, visible]);
 
+  // ponytail: the sheet can now open before the profile catalog resolves
+  // (NC-3). If it arrives while already open with no draft picked yet,
+  // pick a default now instead of only at open-time.
+  useEffect(() => {
+    if (!visible || mode !== 'create' || draft) return;
+    setDraft(getNewSessionPreferences(availableProfiles, preferences));
+  }, [availableProfiles, draft, mode, preferences, visible]);
+
   const modelGroups = useMemo(() => {
     const enabledModelIds = draft?.modelId &&
         preferences.enabledModelIds.length > 0 &&

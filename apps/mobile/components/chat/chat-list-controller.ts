@@ -41,32 +41,41 @@ export function useChatListController() {
     );
   }
 
-  async function openCreateSheet(targetProjectPath?: string) {
+  function openCreateSheet(targetProjectPath?: string) {
     const request = ++createSheetRequest.current;
     const targetProject = targetProjectPath ?? targetProjectForNewChat();
     if (!targetProject) {
       setFeedback('Choose a project before creating a chat.');
       return;
     }
-    try {
-      const profiles =
-        targetProject === opencode.activeProjectPath &&
-        opencode.availableAgents.length > 0
-          ? opencode.availableAgents
-          : await opencode.loadSessionProfiles(targetProject);
-      if (request !== createSheetRequest.current) return;
-      setCreationTargetProject(targetProject);
-      setCreationProfiles(profiles);
-      setCreateSheetVisible(true);
-    } catch (reason) {
-      if (request !== createSheetRequest.current) return;
-      setCreationTargetProject(undefined);
-      setFeedback(
-        reason instanceof Error
-          ? reason.message
-          : 'Could not load profiles for this project.',
-      );
+    // ponytail: sheet opens instantly (A3); profiles resolve in the background
+    // instead of gating visibility on the network round-trip.
+    setCreationTargetProject(targetProject);
+    setCreateSheetVisible(true);
+    if (
+      targetProject === opencode.activeProjectPath &&
+      opencode.availableAgents.length > 0
+    ) {
+      setCreationProfiles(opencode.availableAgents);
+      return;
     }
+    setCreationProfiles([]);
+    void opencode.loadSessionProfiles(targetProject).then(
+      (profiles) => {
+        if (request !== createSheetRequest.current) return;
+        setCreationProfiles(profiles);
+      },
+      (reason) => {
+        if (request !== createSheetRequest.current) return;
+        setCreateSheetVisible(false);
+        setCreationTargetProject(undefined);
+        setFeedback(
+          reason instanceof Error
+            ? reason.message
+            : 'Could not load profiles for this project.',
+        );
+      },
+    );
   }
 
   async function createChat(
