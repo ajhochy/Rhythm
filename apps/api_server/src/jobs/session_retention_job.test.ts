@@ -6,7 +6,10 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { scanOutputRow } from '../services/org_exercised_tools_resolver';
-import { distillPart, retentionMode, runSessionRetention } from './session_retention_job';
+import {
+  distillPart, getRetentionState, isRetentionMode, readRetentionSetting, resolveRetentionMode, runSessionRetention,
+  sweepSessionRetention, writeRetentionSetting,
+} from './session_retention_job';
 
 // Schemas copied read-only from the live ~/.local/share/opencode/opencode.db and
 // Rhythm Electron/rhythm.db on 2026-09-29.
@@ -65,6 +68,10 @@ CREATE TABLE agent_async_delegations (
     CHECK (status IN ('dispatched', 'completed', 'waking', 'notified', 'failed', 'cancelled')),
   completion_text TEXT, error_text TEXT, completed_at TEXT, notified_at TEXT,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL);`;
+
+// Same shape as migrations.ts's org_settings (the retention mode is one row in it).
+const ORG_SETTINGS_SCHEMA = `CREATE TABLE IF NOT EXISTS org_settings (
+  id TEXT PRIMARY KEY, content TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))`;
 
 const NOW = new Date('2026-09-29T12:00:00.000Z');
 const DAY = 86_400_000;
@@ -147,11 +154,77 @@ afterEach(() => {
 });
 
 describe('session retention', () => {
-  it('defaults to dry-run and only turns on with RHYTHM_SESSION_RETENTION=on', () => {
-    expect(retentionMode({})).toBe('dry-run');
-    expect(retentionMode({ RHYTHM_SESSION_RETENTION: 'yes' })).toBe('dry-run');
-    expect(retentionMode({ RHYTHM_SESSION_RETENTION: 'on' })).toBe('on');
-    expect(retentionMode({ RHYTHM_SESSION_RETENTION: 'off' })).toBe('off');
+  it('defaults to dry-run and only an exact "on" trims; anything else is dry-run', () => {
+    const m = (env: Record<string, string | undefined>, stored: string | null = null) => resolveRetentionMode(env, stored).mode;
+    expect(m({})).toBe('dry-run');
+    for (const bad of ['yes', 'ON', 'On', ' on', 'on ', 'true', '1', 'enabled', 'dry-run']) {
+      expect(m({ RHYTHM_SESSION_RETENTION: bad })).toBe('dry-run');
+      expect(m({}, bad)).toBe('dry-run');
+    }
+    expect(m({ RHYTHM_SESSION_RETENTION: 'on' })).toBe('on');
+    expect(m({ RHYTHM_SESSION_RETENTION: 'off' })).toBe('off');
+    expect(m({}, 'on')).toBe('on');
+    expect(m({}, 'off')).toBe('off');
+  });
+
+  it('precedence: explicit env > persisted setting > dry-run default', () => {
+    expect(resolveRetentionMode({}, null)).toEqual({ mode: 'dry-run', source: 'default' });
+    expect(resolveRetentionMode({ RHYTHM_SESSION_RETENTION: '' }, null)).toEqual({ mode: 'dry-run', source: 'default' });
+    expect(resolveRetentionMode({}, 'on')).toEqual({ mode: 'on', source: 'setting' });
+    expect(resolveRetentionMode({}, 'off')).toEqual({ mode: 'off', source: 'setting' });
+    expect(resolveRetentionMode({ RHYTHM_SESSION_RETENTION: 'off' }, 'on')).toEqual({ mode: 'off', source: 'env' });
+    expect(resolveRetentionMode({ RHYTHM_SESSION_RETENTION: 'dry-run' }, 'on')).toEqual({ mode: 'dry-run', source: 'env' });
+    expect(resolveRetentionMode({ RHYTHM_SESSION_RETENTION: 'on' }, 'off')).toEqual({ mode: 'on', source: 'env' });
+    expect(resolveRetentionMode({ RHYTHM_SESSION_RETENTION: 'bogus' }, 'on')).toEqual({ mode: 'dry-run', source: 'env' });
+  });
+
+  it('validates PUT modes to exactly off | dry-run | on', () => {
+    for (const ok of ['off', 'dry-run', 'on']) expect(isRetentionMode(ok)).toBe(true);
+    for (const bad of ['ON', 'dryrun', 'report', '', null, undefined, 1, true, {}]) expect(isRetentionMode(bad)).toBe(false);
+  });
+
+  it('reads the setting at run time: a change applies on the next sweep without a restart', async () => {
+    const rhythm = makeRhythm([{ session: 'idle', created: OLD, parts: [toolPart('bash', 'rt1')] }], { idle: OLD });
+    rhythm.exec(ORG_SETTINGS_SCHEMA);
+    const env = { RHYTHM_SESSION_RETENTION_ENGINE_DB: path.join(dir, 'absent.db') };
+    const report = path.join(dir, 'session-retention-report.json');
+
+    // No setting: dry-run report, nothing written.
+    expect((await sweepSessionRetention(env, rhythm, rhythmPath(), NOW))?.mode).toBe('dry-run');
+    expect(msgParts(rhythm, 1)[0].state.output).toBe(BIG);
+
+    writeRetentionSetting(rhythm, 'off');
+    fs.rmSync(report);
+    expect(await sweepSessionRetention(env, rhythm, rhythmPath(), NOW)).toBeNull();
+    expect(fs.existsSync(report)).toBe(false);
+
+    writeRetentionSetting(rhythm, 'on');
+    const on = await sweepSessionRetention(env, rhythm, rhythmPath(), NOW);
+    expect(on?.mode).toBe('on');
+    expect(on?.rhythm?.written).toBe(1);
+    expect(msgParts(rhythm, 1)[0].state.output.length).toBeLessThan(BIG.length);
+
+    // The env var still overrides the stored 'on'.
+    writeRetentionSetting(rhythm, 'on');
+    expect(await sweepSessionRetention({ ...env, RHYTHM_SESSION_RETENTION: 'off' }, rhythm, rhythmPath(), NOW)).toBeNull();
+    rhythm.close();
+  });
+
+  it('GET state reports source, the stored value under an env override, and the last report', async () => {
+    const rhythm = makeRhythm([{ session: 'idle', created: OLD, parts: [toolPart('bash', 'gs1')] }], { idle: OLD });
+    rhythm.exec(ORG_SETTINGS_SCHEMA);
+    expect(getRetentionState({}, rhythm, rhythmPath())).toEqual({ mode: 'dry-run', source: 'default', setting: null });
+    writeRetentionSetting(rhythm, 'on');
+    expect(readRetentionSetting(rhythm)).toBe('on');
+    expect(getRetentionState({ RHYTHM_SESSION_RETENTION: 'dry-run' }, rhythm, rhythmPath()))
+      .toEqual({ mode: 'dry-run', source: 'env', setting: 'on' });
+    writeRetentionSetting(rhythm, 'dry-run');
+    await sweepSessionRetention({ RHYTHM_SESSION_RETENTION_ENGINE_DB: path.join(dir, 'absent.db') }, rhythm, rhythmPath(), NOW);
+    const state = getRetentionState({}, rhythm, rhythmPath());
+    expect(state).toMatchObject({ mode: 'dry-run', source: 'setting', setting: 'dry-run', lastReport: { mode: 'dry-run', rowsWritten: { engine: null, rhythm: 0 } } });
+    expect(state.lastReport?.reclaimableBytes.rhythm).toBeGreaterThan(5_000);
+    expect(state.lastReport?.reclaimableBytes.engine).toBeNull();
+    rhythm.close();
   });
 
   it('only distills parts that are old AND in a session idle past the cutoff (both stores)', async () => {

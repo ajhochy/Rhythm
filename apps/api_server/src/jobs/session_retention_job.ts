@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { env as appEnv } from '../config/env';
+import { getDb } from '../database/db';
 import { scanOutputRow } from '../services/org_exercised_tools_resolver';
 import { logger } from '../utils/logger';
 
@@ -24,9 +25,34 @@ const METADATA_VALUE_MAX = 256;
 const FILE_STUB_PREFIX = 'data:text/plain;base64,';
 const FILE_STUB_MARKER = 'rhythm-retention-stub';
 
-export function retentionMode(env: Record<string, string | undefined> = process.env): RetentionMode {
+export type RetentionSource = 'env' | 'setting' | 'default';
+/** Row id in rhythm.db's key/content `org_settings` table (local SQLite only; never the hosted Postgres). */
+export const RETENTION_SETTING_ID = 'session_retention_mode';
+export const REPORT_FILE = 'session-retention-report.json';
+
+// Only an exact 'on' trims; anything unrecognised is the safe read-only dry-run.
+const asMode = (v: unknown): RetentionMode => (v === 'on' || v === 'off' ? v : 'dry-run');
+
+/** Precedence: an explicitly set RHYTHM_SESSION_RETENTION (dev/ops override) > the persisted Settings value > dry-run. */
+export function resolveRetentionMode(
+  env: Record<string, string | undefined>,
+  stored: string | null,
+): { mode: RetentionMode; source: RetentionSource } {
   const v = env.RHYTHM_SESSION_RETENTION;
-  return v === 'on' || v === 'off' ? v : 'dry-run';
+  if (v !== undefined && v !== '') return { mode: asMode(v), source: 'env' };
+  if (stored !== null) return { mode: asMode(stored), source: 'setting' };
+  return { mode: 'dry-run', source: 'default' };
+}
+
+export function readRetentionSetting(db: Database.Database): string | null {
+  const row = db.prepare(`SELECT content FROM org_settings WHERE id = ?`).get(RETENTION_SETTING_ID) as { content: string } | undefined;
+  return row?.content ?? null;
+}
+
+export function writeRetentionSetting(db: Database.Database, mode: RetentionMode): void {
+  db.prepare(`INSERT INTO org_settings (id, content, updated_at) VALUES (?, ?, ?)
+              ON CONFLICT(id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at`)
+    .run(RETENTION_SETTING_ID, mode, new Date().toISOString());
 }
 
 type Rec = Record<string, unknown>;
@@ -361,20 +387,74 @@ export function msUntilNextRun(now: Date = new Date()): number {
   return next.getTime() - now.getTime();
 }
 
-export function startSessionRetentionJob(env: Record<string, string | undefined> = process.env): { stop: () => void } | null {
-  const mode = retentionMode(env);
-  if (mode === 'off') return null;
+export interface RetentionState {
+  mode: RetentionMode;
+  source: RetentionSource;
+  /** What PUT stored, shown when the env var overrides it. */
+  setting: RetentionMode | null;
+  lastReport?: {
+    mode: RetentionMode;
+    finishedAt: string;
+    reclaimableBytes: { engine: number | null; rhythm: number | null };
+    rowsWritten: { engine: number | null; rhythm: number | null };
+  };
+}
+
+/** Backs GET /system/session-retention. A missing or unreadable report is just omitted. */
+export function getRetentionState(
+  env: Record<string, string | undefined> = process.env,
+  db: Database.Database = getDb(),
+  rhythmPath: string = appEnv.dbPath,
+): RetentionState {
+  const stored = readRetentionSetting(db);
+  const state: RetentionState = { ...resolveRetentionMode(env, stored), setting: stored === null ? null : asMode(stored) };
+  try {
+    const r = JSON.parse(fs.readFileSync(path.join(path.dirname(rhythmPath), REPORT_FILE), 'utf8')) as RetentionReport;
+    state.lastReport = {
+      mode: r.mode,
+      finishedAt: r.finishedAt,
+      reclaimableBytes: { engine: r.engine?.bytesReclaimable ?? null, rhythm: r.rhythm?.bytesReclaimable ?? null },
+      rowsWritten: { engine: r.engine?.written ?? null, rhythm: r.rhythm?.written ?? null },
+    };
+  } catch { /* no report yet */ }
+  return state;
+}
+
+export function isRetentionMode(v: unknown): v is RetentionMode {
+  return v === 'off' || v === 'dry-run' || v === 'on';
+}
+
+/**
+ * One scheduled run. Resolves the mode on every call (not once at boot), so a Settings change
+ * takes effect on the next run without a restart. Returns null when the resolved mode is off.
+ */
+export async function sweepSessionRetention(
+  env: Record<string, string | undefined> = process.env,
+  settingsDb: Database.Database = getDb(),
+  rhythmPath: string = appEnv.dbPath,
+  now?: Date,
+): Promise<RetentionReport | null> {
+  const { mode, source } = resolveRetentionMode(env, readRetentionSetting(settingsDb));
+  if (mode === 'off') {
+    logger.info(`[session-retention] off (source=${source}); skipped`);
+    return null;
+  }
   const days = Number(env.RHYTHM_SESSION_RETENTION_DAYS) > 0 ? Number(env.RHYTHM_SESSION_RETENTION_DAYS) : 30;
+  const enginePath = defaultEngineDbPath(env);
+  const report = await runSessionRetention({
+    mode, days, now, rhythmPath, enginePath: fs.existsSync(enginePath) ? enginePath : null,
+  });
+  const line = (s: StoreReport | null) =>
+    s ? `rows=${s.eligibleRows} bytes=${s.bytesReclaimable} written=${s.written} skipped=${s.skippedConcurrent}${s.error ? ` error=${s.error}` : ''}` : 'n/a';
+  logger.info(`[session-retention] mode=${mode} source=${source} engine: ${line(report.engine)} | rhythm: ${line(report.rhythm)}`);
+  fs.writeFileSync(path.join(path.dirname(rhythmPath), REPORT_FILE), JSON.stringify(report, null, 2));
+  return report;
+}
+
+export function startSessionRetentionJob(env: Record<string, string | undefined> = process.env): { stop: () => void } {
   const sweep = async (): Promise<void> => {
     try {
-      const enginePath = defaultEngineDbPath(env);
-      const report = await runSessionRetention({
-        mode, days, rhythmPath: appEnv.dbPath, enginePath: fs.existsSync(enginePath) ? enginePath : null,
-      });
-      const line = (s: StoreReport | null) =>
-        s ? `rows=${s.eligibleRows} bytes=${s.bytesReclaimable} written=${s.written} skipped=${s.skippedConcurrent}${s.error ? ` error=${s.error}` : ''}` : 'n/a';
-      logger.info(`[session-retention] mode=${mode} engine: ${line(report.engine)} | rhythm: ${line(report.rhythm)}`);
-      fs.writeFileSync(path.join(path.dirname(appEnv.dbPath), 'session-retention-report.json'), JSON.stringify(report, null, 2));
+      await sweepSessionRetention(env);
     } catch (error) {
       logger.warn(`[session-retention] failed (non-fatal): ${String(error)}`);
     }
