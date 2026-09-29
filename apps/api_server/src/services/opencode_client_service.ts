@@ -195,6 +195,20 @@ export interface ReclaimResult {
 }
 
 /**
+ * #1096/#1574-adjacent process-lifecycle fix — is `pid` the leader of its own
+ * process group? `ps -o pgid=` prints the group id; a detached-spawned engine
+ * (see the SDK's `createOpencodeServer`) has pgid === pid. Only then is a
+ * negative-pid signal (`kill(-pid)`) guaranteed to hit exactly that engine's
+ * own descendants (e.g. its `engraph` MCP children) — never a coincidental,
+ * unrelated group. Exported and pure (parses ps text, no process access) so
+ * it can be unit-tested against a real captured `ps` line.
+ */
+export function isProcessGroupLeader(pid: number, psPgidOutput: string): boolean {
+  const pgid = Number(psPgidOutput.trim());
+  return Number.isInteger(pgid) && pgid === pid;
+}
+
+/**
  * Heuristic: is `command` a stale `opencode serve` process for our engine?
  * Matches the opencode binary plus a `serve` subcommand. The port match is
  * intentionally loose (the orphan may print `--port 4096`, `--port=4096`, or
@@ -238,6 +252,27 @@ const defaultStalePortDeps: StalePortDeps = {
     }
   },
   async killPid(pid, signal) {
+    // Process-lifecycle fix: a stale opencode engine found squatting on our
+    // port (e.g. reparented to launchd after a Force-Quit / SIGKILL) may
+    // still be dragging its own `engraph` MCP children along. If it's the
+    // leader of its own process group — true for every engine spawned since
+    // this fix (createOpencodeServer now spawns `detached: true`) — signal
+    // the whole group so those children are reclaimed too, not just the
+    // engine itself. Never guess: only act on a verified pgid === pid match.
+    try {
+      const pgidOut = await runCommand('ps', ['-o', 'pgid=', '-p', String(pid)]);
+      if (isProcessGroupLeader(pid, pgidOut)) {
+        try {
+          process.kill(-pid, signal as NodeJS.Signals);
+          return;
+        } catch {
+          // Fall through to the plain single-pid kill below.
+        }
+      }
+    } catch {
+      // ps failed (pid already gone, etc.) — fall through to the plain kill,
+      // which itself no-ops harmlessly on ESRCH.
+    }
     try {
       process.kill(pid, signal as NodeJS.Signals);
     } catch {
