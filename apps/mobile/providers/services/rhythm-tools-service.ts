@@ -681,6 +681,60 @@ export function serializeProfileScope(
   };
 }
 
+export type RouterBackend = 'local' | 'jev' | 'custom';
+export type RouterFeatureMode = 'default' | 'off' | 'shadow' | 'on';
+export const ROUTER_FEATURE_KEYS = [
+  'model_routing',
+  'tool_ranking',
+  'memory_ranking',
+  'capacity_routing',
+] as const;
+export type RouterFeatureKey = (typeof ROUTER_FEATURE_KEYS)[number];
+
+export interface RouterConfig {
+  backend: RouterBackend;
+  local: { baseUrl: string; model: string; scoreScale?: number };
+  jev: { baseUrl: string; model: string; hasApiKey: boolean };
+  custom: { baseUrl: string; model: string; scoreScale?: number; hasApiKey: boolean };
+  timeoutMs: number;
+  remoteDataConsent: boolean;
+  features: Record<RouterFeatureKey, RouterFeatureMode>;
+  lockedByEnv: string[];
+  effective?: {
+    backend: RouterBackend;
+    baseUrl: string;
+    model: string;
+    features: Record<string, RouterFeatureMode>;
+  };
+}
+
+/** Partial PUT/test body. `apiKey` is write-only; '' clears the saved key. */
+export interface RouterConfigDraft {
+  backend?: RouterBackend;
+  local?: Partial<RouterConfig['local']>;
+  jev?: { baseUrl?: string; model?: string; apiKey?: string };
+  custom?: {
+    baseUrl?: string;
+    model?: string;
+    scoreScale?: number;
+    apiKey?: string;
+  };
+  timeoutMs?: number;
+  remoteDataConsent?: boolean;
+  features?: Partial<Record<RouterFeatureKey, RouterFeatureMode>>;
+}
+
+export interface RouterTestResult {
+  ok: boolean;
+  backend?: RouterBackend;
+  model?: string;
+  latencyMs?: number;
+  ranked?: { text: string; score: number }[];
+  message?: string;
+}
+
+const ROUTER_CONFIG_PATH = '/mobile-gateway/tools/agent-decisions/config';
+
 function body(value: unknown): string {
   return JSON.stringify(value);
 }
@@ -1185,6 +1239,35 @@ export class RhythmToolsService {
 
   listProviderAuth(): Promise<unknown> {
     return this.pairedRequest('/mobile-gateway/opencode/provider/auth');
+  }
+
+  /**
+   * Router settings are Mac-global (mac-global-admin), so they do not require
+   * an active project. The project header is sent only when one is selected.
+   */
+  private routerRequest<T>(path: string, init: ToolRequestInit): Promise<T> {
+    const scoped = this.projectId
+      ? withProjectScope(this.projectId, init, this.abortController.signal)
+      : { ...init, signal: this.abortController.signal };
+    return this.paired.request<T>(path, scoped);
+  }
+
+  getRouterConfig(): Promise<RouterConfig> {
+    return this.routerRequest(ROUTER_CONFIG_PATH, { method: 'GET' });
+  }
+
+  saveRouterConfig(partial: RouterConfigDraft): Promise<RouterConfig> {
+    return this.routerRequest(ROUTER_CONFIG_PATH, {
+      method: 'PUT',
+      body: body(partial),
+    });
+  }
+
+  testRouterConfig(draft: RouterConfigDraft = {}): Promise<RouterTestResult> {
+    return this.routerRequest(`${ROUTER_CONFIG_PATH}/test`, {
+      method: 'POST',
+      body: body(draft),
+    });
   }
 
   getConfig(): Promise<unknown> {
