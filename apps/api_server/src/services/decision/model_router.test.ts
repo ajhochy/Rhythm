@@ -79,3 +79,37 @@ describe('routeTurnTier', () => {
     expect((await routeTurnTier({ ...base, client: throwing })).tier).toBeNull();
   });
 });
+
+describe('routeTurnTier with Auto (router) sessions', () => {
+  it('unset env: a non-auto session never calls the client', async () => {
+    const { client, rerank } = fake([0.1, 0.2, 0.9]);
+    const r = await routeTurnTier({ ...base, client });
+    expect(r.mode).toBe('off');
+    expect(rerank).not.toHaveBeenCalled();
+  });
+
+  it("unset env: requestedSource 'auto' + sessionAuto routes", async () => {
+    const { client, rerank } = fake([0.1, 0.2, 0.9]);
+    const r = await routeTurnTier({ ...base, requestedSource: 'auto', sessionAuto: true, client });
+    expect(r).toMatchObject({ tier: 'frontier', applied: true, mode: 'on' });
+    expect(rerank).toHaveBeenCalledTimes(1);
+  });
+
+  it('explicit off is a kill switch and shadow stays shadow for auto sessions', async () => {
+    const { client, rerank } = fake([0.1, 0.2, 0.9]);
+    process.env.AGENT_DECISION_MODEL_ROUTING = 'off';
+    const off = await routeTurnTier({ ...base, requestedSource: 'auto', sessionAuto: true, client });
+    expect(off).toMatchObject({ tier: null, mode: 'off' });
+    expect(rerank).not.toHaveBeenCalled();
+    process.env.AGENT_DECISION_MODEL_ROUTING = 'shadow';
+    const shadow = await routeTurnTier({ ...base, requestedSource: 'auto', sessionAuto: true, client });
+    expect(shadow).toMatchObject({ tier: null, applied: false, mode: 'shadow' });
+  });
+
+  it('a turn_override in an auto session is still pinned', async () => {
+    const { client, rerank } = fake([0.1, 0.2, 0.9]);
+    const r = await routeTurnTier({ ...base, requestedSource: 'turn_override', sessionAuto: true, client });
+    expect(r.tier).toBeNull();
+    expect(rerank).not.toHaveBeenCalled();
+  });
+});

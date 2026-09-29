@@ -706,6 +706,13 @@ export class AgentSessionsController {
         throw AppError.badRequest(`permissionMode must be one of: ${PERMISSION_MODES.join(', ')}`);
       }
 
+      // Auto (router) model mode: interactive sessions default to 'auto';
+      // 'fixed' must be requested explicitly. Anything else is a client error.
+      if (body.modelMode !== undefined && body.modelMode !== 'auto' && body.modelMode !== 'fixed') {
+        throw AppError.badRequest("modelMode must be 'auto' or 'fixed'");
+      }
+      const requestedModelMode: 'auto' | 'fixed' = body.modelMode === 'fixed' ? 'fixed' : 'auto';
+
       // profileId is the Rhythm profile key. agentId/agentKind remain
       // compatibility aliases for older desktop clients.
       if (
@@ -804,7 +811,7 @@ export class AgentSessionsController {
       // headroom over the store default. Falls back to the default on any miss.
       let autoAnthropicAccountId: string | null = null;
       if (!requestedAccountId && !profileDefaultAnthropicAccountId) {
-        const picked = await autoPickAccountId('anthropic');
+        const picked = await autoPickAccountId('anthropic', { sessionAuto: requestedModelMode === 'auto' });
         if (picked && anthropicAccountsService.getAccount(picked)) {
           autoAnthropicAccountId = picked;
         }
@@ -833,7 +840,7 @@ export class AgentSessionsController {
       }
       let autoOpenaiAccountId: string | null = null;
       if (!requestedOpenaiAccountId && !profileDefaultOpenaiAccountId) {
-        const picked = await autoPickAccountId('openai');
+        const picked = await autoPickAccountId('openai', { sessionAuto: requestedModelMode === 'auto' });
         if (picked && openaiAccountsService.getAccount(picked)) {
           autoOpenaiAccountId = picked;
         }
@@ -1029,6 +1036,7 @@ export class AgentSessionsController {
         // OPC-#710: name defaults to '' for instant-create sessions.
         name: typeof name === 'string' ? name.trim() : '',
         projectId,
+        modelMode: requestedModelMode,
         permissionMode,
         // This controller is the interactive, user-selected session surface.
         // Internal runners that stamp operational bypassPermissions create
@@ -1191,12 +1199,23 @@ export class AgentSessionsController {
         opencodeAgentId?: ReturnType<typeof asOpenCodeAgentId> | null;
         providerId?: string | null;
         modelId?: string | null;
+        modelMode?: 'auto' | 'fixed';
         agentMode?: string | null;
         permissionMode?: PermissionMode;
         approvalBypassExplicit?: boolean;
         thinkingBudget?: number | null;
         fastMode?: boolean;
       } = {};
+
+      // Auto (router) model mode. {modelMode:'auto'} keeps the stored
+      // providerId/modelId as the fallback baseline; {modelMode:'fixed',
+      // providerId, modelId} pins. providerId/modelId are validated below.
+      if (body.modelMode !== undefined) {
+        if (body.modelMode !== 'auto' && body.modelMode !== 'fixed') {
+          throw AppError.badRequest("modelMode must be 'auto' or 'fixed'");
+        }
+        fields.modelMode = body.modelMode;
+      }
 
       if (body.name !== undefined) {
         if (typeof body.name !== 'string' || body.name.trim() === '') {
@@ -2575,6 +2594,7 @@ export class AgentSessionsController {
         cwd: parent.cwd,
         name: `${parent.name} (fork)`,
         projectId: parent.projectId ?? null,
+        modelMode: parent.modelMode,
       };
       const forkSession = repo.insert(forkDto);
       forkLocalId = forkSession.id;

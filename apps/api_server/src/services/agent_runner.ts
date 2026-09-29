@@ -22,7 +22,7 @@
 
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { logger } from '../utils/logger';
-import { env } from '../config/env';
+import { env, getEffectiveDecisionMode } from '../config/env';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { ProjectsRepository } from '../repositories/projects_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
@@ -1018,7 +1018,13 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   // the model — no override, no task kind, no profile model or tier hint.
   // Failure keeps the model resolved above.
   const profilePinsModel = profileConfiguresModel(effectiveConfigId);
-  if (!modelOverride && !taskKind && !profilePinsModel && !profileScope.modelTierHint) {
+  // Checked synchronously first so the default (off) path adds no async hop.
+  const runRoutingMode = getEffectiveDecisionMode('model_routing', { sessionAuto: false });
+  const runCapacityMode = getEffectiveDecisionMode('capacity_routing', { sessionAuto: false });
+  if (
+    runRoutingMode !== 'off'
+    && !modelOverride && !taskKind && !profilePinsModel && !profileScope.modelTierHint
+  ) {
     try {
       const { routeTurnTier } = await import('./decision/model_router');
       const { classifyRouteTier, resolveTieredModel } = await import('./agent_model_resolver');
@@ -1045,7 +1051,10 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   }
   // Usage-capacity routing (AGENT_DECISION_CAPACITY_ROUTING): same pin rules as
   // above. Model only — run sessions keep their profile/default account.
-  if (resolvedModel && !modelOverride && !taskKind && !profilePinsModel && !profileScope.modelTierHint) {
+  if (
+    runCapacityMode !== 'off'
+    && resolvedModel && !modelOverride && !taskKind && !profilePinsModel && !profileScope.modelTierHint
+  ) {
     try {
       const { applyCapacityRouting } = await import('./decision/capacity_router');
       const { classifyRouteTier } = await import('./agent_model_resolver');

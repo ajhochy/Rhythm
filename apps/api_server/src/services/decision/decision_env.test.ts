@@ -9,6 +9,7 @@ import {
   getDecisionTimeoutMs,
   getDecisionToolEagerServers,
   getDecisionToolMinScore,
+  getEffectiveDecisionMode,
 } from '../../config/env';
 
 const KEYS = [
@@ -16,6 +17,7 @@ const KEYS = [
   'AGENT_DECISION_MODEL_ROUTING', 'AGENT_DECISION_TOOL_RANKING', 'AGENT_DECISION_MEMORY_RANKING',
   'AGENT_DECISION_ROUTING_MIN_CONFIDENCE', 'AGENT_DECISION_TOOL_EAGER_SERVERS',
   'AGENT_DECISION_TOOL_MIN_SCORE', 'AGENT_DECISION_MEMORY_MIN_SCORE',
+  'AGENT_DECISION_CAPACITY_ROUTING',
 ];
 afterEach(() => { for (const k of KEYS) delete process.env[k]; });
 
@@ -67,5 +69,35 @@ describe('decision env getters', () => {
     expect(getDecisionMemoryMinScore()).toBe(0.5);
     process.env.AGENT_DECISION_ROUTING_MIN_CONFIDENCE = '1.2';
     expect(getDecisionRoutingMinConfidence()).toBe(0.55);
+  });
+});
+
+describe('getEffectiveDecisionMode', () => {
+  it('unset: auto sessions are on, everything else off', () => {
+    expect(getEffectiveDecisionMode('model_routing', { sessionAuto: true })).toBe('on');
+    expect(getEffectiveDecisionMode('capacity_routing', { sessionAuto: true })).toBe('on');
+    expect(getEffectiveDecisionMode('model_routing', { sessionAuto: false })).toBe('off');
+    expect(getEffectiveDecisionMode('model_routing')).toBe('off');
+  });
+
+  it('empty or unrecognised values count as unset', () => {
+    process.env.AGENT_DECISION_MODEL_ROUTING = '  ';
+    expect(getEffectiveDecisionMode('model_routing', { sessionAuto: true })).toBe('on');
+    process.env.AGENT_DECISION_MODEL_ROUTING = 'yes';
+    expect(getEffectiveDecisionMode('model_routing', { sessionAuto: true })).toBe('on');
+    expect(getEffectiveDecisionMode('model_routing', { sessionAuto: false })).toBe('off');
+  });
+
+  it('an explicit recognised value always wins (off is a kill switch)', () => {
+    process.env.AGENT_DECISION_MODEL_ROUTING = 'off';
+    expect(getEffectiveDecisionMode('model_routing', { sessionAuto: true })).toBe('off');
+    process.env.AGENT_DECISION_MODEL_ROUTING = 'shadow';
+    expect(getEffectiveDecisionMode('model_routing', { sessionAuto: true })).toBe('shadow');
+    process.env.AGENT_DECISION_MODEL_ROUTING = 'ON';
+    expect(getEffectiveDecisionMode('model_routing', { sessionAuto: false })).toBe('on');
+  });
+
+  it('tool/memory ranking stay env-only via getDecisionFeatureMode', () => {
+    expect(getDecisionFeatureMode('tool_ranking')).toBe('off');
   });
 });

@@ -419,12 +419,19 @@ export async function handleInputFrame(
     return;
   }
 
+  // Auto (router) model mode for THIS turn. The session row is authoritative;
+  // a valid `modelMode` on the frame overrides it for this turn only (never
+  // persisted — clients PATCH the session to change the stored mode).
+  const frameModelMode =
+    msg.modelMode === 'auto' || msg.modelMode === 'fixed' ? msg.modelMode : null;
+
   let opencodeId = opencodeSessionMap.get(id);
   let cwd: string | undefined;
   let agentKind: string | undefined;
   let sessionName: string | undefined;
   let sessionProviderId: string | null = null;
   let sessionModelId: string | null = null;
+  let sessionModelMode: 'auto' | 'fixed' = 'fixed';
   let sessionThinkingBudget: number | null = null;
   let sessionFastMode = false;
   let sessionOwnerUserId: number | null = null;
@@ -444,6 +451,7 @@ export async function handleInputFrame(
       sessionName = session.name;
       sessionProviderId = session.providerId;
       sessionModelId = session.modelId;
+      sessionModelMode = session.modelMode === 'auto' ? 'auto' : 'fixed';
       sessionThinkingBudget = session.thinkingBudget ?? null;
       sessionFastMode = session.fastMode ?? false;
       sessionOwnerUserId = session.ownerUserId ?? null;
@@ -545,6 +553,8 @@ export async function handleInputFrame(
     requestedTier: string | null;
     routeAuthed: boolean | null;
   } | undefined;
+  const turnModelMode: 'auto' | 'fixed' = frameModelMode ?? sessionModelMode;
+  const turnSessionAuto = turnModelMode === 'auto';
   if (agentKind) {
     try {
       const { resolveModelForSessionTurnWithProvenance } = await import('./agent_model_resolver');
@@ -553,6 +563,7 @@ export async function handleInputFrame(
         sessionProviderId,
         sessionModelId,
         perTurnOverride,
+        sessionModelMode: turnModelMode,
         // #1108 — lets a successful manual per-turn override persist onto
         // this session row so it survives the NEXT prompt instead of
         // silently reverting to the stale stored provider/model.
@@ -570,6 +581,7 @@ export async function handleInputFrame(
           agentId: trustedScopeAgent ?? agentKind,
           requestedSource: resolution.requestedSource,
           sessionId: id,
+          sessionAuto: turnSessionAuto,
           baselineTier: resolution.route ? classifyRouteTier(resolution.route) : null,
         });
         if (routed.tier) {
@@ -608,6 +620,7 @@ export async function handleInputFrame(
             requiredTier: classifyRouteTier(resolvedTurnModel),
             requestedSource: resolvedTurnProvenance?.requestedSource ?? 'agent_default',
             sessionId: id,
+            sessionAuto: turnSessionAuto,
             currentAccountId:
               capUsage === 'anthropic'
                 ? capRow?.anthropicAccountId ?? null
@@ -630,6 +643,7 @@ export async function handleInputFrame(
               sessionId: id,
               providerID: capDecision.route.providerID,
               accountId: capDecision.accountId,
+              sessionAuto: turnSessionAuto,
             });
           }
         }

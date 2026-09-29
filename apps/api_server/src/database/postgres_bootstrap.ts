@@ -1459,6 +1459,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS provider_id TEXT;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS model_id TEXT;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS agent_mode TEXT;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS model_mode TEXT NOT NULL DEFAULT 'fixed';
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS archived_at TEXT;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS permission_mode TEXT NOT NULL DEFAULT 'default';
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS approval_bypass_explicit INTEGER NOT NULL DEFAULT 0;

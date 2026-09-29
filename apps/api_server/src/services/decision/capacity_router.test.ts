@@ -429,3 +429,44 @@ describe('session account auto-pick', () => {
     expect(isAutoAccountSession('s2', 'openai')).toBe(true);
   });
 });
+
+describe('applyCapacityRouting with Auto (router) sessions', () => {
+  const lowAnthropic = snap(
+    entry({ provider: 'anthropic', accountId: 'a' }, 0.05),
+    entry({ provider: 'openrouter' }, 0.7),
+  );
+  const input = {
+    agentId: 'claude-code',
+    baseRoute: OPUS,
+    requiredTier: 'frontier' as const,
+    requestedSource: 'auto',
+    authedProviders: ['anthropic', 'openrouter'],
+  };
+
+  it('unset env: only auto sessions are active, and source auto may change the model', async () => {
+    getUsageBudget.mockResolvedValue(lowAnthropic);
+    expect(await applyCapacityRouting(input)).toBeNull();
+    const d = await applyCapacityRouting({ ...input, sessionAuto: true, currentAccountId: 'a' });
+    expect(d?.routeChanged).toBe(true);
+    expect(d?.route.providerID).toBe('openrouter');
+  });
+
+  it('explicit off wins over sessionAuto', async () => {
+    process.env.AGENT_DECISION_CAPACITY_ROUTING = 'off';
+    getUsageBudget.mockResolvedValue(lowAnthropic);
+    expect(await applyCapacityRouting({ ...input, sessionAuto: true })).toBeNull();
+    expect(await autoPickAccountId('anthropic', { sessionAuto: true })).toBeNull();
+    expect(getUsageBudget).not.toHaveBeenCalled();
+  });
+
+  it('autoPickAccountId honours sessionAuto when the env is unset', async () => {
+    getUsageBudget.mockResolvedValue(
+      snap(
+        entry({ provider: 'anthropic', accountId: 'a' }, 0.3),
+        entry({ provider: 'anthropic', accountId: 'b' }, 0.9),
+      ),
+    );
+    expect(await autoPickAccountId('anthropic')).toBeNull();
+    expect(await autoPickAccountId('anthropic', { sessionAuto: true })).toBe('b');
+  });
+});

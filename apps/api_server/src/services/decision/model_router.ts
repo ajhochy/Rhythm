@@ -1,18 +1,19 @@
 import {
-  getDecisionFeatureMode,
   getDecisionRoutingMinConfidence,
+  getEffectiveDecisionMode,
 } from '../../config/env';
+import type { DecisionMode } from '../../config/env';
 import type { ModelTier } from '../agent_model_resolver';
 import { classify } from './decision_engine';
 import type { DecisionOpts } from './decision_engine';
 import { recordDecision } from './decision_log';
 
 /**
- * Only the built-in agent default is a "soft" choice the router may override.
- * agent_config is a model the user picked for the profile, so it is a pin just
- * like a session or per-turn override.
+ * Only the built-in agent default, and Auto (router) sessions, are "soft"
+ * choices the router may override. agent_config is a model the user picked for
+ * the profile, so it is a pin just like a session or per-turn override.
  */
-const ELIGIBLE_SOURCES = new Set(['agent_default']);
+const ELIGIBLE_SOURCES = new Set(['agent_default', 'auto']);
 
 export const TIER_LABELS: { id: ModelTier; description: string }[] = [
   {
@@ -40,6 +41,10 @@ export interface RouteTurnTierInput {
   /** Tier of the route the resolver picked, for shadow-mode agreement stats. */
   baselineTier?: ModelTier | null;
   client?: DecisionOpts['client'];
+  /** True for Auto (router) sessions: an unset env var then means 'on'. */
+  sessionAuto?: boolean;
+  /** Test/caller override of the effective mode (wins over env and sessionAuto). */
+  modeOverride?: DecisionMode;
 }
 
 export interface RouteTurnTierResult {
@@ -56,7 +61,8 @@ export interface RouteTurnTierResult {
  * classifier is confident enough.
  */
 export async function routeTurnTier(input: RouteTurnTierInput): Promise<RouteTurnTierResult> {
-  const mode = getDecisionFeatureMode('model_routing');
+  const mode =
+    input.modeOverride ?? getEffectiveDecisionMode('model_routing', { sessionAuto: input.sessionAuto });
   if (mode === 'off') return { tier: null, applied: false, mode, reason: 'off' };
   if (!ELIGIBLE_SOURCES.has(input.requestedSource)) {
     return { tier: null, applied: false, mode, reason: 'pinned_source' };

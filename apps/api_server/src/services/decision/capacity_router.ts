@@ -1,4 +1,8 @@
-import { getDecisionCapacityLowFraction, getDecisionFeatureMode } from '../../config/env';
+import {
+  getDecisionCapacityLowFraction,
+  getEffectiveDecisionMode,
+} from '../../config/env';
+import type { DecisionMode } from '../../config/env';
 import { logger } from '../../utils/logger';
 import {
   ROUTE_FALLBACKS_BY_AGENT,
@@ -299,9 +303,14 @@ async function readCachedSnapshot(): Promise<UsageBudgetSnapshot | null> {
  * Session-create helper: account with the most headroom for the provider, only
  * when capacity routing is 'on' and the usage cache is warm. Never throws.
  */
-export async function autoPickAccountId(provider: 'anthropic' | 'openai'): Promise<string | null> {
+export async function autoPickAccountId(
+  provider: 'anthropic' | 'openai',
+  opts: { sessionAuto?: boolean } = {},
+): Promise<string | null> {
   try {
-    if (getDecisionFeatureMode('capacity_routing') !== 'on') return null;
+    if (getEffectiveDecisionMode('capacity_routing', { sessionAuto: opts.sessionAuto }) !== 'on') {
+      return null;
+    }
     const snapshot = await readCachedSnapshot();
     return snapshot ? pickAccount(provider, snapshot) : null;
   } catch {
@@ -322,6 +331,10 @@ export interface ApplyCapacityInput {
   /** Account the session currently uses for the route's provider (for baseline/stickiness). */
   currentAccountId?: string | null;
   authedProviders?: Iterable<string>;
+  /** True for Auto (router) sessions: an unset env var then means 'on'. */
+  sessionAuto?: boolean;
+  /** Test/caller override of the effective mode (wins over env and sessionAuto). */
+  modeOverride?: DecisionMode;
 }
 
 export interface CapacityDecision extends CapacityRouteResult {
@@ -329,7 +342,7 @@ export interface CapacityDecision extends CapacityRouteResult {
   routeChanged: boolean;
 }
 
-const MODEL_REROUTE_SOURCES = new Set(['agent_default', 'tier']);
+const MODEL_REROUTE_SOURCES = new Set(['agent_default', 'tier', 'auto']);
 
 const fmt = (r: ModelRoute, account: string | null | undefined): string =>
   `${r.providerID}/${r.modelID}@${account ?? 'default'}`;
@@ -337,14 +350,16 @@ const fmt = (r: ModelRoute, account: string | null | undefined): string =>
 /**
  * Off -> null without reading anything. Reads only the cached usage snapshot.
  * shadow -> logs and returns null. on -> returns the decision. Only
- * 'agent_default'/'tier' sources may change the MODEL; pinned sources keep
+ * 'agent_default'/'tier'/'auto' sources may change the MODEL; pinned sources keep
  * their model and only get the best account for their provider. Never throws.
  */
 export async function applyCapacityRouting(
   input: ApplyCapacityInput,
 ): Promise<CapacityDecision | null> {
   try {
-    const mode = getDecisionFeatureMode('capacity_routing');
+    const mode =
+      input.modeOverride ??
+      getEffectiveDecisionMode('capacity_routing', { sessionAuto: input.sessionAuto });
     if (mode === 'off') return null;
     const snapshot = await readCachedSnapshot();
     if (!snapshot) return null;
@@ -441,10 +456,16 @@ export async function switchAutoSessionAccount(opts: {
   sessionId: string;
   providerID: string;
   accountId: string | null;
+  /** True for Auto (router) sessions: an unset env var then means 'on'. */
+  sessionAuto?: boolean;
+  modeOverride?: DecisionMode;
 }): Promise<boolean> {
   try {
     if (!opts.accountId) return false;
-    if (getDecisionFeatureMode('capacity_routing') !== 'on') return false;
+    const mode =
+      opts.modeOverride ??
+      getEffectiveDecisionMode('capacity_routing', { sessionAuto: opts.sessionAuto });
+    if (mode !== 'on') return false;
     const usage = usageProviderFor(opts.providerID);
     if (usage !== 'anthropic' && usage !== 'openai') return false;
     if (!isAutoAccountSession(opts.sessionId, usage)) return false;

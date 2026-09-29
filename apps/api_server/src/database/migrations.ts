@@ -3347,6 +3347,14 @@ If someone asks for creative work that needs a local capability:
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN worktree_branch TEXT`);
   }
 
+  // Auto (router) model mode. 'fixed' default keeps every existing row on its
+  // pinned/stored-model behaviour; only new interactive sessions are 'auto'.
+  // Keep in sync with postgres_bootstrap.ts.
+  const agentSessionColsModelMode = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
+  if (!agentSessionColsModelMode.includes('model_mode')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN model_mode TEXT NOT NULL DEFAULT 'fixed'`);
+  }
+
   // Delegated-session isolation repair. Only a child still classified Chat
   // whose resolved parent is non-Chat is eligible. Copy the parent's complete
   // catalog/execution scope, while preserving child-owned identity, SDK,

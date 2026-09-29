@@ -268,6 +268,21 @@ export function getDecisionFeatureMode(
   return raw === 'shadow' || raw === 'on' ? raw : 'off';
 }
 
+/**
+ * Effective mode for one turn. An explicitly set, recognised env value always
+ * wins (explicit 'off' is a kill switch; 'shadow' stays shadow). When the env
+ * var is unset/empty, Auto (router) sessions get 'on' and everything else 'off'.
+ * Unrecognised values are treated as unset.
+ */
+export function getEffectiveDecisionMode(
+  feature: keyof typeof DECISION_FEATURE_ENV,
+  opts: { sessionAuto?: boolean } = {},
+): DecisionMode {
+  const raw = (process.env[DECISION_FEATURE_ENV[feature]] ?? '').trim().toLowerCase();
+  if (raw === 'off' || raw === 'shadow' || raw === 'on') return raw;
+  return opts.sessionAuto ? 'on' : 'off';
+}
+
 /** Minimum classifier confidence, in (0,1], before a routing tier is applied. */
 export function getDecisionRoutingMinConfidence(): number {
   const parsed = numberEnv('AGENT_DECISION_ROUTING_MIN_CONFIDENCE');

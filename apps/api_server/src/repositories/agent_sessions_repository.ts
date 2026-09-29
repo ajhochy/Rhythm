@@ -9,12 +9,14 @@ import type {
   OpenCodeAgentId,
   PermissionMode,
   RhythmProfileId,
+  SessionModelMode,
   SessionScope,
 } from '../models/agent_session';
 import {
   asOpenCodeAgentId,
   asRhythmProfileId,
   isUntitledSessionName,
+  normalizeSessionModelMode,
 } from '../models/agent_session';
 import {
   appendRelayDelete,
@@ -50,6 +52,7 @@ interface AgentSessionRow {
   project_id: string | null;
   provider_id: string | null;
   model_id: string | null;
+  model_mode: string | null;
   agent_mode: string | null;
   permission_mode: string | null;
   approval_bypass_explicit: number;
@@ -150,6 +153,7 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     projectId: row.project_id ?? null,
     providerId: row.provider_id ?? null,
     modelId: row.model_id ?? null,
+    modelMode: normalizeSessionModelMode(row.model_mode),
     agentMode: row.agent_mode ?? null,
     permissionMode: (row.permission_mode ?? 'default') as PermissionMode,
     approvalBypassExplicit: row.approval_bypass_explicit === 1,
@@ -594,8 +598,8 @@ export class AgentSessionsRepository {
            (id, task_id, task_title, agent_kind, profile_id, status, cwd, name, project_id,
             permission_mode, mcp_role, mcp_allowed_tools_json, scheduled_task_id, is_system,
             anthropic_account_id, openai_account_id, owner_user_id, parent_session_id,
-            delegation_depth, category, approval_bypass_explicit, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            delegation_depth, category, approval_bypass_explicit, model_mode, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -618,6 +622,7 @@ export class AgentSessionsRepository {
         dto.delegationDepth ?? 0,
         category,
         dto.approvalBypassExplicit ? 1 : 0,
+        normalizeSessionModelMode(dto.modelMode),
         now,
         now,
       );
@@ -1208,6 +1213,7 @@ export class AgentSessionsRepository {
       opencodeAgentId?: OpenCodeAgentId | null;
       providerId?: string | null;
       modelId?: string | null;
+      modelMode?: SessionModelMode;
       agentMode?: string | null;
       permissionMode?: PermissionMode;
       approvalBypassExplicit?: boolean;
@@ -1236,6 +1242,10 @@ export class AgentSessionsRepository {
     if (fields.modelId !== undefined) {
       sets.push('model_id = ?');
       values.push(fields.modelId);
+    }
+    if (fields.modelMode !== undefined) {
+      sets.push('model_mode = ?');
+      values.push(normalizeSessionModelMode(fields.modelMode));
     }
     if (fields.agentMode !== undefined) {
       sets.push('agent_mode = ?');
