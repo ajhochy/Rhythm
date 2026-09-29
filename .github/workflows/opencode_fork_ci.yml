@@ -27,9 +27,9 @@ jobs:
         working-directory: apps/opencode_fork/packages/opencode
         run: bun run typecheck
 
-      - name: Session tests
+      - name: Session and tool tests
         working-directory: apps/opencode_fork/packages/opencode
-        run: bun test test/session/ src/session/
+        run: bun test test/session/ src/session/ test/tool/
 
       - name: Build complete fork SDK artifact
         working-directory: apps/opencode_fork/packages/sdk/js
