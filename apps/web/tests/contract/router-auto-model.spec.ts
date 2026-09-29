@@ -52,7 +52,7 @@ const baseRouterConfig = (): Body => ({
   catalog: buildCatalog({ 'ollama/qwen3': 'standard' }, ['anthropic/claude-haiku-4-5']),
 });
 
-async function setup(page: Page, opts: { modelMode?: 'auto' | 'fixed' | undefined; catalog?: 'live' | 'missing' | 'empty' } = {}): Promise<State> {
+async function setup(page: Page, opts: { modelMode?: 'auto' | 'fixed' | undefined; catalog?: 'live' | 'missing' | 'empty' | 'partial' | 'none-curated' } = {}): Promise<State> {
   const modelMode = 'modelMode' in opts ? opts.modelMode : 'auto';
   const state: State = {
     session: { id: 's1', name: 'Router session', profileId: 'p1', cwd: '/tmp/x', providerId: 'openai', modelId: 'gpt-6', status: 'idle', createdAt: '2026-09-29T00:00:00.000Z', updatedAt: '2026-09-29T00:00:00.000Z', ...(modelMode ? { modelMode } : {}) },
@@ -61,6 +61,14 @@ async function setup(page: Page, opts: { modelMode?: 'auto' | 'fixed' | undefine
     routerConfig: baseRouterConfig(),
   };
   if (opts.catalog === 'missing') delete state.routerConfig.catalog;
+  const markDisabled = (keys: string[], reason?: 'no_curated_models') => {
+    const cat = state.routerConfig.catalog;
+    cat.models = cat.models.map((m: Body) => ({ ...m, enabled: !keys.includes(`${m.providerID}/${m.modelID}`) }));
+    cat.curatedCount = cat.models.filter((m: Body) => m.enabled).length;
+    if (reason) cat.reason = reason;
+  };
+  if (opts.catalog === 'partial') markDisabled(['ollama/qwen3', 'anthropic/claude-haiku-4-5']);
+  if (opts.catalog === 'none-curated') markDisabled(catalogSeed.map((m) => `${m.providerID}/${m.modelID}`), 'no_curated_models');
   if (opts.catalog === 'empty') state.routerConfig.catalog = { fetchedAt: null, models: [], tiers: CATALOG_THRESHOLDS };
   const cors = (origin: string | undefined) => ({ 'access-control-allow-origin': origin ?? '*', 'access-control-allow-headers': 'authorization,content-type', 'access-control-allow-methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS' });
   await page.route('https://api.vcrcapps.com/**', (route) => route.fulfill({ status: 200, headers: cors(route.request().headers().origin), json: [] }));
@@ -413,4 +421,39 @@ test('router:C4 missing or empty catalog shows the static-fallback state and sen
     expect(state.routerPuts[0]).not.toHaveProperty('excludedModels');
     await page.unrouteAll({ behavior: 'ignoreErrors' });
   }
+});
+
+test('router:C5 models not enabled in curation are muted, badged, disabled and never sent in the PUT body', async ({ page }) => {
+  const state = await setup(page, { catalog: 'partial' });
+  await openRouterSettings(page);
+  await expect(page.getByTestId('router-catalog-count')).toHaveText('Routing among 5 enabled models');
+  await expect(page.getByTestId('router-catalog-no-curated')).toHaveCount(0);
+  for (const key of [QWEN, HAIKU]) {
+    const row = page.getByTestId(rowKey(key));
+    await expect(row).toHaveClass(/disabled/);
+    await expect(page.getByTestId(`router-model-not-enabled-${key}`)).toHaveText('Not enabled in Models curation');
+    await expect(page.getByTestId(`router-model-tier-${key}`)).toBeDisabled();
+    await expect(page.getByTestId(`router-model-exclude-${key}`)).toBeDisabled();
+    await expect(page.getByTestId(`router-model-reset-${key}`)).toHaveCount(0);
+  }
+  await expect(page.getByTestId(`router-model-not-enabled-${MINI}`)).toHaveCount(0);
+  await expect(page.getByTestId(`router-model-tier-${MINI}`)).toBeEnabled();
+  await page.getByTestId(`router-model-exclude-${MINI}`).check();
+  await page.getByTestId('router-save').click();
+  await expect(page.getByTestId('router-notice')).toBeVisible();
+  expect(state.routerPuts[0].excludedModels).toEqual([MINI]);
+  expect(state.routerPuts[0].tierOverrides).toEqual({});
+});
+
+test('router:C6 no_curated_models shows the callout and a jump link to Models curation', async ({ page }) => {
+  const state = await setup(page, { catalog: 'none-curated' });
+  await openRouterSettings(page);
+  await expect(page.getByTestId('router-catalog-count')).toHaveText('Routing among 0 enabled models');
+  await expect(page.getByTestId('router-catalog-no-curated')).toContainText('No models are enabled in Models curation — the router will keep each chat\'s current model until you enable some.');
+  await expect(page.getByTestId('router-catalog-open-curation')).toBeVisible();
+  await expect(page.getByTestId(rowKey('openai/gpt-6'))).toHaveClass(/disabled/);
+  await page.getByTestId('router-save').click();
+  await expect(page.getByTestId('router-notice')).toBeVisible();
+  expect(state.routerPuts[0].excludedModels).toEqual([]);
+  expect(state.routerPuts[0].tierOverrides).toEqual({});
 });

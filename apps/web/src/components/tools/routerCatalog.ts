@@ -15,6 +15,7 @@ export type CatalogDraft = {
 };
 export type ThresholdResult = { ok: true; value: RouterTierThresholds } | { ok: false; message: string };
 
+export const isEnabled = (model: Pick<RouterCatalogModel, 'enabled'>) => model.enabled !== false;
 export const modelKey = (model: Pick<RouterCatalogModel, 'providerID' | 'modelID'>) => `${model.providerID}/${model.modelID}`;
 
 export const toCatalogDraft = (catalog: RouterCatalog | null | undefined): CatalogDraft | null => catalog ? {
@@ -22,7 +23,7 @@ export const toCatalogDraft = (catalog: RouterCatalog | null | undefined): Catal
   cheapMax: String(catalog.tiers?.cheapMaxOutputUsd ?? ''),
   frontierMin: String(catalog.tiers?.frontierMinOutputUsd ?? ''),
   tiers: {},
-  excluded: (catalog.models ?? []).filter((model) => model.excluded).map(modelKey),
+  excluded: (catalog.models ?? []).filter((model) => isEnabled(model) && model.excluded).map(modelKey),
 } : null;
 
 export function parseThresholds(draft: Pick<CatalogDraft, 'cheapMax' | 'frontierMin'>): ThresholdResult {
@@ -59,6 +60,7 @@ export function buildCatalogInput(catalog: RouterCatalog, draft: CatalogDraft): 
   if (catalog.models.length === 0) return out;
   const overrides: Record<string, RouterTier> = {};
   for (const model of catalog.models) {
+    if (!isEnabled(model)) continue;
     const key = modelKey(model);
     const choice = draft.tiers[key];
     if (choice === 'derived') continue;
@@ -66,7 +68,7 @@ export function buildCatalogInput(catalog: RouterCatalog, draft: CatalogDraft): 
     else if (model.tierSource === 'override') overrides[key] = model.tier;
   }
   out.tierOverrides = overrides;
-  out.excludedModels = catalog.models.map(modelKey).filter((key) => draft.excluded.includes(key));
+  out.excludedModels = catalog.models.filter(isEnabled).map(modelKey).filter((key) => draft.excluded.includes(key));
   return out;
 }
 

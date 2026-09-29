@@ -102,12 +102,14 @@ export type RouterCatalogModel = {
   tier: RouterTier; tierSource: RouterTierSource;
   costOutputUsd?: number | null; costInputUsd?: number | null;
   releaseDate?: string | null; contextLimit?: number | null; excluded: boolean;
+  /** false = available but not enabled in Models curation, so not routable. Absent (older engines) = enabled. */
+  enabled?: boolean;
 };
 export type RouterTierMode = 'auto' | 'manual';
 export type RouterTierThresholds = { mode?: RouterTierMode; cheapMaxOutputUsd: number; frontierMinOutputUsd: number; derivedFromModels?: number };
 /** PUT shape: numbers are sent only in manual mode. */
 export type RouterTierInput = { mode: 'auto' } | { mode: 'manual'; cheapMaxOutputUsd: number; frontierMinOutputUsd: number };
-export type RouterCatalog = { fetchedAt?: string | null; models: RouterCatalogModel[]; tiers: RouterTierThresholds };
+export type RouterCatalog = { fetchedAt?: string | null; models: RouterCatalogModel[]; tiers: RouterTierThresholds; curatedCount?: number; reason?: 'no_curated_models' };
 export type RouterConfig = {
   backend: RouterBackend;
   local: { baseUrl: string; model: string; scoreScale: RouterScoreScale };

@@ -336,4 +336,34 @@ describe('Models the router chooses among', () => {
     expect(body).not.toHaveProperty('tierOverrides');
     expect(body).not.toHaveProperty('excludedModels');
   });
+  test('models not enabled in curation are muted, badged, disabled and excluded from the payload; header shows the count', async () => {
+    const models = catalogModels().map((m) => (m.modelID === 'qwen3' || m.modelID === 'claude-haiku-4-5' ? { ...m, enabled: false } : { ...m, enabled: true }));
+    const { api, screen } = setup(withCatalog({ models, curatedCount: 4 }));
+    await openDialog(screen);
+    expect(screen.getByTestId('router-catalog-count').props.children).toBe('Routing among 4 enabled models');
+    expect(screen.queryByTestId('router-catalog-no-curated')).toBeNull();
+    for (const key of ['ollama/qwen3', 'anthropic/claude-haiku-4-5']) {
+      expect(within(screen.getByTestId(`router-model-row-${key}`)).getByText('Not enabled in Models curation')).toBeTruthy();
+      expect(screen.getByTestId(`router-model-row-${key}`).props.style).toEqual(expect.arrayContaining([expect.objectContaining({ opacity: 0.5 })]));
+      expect(screen.getByTestId(`router-model-tier-${key}-cheap`).props.accessibilityState).toMatchObject({ disabled: true });
+      expect(screen.queryByTestId(`router-model-reset-${key}`)).toBeNull();
+    }
+    expect(screen.getByLabelText('Exclude Qwen3 (local)').props.disabled).toBe(true);
+    expect(screen.getByLabelText('Exclude GPT-6 Mini').props.disabled).toBeFalsy();
+    fireEvent.press(screen.getByTestId('router-save-button'));
+    await waitFor(() => expect(api.save).toHaveBeenCalledTimes(1));
+    const body = (api.save as jest.Mock).mock.calls[0][0];
+    expect(body.tierOverrides).toEqual({});
+    expect(body.excludedModels).toEqual([]);
+  });
+
+  test('no_curated_models renders the callout', async () => {
+    const models = catalogModels().map((m) => ({ ...m, enabled: false }));
+    const { screen } = setup(withCatalog({ models, curatedCount: 0, reason: 'no_curated_models' }));
+    await openDialog(screen);
+    expect(screen.getByTestId('router-catalog-count').props.children).toBe('Routing among 0 enabled models');
+    expect(screen.getByTestId('router-catalog-no-curated').props.children).toBe(
+      'No models are enabled in Models curation — the router will keep each chat\'s current model until you enable some.',
+    );
+  });
 });

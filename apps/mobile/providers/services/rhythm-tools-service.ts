@@ -713,6 +713,8 @@ export interface RouterCatalogModel {
   releaseDate?: string | null;
   contextLimit?: number | null;
   excluded: boolean;
+  /** false = available but not enabled in Models curation, so not routable. Absent (older Macs) = enabled. */
+  enabled?: boolean;
 }
 
 export type RouterTierMode = 'auto' | 'manual';
@@ -734,6 +736,8 @@ export interface RouterCatalog {
   fetchedAt?: string | null;
   models: RouterCatalogModel[];
   tiers: RouterTierThresholds;
+  curatedCount?: number;
+  reason?: 'no_curated_models';
 }
 
 export interface RouterConfig {

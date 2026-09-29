@@ -573,6 +573,9 @@
 .router-catalog-group ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .router-catalog-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) auto; gap: 8px 12px; align-items: center; padding: 8px 10px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); }
 .router-catalog-row.excluded { opacity: 0.6; }
+.router-catalog-row.disabled { opacity: 0.55; background: var(--surface-muted, transparent); }
+.router-catalog-badge { justify-self: start; margin-top: 2px; padding: 1px 8px; border: 1px solid var(--border-soft); border-radius: 999px; color: var(--muted); font-size: 11px; }
+.router-catalog-callout { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 10px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); font-size: 13px; }
 .router-catalog-name { display: grid; min-width: 0; }
 .router-catalog-name small, .router-catalog-tier small, .router-catalog-facts dt { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
 .router-catalog-tier { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }

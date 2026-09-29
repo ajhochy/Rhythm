@@ -19,6 +19,9 @@ type Palette = typeof Colors.light;
 
 export const CATALOG_UNAVAILABLE =
   'Catalog unavailable — the engine is not running; the router will use the static fallback table';
+export const NO_CURATED_MODELS =
+  'No models are enabled in Models curation — the router will keep each chat\'s current model until you enable some.';
+export const NOT_ENABLED_LABEL = 'Not enabled in Models curation';
 export const TIERS: RouterTier[] = ['cheap', 'standard', 'frontier'];
 
 export interface CatalogDraft {
@@ -32,6 +35,7 @@ export interface CatalogDraft {
 
 export type ThresholdResult = { ok: true; value: RouterTierThresholds } | { ok: false; message: string };
 
+export const isEnabled = (m: Pick<RouterCatalogModel, 'enabled'>) => m.enabled !== false;
 export const modelKey = (m: Pick<RouterCatalogModel, 'providerID' | 'modelID'>) => `${m.providerID}/${m.modelID}`;
 
 export function toCatalogDraft(catalog: RouterCatalog | null | undefined): CatalogDraft | null {
@@ -41,7 +45,7 @@ export function toCatalogDraft(catalog: RouterCatalog | null | undefined): Catal
     cheapMax: String(catalog.tiers?.cheapMaxOutputUsd ?? ''),
     frontierMin: String(catalog.tiers?.frontierMinOutputUsd ?? ''),
     tiers: {},
-    excluded: (catalog.models ?? []).filter((m) => m.excluded).map(modelKey),
+    excluded: (catalog.models ?? []).filter((m) => isEnabled(m) && m.excluded).map(modelKey),
   };
 }
 
@@ -93,6 +97,7 @@ export function buildCatalogPayload(
   if (!catalog.models.length) return out;
   const overrides: Record<string, RouterTier> = {};
   for (const model of catalog.models) {
+    if (!isEnabled(model)) continue;
     const key = modelKey(model);
     const choice = draft.tiers[key];
     if (choice === 'derived') continue;
@@ -100,7 +105,7 @@ export function buildCatalogPayload(
     else if (model.tierSource === 'override') overrides[key] = model.tier;
   }
   out.tierOverrides = overrides;
-  out.excludedModels = catalog.models.map(modelKey).filter((key) => draft.excluded.includes(key));
+  out.excludedModels = catalog.models.filter(isEnabled).map(modelKey).filter((key) => draft.excluded.includes(key));
   return out;
 }
 
@@ -133,6 +138,16 @@ export function RouterCatalogSection({
       <Text accessibilityRole="header" variant="labelLarge" style={{ color: palette.text }}>
         Models the router chooses among
       </Text>
+      {hasModels || catalog?.reason ? (
+        <Text style={{ color: palette.text }} testID="router-catalog-count">
+          {`Routing among ${catalog?.curatedCount ?? models.filter(isEnabled).length} enabled models`}
+        </Text>
+      ) : null}
+      {catalog?.reason === 'no_curated_models' ? (
+        <Text accessibilityRole="alert" style={{ color: palette.text }} testID="router-catalog-no-curated">
+          {NO_CURATED_MODELS}
+        </Text>
+      ) : null}
       {catalog && draft && catalog.tiers ? (
         <View style={styles.group}>
           <Text style={{ color: palette.text }}>Tier thresholds</Text>
@@ -202,17 +217,24 @@ export function RouterCatalogSection({
               </Text>
               {rows.map(({ model, eff }) => {
                 const key = modelKey(model);
-                const excluded = draft!.excluded.includes(key);
+                const enabled = isEnabled(model);
+                const excluded = enabled && draft!.excluded.includes(key);
                 return (
-                  <View key={key} style={[styles.row, { borderColor: palette.border, opacity: excluded ? 0.6 : 1 }]} testID={`router-model-row-${key}`}>
+                  <View key={key} style={[styles.row, { borderColor: palette.border, opacity: !enabled ? 0.5 : excluded ? 0.6 : 1 }]} testID={`router-model-row-${key}`}>
                     <Text style={{ color: palette.text }}>{model.name}</Text>
+                    {!enabled ? (
+                      <Text style={{ color: palette.muted }} testID={`router-model-not-enabled-${key}`}>
+                        {NOT_ENABLED_LABEL}
+                      </Text>
+                    ) : null}
                     <Text style={{ color: palette.muted }}>{`${model.providerID} · ${model.modelID}`}</Text>
                     <View style={styles.chipWrap}>
                       {TIERS.map((option) => (
                         <Chip
                           accessibilityLabel={`Tier for ${model.name}: ${option}`}
                           accessibilityRole="radio"
-                          accessibilityState={{ checked: eff.tier === option }}
+                          accessibilityState={{ checked: eff.tier === option, disabled: !enabled }}
+                          disabled={!enabled}
                           key={option}
                           onPress={() => patch({ tiers: { ...draft!.tiers, [key]: option } })}
                           selected={eff.tier === option}
@@ -226,7 +248,7 @@ export function RouterCatalogSection({
                       <Text style={{ color: palette.muted }} testID={`router-model-source-${key}`}>
                         {eff.source}
                       </Text>
-                      {eff.source === 'override' ? (
+                      {enabled && eff.source === 'override' ? (
                         <Button
                           accessibilityLabel={`Reset ${model.name} to derived tier`}
                           contentStyle={styles.touch}
@@ -243,6 +265,7 @@ export function RouterCatalogSection({
                       <Text style={[styles.flex, { color: palette.text }]}>Exclude</Text>
                       <NativeSwitch
                         accessibilityLabel={`Exclude ${model.name}`}
+                        disabled={!enabled}
                         onValueChange={(value) =>
                           patch({
                             excluded: value ? [...draft!.excluded, key] : draft!.excluded.filter((entry) => entry !== key),
