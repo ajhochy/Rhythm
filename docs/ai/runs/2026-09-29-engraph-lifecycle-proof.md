@@ -2,11 +2,29 @@
 date: 2026-09-29
 repo: Rhythm
 branch: mobile/transcript-delta-streaming
-status: mixed-pass — fix confirmed functionally effective end-to-end; one unresolved anomaly found; one likely test-caused incident on the live production engine
+status: mixed-pass — fix confirmed functionally effective end-to-end; one unresolved anomaly found; live-production-engine incident self-recovered (see UPDATE)
 tags: [run, Rhythm]
 ---
 
 # engraph lifecycle proof — commit 13624919
+
+## UPDATE (same session, ~15 min after original report): live engine recovered on its own
+
+Port 4096 came back on its own with a **new** PID (72526, not the original
+27250) while I was writing this report — a background watcher I'd left
+running (`until lsof -iTCP:4096 ...; do sleep 5; done`) fired. `GET
+http://127.0.0.1:4001/health` is `ok`, and `engraph` count is currently 0
+(fresh engine, nothing has requested a directory's MCP set yet — expected,
+lazy per-directory connect). I never touched PID 27228/27250 or their group;
+this recovery was either the live app's own retry logic or AJ/another agent
+restarting it — I did not act on it either way. I also noticed a new commit
+(`1188a8b2`, unrelated mobile UI work) landed on this same branch from
+elsewhere partway through my session, confirming concurrent activity was
+happening, which is consistent with "someone else restarted the app" rather
+than a hang that needed intervention. The likely-cause hypothesis below
+(shared auth.json/config touches bouncing the live watcher) is left as
+originally written since I can't fully rule it in or out — it's what I
+observed and reasoned from at the time, not the final word.
 
 ## ⚠️ Likely incident caused by this test session — read first
 
