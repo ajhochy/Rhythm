@@ -82,3 +82,33 @@ on the prompt path.
 `apps/api_server/scripts/decision_bench.ts` runs a labelled fixture set for each feature
 against the live local server. It reports accuracy, ECE (calibration), and p50/p95
 latency. Run it on the Mac once llama-server is up.
+
+## Addendum: Auto (router) model mode for sessions
+
+The user asked for the model picker to offer **Auto (router)** as the default, so new sessions go through the router.
+
+### Contract
+
+- **Session field `modelMode: 'auto' | 'fixed'`.**
+  - Storage: `agent_sessions.model_mode`, on SQLite and on Postgres (via `postgres_bootstrap`).
+  - The column default is `'fixed'`, so existing rows keep their behaviour.
+  - New sessions are inserted with `'auto'` unless the create body sends `modelMode: 'fixed'`.
+  - The field appears in every session payload.
+- **Session create (POST) and PATCH** accept `modelMode`.
+  - PATCH `{modelMode: 'fixed', providerId, modelId}` pins a model.
+  - PATCH `{modelMode: 'auto'}` returns the session to the router. The stored `providerId`/`modelId` are kept as the fallback.
+- **The WS `session.input` frame** may carry `modelMode` (`'auto'` or `'fixed'`).
+  - When the session is auto, a `modelOverride` that equals the session's stored model or the profile default is an echo. It is soft and does not pin anything.
+  - A different model is an explicit choice. It applies to that turn only, unless the client PATCHes `fixed`.
+  - Frames sent without a `modelOverride` resolve normally: stored session model, else profile, else agent default.
+- **Resolver.** Auto sessions return `requestedSource: 'auto'`. The baseline route is the session model, else the profile model, else the agent default.
+- **What auto enables.** Auto sessions turn on `model_routing` and `capacity_routing`, whatever the unset environment says.
+  - If an env var is explicitly set to `off` or `shadow`, that still wins, so it works as a kill switch.
+  - `fixed` sessions keep the current behaviour.
+- **Router fallback.** If the router fails or its confidence is low, the baseline route is used. A reranker server that isn't running gets a connection-refused on loopback, which costs about 1 ms.
+- **First-input check.** The "Pick a model before sending the first message" guard is satisfied by auto mode.
+- **Clients (the Electron/web Composer and the Flutter picker):**
+  - The model picker shows **"Auto (router)"** first, selected by default on new sessions.
+  - While the session is auto, a turn sends no `modelOverride` unless the user staged a turn-only model.
+  - Picking a specific model and choosing "session" scope PATCHes `fixed`.
+  - The UI shows which model the router picked, when the session payload or provenance exposes it.
