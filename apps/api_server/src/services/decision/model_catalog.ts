@@ -18,9 +18,9 @@ import {
  * The live model catalog the router and the capacity layer choose among.
  *
  * Source of truth is the engine catalog (`opencodeClient.providerSnapshot()`):
- * connected providers, restricted to the models enabled in Rhythm's Models curation
- * (`agent_model_visibility`, explicit visible=1; the static approved-family policy is not
- * consulted), filtered by eligibility and account entitlements, tiered by OUTPUT PRICE (not by model-name substrings), with
+ * connected providers, restricted to the models checked in Rhythm's Models curation
+ * (exactly the `visible` flag GET /agents/models/catalog/full shows the panel: explicit
+ * agent_model_visibility rows over the approved-family default), filtered by eligibility and account entitlements, tiered by OUTPUT PRICE (not by model-name substrings), with
  * per-model overrides and exclusions from Router settings. The hardcoded
  * ROUTE_FALLBACKS_BY_AGENT table is used only when the engine catalog is empty
  * or unreachable (`source: 'static'`).
@@ -85,8 +85,11 @@ export interface RoutableModelOptions {
   authed?: Iterable<string>;
   entitled?: EntitledModels;
   settings?: DecisionSettings;
-  /** Rhythm's curated visibility (`provider\0model` -> visible); defaults to the agent_model_visibility table. */
+  /** Explicit curation rows (`provider\0model` -> visible); defaults to the agent_model_visibility table.
+   * Live catalog: when supplied, a model is enabled only on an explicit `true` (test injection). */
   visibility?: ReadonlyMap<string, boolean>;
+  /** Live catalog: `provider\0model` keys the Models panel shows checked; defaults to listAgentModelCatalog. */
+  curated?: ReadonlySet<string>;
 }
 
 interface InternalModel extends RoutableModel {
@@ -250,7 +253,7 @@ function buildLive(
   opts: RoutableModelOptions,
   entitled: EntitledModels,
   settings: DecisionSettings,
-  visibility: ReadonlyMap<string, boolean>,
+  curated: ReadonlySet<string>,
 ): { models: InternalModel[]; tiers: EffectiveTiers; curatedCount: number } {
   const authed = opts.authed ? new Set(opts.authed) : null;
   const excluded = new Set(settings.excludedModels);
@@ -265,9 +268,8 @@ function buildLive(
     for (const model of eligible) {
       // Fail-open: only an explicit `false` (account lacks the model) drops it.
       if (ent && ent[model.id] === false) continue;
-      // The routable set is exactly what Rhythm's Models curation enabled (explicit visible=1).
-      // No row, or visible=0, means not enabled; the static approved-family policy is not consulted.
-      const enabled = visibility.get(visibilityKey(provider.id, model.id)) === true;
+      // The routable set is exactly what the Models panel shows checked.
+      const enabled = curated.has(visibilityKey(provider.id, model.id));
       const costOutput = keyless ? 0 : model.cost?.output ?? null;
       const costInput = keyless ? 0 : model.cost?.input ?? null;
       out.push({
@@ -367,6 +369,27 @@ async function buildStatic(
   return out;
 }
 
+const explicitlyEnabled = (visibility: ReadonlyMap<string, boolean>): Set<string> =>
+  new Set([...visibility].filter(([, visible]) => visible).map(([key]) => key));
+
+/**
+ * The keys the Models curation panel shows checked. Same function as the panel's
+ * GET /agents/models/catalog/full, so the router can never disagree with the checkboxes
+ * (it once required an explicit visible=1 row, dropping default-on Anthropic models).
+ * Falls back to explicit opt-ins when the catalog cannot be built.
+ */
+async function loadCuratedKeys(): Promise<Set<string>> {
+  try {
+    const { listAgentModelCatalog } = await import('../../routes/agents_models_routes');
+    const rows = await listAgentModelCatalog({ includeHidden: true });
+    const keys = new Set(rows.filter((r) => r.visible && r.modelId).map((r) => visibilityKey(r.provider, r.modelId)));
+    if (keys.size > 0) return keys;
+  } catch {
+    // fall through
+  }
+  return explicitlyEnabled(loadModelVisibility());
+}
+
 async function computeBase(opts: RoutableModelOptions): Promise<BaseCatalog> {
   const settings = opts.settings ?? loadDecisionSettings();
   const cacheable = !opts.snapshot && !opts.authed && !opts.entitled;
@@ -387,7 +410,8 @@ async function computeBase(opts: RoutableModelOptions): Promise<BaseCatalog> {
   let value: BaseCatalog;
   if (snapshot && Array.isArray(snapshot.providers) && snapshot.providers.length > 0) {
     const entitled = opts.entitled ?? (await readEntitlements());
-    const live = buildLive(snapshot, opts, entitled, settings, visibility);
+    const curated = opts.curated ?? (opts.visibility ? explicitlyEnabled(opts.visibility) : await loadCuratedKeys());
+    const live = buildLive(snapshot, opts, entitled, settings, curated);
     value = { ...live, source: 'live', fetchedAt: new Date().toISOString() };
   } else {
     value = {

@@ -11,6 +11,11 @@ vi.mock('../opencode_engine', () => ({
     listAuthedProviders: (...a: unknown[]) => listAuthedProviders(...a),
   },
 }));
+// What the Models curation panel shows checked (GET /agents/models/catalog/full).
+const panelRows = vi.fn();
+vi.mock('../../routes/agents_models_routes', () => ({
+  listAgentModelCatalog: (...a: unknown[]) => panelRows(...a),
+}));
 
 import { OpencodeClientService, type ProviderSnapshot } from '../opencode_client_service';
 import { ROUTE_FALLBACKS_BY_AGENT } from '../agent_model_resolver';
@@ -57,6 +62,7 @@ const byId = (models: RoutableModel[], id: string) => models.find((m) => m.model
 
 beforeEach(() => {
   providerSnapshot.mockReset();
+  panelRows.mockReset().mockResolvedValue([]);
   listAuthedProviders.mockReset().mockResolvedValue([]);
   resetModelCatalogCache();
 });
@@ -227,6 +233,20 @@ describe('Rhythm curation is the only visibility gate', () => {
   it('empty curation: live source, no models, reason no_curated_models', async () => {
     const r = await getRoutableModelsRaw({ snapshot: snapshot(), settings: settings(), visibility: new Map() });
     expect(r).toMatchObject({ source: 'live', models: [], curatedCount: 0, reason: 'no_curated_models' });
+  });
+
+  it('without injected rows, the router enables exactly what the Models panel shows checked (default-on anthropic, no DB row)', async () => {
+    providerSnapshot.mockResolvedValue(snapshot());
+    panelRows.mockResolvedValue([
+      { provider: 'anthropic', modelId: 'claude-sonnet-5-5', visible: true },
+      { provider: 'anthropic', modelId: 'claude-opus-5-5', visible: true },
+      { provider: 'openai', modelId: 'gpt-5.6-terra', visible: false },
+      { provider: 'openrouter', modelId: '', visible: true },
+    ]);
+    const r = await getRoutableModelsRaw({ settings: settings() });
+    expect(panelRows).toHaveBeenCalledWith({ includeHidden: true });
+    expect(ids(r.models).sort()).toEqual(['anthropic/claude-opus-5-5', 'anthropic/claude-sonnet-5-5']);
+    expect(r.curatedCount).toBe(2);
   });
 
   it('empty curation keeps the baseline route (no static-table fallback) and reports the reason', async () => {
