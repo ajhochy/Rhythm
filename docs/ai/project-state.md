@@ -1,38 +1,28 @@
 # Project state
 
-**Focus:** Mobile app repair — live transcript streaming, engraph process lifecycle, session-list & chat-create UI finish.
+## Current focus
 
-**Branch / PR:** `mobile/transcript-delta-streaming` → draft **PR #1587**, based on `mega/2026-09-18-mobile-electron-hermes`. Single stacked PR by request; #1585 merged 2026-09-29 05:44 (`d2796905`).
+Model routing on Kev: new **System One (Kev / Jev)** decision backend — one typed `choice` question per routed prompt, calibrated low-confidence fallback to `standard`.
 
-## Landed on this branch
+## Active branch / PR
 
-- **ST-1 streaming.** `apps/mobile/lib/opencode/transcript-events.ts` (pure reducer + non-resettable 75 ms maxWait batcher). `message.updated` / `message.part.updated` / `message.part.delta` route through it; full-page refetch removed from those paths; `session.idle` flushes and stays authoritative. Delta envelope is exactly `{sessionID, messageID, partID, field, delta}` — no top-level `id` (a prior attempt failed its gate by inventing one).
-- **engraph lifecycle.** Engine now spawned `detached: true`; `stop()`/`bindAbort()` take opt-in `{group: true}`; stale-port sweep verifies `pgid === pid` before group-signalling (fail-closed). Mirrored into `apps/api_server/vendor/opencode-ai-sdk/`. Closes #1574.
-- **NC-3 instant create sheet.** `openCreateSheet` no longer awaits the profile catalog; Create disabled until it resolves.
-- **Phantom session fix.** Connect-bootstrap called `ensureActiveSession()` → `createSession()` on every connect, fabricating a blank "Untitled chat" per connect. Passive path now passes `allowCreate: false`.
-- **Docs.** `docs/ai/spec-session-list-and-create-ui.md`, `docs/ai/runs/2026-09-29-engraph-lifecycle-proof.md`.
+`feat/router-systemone-backend` off `mega/2026-09-18-mobile-electron-hermes` (`07e14ace`) → draft PR against that base (link in the run log). Previous focus PR #1587 (mobile transcript streaming) is merged into the base.
 
-## Test status
+## In progress
 
-`tsc --noEmit` clean · `eslint` 0 errors · `jest tests/chat` **119/119** · full mobile jest **263/267** · `api_server` contract **9/9** · Playwright `st1-concurrent-delta-streaming` passing (3 concurrent sessions, 0 mid-stream GETs, RED when deltas dropped).
+- Manual smoke: pick System One in Router model settings (Electron + mobile), Test connection, then an Auto session in **Shadow** and check `GET /agent-decisions`.
+- Recommended rollout: `first_prompt` scope, Shadow for a week, then On. Details: `docs/ai/decision-engine-setup.md` → "Kev (recommended for model routing)".
 
 ## Risks / known issues
 
-- **`issue-1387` 4 failures are base-red** — verified identical at `d2796905` with production files reverted. Offline-mirror hydration; out of scope.
-- **Live engine :4096 cannot complete any generation** — `ContextOverflowError: 201231 > 200000` on every session including 3-word prompts, from auto-injected skills/vault/docs context. Pre-existing; blocks all live agent verification on that engine.
-- **Live engine PID 27250 died during testing and did not respawn** — restart Rhythm. Likely the `AuthCredentialWatcher` bounce race from shared `~/.config/opencode/` writes (cf. 2026-08-15).
-- **`ScopedCache` unbounded per-directory MCP clients** in the opencode fork — the mechanism behind "N engraph per engine". Not fixed; bounded impact.
-- Mobile gateway pairing needs a Keychain-held P-256 capability, so no unattended live-UI run is possible by design.
-- #1586 (silent session stalls, no heartbeat/sweeper) still open.
+- **Kev cold latency**: ~80–250 ms warm, 2.8–4.2 s for the first calls after other heavy work on the Mac. Under the 1000 ms default those first prompts time out and keep the baseline route (safe, logged as `timeout`). Watch the timeout rate during the shadow week.
+- Live test enters at `routeTurnForSession`; the full ws_gateway/engine Auto-session path was not smoke-tested by the agent.
+- Carried from the base: `issue-1387` mobile tests base-red (offline-mirror hydration); #1586 silent session stalls still open.
 
-## CI
+## Test status
 
-Fork CI was red from `bcce73c4` (missed `childMcpAllowlist` caller → TS2554); fixed `23b61ff0`. Fork CI ran only `test/session/ src/session/`, so `test/tool/` — all child-scoping regression tests — never executed; added in `50b4b630`. That exposed the writer/reader contract test importing api_server (no `better-sqlite3` in the fork job); split into producer/consumer halves in `16c6c3b1`.
-
-## Engine
-
-Restored via `POST /system/restart-engine` (auth-bypassed under `AGENT_LOCAL=true`). `:4096` 200, `bridgeLive: true`. Two defects found and filed, not fixed: api_server caches a failed engine client and never retries; Electron has no automatic api_server restart, and no dialog appears when the engine dies while api_server stays healthy.
+api_server tsc clean, full vitest 7062 passed / 0 failed; live Kev test passes (`RHYTHM_LIVE_E2E=1`); web tsc + router Playwright 16/16 (`RHYTHM_ROUTER_AUTO_CONTRACT=1`); mobile tsc, jest settings 50/50, eslint clean.
 
 ## Next step
 
-AJ smoke-tests PR #1587 on device/simulator, then merges. No machine action needed — the engine is back up.
+AJ smoke-tests the draft PR with Kev running (`uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009`), then merges into the mega branch.

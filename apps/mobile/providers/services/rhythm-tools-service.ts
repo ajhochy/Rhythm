@@ -681,7 +681,7 @@ export function serializeProfileScope(
   };
 }
 
-export type RouterBackend = 'local' | 'jev' | 'custom';
+export type RouterBackend = 'local' | 'jev' | 'custom' | 'systemone';
 export type RouterFeatureMode = 'default' | 'off' | 'shadow' | 'on';
 export const ROUTER_FEATURE_KEYS = [
   'model_routing',
@@ -745,6 +745,8 @@ export interface RouterConfig {
   local: { baseUrl: string; model: string; scoreScale?: number };
   jev: { baseUrl: string; model: string; hasApiKey: boolean };
   custom: { baseUrl: string; model: string; scoreScale?: number; hasApiKey: boolean };
+  /** Absent when the paired Mac predates the System One backend. */
+  systemone?: { baseUrl: string; model: string; hasApiKey: boolean };
   timeoutMs: number;
   remoteDataConsent: boolean;
   features: Record<RouterFeatureKey, RouterFeatureMode>;
@@ -771,6 +773,7 @@ export interface RouterConfigDraft {
     scoreScale?: number;
     apiKey?: string;
   };
+  systemone?: { baseUrl?: string; model?: string; apiKey?: string };
   timeoutMs?: number;
   remoteDataConsent?: boolean;
   features?: Partial<Record<RouterFeatureKey, RouterFeatureMode>>;
@@ -788,6 +791,9 @@ export interface RouterTestResult {
   latencyMs?: number;
   ranked?: { text: string; score: number }[];
   message?: string;
+  /** System One only: the tier picked for the sample prompt. */
+  tier?: string;
+  probabilities?: Record<string, number>;
 }
 
 const ROUTER_CONFIG_PATH = '/mobile-gateway/tools/agent-decisions/config';

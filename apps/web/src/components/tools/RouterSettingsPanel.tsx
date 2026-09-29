@@ -17,8 +17,9 @@ type Draft = {
   local: { baseUrl: string; model: string; scoreScale: RouterScoreScale };
   jev: { model: string };
   custom: { baseUrl: string; model: string; scoreScale: RouterScoreScale };
-  apiKey: { jev: string; custom: string };
-  clearKey: { jev: boolean; custom: boolean };
+  systemone: { baseUrl: string; model: string };
+  apiKey: { jev: string; custom: string; systemone: string };
+  clearKey: { jev: boolean; custom: boolean; systemone: boolean };
   timeoutMs: string;
   consent: boolean;
   features: Record<RouterFeatureKey, RouterFeatureMode>;
@@ -29,7 +30,10 @@ const BACKENDS: Array<{ id: RouterBackend; label: string; hint: string }> = [
   { id: 'local', label: 'Local (this Mac)', hint: 'A reranker running on this computer.' },
   { id: 'jev', label: 'Jev (TypeSafe API)', hint: 'Hosted by TypeSafe; needs an API key.' },
   { id: 'custom', label: 'Custom (network or other server)', hint: 'Any compatible reranker, for example on another computer.' },
+  { id: 'systemone', label: 'System One (Kev / Jev)', hint: 'One typed tier question per first prompt. Tools and memories stay on the local reranker.' },
 ];
+const SYSTEMONE_DEFAULT_TIMEOUT_MS = '1000';
+const KEV_START = 'uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009';
 const FEATURES: Array<{ key: RouterFeatureKey; label: string; hint: string }> = [
   { key: 'model_routing', label: 'Model routing', hint: 'Picks which model answers each turn in Auto sessions.' },
   { key: 'tool_ranking', label: 'Tool ranking', hint: 'Orders available tools by relevance to the request.' },
@@ -46,8 +50,9 @@ const toDraft = (config: RouterConfig): Draft => ({
   local: { ...config.local },
   jev: { model: config.jev.model },
   custom: { baseUrl: config.custom.baseUrl, model: config.custom.model, scoreScale: config.custom.scoreScale },
-  apiKey: { jev: '', custom: '' },
-  clearKey: { jev: false, custom: false },
+  systemone: { baseUrl: config.systemone?.baseUrl ?? 'http://127.0.0.1:8009', model: config.systemone?.model ?? 'kev-latest' },
+  apiKey: { jev: '', custom: '', systemone: '' },
+  clearKey: { jev: false, custom: false, systemone: false },
   timeoutMs: String(config.timeoutMs),
   consent: config.remoteDataConsent,
   features: { ...config.features },
@@ -102,7 +107,10 @@ export function RouterSettingsPanel() {
   const update = (patch: Partial<Draft>) => { setDraft({ ...draft, ...patch }); setNotice(''); setTest(null); setTestError(''); };
   const backend = draft.backend;
   const customUrl = draft.custom.baseUrl.trim();
-  const needsConsent = backend === 'jev' || (backend === 'custom' && !isLoopback(customUrl));
+  const systemoneUrl = draft.systemone.baseUrl.trim();
+  const needsConsent = backend === 'jev'
+    || (backend === 'custom' && !isLoopback(customUrl))
+    || (backend === 'systemone' && !isLoopback(systemoneUrl));
   const consentBlocked = needsConsent && !draft.consent;
   const lockedConsent = locked('remoteDataConsent');
 
@@ -124,6 +132,14 @@ export function RouterSettingsPanel() {
       ...(locked('custom.scoreScale') ? {} : { scoreScale: draft.custom.scoreScale }),
       ...(customKey !== undefined ? { apiKey: customKey } : {}),
     };
+    if (config.systemone) {
+      const systemoneKey = draft.apiKey.systemone ? draft.apiKey.systemone : draft.clearKey.systemone ? '' : undefined;
+      input.systemone = {
+        ...(locked('systemone.baseUrl') ? {} : { baseUrl: systemoneUrl }),
+        ...(locked('systemone.model') ? {} : { model: draft.systemone.model.trim() }),
+        ...(systemoneKey !== undefined ? { apiKey: systemoneKey } : {}),
+      };
+    }
     const timeout = Number(draft.timeoutMs);
     if (!locked('timeoutMs') && Number.isFinite(timeout) && timeout > 0) input.timeoutMs = Math.round(timeout);
     if (!lockedConsent) input.remoteDataConsent = draft.consent;
@@ -150,8 +166,8 @@ export function RouterSettingsPanel() {
   };
 
   const envNote = (...names: string[]) => locked(...names) ? <small className="router-settings-locked">set by environment</small> : null;
-  const keyField = (id: 'jev' | 'custom', label: string) => {
-    const saved = id === 'jev' ? config.jev.hasApiKey : config.custom.hasApiKey;
+  const keyField = (id: 'jev' | 'custom' | 'systemone', label: string) => {
+    const saved = id === 'systemone' ? Boolean(config.systemone?.hasApiKey) : config[id].hasApiKey;
     const cleared = draft.clearKey[id];
     return <div className="router-settings-field">
       <label>{label}<input type="password" autoComplete="off" value={draft.apiKey[id]} disabled={locked(`${id}.apiKey`)} placeholder={saved && !cleared ? 'Leave blank to keep the saved key' : ''} onChange={(event) => update({ apiKey: { ...draft.apiKey, [id]: event.target.value }, clearKey: { ...draft.clearKey, [id]: false } })} data-testid={`router-${id}-key`} /></label>
@@ -172,8 +188,12 @@ export function RouterSettingsPanel() {
     <p className="router-settings-note">The small model that ranks candidates for Auto model routing, tools, and memories. Effective now: <strong data-testid="router-effective">{config.effective ? `${config.effective.backend} · ${config.effective.model}` : config.backend}</strong></p>
     <fieldset className="router-settings-backends" disabled={locked('backend')}>
       <legend>Backend {envNote('backend')}</legend>
-      {BACKENDS.map((option) => <label key={option.id} className="router-settings-radio">
-        <input type="radio" name="router-backend" value={option.id} checked={backend === option.id} onChange={() => update({ backend: option.id })} data-testid={`router-backend-${option.id}`} />
+      {BACKENDS.filter((option) => option.id !== 'systemone' || config.systemone).map((option) => <label key={option.id} className="router-settings-radio">
+        <input type="radio" name="router-backend" value={option.id} checked={backend === option.id} onChange={() => update({
+          backend: option.id,
+          // An untouched timeout follows the backend default (System One: 1000 ms).
+          ...(option.id === 'systemone' && config.backend !== 'systemone' && draft.timeoutMs === String(config.timeoutMs) ? { timeoutMs: SYSTEMONE_DEFAULT_TIMEOUT_MS } : {}),
+        })} data-testid={`router-backend-${option.id}`} />
         <span><strong>{option.label}</strong><small>{option.hint}</small></span>
       </label>)}
     </fieldset>
@@ -193,11 +213,17 @@ export function RouterSettingsPanel() {
         {keyField('custom', 'API key (optional)')}
         {scaleField('custom')}
       </>}
+      {backend === 'systemone' && <>
+        <div className="router-settings-field"><label>Base URL<input value={draft.systemone.baseUrl} disabled={locked('systemone.baseUrl')} placeholder="http://127.0.0.1:8009" onChange={(event) => update({ systemone: { ...draft.systemone, baseUrl: event.target.value } })} data-testid="router-systemone-url" /></label>{envNote('systemone.baseUrl')}</div>
+        <div className="router-settings-field"><label>Model<input value={draft.systemone.model} disabled={locked('systemone.model')} placeholder="kev-latest" onChange={(event) => update({ systemone: { ...draft.systemone, model: event.target.value } })} data-testid="router-systemone-model" /></label>{envNote('systemone.model')}</div>
+        {keyField('systemone', 'API key (optional for local Kev)')}
+        <small className="router-settings-note" data-testid="router-systemone-help">Start Kev locally: <code>{KEV_START}</code>. For hosted Jev use https://api.typesafe.ai with model jev-latest.</small>
+      </>}
       <div className="router-settings-field"><label>Timeout (ms)<input type="number" min="1" step="1" value={draft.timeoutMs} disabled={locked('timeoutMs')} onChange={(event) => update({ timeoutMs: event.target.value })} data-testid="router-timeout" /></label>{envNote('timeoutMs')}</div>
     </div>
     {needsConsent && <label className="router-settings-consent">
       <input type="checkbox" checked={draft.consent} disabled={lockedConsent} onChange={(event) => update({ consent: event.target.checked })} data-testid="router-consent" />
-      <span>Prompts, tool names and memories will be sent to this server to rank them. {envNote('remoteDataConsent')}</span>
+      <span>{backend === 'systemone' ? 'Session prompts will be sent to this server to pick a model tier (never memories).' : 'Prompts, tool names and memories will be sent to this server to rank them.'} {envNote('remoteDataConsent')}</span>
     </label>}
     <div className="router-settings-features" role="group" aria-label="Router features">
       <h4>Where the router is used</h4>
@@ -225,7 +251,7 @@ export function RouterSettingsPanel() {
       {saveError && <p role="alert" data-testid="router-save-error">{saveError}</p>}
       {testError && <p role="alert" data-testid="router-test-error">{testError}</p>}
       {test && (test.ok
-        ? <div data-testid="router-test-result"><p><strong>Connected</strong> · {test.model ?? draft[backend === 'jev' ? 'jev' : backend].model} · {test.latencyMs ?? '?'} ms</p>
+        ? <div data-testid="router-test-result"><p><strong>Connected</strong> · {test.model ?? draft[backend].model}{test.tier ? <> · tier <strong data-testid="router-test-tier">{test.tier}</strong></> : null} · {test.latencyMs ?? '?'} ms</p>
           {test.ranked && test.ranked.length > 0 && <ol className="router-settings-ranked">{test.ranked.map((row, index) => <li key={index}><span>{row.text}</span><code>{Number(row.score).toFixed(3)}</code></li>)}</ol>}</div>
         : <p role="alert" data-testid="router-test-result">Test failed{test.message ? `: ${test.message}` : ''}</p>)}
     </div>

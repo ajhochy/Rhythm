@@ -1,6 +1,6 @@
 import { createServer, type Server } from 'http';
 import type { AddressInfo } from 'net';
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import express from 'express';
@@ -12,8 +12,13 @@ vi.mock('../../middleware/auth_middleware', () => ({
 
 import agentDecisionsRouter from '../../routes/agent_decisions_routes';
 import { HttpRerankClient, JevRerankClient, getDefaultRerankClient, resetRemoteEndpointCacheForTests } from './decision_client';
-import { mergeConfig, DecisionConfigError } from './decision_config_service';
-import { defaultDecisionSettings, resetDecisionSettingsCacheForTests } from './decision_settings';
+import { mergeConfig, resolveConfig, DecisionConfigError } from './decision_config_service';
+import {
+  defaultDecisionSettings,
+  effectiveLowConfidenceTier,
+  loadDecisionSettings,
+  resetDecisionSettingsCacheForTests,
+} from './decision_settings';
 
 const ENV = ['RHYTHM_DECISION_ROUTER_FILE', 'AGENT_DECISION_BASE_URL', 'AGENT_DECISION_MODEL', 'AGENT_DECISION_TIMEOUT_MS'];
 let dir: string;
@@ -253,5 +258,91 @@ describe('routes', () => {
     } finally {
       await new Promise<void>((r) => backend.close(() => r()));
     }
+  });
+
+  it('systemone: GET never returns the key; POST /config/test classifies one prompt', async () => {
+    const seen: any[] = [];
+    const backend = createServer((req, res) => {
+      let raw = '';
+      req.on('data', (c) => (raw += c));
+      req.on('end', () => {
+        seen.push({ url: req.url, auth: req.headers.authorization, body: JSON.parse(raw) });
+        res.end(JSON.stringify({
+          model: 'kev-4b',
+          answers: { q: { type: 'choice', choice: 'cheap', confidence: 0.9, probabilities: { cheap: 0.9, standard: 0.08, frontier: 0.02 } } },
+        }));
+      });
+    });
+    await new Promise<void>((r) => backend.listen(0, '127.0.0.1', r));
+    try {
+      const url = `http://127.0.0.1:${(backend.address() as AddressInfo).port}`;
+      const saved = await put({ backend: 'systemone', systemone: { baseUrl: url, apiKey: 'kev-secret' } });
+      expect(saved.status).toBe(200);
+      const view = (await (await fetch(`${base}/config`)).json()) as any;
+      expect(view).toMatchObject({ backend: 'systemone', systemone: { baseUrl: url, model: 'kev-latest', hasApiKey: true }, timeoutMs: 1000 });
+      expect(view.effective.routing).toMatchObject({ minConfidence: 0.55, lowConfidenceTier: 'standard' });
+      expect(JSON.stringify(view)).not.toContain('kev-secret');
+
+      const res = await fetch(`${base}/config/test`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+      const out = (await res.json()) as any;
+      expect(out).toMatchObject({ ok: true, backend: 'systemone', model: 'kev-4b', tier: 'cheap', probabilities: { cheap: 0.9 } });
+      expect(typeof out.latencyMs).toBe('number');
+      expect(out.ranked[0]).toEqual({ text: 'cheap', score: 0.9 });
+      expect(seen).toHaveLength(1);
+      expect(seen[0]).toMatchObject({ url: '/v1/systemone', auth: 'Bearer kev-secret', body: { state: 'What tasks are due today?' } });
+      expect(Object.keys(seen[0].body.questions)).toHaveLength(1);
+    } finally {
+      await new Promise<void>((r) => backend.close(() => r()));
+    }
+  });
+});
+
+describe('systemone backend settings', () => {
+  it('defaults, and old files without the key still load', () => {
+    const d = defaultDecisionSettings();
+    expect(d.systemone).toEqual({ baseUrl: 'http://127.0.0.1:8009', model: 'kev-latest', apiKey: '' });
+    expect(d.routing).toMatchObject({ minConfidence: 0.55, lowConfidenceTier: null });
+    writeFileSync(process.env.RHYTHM_DECISION_ROUTER_FILE!, JSON.stringify({ version: 1, backend: 'jev', jev: { apiKey: 'k' } }));
+    resetDecisionSettingsCacheForTests();
+    const old = loadDecisionSettings();
+    expect(old.backend).toBe('jev');
+    expect(old.systemone).toEqual(d.systemone);
+    expect(effectiveLowConfidenceTier(old)).toBe('keep');
+    expect(effectiveLowConfidenceTier({ ...old, backend: 'systemone' })).toBe('standard');
+  });
+
+  it('timeout defaults to 1000ms and stays overridable', () => {
+    const s = mergeConfig(defaultDecisionSettings(), { backend: 'systemone' });
+    expect(resolveConfig(s)).toMatchObject({ backend: 'systemone', baseUrl: 'http://127.0.0.1:8009', model: 'kev-latest', timeoutMs: 1000 });
+    expect(resolveConfig({ ...s, timeoutMs: 700 }).timeoutMs).toBe(700);
+  });
+
+  it('loopback http needs no consent; anything else needs https plus consent', () => {
+    const base = defaultDecisionSettings();
+    expect(code(() => mergeConfig(base, { backend: 'systemone', systemone: { baseUrl: 'http://localhost:9000' } }))).toBe('none');
+    expect(code(() => mergeConfig(base, { backend: 'systemone', systemone: { baseUrl: 'http://192.168.1.4:8009' } }))).toBe('invalid_url');
+    expect(code(() => mergeConfig(base, { backend: 'systemone', remoteDataConsent: true, systemone: { baseUrl: 'http://example.com' } }))).toBe('invalid_url');
+    expect(code(() => mergeConfig(base, { backend: 'systemone', systemone: { baseUrl: 'https://api.typesafe.ai' } }))).toBe('consent_required');
+    const hosted = mergeConfig(base, {
+      backend: 'systemone', remoteDataConsent: true,
+      systemone: { baseUrl: 'https://api.typesafe.ai', model: 'jev-latest', apiKey: 'k' },
+    });
+    expect(hosted.systemone).toEqual({ baseUrl: 'https://api.typesafe.ai', model: 'jev-latest', apiKey: 'k' });
+  });
+
+  it('validates the routing policy fields', () => {
+    const base = defaultDecisionSettings();
+    expect(mergeConfig(base, { routing: { lowConfidenceTier: 'keep', minConfidence: 0.6 } }).routing)
+      .toMatchObject({ lowConfidenceTier: 'keep', minConfidence: 0.6 });
+    expect(code(() => mergeConfig(base, { routing: { lowConfidenceTier: 'frontier' } }))).toBe('invalid_body');
+    expect(code(() => mergeConfig(base, { routing: { minConfidence: 0 } }))).toBe('invalid_confidence');
+  });
+
+  it('tool/memory ranking under systemone use the local reranker, never Kev', () => {
+    writeFileSync(process.env.RHYTHM_DECISION_ROUTER_FILE!, JSON.stringify({ backend: 'systemone', local: { baseUrl: 'http://127.0.0.1:8123' } }));
+    resetDecisionSettingsCacheForTests();
+    const c = getDefaultRerankClient() as unknown as { opts: { baseUrl: string } };
+    expect(c).toBeInstanceOf(HttpRerankClient);
+    expect(c.opts.baseUrl).toBe('http://127.0.0.1:8123');
   });
 });

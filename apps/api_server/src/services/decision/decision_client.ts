@@ -6,7 +6,7 @@ import {
   getDecisionTimeoutMs,
 } from '../../config/env';
 import { resolveEndpoint, validateEndpointUrl } from '../custom_provider_service';
-import { loadDecisionSettings } from './decision_settings';
+import { DEFAULT_LOCAL_TIMEOUT_MS, loadDecisionSettings } from './decision_settings';
 
 export type RerankResult =
   | { status: 'ok'; scores: number[]; latencyMs: number; model: string }
@@ -61,7 +61,7 @@ export function resetRemoteEndpointCacheForTests(): void {
 }
 
 /** Read the body as text, aborting once it exceeds the size cap. */
-async function readCapped(response: Response): Promise<string | null> {
+export async function readCapped(response: Response): Promise<string | null> {
   const declared = Number(response.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) return null;
   if (!response.body) return response.text();
@@ -346,7 +346,7 @@ export class JevRerankClient implements RerankClient {
 }
 
 export interface ResolvedRouterConfig {
-  backend: 'local' | 'jev' | 'custom';
+  backend: 'local' | 'jev' | 'custom' | 'systemone';
   baseUrl: string;
   model: string;
   scoreScale: DecisionScoreScale;
@@ -391,6 +391,17 @@ export function buildRerankClientFromSettings(): RerankClient {
       consent: settings.remoteDataConsent,
     });
   }
+  if (backend === 'systemone') {
+    // Kev only routes models. Tool and memory ranking stay on the local
+    // loopback reranker (HttpRerankClient refuses anything else), so memory
+    // text never reaches the System One backend.
+    return new HttpRerankClient({
+      baseUrl: settings.local.baseUrl,
+      model: settings.local.model,
+      scoreScale: settings.local.scoreScale,
+      timeoutMs: DEFAULT_LOCAL_TIMEOUT_MS,
+    });
+  }
   if (backend === 'custom') {
     return new HttpRerankClient({
       remote: { consent: settings.remoteDataConsent, apiKey: settings.custom.apiKey || undefined },
@@ -411,7 +422,7 @@ export function getDefaultRerankClient(): RerankClient {
   const s = loadDecisionSettings();
   const signature = JSON.stringify([
     s.backend, s.remoteDataConsent, s.jev.apiKey, getDecisionBaseUrl(), getDecisionModel(),
-    s.custom.apiKey,
+    s.custom.apiKey, s.backend === 'systemone' ? s.local : null,
   ]);
   if (!defaultClient || defaultClient.signature !== signature) {
     defaultClient = { signature, client: buildRerankClientFromSettings() };

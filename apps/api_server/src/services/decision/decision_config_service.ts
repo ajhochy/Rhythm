@@ -1,5 +1,6 @@
 import {
   getDecisionEscalateMinConfidence,
+  getDecisionRoutingMinConfidence,
   getDecisionRoutingScope,
   getEffectiveDecisionMode,
 } from '../../config/env';
@@ -10,14 +11,16 @@ import {
   type ResolvedRouterConfig,
 } from './decision_client';
 import { rankCandidates } from './decision_engine';
+import { TIER_CHOICE_QUESTION } from './model_router';
+import { SystemOneClient } from './systemone_client';
 import { getCatalogForSettings, resetModelCatalogCache } from './model_catalog';
 import {
   DECISION_FEATURE_KEYS,
   DECISION_ROUTING_SCOPES,
   ROUTER_TIER_NAMES,
-  DEFAULT_LOCAL_TIMEOUT_MS,
-  DEFAULT_REMOTE_TIMEOUT_MS,
   decisionLockedByEnv,
+  defaultTimeoutFor,
+  effectiveLowConfidenceTier,
   loadDecisionSettings,
   normaliseDecisionSettings,
   saveDecisionSettings,
@@ -62,7 +65,12 @@ export function buildConfigView(settings: DecisionSettings = loadDecisionSetting
       scoreScale: settings.custom.scoreScale,
       hasApiKey: settings.custom.apiKey !== '',
     },
-    timeoutMs: settings.timeoutMs ?? (settings.backend === 'local' ? DEFAULT_LOCAL_TIMEOUT_MS : DEFAULT_REMOTE_TIMEOUT_MS),
+    systemone: {
+      baseUrl: settings.systemone.baseUrl,
+      model: settings.systemone.model,
+      hasApiKey: settings.systemone.apiKey !== '',
+    },
+    timeoutMs: settings.timeoutMs ?? defaultTimeoutFor(settings.backend),
     remoteDataConsent: settings.remoteDataConsent,
     features: { ...settings.features },
     routing: { ...settings.routing },
@@ -75,7 +83,12 @@ export function buildConfigView(settings: DecisionSettings = loadDecisionSetting
       baseUrl: resolved.baseUrl,
       model: resolved.model,
       features,
-      routing: { scope: getDecisionRoutingScope(), escalateMinConfidence: getDecisionEscalateMinConfidence() },
+      routing: {
+        scope: getDecisionRoutingScope(),
+        escalateMinConfidence: getDecisionEscalateMinConfidence(),
+        minConfidence: getDecisionRoutingMinConfidence(),
+        lowConfidenceTier: effectiveLowConfidenceTier(settings),
+      },
     },
   };
 }
@@ -123,7 +136,9 @@ export function resolveConfig(settings: DecisionSettings): ResolvedRouterConfig 
   const envScale = (process.env.AGENT_DECISION_SCORE_SCALE ?? '').trim().toLowerCase();
   const scale = SCALES.includes(envScale)
     ? (envScale as ResolvedRouterConfig['scoreScale'])
-    : settings.backend === 'jev' ? 'auto' : settings[settings.backend].scoreScale;
+    : settings.backend === 'local' || settings.backend === 'custom'
+      ? settings[settings.backend].scoreScale
+      : 'auto';
   return {
     backend: settings.backend,
     baseUrl: (process.env.AGENT_DECISION_BASE_URL ?? '').trim() || section.baseUrl,
@@ -132,13 +147,13 @@ export function resolveConfig(settings: DecisionSettings): ResolvedRouterConfig 
     timeoutMs:
       envPositive('AGENT_DECISION_TIMEOUT_MS')
       ?? settings.timeoutMs
-      ?? (settings.backend === 'local' ? DEFAULT_LOCAL_TIMEOUT_MS : DEFAULT_REMOTE_TIMEOUT_MS),
-    apiKey: settings.backend === 'jev' ? settings.jev.apiKey : settings.backend === 'custom' ? settings.custom.apiKey : '',
+      ?? defaultTimeoutFor(settings.backend),
+    apiKey: settings.backend === 'local' ? '' : settings[settings.backend].apiKey,
     consent: settings.remoteDataConsent,
   };
 }
 
-function checkUrl(kind: 'local' | 'jev' | 'custom', value: unknown): string {
+function checkUrl(kind: DecisionSettings['backend'], value: unknown): string {
   if (typeof value !== 'string' || value.length > MAX_TEXT) bad('invalid_url', 'Base URL must be a string.');
   const url = value as string;
   if (kind === 'custom' && url.trim() === '') return '';
@@ -153,6 +168,9 @@ function checkUrl(kind: 'local' | 'jev' | 'custom', value: unknown): string {
   }
   if (kind === 'jev' && endpoint.protocol !== 'https:') {
     bad('invalid_url', 'The Jev backend requires an https URL.');
+  }
+  if (kind === 'systemone' && endpoint.protocol !== 'https:' && !isLoopbackHost(endpoint.hostname)) {
+    bad('invalid_url', 'System One needs a loopback http URL (local Kev) or an https URL.');
   }
   return url.trim();
 }
@@ -177,8 +195,8 @@ export function mergeConfig(base: DecisionSettings, body: unknown): DecisionSett
   if (!isObj(body)) return bad('invalid_body', 'Expected a JSON object.');
   const next = normaliseDecisionSettings(JSON.parse(JSON.stringify(base)));
   if (body.backend !== undefined) {
-    if (body.backend !== 'local' && body.backend !== 'jev' && body.backend !== 'custom') {
-      bad('invalid_backend', 'backend must be local, jev or custom.');
+    if (!['local', 'jev', 'custom', 'systemone'].includes(body.backend as string)) {
+      bad('invalid_backend', 'backend must be local, jev, custom or systemone.');
     }
     next.backend = body.backend as DecisionSettings['backend'];
   }
@@ -203,6 +221,13 @@ export function mergeConfig(base: DecisionSettings, body: unknown): DecisionSett
     if (c.model !== undefined) next.custom.model = checkText('custom.model', c.model);
     if (c.scoreScale !== undefined) next.custom.scoreScale = checkScale(c.scoreScale);
     if (c.apiKey !== undefined) next.custom.apiKey = checkKey(c.apiKey);
+  }
+  if (body.systemone !== undefined) {
+    if (!isObj(body.systemone)) bad('invalid_body', 'systemone must be an object.');
+    const o = body.systemone as Record<string, unknown>;
+    if (o.baseUrl !== undefined) next.systemone.baseUrl = checkUrl('systemone', o.baseUrl) || next.systemone.baseUrl;
+    if (o.model !== undefined) next.systemone.model = checkText('systemone.model', o.model) || next.systemone.model;
+    if (o.apiKey !== undefined) next.systemone.apiKey = checkKey(o.apiKey);
   }
   if (body.timeoutMs !== undefined) {
     const t = body.timeoutMs;
@@ -240,6 +265,19 @@ export function mergeConfig(base: DecisionSettings, body: unknown): DecisionSett
         bad('invalid_confidence', 'routing.escalateMinConfidence must be a number greater than 0 and at most 1.');
       }
       next.routing.escalateMinConfidence = c as number;
+    }
+    if (r.minConfidence !== undefined) {
+      const c = r.minConfidence;
+      if (typeof c !== 'number' || !Number.isFinite(c) || c <= 0 || c > 1) {
+        bad('invalid_confidence', 'routing.minConfidence must be a number greater than 0 and at most 1.');
+      }
+      next.routing.minConfidence = c as number;
+    }
+    if (r.lowConfidenceTier !== undefined) {
+      if (r.lowConfidenceTier !== null && r.lowConfidenceTier !== 'keep' && r.lowConfidenceTier !== 'standard') {
+        bad('invalid_body', 'routing.lowConfidenceTier must be keep, standard or null (backend default).');
+      }
+      next.routing.lowConfidenceTier = r.lowConfidenceTier as DecisionSettings['routing']['lowConfidenceTier'];
     }
   }
   if (body.tiers !== undefined) {
@@ -296,7 +334,7 @@ function checkModelId(field: string, id: unknown): void {
   }
 }
 
-/** Jev, and custom over anything but loopback, sends prompts off-device. */
+/** Jev, and custom/systemone over anything but loopback, sends prompts off-device. */
 function assertConsent(s: DecisionSettings): void {
   if (s.remoteDataConsent) return;
   if (s.backend === 'jev') {
@@ -307,6 +345,13 @@ function assertConsent(s: DecisionSettings): void {
     try { host = new URL(s.custom.baseUrl).hostname; } catch { /* validated already */ }
     if (host && !isLoopbackHost(host)) {
       bad('consent_required', 'This custom server is not on loopback, so prompts and memory text leave this device. Enable remoteDataConsent first.');
+    }
+  }
+  if (s.backend === 'systemone') {
+    let host = '';
+    try { host = new URL(s.systemone.baseUrl).hostname; } catch { /* validated already */ }
+    if (!isLoopbackHost(host)) {
+      bad('consent_required', 'This System One server is not on loopback, so prompts leave this device. Enable remoteDataConsent first.');
     }
   }
 }
@@ -334,6 +379,7 @@ const SAMPLE_DOCS = [
 export async function testConfig(draft: unknown) {
   const merged = mergeConfig(loadDecisionSettings(), draft ?? {});
   const cfg = resolveConfig(merged);
+  if (cfg.backend === 'systemone') return testSystemOne(cfg);
   const client = buildRerankClient({ ...cfg, timeoutMs: Math.max(cfg.timeoutMs, 3000) });
   const result = await rankCandidates(
     SAMPLE_QUERY,
@@ -356,5 +402,43 @@ export async function testConfig(draft: unknown) {
     model: result.model,
     latencyMs: result.latencyMs,
     ranked: result.ranked.map((r) => ({ text: SAMPLE_DOCS[Number(r.id)].slice(0, 80), score: r.score })),
+  };
+}
+
+const SYSTEMONE_SAMPLE = 'What tasks are due today?';
+
+/** One tier classification against the draft System One settings. */
+async function testSystemOne(cfg: ResolvedRouterConfig) {
+  const client = new SystemOneClient({
+    baseUrl: cfg.baseUrl,
+    model: cfg.model,
+    apiKey: cfg.apiKey,
+    consent: cfg.consent,
+    timeoutMs: Math.max(cfg.timeoutMs, 3000),
+  });
+  const r = await client.choose(SYSTEMONE_SAMPLE, TIER_CHOICE_QUESTION);
+  if (r.status !== 'ok') {
+    return {
+      ok: false,
+      backend: cfg.backend,
+      model: cfg.model,
+      latencyMs: r.latencyMs,
+      ranked: [] as { text: string; score: number }[],
+      message: r.reason,
+    };
+  }
+  return {
+    ok: true,
+    backend: cfg.backend,
+    model: r.model,
+    latencyMs: r.latencyMs,
+    prompt: SYSTEMONE_SAMPLE,
+    tier: r.choice,
+    confidence: r.confidence,
+    probabilities: r.probabilities,
+    // Same shape the settings panels already render for the reranker test.
+    ranked: Object.entries(r.probabilities as Record<string, number>)
+      .map(([text, score]) => ({ text, score }))
+      .sort((a, b) => b.score - a.score),
   };
 }

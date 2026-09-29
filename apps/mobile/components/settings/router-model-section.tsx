@@ -29,6 +29,9 @@ export interface RouterSettingsApi {
 }
 
 export const CONSENT_COPY = 'Prompts, tool names and memories will be sent to this server to rank them.';
+export const SYSTEMONE_CONSENT_COPY = 'Session prompts will be sent to this server to pick a model tier (never memories).';
+export const KEV_HELPER_COPY =
+  'Start Kev on the Mac: uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009. For hosted Jev use https://api.typesafe.ai with model jev-latest.';
 export const LOCAL_HELPER_COPY =
   'Local means local to your paired Mac: the router model runs on the Mac, not on this phone.';
 
@@ -36,7 +39,9 @@ const BACKENDS: { value: RouterBackend; label: string }[] = [
   { value: 'local', label: 'Local on the Mac' },
   { value: 'jev', label: 'Jev API' },
   { value: 'custom', label: 'Custom network server' },
+  { value: 'systemone', label: 'System One (Kev / Jev)' },
 ];
+const SYSTEMONE_DEFAULT_TIMEOUT = '1000';
 const MODES: { value: RouterFeatureMode; label: string }[] = [
   { value: 'default', label: 'Default' },
   { value: 'off', label: 'Off' },
@@ -109,6 +114,10 @@ interface FormState {
   customScale: string;
   customApiKey: string;
   customClearKey: boolean;
+  systemoneBaseUrl: string;
+  systemoneModel: string;
+  systemoneApiKey: string;
+  systemoneClearKey: boolean;
   timeout: string;
   consent: boolean;
   features: Record<RouterFeatureKey, RouterFeatureMode>;
@@ -131,6 +140,10 @@ function toForm(config: RouterConfig): FormState {
     customScale: config.custom.scoreScale == null ? '' : String(config.custom.scoreScale),
     customApiKey: '',
     customClearKey: false,
+    systemoneBaseUrl: config.systemone?.baseUrl ?? 'http://127.0.0.1:8009',
+    systemoneModel: config.systemone?.model ?? 'kev-latest',
+    systemoneApiKey: '',
+    systemoneClearKey: false,
     timeout: String(config.timeoutMs ?? ''),
     consent: Boolean(config.remoteDataConsent),
     features: { ...config.features },
@@ -181,6 +194,17 @@ export function buildRouterPayload(form: FormState, config: RouterConfig, includ
   }
   if (Object.keys(custom).length) payload.custom = custom;
 
+  if (config.systemone) {
+    const systemone: NonNullable<RouterConfigDraft['systemone']> = {};
+    if (!isLockedByEnv(locked, 'systemone.baseUrl')) systemone.baseUrl = form.systemoneBaseUrl.trim();
+    if (!isLockedByEnv(locked, 'systemone.model')) systemone.model = form.systemoneModel.trim();
+    if (!isLockedByEnv(locked, 'systemone.apiKey')) {
+      if (form.systemoneApiKey) systemone.apiKey = form.systemoneApiKey;
+      else if (form.systemoneClearKey) systemone.apiKey = '';
+    }
+    if (Object.keys(systemone).length) payload.systemone = systemone;
+  }
+
   const timeoutMs = num(form.timeout);
   if (timeoutMs !== undefined && !isLockedByEnv(locked, 'timeoutMs')) payload.timeoutMs = timeoutMs;
   if (!isLockedByEnv(locked, 'remoteDataConsent')) payload.remoteDataConsent = form.consent;
@@ -204,7 +228,17 @@ export function buildRouterPayload(form: FormState, config: RouterConfig, includ
 }
 
 function needsConsent(form: FormState): boolean {
-  return form.backend === 'jev' || (form.backend === 'custom' && isRemoteUrl(form.customBaseUrl));
+  return form.backend === 'jev'
+    || (form.backend === 'custom' && isRemoteUrl(form.customBaseUrl))
+    || (form.backend === 'systemone' && !isLoopbackUrl(form.systemoneBaseUrl));
+}
+
+/** Server rule for System One: only loopback http skips consent. */
+export function isLoopbackUrl(url: string): boolean {
+  const match = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]*@)?(\[[^\]]+\]|[^:/?#]+)/i.exec(url.trim());
+  if (!match) return false;
+  const host = match[1].toLowerCase().replace(/^\[|\]$/g, '');
+  return host === 'localhost' || host === '::1' || /^127(?:\.\d{1,3}){3}$/.test(host);
 }
 
 export function RouterModelSection({ api, palette }: { api: RouterSettingsApi | null; palette: Palette }) {
@@ -294,6 +328,15 @@ export function RouterConfigDialog({
   const locked = config.lockedByEnv;
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((current) => ({ ...current, [key]: value }));
+  // An untouched timeout follows the backend default (System One: 1000 ms).
+  const selectBackend = (backend: RouterBackend) =>
+    setForm((current) => ({
+      ...current,
+      backend,
+      ...(backend === 'systemone' && config.backend !== 'systemone' && current.timeout === String(config.timeoutMs ?? '')
+        ? { timeout: SYSTEMONE_DEFAULT_TIMEOUT }
+        : {}),
+    }));
   const consentRequired = needsConsent(form);
   const consentMissing = consentRequired && !form.consent;
   const payload = useMemo(() => buildRouterPayload(form, config), [form, config]);
@@ -349,8 +392,8 @@ export function RouterConfigDialog({
 
   const keyField = (
     label: string,
-    keyName: 'jevApiKey' | 'customApiKey',
-    clearName: 'jevClearKey' | 'customClearKey',
+    keyName: 'jevApiKey' | 'customApiKey' | 'systemoneApiKey',
+    clearName: 'jevClearKey' | 'customClearKey' | 'systemoneClearKey',
     hasKey: boolean,
     lockPath: string,
   ) => {
@@ -384,16 +427,16 @@ export function RouterConfigDialog({
         <ScrollView accessibilityViewIsModal contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Text variant="labelLarge" style={{ color: palette.text }}>Backend</Text>
           <RadioButton.Group
-            onValueChange={(value) => !isLockedByEnv(locked, 'backend') && set('backend', value as RouterBackend)}
+            onValueChange={(value) => !isLockedByEnv(locked, 'backend') && selectBackend(value as RouterBackend)}
             value={form.backend}>
-            {BACKENDS.map((b) => (
+            {BACKENDS.filter((b) => b.value !== 'systemone' || config.systemone).map((b) => (
               <Pressable
                 accessibilityLabel={b.label}
                 accessibilityRole="radio"
                 accessibilityState={{ checked: form.backend === b.value, disabled: isLockedByEnv(locked, 'backend') }}
                 disabled={isLockedByEnv(locked, 'backend')}
                 key={b.value}
-                onPress={() => set('backend', b.value)}
+                onPress={() => selectBackend(b.value)}
                 style={styles.radioRow}>
                 <RadioButton disabled={isLockedByEnv(locked, 'backend')} value={b.value} />
                 <Text style={{ color: palette.text }}>{b.label}</Text>
@@ -422,6 +465,14 @@ export function RouterConfigDialog({
               {field('Model', 'customModel', 'custom.model')}
               {field('Score scale', 'customScale', 'custom.scoreScale', { keyboardType: 'decimal-pad' })}
               {keyField('API key (optional)', 'customApiKey', 'customClearKey', config.custom.hasApiKey, 'custom.apiKey')}
+            </View>
+          ) : null}
+          {form.backend === 'systemone' ? (
+            <View style={styles.group}>
+              {field('Base URL', 'systemoneBaseUrl', 'systemone.baseUrl', { keyboardType: 'url', placeholder: 'http://127.0.0.1:8009' })}
+              {field('Model', 'systemoneModel', 'systemone.model', { placeholder: 'kev-latest' })}
+              {keyField('API key (optional for local Kev)', 'systemoneApiKey', 'systemoneClearKey', Boolean(config.systemone?.hasApiKey), 'systemone.apiKey')}
+              <HelperText type="info" testID="router-systemone-help">{KEV_HELPER_COPY}</HelperText>
             </View>
           ) : null}
 
@@ -498,7 +549,7 @@ export function RouterConfigDialog({
 
           {consentRequired ? (
             <View accessible accessibilityLabel="Send data to this server" style={styles.row}>
-              <Text style={[styles.flex, { color: palette.text }]}>{CONSENT_COPY}</Text>
+              <Text style={[styles.flex, { color: palette.text }]}>{form.backend === 'systemone' ? SYSTEMONE_CONSENT_COPY : CONSENT_COPY}</Text>
               <NativeSwitch
                 accessibilityLabel="Allow sending data to this server"
                 disabled={isLockedByEnv(locked, 'remoteDataConsent')}
@@ -529,7 +580,7 @@ export function RouterConfigDialog({
               </Text>
               {result.ok ? (
                 <Text style={{ color: palette.muted }}>
-                  {[result.model, result.latencyMs != null ? `${result.latencyMs} ms` : undefined].filter(Boolean).join(' · ')}
+                  {[result.model, result.latencyMs != null ? `${result.latencyMs} ms` : undefined, result.tier ? `tier ${result.tier}` : undefined].filter(Boolean).join(' · ')}
                 </Text>
               ) : null}
               {result.ok && result.message ? <Text style={{ color: palette.muted }}>{result.message}</Text> : null}
