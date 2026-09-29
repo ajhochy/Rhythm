@@ -20,6 +20,7 @@ import { navigate } from '../Shell';
 import './AgentSettingsTool.css';
 import { HermesAccountsSettings } from './HermesAccountsSettings';
 import { ModelCurationPanel } from './ModelCurationPanel';
+import { RouterSettingsPanel } from './RouterSettingsPanel';
 import { RuntimeGatewayError, type RuntimeInfo } from '../../gateway/runtime';
 
 type Trace = { method: string; route: string; detail: string };
@@ -1053,6 +1054,8 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
       onReloadLocalConfig={() => void reloadEngineConfig()} localConfigPending={actionPending('runtime', 'reload')}
       onOpenAccounts={() => path.selectSection(sectionIds.accounts)}
     />
+
+    <RouterSettingsPanel />
   </>;
   const runtimeValue = (service: 'api' | 'engine', label: string) => {
     const status = runtimeStatus[service];

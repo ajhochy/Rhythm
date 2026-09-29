@@ -420,12 +420,19 @@ export async function handleInputFrame(
     return;
   }
 
+  // Auto (router) model mode for THIS turn. The session row is authoritative;
+  // a valid `modelMode` on the frame overrides it for this turn only (never
+  // persisted — clients PATCH the session to change the stored mode).
+  const frameModelMode =
+    msg.modelMode === 'auto' || msg.modelMode === 'fixed' ? msg.modelMode : null;
+
   let opencodeId = opencodeSessionMap.get(id);
   let cwd: string | undefined;
   let agentKind: string | undefined;
   let sessionName: string | undefined;
   let sessionProviderId: string | null = null;
   let sessionModelId: string | null = null;
+  let sessionModelMode: 'auto' | 'fixed' = 'fixed';
   let sessionThinkingBudget: number | null = null;
   let sessionFastMode = false;
   let sessionOwnerUserId: number | null = null;
@@ -445,6 +452,7 @@ export async function handleInputFrame(
       sessionName = session.name;
       sessionProviderId = session.providerId;
       sessionModelId = session.modelId;
+      sessionModelMode = session.modelMode === 'auto' ? 'auto' : 'fixed';
       sessionThinkingBudget = session.thinkingBudget ?? null;
       sessionFastMode = session.fastMode ?? false;
       sessionOwnerUserId = session.ownerUserId ?? null;
@@ -546,6 +554,8 @@ export async function handleInputFrame(
     requestedTier: string | null;
     routeAuthed: boolean | null;
   } | undefined;
+  const turnModelMode: 'auto' | 'fixed' = frameModelMode ?? sessionModelMode;
+  const turnSessionAuto = turnModelMode === 'auto';
   if (agentKind) {
     try {
       const { resolveModelForSessionTurnWithProvenance } = await import('./agent_model_resolver');
@@ -554,6 +564,7 @@ export async function handleInputFrame(
         sessionProviderId,
         sessionModelId,
         perTurnOverride,
+        sessionModelMode: turnModelMode,
         // #1108 — lets a successful manual per-turn override persist onto
         // this session row so it survives the NEXT prompt instead of
         // silently reverting to the stale stored provider/model.
@@ -561,6 +572,36 @@ export async function handleInputFrame(
       });
       resolvedTurnModel = resolution.route;
       resolvedTurnProvenance = resolution;
+      // Local decision engine (routing scope -> tier router -> capacity layer),
+      // shared with the mobile proxy. No-op when the features are off; never
+      // overrides pinned sources; never throws.
+      {
+        const { routeTurnForSession } = await import('./decision/turn_routing');
+        let routingRow: import('./decision/turn_routing').TurnRoutingSessionRow | null = null;
+        try {
+          routingRow = new AgentSessionsRepository().findById(id);
+        } catch {
+          routingRow = null;
+        }
+        const turnRouting = await routeTurnForSession({
+          sessionRow: routingRow,
+          sessionId: id,
+          prompt: data ?? '',
+          agentId: trustedScopeAgent ?? agentKind,
+          requestedSource: resolution.requestedSource,
+          requestedTier: resolution.requestedTier,
+          baseRoute: resolution.route,
+          sessionAuto: turnSessionAuto,
+        });
+        if (turnRouting.applied) {
+          resolvedTurnModel = turnRouting.route;
+          resolvedTurnProvenance = {
+            ...resolution,
+            requestedSource: turnRouting.requestedSource as import('../models/model_provenance').RequestedSource,
+            requestedTier: turnRouting.requestedTier,
+          };
+        }
+      }
     } catch (err) {
       console.error(`[ws_gateway] early model resolution for Gemini tool cap failed (non-fatal):`, err);
     }
@@ -788,6 +829,7 @@ export async function handleInputFrame(
       opencodeId,
       wsMcpRoleConfig ?? null,
       resolvedTurnProviderId,
+      data,
     );
   } catch (allowlistErr) {
     console.error(`[ws_gateway] updateSessionAllowlist failed (non-fatal):`, allowlistErr);

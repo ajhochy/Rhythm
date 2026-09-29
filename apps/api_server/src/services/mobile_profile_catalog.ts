@@ -38,6 +38,9 @@ export interface SafeMobileSessionProfileState {
   profileAvailability: MobileProfileAvailability;
   providerId: string | null;
   modelId: string | null;
+  /** 'auto' = the router picks the model; providerId/modelId are then only the last pick. */
+  modelMode: 'auto' | 'fixed';
+  routerDecidedAt: string | null;
   thinkingBudget: number | null;
   permissionMode: PermissionMode;
 }
@@ -109,6 +112,8 @@ export function safeMobileSessionProfileState(
         : 'unassigned',
     providerId: session.providerId,
     modelId: session.modelId,
+    modelMode: session.modelMode,
+    routerDecidedAt: session.routerDecidedAt,
     thinkingBudget: session.thinkingBudget,
     permissionMode: session.permissionMode,
   };

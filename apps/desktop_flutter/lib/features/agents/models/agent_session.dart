@@ -83,6 +83,7 @@ class AgentSession {
     this.projectId,
     this.providerId,
     this.modelId,
+    this.modelMode = 'fixed',
     this.permissionMode = PermissionMode.defaultMode,
     this.thinkingBudget,
     this.fastMode = false,
@@ -114,6 +115,15 @@ class AgentSession {
   final String? projectId;
   final String? providerId;
   final String? modelId;
+
+  /// Router mode: `'auto'` (the router picks per turn; [providerId]/[modelId]
+  /// are only the fallback) or `'fixed'` (the stored model is used). Servers
+  /// that predate the field omit it, which reads as `'fixed'`.
+  final String modelMode;
+
+  /// True when the model router picks the model for each turn.
+  bool get isAutoModel => modelMode == 'auto';
+
   final PermissionMode permissionMode;
 
   /// Reasoning budget in tokens (null = off). Only used when the model supports thinking.
@@ -185,6 +195,7 @@ class AgentSession {
       projectId: asString(json['projectId']),
       providerId: asString(json['providerId']),
       modelId: asString(json['modelId']),
+      modelMode: asString(json['modelMode']) == 'auto' ? 'auto' : 'fixed',
       permissionMode: PermissionMode.fromWire(asString(json['permissionMode'])),
       thinkingBudget: json['thinkingBudget'] as int?,
       fastMode: json['fastMode'] as bool? ?? false,
@@ -218,6 +229,7 @@ class AgentSession {
       if (projectId != null) 'projectId': projectId,
       if (providerId != null) 'providerId': providerId,
       if (modelId != null) 'modelId': modelId,
+      'modelMode': modelMode,
       'permissionMode': permissionMode.wireValue,
       if (thinkingBudget != null) 'thinkingBudget': thinkingBudget,
       'fastMode': fastMode,
@@ -247,6 +259,7 @@ class AgentSession {
     String? name,
     Object? providerId = _sentinel,
     Object? modelId = _sentinel,
+    String? modelMode,
     PermissionMode? permissionMode,
     Object? thinkingBudget = _sentinel,
     bool? fastMode,
@@ -279,6 +292,7 @@ class AgentSession {
       providerId:
           providerId == _sentinel ? this.providerId : providerId as String?,
       modelId: modelId == _sentinel ? this.modelId : modelId as String?,
+      modelMode: modelMode ?? this.modelMode,
       permissionMode: permissionMode ?? this.permissionMode,
       thinkingBudget: thinkingBudget == _sentinel
           ? this.thinkingBudget

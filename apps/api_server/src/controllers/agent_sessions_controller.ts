@@ -193,6 +193,7 @@ const messagesRepo = new AgentSessionMessagesRepository();
 const mcpAppCapabilityBroker = new McpAppCapabilityBroker();
 
 import { getPrimaryWorktreePath, gitCheckout, probeVcs } from '../services/vcs_probe';
+import { autoPickAccountId, markAutoAccountSession } from '../services/decision/capacity_router';
 
 function resolveWorktreeEngineDirectory(session: {
   projectId: string | null;
@@ -706,6 +707,13 @@ export class AgentSessionsController {
         throw AppError.badRequest(`permissionMode must be one of: ${PERMISSION_MODES.join(', ')}`);
       }
 
+      // Auto (router) model mode: interactive sessions default to 'auto';
+      // 'fixed' must be requested explicitly. Anything else is a client error.
+      if (body.modelMode !== undefined && body.modelMode !== 'auto' && body.modelMode !== 'fixed') {
+        throw AppError.badRequest("modelMode must be 'auto' or 'fixed'");
+      }
+      const requestedModelMode: 'auto' | 'fixed' = body.modelMode === 'fixed' ? 'fixed' : 'auto';
+
       // profileId is the Rhythm profile key. agentId/agentKind remain
       // compatibility aliases for older desktop clients.
       if (
@@ -799,9 +807,20 @@ export class AgentSessionsController {
       if (requestedAccountId && !anthropicAccountsService.getAccount(requestedAccountId)) {
         throw AppError.badRequest(`unknown anthropic account: '${requestedAccountId}'`);
       }
+      // Capacity routing (AGENT_DECISION_CAPACITY_ROUTING=on): with no requested
+      // and no profile-default account, prefer the account with the most usage
+      // headroom over the store default. Falls back to the default on any miss.
+      let autoAnthropicAccountId: string | null = null;
+      if (!requestedAccountId && !profileDefaultAnthropicAccountId) {
+        const picked = await autoPickAccountId('anthropic', { sessionAuto: requestedModelMode === 'auto' });
+        if (picked && anthropicAccountsService.getAccount(picked)) {
+          autoAnthropicAccountId = picked;
+        }
+      }
       const resolvedAccountId =
         requestedAccountId ??
         profileDefaultAnthropicAccountId ??
+        autoAnthropicAccountId ??
         anthropicAccountsService.defaultAccount()?.id ??
         null;
 
@@ -820,9 +839,17 @@ export class AgentSessionsController {
       if (requestedOpenaiAccountId && !openaiAccountsService.getAccount(requestedOpenaiAccountId)) {
         throw AppError.badRequest(`unknown openai account: '${requestedOpenaiAccountId}'`);
       }
+      let autoOpenaiAccountId: string | null = null;
+      if (!requestedOpenaiAccountId && !profileDefaultOpenaiAccountId) {
+        const picked = await autoPickAccountId('openai', { sessionAuto: requestedModelMode === 'auto' });
+        if (picked && openaiAccountsService.getAccount(picked)) {
+          autoOpenaiAccountId = picked;
+        }
+      }
       const resolvedOpenaiAccountId =
         requestedOpenaiAccountId ??
         profileDefaultOpenaiAccountId ??
+        autoOpenaiAccountId ??
         openaiAccountsService.defaultAccount()?.id ??
         null;
 
@@ -1010,6 +1037,7 @@ export class AgentSessionsController {
         // OPC-#710: name defaults to '' for instant-create sessions.
         name: typeof name === 'string' ? name.trim() : '',
         projectId,
+        modelMode: requestedModelMode,
         permissionMode,
         // This controller is the interactive, user-selected session surface.
         // Internal runners that stamp operational bypassPermissions create
@@ -1025,6 +1053,12 @@ export class AgentSessionsController {
       };
 
       const session = repo.insert(dto);
+      if (autoAnthropicAccountId && resolvedAccountId === autoAnthropicAccountId) {
+        markAutoAccountSession(session.id, 'anthropic');
+      }
+      if (autoOpenaiAccountId && resolvedOpenaiAccountId === autoOpenaiAccountId) {
+        markAutoAccountSession(session.id, 'openai');
+      }
 
       // OCU-17 (#1058) — record the isolated worktree on the row so the payload
       // carries it and hard-delete can optionally clean it up later.
@@ -1167,12 +1201,23 @@ export class AgentSessionsController {
         opencodeAgentId?: ReturnType<typeof asOpenCodeAgentId> | null;
         providerId?: string | null;
         modelId?: string | null;
+        modelMode?: 'auto' | 'fixed';
         agentMode?: string | null;
         permissionMode?: PermissionMode;
         approvalBypassExplicit?: boolean;
         thinkingBudget?: number | null;
         fastMode?: boolean;
       } = {};
+
+      // Auto (router) model mode. {modelMode:'auto'} keeps the stored
+      // providerId/modelId as the fallback baseline; {modelMode:'fixed',
+      // providerId, modelId} pins. providerId/modelId are validated below.
+      if (body.modelMode !== undefined) {
+        if (body.modelMode !== 'auto' && body.modelMode !== 'fixed') {
+          throw AppError.badRequest("modelMode must be 'auto' or 'fixed'");
+        }
+        fields.modelMode = body.modelMode;
+      }
 
       if (body.name !== undefined) {
         if (typeof body.name !== 'string' || body.name.trim() === '') {
@@ -2553,6 +2598,7 @@ export class AgentSessionsController {
         cwd: parent.cwd,
         name: `${parent.name} (fork)`,
         projectId: parent.projectId ?? null,
+        modelMode: parent.modelMode,
       };
       const forkSession = repo.insert(forkDto);
       forkLocalId = forkSession.id;
