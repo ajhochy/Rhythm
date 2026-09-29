@@ -2,7 +2,7 @@
 date: 2026-09-29
 repo: rhythm
 branch: fix/electron-native-push-and-error-text
-pr: TBD
+pr: 1592
 issues: []
 status: pending
 tags: [run, rhythm]
