@@ -232,6 +232,78 @@ export function isMemoryLinkExpansionEnabled(): boolean {
 }
 
 /**
+ * Local decision engine (docs/ai/plans/2026-09-29-local-decision-engine.md).
+ * All getters read process.env live so tests and operators can flip them
+ * without a restart. The backend must be loopback (enforced in the client).
+ */
+export function getDecisionBaseUrl(): string {
+  const raw = (process.env.AGENT_DECISION_BASE_URL ?? '').trim();
+  return raw || 'http://127.0.0.1:8012';
+}
+
+export function getDecisionModel(): string {
+  const raw = (process.env.AGENT_DECISION_MODEL ?? '').trim();
+  return raw || 'qwen3-reranker-4b';
+}
+
+/** Per-call budget for the decision backend; positive integer else 400ms. */
+export function getDecisionTimeoutMs(): number {
+  return positiveIntEnv('AGENT_DECISION_TIMEOUT_MS', 400);
+}
+
+/** Per-feature rollout: off (default) -> shadow (log only) -> on (apply). */
+export type DecisionMode = 'off' | 'shadow' | 'on';
+
+const DECISION_FEATURE_ENV = {
+  model_routing: 'AGENT_DECISION_MODEL_ROUTING',
+  tool_ranking: 'AGENT_DECISION_TOOL_RANKING',
+  memory_ranking: 'AGENT_DECISION_MEMORY_RANKING',
+} as const;
+
+export function getDecisionFeatureMode(
+  feature: keyof typeof DECISION_FEATURE_ENV,
+): DecisionMode {
+  const raw = (process.env[DECISION_FEATURE_ENV[feature]] ?? '').trim().toLowerCase();
+  return raw === 'shadow' || raw === 'on' ? raw : 'off';
+}
+
+/** Minimum classifier confidence, in (0,1], before a routing tier is applied. */
+export function getDecisionRoutingMinConfidence(): number {
+  const parsed = numberEnv('AGENT_DECISION_ROUTING_MIN_CONFIDENCE');
+  return parsed !== null && parsed > 0 && parsed <= 1 ? parsed : 0.55;
+}
+
+/** How many top-ranked MCP servers stay eager; the rest are deferred. */
+export function getDecisionToolEagerServers(): number {
+  return positiveIntEnv('AGENT_DECISION_TOOL_EAGER_SERVERS', 4);
+}
+
+export function getDecisionToolMinScore(): number {
+  return unitIntervalEnv('AGENT_DECISION_TOOL_MIN_SCORE', 0.3);
+}
+
+export function getDecisionMemoryMinScore(): number {
+  return unitIntervalEnv('AGENT_DECISION_MEMORY_MIN_SCORE', 0.5);
+}
+
+function numberEnv(name: string): number | null {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function positiveIntEnv(name: string, fallback: number): number {
+  const parsed = numberEnv(name);
+  return parsed !== null && Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function unitIntervalEnv(name: string, fallback: number): number {
+  const parsed = numberEnv(name);
+  return parsed !== null && parsed >= 0 && parsed <= 1 ? parsed : fallback;
+}
+
+/**
  * Google Cloud project ID used to enable the native Google Gemini provider in
  * the embedded opencode engine. The `opencode-gemini-auth` plugin only
  * registers the `google` provider for Google **Workspace** accounts when

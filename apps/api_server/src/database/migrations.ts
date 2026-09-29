@@ -2527,6 +2527,34 @@ export function runMigrations(db: Database.Database): void {
     );
   }
 
+  // Local decision engine — agent_decision_log: one row per shadow/applied
+  // decision (model routing, tool ranking, memory ranking) so the rollout can
+  // be judged on agreement, latency and calibration before flipping to 'on'.
+  // `query_preview` is capped at 160 chars by the writer; `detail_json` holds
+  // feature-specific extras. SQLite-only (mirrors agent_session_memory_
+  // provenance) — never added to postgres_bootstrap.ts; prompts must not leave
+  // the machine.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_decision_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      feature TEXT NOT NULL,
+      mode TEXT NOT NULL,
+      session_id TEXT,
+      status TEXT NOT NULL,
+      applied INTEGER NOT NULL DEFAULT 0,
+      chosen TEXT,
+      confidence REAL,
+      baseline TEXT,
+      latency_ms INTEGER,
+      model TEXT,
+      query_preview TEXT,
+      detail_json TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_decision_log_feature_created
+      ON agent_decision_log(feature, created_at);
+  `);
+
   // Dual Anthropic accounts (Task D) — per-session account routing + a
   // per-profile default. anthropic_account_id is the account a session's
   // Anthropic requests are routed to (nullable = engine default); it is
