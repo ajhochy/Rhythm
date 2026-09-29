@@ -1,4 +1,4 @@
-import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { PaperProvider } from 'react-native-paper';
 
 import {
@@ -8,7 +8,7 @@ import {
   type RouterSettingsApi,
 } from '@/components/settings/router-model-section';
 import { Colors } from '@/constants/theme';
-import { RhythmToolsService, type RouterConfig } from '@/providers/services/rhythm-tools-service';
+import { RhythmToolsService, type RouterCatalog, type RouterConfig } from '@/providers/services/rhythm-tools-service';
 
 const baseConfig = (over: Partial<RouterConfig> = {}): RouterConfig => ({
   backend: 'local',
@@ -216,5 +216,124 @@ describe('RhythmToolsService router config', () => {
     const paired = { request: jest.fn().mockRejectedValue(Object.assign(new Error('x'), { status: 403 })) };
     const service = new RhythmToolsService({ cloud: {} as never, paired: paired as never, projectId: 'p' });
     await expect(service.getRouterConfig()).rejects.toMatchObject({ status: 403 });
+  });
+});
+
+const catalogModels = (): RouterCatalog['models'] => [
+  { providerID: 'openai', modelID: 'gpt-6', name: 'GPT-6', tier: 'frontier', tierSource: 'cost', costOutputUsd: 40, costInputUsd: 10, releaseDate: '2026-08-01', contextLimit: 1000000, excluded: false },
+  { providerID: 'anthropic', modelID: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', tier: 'standard', tierSource: 'cost', costOutputUsd: 15, costInputUsd: 3, releaseDate: '2026-05-01', contextLimit: 200000, excluded: false },
+  { providerID: 'openai', modelID: 'gpt-6-mini', name: 'GPT-6 Mini', tier: 'cheap', tierSource: 'cost', costOutputUsd: 2, costInputUsd: 0.4, releaseDate: '2026-08-01', contextLimit: 400000, excluded: false },
+  { providerID: 'google', modelID: 'gemini-3-flash', name: 'Gemini 3 Flash', tier: 'cheap', tierSource: 'heuristic', costOutputUsd: null, costInputUsd: null, releaseDate: '2026-06-15', contextLimit: 1048576, excluded: false },
+  { providerID: 'ollama', modelID: 'qwen3', name: 'Qwen3 (local)', tier: 'standard', tierSource: 'override', costOutputUsd: 0, costInputUsd: 0, releaseDate: null, contextLimit: 32768, excluded: false },
+  { providerID: 'anthropic', modelID: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', tier: 'cheap', tierSource: 'cost', costOutputUsd: 5, costInputUsd: 1, releaseDate: '2025-10-01', contextLimit: 200000, excluded: true },
+];
+const withCatalog = (over: Partial<RouterCatalog> = {}) =>
+  baseConfig({ catalog: { fetchedAt: '2026-09-29T12:00:00Z', tiers: { mode: 'auto', cheapMaxOutputUsd: 6, frontierMinOutputUsd: 25, derivedFromModels: 12 }, models: catalogModels(), ...over } });
+
+describe('Models the router chooses among', () => {
+  test('renders grouped by tier with source hints, prices, dates and exclusion', async () => {
+    const { screen } = setup(withCatalog());
+    await openDialog(screen);
+    expect(screen.getByText('Models the router chooses among')).toBeTruthy();
+    expect(screen.getByTestId('router-catalog-mode-auto').props.accessibilityState).toMatchObject({ selected: true });
+    expect(screen.getByTestId('router-catalog-mode-hint').props.children).toBe('Derived from 12 catalog prices');
+    expect(screen.getByTestId('router-catalog-cheap-max').props.value).toBe('6');
+    expect(screen.getByTestId('router-catalog-cheap-max').props.editable).toBe(false);
+    expect(screen.getByTestId('router-catalog-frontier-min').props.value).toBe('25');
+    expect(screen.getByText('Frontier (1)')).toBeTruthy();
+    expect(screen.getByText('Standard (2)')).toBeTruthy();
+    expect(screen.getByText('Cheap (3)')).toBeTruthy();
+    const gpt6 = within(screen.getByTestId('router-model-row-openai/gpt-6'));
+    expect(gpt6.getByText('openai · gpt-6')).toBeTruthy();
+    expect(gpt6.getByText(/Out \$40\/M · In \$10\/M · 2026-08-01 · 1M context/)).toBeTruthy();
+    expect(screen.getByTestId('router-model-source-openai/gpt-6').props.children).toBe('cost');
+    expect(screen.getByTestId('router-model-source-google/gemini-3-flash').props.children).toBe('heuristic');
+    expect(screen.getByTestId('router-model-source-ollama/qwen3').props.children).toBe('override');
+    expect(screen.getByTestId('router-model-reset-ollama/qwen3')).toBeTruthy();
+    expect(screen.queryByTestId('router-model-reset-openai/gpt-6')).toBeNull();
+    expect(screen.getByLabelText('Exclude Claude Haiku 4.5').props.value).toBe(true);
+    expect(screen.getByLabelText('Exclude GPT-6 Mini').props.value).toBe(false);
+    expect(screen.getByTestId('router-model-tier-openai/gpt-6-mini-cheap').props.accessibilityState).toMatchObject({ selected: true });
+    expect(screen.getByTestId('router-model-tier-openai/gpt-6-mini-frontier').props.accessibilityState).toMatchObject({ selected: false });
+  });
+
+  test('tier change, exclude and reset produce the right save payload, then GET is re-read', async () => {
+    const config = withCatalog();
+    const { api, screen } = setup(config);
+    await openDialog(screen);
+    fireEvent.press(screen.getByLabelText('Tier for Gemini 3 Flash: frontier'));
+    expect(screen.getByTestId('router-model-source-google/gemini-3-flash').props.children).toBe('override');
+    fireEvent(screen.getByLabelText('Exclude GPT-6 Mini'), 'valueChange', true);
+    fireEvent.press(screen.getByTestId('router-save-button'));
+    await waitFor(() => expect(api.save).toHaveBeenCalledTimes(1));
+    const body = (api.save as jest.Mock).mock.calls[0][0];
+    expect(body.tiers).toEqual({ mode: 'auto' });
+    expect(body.tierOverrides).toEqual({ 'ollama/qwen3': 'standard', 'google/gemini-3-flash': 'frontier' });
+    expect(body.excludedModels).toEqual(['openai/gpt-6-mini', 'anthropic/claude-haiku-4-5']);
+    await waitFor(() => expect((api.get as jest.Mock).mock.calls.length).toBeGreaterThanOrEqual(2));
+  });
+
+  test('reset to derived drops the override from the payload', async () => {
+    const { api, screen } = setup(withCatalog());
+    await openDialog(screen);
+    fireEvent.press(screen.getByTestId('router-model-reset-ollama/qwen3'));
+    expect(screen.getByTestId('router-model-source-ollama/qwen3').props.children).toBe('cost');
+    expect(screen.queryByTestId('router-model-reset-ollama/qwen3')).toBeNull();
+    fireEvent.press(screen.getByTestId('router-save-button'));
+    await waitFor(() => expect(api.save).toHaveBeenCalled());
+    expect((api.save as jest.Mock).mock.calls[0][0].tierOverrides).toEqual({});
+  });
+
+  test('auto sends only mode; manual is prefilled, validates (positive, cheap < frontier) and re-derives only cost-tiered models', async () => {
+    const { api, screen } = setup(withCatalog());
+    await openDialog(screen);
+    // Auto: numbers are never sent.
+    fireEvent.press(screen.getByTestId('router-save-button'));
+    await waitFor(() => expect(api.save).toHaveBeenCalledTimes(1));
+    expect((api.save as jest.Mock).mock.calls[0][0].tiers).toEqual({ mode: 'auto' });
+    (api.save as jest.Mock).mockClear();
+    fireEvent.press(screen.getByTestId('router-configure-button'));
+    await screen.findByText('Test connection');
+    fireEvent.press(screen.getByTestId('router-catalog-mode-manual'));
+    expect(screen.getByTestId('router-catalog-cheap-max').props.value).toBe('6');
+    expect(screen.getByTestId('router-catalog-cheap-max').props.editable).toBe(true);
+    fireEvent.changeText(screen.getByTestId('router-catalog-cheap-max'), '20');
+    expect(within(screen.getByTestId('router-catalog-group-cheap')).getByText('Claude Sonnet 4.6')).toBeTruthy();
+    expect(within(screen.getByTestId('router-catalog-group-standard')).getByText('Qwen3 (local)')).toBeTruthy();
+    expect(within(screen.getByTestId('router-catalog-group-cheap')).getByText('Gemini 3 Flash')).toBeTruthy();
+
+    fireEvent.changeText(screen.getByTestId('router-catalog-cheap-max'), '30');
+    expect(screen.getByTestId('router-catalog-threshold-error').props.children).toMatch(/lower than/);
+    fireEvent.press(screen.getByTestId('router-save-button'));
+    expect(api.save).not.toHaveBeenCalled();
+    fireEvent.changeText(screen.getByTestId('router-catalog-cheap-max'), '0');
+    expect(screen.getByTestId('router-catalog-threshold-error').props.children).toMatch(/greater than 0/);
+    fireEvent.changeText(screen.getByTestId('router-catalog-cheap-max'), '');
+    fireEvent.press(screen.getByTestId('router-save-button'));
+    expect(api.save).not.toHaveBeenCalled();
+
+    fireEvent.changeText(screen.getByTestId('router-catalog-cheap-max'), '20');
+    fireEvent.changeText(screen.getByTestId('router-catalog-frontier-min'), '50');
+    expect(screen.queryByTestId('router-catalog-threshold-error')).toBeNull();
+    fireEvent.press(screen.getByTestId('router-save-button'));
+    await waitFor(() => expect(api.save).toHaveBeenCalledTimes(1));
+    expect((api.save as jest.Mock).mock.calls[0][0].tiers).toEqual({ mode: 'manual', cheapMaxOutputUsd: 20, frontierMinOutputUsd: 50 });
+  });
+
+  test.each([
+    ['missing catalog', baseConfig(), false],
+    ['empty models', withCatalog({ models: [] }), true],
+  ])('%s shows the static fallback state and sends no overrides', async (_name, config, hasThresholds) => {
+    const { api, screen } = setup(config);
+    await openDialog(screen);
+    expect(screen.getByTestId('router-catalog-empty').props.children).toBe(
+      'Catalog unavailable — the engine is not running; the router will use the static fallback table',
+    );
+    expect(Boolean(screen.queryByTestId('router-catalog-cheap-max'))).toBe(hasThresholds);
+    fireEvent.press(screen.getByTestId('router-save-button'));
+    await waitFor(() => expect(api.save).toHaveBeenCalled());
+    const body = (api.save as jest.Mock).mock.calls[0][0];
+    expect(body).not.toHaveProperty('tierOverrides');
+    expect(body).not.toHaveProperty('excludedModels');
   });
 });

@@ -12,6 +12,13 @@ import {
   type RouterRoutingScope,
   type RouterTestResult,
 } from '@/providers/services/rhythm-tools-service';
+import {
+  buildCatalogPayload,
+  parseThresholds,
+  RouterCatalogSection,
+  toCatalogDraft,
+  type CatalogDraft,
+} from './router-catalog-section';
 
 type Palette = typeof Colors.light;
 
@@ -107,6 +114,7 @@ interface FormState {
   features: Record<RouterFeatureKey, RouterFeatureMode>;
   scope: RouterRoutingScope;
   escalateMinConfidence: string;
+  catalog: CatalogDraft | null;
 }
 
 function toForm(config: RouterConfig): FormState {
@@ -128,6 +136,7 @@ function toForm(config: RouterConfig): FormState {
     features: { ...config.features },
     scope: config.routing?.scope ?? 'first_prompt',
     escalateMinConfidence: String(config.routing?.escalateMinConfidence ?? DEFAULT_ESCALATE_CONFIDENCE),
+    catalog: toCatalogDraft(config.catalog),
   };
 }
 
@@ -141,7 +150,7 @@ function num(value: string | undefined): number | undefined {
  * Builds the PUT/test body. Locked fields are omitted; an apiKey is only
  * included when the user typed one or explicitly cleared the saved key.
  */
-export function buildRouterPayload(form: FormState, config: RouterConfig): RouterConfigDraft {
+export function buildRouterPayload(form: FormState, config: RouterConfig, includeCatalog = false): RouterConfigDraft {
   const locked = config.lockedByEnv;
   const payload: RouterConfigDraft = {};
   if (!isLockedByEnv(locked, 'backend')) payload.backend = form.backend;
@@ -190,6 +199,7 @@ export function buildRouterPayload(form: FormState, config: RouterConfig): Route
     routing.escalateMinConfidence = minConfidence;
   }
   if (Object.keys(routing).length) payload.routing = routing;
+  if (includeCatalog && form.catalog && config.catalog) Object.assign(payload, buildCatalogPayload(config.catalog, form.catalog));
   return payload;
 }
 
@@ -287,12 +297,15 @@ export function RouterConfigDialog({
   const consentRequired = needsConsent(form);
   const consentMissing = consentRequired && !form.consent;
   const payload = useMemo(() => buildRouterPayload(form, config), [form, config]);
+  const catalogInvalid = Boolean(form.catalog && config.catalog?.tiers && form.catalog.mode === 'manual' && !parseThresholds(form.catalog).ok);
 
   const save = async () => {
     setSaving(true);
     setError(undefined);
     try {
-      onSaved(await api.save(payload));
+      const saved = await api.save(buildRouterPayload(form, config, true));
+      // Re-read so tiers/overrides shown are the server's, not the local preview.
+      onSaved(await api.get().catch(() => saved));
     } catch (e) {
       setError(routerErrorMessage(e));
     } finally {
@@ -476,6 +489,13 @@ export function RouterConfigDialog({
             )
             : null}
 
+          <RouterCatalogSection
+            catalog={config.catalog}
+            draft={form.catalog}
+            onChange={(catalog) => set('catalog', catalog)}
+            palette={palette}
+          />
+
           {consentRequired ? (
             <View accessible accessibilityLabel="Send data to this server" style={styles.row}>
               <Text style={[styles.flex, { color: palette.text }]}>{CONSENT_COPY}</Text>
@@ -530,7 +550,7 @@ export function RouterConfigDialog({
       <Dialog.Actions>
         <Button onPress={onDismiss}>Cancel</Button>
         <Button
-          disabled={saving || testing || consentMissing}
+          disabled={saving || testing || consentMissing || catalogInvalid}
           loading={saving}
           onPress={() => void save()}
           testID="router-save-button">

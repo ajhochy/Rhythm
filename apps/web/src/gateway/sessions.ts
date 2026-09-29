@@ -95,6 +95,19 @@ export type RouterBackend = 'local' | 'jev' | 'custom';
 export type RouterFeatureMode = 'default' | 'off' | 'shadow' | 'on';
 export type RouterFeatureKey = 'model_routing' | 'tool_ranking' | 'memory_ranking' | 'capacity_routing';
 export type RouterScoreScale = 'auto' | 'probability' | 'logit';
+export type RouterTier = 'cheap' | 'standard' | 'frontier';
+export type RouterTierSource = 'cost' | 'heuristic' | 'override';
+export type RouterCatalogModel = {
+  providerID: string; modelID: string; name: string; family?: string | null;
+  tier: RouterTier; tierSource: RouterTierSource;
+  costOutputUsd?: number | null; costInputUsd?: number | null;
+  releaseDate?: string | null; contextLimit?: number | null; excluded: boolean;
+};
+export type RouterTierMode = 'auto' | 'manual';
+export type RouterTierThresholds = { mode?: RouterTierMode; cheapMaxOutputUsd: number; frontierMinOutputUsd: number; derivedFromModels?: number };
+/** PUT shape: numbers are sent only in manual mode. */
+export type RouterTierInput = { mode: 'auto' } | { mode: 'manual'; cheapMaxOutputUsd: number; frontierMinOutputUsd: number };
+export type RouterCatalog = { fetchedAt?: string | null; models: RouterCatalogModel[]; tiers: RouterTierThresholds };
 export type RouterConfig = {
   backend: RouterBackend;
   local: { baseUrl: string; model: string; scoreScale: RouterScoreScale };
@@ -104,6 +117,8 @@ export type RouterConfig = {
   remoteDataConsent: boolean;
   features: Record<RouterFeatureKey, RouterFeatureMode>;
   lockedByEnv: string[];
+  /** Live model catalog the router chooses among; absent/empty when the engine is not running. */
+  catalog?: RouterCatalog | null;
   effective?: { backend: string; baseUrl: string; model: string; features?: Record<string, string> };
 };
 /** Partial write shape; apiKey is write-only ('' clears). */
@@ -115,6 +130,10 @@ export type RouterConfigInput = {
   timeoutMs?: number;
   remoteDataConsent?: boolean;
   features?: Partial<Record<RouterFeatureKey, RouterFeatureMode>>;
+  tiers?: RouterTierInput;
+  /** Keyed "provider/model"; replaces the saved overrides. */
+  tierOverrides?: Record<string, RouterTier>;
+  excludedModels?: string[];
 };
 export type RouterTestResult = { ok: boolean; backend?: string; model?: string; latencyMs?: number; ranked?: Array<{ text: string; score: number }>; message?: string };
 export type TurnOverride = { profileId?: string; modelOverride?: { providerId: string; modelId: string } };

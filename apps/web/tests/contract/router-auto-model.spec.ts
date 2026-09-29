@@ -15,6 +15,31 @@ const catalog = [
   { provider: 'anthropic', modelId: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6', authorized: true, available: true, visible: true },
 ];
 
+type Tier = 'cheap' | 'standard' | 'frontier';
+type TierBody = { mode?: 'auto' | 'manual'; cheapMaxOutputUsd: number; frontierMinOutputUsd: number; derivedFromModels?: number };
+const CATALOG_THRESHOLDS: TierBody = { mode: 'auto', cheapMaxOutputUsd: 6, frontierMinOutputUsd: 25, derivedFromModels: 12 };
+// Newest first, as the server returns it. qwen3 carries a saved override; haiku is excluded.
+const catalogSeed: Body[] = [
+  { providerID: 'openai', modelID: 'gpt-6', name: 'GPT-6', family: 'gpt', costOutputUsd: 40, costInputUsd: 10, releaseDate: '2026-08-01', contextLimit: 1000000, excluded: false },
+  { providerID: 'anthropic', modelID: 'claude-opus-5', name: 'Claude Opus 5', family: 'claude', costOutputUsd: 75, costInputUsd: 15, releaseDate: '2026-07-10', contextLimit: 200000, excluded: false },
+  { providerID: 'anthropic', modelID: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', family: 'claude', costOutputUsd: 15, costInputUsd: 3, releaseDate: '2026-05-01', contextLimit: 200000, excluded: false },
+  { providerID: 'openai', modelID: 'gpt-6-mini', name: 'GPT-6 Mini', family: 'gpt', costOutputUsd: 2, costInputUsd: 0.4, releaseDate: '2026-08-01', contextLimit: 400000, excluded: false },
+  { providerID: 'google', modelID: 'gemini-3-flash', name: 'Gemini 3 Flash', family: 'gemini', costOutputUsd: null, costInputUsd: null, releaseDate: '2026-06-15', contextLimit: 1048576, excluded: false },
+  { providerID: 'ollama', modelID: 'qwen3', name: 'Qwen3 (local)', family: 'qwen', costOutputUsd: 0, costInputUsd: 0, releaseDate: null, contextLimit: 32768, excluded: false },
+  { providerID: 'anthropic', modelID: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', family: 'claude', costOutputUsd: 5, costInputUsd: 1, releaseDate: '2025-10-01', contextLimit: 200000, excluded: true },
+];
+const buildCatalog = (overrides: Record<string, Tier>, excluded: string[], thresholds: TierBody = CATALOG_THRESHOLDS): Body => ({
+  fetchedAt: '2026-09-29T12:00:00.000Z',
+  tiers: thresholds,
+  models: catalogSeed.map((model) => {
+    const key = `${model.providerID}/${model.modelID}`;
+    const cost = model.costOutputUsd as number | null;
+    const derived: Tier = cost === null ? 'cheap' : cost <= thresholds.cheapMaxOutputUsd ? 'cheap' : cost >= thresholds.frontierMinOutputUsd ? 'frontier' : 'standard';
+    const override = overrides[key];
+    return { ...model, excluded: excluded.includes(key), tier: override ?? derived, tierSource: override ? 'override' : cost === null ? 'heuristic' : 'cost' };
+  }),
+});
+
 const baseRouterConfig = (): Body => ({
   backend: 'local',
   local: { baseUrl: 'http://127.0.0.1:8012', model: 'reranker-small', scoreScale: 'auto' },
@@ -24,15 +49,19 @@ const baseRouterConfig = (): Body => ({
   features: { model_routing: 'default', tool_ranking: 'default', memory_ranking: 'off', capacity_routing: 'default' },
   lockedByEnv: ['tool_ranking'],
   effective: { backend: 'local', baseUrl: 'http://127.0.0.1:8012', model: 'reranker-small', features: {} },
+  catalog: buildCatalog({ 'ollama/qwen3': 'standard' }, ['anthropic/claude-haiku-4-5']),
 });
 
-async function setup(page: Page, opts: { modelMode?: 'auto' | 'fixed' | undefined } = { modelMode: 'auto' }): Promise<State> {
+async function setup(page: Page, opts: { modelMode?: 'auto' | 'fixed' | undefined; catalog?: 'live' | 'missing' | 'empty' } = {}): Promise<State> {
+  const modelMode = 'modelMode' in opts ? opts.modelMode : 'auto';
   const state: State = {
-    session: { id: 's1', name: 'Router session', profileId: 'p1', cwd: '/tmp/x', providerId: 'openai', modelId: 'gpt-6', status: 'idle', createdAt: '2026-09-29T00:00:00.000Z', updatedAt: '2026-09-29T00:00:00.000Z', ...(opts.modelMode ? { modelMode: opts.modelMode } : {}) },
+    session: { id: 's1', name: 'Router session', profileId: 'p1', cwd: '/tmp/x', providerId: 'openai', modelId: 'gpt-6', status: 'idle', createdAt: '2026-09-29T00:00:00.000Z', updatedAt: '2026-09-29T00:00:00.000Z', ...(modelMode ? { modelMode } : {}) },
     patches: [], frames: [], routerPuts: [], routerTests: [], putError: null, testFails: false,
     provenance: { available: true, requestedModelId: 'gpt-6', servedModels: [], multiModel: false, routed: true, steps: { unattributed: 0 }, dispatches: [{ requestedSource: 'auto', finalProviderId: 'anthropic', finalModelId: 'claude-sonnet-4-6' }] },
     routerConfig: baseRouterConfig(),
   };
+  if (opts.catalog === 'missing') delete state.routerConfig.catalog;
+  if (opts.catalog === 'empty') state.routerConfig.catalog = { fetchedAt: null, models: [], tiers: CATALOG_THRESHOLDS };
   const cors = (origin: string | undefined) => ({ 'access-control-allow-origin': origin ?? '*', 'access-control-allow-headers': 'authorization,content-type', 'access-control-allow-methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS' });
   await page.route('https://api.vcrcapps.com/**', (route) => route.fulfill({ status: 200, headers: cors(route.request().headers().origin), json: [] }));
   await page.route('http://127.0.0.1:7562/**', (route) => route.fulfill({ status: 200, json: { healthy: true, status: 'ready' } }));
@@ -70,6 +99,9 @@ async function setup(page: Page, opts: { modelMode?: 'auto' | 'fixed' | undefine
       for (const key of ['local', 'jev', 'custom']) if (body[key]) { const { apiKey, ...rest } = body[key]; Object.assign(next[key], rest); if (apiKey !== undefined) next[key].hasApiKey = apiKey !== ''; }
       if (body.remoteDataConsent !== undefined) next.remoteDataConsent = body.remoteDataConsent;
       if (body.features) Object.assign(next.features, body.features);
+      if (next.catalog && next.catalog.models.length && (body.tiers || body.tierOverrides || body.excludedModels)) {
+        next.catalog = buildCatalog(body.tierOverrides ?? {}, body.excludedModels ?? [], body.tiers?.mode === 'manual' ? { mode: 'manual', cheapMaxOutputUsd: body.tiers.cheapMaxOutputUsd, frontierMinOutputUsd: body.tiers.frontierMinOutputUsd, derivedFromModels: 12 } : body.tiers?.mode === 'auto' ? CATALOG_THRESHOLDS : next.catalog.tiers);
+      }
       return json(next);
     }
     if (path === '/agent-decisions/config/test') {
@@ -235,4 +267,150 @@ test('router:B4 save PUTs only what changed for secrets: apiKey only when typed;
   await expect.poll(() => state.routerPuts.length).toBe(4);
   expect(state.routerPuts[3].jev.apiKey).toBe('');
   await expect(page.getByTestId('router-jev-key-saved')).toHaveCount(0);
+});
+
+const rowKey = (key: string) => `router-model-row-${key}`;
+const HAIKU = 'anthropic/claude-haiku-4-5';
+const QWEN = 'ollama/qwen3';
+const FLASH = 'google/gemini-3-flash';
+const MINI = 'openai/gpt-6-mini';
+const SONNET = 'anthropic/claude-sonnet-4-6';
+
+test('router:C1 catalog renders grouped by tier with cost/heuristic/override hints, prices, dates, context and exclusion', async ({ page }) => {
+  await setup(page);
+  await openRouterSettings(page);
+  const catalogSection = page.getByTestId('router-catalog');
+  await expect(catalogSection.getByRole('heading', { name: 'Models the router chooses among' })).toBeVisible();
+  await expect(page.getByTestId('router-catalog-empty')).toHaveCount(0);
+  await expect(page.getByTestId('router-catalog-mode-auto')).toBeChecked();
+  await expect(page.getByTestId('router-catalog-cheap-max')).toHaveValue('6');
+  await expect(page.getByTestId('router-catalog-cheap-max')).toHaveAttribute('readonly', '');
+  await expect(page.getByTestId('router-catalog-frontier-min')).toHaveValue('25');
+  await expect(page.getByTestId('router-catalog-mode-hint')).toHaveText('Derived from 12 catalog prices');
+  await expect(page.getByTestId('router-catalog-threshold-error')).toBeHidden();
+
+  const rows = async (tier: string) => page.getByTestId(`router-catalog-group-${tier}`).locator('li strong').allTextContents();
+  expect(await rows('frontier')).toEqual(['GPT-6', 'Claude Opus 5']);
+  expect(await rows('standard')).toEqual(['Claude Sonnet 4.6', 'Qwen3 (local)']);
+  expect(await rows('cheap')).toEqual(['GPT-6 Mini', 'Gemini 3 Flash', 'Claude Haiku 4.5']);
+
+  const gpt6 = page.getByTestId(rowKey('openai/gpt-6'));
+  await expect(gpt6).toContainText('openai · gpt-6');
+  await expect(gpt6).toContainText('$40/M');
+  await expect(gpt6).toContainText('$10/M');
+  await expect(gpt6).toContainText('2026-08-01');
+  await expect(gpt6).toContainText('1M');
+  await expect(page.getByTestId('router-model-source-openai/gpt-6')).toHaveText('cost');
+  await expect(page.getByTestId(`router-model-source-${FLASH}`)).toHaveText('heuristic');
+  await expect(page.getByTestId(rowKey(FLASH))).toContainText('—');
+  await expect(page.getByTestId(`router-model-source-${QWEN}`)).toHaveText('override');
+  await expect(page.getByTestId(`router-model-reset-${QWEN}`)).toBeVisible();
+  await expect(page.getByTestId('router-model-reset-openai/gpt-6')).toHaveCount(0);
+  await expect(page.getByTestId(`router-model-tier-${QWEN}`)).toHaveValue('standard');
+  await expect(page.getByTestId(`router-model-exclude-${HAIKU}`)).toBeChecked();
+  await expect(page.getByTestId(`router-model-exclude-${MINI}`)).not.toBeChecked();
+  // Accessible names and 44px targets.
+  await expect(page.getByRole('combobox', { name: 'Tier for GPT-6 Mini' })).toBeVisible();
+  await expect(page.getByRole('switch', { name: 'Exclude Claude Haiku 4.5' })).toBeChecked();
+  const box = await page.getByTestId(`router-model-tier-${MINI}`).boundingBox();
+  expect(box?.height).toBeGreaterThanOrEqual(44);
+  const resetBox = await page.getByTestId(`router-model-reset-${QWEN}`).boundingBox();
+  expect(resetBox?.height).toBeGreaterThanOrEqual(44);
+  const switchBox = await page.getByTestId(`router-model-exclude-${MINI}`).locator('xpath=..').boundingBox();
+  expect(switchBox?.height).toBeGreaterThanOrEqual(44);
+});
+
+test('router:C2 changing a tier and excluding a model PUTs tiers, tierOverrides and excludedModels; reset drops the override; GET is re-read', async ({ page }) => {
+  const state = await setup(page);
+  await openRouterSettings(page);
+  await page.getByTestId(`router-model-tier-${FLASH}`).selectOption('frontier');
+  await expect(page.getByTestId(`router-model-source-${FLASH}`)).toHaveText('override');
+  await expect(page.getByTestId('router-catalog-group-frontier').locator('li strong')).toContainText(['Gemini 3 Flash']);
+  await page.getByTestId(`router-model-exclude-${MINI}`).check();
+  await page.getByTestId('router-save').click();
+  await expect(page.getByTestId('router-notice')).toHaveText('Router settings saved');
+  expect(state.routerPuts[0].tiers).toEqual({ mode: 'auto' });
+  expect(state.routerPuts[0].tierOverrides).toEqual({ [QWEN]: 'standard', [FLASH]: 'frontier' });
+  expect(state.routerPuts[0].excludedModels).toEqual([MINI, HAIKU]);
+  // Read-back state comes from the server response.
+  await expect(page.getByTestId(`router-model-exclude-${MINI}`)).toBeChecked();
+  await expect(page.getByTestId(`router-model-source-${FLASH}`)).toHaveText('override');
+
+  await page.getByTestId(`router-model-reset-${QWEN}`).click();
+  await expect(page.getByTestId(`router-model-source-${QWEN}`)).toHaveText('cost');
+  await expect(page.getByTestId(`router-model-reset-${QWEN}`)).toHaveCount(0);
+  await page.getByTestId(`router-model-exclude-${HAIKU}`).uncheck();
+  await page.getByTestId('router-save').click();
+  await expect.poll(() => state.routerPuts.length).toBe(2);
+  expect(state.routerPuts[1].tierOverrides).toEqual({ [FLASH]: 'frontier' });
+  expect(state.routerPuts[1].excludedModels).toEqual([MINI]);
+  await expect(page.getByTestId(`router-model-source-${QWEN}`)).toHaveText('cost');
+});
+
+test('router:C3 auto shows derived read-only cutoffs and sends only {mode:auto}; manual is prefilled, validates, and previews only cost-tiered models', async ({ page }) => {
+  const state = await setup(page);
+  await openRouterSettings(page);
+  const cheap = page.getByTestId('router-catalog-cheap-max');
+  const frontier = page.getByTestId('router-catalog-frontier-min');
+  const error = page.getByTestId('router-catalog-threshold-error');
+  const save = page.getByTestId('router-save');
+
+  await save.click();
+  await expect(page.getByTestId('router-notice')).toBeVisible();
+  expect(state.routerPuts[0].tiers).toEqual({ mode: 'auto' });
+
+  await page.getByTestId('router-catalog-mode-manual').check();
+  await expect(cheap).toHaveValue('6');
+  await expect(frontier).toHaveValue('25');
+  await expect(cheap).not.toHaveAttribute('readonly', '');
+  await cheap.fill('20');
+  await expect(error).toBeHidden();
+  await expect(page.getByTestId('router-catalog-group-cheap').locator('li strong')).toContainText(['Claude Sonnet 4.6']);
+  // Override (qwen3) and heuristic (flash) rows keep their tier.
+  await expect(page.getByTestId(`router-model-tier-${QWEN}`)).toHaveValue('standard');
+  await expect(page.getByTestId(`router-model-tier-${FLASH}`)).toHaveValue('cheap');
+
+  await cheap.fill('30');
+  await expect(error).toContainText('lower than');
+  await expect(save).toBeDisabled();
+  await cheap.fill('0');
+  await expect(error).toContainText('greater than 0');
+  await expect(save).toBeDisabled();
+  await cheap.fill('');
+  await expect(save).toBeDisabled();
+  await cheap.fill('20');
+  await frontier.fill('50');
+  await expect(error).toBeHidden();
+  await expect(page.getByTestId('router-catalog-group-standard').locator('li strong')).toContainText(['GPT-6']);
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect.poll(() => state.routerPuts.length).toBe(2);
+  expect(state.routerPuts[1].tiers).toEqual({ mode: 'manual', cheapMaxOutputUsd: 20, frontierMinOutputUsd: 50 });
+  await expect(page.getByTestId('router-catalog-mode-manual')).toBeChecked();
+  await expect(cheap).toHaveValue('20');
+  await expect(page.getByTestId(`router-model-tier-${SONNET}`)).toHaveValue('cheap');
+
+  // Back to auto: read-only again, no numbers sent, no local re-tiering preview.
+  await page.getByTestId('router-catalog-mode-auto').check();
+  await expect(cheap).toHaveAttribute('readonly', '');
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect.poll(() => state.routerPuts.length).toBe(3);
+  expect(state.routerPuts[2].tiers).toEqual({ mode: 'auto' });
+  await expect(cheap).toHaveValue('6');
+});
+
+test('router:C4 missing or empty catalog shows the static-fallback state and sends no catalog fields', async ({ page }) => {
+  for (const mode of ['missing', 'empty'] as const) {
+    const state = await setup(page, { catalog: mode });
+    await openRouterSettings(page);
+    await expect(page.getByTestId('router-catalog-empty')).toHaveText('Catalog unavailable — the engine is not running; the router will use the static fallback table');
+    await expect(page.getByTestId('router-catalog').locator('li')).toHaveCount(0);
+    if (mode === 'missing') await expect(page.getByTestId('router-catalog-cheap-max')).toHaveCount(0);
+    await page.getByTestId('router-save').click();
+    await expect(page.getByTestId('router-notice')).toBeVisible();
+    expect(state.routerPuts[0]).not.toHaveProperty('tierOverrides');
+    expect(state.routerPuts[0]).not.toHaveProperty('excludedModels');
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+  }
 });

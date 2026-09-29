@@ -698,6 +698,44 @@ export interface RouterRouting {
   escalateMinConfidence: number;
 }
 
+export type RouterTier = 'cheap' | 'standard' | 'frontier';
+export type RouterTierSource = 'cost' | 'heuristic' | 'override';
+
+export interface RouterCatalogModel {
+  providerID: string;
+  modelID: string;
+  name: string;
+  family?: string | null;
+  tier: RouterTier;
+  tierSource: RouterTierSource;
+  costOutputUsd?: number | null;
+  costInputUsd?: number | null;
+  releaseDate?: string | null;
+  contextLimit?: number | null;
+  excluded: boolean;
+}
+
+export type RouterTierMode = 'auto' | 'manual';
+
+export interface RouterTierThresholds {
+  mode?: RouterTierMode;
+  cheapMaxOutputUsd: number;
+  frontierMinOutputUsd: number;
+  derivedFromModels?: number;
+}
+
+/** PUT shape: numbers are sent only in manual mode. */
+export type RouterTierInput =
+  | { mode: 'auto' }
+  | { mode: 'manual'; cheapMaxOutputUsd: number; frontierMinOutputUsd: number };
+
+/** Live model catalog the router chooses among; absent/empty when the engine is not running. */
+export interface RouterCatalog {
+  fetchedAt?: string | null;
+  models: RouterCatalogModel[];
+  tiers: RouterTierThresholds;
+}
+
 export interface RouterConfig {
   backend: RouterBackend;
   local: { baseUrl: string; model: string; scoreScale?: number };
@@ -708,6 +746,7 @@ export interface RouterConfig {
   features: Record<RouterFeatureKey, RouterFeatureMode>;
   /** Absent when the paired Mac predates routing scope. */
   routing?: RouterRouting;
+  catalog?: RouterCatalog | null;
   lockedByEnv: string[];
   effective?: {
     backend: RouterBackend;
@@ -732,6 +771,10 @@ export interface RouterConfigDraft {
   remoteDataConsent?: boolean;
   features?: Partial<Record<RouterFeatureKey, RouterFeatureMode>>;
   routing?: Partial<RouterRouting>;
+  tiers?: RouterTierInput;
+  /** Keyed "provider/model"; replaces the saved overrides. */
+  tierOverrides?: Record<string, RouterTier>;
+  excludedModels?: string[];
 }
 
 export interface RouterTestResult {

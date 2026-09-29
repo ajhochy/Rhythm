@@ -560,4 +560,28 @@
 .router-settings-results [role="alert"] { color: var(--danger); }
 .router-settings-ranked { margin: 6px 0 0; padding-left: 20px; display: grid; gap: 4px; }
 .router-settings-ranked li span { margin-right: 8px; }
+/* Models the router chooses among. */
+.router-catalog { display: grid; gap: 10px; min-width: 0; }
+.router-catalog h4, .router-catalog h5, .router-catalog p { margin: 0; }
+.router-catalog h5 { font-size: 12px; color: var(--muted); text-transform: capitalize; }
+.router-catalog-thresholds { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.router-catalog-mode { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 10px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.router-catalog-mode legend { padding: 0; margin-bottom: 6px; color: var(--muted); font-size: 12px; font-weight: 650; }
+.router-catalog-thresholds > p, .router-catalog-thresholds > small { grid-column: 1 / -1; }
+.router-catalog-error { color: var(--danger); font-size: 12px; }
+.router-catalog-group { display: grid; gap: 6px; }
+.router-catalog-group ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.router-catalog-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) auto; gap: 8px 12px; align-items: center; padding: 8px 10px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); }
+.router-catalog-row.excluded { opacity: 0.6; }
+.router-catalog-name { display: grid; min-width: 0; }
+.router-catalog-name small, .router-catalog-tier small, .router-catalog-facts dt { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.router-catalog-tier { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.router-catalog-tier select { width: auto; min-width: 110px; }
+.router-catalog-tier button { min-height: 44px; }
+.router-catalog-facts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; font-size: 12px; }
+.router-catalog-facts div { display: flex; gap: 4px; }
+.router-catalog-facts dt, .router-catalog-facts dd { margin: 0; }
+.router-settings .router-catalog-exclude { display: flex; align-items: center; gap: 6px; min-height: 44px; min-width: 44px; cursor: pointer; }
+.router-catalog-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (max-width: 640px) { .router-catalog-thresholds, .router-catalog-row { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 640px) { .router-settings-fields { grid-template-columns: minmax(0, 1fr); } }
