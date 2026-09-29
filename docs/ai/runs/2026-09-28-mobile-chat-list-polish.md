@@ -91,3 +91,100 @@ smoke remains.
 - The cold-relaunch failure is outside this slice: `chat-header.tsx` and its status inputs were not changed. Its current fallback is `presentationStatus || idleSubtitle || 'Chat'`, so the contract harness, which supplies only `connectionStatus`, renders `Chat`.
 - The offline-catalog failure also predates this slice. Base and working tree both classify the cached `status: 'idle'` session as completed, report zero active, and leave the all-lifecycle project group collapsed. This slice changed project-header presentation/create controls, not lifecycle classification or expansion state.
 - Recommended gate handling: accept the slice with focused lint/typecheck, 50/50 focused tests, and 8 accessibility tests; record these four tests as a base-red exclusion/follow-up for issue-1387 rather than repairing unrelated offline behavior in this UI slice. Re-run the full mobile suite after that separate repair.
+
+## NC-1 + NC-2 performance repair
+
+WAIVED: verification-only test and documentation evidence repair with no intended product behavior change; verification is the five direct regression assertions plus focused/combined Jest, lint, typecheck, and diff checks.
+
+WAIVED: final baseline-harness evidence repair changes tests and documentation only, not product behavior; verification is an actual `d2048dda` provider/create/open run and the current provider run through equivalent public entry points, repeated focused NC tests, combined chat tests, lint, typecheck, and diff checks.
+
+### Files
+
+- `apps/mobile/providers/agent-chat-provider.tsx`
+- `apps/mobile/providers/opencode-provider.tsx`
+- `apps/mobile/tests/chat/create-chat-fast-path.test.tsx`
+- `apps/mobile/tests/chat/create-chat-provider-cache.test.tsx`
+- `docs/ai/contracts/mobile-chat-list-polish.json`
+- `docs/ai/current-plan.md`
+- `docs/ai/current-plan-1585-regressions.md`
+- `docs/ai/runs/2026-09-28-mobile-chat-list-polish.md`
+
+### Acceptance-contract baseline
+
+- Approved pre-change SHA: `d2048ddaba7d69315f4f12b02f22a970d5b051fd`.
+- `npx jest tests/chat/create-chat-fast-path.test.tsx --runInBand` — EXPECTED FAIL, 2/2. The pending catalog sweep won the critical-path race (`still-blocked`), and the background-failure scenario timed out at 5,005 ms because `createChat` still awaited the rejected sweep.
+- `npx jest tests/chat/create-chat-provider-cache.test.tsx --runInBand` — EXPECTED FAIL. Identical request-log scenario recorded 2 target profile-catalog GETs and 2 blocking cold-open GETs (exact-session + messages). The test stopped on `Expected length: 1; Received length: 2` for the profile catalog.
+
+### Post-change performance
+
+| Metric | Baseline | Post-change |
+|---|---:|---:|
+| Target profile-catalog GETs | 2 | 1 |
+| Blocking just-created cold-open GETs | 2 (exact + messages) | 0 |
+| Awaited Create-to-navigation network phases | 6 (create, duplicate profile, preference PATCH, sweep, exact, messages) | 2 (create + preference PATCH) |
+| Added latency from deterministic 500 ms sweep | 500 ms minimum | 0.0–1.0 ms observed before return |
+
+The seeded fast open schedules an authoritative messages reconciliation after
+the composer is ready. An unseeded direct/deep-link open still records exactly
+1 exact-session GET and 1 messages GET. A failed required preference PATCH
+rejects create and leaves no seeded fast-open entry.
+
+Verification-evidence repair added direct assertions for all five review gaps:
+the baseline and post-change provider use the same mocked network boundaries
+and public provider entry points and assert awaited phases exactly `6 → 2`;
+the baseline asserts exact-session plus messages GETs exactly `2`; a rejected durable create
+POST rejects before preference PATCH, list publication, or fast-open seeding;
+and a rejected lower-level background `refreshSessions` call is observed with
+an installed `unhandledRejection` listener and produces zero events. The plan
+now records AJ approval only for NC-1/NC-2; NC-3/ST-1 remain unapproved.
+
+### Final real-source baseline evidence repair
+
+- Removed the hand-authored six-call baseline helper. The replacement renders
+  real `OpencodeProvider` and `AgentChatProvider`, calls public
+  `loadSessionProfiles` → `createChat` → `openProjectSession`, and uses a generic
+  deferred-boundary queue that releases whichever request the unresolved public
+  promise actually needs next. It does not encode the expected operation order.
+- Baseline source came from detached isolated worktree
+  `/private/tmp/rhythm-nc-baseline` at exact SHA
+  `d2048ddaba7d69315f4f12b02f22a970d5b051fd`. The baseline checkout contained
+  only a temporary one-line test wrapper importing the identical maintained
+  harness; Jest's baseline `rootDir` resolved provider aliases to baseline source.
+- Baseline command:
+  `NODE_PATH=/private/tmp/rhythm-mobile-list-polish/apps/mobile/node_modules NC_PROVIDER_REVISION=baseline /private/tmp/rhythm-mobile-list-polish/apps/mobile/node_modules/.bin/jest --config /private/tmp/rhythm-nc-baseline/apps/mobile/jest.config.js tests/chat/create-chat-provider-cache.test.tsx --runInBand -t "awaited network phases"`
+  — PASS 1/1; observed `awaited=6, profiles=2, blocking-open=2`.
+- Post-change command:
+  `npx jest tests/chat/create-chat-provider-cache.test.tsx --runInBand -t "awaited network phases"`
+  — PASS 1/1; observed `awaited=2, profiles=1, blocking-open=0`.
+- An initial unfiltered baseline command also ran the six post-change-only
+  regression cases: the comparison case passed, while three expected NC repair
+  assertions failed against old source. The evidence command was then correctly
+  narrowed to the shared comparison case; no count or expectation was loosened.
+- Both baseline and post runs emitted React `act(...)` warnings during
+  `openProjectSession` state publication and Jest's existing open-handle notice;
+  neither warning changed exit status or the observed/asserted metrics.
+
+### Checks
+
+- Verification repair first focused run: `npx jest tests/chat/create-chat-fast-path.test.tsx tests/chat/create-chat-provider-cache.test.tsx --runInBand` — FAIL, 2 assertions in the new evidence harness; the capture included a started-but-not-awaited background messages read, and the no-seed check over-constrained background messages to one call. No product defect was found.
+- Focused NC rerun after repairing only those assertions: `npx jest tests/chat/create-chat-fast-path.test.tsx tests/chat/create-chat-provider-cache.test.tsx --runInBand` — PASS, 10/10.
+- Final focused NC stability run, same command with `--silent`, repeated three times — PASS 10/10 on all three runs (1.302s, 0.918s, 0.918s); each retained Jest's existing open-handle notice.
+- Combined contract: `npx jest tests/chat/create-chat-fast-path.test.tsx tests/chat/create-chat-provider-cache.test.tsx tests/chat/chat-list.test.tsx tests/chat/session-configuration-sheet.test.tsx tests/chat/chat-content-scroll.test.tsx --runInBand` — PASS, 68/68.
+- Final combined rerun with the same files and `--silent` — PASS, 68/68 in 7.545s.
+- `npm run lint` — PASS with 0 errors and the same 3 warnings outside owned files.
+- `npm run typecheck` — PASS.
+- `git diff --check` — PASS.
+- Sandbox listener check: API `127.0.0.1:4098`, fork engine `127.0.0.1:4097`, and gateway `127.0.0.1:4099` were all listening. `tools/dev/sandbox.sh status` could not identify the manager-owned non-default sandbox directory, so it was not restarted or stopped.
+- GitNexus upstream impact for `createChat`, `persistSessionPreferences`, `createSession`, and `openFromCache` — unavailable (`Not connected`) before edits. Exact-reference fallback found the ChatList controller/UI create chain, three production `createSession` callers, four in-provider preference-persistence callers, and the existing controller cache consumer. No HIGH/CRITICAL result was available.
+- Final `gitnexus_detect_changes` (`scope: all`, this worktree) — unavailable (`Not connected`). Owned-file diff review and `git diff --check` passed; no product file was changed during this evidence repair.
+
+### Handoff
+
+`PASS`: NC-1 + NC-2 are verified without ST-1/streaming changes. Actual baseline/current
+provider flows measure awaited phases `6 → 2`, profile GETs `2 → 1`, and blocking
+newly-created exact/messages reads `2 → 0`. Focused NC verification is 10/10 on
+repeated runs; combined chat contracts are 68/68; lint and typecheck pass. The
+new-chat repair remains uncommitted and unpushed. Manual native timing/layout smoke
+remains, and ST-1/streaming is next as a separate stacked PR. Broader mega integration
+context and manual-smoke boundaries remain unchanged. No commit, push, merge,
+deployment, sandbox restart, or sandbox teardown was performed.

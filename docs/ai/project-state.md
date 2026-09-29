@@ -2,15 +2,15 @@
 
 ## Current focus
 
-Mobile chat-list polish plus verified auto-scroll follow-up: compact project headers/session rows, full-width search with a separate sort/new-chat row, exact-project project-header create action, generation-protected profile loading, compact session configuration, and reliable chat transcript positioning.
+Verified NC-1/NC-2 new-chat performance repair for the mobile chat-list polish slice. Actual baseline/current provider flows measure awaited phases 6 → 2, profile GETs 2 → 1, and blocking newly-created exact/messages reads 2 → 0.
 
 ## Active branch / PR
 
-Branch `mobile/chat-list-compact-project-create`, based on `mega/2026-09-18-mobile-electron-hermes` (not `main`). Draft PR #1585 exists. Auto-scroll changes remain uncommitted and unpushed.
+Branch `mobile/chat-list-compact-project-create`, based on `mega/2026-09-18-mobile-electron-hermes` (not `main`). Draft PR #1585 exists. The verified new-chat repair remains uncommitted and unpushed.
 
 ## In progress
 
-Manual native timing/layout smoke remains for 375–430pt header/search layouts, 844pt session-sheet fit, and auto-scroll behavior.
+Manual native timing/layout smoke remains for 375–430pt header/search layouts, 844pt session-sheet fit, and auto-scroll behavior. Streaming ST-1 is next as a separate stacked PR.
 
 ## Risks / known issues
 
@@ -19,18 +19,10 @@ Manual native timing/layout smoke remains for 375–430pt header/search layouts,
 
 ## Test status
 
-PASS: focused auto-scroll 8/8, combined chat contracts 58/58, accessibility 8/8, lint/typecheck. Full suite: 239 passed, 4 unchanged base-red issue-1387 failures.
+PASS: repeated focused NC-1/NC-2 verification 10/10, combined chat contracts 68/68, lint/typecheck. Actual provider baseline/current flow evidence: awaited phases 6 → 2, profile GETs 2 → 1, blocking newly-created exact/messages reads 2 → 0.
 
 ## Next step
 
-Complete the manual native timing/layout smoke, then continue the draft-PR handoff. Keep the issue-1387 failures as a separate follow-up.
+Complete the manual native timing/layout smoke, then prepare the separate stacked ST-1 streaming PR. Keep the issue-1387 failures as a separate follow-up.
 
-## Existing integration context
-
-Rhythm integration remains in draft mega PR #1544 on `mega/2026-09-18-mobile-electron-hermes`; the broader orchestration pause and hand-off remain unchanged. Hermes clean integration, Bot Crossing, shared agents/settings, Colony, memory, profile allowed-skills management, and the unresolved #1572/#1540/#1576 work remain as previously recorded in the durable run notes.
-
-The 2026-09-28 candidate-unblock state remains unchanged: signed local candidates are required; relay outbox and attachment handling are integrated; the fork SDK/engine contract fingerprint is synchronized; #1584, DB VACUUM, Electron attachment thumbnails, and candidate UI smoke remain open.
-
-## Historical verification boundaries
-
-Prior broad CI/local verification boundaries, issue coverage, and release-acceptance limitations remain historical context rather than current all-green claims. No credential store or vault was modified. The integration worktree remains dirty and diverged; this slice did not commit, push, merge, deploy, or release. Required sandbox teardown is complete.
+Broader integration context remains unchanged: draft mega PR #1544 on `mega/2026-09-18-mobile-electron-hermes`, the orchestration pause/hand-off, and the existing Hermes, Bot Crossing, shared agents/settings, Colony, memory, profile allowed-skills, and candidate-unblock follow-ups remain recorded in the durable run notes. This slice did not commit, push, merge, deploy, or release.
