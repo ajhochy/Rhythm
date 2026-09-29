@@ -26,6 +26,12 @@ TypeSafe's Jev targets exactly these "typed decision + confidence" steps. The go
 - Each feature has an `off`/`shadow`/`on` flag and defaults to `off`.
 - Decisions are logged to a local-only `agent_decision_log` table, surfaced at `GET /agent-decisions`.
 
+The same PR adds `capacity_routing`, which reads cached usage-budget headroom:
+
+- Pick the account with the most headroom.
+- When the base provider is low, move to another provider at the same tier.
+- When everything is low, take the lowest capable tier and, within it, the account with the most headroom.
+
 ## Alternatives
 
 - **Hosted Jev now.** Rejected for the first iteration: prompts and memories are personal staff data, and its terms and latency are unverified. It can be added later as another `RerankClient`.
