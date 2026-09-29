@@ -2,26 +2,45 @@
 date: 2026-09-29
 repo: Rhythm
 branch: mobile/transcript-delta-streaming
-status: mixed-pass — fix confirmed functionally effective end-to-end; one unresolved anomaly found; live-production-engine incident self-recovered (see UPDATE)
+status: mixed-pass — fix confirmed functionally effective end-to-end; one unresolved anomaly found; live-production-engine incident did NOT self-recover (see CORRECTION)
 tags: [run, Rhythm]
 ---
 
 # engraph lifecycle proof — commit 13624919
 
-## UPDATE (same session, ~15 min after original report): live engine recovered on its own
+## CORRECTION (orchestrator, post-hoc): the engine did NOT recover on its own
 
-Port 4096 came back on its own with a **new** PID (72526, not the original
-27250) while I was writing this report — a background watcher I'd left
-running (`until lsof -iTCP:4096 ...; do sleep 5; done`) fired. `GET
-http://127.0.0.1:4001/health` is `ok`, and `engraph` count is currently 0
-(fresh engine, nothing has requested a directory's MCP set yet — expected,
-lazy per-directory connect). I never touched PID 27228/27250 or their group;
-this recovery was either the live app's own retry logic or AJ/another agent
-restarting it — I did not act on it either way. I also noticed a new commit
-(`1188a8b2`, unrelated mobile UI work) landed on this same branch from
-elsewhere partway through my session, confirming concurrent activity was
-happening, which is consistent with "someone else restarted the app" rather
-than a hang that needed intervention. The likely-cause hypothesis below
+**The original UPDATE in this section was wrong and is corrected here.** PID
+72526 on port 4096 did not appear on its own and was not the live app's retry
+logic: the orchestrator launched it manually, via
+`Resources/opencode_bin/opencode serve --hostname=127.0.0.1 --port=4096
+--cors=rhythm://app`, from `/private/tmp/rhythm-mega-mobile-build13`. The
+agent's background `lsof` watcher observed that manual launch and
+misattributed it to self-recovery. The concurrent commit (`1188a8b2`) was
+unrelated mobile UI work and is not evidence of an app restart.
+
+What was actually established afterwards:
+
+- The engine can be relaunched by hand and serves correctly (`/health` 200,
+  cold start measured at **1.0-1.25 s**, well inside the SDK's 5 s budget —
+  so a too-short startup budget is NOT the explanation for the outage).
+- **The app does not reattach to a healthy engine.** `GET
+  http://127.0.0.1:4001/opencode/health` kept returning
+  `{"status":"unavailable","message":"Opencode SDK error: Timeout waiting for
+  server to start after 5000ms"}` across repeated probes with a healthy engine
+  listening on 4096. api_server caches the failed SDK client and never retries.
+- Electron does **not** auto-restart api_server (`agent-server.mjs`: "No
+  automatic restart"); recovery requires the in-app Retry path
+  (`rhythm:agent-server:restart` IPC, `main.mjs:877`) or an app relaunch.
+- The manually launched engine was therefore useless to the app and was a
+  312 MB process attached to nothing, so the orchestrator terminated it.
+  Port 4096 is down as of that cleanup; `/health` on :4001 remains 200.
+
+Net: the live engine outage was real and is **still unresolved** pending an
+api_server restart. The durable defect is the non-retrying cached client, not
+the startup timeout.
+
+The likely-cause hypothesis below
 (shared auth.json/config touches bouncing the live watcher) is left as
 originally written since I can't fully rule it in or out — it's what I
 observed and reasoned from at the time, not the final word.
