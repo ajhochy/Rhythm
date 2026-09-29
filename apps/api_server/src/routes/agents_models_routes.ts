@@ -10,7 +10,7 @@ import {
   PROVIDER_CONNECT_URL,
   ROUTE_FALLBACKS_BY_AGENT,
 } from '../services/agent_model_resolver';
-import { getDb } from '../database/db';
+import { loadModelVisibility } from '../services/model_visibility';
 import {
   eligibleModel,
   probeDeclaredModelInventory,
@@ -71,21 +71,6 @@ function loadConfiguredProviders(): Record<string, ConfiguredProvider> {
     // Configuration is optional while the engine starts.
   }
   return {};
-}
-
-function loadVisibilityMap(): Map<string, boolean> {
-  const visibility = new Map<string, boolean>();
-  try {
-    const rows = getDb().prepare(
-      'SELECT provider, model_id, visible FROM agent_model_visibility',
-    ).all() as { provider: string; model_id: string; visible: number }[];
-    for (const row of rows) {
-      visibility.set(`${row.provider}\0${row.model_id}`, row.visible === 1);
-    }
-  } catch {
-    // Table may not exist on first run.
-  }
-  return visibility;
 }
 
 type FallbackMetadata = {
@@ -189,7 +174,7 @@ export async function listAgentModelCatalog(options?: { includeHidden?: boolean 
     const usage = await getUsageBudget({ cachedOnly: true }).catch(() => null);
     const openAiUsage = usage?.providers.find((entry) => entry.provider === 'openai');
     const geminiUsage = usage?.providers.find((entry) => entry.provider === 'gemini');
-    const visibility = loadVisibilityMap();
+    const visibility = loadModelVisibility();
     const configured = loadConfiguredProviders();
     const metadata = fallbackMetadata();
     const snapshotProviderIds = new Set(snapshot.providers.map((provider) => provider.id));

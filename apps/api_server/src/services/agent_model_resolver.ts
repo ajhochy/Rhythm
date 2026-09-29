@@ -78,6 +78,9 @@ export const ROUTE_FALLBACKS_BY_AGENT: Record<string, ModelRoute[]> = {
     { providerID: 'openai', modelID: 'gpt-5.6-sol' },
     { providerID: 'openai', modelID: 'gpt-5.3-codex' },
     { providerID: 'openai', modelID: 'gpt-5.4' },
+    // After gpt-5.4 so the #1568 standard-tier contract (gpt-5.4 first) holds;
+    // terra shares the account, so capacity routing is unaffected.
+    { providerID: 'openai', modelID: 'gpt-5.6-terra' },
     { providerID: 'openai', modelID: 'gpt-5.4-mini' },
     { providerID: 'github-copilot', modelID: 'gpt-5-mini' },
     { providerID: 'openrouter', modelID: 'openai/gpt-5.3-codex' },
@@ -434,6 +437,16 @@ export interface SessionTurnModelOptions {
    * call's return value only, never written back).
    */
   sessionId?: string;
+  /**
+   * Auto (router) mode. 'fixed'/undefined keeps the exact legacy precedence.
+   * When 'auto': a perTurnOverride equal to the session's stored model or the
+   * profile's configured model is an ECHO (clients resend the stored model each
+   * turn) and is ignored and never persisted; a different override is an
+   * explicit choice for that turn only (never persisted, mode not flipped);
+   * otherwise requestedSource is 'auto' with route = session model ?? profile
+   * model ?? agent default, which the decision router may then refine.
+   */
+  sessionModelMode?: 'auto' | 'fixed';
 }
 
 async function resolveSessionTurnBase(opts: SessionTurnModelOptions): Promise<{
@@ -441,8 +454,16 @@ async function resolveSessionTurnBase(opts: SessionTurnModelOptions): Promise<{
   requestedSource: RequestedSource;
 }> {
   const override = opts.perTurnOverride;
-  if (override?.providerId && override.modelId) {
+  const auto = opts.sessionModelMode === 'auto';
+  let overrideIsEcho = false;
+  if (auto && override?.providerId && override.modelId) {
+    overrideIsEcho =
+      (override.providerId === opts.sessionProviderId && override.modelId === opts.sessionModelId) ||
+      isSameRoute(override, await resolveModelFromAgentConfigs(opts.agentId));
+  }
+  if (override?.providerId && override.modelId && !overrideIsEcho) {
     if (
+      !auto &&
       opts.sessionId &&
       (override.providerId !== opts.sessionProviderId || override.modelId !== opts.sessionModelId)
     ) {
@@ -460,11 +481,21 @@ async function resolveSessionTurnBase(opts: SessionTurnModelOptions): Promise<{
     return { route: { providerID: override.providerId, modelID: override.modelId }, requestedSource: 'turn_override' };
   }
   if (opts.sessionProviderId && opts.sessionModelId) {
-    return { route: { providerID: opts.sessionProviderId, modelID: opts.sessionModelId }, requestedSource: 'session' };
+    return {
+      route: { providerID: opts.sessionProviderId, modelID: opts.sessionModelId },
+      requestedSource: auto ? 'auto' : 'session',
+    };
   }
   const fromAgentConfigs = await resolveModelFromAgentConfigs(opts.agentId);
-  if (fromAgentConfigs) return { route: fromAgentConfigs, requestedSource: 'agent_config' };
-  return { route: await resolveModelForAgent(opts.agentId), requestedSource: 'agent_default' };
+  if (fromAgentConfigs) return { route: fromAgentConfigs, requestedSource: auto ? 'auto' : 'agent_config' };
+  return { route: await resolveModelForAgent(opts.agentId), requestedSource: auto ? 'auto' : 'agent_default' };
+}
+
+function isSameRoute(
+  override: { providerId?: string; modelId?: string },
+  route: ModelRoute | undefined,
+): boolean {
+  return !!route && route.providerID === override.providerId && route.modelID === override.modelId;
 }
 
 export async function resolveModelForSessionTurn(opts: SessionTurnModelOptions): Promise<ModelRoute | undefined> {
@@ -619,10 +650,12 @@ export function classifyRouteTier(route: ModelRoute): ModelTier {
     id.includes('haiku') ||
     id.includes('mini') ||
     id.includes('flash') ||
+    id.includes('luna') ||
     id.includes('qwen')
   ) {
     return 'cheap';
   }
+  // 'gpt-5.6-terra' and 'claude-sonnet-*' are the standard tier (the default).
   return 'standard';
 }
 

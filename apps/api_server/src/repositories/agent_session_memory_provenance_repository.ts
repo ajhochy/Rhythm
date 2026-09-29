@@ -32,7 +32,7 @@ export interface MemoryProvenanceItem {
   memoryId: string;
   source: string | null;
   sourceId: string | null;
-  lane: 'fts' | 'semantic' | 'hybrid';
+  lane: 'fts' | 'semantic' | 'hybrid' | 'rerank';
   score: number;
   confidence: number | null;
   reason: string;
