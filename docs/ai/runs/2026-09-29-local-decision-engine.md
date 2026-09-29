@@ -66,3 +66,13 @@ The plan was written and reviewed by the orchestrator. Four Sonnet subagents imp
 - **Calibration script.** `scripts/decision_calibrate.ts`: 20 labelled prompts → threshold sweep and description diagnostics.
 - **Checks.** api_server: 1035 focused tests pass. web: `tsc -b` clean and 9 Playwright contract tests pass. mobile: jest settings/chat suites pass (the 4 `issue-1387` and 1 `issue-1173` failures are pre-existing). Flutter: analyze at baseline, 740 tests pass, and the 2 golden failures are pre-existing Linux rendering diffs.
 - **Still unverified.** Nothing has run against a real reranker or Jev. The Jev field names come from third-party docs.
+
+## Live model catalog (same day, after AJ's review)
+
+- AJ pointed out the router chose among a hardcoded, generations-old table. It now routes among the engine's live catalog: connected ∩ eligible ∩ policy-approved ∩ entitled ∩ not excluded. `ROUTE_FALLBACKS_BY_AGENT` is only a static fallback, flagged in the decision log.
+- `providerSnapshot()` passes through cost, release date, family and reasoning.
+- Tier cutoffs are derived from catalog prices (`tiers.mode: auto`): the largest log-price gaps among the newest model per family. Real models.dev prices give ≈7.75 / ≈19.4, so haiku/mini/flash are cheap, sonnet/gpt-5.4/codex/gemini-pro standard, opus/gpt-5.5 frontier. Manual mode and per-model overrides/exclusions exist.
+- Within a tier: base provider → most headroom → lowest output cost → newest, so gpt-5.5-pro ($180) never beats opus/gpt-5.5 for frontier.
+- One agent deviation reverted: the approved-model policy (`visibleDirectModelIds`) always applies; the curated gpt-5.6 luna/terra/sol set is newer than the vendored fixture.
+- UI: "Models the router chooses among" table in Electron and mobile Router settings, with Auto/Manual cutoffs.
+- Checks: api_server 1100 tests pass; web Playwright 13/13; mobile jest 45/45.
