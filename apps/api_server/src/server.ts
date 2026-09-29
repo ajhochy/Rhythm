@@ -161,6 +161,12 @@ async function main() {
     const mediaRetentionTimer = setInterval(() => void sweepMediaArtifacts(), 86_400_000);
     mediaRetentionTimer.unref();
   }
+  // Session-DB retention (docs/ai/decisions/2026-09-29-session-db-retention.md): daily 02:15,
+  // RHYTHM_SESSION_RETENTION=off|dry-run|on, default dry-run (read-only report).
+  if (process.env.VITEST !== 'true' && env.dbClient === 'sqlite') {
+    const { startSessionRetentionJob } = await import('./jobs/session_retention_job');
+    startSessionRetentionJob();
+  }
   logger.info('Database initialized');
   try {
     const { recoverStaleResearchJobs } = await import('./controllers/agentResearchController');
