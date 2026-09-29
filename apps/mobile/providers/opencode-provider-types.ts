@@ -196,7 +196,9 @@ export type OpencodeContextValue = {
   refreshCurrentSession: (silent?: boolean) => Promise<void>;
   loadOlderMessages: (sessionId: string) => Promise<void>;
   refreshCurrentTodos: (silent?: boolean) => Promise<void>;
-  ensureActiveSession: () => Promise<string | undefined>;
+  ensureActiveSession: (
+    options?: { allowCreate?: boolean },
+  ) => Promise<string | undefined>;
   createSession: (
     title?: string,
     options?: CreateSessionOptions,

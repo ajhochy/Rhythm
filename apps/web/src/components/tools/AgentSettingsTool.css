@@ -534,3 +534,58 @@
 @media (pointer: coarse) {
   .model-curation-provider-search input { min-height: 44px; }
 }
+
+/* Router model settings (Agent Settings -> Models). */
+.router-settings { min-width: 0; display: grid; gap: 12px; max-width: 720px; padding: 14px; border: 1px solid var(--border-soft); border-radius: var(--r-md); background: var(--surface); }
+.router-settings h3, .router-settings h4, .router-settings p { margin: 0; }
+.router-settings h3 { font-size: 1em; }
+.router-settings h4 { font-size: 12px; color: var(--muted); }
+.router-settings-note { color: var(--muted); font-size: 12px; }
+.router-settings-backends { display: grid; gap: 6px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.router-settings-backends legend { padding: 0; margin-bottom: 6px; color: var(--muted); font-size: 12px; font-weight: 650; }
+.router-settings-radio { min-height: 44px; display: flex; align-items: center; gap: 10px; padding: 6px 10px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); cursor: pointer; }
+.router-settings-radio span { display: grid; gap: 2px; min-width: 0; }
+.router-settings-radio small, .router-settings-feature small, .router-settings-locked { color: var(--muted); font-size: 11px; }
+.router-settings-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.router-settings-field, .router-settings-feature { min-width: 0; display: grid; gap: 4px; }
+.router-settings label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.router-settings input:not([type="radio"]):not([type="checkbox"]), .router-settings select { width: 100%; min-width: 0; min-height: 44px; }
+.router-settings .router-settings-radio, .router-settings .router-settings-consent { display: flex; }
+.router-settings-consent { align-items: flex-start; gap: 10px; min-height: 44px; color: var(--fg); }
+.router-settings-key-state { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; color: var(--success); }
+.router-settings-features { display: grid; gap: 10px; }
+.router-settings-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.router-settings-actions button, .router-settings-key-state button { min-height: 44px; }
+.router-settings-results { display: grid; gap: 6px; font-size: 12px; }
+.router-settings-results [role="alert"] { color: var(--danger); }
+.router-settings-ranked { margin: 6px 0 0; padding-left: 20px; display: grid; gap: 4px; }
+.router-settings-ranked li span { margin-right: 8px; }
+/* Agent Settings -> Model routing (groups -> models -> inspector). */
+.router-routing-header, .router-model-tools { display: grid; gap: 6px; min-width: 0; padding: 0 8px 6px; }
+.router-routing-header small { color: var(--muted); font-size: 11px; }
+.router-model-tools .column-checklist-filter input, .router-model-tools select { width: 100%; }
+.router-model-tools select { min-height: 32px; font-size: 11px; }
+.router-catalog-callout { display: grid; gap: 4px; padding: 8px; border: 1px solid var(--warning); border-radius: var(--r-sm); font-size: 12px; }
+.router-catalog-thresholds, .router-model-inspector { display: grid; gap: 10px; min-width: 0; max-width: 560px; }
+.router-catalog-thresholds > label, .router-model-tier label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.router-catalog-thresholds > label input, .router-model-tier select { min-height: 44px; }
+.router-catalog-thresholds p, .router-model-inspector p { margin: 0; }
+.router-catalog-mode { display: flex; flex-wrap: wrap; gap: 10px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.router-catalog-mode legend { padding: 0; margin-bottom: 6px; color: var(--muted); font-size: 12px; font-weight: 650; }
+.router-catalog-error { color: var(--danger); font-size: 12px; }
+.router-model-id code { font-size: 12px; overflow-wrap: anywhere; }
+.router-model-status { justify-self: start; padding: 2px 10px; border: 1px solid var(--border-soft); border-radius: 999px; color: var(--muted); font-size: 12px; }
+.router-model-status.ok { border-color: var(--success); color: var(--success); }
+.router-model-inspector [role="alert"] { color: var(--danger); font-size: 12px; }
+.router-model-switch { min-height: 44px; display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); cursor: pointer; }
+.router-model-switch span { display: grid; gap: 2px; min-width: 0; }
+.router-model-switch small { color: var(--muted); font-size: 11px; }
+.router-model-tier { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.router-model-tier select { min-width: 140px; }
+.router-model-tier small { padding-bottom: 12px; color: var(--muted); font-size: 11px; }
+.router-model-tier button { min-height: 44px; }
+.router-catalog-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px 16px; margin: 0; font-size: 12px; }
+.router-catalog-facts div { display: grid; gap: 2px; }
+.router-catalog-facts dt { color: var(--muted); font-size: 11px; }
+.router-catalog-facts dt, .router-catalog-facts dd { margin: 0; }
+@media (max-width: 640px) { .router-settings-fields { grid-template-columns: minmax(0, 1fr); } }

@@ -1,49 +1,38 @@
-# Rhythm — Project State
+# Project state
 
-## Focus
+**Focus:** Mobile app repair — live transcript streaming, engraph process lifecycle, session-list & chat-create UI finish.
 
-Complete the unfinished Rhythm scope in draft mega PR #1544: Bot Crossing inside Rhythm, shared memory, shared canonical agents/settings, native Hermes execution, and two-way delegation. AJ chose Hermes itself to run shared agents launched there. One final combined smoke; no merge, deployment or release.
+**Branch / PR:** `mobile/transcript-delta-streaming` → draft **PR #1587**, based on `mega/2026-09-18-mobile-electron-hermes`. Single stacked PR by request; #1585 merged 2026-09-29 05:44 (`d2796905`).
 
-## Pause checkpoint
+## Landed on this branch
 
-AJ requested a pause after active agent turns finish. No new slices or combined smoke should begin until resumed. Accepted source remains at the heads below; helper-probe and Colony receiver candidates are preserved separately, awaiting parent review. The read-only #1540 plan is saved in the repair4 evidence folder. #1553 has a clean prepared worktree only; implementation has not started. See [pause handoff](runs/2026-09-24-orchestration-pause.md).
+- **ST-1 streaming.** `apps/mobile/lib/opencode/transcript-events.ts` (pure reducer + non-resettable 75 ms maxWait batcher). `message.updated` / `message.part.updated` / `message.part.delta` route through it; full-page refetch removed from those paths; `session.idle` flushes and stays authoritative. Delta envelope is exactly `{sessionID, messageID, partID, field, delta}` — no top-level `id` (a prior attempt failed its gate by inventing one).
+- **engraph lifecycle.** Engine now spawned `detached: true`; `stop()`/`bindAbort()` take opt-in `{group: true}`; stale-port sweep verifies `pgid === pid` before group-signalling (fail-closed). Mirrored into `apps/api_server/vendor/opencode-ai-sdk/`. Closes #1574.
+- **NC-3 instant create sheet.** `openCreateSheet` no longer awaits the profile catalog; Create disabled until it resolves.
+- **Phantom session fix.** Connect-bootstrap called `ensureActiveSession()` → `createSession()` on every connect, fabricating a blank "Untitled chat" per connect. Passive path now passes `allowCreate: false`.
+- **Docs.** `docs/ai/spec-session-list-and-create-ui.md`, `docs/ai/runs/2026-09-29-engraph-lifecycle-proof.md`.
 
-## Current branches
+## Test status
 
-Rhythm integration: `mega/2026-09-18-mobile-electron-hermes`, [PR #1544](https://github.com/ajhochy/Rhythm/pull/1544), HEAD `21f26099` (2026-09-28). Local signed candidate: `/private/tmp/rhythm-mega-mobile-build13/apps/electron/dist/Rhythm.app` (worktree kept until smoke; `.mega-wt/integration` no longer exists).
+`tsc --noEmit` clean · `eslint` 0 errors · `jest tests/chat` **119/119** · full mobile jest **263/267** · `api_server` contract **9/9** · Playwright `st1-concurrent-delta-streaming` passing (3 concurrent sessions, 0 mid-stream GETs, RED when deltas dropped).
 
-Hermes clean integration: `/private/tmp/hermes-shared-integration`, `db0cba2d3c`, companion draft PR17. Bot Crossing: `/private/tmp/bot-crossing-colony-artifact`, `a30b4c9`, companion draft PR5. Neither latest companion source is yet pinned into the Rhythm artifact.
+## Risks / known issues
 
-## 2026-09-28 candidate unblock (see [run](runs/2026-09-28-electron-candidate-runtime-start.md))
+- **`issue-1387` 4 failures are base-red** — verified identical at `d2796905` with production files reverted. Offline-mirror hydration; out of scope.
+- **Live engine :4096 cannot complete any generation** — `ContextOverflowError: 201231 > 200000` on every session including 3-word prompts, from auto-injected skills/vault/docs context. Pre-existing; blocks all live agent verification on that engine.
+- **Live engine PID 27250 died during testing and did not respawn** — restart Rhythm. Likely the `AuthCredentialWatcher` bounce race from shared `~/.config/opencode/` writes (cf. 2026-08-15).
+- **`ScopedCache` unbounded per-directory MCP clients** in the opencode fork — the mechanism behind "N engraph per engine". Not fixed; bounded impact.
+- Mobile gateway pairing needs a Keychain-held P-256 capability, so no unattended live-UI run is possible by design.
+- #1586 (silent session stalls, no heartbeat/sweeper) still open.
 
-- Local candidates must be Developer ID signed: `package:mac` then `RHYTHM_SIGN_ONLY=1 … npm run sign:mac`; ad-hoc builds cannot start the runtime and reset macOS privacy grants for other `com.rhythm.desktop` builds.
-- Relay outbox: one pending entry per record, live row at send, batched backpressured drain, data: URLs >64 KB stripped, rows capped at 16 MB (#1583).
-- Attachments are media artifacts, not inline parts_json (backfill done on AJ's Electron DB: 874 msgs, 1,053 MB). Engine tool-image resize fixed (photon via require(); Bun splitting bug). Mobile + Electron composers downscale uploads to 2048 px.
-- Fork SDK regenerated; engine contract fingerprint bumped to `75aaa1f1…` — next mobile build and Electron candidate must ship together. CI green at `469f12aa`.
-- Open: #1584 Retry/launch-hang and Electron attachment thumbnails in progress; DB VACUUM; manual UI smoke of the candidate.
+## CI
 
-## Included and active
+Fork CI was red from `bcce73c4` (missed `childMcpAllowlist` caller → TS2554); fixed `23b61ff0`. Fork CI ran only `test/session/ src/session/`, so `test/tool/` — all child-scoping regression tests — never executed; added in `50b4b630`. That exposed the writer/reader contract test importing api_server (no `better-sqlite3` in the fork job); split into producer/consumer halves in `16c6c3b1`.
 
-- Accounts: credential reader, reference grant broker, existing-auth-envelope identity, real main/preload/view wiring `60c30bf9`, and UI `a4e7b506`. The UI distinguishes eligible static keys, native Hermes ownership, OAuth, missing/unknown sources, configured/applied/pending states. Parent UI checks: 24 focused, 8 rendered, web typecheck pass; candidate styled desktop/narrow keyboard/accessibility check passed and screenshots reviewed. Native owned consumption and packaged qualification remain pending.
-- Hermes native spawn: review found real hermes:connection startup bypassed the original host broker. Accepted companion source db0cba2d3c preserves native first-run/runtime resolution/ownership and adds clean environment plus owned-attempt receipts. Failed-stop and repeated-dispose repairs pass parent39 focused checks and Electron typecheck. Resolver helper subprocesses separately need clean environments; three RED contracts reproduce ambient-variable leakage. No all-child sanitation claim yet.
-- Shared agents: canonical revision-safe editing is integrated `1b13bca1`; native frozen policy foundation `2291990e54` has 140 parent adjacent tests and 9 real gateway/AIAgent fixture cases passing. Full effective-policy mapping, authenticated local capability transport, shared editors, skills/delegation parity and two-way execution remain required. Hermes must execute natively, without an OpenCode fallback.
-- Colony: sealed artifact/shared protected state, private protocol, actual scene transport and owned observation worker/preload source are integrated in companion PR5 through `a30b4c9`, including Node/SQLite capability proof. Parent latest 45 focused tests pass; preceding full256/build passed before bounded review repairs. Actual worker reads synthetic stores without mutation or native probes. Rhythm receiver/supervisor/frame contracts are being authored; native tab and final clean pin remain pending.
-- Memory: S5 concurrent-write/external-edit safety is integrated. S6 consent-scoped read-only Hermes search is not implemented; native working-memory files remain untouched. #1573 semantic-search diagnosis is documented; no relevance bypass accepted.
-- Profile allowed-skills management is locally verified: All, Selected, and No have distinct exact semantics, with managed-skill CRUD complete. Profile/neighbor Playwright is 28 passed/1 live-only skipped; web typecheck/build/dist, API neighbors (65)/build, live c15, cleanup, health, and UI/accessibility review pass. Two repair rounds closed duplicate alerts, stale/double-submit/delete isolation, and keyboard/focus/44px/720px evidence gaps. Manual shipping-product smoke remains deferred by AJ.
-- #1572 preserved direct-provider candidate still has an unresolved availability defect and is not integrated. #1540 workspace UI port and #1576 B2 remain unfinished.
+## Engine
 
-## Verification boundaries
+Restored via `POST /system/restart-engine` (auth-bypassed under `AGENT_LOCAL=true`). `:4096` 200, `bridgeLive: true`. Two defects found and filed, not fixed: api_server caches a failed engine client and never retries; Electron has no automatic api_server restart, and no dialog appears when the engine dies while api_server stays healthy.
 
-Rhythm CI at `60c30bf9`: five checks pass; server-checks fails one #907 multiple-Anthropic-account test (expected two entries, got one). Focused local file passes. Exact full local reproduction hit widespread worker startup/hook/test timeouts: 41 failed files, 46 failed tests, 3 worker errors; it does not establish the same CI defect. Deterministic scheduler instrumentation reproduced the exact CI failure: queued unmock can delete the replacement account mock. Test-only stable-mock/isolation repair is integrated5cf6ddb8: parent22 pass and candidate32 focused/typecheck pass, including the same forced race schedule. No product change or assertion weakening; new-head CI is pending. No additional broad local repeat is scheduled.
+## Next step
 
-Earlier full API after `4893d12b`: 6329 pass, 264 skipped. Earlier resumed 16-stage gate: 15 passing stages and an engine cancellation timeout; exact stage replay passed396, 5 skipped, 1 todo without proving the timeout cause. Prior full Electron aggregates predate latest slices. These historical receipts are not a current all-green claim.
-
-## Remaining scope and evidence
-
-The [91-issue coverage](runs/2026-09-24-open-issue-coverage.md) still records 12 formal closing references, 28 partial, 1 unintegrated candidate, 13 planned and 37 unmapped issues. All remain in the authorized campaign; counts are not completion claims. See [native shared-agent plan](plans/2026-09-24-native-hermes-shared-agents.md).
-
-No real credential store or vault was modified. Physical audio/iOS, Facilities rendering, provider behavior, both architectures, installed package, signing/notarization and release acceptance remain separate. Preserve unrelated dirty September21 documents. Durable evidence: `/Users/ajhochhalter/Documents/rhythm-orchestration-evidence/2026-09-24-repair4/`; individual September24 run notes record exact commands and limitations.
-
-The integration worktree remains dirty and diverged from its remote branch; this workflow did not commit, push, merge, or deploy. The broad gateway fixture retains 10 unrelated dynamic-import failures, and GitNexus was unavailable.
-
-Required sandbox teardown completed successfully: sanitized diagnostics are at `/private/tmp/rhythm-profile-skills-sandbox-20260927.evidence.fmX3Gh`, and the sandbox was removed.
+AJ smoke-tests PR #1587 on device/simulator, then merges. No machine action needed — the engine is back up.

@@ -1,6 +1,12 @@
 import os from 'os';
 import path from 'path';
 import { isIP } from 'node:net';
+import {
+  DEFAULT_LOCAL_TIMEOUT_MS,
+  DEFAULT_REMOTE_TIMEOUT_MS,
+  activeBackendSection,
+  loadDecisionSettings,
+} from '../services/decision/decision_settings';
 
 export type DbClient = 'sqlite' | 'postgres';
 
@@ -229,6 +235,171 @@ export function isMemoryLinkExpansionEnabled(): boolean {
     .trim()
     .toLowerCase();
   return raw === 'true' || raw === '1';
+}
+
+/**
+ * Local decision engine (docs/ai/plans/2026-09-29-local-decision-engine.md).
+ * All getters read process.env live so tests and operators can flip them
+ * without a restart. The backend must be loopback (enforced in the client).
+ */
+export function getDecisionBaseUrl(): string {
+  const raw = (process.env.AGENT_DECISION_BASE_URL ?? '').trim();
+  if (raw) return raw;
+  return activeBackendSection(loadDecisionSettings()).baseUrl;
+}
+
+export function getDecisionModel(): string {
+  const raw = (process.env.AGENT_DECISION_MODEL ?? '').trim();
+  if (raw) return raw;
+  return activeBackendSection(loadDecisionSettings()).model || 'qwen3-reranker-4b';
+}
+
+/**
+ * Per-call budget for the decision backend. Precedence: valid env > saved
+ * setting > default (400ms local, 1500ms jev/custom).
+ */
+export function getDecisionTimeoutMs(): number {
+  const fromEnv = numberEnv('AGENT_DECISION_TIMEOUT_MS');
+  if (fromEnv !== null && Number.isInteger(fromEnv) && fromEnv > 0) return fromEnv;
+  const settings = loadDecisionSettings();
+  if (settings.timeoutMs !== null) return settings.timeoutMs;
+  return settings.backend === 'local' ? DEFAULT_LOCAL_TIMEOUT_MS : DEFAULT_REMOTE_TIMEOUT_MS;
+}
+
+/** Per-feature rollout: off (default) -> shadow (log only) -> on (apply). */
+export type DecisionMode = 'off' | 'shadow' | 'on';
+
+const DECISION_FEATURE_ENV = {
+  model_routing: 'AGENT_DECISION_MODEL_ROUTING',
+  tool_ranking: 'AGENT_DECISION_TOOL_RANKING',
+  memory_ranking: 'AGENT_DECISION_MEMORY_RANKING',
+  capacity_routing: 'AGENT_DECISION_CAPACITY_ROUTING',
+} as const;
+
+export function getDecisionFeatureMode(
+  feature: keyof typeof DECISION_FEATURE_ENV,
+): DecisionMode {
+  const raw = (process.env[DECISION_FEATURE_ENV[feature]] ?? '').trim().toLowerCase();
+  if (raw === 'off' || raw === 'shadow' || raw === 'on') return raw;
+  const saved = loadDecisionSettings().features[feature];
+  return saved === 'shadow' || saved === 'on' ? saved : 'off';
+}
+
+/**
+ * Effective mode for one turn. An explicitly set, recognised env value always
+ * wins (explicit 'off' is a kill switch; 'shadow' stays shadow). When the env
+ * var is unset/empty, a saved (non-'default') Router setting wins; otherwise Auto
+ * (router) sessions get 'shadow' (log only, until validated and set to On) and
+ * everything else 'off'. Unrecognised values are treated as unset.
+ */
+export function getEffectiveDecisionMode(
+  feature: keyof typeof DECISION_FEATURE_ENV,
+  opts: { sessionAuto?: boolean } = {},
+): DecisionMode {
+  const raw = (process.env[DECISION_FEATURE_ENV[feature]] ?? '').trim().toLowerCase();
+  if (raw === 'off' || raw === 'shadow' || raw === 'on') return raw;
+  const saved = loadDecisionSettings().features[feature];
+  if (saved !== 'default') return saved;
+  return opts.sessionAuto ? 'shadow' : 'off';
+}
+
+/**
+ * Memory-ranking budget. Memory pools are larger than tool/route batches, so the
+ * default is max(getDecisionTimeoutMs(), 800). AGENT_DECISION_MEMORY_TIMEOUT_MS
+ * overrides it (positive integer).
+ */
+export function getDecisionMemoryTimeoutMs(): number {
+  const fromEnv = numberEnv('AGENT_DECISION_MEMORY_TIMEOUT_MS');
+  if (fromEnv !== null && Number.isInteger(fromEnv) && fromEnv > 0) return fromEnv;
+  return Math.max(getDecisionTimeoutMs(), 800);
+}
+
+/**
+ * Whether capacity routing may pick an equivalent-tier route from another agent's
+ * fallback table (e.g. Anthropic low -> OpenAI). Env only; default true.
+ */
+export function getDecisionCapacityCrossAgent(): boolean {
+  const raw = (process.env.AGENT_DECISION_CAPACITY_CROSS_AGENT ?? '').trim().toLowerCase();
+  if (['0', 'false', 'off', 'no'].includes(raw)) return false;
+  return true;
+}
+
+/** Max rows kept in agent_decision_log (default 20000). */
+export function getDecisionLogMaxRows(): number {
+  return positiveIntEnv('AGENT_DECISION_LOG_MAX_ROWS', 20_000);
+}
+
+/** Minimum classifier confidence, in (0,1], before a routing tier is applied. */
+export function getDecisionRoutingMinConfidence(): number {
+  const parsed = numberEnv('AGENT_DECISION_ROUTING_MIN_CONFIDENCE');
+  return parsed !== null && parsed > 0 && parsed <= 1 ? parsed : 0.55;
+}
+
+/** Routing scope: env > saved setting > 'first_prompt'. */
+export function getDecisionRoutingScope(): 'first_prompt' | 'escalate_only' | 'every_prompt' {
+  const raw = (process.env.AGENT_DECISION_ROUTING_SCOPE ?? '').trim().toLowerCase();
+  if (raw === 'first_prompt' || raw === 'escalate_only' || raw === 'every_prompt') return raw;
+  return loadDecisionSettings().routing.scope;
+}
+
+/** Min confidence, in (0,1], for escalate_only to move up a tier. Default 0.75. */
+export function getDecisionEscalateMinConfidence(): number {
+  const parsed = numberEnv('AGENT_DECISION_ESCALATE_MIN_CONFIDENCE');
+  if (parsed !== null && parsed > 0 && parsed <= 1) return parsed;
+  return loadDecisionSettings().routing.escalateMinConfidence;
+}
+
+/** How many top-ranked MCP servers stay eager; the rest are deferred. */
+export function getDecisionToolEagerServers(): number {
+  return positiveIntEnv('AGENT_DECISION_TOOL_EAGER_SERVERS', 4);
+}
+
+export function getDecisionToolMinScore(): number {
+  return unitIntervalEnv('AGENT_DECISION_TOOL_MIN_SCORE', 0.3);
+}
+
+/**
+ * Remaining-usage fraction (exclusive bounds 0..1) at or below which an account
+ * counts as "low" for capacity routing. Default 0.15.
+ */
+export function getDecisionCapacityLowFraction(): number {
+  const parsed = numberEnv('AGENT_DECISION_CAPACITY_LOW_FRACTION');
+  return parsed !== null && parsed > 0 && parsed < 1 ? parsed : 0.15;
+}
+
+export function getDecisionMemoryMinScore(): number {
+  return unitIntervalEnv('AGENT_DECISION_MEMORY_MIN_SCORE', 0.5);
+}
+
+/**
+ * How the decision backend's raw scores are interpreted:
+ * auto (default) keeps all-[0,1] batches else sigmoid; probability clamps to
+ * [0,1]; logit always applies a sigmoid.
+ */
+export type DecisionScoreScale = 'auto' | 'probability' | 'logit';
+
+export function getDecisionScoreScale(): DecisionScoreScale {
+  const raw = (process.env.AGENT_DECISION_SCORE_SCALE ?? '').trim().toLowerCase();
+  if (raw === 'auto' || raw === 'probability' || raw === 'logit') return raw;
+  const settings = loadDecisionSettings();
+  return settings.backend === 'jev' ? 'auto' : settings[settings.backend].scoreScale;
+}
+
+function numberEnv(name: string): number | null {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function positiveIntEnv(name: string, fallback: number): number {
+  const parsed = numberEnv(name);
+  return parsed !== null && Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function unitIntervalEnv(name: string, fallback: number): number {
+  const parsed = numberEnv(name);
+  return parsed !== null && parsed >= 0 && parsed <= 1 ? parsed : fallback;
 }
 
 /**

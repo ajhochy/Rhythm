@@ -20,6 +20,8 @@ type ChatComposerProps = {
   connectionStatus: GatewayConnectionStatus;
   conversation: { active: boolean; isListening: boolean; phase: string; statusLabel?: string };
   contextLabel?: string;
+  /** "Auto → <modelID>"; set only while Auto (router) is selected. */
+  routerPick?: string;
   draft: string;
   insetsBottom: number;
   isCreatingSession: boolean;
@@ -58,6 +60,7 @@ export function ChatComposer({
   onToggleRecording,
   palette,
   showSendAction,
+  routerPick,
 }: ChatComposerProps) {
   const hasComposerContent = Boolean(draft.trim()) || attachments.length > 0;
   const sendDisabled = !hasComposerContent || connectionStatus !== 'connected' || isCreatingSession || isSpeechInputListening;
@@ -107,6 +110,17 @@ export function ChatComposer({
             </Chip>
           ))}
         </View>
+      ) : null}
+
+      {routerPick ? (
+        <Text
+          accessibilityLabel={routerPick}
+          numberOfLines={1}
+          style={{ color: palette.muted, paddingHorizontal: 12, paddingBottom: 4 }}
+          testID="router-pick-label"
+          variant="labelSmall">
+          {routerPick}
+        </Text>
       ) : null}
 
       <View style={styles.composerDockRow}>

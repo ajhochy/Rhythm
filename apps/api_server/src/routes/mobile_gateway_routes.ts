@@ -285,6 +285,13 @@ export function createMobileGatewayRouter(dependencies: MobileGatewayRouterDepen
           throw AppError.badRequest('modelId must be a string or null');
         }
         if (
+          body.modelMode !== undefined &&
+          body.modelMode !== 'auto' &&
+          body.modelMode !== 'fixed'
+        ) {
+          throw AppError.badRequest("modelMode must be 'auto' or 'fixed'");
+        }
+        if (
           body.thinkingBudget !== null &&
           (
             typeof body.thinkingBudget !== 'number' ||
@@ -345,6 +352,10 @@ export function createMobileGatewayRouter(dependencies: MobileGatewayRouterDepen
             : null,
           providerId: body.providerId as string | null,
           modelId: body.modelId as string | null,
+          // 'auto' clears router_decided_at (see updateFields); 'fixed' pins.
+          ...(body.modelMode !== undefined
+            ? { modelMode: body.modelMode as 'auto' | 'fixed' }
+            : {}),
           thinkingBudget: body.thinkingBudget as number | null,
           permissionMode: body.permissionMode as PermissionMode,
         });

@@ -12,7 +12,7 @@ import type {
 type Row = Record<string, string | number | null>;
 const fields = ['sdkSessionId', 'sdkUserMessageId', 'origin', 'requestedSource', 'requestedProviderId', 'requestedModelId', 'requestedTier', 'resolvedProviderId', 'resolvedModelId', 'resolvedTier', 'finalProviderId', 'finalModelId', 'reasonCode', 'predecessorId'] as const;
 const origins = new Set(['ws_input', 'fallback_redispatch', 'agent_runner', 'delegation', 'delegation_completion', 'approval_continuation', 'prompt_api', 'unspecified']);
-const sources = new Set(['turn_override', 'session', 'agent_config', 'agent_default', 'tier', 'fallback_chain', 'caller']);
+const sources = new Set(['turn_override', 'session', 'agent_config', 'agent_default', 'tier', 'fallback_chain', 'caller', 'auto']);
 const outcomes = new Set<DispatchOutcome>(['pending', 'accepted', 'rejected', 'unknown']);
 // ponytail: codes are an allowlisted shape, not arbitrary descriptions; add a
 // new short code when a caller needs another reason, never copy provider errors.

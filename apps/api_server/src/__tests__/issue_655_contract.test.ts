@@ -14,6 +14,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   reclaimStalePortForOpencode,
+  isProcessGroupLeader,
   OPENCODE_ENGINE_PORT,
   type StalePortDeps,
 } from '../services/opencode_client_service';
@@ -141,5 +142,31 @@ describe('issue-655-c3: port-probe + stale-detection logic uses the lsof/ps boun
 
   it('defaults OPENCODE_ENGINE_PORT to 4096', () => {
     expect(OPENCODE_ENGINE_PORT).toBe(4096);
+  });
+});
+
+describe('engraph process-group reaper: isProcessGroupLeader', () => {
+  // Real `ps -o pgid= -p <pid>` output captured on this machine (2026-09-28),
+  // not hand-invented — `ps` right-justifies and pads the numeric field, and
+  // always terminates with a newline, both preserved here verbatim.
+  it('is NOT a group leader for a real non-detached opencode engine (pgid = parent shell\'s group)', () => {
+    // Captured: `ps -o pgid= -p 27250` while PID 27250 was a live
+    // `opencode serve` engine spawned by an api_server build that predates
+    // this fix (no `detached: true`) — its pgid is its spawner's group, 27222.
+    const realPsOutput = '   27222\n';
+    expect(isProcessGroupLeader(27250, realPsOutput)).toBe(false);
+  });
+
+  it('IS a group leader for a real detached process (pgid === its own pid)', () => {
+    // Captured: `ps -o pid=,pgid= -p $$` in an interactive shell — pid 18303
+    // is its own session/group leader, exactly the shape `detached: true`
+    // produces for the engine after this fix.
+    const realPsOutput = '   18303\n';
+    expect(isProcessGroupLeader(18303, realPsOutput)).toBe(true);
+  });
+
+  it('treats unparseable ps output as not-a-leader (fail closed, never group-kill on ambiguity)', () => {
+    expect(isProcessGroupLeader(12345, '')).toBe(false);
+    expect(isProcessGroupLeader(12345, 'not-a-number\n')).toBe(false);
   });
 });

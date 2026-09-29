@@ -20,6 +20,7 @@ import type {
   ModelOption,
   ProviderOption,
 } from '@/providers/opencode-provider';
+import { AUTO_MODEL_LABEL } from '@/providers/opencode-provider-utils';
 
 type Palette = typeof Colors.light;
 
@@ -101,9 +102,11 @@ export function ChatHeader({
   const selectedProfileLabel = availableProfiles.find(
     (profile) => profile.profileId === chatPreferences.profileId,
   )?.label;
-  const selectedModelLabel = availableModels.find(
-    (model) => model.id === chatPreferences.modelId,
-  )?.label ?? chatPreferences.modelId;
+  const selectedModelLabel = chatPreferences.modelMode === 'auto'
+    ? AUTO_MODEL_LABEL
+    : availableModels.find(
+      (model) => model.id === chatPreferences.modelId,
+    )?.label ?? chatPreferences.modelId;
   const idleSubtitle = [selectedProfileLabel, selectedModelLabel]
     .filter(Boolean)
     .join(' · ');

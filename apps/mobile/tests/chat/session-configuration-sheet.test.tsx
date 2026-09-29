@@ -5,11 +5,12 @@ import {
   waitFor,
 } from '@testing-library/react-native';
 import { Children, Fragment, isValidElement } from 'react';
+import { StyleSheet } from 'react-native';
 import { Dialog, List, PaperProvider } from 'react-native-paper';
 
 import { SessionConfigurationSheet } from '@/components/chat/session-configuration-sheet';
 import { normalizeProfileIcon } from '@/components/ui/profile-icon';
-import { Colors } from '@/constants/theme';
+import { Colors, Spacing, TypeScale } from '@/constants/theme';
 import {
   defaultChatPreferences,
   type AgentOption,
@@ -175,5 +176,61 @@ describe('SessionConfigurationSheet', () => {
     expect(
       screen.getByRole('button', { name: 'Create' }).props.accessibilityState,
     ).toMatchObject({ disabled: true });
+  });
+
+  test('task-mobile-chat-list-polish-nc3: sheet is visible with Create disabled before the profile catalog resolves, then enables once it arrives', async () => {
+    // Regression caught (NC-3): openCreateSheet no longer awaits loadSessionProfiles, so the
+    // sheet mounts with an empty catalog first. Create must stay disabled through that window
+    // and only enable once profiles populate the SAME already-open sheet (no remount/visible flip).
+    const onCreate = jest.fn().mockResolvedValue(undefined);
+    const screen = render(
+      sheet([], defaultChatPreferences, onCreate),
+    );
+
+    // Sheet is visible immediately, with the loading/empty catalog, and Create is disabled.
+    expect(screen.getByLabelText('Chat title')).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'Create' }).props.accessibilityState,
+    ).toMatchObject({ disabled: true });
+
+    // Profiles resolve in the background while the sheet stays open (visible stays true).
+    screen.rerender(
+      sheet([secretary], defaultChatPreferences, onCreate),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: 'Create' }).props.accessibilityState,
+      ).toMatchObject({ disabled: false });
+    });
+
+    fireEvent.press(screen.getByText('Create'));
+    await waitFor(() => {
+      expect(onCreate).toHaveBeenCalledWith(
+        undefined,
+        expect.objectContaining({ profileId: secretary.profileId }),
+      );
+    });
+  });
+
+  test('task-mobile-chat-list-polish-c5: summary uses compact rows instead of nested cards', () => {
+    // Regression caught: oversized nested cards push Reasoning and Approval Policy below the initial sheet viewport.
+    const screen = render(
+      sheet([secretary], defaultChatPreferences, jest.fn()),
+    );
+    const contentStyle = StyleSheet.flatten(
+      screen.getByTestId('session-configuration-content').props.style,
+    );
+
+    expect(contentStyle.gap).toBeLessThanOrEqual(Spacing.x2);
+    expect(contentStyle.paddingHorizontal).toBeLessThanOrEqual(Spacing.x4);
+    expect(screen.getByTestId('session-profile-row')).toBeTruthy();
+    expect(screen.getByTestId('session-model-row')).toBeTruthy();
+    expect(StyleSheet.flatten(screen.getByLabelText('Reasoning').props.style)).toEqual(
+      expect.objectContaining({ fontSize: TypeScale.footnote }),
+    );
+    expect(StyleSheet.flatten(screen.getByLabelText('Approval Policy').props.style)).toEqual(
+      expect.objectContaining({ fontSize: TypeScale.footnote }),
+    );
   });
 });

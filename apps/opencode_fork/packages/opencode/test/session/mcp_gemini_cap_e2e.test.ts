@@ -721,7 +721,7 @@ it.instance(
       const child = yield* sessions.create({
         parentID: parent.id,
         title: "Issue 1468 S2 task child without agent allowlist",
-        mcpAllowlist: childMcpAllowlist(target, ref),
+        mcpAllowlist: childMcpAllowlist(target, ref, parent),
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
       })
       yield* addUserMessage(child.id, "dispatch the final synthetic tool")

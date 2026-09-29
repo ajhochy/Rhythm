@@ -220,6 +220,7 @@ const helpers = createSessionHelpers({
   getState: () => state,
 });
 const {
+  createMessage,
   createSession,
   forkSession,
   handleCommand,
@@ -345,6 +346,52 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, {
         includeOptimizer: state.includeOptimizerActivity,
       });
+      return;
+    }
+
+    if (req.method === 'POST' && pathname === '/__control/delta-burst') {
+      // ponytail: minimal streaming simulator for the delta-streaming E2E spec.
+      // Emits a real message.part.updated (initial empty text part) followed by
+      // a message.part.delta per chunk, mutating server state in step so a
+      // later GET /session/:id/message reflects exactly what streamed.
+      const body = await readJson(req);
+      const sessionId = body?.sessionId;
+      const chunks = Array.isArray(body?.chunks) ? body.chunks : [];
+      const intervalMs = Number.isFinite(body?.intervalMs) ? body.intervalMs : 30;
+      if (!getSession(sessionId)) {
+        sendJson(res, 404, { error: `Unknown session: ${sessionId}` });
+        return;
+      }
+
+      if (chunks.length > 0) {
+        const record = createMessage(sessionId, 'assistant', [{ type: 'text', text: '' }]);
+        const part = record.parts[0];
+        emitEvent({
+          type: 'message.part.updated',
+          properties: { sessionID: sessionId, part },
+        });
+        for (const delta of chunks) {
+          await new Promise((resolve) => setTimeout(resolve, intervalMs));
+          part.text += delta;
+          emitEvent({
+            type: 'message.part.delta',
+            properties: {
+              sessionID: sessionId,
+              messageID: record.info.id,
+              partID: part.id,
+              field: 'text',
+              delta,
+            },
+          });
+        }
+      }
+
+      if (body?.idle === true) {
+        state.sessionStatuses[sessionId] = { type: 'idle' };
+        emitEvent({ type: 'session.idle', properties: { sessionID: sessionId } });
+      }
+
+      sendJson(res, 200, { ok: true });
       return;
     }
 

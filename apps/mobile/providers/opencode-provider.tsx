@@ -70,6 +70,11 @@ import {
   findEditableUserTextPart,
   isTranscriptDisplayMessage,
 } from '@/lib/opencode/transcript';
+import {
+  applyTranscriptEvents,
+  createTranscriptEventBatcher,
+  type TranscriptEvent,
+} from '@/lib/opencode/transcript-events';
 import { aggregateSessionUsage, getLatestAssistantTurnUsage } from '@/lib/opencode/usage';
 import { createFullFilePatch } from '@/lib/opencode/workspace-patch';
 import {
@@ -442,6 +447,10 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const openedSessionRecordCacheRef = useRef(
     new Map<string, { projectId: string; session: MobileSession }>(),
   );
+  const createdEmptySessionIdsRef = useRef(new Set<string>());
+  const loadedProfileCatalogByProjectRef = useRef(
+    new Map<string, AgentOption[]>(),
+  );
   const openProjectSessionRuntimeRef =
     useRef<OpenProjectSessionRuntime | null>(null);
   const openProjectSessionControllerRef =
@@ -478,6 +487,23 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const terminalSocketRef = useRef<WebSocket | undefined>(undefined);
   const terminalCursorByIdRef = useRef<Record<string, string>>({});
   const terminalOpenGenerationRef = useRef(0);
+  const transcriptBatcherRef = useRef<ReturnType<typeof createTranscriptEventBatcher> | null>(null);
+  if (!transcriptBatcherRef.current) {
+    transcriptBatcherRef.current = createTranscriptEventBatcher((events) => {
+      setMessagesBySession((current) => {
+        let next = current;
+        for (const event of events) {
+          const sessionId = event.properties.sessionID;
+          const messages = next[sessionId] || [];
+          const updated = applyTranscriptEvents(messages, [event], sessionId);
+          if (updated === messages) continue;
+          if (next === current) next = { ...current };
+          next[sessionId] = updated;
+        }
+        return next;
+      });
+    });
+  }
   settingsRef.current = settings;
   activeProjectPathRef.current = activeProjectPath;
   sessionsRef.current = sessions;
@@ -624,6 +650,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   );
 
   const clearProjectState = useCallback(() => {
+    transcriptBatcherRef.current?.cancel();
     cancelSessionRefreshTimers(sessionRefreshTimeoutsRef.current);
     sessionRefreshTimeoutsRef.current = {};
     sessionRefreshOptionsRef.current = {};
@@ -991,8 +1018,10 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       if (pairedHostRecord && pairedHostState !== 'connected') {
         return undefined;
       }
-      const messages = messagesBySession[sessionId];
-      if (!messages || messages.length === 0) {
+      const isCreatedEmptySession = createdEmptySessionIdsRef.current.has(sessionId);
+      const messages = messagesBySession[sessionId] ??
+        (isCreatedEmptySession ? [] : undefined);
+      if (!messages || (messages.length === 0 && !isCreatedEmptySession)) {
         return undefined;
       }
       let session: MobileSession | undefined;
@@ -1007,6 +1036,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         session = record?.projectId === projectId ? record.session : undefined;
       }
       if (!session) return undefined;
+      createdEmptySessionIdsRef.current.delete(sessionId);
       scheduleSessionRefresh(sessionId, {
         sessions: true,
         messages: true,
@@ -1443,7 +1473,12 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       // capability refresh here: it uses the shared client and can prevent
       // the creation sheet from rendering before the scoped catalog arrives.
       if (pairedHostClient) {
-        return listMobileGatewayProfiles(pairedHostClient, projectId);
+        const profiles = await listMobileGatewayProfiles(
+          pairedHostClient,
+          projectId,
+        );
+        loadedProfileCatalogByProjectRef.current.set(projectId, profiles);
+        return profiles;
       }
       if (projectId === activeProjectPath) {
         return refreshChatCapabilities();
@@ -1511,8 +1546,16 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       projectId = activeProjectPath,
     ): Promise<SessionExecutionState | undefined> => {
       if (!pairedHostClient || !projectId) return undefined;
-      const profiles =
-        projectId === activeProjectPath && availableAgents.length > 0
+      const loadedProfiles = loadedProfileCatalogByProjectRef.current.get(projectId);
+      loadedProfileCatalogByProjectRef.current.delete(projectId);
+      const loadedCatalogContainsSelection = loadedProfiles?.some(
+        (profile) =>
+          profile.profileId === preferences.profileId ||
+          profile.opencodeAgentId === preferences.mode,
+      );
+      const profiles = loadedCatalogContainsSelection && loadedProfiles
+        ? loadedProfiles
+        : projectId === activeProjectPath && availableAgents.length > 0
           ? availableAgents
           : await listMobileGatewayProfiles(pairedHostClient, projectId);
       const selectedProfile =
@@ -1534,6 +1577,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             providerId:
               selectedModel?.providerID ?? preferences.providerId ?? null,
             modelId: selectedModel?.modelID ?? null,
+            modelMode: preferences.modelMode === 'auto' ? 'auto' : 'fixed',
             thinkingBudget: thinkingBudgetForReasoning(preferences.reasoning),
             permissionMode:
               preferences.permissionMode ??
@@ -1602,12 +1646,28 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         preferences,
         projectId,
       );
-      if (projectId === activeProjectPath) {
-        await refreshSessions(true);
-      }
-      return authoritative
+      const createdSession = authoritative
         ? { ...created, rhythm: authoritative }
         : created;
+      if (projectId) {
+        openedSessionRecordCacheRef.current.set(created.id, {
+          projectId,
+          session: createdSession as MobileSession,
+        });
+        createdEmptySessionIdsRef.current.add(created.id);
+        setMessagesBySession((current) => ({
+          ...current,
+          [created.id]: [],
+        }));
+      }
+      if (projectId === activeProjectPath) {
+        setSessions((current) => [
+          createdSession as MobileSession,
+          ...current.filter((session) => session.id !== created.id),
+        ]);
+        settleBackgroundRead(() => refreshSessions(true));
+      }
+      return createdSession;
     },
     [
       activeProjectPath,
@@ -1620,6 +1680,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       pairedHostClient,
       persistSessionPreferences,
       refreshSessions,
+      settleBackgroundRead,
       trackMacOffline,
     ],
   );
@@ -2194,7 +2255,8 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     await Promise.all([refreshMessages(sessionId, true), refreshSessions(true)]).catch(() => undefined);
   }, [authoritativePreferencesForSession, client, refreshMessages, refreshSessions]);
 
-  const ensureActiveSession = useCallback(async () => {
+  const ensureActiveSession = useCallback(async (options?: { allowCreate?: boolean }) => {
+    const allowCreate = options?.allowCreate ?? true;
     if (connection.status !== 'connected' || !activeProjectPath) {
       return undefined;
     }
@@ -2218,10 +2280,18 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       try {
         const nextSessions = sessions.length > 0 ? sessions : await fetchSessions(true);
         const rememberedSessionId = activeProjectPath ? lastSessionByProject[activeProjectPath] : undefined;
-        const targetSession =
+        const existingSession =
           nextSessions.find((session) => session.id === rememberedSessionId) ??
-          nextSessions[0] ??
-          (await createSession());
+          nextSessions[0];
+        // ponytail: the passive connect-bootstrap (allowCreate: false) must
+        // stay a read — it has no user intent to start a chat, so a project
+        // with zero sessions just has no active session yet. Only an
+        // explicit "open/send" caller (default allowCreate: true) may
+        // fabricate one on the user's behalf (dup-session regression).
+        if (!existingSession && !allowCreate) {
+          return undefined;
+        }
+        const targetSession = existingSession ?? (await createSession());
         // Slash commands, VCS status and MCP diagnostics are not needed to
         // show the chat, and on a cold engine directory they wait on every MCP
         // server (a minute when one never answers). Load them behind the open.
@@ -2618,16 +2688,19 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     // #1506 — the reconnect burst can catch a single transient edge 5xx. The
     // bootstrap is idempotent reads, so replay it once before surfacing an
     // error that, having no sessionId, would block every conversation.
+    // allowCreate: false — this passive bootstrap runs on every connect with
+    // no user intent to start a chat; it must never fabricate a session on
+    // its own (dup-session regression, docs/ai/spec-session-list-and-create-ui.md).
     let cancelled = false;
     const stillCurrent = () => !cancelled && isCurrentClient(client);
     void (async () => {
       try {
-        await ensureActiveSessionRef.current();
+        await ensureActiveSessionRef.current({ allowCreate: false });
       } catch {
         await new Promise((resolve) => setTimeout(resolve, BOOTSTRAP_RETRY_DELAY_MS));
         if (!stillCurrent()) return;
         try {
-          await ensureActiveSessionRef.current();
+          await ensureActiveSessionRef.current({ allowCreate: false });
         } catch (error) {
           if (!stillCurrent()) return;
           setPromptError({
@@ -3663,7 +3736,6 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       }
       return true;
     };
-
     const handleEvent = (event: GlobalEvent['payload']) => {
       switch (event.type) {
         case 'session.created':
@@ -3683,11 +3755,12 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             ...current,
             [sessionId]: event.properties.status,
           }));
-          scheduleSessionRefresh(sessionId, { sessions: true, messages: true, diff: true, todos: true });
+          scheduleSessionRefresh(sessionId, { sessions: true, diff: true, todos: true });
           return;
         }
         case 'session.idle': {
           const sessionId = event.properties.sessionID;
+          transcriptBatcherRef.current?.flush();
           stopSessionWorkingSound(sessionId);
           setSessionStatuses((current) => ({
             ...current,
@@ -3720,7 +3793,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           return;
         }
         case 'message.updated': {
-          scheduleSessionRefresh(event.properties.sessionID, { messages: true });
+          transcriptBatcherRef.current?.push(event as TranscriptEvent);
           return;
         }
         case 'message.removed':
@@ -3734,6 +3807,10 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           scheduleSessionRefresh(event.properties.sessionID, { messages: true });
           return;
         case 'message.part.updated':
+        case 'message.part.delta': {
+          transcriptBatcherRef.current?.push(event as TranscriptEvent);
+          return;
+        }
         case 'message.part.removed': {
           scheduleSessionRefresh(event.properties.sessionID, { messages: true });
           return;
@@ -3921,6 +3998,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       cancelSessionRefreshTimers(sessionRefreshTimeoutsRef.current);
       sessionRefreshTimeoutsRef.current = {};
       sessionRefreshOptionsRef.current = {};
+      transcriptBatcherRef.current?.cancel();
       if (conversationResumeTimeoutRef.current) {
         clearTimeout(conversationResumeTimeoutRef.current);
       }

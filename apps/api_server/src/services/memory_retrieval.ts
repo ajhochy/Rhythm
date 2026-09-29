@@ -48,6 +48,9 @@ import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import type { AgentMemory } from '../repositories/agent_memory_repository';
 import {
   getAgentMemoryRetrievalMode,
+  getDecisionFeatureMode,
+  getDecisionMemoryMinScore,
+  getDecisionMemoryTimeoutMs,
   getSemanticSearchBudgetMs,
   isMemoryLinkExpansionEnabled,
   resolveEngraphMemoryVaultRoot,
@@ -66,6 +69,9 @@ import {
   isActive,
 } from './memory_note_format';
 import { resolveMemoryLinkTarget } from './memoryVaultWriteService';
+import { rankCandidates } from './decision/decision_engine';
+import type { RankResult } from './decision/decision_engine';
+import { recordDecision } from './decision/decision_log';
 
 const DEFAULT_TOP_N = 5;
 export const AUTOMATIC_MEMORY_MAX_ITEMS = 2;
@@ -85,7 +91,7 @@ const SEMANTIC_INITIAL_CANDIDATE_FACTOR = 4;
 const SEMANTIC_MAX_CANDIDATE_FACTOR = 16;
 
 interface RetrievalEvidence {
-  lane: 'fts' | 'semantic' | 'hybrid';
+  lane: 'fts' | 'semantic' | 'hybrid' | 'rerank';
   score: number;
   confidence: number | null;
   reason: string;
@@ -729,6 +735,10 @@ export interface BuildMemoryPrefaceOptions {
   linkRepository?: MemoryRepository;
   /** Override the memory-dir boundary used to resolve bundle-relative links. */
   memoryDir?: string;
+  /** Session id recorded in the decision log (rerank shadow/on modes only). */
+  sessionId?: string | null;
+  /** Injectable Engraph client for the rerank candidate pool (tests). */
+  engraphClient?: EngraphClient;
 }
 
 function emptyMemoryPreface(
@@ -883,6 +893,17 @@ export async function buildMemoryPreface(
 ): Promise<MemoryPreface> {
   const enabled = opts.enabled ?? isMemoryInjectionEnabled();
   if (!enabled) return emptyMemoryPreface();
+  const rerankMode = getDecisionFeatureMode('memory_ranking');
+  if (rerankMode === 'off') return buildLexicalMemoryPreface(query, ownerUserId, opts);
+  return buildRerankedMemoryPreface(query, ownerUserId, opts, rerankMode);
+}
+
+/** The original lexical-gated preface path (mode 'off', shadow baseline, 'on' fallback). */
+async function buildLexicalMemoryPreface(
+  query: string,
+  ownerUserId: number | null | undefined,
+  opts: BuildMemoryPrefaceOptions,
+): Promise<MemoryPreface> {
 
   // #1096 WP1: when hybrid mode is on, prefer the device-local Engraph
   // manager's client (loopback, authenticated, health-gated) over the raw
@@ -920,16 +941,56 @@ export async function buildMemoryPreface(
     return emptyMemoryPreface(semanticStatus, semanticHitCount);
   }
   logSemanticStatus(semanticStatus, semanticHitCount);
+  return assembleMemoryPreface(
+    query,
+    matches,
+    ownerUserId,
+    opts,
+    semanticStatus,
+    semanticHitCount,
+  );
+}
+
+interface RerankAssembly {
+  scores: Map<string, number>;
+  /** Dry runs (shadow / baseline) must not write retrieval evidence. */
+  dryRun: boolean;
+  /** Set false to skip link expansion (cheap baseline computation). */
+  expand?: boolean;
+}
+
+async function assembleMemoryPreface(
+  query: string,
+  matches: AgentMemory[],
+  ownerUserId: number | null | undefined,
+  opts: BuildMemoryPrefaceOptions,
+  semanticStatus: MemorySemanticStatus,
+  semanticHitCount: number,
+  rerank?: RerankAssembly,
+): Promise<MemoryPreface> {
+  const minScore = getDecisionMemoryMinScore();
   // Custom retrieval hooks and future lanes still cannot bypass lifecycle
   // gating, owner isolation, injectability, or absolute relevance.
+  // With `rerank` set, the reranker score replaces the lexical overlap gate for
+  // memories it scored (never the owner/active/injectable gates).
   const today = currentDate();
   const wanted = ownerUserId == null ? null : ownerUserId;
+  const passesGate = (memory: AgentMemory): boolean => {
+    const score = rerank?.scores.get(memory.id);
+    return score !== undefined
+      ? isAutomaticallyInjectable(memory) && score >= minScore
+      : clearsAutomaticGate(query, memory) !== null;
+  };
+  const byRerankScore = (a: AgentMemory, b: AgentMemory): number => (
+    (rerank?.scores.get(b.id) ?? -1) - (rerank?.scores.get(a.id) ?? -1)
+  );
   matches = matches.filter((memory) => (
     isOwnerVisible(memory.ownerUserId, wanted)
     && isMemoryActive(memory, today)
-    && clearsAutomaticGate(query, memory) !== null
+    && passesGate(memory)
   ));
-  if (isMemoryLinkExpansionEnabled()) {
+  if (rerank) matches = [...matches].sort(byRerankScore);
+  if (rerank?.expand !== false && isMemoryLinkExpansionEnabled()) {
     try {
       matches = await expandLinkedMemories(
         matches,
@@ -945,7 +1006,7 @@ export async function buildMemoryPreface(
   matches = matches.filter((memory) => (
     isOwnerVisible(memory.ownerUserId, wanted)
     && isMemoryActive(memory, today)
-    && clearsAutomaticGate(query, memory) !== null
+    && passesGate(memory)
   ));
   if (!matches || matches.length === 0) {
     return emptyMemoryPreface(semanticStatus, semanticHitCount);
@@ -955,10 +1016,13 @@ export async function buildMemoryPreface(
     .map((memory, index) => ({
       memory,
       index,
-      relevance: clearsAutomaticGate(query, memory)!,
+      relevance: rerank
+        ? scoreMemoryForAutomaticInjection(query, memory)
+        : clearsAutomaticGate(query, memory)!,
     }))
     .sort((a, b) => (
-      b.relevance.score - a.relevance.score
+      (rerank ? byRerankScore(a.memory, b.memory) : 0)
+      || b.relevance.score - a.relevance.score
       || b.relevance.matchedTokens - a.relevance.matchedTokens
       || trustRank(b.memory) - trustRank(a.memory)
       || a.index - b.index
@@ -987,6 +1051,18 @@ export async function buildMemoryPreface(
     });
   }
   if (accepted.length === 0) return emptyMemoryPreface(semanticStatus, semanticHitCount);
+  if (rerank && !rerank.dryRun) {
+    for (const { memory } of accepted) {
+      const score = rerank.scores.get(memory.id);
+      if (score === undefined) continue;
+      retrievalEvidence.set(memory, {
+        lane: 'rerank',
+        score: Number(score.toFixed(4)),
+        confidence: score,
+        reason: `reranker score ${score.toFixed(4)} cleared min ${minScore.toFixed(2)}`,
+      });
+    }
+  }
 
   return {
     text: lines.join('\n'),
@@ -1014,4 +1090,254 @@ export async function buildMemoryPreface(
       };
     }),
   };
+}
+
+// ── Local reranker (memory_ranking: shadow / on) ────────────────────────────────
+
+const RERANK_MIN_POOL = 20;
+const RERANK_POOL_FACTOR = 4;
+const RERANK_POOL_MAX = 16;
+const RERANK_CANDIDATE_CHARS = 700;
+
+interface RerankPool {
+  memories: AgentMemory[];
+  /** Ids that only the rank-only Engraph lane produced (not in the lexical baseline). */
+  engraphOnlyIds: Set<string>;
+  semanticStatus: MemorySemanticStatus;
+  semanticHitCount: number;
+}
+
+/**
+ * Engraph hits WITHOUT calibrated confidence, mapped to owner-filtered index
+ * rows. The lexical path drops these; the reranker supplies the missing
+ * relevance judgement, so they are candidates here.
+ */
+async function getEngraphRankOnlyMemories(
+  query: string,
+  ownerUserId: number | null | undefined,
+  limit: number,
+  engraph: EngraphClient,
+  repo: MemoryRepository,
+): Promise<{ memories: AgentMemory[]; status: MemorySemanticStatus; hitCount: number }> {
+  const wanted = ownerUserId == null ? null : ownerUserId;
+  const deadline = Date.now() + getSemanticSearchBudgetMs();
+  const searched = await settleBeforeDeadline(deadline, () => searchEngraph(engraph, query, limit));
+  if (!searched.ok) return { memories: [], status: 'timeout', hitCount: 0 };
+  const { hits, status } = searched.value;
+  if (status !== 'ok') {
+    return { memories: [], status: status === 'no_hits' ? 'no_hits' : status, hitCount: hits.length };
+  }
+  const memoryRoot = resolveMemoryDirPath();
+  const vaultRoot = resolveEngraphMemoryVaultRoot();
+  const sourceIds: string[] = [];
+  for (const hit of hits) {
+    const sourceId = mapEngraphFileToSourceId(hit.file, memoryRoot, vaultRoot);
+    if (sourceId && !sourceIds.includes(sourceId)) sourceIds.push(sourceId);
+  }
+  if (sourceIds.length === 0) return { memories: [], status: 'unmapped', hitCount: hits.length };
+  const joined = await settleBeforeDeadline(
+    deadline,
+    () => repo.findBySourceIdsAsync('obsidian-memory', sourceIds, wanted ?? undefined),
+  );
+  if (!joined.ok) return { memories: [], status: 'timeout', hitCount: hits.length };
+  const bySourceId = new Map<string, AgentMemory[]>();
+  for (const memory of joined.value) {
+    if (!memory.sourceId || memory.source !== 'obsidian-memory') continue;
+    bySourceId.set(memory.sourceId, [...(bySourceId.get(memory.sourceId) ?? []), memory]);
+  }
+  const memories: AgentMemory[] = [];
+  for (const sourceId of sourceIds) {
+    const candidates = bySourceId.get(sourceId);
+    // Ambiguous joins fail closed, as in the confidence-gated lane.
+    if (candidates?.length === 1) memories.push(candidates[0]);
+  }
+  return {
+    memories,
+    status: memories.length > 0 ? 'used' : 'unmapped',
+    hitCount: hits.length,
+  };
+}
+
+/**
+ * Wider candidate pool for the reranker. Owner scoping, lifecycle and
+ * injectability gates are applied HERE, before anything is sent to the model.
+ */
+async function gatherRerankPool(
+  query: string,
+  ownerUserId: number | null | undefined,
+  opts: BuildMemoryPrefaceOptions,
+): Promise<RerankPool> {
+  const topN = opts.topN ?? DEFAULT_TOP_N;
+  const wideN = Math.max(topN * RERANK_POOL_FACTOR, RERANK_MIN_POOL);
+  const wanted = ownerUserId == null ? null : ownerUserId;
+  const today = currentDate();
+
+  const fts = opts.getRelevant
+    ? await opts.getRelevant(query, ownerUserId, wideN)
+    : await getRelevantMemories(query, ownerUserId, wideN);
+
+  let engraphResult: Awaited<ReturnType<typeof getEngraphRankOnlyMemories>> | null = null;
+  if (
+    getAgentMemoryRetrievalMode() === 'hybrid'
+    && (opts.engraphClient || !opts.getRelevant)
+  ) {
+    try {
+      engraphResult = await getEngraphRankOnlyMemories(
+        query,
+        ownerUserId,
+        wideN,
+        opts.engraphClient ?? engraphManager.getRetrievalClient(),
+        opts.linkRepository ?? new AgentMemoryRepository(),
+      );
+    } catch {
+      engraphResult = { memories: [], status: 'backend_unavailable', hitCount: 0 };
+    }
+  }
+
+  const ftsIds = new Set(fts.map((memory) => memory.id));
+  const seen = new Set<string>();
+  const memories: AgentMemory[] = [];
+  const engraphOnlyIds = new Set<string>();
+  for (const [lane, list] of [['fts', fts], ['engraph', engraphResult?.memories ?? []]] as const) {
+    for (const memory of list) {
+      if (seen.has(memory.id)) continue;
+      if (
+        !isOwnerVisible(memory.ownerUserId, wanted)
+        || !isMemoryActive(memory, today)
+        || !isAutomaticallyInjectable(memory)
+      ) continue;
+      seen.add(memory.id);
+      memories.push(memory);
+      if (lane === 'engraph' && !ftsIds.has(memory.id)) engraphOnlyIds.add(memory.id);
+      if (memories.length >= RERANK_POOL_MAX) break;
+    }
+  }
+  return {
+    memories,
+    engraphOnlyIds,
+    semanticStatus: engraphResult?.status ?? 'disabled',
+    semanticHitCount: engraphResult?.hitCount ?? 0,
+  };
+}
+
+function rerankCandidateText(memory: AgentMemory): string {
+  const title = memory.title
+    ?? memory.sourceId?.split('/').pop()?.replace(/\.md$/i, '')
+    ?? memory.kind;
+  return `${title}\n${memory.content}`.slice(0, RERANK_CANDIDATE_CHARS);
+}
+
+async function buildRerankedMemoryPreface(
+  query: string,
+  ownerUserId: number | null | undefined,
+  opts: BuildMemoryPrefaceOptions,
+  mode: 'shadow' | 'on',
+): Promise<MemoryPreface> {
+  // Shadow needs the real lexical result to return; start it alongside the pool.
+  const lexicalPromise = mode === 'shadow'
+    ? buildLexicalMemoryPreface(query, ownerUserId, opts).catch(() => emptyMemoryPreface())
+    : null;
+
+  let pool: RerankPool | null = null;
+  try {
+    pool = await gatherRerankPool(query, ownerUserId, opts);
+  } catch (err) {
+    logger.warn(`[MemoryRetrieval] rerank pool failed: ${String(err)}`);
+  }
+  const rerank: RankResult = pool && pool.memories.length > 0
+    ? await rankCandidates(
+      query,
+      pool.memories.map((memory) => ({ id: memory.id, text: rerankCandidateText(memory) })),
+      { timeoutMs: getDecisionMemoryTimeoutMs() },
+    )
+    : { status: 'disabled', reason: pool ? 'no_candidates' : 'pool_error', latencyMs: 0 };
+
+  const scores = rerank.status === 'ok'
+    ? new Map(rerank.ranked.map((r) => [r.id, r.score]))
+    : null;
+  const log = (
+    applied: boolean,
+    chosen: string[] | null,
+    baseline: string[] | null,
+  ): void => {
+    const top = rerank.status === 'ok' ? rerank.ranked : [];
+    recordDecision({
+      feature: 'memory_ranking',
+      mode,
+      sessionId: opts.sessionId ?? null,
+      status: rerank.status,
+      applied,
+      chosen: chosen ? chosen.join(',') : undefined,
+      confidence: top.length > 0 ? top[0].score : undefined,
+      baseline: baseline ? baseline.join(',') : undefined,
+      latencyMs: rerank.latencyMs,
+      model: rerank.status === 'ok' ? rerank.model : undefined,
+      query,
+      detail: {
+        candidates: pool?.memories.length ?? 0,
+        ...(rerank.status === 'ok' ? {} : { reason: rerank.reason }),
+        scores: top.slice(0, 5).map((r) => ({ id: r.id, score: r.score })),
+      },
+    });
+  };
+
+  if (mode === 'shadow') {
+    const lexical = await lexicalPromise!;
+    let chosen: string[] | null = null;
+    if (pool && scores) {
+      try {
+        chosen = (await assembleMemoryPreface(
+          query,
+          pool.memories,
+          ownerUserId,
+          opts,
+          pool.semanticStatus,
+          pool.semanticHitCount,
+          { scores, dryRun: true },
+        )).memoryIds;
+      } catch {
+        chosen = null;
+      }
+    }
+    log(false, chosen, lexical.memoryIds);
+    return lexical;
+  }
+
+  // mode === 'on'
+  if (pool && scores) {
+    try {
+      const preface = await assembleMemoryPreface(
+        query,
+        pool.memories,
+        ownerUserId,
+        opts,
+        pool.semanticStatus,
+        pool.semanticHitCount,
+        { scores, dryRun: false },
+      );
+      // Cheap approximation of the lexical result over the same pool (no link
+      // expansion, no rank-only Engraph hits) so agreement can be measured.
+      let baseline: string[] | null = null;
+      try {
+        baseline = (await assembleMemoryPreface(
+          query,
+          pool.memories.filter((memory) => !pool.engraphOnlyIds.has(memory.id)),
+          ownerUserId,
+          opts,
+          'disabled',
+          0,
+          { scores: new Map(), dryRun: true, expand: false },
+        )).memoryIds;
+      } catch {
+        baseline = null;
+      }
+      log(true, preface.memoryIds, baseline);
+      return preface;
+    } catch (err) {
+      logger.warn(`[MemoryRetrieval] rerank assembly failed, falling back: ${String(err)}`);
+    }
+  }
+  const fallback = await buildLexicalMemoryPreface(query, ownerUserId, opts);
+  log(false, null, fallback.memoryIds);
+  return fallback;
 }

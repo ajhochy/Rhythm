@@ -17,13 +17,14 @@ import {
   asRhythmProfileId,
 } from '../models/agent_session';
 import { logger } from '../utils/logger';
+import { routeMobilePromptBody } from './decision/mobile_prompt_routing';
 import {
   expandProfileSkillAllowlist,
   resolveProfileScope,
 } from './agent_profile_scope';
 import { capMcpAllowlistForProvider } from './gemini_tool_cap';
 import { expandMcpAllowlist } from './mcp_allowlist_expander';
-import { OPENCODE_ENGINE_PORT } from './opencode_client_service';
+import { INTERACTIVE_TASK_PERMISSION, OPENCODE_ENGINE_PORT } from './opencode_client_service';
 import {
   getMobileOpenCodeOwnershipRepository,
 } from './mobile_opencode_ownership_runtime';
@@ -665,7 +666,9 @@ async function applyMobileSessionCreateScope(
   const permission = expandMobileCorePermissions(
     profile.corePermissionsJson,
   );
-  if (permission !== undefined) scopedBody.permission = permission;
+  // A phone chat is interactive: named profiles go through
+  // rhythm_delegate_async, task stays explore/general. Appended last (findLast).
+  scopedBody.permission = [...(permission ?? []), ...INTERACTIVE_TASK_PERMISSION];
 
   if (scope.mcpRoleConfig) {
     const toolCounts = toolCountsForRoleConfig(scope.mcpRoleConfig.mcpServers);
@@ -1365,12 +1368,23 @@ export class MobileOpenCodeProxy {
           requestProject,
           fetchJson,
         );
-      const scopedBody = sanitizedBody === undefined
+      const createScopedBody = sanitizedBody === undefined
         ? undefined
         : await applyMobileSessionCreateScope(
           sanitizedBody,
           operation.operationId,
         );
+      // Routing scope / router for Auto sessions (falls back to the original
+      // body on any failure). See decision/mobile_prompt_routing.ts.
+      const scopedBody = createScopedBody !== undefined &&
+          operation.operationId === 'session.prompt_async' &&
+          addressedSessionId
+        ? await routeMobilePromptBody({
+          sdkSessionId: addressedSessionId,
+          userId: input.userId,
+          body: createScopedBody,
+        })
+        : createScopedBody;
       const encodedBody = scopedBody === undefined
         ? undefined
         : JSON.stringify(scopedBody);

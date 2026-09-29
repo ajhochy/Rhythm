@@ -5,6 +5,7 @@ import { AppError } from '../errors/app_error';
 import { UsersRepository } from '../repositories/users_repository';
 import { WorkspaceRepository } from '../repositories/workspace_repository';
 import { requireMobileProjectScope } from '../services/mobile_project_scope';
+import agentDecisionsRouter from './agent_decisions_routes';
 import agentCookbookRouter from './agentCookbookRoutes';
 import agentDesignsRouter from './agentDesignsRoutes';
 import { agentConfigsRouter } from './agent_configs_routes';
@@ -25,6 +26,7 @@ type MobileToolMount =
   | 'agent-configs'
   | 'agent-cookbook'
   | 'agent-designs'
+  | 'agent-decisions'
   | 'agent-org-proposals'
   | 'agents/run-quality'
   | 'opencode/skills'
@@ -101,6 +103,12 @@ const MOBILE_TOOL_OPERATIONS: Record<
     { method: 'GET', path: ROOT },
     { method: 'GET', path: ID },
   ],
+  // Router backend settings only; the stats listing at ROOT stays desktop-only.
+  'agent-decisions': [
+    { method: 'GET', path: /^\/config$/ },
+    { method: 'PUT', path: /^\/config$/ },
+    { method: 'POST', path: /^\/config\/test$/ },
+  ],
   'agent-org-proposals': [
     { method: 'GET', path: ROOT },
     { method: 'POST', path: ID_ACTION('approve') },
@@ -139,6 +147,7 @@ const MOBILE_TOOL_POLICIES: Record<MobileToolMount, MobileToolPolicy> = {
   'agent-configs': 'mac-global-admin',
   'agent-cookbook': 'owner-scoped',
   'agent-designs': 'mac-global-admin',
+  'agent-decisions': 'mac-global-admin',
   'agent-org-proposals': 'mac-global-admin',
   'agents/run-quality': 'owner-scoped',
   'opencode/skills': 'mac-global-admin',
@@ -283,6 +292,12 @@ export function createMobileToolsRouter(): Router {
     requireMobileProjectScope(),
     requireToolPolicy('agent-designs'),
     agentDesignsRouter,
+  );
+  router.use(
+    '/agent-decisions',
+    requireAllowedOperation('agent-decisions'),
+    requireToolPolicy('agent-decisions'),
+    agentDecisionsRouter,
   );
   router.use(
     '/agent-org-proposals',

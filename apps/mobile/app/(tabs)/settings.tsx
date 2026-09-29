@@ -20,6 +20,8 @@ import {
 
 import { Colors, Fonts } from '@/constants/theme';
 import { ProviderConfigDialog } from '@/components/settings/provider-config-dialog';
+import { RouterModelSection, type RouterSettingsApi } from '@/components/settings/router-model-section';
+import { useRhythmTools } from '@/providers/rhythm-tools-provider';
 import { McpSection } from '@/components/settings/mcp-section';
 import { RhythmAccountSection } from '@/components/settings/rhythm-account-section';
 import { PairedMacSection } from '@/components/settings/paired-mac-section';
@@ -93,6 +95,19 @@ export default function SettingsScreen() {
       : connection.status === 'connected'
         ? { ...connection, message: pairedHost.message }
         : connection;
+  const { getService } = useRhythmTools();
+  const routerService = getService();
+  const routerApi = useMemo<RouterSettingsApi | null>(
+    () =>
+      routerService
+        ? {
+            get: () => routerService.getRouterConfig(),
+            save: (partial) => routerService.saveRouterConfig(partial),
+            test: (draft) => routerService.testRouterConfig(draft),
+          }
+        : null,
+    [routerService],
+  );
   const [isConnecting, setIsConnecting] = useState(false);
   const [expandedSection, setExpandedSection] = useState(() => displayedConnection.status === 'connected' ? 'ai' : 'connection');
   const [selectedProviderId, setSelectedProviderId] = useState<string>();
@@ -486,6 +501,7 @@ export default function SettingsScreen() {
               onStartProviderConfiguration={startProviderConfiguration}
               palette={palette}
             />
+            <RouterModelSection api={routerApi} palette={palette} />
           </List.Accordion>
           <List.Accordion id="notifications" title="Notifications" description={notificationStatus?.permissionGranted ? 'Enabled' : 'Off'} titleStyle={{ color: palette.text }} descriptionStyle={{ color: palette.muted }} style={[styles.category, { backgroundColor: palette.surface, borderColor: palette.border }]}>
             <NotificationsSection

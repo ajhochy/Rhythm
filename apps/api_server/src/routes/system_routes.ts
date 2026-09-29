@@ -32,6 +32,9 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createHmac, randomBytes } from 'node:crypto';
 import { resetProbeCache } from '../services/provider_catalog_policy';
+import { AppError } from '../errors/app_error';
+import { getDb } from '../database/db';
+import { getRetentionState, isRetentionMode, writeRetentionSetting } from '../jobs/session_retention_job';
 
 export const systemRouter = Router();
 const sessionsRepository = new AgentSessionsRepository();
@@ -213,6 +216,29 @@ async function providerConfigStatus(): Promise<{
 export async function captureProviderConfigBaseline(): Promise<void> {
   await providerConfigStatus();
 }
+
+// Session-DB retention mode (docs/ai/decisions/2026-09-29-session-db-retention.md). Stored in the
+// local rhythm.db only; an explicit RHYTHM_SESSION_RETENTION still wins (response source: 'env').
+systemRouter.get('/session-retention', (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (env.dbClient !== 'sqlite') throw AppError.conflict('Session retention runs only on the local SQLite server');
+    res.json(getRetentionState());
+  } catch (err) {
+    next(err);
+  }
+});
+
+systemRouter.put('/session-retention', (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (env.dbClient !== 'sqlite') throw AppError.conflict('Session retention runs only on the local SQLite server');
+    const mode = (req.body as { mode?: unknown } | undefined)?.mode;
+    if (!isRetentionMode(mode)) throw AppError.badRequest("mode must be 'off', 'dry-run', or 'on'");
+    writeRetentionSetting(getDb(), mode);
+    res.json(getRetentionState());
+  } catch (err) {
+    next(err);
+  }
+});
 
 systemRouter.get('/config/status', async (_req: Request, res: Response) => {
   res.json(await providerConfigStatus());

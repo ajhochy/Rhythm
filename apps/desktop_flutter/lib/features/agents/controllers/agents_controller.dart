@@ -2256,6 +2256,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     bool clearProvider = false,
     bool clearModel = false,
     String? permissionMode,
+    String? modelMode,
   }) async {
     try {
       final updated = await _repository.updateSession(
@@ -2266,6 +2267,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         clearProvider: clearProvider,
         clearModel: clearModel,
         permissionMode: permissionMode,
+        modelMode: modelMode,
       );
       _sessions = [for (final s in _sessions) s.id == id ? updated : s];
       notifyListeners();
@@ -2658,6 +2660,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     // OPC-M4-4 / #745: include the per-session selected agent.
     // selectedAgentFor resolves: explicit selection → manager default → null.
     final selectedAgent = selectedAgentFor(sessionId);
+    final sessionModelMode =
+        _sessions.firstWhereOrNull((s) => s.id == sessionId)?.modelMode;
     _repository.send({
       'type': 'session.input',
       'id': sessionId,
@@ -2672,6 +2676,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       else
         'data': data,
       // M2-2: per-turn override is consumed once on send, never persisted.
+      // Auto sessions never echo the stored model back: only an explicit
+      // staged override (above) is sent, so the router stays in charge.
       if (override != null)
         'modelOverride': {
           'providerId': override.providerId,
@@ -2679,6 +2685,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         },
       // OPC-M4-4: forward agent name when set; absent → SDK default (build).
       if (selectedAgent != null) 'agent': selectedAgent,
+      if (sessionModelMode != null) 'modelMode': sessionModelMode,
     });
     if (override != null) _pendingTurnOverride = null;
     // OPC-M4-1: clear pending attachments after send.
@@ -2844,7 +2851,18 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       sessionId,
       providerId: route.providerId,
       modelId: route.modelId,
+      modelMode: 'fixed',
     );
+  }
+
+  /// Returns [sessionId] to the model router: PATCH `{modelMode: 'auto'}`.
+  /// The stored provider/model stay on the row as the router's fallback, so
+  /// no model fields are sent. Any staged turn-only override is dropped —
+  /// choosing Auto means the router decides the next turn.
+  Future<void> setSessionModelAuto(String sessionId) async {
+    _pendingTurnOverride = null;
+    notifyListeners();
+    await updateSession(sessionId, modelMode: 'auto');
   }
 
   /// Issue #604 — set the session-level thinking budget (null = off).
