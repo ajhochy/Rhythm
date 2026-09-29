@@ -275,6 +275,7 @@ test('E42: current session is main-owned and logout clears it before rebuilding'
   assert.equal(JSON.stringify(await first.bridge.auth.currentSession()), JSON.stringify({ sessionToken: 'token-A', user: { id: 1, name: 'Admin', email: 'admin@example.invalid', role: 'admin' } }));
   await first.bridge.auth.logout();
   assert.equal(first.destroyed, true);
+  assert.equal(h.quits(), 0, 'logout replaces the only window; it must not quit the application');
   assert.equal(await h.current().bridge.auth.currentSession(), null);
 });
 

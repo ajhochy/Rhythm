@@ -170,7 +170,8 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
       notifications: createLiveNotificationsGateway(productionApiBase, config.taskToken, fetcher),
       memory: createLiveMemoryGateway(apiBase, config.taskToken, localFetcher),
       permissions: createLivePermissionGateway(apiBase, config.taskToken, localFetcher),
-      approvals: createLiveApprovalGateway(apiBase, config.taskToken, localFetcher),
+      // Human approval surfaces skip the AGENT_LOCAL bypass and require the cloud bearer (agent_approvals_routes.ts).
+      approvals: createLiveApprovalGateway(apiBase, config.taskToken, fetcher),
       delegation: createLiveDelegationGateway(apiBase, config.taskToken, localFetcher),
       mcp: createLiveMcpGateway(apiBase, config.taskToken, localFetcher),
       skills: createLiveSkillGateway(apiBase, config.taskToken, localFetcher),
