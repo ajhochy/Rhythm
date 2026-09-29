@@ -262,3 +262,16 @@ gemini-3.1-pro 12 · opus-4.7 25, gpt-5.5 30 · gpt-5.5-pro 180. The natural gap
   wins frontier while opus ($25) or gpt-5.5 ($30) are available.
 - Ultra-priced models (≥ 5× the frontier cutoff) stay in frontier but sort last; users can exclude
   them in the catalog table.
+
+### Correction: the router chooses among the CURATED set (no static approved list)
+
+AJ: "we don't need a static approved list if the model list is based on the ones that are curated."
+
+- Routable = models with an explicit `visible = 1` row in `agent_model_visibility` (Models curation)
+  ∩ connected ∩ eligible ∩ entitled ∩ not excluded in Router settings. `visibleDirectModelIds` is
+  no longer consulted by the router (the picker keeps its own behaviour).
+- Nothing curated → the router keeps the baseline route and logs `no_curated_models`; the static
+  table is used only when the engine is unreachable.
+- `catalog.models[].enabled` flags non-curated models; `catalog.curatedCount` and `catalog.reason`
+  are exposed so the settings table can say "enable in Models curation to let the router use it".
+- Tier cutoffs derive from the curated set's prices.

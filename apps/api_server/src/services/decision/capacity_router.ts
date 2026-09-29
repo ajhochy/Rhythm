@@ -454,6 +454,7 @@ export async function applyCapacityRouting(
     // table is used only when the engine catalog is empty/unreachable.
     let catalog: CatalogSource = 'static';
     let candidates: RoutableModel[] | undefined;
+    let catalogReason: string | undefined;
     if (!pinned) {
       try {
         const routable = await getRoutableModels({
@@ -463,6 +464,7 @@ export async function applyCapacityRouting(
         });
         catalog = routable.source;
         if (routable.source === 'live') candidates = routable.models;
+        catalogReason = routable.reason;
       } catch {
         catalog = 'static';
       }
@@ -528,6 +530,7 @@ export async function applyCapacityRouting(
           requiredTier: input.requiredTier,
           requestedSource: input.requestedSource,
           catalog,
+          ...(catalogReason ? { catalogReason } : {}),
           ...(result.crossAgent ? { crossAgent: true } : {}),
         },
       });

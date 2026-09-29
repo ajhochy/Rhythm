@@ -133,6 +133,7 @@ export async function routeTurnTier(input: RouteTurnTierInput): Promise<RouteTur
         ...(picked
           ? {
               catalog: picked.catalog,
+              ...(picked.model ? {} : { routeReason: picked.reason }),
               pickedModel: `${picked.route.providerID}/${picked.route.modelID}`,
             }
           : {}),

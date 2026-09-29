@@ -61,6 +61,10 @@ let saved: Record<string, string | undefined>;
 let db: Database.Database;
 let prev: Database.Database | null;
 
+const setVisible = (provider: string, modelId: string, visible: boolean) =>
+  db.prepare('INSERT OR REPLACE INTO agent_model_visibility (provider, model_id, visible) VALUES (?, ?, ?)')
+    .run(provider, modelId, visible ? 1 : 0);
+
 const fake = (scores: number[]) => ({
   rerank: vi.fn(async () => ({ status: 'ok' as const, scores, latencyMs: 1, model: 'fake' })),
 }) as unknown as RerankClient;
@@ -79,6 +83,8 @@ beforeEach(() => {
   db = new Database(':memory:');
   runMigrations(db);
   prev = setDb(db);
+  // Rhythm's Models curation: everything in the live catalog is enabled unless a test says otherwise.
+  for (const p of LIVE.providers) for (const m of p.models) setVisible(p.id, m.id, true);
 });
 afterEach(() => {
   for (const k of ENV) {
@@ -104,6 +110,32 @@ const route = (row: NonNullable<ReturnType<AgentSessionsRepository['findById']>>
     baseRoute: { providerID: row.providerId!, modelID: row.modelId! },
     sessionAuto: true, client: fake(scores),
   });
+
+describe('router chooses only models enabled in Rhythm curation', () => {
+  it('sonnet enabled, opus disabled: a frontier request never picks opus (picks up a visibility change without waiting for the TTL)', async () => {
+    const before = await route(session('anthropic', 'claude-sonnet-5-5'), [0.02, 0.05, 0.95]);
+    expect(before.route).toEqual({ providerID: 'anthropic', modelID: 'claude-opus-5-5' });
+    setVisible('anthropic', 'claude-opus-5-5', false); // PATCH /agent-models/visibility writes this row; no explicit invalidation
+    const after = await route(session('anthropic', 'claude-sonnet-5-5'), [0.02, 0.05, 0.95]);
+    expect(after.route?.modelID).not.toBe('claude-opus-5-5');
+    // the only remaining enabled frontier-band model
+    expect(after.route).toEqual({ providerID: 'openai', modelID: 'gpt-5.6-sol' });
+  });
+
+  it('a policy-listed model with no curation row is not routable (gpt-5.6-terra)', async () => {
+    db.prepare("DELETE FROM agent_model_visibility WHERE model_id = 'gpt-5.6-terra'").run();
+    const r = await route(session('openai', 'gpt-5.6-luna'), [0.02, 0.95, 0.03]);
+    expect(r.route?.modelID).not.toBe('gpt-5.6-terra');
+  });
+
+  it('empty curation: the baseline route is kept (no static fallback) and the reason is logged', async () => {
+    db.prepare('DELETE FROM agent_model_visibility').run();
+    const r = await route(session('anthropic', 'claude-haiku-5-0'), [0.02, 0.05, 0.95]);
+    expect(r.route).toEqual({ providerID: 'anthropic', modelID: 'claude-haiku-5-0' });
+    const log = listDecisions({}).find((d) => d.feature === 'model_routing')!;
+    expect(log.detail).toMatchObject({ catalog: 'live', routeReason: 'no_curated_models' });
+  });
+});
 
 describe('router picks from the live catalog, not the hardcoded table', () => {
   it('frontier turn on an anthropic session -> the newest live opus, which is not in ROUTE_FALLBACKS', async () => {

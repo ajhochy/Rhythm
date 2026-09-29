@@ -104,12 +104,14 @@ export async function buildConfigViewWithCatalog(settings: DecisionSettings = lo
           releaseDate: m.releaseDate,
           contextLimit: m.contextLimit,
           excluded: m.excluded,
+          enabled: m.enabled,
         }))
         .sort((a, b) =>
           tierRank[a.tier] - tierRank[b.tier] ||
           (a.providerID < b.providerID ? -1 : a.providerID > b.providerID ? 1 : 0) ||
           (a.releaseDate === b.releaseDate ? 0 : a.releaseDate === null ? 1 : b.releaseDate === null ? -1 : a.releaseDate < b.releaseDate ? 1 : -1)),
       tiers: effectiveTiers,
+      curatedCount: catalog?.curatedCount ?? 0,
     },
     tiers: effectiveTiers,
   };

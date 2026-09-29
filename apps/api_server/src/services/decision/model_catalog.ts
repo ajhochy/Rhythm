@@ -6,7 +6,8 @@ import {
   type ModelRoute,
   type ModelTier,
 } from '../agent_model_resolver';
-import { eligibleModel, visibleDirectModelIds } from '../provider_catalog_policy';
+import { eligibleModel } from '../provider_catalog_policy';
+import { loadModelVisibility, visibilityKey } from '../model_visibility';
 import { getUsageBudget } from '../usage_budget_service';
 import {
   loadDecisionSettings,
@@ -17,8 +18,9 @@ import {
  * The live model catalog the router and the capacity layer choose among.
  *
  * Source of truth is the engine catalog (`opencodeClient.providerSnapshot()`):
- * connected providers, filtered by the shared picker policy and account
- * entitlements, tiered by OUTPUT PRICE (not by model-name substrings), with
+ * connected providers, restricted to the models enabled in Rhythm's Models curation
+ * (`agent_model_visibility`, explicit visible=1; the static approved-family policy is not
+ * consulted), filtered by eligibility and account entitlements, tiered by OUTPUT PRICE (not by model-name substrings), with
  * per-model overrides and exclusions from Router settings. The hardcoded
  * ROUTE_FALLBACKS_BY_AGENT table is used only when the engine catalog is empty
  * or unreachable (`source: 'static'`).
@@ -58,6 +60,10 @@ export interface RoutableCatalog {
   source: CatalogSource;
   fetchedAt: string;
   tiers: EffectiveTiers;
+  /** Live catalog only: number of models enabled in Rhythm's Models curation. */
+  curatedCount: number;
+  /** Set when nothing is curated: the router keeps the baseline route (no static fallback). */
+  reason?: 'no_curated_models';
 }
 
 /** Models priced at or above this multiple of the frontier cutoff stay frontier but sort last. */
@@ -79,12 +85,14 @@ export interface RoutableModelOptions {
   authed?: Iterable<string>;
   entitled?: EntitledModels;
   settings?: DecisionSettings;
-  /** Test seam: replaces visibleDirectModelIds. */
-  policy?: typeof visibleDirectModelIds;
+  /** Rhythm's curated visibility (`provider\0model` -> visible); defaults to the agent_model_visibility table. */
+  visibility?: ReadonlyMap<string, boolean>;
 }
 
 interface InternalModel extends RoutableModel {
   excluded: boolean;
+  /** Enabled in Rhythm's Models curation (same rule as the model picker). */
+  enabled: boolean;
   longContext: boolean;
   order: number;
 }
@@ -94,6 +102,7 @@ interface BaseCatalog {
   source: CatalogSource;
   fetchedAt: string;
   tiers: EffectiveTiers;
+  curatedCount: number;
 }
 
 const TIER_RANK: Record<ModelTier, number> = { cheap: 0, standard: 1, frontier: 2 };
@@ -119,8 +128,14 @@ export function resetModelCatalogCache(): void {
   cache = null;
 }
 
-function settingsKey(settings: DecisionSettings): string {
-  return JSON.stringify([settings.tiers, settings.tierOverrides, [...settings.excludedModels].sort()]);
+function settingsKey(settings: DecisionSettings, visibility: ReadonlyMap<string, boolean>): string {
+  return JSON.stringify([
+    settings.tiers,
+    settings.tierOverrides,
+    [...settings.excludedModels].sort(),
+    // Digest of the curation rows: a visibility change misses the cache without any explicit invalidation.
+    [...visibility].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+  ]);
 }
 
 const median = (sorted: number[]): number => {
@@ -235,7 +250,8 @@ function buildLive(
   opts: RoutableModelOptions,
   entitled: EntitledModels,
   settings: DecisionSettings,
-): { models: InternalModel[]; tiers: EffectiveTiers } {
+  visibility: ReadonlyMap<string, boolean>,
+): { models: InternalModel[]; tiers: EffectiveTiers; curatedCount: number } {
   const authed = opts.authed ? new Set(opts.authed) : null;
   const excluded = new Set(settings.excludedModels);
   const out: InternalModel[] = [];
@@ -246,15 +262,12 @@ function buildLive(
     if (!connected) continue;
     const eligible = provider.models.filter(eligibleModel);
     const ent = entitled[provider.id];
-    // Routing may only choose policy-approved direct models (newest anthropic per family,
-    // the approved openai/google/copilot sets). `opts.policy` exists so tests can inject one.
-    const visible = (opts.policy ?? visibleDirectModelIds)(provider.id, eligible, {
-      geminiEntitlementsKnown: provider.id === 'google' && !!ent && Object.keys(ent).length > 0,
-    });
     for (const model of eligible) {
-      if (!visible.has(model.id)) continue;
       // Fail-open: only an explicit `false` (account lacks the model) drops it.
       if (ent && ent[model.id] === false) continue;
+      // The routable set is exactly what Rhythm's Models curation enabled (explicit visible=1).
+      // No row, or visible=0, means not enabled; the static approved-family policy is not consulted.
+      const enabled = visibility.get(visibilityKey(provider.id, model.id)) === true;
       const costOutput = keyless ? 0 : model.cost?.output ?? null;
       const costInput = keyless ? 0 : model.cost?.input ?? null;
       out.push({
@@ -271,6 +284,7 @@ function buildLive(
         reasoning: model.reasoning ?? null,
         keyless,
         excluded: excluded.has(modelKey(provider.id, model.id)),
+        enabled,
         longContext: isLongContextModelId(model.id),
         order: order++,
       });
@@ -282,17 +296,25 @@ function buildLive(
   };
   const derived = settings.tiers.mode === 'auto'
     ? deriveTierCutoffs(
-        out.filter((m) => !m.excluded && !m.longContext && !m.keyless),
+        out.filter((m) => !m.excluded && m.enabled && !m.longContext && !m.keyless),
         manual,
       )
     : { ...manual, derivedFromModels: 0 };
   for (const m of out) {
     Object.assign(m, tierFor(m.providerID, m.modelID, m.costOutputUsd, m.keyless, settings, derived, false));
   }
-  return { models: out, tiers: { mode: settings.tiers.mode, ...derived } };
+  return {
+    models: out,
+    tiers: { mode: settings.tiers.mode, ...derived },
+    curatedCount: out.filter((m) => m.enabled).length,
+  };
 }
 
-async function buildStatic(opts: RoutableModelOptions, settings: DecisionSettings): Promise<InternalModel[]> {
+async function buildStatic(
+  opts: RoutableModelOptions,
+  settings: DecisionSettings,
+  visibility: ReadonlyMap<string, boolean>,
+): Promise<InternalModel[]> {
   let authed: Set<string>;
   if (opts.authed) authed = new Set(opts.authed);
   else {
@@ -335,6 +357,8 @@ async function buildStatic(opts: RoutableModelOptions, settings: DecisionSetting
         reasoning: null,
         keyless,
         excluded: excluded.has(key),
+        // Static table is only used when the engine is unreachable: honor explicit hides only.
+        enabled: visibility.get(visibilityKey(route.providerID, route.modelID)) !== false,
         longContext: isLongContextModelId(route.modelID) || route.variantLabel === '1M context',
         order: order++,
       });
@@ -346,7 +370,8 @@ async function buildStatic(opts: RoutableModelOptions, settings: DecisionSetting
 async function computeBase(opts: RoutableModelOptions): Promise<BaseCatalog> {
   const settings = opts.settings ?? loadDecisionSettings();
   const cacheable = !opts.snapshot && !opts.authed && !opts.entitled;
-  const key = settingsKey(settings);
+  const visibility = opts.visibility ?? loadModelVisibility();
+  const key = settingsKey(settings, visibility);
   if (cacheable && cache && cache.key === key && Date.now() - cache.at < CACHE_TTL_MS) {
     return cache.value;
   }
@@ -362,11 +387,11 @@ async function computeBase(opts: RoutableModelOptions): Promise<BaseCatalog> {
   let value: BaseCatalog;
   if (snapshot && Array.isArray(snapshot.providers) && snapshot.providers.length > 0) {
     const entitled = opts.entitled ?? (await readEntitlements());
-    const live = buildLive(snapshot, opts, entitled, settings);
+    const live = buildLive(snapshot, opts, entitled, settings, visibility);
     value = { ...live, source: 'live', fetchedAt: new Date().toISOString() };
   } else {
     value = {
-      models: await buildStatic(opts, settings),
+      models: await buildStatic(opts, settings, visibility),
       source: 'static',
       fetchedAt: new Date().toISOString(),
       tiers: {
@@ -375,6 +400,7 @@ async function computeBase(opts: RoutableModelOptions): Promise<BaseCatalog> {
         frontierMinOutputUsd: settings.tiers.frontierMinOutputUsd,
         derivedFromModels: 0,
       },
+      curatedCount: 0,
     };
   }
   if (cacheable) cache = { key, at: Date.now(), value };
@@ -393,34 +419,42 @@ function catalogOrder(a: InternalModel, b: InternalModel): number {
   return a.order - b.order;
 }
 
-const toPublic = ({ excluded: _e, longContext: _l, order: _o, ...model }: InternalModel): RoutableModel => model;
+const toPublic = ({ excluded: _e, enabled: _en, longContext: _l, order: _o, ...model }: InternalModel): RoutableModel => model;
 
 /** The models the router may pick right now. Never throws. */
 export async function getRoutableModels(opts: RoutableModelOptions = {}): Promise<RoutableCatalog> {
   const base = await computeBase(opts);
   const allowLong = !!opts.baseRoute && isLongContextModelId(opts.baseRoute.modelID);
   const models = base.models
-    .filter((m) => !m.excluded && (allowLong || !m.longContext))
+    .filter((m) => !m.excluded && m.enabled && (allowLong || !m.longContext))
     .sort(catalogOrder)
     .map(toPublic);
-  return { models, source: base.source, fetchedAt: base.fetchedAt, tiers: base.tiers };
+  return {
+    models,
+    source: base.source,
+    fetchedAt: base.fetchedAt,
+    tiers: base.tiers,
+    curatedCount: base.curatedCount,
+    ...(base.source === 'live' && base.curatedCount === 0 ? { reason: 'no_curated_models' as const } : {}),
+  };
 }
 
 /** Everything the settings UI lists: excluded models included (flagged), long-context variants hidden. */
 export async function getCatalogForSettings(
   opts: RoutableModelOptions = {},
 ): Promise<{
-  models: Array<RoutableModel & { excluded: boolean }>;
+  models: Array<RoutableModel & { excluded: boolean; enabled: boolean }>;
   source: CatalogSource;
   fetchedAt: string;
   tiers: EffectiveTiers;
+  curatedCount: number;
 }> {
   const base = await computeBase(opts);
   const models = base.models
     .filter((m) => !m.longContext)
     .sort(catalogOrder)
-    .map((m) => ({ ...toPublic(m), excluded: m.excluded }));
-  return { models, source: base.source, fetchedAt: base.fetchedAt, tiers: base.tiers };
+    .map((m) => ({ ...toPublic(m), excluded: m.excluded, enabled: m.enabled }));
+  return { models, source: base.source, fetchedAt: base.fetchedAt, tiers: base.tiers, curatedCount: base.curatedCount };
 }
 
 /**
@@ -560,6 +594,15 @@ export async function routeModelForTier(input: {
       ...(input.baseRoute ? { baseRoute: input.baseRoute } : {}),
     });
     source = catalog.source;
+    if (catalog.source === 'live' && catalog.reason && input.baseRoute) {
+      // Nothing enabled in Models curation: keep the baseline route, never the static table.
+      return {
+        route: input.baseRoute,
+        tier: classifyRouteTier(input.baseRoute),
+        catalog: 'live',
+        reason: catalog.reason,
+      };
+    }
     if (catalog.source === 'live') {
       const headroomByProvider = await readHeadroomByProvider(new Set(catalog.models.map((m) => m.providerID)));
       const model = pickModelForTier({

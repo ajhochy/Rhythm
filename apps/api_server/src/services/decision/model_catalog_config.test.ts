@@ -3,6 +3,7 @@ import type { AddressInfo } from 'net';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import Database from 'better-sqlite3';
 import express from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -20,6 +21,7 @@ vi.mock('../usage_budget_service', () => ({
   getUsageBudget: vi.fn().mockResolvedValue({ providers: [], fetchedAt: '2026-09-29T00:00:00Z' }),
 }));
 
+import { setDb } from '../../database/db';
 import agentDecisionsRouter from '../../routes/agent_decisions_routes';
 import { DecisionConfigError, mergeConfig } from './decision_config_service';
 import {
@@ -47,7 +49,17 @@ const SNAPSHOT = {
 };
 
 let dir: string;
+let db: Database.Database;
+let previousDb: Database.Database | null;
+const setVisible = (provider: string, modelId: string, visible: boolean) =>
+  db.prepare('INSERT OR REPLACE INTO agent_model_visibility (provider, model_id, visible) VALUES (?, ?, ?)')
+    .run(provider, modelId, visible ? 1 : 0);
 beforeEach(() => {
+  db = new Database(':memory:');
+  db.exec('CREATE TABLE agent_model_visibility (provider TEXT NOT NULL, model_id TEXT NOT NULL, visible INTEGER NOT NULL DEFAULT 1, PRIMARY KEY (provider, model_id))');
+  // Rhythm's Models curation: these four are enabled, so the router may choose among them.
+  for (const p of SNAPSHOT.providers) for (const mod of p.models) setVisible(p.id, mod.id, true);
+  previousDb = setDb(db);
   dir = mkdtempSync(join(tmpdir(), 'catalog-config-'));
   process.env.RHYTHM_DECISION_ROUTER_FILE = join(dir, 'decision-router.json');
   resetDecisionSettingsCacheForTests();
@@ -55,6 +67,8 @@ beforeEach(() => {
   providerSnapshot.mockReset().mockResolvedValue(SNAPSHOT);
 });
 afterEach(() => {
+  setDb(previousDb);
+  db.close();
   delete process.env.RHYTHM_DECISION_ROUTER_FILE;
   resetDecisionSettingsCacheForTests();
   rmSync(dir, { recursive: true, force: true });
@@ -155,8 +169,21 @@ describe('GET/PUT /agent-decisions/config catalog', () => {
     expect(got.catalog.models[0]).toEqual({
       providerID: 'anthropic', modelID: 'claude-haiku-5-0', name: 'Name claude-haiku-5-0', family: 'claude-haiku',
       tier: 'cheap', tierSource: 'cost', costOutputUsd: 5, costInputUsd: 1, releaseDate: '2025-10-15',
-      contextLimit: 200000, excluded: false,
+      contextLimit: 200000, excluded: false, enabled: true,
     });
+    expect(got.catalog.curatedCount).toBe(4);
+  });
+
+  it('flags models not enabled in Rhythm curation and derives cutoffs from the curated set only', async () => {
+    setVisible('openai', 'gpt-5.6-terra', false); // explicit hide
+    db.prepare('DELETE FROM agent_model_visibility WHERE model_id = ?').run('claude-opus-4-7'); // never curated
+    const got = (await (await fetch(`${base}/config`)).json()) as any;
+    const find = (id: string) => got.catalog.models.find((x: any) => x.modelID === id);
+    expect(find('gpt-5.6-terra')).toMatchObject({ enabled: false });
+    expect(find('claude-opus-4-7')).toMatchObject({ enabled: false });
+    expect(find('claude-haiku-5-0')).toMatchObject({ enabled: true });
+    expect(got.catalog.curatedCount).toBe(2);
+    expect(got.tiers.derivedFromModels).toBe(0); // 2 curated prices < 3: seed cutoffs
   });
 
   it('PUT persists tiers / overrides / exclusions and the catalog reflects them immediately', async () => {

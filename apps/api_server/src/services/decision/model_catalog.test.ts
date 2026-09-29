@@ -13,12 +13,13 @@ vi.mock('../opencode_engine', () => ({
 }));
 
 import { OpencodeClientService, type ProviderSnapshot } from '../opencode_client_service';
-import { visibleDirectModelIds } from '../provider_catalog_policy';
 import { ROUTE_FALLBACKS_BY_AGENT } from '../agent_model_resolver';
 import { defaultDecisionSettings, type DecisionSettings } from './decision_settings';
 import {
   deriveTierCutoffs,
-  getRoutableModels,
+  getCatalogForSettings,
+  getRoutableModels as getRoutableModelsRaw,
+  routeModelForTier,
   pickModelForTier,
   resetModelCatalogCache,
   type RoutableModel,
@@ -45,6 +46,12 @@ const settings = (over: Partial<DecisionSettings> = {}): DecisionSettings => ({
   tiers: { mode: 'manual', cheapMaxOutputUsd: 6, frontierMinOutputUsd: 25 },
   ...over,
 });
+/** Every model in the snapshot is enabled in Rhythm's Models curation (visible=1). */
+const enableAll = (s: ProviderSnapshot): Map<string, boolean> =>
+  new Map(s.providers.flatMap((p) => p.models.map((m) => [`${p.id}\0${m.id}`, true] as [string, boolean])));
+const curated = (...keys: string[]): Map<string, boolean> => new Map(keys.map((k) => [k.replace('/', '\0'), true]));
+const getRoutableModels = (o: Parameters<typeof getRoutableModelsRaw>[0] = {}) =>
+  getRoutableModelsRaw({ ...(o.snapshot && !o.visibility ? { visibility: enableAll(o.snapshot) } : {}), ...o });
 const ids = (models: RoutableModel[]) => models.map((m) => `${m.providerID}/${m.modelID}`);
 const byId = (models: RoutableModel[], id: string) => models.find((m) => m.modelID === id)!;
 
@@ -162,17 +169,6 @@ describe('getRoutableModels tiering (manual cutoffs 6 / 25)', () => {
     });
     expect(long.models.map((m) => m.modelID).sort()).toEqual(['claude-opus-4-7', 'claude-opus-4-7-1m']);
   });
-
-  it('applies the anthropic newest-per-family visibility policy', async () => {
-    const r = await getRoutableModels({
-      snapshot: snap(provider('anthropic', [
-        model('claude-opus-4-5', { out: 25 }),
-        model('claude-opus-5-5', { out: 25 }),
-      ])),
-      settings: settings(),
-    });
-    expect(r.models.map((m) => m.modelID)).toEqual(['claude-opus-5-5']);
-  });
 });
 
 /** Real models.dev prices (USD / 1M output tokens) and families. */
@@ -202,21 +198,73 @@ function realSnapshot(rows: Record<string, ReadonlyArray<readonly [string, numbe
     provider(id, list.map(([mid, out, family, date]) => model(mid, { out, family, date })))));
 }
 
-// Real prices use ids outside the approved openai/google sets: inject a policy that approves them
-// (anthropic keeps the real newest-per-family policy).
-const approveAll: typeof visibleDirectModelIds = (id, models, o) =>
-  id === 'anthropic' ? visibleDirectModelIds(id, models, o) : new Set(models.map((x) => x.id));
+describe('Rhythm curation is the only visibility gate', () => {
+  const snapshot = () => snap(
+    provider('openai', [model('gpt-5.6-terra', { out: 15 }), model('gpt-5.5', { out: 30 })]),
+    provider('anthropic', [model('claude-sonnet-5-5', { out: 15 }), model('claude-opus-5-5', { out: 25 })]),
+  );
 
-describe('policy visibility', () => {
-  it('drops openai/google models outside the approved sets', async () => {
-    const r = await getRoutableModels({
-      snapshot: snap(
-        provider('openai', [model('gpt-5.6-terra', { out: 15 }), model('gpt-5.5', { out: 30 })]),
-        provider('google', [model('gemini-3.1-pro-preview', { out: 12 }), model('gemini-9-unapproved', { out: 1 })]),
-      ),
-      settings: settings(),
+  it('routes only explicit visible=1 models: outside-any-list is routable, policy-listed without a row is not', async () => {
+    // gpt-5.5 is outside the static openai allowlist; gpt-5.6-terra is on it but has no row.
+    const r = await getRoutableModelsRaw({
+      snapshot: snapshot(), settings: settings(), visibility: curated('openai/gpt-5.5', 'anthropic/claude-sonnet-5-5'),
     });
-    expect(ids(r.models).sort()).toEqual(['google/gemini-3.1-pro-preview', 'openai/gpt-5.6-terra']);
+    expect(ids(r.models).sort()).toEqual(['anthropic/claude-sonnet-5-5', 'openai/gpt-5.5']);
+  });
+
+  it('visible=0 is not routable even for a policy-listed model, and is flagged in the settings view', async () => {
+    const visibility = new Map([['openai\0gpt-5.6-terra', false], ['anthropic\0claude-sonnet-5-5', true]]);
+    const opts = { snapshot: snapshot(), settings: settings(), visibility };
+    expect(ids((await getRoutableModelsRaw(opts)).models)).toEqual(['anthropic/claude-sonnet-5-5']);
+    const view = await getCatalogForSettings(opts);
+    expect(view.curatedCount).toBe(1);
+    const flag = (id: string) => view.models.find((m) => m.modelID === id)?.enabled;
+    expect(flag('gpt-5.6-terra')).toBe(false);
+    expect(flag('claude-opus-5-5')).toBe(false); // no row: not enabled either
+    expect(flag('claude-sonnet-5-5')).toBe(true);
+  });
+
+  it('empty curation: live source, no models, reason no_curated_models', async () => {
+    const r = await getRoutableModelsRaw({ snapshot: snapshot(), settings: settings(), visibility: new Map() });
+    expect(r).toMatchObject({ source: 'live', models: [], curatedCount: 0, reason: 'no_curated_models' });
+  });
+
+  it('empty curation keeps the baseline route (no static-table fallback) and reports the reason', async () => {
+    providerSnapshot.mockResolvedValue(snapshot());
+    const base = { providerID: 'anthropic', modelID: 'claude-haiku-4-5' };
+    const r = await routeModelForTier({ tier: 'frontier', agentId: 'claude-code', baseRoute: base });
+    expect(r.route).toEqual(base);
+    expect(r.catalog).toBe('live');
+    expect(r.reason).toBe('no_curated_models');
+  });
+
+  it('sonnet enabled / opus disabled: a frontier request never picks opus', async () => {
+    const snapshotOpus = snap(provider('anthropic', [
+      model('claude-haiku-5-0', { out: 5 }),
+      model('claude-sonnet-5-5', { out: 15 }),
+      model('claude-opus-5-5', { out: 25 }),
+    ]));
+    const cat = await getRoutableModelsRaw({
+      snapshot: snapshotOpus, settings: settings(),
+      visibility: new Map([['anthropic\0claude-sonnet-5-5', true], ['anthropic\0claude-opus-5-5', false]]),
+    });
+    expect(ids(cat.models)).toEqual(['anthropic/claude-sonnet-5-5']);
+    // No enabled frontier model: pickModelForTier has nothing at that tier, so callers fall to the base route.
+    expect(pickModelForTier({ tier: 'frontier', models: cat.models })).toBeUndefined();
+    expect(pickModelForTier({ tier: 'standard', models: cat.models })?.modelID).toBe('claude-sonnet-5-5');
+  });
+
+  it('derived cutoffs use only the curated set', async () => {
+    const r = await getRoutableModelsRaw({
+      snapshot: snap(provider('acme', [
+        model('a', { out: 1, family: 'a' }), model('b', { out: 2, family: 'b' }),
+        model('c', { out: 30, family: 'c' }), model('d', { out: 300, family: 'd' }),
+      ])),
+      settings: settings({ tiers: { mode: 'auto', cheapMaxOutputUsd: 6, frontierMinOutputUsd: 25 } }),
+      visibility: curated('acme/a'),
+    });
+    expect(r.tiers.derivedFromModels).toBe(0); // one curated priced model: seed values kept
+    expect(r.tiers.cheapMaxOutputUsd).toBe(6);
   });
 });
 
@@ -255,7 +303,6 @@ describe('auto tier cutoffs derived from the catalog', () => {
   it('real prices: cutoffs land in the natural gaps and tiers come out as expected', async () => {
     expectRealBands(await getRoutableModels({
       snapshot: realSnapshot({ anthropic: REAL.anthropic, openai: REAL.openai, google: REAL.google }),
-      policy: approveAll,
       settings: settings({ tiers: { mode: 'auto', cheapMaxOutputUsd: 6, frontierMinOutputUsd: 25 } }),
     }));
   });
@@ -275,7 +322,6 @@ describe('auto tier cutoffs derived from the catalog', () => {
     ]);
     expectRealBands(await getRoutableModels({
       snapshot: realSnapshot(rows),
-      policy: approveAll,
       settings: settings({ tiers: { mode: 'auto', cheapMaxOutputUsd: 6, frontierMinOutputUsd: 25 } }),
     }));
   });
@@ -283,7 +329,6 @@ describe('auto tier cutoffs derived from the catalog', () => {
   it('manual mode ignores the catalog and uses the stored cutoffs', async () => {
     const r = await getRoutableModels({
       snapshot: realSnapshot({ anthropic: REAL.anthropic, openai: REAL.openai, google: REAL.google }),
-      policy: approveAll,
       settings: settings({ tiers: { mode: 'manual', cheapMaxOutputUsd: 2, frontierMinOutputUsd: 20 } }),
     });
     expect(r.tiers).toEqual({ mode: 'manual', cheapMaxOutputUsd: 2, frontierMinOutputUsd: 20, derivedFromModels: 0 });
@@ -392,15 +437,27 @@ describe('static fallback', () => {
 describe('cache', () => {
   it('serves 60s from memory and is invalidated when the settings change', async () => {
     providerSnapshot.mockResolvedValue(snap(provider('acme', [model('m', { out: 10 })])));
-    const a = await getRoutableModels({ settings: settings() });
-    await getRoutableModels({ settings: settings() });
+    const vis = curated('acme/m');
+    const a = await getRoutableModelsRaw({ settings: settings(), visibility: vis });
+    await getRoutableModelsRaw({ settings: settings(), visibility: vis });
     expect(providerSnapshot).toHaveBeenCalledTimes(1);
     expect(byId(a.models, 'm').tier).toBe('standard');
-    const b = await getRoutableModels({ settings: settings({ tierOverrides: { 'acme/m': 'cheap' } }) });
+    const b = await getRoutableModelsRaw({ settings: settings({ tierOverrides: { 'acme/m': 'cheap' } }), visibility: vis });
     expect(providerSnapshot).toHaveBeenCalledTimes(2);
     expect(byId(b.models, 'm').tier).toBe('cheap');
     resetModelCatalogCache();
-    await getRoutableModels({ settings: settings({ tierOverrides: { 'acme/m': 'cheap' } }) });
+    await getRoutableModelsRaw({ settings: settings({ tierOverrides: { 'acme/m': 'cheap' } }), visibility: vis });
     expect(providerSnapshot).toHaveBeenCalledTimes(3);
+  });
+
+  it('is invalidated when the Rhythm visibility curation changes', async () => {
+    providerSnapshot.mockResolvedValue(snap(provider('acme', [model('m', { out: 10 })])));
+    const on = await getRoutableModelsRaw({ settings: settings(), visibility: curated('acme/m') });
+    expect(ids(on.models)).toEqual(['acme/m']);
+    await getRoutableModelsRaw({ settings: settings(), visibility: curated('acme/m') });
+    expect(providerSnapshot).toHaveBeenCalledTimes(1);
+    const off = await getRoutableModelsRaw({ settings: settings(), visibility: new Map([['acme\0m', false]]) });
+    expect(providerSnapshot).toHaveBeenCalledTimes(2);
+    expect(off.models).toEqual([]);
   });
 });

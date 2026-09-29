@@ -119,15 +119,21 @@ hardcoded table (`services/decision/model_catalog.ts`).
 
 - **Live catalog.** `opencodeClient.providerSnapshot()` (the engine catalog) supplies per model:
   price (`cost` in USD per 1M tokens), `releaseDate`, `family`, `reasoning`, context limit. The
-  routable set is: connected providers, minus ineligible models (deprecated, no text in/out, no
-  tool calls), minus the picker's visibility policy (newest Anthropic per family, Copilot approved
-  set, OpenAI and Google approved sets), minus models the cached usage snapshot says the account is not entitled to (only an
-  explicit `false` drops a model), minus models excluded in Router settings. The approved sets
-  (gpt-5.6-luna/terra/sol, the gemini set) always apply, so the router never picks an unapproved
-  direct model. Keyless local providers (ollama, omlx,
+  router only picks models that are **enabled in Rhythm's Models curation**
+  (`agent_model_visibility`, an explicit `visible = 1` row; no row or `visible = 0` means not
+  enabled), and then applies its own exclusions. The routable set is: enabled models, minus
+  unconnected providers, minus ineligible models (deprecated, no text in/out, no tool calls), minus
+  models the cached usage snapshot says the account is not entitled to (only an explicit `false`
+  drops a model), minus models excluded in Router settings. The static approved-family lists are
+  not consulted, so a model outside them is routable once enabled, and a listed model with no row
+  is not. Derived tier cutoffs are computed over the enabled set only. If nothing is enabled the
+  live set is empty (`reason: no_curated_models`): the router and capacity layer keep the baseline
+  route and log the reason; the static table is used only when the engine is unreachable. Settings
+  shows every connected model, with `enabled: false` on the ones the router cannot use, and
+  `catalog.curatedCount`. Keyless local providers (ollama, omlx,
   opencode) are included at zero cost and are always `cheap`. `-1m` / `:extended` / long-context
   variants are used only when the current route already is one. The set is cached for 60 seconds
-  and dropped when Router settings change.
+  and dropped when Router settings or the Models curation change.
 - **Tiers come from output price (USD per 1M output tokens).** `cheap` at or below the cheap
   cutoff, `frontier` at or above the frontier cutoff, otherwise `standard`. A model with no price
   falls back to the name heuristic (`classifyRouteTier`); the settings table marks it
