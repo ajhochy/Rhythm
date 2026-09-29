@@ -429,7 +429,7 @@ if (hasSingleInstanceLock) {
     }
   };
 
-  /** @param {unknown} value @returns {{ v: 1, type: 'ready' | 'viewing' | 'arm' | 'completion' | 'ask' | 'resolve', family?: 'permission' | 'question', sessionId?: string | null, requestId?: string, displayed?: boolean } | null} */
+  /** @param {unknown} value @returns {{ v: 1, type: 'ready' | 'viewing' | 'arm' | 'completion' | 'ask' | 'resolve' | 'push', family?: 'permission' | 'question', sessionId?: string | null, requestId?: string, displayed?: boolean, id?: number, title?: string, body?: string } | null} */
   const agentEvent = (value) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     const item = /** @type {Record<string, unknown>} */ (value);
@@ -440,6 +440,7 @@ if (hasSingleInstanceLock) {
     if (item.type === 'viewing' && keys === 'displayed,sessionId,type,v' && typeof item.displayed === 'boolean' && (item.sessionId === null || safeNotificationId(item.sessionId))) return { v: 1, type: 'viewing', displayed: item.displayed, sessionId: /** @type {string | null} */ (item.sessionId) };
     if (item.type === 'arm' && keys === 'sessionId,type,v' && safeNotificationId(item.sessionId)) return { v: 1, type: 'arm', sessionId: /** @type {string} */ (item.sessionId) };
     if (item.type === 'completion' && keys === 'sessionId,type,v' && safeNotificationId(item.sessionId)) return { v: 1, type: 'completion', sessionId: /** @type {string} */ (item.sessionId) };
+    if (item.type === 'push' && keys === 'body,id,title,type,v' && Number.isSafeInteger(item.id) && /** @type {number} */ (item.id) > 0 && typeof item.title === 'string' && typeof item.body === 'string') return { v: 1, type: 'push', id: /** @type {number} */ (item.id), title: item.title.slice(0, 200), body: item.body.slice(0, 200) };
     if ((item.type === 'ask' || item.type === 'resolve') && keys === 'family,requestId,sessionId,type,v' && (item.family === 'permission' || item.family === 'question') && safeNotificationId(item.sessionId) && safeNotificationId(item.requestId)) return { v: 1, type: item.type, family: item.family, sessionId: /** @type {string} */ (item.sessionId), requestId: /** @type {string} */ (item.requestId) };
     return null;
   };
@@ -522,6 +523,29 @@ if (hasSingleInstanceLock) {
       if (entry.family) withdrawAgentEntry(entry); else retireCompletionEntry(entry);
     }
   };
+  // rhythm_notify (notification.push): the in-app popover already shows it; the banner is for
+  // when Rhythm is in the background. ponytail: bounded id set, no per-auth scoping (local-only frames).
+  // Holding the Notification keeps it from being GC'd before its click fires.
+  /** @type {Map<number, Notification | null>} */
+  const presentedPushIds = new Map();
+  /** @param {number} id @param {string} title @param {string} body */
+  const showPushNotification = (id, title, body) => {
+    if (!mainWindow || mainWindow.isDestroyed() || presentedPushIds.has(id)) return;
+    presentedPushIds.set(id, null);
+    if (presentedPushIds.size > 200) presentedPushIds.delete(/** @type {number} */ (presentedPushIds.keys().next().value));
+    if (mainWindow.isFocused() && mainWindow.isVisible() && !mainWindow.isMinimized()) return;
+    try {
+      if (!Notification.isSupported()) return;
+      const notification = new Notification({ title: title || 'Rhythm', body });
+      notification.on('click', () => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show(); mainWindow.focus();
+      });
+      presentedPushIds.set(id, notification);
+      notification.show();
+    } catch {}
+  };
   /** @param {unknown} payload */
   const syncAgentNotifications = (payload) => {
     const event = agentEvent(payload);
@@ -536,6 +560,7 @@ if (hasSingleInstanceLock) {
       }
       return;
     }
+    if (event.type === 'push') { showPushNotification(/** @type {number} */ (event.id), event.title ?? '', event.body ?? ''); return; }
     if (event.type === 'viewing') { agentViewing = { sessionId: event.sessionId ?? null, displayed: event.displayed === true }; return; }
     if (event.type === 'arm') {
       if (!event.sessionId) return;

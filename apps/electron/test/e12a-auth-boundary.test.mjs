@@ -319,6 +319,31 @@ test('issue-1510: dismissing a pending approval does not repeat its native alert
 });
 
 
+test('rhythm_notify push: a background window raises one native banner per push id; a focused window does not', async (t) => {
+  const shown = [];
+  class Notification extends EventEmitter {
+    static isSupported() { return true; }
+    constructor(options) { super(); this.options = options; }
+    show() { shown.push(this); }
+    close() {}
+  }
+  const h = await host(t, false, Notification);
+  let focused = false;
+  Object.assign(h.current(), { isFocused: () => focused, isVisible: () => true, show() {}, restore() {} });
+  const sync = (payload) => h.listeners.get('rhythm:agent-notifications:sync')(h.event(), payload);
+  const push = { v: 1, type: 'push', id: 7, title: 'Build finished', body: 'All checks green' };
+  sync(push);
+  sync({ ...push });
+  assert.equal(shown.length, 1, 'a background push raises exactly one native notification');
+  assert.deepEqual([shown[0].options.title, shown[0].options.body], ['Build finished', 'All checks green']);
+  sync({ ...push, id: 8, extra: 'x' });
+  sync({ ...push, id: '9' });
+  assert.equal(shown.length, 1, 'malformed push frames are rejected');
+  focused = true;
+  sync({ ...push, id: 10 });
+  assert.equal(shown.length, 1, 'the in-app popover covers a focused window');
+});
+
 test('trusted workspace reload retains the current session; untrusted navigation clears it', async (t) => {
   const h = await host(t);
   const login = h.current().bridge.auth.signInWithGoogle();

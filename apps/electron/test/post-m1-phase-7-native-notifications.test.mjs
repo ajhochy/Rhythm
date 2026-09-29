@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createContext, runInContext } from 'node:vm';
 import test from 'node:test';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -45,4 +46,23 @@ test('post-m1-p7-c4e: Electron owns permission presentation deduplication cancel
     !/showNotification|newNotification|sign\s*:\s*|signPayload|privateKey/i.test(preloadSource),
     'the preload must not expose arbitrary renderer-controlled notification or signing primitives',
   );
+});
+
+test('rhythm_notify push: preload forwards a closed-schema push frame to main and nothing wider', () => {
+  const sent = []; const listeners = new Map();
+  class CustomEvent { constructor(type, init) { this.type = type; this.detail = init?.detail; } }
+  runInContext(preloadSource, createContext({
+    CustomEvent,
+    process: { argv: [], env: {}, platform: 'darwin' },
+    window: { addEventListener: (type, fn) => listeners.set(type, fn), dispatchEvent() {} },
+    require: () => ({ contextBridge: { exposeInMainWorld() {} }, ipcRenderer: { send: (...args) => sent.push(args), sendSync() {}, invoke() {}, on() {}, removeListener() {} } }),
+  }));
+  const emit = (detail) => listeners.get('rhythm:agent-notifications')(new CustomEvent('rhythm:agent-notifications', { detail }));
+  const push = { v: 1, type: 'push', id: 3, title: 'Done', body: 'Report ready' };
+  emit(push);
+  emit({ ...push, id: 0 });
+  emit({ ...push, onclick: 'x' });
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0][0], 'rhythm:agent-notifications:sync');
+  assert.deepEqual({ ...sent[0][1] }, push);
 });
