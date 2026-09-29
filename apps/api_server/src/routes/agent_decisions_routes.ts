@@ -1,6 +1,12 @@
-import { Router } from 'express';
+import { Router, json } from 'express';
 import { requireAuth } from '../middleware/auth_middleware';
 import { env } from '../config/env';
+import {
+  DecisionConfigError,
+  buildConfigView,
+  testConfig,
+  updateConfig,
+} from '../services/decision/decision_config_service';
 import { listDecisions, summarizeDecisions } from '../services/decision/decision_log';
 
 const router = Router();
@@ -23,6 +29,35 @@ router.get('/', (req, res) => {
     }),
     summary: summarizeDecisions({ feature, sinceIso }),
   });
+});
+
+// Router backend settings (local / Jev / custom). API keys are write-only.
+router.get('/config', (_req, res) => {
+  res.json(buildConfigView());
+});
+
+function sendConfigError(err: unknown, res: import('express').Response): void {
+  if (err instanceof DecisionConfigError) {
+    res.status(400).json({ error: err.code, message: err.message });
+    return;
+  }
+  res.status(500).json({ error: 'internal_error', message: 'Could not process router settings.' });
+}
+
+router.put('/config', json({ limit: '32kb' }), (req, res) => {
+  try {
+    res.json(updateConfig(req.body));
+  } catch (err) {
+    sendConfigError(err, res);
+  }
+});
+
+router.post('/config/test', json({ limit: '32kb' }), async (req, res) => {
+  try {
+    res.json(await testConfig(req.body && Object.keys(req.body).length ? req.body : {}));
+  } catch (err) {
+    sendConfigError(err, res);
+  }
 });
 
 export default router;

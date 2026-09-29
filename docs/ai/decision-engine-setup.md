@@ -131,3 +131,26 @@ Turn-time account switching applies only to sessions whose account was auto-pick
 set, lost on restart = no switching). A healthy current account is kept unless another leads
 by 10+ points. `shadow` logs to `agent_decision_log` (feature `capacity_routing`) and changes
 nothing. Every failure keeps the existing behaviour.
+
+## Router backend settings
+
+Pick the router model in Providers settings (Electron and mobile) or through
+`GET/PUT /agent-decisions/config` (mobile: `/mobile-gateway/tools/agent-decisions/config`,
+`mac-global-admin` only). Settings are stored in
+`~/Library/Application Support/Rhythm/decision-router.json` (mode 0600; override with
+`RHYTHM_DECISION_ROUTER_FILE`). Precedence: an explicitly set env var, then the saved setting,
+then the default. Pinned keys come back in `lockedByEnv` and show read-only.
+
+- **local** (default): a reranker on this machine, loopback only (`http://127.0.0.1:8012`).
+- **Jev**: hosted, `https://api.typesafe.ai`, model `jev-latest`. Needs an API key and consent.
+  One Choice question per candidate; score is `probabilities.yes`. Default timeout 1500 ms.
+- **custom**: any `/v1/rerank` server. Loopback, LAN (RFC1918/IPv6-local) `http`, or public
+  `https` (must resolve to public addresses; link-local/metadata are blocked). Optional
+  Bearer key. LAN example: `http://192.168.1.20:8012` on another computer.
+
+Privacy: Jev and any custom server that is not on loopback (LAN counts) receive prompt and
+memory text, so they stay disabled (`consent_required`) until you turn on `remoteDataConsent`.
+API keys are write-only: GET returns `hasApiKey`, never the key, and an empty string clears it.
+Use `POST /agent-decisions/config/test` (optionally with an unsaved draft) to run a three
+document sample before saving. The default timeout is 400 ms for local and 1500 ms for
+Jev/custom unless you set one.

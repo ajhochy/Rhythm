@@ -1,6 +1,12 @@
 import os from 'os';
 import path from 'path';
 import { isIP } from 'node:net';
+import {
+  DEFAULT_LOCAL_TIMEOUT_MS,
+  DEFAULT_REMOTE_TIMEOUT_MS,
+  activeBackendSection,
+  loadDecisionSettings,
+} from '../services/decision/decision_settings';
 
 export type DbClient = 'sqlite' | 'postgres';
 
@@ -238,17 +244,26 @@ export function isMemoryLinkExpansionEnabled(): boolean {
  */
 export function getDecisionBaseUrl(): string {
   const raw = (process.env.AGENT_DECISION_BASE_URL ?? '').trim();
-  return raw || 'http://127.0.0.1:8012';
+  if (raw) return raw;
+  return activeBackendSection(loadDecisionSettings()).baseUrl;
 }
 
 export function getDecisionModel(): string {
   const raw = (process.env.AGENT_DECISION_MODEL ?? '').trim();
-  return raw || 'qwen3-reranker-4b';
+  if (raw) return raw;
+  return activeBackendSection(loadDecisionSettings()).model || 'qwen3-reranker-4b';
 }
 
-/** Per-call budget for the decision backend; positive integer else 400ms. */
+/**
+ * Per-call budget for the decision backend. Precedence: valid env > saved
+ * setting > default (400ms local, 1500ms jev/custom).
+ */
 export function getDecisionTimeoutMs(): number {
-  return positiveIntEnv('AGENT_DECISION_TIMEOUT_MS', 400);
+  const fromEnv = numberEnv('AGENT_DECISION_TIMEOUT_MS');
+  if (fromEnv !== null && Number.isInteger(fromEnv) && fromEnv > 0) return fromEnv;
+  const settings = loadDecisionSettings();
+  if (settings.timeoutMs !== null) return settings.timeoutMs;
+  return settings.backend === 'local' ? DEFAULT_LOCAL_TIMEOUT_MS : DEFAULT_REMOTE_TIMEOUT_MS;
 }
 
 /** Per-feature rollout: off (default) -> shadow (log only) -> on (apply). */
@@ -265,7 +280,9 @@ export function getDecisionFeatureMode(
   feature: keyof typeof DECISION_FEATURE_ENV,
 ): DecisionMode {
   const raw = (process.env[DECISION_FEATURE_ENV[feature]] ?? '').trim().toLowerCase();
-  return raw === 'shadow' || raw === 'on' ? raw : 'off';
+  if (raw === 'off' || raw === 'shadow' || raw === 'on') return raw;
+  const saved = loadDecisionSettings().features[feature];
+  return saved === 'shadow' || saved === 'on' ? saved : 'off';
 }
 
 /**
@@ -280,6 +297,8 @@ export function getEffectiveDecisionMode(
 ): DecisionMode {
   const raw = (process.env[DECISION_FEATURE_ENV[feature]] ?? '').trim().toLowerCase();
   if (raw === 'off' || raw === 'shadow' || raw === 'on') return raw;
+  const saved = loadDecisionSettings().features[feature];
+  if (saved !== 'default') return saved;
   return opts.sessionAuto ? 'on' : 'off';
 }
 
@@ -320,7 +339,9 @@ export type DecisionScoreScale = 'auto' | 'probability' | 'logit';
 
 export function getDecisionScoreScale(): DecisionScoreScale {
   const raw = (process.env.AGENT_DECISION_SCORE_SCALE ?? '').trim().toLowerCase();
-  return raw === 'probability' || raw === 'logit' ? raw : 'auto';
+  if (raw === 'auto' || raw === 'probability' || raw === 'logit') return raw;
+  const settings = loadDecisionSettings();
+  return settings.backend === 'jev' ? 'auto' : settings[settings.backend].scoreScale;
 }
 
 function numberEnv(name: string): number | null {
