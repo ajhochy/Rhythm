@@ -54,7 +54,7 @@ describeLive('Org Reviewer live contract', () => {
 });
 
 import { afterAll } from 'vitest';
-import { ReviewerHarness, REVIEWER, READ, SUBMIT, json, type Json } from './org_reviewer_harness';
+import { ReviewerHarness, REVIEWER, READ, SESSION, CATALOG, SUBMIT, json, type Json } from './org_reviewer_harness';
 
 // These tests exercise deterministic submission/security behavior using a
 // scripted external provider, while the actual fork signs and runs MCP calls.
@@ -118,7 +118,7 @@ describeLive('Org Reviewer real signed MCP boundary', () => {
     expect(profile.modelProvider).toBe('openai');
     expect(profile.modelId).toBe('gpt-5.6-sol');
     expect(JSON.parse(profile.allowedSkillsJson)).toEqual(['review-agent-org-health']);
-    expect(JSON.parse(profile.allowedMcpsJson)).toEqual({ rhythm: [READ, SUBMIT] });
+    expect(JSON.parse(profile.allowedMcpsJson)).toEqual({ rhythm: [READ, SESSION, CATALOG, SUBMIT] });
     // Scheduled AgentRunner stamps the skill scope at engine session creation.
     // Interactive sessions receive it through the normal WS turn path, which
     // the deterministic direct-SDK fixture does not exercise.
@@ -140,7 +140,7 @@ describeLive('Org Reviewer real signed MCP boundary', () => {
     // durable profile with the same tool grants is still not the Org Reviewer.
     const impostor = await harness.profile('signed non-reviewer identity');
     await json(`/agent-configs/${impostor.id}`, { method: 'PATCH', body: JSON.stringify({
-      allowedMcpsJson: JSON.stringify({ rhythm: [READ, SUBMIT] }),
+      allowedMcpsJson: JSON.stringify({ rhythm: [READ, SESSION, CATALOG, SUBMIT] }),
       corePermissionsJson: JSON.stringify({ '*': 'allow', bash: 'deny', task: 'deny' }),
     }) });
     const impostorSession = await harness.session(impostor.id, `${harness.marker} signed impostor`);
@@ -150,6 +150,9 @@ describeLive('Org Reviewer real signed MCP boundary', () => {
     expect(forbiddenRead.error, forbiddenRead.raw).toBe(true);
     expect(forbiddenRead.raw).toMatch(/403/);
     expect(JSON.stringify(harness.bodies.slice(beforeRequests)[0])).toContain(READ);
+    const forbiddenSession = await harness.call(SESSION, { sessionId: payload.evidence[0].sessionId }, impostorSession);
+    expect(forbiddenSession.error, forbiddenSession.raw).toBe(true);
+    expect(forbiddenSession.raw).toMatch(/403/);
     const forbiddenSubmit = await harness.call(SUBMIT, payload, impostorSession);
     expect(forbiddenSubmit.error, forbiddenSubmit.raw).toBe(true);
     expect(forbiddenSubmit.raw).toMatch(/403/);
@@ -170,6 +173,11 @@ describeLive('Org Reviewer real signed MCP boundary', () => {
     for (const item of privateEvidence) {
       expect(JSON.stringify(visibleContext)).not.toContain(item.sessionId);
       expect(JSON.stringify(visibleContext)).not.toContain(item.quote);
+      // The per-session reader refuses another owner's session outright.
+      const refused = await harness.call(SESSION, { sessionId: item.sessionId });
+      expect(refused.error, refused.raw).toBe(true);
+      expect(refused.raw).toMatch(/404/);
+      expect(refused.raw).not.toContain(item.quote);
     }
     const forgedEvidence = await harness.payload(target, privateEvidence);
     const beforeQueue = (await harness.queue()).map((proposal) => proposal.id).sort();
@@ -195,15 +203,14 @@ describeLive('Org Reviewer real signed MCP boundary', () => {
           skillCatalogHash: expect.any(String),
         }),
       });
-      expect(Buffer.byteLength(JSON.stringify(result.value, null, 2), 'utf8')).toBeLessThan(44_000);
+      expect(Buffer.byteLength(JSON.stringify(result.value), 'utf8')).toBeLessThan(44_000);
       expect(Buffer.byteLength(result.raw, 'utf8')).toBeLessThan(50 * 1024);
     }
   }, 120_000);
 
-  it('org-reviewer-session-context: signed overview keeps citable session evidence under configuration and large-session pressure', async () => {
-    // Reported review: sessions.total=67, included=0. Many long profile prompts
-    // plus a newest session that alone fills the transcript allowance must
-    // still leave distinct, exact message IDs and excerpts for the reviewer.
+  it('org-reviewer-session-context: signed index lists every session and the session tool pages an oversized one fully', async () => {
+    // Reported review: sessions.total=67, included=0. The overview now carries
+    // a compact index; transcripts are read one session at a time in pages.
     const longPrompt = (label: string) => `${label} ${'Follow the detailed weekly operating procedure. '.repeat(90)}`;
     const cited: Array<{ sessionId: string; messageId: string; quote: string }> = [];
     for (let index = 0; index < 12; index++) {
@@ -212,30 +219,78 @@ describeLive('Org Reviewer real signed MCP boundary', () => {
     }
     const largeProfile = await harness.profile('large session', longPrompt('Large'));
     const large = await harness.session(largeProfile.id, `${harness.marker} large session`);
-    for (let index = 0; index < 4; index++) await harness.transcript(largeProfile, `${index}${'m'.repeat(3_999)}`, undefined, large);
+    const lateQuote = 'LATE: the oversized weekly run still used the Summary heading.';
+    const largeTexts = [0, 1, 2].map((index) => `${index}${'m'.repeat(29_999)}${index === 2 ? ` ${lateQuote}` : ''}`);
+    const largeEvidence: Array<{ sessionId: string; messageId: string; quote: string }> = [];
+    for (const text of largeTexts) largeEvidence.push(await harness.transcript(largeProfile, text, undefined, large));
 
-    const result = await harness.call(READ, { windowDays: 7, sessionLimit: 100 });
-    expect(result.error, result.raw).toBe(false);
-    const value = result.value as Json;
-    const stats = value.collectionStats.sessions;
-    console.log('[org-reviewer-session-context] live overview', JSON.stringify({
-      apiBytes: Buffer.byteLength(JSON.stringify(value, null, 2), 'utf8'),
-      fencedBytes: Buffer.byteLength(result.raw, 'utf8'),
-      collectionStats: value.collectionStats,
-      withheldByContentSafety: value.withheldByContentSafety ?? null,
+    const index = await harness.call(READ, { windowDays: 7, sessionLimit: 100 });
+    expect(index.error, index.raw).toBe(false);
+    const value = index.value as Json;
+    const indexed = (value.sessions as Json[]).map((row) => row.sessionId as string);
+    expect(Buffer.byteLength(JSON.stringify(value), 'utf8')).toBeLessThan(44_000);
+    expect(Buffer.byteLength(index.raw, 'utf8')).toBeLessThan(50 * 1024);
+    expect(value.collectionStats.sessions.omittedByByteBudget).toBe(0);
+    for (const item of [...cited, largeEvidence[0]]) expect(indexed).toContain(item.sessionId);
+
+    const texts = new Map<string, string>();
+    const pageBytes: number[] = [];
+    let cursor: string | null = null;
+    do {
+      const page = await harness.call(SESSION, cursor ? { sessionId: large.id, cursor } : { sessionId: large.id });
+      expect(page.error, page.raw).toBe(false);
+      pageBytes.push(Buffer.byteLength(page.raw, 'utf8'));
+      expect(Buffer.byteLength(page.raw, 'utf8')).toBeLessThan(50 * 1024);
+      for (const piece of page.value.messages as Json[]) {
+        const sofar = texts.get(piece.messageId) ?? '';
+        expect(piece.offset).toBe(sofar.length);
+        texts.set(piece.messageId, sofar + piece.text);
+      }
+      cursor = page.value.nextCursor;
+      expect(pageBytes.length).toBeLessThan(50);
+    } while (cursor);
+    const reassembled = [...texts.values()].join('\n');
+    for (const text of largeTexts) expect(reassembled).toContain(text);
+    expect(pageBytes.length).toBeGreaterThanOrEqual(3);
+    // Every omitted overview entry is reachable through signed catalog pages.
+    const catalogPages: Record<string, number[]> = {};
+    for (const kind of ['profiles', 'schedules', 'queue', 'skills', 'mcpTools', 'liveSkills']) {
+      const entries: unknown[] = [];
+      catalogPages[kind] = [];
+      let next: string | null = null;
+      do {
+        const page = await harness.call(CATALOG, { kind, windowDays: 7, sessionLimit: 100, ...(next ? { cursor: next } : {}) });
+        expect(page.error, page.raw).toBe(false);
+        expect(Buffer.byteLength(page.raw, 'utf8')).toBeLessThan(50 * 1024);
+        catalogPages[kind].push(Buffer.byteLength(page.raw, 'utf8'));
+        entries.push(...page.value.items);
+        next = page.value.nextCursor;
+        expect(catalogPages[kind].length).toBeLessThan(50);
+      } while (next);
+      const expected = kind === 'mcpTools' ? value.liveCapabilityCatalog.mcpToolCount
+        : kind === 'liveSkills' ? value.liveCapabilityCatalog.skillCount
+          : value.collectionStats[kind].total;
+      expect(entries, kind).toHaveLength(expected);
+    }
+    console.log('[org-reviewer-session-context] live catalog pages (fenced bytes)', JSON.stringify(catalogPages));
+    console.log('[org-reviewer-session-context] live paging', JSON.stringify({
+      indexApiBytes: Buffer.byteLength(JSON.stringify(value), 'utf8'),
+      indexFencedBytes: Buffer.byteLength(index.raw, 'utf8'),
+      indexedSessions: indexed.length,
+      sessionStats: value.collectionStats.sessions,
       catalog: {
         mcpToolIncluded: value.liveCapabilityCatalog?.mcpToolIncluded, mcpToolCount: value.liveCapabilityCatalog?.mcpToolCount,
         skillIncluded: value.liveCapabilityCatalog?.skillIncluded, skillCount: value.liveCapabilityCatalog?.skillCount,
       },
-      sessionsShown: (value.sessions as Json[]).map((row) => ({ sessionId: row.sessionId, messages: row.messages.length, messageStats: row.messageStats })),
+      collectionStats: value.collectionStats,
+      largeSessionPages: pageBytes.length,
+      largeSessionFencedPageBytes: pageBytes,
     }));
-    expect(Buffer.byteLength(JSON.stringify(value, null, 2), 'utf8')).toBeLessThan(44_000);
-    expect(Buffer.byteLength(result.raw, 'utf8')).toBeLessThan(50 * 1024);
-    expect(stats.included).toBeGreaterThanOrEqual(2);
-    const shown = (value.sessions as Json[]).flatMap((row) => row.messages.map((message: Json) => ({ sessionId: row.sessionId, ...message })));
-    const citable = cited.filter((item) => shown.some((message) =>
-      message.sessionId === item.sessionId && message.messageId === item.messageId && String(message.text).includes(item.quote)));
-    expect(new Set(citable.map((item) => item.sessionId)).size).toBeGreaterThanOrEqual(2);
+
+    // The tail of the oversized message verifies as evidence through the signed submit.
+    const evidence = [{ ...largeEvidence[2], quote: lateQuote }, cited[0]];
+    const submitted = await harness.call(SUBMIT, await harness.payload(await harness.profile('late quote target'), evidence));
+    expect(submitted.error, submitted.raw).toBe(false);
   }, 300_000);
 
   it('org-reviewer-c16: weekly reviewer replaces competing legacy schedules', async () => {

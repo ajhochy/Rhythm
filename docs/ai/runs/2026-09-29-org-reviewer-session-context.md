@@ -143,3 +143,96 @@ this module, and `OrgReviewerService.context` has one caller,
 - Every item that doesn't fit still costs one pretty stringify of the response
   (up to about 1,000 × 44 KB in the worst case). The unit suite showed no
   measurable slowdown.
+
+---
+
+# Follow-up (same PR): split into index + paged session/catalog reads
+
+AJ's decision: split the data across separate tool calls instead of squashing
+it into one. This supersedes the sessions-first clipping above. The design is in
+`docs/ai/decisions/2026-09-29-org-reviewer-sessions-first.md`, which has been
+rewritten.
+
+## Files
+
+- `apps/api_server/src/services/org_reviewer_service.ts`:
+  - The overview now emits a compact session index. Transcript clipping is
+    removed (`MAX_TRANSCRIPT_BYTES`, the per-session share, excerpt clipping).
+  - New `session()`: one session per call, full text, pages of ≤ 40,000 bytes.
+    The cursor is `[sessionId, messageId, charOffset]` in base64url.
+  - New `catalog()`: whole-entry pages over profiles, schedules, queue, skills,
+    mcpTools and liveSkills.
+  - Shared `reviewableSessions()` scope and `overviewCollections()` builder.
+  - `verifyEvidence` checks the full message text over the same 200-message
+    view.
+  - Byte budgets are measured on compact JSON, which is what MCP emits.
+- `controllers/org_reviewer_controller.ts`, `routes/org_proposals_routes.ts`:
+  `POST /agent-org-proposals/reviewer/session` and `/reviewer/catalog`, both
+  signed-trustedCall only.
+- `services/org_reviewer_seed.ts`, `.mcp-roles/org-reviewer.mcp.json`, and
+  `config_seeds/skills/review-agent-org-health/SKILL.md`:
+  - Four review tools.
+  - An exact-v1 profile, schedule or skill is upgraded in place. Any other drift
+    still fails closed.
+  - The skill and seed prompt now say: read the index, read error/tool-error
+    sessions fully, page omitted configuration, then propose.
+- `apps/mcp_server/src/tools/orgReviewer.ts`: new `rhythm_read_org_review_session`
+  and `rhythm_read_org_review_catalog`. Each message piece and catalog entry is
+  content-scanned, and the fenced page must stay under 50 KiB.
+- Tests: service (regression, scope, catalog, c3/c6 rewritten), seed (v1 upgrade
+  plus an edited-skill refusal), routes, MCP tool/role-graph/registration counts,
+  live suite, and the v1 skill fixture
+  `apps/api_server/src/__tests__/fixtures/review-agent-org-health.v1.SKILL.md`.
+- `docs/ai/contracts/org-reviewer-context-budget.json`: c3 and c6 superseded.
+
+## Checks
+
+- `cd apps/api_server && npx vitest run src/services/__tests__/org_reviewer_service.test.ts --no-file-parallelism`:
+  **PASS 40/40**. The regression (67 sessions plus heavy config) measured:
+  - Overview 43,910 B, of which the session index is 21,314 B. Sessions 67/67,
+    `omittedByByteBudget` 0.
+  - The oversized 150 KB+ message reassembled exactly from 5 pages
+    (39,736 / 39,736 / 39,735 / 39,737 / 35,364 B).
+  - A late-tail quote verified through `submit`.
+- Mutation checks:
+  - Restoring the 4,000-char verifier slice fails 2 tests.
+  - Replacing the session scope with `findById` fails 4 tests.
+- Related suites (routes, harness isolation, seed binding/reconciliation,
+  issue_738, issue_830, projection, auto-promotion, skill parity): **PASS**,
+  10 files / 175 tests.
+- `cd apps/mcp_server && npm run typecheck && npm run build && npx vitest run`:
+  **PASS**, 33 files / 193 tests (2 skipped).
+- `cd apps/api_server && npm run build`: **PASS**.
+- `cd apps/api_server && npx vitest run`: 6,783 passed, 1 failed, 286 skipped
+  (720/869 files). The one failure is the known environmental
+  `native_runtime_guard.test.ts` (symlinked better-sqlite3 12.8.0 on
+  Node 24.21.0).
+- Live sandbox, with the same recipe as above and a fresh fixture at
+  `/private/tmp/rhythm-orgrev-paged-fixture2`:
+  - `org_reviewer_live.test.ts` passed 10/12. The 2 failures are the known
+    fixture gaps: c13 has no owner token, and c16 has no legacy schedules.
+  - With a synthetic sandbox-only owner (`org-reviewer-sandbox@example.invalid`
+    plus a session token in the sandbox DB), c13 also **PASS**ed. That covers
+    the impostor getting 403 and another owner's session getting 404 from the
+    session tool.
+  - Index: 43,998 B from the API, 44,425 B fenced, 16/16 sessions,
+    `omittedByByteBudget` 0.
+  - Oversized session (3 × 30,000-char messages): **3 pages**, fenced
+    40,183 / 40,185 / 13,102 B. It reassembled exactly, and the late-tail quote
+    submitted.
+  - Catalog paging was needed. Next to the index only 6/105 MCP tool IDs,
+    1/16 live skills, 10/16 profiles and 1/8 schedules fit. Catalog pages
+    returned every entry (fenced bytes): profiles 37,096 + 25,397,
+    schedules 7,045, mcpTools 4,331, liveSkills 929, queue 543, skills 544.
+  - v1 upgrade: I set the sandbox profile, schedule and skill to exact v1, then
+    ran `sandbox.sh restart`. The profile and schedule came back with four
+    tools, the skill was rewritten, and the reviewer stayed enabled.
+  - Torn down with `sandbox.sh down`. The token file was removed, and no
+    listeners remain on 4097/4098.
+- GitNexus `impact` returned "Connection closed" again. Manual caller check:
+  `OrgReviewerService` is used only by `OrgReviewerController`, and
+  `seedOrgReviewerTask` only by `org_optimizer_seed.ts`.
+- SQL: none added. Reviewer transcripts use the existing SQLite-only
+  `AgentSessionMessagesRepository`, and the reviewer seed already fails closed
+  on Postgres. The schedule upgrade goes through `updateAsync`, which covers
+  both `dbClient` branches.

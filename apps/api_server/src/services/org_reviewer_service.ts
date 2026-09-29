@@ -35,6 +35,8 @@ import {
 
 export const ORG_REVIEWER_READ_TOOL = 'rhythm_read_org_review_context';
 export const ORG_REVIEWER_SUBMIT_TOOL = 'rhythm_submit_org_review_proposal';
+export const ORG_REVIEWER_SESSION_TOOL = 'rhythm_read_org_review_session';
+export const ORG_REVIEWER_CATALOG_TOOL = 'rhythm_read_org_review_catalog';
 
 const SUPPORTED_KINDS = new Set([
   'refine-config',
@@ -47,18 +49,20 @@ const ALL_PROPOSAL_STATUSES = [
   'rejected', 'applied', 'measuring', 'active', 'reverted', 'failed',
   'reconciliation-required',
 ];
-// The engine truncates MCP tool output at 50 KiB. Keep the complete fenced JSON
-// below that hard boundary so hashes and evidence references are never cut.
-const MAX_TRANSCRIPT_BYTES = 14_000;
-// One session may not take the whole transcript allowance: evidence needs at
-// least two distinct sessions, so each gets a share (never below this floor).
-const MIN_SESSION_TRANSCRIPT_BYTES = 2_500;
-// Shortest clipped excerpt worth emitting; shorter ones stop the session.
-const MIN_EXCERPT_CHARS = 200;
+// The engine truncates MCP tool output at 50 KiB. The overview carries only a
+// compact session index; transcripts are read one session at a time through
+// ORG_REVIEWER_SESSION_TOOL in pages of at most MAX_SESSION_PAGE_BYTES, so no
+// response ever needs clipping. Both leave headroom for the MCP fence.
 const MAX_CONTEXT_BYTES = 44_000;
+const MAX_SESSION_PAGE_BYTES = 40_000;
+// Messages per session the reviewer may read and cite (the verified view).
+const REVIEW_MESSAGE_LIMIT = 200;
+const MAX_INDEX_NAME_CHARS = 60;
+const CATALOG_KINDS = ['profiles', 'schedules', 'queue', 'skills', 'mcpTools', 'liveSkills'] as const;
 const MAX_SUBMISSION_BYTES = 64 * 1024;
 const MAX_EVIDENCE_QUOTE = 4_000;
 const DEFAULT_WINDOW_DAYS = 7;
+const MAX_SESSION_LIMIT = 100;
 const MAX_WINDOW_DAYS = 14;
 const REVIEW_PIPELINE_PROFILE_IDS = new Set([
   ORG_REVIEWER_PROFILE_ID,
@@ -285,8 +289,56 @@ function collectionStats(total: number, included = 0, omittedWithoutMessages?: n
   };
 }
 
-function prettyBytes(value: unknown): number {
-  return Buffer.byteLength(JSON.stringify(value, null, 2), 'utf8');
+/** Bytes of the compact JSON the MCP layer actually emits. */
+function jsonBytes(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value), 'utf8');
+}
+
+function toolErrorCount(messages: StructuredAgentSessionMessage[]): number {
+  let count = 0;
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (isRecord(part) && part.type === 'tool' && isRecord(part.state) && part.state.status === 'error') count += 1;
+    }
+  }
+  return count;
+}
+
+/**
+ * End index of the longest slice of `text` from `start` whose JSON-escaped
+ * UTF-8 size fits `budget`. Never splits a surrogate pair.
+ */
+function fitText(text: string, start: number, budget: number): number {
+  let bytes = 0;
+  let index = start;
+  while (index < text.length) {
+    const code = text.charCodeAt(index);
+    const width = code >= 0xd800 && code <= 0xdbff && index + 1 < text.length ? 2 : 1;
+    const cost = Buffer.byteLength(JSON.stringify(text.slice(index, index + width)), 'utf8') - 2;
+    if (bytes + cost > budget) break;
+    bytes += cost;
+    index += width;
+  }
+  return index;
+}
+
+interface SessionCursor { sessionId: string; messageId: string; offset: number }
+
+function encodeCursor(cursor: SessionCursor): string {
+  return Buffer.from(JSON.stringify([cursor.sessionId, cursor.messageId, cursor.offset]), 'utf8').toString('base64url');
+}
+
+function decodeCursor(raw: string): SessionCursor {
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
+    if (
+      Array.isArray(parsed) && parsed.length === 3 && typeof parsed[0] === 'string' &&
+      typeof parsed[1] === 'string' && Number.isSafeInteger(parsed[2]) && parsed[2] >= 0
+    ) {
+      return { sessionId: parsed[0], messageId: parsed[1], offset: parsed[2] };
+    }
+  } catch { /* fall through */ }
+  throw AppError.badRequest('cursor must be a nextCursor value returned by this tool');
 }
 
 function fitCollection(
@@ -300,7 +352,7 @@ function fitCollection(
   for (const item of items) {
     destination.push(item);
     updateStats(destination.length);
-    if (prettyBytes(result) < MAX_CONTEXT_BYTES) continue;
+    if (jsonBytes(result) < MAX_CONTEXT_BYTES) continue;
     destination.pop();
     updateStats(destination.length);
   }
@@ -359,13 +411,23 @@ function parseContextArguments(value: JsonRecord): {
   if (!Number.isSafeInteger(windowDays) || Number(windowDays) < 1 || Number(windowDays) > MAX_WINDOW_DAYS) {
     throw AppError.badRequest(`windowDays must be an integer between 1 and ${MAX_WINDOW_DAYS}`);
   }
-  if (!Number.isSafeInteger(sessionLimit) || Number(sessionLimit) < 1 || Number(sessionLimit) > 100) {
-    throw AppError.badRequest('sessionLimit must be an integer between 1 and 100');
+  if (!Number.isSafeInteger(sessionLimit) || Number(sessionLimit) < 1 || Number(sessionLimit) > MAX_SESSION_LIMIT) {
+    throw AppError.badRequest(`sessionLimit must be an integer between 1 and ${MAX_SESSION_LIMIT}`);
   }
   const targetRef = value.targetRef === undefined || value.targetRef === null
     ? undefined
     : exactString(value.targetRef, 'targetRef', 300);
   return { windowDays: Number(windowDays), sessionLimit: Number(sessionLimit), ...(targetRef ? { targetRef } : {}) };
+}
+
+function parseSessionArguments(value: JsonRecord): { sessionId: string; cursor?: SessionCursor } {
+  const extras = Object.keys(value).filter((key) => key !== 'sessionId' && key !== 'cursor');
+  if (extras.length > 0) throw AppError.badRequest('Reviewer session request contains unsupported fields');
+  const sessionId = exactString(value.sessionId, 'sessionId', 200);
+  if (value.cursor === undefined || value.cursor === null) return { sessionId };
+  const cursor = decodeCursor(exactString(value.cursor, 'cursor', 2_000));
+  if (cursor.sessionId !== sessionId) throw AppError.badRequest('cursor belongs to a different session');
+  return { sessionId, cursor };
 }
 
 function parseSubmission(value: JsonRecord): SubmissionInput {
@@ -605,80 +667,35 @@ export class OrgReviewerService {
     return { session, ownerUserId: session.ownerUserId };
   }
 
-  async context(argumentsValue: JsonRecord, reviewer: AuthorizedOrgReviewer): Promise<JsonRecord> {
-    const args = parseContextArguments(argumentsValue);
-    const cutoff = Date.now() - args.windowDays * 24 * 60 * 60 * 1_000;
-    const candidates = reviewableSessionPool(this.sessions, args.sessionLimit).filter((session) => {
+  /**
+   * The only sessions a reviewer may see: recent, owner-readable, and outside
+   * the review/diagnostic pipeline. Both the index and the per-session read
+   * route through this so a session outside it is never readable.
+   */
+  private reviewableSessions(windowDays: number, sessionLimit: number, ownerUserId: number | null): AgentSession[] {
+    const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1_000;
+    return reviewableSessionPool(this.sessions, sessionLimit).filter((session) => {
       const recentAt = Date.parse(session.lastActivityAt ?? session.updatedAt ?? session.createdAt);
       return recentAt >= cutoff &&
-        ownerCanRead(reviewer.ownerUserId, session.ownerUserId) &&
+        ownerCanRead(ownerUserId, session.ownerUserId) &&
         session.category !== 'self_improvement' &&
         !REVIEW_PIPELINE_PROFILE_IDS.has(String(session.profileId ?? session.opencodeAgentId ?? ''));
-    }).slice(0, args.sessionLimit);
+    }).slice(0, sessionLimit);
+  }
 
-    let remainingBytes = MAX_TRANSCRIPT_BYTES;
-    const sessionShareBytes = Math.max(
-      MIN_SESSION_TRANSCRIPT_BYTES,
-      Math.floor(MAX_TRANSCRIPT_BYTES / Math.max(candidates.length, 1)),
-    );
-    let omittedWithoutMessages = 0;
-    const sessionCandidates: JsonRecord[] = [];
-    for (const session of candidates) {
-      if (remainingBytes <= 0) break;
-      const sourceMessages = this.messages.listBySessionStructured(session.id, 50);
-      if (sourceMessages.length === 0) {
-        omittedWithoutMessages += 1;
-        continue;
-      }
-      let sessionBytes = Math.min(remainingBytes, sessionShareBytes);
-      const messages: JsonRecord[] = [];
-      let clippedMessage = false;
-      for (const message of sourceMessages) {
-        const full = messageText(message);
-        const item = {
-          messageId: String(message.sdkMessageId ?? message.id),
-          role: message.role,
-          text: full.slice(0, MAX_EVIDENCE_QUOTE),
-          truncated: false,
-          createdAt: message.createdAt,
-        };
-        const measure = () => {
-          item.truncated = full.length > item.text.length;
-          return Buffer.byteLength(JSON.stringify(item), 'utf8');
-        };
-        // Clip the excerpt (a prefix of the verified 4,000-char view, so any
-        // quote from it still verifies) instead of dropping the message.
-        let bytes = measure();
-        while (bytes > sessionBytes && item.text.length > MIN_EXCERPT_CHARS) {
-          item.text = item.text.slice(0, Math.max(MIN_EXCERPT_CHARS, item.text.length - (bytes - sessionBytes)));
-          bytes = measure();
-        }
-        if (bytes > sessionBytes) break;
-        sessionBytes -= bytes;
-        remainingBytes -= bytes;
-        clippedMessage ||= item.truncated;
-        messages.push(item);
-      }
-      // A session with no admitted message carries no citable evidence.
-      if (messages.length === 0) continue;
-      sessionCandidates.push({
-        ...stableDispatch(session),
-        name: session.name,
-        ownerScope: session.ownerUserId === null ? 'global' : 'reviewer-owner',
-        createdAt: session.createdAt,
-        messages,
-        messageStats: {
-          ...collectionStats(sourceMessages.length, messages.length),
-          truncated: clippedMessage || messages.length < sourceMessages.length,
-        },
-      });
-    }
+  private reviewMessages(sessionId: string): StructuredAgentSessionMessage[] {
+    return this.messages.listBySessionStructured(sessionId, REVIEW_MESSAGE_LIMIT);
+  }
 
-    const visibleSchedules = (reviewer.ownerUserId === null
+  /** Configuration collections shown next to the session index (overview and catalog pages). */
+  private async overviewCollections(candidates: AgentSession[], ownerUserId: number | null): Promise<{
+    profiles: JsonRecord[]; skills: JsonRecord[]; schedules: JsonRecord[]; queue: JsonRecord[];
+  }> {
+    const visibleSchedules = (ownerUserId === null
       ? await this.schedules.listAllAsync()
-      : await this.schedules.listForOwnerAsync(reviewer.ownerUserId))
-      .filter((task) => ownerCanRead(reviewer.ownerUserId, task.createdByUserId));
-    const proposalRows = await this.listVisibleProposals(reviewer.ownerUserId);
+      : await this.schedules.listForOwnerAsync(ownerUserId))
+      .filter((task) => ownerCanRead(ownerUserId, task.createdByUserId));
+    const proposalRows = await this.listVisibleProposals(ownerUserId);
     const relevantProfileIds = new Set<string>([
       ORG_REVIEWER_PROFILE_ID,
       ...candidates.flatMap((session) => session.profileId === null ? [] : [String(session.profileId)]),
@@ -718,6 +735,36 @@ export class OrgReviewerService {
       .filter((task) => task.agentConfigId === null || relevantProfileIds.has(task.agentConfigId))
       .sort((a, b) => a.id.localeCompare(b.id))
       .map(scheduleSummary);
+    return { profiles, skills, schedules, queue };
+  }
+
+  async context(argumentsValue: JsonRecord, reviewer: AuthorizedOrgReviewer): Promise<JsonRecord> {
+    const args = parseContextArguments(argumentsValue);
+    const candidates = this.reviewableSessions(args.windowDays, args.sessionLimit, reviewer.ownerUserId);
+
+    // A compact index only: transcripts are read through the session tool.
+    let omittedWithoutMessages = 0;
+    const sessionIndex: JsonRecord[] = [];
+    for (const session of candidates) {
+      const sourceMessages = this.reviewMessages(session.id);
+      if (sourceMessages.length === 0) {
+        omittedWithoutMessages += 1;
+        continue;
+      }
+      sessionIndex.push({
+        sessionId: session.id,
+        profileId: session.profileId,
+        scheduledTaskId: session.scheduledTaskId,
+        name: session.name.slice(0, MAX_INDEX_NAME_CHARS),
+        lastActivityAt: session.lastActivityAt ?? session.updatedAt,
+        status: session.status,
+        messageCount: sourceMessages.length,
+        textChars: sourceMessages.reduce((sum, message) => sum + messageText(message).length, 0),
+        toolErrors: toolErrorCount(sourceMessages),
+      });
+    }
+
+    const { profiles, skills, schedules, queue } = await this.overviewCollections(candidates, reviewer.ownerUserId);
     const collectionTotals = {
       sessions: candidates.length,
       profiles: profiles.length,
@@ -766,7 +813,7 @@ export class OrgReviewerService {
       };
       boundedCatalog = result.liveCapabilityCatalog as JsonRecord;
     }
-    if (prettyBytes(result) >= MAX_CONTEXT_BYTES) {
+    if (jsonBytes(result) >= MAX_CONTEXT_BYTES) {
       throw AppError.conflict('Verified reviewer context exceeds the bounded review window');
     }
     const fit = (name: keyof typeof collectionTotals, items: unknown[]) => {
@@ -774,10 +821,9 @@ export class OrgReviewerService {
         stats[name] = statsFor(name, included);
       });
     };
-    // Session transcript evidence is the reviewer's primary input: admit it
-    // first (it is bounded by MAX_TRANSCRIPT_BYTES), then configuration and
-    // catalogs share what remains. Target currentState is already fixed above.
-    fit('sessions', sessionCandidates);
+    // The session index is the reviewer's map of evidence: admit it first,
+    // then configuration and catalogs share what remains.
+    fit('sessions', sessionIndex);
     fit('profiles', profiles);
     fit('schedules', schedules);
     fit('queue', queue);
@@ -795,6 +841,118 @@ export class OrgReviewerService {
       });
     }
     return result;
+  }
+
+  /**
+   * One page of one overview collection, for entries the overview omitted by
+   * byte budget. Same owner scope and window as the overview with the same
+   * windowDays/sessionLimit; whole entries only, in the overview's order.
+   */
+  async catalog(argumentsValue: JsonRecord, reviewer: AuthorizedOrgReviewer): Promise<JsonRecord> {
+    const extras = Object.keys(argumentsValue).filter((key) => !['kind', 'cursor', 'windowDays', 'sessionLimit'].includes(key));
+    if (extras.length > 0) throw AppError.badRequest('Reviewer catalog request contains unsupported fields');
+    const kind = exactString(argumentsValue.kind, 'kind', 40);
+    if (!(CATALOG_KINDS as readonly string[]).includes(kind)) {
+      throw AppError.badRequest(`kind must be one of ${CATALOG_KINDS.join(', ')}`);
+    }
+    const cursor = argumentsValue.cursor ?? null;
+    if (cursor !== null && (typeof cursor !== 'string' || !/^(0|[1-9]\d{0,6})$/.test(cursor))) {
+      throw AppError.badRequest('cursor must be a nextCursor value returned by this tool');
+    }
+    const args = parseContextArguments({
+      ...(argumentsValue.windowDays === undefined ? {} : { windowDays: argumentsValue.windowDays }),
+      ...(argumentsValue.sessionLimit === undefined ? {} : { sessionLimit: argumentsValue.sessionLimit }),
+    });
+    const page: JsonRecord = { kind, windowDays: args.windowDays, sessionLimit: args.sessionLimit, total: 0, offset: 0, items: [] };
+    let all: unknown[];
+    if (kind === 'mcpTools' || kind === 'liveSkills') {
+      const lists = await this.liveCatalogLists();
+      all = kind === 'mcpTools' ? lists.sortedToolIds : lists.sortedSkills;
+      page.catalogHash = sha256(all);
+    } else {
+      const candidates = this.reviewableSessions(args.windowDays, args.sessionLimit, reviewer.ownerUserId);
+      all = (await this.overviewCollections(candidates, reviewer.ownerUserId))[kind as 'profiles' | 'skills' | 'schedules' | 'queue'];
+    }
+    const offset = cursor === null ? 0 : Number(cursor);
+    if (offset > all.length) throw AppError.badRequest('cursor is past the end of this collection; restart without a cursor');
+    const items = page.items as unknown[];
+    page.total = all.length;
+    page.offset = offset;
+    page.nextCursor = String(Number.MAX_SAFE_INTEGER); // worst-case size while fitting
+    let index = offset;
+    for (; index < all.length; index++) {
+      items.push(all[index]);
+      if (jsonBytes(page) < MAX_SESSION_PAGE_BYTES) continue;
+      items.pop();
+      if (items.length === 0) throw AppError.conflict('A reviewer catalog entry exceeds the bounded page size');
+      break;
+    }
+    page.nextCursor = index < all.length ? String(index) : null;
+    return page;
+  }
+
+  /**
+   * One page of one indexed session's transcript: full message text, never
+   * clipped. A message larger than a page continues on the next page from the
+   * character offset carried by nextCursor.
+   */
+  async session(argumentsValue: JsonRecord, reviewer: AuthorizedOrgReviewer): Promise<JsonRecord> {
+    const args = parseSessionArguments(argumentsValue);
+    // Same scope as the widest index the reviewer can request.
+    const session = this.reviewableSessions(MAX_WINDOW_DAYS, MAX_SESSION_LIMIT, reviewer.ownerUserId)
+      .find((candidate) => candidate.id === args.sessionId);
+    if (!session) throw AppError.notFound('Reviewable session');
+    const list = this.reviewMessages(session.id);
+    const idOf = (message: StructuredAgentSessionMessage) => String(message.sdkMessageId ?? message.id);
+    let index = 0;
+    let offset = 0;
+    if (args.cursor) {
+      const cursor = args.cursor;
+      index = list.findIndex((message) => idOf(message) === cursor.messageId);
+      if (index < 0 || cursor.offset > messageText(list[index]).length) {
+        throw AppError.badRequest('cursor no longer matches the stored transcript; restart without a cursor');
+      }
+      offset = cursor.offset;
+    }
+    const messages: JsonRecord[] = [];
+    const page: JsonRecord = {
+      sessionId: session.id,
+      profileId: session.profileId,
+      messageCount: list.length,
+      messages,
+      // Worst-case cursor placeholder, so the size measured below is an upper bound.
+      nextCursor: encodeCursor({ sessionId: session.id, messageId: '0'.repeat(200), offset: Number.MAX_SAFE_INTEGER }),
+    };
+    let next: SessionCursor | null = null;
+    for (; index < list.length; index++, offset = 0) {
+      const full = messageText(list[index]);
+      const item: JsonRecord = {
+        messageId: idOf(list[index]),
+        role: list[index].role,
+        createdAt: list[index].createdAt,
+        offset,
+        totalChars: full.length,
+        textComplete: false,
+        text: '',
+      };
+      messages.push(item);
+      const room = MAX_SESSION_PAGE_BYTES - jsonBytes(page);
+      // Start a later message on a fresh page rather than emitting a sliver.
+      if (messages.length > 1 && room < 2_000) {
+        messages.pop();
+        next = { sessionId: session.id, messageId: idOf(list[index]), offset };
+        break;
+      }
+      const end = fitText(full, offset, Math.max(room, 0));
+      item.text = full.slice(offset, end);
+      item.textComplete = end === full.length;
+      if (end < full.length) {
+        next = { sessionId: session.id, messageId: idOf(list[index]), offset: end };
+        break;
+      }
+    }
+    page.nextCursor = next ? encodeCursor(next) : null;
+    return page;
   }
 
   async submit(argumentsValue: JsonRecord, reviewer: AuthorizedOrgReviewer): Promise<JsonRecord> {
@@ -916,13 +1074,14 @@ export class OrgReviewerService {
       ) {
         throw AppError.badRequest('Reviewer evidence cannot come from the review or diagnostic pipeline');
       }
-      const message = this.messages.listBySessionStructured(session.id, 50).find(
+      const message = this.reviewMessages(session.id).find(
         (candidate) => String(candidate.sdkMessageId ?? candidate.id) === occurrence.messageId,
       );
       if (message && Date.parse(message.createdAt) < cutoff) {
         throw AppError.badRequest('Reviewer evidence is outside the bounded recent window');
       }
-      const displayed = message ? messageText(message).slice(0, MAX_EVIDENCE_QUOTE) : '';
+      // The full message text: exactly what the session tool pages out.
+      const displayed = message ? messageText(message) : '';
       if (!message || !displayed.includes(occurrence.quote)) {
         throw AppError.badRequest('Reviewer evidence could not be verified against the stored transcript');
       }
@@ -936,15 +1095,22 @@ export class OrgReviewerService {
     )).flat().filter((proposal) => ownerCanRead(ownerUserId, proposal.ownerUserId));
   }
 
-  private async liveCapabilityCatalog(): Promise<JsonRecord> {
+  private async liveCatalogLists(): Promise<{ mcpStatus: JsonRecord; sortedToolIds: string[]; sortedSkills: string[] }> {
     if (!opencodeClient.isReady) throw AppError.conflict('Current engine capability validation is unavailable');
     const [mcpStatus, mcpToolIds, skills] = await Promise.all([
       opencodeClient.listMcp(),
       opencodeClient.listMcpToolIds(),
       opencodeClient.listSkills(),
     ]);
-    const sortedToolIds = [...mcpToolIds].sort();
-    const sortedSkills = skills.map((skill) => skill.name).sort();
+    return {
+      mcpStatus: mcpStatus as JsonRecord,
+      sortedToolIds: [...mcpToolIds].sort(),
+      sortedSkills: skills.map((skill) => skill.name).sort(),
+    };
+  }
+
+  private async liveCapabilityCatalog(): Promise<JsonRecord> {
+    const { mcpStatus, sortedToolIds, sortedSkills } = await this.liveCatalogLists();
     return {
       mcpServers: Object.entries(mcpStatus).sort(([a], [b]) => a.localeCompare(b)).map(([name, status]) => ({
         name,

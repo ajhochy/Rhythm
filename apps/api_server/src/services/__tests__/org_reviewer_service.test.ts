@@ -99,6 +99,53 @@ async function expectNoWrite(attempt: Promise<unknown>, statusCode = 400) {
   expect(configs.getById(targetId)?.systemPrompt).toBe(originalPrompt);
 }
 
+type SessionPage = {
+  sessionId: string; messageCount: number; nextCursor: string | null;
+  messages: Array<{ messageId: string; offset: number; totalChars: number; textComplete: boolean; text: string }>;
+};
+
+/** Page one session to the end, asserting every page stays under the caps. */
+async function readWholeSession(sessionId: string): Promise<{ texts: Map<string, string>; pageBytes: number[] }> {
+  const texts = new Map<string, string>();
+  const pageBytes: number[] = [];
+  let cursor: string | null = null;
+  do {
+    const page = await service.session(cursor ? { sessionId, cursor } : { sessionId }, reviewer) as unknown as SessionPage;
+    const bytes = Buffer.byteLength(JSON.stringify(page), 'utf8');
+    pageBytes.push(bytes);
+    expect(bytes).toBeLessThan(40_000);
+    // The MCP layer's fenced form of the same page stays under the engine cap.
+    expect(Buffer.byteLength(`${'d'.repeat(500)}\n<<<UNTRUSTED_EXTERNAL_CONTENT>>>\n${JSON.stringify(page)}\n<<<END_UNTRUSTED_EXTERNAL_CONTENT>>>`, 'utf8'))
+      .toBeLessThan(50 * 1024);
+    for (const piece of page.messages) {
+      const sofar = texts.get(piece.messageId) ?? '';
+      expect(piece.offset).toBe(sofar.length);
+      texts.set(piece.messageId, sofar + piece.text);
+      expect(piece.textComplete).toBe(piece.offset + piece.text.length === piece.totalChars);
+    }
+    expect(pageBytes.length).toBeLessThan(1_000);
+    cursor = page.nextCursor;
+  } while (cursor);
+  return { texts, pageBytes };
+}
+
+/** Page one catalog kind to the end, asserting every page stays under the cap. */
+async function readWholeCatalog(kind: string, bounds: Record<string, number> = {}): Promise<unknown[]> {
+  const entries: unknown[] = [];
+  let cursor: string | null = null;
+  do {
+    const page = await service.catalog({ kind, ...bounds, ...(cursor ? { cursor } : {}) }, reviewer) as {
+      offset: number; total: number; items: unknown[]; nextCursor: string | null;
+    };
+    expect(Buffer.byteLength(JSON.stringify(page), 'utf8')).toBeLessThan(40_000);
+    expect(page.offset).toBe(entries.length);
+    entries.push(...page.items);
+    expect(page.items.length > 0 || page.total === 0).toBe(true);
+    cursor = page.nextCursor;
+  } while (cursor);
+  return entries;
+}
+
 function installRealisticCatalogPressure(): void {
   const skills = new AgentSkillsRepository();
   for (let index = 0; index < 88; index++) {
@@ -299,15 +346,20 @@ describe('OrgReviewerService proposal boundary', () => {
     }, reviewer));
   });
 
-  it('rejects quoted evidence omitted by the bounded transcript view', async () => {
+  it('verifies evidence quoted from late in a long message read through the session tool', async () => {
+    // Superseded 2026-09-29: the old 4,000-char view rejected this quote. The
+    // session tool now pages full text, and the verifier checks the same text.
     evidence = [occurrence(targetId, `${'x'.repeat(4100)} ${failure}`), occurrence(targetId, `${'y'.repeat(4100)} ${failure}`)];
-    const context = await service.context({ windowDays: 7, sessionLimit: 40, targetRef: `agent_config:${targetId}` }, reviewer);
-    const shown = context.sessions as Array<{ messages: Array<{ messageId: string; text: string; truncated: boolean }> }>;
     for (const item of evidence) {
-      const message = shown.flatMap((row) => row.messages).find((row) => row.messageId === item.messageId)!;
-      expect(message).toMatchObject({ truncated: true });
-      expect(message.text).not.toContain(item.quote);
+      const text = (await readWholeSession(item.sessionId)).texts.get(item.messageId);
+      expect(text).toContain(item.quote);
+      expect(text!.indexOf(item.quote)).toBeGreaterThan(4_000);
     }
+    expect(await service.submit(await payload(), reviewer)).toMatchObject({ duplicate: false });
+  });
+
+  it('still rejects a quote that is not in the stored message', async () => {
+    evidence = evidence.map((item) => ({ ...item, quote: 'A sentence that no session ever produced.' }));
     await expectNoWrite(service.submit(await payload(), reviewer));
   });
 
@@ -321,7 +373,10 @@ describe('OrgReviewerService proposal boundary', () => {
     const input = await payload();
     const context = await service.context({ windowDays: 7, sessionLimit: 40 }, reviewer);
     const visibleIds = (context.sessions as Array<{ sessionId: string }>).map((row) => row.sessionId);
-    for (const item of evidence) expect(visibleIds).not.toContain(item.sessionId);
+    for (const item of evidence) {
+      expect(visibleIds).not.toContain(item.sessionId);
+      await expect(service.session({ sessionId: item.sessionId }, reviewer)).rejects.toMatchObject({ statusCode: 404 });
+    }
     await expectNoWrite(service.submit(input, reviewer));
   });
 });
@@ -337,7 +392,7 @@ describe('OrgReviewerService bounded context and identity', () => {
     expect(await proposals.listProposedAsync()).toHaveLength(0);
   });
 
-  it('fits the actual fenced pretty-printed MCP output under engine byte and line limits, or fails closed', async () => {
+  it('fits the actual fenced compact MCP output under engine byte and line limits, or fails closed', async () => {
     for (let index = 0; index < 70; index++) occurrence(targetId, 'Repeated bounded fixture.');
     let context: Record<string, unknown>;
     try {
@@ -346,7 +401,7 @@ describe('OrgReviewerService bounded context and identity', () => {
       expect(error).toMatchObject({ statusCode: 409 });
       return;
     }
-    const rendered = `<<<UNTRUSTED_EXTERNAL_CONTENT>>>\n${JSON.stringify(context, null, 2)}\n<<<END_UNTRUSTED_EXTERNAL_CONTENT>>>`;
+    const rendered = `<<<UNTRUSTED_EXTERNAL_CONTENT>>>\n${JSON.stringify(context)}\n<<<END_UNTRUSTED_EXTERNAL_CONTENT>>>`;
     expect(Buffer.byteLength(rendered, 'utf8')).toBeLessThan(50 * 1024);
     expect(rendered.split('\n').length).toBeLessThan(2000);
   });
@@ -359,25 +414,25 @@ describe('OrgReviewerService bounded context and identity', () => {
     const context = await service.context(args, reviewer);
     expect(context.sessions).toEqual(expect.any(Array));
     expect(context.liveCapabilityCatalog).toEqual(expect.any(Object));
-    expect(Buffer.byteLength(JSON.stringify(context, null, 2), 'utf8')).toBeLessThan(44_000);
+    expect(Buffer.byteLength(JSON.stringify(context), 'utf8')).toBeLessThan(44_000);
   });
 
   it('org-reviewer-context-budget-c3: admits session transcript evidence before static collections and catalogs', async () => {
     // Superseded 2026-09-29: static-first allocation starved every session
-    // (reported sessions.total=67, included=0). Sessions are bounded by the
-    // transcript allowance and admitted first; static data shares the rest.
+    // (reported sessions.total=67, included=0). The overview now carries a
+    // compact session index, admitted first; static data shares the rest.
     installTranscriptPressure();
-    type Shown = { sessions: Array<{ sessionId: string; messages: Array<{ messageId: string; text: string }> }> };
+    type Shown = { sessions: Array<{ sessionId: string; messageCount: number }> };
     const before = await service.context({}, reviewer) as Shown;
     installRealisticCatalogPressure();
     const after = await service.context({}, reviewer) as Shown & {
       liveCapabilityCatalog: Record<string, number>;
     };
     expect(before.sessions.length).toBeGreaterThanOrEqual(2);
-    // Adding large catalogs changes no admitted session, message ID or excerpt.
+    // Adding large catalogs changes no indexed session.
     expect(after.sessions).toEqual(before.sessions);
     expect(after.liveCapabilityCatalog.mcpToolsTruncated).toBe(true);
-    expect(Buffer.byteLength(JSON.stringify(after, null, 2), 'utf8')).toBeLessThan(44_000);
+    expect(Buffer.byteLength(JSON.stringify(after), 'utf8')).toBeLessThan(44_000);
   });
 
   it('org-reviewer-context-budget-c4: reports deterministic omission metadata for every bounded collection', async () => {
@@ -427,24 +482,19 @@ describe('OrgReviewerService bounded context and identity', () => {
     expect(second.currentState).toEqual(first.currentState);
   });
 
-  it('org-reviewer-context-budget-c6: keeps one full-pressure session below the cap with explicit clipping or omission', async () => {
+  it('org-reviewer-context-budget-c6: indexes one full-pressure session and pages its whole transcript under the cap', async () => {
+    // Superseded 2026-09-29: no clipping. The index lists the session; the
+    // session tool returns every character across bounded pages.
     const pressureSessionId = installRealisticContextPressure();
     const context = await service.context({ windowDays: 7, sessionLimit: 1 }, reviewer) as {
-      sessions: Array<{ sessionId: string; messageStats: { total: number; included: number; omitted: number; truncated: boolean } }>;
+      sessions: Array<{ sessionId: string; messageCount: number; textChars: number }>;
       collectionStats: Record<string, { total: number; included: number; omitted: number; truncated: boolean }>;
     };
-    expect(Buffer.byteLength(JSON.stringify(context, null, 2), 'utf8')).toBeLessThan(44_000);
-    expect(context.collectionStats.sessions.total).toBe(1);
-    expect(context.collectionStats.sessions.included + context.collectionStats.sessions.omitted).toBe(1);
-    if (context.sessions.length > 0) {
-      expect(context.sessions).toHaveLength(1);
-      expect(context.sessions[0].sessionId).toBe(pressureSessionId);
-      expect(context.sessions[0].messageStats.total).toBe(4);
-      expect(context.sessions[0].messageStats.included + context.sessions[0].messageStats.omitted).toBe(4);
-      expect(context.sessions[0].messageStats.truncated).toBe(true);
-    } else {
-      expect(context.collectionStats.sessions).toMatchObject({ included: 0, omitted: 1, truncated: true });
-    }
+    expect(Buffer.byteLength(JSON.stringify(context), 'utf8')).toBeLessThan(44_000);
+    expect(context.collectionStats.sessions).toMatchObject({ total: 1, included: 1, omitted: 0, truncated: false });
+    expect(context.sessions).toEqual([expect.objectContaining({ sessionId: pressureSessionId, messageCount: 4, textChars: 16_000 })]);
+    const { texts } = await readWholeSession(pressureSessionId);
+    expect([...texts.values()]).toEqual([0, 1, 2, 3].map((index) => `${index}${'m'.repeat(3_999)}`));
   });
 
   it('org-reviewer-context-budget-c7: repeats target hashes and bounded overview selection deterministically', async () => {
@@ -458,7 +508,7 @@ describe('OrgReviewerService bounded context and identity', () => {
     expect(secondOverview).toEqual(firstOverview);
   });
 
-  it('org-reviewer-session-context: many configuration records and one large session still leave citable session evidence', async () => {
+  it('org-reviewer-session-context: indexes all 67 sessions under configuration pressure and pages the oversized one fully', async () => {
     // Shape of the reported review: sessions.total=67, included=0. Many
     // profiles/schedules plus large live catalogs filled the budget before any
     // session was considered, and the newest session alone carried the whole
@@ -478,33 +528,114 @@ describe('OrgReviewerService bounded context and identity', () => {
       });
       cited.push(occurrence(profileId, `Pressure failure ${index}: ${failure}`));
     }
-    // Newest session: fills the entire old transcript allowance on its own.
-    const largeSessionId = installTranscriptPressure();
-    sessions.updatePreview(largeSessionId, 'Latest large run', new Date(Date.now() + 60_000).toISOString());
+    // Filler sessions bring the in-scope total to the reported 67
+    // (2 from beforeEach + 12 cited + 52 filler + 1 oversized).
+    for (let index = 0; index < 52; index++) occurrence(targetId, `Filler run ${index} completed normally.`);
+    // Newest session: one message far larger than any single tool response,
+    // with JSON-escaped and multi-byte characters, and the quotable failure at
+    // the very end.
+    const { row: oversized } = session(targetId, { name: 'Latest oversized run' });
+    const lateQuote = `LATE: ${failure}`;
+    const oversizedText = `${'Line with "quotes", a \\ backslash, tab\t, é ünïcode 🙂\n'.repeat(3_000)}${lateQuote}`;
+    const oversizedMessageId = 'msg_oversized';
+    messages.upsertStructured(oversized.id, 'msg_oversized_intro', 'input', JSON.stringify([{ type: 'text', text: 'Run the weekly report.' }]), null, null);
+    messages.upsertStructured(oversized.id, oversizedMessageId, 'output', JSON.stringify([
+      { type: 'text', text: oversizedText },
+      { type: 'tool', callID: 'call_fixture', state: { status: 'error', error: 'fixture failure' } },
+    ]), null, null);
+    messages.upsertStructured(oversized.id, 'msg_oversized_after', 'output', JSON.stringify([{ type: 'text', text: 'Done.' }]), null, null);
+    sessions.updatePreview(oversized.id, 'Latest oversized run', new Date(Date.now() + 60_000).toISOString());
+    expect(Buffer.byteLength(oversizedText, 'utf8')).toBeGreaterThan(150_000);
 
     const context = await service.context({ windowDays: 7, sessionLimit: 100 }, reviewer) as {
-      sessions: Array<{ sessionId: string; messages: Array<{ messageId: string; text: string }> }>;
+      sessions: Array<{ sessionId: string; messageCount: number; textChars: number; toolErrors: number }>;
       collectionStats: Record<string, { total: number; included: number; omitted: number; omittedByByteBudget: number }>;
     };
-    expect(Buffer.byteLength(JSON.stringify(context, null, 2), 'utf8')).toBeLessThan(44_000);
-    const stats = context.collectionStats.sessions;
-    expect(stats.total).toBeGreaterThanOrEqual(15);
-    expect(stats.included).toBeGreaterThanOrEqual(2);
-    expect(stats.included + stats.omitted).toBe(stats.total);
-    expect(stats.omittedByByteBudget).toBeLessThanOrEqual(stats.omitted);
-    // Usable evidence: at least two distinct sessions expose exact message IDs
-    // whose excerpts contain a quotable failure, and the large session no
-    // longer blocks the others.
-    const shown = context.sessions.flatMap((row) => row.messages.map((message) => ({ sessionId: row.sessionId, ...message })));
-    const citable = cited.filter((item) => shown.some((message) =>
-      message.sessionId === item.sessionId && message.messageId === item.messageId && message.text.includes(failure)));
-    expect(new Set(citable.map((item) => item.sessionId)).size).toBeGreaterThanOrEqual(2);
-    // Those IDs and excerpts pass the unchanged evidence verifier.
-    evidence = citable.slice(0, 2).map((item) => ({ ...item, quote: failure }));
-    const pressureTarget = evidence.map((item) => sessions.findById(item.sessionId)!.profileId as string);
-    expect(pressureTarget).toHaveLength(2);
-    expect(() => (service as unknown as { verifyEvidence: (e: Evidence[], o: number | null) => void })
-      .verifyEvidence(evidence, reviewer.ownerUserId)).not.toThrow();
+    // The index lists every in-scope session inside the overview cap.
+    expect(Buffer.byteLength(JSON.stringify(context), 'utf8')).toBeLessThan(44_000);
+    expect(context.collectionStats.sessions).toMatchObject({ total: 67, included: 67, omitted: 0, omittedByByteBudget: 0 });
+    expect(context.sessions[0]).toMatchObject({ sessionId: oversized.id, messageCount: 3, toolErrors: 1 });
+    for (const item of cited) expect(context.sessions.map((row) => row.sessionId)).toContain(item.sessionId);
+
+    // The session tool pages the oversized message completely, every page under the cap.
+    const { texts, pageBytes } = await readWholeSession(oversized.id);
+    console.log('[org-reviewer-session-context] unit', JSON.stringify({
+      overviewBytes: Buffer.byteLength(JSON.stringify(context), 'utf8'),
+      sessionIndexBytes: Buffer.byteLength(JSON.stringify(context.sessions), 'utf8'),
+      collectionStats: context.collectionStats, oversizedPages: pageBytes,
+    }));
+    expect(texts.get(oversizedMessageId)).toBe(oversizedText);
+    expect([...texts.keys()]).toEqual(['msg_oversized_intro', oversizedMessageId, 'msg_oversized_after']);
+    expect(pageBytes.length).toBeGreaterThanOrEqual(4);
+    expect(Math.max(...pageBytes)).toBeLessThan(40_000);
+
+    // Whatever the overview omitted by byte budget is readable, whole, through catalog pages.
+    const overview = context as unknown as { collectionStats: Record<string, { total: number }>; liveCapabilityCatalog: Record<string, number> };
+    for (const kind of ['profiles', 'schedules', 'queue', 'skills', 'mcpTools', 'liveSkills']) {
+      const entries = await readWholeCatalog(kind, { windowDays: 7, sessionLimit: 100 });
+      const expected = kind === 'mcpTools' ? overview.liveCapabilityCatalog.mcpToolCount
+        : kind === 'liveSkills' ? overview.liveCapabilityCatalog.skillCount
+          : overview.collectionStats[kind].total;
+      expect(entries, kind).toHaveLength(expected);
+    }
+    expect(overview.liveCapabilityCatalog.mcpToolCount).toBe(438);
+
+    // Evidence quoting the late tail and a second session verifies end to end.
+    evidence = [{ sessionId: oversized.id, messageId: oversizedMessageId, quote: lateQuote }, { ...cited[0], quote: failure }];
+    expect(await service.submit(await payload(), reviewer)).toMatchObject({ duplicate: false, proposal: { status: 'proposed' } });
+  });
+
+  it('org-reviewer-session-context: the session tool refuses sessions outside the reviewer scope and foreign cursors', async () => {
+    const [inScope, other] = evidence;
+    // Another owner's session.
+    db.prepare(`INSERT INTO users (id, name, email) VALUES (4242, 'Other owner', 'other-owner@example.invalid')`).run();
+    const { row: foreign } = session(targetId, { ownerUserId: 4242 } as Partial<CreateAgentSessionDto>);
+    messages.upsertStructured(foreign.id, 'msg_foreign', 'output', JSON.stringify([{ type: 'text', text: failure }]), null, null);
+    // A session older than the 14-day outer window.
+    const { row: stale } = session(targetId);
+    messages.upsertStructured(stale.id, 'msg_stale', 'output', JSON.stringify([{ type: 'text', text: failure }]), null, null);
+    const old = new Date(Date.now() - 30 * 86400_000).toISOString();
+    db.prepare('UPDATE agent_sessions SET last_activity_at = ?, updated_at = ?, created_at = ? WHERE id = ?').run(old, old, old, stale.id);
+    // The reviewer's own session is pipeline output.
+    for (const sessionId of [foreign.id, stale.id, reviewer.session.id, 'no-such-session']) {
+      await expect(service.session({ sessionId }, reviewer)).rejects.toMatchObject({ statusCode: 404 });
+    }
+    const index = (await service.context({ windowDays: 14, sessionLimit: 100 }, reviewer)).sessions as Array<{ sessionId: string }>;
+    expect(index.map((row) => row.sessionId)).not.toEqual(expect.arrayContaining([foreign.id]));
+    expect(index.map((row) => row.sessionId)).not.toEqual(expect.arrayContaining([stale.id]));
+    // A cursor is bound to its session and to a stored message.
+    const first = await service.session({ sessionId: inScope.sessionId }, reviewer);
+    expect(first).toMatchObject({ nextCursor: null, messages: [{ messageId: inScope.messageId, text: failure, textComplete: true }] });
+    const foreignCursor = Buffer.from(JSON.stringify([other.sessionId, other.messageId, 0])).toString('base64url');
+    await expect(service.session({ sessionId: inScope.sessionId, cursor: foreignCursor }, reviewer)).rejects.toMatchObject({ statusCode: 400 });
+    const unknownMessage = Buffer.from(JSON.stringify([inScope.sessionId, 'msg_missing', 0])).toString('base64url');
+    await expect(service.session({ sessionId: inScope.sessionId, cursor: unknownMessage }, reviewer)).rejects.toMatchObject({ statusCode: 400 });
+    await expect(service.session({ sessionId: inScope.sessionId, cursor: 'not-a-cursor' }, reviewer)).rejects.toMatchObject({ statusCode: 400 });
+    await expect(service.session({ sessionId: inScope.sessionId, extra: true }, reviewer)).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('org-reviewer-session-context: catalog pages keep owner scope and reject malformed requests', async () => {
+    db.prepare(`INSERT INTO users (id, name, email) VALUES (4242, 'Other owner', 'other-owner@example.invalid')`).run();
+    const mine = await schedules.createAsync({
+      name: 'Visible schedule', scheduleType: 'daily', scheduledTime: '08:00',
+      prompt: 'Prepare the weekly report.', agentKind: 'opencode', agentConfigId: targetId,
+    });
+    const foreign = await schedules.createAsync({
+      name: 'Foreign schedule', scheduleType: 'daily', scheduledTime: '08:00',
+      prompt: 'Private report.', agentKind: 'opencode', agentConfigId: targetId, createdByUserId: 4242,
+    });
+    const ids = (await readWholeCatalog('schedules')).map((entry) => (entry as { id: string }).id);
+    expect(ids).toContain(mine.id);
+    expect(ids).not.toContain(foreign.id);
+    // Same entries as the overview reports for the same bounds.
+    const overview = await service.context({}, reviewer) as { schedules: Array<{ id: string }> };
+    expect(overview.schedules.map((entry) => entry.id)).toEqual(ids);
+    for (const input of [
+      { kind: 'sessions' }, { kind: 'profiles', cursor: '-1' }, { kind: 'profiles', cursor: '999' },
+      { kind: 'profiles', extra: true }, { kind: 'profiles', windowDays: 15 },
+    ]) {
+      await expect(service.catalog(input, reviewer)).rejects.toMatchObject({ statusCode: 400 });
+    }
   });
 
   it.each(['bypassPermissions', 'acceptEdits'] as const)('denies reviewer session permission override %s', async (permissionMode) => {

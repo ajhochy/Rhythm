@@ -13,6 +13,8 @@ export const ENGINE = process.env.RHYTHM_LIVE_ENGINE_URL ?? 'http://127.0.0.1:40
 export const REVIEWER = 'org-reviewer';
 export const READ = 'rhythm_read_org_review_context';
 export const SUBMIT = 'rhythm_submit_org_review_proposal';
+export const SESSION = 'rhythm_read_org_review_session';
+export const CATALOG = 'rhythm_read_org_review_catalog';
 export type Json = Record<string, any>;
 export type Evidence = { sessionId: string; messageId: string; quote: string };
 
