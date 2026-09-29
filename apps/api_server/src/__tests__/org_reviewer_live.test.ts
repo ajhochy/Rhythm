@@ -72,7 +72,7 @@ describeLive('Org Reviewer real signed MCP boundary', () => {
     ];
     payload = await harness.payload(target, evidence);
   }, 120_000);
-  afterAll(async () => harness.cleanup(), 60_000);
+  afterAll(async () => harness.cleanup(), 180_000);
 
   it('org-reviewer-c3: core search cannot be proposed as an MCP grant', async () => {
     // Falsifies classifying a core/discovery tool name as an MCP server grant.
@@ -199,6 +199,44 @@ describeLive('Org Reviewer real signed MCP boundary', () => {
       expect(Buffer.byteLength(result.raw, 'utf8')).toBeLessThan(50 * 1024);
     }
   }, 120_000);
+
+  it('org-reviewer-session-context: signed overview keeps citable session evidence under configuration and large-session pressure', async () => {
+    // Reported review: sessions.total=67, included=0. Many long profile prompts
+    // plus a newest session that alone fills the transcript allowance must
+    // still leave distinct, exact message IDs and excerpts for the reviewer.
+    const longPrompt = (label: string) => `${label} ${'Follow the detailed weekly operating procedure. '.repeat(90)}`;
+    const cited: Array<{ sessionId: string; messageId: string; quote: string }> = [];
+    for (let index = 0; index < 12; index++) {
+      const profile = await harness.profile(`session pressure ${index}`, longPrompt(`Profile ${index}`));
+      cited.push(await harness.transcript(profile, `Pressure failure ${index}: weekly heading Summary did not match Weekly summary.`));
+    }
+    const largeProfile = await harness.profile('large session', longPrompt('Large'));
+    const large = await harness.session(largeProfile.id, `${harness.marker} large session`);
+    for (let index = 0; index < 4; index++) await harness.transcript(largeProfile, `${index}${'m'.repeat(3_999)}`, undefined, large);
+
+    const result = await harness.call(READ, { windowDays: 7, sessionLimit: 100 });
+    expect(result.error, result.raw).toBe(false);
+    const value = result.value as Json;
+    const stats = value.collectionStats.sessions;
+    console.log('[org-reviewer-session-context] live overview', JSON.stringify({
+      apiBytes: Buffer.byteLength(JSON.stringify(value, null, 2), 'utf8'),
+      fencedBytes: Buffer.byteLength(result.raw, 'utf8'),
+      collectionStats: value.collectionStats,
+      withheldByContentSafety: value.withheldByContentSafety ?? null,
+      catalog: {
+        mcpToolIncluded: value.liveCapabilityCatalog?.mcpToolIncluded, mcpToolCount: value.liveCapabilityCatalog?.mcpToolCount,
+        skillIncluded: value.liveCapabilityCatalog?.skillIncluded, skillCount: value.liveCapabilityCatalog?.skillCount,
+      },
+      sessionsShown: (value.sessions as Json[]).map((row) => ({ sessionId: row.sessionId, messages: row.messages.length, messageStats: row.messageStats })),
+    }));
+    expect(Buffer.byteLength(JSON.stringify(value, null, 2), 'utf8')).toBeLessThan(44_000);
+    expect(Buffer.byteLength(result.raw, 'utf8')).toBeLessThan(50 * 1024);
+    expect(stats.included).toBeGreaterThanOrEqual(2);
+    const shown = (value.sessions as Json[]).flatMap((row) => row.messages.map((message: Json) => ({ sessionId: row.sessionId, ...message })));
+    const citable = cited.filter((item) => shown.some((message) =>
+      message.sessionId === item.sessionId && message.messageId === item.messageId && String(message.text).includes(item.quote)));
+    expect(new Set(citable.map((item) => item.sessionId)).size).toBeGreaterThanOrEqual(2);
+  }, 300_000);
 
   it('org-reviewer-c16: weekly reviewer replaces competing legacy schedules', async () => {
     // Falsifies legacy startup reconciliation silently re-enabling generators.

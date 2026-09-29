@@ -229,8 +229,8 @@ export class ReviewerHarness {
     }
     return { token, userId: identity.user.id };
   }
-  async transcript(profile: Json, text: string, ownerToken?: string): Promise<Evidence> {
-    const session = await this.session(profile.id, `${this.marker} failure evidence`, ownerToken);
+  async transcript(profile: Json, text: string, ownerToken?: string, existing?: Json): Promise<Evidence> {
+    const session = existing ?? await this.session(profile.id, `${this.marker} failure evidence`, ownerToken);
     this.nextText = text;
     await this.prompt(session, 'Report the observed outcome of this sanitized fixture execution.');
     return poll(async () => {

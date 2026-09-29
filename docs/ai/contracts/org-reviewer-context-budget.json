@@ -22,11 +22,11 @@
     },
     {
       "criterion_id": "org-reviewer-context-budget-c3",
-      "text": "Compute fixed/completeness-required payload first, then allocate only remaining serialized byte budget to optional transcript/session/catalog data. Account for the actual pretty-serialized API response under MAX_CONTEXT_BYTES, not only compact per-item estimates.",
+      "text": "SUPERSEDED 2026-09-29 (docs/ai/decisions/2026-09-29-org-reviewer-sessions-first.md): session transcript evidence, bounded by MAX_TRANSCRIPT_BYTES, is admitted first; static collections and catalogs share the remaining pretty-serialized budget under MAX_CONTEXT_BYTES.",
       "mode": "unit",
       "test": "apps/api_server/src/services/__tests__/org_reviewer_service.test.ts",
       "status": "pass",
-      "reason": "Repair attempt 1 proves added transcript pressure leaves deterministic static collection and catalog inclusion unchanged, then explicitly truncates or omits sessions from the remaining capacity."
+      "reason": "Static-first allocation starved sessions (reported sessions.total=67, included=0). c3 now asserts catalog pressure leaves admitted sessions, message IDs and excerpts unchanged."
     },
     {
       "criterion_id": "org-reviewer-context-budget-c4",

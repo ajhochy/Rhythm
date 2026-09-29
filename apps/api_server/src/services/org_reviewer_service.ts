@@ -50,6 +50,11 @@ const ALL_PROPOSAL_STATUSES = [
 // The engine truncates MCP tool output at 50 KiB. Keep the complete fenced JSON
 // below that hard boundary so hashes and evidence references are never cut.
 const MAX_TRANSCRIPT_BYTES = 14_000;
+// One session may not take the whole transcript allowance: evidence needs at
+// least two distinct sessions, so each gets a share (never below this floor).
+const MIN_SESSION_TRANSCRIPT_BYTES = 2_500;
+// Shortest clipped excerpt worth emitting; shorter ones stop the session.
+const MIN_EXCERPT_CHARS = 200;
 const MAX_CONTEXT_BYTES = 44_000;
 const MAX_SUBMISSION_BYTES = 64 * 1024;
 const MAX_EVIDENCE_QUOTE = 4_000;
@@ -82,6 +87,10 @@ interface CollectionStats {
   included: number;
   omitted: number;
   truncated: boolean;
+  /** Omitted only because the serialized response/transcript byte budget was spent. */
+  omittedByByteBudget: number;
+  /** Sessions only: omitted because they have no stored messages to cite. */
+  omittedWithoutMessages?: number;
 }
 
 interface EvidenceInput {
@@ -267,8 +276,13 @@ function messageText(message: StructuredAgentSessionMessage): string {
   return message.strippedText || message.rawText;
 }
 
-function collectionStats(total: number, included = 0): CollectionStats {
-  return { total, included, omitted: total - included, truncated: included < total };
+function collectionStats(total: number, included = 0, omittedWithoutMessages?: number): CollectionStats {
+  const omitted = total - included;
+  return {
+    total, included, omitted, truncated: included < total,
+    omittedByByteBudget: omitted - (omittedWithoutMessages ?? 0),
+    ...(omittedWithoutMessages === undefined ? {} : { omittedWithoutMessages }),
+  };
 }
 
 function prettyBytes(value: unknown): number {
@@ -281,13 +295,14 @@ function fitCollection(
   items: unknown[],
   updateStats: (included: number) => void,
 ): void {
+  // Skip (do not stop at) an item that does not fit, so one oversized entry
+  // cannot hide every smaller entry after it. Order stays deterministic.
   for (const item of items) {
     destination.push(item);
     updateStats(destination.length);
     if (prettyBytes(result) < MAX_CONTEXT_BYTES) continue;
     destination.pop();
     updateStats(destination.length);
-    break;
   }
 }
 
@@ -602,26 +617,50 @@ export class OrgReviewerService {
     }).slice(0, args.sessionLimit);
 
     let remainingBytes = MAX_TRANSCRIPT_BYTES;
+    const sessionShareBytes = Math.max(
+      MIN_SESSION_TRANSCRIPT_BYTES,
+      Math.floor(MAX_TRANSCRIPT_BYTES / Math.max(candidates.length, 1)),
+    );
+    let omittedWithoutMessages = 0;
     const sessionCandidates: JsonRecord[] = [];
     for (const session of candidates) {
+      if (remainingBytes <= 0) break;
       const sourceMessages = this.messages.listBySessionStructured(session.id, 50);
+      if (sourceMessages.length === 0) {
+        omittedWithoutMessages += 1;
+        continue;
+      }
+      let sessionBytes = Math.min(remainingBytes, sessionShareBytes);
       const messages: JsonRecord[] = [];
       let clippedMessage = false;
       for (const message of sourceMessages) {
-        const text = messageText(message).slice(0, MAX_EVIDENCE_QUOTE);
+        const full = messageText(message);
         const item = {
           messageId: String(message.sdkMessageId ?? message.id),
           role: message.role,
-          text,
-          truncated: messageText(message).length > text.length,
+          text: full.slice(0, MAX_EVIDENCE_QUOTE),
+          truncated: false,
           createdAt: message.createdAt,
         };
-        const bytes = Buffer.byteLength(JSON.stringify(item), 'utf8');
-        if (bytes > remainingBytes) break;
+        const measure = () => {
+          item.truncated = full.length > item.text.length;
+          return Buffer.byteLength(JSON.stringify(item), 'utf8');
+        };
+        // Clip the excerpt (a prefix of the verified 4,000-char view, so any
+        // quote from it still verifies) instead of dropping the message.
+        let bytes = measure();
+        while (bytes > sessionBytes && item.text.length > MIN_EXCERPT_CHARS) {
+          item.text = item.text.slice(0, Math.max(MIN_EXCERPT_CHARS, item.text.length - (bytes - sessionBytes)));
+          bytes = measure();
+        }
+        if (bytes > sessionBytes) break;
+        sessionBytes -= bytes;
         remainingBytes -= bytes;
         clippedMessage ||= item.truncated;
         messages.push(item);
       }
+      // A session with no admitted message carries no citable evidence.
+      if (messages.length === 0) continue;
       sessionCandidates.push({
         ...stableDispatch(session),
         name: session.name,
@@ -633,7 +672,6 @@ export class OrgReviewerService {
           truncated: clippedMessage || messages.length < sourceMessages.length,
         },
       });
-      if (remainingBytes <= 0) break;
     }
 
     const visibleSchedules = (reviewer.ownerUserId === null
@@ -687,8 +725,10 @@ export class OrgReviewerService {
       schedules: schedules.length,
       queue: queue.length,
     };
+    const statsFor = (name: keyof typeof collectionTotals, included: number) =>
+      collectionStats(collectionTotals[name], included, name === 'sessions' ? omittedWithoutMessages : undefined);
     const stats: Record<string, CollectionStats> = Object.fromEntries(
-      Object.entries(collectionTotals).map(([name, total]) => [name, collectionStats(total)]),
+      (Object.keys(collectionTotals) as Array<keyof typeof collectionTotals>).map((name) => [name, statsFor(name, 0)]),
     );
     const result: JsonRecord = {
       windowDays: args.windowDays,
@@ -731,9 +771,13 @@ export class OrgReviewerService {
     }
     const fit = (name: keyof typeof collectionTotals, items: unknown[]) => {
       fitCollection(result, result[name] as unknown[], items, (included) => {
-        stats[name] = collectionStats(collectionTotals[name], included);
+        stats[name] = statsFor(name, included);
       });
     };
+    // Session transcript evidence is the reviewer's primary input: admit it
+    // first (it is bounded by MAX_TRANSCRIPT_BYTES), then configuration and
+    // catalogs share what remains. Target currentState is already fixed above.
+    fit('sessions', sessionCandidates);
     fit('profiles', profiles);
     fit('schedules', schedules);
     fit('queue', queue);
@@ -750,7 +794,6 @@ export class OrgReviewerService {
         boundedCatalog!.skillsTruncated = included < Number(boundedCatalog!.skillCount);
       });
     }
-    fit('sessions', sessionCandidates);
     return result;
   }
 

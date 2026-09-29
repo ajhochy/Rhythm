@@ -362,34 +362,21 @@ describe('OrgReviewerService bounded context and identity', () => {
     expect(Buffer.byteLength(JSON.stringify(context, null, 2), 'utf8')).toBeLessThan(44_000);
   });
 
-  it('org-reviewer-context-budget-c3: establishes static inclusion before spending the remainder on transcripts', async () => {
+  it('org-reviewer-context-budget-c3: admits session transcript evidence before static collections and catalogs', async () => {
+    // Superseded 2026-09-29: static-first allocation starved every session
+    // (reported sessions.total=67, included=0). Sessions are bounded by the
+    // transcript allowance and admitted first; static data shares the rest.
+    installTranscriptPressure();
+    type Shown = { sessions: Array<{ sessionId: string; messages: Array<{ messageId: string; text: string }> }> };
+    const before = await service.context({}, reviewer) as Shown;
     installRealisticCatalogPressure();
-    const before = await service.context({}, reviewer) as {
-      collectionStats: Record<string, { total: number; included: number; omitted: number; truncated: boolean }>;
+    const after = await service.context({}, reviewer) as Shown & {
       liveCapabilityCatalog: Record<string, number>;
     };
-    installTranscriptPressure();
-    const after = await service.context({}, reviewer) as typeof before;
-
-    // The extra session is the risk-relevant state difference. A session-first
-    // allocator reduces one of these static prefixes when this transcript lands.
-    expect(after.collectionStats.sessions.total).toBe(before.collectionStats.sessions.total + 1);
-    expect({
-      profiles: after.collectionStats.profiles.included,
-      schedules: after.collectionStats.schedules.included,
-      queue: after.collectionStats.queue.included,
-      skills: after.collectionStats.skills.included,
-      mcpTools: after.liveCapabilityCatalog.mcpToolIncluded,
-      liveSkills: after.liveCapabilityCatalog.skillIncluded,
-    }).toEqual({
-      profiles: before.collectionStats.profiles.included,
-      schedules: before.collectionStats.schedules.included,
-      queue: before.collectionStats.queue.included,
-      skills: before.collectionStats.skills.included,
-      mcpTools: before.liveCapabilityCatalog.mcpToolIncluded,
-      liveSkills: before.liveCapabilityCatalog.skillIncluded,
-    });
-    expect(after.collectionStats.sessions.truncated).toBe(true);
+    expect(before.sessions.length).toBeGreaterThanOrEqual(2);
+    // Adding large catalogs changes no admitted session, message ID or excerpt.
+    expect(after.sessions).toEqual(before.sessions);
+    expect(after.liveCapabilityCatalog.mcpToolsTruncated).toBe(true);
     expect(Buffer.byteLength(JSON.stringify(after, null, 2), 'utf8')).toBeLessThan(44_000);
   });
 
@@ -405,6 +392,8 @@ describe('OrgReviewerService bounded context and identity', () => {
         included: expect.any(Number),
         omitted: expect.any(Number),
         truncated: expect.any(Boolean),
+        omittedByByteBudget: expect.any(Number),
+        ...(name === 'sessions' ? { omittedWithoutMessages: expect.any(Number) } : {}),
       });
       expect(context.collectionStats[name].included + context.collectionStats[name].omitted)
         .toBe(context.collectionStats[name].total);
@@ -447,7 +436,6 @@ describe('OrgReviewerService bounded context and identity', () => {
     expect(Buffer.byteLength(JSON.stringify(context, null, 2), 'utf8')).toBeLessThan(44_000);
     expect(context.collectionStats.sessions.total).toBe(1);
     expect(context.collectionStats.sessions.included + context.collectionStats.sessions.omitted).toBe(1);
-    expect(context.collectionStats.sessions.truncated).toBe(true);
     if (context.sessions.length > 0) {
       expect(context.sessions).toHaveLength(1);
       expect(context.sessions[0].sessionId).toBe(pressureSessionId);
@@ -455,7 +443,7 @@ describe('OrgReviewerService bounded context and identity', () => {
       expect(context.sessions[0].messageStats.included + context.sessions[0].messageStats.omitted).toBe(4);
       expect(context.sessions[0].messageStats.truncated).toBe(true);
     } else {
-      expect(context.collectionStats.sessions).toMatchObject({ included: 0, omitted: 1 });
+      expect(context.collectionStats.sessions).toMatchObject({ included: 0, omitted: 1, truncated: true });
     }
   });
 
@@ -468,6 +456,55 @@ describe('OrgReviewerService bounded context and identity', () => {
     const firstOverview = await service.context({}, reviewer);
     const secondOverview = await service.context({}, reviewer);
     expect(secondOverview).toEqual(firstOverview);
+  });
+
+  it('org-reviewer-session-context: many configuration records and one large session still leave citable session evidence', async () => {
+    // Shape of the reported review: sessions.total=67, included=0. Many
+    // profiles/schedules plus large live catalogs filled the budget before any
+    // session was considered, and the newest session alone carried the whole
+    // transcript allowance, so no session could fit.
+    installRealisticCatalogPressure();
+    const longPrompt = (label: string) => `${label} ${'Follow the detailed weekly operating procedure. '.repeat(90)}`;
+    const cited: Evidence[] = [];
+    for (let index = 0; index < 12; index++) {
+      const profileId = configs.insert({
+        id: `pressure-profile-${String(index).padStart(2, '0')}-${randomUUID()}`, label: `Pressure ${index}`, icon: 'report',
+        enabled: true, isAgent: true, schedulable: true, systemPrompt: longPrompt(`Profile ${index}`),
+        modelProvider: 'openai', modelId: 'gpt-5.6-sol', allowedMcpsJson: '{}', allowedSkillsJson: '[]',
+      }).id;
+      await schedules.createAsync({
+        name: `Pressure schedule ${index}`, scheduleType: 'daily', scheduledTime: '08:00',
+        prompt: longPrompt(`Schedule ${index}`), agentKind: 'opencode', agentConfigId: profileId,
+      });
+      cited.push(occurrence(profileId, `Pressure failure ${index}: ${failure}`));
+    }
+    // Newest session: fills the entire old transcript allowance on its own.
+    const largeSessionId = installTranscriptPressure();
+    sessions.updatePreview(largeSessionId, 'Latest large run', new Date(Date.now() + 60_000).toISOString());
+
+    const context = await service.context({ windowDays: 7, sessionLimit: 100 }, reviewer) as {
+      sessions: Array<{ sessionId: string; messages: Array<{ messageId: string; text: string }> }>;
+      collectionStats: Record<string, { total: number; included: number; omitted: number; omittedByByteBudget: number }>;
+    };
+    expect(Buffer.byteLength(JSON.stringify(context, null, 2), 'utf8')).toBeLessThan(44_000);
+    const stats = context.collectionStats.sessions;
+    expect(stats.total).toBeGreaterThanOrEqual(15);
+    expect(stats.included).toBeGreaterThanOrEqual(2);
+    expect(stats.included + stats.omitted).toBe(stats.total);
+    expect(stats.omittedByByteBudget).toBeLessThanOrEqual(stats.omitted);
+    // Usable evidence: at least two distinct sessions expose exact message IDs
+    // whose excerpts contain a quotable failure, and the large session no
+    // longer blocks the others.
+    const shown = context.sessions.flatMap((row) => row.messages.map((message) => ({ sessionId: row.sessionId, ...message })));
+    const citable = cited.filter((item) => shown.some((message) =>
+      message.sessionId === item.sessionId && message.messageId === item.messageId && message.text.includes(failure)));
+    expect(new Set(citable.map((item) => item.sessionId)).size).toBeGreaterThanOrEqual(2);
+    // Those IDs and excerpts pass the unchanged evidence verifier.
+    evidence = citable.slice(0, 2).map((item) => ({ ...item, quote: failure }));
+    const pressureTarget = evidence.map((item) => sessions.findById(item.sessionId)!.profileId as string);
+    expect(pressureTarget).toHaveLength(2);
+    expect(() => (service as unknown as { verifyEvidence: (e: Evidence[], o: number | null) => void })
+      .verifyEvidence(evidence, reviewer.ownerUserId)).not.toThrow();
   });
 
   it.each(['bypassPermissions', 'acceptEdits'] as const)('denies reviewer session permission override %s', async (permissionMode) => {
