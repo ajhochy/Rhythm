@@ -17,6 +17,7 @@ import { Colors, Radii, Spacing } from '@/constants/theme';
 import { normalizeProfileIcon } from '@/components/ui/profile-icon';
 import {
   applyProfileDefaults,
+  AUTO_MODEL_LABEL,
   getNewSessionPreferences,
   modelMatchesSearch,
   NO_SELECTABLE_PROFILE_MESSAGE,
@@ -89,7 +90,9 @@ const APPROVAL_OPTIONS: {
 function selectedModelLabel(
   models: ModelOption[],
   modelId: string | undefined,
+  modelMode?: ChatPreferences['modelMode'],
 ): string {
+  if (modelMode === 'auto') return AUTO_MODEL_LABEL;
   return models.find((model) => model.id === modelId)?.label ??
     modelId ??
     'Choose model';
@@ -177,6 +180,8 @@ export function SessionConfigurationSheet({
       .filter((group) => group.models.length > 0),
     [modelGroups, query],
   );
+  const showAutoOption = page === 'models' &&
+    (!query.trim() || AUTO_MODEL_LABEL.toLowerCase().includes(query.trim().toLowerCase()));
   const selectedProfile = availableProfiles.find(
     (profile) => profile.profileId === draft?.profileId,
   );
@@ -263,6 +268,27 @@ export function SessionConfigurationSheet({
                   placeholder={`Search ${page}`}
                   value={query}
                 />
+                {showAutoOption ? (
+                  <List.Item
+                    accessibilityLabel={AUTO_MODEL_LABEL}
+                    accessibilityRole="button"
+                    description="The router picks a model for you"
+                    left={(props) => (
+                      <List.Icon
+                        {...props}
+                        icon={draft?.modelMode === 'auto' ? 'check-circle' : 'auto-fix'}
+                      />
+                    )}
+                    onPress={() => {
+                      if (!draft) return;
+                      void commit({ ...draft, modelMode: 'auto' });
+                      setPage('summary');
+                      setQuery('');
+                    }}
+                    title={AUTO_MODEL_LABEL}
+                    titleNumberOfLines={0}
+                  />
+                ) : null}
                 {page === 'profiles'
                   ? filteredProfiles.map((profile) => (
                       <List.Item
@@ -316,7 +342,7 @@ export function SessionConfigurationSheet({
                               <List.Icon
                                 {...props}
                                 icon={
-                                  model.id === draft?.modelId
+                                  model.id === draft?.modelId && draft?.modelMode !== 'auto'
                                     ? 'check-circle'
                                     : 'cube-outline'
                                 }
@@ -328,6 +354,7 @@ export function SessionConfigurationSheet({
                                 ...draft,
                                 providerId: model.providerID,
                                 modelId: model.id,
+                                modelMode: 'fixed',
                                 providerModelSelections: {
                                   ...draft.providerModelSelections,
                                   [model.providerID]: model.id,
@@ -345,7 +372,7 @@ export function SessionConfigurationSheet({
                     ))}
                 {(page === 'profiles'
                   ? filteredProfiles.length
-                  : filteredModelGroups.length) === 0 ? (
+                  : filteredModelGroups.length + (showAutoOption ? 1 : 0)) === 0 ? (
                   <Text style={{ color: palette.muted }}>
                     No matching {page}.
                   </Text>
@@ -392,17 +419,17 @@ export function SessionConfigurationSheet({
                         Model
                       </Text>
                       <List.Item
-                        accessibilityLabel={`Model, ${selectedModelLabel(availableModels, draft.modelId)}`}
+                        accessibilityLabel={`Model, ${selectedModelLabel(availableModels, draft.modelId, draft.modelMode)}`}
                         accessibilityRole="button"
                         disabled={busy || modelGroups.length === 0}
-                        description={draft.modelId}
+                        description={draft.modelMode === 'auto' ? 'The router picks a model per chat' : draft.modelId}
                         descriptionNumberOfLines={0}
                         left={(props) => <List.Icon {...props} icon="cube-outline" />}
                         onPress={() => {
                           setQuery('');
                           setPage('models');
                         }}
-                        title={selectedModelLabel(availableModels, draft.modelId)}
+                        title={selectedModelLabel(availableModels, draft.modelId, draft.modelMode)}
                         titleNumberOfLines={0}
                       />
                     </View>

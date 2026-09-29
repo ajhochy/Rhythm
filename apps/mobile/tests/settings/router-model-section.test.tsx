@@ -90,6 +90,30 @@ describe('RouterModelSection', () => {
     expect(JSON.stringify(first)).not.toMatch(/apiKey/);
   });
 
+  test('routing scope round-trips in the save payload and honours env locks', async () => {
+    const { api, screen } = setup(baseConfig({ routing: { scope: 'first_prompt', escalateMinConfidence: 0.75 } }));
+    await openDialog(screen);
+    expect(screen.getByText(/Pick a model once per chat/)).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('Routing scope: Escalate only'));
+    expect(screen.getByText(/only move up to a stronger model/)).toBeTruthy();
+    fireEvent.changeText(screen.getByTestId('router-escalateMinConfidence'), '0.9');
+    fireEvent.press(screen.getByTestId('router-save-button'));
+    await waitFor(() => expect(api.save).toHaveBeenCalled());
+    expect((api.save as jest.Mock).mock.calls[0][0].routing).toEqual({ scope: 'escalate_only', escalateMinConfidence: 0.9 });
+
+    const locked = baseConfig({
+      routing: { scope: 'every_prompt', escalateMinConfidence: 0.75 },
+      lockedByEnv: ['routing.scope', 'routing.escalateMinConfidence'],
+    });
+    const form = {
+      backend: 'local', localBaseUrl: '', localModel: '', localScale: '', jevModel: '', jevApiKey: '', jevClearKey: false,
+      customBaseUrl: '', customModel: '', customScale: '', customApiKey: '', customClearKey: false,
+      timeout: '1500', consent: false, features: locked.features, scope: 'every_prompt', escalateMinConfidence: '0.8',
+    } as never;
+    expect(buildRouterPayload(form, locked)).not.toHaveProperty('routing');
+    expect(buildRouterPayload(form, baseConfig()).routing).toEqual({ scope: 'every_prompt', escalateMinConfidence: 0.8 });
+  });
+
   test('typed apiKey is sent and clear sends empty string', () => {
     const cfg = baseConfig();
     const form = (over: object) => ({

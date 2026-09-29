@@ -9,6 +9,7 @@ import {
   type RouterConfigDraft,
   type RouterFeatureKey,
   type RouterFeatureMode,
+  type RouterRoutingScope,
   type RouterTestResult,
 } from '@/providers/services/rhythm-tools-service';
 
@@ -35,6 +36,12 @@ const MODES: { value: RouterFeatureMode; label: string }[] = [
   { value: 'shadow', label: 'Shadow' },
   { value: 'on', label: 'On' },
 ];
+const SCOPES: { value: RouterRoutingScope; label: string; help: string }[] = [
+  { value: 'first_prompt', label: 'First prompt only', help: 'Pick a model once per chat and keep it, so prompt caches stay warm.' },
+  { value: 'escalate_only', label: 'Escalate only', help: 'Re-check every prompt but only move up to a stronger model, never down.' },
+  { value: 'every_prompt', label: 'Every prompt', help: 'Re-route on every prompt; the model can change at any time.' },
+];
+const DEFAULT_ESCALATE_CONFIDENCE = 0.75;
 const FEATURES: { key: RouterFeatureKey; label: string }[] = [
   { key: 'model_routing', label: 'Model routing' },
   { key: 'tool_ranking', label: 'Tool ranking' },
@@ -98,6 +105,8 @@ interface FormState {
   timeout: string;
   consent: boolean;
   features: Record<RouterFeatureKey, RouterFeatureMode>;
+  scope: RouterRoutingScope;
+  escalateMinConfidence: string;
 }
 
 function toForm(config: RouterConfig): FormState {
@@ -117,10 +126,13 @@ function toForm(config: RouterConfig): FormState {
     timeout: String(config.timeoutMs ?? ''),
     consent: Boolean(config.remoteDataConsent),
     features: { ...config.features },
+    scope: config.routing?.scope ?? 'first_prompt',
+    escalateMinConfidence: String(config.routing?.escalateMinConfidence ?? DEFAULT_ESCALATE_CONFIDENCE),
   };
 }
 
-function num(value: string): number | undefined {
+function num(value: string | undefined): number | undefined {
+  if (!value) return undefined;
   const parsed = Number(value);
   return value.trim() && Number.isFinite(parsed) ? parsed : undefined;
 }
@@ -169,6 +181,15 @@ export function buildRouterPayload(form: FormState, config: RouterConfig): Route
     if (!isLockedByEnv(locked, `features.${key}`, key)) features[key] = form.features[key] ?? 'default';
   }
   if (Object.keys(features).length) payload.features = features;
+
+  const routing: NonNullable<RouterConfigDraft['routing']> = {};
+  if (!isLockedByEnv(locked, 'routing.scope')) routing.scope = form.scope;
+  const minConfidence = num(form.escalateMinConfidence);
+  if (minConfidence !== undefined && minConfidence >= 0 && minConfidence <= 1
+    && !isLockedByEnv(locked, 'routing.escalateMinConfidence')) {
+    routing.escalateMinConfidence = minConfidence;
+  }
+  if (Object.keys(routing).length) payload.routing = routing;
   return payload;
 }
 
@@ -418,6 +439,42 @@ export function RouterConfigDialog({
               </View>
             );
           })}
+
+          <Text variant="labelLarge" style={{ color: palette.text }}>Routing scope</Text>
+          {(() => {
+            const scopeLocked = isLockedByEnv(locked, 'routing.scope');
+            const current = SCOPES.find((s) => s.value === form.scope);
+            return (
+              <View style={styles.group}>
+                {scopeLocked ? <Text style={{ color: palette.muted }}>Set by environment</Text> : null}
+                <View style={styles.chipWrap}>
+                  {SCOPES.map((scope) => (
+                    <Chip
+                      accessibilityLabel={`Routing scope: ${scope.label}`}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: form.scope === scope.value, disabled: scopeLocked }}
+                      disabled={scopeLocked}
+                      key={scope.value}
+                      onPress={() => set('scope', scope.value)}
+                      selected={form.scope === scope.value}
+                      style={styles.chip}
+                      testID={`router-scope-${scope.value}`}>
+                      {scope.label}
+                    </Chip>
+                  ))}
+                </View>
+                <HelperText type="info">{current?.help}</HelperText>
+              </View>
+            );
+          })()}
+          {form.scope === 'escalate_only'
+            ? (
+              <View style={styles.group}>
+                {field('Escalate min confidence', 'escalateMinConfidence', 'routing.escalateMinConfidence', { keyboardType: 'decimal-pad' })}
+                <HelperText type="info">Only move up a tier when the router is at least this sure (0 to 1).</HelperText>
+              </View>
+            )
+            : null}
 
           {consentRequired ? (
             <View accessible accessibilityLabel="Send data to this server" style={styles.row}>

@@ -691,6 +691,13 @@ export const ROUTER_FEATURE_KEYS = [
 ] as const;
 export type RouterFeatureKey = (typeof ROUTER_FEATURE_KEYS)[number];
 
+export type RouterRoutingScope = 'first_prompt' | 'escalate_only' | 'every_prompt';
+
+export interface RouterRouting {
+  scope: RouterRoutingScope;
+  escalateMinConfidence: number;
+}
+
 export interface RouterConfig {
   backend: RouterBackend;
   local: { baseUrl: string; model: string; scoreScale?: number };
@@ -699,6 +706,8 @@ export interface RouterConfig {
   timeoutMs: number;
   remoteDataConsent: boolean;
   features: Record<RouterFeatureKey, RouterFeatureMode>;
+  /** Absent when the paired Mac predates routing scope. */
+  routing?: RouterRouting;
   lockedByEnv: string[];
   effective?: {
     backend: RouterBackend;
@@ -722,6 +731,7 @@ export interface RouterConfigDraft {
   timeoutMs?: number;
   remoteDataConsent?: boolean;
   features?: Partial<Record<RouterFeatureKey, RouterFeatureMode>>;
+  routing?: Partial<RouterRouting>;
 }
 
 export interface RouterTestResult {

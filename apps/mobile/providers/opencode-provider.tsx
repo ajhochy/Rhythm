@@ -1534,6 +1534,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             providerId:
               selectedModel?.providerID ?? preferences.providerId ?? null,
             modelId: selectedModel?.modelID ?? null,
+            modelMode: preferences.modelMode === 'auto' ? 'auto' : 'fixed',
             thinkingBudget: thinkingBudgetForReasoning(preferences.reasoning),
             permissionMode:
               preferences.permissionMode ??

@@ -33,6 +33,7 @@ import { speakText, stopSpeaking } from '@/lib/voice/speech-output';
 import { useSpeechInput } from '@/lib/voice/use-speech-input';
 import { useOpencode } from '@/providers/opencode-provider';
 import type { ChatPreferences } from '@/providers/opencode-provider-types';
+import { AUTO_MODEL_LABEL, routerPickLabel } from '@/providers/opencode-provider-utils';
 
 export function ChatView() {
   const router = useRouter();
@@ -157,9 +158,12 @@ export function ChatView() {
   const selectedProfileLabel = availableAgents.find(
     (profile) => profile.profileId === chatPreferences.profileId,
   )?.label;
-  const selectedModelLabel = availableModels.find(
-    (model) => model.id === chatPreferences.modelId,
-  )?.label ?? chatPreferences.modelId;
+  const routerPick = routerPickLabel(chatPreferences, currentMessages);
+  const selectedModelLabel = chatPreferences.modelMode === 'auto'
+    ? routerPick ?? AUTO_MODEL_LABEL
+    : availableModels.find(
+      (model) => model.id === chatPreferences.modelId,
+    )?.label ?? chatPreferences.modelId;
   const contextLabel = [selectedProfileLabel, selectedModelLabel].filter(Boolean).join(' · ') || undefined;
   const presentationStatus = currentPendingPermissions.length > 0
     ? 'Waiting for approval'
@@ -879,6 +883,7 @@ export function ChatView() {
           connectionStatus={connection.status}
           conversation={conversation}
           contextLabel={contextLabel}
+          routerPick={routerPick}
           currentSessionId={currentSessionId}
           commands={commands}
           draft={draft}

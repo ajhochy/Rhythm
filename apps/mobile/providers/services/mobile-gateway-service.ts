@@ -165,6 +165,7 @@ export async function updateMobileSessionProfileState(
     opencodeAgentId: OpenCodeAgentId | null;
     providerId: string | null;
     modelId: string | null;
+    modelMode?: 'auto' | 'fixed';
     thinkingBudget: number | null;
     permissionMode: PermissionMode;
   },
