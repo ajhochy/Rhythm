@@ -998,6 +998,34 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       logger.warn(`[AgentRunner] resolveTieredModel failed (non-fatal): ${String(err)}`);
     }
   }
+  // Local decision engine (AGENT_DECISION_MODEL_ROUTING): only when nothing pins
+  // the model — no override, no task kind, no profile model or tier hint.
+  // Failure keeps the model resolved above.
+  if (!modelOverride && !taskKind && !profileScope.model && !profileScope.modelTierHint) {
+    try {
+      const { routeTurnTier } = await import('./decision/model_router');
+      const { classifyRouteTier, resolveTieredModel } = await import('./agent_model_resolver');
+      const agentIdForRoute = effectiveConfigId ?? 'claude-code';
+      const routed = await routeTurnTier({
+        prompt,
+        agentId: agentIdForRoute,
+        requestedSource: 'agent_default',
+        baselineTier: resolvedModel ? classifyRouteTier(resolvedModel) : null,
+      });
+      if (routed.tier) {
+        const decision = await resolveTieredModel({
+          agentId: agentIdForRoute,
+          explicitTierHint: routed.tier,
+        });
+        resolvedModel = decision.route;
+        requestedSource = 'tier';
+        requestedTier = decision.tier;
+        downgraded = decision.downgradedForBudget;
+      }
+    } catch (err) {
+      logger.warn(`[AgentRunner] decision routing failed (non-fatal): ${String(err)}`);
+    }
+  }
   const effectiveSystemPrompt: string | null = profileScope.systemPrompt;
   const effectiveOcAgent: string | null = isOrgReviewer
     ? ORG_REVIEWER_PROFILE_ID

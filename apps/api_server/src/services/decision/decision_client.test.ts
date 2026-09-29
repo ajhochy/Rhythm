@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import { HttpRerankClient } from './decision_client';
+import { HttpRerankClient, normaliseScores } from './decision_client';
 
 interface Fake {
   url: string;
@@ -161,5 +161,38 @@ describe('HttpRerankClient', () => {
     const fetchImpl = async () => { throw new Error('boom'); };
     const r = await new HttpRerankClient({ baseUrl: 'http://127.0.0.1:1', fetchImpl }).rerank('q', ['a']);
     expect(r.status).toBe('error');
+  });
+
+  describe('score scale', () => {
+    const inUnit = { results: [{ index: 0, relevance_score: 0.2 }, { index: 1, relevance_score: 0.8 }] };
+
+    it('logit always applies sigmoid, even when all raw scores fall in [0,1]', async () => {
+      fake = await startFake((res) => json(res, inUnit));
+      const r = await new HttpRerankClient({ baseUrl: fake.url, scoreScale: 'logit' }).rerank('q', ['a', 'b']);
+      if (r.status !== 'ok') throw new Error('expected ok');
+      expect(r.scores[0]).toBeCloseTo(1 / (1 + Math.exp(-0.2)), 5);
+      expect(r.scores[1]).toBeCloseTo(1 / (1 + Math.exp(-0.8)), 5);
+    });
+
+    it('reads AGENT_DECISION_SCORE_SCALE live; constructor option wins', async () => {
+      fake = await startFake((res) => json(res, inUnit));
+      process.env.AGENT_DECISION_SCORE_SCALE = 'logit';
+      try {
+        const viaEnv = await new HttpRerankClient({ baseUrl: fake.url }).rerank('q', ['a', 'b']);
+        if (viaEnv.status !== 'ok') throw new Error('expected ok');
+        expect(viaEnv.scores[1]).toBeCloseTo(1 / (1 + Math.exp(-0.8)), 5);
+        const override = await new HttpRerankClient({ baseUrl: fake.url, scoreScale: 'auto' }).rerank('q', ['a', 'b']);
+        expect(override).toMatchObject({ status: 'ok', scores: [0.2, 0.8] });
+      } finally {
+        delete process.env.AGENT_DECISION_SCORE_SCALE;
+      }
+    });
+
+    it('normaliseScores modes', () => {
+      expect(normaliseScores([-0.5, 1.5, 0.4], 'probability')).toEqual([0, 1, 0.4]);
+      expect(normaliseScores([0.2, 0.8], 'auto')).toEqual([0.2, 0.8]);
+      expect(normaliseScores([0, 0.8, 3], 'auto')[0]).toBeCloseTo(0.5, 5);
+      expect(normaliseScores([0], 'logit')[0]).toBeCloseTo(0.5, 5);
+    });
   });
 });

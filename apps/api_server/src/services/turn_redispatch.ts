@@ -418,6 +418,7 @@ export interface RedispatchDeps {
     sdkSessionId: string,
     mcpRoleConfig: McpRoleConfig | null,
     providerID: string,
+    prompt?: string,
   ) => Promise<boolean>;
   prompt: (
     sdkSessionId: string,
@@ -458,8 +459,8 @@ function defaultDeps(): RedispatchDeps {
   return {
     abort: (sdkId, cwd) => opencodeClient.abortSession(sdkId, cwd),
     revert: (sdkId, messageId) => opencodeClient.revertSession(sdkId, messageId),
-    prepare: (sdkId, mcpRoleConfig, providerID) =>
-      opencodeClient.updateSessionAllowlist(sdkId, mcpRoleConfig, providerID),
+    prepare: (sdkId, mcpRoleConfig, providerID, prompt) =>
+      opencodeClient.updateSessionAllowlist(sdkId, mcpRoleConfig, providerID, prompt),
     prompt: (sdkId, data, model, cwd, opts, parts) =>
       (opencodeClient.promptAsync as unknown as (
         id: string,
@@ -556,6 +557,7 @@ export async function redispatchTurn(
       turn.sdkSessionId,
       turn.mcpRoleConfig ?? null,
       providerID,
+      turn.data,
     );
     if (!prepared) throw new Error(`session preparation failed for ${providerID}`);
     let predecessorId: string | null = null;

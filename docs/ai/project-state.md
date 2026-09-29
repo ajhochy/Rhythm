@@ -1,5 +1,13 @@
 # Rhythm — Project State
 
+## Side track (2026-09-29): local decision engine
+
+- **Branch:** `feat/local-decision-engine`.
+- **What it adds:** reranker-based model routing, MCP tool ranking and memory ranking. The model is Qwen3-Reranker on llama.cpp over loopback. All three features default to `off`.
+- **Status:** PR open for review.
+- **Next:** run the bench against a real model on the Mac, then set the flags to `shadow`. See [run](runs/2026-09-29-local-decision-engine.md) and [setup](decision-engine-setup.md).
+- **Unaffected:** the mega PR #1544 state below.
+
 ## Focus
 
 Complete the unfinished Rhythm scope in draft mega PR #1544: Bot Crossing inside Rhythm, shared memory, shared canonical agents/settings, native Hermes execution, and two-way delegation. AJ chose Hermes itself to run shared agents launched there. One final combined smoke; no merge, deployment or release.

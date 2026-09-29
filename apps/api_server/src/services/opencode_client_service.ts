@@ -1603,6 +1603,8 @@ export class OpencodeClientService {
     sessionId: string,
     mcpRoleConfig: import('./agent_profile_scope').McpRoleConfig | null,
     providerId?: string | null,
+    /** Turn prompt for local-decision tool ranking; omitted = unranked (legacy). */
+    prompt?: string,
   ): Promise<boolean> {
     try {
       let mcpAllowlist: {
@@ -1629,6 +1631,13 @@ export class OpencodeClientService {
           toolCounts,
           providerId,
         );
+        if (prompt) {
+          const { rankMcpAllowlist } = await import('./decision/tool_ranker');
+          mcpAllowlist = await rankMcpAllowlist(mcpAllowlist, prompt, {
+            toolCounts,
+            sessionId,
+          });
+        }
         const capResult = capMcpAllowlistForProvider(mcpAllowlist, providerId, toolCounts);
         mcpAllowlist = capResult.allowlist;
         if (capResult.trimmed) {

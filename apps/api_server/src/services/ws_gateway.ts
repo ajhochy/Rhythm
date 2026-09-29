@@ -560,6 +560,33 @@ export async function handleInputFrame(
       });
       resolvedTurnModel = resolution.route;
       resolvedTurnProvenance = resolution;
+      // Local decision engine: optional tier suggestion. No-op (no call) when
+      // AGENT_DECISION_MODEL_ROUTING is off; never overrides pinned sources.
+      try {
+        const { routeTurnTier } = await import('./decision/model_router');
+        const { classifyRouteTier, resolveTieredModel } = await import('./agent_model_resolver');
+        const routed = await routeTurnTier({
+          prompt: data ?? '',
+          agentId: trustedScopeAgent ?? agentKind,
+          requestedSource: resolution.requestedSource,
+          sessionId: id,
+          baselineTier: resolution.route ? classifyRouteTier(resolution.route) : null,
+        });
+        if (routed.tier) {
+          const tiered = await resolveTieredModel({
+            agentId: trustedScopeAgent ?? agentKind,
+            explicitTierHint: routed.tier,
+          });
+          resolvedTurnModel = tiered.route;
+          resolvedTurnProvenance = {
+            ...resolution,
+            requestedSource: 'tier',
+            requestedTier: tiered.tier,
+          };
+        }
+      } catch (routeErr) {
+        console.error(`[ws_gateway] decision routing failed (non-fatal):`, routeErr);
+      }
     } catch (err) {
       console.error(`[ws_gateway] early model resolution for Gemini tool cap failed (non-fatal):`, err);
     }
@@ -785,6 +812,7 @@ export async function handleInputFrame(
       opencodeId,
       wsMcpRoleConfig ?? null,
       resolvedTurnProviderId,
+      data,
     );
   } catch (allowlistErr) {
     console.error(`[ws_gateway] updateSessionAllowlist failed (non-fatal):`, allowlistErr);

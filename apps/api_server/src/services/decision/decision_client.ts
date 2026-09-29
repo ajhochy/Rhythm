@@ -1,6 +1,8 @@
 import {
   getDecisionBaseUrl,
   getDecisionModel,
+  getDecisionScoreScale,
+  type DecisionScoreScale,
   getDecisionTimeoutMs,
 } from '../../config/env';
 
@@ -82,10 +84,18 @@ function parseRawScores(body: unknown, expected: number): number[] | null {
   return raw as number[];
 }
 
-/** Keep scores already in [0,1]; otherwise squash every score with a sigmoid. */
-function normalise(raw: number[]): number[] {
+const sigmoid = (v: number) => 1 / (1 + Math.exp(-v));
+
+/**
+ * auto: keep scores when all are in [0,1], else sigmoid (batch-dependent, so
+ * raw logits that happen to fall in [0,1] are misread). probability: clamp.
+ * logit: always sigmoid (use for llama.cpp).
+ */
+export function normaliseScores(raw: number[], scale: DecisionScoreScale = 'auto'): number[] {
+  if (scale === 'logit') return raw.map(sigmoid);
+  if (scale === 'probability') return raw.map((v) => Math.min(1, Math.max(0, v)));
   if (raw.every((v) => v >= 0 && v <= 1)) return raw;
-  return raw.map((v) => 1 / (1 + Math.exp(-v)));
+  return raw.map(sigmoid);
 }
 
 export class HttpRerankClient implements RerankClient {
@@ -95,6 +105,8 @@ export class HttpRerankClient implements RerankClient {
       model?: string;
       timeoutMs?: number;
       fetchImpl?: FetchLike;
+      /** Overrides AGENT_DECISION_SCORE_SCALE. */
+      scoreScale?: DecisionScoreScale;
     } = {},
   ) {}
 
@@ -151,7 +163,7 @@ export class HttpRerankClient implements RerankClient {
       }
       const raw = parseRawScores(body, documents.length);
       if (!raw) return { status: 'error', reason: 'malformed_response', latencyMs: elapsed() };
-      return { status: 'ok', scores: normalise(raw), latencyMs: elapsed(), model };
+      return { status: 'ok', scores: normaliseScores(raw, this.opts.scoreScale ?? getDecisionScoreScale()), latencyMs: elapsed(), model };
     } catch (err) {
       const name = (err as { name?: string } | undefined)?.name;
       if (name === 'TimeoutError' || name === 'AbortError') {

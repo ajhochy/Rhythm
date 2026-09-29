@@ -286,6 +286,18 @@ export function getDecisionMemoryMinScore(): number {
   return unitIntervalEnv('AGENT_DECISION_MEMORY_MIN_SCORE', 0.5);
 }
 
+/**
+ * How the decision backend's raw scores are interpreted:
+ * auto (default) keeps all-[0,1] batches else sigmoid; probability clamps to
+ * [0,1]; logit always applies a sigmoid.
+ */
+export type DecisionScoreScale = 'auto' | 'probability' | 'logit';
+
+export function getDecisionScoreScale(): DecisionScoreScale {
+  const raw = (process.env.AGENT_DECISION_SCORE_SCALE ?? '').trim().toLowerCase();
+  return raw === 'probability' || raw === 'logit' ? raw : 'auto';
+}
+
 function numberEnv(name: string): number | null {
   const raw = process.env[name];
   if (raw === undefined || raw.trim() === '') return null;
