@@ -2,15 +2,15 @@
 
 ## Current focus
 
-Mobile chat-list polish slice: compact project headers/session rows, full-width search with a separate sort/new-chat row, reduced Chats title, exact-project project-header create action, generation-protected profile loading, and a compact session configuration sheet.
+Mobile chat-list polish plus verified auto-scroll follow-up: compact project headers/session rows, full-width search with a separate sort/new-chat row, exact-project project-header create action, generation-protected profile loading, compact session configuration, and reliable chat transcript positioning.
 
 ## Active branch / PR
 
-Branch `mobile/chat-list-compact-project-create`, based on `mega/2026-09-18-mobile-electron-hermes` (not `main`). Verification passed; no commit or PR exists yet.
+Branch `mobile/chat-list-compact-project-create`, based on `mega/2026-09-18-mobile-electron-hermes` (not `main`). Draft PR #1585 exists. Auto-scroll changes remain uncommitted and unpushed.
 
 ## In progress
 
-Manual smoke remains for 375–430pt header/search layouts and 844pt session-sheet fit.
+Manual native timing/layout smoke remains for 375–430pt header/search layouts, 844pt session-sheet fit, and auto-scroll behavior.
 
 ## Risks / known issues
 
@@ -19,11 +19,11 @@ Manual smoke remains for 375–430pt header/search layouts and 844pt session-she
 
 ## Test status
 
-PASS: lint/typecheck, 50 focused tests, and 8 accessibility tests. Full suite: 236 passed, 4 unchanged base-red issue-1387 failures.
+PASS: focused auto-scroll 8/8, combined chat contracts 58/58, accessibility 8/8, lint/typecheck. Full suite: 239 passed, 4 unchanged base-red issue-1387 failures.
 
 ## Next step
 
-Run the two manual smoke checks, then continue the normal draft-PR handoff. Keep the issue-1387 failures as a separate follow-up.
+Complete the manual native timing/layout smoke, then continue the draft-PR handoff. Keep the issue-1387 failures as a separate follow-up.
 
 ## Existing integration context
 

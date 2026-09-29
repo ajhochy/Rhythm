@@ -103,8 +103,15 @@ export function ChatContent({
   const [todosExpanded, setTodosExpanded] = useState(false);
   const transcriptRef = useRef<FlatList<TranscriptEntry>>(null);
   const transcriptNearBottomRef = useRef(true);
-  const shouldPositionInitialTranscriptRef = useRef(false);
-  const previousTranscriptRef = useRef({ sessionId: currentSessionId, length: displayTranscript.length });
+  const shouldPositionInitialTranscriptRef = useRef(activeTab === 'session' && displayTranscript.length > 0);
+  const suppressEndScrollForPrependRef = useRef(false);
+  const previousTranscriptRef = useRef({
+    activeTab,
+    firstId: displayTranscript[0]?.id,
+    lastId: displayTranscript.at(-1)?.id,
+    length: displayTranscript.length,
+    sessionId: currentSessionId,
+  });
   const completedTodoCount = currentTodos.filter((todo) => todo.status === 'completed').length;
   const transcriptExtraData = useMemo(
     () => [copiedMessageId, speakingMessageId],
@@ -113,12 +120,25 @@ export function ChatContent({
 
   useLayoutEffect(() => {
     const previous = previousTranscriptRef.current;
-    if (previous.sessionId !== currentSessionId || (previous.length === 0 && displayTranscript.length > 0)) {
+    const firstId = displayTranscript[0]?.id;
+    const lastId = displayTranscript.at(-1)?.id;
+    suppressEndScrollForPrependRef.current = activeTab === 'session' &&
+      previous.activeTab === 'session' &&
+      previous.sessionId === currentSessionId &&
+      previous.length > 0 &&
+      displayTranscript.length > previous.length &&
+      previous.firstId !== firstId &&
+      previous.lastId === lastId;
+    if (activeTab === 'session' && (
+      previous.activeTab !== 'session' ||
+      previous.sessionId !== currentSessionId ||
+      (previous.length === 0 && displayTranscript.length > 0)
+    )) {
       shouldPositionInitialTranscriptRef.current = true;
       transcriptNearBottomRef.current = true;
     }
-    previousTranscriptRef.current = { sessionId: currentSessionId, length: displayTranscript.length };
-  }, [currentSessionId, displayTranscript.length]);
+    previousTranscriptRef.current = { activeTab, firstId, lastId, length: displayTranscript.length, sessionId: currentSessionId };
+  }, [activeTab, currentSessionId, displayTranscript]);
 
   return (
     <View style={styles.chatArea}>
@@ -143,6 +163,10 @@ export function ChatContent({
             }
           }}
           onContentSizeChange={() => {
+            if (suppressEndScrollForPrependRef.current) {
+              suppressEndScrollForPrependRef.current = false;
+              return;
+            }
             if (
               displayTranscript.length === 0 ||
               (!shouldPositionInitialTranscriptRef.current && !transcriptNearBottomRef.current)

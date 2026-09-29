@@ -1,7 +1,7 @@
 {
   "issue": "mobile-chat-list-polish",
   "date": "2026-09-28",
-  "test_command": "cd apps/mobile && npx jest tests/chat/chat-list.test.tsx tests/chat/session-configuration-sheet.test.tsx",
+  "test_command": "cd apps/mobile && npx jest tests/chat/chat-list.test.tsx tests/chat/session-configuration-sheet.test.tsx tests/chat/chat-content-scroll.test.tsx --runInBand",
   "waiver": null,
   "criteria": [
     {
@@ -83,6 +83,62 @@
       "test": null,
       "status": "UNVERIFIED",
       "reason": "not_tested: needs manual TestFlight/simulator smoke"
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-scroll-c1",
+      "text": "Opening any existing non-empty chat reliably positions at the transcript bottom even if an early onScroll reports top before content size settles.",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/chat-content-scroll.test.tsx",
+      "status": "pass",
+      "reason": "Deterministic regression test fires an offset-zero scroll before the first content-size event and observes a non-animated scroll to end."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-scroll-c2",
+      "text": "Switching sessions or returning from another tab to the session transcript positions at bottom.",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/chat-content-scroll.test.tsx",
+      "status": "pass",
+      "reason": "Existing session-switch coverage is retained; a deterministic regression test scrolls upward, then returns from Changes with the same session and transcript and observes a non-animated scroll to end."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-scroll-c3",
+      "text": "New transcript content auto-follows while the reader is near the bottom.",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/chat-content-scroll.test.tsx",
+      "status": "pass",
+      "reason": "The focused viewport regression test keeps the reader within the 32-point threshold and requires scrollToEnd after content/layout changes."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-scroll-c4",
+      "text": "If the reader scrolls meaningfully upward, new content/layout changes do not yank them back down.",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/chat-content-scroll.test.tsx",
+      "status": "pass",
+      "reason": "Existing deterministic checks place the viewport far from bottom, append content and change layout, and require no scrollToEnd call."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-scroll-c5",
+      "text": "Loading older messages retains the visible anchor (preserve maintainVisibleContentPosition behavior).",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/chat-content-scroll.test.tsx",
+      "status": "pass",
+      "reason": "Focused Jest asserts maintainVisibleContentPosition remains configured with minIndexForVisible 0."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-scroll-c6",
+      "text": "Add deterministic regression tests covering the early-onScroll initial case and tab return; retain/extend existing near-bottom/far-from-bottom checks.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/chat-content-scroll.test.tsx",
+      "status": "pass",
+      "reason": "Both new regressions and the retained near-bottom, far-from-bottom, session-switch, and anchor-preservation checks pass in the focused suite."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-scroll-c7",
+      "text": "Prepending older transcript entries while near bottom does not call scrollToEnd or override maintainVisibleContentPosition, including when the prior transcript fit the viewport.",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/chat-content-scroll.test.tsx",
+      "status": "pass",
+      "reason": "Deterministic regression starts with a transcript shorter than the viewport, prepends an older stable entry, observes no scrollToEnd while retaining maintainVisibleContentPosition, then verifies a subsequent near-bottom append resumes scrollToEnd."
     }
   ],
   "not_tested": [

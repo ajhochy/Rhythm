@@ -2,7 +2,7 @@
 date: 2026-09-28
 repo: Rhythm
 branch: mobile/chat-list-compact-project-create
-pr: null
+pr: 1585
 issues: [mobile-chat-list-polish]
 status: pass
 tags: [run, Rhythm]
@@ -16,7 +16,9 @@ tags: [run, Rhythm]
 - `apps/mobile/components/chat/chat-list.tsx`
 - `apps/mobile/components/chat/chat-list-controller.ts`
 - `apps/mobile/components/chat/session-configuration-sheet.tsx`
+- `apps/mobile/components/chat/chat-content.tsx`
 - `apps/mobile/tests/chat/chat-list.test.tsx`
+- `apps/mobile/tests/chat/chat-content-scroll.test.tsx`
 - `apps/mobile/tests/chat/session-configuration-sheet.test.tsx`
 - `docs/ai/contracts/mobile-chat-list-polish.json`
 - `docs/ai/runs/2026-09-28-mobile-chat-list-polish.md`
@@ -29,7 +31,7 @@ tags: [run, Rhythm]
 - Accessibility verification — PASS, 8 tests.
 - `npm run lint` — PASS with 3 pre-existing warnings outside owned files and 0 errors.
 - `npm run typecheck` — PASS.
-- `npm test` — 236 passed / 4 failed; all 4 are unchanged base-red issue-1387 failures:
+- `npm test` — 239 passed / 4 failed; all 4 are unchanged base-red issue-1387 failures:
   - `tests/contract/issue-1387-offline-sessions-state.test.tsx`: c26 and c27 cannot find `Mirrored offline session`; rendered project group reports 0 active and remains collapsed.
   - `tests/contract/issue-1387-offline-cold-relaunch.test.tsx`: c22 and c24 expect Offline/Connected but render `Chat status: Chat`.
 - `git diff --check` — PASS.
@@ -41,6 +43,22 @@ tags: [run, Rhythm]
 - UI review repair GitNexus upstream impact for `useChatListController` — unavailable (`Not connected`) before the controller edit.
 - UI review repair final `gitnexus_detect_changes` (`scope: all`, this worktree) — unavailable (`Not connected`).
 - UI review repair `git diff --check` — PASS.
+- Auto-scroll pre-implementation contract: `npx jest tests/chat/chat-content-scroll.test.tsx --runInBand` — EXPECTED FAIL. The initial run failed the early-offset-zero case (1 failed / 6 passed). After strengthening tab return to first place the reader far from bottom, the same command failed both regressions (2 failed / 5 passed): each observed zero `scrollToEnd` calls. Existing session-switch, near-bottom, far-from-bottom, and anchor-preservation checks passed.
+- Auto-scroll GitNexus upstream impact for `ChatContent` in `apps/mobile/components/chat/chat-content.tsx` — unavailable (`Not connected`) before implementation. Exact-reference fallback found one production render site in `chat-view.tsx` plus the owned focused test file; no HIGH/CRITICAL result was available.
+- Auto-scroll focused verification: `npx jest tests/chat/chat-content-scroll.test.tsx --runInBand` — PASS, 7/7 tests.
+- Final combined contract: `npx jest tests/chat/chat-list.test.tsx tests/chat/session-configuration-sheet.test.tsx tests/chat/chat-content-scroll.test.tsx --runInBand` — PASS, 57/57 tests.
+- Auto-scroll `npm run lint` — PASS with the same 3 warnings outside owned files and 0 errors.
+- Auto-scroll `npm run typecheck` — PASS.
+- Auto-scroll `git diff --check` — PASS; `git status --short` listed only the four assigned files.
+- Auto-scroll final `gitnexus_detect_changes` (`scope: all`, this worktree) — unavailable (`Not connected`).
+- Prepend review contract: `npx jest tests/chat/chat-content-scroll.test.tsx --runInBand` — EXPECTED FAIL, 1 failed / 7 passed. With a prior transcript height of 250 inside a 300 point viewport, prepending one older entry caused one unexpected `scrollToEnd({ animated: false })` call.
+- Prepend review GitNexus upstream impact for `ChatContent` — unavailable (`Not connected`) before implementation. Exact-reference fallback again found one production render site in `chat-view.tsx`, the focused test, and one unrelated test mock; no HIGH/CRITICAL result was available.
+- Prepend review focused verification: `npx jest tests/chat/chat-content-scroll.test.tsx --runInBand` — PASS, 8/8 tests.
+- Prepend review combined contract: `npx jest tests/chat/chat-list.test.tsx tests/chat/session-configuration-sheet.test.tsx tests/chat/chat-content-scroll.test.tsx --runInBand` — PASS, 58/58 tests; one existing asynchronous `VirtualizedList` act warning was emitted.
+- Prepend review `npm run lint` — PASS with the same 3 warnings outside owned files and 0 errors.
+- Prepend review `npm run typecheck` — PASS.
+- Prepend review `git diff --check` — PASS; `git diff --name-only` listed only the four assigned files.
+- Prepend review final `gitnexus_detect_changes` (`scope: all`, this worktree) — unavailable (`Not connected`).
 
 ## Notes
 
@@ -52,12 +70,19 @@ tags: [run, Rhythm]
 - Criterion 5 visual confirmation: manual smoke remains at an 844 point viewport.
 - Orchestration started the required isolated synthetic sandbox on API `:4098`; no live service was touched. No commit was created.
 - UI review repair binds both global and project-header creation to the exact resolved target. A request generation ignores stale successes/errors; close and focus loss also invalidate pending loads while preserving their cleanup.
+- Auto-scroll now reliably opens existing chats at the bottom and repositions on tab/session return. Near-bottom responses auto-follow; readers viewing history are not yanked. Prepending older messages retains the reader's anchor through `maintainVisibleContentPosition`.
 
 ## Handoff
 
 `PASS`: lint/typecheck, 50 focused tests, and 8 accessibility tests are green.
 The four issue-1387 failures are unchanged on base and were not caused by this
 slice. Manual smoke remains for the header/search widths and sheet fit.
+
+Auto-scroll follow-up: `PASS`; focused 8/8, combined chat contracts 58/58,
+accessibility 8/8, lint/typecheck, and full-suite verification pass aside from
+the same four base-red issue-1387 failures. Draft PR #1585 exists; the
+auto-scroll changes are not yet committed or pushed. Manual native timing/layout
+smoke remains.
 
 ## Failure triage
 
