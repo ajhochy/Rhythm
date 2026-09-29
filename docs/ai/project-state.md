@@ -25,6 +25,14 @@
 - Mobile gateway pairing needs a Keychain-held P-256 capability, so no unattended live-UI run is possible by design.
 - #1586 (silent session stalls, no heartbeat/sweeper) still open.
 
+## CI
+
+Fork CI was red from `bcce73c4` (missed `childMcpAllowlist` caller → TS2554); fixed `23b61ff0`. Fork CI ran only `test/session/ src/session/`, so `test/tool/` — all child-scoping regression tests — never executed; added in `50b4b630`. That exposed the writer/reader contract test importing api_server (no `better-sqlite3` in the fork job); split into producer/consumer halves in `16c6c3b1`.
+
+## Engine
+
+Restored via `POST /system/restart-engine` (auth-bypassed under `AGENT_LOCAL=true`). `:4096` 200, `bridgeLive: true`. Two defects found and filed, not fixed: api_server caches a failed engine client and never retries; Electron has no automatic api_server restart, and no dialog appears when the engine dies while api_server stays healthy.
+
 ## Next step
 
-AJ smoke-tests PR #1587 on device/simulator, then merges. Restart Rhythm first to restore the :4096 engine.
+AJ smoke-tests PR #1587 on device/simulator, then merges. No machine action needed — the engine is back up.
