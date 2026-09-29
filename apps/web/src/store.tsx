@@ -960,7 +960,9 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     setOverrideVersion(v => v + 1);
     const turnProfile = profiles.find(profile => profile.id === override.profileId && profile.enabled && profile.selectable);
     const agent = turnProfile ? turnProfile.ocAgent || turnProfile.id : undefined;
-    const modelOverride = override.modelOverride ?? (selected.providerId && selected.modelId
+    // Auto (router) sessions never echo the stored model back as an override — that would
+    // pin the turn; only an explicitly staged turn-only model is sent.
+    const modelOverride = override.modelOverride ?? (selected.modelMode !== 'auto' && selected.providerId && selected.modelId
       ? { providerId: selected.providerId, modelId: selected.modelId }
       : undefined);
     // c2e: real attachments travel as canonical `parts` (resolved text content / file data:
