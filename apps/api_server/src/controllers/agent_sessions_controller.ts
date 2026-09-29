@@ -192,6 +192,7 @@ const messagesRepo = new AgentSessionMessagesRepository();
 const mcpAppCapabilityBroker = new McpAppCapabilityBroker();
 
 import { getPrimaryWorktreePath, gitCheckout, probeVcs } from '../services/vcs_probe';
+import { autoPickAccountId, markAutoAccountSession } from '../services/decision/capacity_router';
 
 function resolveWorktreeEngineDirectory(session: {
   projectId: string | null;
@@ -798,9 +799,20 @@ export class AgentSessionsController {
       if (requestedAccountId && !anthropicAccountsService.getAccount(requestedAccountId)) {
         throw AppError.badRequest(`unknown anthropic account: '${requestedAccountId}'`);
       }
+      // Capacity routing (AGENT_DECISION_CAPACITY_ROUTING=on): with no requested
+      // and no profile-default account, prefer the account with the most usage
+      // headroom over the store default. Falls back to the default on any miss.
+      let autoAnthropicAccountId: string | null = null;
+      if (!requestedAccountId && !profileDefaultAnthropicAccountId) {
+        const picked = await autoPickAccountId('anthropic');
+        if (picked && anthropicAccountsService.getAccount(picked)) {
+          autoAnthropicAccountId = picked;
+        }
+      }
       const resolvedAccountId =
         requestedAccountId ??
         profileDefaultAnthropicAccountId ??
+        autoAnthropicAccountId ??
         anthropicAccountsService.defaultAccount()?.id ??
         null;
 
@@ -819,9 +831,17 @@ export class AgentSessionsController {
       if (requestedOpenaiAccountId && !openaiAccountsService.getAccount(requestedOpenaiAccountId)) {
         throw AppError.badRequest(`unknown openai account: '${requestedOpenaiAccountId}'`);
       }
+      let autoOpenaiAccountId: string | null = null;
+      if (!requestedOpenaiAccountId && !profileDefaultOpenaiAccountId) {
+        const picked = await autoPickAccountId('openai');
+        if (picked && openaiAccountsService.getAccount(picked)) {
+          autoOpenaiAccountId = picked;
+        }
+      }
       const resolvedOpenaiAccountId =
         requestedOpenaiAccountId ??
         profileDefaultOpenaiAccountId ??
+        autoOpenaiAccountId ??
         openaiAccountsService.defaultAccount()?.id ??
         null;
 
@@ -1024,6 +1044,12 @@ export class AgentSessionsController {
       };
 
       const session = repo.insert(dto);
+      if (autoAnthropicAccountId && resolvedAccountId === autoAnthropicAccountId) {
+        markAutoAccountSession(session.id, 'anthropic');
+      }
+      if (autoOpenaiAccountId && resolvedOpenaiAccountId === autoOpenaiAccountId) {
+        markAutoAccountSession(session.id, 'openai');
+      }
 
       // OCU-17 (#1058) — record the isolated worktree on the row so the payload
       // carries it and hard-delete can optionally clean it up later.

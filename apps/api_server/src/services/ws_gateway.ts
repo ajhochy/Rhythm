@@ -587,6 +587,55 @@ export async function handleInputFrame(
       } catch (routeErr) {
         console.error(`[ws_gateway] decision routing failed (non-fatal):`, routeErr);
       }
+      // Usage-capacity routing (AGENT_DECISION_CAPACITY_ROUTING): no-op when off.
+      // Model changes only for agent_default/tier sources; account switches only
+      // for sessions whose account was auto-picked at create time.
+      try {
+        if (resolvedTurnModel) {
+          const {
+            applyCapacityRouting,
+            switchAutoSessionAccount,
+            usageProviderFor,
+          } = await import('./decision/capacity_router');
+          const { classifyRouteTier } = await import('./agent_model_resolver');
+          const capRow = new AgentSessionsRepository().findById(id);
+          const capUsage = usageProviderFor(resolvedTurnModel.providerID);
+          const capDecision = await applyCapacityRouting({
+            agentId: trustedScopeAgent ?? agentKind,
+            baseRoute: resolvedTurnModel,
+            // The routed tier (if the router applied one) is already reflected in
+            // the route, so classifying the current route yields the same tier.
+            requiredTier: classifyRouteTier(resolvedTurnModel),
+            requestedSource: resolvedTurnProvenance?.requestedSource ?? 'agent_default',
+            sessionId: id,
+            currentAccountId:
+              capUsage === 'anthropic'
+                ? capRow?.anthropicAccountId ?? null
+                : capUsage === 'openai'
+                  ? capRow?.openaiAccountId ?? null
+                  : null,
+          });
+          if (capDecision) {
+            if (capDecision.routeChanged) {
+              resolvedTurnModel = capDecision.route;
+              if (resolvedTurnProvenance) {
+                resolvedTurnProvenance = {
+                  ...resolvedTurnProvenance,
+                  requestedSource: 'tier',
+                  requestedTier: classifyRouteTier(capDecision.route),
+                };
+              }
+            }
+            await switchAutoSessionAccount({
+              sessionId: id,
+              providerID: capDecision.route.providerID,
+              accountId: capDecision.accountId,
+            });
+          }
+        }
+      } catch (capErr) {
+        console.error(`[ws_gateway] capacity routing failed (non-fatal):`, capErr);
+      }
     } catch (err) {
       console.error(`[ws_gateway] early model resolution for Gemini tool cap failed (non-fatal):`, err);
     }

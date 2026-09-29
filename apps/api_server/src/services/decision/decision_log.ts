@@ -7,7 +7,7 @@ import { logger } from '../../utils/logger';
  * no-op / empty result on Postgres (the table is SQLite-only) and none of the
  * write paths ever throw into the prompt path.
  */
-export type DecisionFeature = 'model_routing' | 'tool_ranking' | 'memory_ranking';
+export type DecisionFeature = 'model_routing' | 'tool_ranking' | 'memory_ranking' | 'capacity_routing';
 
 export interface DecisionLogEntry {
   feature: string;

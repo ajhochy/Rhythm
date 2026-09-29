@@ -619,6 +619,7 @@ export function classifyRouteTier(route: ModelRoute): ModelTier {
     id.includes('haiku') ||
     id.includes('mini') ||
     id.includes('flash') ||
+    id.includes('luna') ||
     id.includes('qwen')
   ) {
     return 'cheap';

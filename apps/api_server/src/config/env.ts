@@ -258,6 +258,7 @@ const DECISION_FEATURE_ENV = {
   model_routing: 'AGENT_DECISION_MODEL_ROUTING',
   tool_ranking: 'AGENT_DECISION_TOOL_RANKING',
   memory_ranking: 'AGENT_DECISION_MEMORY_RANKING',
+  capacity_routing: 'AGENT_DECISION_CAPACITY_ROUTING',
 } as const;
 
 export function getDecisionFeatureMode(
@@ -280,6 +281,15 @@ export function getDecisionToolEagerServers(): number {
 
 export function getDecisionToolMinScore(): number {
   return unitIntervalEnv('AGENT_DECISION_TOOL_MIN_SCORE', 0.3);
+}
+
+/**
+ * Remaining-usage fraction (exclusive bounds 0..1) at or below which an account
+ * counts as "low" for capacity routing. Default 0.15.
+ */
+export function getDecisionCapacityLowFraction(): number {
+  const parsed = numberEnv('AGENT_DECISION_CAPACITY_LOW_FRACTION');
+  return parsed !== null && parsed > 0 && parsed < 1 ? parsed : 0.15;
 }
 
 export function getDecisionMemoryMinScore(): number {

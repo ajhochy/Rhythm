@@ -629,6 +629,22 @@ export function resolveRunModel(
   return { providerID: DEFAULT_PROVIDER, modelID: DEFAULT_MODEL };
 }
 
+/**
+ * True when the profile's agent_configs row itself sets a model (both
+ * modelProvider and modelId). profileScope.model is ALWAYS populated (profile
+ * -> MRU -> default), so it cannot serve as the pin signal. A lookup failure
+ * counts as pinned (fail closed).
+ */
+export function profileConfiguresModel(agentConfigId?: string | null): boolean {
+  if (!agentConfigId) return false;
+  try {
+    const cfg = new AgentConfigsRepository().getById(agentConfigId);
+    return !!(cfg?.modelProvider && cfg?.modelId);
+  } catch {
+    return true;
+  }
+}
+
 // ── Session recording ─────────────────────────────────────────────────────────
 
 /**
@@ -1001,7 +1017,8 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   // Local decision engine (AGENT_DECISION_MODEL_ROUTING): only when nothing pins
   // the model — no override, no task kind, no profile model or tier hint.
   // Failure keeps the model resolved above.
-  if (!modelOverride && !taskKind && !profileScope.model && !profileScope.modelTierHint) {
+  const profilePinsModel = profileConfiguresModel(effectiveConfigId);
+  if (!modelOverride && !taskKind && !profilePinsModel && !profileScope.modelTierHint) {
     try {
       const { routeTurnTier } = await import('./decision/model_router');
       const { classifyRouteTier, resolveTieredModel } = await import('./agent_model_resolver');
@@ -1024,6 +1041,27 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       }
     } catch (err) {
       logger.warn(`[AgentRunner] decision routing failed (non-fatal): ${String(err)}`);
+    }
+  }
+  // Usage-capacity routing (AGENT_DECISION_CAPACITY_ROUTING): same pin rules as
+  // above. Model only — run sessions keep their profile/default account.
+  if (resolvedModel && !modelOverride && !taskKind && !profilePinsModel && !profileScope.modelTierHint) {
+    try {
+      const { applyCapacityRouting } = await import('./decision/capacity_router');
+      const { classifyRouteTier } = await import('./agent_model_resolver');
+      const capDecision = await applyCapacityRouting({
+        agentId: effectiveConfigId ?? 'claude-code',
+        baseRoute: resolvedModel,
+        requiredTier: classifyRouteTier(resolvedModel),
+        requestedSource: requestedSource === 'tier' ? 'tier' : 'agent_default',
+      });
+      if (capDecision?.routeChanged) {
+        resolvedModel = capDecision.route;
+        requestedSource = 'tier';
+        requestedTier = classifyRouteTier(capDecision.route);
+      }
+    } catch (err) {
+      logger.warn(`[AgentRunner] capacity routing failed (non-fatal): ${String(err)}`);
     }
   }
   const effectiveSystemPrompt: string | null = profileScope.systemPrompt;

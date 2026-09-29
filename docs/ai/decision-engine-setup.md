@@ -104,3 +104,30 @@ Check the score scale with the smoke test for each, since servers differ in whet
 ## Hosted backend later (for example Jev)
 
 A hosted backend would be a new `RerankClient` implementation in `decision_client.ts`, returning the same `RerankResult` union. Nothing else in the engine changes. Today the client refuses any non-loopback base URL so that prompts and memories never leave the machine. A hosted backend would need an **explicit, separate opt-in** (its own env flag and a clear privacy decision), not a relaxation of the loopback guard.
+
+## Capacity routing
+
+`AGENT_DECISION_CAPACITY_ROUTING` = `off` (default) | `shadow` | `on`.
+`AGENT_DECISION_CAPACITY_LOW_FRACTION` (default `0.15`, range (0,1)) is the remaining-usage
+fraction at or below which an account counts as low.
+
+Behaviour (`services/decision/capacity_router.ts`, no reranker needed):
+
+- Reads ONLY the cached usage-budget snapshot (`getUsageBudget({cachedOnly:true})`). It never
+  triggers a provider probe on the turn path; an empty cache means no change.
+- Headroom per account = min `remainingFraction` across its windows. Unavailable entries are
+  ignored. Unknown headroom is not "low" but ranks below any known non-low account.
+- Base provider has a non-low account: keep the model, use the account with the most headroom.
+- Base provider is low: switch to another authed provider with a route in the same capability
+  tier (else the cheapest higher tier) that has capacity, on its most-headroom account.
+- Everything low: pick the lowest capability tier that still satisfies the job (never a cheaper
+  one), then the provider/account with the MOST headroom. Models in one tier are treated as
+  equivalent, so price never breaks ties.
+- Session create (`on` only): with no requested and no profile-default account, the account
+  with the most headroom replaces the store default. These sessions are remembered in memory.
+
+Guardrails: pinned sources (`turn_override`, `session`, `agent_config`) never change model.
+Turn-time account switching applies only to sessions whose account was auto-picked (in-memory
+set, lost on restart = no switching). A healthy current account is kept unless another leads
+by 10+ points. `shadow` logs to `agent_decision_log` (feature `capacity_routing`) and changes
+nothing. Every failure keeps the existing behaviour.
