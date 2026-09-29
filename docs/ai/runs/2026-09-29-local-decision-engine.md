@@ -2,7 +2,7 @@
 date: 2026-09-29
 repo: Rhythm
 branch: feat/local-decision-engine
-pr: TBD
+pr: https://github.com/ajhochy/Rhythm/pull/1588
 issues: []
 status: in-review
 tags: [run, Rhythm]
@@ -56,3 +56,13 @@ The plan was written and reviewed by the orchestrator. Four Sonnet subagents imp
   - 3 fixed: assertions now expect the new prompt argument.
   - 5 unrelated to this branch: a root-ignores-chmod test, 3 `sandbox.sh` shell tests, and a boot-timing flake that passes when run alone.
 - Next step: on the Mac, run llama-server with Qwen3-Reranker-4B, then `npx tsx scripts/decision_bench.ts`. Then set the three flags to `shadow` for a week and review `GET /agent-decisions`.
+
+## Follow-up work in the same PR (same day)
+
+- **Auto (router) session mode.** `agent_sessions.model_mode`; new interactive sessions default to `auto`. The picker offers "Auto (router)" first in Electron (`apps/web`), Flutter and mobile.
+- **Router backend settings.** Local / Jev / custom (LAN) with write-only keys, consent gating, and a test-connection endpoint. UI in Electron (Agent Settings → Models) and mobile (Settings → AI & providers).
+- **Routing scope.** `first_prompt` (default), `escalate_only`, `every_prompt`. Mobile prompts are routed in the OpenCode proxy, so no engine change was needed.
+- **Contrarian review fixes.** Auto sessions default to shadow, memory pool cap, usage-cache self-priming, cross-agent tier equivalence, and a decision-log cap.
+- **Calibration script.** `scripts/decision_calibrate.ts`: 20 labelled prompts → threshold sweep and description diagnostics.
+- **Checks.** api_server: 1035 focused tests pass. web: `tsc -b` clean and 9 Playwright contract tests pass. mobile: jest settings/chat suites pass (the 4 `issue-1387` and 1 `issue-1173` failures are pre-existing). Flutter: analyze at baseline, 740 tests pass, and the 2 golden failures are pre-existing Linux rendering diffs.
+- **Still unverified.** Nothing has run against a real reranker or Jev. The Jev field names come from third-party docs.

@@ -4,8 +4,8 @@
 
 - **Branch:** `feat/local-decision-engine`.
 - **What it adds:** reranker-based model routing, MCP tool ranking and memory ranking. The model is Qwen3-Reranker on llama.cpp over loopback. All three features default to `off`.
-- **Status:** PR open for review.
-- **Next:** run the bench against a real model on the Mac, then set the flags to `shadow`. See [run](runs/2026-09-29-local-decision-engine.md) and [setup](decision-engine-setup.md).
+- **Status:** [PR #1588](https://github.com/ajhochy/Rhythm/pull/1588) open for review. It now also carries Auto (router) session mode, router backend settings (local / Jev / custom) with Electron + mobile UI, routing scope (first prompt by default), mobile routing via the proxy, and the calibration script.
+- **Next:** on the Mac, start llama-server, run `scripts/decision_calibrate.ts`, adjust the threshold or tier descriptions, then set Model routing to On in Router settings. See [run](runs/2026-09-29-local-decision-engine.md) and [setup](decision-engine-setup.md).
 - **Unaffected:** the mega PR #1544 state below.
 
 ## Focus
