@@ -529,3 +529,120 @@ allowlist object is byte-identical to the root's, the prior root-session figures
 unchanged to those profiles as children.
 
 Cost of this addendum: **$0.**
+
+---
+
+# Addendum C — "Deactivate `task`, delegation-only": BLOCKED, do not ship
+
+Scope: AJ's instruction *"Children should spawn through the asynchronous delegation
+tool. We should de-activate the task tool."* Investigated end to end. **No production
+change was made.** Two hard strandings make wholesale deactivation a real capability
+removal, and one of them has no workaround at any layer. Reporting rather than forcing
+it through, per the honesty mandate.
+
+## C.1 — Async delegation DOES scope children correctly (OBSERVED, re-confirmed)
+
+`agent_delegation_service.ts:305` resolves `resolveProfileScope(targetId)` — the
+**child's** id — and passes `profileScope.mcpRoleConfig` + `skillNames` into
+`opencodeClient.createSession`, which lands them on `body.mcpAllowlist`
+(`opencode_client_service.ts:1522`) and `body.skillAllowlist` (:1541). No scope hole.
+
+Empirical confirmation from recorded child sessions (`agent_sessions.mcp_allowed_tools_json`,
+read-only). Child tool counts match the **child's own** `agent_configs.allowed_mcps_json`,
+never the parent's:
+
+| parent | child | child's own scope | recorded child `tools` |
+|---|---|---|---|
+| workflow-orchestrator (4 wildcard servers + 8 rhythm) | verification-gate | 9 rhythm tools | **9** |
+| secretary (5 wildcard servers) | fantasy-gm | 24 nfl + 2 obsidian + 4 rhythm = 30 | **30** |
+| workflow-orchestrator | planning-agent | 9 rhythm (+gitnexus wildcard) | **9** |
+| workflow-orchestrator (43 skills) | coding-agent | gitnexus wildcard, 7 skills | **0** (gitnexus not connected that run) |
+
+That is the number Task 4 asked for: a `coding-agent` delegated from
+`workflow-orchestrator` gets coding-agent's own scope (1 server / 7 skills), not the
+parent's (4 servers / 43 skills). Leaf *token* counts are still INFERRED from the
+Addendum-B root figures (~34.4k / 24 tools) since the allowlist object is identical;
+no paid completion was run. **Cost of this addendum: $0.**
+
+Out of scope, noted only: the same path hardcodes `effectiveCwd = callerSession.cwd`
+— issue #1575. Not touched.
+
+## C.2 — Mechanism that *would* work (not applied)
+
+`opencode_agent_writer.computeEffectivePermissionMap` already honors a scalar
+`task: 'deny'` (writer.ts:87-89) and emits it verbatim into the projected frontmatter.
+The fork honors it in two places: `tool/registry.ts:311` strips every subagent from the
+`task` description, and `tool/task.ts:147-157` `ctx.ask({permission:'task'})` fails the
+call. So the one-line deactivation is real and would take effect — the blocker is not
+mechanism, it is blast radius.
+
+## C.3 — STRANDED PATTERN 1: non-manager profiles lose all child spawning
+
+Confirms the coordinator's roster query independently. All ten of
+`workflow-orchestrator`'s delegates are `is_manager=0` with empty
+`allowed_delegates_json`. Async delegation requires `caller.isManager &&
+caller.sessionSelectable` (`agent_delegation_service.ts:284`), so a non-manager has no
+delegation route at all.
+
+Native (`explore`/`general`) `task` spawns, by parent `is_manager` (OBSERVED, from
+`agent_sessions` parent/child join):
+
+```
+native  parent is_manager=0   329      <-- stranded outright
+native  parent is_manager=1    60
+named   parent is_manager=0    93      (already closed by #1322)
+named   parent is_manager=1   630      (migrates cleanly to async delegation)
+```
+
+Top stranded callers: `planning-agent` 131, `fantasy-gm` 93, `ui-ux-designer` 31,
+`coding-agent` 18, `worship-production` 11, `AI-Trend-Researcher` 10, `worship-planning` 9,
+`librarian` 8, `Theological-Researcher` 7.
+
+## C.4 — STRANDED PATTERN 2 (decisive): headless/scheduled runs have NO async route
+
+`agent_delegation_service.ts:259-265` **hard-forbids** async delegation when the caller
+session `isSystem`, has a `scheduledTaskId`, or is not `category='chat'`. The projected
+manager preamble (`opencode_agent_writer.ts:194`) tells managers the opposite in so many
+words: *"In a scheduled, headless, or system run, use the `task` tool."*
+
+174 `task` spawns came from scheduled/system parents, including cross-profile ones with
+no async equivalent: `claude-code → verification-gate` ×15, `→ planning-agent` ×6,
+`→ coding-agent` ×6, `workflow-orchestrator → coding-agent` ×2,
+`Theological-Researcher → {secretary, theologian, librarian}` ×8.
+
+This one cannot be fixed by any roster edit. Deactivating `task` would silently break
+every scheduled agent's ability to spawn a child. **This is why the change is blocked.**
+
+## C.5 — Options, for AJ to decide (none applied)
+
+- **(a) Promote the delegates to `is_manager=1` + narrow rosters.** Fixes C.3 only.
+  C.4 still breaks every scheduled run. Also widens the manager preamble injection to
+  9 more profiles. Not sufficient alone.
+- **(b) Keep `task` for `explore` only, drop `general` + the cross-profile roster
+  projection.** (`TASK_NATIVE_SUBAGENTS` minus `general`; `buildTaskDelegatePermissions`
+  roster spread removed.) Preserves read-only leaf fan-out and the headless path for
+  `explore`. Still strands ~145 `general` calls and all 63 headless cross-profile calls.
+  Partial, and it is the largest safe step available today.
+- **(c) Lift the interactive-only gate in `startAsyncDelegation` first**, so headless
+  runs get a delegation route, *then* revisit (a)+(b). This is the actual prerequisite.
+  Order matters: C.4 must be closed before `task` can go anywhere.
+
+**Recommendation: (c) first, then (b), then (a). Do not deactivate `task` tonight.**
+
+## C.6 — Fate of the inheritance code (`bcce73c4` / `5cacfca4`): KEEP
+
+Task 3 asked for an explicit call with evidence. **Keep it.** The parent-scope fallback
+in `childMcpAllowlist`/`childSkillAllowlist` (`tool/task.ts`) is the floor for
+profile-less children — `explore` and `general` are never projected into
+`~/.config/opencode/agents/`, so they have no scope of their own to resolve. Under
+*every* option above, including (b), `task` stays reachable for at least `explore`, so
+that fallback is live code on a path with 389 recorded spawns. It is not dead and must
+not be removed. (Under a hypothetical full deactivation it would become dead for
+Rhythm — but non-Rhythm fork consumers still reach it, so it would stay regardless.)
+
+## C.7 — Tests
+
+No production change was made, so there is no RED/GREEN to report. The existing
+baseline (`bun test test/tool/task.test.ts`, 24 pass) is untouched. A mutation-proved
+test belongs with whichever option AJ picks; writing one now would test code that
+does not exist.
