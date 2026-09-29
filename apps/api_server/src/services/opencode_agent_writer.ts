@@ -95,8 +95,16 @@ export function computeEffectivePermissionMap(
       ? applyAuthoredTaskRestrictions(generatedTask, authoredTask)
       : generatedTask;
   }
-  if (config.isManager === true && config.sessionSelectable) {
-    if (permissions.rhythm_delegate_async === undefined) permissions.rhythm_delegate_async = 'allow';
+  // Deliberate binding: manager status implies async-delegation capability, and
+  // the two must never drift apart — a manager without async falls back to the
+  // `task` tool, which is the defect class this derivation prevents. Not gated
+  // on sessionSelectable, and a blanket authored 'deny'/'allow' string cannot
+  // override it. An authored per-target pattern object (e.g. denying one
+  // delegate by id) is preserved — that's scoping, not the top-level gate.
+  if (config.isManager === true) {
+    if (typeof permissions.rhythm_delegate_async !== 'object' || permissions.rhythm_delegate_async === null) {
+      permissions.rhythm_delegate_async = 'allow';
+    }
   } else {
     permissions.rhythm_delegate_async = 'deny';
   }
