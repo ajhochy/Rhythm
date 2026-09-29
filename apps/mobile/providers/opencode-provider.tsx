@@ -2254,7 +2254,8 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     await Promise.all([refreshMessages(sessionId, true), refreshSessions(true)]).catch(() => undefined);
   }, [authoritativePreferencesForSession, client, refreshMessages, refreshSessions]);
 
-  const ensureActiveSession = useCallback(async () => {
+  const ensureActiveSession = useCallback(async (options?: { allowCreate?: boolean }) => {
+    const allowCreate = options?.allowCreate ?? true;
     if (connection.status !== 'connected' || !activeProjectPath) {
       return undefined;
     }
@@ -2278,10 +2279,18 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       try {
         const nextSessions = sessions.length > 0 ? sessions : await fetchSessions(true);
         const rememberedSessionId = activeProjectPath ? lastSessionByProject[activeProjectPath] : undefined;
-        const targetSession =
+        const existingSession =
           nextSessions.find((session) => session.id === rememberedSessionId) ??
-          nextSessions[0] ??
-          (await createSession());
+          nextSessions[0];
+        // ponytail: the passive connect-bootstrap (allowCreate: false) must
+        // stay a read — it has no user intent to start a chat, so a project
+        // with zero sessions just has no active session yet. Only an
+        // explicit "open/send" caller (default allowCreate: true) may
+        // fabricate one on the user's behalf (dup-session regression).
+        if (!existingSession && !allowCreate) {
+          return undefined;
+        }
+        const targetSession = existingSession ?? (await createSession());
         // Slash commands, VCS status and MCP diagnostics are not needed to
         // show the chat, and on a cold engine directory they wait on every MCP
         // server (a minute when one never answers). Load them behind the open.
@@ -2678,16 +2687,19 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     // #1506 — the reconnect burst can catch a single transient edge 5xx. The
     // bootstrap is idempotent reads, so replay it once before surfacing an
     // error that, having no sessionId, would block every conversation.
+    // allowCreate: false — this passive bootstrap runs on every connect with
+    // no user intent to start a chat; it must never fabricate a session on
+    // its own (dup-session regression, docs/ai/spec-session-list-and-create-ui.md).
     let cancelled = false;
     const stillCurrent = () => !cancelled && isCurrentClient(client);
     void (async () => {
       try {
-        await ensureActiveSessionRef.current();
+        await ensureActiveSessionRef.current({ allowCreate: false });
       } catch {
         await new Promise((resolve) => setTimeout(resolve, BOOTSTRAP_RETRY_DELAY_MS));
         if (!stillCurrent()) return;
         try {
-          await ensureActiveSessionRef.current();
+          await ensureActiveSessionRef.current({ allowCreate: false });
         } catch (error) {
           if (!stillCurrent()) return;
           setPromptError({

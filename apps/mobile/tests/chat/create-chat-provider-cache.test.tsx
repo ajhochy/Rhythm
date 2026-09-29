@@ -42,6 +42,7 @@ const PROFILE = {
   profileId: 'profile-build',
   opencodeAgentId: 'build',
   name: 'Build',
+  label: 'Build',
   defaults: {
     providerId: 'openai',
     modelId: 'gpt-5',
@@ -560,5 +561,32 @@ describe('PR #1585 created-session provider cache', () => {
     } finally {
       process.off('unhandledRejection', captureUnhandled);
     }
+  });
+
+  test('cold connect with zero sessions must not phantom-create a session (dup-session regression)', async () => {
+    // Regression: the post-connect bootstrap (`ensureActiveSession`, fired
+    // unconditionally whenever connection.status flips to 'connected') treated
+    // itself as "idempotent reads" (see the #1506 comment above its call site
+    // in opencode-provider.tsx) but actually fell back to creating a brand
+    // new session whenever the project had zero sessions. That phantom,
+    // untitled session then sat in the session list forever, appearing as a
+    // second "Untitled chat" row alongside any chat the user later created
+    // for real (docs/ai/spec-session-list-and-create-ui.md screenshot).
+    render(<OpencodeProvider><Probe /></OpencodeProvider>);
+    await waitFor(() => expect(latest?.connection.status).toBe('connected'));
+    await waitFor(() => expect(latest?.activeProjectPath).toBe(ACTIVE_PROJECT));
+
+    // Give the connect-bootstrap effect (and its #1506 retry-once path) every
+    // opportunity to run before asserting nothing was created.
+    for (let i = 0; i < 20; i += 1) {
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+
+    expect(mockCreateMobileSession).not.toHaveBeenCalled();
+    expect(latest?.currentSessionId).toBeUndefined();
+    expect(latest?.sessions).toHaveLength(0);
   });
 });
