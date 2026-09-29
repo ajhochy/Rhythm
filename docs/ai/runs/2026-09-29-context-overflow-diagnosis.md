@@ -4,13 +4,19 @@ repo: Rhythm
 branch: mobile/transcript-delta-streaming
 pr: 1587
 issues: [1571, 1573, 1575, 1586]
-status: diagnosed
+status: corrected
 tags: [run, Rhythm]
 ---
 
 # Context-overflow diagnosis — every session carries ~261k tokens before the user says anything
 
-## Headline
+> **SUPERSEDED — see the CORRECTION section at the end of this file.**
+> Everything between here and the CORRECTION measured an **UNSCOPED raw-engine
+> session** that no real Rhythm agent profile ever runs as. The 261,691 number is
+> real but it is not the cost of AJ's agents. It is left in place unedited so the
+> record shows what changed.
+
+## Headline (UNSCOPED PATH — NOT REPRESENTATIVE OF REAL AGENT SESSIONS)
 
 **OBSERVED.** A brand-new session, empty database, `agent: "general"`, prompt
 `"Say hello in exactly 3 words."` costs **261,691 prompt tokens** — the provider's
@@ -219,3 +225,193 @@ structural headroom is, and is required for any 200k-window model to be usable a
 ## Not fixed here
 
 This run is diagnosis only. No production code changed.
+
+
+---
+
+# CORRECTION (2026-09-29, later run) — the 261,691 figure measured a path no agent uses
+
+AJ's objection was right. Everything above was measured on a raw engine session
+created with `agent: "general"` and **no `mcpAllowlist` / `skillAllowlist` on the
+create body**. That is not how Rhythm runs an agent.
+
+## 1. The real path — OBSERVED (code trace)
+
+Interactive turn (`apps/api_server/src/services/ws_gateway.ts`):
+
+```
+handleInputFrame
+  scopeAgentId = trustedScopeAgent ?? perTurnAgent ?? agentKind      (~ln 511)
+  resolveProfileScope(scopeAgentId)                                  (ln 577)
+    -> agent_profile_scope._buildMcpRoleConfig(allowed_mcps_json)
+    -> { mcpRoleConfig, allowedSkillsJson, systemPrompt, ocAgent }
+  wsSkillNames = JSON.parse(allowedSkillsJson)                       (ln 580-590)
+  opencodeClient.createSession(title, cwd, wsMcpRoleConfig, wsSkillNames, providerId, ...)
+    (opencode_client_service.ts ln 1405+)
+      expandMcpAllowlist(mcpRoleConfig)      -> { servers[], tools[] }
+      applySelectiveDeferral(..., FAT_SERVER_TOOL_COUNT=30)
+      capMcpAllowlistForProvider(..., providerId)       // google only
+      POST /session  body.mcpAllowlist   = { servers, tools }        (ln 1522)
+      POST /session  body.skillAllowlist = { skills }                (ln 1541)
+  (existing session) updateSessionAllowlist / updateSessionSkillAllowlist (ln 784/800)
+```
+
+Engine side (`apps/opencode_fork/packages/opencode/src/session/prompt.ts`):
+
+- `filterMcpToolsByAllowlist(Object.keys(mcpToolsAll), keyToServer, session.mcpAllowlist)` (ln 660)
+  — decides which MCP tool schemas enter `tools[]`.
+- `sys.skills(agent, session.skillAllowlist)` (ln 1760 / 2200) — filters the
+  `<available_skills>` catalog in the system prompt.
+- `describeSkill(input.agent, input.skillAllowlist)` (`tool/registry.ts` ln 356)
+  — filters the `skill` tool's description.
+
+Both copies of the skills catalog are filtered by the same allowlist, so the
+"catalog shipped twice" finding above is real in shape but ~10x smaller in
+magnitude on a scoped session.
+
+**The prior test never exercised that path.** It POSTed to the raw engine with no
+`mcpAllowlist` and no `skillAllowlist`, so `resolveProfileScope`,
+`expandMcpAllowlist`, and every skill-allowlist filter were bypassed entirely.
+
+## 2. Re-measurement through the scoped shape — OBSERVED
+
+Same method as above (engine from source, `provider.anthropic.options.baseURL`
+pointed at a local sink, dummy `ANTHROPIC_API_KEY`), on ports 4885/4881.
+**Zero model calls, zero cost.** Sessions were created with the exact
+`mcpAllowlist` / `skillAllowlist` that `resolveProfileScope` → `expandMcpAllowlist`
+produces — read verbatim from the projected agent files in
+`~/.config/opencode/agents/<id>.md` (`options:` frontmatter), which
+`opencode_agent_writer` writes from the same DB columns.
+
+Control first: the unscoped `agent: "general"` case reproduced at **695,417 bytes**
+vs the original **695,537** (Δ 120 bytes), so the harness is the same one.
+
+Token estimates use the bytes/token ratio **2.658** established by the original
+run's OBSERVED provider accounting on the byte-identical unscoped payload
+(695,537 B ↔ 261,691 tok). Marked INFERRED; the margins below are 3x, so
+tokenizer precision does not change any conclusion.
+
+| Session shape | MCP servers | Tools | Skills (entries / catalog B) | system B | Total B | Tokens (INFERRED) |
+|---|---|---:|---|---:|---:|---:|
+| **UNSCOPED raw `general`** (the old number) | all (20) | 460 | 280 / 153,906 | 187,715 | 693,893 | **~261,072** |
+| **`workflow-orchestrator`** / gpt-5.6-sol | gitnexus, obsidian, playwright, duckduckgo + 8 named rhythm tools | **73** | 42 / 22,726 | 51,496 | 166,907 | **~62,798** |
+| **`coding-agent`** / gpt-5.6-sol | gitnexus | **24** | 7 / 3,125 | 28,486 | 91,313 | **~34,356** |
+| **`planning-agent`** / claude-fable-5 | gitnexus + 9 named rhythm tools | **33** | 4 / 1,984 | 26,068 | 98,023 | **~36,880** |
+| **`secretary`** / claude-sonnet-5 | gmail-personal, gmail-work, obsidian, pco-services, rhythm | **195** | 10 / 3,419 | 30,697 | 204,479 | **~76,934** |
+
+The `skill` tool description shrinks with the catalog: 104,269 B unscoped →
+**16,018 B** on `workflow-orchestrator`, **2,909 B** on `coding-agent`.
+
+## 3. Does a properly-scoped profile fit under 200,000 tokens? — **YES**
+
+`workflow-orchestrator`, the profile that actually orchestrates AJ's sessions,
+costs **~62,800 tokens** — 24% of the unscoped figure and **31% of a 200k window**,
+leaving ~137k for actual work. The fattest real profile measured (`secretary`,
+195 tools) is ~77k. Every profile measured fits with 2.5–5x headroom.
+
+**This is therefore not a chronic payload problem.** It is a specific path that
+fails to apply scoping.
+
+## 4. The bypassing path — OBSERVED
+
+`apps/opencode_fork/packages/opencode/src/tool/task.ts`:
+
+```ts
+export function childMcpAllowlist(agent: Agent.Info, model): Session.Info["mcpAllowlist"] {
+  const value = agent.options.mcpAllowlist
+  if (!isMcpAllowlist(value)) return undefined        // <-- UNRESTRICTED
+  ...
+}
+
+export function childSkillAllowlist(agent: Agent.Info, parent: Session.Info) {
+  const value = agent.options.skillAllowlist
+  if (isSkillAllowlist(value)) return { skills: [...value.skills] }
+  return parent.skillAllowlist                        // <-- falls back to parent
+}
+```
+
+`childSkillAllowlist` inherits the parent's scope when the target agent declares
+none. **`childMcpAllowlist` does not** — it returns `undefined`, which the engine
+reads as "no restriction", i.e. every connected server's full tool surface.
+
+Which target agents declare none? The engine built-ins. `~/.config/opencode/agents/`
+holds 48 projected profiles and contains **no `general.md`, `explore.md`, `plan.md`,
+`build.md` or `compaction.md`** — `opencode_agent_writer` does not project them. Yet
+`workflow-orchestrator.md` grants exactly:
+
+```yaml
+task:
+  "*": deny
+  "explore": allow
+  "general": allow
+  "coding-agent": allow
+  "failure-triage": allow
+  "issue-writer": allow
+```
+
+So **every `explore` or `general` subagent the orchestrator spawns runs with all
+460 tools**, while inheriting the parent's 42-skill scope. (Note the DB rows for
+`general` and `explore` *do* carry `allowed_mcps_json = ["rhythm"]` — that scope is
+never reached on this path either, because the child is built from the projected
+agent file, not from the DB.)
+
+Measured that exact shape (no `mcpAllowlist`, parent's `skillAllowlist`) — OBSERVED:
+
+| | Tools | Skills | Total B | Tokens (INFERRED) |
+|---|---:|---:|---:|---:|
+| `general` subagent under `workflow-orchestrator` | **460** | 42 | 471,896 | **~177,548** |
+
+## 5. Reconciling `ContextOverflowError: 201231 tokens > 200000` — INFERRED, and it fits
+
+The raw-unscoped hypothesis in the task brief does **not** reconcile: a raw
+unscoped session on this machine costs ~261k, so it would have errored at ~261,xxx,
+not 201,231.
+
+The delegated-child shape does reconcile, arithmetically:
+
+- Fixed floor at turn zero: **~177,548 tokens**.
+- Headroom to the 200,000 ceiling: **~22,452 tokens**.
+- Reported failures: **201,231** and **203,941** — 1,231 and 3,941 over, and
+  **2,710 apart from each other**.
+
+A fixed payload produces one repeatable number. Two different numbers a few
+thousand tokens apart, both a hair over the ceiling, is a *growing conversation on
+a fixed ~177.5k floor* — one or two tool results in a subagent. That is exactly the
+`explore`/`general` child described in §4, on a 200k-window model
+(`claude-haiku-4-5`, `claude-opus-4-5`).
+
+**UNDETERMINED:** I could not find the failing sessions. `~/.local/share/opencode/opencode.db`
+has 0 rows matching `too long`; `rhythm.db`'s `agent_session_messages` has none
+either. The reconciliation above is arithmetic, not a recovered record.
+
+**Can any other real path overflow?** Three ways, in order of likelihood:
+
+1. **The §4 subagent bypass** — ~177.5k floor, ~22k of working room. Prime suspect,
+   and consistent with issue #1575 (child sessions inheriting manager state).
+2. **Three profiles have no MCP restriction at all** — `codex`, `gemini-cli`,
+   `opencode` all have `allowed_mcps_json` NULL/empty, which `resolveProfileScope`
+   treats as unrestricted → the full ~261k surface. All three are CLI-runner shims
+   with empty system prompts, so they are unlikely to be the failing sessions, but
+   they are genuine 200k-window landmines.
+3. **History accumulation** on a scoped profile — `workflow-orchestrator` starts at
+   ~62.8k, so it needs ~137k of conversation to overflow. Possible in a very long
+   session, not in the "brand new session fails immediately" symptom AJ reported.
+
+## 6. What this changes about the proposed fixes
+
+The three fixes proposed above are still correct in direction but are re-ranked:
+
+- **"Scope MCP servers per agent" is already built and already works** on the root
+  session path. It was ranked third as missing; it is not missing. It is *skipped*
+  for delegated children.
+- **The real fix is one function**: make `childMcpAllowlist` fall back to
+  `parent.mcpAllowlist` when the target agent declares no scope, exactly as
+  `childSkillAllowlist` already does for skills. Same file, ~2 lines.
+- The `drafts/` and duplicate-catalog wins are real but shrink by ~10x once
+  scoping applies (22,726 B of catalog on `workflow-orchestrator`, not 153,906 B).
+  They are worth doing; they are not the overflow.
+
+## Cost of this run
+
+**$0.** No completion was requested from any provider. Every capture came from the
+local sink with a dummy API key.
