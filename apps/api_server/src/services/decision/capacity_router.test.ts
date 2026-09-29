@@ -523,7 +523,11 @@ describe('cache self-priming', () => {
 });
 
 describe('cross-agent tier equivalence', () => {
-  const TERRA = { providerID: 'openai', modelID: 'gpt-5.6-terra' };
+  // The first OpenAI standard-tier route (gpt-5.4 today; terra is equivalent).
+  const expectOpenaiStandard = (route: { providerID: string; modelID: string }) => {
+    expect(route.providerID).toBe('openai');
+    expect(classifyRouteTier(route)).toBe('standard');
+  };
   const authedProviders = ['anthropic', 'openai'];
 
   it('all accounts low, standard job: sonnet at 9.9% beats terra at 6.5%', () => {
@@ -551,7 +555,7 @@ describe('cross-agent tier equivalence', () => {
     const r = chooseCapacityRoute({
       agentId: 'claude-code', requiredTier: 'standard', baseRoute: SONNET, authedProviders, snapshot,
     });
-    expect(r.route).toEqual(TERRA);
+    expectOpenaiStandard(r.route);
     expect(r.accountId).toBe('o1');
     expect(r.crossAgent).toBe(true);
   });
@@ -582,7 +586,7 @@ describe('cross-agent tier equivalence', () => {
       agentId: 'claude-code', baseRoute: SONNET, requiredTier: 'standard',
       requestedSource: 'agent_default', authedProviders,
     });
-    expect(d?.route).toEqual(TERRA);
+    expectOpenaiStandard(d!.route);
     expect(listDecisions({ feature: 'capacity_routing' })[0].detail).toMatchObject({ crossAgent: true });
   });
 });

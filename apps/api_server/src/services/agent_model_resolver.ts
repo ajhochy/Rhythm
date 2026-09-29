@@ -76,9 +76,11 @@ export const ROUTE_FALLBACKS_BY_AGENT: Record<string, ModelRoute[]> = {
   ],
   codex: [
     { providerID: 'openai', modelID: 'gpt-5.6-sol' },
-    { providerID: 'openai', modelID: 'gpt-5.6-terra' },
     { providerID: 'openai', modelID: 'gpt-5.3-codex' },
     { providerID: 'openai', modelID: 'gpt-5.4' },
+    // After gpt-5.4 so the #1568 standard-tier contract (gpt-5.4 first) holds;
+    // terra shares the account, so capacity routing is unaffected.
+    { providerID: 'openai', modelID: 'gpt-5.6-terra' },
     { providerID: 'openai', modelID: 'gpt-5.4-mini' },
     { providerID: 'github-copilot', modelID: 'gpt-5-mini' },
     { providerID: 'openrouter', modelID: 'openai/gpt-5.3-codex' },
