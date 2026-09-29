@@ -442,6 +442,10 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const openedSessionRecordCacheRef = useRef(
     new Map<string, { projectId: string; session: MobileSession }>(),
   );
+  const createdEmptySessionIdsRef = useRef(new Set<string>());
+  const loadedProfileCatalogByProjectRef = useRef(
+    new Map<string, AgentOption[]>(),
+  );
   const openProjectSessionRuntimeRef =
     useRef<OpenProjectSessionRuntime | null>(null);
   const openProjectSessionControllerRef =
@@ -991,8 +995,10 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       if (pairedHostRecord && pairedHostState !== 'connected') {
         return undefined;
       }
-      const messages = messagesBySession[sessionId];
-      if (!messages || messages.length === 0) {
+      const isCreatedEmptySession = createdEmptySessionIdsRef.current.has(sessionId);
+      const messages = messagesBySession[sessionId] ??
+        (isCreatedEmptySession ? [] : undefined);
+      if (!messages || (messages.length === 0 && !isCreatedEmptySession)) {
         return undefined;
       }
       let session: MobileSession | undefined;
@@ -1007,6 +1013,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         session = record?.projectId === projectId ? record.session : undefined;
       }
       if (!session) return undefined;
+      createdEmptySessionIdsRef.current.delete(sessionId);
       scheduleSessionRefresh(sessionId, {
         sessions: true,
         messages: true,
@@ -1443,7 +1450,12 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       // capability refresh here: it uses the shared client and can prevent
       // the creation sheet from rendering before the scoped catalog arrives.
       if (pairedHostClient) {
-        return listMobileGatewayProfiles(pairedHostClient, projectId);
+        const profiles = await listMobileGatewayProfiles(
+          pairedHostClient,
+          projectId,
+        );
+        loadedProfileCatalogByProjectRef.current.set(projectId, profiles);
+        return profiles;
       }
       if (projectId === activeProjectPath) {
         return refreshChatCapabilities();
@@ -1511,8 +1523,16 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       projectId = activeProjectPath,
     ): Promise<SessionExecutionState | undefined> => {
       if (!pairedHostClient || !projectId) return undefined;
-      const profiles =
-        projectId === activeProjectPath && availableAgents.length > 0
+      const loadedProfiles = loadedProfileCatalogByProjectRef.current.get(projectId);
+      loadedProfileCatalogByProjectRef.current.delete(projectId);
+      const loadedCatalogContainsSelection = loadedProfiles?.some(
+        (profile) =>
+          profile.profileId === preferences.profileId ||
+          profile.opencodeAgentId === preferences.mode,
+      );
+      const profiles = loadedCatalogContainsSelection && loadedProfiles
+        ? loadedProfiles
+        : projectId === activeProjectPath && availableAgents.length > 0
           ? availableAgents
           : await listMobileGatewayProfiles(pairedHostClient, projectId);
       const selectedProfile =
@@ -1602,12 +1622,28 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         preferences,
         projectId,
       );
-      if (projectId === activeProjectPath) {
-        await refreshSessions(true);
-      }
-      return authoritative
+      const createdSession = authoritative
         ? { ...created, rhythm: authoritative }
         : created;
+      if (projectId) {
+        openedSessionRecordCacheRef.current.set(created.id, {
+          projectId,
+          session: createdSession as MobileSession,
+        });
+        createdEmptySessionIdsRef.current.add(created.id);
+        setMessagesBySession((current) => ({
+          ...current,
+          [created.id]: [],
+        }));
+      }
+      if (projectId === activeProjectPath) {
+        setSessions((current) => [
+          createdSession as MobileSession,
+          ...current.filter((session) => session.id !== created.id),
+        ]);
+        settleBackgroundRead(() => refreshSessions(true));
+      }
+      return createdSession;
     },
     [
       activeProjectPath,
@@ -1620,6 +1656,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       pairedHostClient,
       persistSessionPreferences,
       refreshSessions,
+      settleBackgroundRead,
       trackMacOffline,
     ],
   );

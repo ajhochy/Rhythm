@@ -13,7 +13,7 @@ import {
   TextInput,
 } from 'react-native-paper';
 
-import { Colors, Radii, Spacing } from '@/constants/theme';
+import { Colors, Radii, Spacing, TypeScale } from '@/constants/theme';
 import { normalizeProfileIcon } from '@/components/ui/profile-icon';
 import {
   applyProfileDefaults,
@@ -247,13 +247,13 @@ export function SessionConfigurationSheet({
         onDismiss={onDismiss}
         style={styles.dialog}
         visible={visible}>
-        <Dialog.Title accessibilityLabel={dialogTitle}>
+        <Dialog.Title accessibilityLabel={dialogTitle} style={styles.dialogTitle}>
           {dialogTitle}
         </Dialog.Title>
         <Dialog.ScrollArea style={styles.scrollArea}>
           <ScrollView
-            contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled">
+            <View style={styles.content} testID="session-configuration-content">
             {page !== 'summary' ? (
               <>
                 <Searchbar
@@ -368,46 +368,42 @@ export function SessionConfigurationSheet({
                   </Text>
                 ) : (
                   <>
-                    <View style={[styles.field, styles.groupedField, { backgroundColor: palette.surfaceAlt }]}>
-                      <Text accessibilityLabel="Profile" variant="labelLarge">
-                        Profile
-                      </Text>
-                      <List.Item
-                        accessibilityLabel={`Profile, ${selectedProfile?.label ?? 'Unassigned'}`}
-                        accessibilityRole="button"
-                        disabled={busy || availableProfiles.length === 0}
-                        description={selectedProfile?.profileId}
-                        descriptionNumberOfLines={0}
-                        left={(props) => <List.Icon {...props} icon="account-outline" />}
-                        onPress={() => {
-                          setQuery('');
-                          setPage('profiles');
-                        }}
-                        title={selectedProfile?.label ?? 'Unassigned'}
-                        titleNumberOfLines={0}
-                      />
-                    </View>
-                    <View style={[styles.field, styles.groupedField, { backgroundColor: palette.surfaceAlt }]}>
-                      <Text accessibilityLabel="Model" variant="labelLarge">
-                        Model
-                      </Text>
-                      <List.Item
-                        accessibilityLabel={`Model, ${selectedModelLabel(availableModels, draft.modelId)}`}
-                        accessibilityRole="button"
-                        disabled={busy || modelGroups.length === 0}
-                        description={draft.modelId}
-                        descriptionNumberOfLines={0}
-                        left={(props) => <List.Icon {...props} icon="cube-outline" />}
-                        onPress={() => {
-                          setQuery('');
-                          setPage('models');
-                        }}
-                        title={selectedModelLabel(availableModels, draft.modelId)}
-                        titleNumberOfLines={0}
-                      />
-                    </View>
-                    <View style={[styles.field, styles.groupedField, { backgroundColor: palette.surfaceAlt }]}>
-                      <Text accessibilityLabel="Reasoning" variant="labelLarge">
+                    <List.Item
+                      accessibilityLabel={`Profile, ${selectedProfile?.label ?? 'Unassigned'}`}
+                      accessibilityRole="button"
+                      disabled={busy || availableProfiles.length === 0}
+                      description={selectedProfile?.label ?? 'Unassigned'}
+                      descriptionNumberOfLines={1}
+                      left={(props) => <List.Icon {...props} icon="account-outline" />}
+                      onPress={() => {
+                        setQuery('');
+                        setPage('profiles');
+                      }}
+                      style={styles.summaryRow}
+                      testID="session-profile-row"
+                      title="Profile"
+                      titleNumberOfLines={1}
+                      titleStyle={styles.rowLabel}
+                    />
+                    <List.Item
+                      accessibilityLabel={`Model, ${selectedModelLabel(availableModels, draft.modelId)}`}
+                      accessibilityRole="button"
+                      disabled={busy || modelGroups.length === 0}
+                      description={selectedModelLabel(availableModels, draft.modelId)}
+                      descriptionNumberOfLines={1}
+                      left={(props) => <List.Icon {...props} icon="cube-outline" />}
+                      onPress={() => {
+                        setQuery('');
+                        setPage('models');
+                      }}
+                      style={styles.summaryRow}
+                      testID="session-model-row"
+                      title="Model"
+                      titleNumberOfLines={1}
+                      titleStyle={styles.rowLabel}
+                    />
+                    <View style={styles.field}>
+                      <Text accessibilityLabel="Reasoning" style={styles.fieldLabel}>
                         Reasoning
                       </Text>
                       <SegmentedButtons
@@ -426,7 +422,7 @@ export function SessionConfigurationSheet({
                     <View style={styles.field}>
                       <Text
                         accessibilityLabel="Approval Policy"
-                        variant="labelLarge">
+                        style={styles.fieldLabel}>
                         Approval Policy
                       </Text>
                       <Text variant="bodySmall" style={{ color: palette.muted }}>
@@ -447,6 +443,8 @@ export function SessionConfigurationSheet({
                             key={option.value}
                             disabled={busy}
                             label={option.label}
+                            labelStyle={styles.radioLabel}
+                            style={styles.radioItem}
                             value={option.value}
                           />
                         ))}
@@ -470,6 +468,7 @@ export function SessionConfigurationSheet({
                 ) : null}
               </>
             )}
+            </View>
           </ScrollView>
         </Dialog.ScrollArea>
         <Dialog.Actions>
@@ -502,9 +501,14 @@ export function SessionConfigurationSheet({
 
 const styles = StyleSheet.create({
   actions: { gap: 6 },
-  content: { gap: Spacing.x4, paddingHorizontal: Spacing.x6, paddingVertical: Spacing.x3 },
+  content: { gap: Spacing.x2, paddingHorizontal: Spacing.x4, paddingVertical: Spacing.x2 },
   dialog: { borderRadius: Radii.sheet, maxHeight: '90%' },
-  field: { gap: 8 },
-  groupedField: { borderRadius: Radii.grouped, padding: Spacing.x3 },
+  dialogTitle: { fontSize: TypeScale.title3, lineHeight: TypeScale.title2 },
+  field: { gap: Spacing.x1 },
+  fieldLabel: { fontSize: TypeScale.footnote, fontWeight: '600' },
+  radioItem: { minHeight: 44, paddingHorizontal: 0, paddingVertical: 0 },
+  radioLabel: { fontSize: TypeScale.footnote },
+  rowLabel: { fontSize: TypeScale.footnote, fontWeight: '600' },
   scrollArea: { paddingHorizontal: 0 },
+  summaryRow: { minHeight: 52, paddingHorizontal: 0, paddingVertical: 0 },
 });

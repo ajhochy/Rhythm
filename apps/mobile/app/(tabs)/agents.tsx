@@ -347,14 +347,14 @@ export default function AgentsScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  header: { paddingBottom: 8, paddingHorizontal: 16, paddingTop: 8 },
+  header: { paddingBottom: 4, paddingHorizontal: 12, paddingTop: 4 },
   headerRow: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
   headerActions: { alignItems: 'center', flexDirection: 'row', gap: 4 },
-  largeTitle: { fontSize: 34, fontWeight: '700', lineHeight: 41 },
+  largeTitle: { fontSize: 22, fontWeight: '700', lineHeight: 28 },
   headerAction: {
     alignItems: 'center',
     justifyContent: 'center',
