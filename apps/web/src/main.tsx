@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import { FixtureProvider } from './store';
 import { composeGateway } from './gateway';
+import { ensureRhythmMcp } from './gateway/mcp';
 import { GatewayProvider } from './gateway/context';
 import { AuthUserProvider, GoogleSignIn, type AuthLoginResponse, type AuthUser, type DesktopAuthBridge } from './gateway/auth';
 import './styles.css';
@@ -86,7 +87,9 @@ try {
       ));
     } else {
       const onAuthenticated = (login: AuthLoginResponse) => {
-        try { renderGateway(login.sessionToken, login.user); } catch (error) { renderStartupError(error); }
+        try { renderGateway(login.sessionToken, login.user); } catch (error) { renderStartupError(error); return; }
+        void ensureRhythmMcp(apiBase, productionApiBase, login.sessionToken)
+          .catch((error) => console.warn('[rhythm-mcp] ensure failed', error));
       };
       const renderSignIn = () => root.render(<React.StrictMode><GoogleSignIn auth={runtimeGateway?.auth} onAuthenticated={onAuthenticated} /></React.StrictMode>);
       const restore = runtimeGateway?.auth?.currentSession;

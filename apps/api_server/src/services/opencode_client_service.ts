@@ -3579,7 +3579,7 @@ export class OpencodeClientService {
   async ensureRhythmMcp(
     apiToken: string,
     apiUrl: string,
-    opts?: { configPath?: string; register?: boolean },
+    opts?: { configPath?: string; register?: boolean; deletionPath?: string },
   ): Promise<{ changed: boolean; registered: boolean }> {
     const { existsSync, readFileSync, writeFileSync, mkdirSync } =
       require('fs') as typeof import('fs');
@@ -3635,6 +3635,15 @@ export class OpencodeClientService {
     logger.info('[OpencodeClientService] ensureRhythmMcp: persisted rhythm config');
     // #723 — rhythm was just (re-)persisted; clear any stale removal marker.
     this.markMcpPresent('rhythm');
+    // #1221 — ensure is an explicit (re)install of the core rhythm server, so also
+    // clear a durable deletion left from when it was removed while broken. A caller
+    // that redirects configPath (tests) gets the deletion store beside it, never the
+    // real ~/.config/rhythm/mcp-deletions.json.
+    this.writeMcpDeletion(
+      'rhythm',
+      false,
+      opts?.deletionPath ?? (opts?.configPath ? join(dirname(opts.configPath), 'mcp-deletions.json') : undefined),
+    );
 
     let registered = false;
     if (opts?.register !== false) {
