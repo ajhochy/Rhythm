@@ -163,6 +163,9 @@ export function mergeTranscriptPage(state: TranscriptState, page: RichTranscript
   let next = state;
   for (const row of page) {
     if (!row.id || isRemoved(next, row.id)) continue;
+    // A confirmed optimistic copy (already an alias target) must not be re-seeded from a stale
+    // caller snapshot: its engine row is unchanged, so nothing would re-alias it and it pins at the bottom.
+    if (row.id.startsWith('local-user-') && Object.values(next.aliases ?? {}).includes(row.id)) continue;
     const existing = next.messages.find(m => m.id === row.id);
     const alias = aliasUser(next, row, next.messages);
     const info: RichTranscriptMessage = { ...existing, ...alias.message, blocks: existing?.blocks ?? [], createdAt: existing?.createdAt || row.createdAt, interrupted: row.interrupted || existing?.interrupted };

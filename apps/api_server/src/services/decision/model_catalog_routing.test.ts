@@ -122,14 +122,15 @@ describe('router chooses only models enabled in Rhythm curation', () => {
     expect(after.route).toEqual({ providerID: 'openai', modelID: 'gpt-5.6-sol' });
   });
 
-  it('a policy-listed model with no curation row is not routable (gpt-5.6-terra)', async () => {
-    db.prepare("DELETE FROM agent_model_visibility WHERE model_id = 'gpt-5.6-terra'").run();
-    const r = await route(session('openai', 'gpt-5.6-luna'), [0.02, 0.95, 0.03]);
-    expect(r.route?.modelID).not.toBe('gpt-5.6-terra');
+  it('anthropic models the panel shows checked by default (no curation row) are routable', async () => {
+    db.prepare("DELETE FROM agent_model_visibility WHERE provider = 'anthropic'").run();
+    const r = await route(session('anthropic', 'claude-sonnet-5-5'), [0.02, 0.05, 0.95]);
+    expect(r.route).toEqual({ providerID: 'anthropic', modelID: 'claude-opus-5-5' });
   });
 
   it('empty curation: the baseline route is kept (no static fallback) and the reason is logged', async () => {
-    db.prepare('DELETE FROM agent_model_visibility').run();
+    // Everything unchecked in the panel (explicit hides; no rows would fall back to the default-on families).
+    for (const p of LIVE.providers) for (const m of p.models) setVisible(p.id, m.id, false);
     const r = await route(session('anthropic', 'claude-haiku-5-0'), [0.02, 0.05, 0.95]);
     expect(r.route).toEqual({ providerID: 'anthropic', modelID: 'claude-haiku-5-0' });
     const log = listDecisions({}).find((d) => d.feature === 'model_routing')!;

@@ -7,7 +7,7 @@ test.skip(process.env.RHYTHM_ROUTER_AUTO_CONTRACT !== '1', 'Run with the router-
 type Body = Record<string, any>;
 type State = {
   session: Body; patches: Body[]; frames: Body[]; provenance: Body; routerConfig: Body; routerPuts: Body[]; routerTests: Body[];
-  putError: { status: number; message: string } | null; testFails: boolean;
+  putError: { status: number; message: string } | null; testFails: boolean; visibilityPatches: Body[];
 };
 
 const catalog = [
@@ -56,7 +56,7 @@ async function setup(page: Page, opts: { modelMode?: 'auto' | 'fixed' | undefine
   const modelMode = 'modelMode' in opts ? opts.modelMode : 'auto';
   const state: State = {
     session: { id: 's1', name: 'Router session', profileId: 'p1', cwd: '/tmp/x', providerId: 'openai', modelId: 'gpt-6', status: 'idle', createdAt: '2026-09-29T00:00:00.000Z', updatedAt: '2026-09-29T00:00:00.000Z', ...(modelMode ? { modelMode } : {}) },
-    patches: [], frames: [], routerPuts: [], routerTests: [], putError: null, testFails: false,
+    patches: [], frames: [], routerPuts: [], routerTests: [], putError: null, testFails: false, visibilityPatches: [],
     provenance: { available: true, requestedModelId: 'gpt-6', servedModels: [], multiModel: false, routed: true, steps: { unattributed: 0 }, dispatches: [{ requestedSource: 'auto', finalProviderId: 'anthropic', finalModelId: 'claude-sonnet-4-6' }] },
     routerConfig: baseRouterConfig(),
   };
@@ -108,9 +108,26 @@ async function setup(page: Page, opts: { modelMode?: 'auto' | 'fixed' | undefine
       if (body.remoteDataConsent !== undefined) next.remoteDataConsent = body.remoteDataConsent;
       if (body.features) Object.assign(next.features, body.features);
       if (next.catalog && next.catalog.models.length && (body.tiers || body.tierOverrides || body.excludedModels)) {
-        next.catalog = buildCatalog(body.tierOverrides ?? {}, body.excludedModels ?? [], body.tiers?.mode === 'manual' ? { mode: 'manual', cheapMaxOutputUsd: body.tiers.cheapMaxOutputUsd, frontierMinOutputUsd: body.tiers.frontierMinOutputUsd, derivedFromModels: 12 } : body.tiers?.mode === 'auto' ? CATALOG_THRESHOLDS : next.catalog.tiers);
+        // Partial merge, like the real server: absent fields keep their saved value.
+        const cur = next.catalog;
+        const curOverrides = Object.fromEntries(cur.models.filter((m: Body) => m.tierSource === 'override').map((m: Body) => [`${m.providerID}/${m.modelID}`, m.tier]));
+        const curExcluded = cur.models.filter((m: Body) => m.excluded).map((m: Body) => `${m.providerID}/${m.modelID}`);
+        const enabled = new Map(cur.models.map((m: Body) => [`${m.providerID}/${m.modelID}`, m.enabled]));
+        const tiersBody = body.tiers ?? cur.tiers;
+        next.catalog = buildCatalog(body.tierOverrides ?? curOverrides, body.excludedModels ?? curExcluded, tiersBody?.mode === 'manual' ? { mode: 'manual', cheapMaxOutputUsd: tiersBody.cheapMaxOutputUsd, frontierMinOutputUsd: tiersBody.frontierMinOutputUsd, derivedFromModels: 12 } : body.tiers?.mode === 'auto' ? CATALOG_THRESHOLDS : next.catalog.tiers);
+        next.catalog.models = next.catalog.models.map((m: Body) => ({ ...m, ...(enabled.get(`${m.providerID}/${m.modelID}`) === undefined ? {} : { enabled: enabled.get(`${m.providerID}/${m.modelID}`) }) }));
+        if (cur.curatedCount !== undefined) next.catalog.curatedCount = cur.curatedCount;
+        if (cur.reason) next.catalog.reason = cur.reason;
       }
       return json(next);
+    }
+    if (path === '/agent-models/visibility' && request.method() === 'PATCH') {
+      const body = request.postDataJSON() as Body; state.visibilityPatches.push(body);
+      const updates: Body[] = Array.isArray(body) ? body : body.updates ?? [body];
+      const cat = state.routerConfig.catalog;
+      for (const u of updates) for (const m of cat?.models ?? []) if (m.providerID === u.provider && m.modelID === u.modelId) m.enabled = u.visible;
+      if (cat) { cat.curatedCount = cat.models.filter((m: Body) => m.enabled !== false).length; if (cat.curatedCount) delete cat.reason; }
+      return json({ ok: true });
     }
     if (path === '/agent-decisions/config/test') {
       state.routerTests.push(request.postDataJSON() as Body);
@@ -193,7 +210,7 @@ test('router:A5 a fixed session still sends its stored model', async ({ page }) 
 });
 
 async function openRouterSettings(page: Page) {
-  await page.goto('/#/tools/agent-settings?settingsSection=models');
+  await page.goto('/#/tools/agent-settings?settingsSection=model-routing&settingsItem=backend');
   await expect(page.getByTestId('router-settings')).toBeVisible();
   await expect(page.getByTestId('router-local-url')).toHaveValue('http://127.0.0.1:8012');
 }
@@ -277,183 +294,164 @@ test('router:B4 save PUTs only what changed for secrets: apiKey only when typed;
   await expect(page.getByTestId('router-jev-key-saved')).toHaveCount(0);
 });
 
-const rowKey = (key: string) => `router-model-row-${key}`;
 const HAIKU = 'anthropic/claude-haiku-4-5';
 const QWEN = 'ollama/qwen3';
 const FLASH = 'google/gemini-3-flash';
 const MINI = 'openai/gpt-6-mini';
 const SONNET = 'anthropic/claude-sonnet-4-6';
+const GPT6 = 'openai/gpt-6';
+const row = (page: Page, key: string) => page.getByTestId(`router-model-row-${key}`);
+const modelNames = (page: Page) => page.getByTestId('settings-column-models').locator('[role="option"]').evaluateAll((els) => els.map((el) => el.getAttribute('aria-label')));
 
-test('router:C1 catalog renders grouped by tier with cost/heuristic/override hints, prices, dates, context and exclusion', async ({ page }) => {
+async function openRouting(page: Page, group = 'all') {
+  await page.goto(`/#/tools/agent-settings?settingsSection=model-routing&settingsItem=${encodeURIComponent(group)}`);
+  await expect(page.getByTestId('settings-column-items')).toBeVisible();
+}
+
+test('router:C1 sections → groups → models → inspector; groups carry counts; the inspector shows tier source, prices, dates, context and exclusion', async ({ page }) => {
   await setup(page);
-  await openRouterSettings(page);
-  const catalogSection = page.getByTestId('router-catalog');
-  await expect(catalogSection.getByRole('heading', { name: 'Models the router chooses among' })).toBeVisible();
-  await expect(page.getByTestId('router-catalog-empty')).toHaveCount(0);
-  await expect(page.getByTestId('router-catalog-mode-auto')).toBeChecked();
-  await expect(page.getByTestId('router-catalog-cheap-max')).toHaveValue('6');
-  await expect(page.getByTestId('router-catalog-cheap-max')).toHaveAttribute('readonly', '');
-  await expect(page.getByTestId('router-catalog-frontier-min')).toHaveValue('25');
-  await expect(page.getByTestId('router-catalog-mode-hint')).toHaveText('Derived from 12 catalog prices');
-  await expect(page.getByTestId('router-catalog-threshold-error')).toBeHidden();
+  await openRouting(page, 'tier:frontier');
+  await expect(page.getByTestId('router-group-tier-frontier')).toContainText('2');
+  await expect(page.getByTestId('router-group-tier-cheap')).toContainText('3');
+  await expect(page.getByTestId('router-group-provider-anthropic')).toContainText('3');
+  await expect(page.getByTestId('router-group-excluded')).toContainText('1');
+  expect(await modelNames(page)).toEqual(['Claude Opus 5', 'GPT-6']);
 
-  const rows = async (tier: string) => page.getByTestId(`router-catalog-group-${tier}`).locator('li strong').allTextContents();
-  expect(await rows('frontier')).toEqual(['GPT-6', 'Claude Opus 5']);
-  expect(await rows('standard')).toEqual(['Claude Sonnet 4.6', 'Qwen3 (local)']);
-  expect(await rows('cheap')).toEqual(['GPT-6 Mini', 'Gemini 3 Flash', 'Claude Haiku 4.5']);
+  await row(page, GPT6).click();
+  const inspector = page.getByTestId(`router-model-inspector-${GPT6}`);
+  await expect(inspector).toContainText('openai/gpt-6');
+  await expect(inspector).toContainText('$40/M');
+  await expect(inspector).toContainText('$10/M');
+  await expect(inspector).toContainText('2026-08-01');
+  await expect(inspector).toContainText('1M');
+  await expect(page.getByTestId(`router-model-source-${GPT6}`)).toHaveText('cost');
+  await expect(page.getByTestId(`router-model-reset-${GPT6}`)).toHaveCount(0);
+  await expect(page.getByTestId(`router-model-status-${GPT6}`)).toHaveText('Routable');
 
-  const gpt6 = page.getByTestId(rowKey('openai/gpt-6'));
-  await expect(gpt6).toContainText('openai · gpt-6');
-  await expect(gpt6).toContainText('$40/M');
-  await expect(gpt6).toContainText('$10/M');
-  await expect(gpt6).toContainText('2026-08-01');
-  await expect(gpt6).toContainText('1M');
-  await expect(page.getByTestId('router-model-source-openai/gpt-6')).toHaveText('cost');
-  await expect(page.getByTestId(`router-model-source-${FLASH}`)).toHaveText('heuristic');
-  await expect(page.getByTestId(rowKey(FLASH))).toContainText('—');
+  await openRouting(page, 'all');
+  await row(page, QWEN).click();
   await expect(page.getByTestId(`router-model-source-${QWEN}`)).toHaveText('override');
-  await expect(page.getByTestId(`router-model-reset-${QWEN}`)).toBeVisible();
-  await expect(page.getByTestId('router-model-reset-openai/gpt-6')).toHaveCount(0);
   await expect(page.getByTestId(`router-model-tier-${QWEN}`)).toHaveValue('standard');
-  await expect(page.getByTestId(`router-model-exclude-${HAIKU}`)).toBeChecked();
-  await expect(page.getByTestId(`router-model-exclude-${MINI}`)).not.toBeChecked();
-  // Accessible names and 44px targets.
-  await expect(page.getByRole('combobox', { name: 'Tier for GPT-6 Mini' })).toBeVisible();
+  await expect(page.getByTestId(`router-model-reset-${QWEN}`)).toBeVisible();
+  await row(page, HAIKU).click();
   await expect(page.getByRole('switch', { name: 'Exclude Claude Haiku 4.5' })).toBeChecked();
-  const box = await page.getByTestId(`router-model-tier-${MINI}`).boundingBox();
+  await expect(page.getByTestId(`router-model-status-${HAIKU}`)).toHaveText('Excluded from routing');
+  const box = await page.getByTestId(`router-model-tier-${HAIKU}`).boundingBox();
   expect(box?.height).toBeGreaterThanOrEqual(44);
-  const resetBox = await page.getByTestId(`router-model-reset-${QWEN}`).boundingBox();
-  expect(resetBox?.height).toBeGreaterThanOrEqual(44);
-  const switchBox = await page.getByTestId(`router-model-exclude-${MINI}`).locator('xpath=..').boundingBox();
-  expect(switchBox?.height).toBeGreaterThanOrEqual(44);
 });
 
-test('router:C2 changing a tier and excluding a model PUTs tiers, tierOverrides and excludedModels; reset drops the override; GET is re-read', async ({ page }) => {
-  const state = await setup(page);
-  await openRouterSettings(page);
-  await page.getByTestId(`router-model-tier-${FLASH}`).selectOption('frontier');
-  await expect(page.getByTestId(`router-model-source-${FLASH}`)).toHaveText('override');
-  await expect(page.getByTestId('router-catalog-group-frontier').locator('li strong')).toContainText(['Gemini 3 Flash']);
-  await page.getByTestId(`router-model-exclude-${MINI}`).check();
-  await page.getByTestId('router-save').click();
-  await expect(page.getByTestId('router-notice')).toHaveText('Router settings saved');
-  expect(state.routerPuts[0].tiers).toEqual({ mode: 'auto' });
-  expect(state.routerPuts[0].tierOverrides).toEqual({ [QWEN]: 'standard', [FLASH]: 'frontier' });
-  expect(state.routerPuts[0].excludedModels).toEqual([MINI, HAIKU]);
-  // Read-back state comes from the server response.
-  await expect(page.getByTestId(`router-model-exclude-${MINI}`)).toBeChecked();
-  await expect(page.getByTestId(`router-model-source-${FLASH}`)).toHaveText('override');
+test('router:C2 model list is searchable and sortable', async ({ page }) => {
+  await setup(page);
+  await openRouting(page, 'all');
+  expect(await modelNames(page)).toEqual(['Claude Haiku 4.5', 'Claude Opus 5', 'Claude Sonnet 4.6', 'Gemini 3 Flash', 'GPT-6', 'GPT-6 Mini', 'Qwen3 (local)']);
+  await page.getByTestId('router-model-sort').selectOption('price-desc');
+  expect(await modelNames(page)).toEqual(['Claude Opus 5', 'GPT-6', 'Claude Sonnet 4.6', 'Claude Haiku 4.5', 'GPT-6 Mini', 'Qwen3 (local)', 'Gemini 3 Flash']);
+  await page.getByTestId('router-model-sort').selectOption('newest');
+  expect((await modelNames(page)).slice(0, 2)).toEqual(['GPT-6', 'GPT-6 Mini']);
+  await page.getByTestId('router-model-search').fill('claude');
+  expect(await modelNames(page)).toEqual(['Claude Opus 5', 'Claude Sonnet 4.6', 'Claude Haiku 4.5']);
+  await page.getByTestId('router-model-search').fill('ollama');
+  expect(await modelNames(page)).toEqual(['Qwen3 (local)']);
+  await page.getByTestId('router-model-search').fill('nothing-matches');
+  await expect(page.getByTestId('settings-column-models')).toContainText('No matching models.');
+});
 
+test('router:C3 tier, reset and exclude save immediately with the full override/exclusion sets and nothing else', async ({ page }) => {
+  const state = await setup(page);
+  await openRouting(page, 'all');
+  await row(page, FLASH).click();
+  await page.getByTestId(`router-model-tier-${FLASH}`).selectOption('frontier');
+  await expect.poll(() => state.routerPuts.length).toBe(1);
+  expect(state.routerPuts[0]).toEqual({ tierOverrides: { [QWEN]: 'standard', [FLASH]: 'frontier' }, excludedModels: [HAIKU] });
+  await expect(page.getByTestId(`router-model-source-${FLASH}`)).toHaveText('override');
+  await expect(page.getByTestId('router-group-tier-frontier')).toContainText('3');
+
+  await row(page, MINI).click();
+  await page.getByTestId(`router-model-exclude-${MINI}`).click(); // saved immediately; reflects the server read-back
+  await expect(page.getByTestId(`router-model-exclude-${MINI}`)).toBeChecked();
+  await expect.poll(() => state.routerPuts.length).toBe(2);
+  expect(state.routerPuts[1].excludedModels).toEqual([MINI, HAIKU]);
+
+  await row(page, QWEN).click();
   await page.getByTestId(`router-model-reset-${QWEN}`).click();
+  await expect.poll(() => state.routerPuts.length).toBe(3);
+  expect(state.routerPuts[2].tierOverrides).toEqual({ [FLASH]: 'frontier' });
   await expect(page.getByTestId(`router-model-source-${QWEN}`)).toHaveText('cost');
   await expect(page.getByTestId(`router-model-reset-${QWEN}`)).toHaveCount(0);
-  await page.getByTestId(`router-model-exclude-${HAIKU}`).uncheck();
-  await page.getByTestId('router-save').click();
-  await expect.poll(() => state.routerPuts.length).toBe(2);
-  expect(state.routerPuts[1].tierOverrides).toEqual({ [FLASH]: 'frontier' });
-  expect(state.routerPuts[1].excludedModels).toEqual([MINI]);
-  await expect(page.getByTestId(`router-model-source-${QWEN}`)).toHaveText('cost');
 });
 
-test('router:C3 auto shows derived read-only cutoffs and sends only {mode:auto}; manual is prefilled, validates, and previews only cost-tiered models', async ({ page }) => {
+test('router:C4 thresholds: auto is read-only and sends only {tiers:{mode:auto}}; manual validates, previews and saves', async ({ page }) => {
   const state = await setup(page);
-  await openRouterSettings(page);
+  await openRouting(page, 'thresholds');
   const cheap = page.getByTestId('router-catalog-cheap-max');
   const frontier = page.getByTestId('router-catalog-frontier-min');
   const error = page.getByTestId('router-catalog-threshold-error');
-  const save = page.getByTestId('router-save');
-
+  const save = page.getByTestId('router-thresholds-save');
+  await expect(page.getByTestId('router-catalog-mode-auto')).toBeChecked();
+  await expect(cheap).toHaveValue('6');
+  await expect(cheap).toHaveAttribute('readonly', '');
+  await expect(frontier).toHaveValue('25');
+  await expect(page.getByTestId('router-catalog-mode-hint')).toHaveText('Derived from 12 catalog prices');
   await save.click();
-  await expect(page.getByTestId('router-notice')).toBeVisible();
-  expect(state.routerPuts[0].tiers).toEqual({ mode: 'auto' });
+  await expect(page.getByTestId('router-thresholds-notice')).toBeVisible();
+  expect(state.routerPuts[0]).toEqual({ tiers: { mode: 'auto' } });
 
   await page.getByTestId('router-catalog-mode-manual').check();
-  await expect(cheap).toHaveValue('6');
-  await expect(frontier).toHaveValue('25');
-  await expect(cheap).not.toHaveAttribute('readonly', '');
-  await cheap.fill('20');
-  await expect(error).toBeHidden();
-  await expect(page.getByTestId('router-catalog-group-cheap').locator('li strong')).toContainText(['Claude Sonnet 4.6']);
-  // Override (qwen3) and heuristic (flash) rows keep their tier.
-  await expect(page.getByTestId(`router-model-tier-${QWEN}`)).toHaveValue('standard');
-  await expect(page.getByTestId(`router-model-tier-${FLASH}`)).toHaveValue('cheap');
-
   await cheap.fill('30');
   await expect(error).toContainText('lower than');
   await expect(save).toBeDisabled();
   await cheap.fill('0');
   await expect(error).toContainText('greater than 0');
-  await expect(save).toBeDisabled();
-  await cheap.fill('');
-  await expect(save).toBeDisabled();
   await cheap.fill('20');
   await frontier.fill('50');
   await expect(error).toBeHidden();
-  await expect(page.getByTestId('router-catalog-group-standard').locator('li strong')).toContainText(['GPT-6']);
-  await expect(save).toBeEnabled();
+  await expect(page.getByTestId('router-catalog-preview')).toHaveText('Cheap 4 · Standard 2 · Frontier 1');
   await save.click();
   await expect.poll(() => state.routerPuts.length).toBe(2);
-  expect(state.routerPuts[1].tiers).toEqual({ mode: 'manual', cheapMaxOutputUsd: 20, frontierMinOutputUsd: 50 });
-  await expect(page.getByTestId('router-catalog-mode-manual')).toBeChecked();
-  await expect(cheap).toHaveValue('20');
+  expect(state.routerPuts[1]).toEqual({ tiers: { mode: 'manual', cheapMaxOutputUsd: 20, frontierMinOutputUsd: 50 } });
+  await expect(page.getByTestId('router-group-thresholds')).toContainText('Manual');
+  await openRouting(page, 'all');
+  await row(page, SONNET).click();
   await expect(page.getByTestId(`router-model-tier-${SONNET}`)).toHaveValue('cheap');
-
-  // Back to auto: read-only again, no numbers sent, no local re-tiering preview.
-  await page.getByTestId('router-catalog-mode-auto').check();
-  await expect(cheap).toHaveAttribute('readonly', '');
-  await expect(save).toBeEnabled();
-  await save.click();
-  await expect.poll(() => state.routerPuts.length).toBe(3);
-  expect(state.routerPuts[2].tiers).toEqual({ mode: 'auto' });
-  await expect(cheap).toHaveValue('6');
 });
 
-test('router:C4 missing or empty catalog shows the static-fallback state and sends no catalog fields', async ({ page }) => {
+test('router:C5 missing or empty catalog shows the static-fallback state; only backend and thresholds groups', async ({ page }) => {
   for (const mode of ['missing', 'empty'] as const) {
-    const state = await setup(page, { catalog: mode });
-    await openRouterSettings(page);
-    await expect(page.getByTestId('router-catalog-empty')).toHaveText('Catalog unavailable — the engine is not running; the router will use the static fallback table');
-    await expect(page.getByTestId('router-catalog').locator('li')).toHaveCount(0);
-    if (mode === 'missing') await expect(page.getByTestId('router-catalog-cheap-max')).toHaveCount(0);
-    await page.getByTestId('router-save').click();
-    await expect(page.getByTestId('router-notice')).toBeVisible();
-    expect(state.routerPuts[0]).not.toHaveProperty('tierOverrides');
-    expect(state.routerPuts[0]).not.toHaveProperty('excludedModels');
+    await setup(page, { catalog: mode });
+    await openRouting(page, 'all');
+    await expect(page.getByTestId('router-catalog-empty').first()).toHaveText('Catalog unavailable — the engine is not running; the router will use the static fallback table');
+    await expect(page.getByTestId('settings-column-items').getByRole('option')).toHaveCount(2);
+    await expect(page.getByTestId('router-settings')).toBeVisible(); // falls back to the backend group
     await page.unrouteAll({ behavior: 'ignoreErrors' });
   }
 });
 
-test('router:C5 models not enabled in curation are muted, badged, disabled and never sent in the PUT body', async ({ page }) => {
+test('router:C6 models not enabled in curation are grouped, muted, locked, and can be enabled from the inspector', async ({ page }) => {
   const state = await setup(page, { catalog: 'partial' });
-  await openRouterSettings(page);
+  await openRouting(page, 'disabled');
   await expect(page.getByTestId('router-catalog-count')).toHaveText('Routing among 5 enabled models');
-  await expect(page.getByTestId('router-catalog-no-curated')).toHaveCount(0);
-  for (const key of [QWEN, HAIKU]) {
-    const row = page.getByTestId(rowKey(key));
-    await expect(row).toHaveClass(/disabled/);
-    await expect(page.getByTestId(`router-model-not-enabled-${key}`)).toHaveText('Not enabled in Models curation');
-    await expect(page.getByTestId(`router-model-tier-${key}`)).toBeDisabled();
-    await expect(page.getByTestId(`router-model-exclude-${key}`)).toBeDisabled();
-    await expect(page.getByTestId(`router-model-reset-${key}`)).toHaveCount(0);
-  }
-  await expect(page.getByTestId(`router-model-not-enabled-${MINI}`)).toHaveCount(0);
-  await expect(page.getByTestId(`router-model-tier-${MINI}`)).toBeEnabled();
-  await page.getByTestId(`router-model-exclude-${MINI}`).check();
-  await page.getByTestId('router-save').click();
-  await expect(page.getByTestId('router-notice')).toBeVisible();
-  expect(state.routerPuts[0].excludedModels).toEqual([MINI]);
-  expect(state.routerPuts[0].tierOverrides).toEqual({});
+  expect(await modelNames(page)).toEqual(['Claude Haiku 4.5', 'Qwen3 (local)']);
+  await row(page, QWEN).click();
+  await expect(page.getByTestId(`router-model-status-${QWEN}`)).toHaveText('Not enabled in Models curation');
+  await expect(page.getByTestId(`router-model-tier-${QWEN}`)).toBeDisabled();
+  await expect(page.getByTestId(`router-model-exclude-${QWEN}`)).toBeDisabled();
+  await expect(page.getByTestId(`router-model-reset-${QWEN}`)).toHaveCount(0);
+  await page.getByTestId(`router-model-enabled-${QWEN}`).click();
+  // Enabled: it leaves the "Not enabled" group.
+  await expect(row(page, QWEN)).toHaveCount(0);
+  await expect(page.getByTestId('router-group-disabled')).toContainText('1');
+  await expect.poll(() => state.visibilityPatches.length).toBe(1);
+  expect(state.visibilityPatches[0]).toEqual({ updates: [{ provider: 'ollama', modelId: 'qwen3', visible: true }] });
+  await expect(page.getByTestId('router-catalog-count')).toHaveText('Routing among 6 enabled models');
+  expect(state.routerPuts).toHaveLength(0);
 });
 
-test('router:C6 no_curated_models shows the callout and a jump link to Models curation', async ({ page }) => {
-  const state = await setup(page, { catalog: 'none-curated' });
-  await openRouterSettings(page);
+test('router:C7 no_curated_models shows the callout and jumps to Models curation', async ({ page }) => {
+  await setup(page, { catalog: 'none-curated' });
+  await openRouting(page, 'all');
   await expect(page.getByTestId('router-catalog-count')).toHaveText('Routing among 0 enabled models');
-  await expect(page.getByTestId('router-catalog-no-curated')).toContainText('No models are enabled in Models curation — the router will keep each chat\'s current model until you enable some.');
-  await expect(page.getByTestId('router-catalog-open-curation')).toBeVisible();
-  await expect(page.getByTestId(rowKey('openai/gpt-6'))).toHaveClass(/disabled/);
-  await page.getByTestId('router-save').click();
-  await expect(page.getByTestId('router-notice')).toBeVisible();
-  expect(state.routerPuts[0].excludedModels).toEqual([]);
-  expect(state.routerPuts[0].tierOverrides).toEqual({});
+  await expect(page.getByTestId('router-catalog-no-curated')).toContainText('No models are enabled in Models curation');
+  await expect(row(page, GPT6)).toHaveClass(/muted/);
+  await page.getByTestId('router-catalog-open-curation').click();
+  await expect(page).toHaveURL(/settingsSection=models/);
 });

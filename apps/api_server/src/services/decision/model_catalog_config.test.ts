@@ -176,7 +176,7 @@ describe('GET/PUT /agent-decisions/config catalog', () => {
 
   it('flags models not enabled in Rhythm curation and derives cutoffs from the curated set only', async () => {
     setVisible('openai', 'gpt-5.6-terra', false); // explicit hide
-    db.prepare('DELETE FROM agent_model_visibility WHERE model_id = ?').run('claude-opus-4-7'); // never curated
+    setVisible('anthropic', 'claude-opus-4-7', false); // unchecked in the panel
     const got = (await (await fetch(`${base}/config`)).json()) as any;
     const find = (id: string) => got.catalog.models.find((x: any) => x.modelID === id);
     expect(find('gpt-5.6-terra')).toMatchObject({ enabled: false });

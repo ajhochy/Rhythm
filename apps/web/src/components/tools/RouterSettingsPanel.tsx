@@ -4,8 +4,6 @@ import {
   createGenerationGuard,
   type RouterBackend, type RouterConfig, type RouterConfigInput, type RouterFeatureKey, type RouterFeatureMode, type RouterScoreScale, type RouterTestResult,
 } from '../../gateway/sessions';
-import { RouterCatalogSection } from './RouterCatalogSection';
-import { buildCatalogInput, parseThresholds, toCatalogDraft, type CatalogDraft } from './routerCatalog';
 
 // Router model settings — GET/PUT /agent-decisions/config and POST /agent-decisions/config/test
 // (docs/ai/plans/2026-09-29-local-decision-engine.md, "Router backend settings"). API keys are
@@ -22,7 +20,6 @@ type Draft = {
   timeoutMs: string;
   consent: boolean;
   features: Record<RouterFeatureKey, RouterFeatureMode>;
-  catalog: CatalogDraft | null;
 };
 
 const BACKENDS: Array<{ id: RouterBackend; label: string; hint: string }> = [
@@ -51,14 +48,14 @@ const toDraft = (config: RouterConfig): Draft => ({
   timeoutMs: String(config.timeoutMs),
   consent: config.remoteDataConsent,
   features: { ...config.features },
-  catalog: toCatalogDraft(config.catalog),
 });
 
 const isLoopback = (url: string) => {
   try { const host = new URL(url).hostname; return host === 'localhost' || host === '::1' || host === '[::1]' || /^127\./.test(host); } catch { return false; }
 };
 
-export function RouterSettingsPanel() {
+/** Router backend + feature modes. Tier thresholds and per-model routing live in ModelRouting. */
+export function RouterSettingsPanel({ onSaved }: { onSaved?(config: RouterConfig): void } = {}) {
   const gateway = useGateway();
   const sessions = gateway.domains.sessions;
   const supported = Boolean(sessions?.getRouterConfig && sessions.saveRouterConfig && sessions.testRouterConfig);
@@ -106,8 +103,7 @@ export function RouterSettingsPanel() {
   const consentBlocked = needsConsent && !draft.consent;
   const lockedConsent = locked('remoteDataConsent');
 
-  const catalogInvalid = Boolean(draft.catalog && config.catalog?.tiers && draft.catalog.mode === 'manual' && !parseThresholds(draft.catalog).ok);
-  const buildInput = (withCatalog = false): RouterConfigInput => {
+  const buildInput = (): RouterConfigInput => {
     const input: RouterConfigInput = {};
     if (!locked('backend')) input.backend = draft.backend;
     input.local = {
@@ -128,7 +124,6 @@ export function RouterSettingsPanel() {
     if (!locked('timeoutMs') && Number.isFinite(timeout) && timeout > 0) input.timeoutMs = Math.round(timeout);
     if (!lockedConsent) input.remoteDataConsent = draft.consent;
     input.features = Object.fromEntries(FEATURES.filter(({ key }) => !locked(key, `features.${key}`)).map(({ key }) => [key, draft.features[key]]));
-    if (withCatalog && draft.catalog && config.catalog) Object.assign(input, buildCatalogInput(config.catalog, draft.catalog));
     return input;
   };
 
@@ -140,11 +135,11 @@ export function RouterSettingsPanel() {
     finally { setState('idle'); }
   };
   const save = async () => {
-    if (!sessions?.saveRouterConfig || consentBlocked || catalogInvalid) return;
+    if (!sessions?.saveRouterConfig || consentBlocked) return;
     setState('saving'); setSaveError(''); setNotice('');
     try {
-      const next = await sessions.saveRouterConfig(buildInput(true));
-      setConfig(next); setDraft(toDraft(next)); setNotice('Router settings saved');
+      const next = await sessions.saveRouterConfig(buildInput());
+      setConfig(next); setDraft(toDraft(next)); setNotice('Router settings saved'); onSaved?.(next);
     } catch (error) { setSaveError(error instanceof Error ? error.message : 'Router settings could not be saved'); }
     finally { setState('idle'); }
   };
@@ -214,10 +209,9 @@ export function RouterSettingsPanel() {
         </div>;
       })}
     </div>
-    <RouterCatalogSection catalog={config.catalog} draft={draft.catalog} onChange={(catalog) => update({ catalog })} />
     <div className="router-settings-actions">
       <button className="secondary-button" type="button" onClick={() => void runTest()} disabled={state !== 'idle'} data-testid="router-test">{state === 'testing' ? 'Testing…' : 'Test connection'}</button>
-      <button className="primary-button" type="button" onClick={() => void save()} disabled={state !== 'idle' || consentBlocked || catalogInvalid} data-testid="router-save">{state === 'saving' ? 'Saving…' : 'Save'}</button>
+      <button className="primary-button" type="button" onClick={() => void save()} disabled={state !== 'idle' || consentBlocked} data-testid="router-save">{state === 'saving' ? 'Saving…' : 'Save'}</button>
       {consentBlocked && <small className="router-settings-note" data-testid="router-consent-hint">Confirm data sharing above to save.</small>}
     </div>
     <div className="router-settings-results" aria-live="polite" data-testid="router-results">

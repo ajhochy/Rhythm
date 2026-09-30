@@ -94,6 +94,14 @@ const retiredNoopTools = new Map<string, string>([
 
 const reviewerReadTools = new Map<string, string>([
   ["rhythm_read_org_review_context", "orgReviewer.ts"],
+  ["rhythm_read_org_review_session", "orgReviewer.ts"],
+  ["rhythm_read_org_review_catalog", "orgReviewer.ts"],
+]);
+
+const reviewerReadBoundaries = new Map<string, [string, string]>([
+  ["rhythm_read_org_review_context", ["fencedReviewerContext", "/agent-org-proposals/reviewer/context"]],
+  ["rhythm_read_org_review_session", ["fencedReviewerSession", "/agent-org-proposals/reviewer/session"]],
+  ["rhythm_read_org_review_catalog", ["fencedReviewerCatalog", "/agent-org-proposals/reviewer/catalog"]],
 ]);
 
 const humanReviewQueueWrites = new Map<string, string>([
@@ -494,13 +502,14 @@ describe("#1175 external-content role graph", () => {
       expect(source, `${tool} must fence returned context`).toContain(
         "untrustedContext",
       );
+      const [sanitizer, endpoint] = reviewerReadBoundaries.get(tool)!;
       expect(block, `${tool} must use the bounded context sanitizer`).toContain(
-        "fencedReviewerContext",
+        sanitizer,
       );
       expect(block, `${tool} must send engine-signed identity`).toContain(
         "currentTrustedSecurityCall",
       );
-      expect(block).toContain("/agent-org-proposals/reviewer/context");
+      expect(block).toContain(endpoint);
     }
 
     for (const [tool, sourceFile] of humanReviewQueueWrites) {
