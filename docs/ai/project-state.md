@@ -27,3 +27,14 @@ Consolidated head 7b0cba74: api_server + web tsc clean; api_server decision/rout
 ## Next step
 
 AJ smoke-tests PR #1594 and merges it to `main` manually.
+
+## Consolidation 2026-09-29
+
+Supersedes the "Active branch / PR" section above: the integration branch is now `mega/2026-09-29-consolidation` -> draft PR https://github.com/ajhochy/Rhythm/pull/1598 (tracking issue #1599; Server CI smoke flake #1600). #1594 is superseded by it.
+
+- **Folded**: `mega/2026-09-29-electron-orgreviewer` `ac887bb0` (merge `b846fdcc`, tree identical); `refs/clone/rhythm-1505a/mega/2026-09-18-mobile-electron-hermes` `9c255b64` (already an ancestor of the previous).
+- **Dropped** (bundle `~/Documents/.consolidation-backups/rhythm-2026-09-29.bundle`; clone also in `rhythm--rhythm-1505a-9c255b64-2026-09-29.bundle`):
+  - `refs/clone/rhythm-1505a/codex/1505a-better-sqlite3-13` `498c1ed6`: superseded by `98874481` on `main` (#1505 closed; the touched files are identical here).
+  - `stash-backup/0-2026-09-29` = `stash@{0}` `0704cba5`: regenerated screenshots (14 PNGs, 4 already newer here) plus a stray `.pyc` and unrelated JSON; not merged because the repo is public.
+- **In flight**: none. No linked worktrees. Standalone clone `/private/tmp/rhythm-1505a-9c255b64` (1.3G) is left in place as a deletion candidate.
+- **Cleanup script** (reviewed and run by the owner, not yet run): `~/Documents/.consolidation-backups/cleanup/rhythm-2026-09-29-cleanup.sh`. It closes #1594, deletes `mega/2026-09-29-electron-orgreviewer` locally and on GitHub, prunes `origin`/`plugin`, clears the stash and the `stash-backup`/`refs/clone` refs.
