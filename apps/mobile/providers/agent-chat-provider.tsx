@@ -316,13 +316,20 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
       projectId,
       preferences,
     });
-    await afterMutation(projectId);
-    return {
+    const created = {
       ...(response as unknown as Record<string, unknown>),
       id: response.id,
       projectId,
       status: 'idle',
-    };
+    } as ProjectSessionCatalogEntry;
+    setSessions((current) => [
+      created,
+      ...current.filter((session) => session.id !== created.id),
+    ]);
+    void afterMutation(projectId).catch((reason) => {
+      if (mountedRef.current) setError(safeError(reason));
+    });
+    return created;
   }, [afterMutation, createSession, isOnline]);
 
   const renameChat = useCallback(async (

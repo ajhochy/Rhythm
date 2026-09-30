@@ -15,6 +15,10 @@ import { addPermission, addQuestion, clearPendingDecisions, getSnapshot, rehydra
 import { emitAgentNotification } from './agentNotifications';
 import type { ComposerAttachment, DemoState, FixtureFile, InspectorTab, Profile, Session, SessionScope, Theme, TodoItem, TranscriptMessage } from './types';
 
+// Keep the gateway's specific reason (e.g. 'Authentication required') in the toast.
+const failureMessage = (prefix: string, error: unknown) =>
+  error instanceof Error && error.message ? `${prefix}: ${error.message}` : prefix;
+
 // c4c: a live agent push notification — apps/api_server/src/controllers/notifications_agent_controller.ts:6-32.
 // Kept in a separate bucket from `DomainNotification` rows: its `id` is a WS-broadcast integer from
 // a different sequence, never a persisted notifications-table id, so the two must never be conflated.
@@ -735,6 +739,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
           pushSeenIdsRef.current.add(push.id);
           const { id, title, body } = push as { id: number; title: string; body: string };
           setPushNotifications((current) => [{ id, title, body }, ...current]);
+          emitAgentNotification({ v: 1, type: 'push', id, title, body }, live);
         }
       }
     };
@@ -818,9 +823,15 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!live) return;
     let active = true;
+    // Poll runs on mount, every 60s and on every focus: toast a given failure once until a success resets it.
+    let lastFailure: string | null = null;
     const refresh = () => void gateway.domains.notifications!.list()
-      .then((rows) => { if (active) setNotifications(rows); })
-      .catch(() => { if (active) notify('Notifications could not be loaded'); });
+      .then((rows) => { lastFailure = null; if (active) setNotifications(rows); })
+      .catch((error: unknown) => {
+        const message = failureMessage('Notifications could not be loaded', error);
+        if (active && message !== lastFailure) notify(message);
+        lastFailure = message;
+      });
     refresh();
     const timer = window.setInterval(refresh, 60_000);
     window.addEventListener('focus', refresh);
@@ -838,7 +849,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     let active = true;
     void gateway.domains.approvals!.listPending()
       .then((rows) => { if (active) setPendingApprovals(Array.isArray(rows) ? rows : []); })
-      .catch(() => { if (active) notify('Pending approvals could not be loaded'); });
+      .catch((error: unknown) => { if (active) notify(failureMessage('Pending approvals could not be loaded', error)); });
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gateway, live]);
@@ -960,7 +971,9 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     setOverrideVersion(v => v + 1);
     const turnProfile = profiles.find(profile => profile.id === override.profileId && profile.enabled && profile.selectable);
     const agent = turnProfile ? turnProfile.ocAgent || turnProfile.id : undefined;
-    const modelOverride = override.modelOverride ?? (selected.providerId && selected.modelId
+    // Auto (router) sessions never echo the stored model back as an override — that would
+    // pin the turn; only an explicitly staged turn-only model is sent.
+    const modelOverride = override.modelOverride ?? (selected.modelMode !== 'auto' && selected.providerId && selected.modelId
       ? { providerId: selected.providerId, modelId: selected.modelId }
       : undefined);
     // c2e: real attachments travel as canonical `parts` (resolved text content / file data:

@@ -112,6 +112,11 @@ describe('#1173 mobile tools gateway', () => {
     expect(isMobileToolOperationAllowed('agents/run-quality', 'POST', '/tool-events')).toBe(false);
     expect(isMobileToolOperationAllowed('opencode/skills', 'DELETE', '/external')).toBe(true);
     expect(isMobileToolOperationAllowed('opencode/commands', 'PUT', '/managed')).toBe(true);
+    expect(isMobileToolOperationAllowed('agent-decisions', 'GET', '/config')).toBe(true);
+    expect(isMobileToolOperationAllowed('agent-decisions', 'PUT', '/config')).toBe(true);
+    expect(isMobileToolOperationAllowed('agent-decisions', 'POST', '/config/test')).toBe(true);
+    expect(isMobileToolOperationAllowed('agent-decisions', 'GET', '/')).toBe(false);
+    expect(isMobileToolOperationAllowed('agent-decisions', 'DELETE', '/config')).toBe(false);
     expect(isMobileToolOperationAllowed('unknown', 'GET', '/')).toBe(false);
   });
 

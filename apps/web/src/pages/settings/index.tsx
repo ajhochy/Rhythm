@@ -18,6 +18,7 @@ import {
 import type { WorkspaceMember } from '../../gateway/workspace-members';
 import { useFixtures } from '../../store';
 import { ColonySettings } from '../colony/settings';
+import { SessionRetentionSettings } from './session-retention';
 import './SettingsPage.css';
 
 type SettingsMember = WorkspaceMember & { isFacilitiesManager?: boolean };
@@ -185,6 +186,7 @@ export function SettingsPage() {
     { id: 'notifications', title: 'Notifications', subtitle: `Email notifications ${emailEnabled ? 'on' : 'off'} · User preference`, group: 'account' },
     { id: 'accounts', title: 'Accounts & access', subtitle: auth?.user.email ?? 'No signed-in account', group: 'account' },
     { id: 'runtime', title: 'Runtime & updates', subtitle: `API ${runtime.api} · Engine ${runtime.engine}`, group: 'account' },
+    { id: 'session-retention', title: 'Session cleanup', subtitle: 'Nightly trim of old tool output · This Mac', group: 'account' },
     { id: 'bot-crossing', title: 'Bot Crossing', subtitle: 'Local-only task scanning and state import', group: 'local-apps' },
     { id: 'agent-settings', title: 'Agent Settings', subtitle: 'AI accounts, profiles, and tool access', group: 'related' },
     { id: 'shared-agents', title: 'Shared Agents', subtitle: 'Canonical agents across OpenCode and Hermes', group: 'related' },
@@ -349,6 +351,9 @@ export function SettingsPage() {
           <p className="settings-readonly" role="status">Restart Rhythm to restart the owned local runtime.</p>
           {shell?.updates && <button className="primary-button" type="button" onClick={() => void shell.updates!.openDownloadPage()}>Check Rhythm releases</button>}
         </>;
+        break;
+      case 'session-retention':
+        content = <SessionRetentionSettings />;
         break;
       case 'bot-crossing':
         content = <ColonySettings />;

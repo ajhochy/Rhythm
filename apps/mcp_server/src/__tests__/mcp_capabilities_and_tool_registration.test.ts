@@ -96,12 +96,12 @@ const REGISTRARS_IN_INDEX_ORDER: Registrar[] = [
 /**
  * Registrar calls (one `register*(server…)` line per tool GROUP) and tool NAMES
  * are different counts and drift apart: one new registrar can add five tools.
- * Org Reviewer adds one registrar and two narrowly scoped tools. Both counts
+ * Org Reviewer adds one registrar and four narrowly scoped tools. Both counts
  * are pinned from registration — a stale mirror here passes vacuously and
  * guards nothing.
  */
 const EXPECTED_REGISTRAR_CALLS = 25;
-const EXPECTED_TOOL_NAMES = 103;
+const EXPECTED_TOOL_NAMES = 105;
 
 /** Builds a fresh McpServer, applies `registrars` in order, and returns it. */
 function buildServer(registrars: Registrar[]): McpServer {

@@ -33,6 +33,19 @@ describe('ensureRhythmMcp diff logic', () => {
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
+  it('#1221 ensure clears a durable rhythm deletion beside the redirected config, never the real one', async () => {
+    const deletionPath = join(dir, 'mcp-deletions.json');
+    writeFileSync(deletionPath, JSON.stringify({ deleted: ['higgsfield', 'rhythm'] }));
+    const realDeletions = join(require('os').homedir(), '.config', 'rhythm', 'mcp-deletions.json');
+    const realBefore = (() => { try { return readFileSync(realDeletions, 'utf8'); } catch { return null; } })();
+
+    await svc.ensureRhythmMcp('tok-1', 'https://api.vcrcapps.com', { configPath, register: false });
+
+    expect(JSON.parse(readFileSync(deletionPath, 'utf8')).deleted).toEqual(['higgsfield']);
+    const realAfter = (() => { try { return readFileSync(realDeletions, 'utf8'); } catch { return null; } })();
+    expect(realAfter).toBe(realBefore);
+  });
+
   it('adds rhythm when absent and persists environment', async () => {
     const result = await svc.ensureRhythmMcp('tok-1', 'https://api.vcrcapps.com', {
       configPath,

@@ -77,6 +77,8 @@ function mentionMatch(value: string) {
   return value.match(/(?:^|\s)@([^\s@]*)$/);
 }
 
+const AUTO_MODEL_VALUE = '__auto__';
+
 export function Composer() {
   const { selected, profiles, models, catalogError, turnOverride, stageTurnOverride, saveSessionSettings, sendInput, sendLiveInput, sendLiveCommand, sessionGatewayMode, cancelSession, reconnect, updateSession, runShell, notify, liveChildView } = useFixtures();
   const gateway = useGateway();
@@ -89,6 +91,19 @@ export function Composer() {
   const [settingsError, setSettingsError] = useState('');
   const live = sessionGatewayMode === 'live';
   const selectedModel = turnOverride.modelOverride ?? { providerId: selected.providerId, modelId: selected.modelId };
+  const isAuto = selected.modelMode === 'auto';
+  // Auto is selected unless the user staged a turn-only concrete model.
+  const autoSelected = live && isAuto && !turnOverride.modelOverride;
+  const [routerPick, setRouterPick] = useState<{ sessionId: string; label: string } | null>(null);
+  const provenanceFn = gateway.domains.sessions?.modelProvenance;
+  useEffect(() => {
+    // One cheap fetch on session select and whenever a turn settles — no polling.
+    if (!live || !isAuto || !selected.id || selected.status === 'working' || !provenanceFn) { setRouterPick(null); return; }
+    let active = true;
+    const sessionId = selected.id;
+    void provenanceFn(sessionId).then((pick) => { if (active) setRouterPick(pick ? { sessionId, label: pick.modelId } : null); }).catch(() => { if (active) setRouterPick(null); });
+    return () => { active = false; };
+  }, [live, isAuto, selected.id, selected.status, selected.updatedAt, provenanceFn]);
   const modelKey = selectedModel.providerId && selectedModel.modelId ? `${selectedModel.providerId}/${selectedModel.modelId}` : '';
   const persist = async (input: SessionSettings) => {
     setSettingsError('');
@@ -97,12 +112,18 @@ export function Composer() {
   };
   const applyModel = async (scope: 'turn' | 'session') => {
     if (!pendingModel) return;
+    if (live && pendingModel === AUTO_MODEL_VALUE) {
+      if (!await persist({ modelMode: 'auto' })) return;
+      stageTurnOverride({ modelOverride: undefined });
+      setPendingModel(null);
+      return;
+    }
     if (!live) { updateSession(selected.id, { model: pendingModel }); setPendingModel(null); return; }
     const choice = models.find(model => `${model.providerId}/${model.modelId}` === pendingModel);
     if (!choice) { setSettingsError('Selected model is unavailable'); return; }
     const modelOverride = { providerId: choice.providerId, modelId: choice.modelId };
     if (scope === 'turn') { stageTurnOverride({ modelOverride }); notify('Model staged for this turn only'); }
-    else if (!await persist(modelOverride)) return;
+    else if (!await persist({ modelMode: 'fixed', ...modelOverride })) return;
     setPendingModel(null);
   };
   const [bypassConfirm, setBypassConfirm] = useState(false);
@@ -397,7 +418,7 @@ export function Composer() {
       <div className="composer-toolbar">
         <div className="composer-selects">
           <label><span className="sr-only">Agent</span><select value={live ? turnOverride.profileId ?? selected.profileId : selected.profileId} onChange={(event) => { if (live) setPendingProfile(event.target.value); else { const profile = profiles.find((item) => item.id === event.target.value); updateSession(selected.id, { profileId: event.target.value, model: profile?.model || selected.model }); } }} data-testid="composer-profile" disabled={Boolean(disabledReason) || live && !selected.id}><option value="" disabled>Choose agent</option>{profiles.filter((profile) => profile.enabled && profile.selectable && (!live || !profile.id.startsWith('profile-created-'))).map((profile) => <option value={profile.id} key={profile.id}>{profile.label}</option>)}</select></label>
-          <label><span className="sr-only">Model</span><select value={live ? modelKey : selected.model} onChange={(event) => setPendingModel(event.target.value)} data-testid="composer-model" disabled={Boolean(disabledReason) || live && (!selected.id || !models.length)}>{live ? <><option value="" disabled>Session model default</option>{modelKey && !models.some(m => `${m.providerId}/${m.modelId}` === modelKey) && <option value={modelKey} disabled>{modelKey} (unavailable)</option>}{models.map(m => <option key={`${m.providerId}/${m.modelId}`} value={`${m.providerId}/${m.modelId}`}>{m.label} · {m.providerId}</option>)}</> : <><option>gpt-5.6</option><option>gpt-5.6-codex</option><option>claude-sonnet-4</option></>}</select></label>
+          <label><span className="sr-only">Model</span><select value={live ? (autoSelected ? AUTO_MODEL_VALUE : modelKey) : selected.model} onChange={(event) => setPendingModel(event.target.value)} data-testid="composer-model" disabled={Boolean(disabledReason) || live && !selected.id}>{live ? <><option value={AUTO_MODEL_VALUE}>Auto (router)</option><option value="" disabled>Session model default</option>{modelKey && !models.some(m => `${m.providerId}/${m.modelId}` === modelKey) && <option value={modelKey} disabled>{modelKey} (unavailable)</option>}{models.map(m => <option key={`${m.providerId}/${m.modelId}`} value={`${m.providerId}/${m.modelId}`}>{m.label} · {m.providerId}</option>)}</> : <><option>gpt-5.6</option><option>gpt-5.6-codex</option><option>claude-sonnet-4</option></>}</select></label>{live && autoSelected && routerPick?.sessionId === selected.id && <span className="composer-router-pick" data-testid="composer-router-pick" role="status">Auto → {routerPick.label}</span>}
           <label><span className="sr-only">Permission mode</span><select value={selected.permissionMode} onChange={(event) => { const bypassValue = live ? 'bypassPermissions' : 'Bypass'; if (event.target.value === bypassValue) setBypassConfirm(true); else if (live) void persist({ permissionMode: event.target.value }); else updateSession(selected.id, { permissionMode: event.target.value }); }} data-testid="composer-permission-mode" disabled={Boolean(disabledReason) || live && !selected.id}>{(live ? livePermissionModeOptions : fixturePermissionModeOptions).map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
           <label><span className="sr-only">Reasoning budget</span>{live ? <input type="number" min="0" step="1" key={`${selected.id}-${selected.thinkingBudget}`} defaultValue={selected.thinkingBudget} placeholder="Default budget" onBlur={event => { if (event.target.checkValidity() && event.target.value !== selected.thinkingBudget) void persist({ thinkingBudget: event.target.value === '' ? null : Number(event.target.value) }); }} data-testid="composer-thinking" disabled={Boolean(disabledReason) || !selected.id} /> : <select value={selected.thinkingBudget} onChange={(event) => updateSession(selected.id, { thinkingBudget: event.target.value })} data-testid="composer-thinking" disabled={Boolean(disabledReason)}><option>Off</option><option>Low</option><option>Medium</option><option>High</option><option>X-High</option><option>Max</option></select>}</label>
           <button className={`toggle-button ${selected.fastMode ? 'active' : ''}`} type="button" aria-pressed={selected.fastMode} onClick={() => { if (live) void persist({ fastMode: !selected.fastMode }); else updateSession(selected.id, { fastMode: !selected.fastMode }); }} data-testid="composer-fast" disabled={Boolean(disabledReason) || live && !selected.id}><Icon name="activity" size={13} />Fast</button>
@@ -408,7 +429,7 @@ export function Composer() {
         <small id="composer-help">{sendKey === 'Enter' ? 'Enter to send · Shift+Enter for newline' : `${sendMessageKeyLabel(sendKey)} to send · Enter for newline`}</small>
       </div>
       <FocusDialog open={Boolean(pendingProfile)} onClose={() => setPendingProfile(null)} title="Apply agent selection" description="Use this agent for one turn or save it as the session default." testId="agent-scope-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setPendingProfile(null)}>Cancel</button><button className="secondary-button" type="button" data-testid="agent-this-turn" onClick={() => { if (pendingProfile) stageTurnOverride({ profileId: pendingProfile }); setPendingProfile(null); }}>This turn only</button><button className="primary-button" type="button" data-testid="agent-session-default" onClick={() => { if (pendingProfile) void persist({ profileId: pendingProfile }).then(ok => { if (ok) setPendingProfile(null); }); }}>Session default</button></div>{settingsError && <p role="alert">{settingsError}</p>}</FocusDialog>
-      <FocusDialog open={Boolean(pendingModel)} onClose={() => setPendingModel(null)} title="Apply model selection" description={pendingModel ? `Use ${pendingModel} for this prompt or make it the session default.` : ''} testId="model-scope-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setPendingModel(null)}>Cancel</button><button className="secondary-button" type="button" onClick={() => void applyModel('turn')} data-testid="model-this-turn">This turn only</button><button className="primary-button" type="button" onClick={() => void applyModel('session')} data-testid="model-session-default">Session default</button></div>{settingsError && <p role="alert">{settingsError}</p>}</FocusDialog>
+      <FocusDialog open={Boolean(pendingModel)} onClose={() => setPendingModel(null)} title="Apply model selection" description={pendingModel === AUTO_MODEL_VALUE ? 'Let the router choose the model for each turn in this session.' : pendingModel ? `Use ${pendingModel} for this prompt or make it the session default.` : ''} testId="model-scope-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setPendingModel(null)}>Cancel</button>{pendingModel !== AUTO_MODEL_VALUE && <button className="secondary-button" type="button" onClick={() => void applyModel('turn')} data-testid="model-this-turn">This turn only</button>}<button className="primary-button" type="button" onClick={() => void applyModel('session')} data-testid="model-session-default">Session default</button></div>{settingsError && <p role="alert">{settingsError}</p>}</FocusDialog>
       <FocusDialog open={bypassConfirm} onClose={() => setBypassConfirm(false)} title="Bypass all permissions?" description="The agent can run tools without asking. Use this only in a trusted workspace." testId="bypass-confirm-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setBypassConfirm(false)}>Cancel</button><button className="danger-button" type="button" onClick={() => { if (live) void persist({ permissionMode: 'bypassPermissions' }).then(ok => { if (ok) setBypassConfirm(false); }); else { updateSession(selected.id, { permissionMode: 'Bypass' }); setBypassConfirm(false); notify('Bypass permission mode enabled'); } }} data-testid="bypass-confirm">Enable Bypass</button></div>{settingsError && <p role="alert">{settingsError}</p>}</FocusDialog>
     </form>
   );

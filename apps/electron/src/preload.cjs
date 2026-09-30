@@ -172,7 +172,8 @@ window.addEventListener('rhythm:agent-notifications', (event) => {
     || detail.type === 'viewing' && keys === 'displayed,sessionId,type,v' && typeof detail.displayed === 'boolean' && (detail.sessionId === null || id(detail.sessionId))
     || detail.type === 'arm' && keys === 'sessionId,type,v' && id(detail.sessionId)
     || detail.type === 'completion' && keys === 'sessionId,type,v' && id(detail.sessionId)
-    || (detail.type === 'ask' || detail.type === 'resolve') && keys === 'family,requestId,sessionId,type,v' && ['permission', 'question'].includes(detail.family) && id(detail.sessionId) && id(detail.requestId)) {
+    || (detail.type === 'ask' || detail.type === 'resolve') && keys === 'family,requestId,sessionId,type,v' && ['permission', 'question'].includes(detail.family) && id(detail.sessionId) && id(detail.requestId)
+    || detail.type === 'push' && keys === 'body,id,title,type,v' && Number.isSafeInteger(detail.id) && detail.id > 0 && typeof detail.title === 'string' && typeof detail.body === 'string') {
     ipcRenderer.send('rhythm:agent-notifications:sync', detail);
   }
 });

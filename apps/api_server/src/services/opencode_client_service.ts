@@ -19,7 +19,7 @@ import {
   applySelectiveDeferral,
   toolCountsForRoleConfig,
 } from './tool_surface_estimator';
-import { isUntitledSessionName, type PermissionMode } from '../models/agent_session';
+import { isUntitledSessionName, type AgentSession, type PermissionMode } from '../models/agent_session';
 import {
   ensureOmlxProviderConfig,
   detectAndUnloadCompetingOllamaModel,
@@ -93,7 +93,7 @@ type EngineStatus = 'uninitialized' | 'ready' | 'error' | 'reloading';
  * flagged, but once its opencode.json entry exists it needs no OAuth/API-key
  * credential either, exactly like `ollama`.
  */
-const KEYLESS_PROVIDER_IDS = new Set(['ollama', 'omlx', 'opencode']);
+export const KEYLESS_PROVIDER_IDS = new Set(['ollama', 'omlx', 'opencode']);
 const providerDigestKey = randomBytes(32);
 
 export type ProviderSnapshot = {
@@ -109,6 +109,11 @@ export type ProviderSnapshot = {
       apiId?: string;
       status?: string;
       contextLimit?: number;
+      /** USD per 1M tokens, straight from the engine catalog (absent when unpriced). */
+      cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+      releaseDate?: string;
+      family?: string;
+      reasoning?: boolean;
       capabilities?: {
         input?: { text?: boolean };
         output?: { text?: boolean };
@@ -195,6 +200,20 @@ export interface ReclaimResult {
 }
 
 /**
+ * #1096/#1574-adjacent process-lifecycle fix — is `pid` the leader of its own
+ * process group? `ps -o pgid=` prints the group id; a detached-spawned engine
+ * (see the SDK's `createOpencodeServer`) has pgid === pid. Only then is a
+ * negative-pid signal (`kill(-pid)`) guaranteed to hit exactly that engine's
+ * own descendants (e.g. its `engraph` MCP children) — never a coincidental,
+ * unrelated group. Exported and pure (parses ps text, no process access) so
+ * it can be unit-tested against a real captured `ps` line.
+ */
+export function isProcessGroupLeader(pid: number, psPgidOutput: string): boolean {
+  const pgid = Number(psPgidOutput.trim());
+  return Number.isInteger(pgid) && pgid === pid;
+}
+
+/**
  * Heuristic: is `command` a stale `opencode serve` process for our engine?
  * Matches the opencode binary plus a `serve` subcommand. The port match is
  * intentionally loose (the orphan may print `--port 4096`, `--port=4096`, or
@@ -238,6 +257,27 @@ const defaultStalePortDeps: StalePortDeps = {
     }
   },
   async killPid(pid, signal) {
+    // Process-lifecycle fix: a stale opencode engine found squatting on our
+    // port (e.g. reparented to launchd after a Force-Quit / SIGKILL) may
+    // still be dragging its own `engraph` MCP children along. If it's the
+    // leader of its own process group — true for every engine spawned since
+    // this fix (createOpencodeServer now spawns `detached: true`) — signal
+    // the whole group so those children are reclaimed too, not just the
+    // engine itself. Never guess: only act on a verified pgid === pid match.
+    try {
+      const pgidOut = await runCommand('ps', ['-o', 'pgid=', '-p', String(pid)]);
+      if (isProcessGroupLeader(pid, pgidOut)) {
+        try {
+          process.kill(-pid, signal as NodeJS.Signals);
+          return;
+        } catch {
+          // Fall through to the plain single-pid kill below.
+        }
+      }
+    } catch {
+      // ps failed (pid already gone, etc.) — fall through to the plain kill,
+      // which itself no-ops harmlessly on ESRCH.
+    }
     try {
       process.kill(pid, signal as NodeJS.Signals);
     } catch {
@@ -585,6 +625,30 @@ export interface OpencodeEngineIdentity {
   version: string;
   pid: number;
   bootId: string;
+}
+
+/**
+ * Interactive chat sessions spawn named Rhythm profiles only through
+ * `rhythm_delegate_async`, which resolves the target profile's own scope. The
+ * engine `task` tool stays open for `explore`/`general` fan-out (those inherit
+ * the parent's scope). Session rules are evaluated after the agent's, and the
+ * fork uses findLast, so these must be the LAST rules on the session — after
+ * any mode rules, including bypassPermissions' `*: allow`.
+ */
+export const INTERACTIVE_TASK_PERMISSION = [
+  { permission: 'task', pattern: '*', action: 'deny' },
+  { permission: 'task', pattern: 'explore', action: 'allow' },
+  { permission: 'task', pattern: 'general', action: 'allow' },
+] as const;
+
+/** Same predicate as the async-delegation gate in agent_delegation_service.ts. */
+export function isInteractiveChatSession(
+  session: Pick<AgentSession, 'category' | 'isSystem' | 'scheduledTaskId'> | null | undefined,
+): boolean {
+  return !!session &&
+    session.category === 'chat' &&
+    !session.isSystem &&
+    session.scheduledTaskId === null;
 }
 
 export class OpencodeClientService {
@@ -1128,13 +1192,38 @@ export class OpencodeClientService {
             api?: { id?: string; url?: string };
             status?: string;
             capabilities?: ProviderSnapshot['providers'][number]['models'][number]['capabilities'];
+            cost?: {
+              input?: unknown; output?: unknown; cache_read?: unknown; cache_write?: unknown;
+              cache?: { read?: unknown; write?: unknown };
+            };
+            release_date?: unknown;
+            family?: unknown;
+            reasoning?: unknown;
           };
+          const price = (v: unknown): number | undefined =>
+            typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined;
+          const cost = model.cost
+            ? {
+                input: price(model.cost.input),
+                output: price(model.cost.output),
+                cacheRead: price(model.cost.cache_read ?? model.cost.cache?.read),
+                cacheWrite: price(model.cost.cache_write ?? model.cost.cache?.write),
+              }
+            : undefined;
+          const priced = cost
+            ? Object.fromEntries(Object.entries(cost).filter(([, v]) => v !== undefined))
+            : {};
           return {
             id: model.id ?? key,
             ...(typeof model.name === 'string' ? { name: model.name } : {}),
             ...(typeof model.api?.id === 'string' ? { apiId: model.api.id } : {}),
             ...(typeof model.status === 'string' ? { status: model.status } : {}),
             ...(typeof model.limit?.context === 'number' ? { contextLimit: model.limit.context } : {}),
+            ...(Object.keys(priced).length > 0 ? { cost: priced } : {}),
+            ...(typeof model.release_date === 'string' && model.release_date
+              ? { releaseDate: model.release_date } : {}),
+            ...(typeof model.family === 'string' && model.family ? { family: model.family } : {}),
+            ...(typeof model.reasoning === 'boolean' ? { reasoning: model.reasoning } : {}),
             ...(model.capabilities ? {
               capabilities: {
                 input: { text: model.capabilities.input?.text === true },
@@ -1392,6 +1481,9 @@ export class OpencodeClientService {
     // on the session (instead of prompt text or a caller-side check) covers
     // every bash invocation, including commands introduced by tools/agents.
     permissionMode?: PermissionMode,
+    // Interactive chat session (see isInteractiveChatSession): restrict the
+    // engine task tool to explore/general. Headless callers omit it.
+    interactive?: boolean,
     // #1222 — root-cause of the discarded-error bug: every failure branch
     // below used to collapse to a bare `null`, so callers (AgentRunner in
     // particular) could only ever report the generic "failed to create
@@ -1500,6 +1592,12 @@ export class OpencodeClientService {
           { permission: 'bash', pattern: '*', action: 'ask' },
         ];
       }
+      if (interactive) {
+        body.permission = [
+          ...((body.permission as unknown[] | undefined) ?? []),
+          ...INTERACTIVE_TASK_PERMISSION,
+        ];
+      }
       // #775 (skill-scope): pass the per-session skill allowlist on the create body.
       // The fork reads `skillAllowlist.skills` to scope the model's available skills.
       if (skillAllowlist !== undefined) {
@@ -1540,10 +1638,11 @@ export class OpencodeClientService {
   async updateSessionPermissionMode(
     sessionId: string,
     permissionMode: PermissionMode,
+    interactive?: boolean,
   ): Promise<boolean> {
     try {
       const client = await this.v2Client();
-      const permission = permissionMode === 'plan'
+      const modeRules = permissionMode === 'plan'
         ? [{ permission: 'bash' as const, pattern: '*', action: 'deny' as const }]
         : permissionMode === 'bypassPermissions'
           ? [
@@ -1551,6 +1650,12 @@ export class OpencodeClientService {
               { permission: 'bash' as const, pattern: '*', action: 'ask' as const },
             ]
           : [];
+      // The engine APPENDS a PATCHed ruleset to the session's existing rules,
+      // so re-append the task restriction to keep it last (a bypass `*: allow`
+      // would otherwise re-open task on an interactive session).
+      const permission = interactive
+        ? [...modeRules, ...INTERACTIVE_TASK_PERMISSION]
+        : modeRules;
       const raw = await client.session.update({ sessionID: sessionId, permission });
       if (raw.error) {
         logger.warn(
@@ -1603,6 +1708,8 @@ export class OpencodeClientService {
     sessionId: string,
     mcpRoleConfig: import('./agent_profile_scope').McpRoleConfig | null,
     providerId?: string | null,
+    /** Turn prompt for local-decision tool ranking; omitted = unranked (legacy). */
+    prompt?: string,
   ): Promise<boolean> {
     try {
       let mcpAllowlist: {
@@ -1629,6 +1736,13 @@ export class OpencodeClientService {
           toolCounts,
           providerId,
         );
+        if (prompt) {
+          const { rankMcpAllowlist } = await import('./decision/tool_ranker');
+          mcpAllowlist = await rankMcpAllowlist(mcpAllowlist, prompt, {
+            toolCounts,
+            sessionId,
+          });
+        }
         const capResult = capMcpAllowlistForProvider(mcpAllowlist, providerId, toolCounts);
         mcpAllowlist = capResult.allowlist;
         if (capResult.trimmed) {
@@ -3465,7 +3579,7 @@ export class OpencodeClientService {
   async ensureRhythmMcp(
     apiToken: string,
     apiUrl: string,
-    opts?: { configPath?: string; register?: boolean },
+    opts?: { configPath?: string; register?: boolean; deletionPath?: string },
   ): Promise<{ changed: boolean; registered: boolean }> {
     const { existsSync, readFileSync, writeFileSync, mkdirSync } =
       require('fs') as typeof import('fs');
@@ -3521,6 +3635,15 @@ export class OpencodeClientService {
     logger.info('[OpencodeClientService] ensureRhythmMcp: persisted rhythm config');
     // #723 — rhythm was just (re-)persisted; clear any stale removal marker.
     this.markMcpPresent('rhythm');
+    // #1221 — ensure is an explicit (re)install of the core rhythm server, so also
+    // clear a durable deletion left from when it was removed while broken. A caller
+    // that redirects configPath (tests) gets the deletion store beside it, never the
+    // real ~/.config/rhythm/mcp-deletions.json.
+    this.writeMcpDeletion(
+      'rhythm',
+      false,
+      opts?.deletionPath ?? (opts?.configPath ? join(dirname(opts.configPath), 'mcp-deletions.json') : undefined),
+    );
 
     let registered = false;
     if (opts?.register !== false) {

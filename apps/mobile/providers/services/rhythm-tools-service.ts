@@ -681,6 +681,123 @@ export function serializeProfileScope(
   };
 }
 
+export type RouterBackend = 'local' | 'jev' | 'custom' | 'systemone';
+export type RouterFeatureMode = 'default' | 'off' | 'shadow' | 'on';
+export const ROUTER_FEATURE_KEYS = [
+  'model_routing',
+  'tool_ranking',
+  'memory_ranking',
+  'capacity_routing',
+] as const;
+export type RouterFeatureKey = (typeof ROUTER_FEATURE_KEYS)[number];
+
+export type RouterRoutingScope = 'first_prompt' | 'escalate_only' | 'every_prompt';
+
+export interface RouterRouting {
+  scope: RouterRoutingScope;
+  escalateMinConfidence: number;
+}
+
+export type RouterTier = 'cheap' | 'standard' | 'frontier';
+export type RouterTierSource = 'cost' | 'heuristic' | 'override';
+
+export interface RouterCatalogModel {
+  providerID: string;
+  modelID: string;
+  name: string;
+  family?: string | null;
+  tier: RouterTier;
+  tierSource: RouterTierSource;
+  costOutputUsd?: number | null;
+  costInputUsd?: number | null;
+  releaseDate?: string | null;
+  contextLimit?: number | null;
+  excluded: boolean;
+  /** false = available but not enabled in Models curation, so not routable. Absent (older Macs) = enabled. */
+  enabled?: boolean;
+}
+
+export type RouterTierMode = 'auto' | 'manual';
+
+export interface RouterTierThresholds {
+  mode?: RouterTierMode;
+  cheapMaxOutputUsd: number;
+  frontierMinOutputUsd: number;
+  derivedFromModels?: number;
+}
+
+/** PUT shape: numbers are sent only in manual mode. */
+export type RouterTierInput =
+  | { mode: 'auto' }
+  | { mode: 'manual'; cheapMaxOutputUsd: number; frontierMinOutputUsd: number };
+
+/** Live model catalog the router chooses among; absent/empty when the engine is not running. */
+export interface RouterCatalog {
+  fetchedAt?: string | null;
+  models: RouterCatalogModel[];
+  tiers: RouterTierThresholds;
+  curatedCount?: number;
+  reason?: 'no_curated_models';
+}
+
+export interface RouterConfig {
+  backend: RouterBackend;
+  local: { baseUrl: string; model: string; scoreScale?: number };
+  jev: { baseUrl: string; model: string; hasApiKey: boolean };
+  custom: { baseUrl: string; model: string; scoreScale?: number; hasApiKey: boolean };
+  /** Absent when the paired Mac predates the System One backend. */
+  systemone?: { baseUrl: string; model: string; hasApiKey: boolean };
+  timeoutMs: number;
+  remoteDataConsent: boolean;
+  features: Record<RouterFeatureKey, RouterFeatureMode>;
+  /** Absent when the paired Mac predates routing scope. */
+  routing?: RouterRouting;
+  catalog?: RouterCatalog | null;
+  lockedByEnv: string[];
+  effective?: {
+    backend: RouterBackend;
+    baseUrl: string;
+    model: string;
+    features: Record<string, RouterFeatureMode>;
+  };
+}
+
+/** Partial PUT/test body. `apiKey` is write-only; '' clears the saved key. */
+export interface RouterConfigDraft {
+  backend?: RouterBackend;
+  local?: Partial<RouterConfig['local']>;
+  jev?: { baseUrl?: string; model?: string; apiKey?: string };
+  custom?: {
+    baseUrl?: string;
+    model?: string;
+    scoreScale?: number;
+    apiKey?: string;
+  };
+  systemone?: { baseUrl?: string; model?: string; apiKey?: string };
+  timeoutMs?: number;
+  remoteDataConsent?: boolean;
+  features?: Partial<Record<RouterFeatureKey, RouterFeatureMode>>;
+  routing?: Partial<RouterRouting>;
+  tiers?: RouterTierInput;
+  /** Keyed "provider/model"; replaces the saved overrides. */
+  tierOverrides?: Record<string, RouterTier>;
+  excludedModels?: string[];
+}
+
+export interface RouterTestResult {
+  ok: boolean;
+  backend?: RouterBackend;
+  model?: string;
+  latencyMs?: number;
+  ranked?: { text: string; score: number }[];
+  message?: string;
+  /** System One only: the tier picked for the sample prompt. */
+  tier?: string;
+  probabilities?: Record<string, number>;
+}
+
+const ROUTER_CONFIG_PATH = '/mobile-gateway/tools/agent-decisions/config';
+
 function body(value: unknown): string {
   return JSON.stringify(value);
 }
@@ -1185,6 +1302,35 @@ export class RhythmToolsService {
 
   listProviderAuth(): Promise<unknown> {
     return this.pairedRequest('/mobile-gateway/opencode/provider/auth');
+  }
+
+  /**
+   * Router settings are Mac-global (mac-global-admin), so they do not require
+   * an active project. The project header is sent only when one is selected.
+   */
+  private routerRequest<T>(path: string, init: ToolRequestInit): Promise<T> {
+    const scoped = this.projectId
+      ? withProjectScope(this.projectId, init, this.abortController.signal)
+      : { ...init, signal: this.abortController.signal };
+    return this.paired.request<T>(path, scoped);
+  }
+
+  getRouterConfig(): Promise<RouterConfig> {
+    return this.routerRequest(ROUTER_CONFIG_PATH, { method: 'GET' });
+  }
+
+  saveRouterConfig(partial: RouterConfigDraft): Promise<RouterConfig> {
+    return this.routerRequest(ROUTER_CONFIG_PATH, {
+      method: 'PUT',
+      body: body(partial),
+    });
+  }
+
+  testRouterConfig(draft: RouterConfigDraft = {}): Promise<RouterTestResult> {
+    return this.routerRequest(`${ROUTER_CONFIG_PATH}/test`, {
+      method: 'POST',
+      body: body(draft),
+    });
   }
 
   getConfig(): Promise<unknown> {

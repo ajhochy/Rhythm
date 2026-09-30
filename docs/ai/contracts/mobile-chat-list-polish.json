@@ -1,0 +1,196 @@
+{
+  "issue": "mobile-chat-list-polish",
+  "date": "2026-09-28",
+  "test_command": "cd apps/mobile && npx jest tests/chat/create-chat-fast-path.test.tsx tests/chat/create-chat-provider-cache.test.tsx tests/chat/chat-list.test.tsx tests/chat/session-configuration-sheet.test.tsx tests/chat/chat-content-scroll.test.tsx --runInBand",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-mobile-chat-list-polish-nc1",
+      "text": "createChat returns the created record as soon as durable create + required preference persistence succeed; catalog/current-session reconciliation runs in background and failures surface non-blockingly without unhandled rejection. Preserve mutation list convergence.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/create-chat-fast-path.test.tsx",
+      "status": "pass",
+      "reason": "Provider contracts hold the catalog sweep pending, require createChat to resolve and publish one row, verify convergence and surfaced AgentChat failure, and directly capture zero unhandled rejections from a rejected lower-level refreshSessions call."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-nc2",
+      "text": "Reuse/pass the already-loaded authoritative target profile/catalog so non-active project create performs exactly one profile-catalog GET total (not two). Preserve server validation and state PATCH for model/reasoning/permission.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/create-chat-provider-cache.test.tsx",
+      "status": "pass",
+      "reason": "Provider request-log contract counts the target catalog read and asserts the persisted profile/model/reasoning/permission payload."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-nc3",
+      "text": "Seed the newly created session and known empty messages into provider cache so navigation/openProjectSession can render the new empty session/composer without exact-session or messages GET on the critical path. This fast path is ONLY for a just-created known-empty session; reconnect/direct deep-link behavior stays authoritative.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/create-chat-provider-cache.test.tsx",
+      "status": "pass",
+      "reason": "Provider request-log contract requires zero exact-session/messages reads for the just-created session and retains the existing cold-cache test for authoritative direct opens."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-nc4",
+      "text": "Preserve exact project/profile scoping, race protection, and errors from durable create/preference persistence.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/create-chat-provider-cache.test.tsx",
+      "status": "pass",
+      "reason": "Provider contract asserts exact target project/profile write fields, preference-PATCH rejection propagation, and that a rejected durable create POST publishes and seeds nothing; existing profile generation tests retain race coverage."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-nc5",
+      "text": "Performance protocol: create or extend a deterministic fake-server/request-log harness. Record baseline from parent commit d2048dda (or approved pre-change state) and post-change using identical scenario. Required postconditions: duplicate profile GET count >=2 baseline to exactly 1; blocking cold-open exact-session/messages GET count 2 baseline to 0; tap/Create-to-navigation critical awaited phases reduced. Record concrete counts/timings in run note. If neutral/worse, revert that subchange.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/create-chat-provider-cache.test.tsx",
+      "status": "pass",
+      "reason": "The same test harness runs AgentChatProvider + OpencodeProvider public profile/create/open entry points against actual source at d2048dda in an isolated worktree and against the current source. A generic deferred-boundary driver observes and releases requests rather than prescribing their order, asserting observed awaited phases 6 to 2, profile GETs 2 to 1, and blocking exact-session/messages GETs 2 to 0."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-nc6",
+      "text": "Existing focused list/sheet/auto-scroll tests remain green. Run focused NC provider/performance tests, combined mobile chat tests, lint, typecheck, and diff check. This NC-only evidence repair makes no full-suite gate claim. No commit.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/create-chat-fast-path.test.tsx",
+      "status": "pass",
+      "reason": "Focused NC and combined chat commands, lint, typecheck, and diff checks are recorded in the run note; full-suite status is explicitly outside this evidence-only repair."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-c1",
+      "text": "Project headers become compact, desktop-like rows while preserving existing test IDs.",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/chat-list.test.tsx",
+      "status": "pass",
+      "reason": "Focused Jest asserts transparent compact headers, type scale, spacing, and preserved identifiers."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-c2",
+      "text": "Session rows use 44 point minimum height, 13–14 point titles, small metadata and timestamp type, reduced gaps, and tight list padding.",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/chat-list.test.tsx",
+      "status": "pass",
+      "reason": "Focused Jest asserts 44 point row minimums and compact title and metadata type."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-c3",
+      "text": "Each non-desktop project header exposes a 44 point New chat action and creates the session in that header's project.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/chat-list.test.tsx",
+      "status": "pass",
+      "reason": "Regression test presses Empty project's header action and observes createChat receive /projects/empty while the active project is /projects/alpha."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-c4",
+      "text": "The Chats title and padding are smaller, and search occupies a full-width row separate from compact sort and New chat controls without collisions.",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/chat-list.test.tsx",
+      "status": "pass",
+      "reason": "Focused Jest asserts a full-width search row and separate 44 point action row; header source uses 22 point title and reduced padding."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-c5",
+      "text": "The session configuration summary uses compact Profile and Model List.Item rows, a tight Reasoning row, and compact Approval Policy controls while preserving accessibility and create/edit behavior.",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/session-configuration-sheet.test.tsx",
+      "status": "pass",
+      "reason": "Focused sheet Jest asserts compact List.Item rows, 8 point maximum gap, 16 point horizontal padding, and 13 point labels."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-c6",
+      "text": "Mobile lint, typecheck, and focused chat tests pass, and the full suite introduces no failures beyond the base branch.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/chat-list.test.tsx",
+      "status": "pass",
+      "reason": "Lint, typecheck, and 48 focused Jest tests pass. Full npm test reports 234 passed and the same 4 issue-1387 failures reproduced identically on base 3c520d56."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-race-c1",
+      "text": "Bind the create sheet and profile list to the latest exact resolved target project, ignoring stale out-of-order profile-load results.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/chat-list.test.tsx",
+      "status": "pass",
+      "reason": "Deterministic deferred loads resolve project B before project A and assert B profiles and create target remain current."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-race-c2",
+      "text": "A stale profile-load error cannot open, close, retarget, or add feedback to the current create sheet.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/chat-list.test.tsx",
+      "status": "pass",
+      "reason": "Deterministic deferred loads open project B before project A rejects and assert no stale feedback or target change."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-c4-visual",
+      "text": "Visual confirmation at 375–430 point widths shows no header/search overlap or clipped placeholder.",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "not_tested: needs manual TestFlight/simulator smoke"
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-c5-visual",
+      "text": "Reasoning and at least the start of Approval Policy are visible without scrolling on an 844 point viewport.",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "not_tested: needs manual TestFlight/simulator smoke"
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-scroll-c1",
+      "text": "Opening any existing non-empty chat reliably positions at the transcript bottom even if an early onScroll reports top before content size settles.",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/chat-content-scroll.test.tsx",
+      "status": "pass",
+      "reason": "Deterministic regression test fires an offset-zero scroll before the first content-size event and observes a non-animated scroll to end."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-scroll-c2",
+      "text": "Switching sessions or returning from another tab to the session transcript positions at bottom.",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/chat-content-scroll.test.tsx",
+      "status": "pass",
+      "reason": "Existing session-switch coverage is retained; a deterministic regression test scrolls upward, then returns from Changes with the same session and transcript and observes a non-animated scroll to end."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-scroll-c3",
+      "text": "New transcript content auto-follows while the reader is near the bottom.",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/chat-content-scroll.test.tsx",
+      "status": "pass",
+      "reason": "The focused viewport regression test keeps the reader within the 32-point threshold and requires scrollToEnd after content/layout changes."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-scroll-c4",
+      "text": "If the reader scrolls meaningfully upward, new content/layout changes do not yank them back down.",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/chat-content-scroll.test.tsx",
+      "status": "pass",
+      "reason": "Existing deterministic checks place the viewport far from bottom, append content and change layout, and require no scrollToEnd call."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-scroll-c5",
+      "text": "Loading older messages retains the visible anchor (preserve maintainVisibleContentPosition behavior).",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/chat-content-scroll.test.tsx",
+      "status": "pass",
+      "reason": "Focused Jest asserts maintainVisibleContentPosition remains configured with minIndexForVisible 0."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-scroll-c6",
+      "text": "Add deterministic regression tests covering the early-onScroll initial case and tab return; retain/extend existing near-bottom/far-from-bottom checks.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/chat-content-scroll.test.tsx",
+      "status": "pass",
+      "reason": "Both new regressions and the retained near-bottom, far-from-bottom, session-switch, and anchor-preservation checks pass in the focused suite."
+    },
+    {
+      "criterion_id": "task-mobile-chat-list-polish-scroll-c7",
+      "text": "Prepending older transcript entries while near bottom does not call scrollToEnd or override maintainVisibleContentPosition, including when the prior transcript fit the viewport.",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/chat-content-scroll.test.tsx",
+      "status": "pass",
+      "reason": "Deterministic regression starts with a transcript shorter than the viewport, prepends an older stable entry, observes no scrollToEnd while retaining maintainVisibleContentPosition, then verifies a subsequent near-bottom append resumes scrollToEnd."
+    }
+  ],
+  "not_tested": [
+    "task-mobile-chat-list-polish-c4-visual",
+    "task-mobile-chat-list-polish-c5-visual"
+  ]
+}

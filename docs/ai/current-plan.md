@@ -1,3 +1,5 @@
+> Current requested design (2026-09-28): [Mobile regressions repair — slow project-targeted new chat + non-streaming transcripts](current-plan-1585-regressions.md). Branch `mobile/chat-list-compact-project-create` (draft PR #1585). Status: AJ approved NC-1/NC-2 for #1585; implemented and awaiting verification. NC-3 and ST-1 remain unapproved and out of scope.
+
 > Current requested plan (2026-09-19): [Replace the dashboard with Hermes Desktop](plans/2026-09-19-hermes-desktop-in-rhythm.md). Local signed candidate tested; remaining distribution and full compatibility gates are recorded in the run log. Supersedes the dashboard acceptance target for the mega PR; preserves the working desktop login/runtime repairs.
 
 > Current planning proposal (2026-09-18): [Colony in Rhythm Electron](plans/2026-09-18-electron-colony.md). All-user local opt-in, macOS arm64/x64, native UI/menu design and signed packaging. Twelve ordered implementation slices across four milestones; planning/issue filing only, no implementation or release authorization. The prior Electron replacement and historical plans below remain separate.
