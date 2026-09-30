@@ -3,13 +3,14 @@ import { homedir } from 'os';
 import { dirname, join } from 'path';
 
 /**
- * Persisted router-backend settings (local / Jev / custom). Sits beside the
+ * Persisted router-backend settings (local / Jev / custom / System One). Sits beside the
  * other Rhythm app-support stores, mode 0600. API keys are write-only: they are
  * stored here but never returned by the API and never logged. Precedence
  * (applied in config/env.ts): explicit env var > saved setting > default.
  * This module deliberately has no dependency on config/env (env imports it).
  */
-export type DecisionBackend = 'local' | 'jev' | 'custom';
+export type DecisionBackend = 'local' | 'jev' | 'custom' | 'systemone';
+export type LowConfidenceTier = 'keep' | 'standard';
 export type DecisionScoreScaleSetting = 'auto' | 'probability' | 'logit';
 export type DecisionFeatureSetting = 'default' | 'off' | 'shadow' | 'on';
 export type DecisionFeatureKey =
@@ -38,11 +39,20 @@ export interface DecisionSettings {
   local: { baseUrl: string; model: string; scoreScale: DecisionScoreScaleSetting };
   jev: { baseUrl: string; model: string; apiKey: string };
   custom: { baseUrl: string; model: string; scoreScale: DecisionScoreScaleSetting; apiKey: string };
-  /** null = not set by the user (400ms local, 1500ms jev/custom). */
+  /** Jev-compatible `/v1/systemone` (local Kev, or hosted Jev at https://api.typesafe.ai). */
+  systemone: { baseUrl: string; model: string; apiKey: string };
+  /** null = not set by the user (400ms local, 1000ms systemone, 1500ms jev/custom). */
   timeoutMs: number | null;
   remoteDataConsent: boolean;
   features: Record<DecisionFeatureKey, DecisionFeatureSetting>;
-  routing: { scope: DecisionRoutingScope; escalateMinConfidence: number };
+  routing: {
+    scope: DecisionRoutingScope;
+    escalateMinConfidence: number;
+    /** Below this classifier confidence the tier is not applied as-is. */
+    minConfidence: number;
+    /** null = backend default ('standard' for systemone, 'keep' otherwise). */
+    lowConfidenceTier: LowConfidenceTier | null;
+  };
   /** Live-catalog tier bands by output price (USD per 1M tokens). */
   tiers: {
     /** auto: cutoffs derived from the routable catalog; manual: the two values below. */
@@ -59,6 +69,20 @@ export interface DecisionSettings {
 
 export const DEFAULT_LOCAL_TIMEOUT_MS = 400;
 export const DEFAULT_REMOTE_TIMEOUT_MS = 1500;
+export const DEFAULT_SYSTEMONE_TIMEOUT_MS = 1000;
+export const DEFAULT_ROUTING_MIN_CONFIDENCE = 0.55;
+
+/** Default per-call budget for a backend when timeoutMs is unset. */
+export function defaultTimeoutFor(backend: DecisionBackend): number {
+  if (backend === 'local') return DEFAULT_LOCAL_TIMEOUT_MS;
+  if (backend === 'systemone') return DEFAULT_SYSTEMONE_TIMEOUT_MS;
+  return DEFAULT_REMOTE_TIMEOUT_MS;
+}
+
+/** What routing does with a low-confidence answer: keep the current route, or use standard. */
+export function effectiveLowConfidenceTier(s: DecisionSettings): LowConfidenceTier {
+  return s.routing.lowConfidenceTier ?? (s.backend === 'systemone' ? 'standard' : 'keep');
+}
 
 export function defaultDecisionSettings(): DecisionSettings {
   return {
@@ -67,13 +91,19 @@ export function defaultDecisionSettings(): DecisionSettings {
     local: { baseUrl: 'http://127.0.0.1:8012', model: 'qwen3-reranker-4b', scoreScale: 'auto' },
     jev: { baseUrl: 'https://api.typesafe.ai', model: 'jev-latest', apiKey: '' },
     custom: { baseUrl: '', model: '', scoreScale: 'auto', apiKey: '' },
+    systemone: { baseUrl: 'http://127.0.0.1:8009', model: 'kev-latest', apiKey: '' },
     timeoutMs: null,
     remoteDataConsent: false,
     features: {
       model_routing: 'default', tool_ranking: 'default',
       memory_ranking: 'default', capacity_routing: 'default',
     },
-    routing: { scope: DEFAULT_ROUTING_SCOPE, escalateMinConfidence: DEFAULT_ESCALATE_MIN_CONFIDENCE },
+    routing: {
+      scope: DEFAULT_ROUTING_SCOPE,
+      escalateMinConfidence: DEFAULT_ESCALATE_MIN_CONFIDENCE,
+      minConfidence: DEFAULT_ROUTING_MIN_CONFIDENCE,
+      lowConfidenceTier: null,
+    },
     tiers: {
       mode: 'auto',
       cheapMaxOutputUsd: DEFAULT_CHEAP_MAX_OUTPUT_USD,
@@ -104,10 +134,11 @@ export function normaliseDecisionSettings(raw: unknown): DecisionSettings {
   const local = asObj(r.local);
   const jev = asObj(r.jev);
   const custom = asObj(r.custom);
+  const systemone = asObj(r.systemone);
   const features = asObj(r.features);
   const out: DecisionSettings = {
     version: 1,
-    backend: r.backend === 'jev' || r.backend === 'custom' ? r.backend : 'local',
+    backend: r.backend === 'jev' || r.backend === 'custom' || r.backend === 'systemone' ? r.backend : 'local',
     local: {
       baseUrl: asStr(local.baseUrl, d.local.baseUrl) || d.local.baseUrl,
       model: asStr(local.model, d.local.model) || d.local.model,
@@ -123,6 +154,11 @@ export function normaliseDecisionSettings(raw: unknown): DecisionSettings {
       model: asStr(custom.model, ''),
       scoreScale: asScale(custom.scoreScale, 'auto'),
       apiKey: asStr(custom.apiKey, ''),
+    },
+    systemone: {
+      baseUrl: asStr(systemone.baseUrl, d.systemone.baseUrl) || d.systemone.baseUrl,
+      model: asStr(systemone.model, d.systemone.model) || d.systemone.model,
+      apiKey: asStr(systemone.apiKey, ''),
     },
     timeoutMs:
       typeof r.timeoutMs === 'number' && Number.isInteger(r.timeoutMs) && r.timeoutMs > 0
@@ -167,6 +203,16 @@ export function normaliseDecisionSettings(raw: unknown): DecisionSettings {
     routing.escalateMinConfidence <= 1
   ) {
     out.routing.escalateMinConfidence = routing.escalateMinConfidence;
+  }
+  if (
+    typeof routing.minConfidence === 'number' &&
+    routing.minConfidence > 0 &&
+    routing.minConfidence <= 1
+  ) {
+    out.routing.minConfidence = routing.minConfidence;
+  }
+  if (routing.lowConfidenceTier === 'keep' || routing.lowConfidenceTier === 'standard') {
+    out.routing.lowConfidenceTier = routing.lowConfidenceTier;
   }
   for (const key of DECISION_FEATURE_KEYS) {
     const v = features[key];
@@ -228,6 +274,7 @@ const ENV_KEYS: Record<string, string> = {
   'features.capacity_routing': 'AGENT_DECISION_CAPACITY_ROUTING',
   'routing.scope': 'AGENT_DECISION_ROUTING_SCOPE',
   'routing.escalateMinConfidence': 'AGENT_DECISION_ESCALATE_MIN_CONFIDENCE',
+  'routing.minConfidence': 'AGENT_DECISION_ROUTING_MIN_CONFIDENCE',
 };
 
 /** Setting keys pinned by explicitly set (non-empty) env vars. */

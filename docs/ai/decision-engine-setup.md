@@ -215,6 +215,7 @@ then the default. Pinned keys come back in `lockedByEnv` and show read-only.
 - **local** (default): a reranker on this machine, loopback only (`http://127.0.0.1:8012`).
 - **Jev**: hosted, `https://api.typesafe.ai`, model `jev-latest`. Needs an API key and consent.
   One Choice question per candidate; score is `probabilities.yes`. Default timeout 1500 ms.
+- **systemone**: Kev / Jev `/v1/systemone`, model routing only. See "Kev (recommended for model routing)" below.
 - **custom**: any `/v1/rerank` server. Loopback, LAN (RFC1918/IPv6-local) `http`, or public
   `https` (must resolve to public addresses; link-local/metadata are blocked). Optional
   Bearer key. LAN example: `http://192.168.1.20:8012` on another computer.
@@ -225,6 +226,61 @@ API keys are write-only: GET returns `hasApiKey`, never the key, and an empty st
 Use `POST /agent-decisions/config/test` (optionally with an unsaved draft) to run a three
 document sample before saving. The default timeout is 400 ms for local and 1500 ms for
 Jev/custom unless you set one.
+
+## Kev (recommended for model routing)
+
+[Kev](https://github.com/jaredpalmer/kev) is an open-source decision model that serves the same
+`POST /v1/systemone` API as TypeSafe's hosted Jev. The **System One (Kev / Jev)** backend asks it
+ONE typed `choice` question per routed prompt (options = `cheap` / `standard` / `frontier`), instead
+of reranking the prompt against the tier descriptions. The reranker matches topic, not difficulty;
+Kev judges difficulty and its probabilities are well calibrated.
+
+Calibration against Kev-4B (50 labelled prompts): 80% overall (cheap 17/17, standard 10/17,
+frontier 13/16); every miss had top probability 0.38–0.63; confidence ≥ 0.55 is 95% accurate on 74%
+of prompts; ~345 ms per decision. Falling back to `standard` below 0.55 gives about 88% with no
+over-routing.
+
+**Install and start** (needs [uv](https://docs.astral.sh/uv/)):
+
+```bash
+git clone https://github.com/jaredpalmer/kev.git && cd kev && uv sync --extra serve
+uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009
+```
+
+**Choose the backend**: Providers settings → Router model → *System One (Kev / Jev)* (Electron or
+mobile), or `PUT /agent-decisions/config {"backend":"systemone"}`. Defaults: base URL
+`http://127.0.0.1:8009`, model `kev-latest`, no key, timeout 1000 ms. Press **Test connection**:
+it classifies "What tasks are due today?" and shows the tier, probabilities and latency.
+
+**Hosted Jev** is the same backend with base URL `https://api.typesafe.ai`, model `jev-latest` and
+an API key. A loopback `http` URL needs no consent; anything else must be `https` and needs
+`remoteDataConsent`. The key is write-only (`hasApiKey` in GET; file mode 0600). The older `jev`
+backend (one yes/no question per candidate) still works.
+
+**Scope of use**: only model routing talks to Kev. Tool and memory ranking keep using the `local`
+reranker settings (disabled if that reranker is not running). Memory text is never sent to the
+System One backend.
+
+**Recommended settings**
+
+| Setting | Value |
+|---|---|
+| `routing.minConfidence` (`AGENT_DECISION_ROUTING_MIN_CONFIDENCE`) | 0.55 (default) |
+| `routing.lowConfidenceTier` | `standard` (default for systemone; `keep` for other backends) |
+| `timeoutMs` | 1000 (default for systemone) |
+| `routing.scope` | `first_prompt` |
+| Model routing | **Shadow for a week**, check `GET /agent-decisions`, then **On** |
+
+With `lowConfidenceTier: 'standard'`, an answer below `minConfidence` routes to the standard tier and
+the decision log row carries `detail.reason: 'low_confidence_fallback'` plus `detail.classified`
+(what Kev actually picked). `keep` leaves the current route alone, as the other backends do. Pins,
+scope gates, capacity routing and shadow mode are unchanged. Both fields are in
+`routing` on `GET/PUT /agent-decisions/config` (`lowConfidenceTier: null` = backend default).
+
+**Measure it yourself**: `node apps/api_server/scripts/router_calibrate.mjs --mode systemone`
+([router_calibrate.mjs](../../apps/api_server/scripts/router_calibrate.mjs), standalone, no
+dependencies) runs the 50 labelled prompts and prints accuracy, a threshold sweep and latency.
+`--mode all` compares it with the reranker methods.
 
 ## Routing scope
 

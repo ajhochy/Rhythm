@@ -2,9 +2,8 @@ import os from 'os';
 import path from 'path';
 import { isIP } from 'node:net';
 import {
-  DEFAULT_LOCAL_TIMEOUT_MS,
-  DEFAULT_REMOTE_TIMEOUT_MS,
   activeBackendSection,
+  defaultTimeoutFor,
   loadDecisionSettings,
 } from '../services/decision/decision_settings';
 
@@ -256,14 +255,14 @@ export function getDecisionModel(): string {
 
 /**
  * Per-call budget for the decision backend. Precedence: valid env > saved
- * setting > default (400ms local, 1500ms jev/custom).
+ * setting > default (400ms local, 1000ms systemone, 1500ms jev/custom).
  */
 export function getDecisionTimeoutMs(): number {
   const fromEnv = numberEnv('AGENT_DECISION_TIMEOUT_MS');
   if (fromEnv !== null && Number.isInteger(fromEnv) && fromEnv > 0) return fromEnv;
   const settings = loadDecisionSettings();
   if (settings.timeoutMs !== null) return settings.timeoutMs;
-  return settings.backend === 'local' ? DEFAULT_LOCAL_TIMEOUT_MS : DEFAULT_REMOTE_TIMEOUT_MS;
+  return defaultTimeoutFor(settings.backend);
 }
 
 /** Per-feature rollout: off (default) -> shadow (log only) -> on (apply). */
@@ -329,10 +328,11 @@ export function getDecisionLogMaxRows(): number {
   return positiveIntEnv('AGENT_DECISION_LOG_MAX_ROWS', 20_000);
 }
 
-/** Minimum classifier confidence, in (0,1], before a routing tier is applied. */
+/** Minimum classifier confidence, in (0,1], before a routing tier is applied: env > saved > 0.55. */
 export function getDecisionRoutingMinConfidence(): number {
   const parsed = numberEnv('AGENT_DECISION_ROUTING_MIN_CONFIDENCE');
-  return parsed !== null && parsed > 0 && parsed <= 1 ? parsed : 0.55;
+  if (parsed !== null && parsed > 0 && parsed <= 1) return parsed;
+  return loadDecisionSettings().routing.minConfidence;
 }
 
 /** Routing scope: env > saved setting > 'first_prompt'. */
@@ -382,7 +382,9 @@ export function getDecisionScoreScale(): DecisionScoreScale {
   const raw = (process.env.AGENT_DECISION_SCORE_SCALE ?? '').trim().toLowerCase();
   if (raw === 'auto' || raw === 'probability' || raw === 'logit') return raw;
   const settings = loadDecisionSettings();
-  return settings.backend === 'jev' ? 'auto' : settings[settings.backend].scoreScale;
+  return settings.backend === 'local' || settings.backend === 'custom'
+    ? settings[settings.backend].scoreScale
+    : 'auto';
 }
 
 function numberEnv(name: string): number | null {

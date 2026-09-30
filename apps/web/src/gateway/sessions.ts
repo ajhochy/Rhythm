@@ -91,7 +91,7 @@ export type CustomProviderInput = { providerId: string; name: string; baseURL: s
 export type CustomProviderTestResult = { ok: true; providerId: string; modelCount: number; models: Array<{ id: string; name: string }> };
 export type SessionSettings = { modelMode?: 'auto' | 'fixed'; name?: string; profileId?: string | null; providerId?: string | null; modelId?: string | null; thinkingBudget?: number | null; permissionMode?: string; fastMode?: boolean; anthropicAccountId?: string; openaiAccountId?: string };
 export type RouterPick = { providerId: string; modelId: string; source: string };
-export type RouterBackend = 'local' | 'jev' | 'custom';
+export type RouterBackend = 'local' | 'jev' | 'custom' | 'systemone';
 export type RouterFeatureMode = 'default' | 'off' | 'shadow' | 'on';
 export type RouterFeatureKey = 'model_routing' | 'tool_ranking' | 'memory_ranking' | 'capacity_routing';
 export type RouterScoreScale = 'auto' | 'probability' | 'logit';
@@ -115,6 +115,8 @@ export type RouterConfig = {
   local: { baseUrl: string; model: string; scoreScale: RouterScoreScale };
   jev: { baseUrl: string; model: string; hasApiKey: boolean };
   custom: { baseUrl: string; model: string; scoreScale: RouterScoreScale; hasApiKey: boolean };
+  /** Absent on servers that predate the System One backend. */
+  systemone?: { baseUrl: string; model: string; hasApiKey: boolean };
   timeoutMs: number;
   remoteDataConsent: boolean;
   features: Record<RouterFeatureKey, RouterFeatureMode>;
@@ -129,6 +131,7 @@ export type RouterConfigInput = {
   local?: Partial<RouterConfig['local']>;
   jev?: { baseUrl?: string; model?: string; apiKey?: string };
   custom?: Partial<Omit<RouterConfig['custom'], 'hasApiKey'>> & { apiKey?: string };
+  systemone?: { baseUrl?: string; model?: string; apiKey?: string };
   timeoutMs?: number;
   remoteDataConsent?: boolean;
   features?: Partial<Record<RouterFeatureKey, RouterFeatureMode>>;
@@ -137,7 +140,7 @@ export type RouterConfigInput = {
   tierOverrides?: Record<string, RouterTier>;
   excludedModels?: string[];
 };
-export type RouterTestResult = { ok: boolean; backend?: string; model?: string; latencyMs?: number; ranked?: Array<{ text: string; score: number }>; message?: string };
+export type RouterTestResult = { ok: boolean; backend?: string; model?: string; latencyMs?: number; ranked?: Array<{ text: string; score: number }>; message?: string; tier?: string; probabilities?: Record<string, number> };
 export type TurnOverride = { profileId?: string; modelOverride?: { providerId: string; modelId: string } };
 const statusOrder: Record<Session['status'], number> = { working: 0, starting: 1, idle: 2, error: 3, closed: 4, resumable: 5 };
 const compareText = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;

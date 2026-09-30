@@ -281,10 +281,10 @@ describe('mobile session state PATCH modelMode', () => {
 describe('routing config', () => {
   it('defaults, PUT round-trip, validation and env lock', () => {
     const v0 = buildConfigView();
-    expect(v0.routing).toEqual({ scope: 'first_prompt', escalateMinConfidence: 0.75 });
+    expect(v0.routing).toEqual({ scope: 'first_prompt', escalateMinConfidence: 0.75, minConfidence: 0.55, lowConfidenceTier: null });
     const v1 = updateConfig({ routing: { scope: 'escalate_only', escalateMinConfidence: 0.9 } });
-    expect(v1.routing).toEqual({ scope: 'escalate_only', escalateMinConfidence: 0.9 });
-    expect(v1.effective.routing).toEqual({ scope: 'escalate_only', escalateMinConfidence: 0.9 });
+    expect(v1.routing).toEqual({ scope: 'escalate_only', escalateMinConfidence: 0.9, minConfidence: 0.55, lowConfidenceTier: null });
+    expect(v1.effective.routing).toEqual({ scope: 'escalate_only', escalateMinConfidence: 0.9, minConfidence: 0.55, lowConfidenceTier: 'keep' });
 
     const code = (fn: () => unknown) => {
       try { fn(); } catch (e) { return e instanceof DecisionConfigError ? [e.status, e.code] : ['other']; }
@@ -299,7 +299,7 @@ describe('routing config', () => {
     process.env.AGENT_DECISION_ESCALATE_MIN_CONFIDENCE = '0.6';
     const v2 = buildConfigView();
     expect(v2.lockedByEnv).toEqual(expect.arrayContaining(['routing.scope', 'routing.escalateMinConfidence']));
-    expect(v2.effective.routing).toEqual({ scope: 'every_prompt', escalateMinConfidence: 0.6 });
+    expect(v2.effective.routing).toEqual({ scope: 'every_prompt', escalateMinConfidence: 0.6, minConfidence: 0.55, lowConfidenceTier: 'keep' });
     expect(v2.routing.scope).toBe('escalate_only');
   });
 });

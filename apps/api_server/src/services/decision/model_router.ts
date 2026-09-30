@@ -5,9 +5,11 @@ import {
 import type { DecisionMode } from '../../config/env';
 import type { ModelRoute, ModelTier } from '../agent_model_resolver';
 import { classify } from './decision_engine';
-import type { DecisionOpts } from './decision_engine';
+import type { ClassifyResult, DecisionOpts } from './decision_engine';
 import { recordDecision } from './decision_log';
+import { effectiveLowConfidenceTier, loadDecisionSettings } from './decision_settings';
 import { routeModelForTier, type CatalogSource } from './model_catalog';
+import { getDefaultChoiceClient, type ChoiceClient, type ChoiceQuestion } from './systemone_client';
 
 /**
  * Only the built-in agent default, and Auto (router) sessions, are "soft"
@@ -34,6 +36,29 @@ export const TIER_LABELS: { id: ModelTier; description: string }[] = [
   },
 ];
 
+/** The one typed question a System One backend (Kev / Jev) answers per first prompt. */
+export const TIER_CHOICE_QUESTION: ChoiceQuestion<ModelTier> = {
+  instructions:
+    'This is a request sent to an AI assistant. Which model tier does it need? Judge by how much reasoning the task needs, not by its length or its topic. A long request can still be a simple lookup; a short question can hide a hard problem.',
+  options: Object.fromEntries(TIER_LABELS.map((l) => [l.id, l.description])) as Record<ModelTier, string>,
+};
+
+/** Classify with one System One choice question, in the reranker's result shape. */
+async function classifyWithChoice(prompt: string, client: ChoiceClient): Promise<ClassifyResult<ModelTier>> {
+  const r = await client.choose(prompt, TIER_CHOICE_QUESTION);
+  if (r.status !== 'ok') return r;
+  const sorted = Object.values<number>(r.probabilities).sort((a, b) => b - a);
+  return {
+    status: 'ok',
+    label: r.choice,
+    confidence: r.confidence,
+    margin: sorted[0] - (sorted[1] ?? 0),
+    scores: r.probabilities,
+    latencyMs: r.latencyMs,
+    model: r.model,
+  };
+}
+
 export interface RouteTurnTierInput {
   prompt: string;
   agentId: string;
@@ -44,6 +69,8 @@ export interface RouteTurnTierInput {
   /** Current route: its provider is preferred when picking the model for the routed tier. */
   baseRoute?: ModelRoute;
   client?: DecisionOpts['client'];
+  /** System One client (tests); otherwise the saved systemone backend is used when active. */
+  choiceClient?: ChoiceClient;
   /** True for Auto (router) sessions: an unset env var then means 'on'. */
   sessionAuto?: boolean;
   /** Test/caller override of the effective mode (wins over env and sessionAuto). */
@@ -84,7 +111,13 @@ export async function routeTurnTier(input: RouteTurnTierInput): Promise<RouteTur
     return { tier: null, applied: false, mode, reason: 'empty_prompt' };
   }
   try {
-    const r = await classify(input.prompt, TIER_LABELS, input.client ? { client: input.client } : {});
+    const settings = loadDecisionSettings();
+    const choiceClient =
+      input.choiceClient ??
+      (!input.client && settings.backend === 'systemone' ? getDefaultChoiceClient() : null);
+    const r = choiceClient
+      ? await classifyWithChoice(input.prompt, choiceClient)
+      : await classify(input.prompt, TIER_LABELS, input.client ? { client: input.client } : {});
     if (r.status !== 'ok') {
       recordDecision({
         feature: 'model_routing',
@@ -99,14 +132,19 @@ export async function routeTurnTier(input: RouteTurnTierInput): Promise<RouteTur
       return { tier: null, applied: false, mode, reason: r.status };
     }
     const confident = r.confidence >= getDecisionRoutingMinConfidence();
-    const gate = input.scopeGate ? input.scopeGate(r.label, r.confidence) : null;
+    // Low-confidence policy: 'standard' routes an unsure answer to the middle
+    // tier (calibrated for Kev); 'keep' leaves the current route alone.
+    const fallback = !confident && effectiveLowConfidenceTier(settings) === 'standard';
+    const label: ModelTier = fallback ? 'standard' : r.label;
+    const usable = confident || fallback;
+    const gate = input.scopeGate ? input.scopeGate(label, r.confidence) : null;
     const gateOk = gate ? gate.apply : true;
-    const applied = mode === 'on' && confident && gateOk;
+    const applied = mode === 'on' && usable && gateOk;
     let picked: Awaited<ReturnType<typeof routeModelForTier>> | null = null;
     if (applied) {
       try {
         picked = await routeModelForTier({
-          tier: r.label,
+          tier: label,
           agentId: input.agentId,
           ...(input.baseRoute ? { baseRoute: input.baseRoute } : {}),
         });
@@ -120,7 +158,7 @@ export async function routeTurnTier(input: RouteTurnTierInput): Promise<RouteTur
       sessionId: input.sessionId ?? null,
       status: 'ok',
       applied,
-      chosen: r.label,
+      chosen: label,
       confidence: r.confidence,
       baseline: input.baselineTier ?? null,
       latencyMs: r.latencyMs,
@@ -130,6 +168,7 @@ export async function routeTurnTier(input: RouteTurnTierInput): Promise<RouteTur
         scores: r.scores,
         margin: r.margin,
         requestedSource: input.requestedSource,
+        ...(fallback ? { reason: 'low_confidence_fallback', classified: r.label } : {}),
         ...(picked
           ? {
               catalog: picked.catalog,
@@ -137,7 +176,7 @@ export async function routeTurnTier(input: RouteTurnTierInput): Promise<RouteTur
               pickedModel: `${picked.route.providerID}/${picked.route.modelID}`,
             }
           : {}),
-        ...(gate ? { scope: gate.reason, wouldApply: confident && gateOk } : {}),
+        ...(gate ? { scope: gate.reason, wouldApply: usable && gateOk } : {}),
       },
     });
     if (!applied) {
@@ -146,15 +185,15 @@ export async function routeTurnTier(input: RouteTurnTierInput): Promise<RouteTur
         applied: false,
         mode,
         reason:
-          mode === 'shadow' ? 'shadow' : confident && !gateOk ? `scope:${gate?.reason}` : 'low_confidence',
+          mode === 'shadow' ? 'shadow' : usable && !gateOk ? `scope:${gate?.reason}` : 'low_confidence',
         confidence: r.confidence,
       };
     }
     return {
-      tier: r.label,
+      tier: label,
       applied: true,
       mode,
-      reason: 'ok',
+      reason: fallback ? 'low_confidence_fallback' : 'ok',
       confidence: r.confidence,
       ...(picked
         ? {

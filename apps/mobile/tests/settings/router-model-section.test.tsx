@@ -167,6 +167,49 @@ describe('RouterModelSection', () => {
   });
 });
 
+describe('System One backend', () => {
+  const withSystemOne = () => baseConfig({ systemone: { baseUrl: 'http://127.0.0.1:8009', model: 'kev-latest', hasApiKey: false } });
+
+  test('hidden when the paired Mac predates it', async () => {
+    const { screen } = setup();
+    await openDialog(screen);
+    expect(screen.queryByLabelText('System One (Kev / Jev)')).toBeNull();
+  });
+
+  test('loopback needs no consent, defaults timeout to 1000, shows help; test shows the tier', async () => {
+    const { api, screen } = setup(withSystemOne(), {
+      test: jest.fn().mockResolvedValue({ ok: true, backend: 'systemone', model: 'kev-4b', latencyMs: 345, tier: 'cheap', ranked: [{ text: 'cheap', score: 0.9 }] }),
+    });
+    await openDialog(screen);
+    fireEvent.press(screen.getByLabelText('System One (Kev / Jev)'));
+    expect(screen.getByTestId('router-systemone-help')).toBeTruthy();
+    expect(screen.queryByTestId('router-consent-switch')).toBeNull();
+    fireEvent.press(screen.getByTestId('router-test-button'));
+    await waitFor(() => expect(screen.getByText(/tier cheap/)).toBeTruthy());
+    const draft = (api.test as jest.Mock).mock.calls[0][0];
+    expect(draft).toMatchObject({ backend: 'systemone', timeoutMs: 1000, systemone: { baseUrl: 'http://127.0.0.1:8009', model: 'kev-latest' } });
+    expect(draft.systemone.apiKey).toBeUndefined();
+  });
+
+  test('a non-loopback URL (even LAN) needs consent; typed key is sent', async () => {
+    const { api, screen } = setup(withSystemOne());
+    await openDialog(screen);
+    fireEvent.press(screen.getByLabelText('System One (Kev / Jev)'));
+    fireEvent.changeText(screen.getByTestId('router-systemoneBaseUrl'), 'http://192.168.1.5:8009');
+    expect(screen.getByText(/pick a model tier \(never memories\)/)).toBeTruthy();
+    fireEvent.changeText(screen.getByTestId('router-systemoneBaseUrl'), 'https://api.typesafe.ai');
+    fireEvent.changeText(screen.getByTestId('router-systemoneApiKey'), 'sk-kev');
+    fireEvent.press(screen.getByTestId('router-save-button'));
+    expect(api.save).not.toHaveBeenCalled();
+    fireEvent(screen.getByTestId('router-consent-switch'), 'valueChange', true);
+    fireEvent.press(screen.getByTestId('router-save-button'));
+    await waitFor(() => expect(api.save).toHaveBeenCalledTimes(1));
+    expect((api.save as jest.Mock).mock.calls[0][0]).toMatchObject({
+      backend: 'systemone', remoteDataConsent: true, systemone: { baseUrl: 'https://api.typesafe.ai', apiKey: 'sk-kev' },
+    });
+  });
+});
+
 describe('isRemoteUrl', () => {
   test.each([
     ['http://192.168.1.20:8012', false],

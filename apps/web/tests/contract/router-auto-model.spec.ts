@@ -45,6 +45,7 @@ const baseRouterConfig = (): Body => ({
   local: { baseUrl: 'http://127.0.0.1:8012', model: 'reranker-small', scoreScale: 'auto' },
   jev: { baseUrl: 'https://api.typesafe.ai', model: 'jev-latest', hasApiKey: false },
   custom: { baseUrl: '', model: '', scoreScale: 'auto', hasApiKey: false },
+  systemone: { baseUrl: 'http://127.0.0.1:8009', model: 'kev-latest', hasApiKey: false },
   timeoutMs: 1500, remoteDataConsent: false,
   features: { model_routing: 'default', tool_ranking: 'default', memory_ranking: 'off', capacity_routing: 'default' },
   lockedByEnv: ['tool_ranking'],
@@ -104,7 +105,7 @@ async function setup(page: Page, opts: { modelMode?: 'auto' | 'fixed' | undefine
       if (state.putError) return json({ error: 'consent_required', message: state.putError.message }, state.putError.status);
       const next = state.routerConfig;
       next.backend = body.backend ?? next.backend;
-      for (const key of ['local', 'jev', 'custom']) if (body[key]) { const { apiKey, ...rest } = body[key]; Object.assign(next[key], rest); if (apiKey !== undefined) next[key].hasApiKey = apiKey !== ''; }
+      for (const key of ['local', 'jev', 'custom', 'systemone']) if (body[key]) { const { apiKey, ...rest } = body[key]; Object.assign(next[key], rest); if (apiKey !== undefined) next[key].hasApiKey = apiKey !== ''; }
       if (body.remoteDataConsent !== undefined) next.remoteDataConsent = body.remoteDataConsent;
       if (body.features) Object.assign(next.features, body.features);
       if (next.catalog && next.catalog.models.length && (body.tiers || body.tierOverrides || body.excludedModels)) {
@@ -132,6 +133,9 @@ async function setup(page: Page, opts: { modelMode?: 'auto' | 'fixed' | undefine
     if (path === '/agent-decisions/config/test') {
       state.routerTests.push(request.postDataJSON() as Body);
       if (state.testFails) return json({ ok: false, message: 'connection refused' });
+      if ((request.postDataJSON() as Body).backend === 'systemone') {
+        return json({ ok: true, backend: 'systemone', model: 'kev-4b', latencyMs: 345, tier: 'cheap', probabilities: { cheap: 0.9, standard: 0.08, frontier: 0.02 }, ranked: [{ text: 'cheap', score: 0.9 }, { text: 'standard', score: 0.08 }, { text: 'frontier', score: 0.02 }] });
+      }
       return json({ ok: true, backend: 'local', model: 'reranker-small', latencyMs: 42, ranked: [{ text: 'Refactor the parser', score: 0.91 }, { text: 'Order lunch', score: 0.07 }] });
     }
     return json([]);
@@ -454,4 +458,37 @@ test('router:C7 no_curated_models shows the callout and jumps to Models curation
   await expect(row(page, GPT6)).toHaveClass(/muted/);
   await page.getByTestId('router-catalog-open-curation').click();
   await expect(page).toHaveURL(/settingsSection=models/);
+});
+
+test('router:B5 System One: loopback needs no consent, remote does; key is write-only; test shows the tier', async ({ page }) => {
+  const state = await setup(page);
+  await openRouterSettings(page);
+  await page.getByTestId('router-backend-systemone').check();
+  await expect(page.getByTestId('router-systemone-url')).toHaveValue('http://127.0.0.1:8009');
+  await expect(page.getByTestId('router-systemone-model')).toHaveValue('kev-latest');
+  await expect(page.getByTestId('router-systemone-key')).toHaveAttribute('type', 'password');
+  await expect(page.getByTestId('router-systemone-help')).toContainText('kev.serve');
+  await expect(page.getByTestId('router-timeout')).toHaveValue('1000');
+  await expect(page.getByTestId('router-consent')).toHaveCount(0);
+  await page.getByTestId('router-test').click();
+  await expect(page.getByTestId('router-test-tier')).toHaveText('cheap');
+  await expect(page.getByTestId('router-test-result')).toContainText('345 ms');
+  // Evidence capture only when asked (keeps routine runs from writing files).
+  if (process.env.RHYTHM_CAPTURE_EVIDENCE) {
+    await page.getByTestId('router-backend-systemone').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${process.env.RHYTHM_CAPTURE_EVIDENCE}-fields.png` });
+    await page.getByTestId('router-test-result').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${process.env.RHYTHM_CAPTURE_EVIDENCE}-result.png` });
+  }
+  expect(state.routerTests[0]).toMatchObject({ backend: 'systemone', systemone: { baseUrl: 'http://127.0.0.1:8009', model: 'kev-latest' } });
+  expect(state.routerTests[0].systemone.apiKey).toBeUndefined();
+
+  await page.getByTestId('router-systemone-url').fill('https://api.typesafe.ai');
+  await expect(page.getByTestId('router-save')).toBeDisabled();
+  await page.getByTestId('router-consent').check();
+  await page.getByTestId('router-systemone-key').fill('sk-kev');
+  await page.getByTestId('router-save').click();
+  await expect(page.getByTestId('router-notice')).toBeVisible();
+  expect(state.routerPuts.at(-1)).toMatchObject({ backend: 'systemone', remoteDataConsent: true, timeoutMs: 1000, systemone: { baseUrl: 'https://api.typesafe.ai', apiKey: 'sk-kev' } });
+  await expect(page.getByTestId('router-systemone-key-saved')).toHaveText('Key saved');
 });
