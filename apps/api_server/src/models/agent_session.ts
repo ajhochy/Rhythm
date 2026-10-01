@@ -102,6 +102,13 @@ export interface AgentSession {
   projectId: string | null;
   providerId: string | null;
   modelId: string | null;
+  /**
+   * 'auto' = the router picks the model each turn; providerId/modelId are only
+   * the fallback baseline. 'fixed' = the stored model is a pin. Legacy rows are 'fixed'.
+   */
+  modelMode: SessionModelMode;
+  /** ISO time the decision router last applied a pick (auto sessions); null = not routed yet. */
+  routerDecidedAt: string | null;
   agentMode: string | null;
   permissionMode: PermissionMode;
   /** Server-owned proof that a human selected bypassPermissions for this chat. */
@@ -166,10 +173,18 @@ export interface AgentSession {
   worktreeBranch: string | null;
 }
 
+export type SessionModelMode = 'auto' | 'fixed';
+
+/** Coerce any stored/received value to a valid mode; invalid → 'fixed'. */
+export function normalizeSessionModelMode(value: unknown): SessionModelMode {
+  return value === 'auto' ? 'auto' : 'fixed';
+}
+
 export interface UpdateAgentSessionDto {
   name?: string;
   providerId?: string | null;
   modelId?: string | null;
+  modelMode?: SessionModelMode;
   agentMode?: string | null;
 }
 
@@ -213,6 +228,8 @@ export interface CreateAgentSessionDto {
   cwd: string;
   name: string;
   projectId?: string | null;
+  /** Model mode stamped at creation. Omitted = 'fixed' (only the interactive POST defaults to 'auto'). */
+  modelMode?: SessionModelMode;
   /** Session-scoped permission policy selected by the client. */
   permissionMode?: PermissionMode;
   /** Set only by the interactive session controller; all other callers omit it. */

@@ -98,6 +98,8 @@ interface ToolsContextValue {
     item: ToolRecord,
   ) => Promise<GalleryArtifactSource | null>;
   refresh: (tool: ToolScreenId) => Promise<void>;
+  /** Active tools service, or null while unavailable (router settings use it). */
+  getService: () => RhythmToolsService | null;
   perform: (
     tool: ToolScreenId,
     action: ToolAction,
@@ -429,7 +431,13 @@ export function RhythmToolsProvider({
   );
 
   const value = useMemo<ToolsContextValue>(
-    () => ({ getGalleryArtifactSource, getState, perform, refresh }),
+    () => ({
+      getGalleryArtifactSource,
+      getService: () => serviceRef.current,
+      getState,
+      perform,
+      refresh,
+    }),
     [getGalleryArtifactSource, getState, perform, refresh],
   );
   return (

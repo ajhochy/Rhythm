@@ -208,6 +208,7 @@ describe('Agent Sessions API', () => {
         undefined,
         undefined,
         resolvedMode,
+        true, // interactive chat row → task restricted to explore/general
       );
     },
   );
@@ -402,7 +403,38 @@ describe('Agent Sessions API', () => {
       undefined,
       undefined,
       'bypassPermissions',
+      true, // interactive chat row → task restricted to explore/general
     );
+  });
+
+  it('interactive-task-scope: legacy resume of a system (headless) row does NOT restrict task', async () => {
+    const sessionsRepoLocal = new AgentSessionsRepository();
+    const inserted = sessionsRepoLocal.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: os.homedir(),
+      name: 'Legacy system resume',
+      // System/background row (no scheduled_tasks FK needed): headless.
+      isSystem: true,
+    });
+    sessionsRepoLocal.updateToken(inserted.id, 'sdk-prior-token');
+    sessionsRepoLocal.updateStatus(inserted.id, 'resumable');
+
+    const { opencodeClient } = await import('../services/opencode_engine');
+    const mockClient = opencodeClient as unknown as {
+      createSession: ReturnType<typeof vi.fn>;
+    };
+    mockClient.createSession.mockResolvedValueOnce({ id: 'sdk-scheduled-resumed-session' });
+
+    const res = await fetch(`${baseUrl}/agent-sessions/${inserted.id}/resume`, {
+      method: 'POST',
+      headers: authHeaders,
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockClient.createSession).toHaveBeenCalledTimes(1);
+    expect(mockClient.createSession.mock.calls[0][7]).toBe(false);
   });
 
   it('#858: resume with a UUID-keyed agentId re-resolves the persisted agentKind to the engine name', async () => {
@@ -820,6 +852,26 @@ describe('Agent Sessions API', () => {
     expect(updated.name).toBe('Renamed');
   });
 
+  it('interactive-task-scope: PATCH permissionMode on an interactive chat re-asserts the task restriction', async () => {
+    const id = await createSession();
+    new AgentSessionsRepository().setSdkSessionId(id, 'sdk-patch-mode');
+    const { opencodeClient } = await import('../services/opencode_engine');
+    const mockClient = opencodeClient as unknown as Record<string, unknown>;
+    const update = vi.fn().mockResolvedValue(true);
+    mockClient.updateSessionPermissionMode = update;
+    try {
+      const res = await fetch(`${baseUrl}/agent-sessions/${id}`, {
+        method: 'PATCH',
+        headers: authHeaders,
+        body: JSON.stringify({ permissionMode: 'bypassPermissions' }),
+      });
+      expect(res.status).toBe(200);
+      expect(update).toHaveBeenCalledWith('sdk-patch-mode', 'bypassPermissions', true);
+    } finally {
+      delete mockClient.updateSessionPermissionMode;
+    }
+  });
+
   it('PATCH /agent-sessions/:id sets providerId+modelId when provider is authed', async () => {
     const id = await createSession();
     const res = await fetch(`${baseUrl}/agent-sessions/${id}`, {
@@ -1155,6 +1207,7 @@ describe('Agent Sessions API', () => {
       undefined,
       undefined,
       'default',
+      true, // interactive chat row → task restricted to explore/general
     );
     expect(opencodeSessionMap.get(session.id)).toBe('sdk-launch-no-fk');
     // Issue #653: server no longer fabricates an "I need help with: <title>"
@@ -1212,6 +1265,7 @@ describe('Agent Sessions API', () => {
       undefined,
       undefined,
       'default',
+      true, // interactive chat row → task restricted to explore/general
     );
     expect(opencodeSessionMap.get(session.id)).toBe('sdk-launch-with-fk');
     // Issue #653: no auto-initial-prompt; client owns first-turn content.

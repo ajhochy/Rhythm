@@ -211,13 +211,15 @@ export class AgentScheduledTasksRepository {
     return (rows as Record<string, unknown>[]).map(rowToModel);
   }
 
-  /** Find tasks due to run: enabled AND next_run_at <= now. */
+  /** Explicit queues do not enable recurrence; running work is never due again. */
   async findDueAsync(): Promise<AgentScheduledTask[]> {
     const now = new Date().toISOString();
     if (env.dbClient === 'postgres') {
       const r = await getPostgresPool().query(
         `SELECT * FROM agent_scheduled_tasks
-         WHERE enabled = TRUE AND next_run_at IS NOT NULL AND next_run_at <= $1
+         WHERE (enabled = TRUE OR last_run_status = 'queued')
+           AND COALESCE(last_run_status, '') <> 'running'
+           AND next_run_at IS NOT NULL AND next_run_at <= $1
          ORDER BY next_run_at ASC`,
         [now],
       );
@@ -225,7 +227,9 @@ export class AgentScheduledTasksRepository {
     }
     const rows = getDb().prepare(
       `SELECT * FROM agent_scheduled_tasks
-       WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
+       WHERE (enabled = 1 OR last_run_status = 'queued')
+         AND COALESCE(last_run_status, '') <> 'running'
+         AND next_run_at IS NOT NULL AND next_run_at <= ?
        ORDER BY next_run_at ASC`,
     ).all(now);
     return (rows as Record<string, unknown>[]).map(rowToModel);
@@ -299,21 +303,21 @@ export class AgentScheduledTasksRepository {
         `UPDATE agent_scheduled_tasks
          SET next_run_at = $1, last_run_status = 'queued',
              last_error = NULL, updated_at = $1
-         WHERE id = $2
+         WHERE id = $2 AND COALESCE(last_run_status, '') NOT IN ('queued', 'running')
          RETURNING *`,
         [now, id],
       );
-      return result.rows[0] ? rowToModel(result.rows[0]) : null;
+      return result.rows[0] ? rowToModel(result.rows[0]) : this.findByIdAsync(id);
     }
-    const result = getDb()
+    getDb()
       .prepare(
         `UPDATE agent_scheduled_tasks
          SET next_run_at = ?, last_run_status = 'queued',
-             last_error = NULL, updated_at = ?
-         WHERE id = ?`,
+              last_error = NULL, updated_at = ?
+         WHERE id = ? AND COALESCE(last_run_status, '') NOT IN ('queued', 'running')`,
       )
       .run(now, now, id);
-    return result.changes > 0 ? this.findByIdAsync(id) : null;
+    return this.findByIdAsync(id);
   }
 
   async updateAsync(id: string, patch: Partial<CreateAgentScheduledTaskInput & { enabled: boolean; nextRunAt: string | null }>): Promise<AgentScheduledTask | null> {

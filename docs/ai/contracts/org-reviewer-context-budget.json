@@ -22,11 +22,11 @@
     },
     {
       "criterion_id": "org-reviewer-context-budget-c3",
-      "text": "Compute fixed/completeness-required payload first, then allocate only remaining serialized byte budget to optional transcript/session/catalog data. Account for the actual pretty-serialized API response under MAX_CONTEXT_BYTES, not only compact per-item estimates.",
+      "text": "SUPERSEDED 2026-09-29 (docs/ai/decisions/2026-09-29-org-reviewer-sessions-first.md): the overview carries a compact session index (no transcripts), admitted first; configuration and catalogs share the remaining compact-serialized budget under MAX_CONTEXT_BYTES. Transcripts are paged per session by rhythm_read_org_review_session; omitted overview entries are paged by rhythm_read_org_review_catalog.",
       "mode": "unit",
       "test": "apps/api_server/src/services/__tests__/org_reviewer_service.test.ts",
       "status": "pass",
-      "reason": "Repair attempt 1 proves added transcript pressure leaves deterministic static collection and catalog inclusion unchanged, then explicitly truncates or omits sessions from the remaining capacity."
+      "reason": "Static-first allocation starved sessions (reported sessions.total=67, included=0). c3 asserts catalog pressure leaves the indexed sessions unchanged."
     },
     {
       "criterion_id": "org-reviewer-context-budget-c4",
@@ -46,11 +46,11 @@
     },
     {
       "criterion_id": "org-reviewer-context-budget-c6",
-      "text": "One session containing messages that fill the transcript allowance must still produce a response below MAX_CONTEXT_BYTES; transcript/session omission or clipping is explicit and deterministic.",
+      "text": "SUPERSEDED 2026-09-29: no clipping. A session whose messages exceed one response is listed in the index and its full text is returned across session-tool pages (each < 40,000 bytes, fenced < 50 KiB); a message larger than a page continues from the character offset in nextCursor.",
       "mode": "unit",
       "test": "apps/api_server/src/services/__tests__/org_reviewer_service.test.ts",
       "status": "pass",
-      "reason": ""
+      "reason": "c6 reassembles the four 4,000-char pressure messages exactly from session pages."
     },
     {
       "criterion_id": "org-reviewer-context-budget-c7",

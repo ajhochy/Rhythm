@@ -1,0 +1,49 @@
+{
+  "issue": "C3",
+  "generated": "2026-10-01",
+  "criteria": [
+    {
+      "criterion_id": "task-c3-c1",
+      "text": "A completed assistant message with a non-retryable provider APIError must leave the run and durable root failed, with an actionable non-disclosing authentication error and no fabricated output.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/regressions_runner_provider_error_contract.test.ts",
+      "test_id": "task-c3-c1: a completed assistant APIError is an observable failed run and root",
+      "status": "pass",
+      "reason": "Red before product edit (done vs error), then green with the C3 patch. Real API/engine/scheduler remains separately unverified."
+    },
+    {
+      "criterion_id": "task-c3-c2",
+      "text": "A controlled provider 401 through the real API and engine must persist a failed scheduled run and root, retain the error after reopen, and leave recurrence disabled.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/c1_gap_provider_live.test.ts",
+      "test_id": "nonretryable synthetic 401 becomes durable actionable error, never false completion; disabled recurrence stays off",
+      "status": "pass",
+      "reason": "Controlled synthetic provider returned non-retryable 401 through real API/compiled engine; live test passed 1/1 in 141.09 seconds. Run and root persisted failure and actionable error after reopen while recurrence stayed disabled. This is not real account entitlement or installed UI proof."
+    },
+    {
+      "criterion_id": "task-c3-c3",
+      "text": "An aborted assistant turn remains an interruption rather than a provider failure, while preserving the existing timeout abort path.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/regressions_runner_provider_error_contract.test.ts",
+      "test_id": "task-c3-c3: an aborted assistant turn remains an interruption, not a provider failure",
+      "status": "pass",
+      "reason": "The focused test failed on infra_config before the error-name repair and passed afterward; the existing timeout contract remains green."
+    },
+    {
+      "criterion_id": "task-c3-c4",
+      "text": "An output-limit assistant error remains a model turn failure rather than a provider failure.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/regressions_runner_provider_error_contract.test.ts",
+      "test_id": "task-c3-c4: an output-limit error remains a model turn failure, not a provider failure",
+      "status": "pass",
+      "reason": "The focused test failed on generic provider wording before the error-name repair and passed afterward."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [],
+  "recovery_reverification": {
+    "date": "2026-10-01",
+    "receipt": "docs/ai/runs/2026-10-01-memory-recovery-integration.md",
+    "scope": "C3 source red/green plus real controlled-provider 401 live 1/1; account and installed UI gates remain separate."
+  }
+}

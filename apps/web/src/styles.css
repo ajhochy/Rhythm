@@ -353,6 +353,7 @@ code, pre { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .composer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .composer-selects { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; overflow: visible; }
 .composer-selects select { min-height: 32px; max-width: 142px; font-size: 10px; }
+.composer-router-pick { font-size: 10px; color: var(--muted, #6b7280); white-space: nowrap; }
 .composer-toolbar > small { flex: 0 0 auto; color: var(--muted); font-size: 9px; }
 .offline-queue, .composer-disabled-reason { min-height: 34px; display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--fg-2); background: var(--surface-warm); font-size: 10px; }
 .offline-queue > span { flex: 1; }

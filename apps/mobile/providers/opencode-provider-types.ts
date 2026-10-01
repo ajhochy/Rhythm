@@ -153,6 +153,8 @@ export type OpencodeContextValue = {
   sessionPreviewById: Record<string, string>;
   isRefreshingSessions: boolean;
   isRefreshingMessages: boolean;
+  completionSyncStatus?: 'syncing' | 'retry';
+  retryCompletionSync: (sessionId: string) => void;
   isRefreshingDiffs: boolean;
   isBootstrappingChat: boolean;
   currentConfig?: Config;
@@ -196,7 +198,9 @@ export type OpencodeContextValue = {
   refreshCurrentSession: (silent?: boolean) => Promise<void>;
   loadOlderMessages: (sessionId: string) => Promise<void>;
   refreshCurrentTodos: (silent?: boolean) => Promise<void>;
-  ensureActiveSession: () => Promise<string | undefined>;
+  ensureActiveSession: (
+    options?: { allowCreate?: boolean },
+  ) => Promise<string | undefined>;
   createSession: (
     title?: string,
     options?: CreateSessionOptions,

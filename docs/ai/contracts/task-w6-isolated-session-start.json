@@ -1,0 +1,66 @@
+{
+  "issue": "W6-isolated-session-start",
+  "date": "2026-10-01",
+  "test_command": null,
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-w6-isolated-session-start-c1",
+      "text": "With an intentionally dirty synthetic repository, select a different base branch and enable isolated worktree creation. Start must create a distinct worktree/focused branch and session without checkout in the source directory.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/w6_isolated_session_start_live_e2e.test.ts",
+      "status": "pass",
+      "reason": "Real API/engine isolated Start passed 1/1 in combined live run using a selected base already checked out elsewhere and a name with spaces; created a distinct focused worktree/session without source checkout."
+    },
+    {
+      "criterion_id": "task-w6-isolated-session-start-c2",
+      "text": "The source branch, index, tracked/untracked file bytes and pre-existing worktrees must remain unchanged. No automatic stash, commit, reset, clean or overwrite.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/w6_isolated_session_start_live_e2e.test.ts",
+      "status": "pass",
+      "reason": "Live disposable Git fixture asserted source branch, index, staged/unstaged/untracked bytes unchanged before and after native worktree creation and owned cleanup."
+    },
+    {
+      "criterion_id": "task-w6-isolated-session-start-c3",
+      "text": "Handle branch already checked out elsewhere, worktree name containing spaces, existing destination, missing repository and concurrent Start clicks safely and visibly. One accepted Start creates one owned worktree/session.",
+      "mode": "integration",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "Selected branch checked out elsewhere and spaces passed real Git/live checks. Existing-destination and concurrent Start-click cardinality have not been exercised at the real API/engine boundary."
+    },
+    {
+      "criterion_id": "task-w6-isolated-session-start-c4",
+      "text": "Errors must identify a safe repair action; never require discarding source edits merely to create isolation.",
+      "mode": "integration",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "Focused source tests cover a missing base and actionable error while preserving source. The complete actual Start failure/error matrix is not yet live-qualified."
+    },
+    {
+      "criterion_id": "task-w6-isolated-session-start-c5",
+      "text": "Regression tests must exercise real Git against temporary synthetic repositories and the actual owning Start/worktree boundary, not assert only that a helper was called.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/w6_isolated_session_start_live_e2e.test.ts",
+      "status": "pass",
+      "reason": "Combined sandbox real API plus compiled fork with disposable real Git repository passed 1/1; focused fork worktree suite passed 15/15 and API route tests 28/28. No mock-only claim."
+    },
+    {
+      "criterion_id": "task-w6-isolated-session-start-c6",
+      "text": "Verify the installed packaged Electron Start journey after integration, and record exact component/request/origin/build attribution.",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "No final installed packaged Electron Start journey or component/request/origin/build attribution has run; screenshot-specific configuration remains a manual gate."
+    }
+  ],
+  "not_tested": [
+    "task-w6-isolated-session-start-c3",
+    "task-w6-isolated-session-start-c4",
+    "task-w6-isolated-session-start-c6"
+  ],
+  "recovery_reverification": {
+    "date": "2026-10-01",
+    "receipt": "docs/ai/runs/2026-10-01-memory-recovery-integration.md",
+    "scope": "Combined real API/engine dirty-Git Start 1/1 within three-file/four-test live run (33.57s); existing destination, concurrent clicks, and installed package pending."
+  }
+}

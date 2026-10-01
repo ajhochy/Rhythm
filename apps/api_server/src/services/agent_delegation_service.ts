@@ -7,6 +7,7 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 import { AgentAsyncDelegationsRepository } from '../repositories/agent_async_delegations_repository';
 import { run as runAgent } from './agent_runner';
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
+import { isInteractiveChatSession } from './opencode_client_service';
 import { resolveProfileScope } from './agent_profile_scope';
 import { listAgentModelCatalog } from '../routes/agents_models_routes';
 
@@ -329,6 +330,12 @@ export async function delegateToAgentAsync(
     skillNames,
     runModel.providerID,
     parentSdkSessionId,
+    undefined,
+    // The child inherits the caller's category/is_system/scheduled_task_id
+    // (upsertResolvedChildSession), so it is interactive exactly when the
+    // caller is — always, past the gate above. A manager child must also
+    // delegate named profiles via rhythm_delegate_async.
+    isInteractiveChatSession(callerSession),
   );
   if (!childSession?.id) {
     throw AppError.internal('failed to create async delegated child session');

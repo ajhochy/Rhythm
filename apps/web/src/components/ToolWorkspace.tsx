@@ -3,7 +3,7 @@ import { FIXED_NOW } from '../fixtures';
 import { useGateway } from '../gateway/context';
 import type { AgentMemory } from '../gateway/memory';
 import type { OrgProposal } from '../gateway/org-proposals';
-import type { ScheduledTask, ScheduledTaskInput, ScheduledTaskRun } from '../gateway/schedules';
+import { ScheduleGatewayError, type ScheduledTask, type ScheduledTaskInput, type ScheduledTaskRun } from '../gateway/schedules';
 import type { AgentRunQuality } from '../gateway/run-quality';
 import type { CommandEntry, ManagedCommandContent } from '../gateway/commands';
 import type { CookbookRecipe } from '../gateway/cookbook';
@@ -827,6 +827,12 @@ function LiveSchedulesTool() {
   const [loading, setLoading] = useState(true);
   const [runState, setRunState] = useState<{ taskId: string | null; runs: ScheduledTaskRun[]; error: string | null; loading: boolean }>({ taskId: null, runs: [], error: null, loading: false });
   const runRequest = useRef(0);
+  const triggering = useRef(new Set<string>());
+  const [triggerStates, setTriggerStates] = useState<Record<string, 'queueing' | 'reconciling' | undefined>>({});
+  const [triggerErrors, setTriggerErrors] = useState<Record<string, string | undefined>>({});
+  const uncertain = useRef(new Map<string, { lastRunAt: string | null; runIds: string[] | null }>());
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const tasksLoaded = useRef(false);
   const [editing, setEditing] = useState<ScheduledTask | 'new' | null>(null);
   const [deleting, setDeleting] = useState<ScheduledTask | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -841,13 +847,30 @@ function LiveSchedulesTool() {
   useEffect(() => { if (selectedId === null && tasks[0]) setSelectedId(tasks[0].id); }, [selectedId, tasks, setSelectedId]);
 
   const loadTasks = async () => {
-    setError(null);
-    setLoading(true);
+    if (!tasksLoaded.current) { setError(null); setLoading(true); }
     try {
       const next = await gateway.domains.schedules!.list();
+      tasksLoaded.current = true;
       setTasks(next);
+      setError(null);
+      setRefreshError(null);
+      for (const [id, before] of uncertain.current) {
+        const task = next.find(item => item.id === id);
+        if (!task) continue;
+        const history = await gateway.domains.schedules!.runs(id);
+        // ponytail: absence cannot prove a lost POST was rejected; keep retry blocked until durable acceptance is observed.
+        if (['queued', 'running'].includes(task.lastRunStatus ?? '') || task.lastRunAt !== before.lastRunAt || (before.runIds !== null && history.some(run => !before.runIds!.includes(run.id)))) {
+          uncertain.current.delete(id);
+          triggering.current.delete(id);
+          setTriggerStates(current => ({ ...current, [id]: undefined }));
+          setTriggerErrors(current => ({ ...current, [id]: undefined }));
+        }
+      }
       setTrace({ method: 'GET', route: '/agent-schedules', detail: `${next.length} schedules loaded` });
-    } catch (err) { setError(err instanceof Error ? err.message : 'Schedules failed to load'); }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Schedules failed to load';
+      if (tasksLoaded.current) setRefreshError(message); else setError(message);
+    }
     finally { setLoading(false); }
   };
   useEffect(() => { void loadTasks(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -874,7 +897,8 @@ function LiveSchedulesTool() {
       await gateway.domains.schedules!.rootSession(run.rootSessionId);
       await selectLiveSession(run.rootSessionId);
       setTrace({ method: 'GET', route: `/agent-sessions/${run.rootSessionId}`, detail: 'Opened linked run session' });
-      navigate('/agents');
+      // Scheduled roots may be outside the default chat list after a reload.
+      navigate(`/agents?sessionId=${encodeURIComponent(run.rootSessionId)}`);
     } catch (err) { notify(err instanceof Error ? err.message : 'Could not open the linked session'); }
   };
 
@@ -887,14 +911,44 @@ function LiveSchedulesTool() {
   };
 
   const triggerNow = async () => {
-    if (!selected) return;
+    if (!selected || triggering.current.has(selected.id) || ['queued', 'running'].includes(selected.lastRunStatus ?? '')) return;
+    const id = selected.id;
+    triggering.current.add(id);
+    setTriggerStates(current => ({ ...current, [id]: 'queueing' }));
+    setTriggerErrors(current => ({ ...current, [id]: undefined }));
     try {
-      const next = await gateway.domains.schedules!.triggerNow(selected.id);
+      const next = await gateway.domains.schedules!.triggerNow(id);
       setTasks((current) => current.map((item) => (item.id === next.id ? next : item)));
-      setTrace({ method: 'POST', route: `/agent-schedules/${selected.id}/trigger-now`, detail: 'Scheduled job triggered now' });
-      void loadRuns(selected.id);
-    } catch (err) { notify(err instanceof Error ? err.message : 'Trigger failed'); }
+      setTrace({ method: 'POST', route: `/agent-schedules/${id}/trigger-now`, detail: `Run ${next.lastRunStatus ?? 'accepted'}` });
+      void loadRuns(id);
+    } catch (err) {
+      setTriggerErrors(current => ({ ...current, [id]: err instanceof Error ? err.message : 'Trigger failed. Refresh and retry.' }));
+      if (err instanceof ScheduleGatewayError && err.status === 0) {
+        uncertain.current.set(id, { lastRunAt: selected.lastRunAt, runIds: runsLoading ? null : runs.map(run => run.id) });
+        setTriggerStates(current => ({ ...current, [id]: 'reconciling' }));
+        void loadTasks();
+      }
+    } finally {
+      if (!uncertain.current.has(id)) {
+        triggering.current.delete(id);
+        setTriggerStates(current => ({ ...current, [id]: undefined }));
+      }
+    }
   };
+
+  useEffect(() => {
+    if (!tasks.some(task => ['queued', 'running'].includes(task.lastRunStatus ?? '')) && !uncertain.current.size) return;
+    // Poll only while work is in flight; durable state is also read on reopen/refresh.
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      await loadTasks();
+      if (!cancelled && currentTaskId.current) void loadRuns(currentTaskId.current);
+      if (!cancelled) timer = setTimeout(() => void refresh(), 2000);
+    };
+    timer = setTimeout(() => void refresh(), 2000);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [tasks, gateway, triggerStates]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const removeTask = async (task: ScheduledTask) => {
     try {
@@ -926,6 +980,7 @@ function LiveSchedulesTool() {
   return <ToolFrame slug="tasks" title="Agent Schedules" description="Create and operate recurring or one-time agent jobs, with linked session history." trace={trace} actions={<><button className="secondary-button compact" type="button" onClick={() => void loadTasks()} data-testid="schedules-refresh"><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={() => setEditing('new')} data-testid="schedule-new"><Icon name="plus" size={14} />New Schedule</button></>}>
     <ListInspector
       label="Scheduled agent jobs"
+      toolbar={refreshError ? <p role="status" data-testid="schedule-refresh-error">Progress may be stale; retrying. Use Refresh to check again. {refreshError}</p> : undefined}
       items={tasks.map((task) => ({ id: `schedule-${task.id}`, title: task.name, subtitle: `${task.scheduleType} · ${task.enabled ? 'Enabled' : 'Disabled'}` }))}
       selectedId={effectiveId === null ? null : `schedule-${effectiveId}`}
       onSelect={(id) => setSelectedId(id.slice('schedule-'.length))}
@@ -947,7 +1002,9 @@ function LiveSchedulesTool() {
           <div><dt>Last run</dt><dd>{selected.lastRunAt ? <Timestamp value={selected.lastRunAt} /> : 'Never'}</dd></div>
         </dl>
         <div className="run-history">
-          <header><h3>Run history</h3><button className="primary-button" type="button" onClick={() => void triggerNow()} data-testid="schedule-trigger"><Icon name="resume" size={13} />Trigger now</button></header>
+          <header data-testid="schedule-run-context" aria-busy={Boolean(triggerStates[selected.id])}><h3>Run history</h3><button className="primary-button" type="button" aria-disabled={Boolean(triggerStates[selected.id]) || ['queued', 'running'].includes(selected.lastRunStatus ?? '')} onClick={() => void triggerNow()} data-testid="schedule-trigger"><Icon name="resume" size={13} />{triggerStates[selected.id] === 'queueing' ? 'Queueing…' : 'Trigger now'}</button></header>
+          <p role="status" aria-live="polite" aria-atomic="true" data-testid="schedule-progress">{triggerStates[selected.id] === 'queueing' ? 'Queueing…' : triggerStates[selected.id] === 'reconciling' ? 'Checking whether the run was accepted…' : selected.lastRunStatus ? `Run ${selected.lastRunStatus}${selected.lastError ? ` · ${selected.lastError}` : ''}` : ''}</p>
+          {triggerErrors[selected.id] && <p role="alert" data-testid="schedule-trigger-error">{triggerErrors[selected.id]}</p>}
           {runsLoading && <p role="status">Loading run history…</p>}
           {runsError && <p role="alert">{runsError}</p>}
           {runs.map((run) => <button key={run.id} type="button" onClick={() => void openRun(run)} data-testid={`schedule-run-${run.id}`}><span className={`status-dot ${run.status}`} /><strong><Timestamp value={run.startedAt} /></strong><small>{run.status}{run.error ? ` · ${run.error}` : ''}</small></button>)}

@@ -265,7 +265,7 @@ function evaluateToolPart(
   }
 }
 
-function scanOutputRow(partsJson: string | null, sdkMessageId: string | null): OutputRowScanResult {
+export function scanOutputRow(partsJson: string | null, sdkMessageId: string | null): OutputRowScanResult {
   if (partsJson === null) return { defectCount: 1, names: [] };
   try {
     const parts = JSON.parse(partsJson) as unknown;

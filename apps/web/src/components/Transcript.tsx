@@ -5,7 +5,6 @@ import { useFixtures } from '../store';
 import { useGateway } from '../gateway/context';
 import { useAuthUser } from '../gateway/auth';
 import { readLocalUserPreferences, shouldEscalatePermission, USER_PREFERENCES_CHANGED_EVENT } from '../gateway/user-preferences';
-import type { PendingApproval } from '../gateway/approvals';
 import type { LivePermissionRequest, LiveQuestionRequest, LiveQuestionItem, TranscriptMessage } from '../types';
 import { useDecisionReply, usePendingDecisions } from '../pending-decisions';
 import { SafeMarkdown } from './SafeMarkdown';
@@ -267,16 +266,8 @@ function LiveQuestionCard({ sessionId, question }: { sessionId: string; question
 // P-256 decision signature `decide()` requires can only be produced by the signed native app's
 // Keychain-held key, which no browser renderer has; see gateway/approvals.ts's module doc.
 function PendingApprovalBanner({ sessionId }: { sessionId: string }) {
-  const gateway = useGateway();
-  const [approvals, setApprovals] = useState<PendingApproval[]>([]);
-  useEffect(() => {
-    if (gateway.mode !== 'live' || !gateway.domains.approvals) { setApprovals([]); return; }
-    let active = true;
-    gateway.domains.approvals.listPending()
-      .then((pending) => { if (active) setApprovals(pending.filter((item) => item.sessionId === sessionId && item.status === 'pending')); })
-      .catch(() => { if (active) setApprovals([]); });
-    return () => { active = false; };
-  }, [gateway, sessionId]);
+  const { pendingApprovals } = useFixtures();
+  const approvals = pendingApprovals.filter((item) => item.sessionId === sessionId && item.status === 'pending');
   if (approvals.length === 0) return null;
   return (
     <div className="pending-trigger-banner" role="status" data-testid="pending-approval-banner">
@@ -434,7 +425,7 @@ export function Transcript() {
   if (demo === 'error') return <section className="state-panel" data-testid="error-state"><Icon name="background" size={26} /><h2>Session service unavailable</h2><p>The session list could not be loaded. Existing transcript content remains unchanged.</p><button className="primary-button" type="button" onClick={() => location.hash = '#/agents?demo=running'}>Retry</button></section>;
   if (demo === 'no-provider') return <section className="state-panel" data-testid="no-provider-state"><Icon name="profile" size={26} /><h2>Choose a model to begin</h2><p>This session has no available agent model. Open Profiles to choose a provider and model.</p><button className="primary-button" type="button" onClick={() => location.hash = '#/profiles'}>Open Profiles</button></section>;
   if (demo === 'resumable') return <section className="state-panel" data-testid="resumable-state"><Icon name="background" size={26} /><h2>Agent runtime unavailable</h2><p>The transcript and artifacts remain readable. Resume when the desktop runtime is available.</p><button className="primary-button" type="button" onClick={() => location.hash = '#/agents?demo=running'}>Resume fixture session</button></section>;
-  if (demo === 'empty' || selected.messages.length === 0) return <section className="state-panel" data-testid="empty-state"><Icon name="agents" size={28} /><h2>{demo === 'empty' ? 'No sessions in this view' : 'Start this conversation'}</h2><p>{demo === 'empty' ? 'Adjust filters or start a new chat.' : 'Choose a starter or write a precise request below.'}</p><div className="starter-row"><button type="button" onClick={() => sendInput('Review the project context and propose the next safe step.')}>Review project context</button><button type="button" onClick={() => sendInput('Summarize current changes and unresolved decisions.')}>Summarize changes</button></div></section>;
+  if (demo === 'empty' || selected.messages.length === 0) return <section className="state-panel" data-testid="empty-state"><Icon name="agents" size={28} /><h2>{demo === 'empty' ? 'No sessions in this view' : 'Start this conversation'}</h2><p>{demo === 'empty' ? 'Adjust filters or start a new chat.' : 'Choose a starter or write a precise request below.'}</p><div className="starter-row"><button type="button" onClick={() => sendInput('Review the project context and propose the next safe step.')}>Review project context</button><button type="button" onClick={() => sendInput('Summarize current changes and unresolved decisions.')}>Summarize changes</button></div>{sessionGatewayMode === 'live' && <PendingApprovalBanner sessionId={selected.id} />}</section>;
   return (
     <section className="transcript" aria-label={`${sessionLabel(selected).label} transcript`} data-testid="transcript">
       {(sessionGatewayMode !== 'live' || selected.transcriptHasMore !== false) && <div className="load-older-wrap"><button className="text-button" type="button" disabled={olderStatus[selected.id] === 'pending'} onClick={() => void requestOlder()} data-testid="load-older"><Icon name="history" size={14} />{olderStatus[selected.id] === 'pending' ? 'Loading older messages…' : 'Load older messages'}</button>{olderStatus[selected.id] === 'error' && <p role="alert">Older messages could not be loaded. Try again.</p>}</div>}

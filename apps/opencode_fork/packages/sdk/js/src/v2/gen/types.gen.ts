@@ -2690,6 +2690,13 @@ export type SessionStatus =
 export type SnapshotFileDiff = {
   file?: string
   patch?: string
+  patchOmitted?:
+    | "file_too_large"
+    | "patch_too_large"
+    | "total_budget_exceeded"
+    | "work_budget_exceeded"
+    | "content_unavailable"
+    | "diff_limit_exceeded"
   additions: number
   deletions: number
   status?: "added" | "deleted" | "modified"
@@ -3594,6 +3601,7 @@ export type Worktree = {
 
 export type WorktreeCreateInput = {
   name?: string
+  base?: string
   /**
    * Additional startup script to run after the project's start command
    */

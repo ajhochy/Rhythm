@@ -51,7 +51,7 @@ test('E22-c7 real profile/session UI settings readback; safely intercept turn fr
       await page.getByTestId('composer-model').selectOption(`${second.provider}/${second.modelId}`); await page.getByTestId('model-this-turn').click();
       for (const text of ['E22 intercepted turn', 'E22 intercepted default']) { await page.getByTestId('composer-input').fill(text); await page.getByTestId('composer-input').press('Enter'); }
       await expect.poll(() => frames.length).toBe(2);
-      expect(frames[0]).toMatchObject({ agent: persistedProfile.ocAgent || profileId, modelOverride: { providerId: second.provider, modelId: second.modelId } });
+      expect(frames[0]).toMatchObject({ profileId, agent: persistedProfile.ocAgent || profileId, modelOverride: { providerId: second.provider, modelId: second.modelId } });
       expect(frames[1]).toMatchObject({ modelOverride: { providerId: first.provider, modelId: first.modelId } }); expect(frames[1].agent).toBeUndefined();
       console.log('E22 LIVE: profile/session create-update-readback; two intercepted input frames verified; zero provider prompts forwarded.');
     } else {

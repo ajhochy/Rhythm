@@ -1,10 +1,10 @@
-import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
-import { PaperProvider } from 'react-native-paper';
+import { IconButton as PaperIconButton, PaperProvider } from 'react-native-paper';
 
 import { ChatList, flattenChats } from '@/components/chat/chat-list';
-import type { ChatListController } from '@/components/chat/chat-list-controller';
-import { Colors } from '@/constants/theme';
+import { type ChatListController, useChatListController } from '@/components/chat/chat-list-controller';
+import { Colors, Spacing, TypeScale } from '@/constants/theme';
 import type { AgentChatRecord } from '@/providers/services/agent-chat-service';
 
 const mockPush = jest.fn();
@@ -15,8 +15,23 @@ const mockRestoreChat = jest.fn();
 const mockForkChat = jest.fn();
 const mockDeleteChat = jest.fn();
 const mockRetryBootstrap = jest.fn(async () => undefined);
+const mockCreateChat = jest.fn();
+const mockLoadSessionProfiles = jest.fn(async (_path?: string) => [
+  { id: 'secretary', label: 'Secretary', opencodeAgentId: 'secretary', profileId: 'secretary' },
+]);
 
-const mockSessions = [
+type MockSession = {
+  archivedAt: number | null;
+  id: string;
+  parentId: string | null;
+  projectID?: string;
+  projectId: string | null;
+  status: string;
+  title: string;
+  updatedAt: number;
+};
+
+const mockSessions: MockSession[] = [
   {
     archivedAt: 5,
     id: 'archived',
@@ -69,6 +84,7 @@ const defaultProjects = [
   { label: 'Empty project', path: '/projects/empty' },
 ];
 let mockProjects = defaultProjects;
+let mockActiveProjectPath = '/projects/alpha';
 let mockPendingQuestionSessionIds: string[] = [];
 let mockColorScheme: 'light' | 'dark' = 'light';
 let mockChatState = {
@@ -84,15 +100,54 @@ let mockPairedHostState = {
 };
 
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush }) }));
+jest.mock('@react-navigation/native', () => ({
+  ...jest.requireActual('@react-navigation/native'),
+  useIsFocused: () => true,
+}));
 jest.mock('@/hooks/use-color-scheme', () => ({
   useColorScheme: () => mockColorScheme,
 }));
-jest.mock('@/components/chat/session-configuration-sheet', () => ({
-  SessionConfigurationSheet: () => null,
-}));
+jest.mock('@/components/chat/session-configuration-sheet', () => {
+  const { Pressable: MockPressable, Text: MockText } = jest.requireActual('react-native');
+  return {
+    SessionConfigurationSheet: ({
+      availableProfiles,
+      onCreate,
+      onProjectChange,
+      selectedProjectPath,
+      visible,
+    }: {
+      availableProfiles: { id: string; label: string }[];
+      onCreate: (title: undefined, preferences: Record<string, unknown>) => Promise<void>;
+      onProjectChange?: (projectPath: string) => void;
+      selectedProjectPath?: string;
+      visible: boolean;
+    }) => visible ? (
+      <>
+        <MockText testID="mock-creation-profiles">
+          {availableProfiles.map((profile) => profile.label).join(',')}
+        </MockText>
+        <MockText testID="mock-creation-project">{selectedProjectPath}</MockText>
+        <MockPressable
+          accessibilityRole="button"
+          onPress={() => onProjectChange?.('/projects/empty')}
+          testID="mock-select-empty-project">
+          <MockText>Select empty project</MockText>
+        </MockPressable>
+        <MockPressable
+          accessibilityRole="button"
+          onPress={() => void onCreate(undefined, {})}
+          testID="mock-create-session">
+          <MockText>Create configured chat</MockText>
+        </MockPressable>
+      </>
+    ) : null,
+  };
+});
 jest.mock('@/providers/opencode-provider', () => ({
   useOpencode: () => ({
-    activeProjectPath: '/projects/alpha',
+    activeProjectPath: mockActiveProjectPath,
+    availableAgents: [],
     availableModels: [],
     chatPreferences: {},
     connection: {
@@ -102,6 +157,7 @@ jest.mock('@/providers/opencode-provider', () => ({
     configuredProviders: [],
     pendingQuestionSessionIds: mockPendingQuestionSessionIds,
     projects: mockProjects,
+    loadSessionProfiles: mockLoadSessionProfiles,
   }),
 }));
 jest.mock('@/providers/paired-host-provider', () => ({
@@ -113,6 +169,7 @@ jest.mock('@/providers/paired-host-provider', () => ({
 jest.mock('@/providers/agent-chat-provider', () => ({
   useAgentChat: () => ({
     archiveChat: mockArchiveChat,
+    createChat: mockCreateChat,
     deleteChat: mockDeleteChat,
     error: mockChatState.error,
     forkChat: mockForkChat,
@@ -132,6 +189,7 @@ function controller(): ChatListController {
     closeCreateSheet: jest.fn(),
     createChat: jest.fn(),
     creationProfiles: [],
+    creationTargetProject: undefined,
     createSheetVisible: false,
     feedback: null,
     isCreating: false,
@@ -161,7 +219,23 @@ function screen({ expandProjects = true }: { expandProjects?: boolean } = {}) {
   return rendered;
 }
 
+function ControlledChatList() {
+  return <ChatList controller={useChatListController()} />;
+}
+
 describe('ChatList hierarchy', () => {
+  beforeEach(() => {
+    mockCreateChat.mockResolvedValue({
+      archivedAt: null,
+      id: 'created',
+      parentId: null,
+      projectId: '/projects/empty',
+      status: 'idle',
+      title: 'Created chat',
+      updatedAt: 10,
+    });
+  });
+
   afterEach(() => {
     cleanup();
     jest.clearAllMocks();
@@ -173,6 +247,10 @@ describe('ChatList hierarchy', () => {
       sessions: mockSessions,
     };
     mockProjects = defaultProjects;
+    mockActiveProjectPath = '/projects/alpha';
+    mockLoadSessionProfiles.mockResolvedValue([
+      { id: 'secretary', label: 'Secretary', opencodeAgentId: 'secretary', profileId: 'secretary' },
+    ]);
     mockPendingQuestionSessionIds = [];
     mockColorScheme = 'light';
     mockPairedHostState = {
@@ -251,6 +329,25 @@ describe('ChatList hierarchy', () => {
     expect(StyleSheet.flatten(header.props.style)).toEqual(
       expect.objectContaining({ minHeight: 44 }),
     );
+    expect(rendered.getByTestId('project-header-chevron-/projects/alpha')).toBeTruthy();
+  });
+
+  test('task-mobile-chat-list-polish-c1: project headers are quiet compact rows with preserved identifiers', () => {
+    // Regression caught: project groups return to tall surface cards with oversized labels and spacing.
+    const rendered = screen({ expandProjects: false });
+    const header = rendered.getByLabelText('Alpha project, 2 active, collapsed');
+    const title = rendered.getByText('Alpha project');
+    const headerStyle = StyleSheet.flatten(header.props.style);
+
+    expect(headerStyle.backgroundColor).toBe('transparent');
+    expect(headerStyle.marginTop).toBeLessThanOrEqual(Spacing.x1);
+    expect(headerStyle.paddingVertical).toBeLessThanOrEqual(Spacing.x1);
+    expect(StyleSheet.flatten(title.props.style)).toEqual(expect.objectContaining({
+      fontSize: TypeScale.footnote,
+      fontWeight: '600',
+    }));
+    expect(rendered.getByTestId('project-header-copy-/projects/alpha')).toBeTruthy();
+    expect(rendered.getByTestId('project-header-metadata-/projects/alpha')).toBeTruthy();
     expect(rendered.getByTestId('project-header-chevron-/projects/alpha')).toBeTruthy();
   });
 
@@ -406,8 +503,8 @@ describe('ChatList hierarchy', () => {
     expect(mockProjects.map((project) => project.path)).toEqual(originalOrder);
   });
 
-  test('task-mobile-project-list-c5: compact toolbar wraps safely for Dynamic Type without shrinking targets', () => {
-    // Regression caught: fixed heights clip enlarged text or force controls beyond the screen width.
+  test('task-mobile-project-list-c5: compact toolbar keeps search and icon actions on one accessible row', () => {
+    // Regression caught: search and actions stack into two rows and waste the top of the session list.
     const rendered = screen({ expandProjects: false });
 
     expect(rendered.queryByText('Filters')).toBeNull();
@@ -416,14 +513,23 @@ describe('ChatList hierarchy', () => {
     expect(rendered.queryByText(/projects · .*active sessions/)).toBeNull();
     expect(rendered.queryByRole('button', { name: 'Clear filters' })).toBeNull();
     const toolbarStyle = StyleSheet.flatten(rendered.getByTestId('chat-list-toolbar').props.style);
-    expect(toolbarStyle).toEqual(expect.objectContaining({ flexWrap: 'wrap', minHeight: 44 }));
+    expect(toolbarStyle).toEqual(expect.objectContaining({ minHeight: 44 }));
     expect(toolbarStyle).not.toEqual(expect.objectContaining({ height: expect.anything() }));
     const searchStyle = StyleSheet.flatten(rendered.getByTestId('chat-list-search').props.style);
-    expect(searchStyle).toEqual(expect.objectContaining({ flexBasis: 140, flexGrow: 1, minHeight: 44 }));
+    expect(searchStyle).toEqual(expect.objectContaining({ flex: 1, minHeight: 44, minWidth: 0 }));
+    expect(searchStyle).not.toHaveProperty('width');
     expect(searchStyle).not.toEqual(expect.objectContaining({ height: expect.anything() }));
-    expect(StyleSheet.flatten(rendered.getByLabelText('Sort projects, Recent activity').props.style)).toEqual(
-      expect.objectContaining({ minHeight: 44 }),
+    expect(StyleSheet.flatten(rendered.getByTestId('chat-list-actions').props.style)).toEqual(
+      expect.objectContaining({ flexDirection: 'row', minHeight: 44 }),
     );
+    for (const label of ['Sort projects, Recent activity', 'New chat']) {
+      const control = rendered.UNSAFE_getAllByType(PaperIconButton).find(
+        (button) => button.props.accessibilityLabel === label,
+      );
+      expect(StyleSheet.flatten(control?.props.style)).toEqual(
+        expect.objectContaining({ height: 44, width: 44 }),
+      );
+    }
   });
 
   test('task-mobile-project-list-c6: project filter is one 44 point clear button with its value', () => {
@@ -534,9 +640,180 @@ describe('ChatList hierarchy', () => {
 
   test('task-mobile-agents-session-list-c1: compact rows replace outlined cards', () => {
     // Regression caught: restoring Card rows makes the session list visually noisy.
-    const view = screen().getByTestId('chat-row-parent');
-    expect(StyleSheet.flatten(view.props.style)).toEqual(expect.objectContaining({ minHeight: 72 }));
+    const rendered = screen();
+    const view = rendered.getByTestId('chat-row-parent');
+    expect(StyleSheet.flatten(view.props.style)).toEqual(expect.objectContaining({ minHeight: 44 }));
+    expect(StyleSheet.flatten(rendered.getByText('Parent chat').props.style)).toEqual(
+      expect.objectContaining({ fontSize: TypeScale.footnote }),
+    );
+    expect(StyleSheet.flatten(rendered.getAllByText('Alpha project · running')[0].props.style)).toEqual(
+      expect.objectContaining({ fontSize: TypeScale.caption }),
+    );
     expect(StyleSheet.flatten(view.props.style)).not.toEqual(expect.objectContaining({ borderWidth: expect.anything() }));
+  });
+
+  test('task-mobile-chat-list-polish-c3: a project header creates in that project rather than the active project', async () => {
+    // Regression caught: the header intent is discarded and createChat falls back to the active/filter project.
+    mockChatState.sessions = [
+      ...mockSessions,
+      {
+        archivedAt: null,
+        id: 'desktop',
+        parentId: null,
+        projectId: null,
+        status: 'idle',
+        title: 'Desktop chat',
+        updatedAt: 0,
+      },
+    ];
+    const rendered = render(
+      <PaperProvider>
+        <ControlledChatList />
+      </PaperProvider>,
+    );
+
+    expect(rendered.queryByTestId('project-new-chat-__desktop__')).toBeNull();
+    const projectCreate = rendered.getByTestId('project-new-chat-/projects/empty');
+    expect(projectCreate.props.accessibilityLabel).toBe('New chat in Empty project');
+    expect(StyleSheet.flatten(projectCreate.props.style)).toEqual(
+      expect.objectContaining({ minHeight: 44, minWidth: 44 }),
+    );
+    fireEvent.press(projectCreate);
+    fireEvent.press(await rendered.findByTestId('mock-create-session'));
+
+    await waitFor(() => {
+      expect(mockLoadSessionProfiles).toHaveBeenCalledWith('/projects/empty');
+      expect(mockCreateChat).toHaveBeenCalledWith('/projects/empty', undefined, {});
+    });
+  });
+
+  test('project picker retargets the open create sheet and routes creation to that project', async () => {
+    const rendered = render(
+      <PaperProvider>
+        <ControlledChatList />
+      </PaperProvider>,
+    );
+
+    fireEvent.press(rendered.getByRole('button', { name: 'New chat' }));
+    expect(await rendered.findByTestId('mock-creation-project')).toHaveTextContent('/projects/alpha');
+    fireEvent.press(rendered.getByTestId('mock-select-empty-project'));
+
+    await waitFor(() => {
+      expect(rendered.getByTestId('mock-creation-project')).toHaveTextContent('/projects/empty');
+      expect(mockLoadSessionProfiles).toHaveBeenCalledWith('/projects/empty');
+    });
+    fireEvent.press(rendered.getByTestId('mock-create-session'));
+
+    await waitFor(() => {
+      expect(mockCreateChat).toHaveBeenCalledWith('/projects/empty', undefined, {});
+    });
+  });
+
+  test('task-mobile-chat-list-polish-race-c1: latest resolved target owns profiles and creation when loads finish out of order', async () => {
+    // Regression caught: project A finishes last and replaces project B profiles, while global create falls back to a changed active project.
+    let resolveAlpha!: (profiles: Awaited<ReturnType<typeof mockLoadSessionProfiles>>) => void;
+    let resolveEmpty!: (profiles: Awaited<ReturnType<typeof mockLoadSessionProfiles>>) => void;
+    const alphaLoad = new Promise<Awaited<ReturnType<typeof mockLoadSessionProfiles>>>((resolve) => {
+      resolveAlpha = resolve;
+    });
+    const emptyLoad = new Promise<Awaited<ReturnType<typeof mockLoadSessionProfiles>>>((resolve) => {
+      resolveEmpty = resolve;
+    });
+    mockLoadSessionProfiles.mockImplementation((path?: string) => (
+      path === '/projects/alpha' ? alphaLoad : emptyLoad
+    ));
+    const rendered = render(
+      <PaperProvider>
+        <ControlledChatList />
+      </PaperProvider>,
+    );
+
+    fireEvent.press(rendered.getByRole('button', { name: 'New chat' }));
+    mockActiveProjectPath = '/projects/empty';
+    rendered.rerender(
+      <PaperProvider>
+        <ControlledChatList />
+      </PaperProvider>,
+    );
+    fireEvent.press(rendered.getByRole('button', { name: 'New chat' }));
+    await act(async () => {
+      resolveEmpty([
+        { id: 'empty-profile', label: 'Empty profile', opencodeAgentId: 'empty-profile', profileId: 'empty-profile' },
+      ]);
+      await emptyLoad;
+    });
+    expect(await rendered.findByTestId('mock-creation-profiles')).toHaveTextContent('Empty profile');
+
+    mockActiveProjectPath = '/projects/alpha';
+    rendered.rerender(
+      <PaperProvider>
+        <ControlledChatList />
+      </PaperProvider>,
+    );
+    await act(async () => {
+      resolveAlpha([
+        { id: 'alpha-profile', label: 'Alpha profile', opencodeAgentId: 'alpha-profile', profileId: 'alpha-profile' },
+      ]);
+      await alphaLoad;
+    });
+    expect(rendered.getByTestId('mock-creation-profiles')).toHaveTextContent('Empty profile');
+
+    fireEvent.press(rendered.getByTestId('mock-create-session'));
+    await waitFor(() => {
+      expect(mockCreateChat).toHaveBeenCalledWith('/projects/empty', undefined, {});
+    });
+  });
+
+  test('task-mobile-chat-list-polish-race-c2: stale profile-load errors cannot change the current create sheet', async () => {
+    // Regression caught: project A rejects after project B opens, surfaces a stale error, and clears B's create target.
+    let rejectAlpha!: (reason: Error) => void;
+    let resolveEmpty!: (profiles: Awaited<ReturnType<typeof mockLoadSessionProfiles>>) => void;
+    const alphaLoad = new Promise<Awaited<ReturnType<typeof mockLoadSessionProfiles>>>((_, reject) => {
+      rejectAlpha = reject;
+    });
+    const emptyLoad = new Promise<Awaited<ReturnType<typeof mockLoadSessionProfiles>>>((resolve) => {
+      resolveEmpty = resolve;
+    });
+    mockLoadSessionProfiles.mockImplementation((path?: string) => (
+      path === '/projects/alpha' ? alphaLoad : emptyLoad
+    ));
+    const rendered = render(
+      <PaperProvider>
+        <ControlledChatList />
+      </PaperProvider>,
+    );
+
+    fireEvent.press(rendered.getByRole('button', { name: 'New chat' }));
+    mockActiveProjectPath = '/projects/empty';
+    rendered.rerender(
+      <PaperProvider>
+        <ControlledChatList />
+      </PaperProvider>,
+    );
+    fireEvent.press(rendered.getByRole('button', { name: 'New chat' }));
+    await act(async () => {
+      resolveEmpty([
+        { id: 'empty-profile', label: 'Empty profile', opencodeAgentId: 'empty-profile', profileId: 'empty-profile' },
+      ]);
+      await emptyLoad;
+    });
+    mockActiveProjectPath = '/projects/alpha';
+    rendered.rerender(
+      <PaperProvider>
+        <ControlledChatList />
+      </PaperProvider>,
+    );
+    await act(async () => {
+      rejectAlpha(new Error('Alpha profile load failed'));
+      await expect(alphaLoad).rejects.toThrow('Alpha profile load failed');
+    });
+
+    expect(rendered.queryByText('Alpha profile load failed')).toBeNull();
+    expect(rendered.getByTestId('mock-creation-profiles')).toHaveTextContent('Empty profile');
+    fireEvent.press(rendered.getByTestId('mock-create-session'));
+    await waitFor(() => {
+      expect(mockCreateChat).toHaveBeenCalledWith('/projects/empty', undefined, {});
+    });
   });
 
   test('task-mobile-agents-session-list-c2: rows navigate and retain 48 point actions', async () => {

@@ -71,6 +71,8 @@ export type SessionExecutionState = {
   modelId: string | null;
   thinkingBudget: number | null;
   permissionMode: PermissionMode;
+  /** 'auto' lets the server-side router pick the model; absent on older Macs. */
+  modelMode?: ModelMode;
 };
 
 type SessionWithExecutionMetadata = {
@@ -113,11 +115,16 @@ export function getSessionExecutionState(
   };
 }
 
+export type ModelMode = 'auto' | 'fixed';
+export const AUTO_MODEL_LABEL = 'Auto (router)';
+
 export type ChatPreferences = {
   profileId?: RhythmProfileId;
   mode: OpenCodeAgentId;
   providerId?: string;
   modelId?: string;
+  /** Auto (router) is the default; `modelId` is then only the fallback baseline. */
+  modelMode?: ModelMode;
   enabledModelIds: string[];
   providerModelSelections: Record<string, string>;
   reasoning: ReasoningLevel;
@@ -139,6 +146,7 @@ export type ChatPreferences = {
 
 export const defaultChatPreferences: ChatPreferences = {
   mode: 'build' as OpenCodeAgentId,
+  modelMode: 'auto',
   enabledModelIds: [],
   providerModelSelections: {},
   reasoning: 'default',
@@ -194,7 +202,10 @@ export function buildPromptExecutionPlan(
 
   return {
     agent: preferences.mode || undefined,
-    model: getSelectedModelParts(preferences.modelId),
+    // Auto: omit `model` so the proxy fills in the routed pick.
+    model: preferences.modelMode === 'auto'
+      ? undefined
+      : getSelectedModelParts(preferences.modelId),
     system: buildSystemPrompt(preferences),
     persistAllowed: true,
   };
@@ -351,7 +362,9 @@ export function getNewSessionPreferences(
       profile.opencodeAgentId,
     ].some((value) => value.trim().toLocaleLowerCase() === 'secretary'));
   const selected = secretary ?? profiles[0];
-  return selected ? applyProfileDefaults(selected, current) : undefined;
+  return selected
+    ? { ...applyProfileDefaults(selected, current), modelMode: 'auto' }
+    : undefined;
 }
 
 export const NO_SELECTABLE_PROFILE_MESSAGE =
@@ -438,6 +451,8 @@ export function hydratePreferencesFromSession(
     mode: session.opencodeAgentId ?? ('' as OpenCodeAgentId),
     providerId: session.providerId ?? undefined,
     modelId,
+    // Sessions with an explicit stored model keep it unless the server says auto.
+    modelMode: session.modelMode ?? (modelId ? 'fixed' : current.modelMode),
     reasoning: reasoningForThinkingBudget(session.thinkingBudget),
     permissionMode: session.permissionMode,
     autoApprove: session.permissionMode === 'bypassPermissions',
@@ -643,4 +658,27 @@ export function groupPendingRequestsBySession<T extends { id: string; sessionID:
     acc[request.sessionID] = [...existing, request];
     return acc;
   }, {});
+}
+
+type PickMessage = { info?: { role?: string; modelID?: string; providerID?: string } };
+
+/** The model the router chose, from the newest assistant message that names one. */
+export function getRouterPick(messages: readonly PickMessage[] | undefined) {
+  for (let index = (messages?.length ?? 0) - 1; index >= 0; index -= 1) {
+    const info = messages![index]?.info;
+    if (info?.role === 'assistant' && info.modelID) {
+      return { providerID: info.providerID, modelID: info.modelID };
+    }
+  }
+  return undefined;
+}
+
+/** Muted composer/header text: "Auto → <modelID>". Undefined when a concrete model is selected. */
+export function routerPickLabel(
+  preferences: Pick<ChatPreferences, 'modelMode'>,
+  messages: readonly PickMessage[] | undefined,
+): string | undefined {
+  if (preferences.modelMode !== 'auto') return undefined;
+  const pick = getRouterPick(messages);
+  return pick ? `Auto \u2192 ${pick.modelID}` : undefined;
 }

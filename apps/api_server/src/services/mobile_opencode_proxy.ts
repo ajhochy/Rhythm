@@ -17,13 +17,15 @@ import {
   asRhythmProfileId,
 } from '../models/agent_session';
 import { logger } from '../utils/logger';
+import { ATTACHMENT_UNAVAILABLE, normalizePartAttachments } from './attachment_hosting';
+import { routeMobilePromptBody } from './decision/mobile_prompt_routing';
 import {
   expandProfileSkillAllowlist,
   resolveProfileScope,
 } from './agent_profile_scope';
 import { capMcpAllowlistForProvider } from './gemini_tool_cap';
 import { expandMcpAllowlist } from './mcp_allowlist_expander';
-import { OPENCODE_ENGINE_PORT } from './opencode_client_service';
+import { INTERACTIVE_TASK_PERMISSION, OPENCODE_ENGINE_PORT } from './opencode_client_service';
 import {
   getMobileOpenCodeOwnershipRepository,
 } from './mobile_opencode_ownership_runtime';
@@ -434,6 +436,8 @@ function sanitizePromptFileUrl(
   project: MobileProjectScope,
 ): string {
   if (typeof value !== 'string') throw invalidPromptFileUrl();
+  // Display references are resolved only after the caller's session scope is authorized.
+  if (/^\/artifacts\/[a-f0-9-]{36}$/i.test(value)) return value;
 
   let url: URL;
   try {
@@ -665,7 +669,9 @@ async function applyMobileSessionCreateScope(
   const permission = expandMobileCorePermissions(
     profile.corePermissionsJson,
   );
-  if (permission !== undefined) scopedBody.permission = permission;
+  // A phone chat is interactive: named profiles go through
+  // rhythm_delegate_async, task stays explore/general. Appended last (findLast).
+  scopedBody.permission = [...(permission ?? []), ...INTERACTIVE_TASK_PERMISSION];
 
   if (scope.mcpRoleConfig) {
     const toolCounts = toolCountsForRoleConfig(scope.mcpRoleConfig.mcpServers);
@@ -1365,12 +1371,65 @@ export class MobileOpenCodeProxy {
           requestProject,
           fetchJson,
         );
-      const scopedBody = sanitizedBody === undefined
+      let authorizedBody = sanitizedBody;
+      if (
+        PROMPT_FILE_PART_OPERATIONS.has(operation.operationId) &&
+        addressedSessionId &&
+        sanitizedBody && typeof sanitizedBody === 'object' && !Array.isArray(sanitizedBody)
+      ) {
+        const body = sanitizedBody as Record<string, unknown>;
+        const parts = body.parts;
+        if (Array.isArray(parts) && parts.some((part) =>
+          typeof recordField(part, 'url') === 'string' &&
+          String(recordField(part, 'url')).startsWith('/artifacts/'))) {
+          if (parts.some((part) => !part || typeof part !== 'object' || Array.isArray(part))) {
+            throw AppError.forbidden(ATTACHMENT_UNAVAILABLE);
+          }
+          // A visible upstream session is insufficient to grant artifact bytes.
+          // Require the server's durable ownership record before normalization.
+          if (!ownership.isResourceOwnedBy('session', addressedSessionId, input.userId, input.project.id)) {
+            throw AppError.forbidden(ATTACHMENT_UNAVAILABLE);
+          }
+          const localSession = new AgentSessionsRepository().findBySdkSessionId(addressedSessionId);
+          if (localSession && (
+            localSession.ownerUserId !== input.userId || localSession.projectId !== input.project.id
+          )) {
+            throw AppError.forbidden(ATTACHMENT_UNAVAILABLE);
+          }
+          try {
+            const normalizedParts = await normalizePartAttachments(
+              parts as Array<Record<string, unknown>>,
+              {
+                id: localSession?.id ?? addressedSessionId,
+                sdkSessionId: addressedSessionId,
+                projectId: input.project.id,
+                ownerUserId: input.userId,
+              },
+              input.userId,
+            );
+            authorizedBody = { ...body, parts: normalizedParts };
+          } catch {
+            throw AppError.forbidden(ATTACHMENT_UNAVAILABLE);
+          }
+        }
+      }
+      const createScopedBody = authorizedBody === undefined
         ? undefined
         : await applyMobileSessionCreateScope(
-          sanitizedBody,
+          authorizedBody,
           operation.operationId,
         );
+      // Routing scope / router for Auto sessions (falls back to the original
+      // body on any failure). See decision/mobile_prompt_routing.ts.
+      const scopedBody = createScopedBody !== undefined &&
+          operation.operationId === 'session.prompt_async' &&
+          addressedSessionId
+        ? await routeMobilePromptBody({
+          sdkSessionId: addressedSessionId,
+          userId: input.userId,
+          body: createScopedBody,
+        })
+        : createScopedBody;
       const encodedBody = scopedBody === undefined
         ? undefined
         : JSON.stringify(scopedBody);

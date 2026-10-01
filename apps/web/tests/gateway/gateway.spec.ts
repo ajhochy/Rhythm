@@ -220,6 +220,19 @@ test('post-login local boundary omits the cloud bearer while production keeps it
   ]);
 });
 
+test('pending approvals send the cloud bearer and human-approval capability to the local API', async () => {
+  // Regression: localFetcher stripped the bearer and list sent no capability, so every load 401'd.
+  const { createLiveApprovalGateway } = await import(path.resolve(import.meta.dirname, '../../src/gateway/approvals.ts'));
+  const calls: Array<{ url: string; authorization: string | null; capability: string | null }> = [];
+  const fetcher = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const headers = new Headers(init?.headers);
+    calls.push({ url: String(input), authorization: headers.get('authorization'), capability: headers.get('x-rhythm-human-approval') });
+    return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  await createLiveApprovalGateway('http://127.0.0.1:4098', 'disposable-cloud-token', fetcher, async () => 'disposable-capability').listPending();
+  expect(calls).toEqual([{ url: 'http://127.0.0.1:4098/agent-approvals?status=pending', authorization: 'Bearer disposable-cloud-token', capability: 'disposable-capability' }]);
+});
+
 test('slice-2-c7: failed live requests cannot return fixture data', async () => {
   // Regression caught: a live network failure resolves with seeded fixture content.
   const gateway = await loadGateway();

@@ -8,6 +8,7 @@ import {
 } from '../repositories/agent_configs_repository';
 import { computeNextRun } from '../services/agentSchedulerService';
 import { assertMcpToolGrantsKnown } from '../services/mcp_tool_catalog_validation';
+import { env } from '../config/env';
 
 const repo = new AgentScheduledTasksRepository();
 const runsRepo = new AgentScheduledTaskRunsRepository();
@@ -282,6 +283,21 @@ export class AgentSchedulesController {
       // Force next_run_at to now so the scheduler picks it up in the next tick,
       // and expose an honest queued state until the scheduler records running
       // or terminal status.
+      if (env.dbClient === 'postgres') {
+        throw AppError.badRequest('Schedules are quarantined on this hosted server. Run from the local schedule owner.');
+      }
+      const profileId = task.agentConfigId ?? task.agentKind;
+      const config = configsRepo.getById(profileId);
+      if (config) {
+        const reason = agentConfigExecutionBlockReason(config);
+        if (reason) throw AppError.badRequest(reason);
+      }
+      assertSchedulableProfile(profileId);
+      // Check both stored grant sources: never restore the retired optimizer or grant new tools.
+      if ([task.allowedMcpsJson, config?.allowedMcpsJson].some(json => json?.includes('"rhythm_run_org_optimizer"'))) {
+        throw AppError.badRequest('Retired optimizer configuration: use supported Org Reviewer configuration.');
+      }
+      await assertKnownScheduleMcpToolGrants(task.allowedMcpsJson ?? config?.allowedMcpsJson ?? null, profileId);
       const updated = await repo.queueNowAsync(task.id);
 
       // Return the full updated task, not just a message — the Flutter client

@@ -56,6 +56,7 @@ import { buildOpencodeHealthPayload } from './services/opencode_health';
 import { requireAuth } from './middleware/auth_middleware';
 import agentSchedulesRouter from './routes/agentSchedulesRoutes';
 import agentMemoryRouter from './routes/agentMemoryRoutes';
+import agentDecisionsRouter from './routes/agent_decisions_routes';
 import agentWebhookRouter from './routes/agentWebhookRoutes';
 import agentResearchRouter from './routes/agentResearchRoutes';
 import agentCookbookRouter from './routes/agentCookbookRoutes';
@@ -134,7 +135,7 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
 
         callback(new Error(`Origin ${origin} is not allowed by CORS`));
       },
-      allowedHeaders: ['Content-Type', 'Authorization', 'content-type', 'X-Signature-SHA256', 'Range', 'X-Rhythm-Project', 'X-Rhythm-Project-ID', 'X-Rhythm-Auto-Promotion-Confirmation'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'content-type', 'X-Signature-SHA256', 'Range', 'X-Rhythm-Project', 'X-Rhythm-Project-ID', 'X-Rhythm-Auto-Promotion-Confirmation', 'X-Rhythm-Human-Approval'],
     }),
   );
   // Allow larger bodies for OAuth token exchange and session creation.
@@ -255,6 +256,10 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
     // for agent-execution deployments, but does not expose this router outside
     // the execution gate or change the vault's canonical authority.
     app.use('/agent-memory', agentMemoryRouter);
+    // Local decision engine rollout stats. LOCAL-ONLY like /agent-memory: it is
+    // registered only inside this agent-execution gate and reads the SQLite-only
+    // agent_decision_log (prompt previews never reach Postgres).
+    app.use('/agent-decisions', agentDecisionsRouter);
     // #1096 WP1 — device-local Engraph backend manager status/action API.
     // Standalone prefix (not nested under /agent-memory) so it never risks
     // colliding with that router's `/:id` catch-all route.

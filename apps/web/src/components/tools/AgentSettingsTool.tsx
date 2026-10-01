@@ -20,6 +20,7 @@ import { navigate } from '../Shell';
 import './AgentSettingsTool.css';
 import { HermesAccountsSettings } from './HermesAccountsSettings';
 import { ModelCurationPanel } from './ModelCurationPanel';
+import { useModelRouting } from './ModelRouting';
 import { RuntimeGatewayError, type RuntimeInfo } from '../../gateway/runtime';
 
 type Trace = { method: string; route: string; detail: string };
@@ -47,6 +48,7 @@ const sectionIds = {
   autoPromotion: 'auto-promotion',
   accounts: 'accounts',
   models: 'models',
+  modelRouting: 'model-routing',
   behavior: 'behavior',
   keybindings: 'keybindings',
   runtime: 'runtime',
@@ -213,6 +215,7 @@ function baseItems(status: Partial<Record<keyof typeof sectionIds, string>> = {}
   return [
     { id: sectionIds.accounts, title: 'Accounts', subtitle: status.accounts ?? 'Authorized model provider accounts' },
     { id: sectionIds.models, title: 'Models', subtitle: status.models ?? 'Provider connections and model curation' },
+    { id: sectionIds.modelRouting, title: 'Model routing', subtitle: status.modelRouting ?? 'Router backend, tiers and routable models' },
     { id: sectionIds.mcp, title: 'MCP servers', subtitle: status.mcp ?? 'Workspace tool connections and status' },
     // ponytail: Auto-promotion stays here for now; it may belong with the Skills tool.
     { id: sectionIds.autoPromotion, title: 'Auto-promotion', subtitle: status.autoPromotion ?? 'Workspace eligibility and confirmation gates', badge: badges.autoPromotion },
@@ -225,6 +228,8 @@ function baseItems(status: Partial<Record<keyof typeof sectionIds, string>> = {}
 /** A category renders either one form, or an item list whose selection drives the inspector. */
 type SettingsView =
   | { kind: 'form'; content: ReactNode }
+  /** The category builds its own columns after the sections column (e.g. groups → items → inspector). */
+  | { kind: 'columns'; columns: BrowserColumn[] }
   | { kind: 'list'; label: string; items: ColumnItem[]; adds?: { id: string; label: string; testId: string }[]; emptyState?: ReactNode; header?: ReactNode; detail(itemId: string | null): { title: string; content: ReactNode } };
 
 /** URL-backed path: ?settingsSection=<category>&settingsItem=<item>. */
@@ -251,6 +256,8 @@ function SettingsBrowser({ categories, loading = false, emptyState, toolbar, vie
       {path.section === 'profiles' && <><p>Profiles are edited in the Profiles tool.</p><button className="primary-button" type="button" onClick={() => navigate('/profiles')} data-testid="agent-settings-open-profiles">Open Profiles</button></>}</>));
   } else if (current?.kind === 'form') {
     columns.push(inspector(category!.title, current.content));
+  } else if (current?.kind === 'columns') {
+    columns.push(...current.columns);
   } else if (current?.kind === 'list') {
     const adds = current.adds ?? [];
     const itemId = current.items.some((item) => item.id === path.item) || adds.some((add) => add.id === path.item) ? path.item
@@ -325,6 +332,7 @@ export function FixtureAgentSettingsTool({ Frame }: AgentSettingsToolProps) {
     autoPromotion: 'Live workspace status required',
     accounts: 'Live local runtime required',
     models: 'Live local runtime required',
+    modelRouting: 'Live local runtime required',
     behavior: `${requireDestructiveModal ? 'Full dialog' : 'Inline approval'} · This device`,
     keybindings: `${sendMessageKeyLabel(keybindings.sendKey)} to send · This device`,
     runtime: 'Fixture preview · not connected',
@@ -336,6 +344,8 @@ export function FixtureAgentSettingsTool({ Frame }: AgentSettingsToolProps) {
         return <><SectionIntro scope="Workspace">Auto-promotion is controlled by workspace eligibility and always requires an explicit confirmation.</SectionIntro><GapNotice place="a signed-in live workspace">This fixture cannot read or change auto-promotion.</GapNotice></>;
       case sectionIds.accounts:
         return <><SectionIntro scope="Desktop local">Provider authorization is stored by the local OpenCode runtime.</SectionIntro><GapNotice place="a signed-in live workspace">The fixture cannot call the existing account authorization endpoints.</GapNotice><HermesAccountsSettings /></>;
+      case sectionIds.modelRouting:
+        return <><SectionIntro scope="Desktop local">Model routing reads and writes the live router settings and catalog.</SectionIntro><GapNotice place="a signed-in live workspace">The fixture cannot read the live router catalog.</GapNotice></>;
       case sectionIds.models:
         return <><SectionIntro scope="Desktop local">Model curation reads and writes the live provider catalog and visibility store.</SectionIntro><GapNotice place="a signed-in live workspace">The fixture cannot read or curate the live model catalog.</GapNotice></>;
       case sectionIds.behavior:
@@ -366,6 +376,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
   const { refreshCatalog } = useFixtures();
   const path = useSettingsPath();
   const selectedId = path.section;
+  const modelRouting = useModelRouting({ active: selectedId === sectionIds.modelRouting, onOpenCuration: () => path.selectSection(sectionIds.models) });
   const [requireDestructiveModal, setRequireDestructiveModal] = useDestructiveModalPreference();
   const [keybindings, updateKeybindings, resetKeybindings] = useKeybindingPreferences();
   const [accounts, setAccounts] = useState<AccountChoice[]>([]);
@@ -923,6 +934,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
     autoPromotion: autoPromotionSummary,
     accounts: accountsError || `${connectedAccounts} connected · ${allAccounts.length} available${staleAccounts ? ` · ${staleAccounts} need re-authorization` : ''}`,
     models: 'Provider-first curation',
+    modelRouting: modelRouting.subtitle,
     behavior: `${requireDestructiveModal ? 'Full dialog' : 'Inline approval'} · This device`,
     keybindings: `${sendMessageKeyLabel(keybindings.sendKey)} to send · This device`,
     runtime: gateway.environment ? `API :${gateway.environment.apiPort} · engine :${gateway.environment.enginePort}` : 'Local runtime unavailable',
@@ -1053,6 +1065,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
       onReloadLocalConfig={() => void reloadEngineConfig()} localConfigPending={actionPending('runtime', 'reload')}
       onOpenAccounts={() => path.selectSection(sectionIds.accounts)}
     />
+
   </>;
   const runtimeValue = (service: 'api' | 'engine', label: string) => {
     const status = runtimeStatus[service];
@@ -1157,6 +1170,7 @@ export function LiveSettingsTool({ Frame }: AgentSettingsToolProps) {
       case sectionIds.autoPromotion: return { kind: 'form', content: <><SectionIntro scope="Workspace">The server enforces administrator access, eligibility, regression checks, and explicit confirmation.</SectionIntro><AutoPromotionSettings state={autoPromotionState} loading={autoPromotionLoading} error={autoPromotionError} reload={loadAutoPromotion} reportError={setAutoPromotionError} /></> };
       case sectionIds.accounts: return accountsView();
       case sectionIds.models: return { kind: 'form', content: modelsInspector() };
+      case sectionIds.modelRouting: return { kind: 'columns', columns: modelRouting.columns() };
       case sectionIds.behavior: return { kind: 'form', content: <><SectionIntro scope="Desktop local">This policy controls whether Bash, write, edit, and patch tool calls use a full destructive-action confirmation dialog.</SectionIntro><BehaviorSettings enabled={requireDestructiveModal} onChange={setRequireDestructiveModal} /></> };
       case sectionIds.keybindings: return { kind: 'form', content: <><SectionIntro scope="Desktop local">Shortcuts cover send message, new session, cancel turn, and switch session.</SectionIntro><KeybindingsSettings preferences={keybindings} update={updateKeybindings} reset={resetKeybindings} /></> };
       case sectionIds.runtime: return { kind: 'form', content: runtimeInspector() };

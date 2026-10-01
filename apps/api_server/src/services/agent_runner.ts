@@ -22,7 +22,7 @@
 
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { logger } from '../utils/logger';
-import { env } from '../config/env';
+import { env, getEffectiveDecisionMode } from '../config/env';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { ProjectsRepository } from '../repositories/projects_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
@@ -629,6 +629,22 @@ export function resolveRunModel(
   return { providerID: DEFAULT_PROVIDER, modelID: DEFAULT_MODEL };
 }
 
+/**
+ * True when the profile's agent_configs row itself sets a model (both
+ * modelProvider and modelId). profileScope.model is ALWAYS populated (profile
+ * -> MRU -> default), so it cannot serve as the pin signal. A lookup failure
+ * counts as pinned (fail closed).
+ */
+export function profileConfiguresModel(agentConfigId?: string | null): boolean {
+  if (!agentConfigId) return false;
+  try {
+    const cfg = new AgentConfigsRepository().getById(agentConfigId);
+    return !!(cfg?.modelProvider && cfg?.modelId);
+  } catch {
+    return true;
+  }
+}
+
 // ── Session recording ─────────────────────────────────────────────────────────
 
 /**
@@ -910,9 +926,11 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   const permissionMode: PermissionMode = isOrgReviewer || opts.bridgeOrigin
     ? 'default'
     : 'bypassPermissions';
+  let authoritativeProfileId: string | null = null;
   if (effectiveConfigId) {
     const config = new AgentConfigsRepository().getById(effectiveConfigId);
     if (config) {
+      authoritativeProfileId = config.id;
       const blockReason = agentConfigExecutionBlockReason(config);
       if (blockReason) {
         logger.warn(`[AgentRunner] ${blockReason}`);
@@ -996,6 +1014,74 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       // Non-fatal: tiered routing is a policy layer — a failure here must
       // never block a run. Fall back to the existing precedence.
       logger.warn(`[AgentRunner] resolveTieredModel failed (non-fatal): ${String(err)}`);
+    }
+  }
+  // Local decision engine (AGENT_DECISION_MODEL_ROUTING): only when nothing pins
+  // the model — no override, no task kind, no profile model or tier hint.
+  // Failure keeps the model resolved above.
+  const profilePinsModel = profileConfiguresModel(effectiveConfigId);
+  // Checked synchronously first so the default (off) path adds no async hop.
+  const runRoutingMode = getEffectiveDecisionMode('model_routing', { sessionAuto: false });
+  const runCapacityMode = getEffectiveDecisionMode('capacity_routing', { sessionAuto: false });
+  if (
+    runRoutingMode !== 'off'
+    && !modelOverride && !taskKind && !profilePinsModel && !profileScope.modelTierHint
+  ) {
+    try {
+      const { routeTurnTier } = await import('./decision/model_router');
+      const { routeModelForTier, getRouteTierClassifier } = await import('./decision/model_catalog');
+      const { classifyRouteTier: staticTier } = await import('./agent_model_resolver');
+      const classifyRouteTier = await getRouteTierClassifier().catch(() => staticTier);
+      const agentIdForRoute = effectiveConfigId ?? 'claude-code';
+      const routed = await routeTurnTier({
+        prompt,
+        agentId: agentIdForRoute,
+        requestedSource: 'agent_default',
+        baselineTier: resolvedModel ? classifyRouteTier(resolvedModel) : null,
+        ...(resolvedModel ? { baseRoute: resolvedModel } : {}),
+      });
+      if (routed.tier) {
+        // Same live-catalog pick as the interactive turn router (static table only as fallback).
+        const decision = routed.route
+          ? { route: routed.route, tier: routed.tier, downgradedForBudget: routed.downgradedForBudget ?? false }
+          : await routeModelForTier({
+              tier: routed.tier,
+              agentId: agentIdForRoute,
+              ...(resolvedModel ? { baseRoute: resolvedModel } : {}),
+            });
+        resolvedModel = decision.route;
+        requestedSource = 'tier';
+        requestedTier = decision.tier;
+        downgraded = decision.downgradedForBudget ?? false;
+      }
+    } catch (err) {
+      logger.warn(`[AgentRunner] decision routing failed (non-fatal): ${String(err)}`);
+    }
+  }
+  // Usage-capacity routing (AGENT_DECISION_CAPACITY_ROUTING): same pin rules as
+  // above. Model only — run sessions keep their profile/default account.
+  if (
+    runCapacityMode !== 'off'
+    && resolvedModel && !modelOverride && !taskKind && !profilePinsModel && !profileScope.modelTierHint
+  ) {
+    try {
+      const { applyCapacityRouting } = await import('./decision/capacity_router');
+      const { classifyRouteTier: staticTier } = await import('./agent_model_resolver');
+      const { getRouteTierClassifier } = await import('./decision/model_catalog');
+      const classifyRouteTier = await getRouteTierClassifier().catch(() => staticTier);
+      const capDecision = await applyCapacityRouting({
+        agentId: effectiveConfigId ?? 'claude-code',
+        baseRoute: resolvedModel,
+        requiredTier: classifyRouteTier(resolvedModel),
+        requestedSource: requestedSource === 'tier' ? 'tier' : 'agent_default',
+      });
+      if (capDecision?.routeChanged) {
+        resolvedModel = capDecision.route;
+        requestedSource = 'tier';
+        requestedTier = classifyRouteTier(capDecision.route);
+      }
+    } catch (err) {
+      logger.warn(`[AgentRunner] capacity routing failed (non-fatal): ${String(err)}`);
     }
   }
   const effectiveSystemPrompt: string | null = profileScope.systemPrompt;
@@ -1118,8 +1204,8 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   rhythmSessionId = _recordSession({
     name: effectiveName,
     agentKind: effectiveAgentKind,
-    profileId: isOrgReviewer ? ORG_REVIEWER_PROFILE_ID : null,
-    opencodeAgentId: isOrgReviewer ? ORG_REVIEWER_PROFILE_ID : null,
+    profileId: isOrgReviewer ? ORG_REVIEWER_PROFILE_ID : authoritativeProfileId,
+    opencodeAgentId: effectiveOcAgent,
     cwd: effectiveCwd,
     projectId,
     taskTitle: taskTitle ?? null,
@@ -1679,6 +1765,51 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
         status: 'error',
         error:
           'AgentRunner: model produced no output — check the agent profile model (provider/modelId) is valid and the provider is authenticated',
+      };
+    }
+
+    // The SDK can return a completed assistant message whose info carries a
+    // turn error. Empty parts in that case are a failed turn, not a
+    // successful no-op. Keep provider response bodies/headers out of durable
+    // task and session errors.
+    if (response.info.role === 'assistant' && response.info.error) {
+      const providerError = response.info.error;
+      const data = 'data' in providerError ? providerError.data : null;
+      const statusCode =
+        data && typeof data === 'object' && 'statusCode' in data
+          ? data.statusCode
+          : null;
+      let reason: string;
+      switch (providerError.name) {
+        case 'MessageAbortedError':
+          reason = 'AgentRunner: run interrupted — engine session was aborted';
+          break;
+        case 'MessageOutputLengthError':
+          reason = 'AgentRunner: model output limit reached — shorten the request';
+          break;
+        case 'ProviderAuthError':
+          reason = 'AgentRunner: model provider authentication failed — check the account settings';
+          break;
+        case 'APIError':
+          reason =
+            statusCode === 401
+              ? 'AgentRunner: model provider authentication failed (HTTP 401) — check the account and model settings'
+              : statusCode === 403
+                ? 'AgentRunner: model provider denied the request (HTTP 403) — check the account and model permissions'
+                : 'AgentRunner: model provider failed the request — check the account and model settings';
+          break;
+        default:
+          reason = 'AgentRunner: engine turn failed — check the session and model settings';
+      }
+      logger.warn(
+        `[AgentRunner] assistant turn failed (${providerError.name}, status=${typeof statusCode === 'number' ? statusCode : 'unknown'})`,
+      );
+      _markSessionError(rhythmSessionId, reason, false, resolvedRunEpisodeId ?? undefined);
+      return {
+        sessionId: rhythmSessionId ?? sessionId,
+        result: '',
+        status: 'error',
+        error: reason,
       };
     }
 

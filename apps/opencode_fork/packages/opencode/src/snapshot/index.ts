@@ -22,6 +22,16 @@ export const FileDiff = Schema.Struct({
   // session response and broke session loading on Desktop.
   file: Schema.optional(Schema.String),
   patch: Schema.optional(Schema.String),
+  patchOmitted: Schema.optional(
+    Schema.Literals([
+      "file_too_large",
+      "patch_too_large",
+      "total_budget_exceeded",
+      "work_budget_exceeded",
+      "content_unavailable",
+      "diff_limit_exceeded",
+    ]),
+  ),
   additions: Schema.Finite,
   deletions: Schema.Finite,
   status: Schema.optional(Schema.Literals(["added", "deleted", "modified"])),
@@ -31,6 +41,10 @@ export type FileDiff = typeof FileDiff.Type
 const log = Log.create({ service: "snapshot" })
 const prune = "7.days"
 const limit = 2 * 1024 * 1024
+const blobReadLimit = 256 * 1024
+const patchFileLimit = 128 * 1024
+const patchTotalLimit = 1024 * 1024
+const patchAttemptLimit = 256
 const core = ["-c", "core.longpaths=true", "-c", "core.symlinks=true"]
 const cfg = ["-c", "core.autocrlf=false", ...core]
 const quote = [...cfg, "-c", "core.quotepath=false"]
@@ -512,47 +526,55 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | AppProce
                   ref: string
                 }
 
-                const show = Effect.fnUntraced(function* (row: Row) {
-                  if (row.binary) return ["", ""]
-                  if (row.status === "added") {
+                const refsFor = (rows: Row[]) =>
+                  rows.flatMap((row) => {
+                    if (row.binary) return []
+                    if (row.status === "added")
+                      return [{ file: row.file, side: "after", ref: `${to}:${row.file}` } satisfies Ref]
+                    if (row.status === "deleted")
+                      return [{ file: row.file, side: "before", ref: `${from}:${row.file}` } satisfies Ref]
                     return [
-                      "",
-                      yield* git([...cfg, ...args(["show", `${to}:${row.file}`])]).pipe(
-                        Effect.map((item) => item.text),
-                      ),
+                      { file: row.file, side: "before", ref: `${from}:${row.file}` } satisfies Ref,
+                      { file: row.file, side: "after", ref: `${to}:${row.file}` } satisfies Ref,
                     ]
-                  }
-                  if (row.status === "deleted") {
-                    return [
-                      yield* git([...cfg, ...args(["show", `${from}:${row.file}`])]).pipe(
-                        Effect.map((item) => item.text),
-                      ),
-                      "",
-                    ]
-                  }
-                  return yield* Effect.all(
-                    [
-                      git([...cfg, ...args(["show", `${from}:${row.file}`])]).pipe(Effect.map((item) => item.text)),
-                      git([...cfg, ...args(["show", `${to}:${row.file}`])]).pipe(Effect.map((item) => item.text)),
-                    ],
-                    { concurrency: 2 },
-                  )
-                })
+                  })
+
+                // `--batch-check` returns object metadata only. No blob bytes enter
+                // this process until every object in the read group has passed
+                // the pre-read size gate.
+                const check = Effect.fnUntraced(
+                  function* (rows: Row[]) {
+                    const refs = refsFor(rows)
+                    const sizes = new Map(rows.map((row) => [row.file, { before: 0, after: 0 }]))
+                    if (!refs.length) return sizes
+                    const batch = yield* appProcess.run(
+                      ChildProcess.make("git", [...cfg, ...args(["cat-file", "--batch-check"])], {
+                        cwd: state.directory,
+                        extendEnv: true,
+                      }),
+                      { stdin: refs.map((item) => item.ref).join("\n") + "\n" },
+                    )
+                    if (batch.exitCode !== 0) return
+                    const lines = batch.stdout.toString("utf8").trimEnd().split("\n")
+                    if (lines.length !== refs.length) return
+                    for (let i = 0; i < refs.length; i++) {
+                      const ref = refs[i]!
+                      const match = lines[i]?.match(/^[0-9a-f]+ blob (\d+)$/)
+                      if (!match) return
+                      const size = Number(match[1])
+                      if (!Number.isSafeInteger(size) || size < 0) return
+                      const hit = sizes.get(ref.file)!
+                      hit[ref.side] = size
+                    }
+                    return sizes
+                  },
+                  Effect.scoped,
+                  Effect.catch(() => Effect.succeed(undefined)),
+                )
 
                 const load = Effect.fnUntraced(
                   function* (rows: Row[]) {
-                    const refs = rows.flatMap((row) => {
-                      if (row.binary) return []
-                      if (row.status === "added")
-                        return [{ file: row.file, side: "after", ref: `${to}:${row.file}` } satisfies Ref]
-                      if (row.status === "deleted") {
-                        return [{ file: row.file, side: "before", ref: `${from}:${row.file}` } satisfies Ref]
-                      }
-                      return [
-                        { file: row.file, side: "before", ref: `${from}:${row.file}` } satisfies Ref,
-                        { file: row.file, side: "after", ref: `${to}:${row.file}` } satisfies Ref,
-                      ]
-                    })
+                    const refs = refsFor(rows)
                     if (!refs.length) return new Map<string, { before: string; after: string }>()
 
                     const batch = yield* appProcess.run(
@@ -563,7 +585,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | AppProce
                       { stdin: refs.map((item) => item.ref).join("\n") + "\n" },
                     )
                     if (batch.exitCode !== 0) {
-                      log.info("git cat-file --batch failed during snapshot diff, falling back to per-file git show", {
+                      log.info("git cat-file --batch failed during snapshot diff", {
                         stderr: batch.stderr.toString("utf8"),
                         refs: refs.length,
                       })
@@ -584,7 +606,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | AppProce
                       while (end < out.length && out[end] !== 10) end += 1
                       if (end >= out.length) {
                         return fail(
-                          "git cat-file --batch returned a truncated header during snapshot diff, falling back to per-file git show",
+                          "git cat-file --batch returned a truncated header during snapshot diff",
                         )
                       }
 
@@ -599,15 +621,15 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | AppProce
                       const match = head.match(/^[0-9a-f]+ blob (\d+)$/)
                       if (!match) {
                         return fail(
-                          "git cat-file --batch returned an unexpected header during snapshot diff, falling back to per-file git show",
+                          "git cat-file --batch returned an unexpected header during snapshot diff",
                           { head },
                         )
                       }
 
                       const size = Number(match[1])
-                      if (!Number.isInteger(size) || size < 0 || i + size >= out.length || out[i + size] !== 10) {
+                      if (!Number.isInteger(size) || size < 0 || size > blobReadLimit || i + size >= out.length || out[i + size] !== 10) {
                         return fail(
-                          "git cat-file --batch returned truncated content during snapshot diff, falling back to per-file git show",
+                          "git cat-file --batch returned truncated or oversized content during snapshot diff",
                           { head },
                         )
                       }
@@ -621,7 +643,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | AppProce
 
                     if (i !== out.length) {
                       return fail(
-                        "git cat-file --batch returned trailing data during snapshot diff, falling back to per-file git show",
+                        "git cat-file --batch returned trailing data during snapshot diff",
                       )
                     }
 
@@ -685,23 +707,101 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | AppProce
                 }
 
                 const step = 100
-                const patch = (file: string, before: string, after: string) =>
-                  formatPatch(structuredPatch(file, file, before, after, "", "", { context: Number.MAX_SAFE_INTEGER }))
+                const readStep = 8
+                let patchBytes = 0
+                let patchAttempts = 0
+                const patchWorkDeadline = Date.now() + 5_000
+                const patch = (file: string, before: string, after: string) => {
+                  const value = structuredPatch(file, file, before, after, "", "", {
+                    context: Number.MAX_SAFE_INTEGER,
+                    maxEditLength: 10_000,
+                    timeout: 250,
+                  })
+                  return value ? formatPatch(value) : undefined
+                }
 
                 for (let i = 0; i < rows.length; i += step) {
                   const run = rows.slice(i, i + step)
-                  const text = yield* load(run)
+                  const sizes = yield* check(run)
 
-                  for (const row of run) {
-                    const hit = text?.get(row.file) ?? { before: "", after: "" }
-                    const [before, after] = row.binary ? ["", ""] : text ? [hit.before, hit.after] : yield* show(row)
-                    result.push({
-                      file: row.file,
-                      patch: row.binary ? "" : patch(row.file, before, after),
-                      additions: row.additions,
-                      deletions: row.deletions,
-                      status: row.status,
+                  for (let j = 0; j < run.length; j += readStep) {
+                    const group = run.slice(j, j + readStep)
+                    const omitted = new Map<string, NonNullable<FileDiff["patchOmitted"]>>()
+                    const eligible = group.filter((row) => {
+                      if (row.binary) return false
+                      const size = sizes?.get(row.file)
+                      if (!size) {
+                        omitted.set(row.file, "content_unavailable")
+                        return false
+                      }
+                      if (size.before > blobReadLimit || size.after > blobReadLimit) {
+                        omitted.set(row.file, "file_too_large")
+                        return false
+                      }
+                      // For an addition or deletion the whole blob appears in
+                      // the patch. Skip it before reading when it cannot fit.
+                      if (
+                        (row.status === "added" && size.after >= patchFileLimit) ||
+                        (row.status === "deleted" && size.before >= patchFileLimit)
+                      ) {
+                        omitted.set(row.file, "patch_too_large")
+                        return false
+                      }
+                      if (patchBytes >= patchTotalLimit) {
+                        omitted.set(row.file, "total_budget_exceeded")
+                        return false
+                      }
+                      if (patchAttempts >= patchAttemptLimit || Date.now() > patchWorkDeadline) {
+                        omitted.set(row.file, "work_budget_exceeded")
+                        return false
+                      }
+                      return true
                     })
+                    const text = eligible.length ? yield* load(eligible) : new Map<string, { before: string; after: string }>()
+
+                    for (const row of group) {
+                      const base = {
+                        file: row.file,
+                        additions: row.additions,
+                        deletions: row.deletions,
+                        status: row.status,
+                      }
+                      if (row.binary) {
+                        result.push({ ...base, patch: "" })
+                        continue
+                      }
+                      const reason = omitted.get(row.file)
+                      if (reason) {
+                        result.push({ ...base, patch: "", patchOmitted: reason })
+                        continue
+                      }
+                      const hit = text?.get(row.file)
+                      if (!hit) {
+                        result.push({ ...base, patch: "", patchOmitted: "content_unavailable" })
+                        continue
+                      }
+                      if (patchAttempts >= patchAttemptLimit || Date.now() > patchWorkDeadline) {
+                        result.push({ ...base, patch: "", patchOmitted: "work_budget_exceeded" })
+                        continue
+                      }
+                      patchAttempts++
+                      const value = patch(row.file, hit.before, hit.after)
+                      if (value === undefined) {
+                        result.push({ ...base, patch: "", patchOmitted: "diff_limit_exceeded" })
+                        continue
+                      }
+                      const bytes = Buffer.byteLength(value, "utf8")
+                      if (bytes > patchFileLimit) {
+                        result.push({ ...base, patch: "", patchOmitted: "patch_too_large" })
+                        continue
+                      }
+                      if (patchBytes + bytes > patchTotalLimit) {
+                        result.push({ ...base, patch: "", patchOmitted: "total_budget_exceeded" })
+                        continue
+                      }
+                      patchBytes += bytes
+                      result.push({ ...base, patch: value })
+                    }
                   }
                 }
 
