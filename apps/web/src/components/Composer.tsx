@@ -42,11 +42,12 @@ const MAX_LIVE_TEXT_ATTACHMENT_CHARS = 100 * 1024;
 // (apps/api_server/src/services/ws_gateway.ts), driven through React pre-flight so a too-large
 // selection never reaches the provider and the composer keeps the file for a retry.
 const MAX_LIVE_PARTS_BYTES = 20 * 1024 * 1024;
+// Leave room for the WebSocket frame envelope and turn metadata beyond the parts JSON.
+const MAX_LIVE_FRAME_PARTS_BYTES = MAX_LIVE_PARTS_BYTES - 4096;
 
 // c2e: resolves a real, user-selected File into a canonical composer attachment. Text-shaped
 // files become inline text content (truncated like Flutter's 100 KB cap); image/PDF files
-// become a data: URL file part. A browser file input cannot resolve a real filesystem path
-// (unlike Flutter's native picker), so any other binary type gets a name-only reference.
+// become a data: URL file part. Other binaries also carry selected bytes, never a fake path.
 async function resolveLiveAttachment(file: File): Promise<ComposerAttachment> {
   const mime = file.type || 'application/octet-stream';
   const id = `attachment-live-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -55,10 +56,15 @@ async function resolveLiveAttachment(file: File): Promise<ComposerAttachment> {
     const truncated = full.length > MAX_LIVE_TEXT_ATTACHMENT_CHARS;
     return { id, type: 'text', path: file.name, filename: file.name, mime, size: file.size, truncated, content: truncated ? full.slice(0, MAX_LIVE_TEXT_ATTACHMENT_CHARS) : full };
   }
-  if (mime.startsWith('image/') || mime === 'application/pdf') {
+  {
     // Photos are downscaled/re-encoded first; the server then hosts the bytes as a media artifact.
     const compressed = await compressImageFile(file);
     const source: Blob = compressed?.blob ?? file;
+    const resolvedMime = compressed?.mime ?? mime;
+    const encodedLength = `data:${resolvedMime};base64,`.length + 4 * Math.ceil(source.size / 3);
+    if (encodedLength > MAX_LIVE_FRAME_PARTS_BYTES) {
+      throw new Error(`Could not send: ${file.name} is too large after encoding for the 20 MiB attachment limit.`);
+    }
     const dataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result));
@@ -66,11 +72,8 @@ async function resolveLiveAttachment(file: File): Promise<ComposerAttachment> {
       reader.readAsDataURL(source);
     });
     const filename = compressed?.filename ?? file.name;
-    return { id, type: 'file', path: filename, filename, mime: compressed?.mime ?? mime, size: source.size, dataUrl };
+    return { id, type: 'file', path: filename, filename, mime: resolvedMime, size: source.size, dataUrl };
   }
-  // ponytail: browser file inputs cannot resolve a real filesystem path; best-effort
-  // name-only reference. Upgrade if/when an Electron/native picker is wired in.
-  return { id, type: 'file', path: file.name, filename: file.name, mime, size: file.size, fileUrl: `file:${file.name}` };
 }
 
 function mentionMatch(value: string) {
@@ -340,7 +343,26 @@ export function Composer() {
         const message = `Could not send: ${oversized.name} is larger than the 20 MiB limit.`;
         setAttachmentFeedback(message); notify(message); return;
       }
-      const resolved = [...liveMentionAttachments, ...await Promise.all(liveFiles.map(resolveLiveAttachment))];
+      if (liveFiles.reduce((bytes, file) => bytes + file.size, 0) > MAX_LIVE_PARTS_BYTES) {
+        const message = 'Could not send: selected files exceed the 20 MiB combined attachment limit.';
+        setAttachmentFeedback(message); notify(message); return;
+      }
+      let resolved: ComposerAttachment[];
+      try {
+        resolved = [...liveMentionAttachments, ...await Promise.all(liveFiles.map(resolveLiveAttachment))];
+        const parts = [
+          ...(value ? [{ type: 'text', text: value }] : []),
+          ...resolved.map((attachment) => attachment.content !== undefined
+            ? { type: 'text', text: attachment.content }
+            : { type: 'file', mime: attachment.mime, filename: attachment.filename, url: attachment.dataUrl ?? attachment.fileUrl }),
+        ];
+        if (new Blob([JSON.stringify({ v: 1, type: 'session.input', id: selected.id, parts })]).size > MAX_LIVE_FRAME_PARTS_BYTES) {
+          throw new Error('Could not send: selected attachments exceed the 20 MiB combined WebSocket message limit.');
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Could not read selected attachment bytes.';
+        setAttachmentFeedback(message); notify(message); return;
+      }
       if (activeContext.current.id !== selected.id || activeContext.current.child) return;
       if (value.startsWith('\\!')) sendLiveInput(value.slice(1), resolved);
       else if (value.startsWith('!')) { runShell(value.slice(1).trim()); notify('Shell command completed in the fixture terminal'); }

@@ -1470,6 +1470,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             }
             return pieces
           }
+          if (part.url.startsWith("/artifacts/")) throw new Error("Attachment unavailable for this session. Select an accessible attachment or remove the reference.")
+          if (!part.url.startsWith("data:") && !part.url.startsWith("file:///")) throw new Error("Unsupported attachment reference. Send selected file bytes, not a remote URL or client-local path.")
           const url = new URL(part.url)
           switch (url.protocol) {
             case "data:":
@@ -1507,12 +1509,30 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 input.sessionID,
                 `${ulid()}-${safeName || "attachment.bin"}`,
               )
-              yield* fsys.writeWithDirs(filepath, decodeDataUrlBytes(part.url), 0o600).pipe(Effect.orDie)
-              return yield* resolvePart({
-                ...part,
-                url: pathToFileURL(filepath).href,
-                filename: part.filename || safeName,
-              })
+              const bytes = decodeDataUrlBytes(part.url)
+              if (bytes.byteLength > 15 * 1024 * 1024) throw new Error("Attachment exceeds the 15 MiB byte limit. Reduce its size.")
+              yield* fsys.writeWithDirs(filepath, bytes, 0o600).pipe(Effect.orDie)
+              const { read } = yield* registry.named()
+              const controller = new AbortController()
+              const exit = yield* read.execute({ filePath: filepath }, {
+                sessionID: input.sessionID, abort: controller.signal, agent: ag.name, messageID: info.id,
+                extra: { bypassCwdCheck: true }, messages: [], metadata: () => Effect.void, ask: () => Effect.void,
+              }).pipe(Effect.onInterrupt(() => Effect.sync(() => controller.abort())), Effect.exit)
+              const original = { ...part, messageID: info.id, sessionID: input.sessionID }
+              if (Exit.isSuccess(exit)) return [original, {
+                messageID: info.id, sessionID: input.sessionID, type: "text", synthetic: true,
+                text: `Attachment ${part.filename || safeName}:\n${exit.value.output}`,
+              }]
+              const cause = Cause.squash(exit.cause)
+              const error = cause instanceof Error ? cause.message : String(cause)
+              if (error.includes("Cannot read binary file:")) {
+                // The file path branch discovers installed readers for formats Read cannot parse.
+                return yield* resolvePart({ ...part, url: pathToFileURL(filepath).href, filename: part.filename || safeName })
+              }
+              const message = /^XLSX_/.test(error) ? error : "Attachment could not be read. Export a valid supported file or remove the attachment."
+              return [original, { messageID: info.id, sessionID: input.sessionID, type: "text", synthetic: true,
+                text: `Attachment ${part.filename || safeName}: ${message}`,
+              }]
             case "file:": {
               log.info("file", { mime: part.mime })
               const filepath = fileURLToPath(part.url)

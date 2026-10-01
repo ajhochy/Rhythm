@@ -750,11 +750,15 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
           })
         // text/plain and directory files are converted into text parts, ignore them
         if (part.type === "file" && part.mime !== "text/plain" && part.mime !== "application/x-directory") {
+          // Binary selected files already have format-aware Read text; retain their identity only in the transcript.
+          if (!isMedia(part.mime)) continue
           if (options?.stripMedia && isMedia(part.mime)) {
             userMessage.parts.push({
               type: "text",
               text: `[Attached ${part.mime}: ${part.filename ?? "file"}]`,
             })
+          } else if (!part.url.startsWith("data:") && !part.url.startsWith("https://")) {
+            userMessage.parts.push({ type: "text", text: "Attachment unavailable for model input. Resolve its owned artifact bytes before sending; do not fetch a display URL or guess a local path." })
           } else {
             userMessage.parts.push({
               type: "file",

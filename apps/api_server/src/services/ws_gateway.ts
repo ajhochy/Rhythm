@@ -28,6 +28,7 @@ import {
   type ReservedTreatmentPreparation,
 } from './org_proposal_experiment_service';
 import type { ExperimentEnrollment } from '../models/agent_org_experiment_enrollment';
+import { normalizePartAttachments } from './attachment_hosting';
 
 export interface WsMessage {
   v: 1;
@@ -36,7 +37,10 @@ export interface WsMessage {
 }
 
 const clients = new Set<WebSocket>();
+const attachmentActors = new WeakMap<WebSocket, number>();
 const inputFrameTails = new Map<string, Promise<void>>();
+const MAX_AGENT_WS_PAYLOAD_BYTES = 20 * 1024 * 1024;
+const MAX_AGENT_WS_PARTS_BYTES = MAX_AGENT_WS_PAYLOAD_BYTES - 4096;
 let attached = false;
 
 function isLoopbackAddress(address: string | undefined): boolean {
@@ -100,7 +104,7 @@ export function attachWsGateway(
   // noServer mode: a single server.on('upgrade') handler (below) routes
   // upgrade requests to the agents WSS (/ws/agents) or the PTY proxy WSS
   // (/ws/pty/<id>). The agents `connection` behavior is unchanged.
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_AGENT_WS_PAYLOAD_BYTES });
 
   wss.on('connection', (ws) => {
     clients.add(ws);
@@ -174,7 +178,12 @@ export function attachWsGateway(
       return;
     }
     if (legacyAgentSocket) {
-      wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+      const token = req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1].trim();
+      const actor = token ? await resolveLocalOrCloudBearer(token) : null;
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        if (actor) attachmentActors.set(ws, actor.id);
+        wss.emit('connection', ws, req);
+      });
       return;
     }
     if (legacyPtyMatch) {
@@ -345,6 +354,14 @@ export async function handleInputFrame(
   let partsToForward: Array<Record<string, unknown>> | undefined;
 
   if (Array.isArray(partsInput) && partsInput.length > 0) {
+    // Count the whole parts array, not only each file URL: several valid files
+    // can otherwise exceed the socket budget together before normalization.
+    if (Buffer.byteLength(JSON.stringify(partsInput), 'utf8') > MAX_AGENT_WS_PARTS_BYTES) {
+      if (id) ws.send(JSON.stringify({ v: 1, type: 'error', id,
+        message: 'combined attachments exceed the 20 MiB WebSocket message size limit. Reduce or remove files and try again.',
+      }));
+      return;
+    }
     // OPC-M4-1 size guard: reject payloads with oversized file data URIs.
     const kMaxBytes = 20 * 1024 * 1024; // 20 MB
     for (const p of partsInput) {
@@ -444,9 +461,11 @@ export async function handleInputFrame(
   // approval while openrouter free sessions (chat-only, no tool calls)
   // appear to "work" because they never trigger tool-use at all.
   let sessionPermissionMode: PermissionMode = 'default';
+  let attachmentSession: import('../models/agent_session').AgentSession | null = null;
   try {
     const session = new AgentSessionsRepository().findById(id);
     if (session) {
+      attachmentSession = session;
       cwd = session.cwd;
       agentKind = session.agentKind;
       sessionName = session.name;
@@ -460,6 +479,15 @@ export async function handleInputFrame(
     }
   } catch {
     /* DB unavailable — proceed without context */
+  }
+
+  if (partsToForward?.some((part) => part.type === 'file')) {
+    try {
+      partsToForward = await normalizePartAttachments(partsToForward, attachmentSession ?? { id, projectId: null }, attachmentActors.get(ws));
+    } catch (error) {
+      ws.send(JSON.stringify({ v: 1, type: 'error', id, message: error instanceof Error ? error.message : 'Attachment unavailable.' }));
+      return;
+    }
   }
 
   // OPC-M1-4: If the session is in status='error', clear the error
