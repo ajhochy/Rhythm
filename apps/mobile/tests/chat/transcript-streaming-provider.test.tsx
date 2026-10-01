@@ -11,6 +11,8 @@ const SECOND_SESSION = 'session-second';
 const SECOND_MESSAGE = 'message-second';
 const SECOND_PART = 'part-second';
 let mockAuthoritativeText = '';
+let mockIncompleteText: string | undefined;
+let mockToolOnlyOutcome = false;
 let mockMessagesGets = 0;
 let transcriptCommits = 0;
 let latest: ReturnType<typeof useOpencode> | undefined;
@@ -20,7 +22,7 @@ const mockInitialMessage = (
   messageId = MESSAGE,
   partId = PART,
 ) => ({
-  info: { id: messageId, role: 'assistant', sessionID: sessionId, time: { created: 1 } },
+  info: { id: messageId, role: 'assistant', sessionID: sessionId, time: { created: 1 } as { created: number; completed?: number } },
   parts: [{ id: partId, messageID: messageId, sessionID: sessionId, type: 'text', text: '' }],
 });
 const mockSession = {
@@ -90,7 +92,21 @@ jest.mock('@/providers/services/session-service', () => ({
     const record = sessionId === SECOND_SESSION
       ? mockInitialMessage(SECOND_SESSION, SECOND_MESSAGE, SECOND_PART)
       : mockInitialMessage();
-    if (sessionId === SESSION) record.parts[0].text = mockAuthoritativeText;
+    if (sessionId === SESSION && mockToolOnlyOutcome) {
+      return { records: [{ ...record, info: { ...record.info, time: { created: 1, completed: 2 } }, parts: [{
+        id: PART, messageID: MESSAGE, sessionID: SESSION, type: 'tool' as const,
+        callID: 'tool-call', tool: 'read', state: {
+          status: 'completed' as const, input: {}, output: 'Done', title: 'Read', metadata: {},
+          time: { start: 1, end: 2 },
+        },
+      }] }], nextCursor: undefined };
+    }
+    if (sessionId === SESSION) {
+      record.parts[0].text = mockIncompleteText ?? mockAuthoritativeText;
+      if (mockIncompleteText === undefined && mockAuthoritativeText) {
+        record.info.time = { created: 1, completed: 2 };
+      }
+    }
     return { records: [record], nextCursor: undefined };
   }),
   getSessionTodos: jest.fn(async () => []), initializeSession: jest.fn(),
@@ -185,8 +201,138 @@ async function waitForLiveEventStream() {
 }
 
 describe('ST-1 provider streaming performance', () => {
+  test('m1-c1: idle before same-ID final persistence retries until the final is consumed', async () => {
+    // Regression: the only GET occurs before persistence, leaving an empty final forever.
+    render(<OpencodeProvider><Probe /></OpencodeProvider>);
+    await waitFor(() => expect(latest?.connection.status).toBe('connected'));
+    await act(async () => { await latest!.openProjectSession(PROJECT, SESSION); });
+    await waitForLiveEventStream();
+    mockMessagesGets = 0;
+    emit({ type: 'session.idle', properties: { sessionID: SESSION } });
+    await waitFor(() => expect(mockMessagesGets).toBeGreaterThanOrEqual(1));
+    const authoritativeAt = Date.now();
+    mockAuthoritativeText = 'late persisted same-ID final';
+    await waitFor(() => expect(latest?.currentTranscript[0]?.text).toBe(mockAuthoritativeText), { timeout: 1000 });
+    expect(Date.now() - authoritativeAt).toBeLessThan(1000);
+    expect(latest?.currentMessages.map((record) => record.info.id)).toEqual([MESSAGE]);
+  });
+
+  test('m1-c3: empty completion stops automatically and exposes a working manual retry', async () => {
+    render(<OpencodeProvider><Probe /></OpencodeProvider>);
+    await waitFor(() => expect(latest?.connection.status).toBe('connected'));
+    await act(async () => { await latest!.openProjectSession(PROJECT, SESSION); });
+    await waitForLiveEventStream();
+    await waitFor(() => expect(mockMessagesGets).toBeGreaterThanOrEqual(2));
+    mockMessagesGets = 0;
+    emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'idle' } } });
+    await waitFor(() => expect(latest?.completionSyncStatus).toBe('retry'), { timeout: 1500 });
+    const automaticGets = mockMessagesGets;
+    expect(automaticGets).toBeGreaterThanOrEqual(6);
+    expect(automaticGets).toBeLessThanOrEqual(7);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 250)); });
+    expect(mockMessagesGets).toBe(automaticGets);
+    mockAuthoritativeText = 'final after manual retry';
+    act(() => { latest!.retryCompletionSync(SESSION); });
+    await waitFor(() => expect(latest?.currentTranscript[0]?.text).toBe(mockAuthoritativeText));
+    await waitFor(() => expect(latest?.completionSyncStatus).toBeUndefined());
+    expect(mockMessagesGets).toBe(automaticGets + 1);
+  });
+
+  test('m1-c4: an early empty GET does not erase a richer streamed same-ID reply', async () => {
+    render(<OpencodeProvider><Probe /></OpencodeProvider>);
+    await waitFor(() => expect(latest?.connection.status).toBe('connected'));
+    await act(async () => { await latest!.openProjectSession(PROJECT, SESSION); });
+    await waitForLiveEventStream();
+    await waitFor(() => expect(mockMessagesGets).toBeGreaterThanOrEqual(2));
+    mockMessagesGets = 0;
+    emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'busy' } } });
+    await waitFor(() => expect(latest?.sessionStatuses[SESSION]).toEqual({ type: 'busy' }));
+    emit({ type: 'message.part.updated', properties: {
+      sessionID: SESSION, part: { ...mockInitialMessage().parts[0], text: 'streamed reply' }, time: 1,
+    } });
+    await waitFor(() => expect(latest?.currentTranscript[0]?.text).toBe('streamed reply'));
+    emit({ type: 'session.idle', properties: { sessionID: SESSION } });
+    await waitFor(() => expect(mockMessagesGets).toBeGreaterThanOrEqual(1));
+    expect(latest?.currentTranscript[0]?.text).toBe('streamed reply');
+    mockAuthoritativeText = 'authoritative final';
+    await waitFor(() => expect(latest?.currentTranscript[0]?.text).toBe('authoritative final'), { timeout: 1000 });
+    expect(latest?.completionSyncStatus).toBeUndefined();
+    expect(latest?.currentMessages.map((record) => record.info.id)).toEqual([MESSAGE]);
+  });
+
+  test('m1-c1: an early nonempty incomplete same-ID snapshot cannot settle or shorten a streamed reply', async () => {
+    render(<OpencodeProvider><Probe /></OpencodeProvider>);
+    await waitFor(() => expect(latest?.connection.status).toBe('connected'));
+    await act(async () => { await latest!.openProjectSession(PROJECT, SESSION); });
+    await waitForLiveEventStream();
+    emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'busy' } } });
+    await waitFor(() => expect(latest?.sessionStatuses[SESSION]).toEqual({ type: 'busy' }));
+    emit({ type: 'message.part.updated', properties: {
+      sessionID: SESSION, part: { ...mockInitialMessage().parts[0], text: 'streamed reply still arriving' }, time: 1,
+    } });
+    await waitFor(() => expect(latest?.currentTranscript[0]?.text).toBe('streamed reply still arriving'));
+    mockIncompleteText = 'streamed';
+    emit({ type: 'session.idle', properties: { sessionID: SESSION } });
+    await waitFor(() => expect(latest?.completionSyncStatus).toBe('syncing'));
+    await waitFor(() => expect(mockMessagesGets).toBeGreaterThanOrEqual(2));
+    expect(latest?.currentTranscript[0]?.text).toBe('streamed reply still arriving');
+    mockIncompleteText = undefined;
+    mockAuthoritativeText = 'authoritative completed reply';
+    await waitFor(() => expect(latest?.currentTranscript[0]?.text).toBe(mockAuthoritativeText), { timeout: 1000 });
+    await waitFor(() => expect(latest?.completionSyncStatus).toBeUndefined());
+  });
+
+  test('m1-c1: a discarded overlapping GET cannot settle completion sync', async () => {
+    render(<OpencodeProvider><Probe /></OpencodeProvider>);
+    await waitFor(() => expect(latest?.connection.status).toBe('connected'));
+    await act(async () => { await latest!.openProjectSession(PROJECT, SESSION); });
+    await waitForLiveEventStream();
+    mockIncompleteText = 'short persisted text';
+    const getMessages = (jest.requireMock('@/providers/services/session-service') as {
+      getSessionMessages: jest.Mock;
+    }).getSessionMessages;
+    let releaseOlder!: (value: unknown) => void;
+    const olderResponse = new Promise((resolve) => { releaseOlder = resolve; });
+    getMessages.mockImplementationOnce(() => olderResponse);
+
+    emit({ type: 'session.idle', properties: { sessionID: SESSION } });
+    await waitFor(() => expect(latest?.completionSyncStatus).toBe('syncing'));
+    // A manual refresh starts a newer fetch while the completion poll is held.
+    await act(async () => { await latest!.refreshCurrentSession(true); });
+    const olderRecord = mockInitialMessage();
+    olderRecord.info.time = { created: 1, completed: 2 };
+    olderRecord.parts[0].text = 'discarded completed text';
+    await act(async () => {
+      releaseOlder({ records: [olderRecord], nextCursor: undefined });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    expect(latest?.completionSyncStatus).toBe('syncing');
+    expect(latest?.currentTranscript[0]?.text).not.toBe('discarded completed text');
+
+    mockIncompleteText = undefined;
+    mockAuthoritativeText = 'latest completed text';
+    await waitFor(() => expect(latest?.currentTranscript[0]?.text).toBe(mockAuthoritativeText), { timeout: 1000 });
+    await waitFor(() => expect(latest?.completionSyncStatus).toBeUndefined());
+  });
+
+  test('m1-c4: a persisted tool-only terminal turn does not wait for text', async () => {
+    render(<OpencodeProvider><Probe /></OpencodeProvider>);
+    await waitFor(() => expect(latest?.connection.status).toBe('connected'));
+    await act(async () => { await latest!.openProjectSession(PROJECT, SESSION); });
+    await waitForLiveEventStream();
+    mockToolOnlyOutcome = true;
+    mockMessagesGets = 0;
+    emit({ type: 'session.idle', properties: { sessionID: SESSION } });
+    await waitFor(() => expect(latest?.completionSyncStatus).toBeUndefined());
+    await waitFor(() => expect(latest?.currentMessages[0]?.parts[0]?.type).toBe('tool'));
+    expect(mockMessagesGets).toBeGreaterThanOrEqual(1);
+    expect(mockMessagesGets).toBeLessThanOrEqual(2);
+  });
+
   beforeEach(() => {
     mockAuthoritativeText = '';
+    mockIncompleteText = undefined;
+    mockToolOnlyOutcome = false;
     mockMessagesGets = 0;
     transcriptCommits = 0;
     latest = undefined;
@@ -200,6 +346,7 @@ describe('ST-1 provider streaming performance', () => {
     await waitFor(() => expect(latest?.connection.status).toBe('connected'));
     await act(async () => { await latest!.openProjectSession(PROJECT, SESSION); });
     await waitForLiveEventStream();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 100)); });
     expect(latest?.activeProjectPath).toBe(PROJECT);
     mockMessagesGets = 0;
     transcriptCommits = 0;
@@ -247,6 +394,7 @@ describe('ST-1 provider streaming performance', () => {
     await waitFor(() => expect(latest?.connection.status).toBe('connected'));
     await act(async () => { await latest!.openProjectSession(PROJECT, SESSION); });
     await waitForLiveEventStream();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 100)); });
     mockMessagesGets = 0;
     emit({
       id: 'lossy-snapshot', type: 'message.part.updated',
@@ -272,6 +420,7 @@ describe('ST-1 provider streaming performance', () => {
     emit({ type: 'session.idle', properties: { sessionID: SESSION } });
     const authoritative = mockInitialMessage();
     authoritative.parts[0].text = mockAuthoritativeText;
+    authoritative.info.time = { created: 1, completed: 2 };
     await waitFor(() => expect(latest?.currentMessages).toEqual([authoritative]));
     expect(mockMessagesGets).toBe(1);
   });

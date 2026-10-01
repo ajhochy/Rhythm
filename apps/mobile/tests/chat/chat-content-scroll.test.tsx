@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render } from '@testing-library/react-native';
+import { cleanup, configure, fireEvent, render } from '@testing-library/react-native';
 import type { ComponentProps } from 'react';
 import { FlatList, StyleSheet } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
@@ -38,6 +38,7 @@ function props(
     onForkMessage: noop,
     onLoadOlderMessages: noop,
     onRefresh: noop,
+    onRetryCompletionSync: noop,
     onRejectQuestion: noop,
     onReplyToPermission: noop,
     onReplyToQuestion: noop,
@@ -63,9 +64,68 @@ function content(
   );
 }
 
+test('m1-c3: a completed reply sync failure shows an explicit retry action', () => {
+  const onRetryCompletionSync = jest.fn();
+  const rendered = render(<PaperProvider><ChatContent
+    {...props('session-a', [])}
+    completionSyncStatus="retry"
+    onRetryCompletionSync={onRetryCompletionSync}
+  /></PaperProvider>);
+  expect(rendered.getByText('The completed reply has not synced yet.')).toBeTruthy();
+  fireEvent.press(rendered.getByRole('button', { name: 'Retry sync' }));
+  expect(onRetryCompletionSync).toHaveBeenCalledTimes(1);
+});
+
+function positioned(rendered: ReturnType<typeof render>) {
+  fireEvent.scroll(rendered.getByTestId('chat-transcript'), {
+    nativeEvent: {
+      contentOffset: { x: 0, y: 600 },
+      contentSize: { height: 900, width: 320 },
+      layoutMeasurement: { height: 300, width: 320 },
+    },
+  });
+}
+
+// Layout events must reach the intentionally hidden pre-positioning list.
+beforeEach(() => configure({ defaultIncludeHiddenElements: true }));
 afterEach(() => {
   cleanup();
+  configure({ defaultIncludeHiddenElements: false });
   jest.restoreAllMocks();
+});
+
+test('m1-c2: an upward reader gets an accessible newest-message action', () => {
+  // Regression: appended content is offscreen with no discoverable way to jump.
+  const rendered = render(content('session-a', [entry('1', 'First')]));
+  fireEvent(rendered.getByTestId('chat-transcript'), 'contentSizeChange', 320, 900);
+  fireEvent.scroll(rendered.getByTestId('chat-transcript'), {
+    nativeEvent: {
+      contentOffset: { x: 0, y: 100 },
+      contentSize: { height: 900, width: 320 },
+      layoutMeasurement: { height: 300, width: 320 },
+    },
+  });
+  rendered.rerender(content('session-a', [entry('1', 'First'), entry('2', 'Newest')]));
+  expect(rendered.getByRole('button', { name: '1 new message. Jump to newest' })).toBeTruthy();
+  fireEvent.press(rendered.getByRole('button', { name: '1 new message. Jump to newest' }));
+  expect(rendered.queryByRole('button', { name: '1 new message. Jump to newest' })).toBeNull();
+});
+
+test('m1-c6: long newest page is hidden until the measured bottom, including session switch', () => {
+  // Regression: a persisted newest page paints its oldest row before scrollToEnd settles.
+  const entries = Array.from({ length: 20 }, (_, index) => entry(String(index + 1), `Persisted ${index}`));
+  const rendered = render(content('session-a', entries));
+  const transcript = rendered.getByTestId('chat-transcript');
+  expect(StyleSheet.flatten(transcript.props.style).opacity).toBe(0);
+  fireEvent(transcript, 'layout', { nativeEvent: { layout: { height: 300, width: 320, x: 0, y: 0 } } });
+  fireEvent(transcript, 'contentSizeChange', 320, 3000);
+  expect(StyleSheet.flatten(rendered.getByTestId('chat-transcript').props.style).opacity).toBe(0);
+  fireEvent.scroll(rendered.getByTestId('chat-transcript'), {
+    nativeEvent: { contentOffset: { x: 0, y: 2700 }, contentSize: { height: 3000, width: 320 }, layoutMeasurement: { height: 300, width: 320 } },
+  });
+  expect(StyleSheet.flatten(rendered.getByTestId('chat-transcript').props.style).opacity).toBe(1);
+  rendered.rerender(content('session-b', entries));
+  expect(StyleSheet.flatten(rendered.getByTestId('chat-transcript').props.style).opacity).toBe(0);
 });
 
 test('task-mobile-chat-list-polish-scroll-c1: an early top scroll cannot cancel initial bottom positioning', () => {
@@ -166,6 +226,7 @@ test('existing chats open at the bottom without pulling a reader back down', () 
   expect(rendered.getByText('Existing message')).toBeTruthy();
   fireEvent(transcript, 'contentSizeChange', 320, 900);
   expect(scrollToEnd).toHaveBeenLastCalledWith({ animated: false });
+  positioned(rendered);
 
   scrollToEnd.mockClear();
   fireEvent.scroll(transcript, {
@@ -200,6 +261,7 @@ test('task-chat-polish-c2: viewport changes restore bottom only for readers with
   fireEvent(transcript, 'contentSizeChange', 320, 900);
   scrollToEnd.mockClear();
 
+  positioned(rendered);
   fireEvent.scroll(transcript, {
     nativeEvent: {
       contentOffset: { x: 0, y: 568 },
@@ -269,6 +331,7 @@ test('mobile-chat-ui-c8: completed idle tasks disappear while active progress st
     </PaperProvider>,
   );
   expect(rendered.getByText('1 of 2 tasks completed')).toBeTruthy();
+  positioned(rendered);
   fireEvent.press(rendered.getByRole('button', { name: 'Expand tasks' }));
   expect(rendered.getByText('Two')).toBeTruthy();
   expect(chatViewStyles.todoHeader.minHeight).toBeLessThanOrEqual(44);
@@ -291,6 +354,7 @@ test('task-chat-polish-c7: a pending decision hides even an expanded todo panel'
       />
     </PaperProvider>,
   );
+  positioned(rendered);
   fireEvent.press(rendered.getByRole('button', { name: 'Expand tasks' }));
   expect(rendered.getByText('Waiting task')).toBeTruthy();
 

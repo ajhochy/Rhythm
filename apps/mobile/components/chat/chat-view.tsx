@@ -65,6 +65,8 @@ export function ChatView() {
     ensureActiveSession,
     isRefreshingDiffs,
     isRefreshingMessages,
+    completionSyncStatus,
+    retryCompletionSync,
     loadOlderMessages,
     refreshCurrentSession,
     replyToPermission,
@@ -112,6 +114,9 @@ export function ChatView() {
   const [sessionShellCommand, setSessionShellCommand] = useState('');
   const [selectedEditableMessageId, setSelectedEditableMessageId] = useState<string>();
   const [editablePartText, setEditablePartText] = useState('');
+  const editableSelectionKeyRef = useRef<string | undefined>(undefined);
+  const editableSelectionSessionRef = useRef<string | undefined>(undefined);
+  const editableSelectionPinnedRef = useRef(false);
   const [sessionToolBusy, setSessionToolBusy] = useState(false);
   const speechDraftPrefixRef = useRef('');
   const draftRef = useRef('');
@@ -223,14 +228,32 @@ export function ChatView() {
   }, []);
 
   useEffect(() => {
-    const nextMessage = editableMessages.at(-1);
+    const latestMessage = editableMessages.at(-1);
+    const selectedMessage = editableMessages.find(
+      (message) => message.info.id === selectedEditableMessageId,
+    );
+    const selectedPart = findEditableUserTextPart(selectedMessage);
+    const sessionChanged = editableSelectionSessionRef.current !== currentSessionId;
+    if (sessionChanged || (selectedEditableMessageId && !selectedPart)) {
+      editableSelectionPinnedRef.current = false;
+    }
+    editableSelectionSessionRef.current = currentSessionId;
+    const nextMessage = editableSelectionPinnedRef.current && selectedPart
+      ? selectedMessage
+      : latestMessage;
     const nextPart = findEditableUserTextPart(nextMessage);
+    const selectionKey = JSON.stringify([currentSessionId, nextMessage?.info.id, nextPart?.id]);
+    if (editableSelectionKeyRef.current === selectionKey) return;
+    editableSelectionKeyRef.current = selectionKey;
     setSelectedEditableMessageId(nextMessage?.info.id);
     setEditablePartText(nextPart?.type === 'text' ? nextPart.text : '');
+  }, [currentSessionId, editableMessages, selectedEditableMessageId]);
+
+  useEffect(() => {
     setSessionChildren([]);
     setSessionChildrenLoaded(false);
     setSessionShellCommand('');
-  }, [currentSessionId, editableMessages]);
+  }, [currentSessionId]);
 
   const latestAssistantEntry = useMemo(
     () => [...displayTranscript].reverse().find((entry) => entry.role === 'assistant' && entry.text.trim()),
@@ -731,7 +754,9 @@ export function ChatView() {
                         compact
                         mode={message.info.id === selectedEditableMessage.info.id ? 'contained-tonal' : 'text'}
                         onPress={() => {
-                          const part = message.parts.find((entry) => entry.type === 'text');
+                          const part = findEditableUserTextPart(message);
+                          editableSelectionPinnedRef.current = message.info.id !== editableMessages.at(-1)?.info.id;
+                          editableSelectionKeyRef.current = JSON.stringify([currentSessionId, message.info.id, part?.id]);
                           setSelectedEditableMessageId(message.info.id);
                           setEditablePartText(part?.type === 'text' ? part.text : '');
                         }}>
@@ -822,10 +847,12 @@ export function ChatView() {
           expandedDiffId={expandedDiffId}
           isRefreshingDiffs={isRefreshingDiffs}
           isRefreshingMessages={isRefreshingMessages}
+          completionSyncStatus={completionSyncStatus}
           hasOlderMessages={hasOlderMessages}
           onCopyMessage={(entry) => void handleCopyMessage(entry)}
           onExpandDiff={setExpandedDiffId}
           onRefresh={() => void refreshCurrentSession()}
+          onRetryCompletionSync={() => currentSessionId && retryCompletionSync(currentSessionId)}
           onLoadOlderMessages={() => currentSessionId
             ? void loadOlderMessages(currentSessionId)
             : undefined}

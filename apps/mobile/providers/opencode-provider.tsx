@@ -266,6 +266,32 @@ const OpencodeContext = createContext<OpencodeContextValue | null>(null);
 const ANSI_CSI_PATTERN = new RegExp('\\u001b\\[[0-?]*[ -/]*[@-~]', 'gi');
 /** One replay of the idempotent chat bootstrap after a transient failure (#1506). */
 const BOOTSTRAP_RETRY_DELAY_MS = 1_500;
+const COMPLETION_SYNC_ATTEMPTS = 6;
+const COMPLETION_SYNC_DELAY_MS = 120;
+
+function hasAuthoritativeAssistantOutcome(records: SessionMessageRecord[]) {
+  const latestAssistantIndex = records.findLastIndex((record) => record.info.role === 'assistant');
+  const latestUserIndex = records.findLastIndex((record) => record.info.role === 'user');
+  const latestAssistant = records[latestAssistantIndex];
+  return Boolean(latestAssistantIndex > latestUserIndex && latestAssistant?.info.role === 'assistant' && (
+    latestAssistant.info.error || latestAssistant.info.time.completed
+  ));
+}
+
+function preserveStreamUntilAuthoritativeOutcome(
+  existing: SessionMessageRecord[], incoming: SessionMessageRecord[],
+) {
+  const byId = new Map(existing.map((record) => [record.info.id, record]));
+  return incoming.map((record) => {
+    const previous = byId.get(record.info.id);
+    if (!previous || record.info.role !== 'assistant' || previous.info.role !== 'assistant') return record;
+    if (record.info.error || record.info.time.completed) return record;
+    const textLength = (candidate: SessionMessageRecord) => candidate.parts
+      .filter((part) => part.type === 'text')
+      .reduce((length, part) => length + part.text.length, 0);
+    return textLength(previous) >= textLength(record) ? previous : record;
+  });
+}
 
 function authenticatedWebSocket(
   url: string,
@@ -391,6 +417,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   // browsing server folders removed
   const [isRefreshingSessions, setIsRefreshingSessions] = useState(false);
   const [isRefreshingMessages, setIsRefreshingMessages] = useState(false);
+  const [completionSyncBySession, setCompletionSyncBySession] = useState<Record<string, 'syncing' | 'retry'>>({});
   const [isRefreshingDiffs, setIsRefreshingDiffs] = useState(false);
   const [isRefreshingWorkspaceCatalog, setIsRefreshingWorkspaceCatalog] = useState(false);
   // browsing removed
@@ -456,6 +483,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const openProjectSessionControllerRef =
     useRef<OpenProjectSessionController | null>(null);
   const sessionsRef = useRef(sessions);
+  const sessionStatusesRef = useRef(sessionStatuses);
   const currentSessionIdRef = useRef(currentSessionId);
   const scopeGenerationRef = useRef(0);
   const serverGenerationRef = useRef(0);
@@ -481,6 +509,8 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const sessionRefreshTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const sessionRefreshOptionsRef = useRef<Record<string, { messages?: boolean; diff?: boolean; todos?: boolean; sessions?: boolean }>>({});
   const messageFetchTrackerRef = useRef(createSessionFetchTracker());
+  const completionSyncRef = useRef(new Map<string, { token: number; timer?: ReturnType<typeof setTimeout> }>());
+  const completionSyncTokenRef = useRef(0);
   const olderMessageCursorBySessionRef = useRef(new Map<string, string | null>());
   const sessionsFetchSequenceRef = useRef(0);
   const archivedSessionsFetchSequenceRef = useRef(0);
@@ -507,6 +537,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   settingsRef.current = settings;
   activeProjectPathRef.current = activeProjectPath;
   sessionsRef.current = sessions;
+  sessionStatusesRef.current = sessionStatuses;
   currentSessionIdRef.current = currentSessionId;
 
   const stopSessionWorkingSound = useCallback((sessionId?: string) => {
@@ -852,13 +883,17 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           !isCurrentClient(client) ||
           !messageFetchTrackerRef.current.isLatest(sessionId, fetchToken)
         ) {
-          return page.records;
+          // A superseded read did not publish; its records cannot settle a
+          // completion poll or a prompt-acceptance reconciliation.
+          return [];
         }
         setMessagesBySession((current) => ({
           ...current,
           [sessionId]: mergeSessionMessages(
             current[sessionId] || [],
-            page.records,
+            (completionSyncRef.current.has(sessionId) || sessionStatusesRef.current[sessionId]?.type === 'busy')
+              ? preserveStreamUntilAuthoritativeOutcome(current[sessionId] || [], page.records)
+              : page.records,
           ),
         }));
         if (!olderMessageCursorBySessionRef.current.has(sessionId)) {
@@ -881,6 +916,57 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     },
     [client, isCurrentClient],
   );
+
+  const stopCompletionSync = useCallback((sessionId: string) => {
+    const pending = completionSyncRef.current.get(sessionId);
+    if (pending?.timer) clearTimeout(pending.timer);
+    completionSyncRef.current.delete(sessionId);
+    setCompletionSyncBySession((current) => {
+      if (!current[sessionId]) return current;
+      const next = { ...current };
+      delete next[sessionId];
+      return next;
+    });
+  }, []);
+
+  const startCompletionSync = useCallback((sessionId: string) => {
+    stopCompletionSync(sessionId);
+    const token = ++completionSyncTokenRef.current;
+    const pending: { token: number; timer?: ReturnType<typeof setTimeout> } = { token };
+    completionSyncRef.current.set(sessionId, pending);
+    setCompletionSyncBySession((current) => ({ ...current, [sessionId]: 'syncing' }));
+    const inScope = () => completionSyncRef.current.get(sessionId)?.token === token &&
+      isCurrentClient(client) && (currentSessionIdRef.current === sessionId ||
+        sessionsRef.current.some((session) => session.id === sessionId));
+    const attempt = async (count: number) => {
+      if (!inScope()) return;
+      try {
+        const records = await refreshMessages(sessionId, true);
+        if (!inScope()) return;
+        if (hasAuthoritativeAssistantOutcome(records)) {
+          stopCompletionSync(sessionId);
+          return;
+        }
+      } catch {
+        if (!inScope()) return;
+      }
+      if (count >= COMPLETION_SYNC_ATTEMPTS) {
+        completionSyncRef.current.delete(sessionId);
+        setCompletionSyncBySession((current) => ({ ...current, [sessionId]: 'retry' }));
+        return;
+      }
+      pending.timer = setTimeout(() => { void attempt(count + 1); }, COMPLETION_SYNC_DELAY_MS);
+    };
+    void attempt(1);
+  }, [client, isCurrentClient, refreshMessages, stopCompletionSync]);
+
+  useEffect(() => {
+    for (const pending of completionSyncRef.current.values()) {
+      if (pending.timer) clearTimeout(pending.timer);
+    }
+    completionSyncRef.current.clear();
+    setCompletionSyncBySession({});
+  }, [activeProjectPath]);
 
   const replaceSessionMessages = useCallback(
     async (sessionId: string, silent = false) => {
@@ -3750,6 +3836,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           const sessionId = event.properties.sessionID;
           if (event.properties.status.type === 'idle') {
             stopSessionWorkingSound(sessionId);
+            startCompletionSync(sessionId);
+          } else {
+            stopCompletionSync(sessionId);
           }
           setSessionStatuses((current) => ({
             ...current,
@@ -3766,12 +3855,14 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             ...current,
             [sessionId]: { type: 'idle' },
           }));
-          scheduleSessionRefresh(sessionId, { sessions: true, messages: true, diff: true, todos: true, delayMs: 50 });
+          startCompletionSync(sessionId);
+          scheduleSessionRefresh(sessionId, { sessions: true, diff: true, todos: true, delayMs: 50 });
           coalescedIdleRefresh.trigger();
           return;
         }
         case 'session.error': {
           const sessionId = event.properties.sessionID;
+          if (sessionId) stopCompletionSync(sessionId);
           stopSessionWorkingSound(sessionId ?? currentSessionIdRef.current);
           const error = event.properties.error;
           const message = error && 'data' in error && error.data && 'message' in error.data
@@ -3991,11 +4082,15 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       mounted = false;
       activeAbortController?.abort();
     };
-  }, [activeProjectPath, catalogClient, client, coalescedIdleRefresh, coalescedRefreshArchivedSessions, coalescedRefreshSessions, connection.status, pairedHostClient, pairedHostRecord?.relayUrl, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPairedHost, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, replaceSessionMessages, scheduleSessionRefresh, settings, settleBackgroundRead, stopSessionWorkingSound]);
+  }, [activeProjectPath, catalogClient, client, coalescedIdleRefresh, coalescedRefreshArchivedSessions, coalescedRefreshSessions, connection.status, pairedHostClient, pairedHostRecord?.relayUrl, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPairedHost, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, replaceSessionMessages, scheduleSessionRefresh, settings, settleBackgroundRead, startCompletionSync, stopCompletionSync, stopSessionWorkingSound]);
 
   useEffect(
     () => () => {
       cancelSessionRefreshTimers(sessionRefreshTimeoutsRef.current);
+      for (const pending of completionSyncRef.current.values()) {
+        if (pending.timer) clearTimeout(pending.timer);
+      }
+      completionSyncRef.current.clear();
       sessionRefreshTimeoutsRef.current = {};
       sessionRefreshOptionsRef.current = {};
       transcriptBatcherRef.current?.cancel();
@@ -4295,6 +4390,8 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       sessionPreviewById,
       isRefreshingSessions,
       isRefreshingMessages,
+      completionSyncStatus: currentSessionId ? completionSyncBySession[currentSessionId] : undefined,
+      retryCompletionSync: startCompletionSync,
       isRefreshingDiffs,
       isBootstrappingChat,
       currentConfig,
@@ -4464,6 +4561,8 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       isRefreshingDiffs,
       isHydrated,
       isRefreshingMessages,
+      completionSyncBySession,
+      startCompletionSync,
       isRefreshingWorkspaceCatalog,
       isRefreshingSessions,
       openSession,

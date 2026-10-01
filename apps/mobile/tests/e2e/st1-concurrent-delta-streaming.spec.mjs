@@ -214,8 +214,8 @@ test('three concurrent sessions stream deltas live, without full-page refetches,
   for (const [key, id] of [['a', idA], ['b', idB], ['c', idC]]) {
     await backToAgents(page);
     await openChatRow(page, id);
+    await expect(transcriptLocator(page)).toContainText(joinChunks(chunkSets[id]), { timeout: 10_000 });
     const text = await transcriptLocator(page).innerText();
-    expect(text).toContain(joinChunks(chunkSets[id]));
     for (const [otherKey, otherId] of [['a', idA], ['b', idB], ['c', idC]]) {
       if (otherKey === key) continue;
       const otherWord = chunkSets[otherId][0].split('-')[0];

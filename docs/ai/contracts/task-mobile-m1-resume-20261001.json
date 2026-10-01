@@ -1,0 +1,108 @@
+{
+  "issue": "M1-bugs2+4",
+  "date": "2026-10-01",
+  "test_command": "HOME=\"$PWD/.m1-test-home\" npm test -- --runInBand tests/chat/transcript-streaming-provider.test.tsx tests/chat/chat-content-scroll.test.tsx --testNamePattern=m1-c",
+  "test_workdir": "apps/mobile",
+  "viewport_browser_command": "HOME=\"$PWD/.m1-test-home\" PLAYWRIGHT_FAKE_PORT=44136 PLAYWRIGHT_WEB_PORT=19136 npm run test:e2e:web -- tests/e2e/m1-newest-viewport.spec.mjs",
+  "initial_reproduction": "Predecessor failing2 reproduction preserved in runs/2026-10-01-mobile-m1-resume-new-shared-impact.md; this continuation reran those two plus a new first-frame test: 3 assertion failures before product edits.",
+  "handoff_status": "SOURCE_SYNTHETIC_BROWSER_AND_REAL_SANDBOX_BROWSER_PASS; native-device acceptance UNVERIFIED",
+  "waiver": null,
+  "approval": {
+    "source": "Parent resume handoff records actual human consent after disclosure",
+    "summary": "The user approved the disclosed HIGH-impact mobile and attachment changes.",
+    "symbol": "ChatContent",
+    "file": "apps/mobile/components/chat/chat-content.tsx",
+    "scope": "newest-message initial position, older-prepend anchor, near-bottom streaming follow, new-message affordance coordinated with completion sync",
+    "does_not_cover": "Newly analyzed HIGH refreshMessages cache publication boundary with 15 direct callers"
+  },
+  "criteria": [
+    {
+      "criterion_id": "m1-c1",
+      "text": "deterministic completion-before-same-ID-final-visible regression final within1s authoritative GET fixture",
+      "mode": "integration",
+      "test": "apps/mobile/tests/chat/transcript-streaming-provider.test.tsx; apps/mobile/tests/e2e/m1-live-sandbox.spec.mjs",
+      "status": "UNVERIFIED",
+      "reason": "Source provider fixture passes late same-ID final under 1s and rejects early nonempty incomplete snapshots. A real engine/API/paired-browser completion passed, but did not force the delayed-final race on a native device."
+    },
+    {
+      "criterion_id": "m1-c2",
+      "text": "upward-reader accessible new-message affordance,jump",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/chat-content-scroll.test.tsx; apps/mobile/tests/e2e/m1-newest-viewport.spec.mjs",
+      "status": "UNVERIFIED",
+      "reason": "Jest accessible action and rendered Chromium synthetic SSE jump pass; native device matrix remains untested."
+    },
+    {
+      "criterion_id": "m1-c3",
+      "text": "Bounded authoritative completion/resume/reconnect reconciliation+accurate syncing finite visible retry timeout",
+      "mode": "manual",
+      "test": "apps/mobile/tests/chat/transcript-streaming-provider.test.tsx; apps/mobile/tests/chat/chat-content-scroll.test.tsx",
+      "status": "UNVERIFIED",
+      "reason": "Six-attempt finite retry, visible state, and manual retry pass source tests. Real reconnect/resume and device behavior remain untested."
+    },
+    {
+      "criterion_id": "m1-c4",
+      "text": "stable IDs/generation fences,preserve stream/older pages,no duplicate/stale overwrite/empty-tool suppression",
+      "mode": "manual",
+      "test": "apps/mobile/tests/chat/transcript-streaming-provider.test.tsx; apps/mobile/tests/e2e/m1-live-sandbox.spec.mjs",
+      "status": "UNVERIFIED",
+      "reason": "Source tests preserve same ID and richer stream against early empty/shorter GET and accept terminal tool-only metadata. One real engine/relay turn rendered once; broader native edit/delete/revert/overlap matrix remains untested."
+    },
+    {
+      "criterion_id": "m1-c5",
+      "text": "actual event->commit->relay->GET->cache->render timestamps,createdAt not commit lag",
+      "mode": "manual",
+      "test": "apps/mobile/tests/e2e/m1-live-sandbox.spec.mjs",
+      "status": "UNVERIFIED",
+      "reason": "Real isolated engine/API/Device relay/browser gate passed with session-scoped SSE, terminal browser GET, and unique visible reply; the recorded interval is terminal GET to visible UI assertion, not an independently observed cache commit. Storage commit has no independent timestamp, and native device remains untested; engine time.created is not used as commit lag."
+    },
+    {
+      "criterion_id": "m1-c6",
+      "text": "Newest PAGE first,first visible frame newest NO top flash; limit/before retained,reliable native initial position or minimal hidden-until-positioned",
+      "mode": "ui",
+      "test": "apps/mobile/tests/chat/chat-content-scroll.test.tsx; apps/mobile/tests/e2e/m1-newest-viewport.spec.mjs",
+      "status": "UNVERIFIED",
+      "reason": "Rendered Chromium first-visible bottom gap <=2px and limit=20/no-before pass; native first-frame and both composing-screen matrix remain untested."
+    },
+    {
+      "criterion_id": "m1-c7",
+      "text": "Older prepend anchor<=2px browser,near-bottom follow only",
+      "mode": "ui",
+      "test": "apps/mobile/tests/e2e/m1-newest-viewport.spec.mjs",
+      "status": "UNVERIFIED",
+      "reason": "Rendered Chromium staged prepend anchor <=2px and upward-reader jump pass. Native variable-height and device behavior remain untested."
+    },
+    {
+      "criterion_id": "m1-c8",
+      "text": "keyboard/composer/attachment/safe area/switch/resume/reconnect stable,portrait unchanged",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "Full native/browser matrix pending; no layout or portrait policy edits made."
+    },
+    {
+      "criterion_id": "m1-c9",
+      "text": "Full short/long/open/switch/resume/reconnect/pagination/stream/delayed-final/keyboard/upward matrix and long persisted immediate-newest regression/durable screenshots",
+      "mode": "manual",
+      "test": "apps/mobile/tests/e2e/m1-newest-viewport.spec.mjs",
+      "status": "UNVERIFIED",
+      "reason": "Rendered Chromium long persisted newest/older/upward/SSE/composer-resize spec passes with synthetic screenshots. Native, short, switch, reconnect, attachment, and safe-area matrix remains untested. Portrait configuration unchanged."
+    },
+    {
+      "criterion_id": "m1-c10",
+      "text": "Implement completion/scroll first,adapter after A contract",
+      "mode": "manual",
+      "test": "apps/api_server/src/__tests__/mobile_attachment_adapter_contract.test.ts",
+      "status": "pass",
+      "reason": "Adapter integrated after A1 helper review; the combined 10-case real API/engine suite proved paired Device owner replay passes exact photo bytes to the controlled provider and rejects a non-owner. Real account image recognition remains a separate installed gate."
+    }
+  ],
+  "not_tested": [
+    "m1-c3",
+    "m1-c4",
+    "m1-c5",
+    "m1-c6",
+    "m1-c8",
+    "m1-c9"
+  ]
+}

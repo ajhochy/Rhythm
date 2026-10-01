@@ -153,6 +153,8 @@ export type OpencodeContextValue = {
   sessionPreviewById: Record<string, string>;
   isRefreshingSessions: boolean;
   isRefreshingMessages: boolean;
+  completionSyncStatus?: 'syncing' | 'retry';
+  retryCompletionSync: (sessionId: string) => void;
   isRefreshingDiffs: boolean;
   isBootstrappingChat: boolean;
   currentConfig?: Config;
