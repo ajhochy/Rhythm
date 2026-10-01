@@ -191,6 +191,23 @@ async function readRelayMirror<T>(
   }
 }
 
+/**
+ * Every offline answer carries WHY and WHEN, not just a code. The phone's
+ * `normalizeApiError` already renders `message` verbatim for these codes, so a
+ * dead uplink now reads "the Mac stopped answering … last contact <time>"
+ * instead of an indistinguishable "A network error occurred".
+ */
+function offlineBody(
+  uplink: RelayUplinkServer,
+  error: 'mac_offline' | 'mac_offline_and_mirror_incomplete' | 'no_uplink',
+): Record<string, unknown> {
+  return {
+    error,
+    message: uplink.offlineReason(),
+    lastUplinkAt: uplink.getLastUplinkAt(),
+  };
+}
+
 async function tunnelRequest(
   uplink: RelayUplinkServer,
   req: Request,
@@ -198,7 +215,7 @@ async function tunnelRequest(
   next: NextFunction,
 ): Promise<void> {
   if (!uplink.isMacOnline()) {
-    res.status(503).json({ error: 'mac_offline' });
+    res.status(503).json(offlineBody(uplink, 'mac_offline'));
     return;
   }
   try {
@@ -216,7 +233,7 @@ async function tunnelRequest(
     res.status(response.status).end(Buffer.from(response.bodyB64, 'base64'));
   } catch (error) {
     if (error instanceof MacOfflineError) {
-      res.status(503).json({ error: 'mac_offline' });
+      res.status(503).json(offlineBody(uplink, 'mac_offline'));
       return;
     }
     next(error);
@@ -296,7 +313,7 @@ export function createRelayGatewayRouter(
           );
         }
         if (!uplink.isHostOnline(enrollment.hostId, userId)) {
-          res.status(503).json({ error: 'mac_offline' });
+          res.status(503).json(offlineBody(uplink, 'mac_offline'));
           return;
         }
         const gatewayBaseUrl = validatedRelayPublicUrl(
@@ -368,10 +385,7 @@ export function createRelayGatewayRouter(
   router.get('/mobile-gateway/health', (_req, res) => {
     const health = uplink.getHealth();
     if (health === null) {
-      res.status(503).json({
-        error: 'no_uplink',
-        lastUplinkAt: uplink.getLastUplinkAt(),
-      });
+      res.status(503).json(offlineBody(uplink, 'no_uplink'));
       return;
     }
     const body =
@@ -394,7 +408,7 @@ export function createRelayGatewayRouter(
   const streamEvents = (sessionId?: string) =>
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       if (!uplink.hub.isLive()) {
-        res.status(503).json({ error: 'mac_offline' });
+        res.status(503).json(offlineBody(uplink, 'mac_offline'));
         return;
       }
       const authorization = req.header('Authorization') ?? '';
@@ -463,9 +477,9 @@ export function createRelayGatewayRouter(
     next: NextFunction,
   ): Promise<void> => {
     if (!uplink.isMacOnline()) {
-      res.status(503).json({
-        error: 'mac_offline_and_mirror_incomplete',
-      });
+      res.status(503).json(
+        offlineBody(uplink, 'mac_offline_and_mirror_incomplete'),
+      );
       return;
     }
     await tunnelRequest(uplink, req, res, next);
@@ -662,7 +676,7 @@ export function createRelayGatewayRouter(
       }
 
       if (!uplink.isMacOnline()) {
-        res.status(404).json({ error: 'mac_offline' });
+        res.status(404).json(offlineBody(uplink, 'mac_offline'));
         return;
       }
 
@@ -720,7 +734,7 @@ export function createRelayGatewayRouter(
         res.status(response.status).end(bytes);
       } catch (error) {
         if (error instanceof MacOfflineError) {
-          res.status(404).json({ error: 'mac_offline' });
+          res.status(404).json(offlineBody(uplink, 'mac_offline'));
           return;
         }
         next(error);
