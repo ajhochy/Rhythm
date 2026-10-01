@@ -135,7 +135,7 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
 
         callback(new Error(`Origin ${origin} is not allowed by CORS`));
       },
-      allowedHeaders: ['Content-Type', 'Authorization', 'content-type', 'X-Signature-SHA256', 'Range', 'X-Rhythm-Project', 'X-Rhythm-Project-ID', 'X-Rhythm-Auto-Promotion-Confirmation'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'content-type', 'X-Signature-SHA256', 'Range', 'X-Rhythm-Project', 'X-Rhythm-Project-ID', 'X-Rhythm-Auto-Promotion-Confirmation', 'X-Rhythm-Human-Approval'],
     }),
   );
   // Allow larger bodies for OAuth token exchange and session creation.
