@@ -53,6 +53,7 @@ interface UplinkConnection {
   authenticatedUserId: number;
   bearer: string;
   recheckTimer: NodeJS.Timeout | null;
+  heartbeatTimer: NodeJS.Timeout | null;
   rechecking: boolean;
   helloReceived: boolean;
   hostId: string | null;
@@ -278,6 +279,27 @@ export class MacOfflineError extends Error {
   }
 }
 
+/**
+ * Liveness constants (#relay-uplink-heartbeat, 2026-09-30).
+ *
+ * Before this, nothing on the relay proved the uplink socket still carried
+ * bytes: `lastUplinkAt` was stamped only on hello / ctrl-health / resync-done,
+ * and `macOnline` reported socket presence. A half-open Cloudflare tunnel
+ * therefore read as perfectly healthy while every tunneled phone request hung
+ * forever — which is what the phone rendered as "A network error occurred".
+ */
+const UPLINK_PING_INTERVAL_MS = 20_000;
+/** No byte from the Mac for this long ⇒ the socket is dead, not idle. */
+const UPLINK_IDLE_TIMEOUT_MS = 60_000;
+/**
+ * `lastUplinkAt` older than this ⇒ report offline even if the socket object
+ * still looks open. Deliberately larger than the idle timeout so the terminate
+ * path normally wins and this is only the backstop.
+ */
+const UPLINK_STALE_AFTER_MS = 90_000;
+/** A tunneled request must fail loudly rather than hang until the phone gives up. */
+const RPC_TIMEOUT_MS = 20_000;
+
 export class RelayUplinkServer {
   readonly hub: OpencodeEventHub;
 
@@ -292,7 +314,7 @@ export class RelayUplinkServer {
   private readonly pendingRpcs = new Map<string, PendingRpc>();
   private active: UplinkConnection | null = null;
   private health: unknown | null = null;
-  private lastUplinkAt: string | null = null;
+  private lastUplinkAtMs: number | null = null;
   private macOnline = false;
   private appliedSinceAck = 0;
   private readonly resyncedCallbacks = new Set<() => void>();
@@ -489,8 +511,17 @@ export class RelayUplinkServer {
     }
   }
 
+  /**
+   * True only when the uplink has proven itself recently. Socket presence is
+   * not evidence: `macOnline` alone reported a dead tunnel as healthy.
+   */
   isMacOnline(): boolean {
-    return this.macOnline;
+    return this.macOnline && this.isUplinkFresh();
+  }
+
+  private isUplinkFresh(): boolean {
+    return this.lastUplinkAtMs !== null &&
+      Date.now() - this.lastUplinkAtMs <= UPLINK_STALE_AFTER_MS;
   }
 
   getHealth(): unknown | null {
@@ -498,11 +529,22 @@ export class RelayUplinkServer {
   }
 
   getLastUplinkAt(): string | null {
-    return this.lastUplinkAt;
+    return this.lastUplinkAtMs === null
+      ? null
+      : new Date(this.lastUplinkAtMs).toISOString();
+  }
+
+  /** Human-readable reason the Mac is unreachable, for the phone to display. */
+  offlineReason(): string {
+    const lastSeen = this.getLastUplinkAt();
+    if (lastSeen === null) {
+      return 'The Mac has never connected to the relay. Open the Rhythm desktop app and sign in.';
+    }
+    return `The Mac stopped answering the relay; last contact ${lastSeen}. Check that the Rhythm desktop app is running — it may need to be restarted.`;
   }
 
   isHostOnline(hostId: string, userId: number): boolean {
-    return this.macOnline && this.active?.hostId === hostId &&
+    return this.isMacOnline() && this.active?.hostId === hostId &&
       this.active.authenticatedUserId === userId;
   }
 
@@ -518,7 +560,7 @@ export class RelayUplinkServer {
   }): Promise<RpcResFrame> {
     const active = this.active;
     if (
-      !this.macOnline ||
+      !this.isMacOnline() ||
       !active ||
       active.socket.readyState !== WebSocket.OPEN
     ) {
@@ -533,7 +575,28 @@ export class RelayUplinkServer {
       ...request,
     };
     return new Promise<RpcResFrame>((resolve, reject) => {
-      this.pendingRpcs.set(id, { resolve, reject });
+      // Without this the request simply never settles when the uplink is
+      // half-open: Express holds the phone's connection until the phone's own
+      // fetch gives up, which it reports as an indistinguishable network error.
+      const timer = setTimeout(() => {
+        if (!this.pendingRpcs.delete(id)) return;
+        logger.warn(
+          `[RelayUplinkServer] tunneled request timed out after ${RPC_TIMEOUT_MS}ms; marking the Mac offline method=${request.method} state=offline reason=rpc_timeout`,
+        );
+        // Drop the dead socket so the Mac's redial can take over cleanly.
+        const dead = this.active;
+        if (dead) {
+          this.active = null;
+          try { dead.socket.terminate(); } catch { /* already gone */ }
+        }
+        this.setOffline();
+        reject(new MacOfflineError());
+      }, RPC_TIMEOUT_MS);
+      timer.unref();
+      this.pendingRpcs.set(id, {
+        resolve: (value) => { clearTimeout(timer); resolve(value); },
+        reject: (error) => { clearTimeout(timer); reject(error); },
+      });
       try {
         active.socket.send(serializeUplinkFrame(frame), (error) => {
           if (!error) return;
@@ -551,6 +614,7 @@ export class RelayUplinkServer {
     this.setOffline();
     for (const connection of this.connections) {
       if (connection.recheckTimer) clearInterval(connection.recheckTimer);
+      if (connection.heartbeatTimer) clearInterval(connection.heartbeatTimer);
       try {
         connection.socket.terminate();
       } catch {
@@ -595,6 +659,7 @@ export class RelayUplinkServer {
       authenticatedUserId: userId,
       bearer,
       recheckTimer: null,
+      heartbeatTimer: null,
       rechecking: false,
       helloReceived: false,
       hostId: null,
@@ -631,6 +696,25 @@ export class RelayUplinkServer {
       });
     }, this.credentialRecheckIntervalMs);
     connection.recheckTimer.unref();
+    socket.on('pong', () => this.stampUplink());
+    connection.heartbeatTimer = setInterval(() => {
+      if (socket.readyState !== WebSocket.OPEN) return;
+      if (this.lastUplinkAtMs !== null &&
+        Date.now() - this.lastUplinkAtMs > UPLINK_IDLE_TIMEOUT_MS) {
+        logger.warn(
+          `[RelayUplinkServer] uplink silent for ${Date.now() - this.lastUplinkAtMs}ms userId=${connection.authenticatedUserId} hostId=${safeDiagnosticId(connection.hostId)} state=offline reason=idle_timeout`,
+        );
+        socket.terminate();
+        this.disconnect(connection);
+        return;
+      }
+      try {
+        socket.ping();
+      } catch {
+        // Close handling owns recovery.
+      }
+    }, UPLINK_PING_INTERVAL_MS);
+    connection.heartbeatTimer.unref();
     socket.on('message', (data, isBinary) => {
       if (isBinary) return;
       const frame = parseUplinkFrame(rawText(data));
@@ -677,6 +761,10 @@ export class RelayUplinkServer {
         return;
       }
       if (this.active !== connection) return;
+      // Any frame is proof of a live tunnel. Stamping only hello/health/
+      // resync-done made a frozen `lastUplinkAt` the NORMAL appearance of a
+      // busy, healthy uplink — and therefore useless as a liveness signal.
+      this.stampUplink();
       this.handleFrame(frame);
     });
     const disconnected = () => this.disconnect(connection);
@@ -794,7 +882,7 @@ export class RelayUplinkServer {
   }
 
   private stampUplink(): void {
-    this.lastUplinkAt = new Date().toISOString();
+    this.lastUplinkAtMs = Date.now();
   }
 
   private async storeArtifact(frame: FileArtifactFrame): Promise<void> {
@@ -814,6 +902,7 @@ export class RelayUplinkServer {
 
   private disconnect(connection: UplinkConnection): void {
     if (connection.recheckTimer) clearInterval(connection.recheckTimer);
+    if (connection.heartbeatTimer) clearInterval(connection.heartbeatTimer);
     connection.bearer = '';
     this.connections.delete(connection);
     if (this.active !== connection) return;
