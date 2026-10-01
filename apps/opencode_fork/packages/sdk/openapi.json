@@ -23654,6 +23654,9 @@
           "name": {
             "type": "string"
           },
+          "base": {
+            "type": "string"
+          },
           "startCommand": {
             "type": "string",
             "description": "Additional startup script to run after the project's start command"

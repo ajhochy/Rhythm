@@ -3006,6 +3006,7 @@ export type Worktree = {
 };
 export type WorktreeCreateInput = {
     name?: string;
+    base?: string;
     /**
      * Additional startup script to run after the project's start command
      */

@@ -932,7 +932,8 @@ export class AgentSessionsController {
       const branchParam = body.branch;
       const stashParam = body.stash;
       const createBranchParam = body.createBranch;
-      if (typeof branchParam === 'string' && branchParam.trim() !== '') {
+      const isolateWorktree = body.isolateWorktree === true;
+      if (!isolateWorktree && typeof branchParam === 'string' && branchParam.trim() !== '') {
         // Only checkout when requested branch differs from current HEAD.
         const currentBranch = (() => {
           try {
@@ -967,7 +968,6 @@ export class AgentSessionsController {
       // a non-git dir surfaces a clean 4xx/5xx before any session row exists.
       let sessionCwd = expandedCwd;
       let worktreeMeta: { name: string; path: string; branch: string | null } | null = null;
-      const isolateWorktree = body.isolateWorktree === true;
       if (isolateWorktree) {
         const worktreeNameRaw = body.worktreeName;
         if (
@@ -984,6 +984,7 @@ export class AgentSessionsController {
         }
         const created = await opencodeClient.createWorktree(expandedCwd, {
           name: typeof worktreeNameRaw === 'string' ? worktreeNameRaw : undefined,
+          ...(typeof branchParam === 'string' && branchParam.trim() !== '' ? { base: branchParam.trim() } : {}),
         });
         sessionCwd = created.directory;
         worktreeMeta = {

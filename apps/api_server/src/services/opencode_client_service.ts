@@ -2814,12 +2814,13 @@ export class OpencodeClientService {
    */
   async createWorktree(
     directory: string,
-    opts?: { name?: string; startCommand?: string },
+    opts?: { name?: string; startCommand?: string; base?: string },
   ): Promise<{ name: string; branch?: string; directory: string }> {
     const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
     const body: Record<string, unknown> = {};
     if (opts?.name) body.name = opts.name;
     if (opts?.startCommand) body.startCommand = opts.startCommand;
+    if (opts?.base) body.base = opts.base;
     let res: Response;
     try {
       res = await fetch(`${this.serverUrl}/experimental/worktree${qs}`, {
