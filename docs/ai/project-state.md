@@ -2,46 +2,24 @@
 
 ## Current focus
 
-One integration branch only. All open work is consolidated into mega PR #1594; `main` plus that mega branch are the only branches (local and GitHub) and the only worktree is the main checkout.
+Recover the OpenCode memory incident (#1603) and the interrupted Rhythm delivery workflows on one reviewed candidate while keeping installed, device, human approval, and real-provider proof separate from synthetic checks. See the [combined recovery receipt](runs/2026-10-01-memory-recovery-integration.md) and [current plan](current-plan.md).
 
 ## Active branch / PR
 
-`mega/2026-09-29-electron-orgreviewer` → draft PR #1594 against `main`. It carries the local decision engine, router curation, the System One (Kev / Jev) routing backend (#1596, closed into it), the Electron fixes and the Rhythm MCP bundle and sign-in install (#1597), mobile streaming, and Org Reviewer paging. Deleted branch tips can still be reached from the local tag `archive/branch-consolidation-2026-09-29` (run log: `docs/ai/runs/2026-09-29-branch-consolidation.md`).
+`codex/opencode-memory-recovery` is the active isolated integration worktree, based on draft Mega PR [#1598](https://github.com/ajhochy/Rhythm/pull/1598). Source is still being integrated and reviewed; no final frozen release SHA, merge, deploy, signed replacement app, or new TestFlight build has been established. The unrelated main checkout is outside this work.
 
 ## In progress
 
-- CI on #1594 for the consolidated head.
-- Manual smoke per the #1594 checklist, including the System One backend (Kev running: `uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009`; recommended rollout `first_prompt` scope, Shadow for a week, then On — `docs/ai/decision-engine-setup.md`) and the packaged Electron rhythm MCP after sign-in.
+A1 attachment bytes/XLSX/ownership, C1/C3 manual trigger/provider error, E1 approval queue read, W6 selected-base isolated Start, M1 mobile continuation, and #1603 memory bounds are integrated or under final combined review. M1 is repairing a selected-older removal/draft-target issue found during independent review. The original approval decisions remain human-only. Final affected compatibility, draft-PR CI, installed source attribution, distribution, mobile device checks, and model-only operational validation remain.
 
 ## Risks / known issues
 
-- **Kev cold latency**: 2.8–4.2 s for the first calls after other heavy work; under the 1000 ms default those prompts time out and keep the baseline route (logged as `timeout`).
-- Electron `issue-1402` packaging test needs `RHYTHM_HERMES_DESKTOP_ARTIFACT_DIR`; only the release workflow supplies it, so the MCP bundling is not covered by PR CI.
-- Local env: `native_runtime_guard` fails under Node 24.21 + better-sqlite3 12.8; `apps/mobile/node_modules` is missing `expo-image-picker` (breaks local mobile lint + web e2e; CI installs fresh).
-- Carried: `issue-1387` mobile tests base-red (offline-mirror hydration); #1586 silent session stalls still open.
+Full web compatibility is not green: an earlier broad slice sweep found failures in legacy fixture expectations/startup requests; targeted real E1 and C1 browser gates passed separately. Broad API had one contract fingerprint failure; focused synchronization passed 12/12, with full rerun pending. A1 synthetic provider byte transport does not establish real account vision entitlement. E1 native signed decisions and original-row readback, literal installed Org Optimize/Run Now and W6 Start journeys, and physical-device/TestFlight behavior are unverified. Retain the earlier historical red receipts and exact remaining criteria in the contracts.
 
 ## Test status
 
-Consolidated head 7b0cba74: api_server + web tsc clean; api_server decision/router/MCP vitest 239 passed; mobile router settings jest 32/32; `ai-workflow checks --level pr` green except the three local-env failures above.
+Scoped real sandbox: memory #1603 1/1 with 434,896 KiB combined peak RSS; A1 10/10 real API/engine plus isolated Postgres owner 1/1; C1 core/auth 10/10, controlled provider 401 1/1, live Chromium reconnect/reload 1/1; E1 real API/browser queue-read 1/1 and rendered 17/17; W6 real dirty-Git API/engine Start 1/1 in a combined four-test run. Final web build/dist smoke, Flutter 1,355, Electron 451 passed/4 skipped, MCP 193 passed/2 skipped, and mobile Jest 318 passed. Broad API 7,104 passed/313 skipped/1 fingerprint failure; focused repair 12/12 passed, full rerun pending. These are not full web, native, release, or account-provider passes.
 
 ## Next step
 
-AJ smoke-tests PR #1594 and merges it to `main` manually.
-
-## Consolidation 2026-09-29
-
-### Temp-directory cleanup integration (2026-10-01)
-
-- AJ requested folding draft #1602 (`ef126cd7`) into mega draft #1598 as a squash commit; #1602 is superseded after the mega push. No merge into `main` is authorized.
-- Cleanup local draft verification passed: Vitest run-owned parent/per-file isolation covers passing, failing, all-skipped and concurrent runs; fork initialization-failure cleanup preserves successful disposal. Existing leftovers remain untouched.
-- The unknown-cause queued-loop assertion remains narrowly AJ-waived, not fixed. The installed SQLite dependency mismatch and base/branch background temp recreation remain disclosed; downstream CI and human review are pending.
-- Integration uses a clean isolated worktree; unrelated mobile edits in the main checkout are not included. Prior behavioral evidence applies to identical cleanup implementation blobs, not a blanket mega-suite PASS.
-
-Supersedes the "Active branch / PR" section above: the integration branch is now `mega/2026-09-29-consolidation` -> draft PR https://github.com/ajhochy/Rhythm/pull/1598 (tracking issue #1599; Server CI smoke flake #1600). #1594 is superseded by it.
-
-- **Folded**: `mega/2026-09-29-electron-orgreviewer` `ac887bb0` (merge `b846fdcc`, tree identical); `refs/clone/rhythm-1505a/mega/2026-09-18-mobile-electron-hermes` `9c255b64` (already an ancestor of the previous).
-- **Dropped** (bundle `~/Documents/.consolidation-backups/rhythm-2026-09-29.bundle`; clone also in `rhythm--rhythm-1505a-9c255b64-2026-09-29.bundle`):
-  - `refs/clone/rhythm-1505a/codex/1505a-better-sqlite3-13` `498c1ed6`: superseded by `98874481` on `main` (#1505 closed; the touched files are identical here).
-  - `stash-backup/0-2026-09-29` = `stash@{0}` `0704cba5`: regenerated screenshots (14 PNGs, 4 already newer here) plus a stray `.pyc` and unrelated JSON; not merged because the repo is public.
-- **In flight**: none. No linked worktrees. Standalone clone `/private/tmp/rhythm-1505a-9c255b64` (1.3G) is left in place as a deletion candidate.
-- **Cleanup script** (reviewed and run by the owner, not yet run): `~/Documents/.consolidation-backups/cleanup/rhythm-2026-09-29-cleanup.sh`. It closes #1594, deletes `mega/2026-09-29-electron-orgreviewer` locally and on GitHub, prunes `origin`/`plugin`, clears the stash and the `stash-backup`/`refs/clone` refs.
+Review the combined diff and affected compatibility, freeze a single source SHA, then run same-SHA CI and installed Electron/iOS qualification. Capture exact installed component/request/origin/build before claiming the literal user journeys, and keep approval signing for a legitimate human gesture.
