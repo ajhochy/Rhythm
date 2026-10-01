@@ -22,11 +22,13 @@
  * c6_feature_flags.test.ts) — this only fixes the shared starting point.
  */
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { inject } from 'vitest';
 
 if (process.env.RHYTHM_LIVE_E2E !== '1') {
-  const runRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rhythm-vitest-'));
+  // Native context reaches fork workers without ambient environment ownership.
+  // Each setup execution still owns an isolated DB/vault/accounts child.
+  const runRoot = fs.mkdtempSync(path.join(inject('rhythmTestRunRoot'), 'file-'));
 
   process.env.DB_PATH = path.join(runRoot, 'rhythm.db');
   process.env.MEMORY_VAULT_PATH = path.join(runRoot, 'memory-vault');

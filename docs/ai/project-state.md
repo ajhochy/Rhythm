@@ -30,6 +30,13 @@ AJ smoke-tests PR #1594 and merges it to `main` manually.
 
 ## Consolidation 2026-09-29
 
+### Temp-directory cleanup integration (2026-10-01)
+
+- AJ requested folding draft #1602 (`ef126cd7`) into mega draft #1598 as a squash commit; #1602 is superseded after the mega push. No merge into `main` is authorized.
+- Cleanup local draft verification passed: Vitest run-owned parent/per-file isolation covers passing, failing, all-skipped and concurrent runs; fork initialization-failure cleanup preserves successful disposal. Existing leftovers remain untouched.
+- The unknown-cause queued-loop assertion remains narrowly AJ-waived, not fixed. The installed SQLite dependency mismatch and base/branch background temp recreation remain disclosed; downstream CI and human review are pending.
+- Integration uses a clean isolated worktree; unrelated mobile edits in the main checkout are not included. Prior behavioral evidence applies to identical cleanup implementation blobs, not a blanket mega-suite PASS.
+
 Supersedes the "Active branch / PR" section above: the integration branch is now `mega/2026-09-29-consolidation` -> draft PR https://github.com/ajhochy/Rhythm/pull/1598 (tracking issue #1599; Server CI smoke flake #1600). #1594 is superseded by it.
 
 - **Folded**: `mega/2026-09-29-electron-orgreviewer` `ac887bb0` (merge `b846fdcc`, tree identical); `refs/clone/rhythm-1505a/mega/2026-09-18-mobile-electron-hermes` `9c255b64` (already an ancestor of the previous).
