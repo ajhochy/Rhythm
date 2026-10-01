@@ -13,6 +13,7 @@ import {
   Card,
   Dialog,
   Divider,
+  IconButton,
   Menu,
   Portal,
   Searchbar,
@@ -376,16 +377,15 @@ export function ChatList({ controller }: ChatListProps) {
           <View style={styles.toolbarActions} testID="chat-list-actions">
             <Menu
               anchor={
-                <Pressable
+                <IconButton
                   accessibilityLabel={`Sort projects, ${projectSort === 'recent' ? 'Recent activity' : 'Alphabetical'}`}
-                  accessibilityRole="button"
                   accessibilityState={{ expanded: sortMenuVisible }}
+                  icon={projectSort === 'recent' ? 'sort-clock-descending-outline' : 'sort-alphabetical-ascending'}
+                  mode="outlined"
                   onPress={() => setSortMenuVisible(true)}
-                  style={styles.toolbarAction}>
-                  <Text style={{ color: palette.tint }} variant="labelLarge">
-                    {projectSort === 'recent' ? '↕ Recent' : '↕ A–Z'}
-                  </Text>
-                </Pressable>
+                  size={20}
+                  style={styles.toolbarIconAction}
+                />
               }
               onDismiss={() => setSortMenuVisible(false)}
               visible={sortMenuVisible}>
@@ -404,16 +404,15 @@ export function ChatList({ controller }: ChatListProps) {
                 title="Alphabetical"
               />
             </Menu>
-            <Button
+            <IconButton
               accessibilityLabel="New chat"
-              compact
               disabled={!chat.isOnline || controller.isCreating}
               icon="plus"
               mode="contained-tonal"
               onPress={() => void controller.openCreateSheet()}
-              style={styles.toolbarAction}>
-              New chat
-            </Button>
+              size={20}
+              style={styles.toolbarIconAction}
+            />
           </View>
         </View>
         {hasFilters ? (
@@ -812,6 +811,7 @@ export function ChatList({ controller }: ChatListProps) {
       <SessionConfigurationSheet
         availableModels={opencode.availableModels}
         availableProfiles={controller.creationProfiles}
+        availableProjects={controller.projects}
         availableProviders={opencode.configuredProviders}
         mode="create"
         onCreate={async (newTitle, preferences) => {
@@ -819,8 +819,10 @@ export function ChatList({ controller }: ChatListProps) {
           openChat(created as unknown as AgentChatRecord);
         }}
         onDismiss={controller.closeCreateSheet}
+        onProjectChange={(projectPath) => controller.openCreateSheet(projectPath)}
         palette={palette}
         preferences={opencode.chatPreferences}
+        selectedProjectPath={controller.creationTargetProject}
         visible={controller.createSheetVisible && controller.isFocused}
       />
       <Snackbar
@@ -837,13 +839,13 @@ export function ChatList({ controller }: ChatListProps) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  filters: { gap: Spacing.x2, padding: Spacing.x2 },
-  toolbar: { alignItems: 'stretch', gap: Spacing.x1, minHeight: MinimumTouchTarget },
-  search: { minHeight: MinimumTouchTarget, width: '100%' },
+  filters: { gap: Spacing.x2, paddingHorizontal: Spacing.x2, paddingBottom: Spacing.x1, paddingTop: Spacing.x1 },
+  toolbar: { alignItems: 'center', flexDirection: 'row', gap: Spacing.x1, minHeight: MinimumTouchTarget },
+  search: { flex: 1, minHeight: MinimumTouchTarget, minWidth: 0 },
   searchField: { minHeight: MinimumTouchTarget },
   searchInput: { minHeight: MinimumTouchTarget },
-  toolbarActions: { alignItems: 'center', flexDirection: 'row', justifyContent: 'flex-end', minHeight: MinimumTouchTarget },
-  toolbarAction: { alignItems: 'center', justifyContent: 'center', minHeight: MinimumTouchTarget, paddingHorizontal: Spacing.x2 },
+  toolbarActions: { alignItems: 'center', flexDirection: 'row', minHeight: MinimumTouchTarget },
+  toolbarIconAction: { height: MinimumTouchTarget, margin: 0, width: MinimumTouchTarget },
   activeFilters: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.x1 },
   activeFilterButton: { minHeight: MinimumTouchTarget },
   activeFilterButtonContent: { minHeight: MinimumTouchTarget },

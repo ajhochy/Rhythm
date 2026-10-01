@@ -222,7 +222,7 @@ export function ChatContent({
           ListEmptyComponent={(
             <View style={styles.emptyContent}>
                 <Text variant="headlineSmall" style={[styles.emptyTitle, { color: palette.text }]}>Start a new task</Text>
-                <Text variant="bodyMedium" style={{ color: palette.muted }}>
+                <Text style={[styles.emptyDescription, { color: palette.muted }]}>
                   Keep the prompt specific and OpenCode will inspect the workspace, show progress, and stream back file changes.
                 </Text>
                 <View style={styles.promptStack}>
@@ -233,7 +233,7 @@ export function ChatContent({
                       onPress={() => onSendStarterPrompt(prompt)}>
                       <View style={styles.promptCardInner}>
                         <MaterialCommunityIcons name="lightning-bolt" size={18} color={palette.tint} />
-                        <Text variant="bodyMedium" style={{ color: palette.text }}>{prompt}</Text>
+                        <Text style={[styles.promptCardText, { color: palette.text }]}>{prompt}</Text>
                       </View>
                     </TouchableRipple>
                   ))}

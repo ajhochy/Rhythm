@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
-import { PaperProvider } from 'react-native-paper';
+import { IconButton as PaperIconButton, PaperProvider } from 'react-native-paper';
 
 import { ChatList, flattenChats } from '@/components/chat/chat-list';
 import { type ChatListController, useChatListController } from '@/components/chat/chat-list-controller';
@@ -113,16 +113,27 @@ jest.mock('@/components/chat/session-configuration-sheet', () => {
     SessionConfigurationSheet: ({
       availableProfiles,
       onCreate,
+      onProjectChange,
+      selectedProjectPath,
       visible,
     }: {
       availableProfiles: { id: string; label: string }[];
       onCreate: (title: undefined, preferences: Record<string, unknown>) => Promise<void>;
+      onProjectChange?: (projectPath: string) => void;
+      selectedProjectPath?: string;
       visible: boolean;
     }) => visible ? (
       <>
         <MockText testID="mock-creation-profiles">
           {availableProfiles.map((profile) => profile.label).join(',')}
         </MockText>
+        <MockText testID="mock-creation-project">{selectedProjectPath}</MockText>
+        <MockPressable
+          accessibilityRole="button"
+          onPress={() => onProjectChange?.('/projects/empty')}
+          testID="mock-select-empty-project">
+          <MockText>Select empty project</MockText>
+        </MockPressable>
         <MockPressable
           accessibilityRole="button"
           onPress={() => void onCreate(undefined, {})}
@@ -178,6 +189,7 @@ function controller(): ChatListController {
     closeCreateSheet: jest.fn(),
     createChat: jest.fn(),
     creationProfiles: [],
+    creationTargetProject: undefined,
     createSheetVisible: false,
     feedback: null,
     isCreating: false,
@@ -491,8 +503,8 @@ describe('ChatList hierarchy', () => {
     expect(mockProjects.map((project) => project.path)).toEqual(originalOrder);
   });
 
-  test('task-mobile-project-list-c5: compact toolbar wraps safely for Dynamic Type without shrinking targets', () => {
-    // Regression caught: fixed heights clip enlarged text or force controls beyond the screen width.
+  test('task-mobile-project-list-c5: compact toolbar keeps search and icon actions on one accessible row', () => {
+    // Regression caught: search and actions stack into two rows and waste the top of the session list.
     const rendered = screen({ expandProjects: false });
 
     expect(rendered.queryByText('Filters')).toBeNull();
@@ -504,15 +516,20 @@ describe('ChatList hierarchy', () => {
     expect(toolbarStyle).toEqual(expect.objectContaining({ minHeight: 44 }));
     expect(toolbarStyle).not.toEqual(expect.objectContaining({ height: expect.anything() }));
     const searchStyle = StyleSheet.flatten(rendered.getByTestId('chat-list-search').props.style);
-    expect(searchStyle).toEqual(expect.objectContaining({ minHeight: 44, width: '100%' }));
-    expect(searchStyle).not.toHaveProperty('flexBasis');
+    expect(searchStyle).toEqual(expect.objectContaining({ flex: 1, minHeight: 44, minWidth: 0 }));
+    expect(searchStyle).not.toHaveProperty('width');
     expect(searchStyle).not.toEqual(expect.objectContaining({ height: expect.anything() }));
     expect(StyleSheet.flatten(rendered.getByTestId('chat-list-actions').props.style)).toEqual(
       expect.objectContaining({ flexDirection: 'row', minHeight: 44 }),
     );
-    expect(StyleSheet.flatten(rendered.getByLabelText('Sort projects, Recent activity').props.style)).toEqual(
-      expect.objectContaining({ minHeight: 44 }),
-    );
+    for (const label of ['Sort projects, Recent activity', 'New chat']) {
+      const control = rendered.UNSAFE_getAllByType(PaperIconButton).find(
+        (button) => button.props.accessibilityLabel === label,
+      );
+      expect(StyleSheet.flatten(control?.props.style)).toEqual(
+        expect.objectContaining({ height: 44, width: 44 }),
+      );
+    }
   });
 
   test('task-mobile-project-list-c6: project filter is one 44 point clear button with its value', () => {
@@ -666,6 +683,28 @@ describe('ChatList hierarchy', () => {
 
     await waitFor(() => {
       expect(mockLoadSessionProfiles).toHaveBeenCalledWith('/projects/empty');
+      expect(mockCreateChat).toHaveBeenCalledWith('/projects/empty', undefined, {});
+    });
+  });
+
+  test('project picker retargets the open create sheet and routes creation to that project', async () => {
+    const rendered = render(
+      <PaperProvider>
+        <ControlledChatList />
+      </PaperProvider>,
+    );
+
+    fireEvent.press(rendered.getByRole('button', { name: 'New chat' }));
+    expect(await rendered.findByTestId('mock-creation-project')).toHaveTextContent('/projects/alpha');
+    fireEvent.press(rendered.getByTestId('mock-select-empty-project'));
+
+    await waitFor(() => {
+      expect(rendered.getByTestId('mock-creation-project')).toHaveTextContent('/projects/empty');
+      expect(mockLoadSessionProfiles).toHaveBeenCalledWith('/projects/empty');
+    });
+    fireEvent.press(rendered.getByTestId('mock-create-session'));
+
+    await waitFor(() => {
       expect(mockCreateChat).toHaveBeenCalledWith('/projects/empty', undefined, {});
     });
   });

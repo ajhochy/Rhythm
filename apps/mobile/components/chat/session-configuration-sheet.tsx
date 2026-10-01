@@ -6,7 +6,6 @@ import {
   Divider,
   List,
   Portal,
-  RadioButton,
   Searchbar,
   SegmentedButtons,
   Text,
@@ -28,13 +27,14 @@ import {
   type PermissionMode,
 } from '@/providers/opencode-provider-utils';
 import { selectModelPickerGroups } from '@/providers/opencode-provider-selectors';
-import type { ProviderOption } from '@/providers/opencode-provider-types';
+import type { OpencodeProject, ProviderOption } from '@/providers/opencode-provider-types';
 
 type Palette = typeof Colors.light;
 
 type SessionConfigurationSheetProps = {
   availableModels: ModelOption[];
   availableProfiles: AgentOption[];
+  availableProjects?: OpencodeProject[];
   availableProviders: ProviderOption[];
   children?: ReactNode;
   mode: 'create' | 'edit';
@@ -43,11 +43,13 @@ type SessionConfigurationSheetProps = {
     preferences: ChatPreferences,
   ) => Promise<void>;
   onDismiss: () => void;
+  onProjectChange?: (projectPath: string) => void;
   onPreferencesChange?: (
     preferences: Partial<ChatPreferences>,
   ) => Promise<ChatPreferences>;
   palette: Palette;
   preferences: ChatPreferences;
+  selectedProjectPath?: string;
   visible: boolean;
 };
 
@@ -101,17 +103,20 @@ function selectedModelLabel(
 export function SessionConfigurationSheet({
   availableModels,
   availableProfiles,
+  availableProjects = [],
   availableProviders,
   children,
   mode,
   onCreate,
   onDismiss,
+  onProjectChange,
   onPreferencesChange,
   palette,
   preferences,
+  selectedProjectPath,
   visible,
 }: SessionConfigurationSheetProps) {
-  const [page, setPage] = useState<'summary' | 'profiles' | 'models'>(
+  const [page, setPage] = useState<'summary' | 'profiles' | 'models' | 'projects' | 'approvals'>(
     'summary',
   );
   const [query, setQuery] = useState('');
@@ -122,6 +127,7 @@ export function SessionConfigurationSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const wasVisibleRef = useRef(false);
+  const previousProjectPathRef = useRef(selectedProjectPath);
 
   useEffect(() => {
     const justOpened = visible && !wasVisibleRef.current;
@@ -138,11 +144,23 @@ export function SessionConfigurationSheet({
     );
   }, [availableProfiles, mode, preferences, visible]);
 
+  useEffect(() => {
+    const projectChanged = previousProjectPathRef.current !== selectedProjectPath;
+    previousProjectPathRef.current = selectedProjectPath;
+    if (!visible || mode !== 'create' || !projectChanged) return;
+    setDraft(undefined);
+  }, [mode, selectedProjectPath, visible]);
+
   // ponytail: the sheet can now open before the profile catalog resolves
   // (NC-3). If it arrives while already open with no draft picked yet,
   // pick a default now instead of only at open-time.
   useEffect(() => {
-    if (!visible || mode !== 'create' || draft) return;
+    if (
+      !visible ||
+      mode !== 'create' ||
+      availableProfiles.length === 0 ||
+      (draft && availableProfiles.some((profile) => profile.profileId === draft.profileId))
+    ) return;
     setDraft(getNewSessionPreferences(availableProfiles, preferences));
   }, [availableProfiles, draft, mode, preferences, visible]);
 
@@ -175,6 +193,15 @@ export function SessionConfigurationSheet({
     ),
     [availableProfiles, query],
   );
+  const filteredProjects = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    if (!normalizedQuery) return availableProjects;
+    return availableProjects.filter((project) =>
+      [project.label, project.path].some((value) =>
+        value.toLocaleLowerCase().includes(normalizedQuery),
+      ),
+    );
+  }, [availableProjects, query]);
   const filteredModelGroups = useMemo(
     () => modelGroups
       .map((group) => ({
@@ -192,6 +219,9 @@ export function SessionConfigurationSheet({
     (!query.trim() || AUTO_MODEL_LABEL.toLowerCase().includes(query.trim().toLowerCase()));
   const selectedProfile = availableProfiles.find(
     (profile) => profile.profileId === draft?.profileId,
+  );
+  const selectedProject = availableProjects.find(
+    (project) => project.path === selectedProjectPath,
   );
   const selectedApproval = APPROVAL_OPTIONS.find(
     (option) => option.value === draft?.permissionMode,
@@ -234,7 +264,13 @@ export function SessionConfigurationSheet({
     }
   }
 
-  const pickerTitle = page === 'profiles' ? 'Choose Profile' : 'Choose Model';
+  const pickerTitle = page === 'profiles'
+    ? 'Choose Profile'
+    : page === 'models'
+      ? 'Choose Model'
+      : page === 'projects'
+        ? 'Choose Project'
+        : 'Choose Approval Policy';
   // One source of truth for the title: the announced name must follow the
   // visible heading when the sheet navigates into a picker page, otherwise
   // assistive tech keeps announcing "Session configuration" while the screen
@@ -258,9 +294,9 @@ export function SessionConfigurationSheet({
       <Dialog
         dismissable={!busy}
         onDismiss={onDismiss}
-        style={styles.dialog}
+        style={[styles.dialog, { backgroundColor: palette.surface }]}
         visible={visible}>
-        <Dialog.Title accessibilityLabel={dialogTitle} style={styles.dialogTitle}>
+        <Dialog.Title accessibilityLabel={dialogTitle} style={[styles.dialogTitle, { color: palette.text }]}>
           {dialogTitle}
         </Dialog.Title>
         <Dialog.ScrollArea style={styles.scrollArea}>
@@ -269,13 +305,15 @@ export function SessionConfigurationSheet({
             <View style={styles.content} testID="session-configuration-content">
             {page !== 'summary' ? (
               <>
-                <Searchbar
-                  accessibilityLabel={`Search ${page}`}
-                  autoFocus
-                  onChangeText={setQuery}
-                  placeholder={`Search ${page}`}
-                  value={query}
-                />
+                {page !== 'approvals' ? (
+                  <Searchbar
+                    accessibilityLabel={`Search ${page}`}
+                    autoFocus
+                    onChangeText={setQuery}
+                    placeholder={`Search ${page}`}
+                    value={query}
+                  />
+                ) : null}
                 {showAutoOption ? (
                   <List.Item
                     accessibilityLabel={AUTO_MODEL_LABEL}
@@ -297,7 +335,57 @@ export function SessionConfigurationSheet({
                     titleNumberOfLines={0}
                   />
                 ) : null}
-                {page === 'profiles'
+                {page === 'approvals'
+                  ? APPROVAL_OPTIONS.map((option) => (
+                      <List.Item
+                        accessibilityLabel={option.label}
+                        accessibilityRole="button"
+                        description={option.description}
+                        descriptionNumberOfLines={0}
+                        key={option.value}
+                        left={(props) => (
+                          <List.Icon
+                            {...props}
+                            icon={option.value === draft?.permissionMode ? 'check-circle' : 'shield-outline'}
+                          />
+                        )}
+                        onPress={() => {
+                          if (!draft) return;
+                          void commit({
+                            ...draft,
+                            permissionMode: option.value,
+                            autoApprove: option.value === 'bypassPermissions',
+                          });
+                          setPage('summary');
+                        }}
+                        title={option.label}
+                        titleNumberOfLines={1}
+                      />
+                    ))
+                  : page === 'projects'
+                  ? filteredProjects.map((project) => (
+                      <List.Item
+                        accessibilityLabel={project.label}
+                        accessibilityRole="button"
+                        description={project.path}
+                        descriptionNumberOfLines={1}
+                        key={project.path}
+                        left={(props) => (
+                          <List.Icon
+                            {...props}
+                            icon={project.path === selectedProjectPath ? 'check-circle' : 'folder-outline'}
+                          />
+                        )}
+                        onPress={() => {
+                          onProjectChange?.(project.path);
+                          setPage('summary');
+                          setQuery('');
+                        }}
+                        title={project.label}
+                        titleNumberOfLines={1}
+                      />
+                    ))
+                  : page === 'profiles'
                   ? filteredProfiles.map((profile) => (
                       <List.Item
                         key={profile.profileId}
@@ -378,9 +466,13 @@ export function SessionConfigurationSheet({
                         ))}
                       </List.Section>
                     ))}
-                {(page === 'profiles'
-                  ? filteredProfiles.length
-                  : filteredModelGroups.length + (showAutoOption ? 1 : 0)) === 0 ? (
+                {(page === 'approvals'
+                  ? APPROVAL_OPTIONS.length
+                  : page === 'projects'
+                  ? filteredProjects.length
+                  : page === 'profiles'
+                    ? filteredProfiles.length
+                    : filteredModelGroups.length + (showAutoOption ? 1 : 0)) === 0 ? (
                   <Text style={{ color: palette.muted }}>
                     No matching {page}.
                   </Text>
@@ -403,40 +495,87 @@ export function SessionConfigurationSheet({
                   </Text>
                 ) : (
                   <>
-                    <List.Item
-                      accessibilityLabel={`Profile, ${selectedProfile?.label ?? 'Unassigned'}`}
-                      accessibilityRole="button"
-                      disabled={busy || availableProfiles.length === 0}
-                      description={selectedProfile?.label ?? 'Unassigned'}
-                      descriptionNumberOfLines={1}
-                      left={(props) => <List.Icon {...props} icon="account-outline" />}
-                      onPress={() => {
-                        setQuery('');
-                        setPage('profiles');
-                      }}
-                      style={styles.summaryRow}
-                      testID="session-profile-row"
-                      title="Profile"
-                      titleNumberOfLines={1}
-                      titleStyle={styles.rowLabel}
-                    />
-                    <List.Item
-                      accessibilityLabel={`Model, ${selectedModelLabel(availableModels, draft.modelId, draft.modelMode)}`}
-                      accessibilityRole="button"
-                      disabled={busy || modelGroups.length === 0}
-                      description={selectedModelLabel(availableModels, draft.modelId, draft.modelMode)}
-                      descriptionNumberOfLines={1}
-                      left={(props) => <List.Icon {...props} icon="cube-outline" />}
-                      onPress={() => {
-                        setQuery('');
-                        setPage('models');
-                      }}
-                      style={styles.summaryRow}
-                      testID="session-model-row"
-                      title="Model"
-                      titleNumberOfLines={1}
-                      titleStyle={styles.rowLabel}
-                    />
+                    <View style={[styles.summaryGroup, { backgroundColor: palette.surfaceAlt }]}>
+                      <List.Item
+                        accessibilityLabel={`Profile, ${selectedProfile?.label ?? 'Unassigned'}`}
+                        accessibilityRole="button"
+                        disabled={busy || availableProfiles.length === 0}
+                        description={selectedProfile?.label ?? 'Unassigned'}
+                        descriptionNumberOfLines={1}
+                        left={(props) => <List.Icon {...props} icon="account-outline" />}
+                        onPress={() => {
+                          setQuery('');
+                          setPage('profiles');
+                        }}
+                        right={(props) => <List.Icon {...props} icon="chevron-right" />}
+                        style={styles.summaryRow}
+                        testID="session-profile-row"
+                        title="Profile"
+                        titleNumberOfLines={1}
+                        titleStyle={styles.rowLabel}
+                      />
+                      <Divider />
+                      <List.Item
+                        accessibilityLabel={`Model, ${selectedModelLabel(availableModels, draft.modelId, draft.modelMode)}`}
+                        accessibilityRole="button"
+                        disabled={busy || modelGroups.length === 0}
+                        description={selectedModelLabel(availableModels, draft.modelId, draft.modelMode)}
+                        descriptionNumberOfLines={1}
+                        left={(props) => <List.Icon {...props} icon="cube-outline" />}
+                        onPress={() => {
+                          setQuery('');
+                          setPage('models');
+                        }}
+                        right={(props) => <List.Icon {...props} icon="chevron-right" />}
+                        style={styles.summaryRow}
+                        testID="session-model-row"
+                        title="Model"
+                        titleNumberOfLines={1}
+                        titleStyle={styles.rowLabel}
+                      />
+                      {mode === 'create' && availableProjects.length > 0 ? (
+                        <>
+                          <Divider />
+                          <List.Item
+                            accessibilityLabel={`Project, ${selectedProject?.label ?? 'Choose project'}`}
+                            accessibilityRole="button"
+                            description={selectedProject?.label ?? 'Choose project'}
+                            descriptionNumberOfLines={1}
+                            disabled={busy}
+                            left={(props) => <List.Icon {...props} icon="folder-outline" />}
+                            onPress={() => {
+                              setQuery('');
+                              setPage('projects');
+                            }}
+                            right={(props) => <List.Icon {...props} icon="chevron-right" />}
+                            style={styles.summaryRow}
+                            testID="session-project-row"
+                            title="Project"
+                            titleNumberOfLines={1}
+                            titleStyle={styles.rowLabel}
+                          />
+                        </>
+                      ) : null}
+                      <Divider />
+                      <List.Item
+                        accessibilityLabel={`Approval Policy, ${selectedApproval?.label ?? 'Choose policy'}`}
+                        accessibilityRole="button"
+                        description={selectedApproval?.label ?? 'Choose policy'}
+                        descriptionNumberOfLines={1}
+                        disabled={busy}
+                        left={(props) => <List.Icon {...props} icon="shield-check-outline" />}
+                        onPress={() => {
+                          setQuery('');
+                          setPage('approvals');
+                        }}
+                        right={(props) => <List.Icon {...props} icon="chevron-right" />}
+                        style={styles.summaryRow}
+                        testID="session-approval-row"
+                        title="Approval Policy"
+                        titleNumberOfLines={1}
+                        titleStyle={styles.rowLabel}
+                      />
+                    </View>
                     <View style={styles.field}>
                       <Text accessibilityLabel="Reasoning" style={styles.fieldLabel}>
                         Reasoning
@@ -452,41 +591,6 @@ export function SessionConfigurationSheet({
                         }}
                         value={draft.reasoning}
                       />
-                    </View>
-                    <Divider />
-                    <View style={styles.field}>
-                      <Text
-                        accessibilityLabel="Approval Policy"
-                        style={styles.fieldLabel}>
-                        Approval Policy
-                      </Text>
-                      <Text variant="bodySmall" style={{ color: palette.muted }}>
-                        Applies only to this chat. It does not change the global
-                        OpenCode auto-approval setting.
-                      </Text>
-                      <RadioButton.Group
-                        onValueChange={(value) => {
-                          void commit({
-                            ...draft,
-                            permissionMode: value as PermissionMode,
-                            autoApprove: value === 'bypassPermissions',
-                          });
-                        }}
-                        value={draft.permissionMode}>
-                        {APPROVAL_OPTIONS.map((option) => (
-                          <RadioButton.Item
-                            key={option.value}
-                            disabled={busy}
-                            label={option.label}
-                            labelStyle={styles.radioLabel}
-                            style={styles.radioItem}
-                            value={option.value}
-                          />
-                        ))}
-                      </RadioButton.Group>
-                      <Text variant="bodySmall" style={{ color: palette.muted }}>
-                        {selectedApproval?.description}
-                      </Text>
                     </View>
                     {children ? (
                       <>
@@ -506,7 +610,7 @@ export function SessionConfigurationSheet({
             </View>
           </ScrollView>
         </Dialog.ScrollArea>
-        <Dialog.Actions>
+        <Dialog.Actions style={[styles.dialogActions, { borderTopColor: palette.border }]}>
           {page !== 'summary' ? (
             <Button
               onPress={() => {
@@ -521,7 +625,7 @@ export function SessionConfigurationSheet({
           ) : null}
           {page === 'summary' && mode === 'create' ? (
             <Button
-              disabled={busy || !draft}
+              disabled={busy || !draft || (mode === 'create' && (!selectedProfile || (availableProjects.length > 0 && !selectedProject)))}
               loading={busy}
               mode="contained"
               onPress={() => void create()}>
@@ -536,14 +640,14 @@ export function SessionConfigurationSheet({
 
 const styles = StyleSheet.create({
   actions: { gap: 6 },
-  content: { gap: Spacing.x2, paddingHorizontal: Spacing.x4, paddingVertical: Spacing.x2 },
-  dialog: { borderRadius: Radii.sheet, maxHeight: '90%' },
-  dialogTitle: { fontSize: TypeScale.title3, lineHeight: TypeScale.title2 },
+  content: { gap: Spacing.x2, paddingHorizontal: Spacing.x4, paddingBottom: Spacing.x2, paddingTop: 0 },
+  dialog: { borderRadius: Radii.sheet, marginHorizontal: Spacing.x4, maxHeight: '86%' },
+  dialogActions: { borderTopWidth: StyleSheet.hairlineWidth, minHeight: 52, paddingHorizontal: Spacing.x4, paddingVertical: Spacing.x1 },
+  dialogTitle: { fontSize: TypeScale.title2, fontWeight: '700', lineHeight: 28, marginBottom: Spacing.x1 },
   field: { gap: Spacing.x1 },
-  fieldLabel: { fontSize: TypeScale.footnote, fontWeight: '600' },
-  radioItem: { minHeight: 44, paddingHorizontal: 0, paddingVertical: 0 },
-  radioLabel: { fontSize: TypeScale.footnote },
+  fieldLabel: { fontSize: TypeScale.footnote, fontWeight: '700' },
   rowLabel: { fontSize: TypeScale.footnote, fontWeight: '600' },
   scrollArea: { paddingHorizontal: 0 },
-  summaryRow: { minHeight: 52, paddingHorizontal: 0, paddingVertical: 0 },
+  summaryGroup: { borderRadius: Radii.grouped, overflow: 'hidden' },
+  summaryRow: { minHeight: 56, paddingHorizontal: Spacing.x2, paddingVertical: 0 },
 });

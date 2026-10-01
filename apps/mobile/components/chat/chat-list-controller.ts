@@ -103,6 +103,7 @@ export function useChatListController() {
     },
     createChat,
     creationProfiles,
+    creationTargetProject,
     createSheetVisible,
     feedback,
     isCreating,

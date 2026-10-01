@@ -229,8 +229,59 @@ describe('SessionConfigurationSheet', () => {
     expect(StyleSheet.flatten(screen.getByLabelText('Reasoning').props.style)).toEqual(
       expect.objectContaining({ fontSize: TypeScale.footnote }),
     );
-    expect(StyleSheet.flatten(screen.getByLabelText('Approval Policy').props.style)).toEqual(
-      expect.objectContaining({ fontSize: TypeScale.footnote }),
+    expect(screen.getByLabelText('Approval Policy, Ask as needed')).toBeTruthy();
+  });
+
+  test('approval policy uses the same drill-in picker pattern and submits its permission values', async () => {
+    const onCreate = jest.fn().mockResolvedValue(undefined);
+    const screen = render(
+      sheet([secretary], defaultChatPreferences, onCreate),
     );
+
+    fireEvent.press(screen.getByLabelText('Approval Policy, Ask as needed'));
+    expect(screen.getByLabelText('Choose Approval Policy')).toBeTruthy();
+    expect(screen.getByLabelText('Accept edits')).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('Accept edits'));
+    expect(screen.getByLabelText('Approval Policy, Accept edits')).toBeTruthy();
+    fireEvent.press(screen.getByRole('button', { name: 'Create' }));
+    await waitFor(() => {
+      expect(onCreate).toHaveBeenCalledWith(
+        undefined,
+        expect.objectContaining({
+          autoApprove: false,
+          permissionMode: 'acceptEdits',
+        }),
+      );
+    });
+  });
+
+  test('new chat can switch its target project from the summary', () => {
+    const onProjectChange = jest.fn();
+    const screen = render(
+      <PaperProvider>
+        <SessionConfigurationSheet
+          availableModels={[]}
+          availableProfiles={[secretary]}
+          availableProjects={[
+            { label: 'Alpha', path: '/projects/alpha', source: 'server' },
+            { label: 'Beta', path: '/projects/beta', source: 'server' },
+          ]}
+          availableProviders={[]}
+          mode="create"
+          onCreate={jest.fn()}
+          onDismiss={jest.fn()}
+          onProjectChange={onProjectChange}
+          palette={Colors.light}
+          preferences={defaultChatPreferences}
+          selectedProjectPath="/projects/alpha"
+          visible
+        />
+      </PaperProvider>,
+    );
+
+    expect(screen.getByLabelText('Project, Alpha')).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('Project, Alpha'));
+    fireEvent.press(screen.getByLabelText('Beta'));
+    expect(onProjectChange).toHaveBeenCalledWith('/projects/beta');
   });
 });
