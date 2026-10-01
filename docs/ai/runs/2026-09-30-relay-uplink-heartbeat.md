@@ -2,7 +2,7 @@
 date: 2026-09-30
 repo: Rhythm
 branch: fix/relay-uplink-heartbeat
-pr: TBD
+pr: https://github.com/ajhochy/Rhythm/pull/1601
 issues: []
 status: awaiting-manual-smoke
 tags: [run, rhythm, relay]
