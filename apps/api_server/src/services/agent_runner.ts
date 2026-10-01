@@ -926,9 +926,11 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   const permissionMode: PermissionMode = isOrgReviewer || opts.bridgeOrigin
     ? 'default'
     : 'bypassPermissions';
+  let authoritativeProfileId: string | null = null;
   if (effectiveConfigId) {
     const config = new AgentConfigsRepository().getById(effectiveConfigId);
     if (config) {
+      authoritativeProfileId = config.id;
       const blockReason = agentConfigExecutionBlockReason(config);
       if (blockReason) {
         logger.warn(`[AgentRunner] ${blockReason}`);
@@ -1202,8 +1204,8 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   rhythmSessionId = _recordSession({
     name: effectiveName,
     agentKind: effectiveAgentKind,
-    profileId: isOrgReviewer ? ORG_REVIEWER_PROFILE_ID : null,
-    opencodeAgentId: isOrgReviewer ? ORG_REVIEWER_PROFILE_ID : null,
+    profileId: isOrgReviewer ? ORG_REVIEWER_PROFILE_ID : authoritativeProfileId,
+    opencodeAgentId: effectiveOcAgent,
     cwd: effectiveCwd,
     projectId,
     taskTitle: taskTitle ?? null,
