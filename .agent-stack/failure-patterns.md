@@ -738,3 +738,11 @@
 - Criteria checked manually: c1, c2, c3, c6.
 - Process: wrong initial E16/E20 config corrected; dedicated suites pass.
 - Follow-up: preserve runtime qualification boundaries.
+
+## 2026-10-01 — PR 1598 — Installed manual profile input checked disabled engine alias
+
+- **Result**: installed manual WebSocket smoke FAIL; native continuation had been explicitly UNVERIFIED, so no prior native PASS was contradicted.
+- **Category**: C1 missing manual-entry-path contract; tool-capability note records unavailable TodoWrite with private checklist substitute.
+- **Criteria affected**: C2-c6 (default manual `session.input`); C2-c7/C2-c8 added pending for explicit selection and disabled-profile rejection.
+- **Root cause**: the WebSocket guard selected the session's engine agent `build` instead of its enabled canonical stored profile and rejected the frame because the separate `build` profile is disabled.
+- **Suggested fix**: test canonical profile resolution for default and explicit manual WebSocket turns, preserve disabled/locked rejection, then repeat the exact installed native input smoke.

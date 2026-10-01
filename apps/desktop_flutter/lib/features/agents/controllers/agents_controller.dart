@@ -341,6 +341,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // Currently selected agent name per session. Null = SDK default (build).
   // Persists for the app run (not persisted to the DB — see spec).
   final Map<String, String?> _selectedAgentBySession = {};
+  // Keep the selected Rhythm profile identity alongside its OpenCode agent
+  // name so a turn cannot race the asynchronous session PATCH.
+  final Map<String, String> _selectedProfileIdBySession = {};
 
   // OPC-M3-6 / #861: Child-session navigation state.
   // A STACK of navigation frames, one per hop of nested delegation (parent →
@@ -1553,8 +1556,14 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   }) {
     if (agentName == null) {
       _selectedAgentBySession.remove(sessionId);
+      _selectedProfileIdBySession.remove(sessionId);
     } else {
       _selectedAgentBySession[sessionId] = agentName;
+      if (profileId != null && profileId.trim().isNotEmpty) {
+        _selectedProfileIdBySession[sessionId] = profileId;
+      } else {
+        _selectedProfileIdBySession.remove(sessionId);
+      }
       // #1119 — an explicit profile pick must survive an app restart. Prior
       // to this fix, `agentName` only ever went out per-turn on the WS
       // `session.input` frame (sendInput, "never persisted" by OPC-M4-4
@@ -2660,6 +2669,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     // OPC-M4-4 / #745: include the per-session selected agent.
     // selectedAgentFor resolves: explicit selection → manager default → null.
     final selectedAgent = selectedAgentFor(sessionId);
+    final selectedProfileId = _selectedProfileIdBySession[sessionId];
     final sessionModelMode =
         _sessions.firstWhereOrNull((s) => s.id == sessionId)?.modelMode;
     _repository.send({
@@ -2685,6 +2695,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         },
       // OPC-M4-4: forward agent name when set; absent → SDK default (build).
       if (selectedAgent != null) 'agent': selectedAgent,
+      if (selectedProfileId != null) 'profileId': selectedProfileId,
       if (sessionModelMode != null) 'modelMode': sessionModelMode,
     });
     if (override != null) _pendingTurnOverride = null;

@@ -93,6 +93,7 @@ class _StubAgentsRepository implements AgentsRepository {
 
   final List<Map<String, dynamic>> sentFrames = [];
   String? persistedProfileId;
+  Completer<void>? persistGate;
 
   @override
   Stream<AgentWsMessage> get messages => _msgController.stream;
@@ -150,6 +151,7 @@ class _StubAgentsRepository implements AgentsRepository {
     String? agentId,
     String? modelMode,
   }) async {
+    if (persistGate != null) await persistGate!.future;
     persistedProfileId = profileId;
     return _makeSession(id);
   }
@@ -253,6 +255,35 @@ Widget _withProviders({
 // ---------------------------------------------------------------------------
 
 void main() {
+  test(
+    'selected profile identity reaches the input frame before its PATCH settles',
+    () async {
+      final repo = _StubAgentsRepository()
+        ..persistedProfileId = 'profile-a'
+        ..persistGate = Completer<void>();
+      final ctrl = _buildController(repo);
+      const sessionId = 'same-engine-agent-session';
+      ctrl.setActiveSessionForTest(sessionId, _makeSession(sessionId));
+
+      // Both profiles execute through `build`. Delaying the PATCH reproduces
+      // the real click-then-send race against the server's stored profile A.
+      ctrl.setSelectedAgent(sessionId, 'build', profileId: 'profile-b');
+      ctrl.sendInput(sessionId, 'Use profile B');
+
+      expect(repo.persistedProfileId, 'profile-a');
+      expect(repo.sentFrames.single, containsPair('agent', 'build'));
+      expect(repo.sentFrames.single, containsPair('profileId', 'profile-b'));
+
+      repo.persistGate!.complete();
+      await Future<void>.delayed(Duration.zero);
+
+      ctrl.setSelectedAgent(sessionId, null);
+      ctrl.sendInput(sessionId, 'Use the session default');
+      expect(repo.sentFrames.last.containsKey('profileId'), isFalse);
+      ctrl.dispose();
+    },
+  );
+
   // ── c3: agent selector populates and persists per session ──────────────────
 
   test(

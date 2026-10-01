@@ -8,13 +8,16 @@
     {"criterion_id":"C2-c2","text":"Preserve configured default engine behavior without guessing engine IDs.","mode":"integration","test":"apps/api_server/src/__tests__/c2_runner_profile_identity.test.ts","status":"pass"},
     {"criterion_id":"C2-c3","text":"Preserve unconfigured legacy behavior.","mode":"integration","test":"apps/api_server/src/__tests__/c2_runner_profile_identity.test.ts","status":"pass"},
     {"criterion_id":"C2-c4","text":"Preserve OrgReviewer special case.","mode":"integration","test":"apps/api_server/src/__tests__/c2_runner_profile_identity.test.ts","status":"pass"},
-    {"criterion_id":"C2-c5","text":"Scheduled manual and ordinary execution root identity on authoritative GET against real API and engine.","mode":"live","test":"apps/api_server/src/__tests__/c2_runner_profile_identity_live.test.ts","status":"pass"}
+    {"criterion_id":"C2-c5","text":"Scheduled manual and ordinary execution root identity on authoritative GET against real API and engine.","mode":"live","test":"apps/api_server/src/__tests__/c2_runner_profile_identity_live.test.ts","status":"pass"},
+    {"criterion_id":"C2-c6","text":"Manual WebSocket session.input without a per-turn agent uses the stored canonical profile identity for eligibility and scope when the session's engine agent id is a built-in such as build.","mode":"integration","test":"apps/api_server/src/__tests__/installed_ws_profile_identity.test.ts","status":"pass","reason":"Focused unit and isolated real API/engine continuation passed; rebuilt signed installed native retest remains unverified."},
+    {"criterion_id":"C2-c7","text":"Manual WebSocket session.input with an explicit per-turn agent resolves the selected canonical profile and its scope without treating an engine agent id as a different disabled profile.","mode":"integration","test":"apps/api_server/src/__tests__/installed_ws_profile_identity.test.ts","producer_test":"apps/desktop_flutter/test/features/agents/opc_m4_4_agent_selection_test.dart","status":"pass","reason":"Focused API selected-profile cases, rendered sender case, and full Flutter suite passed; rebuilt signed installed native retest remains unverified."},
+    {"criterion_id":"C2-c8","text":"Manual WebSocket session.input rejects a disabled or security-locked canonical profile before model dispatch while preserving the enabled custom-profile path.","mode":"integration","test":"apps/api_server/src/__tests__/installed_ws_profile_identity.test.ts","status":"pass","reason":"Focused disabled/locked/unknown/mismatch denial cases passed before prompt dispatch; rebuilt signed installed native retest remains unverified."}
   ],
-  "not_tested": [],
+  "not_tested": ["rebuilt signed installed native manual WebSocket continuation"],
   "independent_verification": {
     "date": "2026-10-01",
     "status": "PASS",
-    "source_criteria": "all five independently executed with binding assertions",
+    "source_criteria": "original five criteria independently executed with binding assertions; later manual WebSocket entry-path extension pending",
     "sqlite_tests_passed": 8,
     "actual_live_tests_passed": 2,
     "actual_live_tests_skipped": 0,
@@ -27,6 +30,19 @@
     "graph_evidence": "docs/ai/runs/2026-10-01-c2-manager-gitnexus-reconciliation.md",
     "reconciliation_mode": "evidence-only; unchanged source/test SHA256 and baseline HEAD; no runtime rerun",
     "graph_scope": "C2 upstream and candidate LOW; inherited Mega compare-main CRITICAL remains an integrated review gate",
-    "overall_native_and_integrated_qualification": "pending, outside C2 acceptance"
+    "overall_native_and_integrated_qualification": "pending; C2-c6 through C2-c8 have scoped source and isolated runtime proof, but rebuilt signed installed native manual continuation remains unverified"
+  },
+  "manual_ws_extension": {
+    "scope": "canonical Rhythm profile identity for manual WebSocket input, distinct from OpenCode engine agent identity",
+    "status": "PASS_SCOPED_NATIVE_PENDING",
+    "unit_command": "cd apps/api_server && npm exec vitest run src/__tests__/installed_ws_profile_identity.test.ts src/__tests__/p2_systemprompt_ocagent.test.ts",
+    "unit_result": "19/19 pass",
+    "live_command": "cd apps/api_server && RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-ws-profile-identity-20261001 DB_CLIENT=sqlite DB_PATH=/private/tmp/rhythm-ws-profile-identity-20261001/rhythm.db npm exec vitest run src/__tests__/installed_ws_profile_identity_live.test.ts",
+    "live_result": "1/1 pass in 14.85s against isolated real API and engine with controlled synthetic provider",
+    "browser_command": "cd apps/web && RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-ws-profile-identity-20261001 DB_CLIENT=sqlite DB_PATH=/private/tmp/rhythm-ws-profile-identity-20261001/rhythm.db ./node_modules/.bin/playwright test --config tests/installed-ws-profile-identity-playwright.config.ts",
+    "browser_result": "1/1 pass in 11.0s; rendered sender frame includes canonical profileId",
+    "flutter_result": "full flutter test 1356 pass; focused producer regression in apps/desktop_flutter/test/features/agents/opc_m4_4_agent_selection_test.dart",
+    "source_paths": ["apps/api_server/src/services/ws_gateway.ts", "apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart"],
+    "native_installed_status": "UNVERIFIED after repair; prior signed-installed failure is captured in .agent-stack/postmortems/2026-10-01-pr-1598-installed-manual-profile-ws.json"
   }
 }

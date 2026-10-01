@@ -2,24 +2,24 @@
 
 ## Current focus
 
-Recover the OpenCode memory incident (#1603) and the interrupted Rhythm delivery workflows on one reviewed candidate while keeping installed, device, human approval, and real-provider proof separate from synthetic checks. See the [combined recovery receipt](runs/2026-10-01-memory-recovery-integration.md) and [current plan](current-plan.md).
+Finish the installed manual WebSocket profile-identity repair and same-source delivery checks for the OpenCode memory recovery and interrupted workflows. The [combined recovery receipt](runs/2026-10-01-memory-recovery-integration.md) records earlier slices; the [installed WS repair receipt](runs/2026-10-01-installed-ws-profile-identity.md) records the new native gap and scoped fix.
 
 ## Active branch / PR
 
-`codex/opencode-memory-recovery` is the active isolated integration worktree, based on draft Mega PR [#1598](https://github.com/ajhochy/Rhythm/pull/1598). Source is still being integrated and reviewed; no final frozen release SHA, merge, deploy, signed replacement app, or new TestFlight build has been established. The unrelated main checkout is outside this work.
+`codex/opencode-memory-recovery` is the isolated integration branch for draft [PR #1598](https://github.com/ajhochy/Rhythm/pull/1598). The last pushed candidate was 22df3b3a; the manual-input repair is under final checks before a new commit, push, CI, and replacement signed builds. No merge or production deployment has occurred.
 
 ## In progress
 
-A1 attachment bytes/XLSX/ownership, C1/C3 manual trigger/provider error, E1 approval queue read, W6 selected-base isolated Start, M1 mobile continuation, and #1603 memory bounds are integrated or under final combined review. M1 is repairing a selected-older removal/draft-target issue found during independent review. The original approval decisions remain human-only. Final affected compatibility, draft-PR CI, installed source attribution, distribution, mobile device checks, and model-only operational validation remain.
+The WebSocket input guard now uses canonical Rhythm profile identity separately from its OpenCode engine agent. Web and Flutter producers send the selected profile ID explicitly; focused source, isolated API/engine, rendered browser, Flutter, and final API build checks passed. The final serial API suite, exact-head CI, signed Electron 0.18.69, and iOS build 17 qualification remain. Original approval decisions remain human-only; model-only profile reassignment has not occurred.
 
 ## Risks / known issues
 
-Full web compatibility is not green: an earlier broad slice sweep found failures in legacy fixture expectations/startup requests; targeted real E1 and C1 browser gates passed separately. Broad API had one contract fingerprint failure; focused synchronization passed 12/12, with full rerun pending. A1 synthetic provider byte transport does not establish real account vision entitlement. E1 native signed decisions and original-row readback, literal installed Org Optimize/Run Now and W6 Start journeys, and physical-device/TestFlight behavior are unverified. Retain the earlier historical red receipts and exact remaining criteria in the contracts.
+Installed 0.18.68 still has the old native `agent disabled: 'build'` manual-input failure and cannot qualify the repair. A pre-final full API run mixed source states and was invalidated after one agent-less failure. Sol 6.1 text serving and a separate Sonnet image/workbook API preflight do not establish native picker behavior or Sol vision entitlement. Installed C1 Run Now, E1 read-only approval visibility, and W6 selected-base checks are scoped to their old-source receipts; native approval signing, physical iPhone/TestFlight behavior, and final-source installed continuation remain unverified.
 
 ## Test status
 
-Scoped real sandbox: memory #1603 1/1 with 434,896 KiB combined peak RSS; A1 10/10 real API/engine plus isolated Postgres owner 1/1; C1 core/auth 10/10, controlled provider 401 1/1, live Chromium reconnect/reload 1/1; E1 real API/browser queue-read 1/1 and rendered 17/17; W6 real dirty-Git API/engine Start 1/1 in a combined four-test run. Final web build/dist smoke, Flutter 1,355, Electron 451 passed/4 skipped, MCP 193 passed/2 skipped, and mobile Jest 318 passed. Broad API 7,104 passed/313 skipped/1 fingerprint failure; focused repair 12/12 passed, full rerun pending. These are not full web, native, release, or account-provider passes.
+New repair: API focused 19/19, isolated real API/engine 1/1, rendered browser 1/1, Flutter full 1,356 pass, final API build pass, web build/typecheck pass, Flutter format/analyze pass, and diff check pass. The final serial full API suite was still running at this snapshot; the earlier interrupted run is not a pass. The prior 22df3b3a candidate had exact-head CI and canonical PR checks pass, but those do not transfer to the changed source. Earlier A1/C1/C3/E1/W6/M1/#1603 results remain in their scoped contracts and receipts.
 
 ## Next step
 
-Review the combined diff and affected compatibility, freeze a single source SHA, then run same-SHA CI and installed Electron/iOS qualification. Capture exact installed component/request/origin/build before claiming the literal user journeys, and keep approval signing for a legitimate human gesture.
+Finish the serial API gate, review the final diff, commit and push one new source SHA to draft PR #1598, and await exact-head CI. Rebuild and install Electron 0.18.69 from that SHA, repeat the manual WebSocket input and affected native journeys, then qualify the same-source iOS build 17 and existing internal TestFlight group. Keep release, approval, and model-entitlement claims tied to their actual observed surfaces.

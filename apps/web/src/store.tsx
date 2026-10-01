@@ -1040,6 +1040,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     setOverrideVersion(v => v + 1);
     const turnProfile = profiles.find(profile => profile.id === override.profileId && profile.enabled && profile.selectable);
     const agent = turnProfile ? turnProfile.ocAgent || turnProfile.id : undefined;
+    const profileId = turnProfile?.id;
     // Auto (router) sessions never echo the stored model back as an override — that would
     // pin the turn; only an explicitly staged turn-only model is sent.
     const modelOverride = override.modelOverride ?? (selected.modelMode !== 'auto' && selected.providerId && selected.modelId
@@ -1058,8 +1059,8 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     // canonical `data` (not `parts`) — the same wire alternative the API already accepts.
     // Only route through `parts` when there is a real attachment to carry.
     sessionSocketRef.current?.send(attachments.length > 0
-      ? { v: 1, type: 'session.input', id: selected.id, parts, ...(agent ? { agent } : {}), ...(modelOverride ? { modelOverride } : {}) }
-      : { v: 1, type: 'session.input', id: selected.id, data: trimmed, ...(agent ? { agent } : {}), ...(modelOverride ? { modelOverride } : {}) });
+      ? { v: 1, type: 'session.input', id: selected.id, parts, ...(profileId ? { profileId } : {}), ...(agent ? { agent } : {}), ...(modelOverride ? { modelOverride } : {}) }
+      : { v: 1, type: 'session.input', id: selected.id, data: trimmed, ...(profileId ? { profileId } : {}), ...(agent ? { agent } : {}), ...(modelOverride ? { modelOverride } : {}) });
     setRunMessage('Message delivered · agent is working');
     notify('Message sent');
   };
