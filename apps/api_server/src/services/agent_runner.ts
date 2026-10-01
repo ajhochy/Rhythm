@@ -1768,6 +1768,51 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       };
     }
 
+    // The SDK can return a completed assistant message whose info carries a
+    // turn error. Empty parts in that case are a failed turn, not a
+    // successful no-op. Keep provider response bodies/headers out of durable
+    // task and session errors.
+    if (response.info.role === 'assistant' && response.info.error) {
+      const providerError = response.info.error;
+      const data = 'data' in providerError ? providerError.data : null;
+      const statusCode =
+        data && typeof data === 'object' && 'statusCode' in data
+          ? data.statusCode
+          : null;
+      let reason: string;
+      switch (providerError.name) {
+        case 'MessageAbortedError':
+          reason = 'AgentRunner: run interrupted — engine session was aborted';
+          break;
+        case 'MessageOutputLengthError':
+          reason = 'AgentRunner: model output limit reached — shorten the request';
+          break;
+        case 'ProviderAuthError':
+          reason = 'AgentRunner: model provider authentication failed — check the account settings';
+          break;
+        case 'APIError':
+          reason =
+            statusCode === 401
+              ? 'AgentRunner: model provider authentication failed (HTTP 401) — check the account and model settings'
+              : statusCode === 403
+                ? 'AgentRunner: model provider denied the request (HTTP 403) — check the account and model permissions'
+                : 'AgentRunner: model provider failed the request — check the account and model settings';
+          break;
+        default:
+          reason = 'AgentRunner: engine turn failed — check the session and model settings';
+      }
+      logger.warn(
+        `[AgentRunner] assistant turn failed (${providerError.name}, status=${typeof statusCode === 'number' ? statusCode : 'unknown'})`,
+      );
+      _markSessionError(rhythmSessionId, reason, false, resolvedRunEpisodeId ?? undefined);
+      return {
+        sessionId: rhythmSessionId ?? sessionId,
+        result: '',
+        status: 'error',
+        error: reason,
+      };
+    }
+
     // Extract assistant text from the returned parts (module-level _extractText).
 
     let resultText = _extractText(response.parts);
