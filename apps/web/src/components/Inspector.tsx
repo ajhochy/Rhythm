@@ -625,8 +625,8 @@ function LiveChangesPanel() {
   const gateway = useGateway();
   const sessions = gateway.domains.sessions!;
   const [scope, setScope] = useState<'session' | 'git' | 'branch'>('session');
-  const [sessionEntries, setSessionEntries] = useState<{ path: string; additions: number; deletions: number; patch?: string; before?: string; after?: string }[]>([]);
-  const [vcsEntries, setVcsEntries] = useState<{ path: string; additions: number; deletions: number; patch?: string; before?: string; after?: string }[]>([]);
+  const [sessionEntries, setSessionEntries] = useState<{ path: string; additions: number; deletions: number; patch?: string; patchOmitted?: string; before?: string; after?: string }[]>([]);
+  const [vcsEntries, setVcsEntries] = useState<{ path: string; additions: number; deletions: number; patch?: string; patchOmitted?: string; before?: string; after?: string }[]>([]);
   const [error, setError] = useState('');
   const [confirm, setConfirm] = useState<'reset' | 'remove' | 'revert' | 'restore' | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -635,7 +635,7 @@ function LiveChangesPanel() {
   const loadSessionDiff = () => {
     setError('');
     sessions.sessionDiff(selected.id)
-      .then((rows) => setSessionEntries(rows.map((row) => ({ path: row.file, additions: row.additions, deletions: row.deletions, before: row.before, after: row.after }))))
+      .then((rows) => setSessionEntries(rows.map((row) => ({ path: row.file, additions: row.additions, deletions: row.deletions, patch: row.patch, patchOmitted: row.patchOmitted, before: row.before, after: row.after }))))
       .catch(() => setError('Diff could not be loaded'));
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -692,7 +692,7 @@ function LiveChangesPanel() {
         <button type="button" aria-expanded={Boolean(expanded[entry.path])} onClick={() => setExpanded((current) => ({ ...current, [entry.path]: !current[entry.path] }))} data-testid={`change-file-${slug(entry.path)}`}>
           <Icon name="chevronRight" size={13} /><code>{entry.path}</code><span>+{entry.additions} −{entry.deletions}</span>
         </button>
-        {expanded[entry.path] && (entry.patch !== undefined || entry.before !== undefined || entry.after !== undefined) && <pre className="diff-code">{entry.patch ?? `--- Before\n${entry.before ?? ''}\n+++ After\n${entry.after ?? ''}`}</pre>}
+        {expanded[entry.path] && (entry.patchOmitted ? <p className="file-guard" role="status">Patch preview omitted to keep this session responsive; change counts are available.</p> : entry.patch !== undefined || entry.before !== undefined || entry.after !== undefined ? <pre className="diff-code">{entry.patch ?? `--- Before\n${entry.before ?? ''}\n+++ After\n${entry.after ?? ''}`}</pre> : <p className="file-guard" role="status">Patch preview unavailable; change counts are available.</p>)}
       </article>)}
       {entries.length === 0 && <p className="rail-empty">No changes.</p>}
     </div>

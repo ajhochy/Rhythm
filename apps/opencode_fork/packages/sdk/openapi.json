@@ -19771,6 +19771,17 @@
           "patch": {
             "type": "string"
           },
+          "patchOmitted": {
+            "type": "string",
+            "enum": [
+              "file_too_large",
+              "patch_too_large",
+              "total_budget_exceeded",
+              "work_budget_exceeded",
+              "content_unavailable",
+              "diff_limit_exceeded"
+            ]
+          },
           "additions": {
             "type": "number"
           },

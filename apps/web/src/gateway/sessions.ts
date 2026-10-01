@@ -168,7 +168,7 @@ export interface SessionFileStatusEntry { path: string; status?: string }
 // component; never forward it to the renderer (post-m1-p6-c2b).
 export interface SessionFileContent { content?: string; type?: string; mimeType?: string; encoding?: string }
 // GET /:id/diff — exactly @opencode-ai/sdk's FileDiff shape (node_modules/@opencode-ai/sdk/gen/types.gen.d.ts:32-38).
-export interface SessionFileDiffEntry { file: string; before: string; after: string; additions: number; deletions: number }
+export interface SessionFileDiffEntry { file: string; before?: string; after?: string; patch?: string; patchOmitted?: string; additions: number; deletions: number }
 // GET /:id/vcs/diff?mode=git|branch — canonical {file,patch?,additions,deletions,status?} (post-m1-p6-c2d).
 export interface SessionVcsDiffEntry { file: string; patch?: string; additions: number; deletions: number; status?: string }
 // GET /projects/:id/branches — apps/api_server/src/controllers/projects_controller.ts:161-175.
@@ -815,7 +815,7 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
     },
     sessionDiff: async (localId) => {
       const data = await response<unknown>('Load session diff', request(`/agent-sessions/${encodeURIComponent(localId)}/diff`));
-      return Array.isArray(data) ? data.map((item) => record(item)).map((item) => ({ file: string(item.file), before: string(item.before), after: string(item.after), additions: Number(item.additions) || 0, deletions: Number(item.deletions) || 0 })) : [];
+      return Array.isArray(data) ? data.map((item) => record(item)).map((item) => ({ file: string(item.file), before: typeof item.before === 'string' ? item.before : undefined, after: typeof item.after === 'string' ? item.after : undefined, patch: typeof item.patch === 'string' ? item.patch : undefined, patchOmitted: typeof item.patchOmitted === 'string' ? item.patchOmitted : undefined, additions: Number(item.additions) || 0, deletions: Number(item.deletions) || 0 })) : [];
     },
     vcsDiff: async (localId, mode) => {
       const data = await response<unknown>('Load VCS diff', request(`/agent-sessions/${encodeURIComponent(localId)}/vcs/diff?mode=${mode}`));

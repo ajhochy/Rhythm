@@ -163,7 +163,7 @@ export function SessionDiffCard({ diff, expanded, onPress }: { diff: FileDiff; e
         <Divider style={styles.divider} />
         {expanded ? (
             <View style={styles.diffViewer}>
-              {diffBlocks.length === 0 ? <Text variant="bodySmall" style={{ color: palette.muted }}>No line changes available.</Text> : diffBlocks.map((block, blockIndex) => {
+              {diff.patchOmitted ? <Text variant="bodySmall" style={{ color: palette.muted }}>Patch preview omitted to keep this session responsive; change counts are available.</Text> : diffBlocks.length === 0 ? <Text variant="bodySmall" style={{ color: palette.muted }}>No line changes available.</Text> : diffBlocks.map((block, blockIndex) => {
                 if (block.type === 'collapsed') {
                   return (
                     <View key={`${diff.file}-collapsed-${blockIndex}`} style={[styles.diffCollapsedRow, { backgroundColor: palette.background, borderColor: palette.border }]}>

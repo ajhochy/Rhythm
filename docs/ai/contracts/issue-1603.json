@@ -1,0 +1,50 @@
+{
+  "issue": 1603,
+  "generated": "2026-10-01",
+  "criteria": [
+    {
+      "criterion_id": "issue-1603-c1",
+      "text": "Summary generation obtains snapshot/parent metadata without materializing historical message bodies, tool outputs, attachment bytes, or prior summary patches. Normal session and per-user summary counts remain correct.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/session/summary-memory.test.ts",
+      "test_id": "issue-1603-c1: summary counts and user diff persist without hydrating historical messages",
+      "status": "passed"
+    },
+    {
+      "criterion_id": "issue-1603-c2",
+      "text": "Repeated overlapping summary requests for a session coalesce into bounded work, retaining the final relevant update; failure/cancellation does not permanently block a later summary.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/session/summary-memory.test.ts",
+      "test_id": "issue-1603-c2: overlapping summary requests coalesce and a failed worker allows retry",
+      "status": "passed"
+    },
+    {
+      "criterion_id": "issue-1603-c3",
+      "text": "Snapshot diff construction checks object sizes before reading content, bounds per-file and aggregate patch construction, preserves normal small-file patches and correct file counts/status for omitted oversized patches, and exposes omission honestly rather than silently claiming complete patch text.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/snapshot/snapshot-memory.test.ts",
+      "test_id": "issue-1603-c3: diffFull preserves small exact patches and counts while explicitly omitting oversized content",
+      "status": "passed"
+    },
+    {
+      "criterion_id": "issue-1603-c4",
+      "text": "A deterministic regression reproduces the pre-fix amplification at a safe scale and passes with the repair; existing affected summary/snapshot/session tests and typechecking pass.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/snapshot/snapshot-memory.test.ts",
+      "test_id": "issue-1603-c4: safe scale multi-file diff remains within the aggregate patch budget",
+      "status": "passed"
+    },
+    {
+      "criterion_id": "issue-1603-c5",
+      "text": "An env-gated live behavioral test runs against the real API and fork inside tools/dev/sandbox.sh with synthetic data, proving summaries remain bounded and health remains responsive. Record peak process memory, exact commands and teardown.",
+      "mode": "live",
+      "status": "passed",
+      "test_file": "apps/api_server/src/__tests__/issue_1603_summary_memory_live.test.ts",
+      "test_id": "issue-1603-c5: real turn retains bounded diffs, correct counts, and responsive health"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [],
+  "evidence": "docs/ai/runs/2026-10-01-memory-live-recovery.md",
+  "scope_note": "Focused candidate verification; final integrated CI and installed delivery remain separate."
+}

@@ -1,10 +1,18 @@
-import { Effect, Layer, Context, Schema } from "effect"
+import { Effect, Layer, Context, Schema, Semaphore, Scope } from "effect"
 import { Bus } from "@/bus"
 import { Snapshot } from "@/snapshot"
 import { Storage } from "@/storage/storage"
 import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
 import { SessionID, MessageID } from "./schema"
+import { InstanceState } from "@/effect/instance-state"
+import { summarySnapshotRange, summaryTargetMessage } from "./summary-metadata"
+
+type SummaryInput = { sessionID: SessionID; messageID: MessageID }
+// Prompt and processor can resolve separate service layers for the same directory.
+// Share scheduling so both entry points coalesce instead of retaining one job per step.
+const activeSummaries = new Map<string, { pending: SummaryInput | undefined; newest: SummaryInput }>()
+const summarySlots = Semaphore.makeUnsafe(2)
 
 function unquoteGitPath(input: string) {
   if (!input.startsWith('"')) return input
@@ -77,6 +85,7 @@ export const layer = Layer.effect(
     const snapshot = yield* Snapshot.Service
     const storage = yield* Storage.Service
     const bus = yield* Bus.Service
+    const scope = yield* Scope.Scope
 
     const computeDiff = Effect.fn("SessionSummary.computeDiff")(function* (input: { messages: MessageV2.WithParts[] }) {
       let from: string | undefined
@@ -98,14 +107,10 @@ export const layer = Layer.effect(
       return []
     })
 
-    const summarize = Effect.fn("SessionSummary.summarize")(function* (input: {
-      sessionID: SessionID
-      messageID: MessageID
-    }) {
-      const all = yield* sessions.messages({ sessionID: input.sessionID }).pipe(Effect.orDie)
-      if (!all.length) return
-
-      const diffs = yield* computeDiff({ messages: all })
+    const summarizeOnce = Effect.fn("SessionSummary.summarizeOnce")(function* (input: SummaryInput) {
+      const range = summarySnapshotRange(input.sessionID)
+      const turn = summarySnapshotRange(input.sessionID, input.messageID)
+      const diffs = range.from && range.to ? yield* snapshot.diffFull(range.from, range.to) : []
       yield* sessions.setSummary({
         sessionID: input.sessionID,
         summary: {
@@ -117,14 +122,47 @@ export const layer = Layer.effect(
       yield* storage.write(["session_diff", input.sessionID], diffs).pipe(Effect.ignore)
       yield* bus.publish(Session.Event.Diff, { sessionID: input.sessionID, diff: diffs })
 
-      const messages = all.filter(
-        (m) => m.info.id === input.messageID || (m.info.role === "assistant" && m.info.parentID === input.messageID),
-      )
-      const target = messages.find((m) => m.info.id === input.messageID)
-      if (!target || target.info.role !== "user") return
-      const msgDiffs = yield* computeDiff({ messages })
-      target.info.summary = { ...target.info.summary, diffs: msgDiffs }
-      yield* sessions.updateMessage(target.info)
+      const msgDiffs = turn.from && turn.to
+        ? turn.from === range.from && turn.to === range.to
+          ? diffs
+          : yield* snapshot.diffFull(turn.from, turn.to)
+        : []
+      // Read after the slow diff work, preserving current user metadata and never
+      // parsing the previous full patch array back into the JS heap.
+      const target = summaryTargetMessage(input.sessionID, input.messageID)
+      if (!target) return
+      target.summary = { ...target.summary, diffs: msgDiffs }
+      yield* sessions.updateMessage(target)
+    })
+
+    const summarize: Interface["summarize"] = Effect.fn("SessionSummary.summarize")(function* (input: SummaryInput) {
+      const directory = yield* InstanceState.directory
+      const key = `${directory}\0${input.sessionID}`
+      yield* Effect.uninterruptibleMask((restore) => Effect.suspend(() => {
+        const existing = activeSummaries.get(key)
+        if (existing) {
+          // Message IDs are chronologically sortable. A late event for an older
+          // turn must not replace the newest user-summary request.
+          if (input.messageID >= existing.newest.messageID) existing.newest = input
+          existing.pending = existing.newest
+          return Effect.void
+        }
+        const worker = { pending: input as SummaryInput | undefined, newest: input }
+        activeSummaries.set(key, worker)
+        return restore(Effect.gen(function* () {
+          while (worker.pending) {
+            const next = worker.pending
+            worker.pending = undefined
+            yield* summarySlots.withPermits(1)(summarizeOnce(next))
+          }
+        })).pipe(Effect.ensuring(Effect.gen(function* () {
+          if (activeSummaries.get(key) === worker) activeSummaries.delete(key)
+          // A caller can be cancelled while a later caller has already handed
+          // off its request. Keep that single pending request in this service's
+          // lifetime, rather than losing it with the interrupted owner.
+          if (worker.pending) yield* summarize(worker.pending).pipe(Effect.forkIn(scope))
+        })))
+      }))
     })
 
     const diff = Effect.fn("SessionSummary.diff")(function* (input: { sessionID: SessionID; messageID?: MessageID }) {
