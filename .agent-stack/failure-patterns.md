@@ -746,3 +746,11 @@
 - **Criteria affected**: C2-c6 (default manual `session.input`); C2-c7/C2-c8 added pending for explicit selection and disabled-profile rejection.
 - **Root cause**: the WebSocket guard selected the session's engine agent `build` instead of its enabled canonical stored profile and rejected the frame because the separate `build` profile is disabled.
 - **Suggested fix**: test canonical profile resolution for default and explicit manual WebSocket turns, preserve disabled/locked rejection, then repeat the exact installed native input smoke.
+
+## 2026-10-01 — PR #1598 — Final 31ff installed smoke
+
+- **Result:** app smoke PASS; Sol spatial-answer quality probe failed while independent Sonnet recognized the same image. Verification had explicitly scoped synthetic transport evidence and did not claim Sol semantic accuracy, so there is no false-green app regression.
+- **Category:** none for Rhythm behavior. The external provider answer is recorded separately; do not force it into C1/C2 or file a transport bug.
+- **Criteria affected:** scoped installed PNG/workbook bytes and selected profile routing passed; one marked outer schedule Trigger now and read-only approval refresh passed. Full A1 replay/JPEG, operational Org Self-Optimizer execution, historical “Org Optimize” wording, and E1 creation/mount/reconnect/post-decision clauses remain unverified; read-only UI inspection mapped Org Self-Optimizer to the same outer control. Original approvals were not decided.
+- **Evidence:** signed installed 0.18.69 at source 31ff; two fresh real-provider sends with exact bytes; independent exact-ID cleanup; 61 RSS samples peaked at 950,848 KiB; healthy post-cleanup engine 608,528 KiB.
+- **Follow-up:** keep model assignments unchanged. EAS submission finished and Apple verified build 17 Validated and Testing in the existing internal group; physical-device smoke remains unrun because paired devices are unavailable. Let normal retention sweep remove the three unpinned metadata rows.
