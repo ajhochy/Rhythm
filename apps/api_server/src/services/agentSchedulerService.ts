@@ -723,7 +723,13 @@ export function notifyInfraFailureOnce(
   }
 }
 
+// ponytail: one local scheduler owner; serialize selection/dispatch, not async runs.
+// A multi-process scheduler would need a database claim instead.
+let schedulerChecking = false;
 async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
+  if (schedulerChecking) return;
+  schedulerChecking = true;
+  try {
   let dueTasks: Awaited<ReturnType<typeof repo.findDueAsync>>;
   try {
     dueTasks = await repo.findDueAsync();
@@ -783,7 +789,7 @@ async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
     // inside its own period. Skipping is expected behaviour, not a failure, so
     // it raises no notification -- but it must never be silent: it advances the
     // schedule, stamps `skipped_stale`, and writes a run-history row.
-    if (isMissedRunStale(task)) {
+    if (task.lastRunStatus !== 'queued' && isMissedRunStale(task)) {
       const skipNote =
         `Skipped: scheduled for ${task.nextRunAt} but the machine was asleep past ` +
         `the next occurrence of this schedule.`;
@@ -968,6 +974,9 @@ async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
       } catch { /* ignore secondary error */ }
       await recordRunHistory({ taskId: task.id, startedAt: runStart, status: 'error', error: errMsg });
     }
+  }
+  } finally {
+    schedulerChecking = false;
   }
 }
 

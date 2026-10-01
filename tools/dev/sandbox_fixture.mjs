@@ -14,7 +14,7 @@ if (!fixture.startsWith('/private/tmp/') || realpathSync(dirname(fixture)) !== d
 if (process.argv[3] !== '--seed') {
   mkdirSync(fixture, { mode: 0o700 }); // Refuse reuse, including symlinks.
   const require = createRequire(`${root}/apps/api_server/package.json`);
-  const child = spawnSync(process.execPath, ['--import', require.resolve('tsx'), file, fixture, '--seed'], {
+  const child = spawnSync(process.execPath, ['--import', require.resolve('tsx'), file, fixture, '--seed', ...process.argv.slice(3)], {
     cwd: fixture, stdio: 'inherit',
     env: { PATH: process.env.PATH, HOME: fixture, DB_CLIENT: 'sqlite', DB_PATH: `${fixture}/rhythm.db`,
       RHYTHM_OPTIMIZER_MODE: 'shadow', AUTO_PROMOTION_FEATURE_AVAILABLE: 'false' },
@@ -35,6 +35,10 @@ db.exec(`
   UPDATE agent_scheduled_tasks SET enabled=0;
   UPDATE automation_rules SET enabled=0;
 `);
+if (process.argv.includes('--c1')) {
+  const { seedC1Guards } = await import('./sandbox_fixture_c1.mjs');
+  seedC1Guards(db);
+}
 db.pragma('wal_checkpoint(TRUNCATE)');
 db.pragma('journal_mode = DELETE');
 db.close();
