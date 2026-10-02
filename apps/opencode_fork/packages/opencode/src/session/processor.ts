@@ -77,6 +77,14 @@ export type Event = LLM.Event
 
 export interface Handle {
   readonly message: MessageV2.Assistant
+  readonly toolCallIdentity: (toolCallID: string) => Effect.Effect<
+    | {
+        sessionID: MessageV2.ToolPart["sessionID"]
+        messageID: MessageV2.ToolPart["messageID"]
+        partID: MessageV2.ToolPart["id"]
+      }
+    | undefined
+  >
   readonly updateToolCall: (
     toolCallID: string,
     update: (part: MessageV2.ToolPart) => MessageV2.ToolPart,
@@ -221,6 +229,16 @@ export const layer: Layer.Layer<
           sessionID: part.sessionID,
         }
         return part
+      })
+
+      const toolCallIdentity = Effect.fn("SessionProcessor.toolCallIdentity")(function* (toolCallID: string) {
+        const match = yield* readToolCall(toolCallID)
+        if (!match || match.part.state.status !== "running") return
+        return {
+          sessionID: match.part.sessionID,
+          messageID: match.part.messageID,
+          partID: match.part.id,
+        }
       })
 
       const completeToolCall = Effect.fn("SessionProcessor.completeToolCall")(function* (
@@ -911,6 +929,7 @@ export const layer: Layer.Layer<
         get message() {
           return ctx.assistantMessage
         },
+        toolCallIdentity,
         updateToolCall,
         completeToolCall,
         process,

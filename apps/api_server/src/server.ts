@@ -198,6 +198,7 @@ async function main() {
   // shutdown handler can stop its managed child process. Nullable for the
   // 'cloud' role, where the agent runtime (and this manager) never starts.
   let engraphManagerRef: { shutdown: () => Promise<void> } | null = null;
+  let engraphRefreshBridge: { dispose: () => void } | null = null;
   // Issue #856: watches ~/.local/share/opencode/auth.json and bounces the
   // opencode engine on a genuine credential change (e.g. a Claude account
   // switch), so the engine re-reads fresh tokens instead of 401ing on stale
@@ -221,6 +222,19 @@ async function main() {
   let openaiAccountsServiceRef: { stopRefreshLoop: () => void } | null = null;
 
   if (env.agentExecutionEnabled) {
+    // Register admission before any startup rebuild/sync can observe canonical
+    // bytes. The bridge never starts the manager; it only retains intent until
+    // the existing owner accepts a refresh.
+    try {
+      const [{ engraphManager }, { EngraphMemoryRefreshBridge }] = await Promise.all([
+        import('./services/engraph_manager'),
+        import('./services/engraph_memory_refresh_bridge'),
+      ]);
+      engraphManagerRef = engraphManager;
+      engraphRefreshBridge = new EngraphMemoryRefreshBridge(engraphManager);
+    } catch (err) {
+      logger.warn(`[server] Engraph refresh bridge setup failed (non-fatal): ${String(err)}`);
+    }
     // Seed and project Researcher before any scheduler or page-launched run can
     // request the `research` engine agent.
     try {
@@ -536,7 +550,50 @@ async function main() {
   const mobileGatewayRouter = env.agentExecutionEnabled
     ? createMobileGatewayRouter()
     : undefined;
-  const app = createApp({ mobileGatewayRouter });
+  // This candidate never discovers a Dayflow state root.  The route exists
+  // only when the owner supplied a dedicated, explicit local state directory;
+  // it therefore cannot fall back to the user's vault, home, config, or auth.
+  let dayflowService: import('./integrations/dayflow/service').DayflowIntegrationService | undefined;
+  let dayflowManagementService: import('./integrations/dayflow/public_contract').DayflowManagementService | undefined;
+  const dayflowStateRoot = process.env.RHYTHM_DAYFLOW_STATE_ROOT;
+  if (env.agentExecutionEnabled && env.agentLocal && env.agentOriginGuardEnabled && dayflowStateRoot) {
+    const candidateVault = process.env.RHYTHM_DAYFLOW_CANDIDATE_VAULT;
+    const candidateDb = process.env.RHYTHM_DAYFLOW_CANDIDATE_DB;
+    const candidateApiBase = process.env.RHYTHM_DAYFLOW_CANDIDATE_API_BASE;
+    const resolvedStateRoot = path.resolve(dayflowStateRoot);
+    const localApiBase = `http://127.0.0.1:${port}`;
+    if (
+      !candidateVault || !candidateDb || candidateApiBase !== localApiBase ||
+      !path.isAbsolute(dayflowStateRoot) || !path.isAbsolute(candidateVault) || !path.isAbsolute(candidateDb) ||
+      resolvedStateRoot === path.parse(resolvedStateRoot).root ||
+      process.env.MEMORY_VAULT_PATH !== candidateVault || process.env.DB_PATH !== candidateDb
+    ) {
+      throw new Error('Dayflow requires explicit isolated state, vault, database, and local runtime paths.');
+    }
+    const [
+      { DayflowIntegrationService },
+      { createDayflowManagementAdapter },
+      { DayflowCliSource },
+      { DayflowConfigStore },
+      { MemoryLedger },
+      { LocalDayflowMemoryClient },
+    ] = await Promise.all([
+      import('./integrations/dayflow/service'),
+      import('./integrations/dayflow/management_adapter'),
+      import('./integrations/dayflow/cli_source'),
+      import('./integrations/dayflow/config_store'),
+      import('./integrations/dayflow/ledger'),
+      import('./integrations/dayflow/memory_client'),
+    ]);
+    dayflowService = new DayflowIntegrationService({
+      source: new DayflowCliSource(), // intentionally inert until separately qualified
+      memoryClient: new LocalDayflowMemoryClient(localApiBase),
+      configStore: new DayflowConfigStore(path.join(resolvedStateRoot, 'config.json')),
+      ledger: new MemoryLedger(path.join(resolvedStateRoot, 'ownership-ledger.json')),
+    });
+    dayflowManagementService = createDayflowManagementAdapter(dayflowService);
+  }
+  const app = createApp({ mobileGatewayRouter, dayflowService: dayflowManagementService });
 
   const httpServer = http.createServer(app);
   const relayUplink = env.isRelayRole
@@ -989,6 +1046,13 @@ async function main() {
     try { recurrenceJob?.stop(); } catch (_) { /* ignore */ }
     try { syncJob?.stop(); } catch (_) { /* ignore */ }
     try { memoryVaultSyncJob?.stop(); } catch (_) { /* ignore */ }
+    try { engraphRefreshBridge?.dispose(); } catch (_) { /* ignore */ }
+    // The present inert adapter disposes synchronously, but its owner may add
+    // a bounded quiescence promise for admitted synthetic work. Preserve that
+    // contract at the composition boundary without making shutdown disable
+    // preferences, start a source, or wait beyond the existing exit budget.
+    let dayflowCleanup: Promise<void> = Promise.resolve();
+    try { dayflowCleanup = Promise.resolve(dayflowService?.dispose()); } catch (_) { /* inactive service only clears transient previews */ }
     // #1096 WP1 — stop only the exact child process this manager spawned.
     let engraphCleanup: Promise<void> = Promise.resolve();
     try { engraphCleanup = engraphManagerRef?.shutdown() ?? engraphCleanup; } catch (_) { /* ignore */ }
@@ -1017,7 +1081,10 @@ async function main() {
       process.exit(0);
     }, 1500);
     const finish = async () => {
-      await Promise.race([engraphCleanup, new Promise<void>((resolve) => setTimeout(resolve, 1400))]);
+      await Promise.race([
+        Promise.all([engraphCleanup, dayflowCleanup]),
+        new Promise<void>((resolve) => setTimeout(resolve, 1400)),
+      ]);
       clearTimeout(forceExit);
       process.exit(0);
     };

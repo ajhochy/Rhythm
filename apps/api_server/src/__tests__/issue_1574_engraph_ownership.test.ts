@@ -161,6 +161,30 @@ it('issue-1574-c1: a different approved root cannot adopt the existing child', a
   expect((await first.checkHealthNow()).ok).toBe(true);
 });
 
+it('freshness refreshes only the approved root and fails semantic retrieval closed while queued', async () => {
+  dir = mkdtempSync(join(tmpdir(), 'issue-1574-refresh-'));
+  const vault = join(dir, 'vault');
+  const memoryDir = join(vault, 'AGENT-MEMORY');
+  process.env.MEMORY_VAULT_PATH = vault;
+  process.env.MEMORY_VAULT_SUBDIR = 'AGENT-MEMORY';
+  mkdirSync(memoryDir, { recursive: true });
+  const instance = manager(join(dir, 'home'));
+  expect(await instance.enable()).toEqual({ ok: true });
+
+  expect(instance.requestMemoryRefresh({ memoryDir, destructive: false })).toBe(true);
+  await expect(instance.getRetrievalClient().search('synthetic pending', 1)).resolves.toEqual([]);
+  await waitFor(
+    () => instance.getStatus().freshness,
+    (freshness) => freshness.appliedRevision === 1 && freshness.state === 'idle',
+  );
+  expect(instance.getStatus().backendOwnership).toBe('owned');
+
+  const other = join(dir, 'other-memory');
+  mkdirSync(other);
+  expect(instance.requestMemoryRefresh({ memoryDir: other, destructive: true })).toBe(false);
+  expect(instance.getStatus().freshness.errorCategory).toBe('root_mismatch');
+});
+
 it('issue-1574-c2: disable during indexing must cancel the late start and release its reservation', async () => {
   dir = mkdtempSync(join(tmpdir(), 'issue-1574-'));
   process.env.MEMORY_VAULT_PATH = join(dir, 'vault');

@@ -25,7 +25,8 @@ import {
   rememberToVault,
   verifyMemory,
   deprecateMemory,
-  forgetFromVault,
+  forgetCanonicalMemoryById,
+  forgetCanonicalMemoryAtPath,
   findMemoryRowByRememberId,
   updateMemoryInVault,
   readNoteFull,
@@ -42,6 +43,7 @@ import {
   MEMORY_CONSOLIDATION_PROMPT,
   MEMORY_CONSOLIDATION_SEED_NAME,
 } from './memory_consolidation_seed';
+import { searchMemoryReferences } from './memory_retrieval';
 
 const memRepo = new AgentMemoryRepository();
 const schedRepo = new AgentScheduledTasksRepository();
@@ -74,6 +76,13 @@ export const agentMemoryService = {
   /** Search memories by text query. */
   async search(query: string, ownerUserId?: number, limit = 20) {
     return memRepo.searchAsync(query, ownerUserId, limit);
+  },
+
+  /** Explicit native-ranked evidence; intentionally distinct from legacy row search. */
+  async searchReferences(query: string, ownerUserId?: number, limit?: number) {
+    const result = await searchMemoryReferences(query, ownerUserId ?? null, { limit });
+    if (limit !== 0) return result;
+    return { ...result, references: [], returned: 0, truncated: result.hitCount > 0 };
   },
 
   /** List memories, optionally filtered by kind. */
@@ -123,12 +132,16 @@ export const agentMemoryService = {
     if (!row) {
       row = await findMemoryRowByRememberId(id, memRepo, options);
     }
-    if (!row) return false;
+    if (!row) {
+      // The canonical vault is authoritative. A missing disposable index row
+      // must not turn a real frontmatter-id deletion into a false 404.
+      return forgetCanonicalMemoryById(id, options);
+    }
     // Vault-sourced rows carry source='obsidian-memory' and source_id=<vault
     // path>. Delete the note file first (confined to the memory dir), then the
     // derived row. Legacy rows from other sources (no vault file) just drop.
     if (row.source === 'obsidian-memory' && row.sourceId) {
-      await forgetFromVault(row.sourceId, options);
+      return forgetCanonicalMemoryAtPath(row.sourceId, options, id);
     }
     return memRepo.deleteAsync(row.id);
   },

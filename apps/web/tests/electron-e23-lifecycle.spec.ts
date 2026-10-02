@@ -33,8 +33,8 @@ test('E23-c5 Prepare project cannot report success without an init request', asy
 });
 
 // Real workspace/store/gateway; only the remote HTTP/WS boundary is controlled.
-async function lifecycle(page: Page, options: { empty?: boolean; gone?: boolean } = {}) {
-  const session = { id: 'e23-owned', name: 'E23 lifecycle', profileId: 'e23-profile', cwd: '/tmp/e23', status: options.gone ? 'resumable' : 'idle', archivedAt: null as string | null, sdkSessionId: 'sdk-e23', providerId: 'openai', modelId: 'test-model', createdAt: '2026-09-11T00:00:00Z' };
+async function lifecycle(page: Page, options: { empty?: boolean; gone?: boolean; working?: boolean } = {}) {
+  const session = { id: 'e23-owned', name: 'E23 lifecycle', profileId: 'e23-profile', cwd: '/tmp/e23', status: options.gone ? 'resumable' : options.working ? 'working' : 'idle', archivedAt: null as string | null, sdkSessionId: 'sdk-e23', providerId: 'openai', modelId: 'test-model', createdAt: '2026-09-11T00:00:00Z' };
   const original = [
     { sdkMessageId: 'user-1', role: 'input', parts: [{ type: 'text', text: 'Question' }] },
     { sdkMessageId: 'answer-1', role: 'output', parts: [{ type: 'text', text: 'First answer' }] },
@@ -57,6 +57,7 @@ async function lifecycle(page: Page, options: { empty?: boolean; gone?: boolean 
     if (path === '/agent-sessions/e23-owned/resume') return route.fulfill({ status: 410, json: { error: 'SDK session is gone; use start-fresh.' } });
     if (path === '/agent-sessions/e23-owned/revert') return route.fulfill({ json: { id: 'sdk-e23', revert: { messageID: request.postDataJSON().messageId } } });
     if (path === '/agent-sessions/e23-owned/unrevert') { state.messages = original; return route.fulfill({ json: { id: 'sdk-e23' } }); }
+    if (path === '/agent-sessions/e23-owned/cancel') return route.fulfill({ status: 204 });
     if (path === '/agent-sessions/e23-owned/fork') return route.fulfill({ status: 201, json: { ...session, id: 'e23-fork', name: 'E23 fork', sdkSessionId: 'sdk-fork' } });
     if (path === '/agent-sessions/e23-fork' || path === '/agent-sessions/e23-fresh') return route.fulfill({ json: { session: { ...session, id: path.split('/').at(-1), name: path.endsWith('fork') ? 'E23 fork' : 'E23 fresh', sdkSessionId: path.endsWith('fork') ? 'sdk-fork' : 'sdk-fresh' }, messages: path.endsWith('fork') ? original.slice(0, 2) : [] } });
     if (path.endsWith('/summarize')) { state.messages = [...original, { sdkMessageId: 'summary', role: 'output', parts: [{ type: 'text', text: 'Persisted summary' }], tokens: { input: 4567, output: 89, cache: { read: 123, write: 0 } } }]; return route.fulfill({ status: 204 }); }
@@ -72,7 +73,8 @@ async function lifecycle(page: Page, options: { empty?: boolean; gone?: boolean 
 test('E23-c1 archive and restore consume persisted group, not closed/resumable guesses', async ({ page }) => {
   const state = await lifecycle(page);
   await page.getByTestId('session-actions').click();
-  await page.getByRole('menuitem', { name: 'Archive session', exact: true }).click();
+  await page.getByTestId('session-actions-secondary').click();
+  await page.getByTestId('session-actions-archive').click();
   await expect.poll(() => state.operations).toContainEqual({ path: '/agent-sessions/e23-owned', body: { archived: true } });
   await expect(page.getByTestId('state')).toContainText('"group":"archived"');
   await expect(page.getByTestId('state')).toContainText('"status":"idle"');
@@ -86,11 +88,15 @@ test('E23-c1 archive and restore consume persisted group, not closed/resumable g
 
 test('E23-c2/c10 transcript and inspector adopt server revert/restore outcome', async ({ page }) => {
   const state = await lifecycle(page);
+  await page.locator('#agent-message-answer-1 details.message-actions summary').click();
   await page.getByTestId('revert-answer-1').click();
   await expect.poll(() => state.operations).toContainEqual({ path: '/agent-sessions/e23-owned/revert', body: { messageId: 'answer-1' } });
   await expect(page.getByTestId('reverted-banner')).toContainText('answer-1');
   await page.getByTestId('unrevert').click();
   await expect(page.getByTestId('message-answer-2')).toBeVisible();
+  // Details is deliberately closed on first activation; open it explicitly before using an
+  // inspector tab so this test keeps exercising the same server-backed revert path.
+  await page.getByTestId('session-details').click();
   await page.getByRole('tab', { name: 'Changes', exact: true }).click();
   await page.getByTestId('changes-revert').click(); await page.getByTestId('worktree-confirm').click();
   await expect.poll(() => state.operations).toContainEqual({ path: '/agent-sessions/e23-owned/revert', body: { messageId: 'user-1' } });
@@ -102,6 +108,7 @@ test('E23-c2/c10 transcript and inspector adopt server revert/restore outcome', 
 
 test('E23-c3 fork carries clicked boundary and consumes returned child detail', async ({ page }) => {
   const state = await lifecycle(page);
+  await page.locator('#agent-message-answer-1 details.message-actions summary').click();
   await page.getByTestId('fork-answer-1').click();
   await expect.poll(() => state.operations).toContainEqual({ path: '/agent-sessions/e23-owned/fork', body: { messageId: 'answer-1' } });
   await expect(page.getByTestId('state')).toContainText('"id":"e23-fork"');
@@ -111,7 +118,8 @@ test('E23-c3 fork carries clicked boundary and consumes returned child detail', 
 
 for (const entry of ['session-compact', 'session-actions-compact', 'summarize-answer-1']) test(`E23-c4/c10 ${entry} consumes summarize readback`, async ({ page }) => {
   const state = await lifecycle(page);
-  if (entry === 'session-actions-compact') await page.getByTestId('session-actions').click();
+  if (entry === 'session-actions-compact') { await page.getByTestId('session-actions').click(); await page.getByTestId('session-actions-secondary').click(); }
+  if (entry === 'summarize-answer-1') await page.locator('#agent-message-answer-1 details.message-actions summary').click();
   await page.getByTestId(entry).click();
   await expect.poll(() => state.operations.filter(op => op.path.endsWith('/summarize')).length).toBe(1);
   await expect(page.getByTestId('message-summary')).toContainText('Persisted summary');
@@ -122,7 +130,7 @@ for (const entry of ['session-compact', 'session-actions-compact', 'summarize-an
 
 for (const entry of ['prepare-project', 'session-actions-prepare']) test(`E23-c5/c10 ${entry} consumes init readback`, async ({ page }) => {
   const state = await lifecycle(page);
-  if (entry === 'session-actions-prepare') await page.getByTestId('session-actions').click();
+  if (entry === 'session-actions-prepare') { await page.getByTestId('session-actions').click(); await page.getByTestId('session-actions-secondary').click(); }
   await page.getByTestId(entry).click(); await page.getByTestId('confirm-prepare-project').click();
   await expect.poll(() => state.operations.filter(op => op.path.endsWith('/init')).length).toBe(1);
   await expect(page.getByTestId('message-init-result')).toContainText('Project instructions written');
@@ -137,9 +145,11 @@ for (const [label, input] of [['Review project context', 'Review the project con
 test('E23-c7 copy writes actual message text and rejection never reports success', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await lifecycle(page);
+  await page.locator('#agent-message-answer-1 details.message-actions summary').click();
   await page.getByTestId('copy-answer-1').click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('First answer');
   await page.evaluate(() => { Object.defineProperty(navigator.clipboard, 'writeText', { value: () => Promise.reject(new Error('denied')) }); });
+  await page.locator('#agent-message-answer-2 details.message-actions summary').click();
   await page.getByTestId('copy-answer-2').click();
   await expect(page.getByTestId('notice')).toContainText('copy failed');
 });
@@ -173,8 +183,28 @@ test('E23-c9 reconnect cannot claim success when reconciliation fails', async ({
   } finally { release(); }
 });
 
+test('E23-c9a rapid message-action Escape closes the disclosure before global cancel, while bare Escape still cancels', async ({ page }) => {
+  const state = await lifecycle(page, { working: true });
+  const actions = page.locator('.message.user').first().locator('details.message-actions');
+  await expect(page.getByTestId('composer-cancel')).toBeVisible();
+  for (let iteration = 0; iteration < 5; iteration += 1) {
+    await actions.locator('summary').focus();
+    await page.keyboard.press('Enter');
+    await expect(actions).toHaveAttribute('open', '');
+    // No delay here: this is the native-details/React-effect handoff that used to leak to cancel.
+    await page.keyboard.press('Escape');
+    await expect(actions).not.toHaveAttribute('open');
+    await expect(actions.locator('summary')).toBeFocused();
+    await expect(page.getByTestId('composer-cancel')).toBeVisible();
+  }
+  expect(state.operations.filter((operation) => operation.path.endsWith('/cancel'))).toHaveLength(0);
+  await page.keyboard.press('Escape');
+  await expect.poll(() => state.operations.filter((operation) => operation.path.endsWith('/cancel')).length).toBe(1);
+});
+
 for (const entry of ['revert-answer-1', 'session-compact', 'prepare-project']) test(`E23-c10 rejected ${entry} preserves transcript and reports failure`, async ({ page }) => {
   const state = await lifecycle(page); state.failure = 'Lifecycle unavailable';
+  if (entry === 'revert-answer-1') await page.locator('#agent-message-answer-1 details.message-actions summary').click();
   await page.getByTestId(entry).click();
   if (entry === 'prepare-project') await page.getByTestId('confirm-prepare-project').click();
   await expect(page.getByTestId('notice')).toContainText('Lifecycle unavailable');
@@ -207,7 +237,7 @@ test('E23-c11 real sandbox archive/restore through workspace with persisted read
     await page.addInitScript(sessionId => localStorage.setItem('rhythm-agents-live-selected-session', sessionId), id);
     await page.goto('/tests/electron-e22-harness.html');
     await expect(page.getByTestId('state')).toContainText(`"id":"${id}"`);
-    await page.getByTestId('session-actions').click(); await page.getByRole('menuitem', { name: 'Archive session', exact: true }).click();
+    await page.getByTestId('session-actions').click(); await page.getByTestId('session-actions-secondary').click(); await page.getByTestId('session-actions-archive').click();
     await expect(page.getByTestId('state')).toContainText('"group":"archived"');
     const archived = (await (await client.get(`/agent-sessions/${id}`)).json()).session;
     expect(archived.archivedAt).toEqual(expect.any(String));

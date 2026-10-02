@@ -1146,7 +1146,10 @@ export type LayoutConfig = "auto" | "stretch";
  * Log level
  */
 export type LogLevel = "DEBUG" | "INFO" | "WARN" | "ERROR";
-export type McpStatus = McpStatusConnected | McpStatusDisabled | McpStatusFailed | McpStatusNeedsAuth | McpStatusNeedsClientRegistration;
+export type McpStatus = McpStatusConfigured | McpStatusConnected | McpStatusDisabled | McpStatusFailed | McpStatusNeedsAuth | McpStatusNeedsClientRegistration;
+export type McpStatusConfigured = {
+    status: "configured";
+};
 export type McpStatusConnected = {
     status: "connected";
 };

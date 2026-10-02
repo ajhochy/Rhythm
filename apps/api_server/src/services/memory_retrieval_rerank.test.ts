@@ -15,6 +15,7 @@ const ENV_KEYS = [
   'AGENT_MEMORY_LINK_EXPANSION_ENABLED',
   'AGENT_MEMORY_INJECTION_ENABLED',
   'MEMORY_VAULT_PATH',
+  'MEMORY_VAULT_SUBDIR',
 ] as const;
 const savedEnv: Record<string, string | undefined> = {};
 
@@ -147,7 +148,8 @@ describe('memory_ranking rerank integration', () => {
     const preface = await buildMemoryPreface(QUERY, 1, { getRelevant });
     expect(preface.memoryIds).toEqual(['lex', 'weak']);
     expect(preface.items.every((i) => i.lane === 'fts')).toBe(true);
-    // pool call (wide) + the exact original lexical call
+    // Preserve the exact lexical/hybrid fallback semantics.
+    expect(getRelevant).toHaveBeenCalledWith(QUERY, 1, 20);
     expect(getRelevant).toHaveBeenCalledWith(QUERY, 1, 5);
     const [row] = listDecisions({ feature: 'memory_ranking' });
     expect(row).toMatchObject({ status, applied: false, chosen: null, baseline: 'lex,weak' });
@@ -202,6 +204,7 @@ describe('memory_ranking rerank integration', () => {
     setMode('on');
     process.env.AGENT_MEMORY_RETRIEVAL_MODE = 'hybrid';
     process.env.MEMORY_VAULT_PATH = '/tmp/rhythm-rerank-test-vault';
+    process.env.MEMORY_VAULT_SUBDIR = '';
     const client = fakeClient([['Teenagers', 0.9]]);
     setRerankClientForTests(client);
     const mine = mem({

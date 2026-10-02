@@ -73,6 +73,20 @@ export class AgentMemoryController {
       const q = typeof req.query.q === 'string' ? req.query.q : '';
       if (!q.trim()) throw AppError.badRequest('q (search query) is required');
       const userId = req.auth?.user.id;
+      const view = req.query.view;
+      if (view !== undefined && view !== 'references') throw AppError.badRequest('view must be references');
+      if (view === 'references') {
+        const rawLimit = req.query.limit;
+        if (rawLimit !== undefined && (typeof rawLimit !== 'string' || rawLimit.trim() === '')) {
+          throw AppError.badRequest('limit must be a non-negative integer');
+        }
+        const parsed = rawLimit === undefined ? undefined : Number(rawLimit);
+        if (parsed !== undefined && (!Number.isFinite(parsed) || parsed < 0 || !Number.isInteger(parsed))) {
+          throw AppError.badRequest('limit must be a non-negative integer');
+        }
+        res.json(await agentMemoryService.searchReferences(q, userId, parsed));
+        return;
+      }
       const limit = req.query.limit ? Math.min(100, parseInt(String(req.query.limit), 10)) : 20;
       const results = await agentMemoryService.search(q, userId, limit);
       res.json(results);

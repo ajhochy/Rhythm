@@ -2276,6 +2276,8 @@ export class AgentSessionsController {
         memoryIds: record.memoryIds,
         notePaths: record.notePaths,
         items: record.items,
+        semanticStatus: record.semanticStatus,
+        semanticHitCount: record.semanticHitCount,
       });
     } catch (err) {
       next(err);

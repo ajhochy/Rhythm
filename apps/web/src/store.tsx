@@ -111,6 +111,11 @@ interface FixtureContextValue {
   // post-m1-phase-7 c4d: pending human-gated approvals surfaced as actionable cards in the
   // Notifications bell (same GET /agent-approvals?status=pending boundary Review Queue reads).
   pendingApprovals: PendingApproval[];
+  approvalError: string;
+  approvalsLoading: boolean;
+  approvalsUpdatedAt: number | null;
+  decidingApprovalIds: string[];
+  refreshPendingApprovals(): Promise<void>;
   decideApproval(id: string, status: 'approved' | 'rejected'): Promise<void>;
   isCompletionArmed(sessionId: string, messageId: string): boolean;
   toggleCompletionArm(sessionId: string, messageId: string): void;
@@ -303,7 +308,17 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const childViewRequestRef = useRef(0);
   const [notifications, setNotifications] = useState<DomainNotification[]>([]);
   const [pushNotifications, setPushNotifications] = useState<PushNotification[]>([]);
-  const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
+  const [approvalState, setApprovalState] = useState({ gateway, rows: [] as PendingApproval[], error: '', decisionError: '', loading: live, updatedAt: null as number | null, deciding: [] as string[] });
+  const pendingApprovals = approvalState.gateway === gateway ? approvalState.rows : [];
+  const approvalError = approvalState.gateway === gateway ? approvalState.decisionError || approvalState.error : '';
+  const approvalsLoading = approvalState.gateway !== gateway || approvalState.loading;
+  const approvalsUpdatedAt = approvalState.gateway === gateway ? approvalState.updatedAt : null;
+  const decidingApprovalIds = approvalState.gateway === gateway ? approvalState.deciding : [];
+  const approvalRefreshRef = useRef<((force?: boolean) => Promise<void>) | null>(null);
+  const approvalContextRef = useRef<{ gateway: typeof gateway; generation: number; deciding: Set<string>; inFlight: Promise<void> | null; queued: boolean } | null>(null);
+  const currentApprovalGateway = useRef(gateway);
+  currentApprovalGateway.current = gateway;
+  const refreshPendingApprovals = useCallback(async () => { await approvalRefreshRef.current?.(true); }, []);
   const pushSeenIdsRef = useRef(new Set<number>());
   const sessionSocketRef = useRef<SessionSocket | null>(null);
   const armedCompletions = useRef(new Map<string, Set<string>>());
@@ -839,18 +854,40 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gateway, live]);
 
-  // c4d: hydrate the shared pending-approval boundary once on mount — same read Review Queue
-  // (LiveReviewTool) uses, so an approval raised against any session shows up here too.
-  // Array.isArray guards a harness/host that doesn't recognize the route and falls through to a
-  // generic `{ok:true}` shape — ApprovalGateway.listPending() doesn't validate its own JSON parse,
-  // so an un-array-shaped body must degrade to [] here rather than reach pendingApprovals.map(...).
+  // One queue snapshot is shared by the bell and transcript; failed reads retain the last cards.
   useEffect(() => {
     if (!live) return;
     let active = true;
-    void gateway.domains.approvals!.listPending()
-      .then((rows) => { if (active) setPendingApprovals(Array.isArray(rows) ? rows : []); })
-      .catch((error: unknown) => { if (active) notify(failureMessage('Pending approvals could not be loaded', error)); });
-    return () => { active = false; };
+    const context = { gateway, generation: 0, deciding: new Set<string>(), inFlight: null as Promise<void> | null, queued: false };
+    approvalContextRef.current = context;
+    setApprovalState({ gateway, rows: [], error: '', decisionError: '', loading: true, updatedAt: null, deciding: [] });
+    const refresh = async (force = false): Promise<void> => {
+      if (context.inFlight) {
+        if (force) { context.queued = true; ++context.generation; }
+        await context.inFlight;
+        if (context.queued && active && currentApprovalGateway.current === gateway) { context.queued = false; return refresh(); }
+        return;
+      }
+      const generation = ++context.generation;
+      const current = () => active && currentApprovalGateway.current === gateway && generation === context.generation;
+      setApprovalState((state) => state.gateway === gateway ? { ...state, loading: true } : state);
+      const request = (async () => {
+        try {
+          const rows = await gateway.domains.approvals!.listPending();
+          if (current()) setApprovalState((state) => ({ ...state, gateway, rows, error: '', loading: false, updatedAt: Date.now() }));
+        } catch (error) {
+          if (current()) setApprovalState((state) => ({ ...state, error: failureMessage('Pending approvals could not be refreshed', error), loading: false }));
+        }
+      })();
+      context.inFlight = request;
+      try { await request; } finally { if (context.inFlight === request) context.inFlight = null; }
+    };
+    approvalRefreshRef.current = refresh;
+    const visibleRefresh = () => { if (document.visibilityState === 'visible') void refresh(); };
+    void refresh();
+    const timer = window.setInterval(visibleRefresh, 5_000);
+    window.addEventListener('focus', visibleRefresh); window.addEventListener('online', visibleRefresh); window.addEventListener('pageshow', visibleRefresh); document.addEventListener('visibilitychange', visibleRefresh);
+    return () => { active = false; approvalRefreshRef.current = null; approvalContextRef.current = null; window.clearInterval(timer); window.removeEventListener('focus', visibleRefresh); window.removeEventListener('online', visibleRefresh); window.removeEventListener('pageshow', visibleRefresh); document.removeEventListener('visibilitychange', visibleRefresh); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gateway, live]);
 
@@ -860,8 +897,13 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   // with a live server's HUMAN_APPROVAL_PUBLIC_KEY/HUMAN_APPROVAL_CAPABILITY_SHA256.
   const decideApproval = async (id: string, status: 'approved' | 'rejected') => {
     if (!live) return;
+    const context = approvalContextRef.current;
+    if (!context || context.gateway !== gateway || context.deciding.has(id)) return;
     const approval = pendingApprovals.find((item) => item.id === id);
     if (!approval) return;
+    if (!approval.decisionNonce?.trim()) { setApprovalState((state) => ({ ...state, decisionError: 'This legacy approval cannot be signed. Ask the agent to request approval again.' })); return; }
+    const current = () => approvalContextRef.current === context && currentApprovalGateway.current === gateway;
+    context.deciding.add(id); setApprovalState((state) => ({ ...state, deciding: [...context.deciding] }));
     try {
       const material = await signApprovalDecision({
         approvalId: id,
@@ -869,13 +911,20 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
         decisionNonce: approval.decisionNonce,
         payloadDigest: approval.payloadDigest,
       });
+      if (!current()) return;
       await gateway.domains.approvals!.decide(id, status, material);
-      setPendingApprovals((current) => current.filter((item) => item.id !== id));
+      if (!current()) return;
+      ++context.generation;
+      setApprovalState((state) => ({ ...state, decisionError: '', rows: state.rows.filter((item) => item.id !== id) }));
       notify(`Approval ${status}`);
       // c4d: focus only the originating owned session, never a different one.
       if (approval.sessionId) await selectLiveSession(approval.sessionId);
+      if (current()) await refreshPendingApprovals();
     } catch (error) {
-      notify(error instanceof ApprovalGatewayError ? error.message : 'Decision could not be sent');
+      if (current()) setApprovalState((state) => ({ ...state, decisionError: error instanceof ApprovalGatewayError ? error.message : 'Native decision could not be sent. Open the signed Rhythm desktop queue and retry.' }));
+    } finally {
+      context.deciding.delete(id);
+      if (current()) setApprovalState((state) => ({ ...state, deciding: [...context.deciding] }));
     }
   };
 
@@ -1314,7 +1363,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   };
 
   const notificationUnreadCount = notifications.length + pushNotifications.length;
-  const value = useMemo<FixtureContextValue>(() => ({ prepareLiveSession, startFreshSession, reconnectLiveSession, models, accounts, openaiAccounts, catalogError, refreshModels, refreshCatalog, turnOverride: turnOverrides.current[selectedId] ?? {}, stageTurnOverride, saveSessionSettings, sessions, profiles, todos, files: seedFiles, diff: seedDiff, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, setUnreadThreads, liveMessageThreads, setLiveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, selectSession, setScope, setTheme, setInspectorTab, setDemo, notify, createSession, updateSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, forkSession, revertSession, unrevertSession, summarizeSession, loadOlder, replyPermission, answerQuestion, rejectQuestion, sendInput, reconnect, runShell, setActiveFile, resetWorktree, removeWorktree, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, resetFixtures, sessionGatewayMode: gateway.mode, liveSessionError, createLiveSession, deleteLiveSession, refreshLiveSessions, selectLiveSession, sendLiveInput, sendLiveCommand, resumeGone, dismissResumeGone, liveChildView, openLiveChildSession, closeLiveChildView, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, replyLivePermission, replyLiveQuestion, rejectLiveQuestion, updatePermissionMode, pendingApprovals, decideApproval, isCompletionArmed, toggleCompletionArm }), [models, accounts, openaiAccounts, catalogError, refreshModels, refreshCatalog, overrideVersion, sessions, profiles, todos, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, liveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, gateway.mode, liveSessionError, resumeGone, liveChildView, notifications, pushNotifications, notificationUnreadCount, pendingApprovals, armedKeys]);
+  const value = useMemo<FixtureContextValue>(() => ({ prepareLiveSession, startFreshSession, reconnectLiveSession, models, accounts, openaiAccounts, catalogError, refreshModels, refreshCatalog, turnOverride: turnOverrides.current[selectedId] ?? {}, stageTurnOverride, saveSessionSettings, sessions, profiles, todos, files: seedFiles, diff: seedDiff, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, setUnreadThreads, liveMessageThreads, setLiveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, selectSession, setScope, setTheme, setInspectorTab, setDemo, notify, createSession, updateSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, forkSession, revertSession, unrevertSession, summarizeSession, loadOlder, replyPermission, answerQuestion, rejectQuestion, sendInput, reconnect, runShell, setActiveFile, resetWorktree, removeWorktree, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, resetFixtures, sessionGatewayMode: gateway.mode, liveSessionError, createLiveSession, deleteLiveSession, refreshLiveSessions, selectLiveSession, sendLiveInput, sendLiveCommand, resumeGone, dismissResumeGone, liveChildView, openLiveChildSession, closeLiveChildView, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, replyLivePermission, replyLiveQuestion, rejectLiveQuestion, updatePermissionMode, pendingApprovals, approvalError, approvalsLoading, approvalsUpdatedAt, decidingApprovalIds, refreshPendingApprovals, decideApproval, isCompletionArmed, toggleCompletionArm }), [models, accounts, openaiAccounts, catalogError, refreshModels, refreshCatalog, overrideVersion, sessions, profiles, todos, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, liveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, gateway.mode, liveSessionError, resumeGone, liveChildView, notifications, pushNotifications, notificationUnreadCount, pendingApprovals, approvalState, refreshPendingApprovals, armedKeys]);
   return <FixtureContext.Provider value={value}>{children}</FixtureContext.Provider>;
 }
 

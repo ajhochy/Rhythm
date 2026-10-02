@@ -1429,6 +1429,9 @@ export type Agent = {
 export type McpStatusConnected = {
     status: "connected";
 };
+export type McpStatusConfigured = {
+    status: "configured";
+};
 export type McpStatusDisabled = {
     status: "disabled";
 };
@@ -1443,7 +1446,7 @@ export type McpStatusNeedsClientRegistration = {
     status: "needs_client_registration";
     error: string;
 };
-export type McpStatus = McpStatusConnected | McpStatusDisabled | McpStatusFailed | McpStatusNeedsAuth | McpStatusNeedsClientRegistration;
+export type McpStatus = McpStatusConnected | McpStatusConfigured | McpStatusDisabled | McpStatusFailed | McpStatusNeedsAuth | McpStatusNeedsClientRegistration;
 export type LspStatus = {
     id: string;
     name: string;

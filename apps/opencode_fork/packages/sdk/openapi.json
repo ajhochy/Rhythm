@@ -15585,6 +15585,9 @@
       "MCPStatus": {
         "anyOf": [
           {
+            "$ref": "#/components/schemas/MCPStatusConfigured"
+          },
+          {
             "$ref": "#/components/schemas/MCPStatusConnected"
           },
           {
@@ -15600,6 +15603,21 @@
             "$ref": "#/components/schemas/MCPStatusNeedsClientRegistration"
           }
         ]
+      },
+      "MCPStatusConfigured": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "configured"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "additionalProperties": false
       },
       "MCPStatusConnected": {
         "type": "object",

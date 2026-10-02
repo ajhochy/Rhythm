@@ -1519,11 +1519,16 @@ export type LayoutConfig = "auto" | "stretch"
 export type LogLevel = "DEBUG" | "INFO" | "WARN" | "ERROR"
 
 export type McpStatus =
+  | McpStatusConfigured
   | McpStatusConnected
   | McpStatusDisabled
   | McpStatusFailed
   | McpStatusNeedsAuth
   | McpStatusNeedsClientRegistration
+
+export type McpStatusConfigured = {
+  status: "configured"
+}
 
 export type McpStatusConnected = {
   status: "connected"

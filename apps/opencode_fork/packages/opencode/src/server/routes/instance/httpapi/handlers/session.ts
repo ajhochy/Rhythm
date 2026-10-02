@@ -190,11 +190,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       }
 
       const origin = part.state.mcpAppResource
-      const registry = yield* mcp.appTools()
-      const stillAdvertised = Object.values(registry).some(
-        (tool) => tool.client === origin.serverName && tool.ui.resourceUri === origin.resourceUri,
-      )
-      if (!stillAdvertised) return yield* new HttpApiError.BadRequest({})
+      if (!mcp.readAppResource) return yield* new HttpApiError.BadRequest({})
+      const persistedPart = { sessionID: part.sessionID, messageID: part.messageID, partID: part.id }
 
       const mode = process.env.RHYTHM_MCP_APPS_MODE
       return yield* Effect.tryPromise({
@@ -209,8 +206,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
               persistedOrigin: origin,
             },
             {
-              readResource: ({ serverName, resourceUri }) =>
-                Effect.runPromise(mcp.readResource(serverName, resourceUri)),
+              readResource: () => Effect.runPromise(mcp.readAppResource!(origin, persistedPart)),
             },
           ),
         catch: () => new HttpApiError.BadRequest({}),
@@ -235,13 +231,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         return yield* new HttpApiError.BadRequest({})
       }
       const origin = part.state.mcpAppResource
-      const registry = yield* mcp.appTools()
-      if (
-        !Object.values(registry).some(
-          (tool) => tool.client === origin.serverName && tool.ui.resourceUri === origin.resourceUri,
-        )
-      )
-        return yield* new HttpApiError.BadRequest({})
+      if (!mcp.readAppResource) return yield* new HttpApiError.BadRequest({})
+      const persistedPart = { sessionID: part.sessionID, messageID: part.messageID, partID: part.id }
 
       const resource = yield* Effect.tryPromise({
         try: () =>
@@ -255,8 +246,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
               persistedOrigin: origin,
             },
             {
-              readResource: ({ serverName, resourceUri }) =>
-                Effect.runPromise(mcp.readResource(serverName, resourceUri)),
+              readResource: () => Effect.runPromise(mcp.readAppResource!(origin, persistedPart)),
             },
           ),
         catch: () => new HttpApiError.BadRequest({}),
@@ -299,6 +289,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         return yield* new HttpApiError.BadRequest({})
       }
       const origin = part.state.mcpAppResource
+      const persistedPart = { sessionID: part.sessionID, messageID: part.messageID, partID: part.id }
       const agentName = current.agent ?? (yield* agentSvc.defaultAgent())
       const agent = yield* agentSvc.get(agentName)
       const options = MCP.withRhythmSecurityContext(
@@ -366,9 +357,15 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
                   }),
                 ),
               execute: (_tool, input) => {
-                if (!mcp.executeAppTool) return Promise.reject(new Error("app execution unavailable"))
+                if (!mcp.executeAppToolForOrigin) return Promise.reject(new Error("app execution unavailable"))
                 return Effect.runPromise(
-                  mcp.executeAppTool(ctx.payload.toolKey, input as Record<string, unknown>, options),
+                  mcp.executeAppToolForOrigin(
+                    origin,
+                    persistedPart,
+                    ctx.payload.toolKey,
+                    input as Record<string, unknown>,
+                    options,
+                  ),
                 )
               },
               after: (toolKey, input, result) =>

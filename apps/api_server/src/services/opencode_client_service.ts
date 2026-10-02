@@ -3381,9 +3381,9 @@ export class OpencodeClientService {
    *
    * Throws on SDK error or exception.
    */
-  async listMcp(): Promise<Record<string, import('@opencode-ai/sdk').McpStatusEntry>> {
+  async listMcp(directory?: string): Promise<Record<string, import('@opencode-ai/sdk').McpStatusEntry>> {
     const client = this.requireClient();
-    const raw = await client.mcp.status();
+    const raw = await client.mcp.status(directory ? { query: { directory } } : undefined);
     if (raw.error) {
       throw new AppError(
         502,

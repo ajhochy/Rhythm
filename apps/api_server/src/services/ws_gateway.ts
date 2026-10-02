@@ -995,6 +995,10 @@ export async function handleInputFrame(
             memPreface.memoryIds,
             memPreface.notePaths,
             memPreface.items,
+            {
+              semanticStatus: memPreface.semanticStatus,
+              semanticHitCount: memPreface.semanticHitCount,
+            },
           );
         } catch (err) {
           console.error(`[ws_gateway] memory provenance record failed (non-fatal):`, err);

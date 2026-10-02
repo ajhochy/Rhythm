@@ -307,9 +307,27 @@ if (hasSingleInstanceLock) {
       envelope: { productionApiBase, sessionToken: productionSessionToken, user: productionSessionUser } });
   };
   const restoreAuthentication = async () => {
-    if (isSmoke || !safeStorage.isEncryptionAvailable()) return;
+    if (isSmoke) return;
+    let encryptedRecord;
     try {
-      const stored = JSON.parse(safeStorage.decryptString(await readFile(authSessionPath)));
+      // A cold profile has no auth record. Read that fact before touching
+      // Electron's OS-backed storage so startup remains signed out without
+      // creating or probing a Keychain identity.
+      encryptedRecord = await readFile(authSessionPath);
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return;
+      await clearStoredAuthentication();
+      return;
+    }
+    if (!encryptedRecord.length || encryptedRecord.length > 128 * 1024) {
+      await clearStoredAuthentication();
+      return;
+    }
+    // Retain existing encrypted-session behavior for a real saved record.
+    // There is deliberately no plaintext restore fallback when unavailable.
+    if (!safeStorage.isEncryptionAvailable()) return;
+    try {
+      const stored = JSON.parse(safeStorage.decryptString(encryptedRecord));
       if (stored.productionApiBase !== productionApiBase || typeof stored.sessionToken !== 'string' || !stored.user || typeof stored.user.id !== 'number') throw new Error('invalid stored session');
       productionSessionToken = stored.sessionToken; productionSessionUser = stored.user;
       await accountsAuth.restore({ serverOrigin: productionApiBase });
@@ -901,6 +919,9 @@ if (hasSingleInstanceLock) {
   }
 
   ipcMain.handle('rhythm:agent-server:status', () => agentServer?.status ?? externalRuntimeStatus);
+  const requireOwnedApprovalRuntime = () => {
+    if (!agentServer) throw new Error('runtime_unowned');
+  };
   let shuttingDown = false;
   let intentionalAgentServerRestart = false;
   ipcMain.handle('rhythm:agent-server:restart', async (event, ...args) => {
@@ -917,6 +938,7 @@ if (hasSingleInstanceLock) {
   ipcMain.handle('rhythm:human-approval:capability', (event, ...args) => {
     requireOwnedDocument(event);
     requireNoPayload(args);
+    requireOwnedApprovalRuntime();
     return humanApprovalSigner.capability();
   });
   ipcMain.handle('rhythm:human-approval:sign-decision', async (event, decision, ...args) => {
@@ -930,6 +952,7 @@ if (hasSingleInstanceLock) {
       || (decision.payloadDigest !== null && (typeof decision.payloadDigest !== 'string' || !/^[a-f0-9]{64}$/.test(decision.payloadDigest)))) {
       throw new Error('Invalid signing payload');
     }
+    requireOwnedApprovalRuntime();
     const generation = authGeneration;
     const signature = await humanApprovalSigner.signDecision(decision);
     if (generation !== authGeneration || !ownsDocument(event)) throw new Error('Signing context changed');

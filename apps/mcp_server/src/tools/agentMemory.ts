@@ -31,6 +31,23 @@ import {
 } from "../security/external_content_boundary.js";
 import { trustedSecurityContext } from "../security/security_context.js";
 
+function boundedReferenceEnvelope(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const record = value as Record<string, unknown>;
+  const sourceReferences = record.references;
+  if (!Array.isArray(sourceReferences)) return value;
+  const references = [...sourceReferences];
+  const envelope = () => ({
+    ...record,
+    references,
+    returned: references.length,
+    truncated: references.length < sourceReferences.length || record.truncated === true,
+  });
+  // Reserve room for ingress framing and fenced MCP output; never truncate JSON.
+  while (references.length > 0 && JSON.stringify(envelope()).length > 3_800) references.pop();
+  return envelope();
+}
+
 /** `apiUrl` is the local agent base (RHYTHM_AGENT_URL); see file header (#804). */
 export function registerAgentMemoryTools(
   server: McpServer,
@@ -152,15 +169,15 @@ tags: optional array of string tags for later filtering`,
   registerTool(
     server,
     "rhythm_search_memory",
-    "Search persistent agent memory using full-text search. Returns the most relevant stored facts/notes matching the query.",
+    "Search persistent agent memory for bounded native-ranked references. Results are uncertain evidence (confidence is not calibrated); request a full permitted note separately when needed.",
     {
       q: z.string().describe("Search query."),
-      limit: z.number().optional().describe("Max results (default 20)."),
+      limit: z.number().int().min(0).max(5).optional().describe("Max references (default 3, maximum 5)."),
     },
     async ({ q, limit }: { q: string; limit?: number }, extra) => {
       try {
-        const params = new URLSearchParams({ q });
-        if (limit) params.set("limit", String(limit));
+        const params = new URLSearchParams({ q, view: "references" });
+        if (limit !== undefined) params.set("limit", String(limit));
         const results = await apiGet(
           apiUrl,
           apiToken,
@@ -171,7 +188,7 @@ tags: optional array of string tags for later filtering`,
           context: trustedSecurityContext(extra),
           source: "memory.search",
           label: "user-authored agent memory search results",
-          rawContent: JSON.stringify(results, null, 2),
+          rawContent: JSON.stringify(boundedReferenceEnvelope(results)),
         });
         return ingress.blocked
           ? {

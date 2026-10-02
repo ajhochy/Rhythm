@@ -2,10 +2,8 @@ import './Transcript.css';
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Icon } from '../icons';
 import { useFixtures } from '../store';
-import { useGateway } from '../gateway/context';
 import { useAuthUser } from '../gateway/auth';
 import { readLocalUserPreferences, shouldEscalatePermission, USER_PREFERENCES_CHANGED_EVENT } from '../gateway/user-preferences';
-import type { PendingApproval } from '../gateway/approvals';
 import type { LivePermissionRequest, LiveQuestionRequest, LiveQuestionItem, TranscriptMessage } from '../types';
 import { useDecisionReply, usePendingDecisions } from '../pending-decisions';
 import { SafeMarkdown } from './SafeMarkdown';
@@ -260,23 +258,11 @@ function LiveQuestionCard({ sessionId, question }: { sessionId: string; question
   );
 }
 
-// post-m1-phase-5 c2b: read-only pending-approval banner. Reads the SAME signed boundary
-// (`gateway.domains.approvals` -> GET /agent-approvals, apps/api_server/src/controllers/
-// agent_approvals_controller.ts:118-186) that the Review Queue must also read, so an approval
-// raised against this session shows identical identity in both places. Display only — the
-// P-256 decision signature `decide()` requires can only be produced by the signed native app's
-// Keychain-held key, which no browser renderer has; see gateway/approvals.ts's module doc.
+// The transcript consumes the same refreshable queue as the bell. It never starts an independent
+// read, so a post-mount approval, a retained failure, or a newer queue snapshot stays consistent.
 function PendingApprovalBanner({ sessionId }: { sessionId: string }) {
-  const gateway = useGateway();
-  const [approvals, setApprovals] = useState<PendingApproval[]>([]);
-  useEffect(() => {
-    if (gateway.mode !== 'live' || !gateway.domains.approvals) { setApprovals([]); return; }
-    let active = true;
-    gateway.domains.approvals.listPending()
-      .then((pending) => { if (active) setApprovals(pending.filter((item) => item.sessionId === sessionId && item.status === 'pending')); })
-      .catch(() => { if (active) setApprovals([]); });
-    return () => { active = false; };
-  }, [gateway, sessionId]);
+  const { pendingApprovals } = useFixtures();
+  const approvals = pendingApprovals.filter((item) => item.sessionId === sessionId && item.status === 'pending');
   if (approvals.length === 0) return null;
   return (
     <div className="pending-trigger-banner" role="status" data-testid="pending-approval-banner">
@@ -318,10 +304,38 @@ export function Transcript() {
     }).join('|')}:${message.attachments?.map((attachment) => `${attachment.id}:${attachment.filename}:${attachment.truncated ? 1 : 0}`).join('|') ?? ''}`;
   }).join('\n');
   const [newOutput, setNewOutput] = useState(false);
+  const [openMessageActions, setOpenMessageActions] = useState<string | null>(null);
   const reasoningStates = useRef(new Map<string, boolean>());
   const [, setReasoningStateVersion] = useState(0);
   const pendingOlder = useRef(new Set<string>());
   const [olderStatus, setOlderStatus] = useState<Record<string, 'pending' | 'error' | undefined>>({});
+  const closeMessageActions = () => {
+    const closingId = openMessageActions;
+    setOpenMessageActions(null);
+    if (closingId) requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-testid="message-actions-${closingId}"] summary`)?.focus());
+  };
+  useEffect(() => {
+    if (!openMessageActions) return;
+    const closeForEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeMessageActions();
+    };
+    const closeForOutsidePointer = (event: PointerEvent) => {
+      // Let a pointer activation move directly to another message disclosure. Its native
+      // toggle/onToggle owns the next open ID; treating it as an outside click races that
+      // transition and leaves the target action hidden until a second click.
+      if ((event.target as Element | null)?.closest('details.message-actions')) return;
+      setOpenMessageActions(null);
+    };
+    document.addEventListener('keydown', closeForEscape, true);
+    document.addEventListener('pointerdown', closeForOutsidePointer, true);
+    return () => {
+      document.removeEventListener('keydown', closeForEscape, true);
+      document.removeEventListener('pointerdown', closeForOutsidePointer, true);
+    };
+  }, [openMessageActions]);
 
   const remember = () => {
     const el = viewport.current;
@@ -417,15 +431,22 @@ export function Transcript() {
       setReasoningStateVersion((version) => version + 1);
     } }} key={block.id} />;
   };
+  // Preserve server order. RichBlock already owns the inspectable state of each non-prose part;
+  // do not move files, tool output, or conclusions around a synthetic aggregate disclosure.
+  const messageBlocks = (message: RichTranscriptMessage) => message.blocks.map(richBlock);
   const renderContent = () => {
   // c2j: the child transcript is rendered read-only from its own fetched messages —
   // it is never selected into `sessions`, so the child's SDK id never becomes a local id.
   if (liveChildView) return (
     <section className="transcript" aria-label={`${liveChildView.title} · child transcript`} data-testid="transcript">
-      {liveChildView.messages.map((message) => <article className={`message ${message.role}`} key={message.id} data-message-id={message.id} tabIndex={-1} data-testid={`message-${message.id}`} aria-busy={message.blocks.some((block) => block.streaming) || undefined}>
+      {liveChildView.messages.map((message) => <article className={`message ${message.role}`} key={message.id} data-message-id={message.id} tabIndex={-1} data-testid={`message-${message.id}`} aria-busy={message.blocks.some((block) => block.streaming) || undefined} onContextMenu={(event) => { event.preventDefault(); setOpenMessageActions(message.id); }}>
         <header><span className="message-role">{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Rhythm agent' : 'Session'}</span><Timestamp value={message.createdAt} />{message.interrupted && <span className="message-interrupted">Interrupted</span>}</header>
-        <div className="message-blocks">{message.blocks.map(richBlock)}</div>
-        <MessageUsage message={message} /><button type="button" onClick={() => void copyMessage(message)} data-testid={`copy-${message.id}`}>Copy</button>
+        <div className="message-blocks">{messageBlocks(message)}</div>
+        <MessageUsage message={message} />
+        <details className="message-actions" data-testid={`message-actions-${message.id}`} open={openMessageActions === message.id}>
+          <summary aria-label="Message actions" onClick={(event) => { event.preventDefault(); setOpenMessageActions((current) => current === message.id ? null : message.id); }}><Icon name="more" size={14} /></summary>
+          <div><button type="button" onClick={() => void copyMessage(message)} data-testid={`copy-${message.id}`}><Icon name="copy" size={13} />Copy</button></div>
+        </details>
       </article>)}
     </section>
   );
@@ -442,14 +463,17 @@ export function Transcript() {
       {selected.status === 'error' && selected.statusMessage && <p role="alert">{selected.statusMessage}</p>}
       {(selected.permission?.status === 'pending' || selected.question?.status === 'pending') && <div className="pending-trigger-banner" role="status"><span className="status-dot waiting" />Agent paused · {selected.permission?.status === 'pending' ? 'permission required before the tool can continue' : 'answer required before the plan can continue'}</div>}
       {selected.revertedMessageId && <div className="reverted-banner" role="status" data-testid="reverted-banner"><Icon name="undo" /><span>History is reverted at message {selected.revertedMessageId}. The retained transcript remains readable; restore to use it again.</span><button className="secondary-button" type="button" onClick={() => void unrevertSession(selected.id)} data-testid="unrevert">Restore history</button></div>}
-      {selected.messages.map((message) => <article id={`agent-message-${message.id}`} className={`message ${message.role}`} key={message.id} data-message-id={message.id} tabIndex={-1} data-testid={`message-${message.id}`} aria-busy={message.blocks.some((block) => block.streaming) || undefined}>
+      {selected.messages.map((message) => <article id={`agent-message-${message.id}`} className={`message ${message.role}`} key={message.id} data-message-id={message.id} tabIndex={-1} data-testid={`message-${message.id}`} aria-busy={message.blocks.some((block) => block.streaming) || undefined} onContextMenu={(event) => { event.preventDefault(); setOpenMessageActions(message.id); }}>
         <header><span className="message-role">{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Rhythm agent' : 'Session'}</span><Timestamp value={message.createdAt} />{message.interrupted && <span className="message-interrupted">Interrupted</span>}</header>
-        <div className="message-blocks">{message.blocks.map(richBlock)}</div>
+        <div className="message-blocks">{messageBlocks(message)}</div>
         <MessageUsage message={message} />
         {message.attachments && message.attachments.length > 0 && <div className="message-attachments">{message.attachments.map((attachment) => <span key={attachment.id}><Icon name={attachment.type === 'file' ? 'command' : 'file'} size={13} />{attachment.filename}{attachment.truncated ? ' · first 100 KB' : ''}</span>)}</div>}
         {message.id === 'msg-user-handoff' && <div className="message-attachments"><span><Icon name="file" size={13} />run-sheet.md</span><span><Icon name="command" size={13} />/review</span></div>}
         {message.id === 'msg-assistant-handoff' && <div className="compaction-divider"><span>Context compacted · 8,420 tokens retained</span></div>}
-        <footer className="message-actions"><button type="button" onClick={() => void copyMessage(message)} data-testid={`copy-${message.id}`}><Icon name="copy" size={13} />Copy</button>{sessionGatewayMode === 'live' && window.rhythmShell?.gateway && <button type="button" aria-pressed={isCompletionArmed(selected.id, message.id)} aria-label={isCompletionArmed(selected.id, message.id) ? 'Notification armed — tap to cancel' : 'Notify when session finishes'} title={isCompletionArmed(selected.id, message.id) ? 'Notification armed — tap to cancel' : 'Notify when session finishes'} onClick={() => toggleCompletionArm(selected.id, message.id)} data-testid={`notify-${message.id}`}><Icon name="bell" size={13} /></button>}{message.role === 'assistant' && !selected.parentId && <><button type="button" disabled={sessionGatewayMode === 'live' && selected.status === 'working'} onClick={() => void revertSession(selected.id, message.id)} data-testid={`revert-${message.id}`}><Icon name="undo" size={13} />Revert</button><button type="button" disabled={sessionGatewayMode === 'live' && selected.status === 'working'} onClick={() => forkSession(selected.id, message.id)} data-testid={`fork-${message.id}`}><Icon name="fork" size={13} />Fork</button><button type="button" disabled={sessionGatewayMode === 'live' && selected.status === 'working'} onClick={() => void summarizeSession(selected.id)} data-testid={`summarize-${message.id}`}><Icon name="spark" size={13} />Compact</button></>}</footer>
+        <details className="message-actions" data-testid={`message-actions-${message.id}`} open={openMessageActions === message.id}>
+          <summary aria-label={`Message actions for ${message.role === 'user' ? 'your message' : 'agent message'}`} onClick={(event) => { event.preventDefault(); setOpenMessageActions((current) => current === message.id ? null : message.id); }}><Icon name="more" size={14} /></summary>
+          <div><button type="button" onClick={() => void copyMessage(message)} data-testid={`copy-${message.id}`}><Icon name="copy" size={13} />Copy</button>{sessionGatewayMode === 'live' && window.rhythmShell?.gateway && <button type="button" aria-pressed={isCompletionArmed(selected.id, message.id)} aria-label={isCompletionArmed(selected.id, message.id) ? 'Notification armed — tap to cancel' : 'Notify when session finishes'} title={isCompletionArmed(selected.id, message.id) ? 'Notification armed — tap to cancel' : 'Notify when session finishes'} onClick={() => toggleCompletionArm(selected.id, message.id)} data-testid={`notify-${message.id}`}><Icon name="bell" size={13} /></button>}{message.role === 'assistant' && !selected.parentId && <><button type="button" disabled={sessionGatewayMode === 'live' && selected.status === 'working'} onClick={() => void revertSession(selected.id, message.id)} data-testid={`revert-${message.id}`}><Icon name="undo" size={13} />Revert</button><button type="button" disabled={sessionGatewayMode === 'live' && selected.status === 'working'} onClick={() => forkSession(selected.id, message.id)} data-testid={`fork-${message.id}`}><Icon name="fork" size={13} />Fork</button><button type="button" disabled={sessionGatewayMode === 'live' && selected.status === 'working'} onClick={() => void summarizeSession(selected.id)} data-testid={`summarize-${message.id}`}><Icon name="spark" size={13} />Compact</button></>}</div>
+        </details>
       </article>)}
       {selected.queuedDraft && <article className="message user queued-message" aria-label="Queued local draft"><header><span className="message-role">You · queued locally</span><span>Not sent</span></header><p>{selected.queuedDraft}</p><small>Waiting for the direct desktop connection. Rhythm has not told the server this message exists.</small></article>}
       {sessionGatewayMode === 'live' && <PendingApprovalBanner sessionId={selected.id} />}

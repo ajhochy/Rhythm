@@ -464,11 +464,11 @@ describe('wrapper method shapes (M3/M4 readiness)', () => {
     );
   });
 
-  it('listMcp calls mcp.status and returns the data map', async () => {
+  it('listMcp forwards an intended directory to mcp.status and returns the data map', async () => {
     const mcpMap = { 'my-server': { type: 'connected', id: 'my-server' } };
     sdkClient.mcp.status.mockResolvedValue({ data: mcpMap });
-    const result = await svc.listMcp();
-    expect(sdkClient.mcp.status).toHaveBeenCalledTimes(1);
+    const result = await svc.listMcp('/tmp/rhythm-scoped-project');
+    expect(sdkClient.mcp.status).toHaveBeenCalledWith({ query: { directory: '/tmp/rhythm-scoped-project' } });
     expect(result).toEqual(mcpMap);
   });
 

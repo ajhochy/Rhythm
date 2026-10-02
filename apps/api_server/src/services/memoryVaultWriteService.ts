@@ -42,6 +42,7 @@ import {
 } from './memoryVaultSyncService';
 import { MemoryIndexService } from './memory_index_service';
 import { regenerateMemoryVaultNavigation } from './memory_vault_index_writer';
+import { publishCanonicalMutation } from './memory_canonical_mutation';
 import {
   enqueueMemoryVaultLog,
   localCalendarDate as auditLocalCalendarDate,
@@ -93,6 +94,85 @@ export class MemoryWriteError extends Error {
     super(message);
     this.name = 'MemoryWriteError';
   }
+}
+
+/** Bounded outcomes for the conditional canonical-observation import seam. */
+export type MemoryCreateOnlyErrorCode =
+  | 'MEMORY_CREATE_INVALID'
+  | 'MEMORY_CREATE_CONFLICT'
+  | 'MEMORY_CREATE_UNAVAILABLE';
+
+/**
+ * A create-only import never exposes canonical note contents or filesystem
+ * paths in its error. Callers can safely map this bounded code to their local
+ * recovery state without treating an index miss as permission to overwrite.
+ */
+export class MemoryCreateOnlyError extends MemoryWriteError {
+  readonly code: MemoryCreateOnlyErrorCode;
+
+  constructor(code: MemoryCreateOnlyErrorCode) {
+    super(code);
+    this.name = 'MemoryCreateOnlyError';
+    this.code = code;
+  }
+}
+
+export type MemoryCanonicalDeleteErrorCode =
+  | 'MEMORY_DELETE_CONFLICT'
+  | 'MEMORY_DELETE_UNAVAILABLE';
+
+/** A canonical-ID delete could not establish a safe terminal outcome. */
+export class MemoryCanonicalDeleteError extends MemoryWriteError {
+  readonly code: MemoryCanonicalDeleteErrorCode;
+
+  constructor(code: MemoryCanonicalDeleteErrorCode) {
+    super(code);
+    this.name = 'MemoryCanonicalDeleteError';
+    this.code = code;
+  }
+}
+
+const CANONICAL_DELETE_RECOVERY_FILE = '.rhythm-canonical-delete-recovery.json';
+
+async function readCanonicalDeleteRecovery(memoryDir: string): Promise<Record<string, string>> {
+  const destination = resolveWithinMemoryDir(memoryDir, CANONICAL_DELETE_RECOVERY_FILE);
+  let raw: string;
+  try {
+    const stat = await fs.lstat(destination);
+    if (stat.isSymbolicLink() || !stat.isFile()) throw new Error('unsafe recovery');
+    raw = await fs.readFile(destination, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    throw new MemoryCanonicalDeleteError('MEMORY_DELETE_UNAVAILABLE');
+  }
+  try {
+    const parsed = JSON.parse(raw) as { version?: unknown; entries?: unknown };
+    if (parsed.version !== 1 || !parsed.entries || typeof parsed.entries !== 'object' || Array.isArray(parsed.entries)) throw new Error('invalid recovery');
+    const entries: Record<string, string> = {};
+    for (const [id, sourceId] of Object.entries(parsed.entries)) {
+      if (id.length === 0 || id.length > 256 || typeof sourceId !== 'string' || sourceId.length === 0 || sourceId.length > 1024) throw new Error('invalid entry');
+      resolveWithinMemoryDir(memoryDir, vaultKeyToMemoryDirRelative(memoryDir, sourceId));
+      entries[id] = sourceId;
+    }
+    return entries;
+  } catch {
+    throw new MemoryCanonicalDeleteError('MEMORY_DELETE_UNAVAILABLE');
+  }
+}
+
+async function writeCanonicalDeleteRecovery(memoryDir: string, entries: Record<string, string>): Promise<void> {
+  const destination = resolveWithinMemoryDir(memoryDir, CANONICAL_DELETE_RECOVERY_FILE);
+  let expectedRaw: string | null = null;
+  try { expectedRaw = await fs.readFile(destination, 'utf8'); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+  await writeVaultNoteAtomic(
+    memoryDir,
+    destination,
+    `${JSON.stringify({ version: 1, entries })}\n`,
+    undefined,
+    undefined,
+    expectedRaw,
+  );
 }
 
 function assertManagedNote(raw: string | undefined): void {
@@ -166,6 +246,30 @@ export interface RememberResult {
    */
   path: string;
   kind: MemoryKind;
+}
+
+/**
+ * Strict, conditional-create input for imported observations. This is
+ * intentionally narrower than rememberToVault: it cannot update, merge,
+ * deprecate, verify, or infer provenance from ambient session state.
+ */
+export interface CreateOnlyObservationInput {
+  id: string;
+  kind: 'context';
+  content: string;
+  source: string;
+  sources: MemorySource[];
+  tags: string[];
+  usageWindow: MemoryUsageWindow;
+  sourceRevision: string;
+  normalizerVersion: string;
+}
+
+export interface CreateOnlyObservationResult extends RememberResult {
+  disposition: 'created' | 'already_present';
+  canonicalContentHash: string;
+  sourceRevision: string;
+  normalizerVersion: string;
 }
 
 const ULID_TIME_LEN = 10;
@@ -499,6 +603,7 @@ async function writeVaultNoteAtomic(
   beforePromotion?: (parent: string, destination: string) => Promise<void>,
   afterPromotion?: (parent: string, destination: string) => Promise<void>,
   expectedRaw?: string | null,
+  onCommitted?: () => void,
 ): Promise<void> {
   const validated = await validatedVaultDestination(memoryDir, destination);
   const temporary = path.join(
@@ -541,6 +646,7 @@ async function writeVaultNoteAtomic(
       }
     }
     await fs.rename(temporary, validated.destination);
+    onCommitted?.();
     await afterPromotion?.(validated.parent, validated.destination);
     const promoted = await validatedVaultDestination(memoryDir, destination);
     if (
@@ -576,6 +682,227 @@ async function writeVaultNoteAtomic(
     }
     throw error;
   }
+}
+
+/**
+ * Promote a prepared note without ever replacing an existing destination.
+ * `rename` is deliberately unsuitable here because POSIX rename overwrites a
+ * file created by a non-cooperating process between validation and promotion.
+ */
+async function writeVaultNoteCreateOnlyAtomic(
+  memoryDir: string,
+  destination: string,
+  rendered: string,
+  beforePromotion?: (parent: string, destination: string) => Promise<void>,
+  afterPromotion?: (parent: string, destination: string) => Promise<void>,
+  onCommitted?: () => void,
+): Promise<'created' | 'occupied'> {
+  const validated = await validatedVaultDestination(memoryDir, destination);
+  const temporary = path.join(
+    validated.parent,
+    `.${path.basename(destination)}.rhythm-${randomBytes(12).toString('hex')}.tmp`,
+  );
+  const handle = await fs.open(temporary, 'wx', 0o600);
+  try {
+    await handle.writeFile(rendered, 'utf8');
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+
+  try {
+    await beforePromotion?.(validated.parent, validated.destination);
+    const revalidated = await validatedVaultDestination(memoryDir, destination);
+    if (
+      revalidated.parent !== validated.parent ||
+      revalidated.destination !== validated.destination ||
+      revalidated.parentDevice !== validated.parentDevice ||
+      revalidated.parentInode !== validated.parentInode
+    ) {
+      throw new MemoryWriteError('Memory-vault destination changed during write.');
+    }
+
+    try {
+      // Hard-linking inside the already-validated parent is an atomic
+      // create-if-absent primitive. EEXIST is reconciled by the caller from
+      // canonical Markdown, never by overwriting the destination.
+      await fs.link(temporary, revalidated.destination);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') return 'occupied';
+      throw error;
+    }
+
+    onCommitted?.();
+    await afterPromotion?.(validated.parent, validated.destination);
+    const promoted = await validatedVaultDestination(memoryDir, destination);
+    if (
+      promoted.parentDevice !== validated.parentDevice ||
+      promoted.parentInode !== validated.parentInode
+    ) {
+      throw new MemoryWriteError('Memory-vault destination changed during promotion.');
+    }
+    const destinationStat = await fs.lstat(promoted.destination);
+    if (destinationStat.isSymbolicLink() || !destinationStat.isFile()) {
+      throw new MemoryWriteError('Memory-vault promoted note is unsafe.');
+    }
+    return 'created';
+  } finally {
+    try {
+      const parentStat = await fs.lstat(validated.parent);
+      if (
+        !parentStat.isSymbolicLink() &&
+        parentStat.isDirectory() &&
+        parentStat.dev === validated.parentDevice &&
+        parentStat.ino === validated.parentInode
+      ) {
+        await fs.rm(temporary, { force: true });
+      }
+    } catch {
+      // Do not follow a replacement parent solely to remove a temp file.
+    }
+  }
+}
+
+interface CreateOnlyCanonicalNote {
+  raw: string;
+  path: string;
+  document: ReturnType<typeof parseMemoryNote>;
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    // YAML omits mapping keys whose value is undefined. Match that canonical
+    // representation on replay so an allowed optional provenance field does
+    // not turn an otherwise byte-identical conditional create into a conflict.
+    return `{${Object.keys(value as Record<string, unknown>).filter((key) =>
+      (value as Record<string, unknown>)[key] !== undefined,
+    ).sort().map((key) =>
+      `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`,
+    ).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function createOnlyError(code: MemoryCreateOnlyErrorCode): never {
+  throw new MemoryCreateOnlyError(code);
+}
+
+function requiredCreateOnlyString(value: unknown): string {
+  if (typeof value !== 'string' || value.trim() === '' || value.length > 512) {
+    return createOnlyError('MEMORY_CREATE_INVALID');
+  }
+  return value.trim();
+}
+
+function requiredCreateOnlyContent(value: unknown): string {
+  if (typeof value !== 'string' || value.trim() === '' || value.length > 8_000) {
+    return createOnlyError('MEMORY_CREATE_INVALID');
+  }
+  return value.trim();
+}
+
+function rawFrontmatterHasId(raw: string, id: string): boolean {
+  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^id:\\s*(?:['\"])?${escaped}(?:['\"])?\\s*$`, 'm').test(raw);
+}
+
+/**
+ * Canonical ID lookup for conditional creates. It deliberately scans every
+ * managed kind and treats a bad directory, unreadable Markdown, or unmanaged
+ * matching file as uncertainty rather than absence.
+ */
+async function findCanonicalManagedNoteById(
+  memoryDir: string,
+  id: string,
+): Promise<CreateOnlyCanonicalNote | null> {
+  const matches: CreateOnlyCanonicalNote[] = [];
+  for (const kind of VALID_MEMORY_KINDS) {
+    const kindDir = resolveWithinMemoryDir(memoryDir, kind);
+    let directoryStat: Awaited<ReturnType<typeof fs.lstat>>;
+    try {
+      directoryStat = await fs.lstat(kindDir);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      return createOnlyError('MEMORY_CREATE_UNAVAILABLE');
+    }
+    if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) {
+      return createOnlyError('MEMORY_CREATE_UNAVAILABLE');
+    }
+
+    const inspectDirectory = async (directory: string): Promise<void> => {
+      let entries: import('node:fs').Dirent[];
+      try {
+        entries = await fs.readdir(directory, { withFileTypes: true });
+      } catch {
+        return createOnlyError('MEMORY_CREATE_UNAVAILABLE');
+      }
+      for (const entry of entries) {
+        const abs = resolveWithinMemoryDir(memoryDir, path.relative(memoryDir, path.join(directory, entry.name)));
+        let stat: Awaited<ReturnType<typeof fs.lstat>>;
+        try {
+          stat = await fs.lstat(abs);
+        } catch {
+          return createOnlyError('MEMORY_CREATE_UNAVAILABLE');
+        }
+        if (stat.isSymbolicLink()) return createOnlyError('MEMORY_CREATE_UNAVAILABLE');
+        if (stat.isDirectory()) {
+          await inspectDirectory(abs);
+          continue;
+        }
+        if (!stat.isFile() || !entry.name.toLowerCase().endsWith('.md') || isReservedVaultFilename(entry.name)) continue;
+        let raw: string;
+        try { raw = await fs.readFile(abs, 'utf8'); }
+        catch { return createOnlyError('MEMORY_CREATE_UNAVAILABLE'); }
+        const document = parseMemoryNote(raw);
+        const noteId = frontmatterString(document.frontmatter, 'id');
+        if (noteId !== id) {
+          if (!document.hasValidFrontmatter && rawFrontmatterHasId(raw, id)) {
+            return createOnlyError('MEMORY_CREATE_CONFLICT');
+          }
+          continue;
+        }
+        try { assertManagedNote(raw); }
+        catch { return createOnlyError('MEMORY_CREATE_CONFLICT'); }
+        matches.push({
+          raw,
+          path: toVaultRelativeKey(resolveVaultRootForMemoryDir(memoryDir), abs),
+          document,
+        });
+      }
+    };
+    await inspectDirectory(kindDir);
+  }
+  if (matches.length > 1) return createOnlyError('MEMORY_CREATE_CONFLICT');
+  return matches[0] ?? null;
+}
+
+function matchesCreateOnlyObservation(
+  note: CreateOnlyCanonicalNote,
+  expected: {
+    id: string;
+    content: string;
+    source: string;
+    sources: MemorySource[];
+    tags: string[];
+    usageWindow: MemoryUsageWindow;
+    sourceRevision: string;
+    normalizerVersion: string;
+  },
+): boolean {
+  const frontmatter = note.document.frontmatter;
+  return note.document.hasValidFrontmatter &&
+    frontmatterString(frontmatter, 'id') === expected.id &&
+    frontmatter.kind === 'context' &&
+    frontmatter.status === 'stable' &&
+    frontmatter.stale_after === undefined &&
+    note.document.body === expected.content &&
+    frontmatterString(frontmatter, 'source') === expected.source &&
+    frontmatterString(frontmatter, 'source_revision') === expected.sourceRevision &&
+    frontmatterString(frontmatter, 'normalizer_version') === expected.normalizerVersion &&
+    canonicalJson(note.document.tags) === canonicalJson(expected.tags) &&
+    canonicalJson(memorySources(frontmatter)) === canonicalJson(expected.sources) &&
+    canonicalJson(memoryUsageWindow(frontmatter)) === canonicalJson(expected.usageWindow);
 }
 
 function decodeMemoryLinkTarget(target: string): string | null {
@@ -862,7 +1189,9 @@ export async function rememberToVault(
 
   const memoryDir = options.memoryDir ?? resolveMemoryDirPath();
   const index = options.index ?? new MemoryIndexService();
-  return withVaultMutationLock(memoryDir, async () => {
+  let committed = false;
+  let destructive = false;
+  try { return await withVaultMutationLock(memoryDir, async () => {
   const kindDir = path.join(memoryDir, kind);
 
   // --- DEDUP / MERGE-ON-CAPTURE -----------------------------------------------
@@ -1077,6 +1406,7 @@ export async function rememberToVault(
     options.beforeNotePromotion,
     options.afterNotePromotion,
     expectedRaw,
+    () => { committed = true; },
   );
   await enqueueMemoryVaultLog(memoryDir, {
     reason: semanticMerge
@@ -1100,7 +1430,173 @@ export async function rememberToVault(
 
   logger.info(`[MemoryWrite] remembered note (kind=${kind} path=${vaultRelKey})`);
   return { id, path: vaultRelKey, kind };
-  });
+  }); } finally {
+    // The canonical promotion is authoritative even when a later projection
+    // fails. Publication is intentionally after the root lock releases.
+    if (committed) publishCanonicalMutation({ memoryDir, destructive: false });
+  }
+}
+
+/**
+ * Create one imported observation if, and only if, its deterministic ID is
+ * absent from the canonical vault. This is deliberately not a correction CAS:
+ * a different existing note is a conflict and is never rewritten or merged.
+ */
+export async function createObservationIfAbsentInVault(
+  input: CreateOnlyObservationInput,
+  options: MemoryVaultWriteOptions = {},
+): Promise<CreateOnlyObservationResult> {
+  if (input?.kind !== 'context' || !isUlid(input?.id ?? '')) {
+    return createOnlyError('MEMORY_CREATE_INVALID');
+  }
+  if (!Array.isArray(input.tags) || !input.tags.every((tag) =>
+    typeof tag === 'string' && tag.trim() !== '' && tag.length <= 128,
+  )) {
+    return createOnlyError('MEMORY_CREATE_INVALID');
+  }
+  if (!Array.isArray(input.sources) || input.sources.length === 0) {
+    return createOnlyError('MEMORY_CREATE_INVALID');
+  }
+
+  const id = input.id;
+  const content = requiredCreateOnlyContent(input.content);
+  const source = requiredCreateOnlyString(input.source);
+  const sourceRevision = requiredCreateOnlyString(input.sourceRevision);
+  const normalizerVersion = requiredCreateOnlyString(input.normalizerVersion);
+  const tags = input.tags.map((tag) => tag.trim());
+  const requestedSources = captureSources({
+    kind: 'context', content, source, sources: input.sources,
+  }, source).sources;
+  const usageWindow = memoryUsageWindow({ usage_window: input.usageWindow });
+  if (
+    requestedSources.length !== input.sources.length ||
+    !usageWindow?.from ||
+    !usageWindow.to ||
+    isReversedMemoryUsageWindow(usageWindow) ||
+    !requestedSources.every((candidate) =>
+      typeof candidate.resource === 'string' && candidate.resource.trim() !== '' &&
+      candidate.revision === sourceRevision &&
+      candidate.normalizer_version === normalizerVersion,
+    )
+  ) {
+    return createOnlyError('MEMORY_CREATE_INVALID');
+  }
+
+  const expected = {
+    id,
+    content,
+    source,
+    sources: requestedSources,
+    tags,
+    usageWindow,
+    sourceRevision,
+    normalizerVersion,
+  };
+  const memoryDir = options.memoryDir ?? resolveMemoryDirPath();
+  const index = options.index ?? new MemoryIndexService();
+  let committed = false;
+  try {
+    const result: CreateOnlyObservationResult = await withVaultMutationLock(memoryDir, async (): Promise<CreateOnlyObservationResult> => {
+      const existing = await findCanonicalManagedNoteById(memoryDir, id);
+      if (existing) {
+        if (!matchesCreateOnlyObservation(existing, expected)) {
+          return createOnlyError('MEMORY_CREATE_CONFLICT');
+        }
+        // The index is disposable: a matching canonical note is sufficient to
+        // adopt a response, then this upsert repairs a missing projection.
+        await index.upsertNote({
+          sourceId: existing.path,
+          parsed: parseNote(existing.raw),
+        });
+        await regenerateMemoryVaultNavigation(memoryDir);
+        return {
+          id,
+          path: existing.path,
+          kind: 'context',
+          disposition: 'already_present',
+          canonicalContentHash: createHash('sha256').update(existing.raw).digest('hex'),
+          sourceRevision,
+          normalizerVersion,
+        };
+      }
+
+      // The deterministic ID is part of the basename, so same-heading
+      // observations cannot collide and no content-derived dedup is involved.
+      const relPath = path.join('context', `import-${id.toLowerCase()}.md`);
+      const abs = resolveWithinMemoryDir(memoryDir, relPath);
+      const vaultRelKey = toVaultRelativeKey(
+        resolveVaultRootForMemoryDir(memoryDir),
+        abs,
+      );
+      const now = isoDate();
+      const rendered = renderMemoryNote({
+        id,
+        kind: 'context',
+        tags,
+        created: now,
+        updated: now,
+        source,
+        status: 'stable',
+        generated: { by: DEFAULT_MEMORY_ACTOR, at: new Date().toISOString() },
+        sources: requestedSources,
+        usage_window: usageWindow,
+        source_revision: sourceRevision,
+        normalizer_version: normalizerVersion,
+      }, content);
+
+      const promoted = await writeVaultNoteCreateOnlyAtomic(
+        memoryDir,
+        abs,
+        rendered,
+        options.beforeNotePromotion,
+        options.afterNotePromotion,
+        () => { committed = true; },
+      );
+      if (promoted === 'occupied') {
+        const raced = await findCanonicalManagedNoteById(memoryDir, id);
+        if (!raced || !matchesCreateOnlyObservation(raced, expected)) {
+          return createOnlyError('MEMORY_CREATE_CONFLICT');
+        }
+        await index.upsertNote({ sourceId: raced.path, parsed: parseNote(raced.raw) });
+        await regenerateMemoryVaultNavigation(memoryDir);
+        return {
+          id,
+          path: raced.path,
+          kind: 'context',
+          disposition: 'already_present',
+          canonicalContentHash: createHash('sha256').update(raced.raw).digest('hex'),
+          sourceRevision,
+          normalizerVersion,
+        };
+      }
+
+      // Canonical commit precedes all derived work. If either log or index
+      // projection fails, a retry takes the exact-match adoption path above.
+      await enqueueMemoryVaultLog(memoryDir, {
+        reason: 'captured',
+        actor: DEFAULT_MEMORY_ACTOR,
+        noteSourceId: vaultRelKey,
+      });
+      await index.upsertNote({ sourceId: vaultRelKey, parsed: parseNote(rendered) });
+      await regenerateMemoryVaultNavigation(memoryDir);
+      return {
+        id,
+        path: vaultRelKey,
+        kind: 'context',
+        disposition: 'created',
+        canonicalContentHash: createHash('sha256').update(rendered).digest('hex'),
+        sourceRevision,
+        normalizerVersion,
+      };
+    });
+    return result;
+  } catch (error) {
+    if (error instanceof MemoryCreateOnlyError) throw error;
+    logger.warn('[MemoryWrite] conditional canonical create is unavailable.');
+    throw new MemoryCreateOnlyError('MEMORY_CREATE_UNAVAILABLE');
+  } finally {
+    if (committed) publishCanonicalMutation({ memoryDir, destructive: false });
+  }
 }
 
 const lifecycleMutationTails = new Map<string, Promise<void>>();
@@ -1152,7 +1648,8 @@ async function mutateMemoryLifecycle(
   const index = options.index ?? new MemoryIndexService();
   const relPath = vaultKeyToMemoryDirRelative(memoryDir, sourceId);
   const abs = resolveWithinMemoryDir(memoryDir, relPath);
-  return withVaultMutationLock(memoryDir, () => withLifecycleMutationLock(abs, async () => {
+  let committed = false;
+  try { return await withVaultMutationLock(memoryDir, () => withLifecycleMutationLock(abs, async () => {
     let raw: string;
     try {
       raw = await fs.readFile(abs, 'utf8');
@@ -1252,6 +1749,7 @@ async function mutateMemoryLifecycle(
       options.beforeNotePromotion,
       options.afterNotePromotion,
       raw,
+      () => { committed = lifecycleChanged; },
     );
     if (lifecycleChanged) {
       await enqueueMemoryVaultLog(memoryDir, {
@@ -1279,7 +1777,9 @@ async function mutateMemoryLifecycle(
     await regenerateMemoryVaultNavigation(memoryDir);
 
     return { id, path: sourceId, kind: document.kind };
-  }));
+  })); } finally {
+    if (committed) publishCanonicalMutation({ memoryDir, destructive: false });
+  }
 }
 
 /**
@@ -1414,7 +1914,21 @@ export async function forgetFromVault(
   options: MemoryVaultWriteOptions = {},
 ): Promise<void> {
   const memoryDir = options.memoryDir ?? resolveMemoryDirPath();
-  return withVaultMutationLock(memoryDir, async () => {
+  let committed = false;
+  try {
+    await withVaultMutationLock(memoryDir, () => forgetVaultNoteUnlocked(vaultRelKey, options, () => { committed = true; }));
+  } finally {
+    if (committed) publishCanonicalMutation({ memoryDir, destructive: true });
+  }
+}
+
+/** Delete one already-resolved canonical path while its caller owns the lock. */
+async function forgetVaultNoteUnlocked(
+  vaultRelKey: string,
+  options: MemoryVaultWriteOptions,
+  onCommitted?: () => void,
+): Promise<boolean> {
+  const memoryDir = options.memoryDir ?? resolveMemoryDirPath();
   // Map the canonical vault-root-relative key back to a memory-dir-relative
   // path for the existing boundary guard. Absolute / traversal inputs survive
   // as still-escaping relatives, so resolveWithinMemoryDir rejects them.
@@ -1434,6 +1948,7 @@ export async function forgetFromVault(
     }
     await fs.unlink(abs);
     removed = true;
+    onCommitted?.();
     logger.info(`[MemoryWrite] forgot note (path=${relPath})`);
   } catch (err: unknown) {
     // Missing file is fine — the index row removal is still attempted by the
@@ -1448,7 +1963,146 @@ export async function forgetFromVault(
     });
   }
   await regenerateMemoryVaultNavigation(memoryDir);
-  });
+  return removed;
+}
+
+/**
+ * Forget a uniquely identified managed note from canonical Markdown even when
+ * its disposable index row is absent. The caller receives false only for a
+ * trustworthy canonical absence; ambiguity and races remain explicit errors.
+ */
+export async function forgetCanonicalMemoryById(
+  id: string,
+  options: MemoryVaultWriteOptions = {},
+): Promise<boolean> {
+  if (typeof id !== 'string' || id.trim() === '') return false;
+  const memoryDir = options.memoryDir ?? resolveMemoryDirPath();
+  const index = options.index ?? new MemoryIndexService();
+  let removedCanonical = false;
+  try {
+    return await withVaultMutationLock(memoryDir, async () => {
+      const recovery = await readCanonicalDeleteRecovery(memoryDir);
+      const recoveryPath = recovery[id.trim()];
+      if (recoveryPath) {
+        // A durable entry records intent before unlink, so it cannot itself
+        // prove canonical deletion. Never finalize while a uniquely matching
+        // note still survives: it may be a human edit or a pre-unlink crash.
+        const surviving = await findCanonicalManagedNoteById(memoryDir, id.trim());
+        if (surviving) {
+          if (surviving.path !== recoveryPath) {
+            throw new MemoryCanonicalDeleteError('MEMORY_DELETE_CONFLICT');
+          }
+          throw new MemoryCanonicalDeleteError('MEMORY_DELETE_CONFLICT');
+        }
+        try {
+          await index.removeNote(recoveryPath);
+        } catch {
+          throw new MemoryCanonicalDeleteError('MEMORY_DELETE_UNAVAILABLE');
+        }
+        delete recovery[id.trim()];
+        await writeCanonicalDeleteRecovery(memoryDir, recovery);
+        return true;
+      }
+      const note = await findCanonicalManagedNoteById(memoryDir, id.trim());
+      if (!note) return false;
+      recovery[id.trim()] = note.path;
+      await writeCanonicalDeleteRecovery(memoryDir, recovery);
+      const removed = await forgetVaultNoteUnlocked(note.path, options, () => { removedCanonical = true; });
+      if (!removed) throw new MemoryCanonicalDeleteError('MEMORY_DELETE_CONFLICT');
+      try {
+        // A zero count means the derived row was already absent; that is a
+        // successful projection state after canonical deletion.
+        await index.removeNote(note.path);
+      } catch {
+        // The canonical unlink has committed. Do not report terminal success
+        // when a stale projection may still resurface the deleted note.
+        throw new MemoryCanonicalDeleteError('MEMORY_DELETE_UNAVAILABLE');
+      }
+      delete recovery[id.trim()];
+      await writeCanonicalDeleteRecovery(memoryDir, recovery);
+      return true;
+    });
+  } catch (error) {
+    if (error instanceof MemoryCanonicalDeleteError) throw error;
+    if (error instanceof MemoryCreateOnlyError) {
+      throw new MemoryCanonicalDeleteError(
+        error.code === 'MEMORY_CREATE_CONFLICT'
+          ? 'MEMORY_DELETE_CONFLICT'
+          : 'MEMORY_DELETE_UNAVAILABLE',
+      );
+    }
+    throw new MemoryCanonicalDeleteError('MEMORY_DELETE_UNAVAILABLE');
+  } finally {
+    // A projection/recovery failure after unlink must not lose native dirty
+    // intent. The bridge owns retries after admission.
+    if (removedCanonical) publishCanonicalMutation({ memoryDir, destructive: true });
+  }
+}
+
+/**
+ * Delete a known canonical path and its projection as one recoverable unit.
+ * If canonical unlink succeeded but projection cleanup previously failed, the
+ * still-present derived row supplies this same path on retry; a missing file
+ * plus a removed row is therefore a trustworthy completed deletion.
+ */
+export async function forgetCanonicalMemoryAtPath(
+  vaultRelKey: string,
+  options: MemoryVaultWriteOptions = {},
+  recoveryId?: string,
+): Promise<boolean> {
+  const memoryDir = options.memoryDir ?? resolveMemoryDirPath();
+  const index = options.index ?? new MemoryIndexService();
+  let removedCanonical = false;
+  try {
+    return await withVaultMutationLock(memoryDir, async () => {
+      const recovery = await readCanonicalDeleteRecovery(memoryDir);
+      const key = typeof recoveryId === 'string' && recoveryId.trim() !== ''
+        ? recoveryId.trim() : null;
+      if (key && recovery[key] && recovery[key] !== vaultRelKey) {
+        throw new MemoryCanonicalDeleteError('MEMORY_DELETE_CONFLICT');
+      }
+      if (key && recovery[key]) {
+        // Match the ID-miss recovery branch: intent recorded before unlink is
+        // never permission to delete a surviving note on a later retry.
+        const relPath = vaultKeyToMemoryDirRelative(memoryDir, vaultRelKey);
+        const abs = resolveWithinMemoryDir(memoryDir, relPath);
+        try {
+          const stat = await fs.lstat(abs);
+          if (stat.isSymbolicLink() || !stat.isFile()) {
+            throw new MemoryCanonicalDeleteError('MEMORY_DELETE_UNAVAILABLE');
+          }
+          throw new MemoryCanonicalDeleteError('MEMORY_DELETE_CONFLICT');
+        } catch (error) {
+          if (error instanceof MemoryCanonicalDeleteError) throw error;
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+            throw new MemoryCanonicalDeleteError('MEMORY_DELETE_UNAVAILABLE');
+          }
+        }
+      }
+      if (key && !recovery[key]) {
+        recovery[key] = vaultRelKey;
+        await writeCanonicalDeleteRecovery(memoryDir, recovery);
+      }
+      const removed = await forgetVaultNoteUnlocked(vaultRelKey, options, () => { removedCanonical = true; });
+      try {
+        const removedProjection = await index.removeNote(vaultRelKey);
+        if (key) {
+          delete recovery[key];
+          await writeCanonicalDeleteRecovery(memoryDir, recovery);
+        }
+        return removed || removedProjection > 0;
+      } catch {
+        // A canonical unlink may already have committed. Preserve the derived
+        // row/path for the next call rather than returning a false completion.
+        throw new MemoryCanonicalDeleteError('MEMORY_DELETE_UNAVAILABLE');
+      }
+    });
+  } catch (error) {
+    if (error instanceof MemoryCanonicalDeleteError) throw error;
+    throw new MemoryCanonicalDeleteError('MEMORY_DELETE_UNAVAILABLE');
+  } finally {
+    if (removedCanonical) publishCanonicalMutation({ memoryDir, destructive: true });
+  }
 }
 
 /**
@@ -1626,7 +2280,9 @@ export async function updateMemoryInVault(
 ): Promise<RememberResult | null> {
   const memoryDir = options.memoryDir ?? resolveMemoryDirPath();
   const index = options.index ?? new MemoryIndexService();
-  return withVaultMutationLock(memoryDir, async () => {
+  let committed = false;
+  let destructive = false;
+  try { return await withVaultMutationLock(memoryDir, async () => {
 
   let found = await findNoteAnywhereById(memoryDir, rememberId);
   if (!found && options.relPathFallback) {
@@ -1687,6 +2343,7 @@ export async function updateMemoryInVault(
     },
     options.afterNotePromotion,
     kindChanged ? null : found.raw ?? null,
+    () => { committed = true; },
   );
   const newVaultRelKey = toVaultRelativeKey(resolveVaultRootForMemoryDir(memoryDir), newAbs);
 
@@ -1707,6 +2364,9 @@ export async function updateMemoryInVault(
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') throw err;
     }
+    // A scan may have observed the old path before the unlink; request a
+    // destructive whole-root repair rather than treating a move as an edit.
+    destructive = true;
     await index.removeNote(oldVaultRelKey);
   }
 
@@ -1724,5 +2384,7 @@ export async function updateMemoryInVault(
 
   logger.info(`[MemoryWrite] updated note (kind=${newKind} path=${newVaultRelKey})`);
   return { id: found.id, path: newVaultRelKey, kind: newKind };
-  });
+  }); } finally {
+    if (committed) publishCanonicalMutation({ memoryDir, destructive });
+  }
 }

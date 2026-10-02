@@ -564,7 +564,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       model: Provider.Model
       session: Session.Info
       tools?: Record<string, boolean>
-      processor: Pick<SessionProcessor.Handle, "message" | "updateToolCall" | "completeToolCall">
+      processor: Pick<SessionProcessor.Handle, "message" | "toolCallIdentity" | "updateToolCall" | "completeToolCall">
       bypassAgentCheck: boolean
       messages: MessageV2.WithParts[]
     }) {
@@ -654,7 +654,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
       // Rhythm carried patch (mcp-scope): build keyToServer from MCP metadata (not string-split)
       // then filter by session's mcpAllowlist before injecting tool schemas into model context.
-      const mcpToolsAll = yield* mcp.tools()
+      const mcpToolsAll = yield* mcp.tools(input.session.mcpAllowlist)
       const mcpAppTools = yield* mcp.appTools()
       const keyToServer = yield* mcp.toolClientNames()
       const allowedKeys = new Set(
@@ -703,7 +703,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   },
                 }),
               )
-              yield* plugin.trigger(
+              let appOriginCommitted = false
+              return yield* Effect.gen(function* () {
+                yield* plugin.trigger(
                 "tool.execute.after",
                 { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId, args },
                 result,
@@ -741,23 +743,33 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               }
 
               const appTool = mcpAppTools[key]
+              const part = appTool ? yield* input.processor.toolCallIdentity(opts.toolCallId) : undefined
               const advertisedAtMs = Date.now()
+              const appOrigin = appTool && part
+                ? {
+                    sessionID: ctx.sessionID,
+                    callID: opts.toolCallId,
+                    serverName: appTool.client,
+                    cwd: input.session.directory,
+                    resourceUri: appTool.ui.resourceUri,
+                    advertisedAt: new Date(advertisedAtMs).toISOString(),
+                    expiresAt: new Date(advertisedAtMs + 10 * 60 * 1000).toISOString(),
+                    part,
+                  }
+                : undefined
+              // The MCP executor has already reserved the exact producing
+              // transport under this trusted call identity. Commit only after
+              // output assembly has succeeded and the running tool part still
+              // exists; the processor confirms matching persistence by event.
+              if (appOrigin && mcp.retainAppOrigin) {
+                appOriginCommitted = yield* mcp.retainAppOrigin(appOrigin)
+              }
               const output = {
                 title: "",
                 metadata,
                 output: truncated.content,
                 mcpResult: mcpResultEnvelope(result),
-                mcpAppResource: appTool
-                  ? {
-                      sessionID: ctx.sessionID,
-                      callID: opts.toolCallId,
-                      serverName: appTool.client,
-                      cwd: input.session.directory,
-                      resourceUri: appTool.ui.resourceUri,
-                      advertisedAt: new Date(advertisedAtMs).toISOString(),
-                      expiresAt: new Date(advertisedAtMs + 10 * 60 * 1000).toISOString(),
-                    }
-                  : undefined,
+                mcpAppResource: appOriginCommitted ? appOrigin : undefined,
                 attachments: attachments.map((attachment) => ({
                   ...attachment,
                   id: PartID.ascending(),
@@ -770,6 +782,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 yield* input.processor.completeToolCall(opts.toolCallId, output)
               }
               return output
+              }).pipe(
+                Effect.ensuring(
+                  Effect.suspend(() =>
+                    appOriginCommitted
+                      ? Effect.void
+                      : (mcp.releaseProvisionalAppOrigin?.(ctx.sessionID, opts.toolCallId) ?? Effect.void),
+                  ),
+                ),
+              )
             }),
           )
         return item
@@ -1772,7 +1793,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   ),
                 )
 
-                const mcpTools = yield* mcp.tools()
+                const mcpTools = yield* mcp.tools(currentSession.mcpAllowlist)
                 const keyToServer = yield* mcp.toolClientNames()
                 const allowedMcp = filterMcpToolsByAllowlist(
                   Object.keys(mcpTools),

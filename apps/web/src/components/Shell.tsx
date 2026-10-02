@@ -8,6 +8,11 @@ import { Splitter } from './Splitter';
 
 const destinations = ['Dashboard', 'Planner', 'Tasks', 'Rhythms', 'Projects', 'Messages', 'Facilities', 'Automations', 'Integrations', 'Agents', 'Settings'];
 const optional = new Set(['Facilities', 'Automations', 'Integrations', 'Settings', 'Hermes', 'Bot Crossing']);
+const destinationGroups = [
+  { label: 'Conversations', items: ['Agents', 'Messages'] },
+  { label: 'Work', items: ['Dashboard', 'Planner', 'Tasks', 'Rhythms', 'Projects', 'Facilities', 'Automations', 'Integrations'] },
+  { label: 'Configure', items: ['Settings', 'Hermes', 'Bot Crossing'] },
+] as const;
 
 const destinationKey = (destination: string) => destination === 'Bot Crossing' ? 'colony' : destination.toLowerCase();
 
@@ -69,7 +74,7 @@ const demoLabels: Record<DemoState, string> = {
 
 export function Shell({ route, children }: { route: string; children: React.ReactNode }) {
   const visibleDestinations = [...destinations, ...(hermesShell()?.hermes?.enabled === true ? ['Hermes'] : []), ...(colonyShell()?.colonyView ? ['Bot Crossing'] : [])];
-  const { theme, setTheme, demo, setDemo, toast, resetFixtures, notify, unreadThreads, sessionGatewayMode, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, pendingApprovals, decideApproval } = useFixtures();
+  const { theme, setTheme, demo, setDemo, toast, resetFixtures, notify, unreadThreads, sessionGatewayMode, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, pendingApprovals, approvalError, approvalsLoading, approvalsUpdatedAt, decidingApprovalIds, refreshPendingApprovals, decideApproval } = useFixtures();
   const live = sessionGatewayMode === 'live';
   const entityDestination = (entityType: string, entityId: string) => ({
     task: `/tasks/task/${encodeURIComponent(entityId)}`,
@@ -83,20 +88,11 @@ export function Shell({ route, children }: { route: string; children: React.Reac
   const openPushNotification = () => navigate('/agents');
   const [demoOpen, setDemoOpen] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
-  const [navTier, setNavTier] = useState(() => window.matchMedia('(max-width: 900px)').matches ? 2 : window.matchMedia('(max-width: 1320px)').matches ? 1 : 0);
   const [navigationHeight, setNavigationHeight] = useState(48);
   const activeKey = route.startsWith('/profiles') || route.startsWith('/endpoint-map') || route.startsWith('/tools/') ? 'agents' : route.split('/')[1] || 'agents';
   const activeLabel = activeKey.charAt(0).toUpperCase() + activeKey.slice(1);
 
   useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
-  useEffect(() => {
-    const compact = window.matchMedia('(max-width: 900px)');
-    const overflow = window.matchMedia('(max-width: 1320px)');
-    const change = () => setNavTier(compact.matches ? 2 : overflow.matches ? 1 : 0);
-    compact.addEventListener('change', change);
-    overflow.addEventListener('change', change);
-    return () => { compact.removeEventListener('change', change); overflow.removeEventListener('change', change); };
-  }, []);
   useEffect(() => {
     if (toast.id === 0) return;
     setToastVisible(true);
@@ -113,7 +109,7 @@ export function Shell({ route, children }: { route: string; children: React.Reac
     const key = destinationKey(destination);
     const selected = key === activeKey;
     return (
-      <button key={destination} type="button" role={inMenu ? 'menuitem' : undefined} className={inMenu ? 'menu-item' : `destination ${optional.has(destination) ? 'nav-optional' : ''} ${!['Dashboard', 'Agents'].includes(destination) ? 'nav-compact' : ''} ${selected ? 'selected' : ''}`} aria-current={selected ? 'page' : undefined} onClick={() => navigate(`/${key}`)} data-testid={`nav-${key}${inMenu ? '-overflow' : ''}`}>
+      <button key={destination} type="button" role={inMenu ? 'menuitem' : undefined} className={inMenu ? 'menu-item' : `destination selected current-destination`} aria-current={selected ? 'page' : undefined} onClick={() => navigate(`/${key}`)} data-testid={`nav-${key}${inMenu ? '-overflow' : ''}`}>
         {destination}{destination === 'Messages' && unreadThreads > 0 && <span className="unread-badge" aria-label={`${unreadThreads} unread`}>{unreadThreads}</span>}
       </button>
     );
@@ -124,9 +120,13 @@ export function Shell({ route, children }: { route: string; children: React.Reac
       <a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); document.getElementById('main-content')?.focus(); }}>Skip to main content</a>
       <header className="app-header" data-od-id="rhythm-global-header">
         <nav className="destination-nav" aria-label="Product destinations">
-          {visibleDestinations.map((destination) => destinationButton(destination))}
-          <Menu key={navTier} label="More destinations" icon="chevronDown" testId="nav-more" className="more-nav" popoverClassName="nav-overflow" triggerClassName="destination" triggerContent={<>More <Icon name="chevronDown" size={14} /></>}>
-            {(navTier === 2 ? visibleDestinations.filter((destination) => !['Dashboard', 'Agents'].includes(destination)) : [...optional].filter((destination) => visibleDestinations.includes(destination))).map((destination) => destinationButton(destination, true))}
+          {destinationButton(visibleDestinations.find((destination) => destinationKey(destination) === activeKey) ?? 'Agents')}
+          <Menu label="App menu" icon="chevronDown" testId="nav-more" className="more-nav" popoverClassName="nav-overflow app-destination-menu" triggerClassName="destination app-menu-trigger" triggerContent={<>App <Icon name="chevronDown" size={14} /></>}>
+            {destinationGroups.map((group) => {
+              const items = group.items.filter((destination) => visibleDestinations.includes(destination));
+              if (!items.length) return null;
+              return <div className="app-destination-group" role="group" aria-label={group.label} key={group.label}><div className="menu-section-label">{group.label}</div>{items.map((destination) => destinationButton(destination, true))}</div>;
+            })}
           </Menu>
         </nav>
         <div className="global-actions">
@@ -137,10 +137,14 @@ export function Shell({ route, children }: { route: string; children: React.Reac
             <button className="activity-row" role="menuitem" type="button" onClick={() => { navigate('/agents'); setDemo('resumable'); }}><span className="status-dot stuck" /><span><strong>Integration health sweep</strong><small>Unavailable · can resume</small></span></button>
             </>}
           </Menu>
-          <Menu label="Notifications" icon="bell" testId="notifications-button">
+          {live && <span className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="approval-queue-announcement">{pendingApprovals.length} pending approvals{approvalError ? '. Approval queue unavailable.' : ''}</span>}
+          <Menu label={live ? `Notifications · ${pendingApprovals.length} pending approvals${approvalError ? ' · approval queue unavailable' : ''}` : 'Notifications'} icon="bell" testId="notifications-button" popoverClassName="notifications-menu" triggerContent={live ? <><Icon name="bell" />{(pendingApprovals.length > 0 || approvalError) && <span className="unread-badge">{approvalError ? '!' : pendingApprovals.length}</span>}</> : undefined}>
             {live ? <>
               <div className="menu-heading"><span>Notifications</span><small>{notificationUnreadCount} unread</small></div>
-              {notifications.length === 0 && pushNotifications.length === 0 && pendingApprovals.length === 0 && <div className="menu-item stacked"><small>No notifications</small></div>}
+              <button role="menuitem" className="menu-item" type="button" data-menu-keep-open onClick={() => void refreshPendingApprovals()}>Refresh approvals</button>
+              <div className="menu-item stacked" role="status" aria-live="polite" data-testid="approval-queue-status">{pendingApprovals.length} pending approvals · {approvalsLoading ? 'Refreshing…' : approvalError ? 'Approval queue needs attention; showing last known pending cards' : approvalsUpdatedAt ? `Updated ${new Date(approvalsUpdatedAt).toLocaleTimeString()}` : 'Not yet loaded'}</div>
+              {approvalError && <div className="menu-item stacked" role="alert" data-testid="approval-queue-error">{approvalError} Retry with Refresh approvals. Rhythm approvals are in this outer queue, not embedded engine permissions.</div>}
+              {!approvalError && !approvalsLoading && approvalsUpdatedAt && notifications.length === 0 && pushNotifications.length === 0 && pendingApprovals.length === 0 && <div className="menu-item stacked"><small>No notifications</small></div>}
               {/* post-m1-phase-7 c4d: pending approvals as actionable cards, not just a read-only row —
                   Approve/Reject attempt the real decide() boundary; see decideApproval's doc comment in
                   store.tsx for why that boundary is presently an honest rejection (no native signer yet). */}
@@ -148,9 +152,10 @@ export function Shell({ route, children }: { route: string; children: React.Reac
                 <strong>{approval.action}</strong>
                 {approval.preview && <p>{approval.preview}</p>}
                 {approval.consequence && <small>{approval.consequence}</small>}
+                {!approval.decisionNonce && <small>This legacy approval cannot be signed. Ask the agent to request approval again.</small>}
                 <div className="dialog-actions">
-                  <button type="button" className="primary-button compact" data-menu-keep-open onClick={() => void decideApproval(approval.id, 'approved')}>Approve</button>
-                  <button type="button" className="secondary-button compact" data-menu-keep-open onClick={() => void decideApproval(approval.id, 'rejected')}>Reject</button>
+                  <button type="button" role="menuitem" className="primary-button compact" disabled={!approval.decisionNonce || decidingApprovalIds.includes(approval.id)} data-menu-keep-open onClick={() => void decideApproval(approval.id, 'approved')}>Approve</button>
+                  <button type="button" role="menuitem" className="secondary-button compact" disabled={!approval.decisionNonce || decidingApprovalIds.includes(approval.id)} data-menu-keep-open onClick={() => void decideApproval(approval.id, 'rejected')}>Reject</button>
                 </div>
               </div>)}
               {notifications.map((item) => <button key={`domain-${item.id}`} role="menuitem" className="menu-item stacked" type="button" onClick={() => openDomainNotification(item.id, item.entityType, item.entityId)}><strong>{item.message}</strong><small>{item.type}</small></button>)}

@@ -37,6 +37,7 @@ export interface GatewayDomainContracts {
   workspaceMembers?: ReturnType<typeof createLiveWorkspaceMembersGateway>;
   settings?: ReturnType<typeof createLiveSettingsGateway>;
   runtime?: RuntimeGateway;
+  dayflow?: DayflowGateway;
   sharedAgents?: SharedAgentsPort;
   remoteSessions?: RemoteSessionsGateway;
 }
@@ -189,6 +190,7 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
       workspaceMembers: createLiveWorkspaceMembersGateway(productionApiBase, config.taskToken, fetcher),
       settings: createLiveSettingsGateway(productionApiBase, config.taskToken, fetcher),
       runtime: createLiveRuntimeGateway(apiBase, localFetcher),
+      dayflow: createLiveDayflowGateway(apiBase, localFetcher),
       sharedAgents: createLiveSharedAgentsPort(apiBase, config.taskToken, createLiveSessionsGateway(apiBase, config.taskToken, localFetcher), fetcher),
       // #1374 — undefined outside the Electron shell (plain browser preview, or a build with the
       // RHYTHM_REMOTE_ATTACH kill switch off); the gateway itself reports `enabled: false` then.
@@ -255,6 +257,7 @@ import { createLiveAutoPromotionGateway, type AutoPromotionGateway } from './aut
 import { createLiveWorkspaceMembersGateway } from './workspace-members';
 import { createLiveSettingsGateway } from './settings';
 import { createLiveRuntimeGateway, type RuntimeGateway } from './runtime';
+import { createLiveDayflowGateway, type DayflowGateway } from './dayflow';
 import { createLiveSharedAgentsPort } from './shared-agents';
 import type { SharedAgentsPort } from '@ajhochy/rhythm-workspace-ui';
 import { createLiveRemoteSessionsGateway, type RemoteEnvironmentsBridge, type RemoteSessionsGateway } from './remote-sessions';

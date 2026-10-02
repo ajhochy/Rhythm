@@ -84,19 +84,27 @@ test.describe('product shell', () => {
     expect(uncaughtErrors).toEqual([]);
   });
 
-  test('navigates the shell and uses the responsive More overflow', async ({ page }) => {
+  test('navigates the grouped App menu repeatedly and restores Escape focus', async ({ page }) => {
     await page.setViewportSize({ width: 1024, height: 800 });
     await openFixture(page);
     await expect(page.getByTestId('nav-agents')).toHaveAttribute('aria-current', 'page');
     await page.getByTestId('nav-more').click();
-    await expect(page.getByRole('menu', { name: /more/i })).toBeVisible();
+    await expect(page.getByRole('menu', { name: 'App menu' })).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Conversations' })).toContainText('Agents');
+    await expect(page.getByRole('group', { name: 'Conversations' })).toContainText('Messages');
     await page.getByTestId('nav-facilities-overflow').click();
     await expect(page).toHaveURL(/#\/facilities/);
     // Issue 2007 replaced the Facilities placeholder with the real page (planned lead update).
     await expect(page.getByTestId('page-facilities')).toBeVisible();
     await expect(page.getByTestId('module-placeholder')).toHaveCount(0);
-    await page.getByTestId('nav-agents').click();
+    await page.getByTestId('nav-more').click();
+    await page.getByTestId('nav-agents-overflow').click();
     await expect(page).toHaveURL(/#\/agents/);
+    await page.getByTestId('nav-more').focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('nav-agents-overflow')).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('nav-more')).toBeFocused();
   });
 
   test('opens activity, notifications, account, theme, and endpoint controls', async ({ page }) => {

@@ -2514,6 +2514,8 @@ export function runMigrations(db: Database.Database): void {
       memory_ids_json TEXT NOT NULL DEFAULT '[]',
       note_paths_json TEXT NOT NULL DEFAULT '[]',
       items_json TEXT NOT NULL DEFAULT '[]',
+      semantic_status TEXT NOT NULL DEFAULT 'disabled',
+      semantic_hit_count INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
   `);
@@ -2524,6 +2526,18 @@ export function runMigrations(db: Database.Database): void {
     db.exec(
       `ALTER TABLE agent_session_memory_provenance
        ADD COLUMN items_json TEXT NOT NULL DEFAULT '[]'`,
+    );
+  }
+  if (!memoryProvenanceCols.includes('semantic_status')) {
+    db.exec(
+      `ALTER TABLE agent_session_memory_provenance
+       ADD COLUMN semantic_status TEXT NOT NULL DEFAULT 'disabled'`,
+    );
+  }
+  if (!memoryProvenanceCols.includes('semantic_hit_count')) {
+    db.exec(
+      `ALTER TABLE agent_session_memory_provenance
+       ADD COLUMN semantic_hit_count INTEGER NOT NULL DEFAULT 0`,
     );
   }
 

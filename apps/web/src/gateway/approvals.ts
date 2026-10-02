@@ -12,16 +12,15 @@ export interface PendingApproval {
   consequence: string | null;
   status: 'pending' | 'approved' | 'rejected';
   createdAt: string;
-  decisionNonce: string;
+  decisionNonce: string | null;
   payloadDigest: string | null;
 }
 
 // The P-256 decision signature over {approvalId,status,decisionNonce,payloadDigest}
 // (and the desktop-Keychain `X-Rhythm-Human-Approval` capability header the server also
-// requires) can only be produced by the signed native app holding the private key —
-// never fabricated here. `decide` takes it as a required input and transmits it
-// verbatim; ponytail: this renderer has no signer to call yet, so nothing invokes
-// `decide` — wire it once a native bridge (Electron main / desktop Keychain) exists.
+// requires) is produced by the native signer when Electron exposes it, or by the
+// deliberate Web Crypto fallback used by isolated browser fixtures. `decide` takes
+// that material verbatim; the gateway never creates or relaxes a signature.
 export interface HumanApprovalMaterial {
   capability: string;
   signature: string;
@@ -38,7 +37,13 @@ export class ApprovalGatewayError extends Error {
 }
 
 const failureText = (status: number): string => {
-  const label: Record<number, string> = { 0: 'Approval service unavailable', 401: 'Authentication required', 403: 'Forbidden', 404: 'Approval not found' };
+  const label: Record<number, string> = {
+    0: 'Approval service unavailable. Check the connection and retry.',
+    401: 'Approval authentication required. Sign in again and retry.',
+    403: 'Approval access denied. Open the signed Rhythm desktop queue with the correct account and retry; embedded permissions are separate.',
+    404: 'Approval not found',
+    503: 'Native approval service unavailable. Reopen the signed Rhythm desktop app and retry.',
+  };
   return label[status] ?? `Approval request failed (${status})`;
 };
 
@@ -70,7 +75,27 @@ export function createLiveApprovalGateway(apiBase: string, token: string | undef
   });
   return {
     mode: 'live',
-    listPending: async () => response<PendingApproval[]>(request('/agent-approvals?status=pending', {}, await capability())),
+    listPending: async () => {
+      let nativeCapability: string;
+      try {
+        nativeCapability = await capability();
+        if (!nativeCapability?.trim()) throw new Error('Missing capability');
+      } catch {
+        throw new ApprovalGatewayError(503, failureText(503));
+      }
+      const rows = await response<unknown>(request('/agent-approvals?status=pending', { signal: AbortSignal.timeout(10_000) }, nativeCapability));
+      const nullableText = (value: unknown) => value === null || typeof value === 'string';
+      const ids = new Set<string>();
+      if (!Array.isArray(rows) || rows.some((row) => {
+        if (!row || typeof row !== 'object' || typeof row.id !== 'string' || !row.id.trim() || ids.has(row.id)) return true;
+        ids.add(row.id);
+        return !nullableText(row.sessionId) || typeof row.action !== 'string' || !row.action.trim()
+          || !nullableText(row.preview) || !nullableText(row.consequence) || row.status !== 'pending'
+          || typeof row.createdAt !== 'string' || !Number.isFinite(Date.parse(row.createdAt))
+          || !(row.decisionNonce === null || (typeof row.decisionNonce === 'string' && row.decisionNonce.trim())) || !nullableText(row.payloadDigest);
+      })) throw new ApprovalGatewayError(502, 'Invalid approval response. Pending cards were not replaced. Retry or check the desktop API configuration.');
+      return rows as PendingApproval[];
+    },
     decide: (approvalId, status, material) => response<PendingApproval>(request(`/agent-approvals/${encodeURIComponent(approvalId)}`, {
       method: 'PATCH',
       body: JSON.stringify({ status, signature: material.signature }),

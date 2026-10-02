@@ -15,12 +15,17 @@ test('post-m1-p1-c2a: keyboard navigation reaches every top-level destination wi
   await openFixture(page);
 
   for (const destination of destinations) {
-    const control = page.getByTestId(`nav-${destination}`);
-    await expect(control).toBeVisible();
+    await page.getByTestId('nav-more').focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('nav-agents-overflow')).toBeFocused();
+    const control = page.getByTestId(`nav-${destination}-overflow`);
     await control.focus();
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(new RegExp(`#/${destination}`));
-    await expect(control).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByTestId(`nav-${destination}`)).toHaveAttribute('aria-current', 'page');
+    await page.getByTestId('nav-more').click();
+    await expect(page.getByTestId(`nav-${destination}-overflow`)).toHaveAttribute('aria-current', 'page');
+    await page.keyboard.press('Escape');
   }
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -34,7 +39,7 @@ test('post-m1-p1-c2a: keyboard navigation reaches every top-level destination wi
     // Enter activates the FIRST destination instead, and the URL silently fails to change. Wait for
     // the menu to finish taking focus, then drive it — the criterion is reaching every destination by
     // keyboard, not out-racing the component's focus management.
-    await expect(page.getByTestId('nav-planner-overflow')).toBeFocused();
+    await expect(page.getByTestId('nav-agents-overflow')).toBeFocused();
     await control.focus();
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(new RegExp(`#/${destination}`));
@@ -68,7 +73,7 @@ test('post-m1-p1-c2d: narrow overflow activation returns focus deterministically
   await expect(page.getByTestId('nav-facilities-overflow')).toBeVisible();
   // Same race as c2a: let the menu finish moving focus to its first item before driving it, or the
   // component's focus wins and Enter activates Planner instead of Facilities.
-  await expect(page.getByTestId('nav-planner-overflow')).toBeFocused();
+  await expect(page.getByTestId('nav-agents-overflow')).toBeFocused();
   await page.getByTestId('nav-facilities-overflow').focus();
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/#\/facilities/);

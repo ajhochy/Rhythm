@@ -19,6 +19,7 @@ import type { WorkspaceMember } from '../../gateway/workspace-members';
 import { useFixtures } from '../../store';
 import { ColonySettings } from '../colony/settings';
 import { SessionRetentionSettings } from './session-retention';
+import { DayflowSettingsSection } from './DayflowSettingsSection';
 import './SettingsPage.css';
 
 type SettingsMember = WorkspaceMember & { isFacilitiesManager?: boolean };
@@ -27,6 +28,7 @@ const settingsGroups = [
   { id: 'preferences', label: 'Personal preferences' },
   { id: 'workspace', label: 'Workspace administration' },
   { id: 'local-apps', label: 'Local apps' },
+  { id: 'activity', label: 'Activity' },
   { id: 'account', label: 'Account and desktop' },
   { id: 'related', label: 'Related settings' },
 ];
@@ -188,6 +190,7 @@ export function SettingsPage() {
     { id: 'runtime', title: 'Runtime & updates', subtitle: `API ${runtime.api} · Engine ${runtime.engine}`, group: 'account' },
     { id: 'session-retention', title: 'Session cleanup', subtitle: 'Nightly trim of old tool output · This Mac', group: 'account' },
     { id: 'bot-crossing', title: 'Bot Crossing', subtitle: 'Local-only task scanning and state import', group: 'local-apps' },
+    { id: 'dayflow', title: 'Dayflow', subtitle: 'Off · Unqualified · Local candidate only', group: 'activity' },
     { id: 'agent-settings', title: 'Agent Settings', subtitle: 'AI accounts, profiles, and tool access', group: 'related' },
     { id: 'shared-agents', title: 'Shared Agents', subtitle: 'Canonical agents across OpenCode and Hermes', group: 'related' },
     { id: 'integrations', title: 'Integrations', subtitle: 'Google, Gmail, and Planning Center', group: 'related' },
@@ -357,6 +360,9 @@ export function SettingsPage() {
         break;
       case 'bot-crossing':
         content = <ColonySettings />;
+        break;
+      case 'dayflow':
+        content = <DayflowSettingsSection dayflow={gateway.domains.dayflow} />;
         break;
       default:
         content = <p className="settings-section-intro">This settings destination opens in its own workspace.</p>;

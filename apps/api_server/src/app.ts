@@ -70,6 +70,9 @@ import { agentApprovalsRouter } from './routes/agent_approvals_routes';
 import { systemRouter } from './routes/system_routes';
 import { engraphManagerRouter } from './routes/engraph_manager_routes';
 import { createMobileGatewayRouter } from './routes/mobile_gateway_routes';
+import { createAgentMemoryImportRouter } from './routes/agent_memory_import_routes';
+import { createDayflowIntegrationRouter } from './routes/dayflow_integration_routes';
+import type { DayflowManagementService } from './integrations/dayflow/public_contract';
 import { agentActivityRouter } from './routes/agent_activity_routes';
 import { creativePlatformRouter } from './routes/creative_platform_routes';
 import { setupReadinessRouter } from './routes/setup_readiness_routes';
@@ -89,8 +92,14 @@ export function isLoopbackAddress(address: string | undefined): boolean {
   return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
 }
 
-export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
+export function createApp(options: { mobileGatewayRouter?: Router; dayflowService?: DayflowManagementService } = {}) {
   const app = express();
+  const dayflowLocalSurface = Boolean(
+    options.dayflowService &&
+    env.agentExecutionEnabled &&
+    env.agentLocal &&
+    env.agentOriginGuardEnabled,
+  );
 
   app.use(localAgentSurfaceGuard);
   if (env.bridgeEnabled) {
@@ -138,6 +147,19 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
       allowedHeaders: ['Content-Type', 'Authorization', 'content-type', 'X-Signature-SHA256', 'Range', 'X-Rhythm-Project', 'X-Rhythm-Project-ID', 'X-Rhythm-Auto-Promotion-Confirmation'],
     }),
   );
+  // This specific stream parser must precede the broad JSON parser.  Its
+  // internal middleware is post-scoped so unrelated /agent-memory requests
+  // keep their existing limits and parsing behavior.
+  if (dayflowLocalSurface) {
+    app.use('/agent-memory', createAgentMemoryImportRouter({
+      executionLocal: true,
+      originGuardEnabled: true,
+    }));
+    // Dayflow owns a stricter 16 KiB JSON parser. Mount it before the broad
+    // parser below so management requests cannot inherit the 1 MiB default.
+    // Its own router retains the same local Host/Origin and loopback guards.
+    app.use('/dayflow-integration', createDayflowIntegrationRouter(options.dayflowService!));
+  }
   // Allow larger bodies for OAuth token exchange and session creation.
   // The OpenAI OAuth access token alone can exceed 4 KB; the default 100 KB
   // limit is sufficient for normal requests but we raise it to 1 MB as a

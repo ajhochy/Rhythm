@@ -34,19 +34,30 @@ export function AgentsWorkspace() {
   const [savingSettings, setSavingSettings] = useState(false);
   const updateSession: typeof updateFixtureSession = (id, patch) => {
     if (!live) { updateFixtureSession(id, patch); return; }
-    // The actions menu only uses this path for Fast; all form fields use the canonical submit below.
-    void saveSessionSettings(id, { fastMode: patch.fastMode }).catch(error => setSettingsError(error instanceof Error ? error.message : 'Settings failed'));
+    void saveSessionSettings(id, { fastMode: patch.fastMode });
   };
   const [compactLayout, setCompactLayout] = useState(() => window.matchMedia('(max-width: 900px)').matches);
   const [railWidth, setRailWidth] = useState(280);
   const [inspectorWidth, setInspectorWidth] = useState(336);
   const [railCollapsed, setRailCollapsed] = useState(compactLayout);
-  const [inspectorCollapsed, setInspectorCollapsed] = useState(compactLayout);
+  // Details is opt-in on every viewport. Keeping its mounted collapsed surface preserves the
+  // existing inspector/PTY lifecycle without narrowing the first-activation conversation pane.
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(true);
   const [sessionSettings, setSessionSettings] = useState(false);
   // Accounts/models can go stale (added/removed elsewhere) while this session is idle in the
   // background — force a refetch whenever the settings dialog that surfaces them opens.
-  const openSessionSettings = () => { void refreshCatalog({ force: true }); setSessionSettings(true); };
+  const openChatConfiguration = () => {
+    void refreshCatalog({ force: true });
+    setChatConfigurationOpen(true);
+    window.dispatchEvent(new CustomEvent('rhythm:open-chat-configuration'));
+  };
   const [prepareOpen, setPrepareOpen] = useState(false);
+  const chatMenuTriggerRef = useRef<HTMLButtonElement>(null);
+  const prepareReturnFocusRef = useRef<HTMLElement | null>(null);
+  const openPrepare = (returnFocusTo?: HTMLElement | null) => {
+    prepareReturnFocusRef.current = returnFocusTo ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    setPrepareOpen(true);
+  };
   const [selectedProject, setSelectedProject] = useState<AgentProject | null>(null);
   const [shortcutRevision, setShortcutRevision] = useState(0);
   useEffect(() => {
@@ -57,7 +68,20 @@ export function AgentsWorkspace() {
   }, []);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
+      // Native <details> toggles before React has committed its onToggle state. Claim Escape
+      // from an open message-action disclosure synchronously, otherwise a rapid Enter → Escape
+      // can fall through to the workspace cancel-turn shortcut during that render gap.
+      const openMessageActions = document.querySelector<HTMLDetailsElement>('details.message-actions[open]');
+      if (openMessageActions) {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          event.stopPropagation();
+          openMessageActions.open = false;
+          requestAnimationFrame(() => openMessageActions.querySelector<HTMLElement>('summary')?.focus());
+        }
+        return;
+      }
+      if (event.defaultPrevented || document.querySelector('dialog[open], [role="dialog"], [role="alertdialog"], [role="menu"]')) return;
       const target = event.target as HTMLElement | null;
       const editing = target?.matches('input, textarea, select, [contenteditable="true"]') && target.dataset.testid !== 'composer-input';
       if (editing) return;
@@ -105,11 +129,9 @@ export function AgentsWorkspace() {
   const [retrying, setRetrying] = useState(false);
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
   const connectionMessage = live ? retrying ? 'Reconciling session…' : liveSessionError ?? (loading ? 'Loading session…' : fixtureConnectionMessage === 'Desktop connected' ? 'Session loaded' : fixtureConnectionMessage) : fixtureConnectionMessage;
-  const [actionsOpen, setActionsOpen] = useState(false);
+  const [chatConfigurationOpen, setChatConfigurationOpen] = useState(false);
   const [resizeAnnouncement, setResizeAnnouncement] = useState('');
   const [activityAnnouncement, setActivityAnnouncement] = useState('');
-  const actionsRef = useRef<HTMLDivElement>(null);
-  const actionsTriggerRef = useRef<HTMLButtonElement>(null);
   const previousStatus = useRef(selected.status);
   const previousConnection = useRef(connectionMessage);
   // ponytail: a real workspace with zero configured agent profiles is a legitimate live state
@@ -142,7 +164,12 @@ export function AgentsWorkspace() {
     finally { setRetrying(false); }
   };
 
-  useEffect(() => { setRetrying(false); setActionsOpen(false); previousStatus.current = selected.status; previousConnection.current = connectionMessage; }, [selected.id]);
+  useEffect(() => { setRetrying(false); setChatConfigurationOpen(false); previousStatus.current = selected.status; previousConnection.current = connectionMessage; }, [selected.id]);
+  useEffect(() => {
+    const syncConfigurationVisibility = (event: Event) => setChatConfigurationOpen(Boolean((event as CustomEvent<boolean>).detail));
+    window.addEventListener('rhythm:chat-configuration-visibility', syncConfigurationVisibility);
+    return () => window.removeEventListener('rhythm:chat-configuration-visibility', syncConfigurationVisibility);
+  }, []);
   useEffect(() => {
     if (previousStatus.current === 'working' && selected.status !== 'working') setActivityAnnouncement('Agent response complete.');
     previousStatus.current = selected.status;
@@ -170,19 +197,6 @@ export function AgentsWorkspace() {
     query.addEventListener('change', change);
     return () => query.removeEventListener('change', change);
   }, []);
-  useEffect(() => {
-    if (!actionsOpen) return;
-    const close = (event: MouseEvent) => { if (!actionsRef.current?.contains(event.target as Node)) setActionsOpen(false); };
-    const key = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      setActionsOpen(false);
-      actionsTriggerRef.current?.focus();
-    };
-    document.addEventListener('mousedown', close);
-    document.addEventListener('keydown', key);
-    requestAnimationFrame(() => actionsRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus());
-    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', key); };
-  }, [actionsOpen]);
   const resizeRail = useCallback((size: number) => { setRailWidth(size); setResizeAnnouncement(`Sessions rail width ${size} pixels`); }, []);
   const resizeInspector = useCallback((size: number) => { setInspectorWidth(size); setResizeAnnouncement(`Inspector width ${size} pixels`); }, []);
   const toggleRail = () => {
@@ -197,15 +211,13 @@ export function AgentsWorkspace() {
       return !value;
     });
   };
-  const moveActionsFocus = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-    const items = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemcheckbox"]')];
-    if (!items.length) return;
-    event.preventDefault();
-    const current = Math.max(0, items.indexOf(document.activeElement as HTMLElement));
-    const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
-    items[next]?.focus();
-  };
+  const secondaryChatActions = (closeConfigurationThen: (action: () => void) => void) => <>
+    <button type="button" className="secondary-button" onClick={() => closeConfigurationThen(() => { void refreshCatalog({ force: true }); setSessionSettings(true); })} data-testid="session-actions-session-defaults"><Icon name="rename" size={14} />Session defaults and account</button>
+    <button type="button" className="secondary-button" disabled={lifecycleDisabled} onClick={() => closeConfigurationThen(() => { void compactSession(); })} data-testid="session-actions-compact"><Icon name="spark" size={14} />Compact session</button>
+    <button type="button" className="secondary-button" disabled={lifecycleDisabled} onClick={() => closeConfigurationThen(() => openPrepare(chatMenuTriggerRef.current))} data-testid="session-actions-prepare"><Icon name="worktree" size={14} />Prepare project for agents</button>
+    <button type="button" className="secondary-button" disabled={live && (!selected.id || readOnlyChild)} onClick={() => closeConfigurationThen(() => archiveSession(selected.id))} data-testid="session-actions-archive"><Icon name="archive" size={14} />Archive session</button>
+    <button type="button" className="secondary-button" onClick={() => closeConfigurationThen(() => notify('Session view closed; selection remains in the rail'))} data-testid="session-actions-close"><Icon name="close" size={14} />Close session view</button>
+  </>;
 
   // #1374 — remote attach replaces the whole workspace surface rather than nesting inside the
   // local conversation-pane grid, so the local session header/transcript/composer rows this
@@ -227,7 +239,7 @@ export function AgentsWorkspace() {
             <ProfileAvatar profile={profile} />
             <div className="session-title-copy">
               {readOnlyChild && <button className="child-breadcrumb" type="button" onClick={backToParent} aria-label={`Back to parent session ${sessionLabel(parent ?? selected).label}`} data-testid="child-back"><Icon name="chevronRight" className="rotate-180" size={12} />{parent ? parent.name : selected.name}</button>}
-              <div className="identity-line"><strong>{profile.label}</strong>{selected.account && <button type="button" onClick={openSessionSettings}>{selected.account}<Icon name="chevronDown" size={11} /></button>}<span className={`status-label ${presentation.tone}`}><i />{presentation.label}</span></div>
+              <div className="identity-line"><strong>{profile.label}</strong>{selected.account && <button type="button" onClick={openChatConfiguration}>{selected.account}<Icon name="chevronDown" size={11} /></button>}<span className={`status-label ${presentation.tone}`}><i />{presentation.label}</span></div>
               <h1 className={!liveChildView && sessionLabel(selected).fallback ? 'session-name-fallback' : undefined}>{liveChildView ? liveChildView.title : sessionLabel(selected).label}</h1>
               <div className="session-meta"><span><Icon name="branch" size={13} />{selected.branch}</span>{selected.dirtyCount > 0 && <span className="dirty-badge">{selected.dirtyCount} changed</span>}{selected.isolateWorktree && <span className="worktree-badge"><Icon name="worktree" size={12} />worktree</span>}{readOnlyChild && <span className="readonly-badge">Read only</span>}<span className="session-connection" aria-live="polite" data-testid="connection-status"><i className={`status-dot ${connectionMessage.toLowerCase().includes('offline') || connectionMessage.toLowerCase().includes('unavailable') ? 'offline' : 'working'}`} />{connectionMessage}</span></div>
               {resumeGone && resumeGone.id === selected.id && <div className="form-error" role="alert" data-testid="resume-gone-alert"><p>{resumeGone.message}</p><button className="secondary-button" type="button" disabled={lifecycleBusy} onClick={async () => { setLifecycleBusy(true); try { await startFreshSession(selected.id); } finally { setLifecycleBusy(false); } }}>Start fresh</button></div>}
@@ -238,20 +250,21 @@ export function AgentsWorkspace() {
             {sessionCost > 0 && <span className="session-cost" title="Total loaded session cost" data-testid="session-cost">{formatCost(sessionCost)}</span>}
             {recoverableConnection && <button className="secondary-button compact" type="button" disabled={retrying} onClick={() => void retryConnection()} data-testid="session-retry"><Icon name="refresh" className={retrying ? 'spin' : ''} size={14} />{retrying ? 'Retrying' : 'Reconnect'}</button>}
             <button className="icon-button small" type="button" disabled={lifecycleDisabled} onClick={() => void compactSession()} aria-label="Compact session" title="Compact session" data-testid="session-compact"><Icon name="spark" size={15} /></button>
-            <button className="secondary-button prepare-button" type="button" disabled={lifecycleDisabled} onClick={() => setPrepareOpen(true)} data-testid="prepare-project" aria-label="Prepare project for agents" title="Prepare project for agents"><Icon name="worktree" size={14} /><span>Prepare project</span></button>
-            <div className="menu-anchor" ref={actionsRef}><button ref={actionsTriggerRef} className="icon-button small" type="button" aria-label="Session actions" aria-haspopup="menu" aria-expanded={actionsOpen} onClick={() => setActionsOpen((value) => !value)} data-testid="session-actions"><Icon name="more" size={16} /></button>{actionsOpen && <div className="menu-popover session-actions-menu" role="menu" aria-label="Session actions" onKeyDown={moveActionsFocus}><button role="menuitem" type="button" className="menu-item" onClick={() => { setActionsOpen(false); openSessionSettings(); }} data-testid="session-actions-settings"><Icon name="rename" size={14} />Agent, model and session settings</button><button role="menuitemcheckbox" aria-checked={selected.fastMode} type="button" className="menu-item" onClick={() => { updateSession(selected.id, { fastMode: !selected.fastMode }); setActionsOpen(false); }} data-testid="session-actions-fast"><Icon name="activity" size={14} />{selected.fastMode ? 'Disable Fast mode' : 'Enable Fast mode'}</button><button role="menuitem" type="button" className="menu-item" disabled={lifecycleDisabled} onClick={() => { void compactSession(); setActionsOpen(false); }} data-testid="session-actions-compact"><Icon name="spark" size={14} />Compact session</button><button role="menuitem" type="button" className="menu-item" disabled={lifecycleDisabled} onClick={() => { setActionsOpen(false); setPrepareOpen(true); }} data-testid="session-actions-prepare"><Icon name="worktree" size={14} />Prepare project for agents</button><button role="menuitem" type="button" className="menu-item" disabled={live && (!selected.id || readOnlyChild)} onClick={() => { archiveSession(selected.id); setActionsOpen(false); }}><Icon name="archive" size={14} />Archive session</button><button role="menuitem" type="button" className="menu-item" onClick={() => { notify('Session view closed; selection remains in the rail'); setActionsOpen(false); }}><Icon name="close" size={14} />Close session view</button></div>}</div>
+            <button className="secondary-button prepare-button" type="button" disabled={lifecycleDisabled} onClick={() => openPrepare()} data-testid="prepare-project" aria-label="Prepare project for agents" title="Prepare project for agents"><Icon name="worktree" size={14} /><span>Prepare project</span></button>
+            <button className="secondary-button compact" type="button" onClick={toggleInspector} aria-expanded={!inspectorCollapsed} aria-controls="session-inspector" data-testid="session-details">Details</button>
+            <button ref={chatMenuTriggerRef} className="icon-button small" type="button" aria-label="Chat menu" aria-haspopup="dialog" aria-expanded={chatConfigurationOpen} onClick={openChatConfiguration} data-testid="session-actions"><Icon name="more" size={16} /></button>
           </div>
         </header>
         <span className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="agent-activity-status">{activityAnnouncement}</span>
         <div className="transcript-reader"><Transcript /></div>
-        {!liveChildView && <Composer />}
+        {!liveChildView && <Composer renderSecondaryChatActions={secondaryChatActions} />}
         </>}
       </section>
       {!inspectorCollapsed && <Splitter orientation="vertical" storageKey="layout.agents.inspector" min={286} max={470} defaultSize={336} onResize={resizeInspector} ariaLabel="Resize Inspector" resizeEdge="end" className="inspector-resize" testId="inspector-resizer" />}
       {selectedProject ? <aside className={`inspector${inspectorCollapsed ? ' collapsed' : ''}`} aria-label="Project context" /> : <Inspector collapsed={inspectorCollapsed} onToggle={toggleInspector} />}
       <span className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="panel-resize-status">{resizeAnnouncement}</span>
 
-      <FocusDialog open={sessionSettings} onClose={() => setSessionSettings(false)} title="Session settings" description="Update the fields supported by PATCH /agent-sessions/:id." testId="session-settings-dialog" wide>
+      <FocusDialog open={sessionSettings} onClose={() => setSessionSettings(false)} title="Session settings" description="Update the fields supported by PATCH /agent-sessions/:id." testId="session-settings-dialog" wide returnFocusTo={chatMenuTriggerRef.current}>
         <form className="form-grid" onSubmit={(event) => {
           event.preventDefault(); if (savingSettings) return;
           const data = new FormData(event.currentTarget);
@@ -277,7 +290,7 @@ export function AgentsWorkspace() {
           <footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setSessionSettings(false)}>Cancel</button><button className="primary-button" type="submit" disabled={savingSettings || live && (!selected.id || readOnlyChild)} data-testid="save-session-settings">{savingSettings ? 'Saving…' : 'Save settings'}</button></footer>
         </form>
       </FocusDialog>
-      <FocusDialog open={prepareOpen} onClose={() => setPrepareOpen(false)} title="Prepare project for agents" description="Initialize project instructions through POST /agent-sessions/:id/init." testId="prepare-project-dialog">{live ? <p>The configured model will inspect this project and write instructions. This can use provider tokens and modify AGENTS.md.</p> : <div className="prepare-list"><span><Icon name="check" />Git repository available</span><span><Icon name="check" />Worktree can be isolated</span><span><Icon name="check" />AGENTS.md discovered</span></div>}<div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setPrepareOpen(false)}>Cancel</button><button className="primary-button" type="button" disabled={lifecycleDisabled} onClick={() => void prepareProject()} data-testid="confirm-prepare-project">{lifecycleBusy ? 'Preparing…' : 'Prepare project'}</button></div></FocusDialog>
+      <FocusDialog open={prepareOpen} onClose={() => setPrepareOpen(false)} title="Prepare project for agents" description="Initialize project instructions through POST /agent-sessions/:id/init." testId="prepare-project-dialog" returnFocusTo={prepareReturnFocusRef.current}>{live ? <p>The configured model will inspect this project and write instructions. This can use provider tokens and modify AGENTS.md.</p> : <div className="prepare-list"><span><Icon name="check" />Git repository available</span><span><Icon name="check" />Worktree can be isolated</span><span><Icon name="check" />AGENTS.md discovered</span></div>}<div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setPrepareOpen(false)}>Cancel</button><button className="primary-button" type="button" disabled={lifecycleDisabled} onClick={() => void prepareProject()} data-testid="confirm-prepare-project">{lifecycleBusy ? 'Preparing…' : 'Prepare project'}</button></div></FocusDialog>
     </section>
   );
 }

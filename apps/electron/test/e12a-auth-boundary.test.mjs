@@ -13,7 +13,7 @@ const decision = { approvalId: 'approval-1', status: 'approved', decisionNonce: 
 const tick = () => new Promise((r) => setImmediate(r));
 
 // Real main + config + preload; fake only Electron, OAuth browser interaction, signer and I/O.
-async function host(t, immediateLogin = false, Notification = { isSupported: () => false }, onInitialBridge, initialSession) {
+async function host(t, immediateLogin = false, Notification = { isSupported: () => false }, onInitialBridge, initialSession, options = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'rhythm-e12a-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const handlers = new Map(), listeners = new Map(), protocols = new Map();
@@ -24,7 +24,7 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
   let quits = 0, exits = 0;
   const app = Object.assign(new EventEmitter(), {
     getPath: () => directory, requestSingleInstanceLock: () => true, isReady: () => false,
-    whenReady: async () => {}, getVersion: () => 'test', quit() { quits += 1; }, exit() { exits += 1; },
+    setPath() {}, whenReady: async () => {}, getVersion: () => 'test', quit() { quits += 1; }, exit() { exits += 1; },
   });
   if (initialSession) {
     await writeFile(join(directory, 'auth-session.bin'), Buffer.from(JSON.stringify({ productionApiBase: A, sessionToken: initialSession, user: { id: 1 } })));
@@ -72,18 +72,25 @@ async function host(t, immediateLogin = false, Notification = { isSupported: () 
     onStatusChange() {}
     async start() { starts.push(this.options?.relayConfigurationProvider?.()); }
   }
-  const context = createContext({ process: Object.assign(new EventEmitter(), { argv: [], env: { RHYTHM_PRODUCTION_API_URL: A }, resourcesPath: join(directory, 'Resources'), cwd: () => directory, stderr: { write(message) { throw new Error(message); } } }), URL, Response, Headers, console,
+  const safeStorage = options.safeStorage ?? { isEncryptionAvailable: () => true, encryptString: (value) => Buffer.from(value), decryptString: (value) => value.toString() };
+  const signer = options.signer ?? { capability: async () => 'capability', signDecision: async (value) => { signed.push(value); return { signature: 'signature' }; } };
+  const interactiveSmoke = options.interactiveSmoke === true;
+  const context = createContext({ process: Object.assign(new EventEmitter(), {
+    argv: interactiveSmoke ? ['--interactive-smoke'] : [],
+    env: { RHYTHM_PRODUCTION_API_URL: A, ...(interactiveSmoke ? { RHYTHM_SHELL_USER_DATA: directory } : {}) },
+    resourcesPath: join(directory, 'Resources'), cwd: () => directory, stderr: { write(message) { throw new Error(message); } },
+  }), URL, Response, Headers, console,
     fetch: async (url, init) => { requests.push({ url, bearer: new Headers(init?.headers).get('authorization') }); return new Response('<html></html>'); },
   });
   const file = new URL('../src/main.mjs', import.meta.url);
   const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = directory; } });
   await module.link(async (name) => {
     let values;
-    if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on: (key, fn) => listeners.set(key, fn), handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification, protocol: { registerSchemesAsPrivileged() {}, handle: (key, fn) => protocols.set(key, fn) }, safeStorage: { isEncryptionAvailable: () => true, encryptString: (value) => Buffer.from(value), decryptString: (value) => value.toString() }, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: { openExternal(url) { opened.push(url); } }, dialog: { showErrorBox() {} } };
+    if (name === 'electron') values = { app, BrowserWindow: Window, ipcMain: { on: (key, fn) => listeners.set(key, fn), handle: (key, fn) => handlers.set(key, fn) }, net: {}, Notification, protocol: { registerSchemesAsPrivileged() {}, handle: (key, fn) => protocols.set(key, fn) }, safeStorage, session: { defaultSession: Object.assign(new EventEmitter(), { setPermissionRequestHandler() {} }) }, shell: { openExternal(url) { opened.push(url); } }, dialog: { showErrorBox() {} } };
     else if (name === './agent-server.mjs') values = { AgentServerService: Server, AGENT_SERVER_BASE_URL: 'http://127.0.0.1:4001', AGENT_SERVER_ENGINE_PORT: 4096, electronDbPath: () => join(directory, 'electron.db'), legacyFlutterDbPath: () => join(directory, 'legacy.db') };
     else if (name === './hermes-server.mjs') values = { createHermesSupervisor: () => ({ getStatus: () => ({ state: 'disabled', port: 9121, url: 'http://127.0.0.1:9121' }), onStatus() {}, async start() {}, async stop() {} }) };
     else if (name === './desktop-google-oauth.mjs') values = { runDesktopGoogleOAuth: (options) => new Promise((resolve) => { logins.push({ options, resolve }); if (immediateLogin) resolve({ sessionToken: 'unexpected', user: { id: 1 } }); }) };
-    else if (name === './human-approval-main-signer.mjs') values = { capability: async () => 'capability', signDecision: async (value) => { signed.push(value); return { signature: 'signature' }; } };
+    else if (name === './human-approval-main-signer.mjs') values = signer;
     else { values = { ...await import(name.startsWith('.') ? new URL(name, file).href : name) }; if (name === 'node:fs') values.existsSync = () => true; }
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
   });
@@ -118,6 +125,63 @@ test('relay restoration: main supplies the persisted cloud session only at owned
   assert.equal(relayConfiguration.token, 'new-session');
   assert.equal(relayConfiguration.productionApiBase, A);
   assert.equal(h.starts.length, 1);
+});
+
+test('secure-storage startup: an absent auth record stays signed out without touching safeStorage', async (t) => {
+  let encryptionAvailabilityCalls = 0, decryptCalls = 0;
+  const h = await host(t, false, undefined, undefined, undefined, {
+    safeStorage: {
+      isEncryptionAvailable() { encryptionAvailabilityCalls += 1; throw new Error('native secure storage must not be touched'); },
+      encryptString() { throw new Error('unexpected encryption'); },
+      decryptString() { decryptCalls += 1; throw new Error('unexpected decryption'); },
+    },
+  });
+  assert.equal(encryptionAvailabilityCalls, 0);
+  assert.equal(decryptCalls, 0);
+  assert.equal(h.agentServerOptions.relayConfigurationProvider().token, undefined);
+});
+
+test('secure-storage startup: a saved protected record retains encrypted restoration', async (t) => {
+  let encryptionAvailabilityCalls = 0, decryptCalls = 0;
+  const h = await host(t, false, undefined, undefined, 'protected-session', {
+    safeStorage: {
+      isEncryptionAvailable() { encryptionAvailabilityCalls += 1; return true; },
+      encryptString: (value) => Buffer.from(value),
+      decryptString(value) { decryptCalls += 1; return value.toString(); },
+    },
+  });
+  assert.ok(encryptionAvailabilityCalls > 0);
+  assert.ok(decryptCalls > 0);
+  assert.equal(h.agentServerOptions.relayConfigurationProvider().token, 'protected-session');
+});
+
+test('human approval: an unowned interactive runtime rejects before native signer use', async (t) => {
+  let capabilityCalls = 0, signingCalls = 0;
+  const h = await host(t, false, undefined, undefined, undefined, {
+    interactiveSmoke: true,
+    signer: {
+      capability: async () => { capabilityCalls += 1; return 'unexpected-capability'; },
+      signDecision: async () => { signingCalls += 1; return { signature: 'unexpected-signature' }; },
+    },
+  });
+  await assert.rejects(async () => h.handlers.get('rhythm:human-approval:capability')(h.event()), /runtime_unowned/);
+  await assert.rejects(async () => h.handlers.get('rhythm:human-approval:sign-decision')(h.event(), decision), /runtime_unowned/);
+  assert.equal(capabilityCalls, 0);
+  assert.equal(signingCalls, 0);
+});
+
+test('human approval: an owned runtime retains the protected signer boundary', async (t) => {
+  let capabilityCalls = 0, signingCalls = 0;
+  const h = await host(t, false, undefined, undefined, undefined, {
+    signer: {
+      capability: async () => { capabilityCalls += 1; return 'owned-capability'; },
+      signDecision: async (value) => { signingCalls += 1; return { signature: `owned:${value.approvalId}` }; },
+    },
+  });
+  assert.equal(await h.handlers.get('rhythm:human-approval:capability')(h.event()), 'owned-capability');
+  assert.deepEqual(await h.handlers.get('rhythm:human-approval:sign-decision')(h.event(), decision), { signature: 'owned:approval-1' });
+  assert.equal(capabilityCalls, 1);
+  assert.equal(signingCalls, 1);
 });
 
 test('e12a-c1: selected server reaches the real desktop token/session exchange, not the build default', async (t) => {
