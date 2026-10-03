@@ -13,6 +13,10 @@ import {
   formatActor,
 } from '../services/memory_note_format';
 import { logger } from '../utils/logger';
+import {
+  ManagedMemorySearchRefusal,
+  type ManagedMemorySearchService,
+} from '../services/managed_workstream_evidence_capture';
 
 const repo = new AgentMemoryRepository();
 const sessionsRepo = new AgentSessionsRepository();
@@ -46,6 +50,8 @@ function resolveHumanActor(req: Request): {
 }
 
 export class AgentMemoryController {
+  constructor(private readonly managedMemorySearch?: ManagedMemorySearchService) {}
+
   async list(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = req.auth?.user.id;
@@ -91,6 +97,37 @@ export class AgentMemoryController {
       const results = await agentMemoryService.search(q, userId, limit);
       res.json(results);
     } catch (err) { next(err); }
+  }
+
+  async searchManaged(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!this.managedMemorySearch) throw AppError.notFound('Managed memory search');
+      if (!req.auth) throw AppError.unauthorized();
+      res.json(await this.managedMemorySearch.search(req.auth, req.body));
+    } catch (err) {
+      next(err instanceof ManagedMemorySearchRefusal
+        ? AppError.forbidden('Managed memory search refused')
+        : err);
+    }
+  }
+
+  /**
+   * Shared-process selector.  It returns only private routing metadata; the
+   * MCP tool performs the unchanged ordinary search when this says ordinary.
+   */
+  async selectManagedOrOrdinary(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.auth) throw AppError.unauthorized();
+      if (!this.managedMemorySearch) {
+        res.json({ schemaVersion: 1, mode: 'ordinary' });
+        return;
+      }
+      res.json(await this.managedMemorySearch.select(req.auth, req.body));
+    } catch (err) {
+      next(err instanceof ManagedMemorySearchRefusal
+        ? AppError.forbidden('Managed memory search refused')
+        : err);
+    }
   }
 
   /**

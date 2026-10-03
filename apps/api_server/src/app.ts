@@ -55,7 +55,7 @@ import { streamBridge } from './services/opencode_stream_bridge';
 import { buildOpencodeHealthPayload } from './services/opencode_health';
 import { requireAuth } from './middleware/auth_middleware';
 import agentSchedulesRouter from './routes/agentSchedulesRoutes';
-import agentMemoryRouter from './routes/agentMemoryRoutes';
+import { createAgentMemoryRouter } from './routes/agentMemoryRoutes';
 import agentDecisionsRouter from './routes/agent_decisions_routes';
 import agentWebhookRouter from './routes/agentWebhookRoutes';
 import agentResearchRouter from './routes/agentResearchRoutes';
@@ -87,12 +87,20 @@ import {
 import { createAgentBridgeRouter } from './routes/agent_bridge_routes';
 import { sharedAgentsCatalogRouter } from './shared_agents/bridge/catalog';
 import { requireLocalOrCloudAuth } from './middleware/auth_middleware';
+import { createAgentWorkstreamsRouter } from './routes/agent_workstreams_routes';
+import type { ManagedMemorySearchService } from './services/managed_workstream_evidence_capture';
+import type { PersistentWorkstreamCoordinator } from './services/persistent_workstream_coordinator';
 
 export function isLoopbackAddress(address: string | undefined): boolean {
   return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
 }
 
-export function createApp(options: { mobileGatewayRouter?: Router; dayflowService?: DayflowManagementService } = {}) {
+export function createApp(options: {
+  mobileGatewayRouter?: Router;
+  dayflowService?: DayflowManagementService;
+  managedMemorySearch?: ManagedMemorySearchService;
+  workstreamCoordinator?: PersistentWorkstreamCoordinator;
+} = {}) {
   const app = express();
   const dayflowLocalSurface = Boolean(
     options.dayflowService &&
@@ -263,6 +271,7 @@ export function createApp(options: { mobileGatewayRouter?: Router; dayflowServic
     // Same agent-execution gate as its sibling agent routes: the hosted 'cloud'
     // role never runs agents, so it has no run outcomes to serve.
     app.use('/agent-run-outcomes', runOutcomeRouter);
+    app.use('/agent-workstreams', createAgentWorkstreamsRouter(options.workstreamCoordinator));
     app.use('/agents/models', agentsModelsRouter);
     app.use('/agent-configs', agentConfigsRouter);
     if (env.bridgeEnabled) {
@@ -277,7 +286,9 @@ export function createApp(options: { mobileGatewayRouter?: Router; dayflowServic
     // agent server on :4001). #1219 restores role-gated Postgres schema parity
     // for agent-execution deployments, but does not expose this router outside
     // the execution gate or change the vault's canonical authority.
-    app.use('/agent-memory', agentMemoryRouter);
+    app.use('/agent-memory', createAgentMemoryRouter({
+      managedMemorySearch: options.managedMemorySearch,
+    }));
     // Local decision engine rollout stats. LOCAL-ONLY like /agent-memory: it is
     // registered only inside this agent-execution gate and reads the SQLite-only
     // agent_decision_log (prompt previews never reach Postgres).

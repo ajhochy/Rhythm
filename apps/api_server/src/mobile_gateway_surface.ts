@@ -29,6 +29,12 @@ function isPhoneGatewayRoute(method: string, path: string): boolean {
   if (method === 'GET' && path === '/mobile-gateway/chat-catalog') {
     return true;
   }
+  if (
+    ['GET', 'POST', 'PATCH'].includes(method) &&
+    /^\/mobile-gateway\/workstreams(?:\/[^/]+(?:\/(?:run-next|pause|resume|cancel|usage-acknowledgement|reconcile-unknown|evidence)|\/criteria\/(?:waive|waive-batch|verify))?)?$/.test(path)
+  ) {
+    return true;
+  }
   if (method === 'GET' && /^\/mobile-gateway\/artifacts\/[^/]+$/.test(path)) {
     return true;
   }

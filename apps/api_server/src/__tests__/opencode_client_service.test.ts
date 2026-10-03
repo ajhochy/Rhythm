@@ -1,6 +1,29 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import Database from 'better-sqlite3';
+import { afterAll, beforeAll, describe, it, expect, beforeEach, vi } from 'vitest';
+import { setDb } from '../database/db';
+import { runMigrations } from '../database/migrations';
 import { OpencodeClientService } from '../services/opencode_client_service';
 import { OpencodeAuthStore } from '../services/opencode_auth_store';
+
+// Prompt wrapper cases are ordinary only after a positive empty-ledger lookup.
+// Keep that production boundary intact rather than treating a missing test DB
+// as proof that an SDK session was never managed.
+let boundaryDb: Database.Database | null = null;
+let previousDb: Database.Database | null = null;
+
+beforeAll(() => {
+  boundaryDb = new Database(':memory:');
+  boundaryDb.pragma('foreign_keys = ON');
+  runMigrations(boundaryDb);
+  previousDb = setDb(boundaryDb);
+});
+
+afterAll(() => {
+  setDb(previousDb);
+  if (boundaryDb?.open) boundaryDb.close();
+  boundaryDb = null;
+  previousDb = null;
+});
 
 function makeService(stubClient: Record<string, unknown>): OpencodeClientService {
   const svc = new OpencodeClientService();

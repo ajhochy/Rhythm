@@ -614,6 +614,9 @@ export const env = {
    * execution.
    */
   recipeWorkflowsEnabled: process.env.RHYTHM_RECIPE_WORKFLOWS_ENABLED === 'true',
+  workstreamsEnabled:
+    process.env.RHYTHM_WORKSTREAMS_ENABLED === 'true' &&
+    dbClientValue === 'sqlite' && deploymentRole !== 'cloud' && deploymentRole !== 'relay',
   /** True only for the Synology relay container (RHYTHM_ROLE=relay). */
   isRelayRole: deploymentRole === 'relay',
   /**

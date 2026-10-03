@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 
+import { env } from '../config/env';
+
 import { MobileGatewayController } from '../controllers/mobile_gateway_controller';
 import { AgentActivityController } from '../controllers/agent_activity_controller';
 import { AppError } from '../errors/app_error';
@@ -43,6 +45,23 @@ import {
 import { createMobileToolsRouter } from './mobile_tools_routes';
 import { MediaArtifactsController } from '../controllers/media_artifacts_controller';
 import { listOwnerUnscopedMobileChats } from '../services/mobile_chat_catalog';
+import type { AuthContext } from '../middleware/auth_middleware';
+import {
+  parseCancel,
+  parseCriteriaBatch,
+  parseCheckpoint,
+  parseCriterionWaiver,
+  parseCreate,
+  parsePatch,
+  parsePause,
+  parseResume,
+  parseRunNextForProject,
+  parseUsageAcknowledgement,
+  parseEvidenceSelector,
+  parseEvidenceVerification,
+} from '../contracts/agent_workstream_contract';
+import { AgentWorkstreamsRepository } from '../repositories/agent_workstreams_repository';
+import type { PersistentWorkstreamCoordinator } from '../services/persistent_workstream_coordinator';
 
 export { buildSafeMobileProfileCatalog };
 export { canUpdateMobileSessionState };
@@ -60,6 +79,7 @@ function catalogInteger(
 export interface MobileGatewayRouterDependencies {
   opencodeProxy?: MobileOpenCodeProxy;
   sseProxy?: MobileSseProxy;
+  workstreamCoordinator?: PersistentWorkstreamCoordinator;
 }
 
 export function createMobileGatewayRouter(dependencies: MobileGatewayRouterDependencies = {}): Router {
@@ -73,8 +93,33 @@ export function createMobileGatewayRouter(dependencies: MobileGatewayRouterDepen
   const tailscaleServe = new TailscaleServeService();
   const mediaArtifacts = new MediaArtifactsController();
   const requireArtifactProjectScope = requireMobileProjectScope();
+  const workstreamCoordinator = dependencies.workstreamCoordinator;
+  const workstreams = new AgentWorkstreamsRepository();
   const getPairingService = (): MobilePairingService =>
     getMobilePairingService();
+
+  // A paired device is already authenticated by a bearer-equivalent device
+  // credential.  The coordinator needs only a non-empty proof and the owner
+  // id; this synthetic marker is never persisted, logged, or exposed and does
+  // not inspect the device token itself.
+  const mobileWorkstreamAuth = (req: Request): AuthContext => {
+    if (!req.mobileDevice || !Number.isSafeInteger(req.mobileDevice.userId)) {
+      throw AppError.unauthorized('Mobile device authentication is required');
+    }
+    return {
+      sessionToken: `mobile-device:${req.mobileDevice.id}`,
+      user: { id: req.mobileDevice.userId } as AuthContext['user'],
+    };
+  };
+  const mobileWorkstreamProject = (req: Request): string => {
+    const projectId = req.mobileProject?.id;
+    if (!projectId) throw AppError.badRequest('A registered mobile project is required for workstreams');
+    return projectId;
+  };
+  const requireWorkstreamCoordinator = (): PersistentWorkstreamCoordinator => {
+    if (!env.workstreamsEnabled || !workstreamCoordinator) throw AppError.notFound('Workstream coordinator');
+    return workstreamCoordinator;
+  };
 
   const getController = (): MobileGatewayController => {
     if (controller) return controller;
@@ -230,6 +275,217 @@ export function createMobileGatewayRouter(dependencies: MobileGatewayRouterDepen
       } catch (error) {
         next(error instanceof AppError ? error : AppError.internal());
       }
+    },
+  );
+  // Mobile is a projection of the same coordinator, not a second queue or
+  // session runner.  Every action below resolves the paired device's owner
+  // and registered project before calling the shared durable authority.
+  router.get(
+    '/workstreams',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    async (req, res, next) => {
+      try {
+        const limitRaw = new URL(req.originalUrl, 'http://mobile.local').searchParams.get('limit');
+        const limit = limitRaw === null ? 50 : Number(limitRaw);
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+          throw AppError.badRequest('limit must be 1..100');
+        }
+        const cursor = new URL(req.originalUrl, 'http://mobile.local').searchParams.get('cursor') ?? undefined;
+        if (cursor !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(cursor)) {
+          throw AppError.badRequest('invalid cursor');
+        }
+        res.json(await requireWorkstreamCoordinator().list(
+          mobileWorkstreamAuth(req), mobileWorkstreamProject(req), limit, cursor,
+        ));
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.post(
+    '/workstreams',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    (req, res, next) => {
+      try {
+        requireWorkstreamCoordinator();
+        const scope = mobileWorkstreamProject(req);
+        const input = parseCreate(req.body);
+        if (input.projectId !== scope) throw AppError.badRequest('projectId must match the selected mobile project');
+        const created = workstreams.create(mobileWorkstreamAuth(req).user.id, input);
+        if (created.conflict) {
+          res.status(409).json({ error: 'create_key_conflict' });
+          return;
+        }
+        res.status(created.replay ? 200 : 201).json(created.row);
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.get(
+    '/workstreams/:id',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    async (req, res, next) => {
+      try {
+        res.json(await requireWorkstreamCoordinator().status(
+          mobileWorkstreamAuth(req), mobileWorkstreamProject(req), req.params.id,
+        ));
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.get(
+    '/workstreams/:id/evidence',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    async (req, res, next) => {
+      try {
+        const sourceId = new URL(req.originalUrl, 'http://mobile.local').searchParams.get('sourceId');
+        res.json(await requireWorkstreamCoordinator().inspectEvidence(
+          mobileWorkstreamAuth(req), mobileWorkstreamProject(req), req.params.id, parseEvidenceSelector(sourceId),
+        ));
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.patch(
+    '/workstreams/:id',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    (req, res, next) => {
+      try {
+        requireWorkstreamCoordinator();
+        const auth = mobileWorkstreamAuth(req);
+        const scope = mobileWorkstreamProject(req);
+        const existing = workstreams.find(auth.user.id, scope, req.params.id);
+        if (!existing) throw AppError.notFound('Workstream');
+        const patch = parsePatch(req.body);
+        if (patch.checkpoint !== undefined) patch.checkpoint = parseCheckpoint(patch.checkpoint, scope);
+        const revised = workstreams.revise(auth.user.id, scope, req.params.id, patch.expectedRevision, patch);
+        if (!revised) throw AppError.conflict('workstream revision changed; refresh before editing');
+        res.json(revised);
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.post(
+    '/workstreams/:id/run-next',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    async (req, res, next) => {
+      try {
+        const coordinator = requireWorkstreamCoordinator();
+        const scope = mobileWorkstreamProject(req);
+        res.json(await coordinator.runNext(
+          mobileWorkstreamAuth(req), scope, req.params.id,
+          parseRunNextForProject(req.body, scope),
+        ));
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.post(
+    '/workstreams/:id/pause',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    async (req, res, next) => {
+      try {
+        res.json(await requireWorkstreamCoordinator().pause(
+          mobileWorkstreamAuth(req), mobileWorkstreamProject(req), req.params.id,
+          parsePause(req.body),
+        ));
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.post(
+    '/workstreams/:id/resume',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    async (req, res, next) => {
+      try {
+        res.json(await requireWorkstreamCoordinator().resume(
+          mobileWorkstreamAuth(req), mobileWorkstreamProject(req), req.params.id,
+          parseResume(req.body),
+        ));
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.post(
+    '/workstreams/:id/cancel',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    async (req, res, next) => {
+      try {
+        const parsed = parseCancel(req.body);
+        res.json(await requireWorkstreamCoordinator().cancel(
+          mobileWorkstreamAuth(req), mobileWorkstreamProject(req), req.params.id,
+          parsed.expectedRevision, parsed.jobId,
+        ));
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.post(
+    '/workstreams/:id/usage-acknowledgement',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    async (req, res, next) => {
+      try {
+        const parsed = parseUsageAcknowledgement(req.body);
+        res.json(await requireWorkstreamCoordinator().acknowledgeUsageEstimate(
+          mobileWorkstreamAuth(req), mobileWorkstreamProject(req), req.params.id,
+          parsed.expectedRevision, parsed.jobId, parsed.accept,
+        ));
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.post(
+    '/workstreams/:id/reconcile-unknown',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    async (req, res, next) => {
+      try {
+        const parsed = parseCancel(req.body);
+        res.json(await requireWorkstreamCoordinator().reconcileUnknownFromEngine(
+          mobileWorkstreamAuth(req), mobileWorkstreamProject(req), req.params.id,
+          parsed.expectedRevision, parsed.jobId,
+        ));
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.post(
+    '/workstreams/:id/criteria/waive',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    async (req, res, next) => {
+      try {
+        const parsed = parseCriterionWaiver(req.body);
+        res.json(await requireWorkstreamCoordinator().waiveCriterion(
+          mobileWorkstreamAuth(req), mobileWorkstreamProject(req), req.params.id,
+          parsed.expectedRevision, parsed.jobId, parsed.criterionId,
+        ));
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.post(
+    '/workstreams/:id/criteria/waive-batch',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    async (req, res, next) => {
+      try {
+        const parsed = parseCriteriaBatch(req.body);
+        res.json(await requireWorkstreamCoordinator().waiveCriteria(
+          mobileWorkstreamAuth(req), mobileWorkstreamProject(req), req.params.id,
+          parsed.expectedRevision, parsed.jobId, parsed.criterionIds,
+        ));
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.post(
+    '/workstreams/:id/criteria/verify',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    async (req, res, next) => {
+      try {
+        res.json(await requireWorkstreamCoordinator().verifyCriteriaFromEvidence(
+          mobileWorkstreamAuth(req), mobileWorkstreamProject(req), req.params.id,
+          parseEvidenceVerification(req.body),
+        ));
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
     },
   );
   router.get(

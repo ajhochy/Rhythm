@@ -11,9 +11,33 @@
  * Contract file: docs/ai/contracts/issue-685.json
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import Database from 'better-sqlite3';
+import { afterAll, beforeAll, describe, it, expect, vi, beforeEach } from 'vitest';
+import { env } from '../config/env';
+import { setDb } from '../database/db';
+import { runMigrations } from '../database/migrations';
 import { OpencodeClientService } from '../services/opencode_client_service';
 import { logger } from '../utils/logger';
+
+// History-bearing SDK wrappers must receive a real empty local ledger.  The
+// production boundary intentionally treats an unavailable ledger as unsafe,
+// so these ordinary-wrapper fixtures cannot rely on a missing test database.
+let boundaryDb: Database.Database | null = null;
+let previousDb: Database.Database | null = null;
+
+beforeAll(() => {
+  boundaryDb = new Database(':memory:');
+  boundaryDb.pragma('foreign_keys = ON');
+  runMigrations(boundaryDb);
+  previousDb = setDb(boundaryDb);
+});
+
+afterAll(() => {
+  setDb(previousDb);
+  if (boundaryDb?.open) boundaryDb.close();
+  boundaryDb = null;
+  previousDb = null;
+});
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -74,6 +98,25 @@ function injectClient(
   // Access private fields for test injection
   (svc as unknown as Record<string, unknown>)['status'] = 'ready';
   (svc as unknown as Record<string, unknown>)['client'] = client;
+}
+
+async function withCoordinatorDatabaseMode<T>(
+  dbClient: 'sqlite' | 'postgres',
+  run: () => Promise<T>,
+): Promise<T> {
+  const mutableEnv = env as { dbClient: 'sqlite' | 'postgres'; workstreamsEnabled: boolean };
+  const previousDbClient = mutableEnv.dbClient;
+  const previousWorkstreamsEnabled = mutableEnv.workstreamsEnabled;
+  mutableEnv.dbClient = dbClient;
+  // The history guard must not use this flag as a route bypass. Keeping it off
+  // exercises the ordinary path exactly as hosted deployments do.
+  mutableEnv.workstreamsEnabled = false;
+  try {
+    return await run();
+  } finally {
+    mutableEnv.dbClient = previousDbClient;
+    mutableEnv.workstreamsEnabled = previousWorkstreamsEnabled;
+  }
 }
 
 // ── issue-685-c1: no duck-typing patterns remain ──────────────────────────────
@@ -263,6 +306,80 @@ describe('issue-685-c4: dispatchCommand invokes SDK with command and args', () =
   });
 });
 
+describe('R3 ordinary PostgreSQL history-operation compatibility', () => {
+  it('continues to forward a never-managed SQLite prompt after a readable empty-ledger lookup', async () => {
+    const svc = new OpencodeClientService();
+    const sdkClient = makeRealSdkClient();
+    sdkClient.session.prompt.mockResolvedValue({
+      data: { info: { id: 'sqlite-ordinary' }, parts: [] },
+    });
+    injectClient(svc, sdkClient);
+
+    await withCoordinatorDatabaseMode('sqlite', async () => {
+      await expect(svc.prompt('ordinary-sqlite', 'hello')).resolves.toMatchObject({
+        info: { id: 'sqlite-ordinary' },
+      });
+    });
+
+    expect(sdkClient.session.prompt).toHaveBeenCalledOnce();
+  });
+
+  it('forwards ordinary PostgreSQL prompt and history operations with coordinator off without a local-ledger classification', async () => {
+    const svc = new OpencodeClientService();
+    const sdkClient = makeRealSdkClient();
+    sdkClient.session.prompt.mockResolvedValue({
+      data: { info: { id: 'postgres-prompt' }, parts: [] },
+    });
+    sdkClient.session.promptAsync.mockResolvedValue({ data: {} });
+    sdkClient.session.command.mockResolvedValue({
+      data: { info: { id: 'postgres-command' }, parts: [] },
+    });
+    sdkClient.session.summarize.mockResolvedValue({ data: true });
+    sdkClient.session.fork.mockResolvedValue({ data: { id: 'postgres-fork' } });
+    injectClient(svc, sdkClient);
+    (svc as unknown as { server: { url: string; close(): void } }).server = {
+      url: 'http://engine.test',
+      close() {},
+    };
+    const upstream = vi.fn(async () => new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', upstream);
+
+    try {
+      await withCoordinatorDatabaseMode('postgres', async () => {
+        await expect(svc.prompt('ordinary-postgres', 'hello')).resolves.toMatchObject({
+          info: { id: 'postgres-prompt' },
+        });
+        await expect(svc.promptAsync('ordinary-postgres', 'hello')).resolves.toBe(true);
+        await expect(svc.dispatchCommand('ordinary-postgres', '/help', '')).resolves.toMatchObject({
+          info: { id: 'postgres-command' },
+        });
+        await expect(svc.summarizeSession('ordinary-postgres', {
+          providerID: 'provider', modelID: 'model',
+        })).resolves.toBe(true);
+        await expect(svc.forkSession('ordinary-postgres')).resolves.toMatchObject({
+          id: 'postgres-fork',
+        });
+        await expect(svc.sessionInit('ordinary-postgres', {
+          providerID: 'provider', modelID: 'model', messageID: 'message-1',
+        })).resolves.toBe(true);
+        await expect(svc.sessionShell('ordinary-postgres', 'pwd', 'build')).resolves.toEqual({ ok: true });
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(sdkClient.session.prompt).toHaveBeenCalledOnce();
+    expect(sdkClient.session.promptAsync).toHaveBeenCalledOnce();
+    expect(sdkClient.session.command).toHaveBeenCalledOnce();
+    expect(sdkClient.session.summarize).toHaveBeenCalledOnce();
+    expect(sdkClient.session.fork).toHaveBeenCalledOnce();
+    expect(upstream).toHaveBeenCalledTimes(2);
+  });
+});
+
 // ── issue-685-c5: wrappers reject before SDK initialization ───────────────────
 
 describe('issue-685-c5: wrappers reject before SDK initialization with engine-not-ready error', () => {
@@ -358,6 +475,28 @@ describe('wrapper method shapes (M3/M4 readiness)', () => {
     expect(sdkClient.session.messages).toHaveBeenCalledWith(
       expect.objectContaining({ path: { id: 'sdk-msg-id' } }),
     );
+  });
+
+  it('R2: listMessagesPage forwards the engine cursor and exposes its explicit completion cursor', async () => {
+    sdkClient.session.messages.mockResolvedValue({
+      data: [{ info: { id: 'assistant-page-one' }, parts: [] }],
+      response: new Response(null, { headers: { 'x-next-cursor': 'before-page-two' } }),
+    });
+
+    const page = await svc.listMessagesPage('sdk-msg-id', '/safe/project', {
+      limit: 100,
+      before: 'before-page-one',
+      caller: 'persistent_workstream_coordinator',
+    });
+
+    expect(sdkClient.session.messages).toHaveBeenCalledWith(expect.objectContaining({
+      path: { id: 'sdk-msg-id' },
+      query: { directory: '/safe/project', limit: 100, before: 'before-page-one' },
+    }));
+    expect(page).toMatchObject({
+      messages: [{ info: { id: 'assistant-page-one' } }],
+      nextCursor: 'before-page-two',
+    });
   });
 
   it('1503-A-transcript-fetch-instrumentation:1 warns once for a slow transcript fetch without logging message content', async () => {

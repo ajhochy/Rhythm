@@ -10,6 +10,7 @@ import { RemoteComputers } from './RemoteComputers';
 import { SessionRail } from './SessionRail';
 import { Splitter } from './Splitter';
 import { formatCost, Transcript } from './Transcript';
+import { WorkstreamsPanel } from './WorkstreamsPanel';
 import { usePendingDecisions } from '../pending-decisions';
 import { sessionLabel, accountOptionLabel, type AgentProject, type RichTranscriptMessage } from '../gateway/sessions';
 import { emitAgentNotification } from '../agentNotifications';
@@ -44,6 +45,7 @@ export function AgentsWorkspace() {
   // existing inspector/PTY lifecycle without narrowing the first-activation conversation pane.
   const [inspectorCollapsed, setInspectorCollapsed] = useState(true);
   const [sessionSettings, setSessionSettings] = useState(false);
+  const [workstreamsOpen, setWorkstreamsOpen] = useState(false);
   // Accounts/models can go stale (added/removed elsewhere) while this session is idle in the
   // background — force a refetch whenever the settings dialog that surfaces them opens.
   const openChatConfiguration = () => {
@@ -251,6 +253,7 @@ export function AgentsWorkspace() {
             {recoverableConnection && <button className="secondary-button compact" type="button" disabled={retrying} onClick={() => void retryConnection()} data-testid="session-retry"><Icon name="refresh" className={retrying ? 'spin' : ''} size={14} />{retrying ? 'Retrying' : 'Reconnect'}</button>}
             <button className="icon-button small" type="button" disabled={lifecycleDisabled} onClick={() => void compactSession()} aria-label="Compact session" title="Compact session" data-testid="session-compact"><Icon name="spark" size={15} /></button>
             <button className="secondary-button prepare-button" type="button" disabled={lifecycleDisabled} onClick={() => openPrepare()} data-testid="prepare-project" aria-label="Prepare project for agents" title="Prepare project for agents"><Icon name="worktree" size={14} /><span>Prepare project</span></button>
+            <button className="secondary-button compact" type="button" onClick={() => setWorkstreamsOpen(true)} data-testid="workstreams-open">Workstreams</button>
             <button className="secondary-button compact" type="button" onClick={toggleInspector} aria-expanded={!inspectorCollapsed} aria-controls="session-inspector" data-testid="session-details">Details</button>
             <button ref={chatMenuTriggerRef} className="icon-button small" type="button" aria-label="Chat menu" aria-haspopup="dialog" aria-expanded={chatConfigurationOpen} onClick={openChatConfiguration} data-testid="session-actions"><Icon name="more" size={16} /></button>
           </div>
@@ -291,6 +294,9 @@ export function AgentsWorkspace() {
         </form>
       </FocusDialog>
       <FocusDialog open={prepareOpen} onClose={() => setPrepareOpen(false)} title="Prepare project for agents" description="Initialize project instructions through POST /agent-sessions/:id/init." testId="prepare-project-dialog" returnFocusTo={prepareReturnFocusRef.current}>{live ? <p>The configured model will inspect this project and write instructions. This can use provider tokens and modify AGENTS.md.</p> : <div className="prepare-list"><span><Icon name="check" />Git repository available</span><span><Icon name="check" />Worktree can be isolated</span><span><Icon name="check" />AGENTS.md discovered</span></div>}<div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setPrepareOpen(false)}>Cancel</button><button className="primary-button" type="button" disabled={lifecycleDisabled} onClick={() => void prepareProject()} data-testid="confirm-prepare-project">{lifecycleBusy ? 'Preparing…' : 'Prepare project'}</button></div></FocusDialog>
+      <FocusDialog open={workstreamsOpen} onClose={() => setWorkstreamsOpen(false)} title="Workstreams" description="Explicit, bounded read-only workers for this project. Ordinary chat remains separate." testId="workstreams-dialog" wide>
+        <WorkstreamsPanel projectId={selectedProject?.id ?? selected.projectId} parentSessionId={selectedProject || readOnlyChild || liveChildView ? null : selected.id} profiles={profiles} />
+      </FocusDialog>
     </section>
   );
 }

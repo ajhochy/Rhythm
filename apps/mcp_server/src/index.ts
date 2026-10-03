@@ -72,7 +72,12 @@ registerAgentDelegationTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
 // index on :4001), NOT prod. Route the memory tools at RHYTHM_AGENT_URL so the
 // agent and the Flutter memory UI read/write the same local store. Decoupled
 // from serverConfig.url per the dual-endpoint rule.
-registerAgentMemoryTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
+// This is one shared MCP process.  The API selector preserves the unchanged
+// ordinary search branch for unmanaged calls and captures only an exact,
+// engine-signed managed dispatch; it does not add or remove a tool schema.
+registerAgentMemoryTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN, {
+  managedMemorySelector: true,
+});
 // #806 — rhythm_list_sessions reads agent sessions/messages from the LOCAL
 // agent server (:4001), the store that owns sessions. The seeded Memory
 // Consolidation task calls it to review the past day's sessions before

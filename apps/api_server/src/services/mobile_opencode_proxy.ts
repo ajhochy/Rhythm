@@ -4,9 +4,12 @@ import { relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { AppError } from '../errors/app_error';
+import { env } from '../config/env';
+import { getDb } from '../database/db';
 import {
   type MobileOpenCodeOwnershipStore,
 } from '../repositories/mobile_opencode_ownership_repository';
+import { hasManagedSdkSessionHistory } from '../repositories/managed_workstream_context_repository';
 import {
   AgentConfigsRepository,
   agentConfigExecutionBlockReason,
@@ -86,6 +89,20 @@ const SCOPED_PATH_QUERY_OPERATIONS = new Set([
 const PROMPT_FILE_PART_OPERATIONS = new Set([
   'session.prompt',
   'session.prompt_async',
+]);
+
+// These operations infer from, mutate, or copy retained engine history. A
+// managed worker's SDK session is permanently nonreusable across every one of
+// them; prompt remains included defensively even though the mobile manifest
+// denies synchronous prompt today.
+const MOBILE_MANAGED_HISTORY_OPERATIONS = new Set([
+  'session.prompt',
+  'session.prompt_async',
+  'session.command',
+  'session.summarize',
+  'session.fork',
+  'session.init',
+  'session.shell',
 ]);
 
 export const MOBILE_OPENCODE_REQUEST_BODY_LIMIT_BYTES = 512 * 1024;
@@ -170,6 +187,36 @@ function operationNotAllowed(): AppError {
     'OPERATION_NOT_ALLOWED',
     'OpenCode operation is not allowed for mobile',
   );
+}
+
+/**
+ * Mobile history-bearing operations reach the engine through this proxy
+ * instead of OpencodeClientService. Keep the same permanent SDK-session
+ * nonreuse boundary here so an ordinary mobile retry cannot replay, compact,
+ * fork, or derive from a managed worker's retained context. The current
+ * feature flag is deliberately irrelevant: enrollment remains historical even
+ * after an administrator turns the coordinator off. PostgreSQL is outside
+ * this local SQLite coordinator's authority, so it must retain its existing
+ * owner/project preflight and upstream validation without being called fresh.
+ */
+function assertMobileSessionHistoryMayForward(sdkSessionId: string, operationId: string): void {
+  if (env.dbClient !== 'sqlite') {
+    return;
+  }
+  try {
+    if (hasManagedSdkSessionHistory(getDb(), sdkSessionId)) {
+      throw AppError.reconciliationRequired(
+        `This SDK session has managed-worker history and cannot be reused for mobile ${operationId}`,
+      );
+    }
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    // A history-bearing operation is unsafe if the durable enrollment ledger
+    // cannot positively classify its session as never-managed.
+    throw AppError.reconciliationRequired(
+      `Mobile ${operationId} cannot verify managed SDK-session history`,
+    );
+  }
 }
 
 function decodeSafeSegments(path: string): string[] | null {
@@ -1062,6 +1109,11 @@ export class MobileOpenCodeProxy {
       input.path,
       'sessionID',
     );
+    if (MOBILE_MANAGED_HISTORY_OPERATIONS.has(operation.operationId) && addressedSessionId) {
+      // Refuse before any operation-specific preflight can expose retained
+      // session history to the engine.
+      assertMobileSessionHistoryMayForward(addressedSessionId, operation.operationId);
+    }
     const authoritativeSessionDirectory = addressedSessionId
       ? ownership.resolveSessionDirectoryForOwner?.(
           addressedSessionId,
@@ -1398,16 +1450,20 @@ export class MobileOpenCodeProxy {
           'OpenCode request exceeded the mobile gateway limit',
         );
       }
-      if (
-        operation.operationId === 'session.prompt_async' &&
-        addressedSessionId
-      ) {
+      if (operation.operationId === 'session.prompt_async' && addressedSessionId) {
         await this.preparePromptStream({
           directory: requestProject.root,
           projectId: input.project.id,
           sdkSessionId: addressedSessionId,
           userId: input.userId,
         });
+      }
+      if (MOBILE_MANAGED_HISTORY_OPERATIONS.has(operation.operationId) && addressedSessionId) {
+        // Every asynchronous mobile preflight above (including the streaming
+        // bridge for prompt_async) can overlap durable lifecycle work. Re-read
+        // immediately before the actual forward so no history-bearing session
+        // operation can slip through on a stale early classification.
+        assertMobileSessionHistoryMayForward(addressedSessionId, operation.operationId);
       }
       const response = await this.fetchFn(url, {
         method: operation.method,

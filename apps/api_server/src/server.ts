@@ -44,7 +44,7 @@ async function main() {
 
   const [
     { createApp },
-    { initDb },
+    { initDb, getDb },
     { startRecurrenceGenerationJob },
     { startSyncOrchestratorJob },
     { logger },
@@ -56,6 +56,9 @@ async function main() {
     { createMobileGatewayRouter },
     { createMobileGatewaySurface },
     { mobileGatewayListenPort },
+    { ManagedWorkstreamContextRepository },
+    { ManagedMemorySearchService },
+    { PersistentWorkstreamCoordinator },
   ] = await Promise.all([
     import('./app'),
     import('./database/db'),
@@ -70,6 +73,9 @@ async function main() {
     import('./routes/mobile_gateway_routes'),
     import('./mobile_gateway_surface'),
     import('./mobile_gateway_config'),
+    import('./repositories/managed_workstream_context_repository'),
+    import('./services/managed_workstream_evidence_capture'),
+    import('./services/persistent_workstream_coordinator'),
   ]);
 
   logger.info(`[server] durable log: ${apiServerLogPath()}`);
@@ -117,6 +123,45 @@ async function main() {
   // #1396: abort rather than advertise healthy when the configured mount is unusable.
   await verifyLiveArtifactStorageDir();
   await initDb();
+
+  // Persistent workstreams are an explicit local opt-in.  The shared MCP
+  // selector is deliberately absent while off, preserving ordinary memory
+  // search without installing a strict managed path into every session.
+  let workstreamCoordinator: InstanceType<typeof PersistentWorkstreamCoordinator> | undefined;
+  let managedMemorySearch: InstanceType<typeof ManagedMemorySearchService> | undefined;
+  if (env.workstreamsEnabled && env.dbClient === 'sqlite' && env.agentExecutionEnabled) {
+    let coordinatorRef: InstanceType<typeof PersistentWorkstreamCoordinator> | undefined;
+    const contextPolicy = {
+      enabled: () => env.workstreamsEnabled,
+      dbClient: env.dbClient,
+      role: env.role,
+    } as const;
+    const records = new ManagedWorkstreamContextRepository(getDb(), contextPolicy);
+    managedMemorySearch = new ManagedMemorySearchService({
+      db: getDb(),
+      records,
+      engine: opencodeClient,
+      policy: {
+        ...contextPolicy,
+        currentHostEpoch: () => coordinatorRef?.hostEpoch ?? null,
+        rhythmMcpServerName: 'rhythm',
+      },
+    });
+    coordinatorRef = new PersistentWorkstreamCoordinator({
+      engine: opencodeClient,
+      records,
+      // The coordinator independently checks the live rhythm MCP status; this
+      // callback additionally proves that its owned capture persistence seam
+      // is present instead of treating service construction as readiness.
+      captureAvailable: () => managedMemorySearch?.coordinatorCaptureAvailable() ?? false,
+      enabled: () => env.workstreamsEnabled,
+      dbClient: env.dbClient,
+      role: env.role,
+      rhythmMcpServerName: 'rhythm',
+    });
+    coordinatorRef.initialize();
+    workstreamCoordinator = coordinatorRef;
+  }
 
   const missingArtifactContent = await diagnoseLiveArtifactContent();
   if (missingArtifactContent.length > 0) {
@@ -548,7 +593,7 @@ async function main() {
   }
 
   const mobileGatewayRouter = env.agentExecutionEnabled
-    ? createMobileGatewayRouter()
+    ? createMobileGatewayRouter({ workstreamCoordinator })
     : undefined;
   // Dayflow's private config/ledger live beside the app database. Selection is
   // always explicit in Settings; startup never discovers a journal or reads
@@ -584,7 +629,12 @@ async function main() {
     });
     dayflowManagementService = createDayflowManagementAdapter(dayflowService);
   }
-  const app = createApp({ mobileGatewayRouter, dayflowService: dayflowManagementService });
+  const app = createApp({
+    mobileGatewayRouter,
+    dayflowService: dayflowManagementService,
+    managedMemorySearch,
+    workstreamCoordinator,
+  });
 
   const httpServer = http.createServer(app);
   const relayUplink = env.isRelayRole
@@ -763,6 +813,22 @@ async function main() {
         logger.info('[server] session status resync complete (#1045)');
       } catch (e) {
         logger.warn(`[server] session status resync failed (non-fatal): ${String(e)}`);
+      }
+
+      // The coordinator never replays old intent.  Once the already-owned
+      // engine is ready, it performs one bounded status-only inspection so an
+      // exactly bound busy child can be reattached and every ambiguity remains
+      // durably unknown before a new explicit Run next can be admitted.
+      if (workstreamCoordinator) {
+        try {
+          const reconciled = await workstreamCoordinator.reconcileAfterEngineReady();
+          logger.info(
+            `[server] workstream restart reconciliation: examined=${reconciled.examined} ` +
+              `reattached=${reconciled.reattached} unknown=${reconciled.unknown}`,
+          );
+        } catch (e) {
+          logger.warn(`[server] workstream restart reconciliation failed (non-fatal): ${String(e)}`);
+        }
       }
 
       // #1175 — durable async delegation wakes can be left in `waking` when
@@ -1037,6 +1103,7 @@ async function main() {
     try { recurrenceJob?.stop(); } catch (_) { /* ignore */ }
     try { syncJob?.stop(); } catch (_) { /* ignore */ }
     try { memoryVaultSyncJob?.stop(); } catch (_) { /* ignore */ }
+    try { workstreamCoordinator?.dispose(); } catch (_) { /* ignore */ }
     try { engraphRefreshBridge?.dispose(); } catch (_) { /* ignore */ }
     // The present inert adapter disposes synchronously, but its owner may add
     // a bounded quiescence promise for admitted synthetic work. Preserve that

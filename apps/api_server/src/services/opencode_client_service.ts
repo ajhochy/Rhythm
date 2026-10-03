@@ -24,13 +24,21 @@ import {
   ensureOmlxProviderConfig,
   detectAndUnloadCompetingOllamaModel,
 } from './local_omlx_provider';
-import { resolveWebsearchConfig } from '../config/env';
+import { env, resolveWebsearchConfig } from '../config/env';
 import {
   clearTrustedMcpVerifier,
   initializeTrustedMcpVerifier,
 } from '../security/trusted_mcp_call';
 import type { DispatchInput } from '../models/model_provenance';
+import { getDb } from '../database/db';
 import { ModelProvenanceRepository } from '../repositories/model_provenance_repository';
+import type { AuthContext } from '../middleware/auth_middleware';
+import type {
+  ManagedContextReference,
+  ManagedContextScope,
+  ManagedWorkstreamContextRepository,
+} from '../repositories/managed_workstream_context_repository';
+import { hasManagedSdkSessionHistory } from '../repositories/managed_workstream_context_repository';
 
 const modelProvenanceRepo = new ModelProvenanceRepository();
 
@@ -51,6 +59,89 @@ function settleDispatch(id: string | undefined, outcome: 'accepted' | 'rejected'
   } catch (err) {
     logger.warn('[OpencodeClientService] provenance outcome write failed (non-fatal):', err);
   }
+}
+
+type ManagedSdkSessionBoundary =
+  | 'fresh'
+  | 'managed_history'
+  | 'unavailable'
+  | 'outside_local_ledger_scope';
+
+/**
+ * A managed enrollment is a permanent nonreuse boundary for an SDK session.
+ * This read is intentionally independent of the managed feature flag: turning
+ * the feature off later must not let ordinary SQLite chat replay retained
+ * managed history. In a non-SQLite deployment, this local ledger has no
+ * authority to classify a session as fresh or managed; ordinary hosted calls
+ * remain on their existing authorization and upstream-validation path, while
+ * an explicitly managed dispatch must separately require local SQLite.
+ */
+function managedSdkSessionBoundary(
+  sdkSessionId: string,
+  exceptDispatchId?: string,
+): ManagedSdkSessionBoundary {
+  if (env.dbClient !== 'sqlite') return 'outside_local_ledger_scope';
+  try {
+    return hasManagedSdkSessionHistory(getDb(), sdkSessionId, exceptDispatchId)
+      ? 'managed_history'
+      : 'fresh';
+  } catch {
+    return 'unavailable';
+  }
+}
+
+function managedSdkSessionBoundaryReason(
+  boundary: Extract<ManagedSdkSessionBoundary, 'managed_history' | 'unavailable'>,
+): string {
+  switch (boundary) {
+    case 'managed_history':
+      return 'persisted managed-worker history forbids reuse';
+    case 'unavailable':
+      return 'the local managed-session ledger is unavailable';
+  }
+}
+
+function ordinarySdkSessionMayUseHistory(
+  boundary: ManagedSdkSessionBoundary,
+): boundary is 'fresh' | 'outside_local_ledger_scope' {
+  return boundary === 'fresh' || boundary === 'outside_local_ledger_scope';
+}
+
+/**
+ * Explicit managed dispatch is only supported by the local SQLite ledger.
+ * Consult the actual deployment mode, rather than caller-supplied policy, so
+ * a managed request cannot relabel a PostgreSQL process as locally qualified.
+ */
+function assertManagedSdkSessionMayBeExposed(
+  sdkSessionId: string,
+  exceptDispatchId?: string,
+): void {
+  if (env.dbClient !== 'sqlite') {
+    throw new Error('managed SDK session requires local SQLite coordinator execution');
+  }
+  const boundary = managedSdkSessionBoundary(sdkSessionId, exceptDispatchId);
+  if (boundary === 'fresh') return;
+  if (boundary === 'managed_history' || boundary === 'unavailable') {
+    throw new Error(managedSdkSessionBoundaryReason(boundary));
+  }
+  throw new Error('managed SDK session requires local SQLite coordinator execution');
+}
+
+/**
+ * Session operations that infer from, mutate, or copy retained engine history
+ * share the permanent managed-session nonreuse boundary with prompt paths.
+ * The second call immediately adjacent to a native forward deliberately
+ * re-reads durable state after any intervening preparation.
+ */
+function assertOrdinarySdkSessionMayUseHistoryOperation(
+  sdkSessionId: string,
+  operation: string,
+): void {
+  const boundary = managedSdkSessionBoundary(sdkSessionId);
+  if (ordinarySdkSessionMayUseHistory(boundary)) return;
+  throw AppError.reconciliationRequired(
+    `${operation} is withheld because ${managedSdkSessionBoundaryReason(boundary)}`,
+  );
 }
 
 /**
@@ -621,6 +712,164 @@ export function augmentPathForOpencode(): void {
 
 type OpencodeServerHandle = { url: string; close(): void };
 
+export interface ManagedPromptDispatchContext {
+  auth: AuthContext;
+  scope: Omit<ManagedContextScope, 'dispatchId' | 'sdkTurnId'>;
+  records: Pick<ManagedWorkstreamContextRepository, 'append' | 'enroll' | 'markUnsafe' | 'read'>;
+  policy: {
+    enabled(): boolean;
+    dbClient: 'sqlite' | 'postgres';
+    role: 'all' | 'local' | 'cloud' | 'relay';
+    currentHostEpoch(): string | null;
+  };
+  captureReady: boolean;
+  /** Required for the only supported managed child shape. */
+  workerJobId?: string;
+  /**
+   * Runs after the dispatch + managed enrollment are durable, but before the
+   * SDK prompt can leave this process.  The coordinator uses this to bind the
+   * minted engine anchor to its existing native-ledger row.
+   */
+  onPrepared?: (binding: {
+    scope: ManagedContextScope;
+    dispatchId: string;
+    sdkUserMessageId: string;
+  }) => void;
+  /** Identifier-only dependencies that must be durable before prompt exposure. */
+  initialReferences?: ManagedContextReference[];
+}
+
+interface CurrentManagedDispatchRow {
+  dispatch_id: string;
+  dispatch_session_id: string;
+  dispatch_sdk_session_id: string | null;
+  sdk_user_message_id: string | null;
+  route_authed: number | null;
+  outcome: string;
+  managed_context_schema_version: number | null;
+  managed_context_owner_user_id: number | null;
+  managed_context_project_id: string | null;
+  managed_context_workstream_id: string | null;
+  managed_context_workstream_revision: number | null;
+  managed_context_role: string | null;
+  managed_context_host_epoch: string | null;
+  managed_context_sdk_session_id: string | null;
+  managed_context_sdk_turn_id: string | null;
+  session_owner_user_id: number;
+  session_project_id: string;
+  session_sdk_session_id: string | null;
+  session_parent_session_id: string | null;
+  workstream_owner_user_id: number;
+  workstream_project_id: string;
+  workstream_state: string;
+  workstream_revision: number;
+}
+
+function assertCurrentManagedPromptDispatch(
+  managed: ManagedPromptDispatchContext,
+  scope: ManagedContextScope,
+  sdkUserMessageId: string,
+  sdkSessionId: string,
+): void {
+  const currentEpoch = managed.policy.currentHostEpoch();
+  if (
+    !managed.captureReady ||
+    !managed.policy.enabled() ||
+    managed.policy.dbClient !== 'sqlite' ||
+    (managed.policy.role !== 'local' && managed.policy.role !== 'all') ||
+    !managed.auth.sessionToken ||
+    managed.auth.user.id !== scope.ownerUserId ||
+    (scope.role !== 'parent' && scope.role !== 'worker') ||
+    (scope.role === 'worker' && !managed.workerJobId) ||
+    scope.sdkTurnId !== null ||
+    scope.sdkSessionId !== sdkSessionId ||
+    !currentEpoch ||
+    scope.hostEpoch !== currentEpoch
+  ) throw new Error('managed prompt scope unavailable');
+
+  const rows = getDb().prepare(`SELECT
+    d.id AS dispatch_id, d.session_id AS dispatch_session_id,
+    d.sdk_session_id AS dispatch_sdk_session_id, d.sdk_user_message_id,
+    d.route_authed, d.outcome, d.managed_context_schema_version,
+    d.managed_context_owner_user_id, d.managed_context_project_id,
+    d.managed_context_workstream_id, d.managed_context_workstream_revision,
+    d.managed_context_role, d.managed_context_host_epoch,
+    d.managed_context_sdk_session_id, d.managed_context_sdk_turn_id,
+    s.owner_user_id AS session_owner_user_id, s.project_id AS session_project_id,
+    s.sdk_session_id AS session_sdk_session_id,
+    s.parent_session_id AS session_parent_session_id,
+    w.owner_user_id AS workstream_owner_user_id,
+    w.project_id AS workstream_project_id, w.state AS workstream_state,
+    w.revision AS workstream_revision
+    FROM agent_turn_dispatches d
+    JOIN agent_sessions s ON s.id=d.session_id
+    JOIN agent_workstreams w ON w.id=d.managed_context_workstream_id
+    WHERE d.id=? LIMIT 2`).all(scope.dispatchId) as CurrentManagedDispatchRow[];
+  if (rows.length !== 1) throw new Error('managed prompt scope unavailable');
+  const row = rows[0];
+  if (
+    row.dispatch_id !== scope.dispatchId ||
+    row.dispatch_session_id !== scope.sessionId ||
+    row.dispatch_sdk_session_id !== sdkSessionId ||
+    row.sdk_user_message_id !== sdkUserMessageId ||
+    row.route_authed !== 1 ||
+    row.outcome !== 'pending' ||
+    row.managed_context_schema_version !== 1 ||
+    row.managed_context_owner_user_id !== scope.ownerUserId ||
+    row.managed_context_project_id !== scope.projectId ||
+    row.managed_context_workstream_id !== scope.workstreamId ||
+    row.managed_context_workstream_revision !== scope.workstreamRevision ||
+    row.managed_context_role !== scope.role ||
+    row.managed_context_host_epoch !== scope.hostEpoch ||
+    row.managed_context_sdk_session_id !== scope.sdkSessionId ||
+    row.managed_context_sdk_turn_id !== null ||
+    row.session_owner_user_id !== scope.ownerUserId ||
+    row.session_project_id !== scope.projectId ||
+    row.session_sdk_session_id !== scope.sdkSessionId ||
+    (scope.role === 'parent' && row.session_parent_session_id !== null) ||
+    row.workstream_owner_user_id !== scope.ownerUserId ||
+    row.workstream_project_id !== scope.projectId ||
+    (row.workstream_state !== 'queued' && row.workstream_state !== 'running') ||
+    row.workstream_revision !== scope.workstreamRevision ||
+    managed.records.read(scope)?.state !== 'bound'
+  ) throw new Error('managed prompt scope unavailable');
+
+  if (scope.role === 'worker') {
+    const bound = getDb().prepare(`SELECT id FROM agent_bridge_jobs
+      WHERE id=? AND direction='rhythm_to_native' AND native_execution_kind='coordinator'
+        AND local_user_id=? AND workstream_id=? AND workstream_project_id=?
+        AND workstream_revision=? AND host_epoch=?
+        AND native_child_session_id=? AND native_child_sdk_session_id=?
+        AND native_dispatch_id=? AND native_sdk_user_message_id=?
+        AND state='running'
+      LIMIT 2`).all(
+      managed.workerJobId,
+      scope.ownerUserId,
+      scope.workstreamId,
+      scope.projectId,
+      scope.workstreamRevision,
+      scope.hostEpoch,
+      scope.sessionId,
+      sdkSessionId,
+      scope.dispatchId,
+      sdkUserMessageId,
+    ) as Array<{ id: string }>;
+    if (bound.length !== 1) throw new Error('managed prompt scope unavailable');
+  }
+}
+
+export interface ManagedActiveToolCall {
+  sdkSessionId: string;
+  assistantId: string;
+  userMessageId: string;
+  partId: string;
+  toolCallId: string;
+  toolKey: string;
+  agentName: string;
+  serverName: string;
+  toolName: string;
+}
+
 export interface OpencodeEngineIdentity {
   version: string;
   pid: number;
@@ -639,6 +888,23 @@ export const INTERACTIVE_TASK_PERMISSION = [
   { permission: 'task', pattern: '*', action: 'deny' },
   { permission: 'task', pattern: 'explore', action: 'allow' },
   { permission: 'task', pattern: 'general', action: 'allow' },
+] as const;
+
+/**
+ * The coordinator's worker policy is intentionally a session policy rather
+ * than a stored profile change.  Ordering matters: the engine uses the last
+ * matching rule, so the precise read grants follow the catch-all deny.
+ */
+export const MANAGED_READ_ONLY_PERMISSION = [
+  { permission: '*', pattern: '*', action: 'deny' },
+  // Generic filesystem reads cannot be tied to a declared reference or
+  // captured by the coordinator, so this minimum slice intentionally does
+  // not grant read/glob/grep.  The one qualified read surface below is
+  // captured before text reaches the model.
+  // The engine sees composed MCP keys; the uncomposed form keeps a direct
+  // engine/MCP integration from silently falling back to an approval prompt.
+  { permission: 'rhythm_search_memory', pattern: '*', action: 'allow' },
+  { permission: 'rhythm_rhythm_search_memory', pattern: '*', action: 'allow' },
 ] as const;
 
 /** Same predicate as the async-delegation gate in agent_delegation_service.ts. */
@@ -763,6 +1029,18 @@ export class OpencodeClientService {
 
   get isReady(): boolean {
     return this.status === 'ready';
+  }
+
+  /**
+   * A coordinator may use only the engine process this service actually owns.
+   * `isReady` intentionally remains a broad SDK status for existing callers
+   * and test seams; it is not sufficient evidence of ownership because a
+   * client can be marked ready before it has a spawned server handle.
+   */
+  get hasOwnedEngine(): boolean {
+    return this.status === 'ready' && this.client !== null &&
+      this.server !== null && typeof this.server.url === 'string' &&
+      this.server.url.length > 0;
   }
 
   /**
@@ -1484,6 +1762,10 @@ export class OpencodeClientService {
     // Interactive chat session (see isInteractiveChatSession): restrict the
     // engine task tool to explore/general. Headless callers omit it.
     interactive?: boolean,
+    // Persistent coordinator workers use a narrow, engine-enforced policy.
+    // This is deliberately trailing and optional so ordinary session callers
+    // retain their exact existing behavior.
+    managedReadOnly = false,
     // #1222 — root-cause of the discarded-error bug: every failure branch
     // below used to collapse to a bare `null`, so callers (AgentRunner in
     // particular) could only ever report the generic "failed to create
@@ -1598,13 +1880,17 @@ export class OpencodeClientService {
           ...INTERACTIVE_TASK_PERMISSION,
         ];
       }
+      if (managedReadOnly) {
+        body.permission = [...MANAGED_READ_ONLY_PERMISSION];
+      }
       // #775 (skill-scope): pass the per-session skill allowlist on the create body.
       // The fork reads `skillAllowlist.skills` to scope the model's available skills.
-      if (skillAllowlist !== undefined) {
-        body.skillAllowlist = { skills: skillAllowlist };
+      const effectiveSkillAllowlist = managedReadOnly ? [] : skillAllowlist;
+      if (effectiveSkillAllowlist !== undefined) {
+        body.skillAllowlist = { skills: effectiveSkillAllowlist };
         logger.info(
           '[OpencodeClientService] createSession: skillAllowlist skills=%s',
-          skillAllowlist.join(',') || '(none)',
+          effectiveSkillAllowlist.join(',') || '(none)',
         );
       }
       const raw = await (this.client.session.create as (opts: {
@@ -2020,14 +2306,84 @@ export class OpencodeClientService {
     opts?: Record<string, unknown>,
     beforeDispatch?: () => Promise<void>,
     provenance?: DispatchInput,
+    managed?: ManagedPromptDispatchContext,
   ): Promise<{ info: import('@opencode-ai/sdk').Message; parts: Array<import('@opencode-ai/sdk').Part> } | null> {
     if (!this.client) return null;
+    let managedDispatchId: string | undefined;
+    let managedMessageID: string | undefined;
+    let managedScope: ManagedContextScope | undefined;
+    if (managed) {
+      try {
+        // Refuse a second managed exposure before minting another anchor or
+        // appending another enrollment. The same check runs again immediately
+        // before the SDK call because callbacks below can await and mutate
+        // durable controls while this request is being prepared.
+        assertManagedSdkSessionMayBeExposed(sessionId);
+        const currentEpoch = managed.policy.currentHostEpoch();
+        if (
+          !managed.captureReady ||
+          !managed.policy.enabled() ||
+          managed.policy.dbClient !== 'sqlite' ||
+          (managed.policy.role !== 'local' && managed.policy.role !== 'all') ||
+          !managed.auth.sessionToken ||
+          managed.auth.user.id !== managed.scope.ownerUserId ||
+          (managed.scope.role !== 'parent' && managed.scope.role !== 'worker') ||
+          (managed.scope.role === 'worker' && !managed.workerJobId) ||
+          managed.scope.sdkSessionId !== sessionId ||
+          !currentEpoch ||
+          managed.scope.hostEpoch !== currentEpoch ||
+          !provenance ||
+          provenance.sessionId !== managed.scope.sessionId ||
+          provenance.sdkSessionId !== sessionId
+        ) throw new Error('managed prompt scope unavailable');
+        managedMessageID = await this.mintManagedPromptAnchor(sessionId, directory) ?? undefined;
+        if (!managedMessageID) throw new Error('managed prompt anchor unavailable');
+        managedDispatchId = modelProvenanceRepo.insert({
+          ...provenance,
+          sessionId: managed.scope.sessionId,
+          sdkSessionId: sessionId,
+          sdkUserMessageId: managedMessageID,
+          routeAuthed: true,
+        }).id;
+        const scope: ManagedContextScope = {
+          ...managed.scope,
+          dispatchId: managedDispatchId,
+          sdkTurnId: null,
+        };
+        managedScope = scope;
+        managed.records.enroll({ schemaVersion: 1, ...scope });
+        managed.onPrepared?.({
+          scope,
+          dispatchId: managedDispatchId,
+          sdkUserMessageId: managedMessageID,
+        });
+        const sticky = managed.records.markUnsafe(scope, 'binding_ambiguous');
+        if (
+          sticky.outcome !== 'unsafe_recorded' ||
+          sticky.snapshot?.nonreuse?.code !== 'binding_ambiguous'
+        ) throw new Error('managed prompt nonreuse unavailable');
+        if (managed.initialReferences && managed.initialReferences.length > 0) {
+          const appended = managed.records.append({
+            schemaVersion: 1,
+            scope,
+            references: managed.initialReferences,
+          });
+          if (appended.outcome !== 'recorded' || !appended.snapshot) {
+            throw new Error('managed prompt dependency persistence unavailable');
+          }
+        }
+      } catch {
+        settleDispatch(managedDispatchId, 'rejected');
+        throw new Error('OpencodeClientService: managed prompt preparation failed — prompt not sent');
+      }
+    }
     const requestArgs = {
       path: { id: sessionId },
       body: {
         model,
         parts: [{ type: 'text' as const, text }],
         ...(opts ?? {}),
+        ...(managedMessageID ? { messageID: managedMessageID } : {}),
       },
       ...(directory ? { query: { directory } } : {}),
     };
@@ -2035,13 +2391,43 @@ export class OpencodeClientService {
       try {
         await beforeDispatch();
       } catch {
+        settleDispatch(managedDispatchId, 'rejected');
         logger.error(
           `[OpencodeClientService] prompt beforeDispatch hook failed for session ${sessionId} — dispatch blocked, no SDK call made`,
         );
         throw new Error('OpencodeClientService: pre-dispatch hook failed — prompt not sent');
       }
     }
-    const dispatchId = beginDispatch(provenance);
+    if (managed) {
+      try {
+        if (!managedScope || !managedMessageID) throw new Error('managed prompt scope unavailable');
+        assertCurrentManagedPromptDispatch(managed, managedScope, managedMessageID, sessionId);
+      } catch {
+        settleDispatch(managedDispatchId, 'rejected');
+        throw new Error('OpencodeClientService: managed prompt authority changed — prompt not sent');
+      }
+    }
+    const dispatchId = managedDispatchId ?? beginDispatch(provenance);
+    // This is deliberately the last decision before the SDK call. It covers
+    // omitted managed context (ordinary callers), feature/policy drift, and a
+    // second managed request that reused a session after an awaited callback.
+    if (managed) {
+      try {
+        assertManagedSdkSessionMayBeExposed(sessionId, managedDispatchId);
+      } catch {
+        settleDispatch(dispatchId, 'rejected');
+        throw new Error('OpencodeClientService: managed SDK session reuse refused — prompt not sent');
+      }
+    } else {
+      const sessionBoundary = managedSdkSessionBoundary(sessionId);
+      if (!ordinarySdkSessionMayUseHistory(sessionBoundary)) {
+        settleDispatch(dispatchId, 'rejected');
+        logger.warn(
+          `[OpencodeClientService] prompt refused for SDK session ${sessionId}: ${managedSdkSessionBoundaryReason(sessionBoundary)}`,
+        );
+        return null;
+      }
+    }
     try {
       const raw = await this.client.session.prompt(requestArgs);
       if (raw.error || !raw.data) {
@@ -2083,8 +2469,75 @@ export class OpencodeClientService {
     parts?: Array<import('@opencode-ai/sdk').PartInput>,
     beforeDispatch?: () => Promise<void>,
     provenance?: DispatchInput,
+    managed?: ManagedPromptDispatchContext,
   ): Promise<boolean> {
     if (!this.client) return false;
+    let managedDispatchId: string | undefined;
+    let managedMessageID: string | undefined;
+    let managedScope: ManagedContextScope | undefined;
+    if (managed) {
+      try {
+        // See prompt(): no managed SDK session may be exposed twice, even if
+        // a caller accidentally reaches this async path instead of prompt().
+        assertManagedSdkSessionMayBeExposed(sessionId);
+        const currentEpoch = managed.policy.currentHostEpoch();
+        if (
+          !managed.captureReady ||
+          !managed.policy.enabled() ||
+          managed.policy.dbClient !== 'sqlite' ||
+          (managed.policy.role !== 'local' && managed.policy.role !== 'all') ||
+          !managed.auth.sessionToken ||
+          managed.auth.user.id !== managed.scope.ownerUserId ||
+          (managed.scope.role !== 'parent' && managed.scope.role !== 'worker') ||
+          (managed.scope.role === 'worker' && !managed.workerJobId) ||
+          managed.scope.sdkSessionId !== sessionId ||
+          !currentEpoch ||
+          managed.scope.hostEpoch !== currentEpoch ||
+          !provenance ||
+          provenance.sessionId !== managed.scope.sessionId ||
+          provenance.sdkSessionId !== sessionId
+        ) throw new Error('managed prompt scope unavailable');
+        managedMessageID = await this.mintManagedPromptAnchor(sessionId, directory) ?? undefined;
+        if (!managedMessageID) throw new Error('managed prompt anchor unavailable');
+        managedDispatchId = modelProvenanceRepo.insert({
+          ...provenance,
+          sessionId: managed.scope.sessionId,
+          sdkSessionId: sessionId,
+          sdkUserMessageId: managedMessageID,
+          routeAuthed: true,
+        }).id;
+        const scope: ManagedContextScope = {
+          ...managed.scope,
+          dispatchId: managedDispatchId,
+          sdkTurnId: null,
+        };
+        managedScope = scope;
+        managed.records.enroll({ schemaVersion: 1, ...scope });
+        managed.onPrepared?.({
+          scope,
+          dispatchId: managedDispatchId,
+          sdkUserMessageId: managedMessageID,
+        });
+        const sticky = managed.records.markUnsafe(scope, 'binding_ambiguous');
+        if (
+          sticky.outcome !== 'unsafe_recorded' ||
+          sticky.snapshot?.nonreuse?.code !== 'binding_ambiguous'
+        ) throw new Error('managed prompt nonreuse unavailable');
+        if (managed.initialReferences && managed.initialReferences.length > 0) {
+          const appended = managed.records.append({
+            schemaVersion: 1,
+            scope,
+            references: managed.initialReferences,
+          });
+          if (appended.outcome !== 'recorded' || !appended.snapshot) {
+            throw new Error('managed prompt dependency persistence unavailable');
+          }
+        }
+      } catch {
+        settleDispatch(managedDispatchId, 'rejected');
+        throw new Error('OpencodeClientService: managed prompt preparation failed — prompt not sent');
+      }
+    }
     // OPC-M4-1: use the caller-supplied parts array when present; otherwise
     // fall back to a single text part so all existing call-sites are unchanged.
     const sdkParts: Array<import('@opencode-ai/sdk').PartInput> = parts && parts.length > 0
@@ -2096,6 +2549,7 @@ export class OpencodeClientService {
         model,
         parts: sdkParts,
         ...(opts ?? {}),
+        ...(managedMessageID ? { messageID: managedMessageID } : {}),
       },
       ...(directory ? { query: { directory } } : {}),
     };
@@ -2106,13 +2560,42 @@ export class OpencodeClientService {
       try {
         await beforeDispatch();
       } catch {
+        settleDispatch(managedDispatchId, 'rejected');
         logger.error(
           `[OpencodeClientService] promptAsync beforeDispatch hook failed for session ${sessionId} — dispatch blocked, no SDK call made`,
         );
         throw new Error('OpencodeClientService: pre-dispatch hook failed — prompt not sent');
       }
     }
-    const dispatchId = beginDispatch(provenance);
+    if (managed) {
+      try {
+        if (!managedScope || !managedMessageID) throw new Error('managed prompt scope unavailable');
+        assertCurrentManagedPromptDispatch(managed, managedScope, managedMessageID, sessionId);
+      } catch {
+        settleDispatch(managedDispatchId, 'rejected');
+        throw new Error('OpencodeClientService: managed prompt authority changed — prompt not sent');
+      }
+    }
+    const dispatchId = managedDispatchId ?? beginDispatch(provenance);
+    // Keep this immediately adjacent to the SDK exposure; `beforeDispatch`
+    // and managed authority checks above may both have awaited.
+    if (managed) {
+      try {
+        assertManagedSdkSessionMayBeExposed(sessionId, managedDispatchId);
+      } catch {
+        settleDispatch(dispatchId, 'rejected');
+        throw new Error('OpencodeClientService: managed SDK session reuse refused — prompt not sent');
+      }
+    } else {
+      const sessionBoundary = managedSdkSessionBoundary(sessionId);
+      if (!ordinarySdkSessionMayUseHistory(sessionBoundary)) {
+        settleDispatch(dispatchId, 'rejected');
+        logger.warn(
+          `[OpencodeClientService] promptAsync refused for SDK session ${sessionId}: ${managedSdkSessionBoundaryReason(sessionBoundary)}`,
+        );
+        return false;
+      }
+    }
     try {
       const raw = await this.client.session.promptAsync(requestArgs);
       if (raw.error) {
@@ -2592,6 +3075,82 @@ export class OpencodeClientService {
   // below via {@link v2Client}. It constructs the exact same HTTP requests
   // the prior raw-fetch calls used, so this is a client-typing change only.
 
+  /** Mint one real engine MessageID for a managed request; unavailable by default. */
+  async mintManagedPromptAnchor(
+    sdkSessionId: string,
+    directory?: string,
+  ): Promise<string | null> {
+    const ownedUrl = this.status === 'ready' && this.client ? this.server?.url : undefined;
+    if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== '1' || !ownedUrl || !sdkSessionId) return null;
+    const query = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    try {
+      const response = await fetch(
+        `${ownedUrl}/session/${encodeURIComponent(sdkSessionId)}/rhythm-prompt-anchor${query}`,
+        { method: 'POST', headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(2_000) },
+      );
+      if (!response.ok) return null;
+      const value = await response.json() as Record<string, unknown>;
+      if (
+        Object.keys(value).length !== 1 ||
+        typeof value.messageID !== 'string' ||
+        value.messageID.length === 0 ||
+        value.messageID.length > 256
+      ) return null;
+      return value.messageID;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Read one live runner-owned MCP call from this service's owned engine. */
+  async getManagedActiveToolCall(
+    sdkSessionId: string,
+    assistantId: string,
+    toolCallId: string,
+    directory?: string,
+  ): Promise<ManagedActiveToolCall | null> {
+    const ownedUrl = this.status === 'ready' && this.client ? this.server?.url : undefined;
+    if (
+      process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== '1' ||
+      !ownedUrl ||
+      !sdkSessionId ||
+      !assistantId ||
+      !toolCallId
+    ) return null;
+    const query = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    try {
+      const response = await fetch(
+        `${ownedUrl}/session/${encodeURIComponent(sdkSessionId)}/rhythm-active-tool/` +
+          `${encodeURIComponent(assistantId)}/${encodeURIComponent(toolCallId)}${query}`,
+        { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(2_000) },
+      );
+      if (!response.ok) return null;
+      const value = await response.json() as Record<string, unknown>;
+      const keys = [
+        'sdkSessionId', 'assistantId', 'userMessageId', 'partId', 'toolCallId',
+        'toolKey', 'agentName', 'serverName', 'toolName',
+      ] as const;
+      if (
+        Object.keys(value).length !== keys.length ||
+        keys.some((key) =>
+          typeof value[key] !== 'string' || value[key].length === 0 || value[key].length > 256)
+      ) return null;
+      return {
+        sdkSessionId: value.sdkSessionId as string,
+        assistantId: value.assistantId as string,
+        userMessageId: value.userMessageId as string,
+        partId: value.partId as string,
+        toolCallId: value.toolCallId as string,
+        toolKey: value.toolKey as string,
+        agentName: value.agentName as string,
+        serverName: value.serverName as string,
+        toolName: value.toolName as string,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   /** Base URL of the spawned opencode server (falls back to the default port). */
   private get serverUrl(): string {
     return this.server?.url ?? 'http://127.0.0.1:4096';
@@ -3051,9 +3610,11 @@ export class OpencodeClientService {
     directory?: string,
     model?: string,
   ): Promise<unknown> {
+    assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session shell');
     const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
     const body: Record<string, unknown> = { command, agent };
     if (model) body.model = model;
+    assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session shell');
     const res = await fetch(`${this.serverUrl}/session/${encodeURIComponent(sdkId)}/shell${qs}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -3076,7 +3637,9 @@ export class OpencodeClientService {
     opts: { providerID: string; modelID: string; messageID: string },
     directory?: string,
   ): Promise<boolean> {
+    assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session init');
     const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session init');
     const res = await fetch(`${this.serverUrl}/session/${encodeURIComponent(sdkId)}/init${qs}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -3100,10 +3663,13 @@ export class OpencodeClientService {
     args: string,
   ): Promise<{ info: import('@opencode-ai/sdk').Message; parts: import('@opencode-ai/sdk').Part[] } | null> {
     const client = this.requireClient();
-    const raw = await client.session.command({
+    assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session command');
+    const request = {
       path: { id: sdkId },
       body: { command, arguments: args },
-    });
+    };
+    assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session command');
+    const raw = await client.session.command(request);
     if (raw.error || !raw.data) {
       logger.error(`[OpencodeClientService] dispatchCommand error for ${sdkId}:`, raw.error);
       return null;
@@ -3116,11 +3682,16 @@ export class OpencodeClientService {
    *
    * Throws on SDK error or exception — never swallows to [].
    */
-  async listMessages(
+  /**
+   * Cursor-aware legacy message page. The generated SDK predates the engine's
+   * `before` query and response cursor header, so keep that narrow cast here
+   * instead of inventing a second engine route or silently truncating a turn.
+   */
+  async listMessagesPage(
     sdkId: string,
     directory?: string,
-    options: { limit?: number; caller?: string } = {},
-  ): Promise<import('@opencode-ai/sdk').SessionMessage[]> {
+    options: { limit?: number; before?: string; caller?: string } = {},
+  ): Promise<{ messages: import('@opencode-ai/sdk').SessionMessage[]; nextCursor: string | null }> {
     const client = this.requireClient();
     // #861 smoke fix: engine session reads are DIRECTORY-SCOPED — without
     // ?directory=<session cwd> the engine looks in its default instance and
@@ -3129,15 +3700,16 @@ export class OpencodeClientService {
     const startedAt = Date.now();
     const raw = await client.session.messages({
       path: { id: sdkId },
-      ...(directory || options.limit !== undefined
+      ...(directory || options.limit !== undefined || options.before !== undefined
         ? {
             query: {
               ...(directory ? { directory } : {}),
               ...(options.limit !== undefined ? { limit: options.limit } : {}),
+              ...(options.before !== undefined ? { before: options.before } : {}),
             },
           }
         : {}),
-    });
+    } as never);
     const elapsedMs = Date.now() - startedAt;
     const configuredThreshold = Number(process.env.RHYTHM_TRANSCRIPT_FETCH_WARN_MS);
     const warnThresholdMs = Number.isFinite(configuredThreshold) && configuredThreshold >= 0
@@ -3155,7 +3727,16 @@ export class OpencodeClientService {
         `listMessages failed for session ${sdkId}: ${JSON.stringify(raw.error)}`,
       );
     }
-    return raw.data ?? [];
+    const nextCursor = raw.response?.headers.get('x-next-cursor') ?? null;
+    return { messages: raw.data ?? [], nextCursor: nextCursor || null };
+  }
+
+  async listMessages(
+    sdkId: string,
+    directory?: string,
+    options: { limit?: number; caller?: string } = {},
+  ): Promise<import('@opencode-ai/sdk').SessionMessage[]> {
+    return (await this.listMessagesPage(sdkId, directory, options)).messages;
   }
 
   async readSessionMcpAppResource(
@@ -3308,15 +3889,18 @@ export class OpencodeClientService {
     directory?: string,
   ): Promise<boolean> {
     const client = this.requireClient();
+    assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session summarize');
     // session.summarize REQUIRES providerID + modelID (the model used to write
     // the summary); omitting them errors with "expected string, received
     // undefined". It also needs `directory` — opencode scopes sessions per
     // directory, so without it summarize is a no-op (no compaction, no event).
-    const raw = await client.session.summarize({
+    const request = {
       path: { id: sdkId },
       body: { providerID: model.providerID, modelID: model.modelID },
       ...(directory ? { query: { directory } } : {}),
-    });
+    };
+    assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session summarize');
+    const raw = await client.session.summarize(request);
     if (raw.error) {
       throw new AppError(
         502,
@@ -3337,10 +3921,13 @@ export class OpencodeClientService {
     messageId?: string,
   ): Promise<import('@opencode-ai/sdk').Session | null> {
     const client = this.requireClient();
-    const raw = await client.session.fork({
+    assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session fork');
+    const request = {
       path: { id: sdkId },
       body: messageId ? { messageID: messageId } : undefined,
-    });
+    };
+    assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session fork');
+    const raw = await client.session.fork(request);
     if (raw.error || !raw.data) {
       throw new AppError(
         502,

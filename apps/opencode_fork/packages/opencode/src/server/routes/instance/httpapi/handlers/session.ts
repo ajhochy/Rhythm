@@ -174,6 +174,41 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       )
     })
 
+    const rhythmPromptAnchor = Effect.fn("SessionHttpApi.rhythmPromptAnchor")(function* (ctx: {
+      params: { sessionID: SessionID }
+    }) {
+      yield* requireSession(ctx.params.sessionID)
+      if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== "1") {
+        return yield* notFound("Managed context exports are disabled")
+      }
+      return { messageID: MessageID.ascending() }
+    })
+
+    const rhythmActiveTool = Effect.fn("SessionHttpApi.rhythmActiveTool")(function* (ctx: {
+      params: { sessionID: SessionID; assistantID: MessageID; callID: string }
+    }) {
+      yield* requireSession(ctx.params.sessionID)
+      if (process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS !== "1") {
+        return yield* notFound("Managed context exports are disabled")
+      }
+      const active = yield* runState.activeToolCall(ctx.params.sessionID, ctx.params.assistantID, ctx.params.callID)
+      if (!active) return yield* notFound("Active managed tool call not found")
+      if (!mcp.toolIdentity) return yield* notFound("Active managed MCP identity not found")
+      const identity = yield* mcp.toolIdentity(active.toolKey)
+      if (!identity) return yield* notFound("Active managed MCP identity not found")
+      return {
+        sdkSessionId: ctx.params.sessionID,
+        assistantId: active.assistantID,
+        userMessageId: active.userMessageID,
+        partId: active.partID,
+        toolCallId: active.toolCallID,
+        toolKey: active.toolKey,
+        agentName: active.agentName,
+        serverName: identity.serverName,
+        toolName: identity.toolName,
+      }
+    })
+
     const mcpAppResource = Effect.fn("SessionHttpApi.mcpAppResource")(function* (ctx: {
       params: { sessionID: SessionID; callID: string }
     }) {
@@ -657,6 +692,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("diff", diff)
       .handle("messages", messages)
       .handle("message", message)
+      .handle("rhythmPromptAnchor", rhythmPromptAnchor)
+      .handle("rhythmActiveTool", rhythmActiveTool)
       .handle("mcpAppResource", mcpAppResource)
       .handle("mcpAppExecutionProof", mcpAppExecutionProof)
       .handle("mcpAppExecution", mcpAppExecution)

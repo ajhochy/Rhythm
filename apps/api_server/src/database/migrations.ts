@@ -11,6 +11,8 @@ import {
   MEMORY_CONSOLIDATION_SEED_NAME,
 } from '../services/memory_consolidation_seed';
 import { installAgentBridgeSchema } from '../shared_agents/bridge_schema';
+import { installAgentWorkstreamsSchema } from './agent_workstreams_schema';
+import { installManagedWorkstreamContextSchema } from './managed_workstream_context_schema';
 
 /**
  * W1 corrective-6 package B — monotonic persistence revisions.
@@ -90,6 +92,9 @@ function installRevisionInvariants(db: Database.Database, table: string): void {
 }
 
 export function runMigrations(db: Database.Database): void {
+  // S1 records are additive SQLite-local structure only; this preserves all
+  // existing rows, tables, indexes, and triggers on every replay.
+  installAgentWorkstreamsSchema(db);
   installAgentBridgeSchema(db);
   // ── Write-discipline contract ─────────────────────────────────────────
   // runMigrations() runs on EVERY boot (db.ts initDb), not just first
@@ -4653,6 +4658,10 @@ If someone asks for creative work that needs a local capability:
     CREATE INDEX IF NOT EXISTS idx_agent_turn_dispatches_session_order
       ON agent_turn_dispatches(session_id, created_at, id);
   `);
+
+  // S3-A1 — inert, body-free durable dependency metadata. This must remain
+  // after both agent_sessions and agent_turn_dispatches exist.
+  installManagedWorkstreamContextSchema(db);
 
   // #1576 S2 — one row per engine step-finish part whose served identity was
   // captured (a fork stamp S1 has not landed yet; today this stays empty in

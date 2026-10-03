@@ -40,6 +40,7 @@ export interface GatewayDomainContracts {
   dayflow?: DayflowGateway;
   sharedAgents?: SharedAgentsPort;
   remoteSessions?: RemoteSessionsGateway;
+  workstreams?: WorkstreamGateway;
 }
 
 export interface GatewayHealth {
@@ -198,6 +199,7 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
         typeof window === 'undefined' ? undefined
           : (window as unknown as { rhythmShell?: { remoteEnvironments?: RemoteEnvironmentsBridge } }).rhythmShell?.remoteEnvironments,
       ),
+      workstreams: createLiveWorkstreamsGateway(apiBase, config.taskToken, fetcher),
     },
     health: {
       api: () => check('api', `${apiBase}/health`),
@@ -258,6 +260,7 @@ import { createLiveWorkspaceMembersGateway } from './workspace-members';
 import { createLiveSettingsGateway } from './settings';
 import { createLiveRuntimeGateway, type RuntimeGateway } from './runtime';
 import { createLiveDayflowGateway, type DayflowGateway } from './dayflow';
+import { createLiveWorkstreamsGateway, type WorkstreamGateway } from './workstreams';
 import { createLiveSharedAgentsPort } from './shared-agents';
 import type { SharedAgentsPort } from '@ajhochy/rhythm-workspace-ui';
 import { createLiveRemoteSessionsGateway, type RemoteEnvironmentsBridge, type RemoteSessionsGateway } from './remote-sessions';

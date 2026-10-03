@@ -2172,7 +2172,21 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             model,
           })
 
-          const outcome: "break" | "continue" = yield* Effect.gen(function* () {
+          const outcome: "break" | "continue" = yield* state.withActiveProcessor(
+            sessionID,
+            {
+              assistantID: handle.message.id,
+              userMessageID: handle.message.parentID,
+              agentName: handle.message.agent,
+              toolCallIdentity: (callID) =>
+                Effect.gen(function* () {
+                  if (handle.message.sessionID !== sessionID) return
+                  const identity = yield* handle.toolCallIdentity(callID)
+                  if (!identity || identity.sessionID !== sessionID || identity.messageID !== handle.message.id) return
+                  return identity
+                }),
+            },
+            Effect.gen(function* () {
             const lastUserMsg = msgs.findLast((m) => m.info.role === "user")
             const bypassAgentCheck = lastUserMsg?.parts.some((p) => p.type === "agent") ?? false
 
@@ -2270,7 +2284,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               })
             }
             return "continue" as const
-          }).pipe(Effect.ensuring(instruction.clear(handle.message.id)))
+            }).pipe(Effect.ensuring(instruction.clear(handle.message.id))),
+          )
           if (outcome === "break") break
           continue
         }

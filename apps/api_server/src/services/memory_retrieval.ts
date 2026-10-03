@@ -47,6 +47,7 @@
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import type { AgentMemory } from '../repositories/agent_memory_repository';
 import { promises as fs } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import {
   getAgentMemoryRetrievalMode,
@@ -151,6 +152,20 @@ export interface MemoryReferenceSearchResult {
 
 interface NativeReference extends MemoryReference {
   memory: AgentMemory;
+  receipt: CanonicalMemoryReadReceipt;
+}
+
+export interface CanonicalMemoryReadReceipt {
+  schemaVersion: 1;
+  sourceNamespace: 'memory-vault';
+  sourceInstance: string;
+  sourceId: string;
+  indexMemoryId: string;
+  indexOwnerUserId: number | null;
+  observedHash: string;
+  observedVersion: string;
+  status: AgentMemory['status'];
+  staleAfter: string | null;
 }
 
 function currentDate(): string {
@@ -695,31 +710,54 @@ async function validateCanonicalNativeReference(
   sourceId: string,
   memory: AgentMemory,
   snippet: string,
-): Promise<boolean> {
-  if (sourceId.length > MAX_REFERENCE_SOURCE_ID_CHARS) return false;
+): Promise<CanonicalMemoryReadReceipt | null> {
+  if (sourceId.length > MAX_REFERENCE_SOURCE_ID_CHARS) return null;
   try {
     const lexicalRoot = path.resolve(memoryRoot);
     const root = await fs.realpath(lexicalRoot);
+    const rootStat = await fs.lstat(root);
+    if (!rootStat.isDirectory()) return null;
     const memoryRelative = vaultKeyToMemoryDirRelative(lexicalRoot, sourceId);
     const candidate = resolveWithinMemoryDir(lexicalRoot, memoryRelative);
     const firstStat = await fs.lstat(candidate);
     // Symlinks are rejected rather than followed, including internal aliases:
     // the reference must name the selected canonical regular file directly.
-    if (!firstStat.isFile() || (firstStat.mode & 0o444) === 0) return false;
+    if (!firstStat.isFile() || (firstStat.mode & 0o444) === 0) return null;
     const realCandidate = await fs.realpath(candidate);
-    if (!isRealPathWithin(root, realCandidate)) return false;
-    const raw = await fs.readFile(realCandidate, 'utf8');
+    if (!isRealPathWithin(root, realCandidate)) return null;
+    // One immutable-in-this-operation byte snapshot drives both validation and
+    // the receipt. Frontmatter bytes are intentionally part of the hash.
+    const raw = await fs.readFile(realCandidate);
     const secondStat = await fs.lstat(candidate);
-    if (!secondStat.isFile() || secondStat.dev !== firstStat.dev || secondStat.ino !== firstStat.ino) return false;
-    const parsed = parseNote(raw);
-    return (
-      parsed.status === memory.status
-      && (parsed.staleAfter ?? null) === memory.staleAfter
-      && normalizeReferenceText(parsed.content) === normalizeReferenceText(memory.content)
-      && snippetMatchesCanonicalContent(snippet, parsed.content)
-    );
+    if (!secondStat.isFile() || secondStat.dev !== firstStat.dev || secondStat.ino !== firstStat.ino) return null;
+    const parsed = parseNote(raw.toString('utf8'));
+    if (
+      parsed.status !== memory.status
+      || (parsed.staleAfter ?? null) !== memory.staleAfter
+      || normalizeReferenceText(parsed.content) !== normalizeReferenceText(memory.content)
+      || !snippetMatchesCanonicalContent(snippet, parsed.content)
+    ) return null;
+    const observedHash = createHash('sha256').update(raw).digest('hex');
+    const sourceInstance = createHash('sha256').update(JSON.stringify([
+      'rhythm.memory-vault.source-instance.v1',
+      root,
+      rootStat.dev,
+      rootStat.ino,
+    ])).digest('hex');
+    return {
+      schemaVersion: 1,
+      sourceNamespace: 'memory-vault',
+      sourceInstance,
+      sourceId,
+      indexMemoryId: memory.id,
+      indexOwnerUserId: memory.ownerUserId,
+      observedHash,
+      observedVersion: `sha256:${observedHash}`,
+      status: memory.status,
+      staleAfter: memory.staleAfter,
+    };
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -833,6 +871,7 @@ async function collectNativeMemoryReferences(
       reason: 'native-ranked reference; relevance not calibrated',
       ...origin,
       memory,
+      receipt: canonical.value,
     });
   }
   return {
@@ -851,6 +890,18 @@ export async function searchMemoryReferences(
   ownerUserId?: number | null,
   opts: { limit?: number; repo?: MemoryRepository; engraph?: EngraphClient } = {},
 ): Promise<MemoryReferenceSearchResult> {
+  return (await searchMemoryReferencesWithReceipts(query, ownerUserId, opts)).result;
+}
+
+/** Internal managed-search form; receipts stay adjacent to the selected DTOs. */
+export async function searchMemoryReferencesWithReceipts(
+  query: string,
+  ownerUserId?: number | null,
+  opts: { limit?: number; repo?: MemoryRepository; engraph?: EngraphClient } = {},
+): Promise<{
+  result: MemoryReferenceSearchResult;
+  canonicalReceipts: CanonicalMemoryReadReceipt[];
+}> {
   const limit = normalizeExplicitReferenceLimit(opts.limit);
   const deadline = Date.now() + getSemanticSearchBudgetMs();
   const result = await collectNativeMemoryReferences(
@@ -862,11 +913,12 @@ export async function searchMemoryReferences(
     false,
   );
   const references: MemoryReference[] = [];
+  const canonicalReceipts: CanonicalMemoryReadReceipt[] = [];
   let totalExcerptChars = 0;
   for (const reference of result.references) {
     if (references.length >= limit) break;
     if (totalExcerptChars + reference.excerpt.length > EXPLICIT_REFERENCE_MAX_TOTAL_CHARS) break;
-    const { memory: _memory, ...safe } = reference;
+    const { memory: _memory, receipt, ...safe } = reference;
     const nextReferences = [...references, safe];
     const envelope = {
       references: nextReferences,
@@ -877,14 +929,18 @@ export async function searchMemoryReferences(
     };
     if (JSON.stringify(envelope).length > EXPLICIT_REFERENCE_MAX_SERIALIZED_CHARS) break;
     references.push(safe);
+    canonicalReceipts.push(receipt);
     totalExcerptChars += safe.excerpt.length;
   }
   return {
-    references,
-    status: result.status,
-    hitCount: result.hitCount,
-    returned: references.length,
-    truncated: references.length < result.references.length,
+    result: {
+      references,
+      status: result.status,
+      hitCount: result.hitCount,
+      returned: references.length,
+      truncated: references.length < result.references.length,
+    },
+    canonicalReceipts,
   };
 }
 

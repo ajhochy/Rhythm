@@ -43,7 +43,10 @@ import {
   MEMORY_CONSOLIDATION_PROMPT,
   MEMORY_CONSOLIDATION_SEED_NAME,
 } from './memory_consolidation_seed';
-import { searchMemoryReferences } from './memory_retrieval';
+import {
+  searchMemoryReferences,
+  searchMemoryReferencesWithReceipts,
+} from './memory_retrieval';
 
 const memRepo = new AgentMemoryRepository();
 const schedRepo = new AgentScheduledTasksRepository();
@@ -83,6 +86,21 @@ export const agentMemoryService = {
     const result = await searchMemoryReferences(query, ownerUserId ?? null, { limit });
     if (limit !== 0) return result;
     return { ...result, references: [], returned: 0, truncated: result.hitCount > 0 };
+  },
+
+  /** Internal managed-search form; canonical receipts never enter the public DTO. */
+  async searchReferencesWithReceipts(query: string, ownerUserId?: number, limit?: number) {
+    const result = await searchMemoryReferencesWithReceipts(query, ownerUserId ?? null, { limit });
+    if (limit !== 0) return result;
+    return {
+      result: {
+        ...result.result,
+        references: [],
+        returned: 0,
+        truncated: result.result.hitCount > 0,
+      },
+      canonicalReceipts: [],
+    };
   },
 
   /** List memories, optionally filtered by kind. */

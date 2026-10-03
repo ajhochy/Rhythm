@@ -82,6 +82,7 @@ export interface Handle {
         sessionID: MessageV2.ToolPart["sessionID"]
         messageID: MessageV2.ToolPart["messageID"]
         partID: MessageV2.ToolPart["id"]
+        toolKey: MessageV2.ToolPart["tool"]
       }
     | undefined
   >
@@ -238,6 +239,7 @@ export const layer: Layer.Layer<
           sessionID: match.part.sessionID,
           messageID: match.part.messageID,
           partID: match.part.id,
+          toolKey: match.part.tool,
         }
       })
 

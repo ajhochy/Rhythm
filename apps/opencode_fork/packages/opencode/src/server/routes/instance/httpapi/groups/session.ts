@@ -80,6 +80,19 @@ export const RevertPayload = Schema.Struct(Struct.omit(SessionRevert.RevertInput
 export const PermissionResponsePayload = Schema.Struct({
   response: Permission.Reply,
 })
+const ManagedContextIdentifier = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256))
+export const RhythmPromptAnchor = Schema.Struct({ messageID: MessageID })
+export const RhythmActiveTool = Schema.Struct({
+  sdkSessionId: SessionID,
+  assistantId: MessageID,
+  userMessageId: MessageID,
+  partId: PartID,
+  toolCallId: ManagedContextIdentifier,
+  toolKey: ManagedContextIdentifier,
+  agentName: ManagedContextIdentifier,
+  serverName: ManagedContextIdentifier,
+  toolName: ManagedContextIdentifier,
+})
 
 export const SessionPaths = {
   list: root,
@@ -90,6 +103,8 @@ export const SessionPaths = {
   diff: `${root}/:sessionID/diff`,
   messages: `${root}/:sessionID/message`,
   message: `${root}/:sessionID/message/:messageID`,
+  rhythmPromptAnchor: `${root}/:sessionID/rhythm-prompt-anchor`,
+  rhythmActiveTool: `${root}/:sessionID/rhythm-active-tool/:assistantID/:callID`,
   mcpAppResource: `${root}/:sessionID/mcp-app-resource/:callID`,
   mcpAppExecutionProof: `${root}/:sessionID/mcp-app-execution/:callID/proof`,
   mcpAppExecution: `${root}/:sessionID/mcp-app-execution/:callID`,
@@ -207,6 +222,28 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.message",
             summary: "Get message",
             description: "Retrieve a specific message from a session by its message ID.",
+          }),
+        ),
+        HttpApiEndpoint.post("rhythmPromptAnchor", SessionPaths.rhythmPromptAnchor, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          success: described(RhythmPromptAnchor, "Mint a managed prompt anchor"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.rhythmPromptAnchor",
+            summary: "Mint a managed prompt anchor",
+          }),
+        ),
+        HttpApiEndpoint.get("rhythmActiveTool", SessionPaths.rhythmActiveTool, {
+          params: { sessionID: SessionID, assistantID: MessageID, callID: ManagedContextIdentifier },
+          query: WorkspaceRoutingQuery,
+          success: described(RhythmActiveTool, "Read one live managed tool owner"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.rhythmActiveTool",
+            summary: "Read one live managed tool owner",
           }),
         ),
         HttpApiEndpoint.post("create", SessionPaths.create, {
