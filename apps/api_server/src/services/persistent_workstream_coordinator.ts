@@ -1782,8 +1782,8 @@ export class PersistentWorkstreamCoordinator {
     // inspection confirms the exact known SDK child, its directory, and
     // complete current status/question/permission responses under one owned
     // engine identity. Convenience wrapper fallbacks ({}/[]) are never proof.
-    const beforeLifecycle = await this.readiness();
-    if (!beforeLifecycle.available || !beforeLifecycle.engine) {
+    const beforeEngine = await this.terminalReceiptEngineIdentity(true);
+    if (!beforeEngine) {
       this.markUnknown(workstream, job, 'terminal_engine_readiness_unavailable');
       return;
     }
@@ -1793,8 +1793,8 @@ export class PersistentWorkstreamCoordinator {
         binding.child.cwd,
       ),
     );
-    const afterEngine = await this.terminalOwnedEngineIdentity();
-    if (!afterEngine || afterEngine.bootId !== beforeLifecycle.engine.bootId) {
+    const afterEngine = await this.terminalReceiptEngineIdentity(false);
+    if (!afterEngine || afterEngine.bootId !== beforeEngine.bootId) {
       this.markUnknown(workstream, job, 'terminal_engine_identity_changed_during_inspection');
       return;
     }
@@ -1870,8 +1870,8 @@ export class PersistentWorkstreamCoordinator {
         currentBinding.child.cwd,
       ),
     );
-    const finalEngine = await this.terminalOwnedEngineIdentity();
-    if (!finalEngine || finalEngine.bootId !== beforeLifecycle.engine.bootId) {
+    const finalEngine = await this.terminalReceiptEngineIdentity(false);
+    if (!finalEngine || finalEngine.bootId !== beforeEngine.bootId) {
       this.markUnknown(workstream, currentJob, 'terminal_engine_identity_changed_during_message_read');
       return;
     }
@@ -2162,14 +2162,19 @@ export class PersistentWorkstreamCoordinator {
   }
 
   /**
-   * Terminal evidence needs the current owned engine identity, but not a
-   * still-enabled coordinator feature flag. A flag/capture/profile drift after
-   * an already-observed terminal must fence application, not erase the exact
-   * receipt as though the engine observation had failed.
+   * An already-bound receipt may be inspected under the opted-in local
+   * executor without dispatch-only capture or MCP transport readiness. The
+   * initial observation requires current opt-in; a later opt-in drift fences
+   * application rather than erasing an exact receipt already under inspection.
+   * This never creates a session, connects a tool, or admits work; the exact
+   * child/parent binding and lifecycle evidence remain required by the caller.
    */
-  private async terminalOwnedEngineIdentity(): Promise<OpencodeEngineIdentity | null> {
+  private async terminalReceiptEngineIdentity(requireOptIn: boolean): Promise<OpencodeEngineIdentity | null> {
     if (
       this.disposed || !this.initialized ||
+      (requireOptIn && !this.dependencies.enabled()) ||
+      this.dependencies.dbClient !== 'sqlite' ||
+      (this.dependencies.role !== 'local' && this.dependencies.role !== 'all') ||
       !this.dependencies.engine.isReady || !this.dependencies.engine.hasOwnedEngine
     ) return null;
     try {

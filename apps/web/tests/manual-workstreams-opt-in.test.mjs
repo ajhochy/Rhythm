@@ -39,3 +39,13 @@ test('desktop Run next labels and sends an explicit soft total-token acknowledge
   assert.match(panel, /softTokenBudgetAcknowledged: true,/);
   assert.doesNotMatch(panel, /maxOutputTokens/);
 });
+
+test('desktop exposes a read-only unknown-worker check from the current job, even while the workstream is paused', async () => {
+  const panel = await readFile(resolve(root, 'src/components/WorkstreamsPanel.tsx'), 'utf8');
+  const check = panel.match(/\{currentJob\.state === 'unknown' && <div className="workstreams-ack">([\s\S]*?)<\/div>\}/);
+  assert.ok(check, 'the current owned job must control the unknown-worker check');
+  assert.match(check[1], /disabled=\{busy\}/);
+  assert.match(check[1], /api\.reconcileUnknown\(projectId, selected\.workstream\.id, \{ expectedRevision: selected\.workstream\.revision, jobId: currentJob\.id \}\)/);
+  assert.doesNotMatch(panel, /selected\.workstream\.state === 'unknown'[\s\S]{0,600}Check authoritative worker status/);
+  assert.match(panel, /data-testid="workstreams-run-next"[\s\S]*?Run next/);
+});

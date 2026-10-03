@@ -31,6 +31,10 @@ function fixture(options: {
   terminalMessages?: unknown[];
   enabled?: boolean | (() => boolean);
   captureAvailable?: boolean | (() => boolean);
+  dbClient?: 'sqlite' | 'postgres';
+  role?: 'all' | 'local' | 'cloud' | 'relay';
+  engineReady?: boolean;
+  ownedEngine?: boolean;
   artifactResolver?: WorkstreamArtifactAuthorityResolver;
   profileScopeResolver?: (profileId: string) => Promise<ProfileScope>;
 } = {}) {
@@ -87,8 +91,8 @@ function fixture(options: {
     getById: vi.fn((id: string) => id === profile.id ? profile : null),
   } as unknown as AgentConfigsRepository;
   const engine = {
-    isReady: true,
-    hasOwnedEngine: true,
+    isReady: options.engineReady ?? true,
+    hasOwnedEngine: options.ownedEngine ?? true,
     getEngineIdentity: vi.fn(async () => ({ version: 'test-engine', pid: 991, bootId: 'boot-test' })),
     createSession: vi.fn(),
     promptAsync: vi.fn(),
@@ -123,8 +127,8 @@ function fixture(options: {
       ? options.captureAvailable()
       : options.captureAvailable ?? true,
     enabled: () => typeof options.enabled === 'function' ? options.enabled() : options.enabled ?? true,
-    dbClient: 'sqlite',
-    role: 'local',
+    dbClient: options.dbClient ?? 'sqlite',
+    role: options.role ?? 'local',
     rhythmMcpServerName: 'rhythm',
     workstreams,
     jobs,
@@ -723,7 +727,181 @@ describe('persistent workstream coordinator', () => {
     context.db.close();
   });
 
-  it('R7: a current strict busy observation keeps a locally lagged working child running', async () => {
+  it('R8: an exact paused terminal receipt accounts without dispatch-ready MCP or capture', async () => {
+    const cases: Array<{
+      name: string;
+      captureAvailable?: boolean;
+      readinessReason: string;
+      configure: (context: Fixture) => void;
+    }> = [
+      {
+        name: 'configured MCP',
+        readinessReason: 'managed_mcp_unavailable',
+        configure: (context) => context.engine.listMcp.mockResolvedValue({ rhythm: { status: 'configured' } }),
+      },
+      {
+        name: 'disconnected MCP',
+        readinessReason: 'managed_mcp_unavailable',
+        configure: (context) => context.engine.listMcp.mockResolvedValue({ rhythm: { status: 'disconnected' } }),
+      },
+      {
+        name: 'unreadable MCP status',
+        readinessReason: 'managed_mcp_status_unavailable',
+        configure: (context) => context.engine.listMcp.mockRejectedValue(new Error('MCP status unavailable')),
+      },
+      {
+        name: 'capture unavailable',
+        captureAvailable: false,
+        readinessReason: 'managed_capture_unavailable',
+        configure: () => undefined,
+      },
+    ];
+
+    for (const testCase of cases) {
+      const profileScopeResolver = vi.fn(async () => RUN_SCOPE);
+      const context = fixture({
+        terminalMessages: [capturedShapeTerminalStep()],
+        captureAvailable: testCase.captureAvailable,
+        profileScopeResolver,
+      });
+      const job = bindRunningJob(context, new Date().toISOString(), 512);
+      const cancellationAt = new Date().toISOString();
+      context.jobs.requestCoordinatorCancellation({
+        localUserId: OWNER,
+        workstreamId: context.workstream.id,
+        jobId: job.id,
+        reason: 'termination_unconfirmed',
+        now: cancellationAt,
+      });
+      expect(context.workstreams.pause(OWNER, PROJECT, context.workstream.id, 1)).toMatchObject({
+        state: 'paused', stateReason: 'user_paused', revision: 2,
+      });
+      const pausedControls = context.db.prepare('SELECT * FROM agent_workstreams WHERE id=?').get(context.workstream.id);
+      testCase.configure(context);
+
+      const view = await context.coordinator.reconcileUnknownFromEngine(
+        auth, PROJECT, context.workstream.id, 2, job.id,
+      );
+
+      expect(context.db.prepare('SELECT * FROM agent_workstreams WHERE id=?').get(context.workstream.id), testCase.name)
+        .toEqual(pausedControls);
+      expect(view.workstream, testCase.name).toMatchObject({ state: 'paused', stateReason: 'user_paused', revision: 2 });
+      expect(view.readiness, testCase.name).toMatchObject({ available: false, reason: testCase.readinessReason });
+      expect(view.jobs.find((item) => item.id === job.id), testCase.name).toMatchObject({
+        state: 'succeeded',
+        cancellationRequestedAt: cancellationAt,
+        usage: { status: 'actual', totalTokens: 4_742, authorizedTokens: 512, overshoot: true },
+        application: { status: 'stale', reason: 'controls_or_user_state_changed_before_result' },
+      });
+      expect(context.engine.inspectBoundSessionLifecycles, testCase.name).toHaveBeenCalledTimes(2);
+      expect(context.engine.createSession, testCase.name).not.toHaveBeenCalled();
+      expect(context.engine.promptAsync, testCase.name).not.toHaveBeenCalled();
+      expect(context.engine.abortSession, testCase.name).not.toHaveBeenCalled();
+      expect(profileScopeResolver, testCase.name).not.toHaveBeenCalled();
+      context.db.close();
+    }
+  });
+
+  it('R8: full readiness still blocks explicit Run next without connected MCP or capture', async () => {
+    const cases: Array<{
+      name: string;
+      captureAvailable?: boolean;
+      readinessReason: string;
+      configure: (context: Fixture) => void;
+    }> = [
+      {
+        name: 'configured MCP',
+        readinessReason: 'managed_mcp_unavailable',
+        configure: (context) => context.engine.listMcp.mockResolvedValue({ rhythm: { status: 'configured' } }),
+      },
+      {
+        name: 'disconnected MCP',
+        readinessReason: 'managed_mcp_unavailable',
+        configure: (context) => context.engine.listMcp.mockResolvedValue({ rhythm: { status: 'disconnected' } }),
+      },
+      {
+        name: 'unreadable MCP status',
+        readinessReason: 'managed_mcp_status_unavailable',
+        configure: (context) => context.engine.listMcp.mockRejectedValue(new Error('MCP status unavailable')),
+      },
+      {
+        name: 'capture unavailable',
+        captureAvailable: false,
+        readinessReason: 'managed_capture_unavailable',
+        configure: () => undefined,
+      },
+    ];
+
+    for (const testCase of cases) {
+      const profileScopeResolver = vi.fn(async () => RUN_SCOPE);
+      const context = fixture({
+        captureAvailable: testCase.captureAvailable,
+        profileScopeResolver,
+      });
+      testCase.configure(context);
+
+      const view = await context.coordinator.runNext(
+        auth, PROJECT, context.workstream.id, runInput(context, `r8-${testCase.name}`),
+      );
+
+      expect(view.workstream, testCase.name).toMatchObject({
+        state: 'blocked', stateReason: testCase.readinessReason,
+      });
+      expect(view.readiness, testCase.name).toMatchObject({ available: false, reason: testCase.readinessReason });
+      expect(context.engine.createSession, testCase.name).not.toHaveBeenCalled();
+      expect(context.engine.promptAsync, testCase.name).not.toHaveBeenCalled();
+      expect(context.engine.abortSession, testCase.name).not.toHaveBeenCalled();
+      expect(profileScopeResolver, testCase.name).not.toHaveBeenCalled();
+      context.db.close();
+    }
+  });
+
+  it('R8: receipt accounting remains scoped to the opted-in local SQLite owned engine', async () => {
+    const cases: Array<{
+      name: string;
+      options: Parameters<typeof fixture>[0];
+    }> = [
+      { name: 'manual opt-in disabled', options: { enabled: false } },
+      { name: 'Postgres coordinator unsupported', options: { dbClient: 'postgres' } },
+      { name: 'non-local executor role', options: { role: 'cloud' } },
+      { name: 'engine not ready', options: { engineReady: false } },
+      { name: 'unowned engine', options: { ownedEngine: false } },
+    ];
+
+    for (const testCase of cases) {
+      const profileScopeResolver = vi.fn(async () => RUN_SCOPE);
+      const context = fixture({
+        ...testCase.options,
+        terminalMessages: [capturedShapeTerminalStep()],
+        profileScopeResolver,
+      });
+      const job = bindRunningJob(context, new Date().toISOString(), 512);
+      context.jobs.markCoordinatorUnknown({
+        localUserId: OWNER,
+        workstreamId: context.workstream.id,
+        jobId: job.id,
+        reason: 'termination_unconfirmed',
+        now: new Date().toISOString(),
+      });
+      const before = context.db.prepare('SELECT * FROM agent_bridge_jobs WHERE id=?').get(job.id);
+
+      const view = await context.coordinator.reconcileUnknownFromEngine(
+        auth, PROJECT, context.workstream.id, context.workstream.revision, job.id,
+      );
+
+      expect(context.db.prepare('SELECT * FROM agent_bridge_jobs WHERE id=?').get(job.id), testCase.name).toEqual(before);
+      expect(view.jobs.find((item) => item.id === job.id), testCase.name).toMatchObject({ state: 'unknown' });
+      expect(context.engine.inspectBoundSessionLifecycles, testCase.name).not.toHaveBeenCalled();
+      expect(context.engine.listMessagesPage, testCase.name).not.toHaveBeenCalled();
+      expect(context.engine.createSession, testCase.name).not.toHaveBeenCalled();
+      expect(context.engine.promptAsync, testCase.name).not.toHaveBeenCalled();
+      expect(context.engine.abortSession, testCase.name).not.toHaveBeenCalled();
+      expect(profileScopeResolver, testCase.name).not.toHaveBeenCalled();
+      context.db.close();
+    }
+  });
+
+  it('R8: a current strict busy observation stays occupied when MCP is configured', async () => {
     const context = fixture();
     const job = bindRunningJob(context, new Date().toISOString());
     context.child.status = 'working';
@@ -735,10 +913,12 @@ describe('persistent workstream coordinator', () => {
       pendingPermissionSessionIds: [],
     });
     await context.coordinator.reconcileAfterEngineReady();
+    context.engine.listMcp.mockResolvedValue({ rhythm: { status: 'configured' } });
 
     const view = await context.coordinator.status(auth, PROJECT, context.workstream.id);
 
     expect(view.workstream).toMatchObject({ state: 'running' });
+    expect(view.readiness).toMatchObject({ available: false, reason: 'managed_mcp_unavailable' });
     expect(view.jobs.find((item) => item.id === job.id)).toMatchObject({
       state: 'running', usage: null, result: null,
     });
