@@ -135,6 +135,45 @@ export interface CoordinatorEpochCursor {
   id: string;
 }
 
+/**
+ * Read-only evidence for one legacy async-delegation row at an explicit
+ * coordinator admission boundary.  It is deliberately a durable fingerprint,
+ * not a replacement lifecycle state: every field is re-read in the claiming
+ * transaction before a row can be excluded from host-global occupancy.
+ */
+export interface LegacyCoordinatorCapacityRow {
+  delegationId: string;
+  delegationStatus: 'dispatched' | 'waking';
+  delegationUpdatedAt: string;
+  parentSessionId: string;
+  parentBoundSessionId: string | null;
+  parentStatus: string | null;
+  parentUpdatedAt: string | null;
+  childSessionId: string;
+  childSdkSessionId: string | null;
+  childStatus: string | null;
+  childUpdatedAt: string | null;
+  childCwd: string | null;
+  childParentSessionId: string | null;
+}
+
+/** A bounded source snapshot; unavailable schema/evidence is never clearance. */
+export interface CoordinatorLegacyCapacitySnapshot {
+  available: boolean;
+  totalActive: number | null;
+  rows: LegacyCoordinatorCapacityRow[];
+}
+
+/**
+ * The coordinator's status-only proof.  The repository treats it as a hint
+ * and revalidates its full durable fingerprint inside atomic admission.
+ */
+export interface CoordinatorLegacyCapacityAssessment {
+  hostEpoch: string;
+  engineRuntimeInstance: string;
+  qualifiedRows: LegacyCoordinatorCapacityRow[];
+}
+
 export interface BridgeJobView {
   jobId: string;
   direction: AgentBridgeJobDirection;
@@ -165,6 +204,61 @@ const QUEUED_TIMEOUT_MS = 10 * 60_000;
 const RESULT_CHARS = 16_384;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SAFE_REFERENCE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const COORDINATOR_BACKGROUND_CAPACITY = 2;
+const LEGACY_CAPACITY_SNAPSHOT_LIMIT = 100;
+
+interface LegacyCoordinatorCapacitySqlRow {
+  delegation_id: string;
+  delegation_status: 'dispatched' | 'waking';
+  delegation_updated_at: string;
+  parent_session_id: string;
+  parent_bound_session_id: string | null;
+  parent_status: string | null;
+  parent_updated_at: string | null;
+  child_session_id: string;
+  child_sdk_session_id: string | null;
+  child_status: string | null;
+  child_updated_at: string | null;
+  child_cwd: string | null;
+  child_parent_session_id: string | null;
+}
+
+function legacyCapacityRow(row: LegacyCoordinatorCapacitySqlRow): LegacyCoordinatorCapacityRow {
+  return {
+    delegationId: row.delegation_id,
+    delegationStatus: row.delegation_status,
+    delegationUpdatedAt: row.delegation_updated_at,
+    parentSessionId: row.parent_session_id,
+    parentBoundSessionId: row.parent_bound_session_id,
+    parentStatus: row.parent_status,
+    parentUpdatedAt: row.parent_updated_at,
+    childSessionId: row.child_session_id,
+    childSdkSessionId: row.child_sdk_session_id,
+    childStatus: row.child_status,
+    childUpdatedAt: row.child_updated_at,
+    childCwd: row.child_cwd,
+    childParentSessionId: row.child_parent_session_id,
+  };
+}
+
+function sameLegacyCapacityRow(
+  left: LegacyCoordinatorCapacityRow,
+  right: LegacyCoordinatorCapacityRow,
+): boolean {
+  return left.delegationId === right.delegationId &&
+    left.delegationStatus === right.delegationStatus &&
+    left.delegationUpdatedAt === right.delegationUpdatedAt &&
+    left.parentSessionId === right.parentSessionId &&
+    left.parentBoundSessionId === right.parentBoundSessionId &&
+    left.parentStatus === right.parentStatus &&
+    left.parentUpdatedAt === right.parentUpdatedAt &&
+    left.childSessionId === right.childSessionId &&
+    left.childSdkSessionId === right.childSdkSessionId &&
+    left.childStatus === right.childStatus &&
+    left.childUpdatedAt === right.childUpdatedAt &&
+    left.childCwd === right.childCwd &&
+    left.childParentSessionId === right.childParentSessionId;
+}
 
 function digest(value: string): string {
   return createHash('sha256').update(value).digest('hex');
@@ -508,6 +602,123 @@ export class AgentBridgeJobsRepository {
     return row;
   }
 
+  /**
+   * Returns a bounded, read-only snapshot of legacy asynchronous delegation
+   * state.  It does not infer completion, mutate a delivery, or wake a parent.
+   * A missing/old/unreadable local lifecycle schema is explicitly unavailable
+   * so the caller can retain every legacy row as host-global occupancy.
+   */
+  readCoordinatorLegacyCapacitySnapshot(): CoordinatorLegacyCapacitySnapshot {
+    try {
+      const asyncTable = this.db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_async_delegations'",
+      ).get();
+      if (!asyncTable) return { available: true, totalActive: 0, rows: [] };
+      const total = this.db.prepare(`SELECT COUNT(*) AS count
+        FROM agent_async_delegations
+        WHERE status IN ('dispatched','waking')`).get() as { count: number };
+      const rows = this.db.prepare(`SELECT
+          d.id AS delegation_id,
+          d.status AS delegation_status,
+          d.updated_at AS delegation_updated_at,
+          d.parent_session_id,
+          p.id AS parent_bound_session_id,
+          p.status AS parent_status,
+          p.updated_at AS parent_updated_at,
+          d.child_session_id,
+          c.sdk_session_id AS child_sdk_session_id,
+          c.status AS child_status,
+          c.updated_at AS child_updated_at,
+          c.cwd AS child_cwd,
+          c.parent_session_id AS child_parent_session_id
+        FROM agent_async_delegations d
+        LEFT JOIN agent_sessions p ON p.id=d.parent_session_id
+        LEFT JOIN agent_sessions c ON c.id=d.child_session_id
+        WHERE d.status IN ('dispatched','waking')
+        ORDER BY d.created_at ASC, d.id ASC
+        LIMIT ?`).all(LEGACY_CAPACITY_SNAPSHOT_LIMIT) as LegacyCoordinatorCapacitySqlRow[];
+      return {
+        available: true,
+        totalActive: total.count,
+        rows: rows.map(legacyCapacityRow),
+      };
+    } catch {
+      return { available: false, totalActive: null, rows: [] };
+    }
+  }
+
+  private readActiveLegacyCapacityRow(id: string): LegacyCoordinatorCapacityRow | null {
+    const row = this.db.prepare(`SELECT
+        d.id AS delegation_id,
+        d.status AS delegation_status,
+        d.updated_at AS delegation_updated_at,
+        d.parent_session_id,
+        p.id AS parent_bound_session_id,
+        p.status AS parent_status,
+        p.updated_at AS parent_updated_at,
+        d.child_session_id,
+        c.sdk_session_id AS child_sdk_session_id,
+        c.status AS child_status,
+        c.updated_at AS child_updated_at,
+        c.cwd AS child_cwd,
+        c.parent_session_id AS child_parent_session_id
+      FROM agent_async_delegations d
+      LEFT JOIN agent_sessions p ON p.id=d.parent_session_id
+      LEFT JOIN agent_sessions c ON c.id=d.child_session_id
+      WHERE d.id=? AND d.status IN ('dispatched','waking')`).get(id) as LegacyCoordinatorCapacitySqlRow | undefined;
+    return row ? legacyCapacityRow(row) : null;
+  }
+
+  /**
+   * Count current legacy occupancy without changing legacy delivery state.
+   * Only a matching, bounded status-only assessment may subtract a row; a new,
+   * changed, malformed, waking, or unreadable row remains an occupancy hold.
+   */
+  private coordinatorLegacyOccupancy(input: {
+    hostEpoch: string;
+    engineRuntimeInstance: string;
+    assessment?: CoordinatorLegacyCapacityAssessment;
+  }): number {
+    try {
+      const asyncTable = this.db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_async_delegations'",
+      ).get();
+      if (!asyncTable) return 0;
+      const total = (this.db.prepare(`SELECT COUNT(*) AS count
+        FROM agent_async_delegations
+        WHERE status IN ('dispatched','waking')`).get() as { count: number }).count;
+      const assessment = input.assessment;
+      if (
+        !assessment ||
+        assessment.hostEpoch !== input.hostEpoch ||
+        assessment.engineRuntimeInstance !== input.engineRuntimeInstance ||
+        assessment.qualifiedRows.length > LEGACY_CAPACITY_SNAPSHOT_LIMIT
+      ) {
+        return total;
+      }
+      const ids = new Set<string>();
+      for (const row of assessment.qualifiedRows) {
+        if (
+          !row || typeof row.delegationId !== 'string' || !row.delegationId ||
+          row.delegationStatus !== 'dispatched' || ids.has(row.delegationId)
+        ) {
+          return total;
+        }
+        ids.add(row.delegationId);
+      }
+      let qualified = 0;
+      for (const observed of assessment.qualifiedRows) {
+        const current = this.readActiveLegacyCapacityRow(observed.delegationId);
+        if (current && sameLegacyCapacityRow(current, observed)) qualified += 1;
+      }
+      return Math.max(0, total - qualified);
+    } catch {
+      // A local lifecycle read that cannot prove its own completeness is an
+      // occupancy hold, not evidence that legacy work is absent.
+      return COORDINATOR_BACKGROUND_CAPACITY;
+    }
+  }
+
   /** No scheduler consumes queued coordinator jobs; this is called only by an explicit Run next. */
   claimCoordinatorForExplicitDispatch(input: {
     localUserId: number;
@@ -516,6 +727,8 @@ export class AgentBridgeJobsRepository {
     hostEpoch: string;
     /** Required by the coordinator; retained optional for older read-only callers. */
     expectedRevision?: number;
+    /** Status-only legacy proof gathered by the coordinator immediately before this claim. */
+    legacyCapacityAssessment?: CoordinatorLegacyCapacityAssessment;
     now: string;
   }): { row: AgentBridgeJobRow; admitted: boolean } {
     return this.db.transaction(() => {
@@ -546,14 +759,14 @@ export class AgentBridgeJobsRepository {
       const activeNative = this.db.prepare(`SELECT COUNT(*) AS count FROM agent_bridge_jobs
         WHERE direction='rhythm_to_native' AND native_execution_kind='coordinator'
           AND state IN ('claimed','running','unknown')`).get() as { count: number };
-      let activeLegacy = 0;
-      const asyncTable = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_async_delegations'").get();
-      if (asyncTable) {
-        activeLegacy = (this.db.prepare(`SELECT COUNT(*) AS count FROM agent_async_delegations d
-          JOIN agent_sessions s ON s.id=d.child_session_id
-          WHERE d.status IN ('dispatched','waking')`).get() as { count: number }).count;
+      const activeLegacy = this.coordinatorLegacyOccupancy({
+        hostEpoch: input.hostEpoch,
+        engineRuntimeInstance: current.parent_runtime_instance,
+        assessment: input.legacyCapacityAssessment,
+      });
+      if (activeNative.count + activeLegacy >= COORDINATOR_BACKGROUND_CAPACITY) {
+        return { row: current, admitted: false };
       }
-      if (activeNative.count + activeLegacy >= 2) return { row: current, admitted: false };
       const row = this.db.prepare(`UPDATE agent_bridge_jobs
         SET state='claimed', updated_at=?
         WHERE id=? AND direction='rhythm_to_native' AND native_execution_kind='coordinator'

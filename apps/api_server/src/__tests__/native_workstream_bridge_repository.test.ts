@@ -147,6 +147,74 @@ function nativeRow(
   return repository.getNativeForWorkstream({ localUserId: OWNER, workstreamId, jobId });
 }
 
+/** Exact local lifecycle fields consumed by the R4 read-only capacity snapshot. */
+function installLegacyCapacityLifecycleSchema(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE agent_sessions (
+      id TEXT PRIMARY KEY,
+      owner_user_id INTEGER NOT NULL,
+      project_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      sdk_session_id TEXT,
+      cwd TEXT NOT NULL,
+      parent_session_id TEXT,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE agent_async_delegations (
+      id TEXT PRIMARY KEY,
+      parent_session_id TEXT NOT NULL,
+      child_session_id TEXT NOT NULL,
+      target_agent_config_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+}
+
+function seedLegacyCapacityDelegation(
+  db: Database.Database,
+  id: string,
+  childStatus = 'idle',
+): { childId: string; sdkSessionId: string } {
+  const parentId = 'legacy-parent-other-project';
+  const childId = `legacy-child-${id}`;
+  const sdkSessionId = `legacy-sdk-${id}`;
+  db.prepare(`INSERT OR IGNORE INTO agent_sessions
+    (id, owner_user_id, project_id, status, sdk_session_id, cwd, parent_session_id, updated_at)
+    VALUES (?, ?, 'legacy-other-project', 'idle', ?, '/legacy/project', NULL, ?)`)
+    .run(parentId, OWNER + 1, `legacy-parent-sdk-${id}`, NOW);
+  db.prepare(`INSERT INTO agent_sessions
+    (id, owner_user_id, project_id, status, sdk_session_id, cwd, parent_session_id, updated_at)
+    VALUES (?, ?, 'legacy-other-project', ?, ?, '/legacy/project', ?, ?)`)
+    .run(childId, OWNER + 1, childStatus, sdkSessionId, parentId, NOW);
+  db.prepare(`INSERT INTO agent_async_delegations
+    (id, parent_session_id, child_session_id, target_agent_config_id, status, created_at, updated_at)
+    VALUES (?, ?, ?, 'legacy-worker', 'dispatched', ?, ?)`)
+    .run(id, parentId, childId, NOW, NOW);
+  return { childId, sdkSessionId };
+}
+
+function queuedCoordinatorJob(
+  db: Database.Database,
+  repository: NativeRepository,
+  workstreamId: string,
+  commandKey: string,
+): AgentBridgeJobRow {
+  const created = repository.createNativeOrReplay(nativeInput(workstreamId, { commandKey })).row;
+  const configured = repository.configureCoordinatorNativeJob({
+    localUserId: OWNER,
+    workstreamId,
+    jobId: created.id,
+    metadata: { policy: { maxTurns: 1, maxWallTimeSeconds: 300, maxTokens: 100, queueDeadlineAt: null } },
+    now: NOW,
+  });
+  db.prepare(`UPDATE agent_workstreams
+    SET state='queued', executor_epoch='host-epoch-1', last_job_id=? WHERE id=?`)
+    .run(configured.id, workstreamId);
+  return configured;
+}
+
 describe('S2-A native workstream bridge repository', () => {
   it('S2A-C03: scopes native command replay without rewriting captured identity', async () => {
     const { db, repository } = createFixture();
@@ -344,6 +412,11 @@ describe('S2-A native workstream bridge repository', () => {
         now: NOW,
       });
     });
+    for (let index = 0; index < workstreamIds.length; index += 1) {
+      db.prepare(`UPDATE agent_workstreams
+        SET state='queued', executor_epoch='host-epoch-1', last_job_id=? WHERE id=?`)
+        .run(jobs[index]!.id, workstreamIds[index]!);
+    }
 
     const claims = jobs.map((job, index) => repository.claimCoordinatorForExplicitDispatch({
       localUserId: OWNER,
@@ -363,6 +436,92 @@ describe('S2-A native workstream bridge repository', () => {
     expect(nativeRow(repository, workstreamIds[2], jobs[2].id)).toMatchObject({
       state: 'queued', delivery_state: 'delivered', native_execution_kind: 'coordinator',
     });
+
+    // Unknown native work remains a host-global occupancy hold; a capacity
+    // projection cannot clear it merely because no legacy row is present.
+    db.prepare(`UPDATE agent_bridge_jobs SET state='unknown', state_reason='native_status_unknown'
+      WHERE id=?`).run(jobs[0].id);
+    expect(repository.claimCoordinatorForExplicitDispatch({
+      localUserId: OWNER,
+      workstreamId: workstreamIds[2],
+      jobId: jobs[2].id,
+      hostEpoch: 'host-epoch-1',
+      now: LATER,
+    }).admitted).toBe(false);
+    db.close();
+  });
+
+  it('R4: atomic admission retains new legacy rows that appear after a positive read-only snapshot', () => {
+    const { db, repository } = createFixture();
+    installLegacyCapacityLifecycleSchema(db);
+    const workstreamId = insertWorkstream(db);
+    const target = queuedCoordinatorJob(db, repository, workstreamId, 'capacity-race-target');
+    for (let index = 0; index < 29; index += 1) {
+      seedLegacyCapacityDelegation(db, `historic-${index + 1}`);
+    }
+    const snapshot = repository.readCoordinatorLegacyCapacitySnapshot();
+    expect(snapshot).toMatchObject({ available: true, totalActive: 29 });
+    // These two rows model submissions that became durable after an awaited
+    // engine inspection. They have no qualification in the old snapshot.
+    seedLegacyCapacityDelegation(db, 'late-working-1', 'working');
+    seedLegacyCapacityDelegation(db, 'late-working-2', 'starting');
+
+    const claim = repository.claimCoordinatorForExplicitDispatch({
+      localUserId: OWNER,
+      workstreamId,
+      jobId: target.id,
+      hostEpoch: 'host-epoch-1',
+      expectedRevision: 3,
+      legacyCapacityAssessment: {
+        hostEpoch: 'host-epoch-1',
+        engineRuntimeInstance: 'runtime-parent-1',
+        qualifiedRows: snapshot.rows,
+      },
+      now: LATER,
+    });
+
+    expect(claim.admitted).toBe(false);
+    expect(nativeRow(repository, workstreamId, target.id)?.state).toBe('queued');
+    expect(db.prepare(`SELECT status, COUNT(*) AS count FROM agent_async_delegations
+      GROUP BY status`).all()).toEqual([{ status: 'dispatched', count: 31 }]);
+    expect(db.prepare(`SELECT COUNT(*) AS count FROM agent_async_delegations
+      WHERE status='waking'`).get()).toEqual({ count: 0 });
+    db.close();
+  });
+
+  it('R4: atomic admission retains changed legacy bindings instead of trusting a stale idle snapshot', () => {
+    const { db, repository } = createFixture();
+    installLegacyCapacityLifecycleSchema(db);
+    const workstreamId = insertWorkstream(db);
+    const target = queuedCoordinatorJob(db, repository, workstreamId, 'capacity-binding-target');
+    const first = seedLegacyCapacityDelegation(db, 'binding-1');
+    const second = seedLegacyCapacityDelegation(db, 'binding-2');
+    const snapshot = repository.readCoordinatorLegacyCapacitySnapshot();
+    db.prepare(`UPDATE agent_sessions SET sdk_session_id=?, updated_at=? WHERE id=?`)
+      .run('replacement-sdk-1', LATER, first.childId);
+    db.prepare(`UPDATE agent_sessions SET sdk_session_id=?, updated_at=? WHERE id=?`)
+      .run('replacement-sdk-2', LATER, second.childId);
+
+    const claim = repository.claimCoordinatorForExplicitDispatch({
+      localUserId: OWNER,
+      workstreamId,
+      jobId: target.id,
+      hostEpoch: 'host-epoch-1',
+      expectedRevision: 3,
+      legacyCapacityAssessment: {
+        hostEpoch: 'host-epoch-1',
+        engineRuntimeInstance: 'runtime-parent-1',
+        qualifiedRows: snapshot.rows,
+      },
+      now: LATER,
+    });
+
+    expect(claim.admitted).toBe(false);
+    expect(db.prepare(`SELECT status, updated_at FROM agent_async_delegations ORDER BY id`).all())
+      .toEqual([
+        { status: 'dispatched', updated_at: NOW },
+        { status: 'dispatched', updated_at: NOW },
+      ]);
     db.close();
   });
 

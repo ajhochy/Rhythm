@@ -68,6 +68,42 @@ type ManagedSdkSessionBoundary =
   | 'outside_local_ledger_scope';
 
 /**
+ * Strict, read-only engine evidence for capacity admission.  Unlike the
+ * ordinary status/question/permission convenience wrappers, `available`
+ * means every transport returned a successful, schema-complete response.
+ * It contains identifiers only—never messages, history, capture, or result
+ * text—and exists solely to distinguish the engine's documented idle-map
+ * omission from a failed observation.
+ */
+export interface BoundSessionLifecycleInspection {
+  available: boolean;
+  knownSessionIds: string[];
+  statusBySessionId: Record<string, { type: string }>;
+  pendingQuestionSessionIds: string[];
+  pendingPermissionSessionIds: string[];
+}
+
+function completeSessionStatusMap(value: unknown): value is Record<string, { type: string }> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return Object.entries(value).every(([id, status]) =>
+    id.length > 0 && !!status && typeof status === 'object' && !Array.isArray(status) &&
+    typeof (status as Record<string, unknown>).type === 'string',
+  );
+}
+
+function completeLifecycleSessionIds(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const ids: string[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+    const sessionID = (entry as Record<string, unknown>).sessionID;
+    if (typeof sessionID !== 'string' || sessionID.trim().length === 0) return null;
+    ids.push(sessionID);
+  }
+  return ids;
+}
+
+/**
  * A managed enrollment is a permanent nonreuse boundary for an SDK session.
  * This read is intentionally independent of the managed feature flag: turning
  * the feature off later must not let ordinary SQLite chat replay retained
@@ -3324,6 +3360,89 @@ export class OpencodeClientService {
     } catch (err) {
       logger.error('[OpencodeClientService] getSessionStatuses failed:', err);
       return {};
+    }
+  }
+
+  /**
+   * Strict capacity-only lifecycle inspection for already-bound SDK sessions.
+   *
+   * The engine removes idle sessions from `/session/status`, so an omitted map
+   * key can mean idle only after this method has independently confirmed that
+   * the exact SDK session still exists in the same directory and that all
+   * three current lifecycle reads succeeded with complete shapes.  Any HTTP,
+   * SDK, transport, or shape failure returns `available: false`; callers must
+   * retain occupancy rather than treating an empty fallback as success.
+   */
+  async inspectBoundSessionLifecycles(
+    sdkSessionIds: string[],
+    directory: string,
+  ): Promise<BoundSessionLifecycleInspection> {
+    const unavailable = (): BoundSessionLifecycleInspection => ({
+      available: false,
+      knownSessionIds: [],
+      statusBySessionId: {},
+      pendingQuestionSessionIds: [],
+      pendingPermissionSessionIds: [],
+    });
+    const sessionIds = [...new Set(sdkSessionIds)];
+    if (
+      !directory || sessionIds.length === 0 || sessionIds.length > 100 ||
+      sessionIds.some((id) => typeof id !== 'string' || id.trim().length === 0)
+    ) {
+      return unavailable();
+    }
+
+    const knownSessionIds = (await Promise.all(sessionIds.map(async (sdkSessionId) => {
+      try {
+        const session = await this.getSession(sdkSessionId);
+        return session?.id === sdkSessionId && session.directory === directory
+          ? sdkSessionId
+          : null;
+      } catch {
+        return null;
+      }
+    }))).filter((id): id is string => id !== null);
+    // A capacity admission never clears a partial batch.  A missing, wrong
+    // directory, or transport-failed metadata read is not proof that the
+    // corresponding child stopped occupying the shared engine; retain every
+    // row until the whole requested bound set is positively observable.
+    if (knownSessionIds.length !== sessionIds.length) return unavailable();
+
+    const query = `?directory=${encodeURIComponent(directory)}`;
+    try {
+      const questionsClient = await this.v2Client();
+      const [statusResponse, questionsResponse, permissionsResponse] = await Promise.all([
+        fetch(`${this.serverUrl}/session/status${query}`, {
+          headers: { Accept: 'application/json' },
+          signal: AbortSignal.timeout(2_000),
+        }),
+        questionsClient.question.list({ directory }),
+        fetch(`${this.serverUrl}/permission${query}`, {
+          headers: { Accept: 'application/json' },
+          signal: AbortSignal.timeout(2_000),
+        }),
+      ]);
+      if (!statusResponse.ok || questionsResponse.error || !permissionsResponse.ok) {
+        return unavailable();
+      }
+      const [statusPayload, permissionsPayload] = await Promise.all([
+        statusResponse.json() as Promise<unknown>,
+        permissionsResponse.json() as Promise<unknown>,
+      ]);
+      const questionSessionIds = completeLifecycleSessionIds(questionsResponse.data);
+      const permissionSessionIds = completeLifecycleSessionIds(permissionsPayload);
+      if (!completeSessionStatusMap(statusPayload) || !questionSessionIds || !permissionSessionIds) {
+        return unavailable();
+      }
+      return {
+        available: true,
+        knownSessionIds,
+        statusBySessionId: statusPayload,
+        pendingQuestionSessionIds: questionSessionIds,
+        pendingPermissionSessionIds: permissionSessionIds,
+      };
+    } catch {
+      return unavailable();
     }
   }
 

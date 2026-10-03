@@ -848,3 +848,167 @@ describe('issue-689 repair: getSession gone-vs-transport discrimination', () => 
     });
   });
 });
+
+// ── R4: strict, read-only capacity lifecycle evidence ─────────────────────
+
+describe('R4 strict bound-session lifecycle inspection', () => {
+  function jsonResponse(value: unknown, status = 200): Response {
+    return new Response(JSON.stringify(value), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  function setup(input: {
+    session?: unknown;
+    questions?: { data?: unknown; error?: unknown } | Error;
+    status?: unknown;
+    statusCode?: number;
+    permissions?: unknown;
+    permissionCode?: number;
+  } = {}) {
+    const svc = new OpencodeClientService();
+    const sdkClient = makeRealSdkClient();
+    injectClient(svc, sdkClient);
+    if (input.session instanceof Error) {
+      sdkClient.session.get.mockRejectedValue(input.session);
+    } else {
+      sdkClient.session.get.mockResolvedValue(input.session ?? {
+        data: { id: 'sdk-idle', directory: '/safe/project' },
+      });
+    }
+    const questionList = input.questions instanceof Error
+      ? vi.fn().mockRejectedValue(input.questions)
+      : vi.fn().mockResolvedValue(input.questions ?? { data: [] });
+    svc.__setTestV2Client({ question: { list: questionList } } as never);
+    vi.stubGlobal('fetch', vi.fn((request: string | URL | Request) => {
+      const url = String(request);
+      if (url.includes('/session/status')) {
+        return Promise.resolve(jsonResponse(input.status ?? {}, input.statusCode ?? 200));
+      }
+      if (url.includes('/permission')) {
+        return Promise.resolve(jsonResponse(input.permissions ?? [], input.permissionCode ?? 200));
+      }
+      return Promise.reject(new Error(`unexpected lifecycle probe URL: ${url}`));
+    }));
+    return { svc, sdkClient, questionList };
+  }
+
+  it('accepts the engine’s documented idle-map omission only after every strict read succeeds', async () => {
+    const { svc, sdkClient, questionList } = setup();
+    try {
+      const result = await svc.inspectBoundSessionLifecycles(['sdk-idle'], '/safe/project');
+
+      expect(result).toEqual({
+        available: true,
+        knownSessionIds: ['sdk-idle'],
+        statusBySessionId: {},
+        pendingQuestionSessionIds: [],
+        pendingPermissionSessionIds: [],
+      });
+      expect(sdkClient.session.get).toHaveBeenCalledWith({ path: { id: 'sdk-idle' } });
+      expect(questionList).toHaveBeenCalledWith({ directory: '/safe/project' });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('withholds a bounded inspection when any requested bound session is not positively known', async () => {
+    const { svc, sdkClient, questionList } = setup();
+    sdkClient.session.get.mockImplementation(async ({ path }: { path: { id: string } }) => (
+      path.id === 'sdk-idle'
+        ? { data: { id: 'sdk-idle', directory: '/safe/project' } }
+        : { error: { message: 'not found' } }
+    ));
+    try {
+      await expect(svc.inspectBoundSessionLifecycles(
+        ['sdk-idle', 'sdk-missing'],
+        '/safe/project',
+      )).resolves.toEqual({
+        available: false,
+        knownSessionIds: [],
+        statusBySessionId: {},
+        pendingQuestionSessionIds: [],
+        pendingPermissionSessionIds: [],
+      });
+      expect(questionList).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('holds missing/wrong session metadata and every failed or malformed lifecycle response', async () => {
+    const cases: Array<{
+      name: string;
+      setup: Parameters<typeof setup>[0];
+      expectedAvailable: boolean;
+      expectedKnown: string[];
+    }> = [
+      {
+        name: 'missing known session',
+        setup: { session: { error: { message: 'not found' } } },
+        expectedAvailable: false,
+        expectedKnown: [],
+      },
+      {
+        name: 'wrong session directory',
+        setup: { session: { data: { id: 'sdk-idle', directory: '/other/project' } } },
+        expectedAvailable: false,
+        expectedKnown: [],
+      },
+      {
+        name: 'session metadata transport failure',
+        setup: { session: new Error('transport down') },
+        expectedAvailable: false,
+        expectedKnown: [],
+      },
+      {
+        name: 'status HTTP failure',
+        setup: { statusCode: 503 },
+        expectedAvailable: false,
+        expectedKnown: [],
+      },
+      {
+        name: 'status malformed payload',
+        setup: { status: { 'sdk-idle': {} } },
+        expectedAvailable: false,
+        expectedKnown: [],
+      },
+      {
+        name: 'question SDK failure',
+        setup: { questions: { error: { message: 'unavailable' } } },
+        expectedAvailable: false,
+        expectedKnown: [],
+      },
+      {
+        name: 'question malformed payload',
+        setup: { questions: { data: [{}] } },
+        expectedAvailable: false,
+        expectedKnown: [],
+      },
+      {
+        name: 'permission HTTP failure',
+        setup: { permissionCode: 503 },
+        expectedAvailable: false,
+        expectedKnown: [],
+      },
+      {
+        name: 'permission malformed payload',
+        setup: { permissions: [{}] },
+        expectedAvailable: false,
+        expectedKnown: [],
+      },
+    ];
+
+    for (const entry of cases) {
+      const { svc } = setup(entry.setup);
+      try {
+        const result = await svc.inspectBoundSessionLifecycles(['sdk-idle'], '/safe/project');
+        expect(result.available, entry.name).toBe(entry.expectedAvailable);
+        expect(result.knownSessionIds, entry.name).toEqual(entry.expectedKnown);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    }
+  });
+});

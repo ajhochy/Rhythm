@@ -6,7 +6,11 @@ import { installAgentWorkstreamsSchema } from '../database/agent_workstreams_sch
 import { AgentWorkstreamsRepository } from '../repositories/agent_workstreams_repository';
 import { AgentBridgeJobsRepository } from '../shared_agents/delegation_jobs_repository';
 import { installAgentBridgeSchema } from '../shared_agents/bridge_schema';
-import { PersistentWorkstreamCoordinator } from '../services/persistent_workstream_coordinator';
+import {
+  PersistentWorkstreamCoordinator,
+  type WorkstreamRunRequest,
+} from '../services/persistent_workstream_coordinator';
+import type { BoundSessionLifecycleInspection } from '../services/opencode_client_service';
 import { type WorkstreamArtifactAuthorityResolver } from '../services/workstream_artifact_verifier';
 import type { ProfileScope } from '../services/agent_profile_scope';
 import type { AuthContext } from '../middleware/auth_middleware';
@@ -87,6 +91,16 @@ function fixture(options: {
     promptAsync: vi.fn(),
     abortSession: vi.fn(),
     getSessionStatuses: vi.fn(async () => ({ [child.sdkSessionId]: { type: 'idle' } })),
+    inspectBoundSessionLifecycles: vi.fn(async (
+      sdkSessionIds: string[],
+      _directory: string,
+    ): Promise<BoundSessionLifecycleInspection> => ({
+      available: true,
+      knownSessionIds: sdkSessionIds,
+      statusBySessionId: {},
+      pendingQuestionSessionIds: [],
+      pendingPermissionSessionIds: [],
+    })),
     listMcp: vi.fn(async () => ({ rhythm: { status: 'connected' } })),
     listQuestions: vi.fn(async (): Promise<Array<{ sessionID: string }>> => []),
     listPermissions: vi.fn(async (): Promise<Array<{ sessionID: string }>> => []),
@@ -117,6 +131,95 @@ function fixture(options: {
   });
   coordinator.initialize();
   return { db, coordinator, engine, jobs, workstream, workstreams, child, profile };
+}
+
+const RUN_SCOPE: ProfileScope = {
+  model: { providerID: 'provider', modelID: 'model' },
+  mcpRoleConfig: null,
+  allowedSkillsJson: null,
+  systemPrompt: null,
+  ocAgent: null,
+  modelTierHint: null,
+};
+
+function runInput(context: Fixture, commandKey = 'run-capacity'): WorkstreamRunRequest {
+  return {
+    expectedRevision: context.workstream.revision,
+    commandKey,
+    targetProfileId: 'worker-profile',
+    parentSessionId: 'parent-local',
+    policy: { maxTurns: 1, maxWallTimeSeconds: 300, maxTokens: 100, queueDeadlineAt: null },
+    references: [],
+  };
+}
+
+/** Minimal real SQLite shape for the legacy lifecycle evidence read by R4. */
+function installLegacyCapacityLifecycleSchema(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE agent_sessions (
+      id TEXT PRIMARY KEY,
+      owner_user_id INTEGER NOT NULL,
+      project_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      sdk_session_id TEXT,
+      cwd TEXT NOT NULL,
+      parent_session_id TEXT,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE agent_async_delegations (
+      id TEXT PRIMARY KEY,
+      parent_session_id TEXT NOT NULL,
+      child_session_id TEXT NOT NULL,
+      target_agent_config_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+}
+
+function seedLegacyCapacityDelegation(
+  db: Database.Database,
+  input: {
+    id: string;
+    parentId?: string;
+    childStatus?: string;
+    delegationStatus?: 'dispatched' | 'waking';
+    childSdkSessionId?: string;
+    childCwd?: string;
+    childParentSessionId?: string;
+    ownerUserId?: number;
+    projectId?: string;
+  },
+): { parentId: string; childId: string; sdkSessionId: string } {
+  const parentId = input.parentId ?? 'legacy-parent-other-owner';
+  const childId = `legacy-child-${input.id}`;
+  const sdkSessionId = input.childSdkSessionId ?? `legacy-sdk-${input.id}`;
+  const childCwd = input.childCwd ?? '/legacy/project';
+  const ownerUserId = input.ownerUserId ?? OWNER + 99;
+  const projectId = input.projectId ?? 'other-project';
+  db.prepare(`INSERT OR IGNORE INTO agent_sessions
+    (id, owner_user_id, project_id, status, sdk_session_id, cwd, parent_session_id, updated_at)
+    VALUES (?, ?, ?, 'idle', ?, ?, NULL, ?)`)
+    .run(parentId, ownerUserId, projectId, `legacy-parent-sdk-${parentId}`, childCwd, NOW);
+  db.prepare(`INSERT INTO agent_sessions
+    (id, owner_user_id, project_id, status, sdk_session_id, cwd, parent_session_id, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(
+      childId,
+      ownerUserId,
+      projectId,
+      input.childStatus ?? 'idle',
+      sdkSessionId,
+      childCwd,
+      input.childParentSessionId ?? parentId,
+      NOW,
+    );
+  db.prepare(`INSERT INTO agent_async_delegations
+    (id, parent_session_id, child_session_id, target_agent_config_id, status, created_at, updated_at)
+    VALUES (?, ?, ?, 'legacy-worker', ?, ?, ?)`)
+    .run(input.id, parentId, childId, input.delegationStatus ?? 'dispatched', NOW, NOW);
+  return { parentId, childId, sdkSessionId };
 }
 
 function bindRunningJob(context: Fixture, now = NOW, maxTokens = 100) {
@@ -879,6 +982,207 @@ describe('persistent workstream coordinator', () => {
         { criterionId: 'criterion-2', criterionStatus: 'waived' },
       ],
     });
+    context.db.close();
+  });
+
+  it('R4: 29 historical idle dispatched children clear only through the real omitted-idle protocol proof', async () => {
+    const context = fixture({ profileScopeResolver: async () => RUN_SCOPE });
+    installLegacyCapacityLifecycleSchema(context.db);
+    const legacy = Array.from({ length: 29 }, (_, index) =>
+      seedLegacyCapacityDelegation(context.db, { id: `historical-${index + 1}` }),
+    );
+    const before = context.db.prepare(`SELECT id, status, updated_at
+      FROM agent_async_delegations ORDER BY id`).all();
+    context.engine.inspectBoundSessionLifecycles.mockImplementation(async (
+      ids: string[],
+      directory: string,
+    ): Promise<BoundSessionLifecycleInspection> => ({
+      available: directory === '/legacy/project',
+      knownSessionIds: ids,
+      // This is the shipped engine's successful idle shape: SessionStatus.set
+      // removes the idle entry from the current status map.
+      statusBySessionId: {},
+      pendingQuestionSessionIds: [],
+      pendingPermissionSessionIds: [],
+    }));
+    context.engine.createSession.mockResolvedValue({ id: 'fresh-coordinator-sdk-session' });
+    context.engine.promptAsync.mockResolvedValue(true);
+
+    await context.coordinator.reconcileAfterEngineReady();
+    await context.coordinator.runNext(auth, PROJECT, context.workstream.id, runInput(context));
+
+    expect(context.engine.inspectBoundSessionLifecycles).toHaveBeenCalledWith(
+      legacy.map((row) => row.sdkSessionId).sort(),
+      '/legacy/project',
+    );
+    expect(context.engine.createSession).toHaveBeenCalledTimes(1);
+    expect(context.engine.promptAsync).toHaveBeenCalledTimes(1);
+    expect(context.db.prepare(`SELECT id, status, updated_at
+      FROM agent_async_delegations ORDER BY id`).all()).toEqual(before);
+    expect(context.db.prepare(`SELECT COUNT(*) AS count FROM agent_async_delegations
+      WHERE status='waking'`).get()).toEqual({ count: 0 });
+    context.db.close();
+  });
+
+  it('R4: busy/retry legacy children from another owner/project remain host-global occupancy', async () => {
+    const context = fixture({ profileScopeResolver: async () => RUN_SCOPE });
+    installLegacyCapacityLifecycleSchema(context.db);
+    const busy = seedLegacyCapacityDelegation(context.db, { id: 'other-owner-busy' });
+    const retry = seedLegacyCapacityDelegation(context.db, { id: 'other-owner-retry' });
+    context.engine.inspectBoundSessionLifecycles.mockResolvedValue({
+      available: true,
+      knownSessionIds: [busy.sdkSessionId, retry.sdkSessionId],
+      statusBySessionId: {
+        [busy.sdkSessionId]: { type: 'busy' },
+        [retry.sdkSessionId]: { type: 'retry' },
+      },
+      pendingQuestionSessionIds: [],
+      pendingPermissionSessionIds: [],
+    });
+
+    await context.coordinator.reconcileAfterEngineReady();
+    const view = await context.coordinator.runNext(auth, PROJECT, context.workstream.id, runInput(context));
+
+    expect(view.workstream).toMatchObject({ state: 'queued', stateReason: 'worker_capacity_full' });
+    expect(context.engine.createSession).not.toHaveBeenCalled();
+    expect(context.engine.promptAsync).not.toHaveBeenCalled();
+    expect(context.db.prepare(`SELECT status FROM agent_async_delegations ORDER BY id`).all())
+      .toEqual([{ status: 'dispatched' }, { status: 'dispatched' }]);
+    context.db.close();
+  });
+
+  it('R4: missing, failed, malformed, and pending lifecycle evidence remains a capacity hold', async () => {
+    const cases: Array<{
+      name: string;
+      inspection: (ids: string[], directory: string) => BoundSessionLifecycleInspection;
+    }> = [
+      {
+        name: 'known-session metadata missing',
+        inspection: (_ids: string[], _directory: string) => ({
+          available: true,
+          knownSessionIds: [],
+          statusBySessionId: {},
+          pendingQuestionSessionIds: [],
+          pendingPermissionSessionIds: [],
+        }),
+      },
+      {
+        name: 'strict response unavailable',
+        inspection: (_ids: string[], _directory: string) => ({
+          available: false,
+          knownSessionIds: [],
+          statusBySessionId: {},
+          pendingQuestionSessionIds: [],
+          pendingPermissionSessionIds: [],
+        }),
+      },
+      {
+        name: 'pending question and permission',
+        inspection: (ids: string[], _directory: string) => ({
+          available: true,
+          knownSessionIds: ids,
+          statusBySessionId: {},
+          pendingQuestionSessionIds: [ids[0]!],
+          pendingPermissionSessionIds: [ids[1]!],
+        }),
+      },
+    ];
+
+    for (const testCase of cases) {
+      const context = fixture({ profileScopeResolver: async () => RUN_SCOPE });
+      installLegacyCapacityLifecycleSchema(context.db);
+      seedLegacyCapacityDelegation(context.db, { id: `${testCase.name}-1` });
+      seedLegacyCapacityDelegation(context.db, { id: `${testCase.name}-2` });
+      context.engine.inspectBoundSessionLifecycles.mockImplementation(async (
+        ids: string[],
+        directory: string,
+      ) => testCase.inspection(ids, directory));
+
+      await context.coordinator.reconcileAfterEngineReady();
+      const view = await context.coordinator.runNext(auth, PROJECT, context.workstream.id, runInput(context));
+
+      expect(view.workstream, testCase.name).toMatchObject({ state: 'queued', stateReason: 'worker_capacity_full' });
+      expect(context.engine.createSession, testCase.name).not.toHaveBeenCalled();
+      expect(context.engine.promptAsync, testCase.name).not.toHaveBeenCalled();
+      context.db.close();
+    }
+  });
+
+  it('R4: pause or revise during a delayed lifecycle proof wins without an SDK child or prompt', async () => {
+    for (const action of ['pause', 'revise'] as const) {
+      const context = fixture({ profileScopeResolver: async () => RUN_SCOPE });
+      installLegacyCapacityLifecycleSchema(context.db);
+      const legacy = seedLegacyCapacityDelegation(context.db, { id: `delayed-${action}` });
+      let inspectionStarted!: () => void;
+      const started = new Promise<void>((resolve) => { inspectionStarted = resolve; });
+      let releaseInspection!: (value: BoundSessionLifecycleInspection) => void;
+      const pendingInspection = new Promise<BoundSessionLifecycleInspection>((resolve) => { releaseInspection = resolve; });
+      context.engine.inspectBoundSessionLifecycles.mockImplementation(async (
+        _ids: string[],
+        _directory: string,
+      ) => {
+        inspectionStarted();
+        return pendingInspection;
+      });
+
+      await context.coordinator.reconcileAfterEngineReady();
+      const running = context.coordinator.runNext(auth, PROJECT, context.workstream.id, runInput(context, `run-${action}`));
+      await started;
+      if (action === 'pause') {
+        await context.coordinator.pause(auth, PROJECT, context.workstream.id, context.workstream.revision);
+      } else {
+        context.workstreams.revise(OWNER, PROJECT, context.workstream.id, context.workstream.revision, {
+          goal: 'Controls changed during capacity inspection',
+        });
+      }
+      releaseInspection({
+        available: true,
+        knownSessionIds: [legacy.sdkSessionId],
+        statusBySessionId: {},
+        pendingQuestionSessionIds: [],
+        pendingPermissionSessionIds: [],
+      });
+      const view = await running;
+
+      expect(view.workstream).toMatchObject(action === 'pause'
+        ? { revision: 2, state: 'paused', stateReason: 'user_paused' }
+        : { revision: 2, state: 'blocked', stateReason: 'controls_revised' });
+      expect(context.engine.createSession).not.toHaveBeenCalled();
+      expect(context.engine.promptAsync).not.toHaveBeenCalled();
+      context.db.close();
+    }
+  });
+
+  it('R4: a capacity-held exact Run-next replay does not create a second native intent', async () => {
+    const context = fixture({ profileScopeResolver: async () => RUN_SCOPE });
+    installLegacyCapacityLifecycleSchema(context.db);
+    const firstLegacy = seedLegacyCapacityDelegation(context.db, { id: 'replay-busy-1' });
+    const secondLegacy = seedLegacyCapacityDelegation(context.db, { id: 'replay-busy-2' });
+    context.engine.inspectBoundSessionLifecycles.mockResolvedValue({
+      available: true,
+      knownSessionIds: [firstLegacy.sdkSessionId, secondLegacy.sdkSessionId],
+      statusBySessionId: {
+        [firstLegacy.sdkSessionId]: { type: 'busy' },
+        [secondLegacy.sdkSessionId]: { type: 'busy' },
+      },
+      pendingQuestionSessionIds: [],
+      pendingPermissionSessionIds: [],
+    });
+
+    await context.coordinator.reconcileAfterEngineReady();
+    const first = await context.coordinator.runNext(auth, PROJECT, context.workstream.id, runInput(context, 'run-replay-held'));
+    const second = await context.coordinator.runNext(auth, PROJECT, context.workstream.id, {
+      ...runInput(context, 'run-replay-held'),
+      expectedRevision: first.workstream.revision,
+    });
+
+    expect(first.workstream).toMatchObject({ state: 'queued', stateReason: 'worker_capacity_full' });
+    expect(second.workstream).toMatchObject({ state: 'queued', stateReason: 'worker_capacity_full' });
+    expect(context.db.prepare(`SELECT COUNT(*) AS count FROM agent_bridge_jobs
+      WHERE direction='rhythm_to_native' AND native_execution_kind='coordinator'`).get())
+      .toEqual({ count: 1 });
+    expect(context.engine.createSession).not.toHaveBeenCalled();
+    expect(context.engine.promptAsync).not.toHaveBeenCalled();
     context.db.close();
   });
 

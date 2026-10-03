@@ -11,6 +11,8 @@ import {
   AgentBridgeJobsRepository,
   type AgentBridgeJobRow,
   type CoordinatorBudgetState,
+  type CoordinatorLegacyCapacityAssessment,
+  type LegacyCoordinatorCapacityRow,
 } from '../shared_agents/delegation_jobs_repository';
 import {
   AgentWorkstreamsRepository,
@@ -121,6 +123,22 @@ function evidenceView(resolved: QualifiedWorkstreamArtifact): WorkstreamEvidence
   };
 }
 
+/** Only a fully bound, locally-idle dispatched child can be engine-checked. */
+function isLegacyIdleCapacityCandidate(row: LegacyCoordinatorCapacityRow): boolean {
+  return row.delegationStatus === 'dispatched' &&
+    row.parentBoundSessionId === row.parentSessionId &&
+    typeof row.parentStatus === 'string' && row.parentStatus.length > 0 &&
+    typeof row.parentUpdatedAt === 'string' && row.parentUpdatedAt.length > 0 &&
+    typeof row.delegationUpdatedAt === 'string' && row.delegationUpdatedAt.length > 0 &&
+    typeof row.childSessionId === 'string' && row.childSessionId.length > 0 &&
+    row.childSessionId !== row.parentSessionId &&
+    typeof row.childSdkSessionId === 'string' && row.childSdkSessionId.length > 0 &&
+    row.childStatus === 'idle' &&
+    typeof row.childUpdatedAt === 'string' && row.childUpdatedAt.length > 0 &&
+    typeof row.childCwd === 'string' && row.childCwd.length > 0 &&
+    row.childParentSessionId === row.parentSessionId;
+}
+
 export interface WorkstreamRunRequest {
   expectedRevision: number;
   commandKey: string;
@@ -140,6 +158,7 @@ export interface PersistentWorkstreamCoordinatorDependencies {
     | 'promptAsync'
     | 'abortSession'
     | 'getSessionStatuses'
+    | 'inspectBoundSessionLifecycles'
     | 'listMessagesPage'
     | 'listQuestions'
     | 'listPermissions'
@@ -493,6 +512,48 @@ export class PersistentWorkstreamCoordinator {
       });
       return this.view(this.requireWorkstream(auth.user.id, projectId, workstreamId), readiness);
     }
+
+    // This status-only probe belongs exclusively to this explicit Run next.
+    // It cannot start, retry, complete, or wake legacy work.  The repository
+    // will re-read every qualifying durable row inside its claim transaction.
+    const legacyCapacityAssessment = await this.assessLegacyCoordinatorCapacity(readiness);
+    const controlsAfterCapacityProbe = this.requireWorkstream(auth.user.id, projectId, workstreamId);
+    if (
+      controlsAfterCapacityProbe.revision !== queued.revision ||
+      controlsAfterCapacityProbe.state !== 'queued' ||
+      controlsAfterCapacityProbe.executorEpoch !== this.hostEpoch ||
+      controlsAfterCapacityProbe.lastJobId !== configured.id
+    ) {
+      // Pause, cancel, revise, and any other current control transition wins
+      // over a late capacity observation.  Do not rewrite it or create a SDK
+      // child after this await.
+      return this.view(controlsAfterCapacityProbe, readiness);
+    }
+    readiness = await this.readiness();
+    if (!readiness.available || !readiness.engine) {
+      this.publishRuntime(queued, configured.id, 'blocked', readiness.reason ?? 'coordinator_unavailable', {
+        expectedStates: ['queued'],
+        executorEpoch: this.hostEpoch,
+      });
+      return this.view(this.requireWorkstream(auth.user.id, projectId, workstreamId), readiness);
+    }
+    if (!this.profileStillAuthorized(currentProfile)) {
+      this.publishRuntime(queued, configured.id, 'blocked', 'target_profile_changed_during_preparation', {
+        expectedStates: ['queued'],
+        executorEpoch: this.hostEpoch,
+      });
+      return this.view(this.requireWorkstream(auth.user.id, projectId, workstreamId), readiness);
+    }
+    if (
+      legacyCapacityAssessment &&
+      readiness.engine.bootId !== legacyCapacityAssessment.engineRuntimeInstance
+    ) {
+      // A status observation from a prior engine instance cannot clear a
+      // current host-global slot.  Preserve the unexecuted intent as unknown
+      // rather than replaying it under the changed runtime identity.
+      this.markUnknown(queued, configured, 'capacity_engine_identity_changed_before_claim');
+      return this.view(this.requireWorkstream(auth.user.id, projectId, workstreamId), readiness);
+    }
     let claim: { row: AgentBridgeJobRow; admitted: boolean };
     try {
       claim = this.jobs.claimCoordinatorForExplicitDispatch({
@@ -501,6 +562,7 @@ export class PersistentWorkstreamCoordinator {
         jobId: configured.id,
         hostEpoch: this.hostEpoch,
         expectedRevision: queued.revision,
+        legacyCapacityAssessment,
         now: new Date().toISOString(),
       });
     } catch {
@@ -901,6 +963,67 @@ export class PersistentWorkstreamCoordinator {
       throw AppError.conflict('worker result has already been applied or fenced');
     }
     return this.view(this.requireWorkstream(auth.user.id, projectId, workstreamId));
+  }
+
+  /**
+   * A bounded, status-only inspection used only by an explicit Run next.
+   * Legacy delivery rows remain untouched.  The engine's status protocol omits
+   * idle entries, so omission becomes evidence only after the dedicated
+   * inspection confirms the exact SDK session and directory plus successful,
+   * complete status/question/permission reads.  Any unavailable component is
+   * a hold rather than a guessed idle state.
+   */
+  private async assessLegacyCoordinatorCapacity(
+    readiness: WorkstreamReadiness,
+  ): Promise<CoordinatorLegacyCapacityAssessment | undefined> {
+    if (!readiness.engine) return undefined;
+    const snapshot = this.jobs.readCoordinatorLegacyCapacitySnapshot();
+    if (!snapshot.available) return undefined;
+
+    const byDirectory = new Map<string, LegacyCoordinatorCapacityRow[]>();
+    for (const row of snapshot.rows) {
+      if (!isLegacyIdleCapacityCandidate(row)) continue;
+      const directory = row.childCwd!;
+      const candidates = byDirectory.get(directory) ?? [];
+      candidates.push(row);
+      byDirectory.set(directory, candidates);
+    }
+
+    const qualified = new Map<string, LegacyCoordinatorCapacityRow>();
+    for (const [directory, candidates] of byDirectory) {
+      const observation = await this.withProbeTimeout(
+        this.dependencies.engine.inspectBoundSessionLifecycles(
+          candidates.map((candidate) => candidate.childSdkSessionId!),
+          directory,
+        ),
+      );
+      if (!observation?.available) continue;
+      const known = new Set(observation.knownSessionIds);
+      const pending = new Set([
+        ...observation.pendingQuestionSessionIds,
+        ...observation.pendingPermissionSessionIds,
+      ]);
+      for (const candidate of candidates) {
+        const sdkSessionId = candidate.childSdkSessionId!;
+        const status = observation.statusBySessionId[sdkSessionId];
+        // `SessionStatus.set(idle)` removes the entry.  It is only a current
+        // idle proof here because this exact id was successfully read from
+        // GET /session/{id} in this directory and all sibling lifecycle reads
+        // were successful and complete. Busy/retry/unknown entries remain holds.
+        if (
+          known.has(sdkSessionId) &&
+          (status === undefined || status.type === 'idle') &&
+          !pending.has(sdkSessionId)
+        ) {
+          qualified.set(candidate.delegationId, candidate);
+        }
+      }
+    }
+    return {
+      hostEpoch: this.hostEpoch,
+      engineRuntimeInstance: readiness.engine.bootId,
+      qualifiedRows: [...qualified.values()],
+    };
   }
 
   private async evaluateReadiness(options: { allowPendingReconciliation: boolean }): Promise<WorkstreamReadiness> {
