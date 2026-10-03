@@ -190,7 +190,7 @@ export function SettingsPage() {
     { id: 'runtime', title: 'Runtime & updates', subtitle: `API ${runtime.api} · Engine ${runtime.engine}`, group: 'account' },
     { id: 'session-retention', title: 'Session cleanup', subtitle: 'Nightly trim of old tool output · This Mac', group: 'account' },
     { id: 'bot-crossing', title: 'Bot Crossing', subtitle: 'Local-only task scanning and state import', group: 'local-apps' },
-    { id: 'dayflow', title: 'Dayflow', subtitle: 'Off · Unqualified · Local candidate only', group: 'activity' },
+    { id: 'dayflow', title: 'Dayflow', subtitle: 'Off until configured', group: 'activity' },
     { id: 'agent-settings', title: 'Agent Settings', subtitle: 'AI accounts, profiles, and tool access', group: 'related' },
     { id: 'shared-agents', title: 'Shared Agents', subtitle: 'Canonical agents across OpenCode and Hermes', group: 'related' },
     { id: 'integrations', title: 'Integrations', subtitle: 'Google, Gmail, and Planning Center', group: 'related' },

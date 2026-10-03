@@ -97,7 +97,7 @@ test('keyboard menus and dialogs restore focus without trapping the page', async
   await page.setViewportSize({ width: 390, height: 844 });
   await openFixture(page);
   await page.getByTestId('nav-more').click();
-  await expect(page.getByRole('menu', { name: 'App menu' }).getByRole('menuitem').first()).toBeFocused();
+  await expect(page.getByRole('menu', { name: 'More destinations' }).getByRole('menuitem').first()).toBeFocused();
   await page.keyboard.press('End');
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('nav-more')).toBeFocused();

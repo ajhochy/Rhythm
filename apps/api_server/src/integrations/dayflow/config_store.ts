@@ -12,7 +12,10 @@ export class DayflowConfigStore {
     if (!this.path || !existsSync(this.path)) {
       return { config: freshDayflowConfig(), persisted: false };
     }
-    try { return { config: validateDayflowConfig(JSON.parse(readFileSync(this.path, 'utf8')), false), persisted: true }; }
+    // Additive internal fields (such as the selected journal path) receive
+    // safe defaults when reading a prior local config. Unknown fields still
+    // fail closed in the shared validator.
+    try { return { config: validateDayflowConfig(JSON.parse(readFileSync(this.path, 'utf8')), true), persisted: true }; }
     catch { throw new Error('Dayflow configuration is unreadable; import is blocked.'); }
   }
   write(config: DayflowConfig) {

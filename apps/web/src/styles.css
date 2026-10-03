@@ -99,12 +99,6 @@ button:disabled, input:disabled, textarea:disabled, select:disabled { cursor: no
 
 .menu-popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; width: 270px; display: grid; gap: 3px; padding: 8px; border: 1px solid var(--border); border-radius: var(--r-md); color: var(--fg); background: var(--surface-raised); box-shadow: var(--shadow); }
 .nav-overflow { right: auto; left: 0; width: 190px; max-height: calc(100vh - 100px); overflow-y: auto; }
-.app-menu-trigger { min-width: 76px; justify-content: center; }
-.destination-nav .more-nav { display: block; }
-.app-destination-menu { width: min(300px, calc(100vw - 20px)); padding: 6px; }
-.app-destination-group + .app-destination-group { margin-top: 5px; padding-top: 5px; border-top: 1px solid var(--border-soft); }
-.app-destination-group .menu-section-label { display: block; padding: 5px 8px 3px; color: var(--muted); font-size: 10px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; }
-.app-destination-group .menu-item[aria-current="page"] { color: var(--fg); background: color-mix(in oklab, var(--accent), transparent 90%); }
 .demo-menu { width: 240px; max-height: min(520px, calc(100vh - 100px)); overflow: auto; }
 .menu-heading { min-height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 8px 5px; border-bottom: 1px solid var(--border-soft); font-weight: 600; }
 .menu-heading small { color: var(--muted); font-family: var(--font-mono); font-size: 10px; }
@@ -134,6 +128,17 @@ button:disabled, input:disabled, textarea:disabled, select:disabled { cursor: no
 #main-content { flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
 .toast { position: fixed; right: 24px; bottom: 20px; z-index: 80; max-width: 420px; min-height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--fg); background: var(--surface-raised); box-shadow: var(--shadow); font-size: 12px; transform: translateY(70px); opacity: 0; transition: transform .18s ease, opacity .18s ease; pointer-events: none; }
 .toast[data-visible="true"] { transform: translateY(0); opacity: 1; }
+
+/* Native WebContentsViews sit above DOM paint. On their two host routes, make
+   a real DOM band for an open shell menu/toast so the observed host rectangle
+   is disjoint from the readable overlay rather than merely being clipped. */
+.native-overlay-route[data-native-overlay-active] .workspace-surface { margin-top: var(--native-overlay-top, 0px); margin-right: var(--native-overlay-side, 0px); margin-bottom: var(--native-overlay-footer, 0px); }
+.native-overlay-route .menu-anchor[data-native-overlay-open="true"] > .menu-popover { position: fixed; top: calc(12px + var(--app-navigation-height, 48px) + 6px); right: 12px; left: auto; z-index: 80; width: min(270px, calc(100vw - 24px)); max-height: calc(100dvh - var(--app-navigation-height, 48px) - 36px); overflow: auto; }
+.native-overlay-route .menu-anchor[data-native-overlay-kind="notifications"][data-native-overlay-open="true"] > .menu-popover { width: min(360px, calc(100vw - 24px)); }
+.native-overlay-route .menu-anchor[data-native-overlay-open="true"] > .nav-overflow { left: auto; width: min(270px, calc(100vw - 24px)); }
+.native-overlay-route .menu-anchor[data-native-overlay-open="true"] .demo-menu { position: fixed; top: calc(12px + var(--app-navigation-height, 48px) + 6px); right: 12px; left: auto; z-index: 81; max-height: calc(100dvh - var(--app-navigation-height, 48px) - 36px); overflow: auto; }
+.native-overlay-route[data-native-overlay-flow="stacked"] .menu-anchor[data-native-overlay-open="true"] > .menu-popover { right: 12px; left: 12px; width: auto; max-height: calc(100dvh - var(--app-navigation-height, 48px) - 220px); }
+.native-overlay-route[data-native-overlay-flow="stacked"] .workspace-surface { min-height: 180px; }
 
 .agents-workspace { --collapsed-inspector-width: 0px; --rail-width: 280px; --inspector-resizer-width: 8px; --inspector-width: 336px; height: 100%; min-width: 0; display: grid; grid-template-columns: var(--rail-width) 8px minmax(360px, 1fr) var(--inspector-resizer-width) var(--inspector-width); background: color-mix(in oklab, var(--bg), transparent 4%); }
 .session-rail, .inspector, .conversation-pane { min-width: 0; min-height: 0; background: var(--surface); }

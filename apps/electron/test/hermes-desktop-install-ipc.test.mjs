@@ -68,7 +68,7 @@ async function writeUpdateSource(root, { sequence = 5 } = {}) {
   await writeFile(join(root, 'electron', 'preload.cjs'), preload);
   const manifest = {
     schemaVersion: 2, product: 'hermes-desktop',
-    sourceCommit: 'd747cbd9e81870704347738cb702d3f229818557',
+    sourceCommit: '13ade17847a0225dc95b79d9ed5c9c6afc8bc083',
     hermesVersion: '0.20.6', hostApiVersion: 1, electronMajor: 40, electronVersion: '40.10.2',
     sequence, dirty: false, sourceDirty: false,
     files: { renderer: 'renderer/index.html', host: 'electron/embedded-host.mjs', preload: 'electron/preload.cjs' },

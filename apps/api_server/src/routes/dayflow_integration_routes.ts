@@ -63,13 +63,14 @@ function boundedString(value: unknown, max: number): string {
 
 function configPatch(value: unknown): ConfigPatch {
   const body = plainObject(value);
-  onlyKeys(body, ['enabled', 'timezone', 'exclusions', 'maxRecordsPerRun', 'sourceSelectionToken']);
+  onlyKeys(body, ['enabled', 'automaticImport', 'timezone', 'exclusions', 'maxRecordsPerRun', 'sourceSelectionToken']);
   if (body.enabled !== undefined && typeof body.enabled !== 'boolean') fail('INVALID_REQUEST');
+  if (body.automaticImport !== undefined && typeof body.automaticImport !== 'boolean') fail('INVALID_REQUEST');
   if (body.timezone !== undefined && (typeof body.timezone !== 'string' || body.timezone.length === 0 || body.timezone.length > 128)) fail('INVALID_REQUEST');
   if (body.exclusions !== undefined && (!Array.isArray(body.exclusions) || body.exclusions.some((item) => typeof item !== 'string' || item.length > 256))) fail('INVALID_REQUEST');
   if (body.maxRecordsPerRun !== undefined && (!Number.isInteger(body.maxRecordsPerRun) || Number(body.maxRecordsPerRun) < 1 || Number(body.maxRecordsPerRun) > 1_000)) fail('INVALID_REQUEST');
   if (body.sourceSelectionToken !== undefined && (typeof body.sourceSelectionToken !== 'string' || body.sourceSelectionToken.length === 0 || body.sourceSelectionToken.length > 512)) fail('INVALID_REQUEST');
-  if (body.sourceSelectionToken !== undefined && body.enabled === true) fail('INVALID_REQUEST');
+  if (body.sourceSelectionToken !== undefined && (body.enabled === true || body.automaticImport === true)) fail('INVALID_REQUEST');
   return body as ConfigPatch;
 }
 

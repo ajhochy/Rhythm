@@ -40,6 +40,10 @@ export interface DayflowConfig {
   schemaVersion: 1;
   enabled: boolean;
   automaticImport: boolean;
+  /** Private, server-side SQLite journal binding. It is never sent to the UI. */
+  journalPath: string | null;
+  /** Consent is bound to this exact selected file and supported schema. */
+  journalBinding: DayflowJournalBinding | null;
   executablePath: string | null;
   sourceVersion: string | null;
   /** Generated locally and never taken from a Dayflow export. */
@@ -51,6 +55,11 @@ export interface DayflowConfig {
   maxRecordsPerRun: number;
 }
 
+export interface DayflowJournalBinding {
+  fileIdentity: string;
+  schemaFingerprint: string;
+}
+
 export interface DayflowSource {
   read(): Promise<DayflowFixtureExport>;
 }
@@ -59,6 +68,8 @@ export const DEFAULT_DAYFLOW_CONFIG: Omit<DayflowConfig, 'sourceNamespace'> = {
   schemaVersion: 1,
   enabled: false,
   automaticImport: false,
+  journalPath: null,
+  journalBinding: null,
   executablePath: null,
   sourceVersion: null,
   timezone: null,

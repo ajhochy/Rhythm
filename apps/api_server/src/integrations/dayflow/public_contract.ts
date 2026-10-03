@@ -2,11 +2,11 @@ export type ReadinessState = 'unconfigured' | 'missing' | 'unsupported' | 'unver
 export type DayflowErrorCode = 'INVALID_REQUEST' | 'CURSOR_INVALID' | 'SOURCE_MISSING' | 'SOURCE_UNSUPPORTED' | 'SOURCE_UNVERIFIED' | 'SOURCE_CHANGED' | 'DISABLED' | 'TIMEZONE_REQUIRED' | 'PREVIEW_EXPIRED' | 'PREVIEW_INVALIDATED' | 'SELECTION_CONFLICT' | 'PENDING_OPERATION' | 'CURSOR_STALE' | 'READER_TIMEOUT' | 'READER_CANCELLED' | 'READER_FAILED' | 'EXPORT_INVALID' | 'EXPORT_LIMIT' | 'TIMEZONE_MISMATCH' | 'IMPORT_UNCERTAIN' | 'LEDGER_UNAVAILABLE' | 'INTERNAL_ERROR' | 'OWNED_NOTE_NOT_FOUND' | 'LOCAL_ONLY' | 'FORBIDDEN_ORIGIN';
 export interface SourceLabel { label: string; version: '2.6.0'; build: '133'; }
 export interface SourceReadiness { state: ReadinessState; source: SourceLabel | null; code: DayflowErrorCode | null; }
-export interface DayflowPublicStatus { enabled: boolean; automaticImport: false; readiness: SourceReadiness; canPreview: boolean; importedCount: number; pendingCreateCount: number; pendingDeleteCount: number; }
+export interface DayflowPublicStatus { enabled: boolean; automaticImport: boolean; readiness: SourceReadiness; canPreview: boolean; importedCount: number; pendingCreateCount: number; pendingDeleteCount: number; }
 export type DayflowStatus = DayflowPublicStatus;
 export interface SourceCheckResponse extends SourceReadiness { selectionToken?: string; expiresAt?: string; }
-export interface PublicDayflowConfig { enabled: boolean; automaticImport: false; timezone: string | null; rolloverHour: 4; exclusions: string[]; maxRecordsPerRun: number; source: SourceLabel | null; }
-export interface ConfigPatch { enabled?: boolean; timezone?: string; exclusions?: string[]; maxRecordsPerRun?: number; sourceSelectionToken?: string; }
+export interface PublicDayflowConfig { enabled: boolean; automaticImport: boolean; timezone: string | null; rolloverHour: 4; exclusions: string[]; maxRecordsPerRun: number; source: SourceLabel | null; }
+export interface ConfigPatch { enabled?: boolean; automaticImport?: boolean; timezone?: string; exclusions?: string[]; maxRecordsPerRun?: number; sourceSelectionToken?: string; }
 export interface PreviewRequest { date: string; }
 export interface PreviewResponse {
   token: string; expiresAt: string; date: string; timeZone: string; coverage: 'existing_cards'; analysisCompleteness: 'unknown';

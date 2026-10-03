@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_DAYFLOW_CONFIG, type DayflowConfig } from './types';
 
-const configKeys = new Set(['schemaVersion', 'enabled', 'automaticImport', 'executablePath', 'sourceVersion', 'sourceNamespace', 'timezone', 'rolloverHour', 'exclusions', 'retentionDays', 'maxRecordsPerRun']);
+const configKeys = new Set(['schemaVersion', 'enabled', 'automaticImport', 'journalPath', 'journalBinding', 'executablePath', 'sourceVersion', 'sourceNamespace', 'timezone', 'rolloverHour', 'exclusions', 'retentionDays', 'maxRecordsPerRun']);
 const validNamespace = /^[a-f0-9-]{36}$/i;
 
 /** Strict, fail-closed validation shared by requests and persisted configuration. */
@@ -10,7 +10,15 @@ export function validateDayflowConfig(input: unknown, allowMissing = false): Day
   const value = input as Record<string, unknown>;
   if (Object.keys(value).some((key) => !configKeys.has(key))) throw new Error('Dayflow configuration contains an unsupported field.');
   const merged = allowMissing ? { ...DEFAULT_DAYFLOW_CONFIG, ...value } : value;
-  if (merged.schemaVersion !== 1 || typeof merged.enabled !== 'boolean' || typeof merged.automaticImport !== 'boolean' || merged.automaticImport !== false || merged.rolloverHour !== 4) throw new Error('Dayflow configuration has unsafe fixed fields.');
+  if (merged.schemaVersion !== 1 || typeof merged.enabled !== 'boolean' || typeof merged.automaticImport !== 'boolean' || merged.rolloverHour !== 4) throw new Error('Dayflow configuration has unsafe fixed fields.');
+  if (merged.journalPath !== null && (typeof merged.journalPath !== 'string' || !merged.journalPath.startsWith('/') || merged.journalPath.length > 4096)) throw new Error('Dayflow journal selection is invalid.');
+  if (merged.journalBinding !== null && (
+    !merged.journalBinding || typeof merged.journalBinding !== 'object' || Array.isArray(merged.journalBinding) ||
+    Object.keys(merged.journalBinding as Record<string, unknown>).some((key) => key !== 'fileIdentity' && key !== 'schemaFingerprint') ||
+    typeof (merged.journalBinding as Record<string, unknown>).fileIdentity !== 'string' || !/^\d+:\d+$/.test((merged.journalBinding as Record<string, string>).fileIdentity) ||
+    typeof (merged.journalBinding as Record<string, unknown>).schemaFingerprint !== 'string' || !/^[a-f0-9]{64}$/.test((merged.journalBinding as Record<string, string>).schemaFingerprint)
+  )) throw new Error('Dayflow journal attestation is invalid.');
+  if (merged.journalPath === null && merged.journalBinding !== null) throw new Error('Dayflow journal attestation has no selection.');
   if (merged.executablePath !== null || merged.sourceVersion !== null) throw new Error('Dayflow live source configuration is unavailable until qualification.');
   if (typeof merged.sourceNamespace !== 'string' || !validNamespace.test(merged.sourceNamespace)) throw new Error('Dayflow source namespace is invalid.');
   if (merged.timezone !== null && (typeof merged.timezone !== 'string' || !isTimezone(merged.timezone))) throw new Error('Dayflow timezone is invalid.');

@@ -150,6 +150,11 @@ function rhythmApplicationDataDir(): string {
   return path.dirname(expandHome(process.env.DB_PATH ?? path.join(os.homedir(), 'Library', 'Application Support', 'Rhythm', 'rhythm.db')));
 }
 
+/** Private, app-managed state for the local Dayflow integration. */
+export function resolveDayflowIntegrationStateDir(): string {
+  return path.join(rhythmApplicationDataDir(), 'dayflow-integration');
+}
+
 export function resolveManagedToolRoot(): string {
   return expandHome(process.env.RHYTHM_MANAGED_TOOL_ROOT ?? path.join(rhythmApplicationDataDir(), 'managed-tools'));
 }

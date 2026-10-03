@@ -550,46 +550,37 @@ async function main() {
   const mobileGatewayRouter = env.agentExecutionEnabled
     ? createMobileGatewayRouter()
     : undefined;
-  // This candidate never discovers a Dayflow state root.  The route exists
-  // only when the owner supplied a dedicated, explicit local state directory;
-  // it therefore cannot fall back to the user's vault, home, config, or auth.
+  // Dayflow's private config/ledger live beside the app database. Selection is
+  // always explicit in Settings; startup never discovers a journal or reads
+  // activity. Missing setup is a normal, visible "unconfigured" state.
   let dayflowService: import('./integrations/dayflow/service').DayflowIntegrationService | undefined;
   let dayflowManagementService: import('./integrations/dayflow/public_contract').DayflowManagementService | undefined;
-  const dayflowStateRoot = process.env.RHYTHM_DAYFLOW_STATE_ROOT;
-  if (env.agentExecutionEnabled && env.agentLocal && env.agentOriginGuardEnabled && dayflowStateRoot) {
-    const candidateVault = process.env.RHYTHM_DAYFLOW_CANDIDATE_VAULT;
-    const candidateDb = process.env.RHYTHM_DAYFLOW_CANDIDATE_DB;
-    const candidateApiBase = process.env.RHYTHM_DAYFLOW_CANDIDATE_API_BASE;
-    const resolvedStateRoot = path.resolve(dayflowStateRoot);
+  if (env.agentExecutionEnabled && env.agentLocal && env.agentOriginGuardEnabled) {
+    const { resolveDayflowIntegrationStateDir } = await import('./config/env');
+    const resolvedStateRoot = resolveDayflowIntegrationStateDir();
     const localApiBase = `http://127.0.0.1:${port}`;
-    if (
-      !candidateVault || !candidateDb || candidateApiBase !== localApiBase ||
-      !path.isAbsolute(dayflowStateRoot) || !path.isAbsolute(candidateVault) || !path.isAbsolute(candidateDb) ||
-      resolvedStateRoot === path.parse(resolvedStateRoot).root ||
-      process.env.MEMORY_VAULT_PATH !== candidateVault || process.env.DB_PATH !== candidateDb
-    ) {
-      throw new Error('Dayflow requires explicit isolated state, vault, database, and local runtime paths.');
-    }
     const [
       { DayflowIntegrationService },
       { createDayflowManagementAdapter },
-      { DayflowCliSource },
+      { DayflowSqliteSource, verifyDayflowJournal },
       { DayflowConfigStore },
       { MemoryLedger },
       { LocalDayflowMemoryClient },
     ] = await Promise.all([
       import('./integrations/dayflow/service'),
       import('./integrations/dayflow/management_adapter'),
-      import('./integrations/dayflow/cli_source'),
+      import('./integrations/dayflow/sqlite_source'),
       import('./integrations/dayflow/config_store'),
       import('./integrations/dayflow/ledger'),
       import('./integrations/dayflow/memory_client'),
     ]);
     dayflowService = new DayflowIntegrationService({
-      source: new DayflowCliSource(), // intentionally inert until separately qualified
+      source: new DayflowSqliteSource(),
       memoryClient: new LocalDayflowMemoryClient(localApiBase),
       configStore: new DayflowConfigStore(path.join(resolvedStateRoot, 'config.json')),
       ledger: new MemoryLedger(path.join(resolvedStateRoot, 'ownership-ledger.json')),
+      journalVerifier: { verify: verifyDayflowJournal },
+      sourceForJournal: (journal) => new DayflowSqliteSource(journal),
     });
     dayflowManagementService = createDayflowManagementAdapter(dayflowService);
   }

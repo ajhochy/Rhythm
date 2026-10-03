@@ -13,7 +13,7 @@ describe('Dayflow management-route public boundary', () => {
   it('keeps selection and explicit enable as separate configuration operations', () => {
     expect(() => dayflowRouteTesting.configPatch({ enabled: true, sourceSelectionToken: 'opaque-token' })).toThrow('INVALID_REQUEST');
     expect(dayflowRouteTesting.configPatch({ sourceSelectionToken: 'opaque-token' })).toEqual({ sourceSelectionToken: 'opaque-token' });
-    expect(() => dayflowRouteTesting.configPatch({ automaticImport: true })).toThrow('INVALID_REQUEST');
+    expect(dayflowRouteTesting.configPatch({ automaticImport: true })).toEqual({ automaticImport: true });
   });
 
   it('requires opaque preview tokens and canonical candidate IDs', () => {

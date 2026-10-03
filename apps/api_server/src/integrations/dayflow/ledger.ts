@@ -30,6 +30,11 @@ export class MemoryLedger {
     this.reload();
     return Boolean(this.file.namespace) || Object.keys(this.file.entries).length > 0;
   }
+  /** A source switch is unsafe only once cards, not merely a namespace, exist. */
+  hasOwnedRecords() {
+    this.reload();
+    return Object.keys(this.file.entries).length > 0;
+  }
   bindNamespace(namespace: string) { this.withWriteLock(() => { if (this.path) this.file = this.load(); if (this.file.namespace && this.file.namespace !== namespace) throw new Error('Dayflow source namespace does not match its ledger; import is blocked.'); if (!this.file.namespace && Object.keys(this.file.entries).length) throw new Error('Dayflow ledger lacks its required source namespace; import is blocked.'); if (!this.file.namespace) { this.file.namespace = namespace; this.persist(); } }); }
   save(entry: LedgerEntry) { this.withWriteLock(() => { if (this.path) this.file = this.load(); this.file.entries[entry.sourceId] = entry; this.persist(); }); }
   journalCreate(entry: LedgerEntry) { const pending = { ...entry, pendingCreateAt: new Date().toISOString() }; MemoryLedger.volatilePendingCreates.set(entry.sourceId, pending); this.withWriteLock(() => { if (this.path) this.file = this.load(); this.file.entries[entry.sourceId] = pending; this.persist(); }); }

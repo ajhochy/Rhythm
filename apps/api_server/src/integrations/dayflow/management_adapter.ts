@@ -40,8 +40,10 @@ interface DayflowManagementAdapterOptions {
 
 interface VerifiedSelectionService {
   selectionFingerprint(): string | undefined;
+  hasPersistedSelection(): boolean;
   applyVerifiedSelection(fingerprint: string): Promise<void>;
   revalidateAppliedSelection(): Promise<void>;
+  assertSelectionMayBeApplied?(fingerprint: string): Promise<void> | void;
 }
 
 function contractFailure(): never {
@@ -62,8 +64,8 @@ function projectReadiness(value: unknown): SourceReadiness {
 function projectStatus(value: unknown): DayflowStatus {
   if (!value || typeof value !== 'object' || Array.isArray(value)) contractFailure();
   const record = value as Record<string, unknown>;
-  if (typeof record.enabled !== 'boolean' || record.automaticImport !== false || typeof record.canPreview !== 'boolean' || !Number.isInteger(record.importedCount) || !Number.isInteger(record.pendingCreateCount) || !Number.isInteger(record.pendingDeleteCount)) contractFailure();
-  return { enabled: record.enabled, automaticImport: false, readiness: projectReadiness(record.readiness), canPreview: record.canPreview, importedCount: record.importedCount as number, pendingCreateCount: record.pendingCreateCount as number, pendingDeleteCount: record.pendingDeleteCount as number };
+  if (typeof record.enabled !== 'boolean' || typeof record.automaticImport !== 'boolean' || typeof record.canPreview !== 'boolean' || !Number.isInteger(record.importedCount) || !Number.isInteger(record.pendingCreateCount) || !Number.isInteger(record.pendingDeleteCount)) contractFailure();
+  return { enabled: record.enabled, automaticImport: record.automaticImport, readiness: projectReadiness(record.readiness), canPreview: record.canPreview, importedCount: record.importedCount as number, pendingCreateCount: record.pendingCreateCount as number, pendingDeleteCount: record.pendingDeleteCount as number };
 }
 
 function projectCheck(value: unknown): SourceCheckResponse {
@@ -78,8 +80,8 @@ function projectCheck(value: unknown): SourceCheckResponse {
 function projectConfig(value: unknown): PublicDayflowConfig {
   if (!value || typeof value !== 'object' || Array.isArray(value)) contractFailure();
   const record = value as Record<string, unknown>;
-  if (typeof record.enabled !== 'boolean' || record.automaticImport !== false || (record.timezone !== null && typeof record.timezone !== 'string') || record.rolloverHour !== 4 || !Array.isArray(record.exclusions) || record.exclusions.some((item) => typeof item !== 'string' || item.length > 256) || !Number.isInteger(record.maxRecordsPerRun) || Number(record.maxRecordsPerRun) < 1 || Number(record.maxRecordsPerRun) > 1_000) contractFailure();
-  return { enabled: record.enabled, automaticImport: false, timezone: record.timezone as string | null, rolloverHour: 4, exclusions: [...record.exclusions] as string[], maxRecordsPerRun: record.maxRecordsPerRun as number, source: projectReadiness({ state: 'ready', source: record.source, code: null }).source };
+  if (typeof record.enabled !== 'boolean' || typeof record.automaticImport !== 'boolean' || (record.timezone !== null && typeof record.timezone !== 'string') || record.rolloverHour !== 4 || !Array.isArray(record.exclusions) || record.exclusions.some((item) => typeof item !== 'string' || item.length > 256) || !Number.isInteger(record.maxRecordsPerRun) || Number(record.maxRecordsPerRun) < 1 || Number(record.maxRecordsPerRun) > 1_000) contractFailure();
+  return { enabled: record.enabled, automaticImport: record.automaticImport, timezone: record.timezone as string | null, rolloverHour: 4, exclusions: [...record.exclusions] as string[], maxRecordsPerRun: record.maxRecordsPerRun as number, source: projectReadiness({ state: 'ready', source: record.source, code: null }).source };
 }
 
 function projectPreview(value: unknown): PreviewResponse {
@@ -152,6 +154,10 @@ export function createDayflowManagementAdapter(
 
   const verifiedService = service as unknown as Partial<VerifiedSelectionService>;
   const currentVerifiedFingerprint = () => verifiedService.selectionFingerprint?.();
+  const persistedFingerprint = verifiedService.hasPersistedSelection?.()
+    ? currentVerifiedFingerprint()
+    : undefined;
+  if (persistedFingerprint) appliedSelection = { fingerprint: persistedFingerprint, configRevision: 0 };
   const requireAppliedSelection = async () => {
     const fingerprint = currentVerifiedFingerprint();
     if (!appliedSelection || appliedSelection.configRevision !== configRevision || !fingerprint || fingerprint !== appliedSelection.fingerprint || !verifiedService.revalidateAppliedSelection) throw new Error('SOURCE_UNVERIFIED');
@@ -191,8 +197,9 @@ export function createDayflowManagementAdapter(
         const pending = pendingSelection;
         const fingerprint = currentVerifiedFingerprint();
         if (!pending || pending.token !== selectionToken || pending.configRevision !== configRevision || Date.parse(pending.expiresAt) <= now() || !fingerprint || fingerprint !== pending.fingerprint) throw new Error('SOURCE_CHANGED');
+        await verifiedService.assertSelectionMayBeApplied?.(pending.fingerprint);
         const { sourceSelectionToken: _ignored, ...withoutSelection } = patch;
-        const result = await service.updateConfig({ ...withoutSelection, enabled: false });
+        const result = await service.updateConfig({ ...withoutSelection, enabled: false, automaticImport: false });
         // Persisted configuration is deliberately disabled before a source is
         // bound. Once it succeeds, every other transient token is stale.
         advanceConfigRevision(false);
