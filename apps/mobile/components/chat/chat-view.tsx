@@ -25,7 +25,6 @@ import { attachmentPickLimitBytes, MOBILE_IMAGE_SOURCE_LIMIT_BYTES } from '@/lib
 import { type TranscriptEntry } from '@/lib/opencode/format';
 import {
   findEditableUserTextPart,
-  getTranscriptActivityLabel,
   isTranscriptDisplayMessage,
 } from '@/lib/opencode/transcript';
 import { summarizeError } from '@/lib/transport/api-error';
@@ -132,21 +131,6 @@ export function ChatView() {
   const pendingInteractions = currentPendingPermissions.length + currentPendingQuestions.length;
   const awaitingUserInput = pendingInteractions > 0;
   const displayTranscript = useMemo(() => currentTranscript.filter(isTranscriptDisplayMessage), [currentTranscript]);
-  const currentActivityLabel = useMemo(() => {
-    for (let index = currentTranscript.length - 1; index >= 0; index -= 1) {
-      const entry = currentTranscript[index];
-      if (isTranscriptDisplayMessage(entry)) {
-        continue;
-      }
-
-      const label = getTranscriptActivityLabel(entry);
-      if (label) {
-        return label;
-      }
-    }
-
-    return undefined;
-  }, [currentTranscript]);
   const selectedSession = useMemo(
     () => sessions.find((session) => session.id === currentSessionId) || activeSession,
     [activeSession, currentSessionId, sessions],
@@ -810,7 +794,6 @@ export function ChatView() {
           awaitingUserInput={awaitingUserInput}
           connection={connection}
           copiedMessageId={copiedMessageId}
-          currentActivityLabel={currentActivityLabel}
           currentDiffs={currentDiffs}
           currentPendingPermissions={currentPendingPermissions}
           currentPendingQuestions={currentPendingQuestions}

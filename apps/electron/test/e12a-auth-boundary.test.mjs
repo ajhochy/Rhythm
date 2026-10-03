@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { createContext, SourceTextModule, SyntheticModule, runInContext } from 'node:vm';
 import test from 'node:test';
 import { exchangeDesktopAuthorizationCode } from '../src/google-oauth-core.mjs';
-import { AUTH_KEYS, GATEWAY_KEYS, UPDATE_KEYS } from '../src/security-smoke-receipt.mjs';
+import { AGENT_SERVER_KEYS, AUTH_KEYS, GATEWAY_KEYS, UPDATE_KEYS } from '../src/security-smoke-receipt.mjs';
 
 const A = 'https://a.example', B = 'https://b.example';
 const decision = { approvalId: 'approval-1', status: 'approved', decisionNonce: 'nonce-1', payloadDigest: null };
@@ -127,6 +127,28 @@ test('relay restoration: main supplies the persisted cloud session only at owned
   assert.equal(h.starts.length, 1);
 });
 
+test('manual workstreams: a signed owned document saves only the next owned-launch preference without restarting or dispatching', async (t) => {
+  const unsigned = await host(t);
+  await assert.rejects(async () => unsigned.current().bridge.agentServer.setManualWorkstreams(true), /signed-in session required/i);
+  assert.equal(unsigned.starts.length, 1);
+
+  const h = await host(t, false, undefined, undefined, 'persisted-session');
+  const before = h.starts.length;
+  assert.deepEqual(await h.current().bridge.agentServer.getManualWorkstreams(), {
+    configured: false,
+    effective: { source: 'not_launched', workstreamsEnabled: null, managedContextExports: null, enabled: null },
+    pendingRelaunch: true,
+  });
+  assert.deepEqual(await h.current().bridge.agentServer.setManualWorkstreams(true), {
+    configured: true,
+    effective: { source: 'not_launched', workstreamsEnabled: null, managedContextExports: null, enabled: null },
+    pendingRelaunch: true,
+  });
+  assert.equal(h.starts.length, before, 'preference save must not start, restart, or dispatch through the local runtime');
+  await assert.rejects(async () => h.handlers.get('rhythm:agent-server:manual-workstreams:set')(h.event(), 'true'), /invalid manual workstreams/i);
+  await assert.rejects(async () => h.handlers.get('rhythm:agent-server:manual-workstreams:set')(h.event(), true, {}), /invalid manual workstreams/i);
+});
+
 test('secure-storage startup: an absent auth record stays signed out without touching safeStorage', async (t) => {
   let encryptionAvailabilityCalls = 0, decryptCalls = 0;
   const h = await host(t, false, undefined, undefined, undefined, {
@@ -235,8 +257,8 @@ test('e12a-c3: old login completing after server change is rejected and cannot c
 
 test('e12a-c4: privileged IPC denies foreign contents, subframes and documents before dispatch', async (t) => {
   const h = await host(t, true);
-  for (const channel of ['rhythm:auth:google-sign-in', 'rhythm:production-api:set', 'rhythm:human-approval:capability', 'rhythm:human-approval:sign-decision']) {
-    const payload = channel.endsWith(':set') ? [B] : channel.endsWith('sign-decision') ? [decision] : [];
+  for (const channel of ['rhythm:auth:google-sign-in', 'rhythm:production-api:set', 'rhythm:human-approval:capability', 'rhythm:human-approval:sign-decision', 'rhythm:agent-server:manual-workstreams:get', 'rhythm:agent-server:manual-workstreams:set']) {
+    const payload = channel === 'rhythm:production-api:set' ? [B] : channel.endsWith('sign-decision') ? [decision] : channel.endsWith(':set') ? [true] : [];
     for (const event of [{ sender: {}, senderFrame: h.event().senderFrame }, { ...h.event(), senderFrame: { url: 'rhythm://app/index.html' } }, { sender: undefined, senderFrame: undefined }]) {
       await assert.rejects(async () => h.handlers.get(channel)(event, ...payload), /denied/i);
     }
@@ -273,9 +295,10 @@ test('e12a-c5: closed bounded privileged payloads reject before signing or confi
 
 test('e12a-c6: preload stays frozen and exposes no generic IPC or credential mutation', async (t) => {
   const h = await host(t), bridge = h.current().bridge;
-  for (const value of [bridge, bridge.auth, bridge.gateway, bridge.humanApproval]) assert.equal(Object.isFrozen(value), true);
+  for (const value of [bridge, bridge.auth, bridge.gateway, bridge.humanApproval, bridge.agentServer]) assert.equal(Object.isFrozen(value), true);
   assert.deepEqual(Object.keys(bridge.auth), AUTH_KEYS);
   assert.deepEqual(Object.keys(bridge.gateway), GATEWAY_KEYS);
+  assert.deepEqual(Object.keys(bridge.agentServer), AGENT_SERVER_KEYS);
 });
 
 test('e12a-c7: retained A notification click cannot queue or navigate in B; current clicks and cleanup still work', async (t) => {

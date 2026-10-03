@@ -17,8 +17,8 @@ import {
   Card,
   Checkbox,
   Chip,
-  Dialog,
   Divider,
+  IconButton,
   List,
   Portal,
   Searchbar,
@@ -29,6 +29,9 @@ import {
 } from 'react-native-paper';
 
 import { ToolScreenState } from '@/components/tools/tool-screen-state';
+import { ToolDialog } from '@/components/tools/tool-dialog';
+import { ResearchMarkdown } from '@/components/tools/research-markdown';
+import { decodePlainTextEntities } from '@/components/tools/tool-display-text';
 import {
   BrainSearchSurface,
   ConnectionMetadata,
@@ -78,13 +81,11 @@ function recordTitle(tool: ToolScreenId, item: ToolRecord): string {
 
 function recordSubtitle(tool: ToolScreenId, item: ToolRecord): string {
   if (tool === 'email') {
-    return String(item.snippet ?? item.fromEmail ?? 'Email signal');
+    return decodePlainTextEntities(String(item.snippet ?? item.fromEmail ?? 'Email signal'));
   }
   if (tool === 'report-card') {
-    const completion = Number(item.completionRate);
-    return Number.isFinite(completion)
-      ? `Success rate ${Math.round(completion * 100)}%`
-      : 'Success rate — not enough data';
+    // The card body is the single source of rate information.
+    return '';
   }
   return String(
     item.description ??
@@ -94,6 +95,43 @@ function recordSubtitle(tool: ToolScreenId, item: ToolRecord): string {
       item.updatedAt ??
       '',
   );
+}
+
+function reportRate(label: string, value: unknown) {
+  const rate =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && value.trim()
+        ? Number(value)
+        : Number.NaN;
+  return Number.isFinite(rate)
+    ? `${label} ${Math.round(rate * 100)}%`
+    : `${label} — not enough data`;
+}
+
+function galleryMetadata(item: ToolRecord): readonly (readonly [string, string])[] {
+  const fields: readonly (readonly [string, unknown])[] = [
+    ['Status', item.status],
+    ['Artifact type', item.artifactType],
+    ['Provider', item.provider],
+    ['Created', item.createdAt],
+    ['Updated', item.updatedAt],
+  ];
+  return fields.flatMap(([label, value]) => {
+    const text = typeof value === 'string' ? value.trim() : '';
+    return text ? [[label, text] as const] : [];
+  });
+}
+
+function editDialogTitle(tool: ToolScreenId) {
+  const titles: Partial<Record<ToolScreenId, string>> = {
+    brain: 'Edit memory',
+    cookbook: 'Edit recipe',
+    playbooks: 'Edit playbook',
+    schedules: 'Edit scheduled job',
+    skills: 'Edit skill',
+  };
+  return titles[tool] ?? `Edit ${tool}`;
 }
 
 function safeGalleryLink(value: unknown): string | null {
@@ -908,6 +946,16 @@ export default function RhythmToolScreen() {
             </Button>
           </View>
         );
+      case 'gallery':
+        return (
+          <View style={styles.actions}>
+            <Button
+              accessibilityLabel={`View details for ${title}`}
+              onPress={() => void openGalleryArtifact(item)}>
+              View details
+            </Button>
+          </View>
+        );
       case 'models':
         if (Number(item.authMethodCount) < 1) {
           return (
@@ -963,6 +1011,7 @@ export default function RhythmToolScreen() {
   const renderItemCard = (item: ToolRecord) => {
     const title = recordTitle(tool, item);
     const subtitle = recordSubtitle(tool, item);
+    const galleryDetails = tool === 'gallery' ? galleryMetadata(item) : [];
     const actions = renderActions(item);
     const providerModels = Array.isArray(item.models)
       ? item.models.filter(
@@ -981,6 +1030,7 @@ export default function RhythmToolScreen() {
         accessibilityRole={
           [
             'brain',
+            'email',
             'research',
             'schedules',
             'webhooks',
@@ -1001,6 +1051,7 @@ export default function RhythmToolScreen() {
               ? () => void openGalleryArtifact(item)
             : [
                 'brain',
+                'email',
                 'research',
                 'schedules',
                 'webhooks',
@@ -1032,55 +1083,68 @@ export default function RhythmToolScreen() {
           </Card.Content>
         ) : (
           <Card.Content style={styles.cardHeader}>
-            <Text variant="titleMedium">{title}</Text>
+            <Text style={styles.cardTitle} variant="titleMedium">{title}</Text>
             {subtitle ? (
-              <Text style={{ color: palette.muted }} variant="bodyMedium">
+              <Text
+                ellipsizeMode={tool === 'email' ? 'tail' : undefined}
+                numberOfLines={tool === 'email' ? 3 : undefined}
+                style={[styles.cardSubtitle, { color: palette.muted }]}
+                variant="bodyMedium">
                 {subtitle}
               </Text>
             ) : null}
           </Card.Content>
         )}
         {tool === 'brain' && item.content ? (
-          <Card.Content>
-            <Text>{String(item.content)}</Text>
+          <Card.Content style={styles.cardBody}>
+            <Text style={styles.cardBodyText}>{String(item.content)}</Text>
           </Card.Content>
         ) : null}
         {tool === 'schedules' ? (
-          <Card.Content style={styles.actions}>
+          <Card.Content style={[styles.cardBody, styles.actions]}>
             <Chip compact>
               {item.enabled === false ? 'Disabled' : 'Enabled'}
             </Chip>
             <Text>Last run: {String(item.lastRunStatus ?? 'not run')}</Text>
           </Card.Content>
         ) : null}
-        {tool === 'webhooks' && item.url ? (
-          <Card.Content>
-            <Text selectable>{String(item.url)}</Text>
+        {tool === 'webhooks' && item.url && selected?.id !== item.id ? (
+          <Card.Content style={styles.cardBody}>
+            <Text selectable style={styles.cardBodyText}>{String(item.url)}</Text>
           </Card.Content>
         ) : null}
         {tool === 'cookbook' && (item.description || item.prompt) ? (
-          <Card.Content>
-            <Text>{String(item.description ?? item.prompt)}</Text>
+          <Card.Content style={styles.cardBody}>
+            <Text style={styles.cardBodyText}>{String(item.description ?? item.prompt)}</Text>
+          </Card.Content>
+        ) : null}
+        {tool === 'gallery' ? (
+          <Card.Content style={styles.cardBody}>
+            {galleryDetails.length > 0 ? (
+              galleryDetails.slice(0, 2).map(([label, value]) => (
+                <Text key={label} style={styles.cardBodyText}>
+                  {label}: {value}
+                </Text>
+              ))
+            ) : (
+              <Text style={[styles.cardBodyText, { color: palette.muted }]}>
+                View details for available preview and item information.
+              </Text>
+            )}
           </Card.Content>
         ) : null}
         {tool === 'report-card' ? (
-          <Card.Content>
-            <Text>
-              Success rate{' '}
-              {Number.isFinite(Number(item.completionRate))
-                ? `${Math.round(Number(item.completionRate) * 100)}%`
-                : '—'}
+          <Card.Content style={styles.cardBody}>
+            <Text style={styles.cardBodyText}>
+              {reportRate('Success rate', item.completionRate)}
             </Text>
-            <Text>
-              Escalation rate{' '}
-              {Number.isFinite(Number(item.escalationRate))
-                ? `${Math.round(Number(item.escalationRate) * 100)}%`
-                : '—'}
+            <Text style={styles.cardBodyText}>
+              {reportRate('Escalation rate', item.escalationRate)}
             </Text>
           </Card.Content>
         ) : null}
         {tool === 'mcp' ? (
-          <Card.Content>
+          <Card.Content style={styles.cardBody}>
             <ConnectionMetadata
               reachability={
                 item.status === 'connected'
@@ -1120,12 +1184,24 @@ export default function RhythmToolScreen() {
       </Card>
     );
   };
+  const galleryProjectLink =
+    galleryPreview?.status === 'unavailable'
+      ? safeGalleryLink(galleryPreview.item.projectUrl) ??
+        safeGalleryLink(galleryPreview.item.canvaUrl)
+      : null;
+  const galleryPreviewDetails = galleryPreview
+    ? galleryMetadata(galleryPreview.item)
+    : [];
 
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}>
       {routeHeader}
       {toolHeader}
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+        keyboardShouldPersistTaps="handled"
+        testID="tool-route-scroll">
         {tool === 'skills' ? (
           <Text variant="labelLarge">Approved skills</Text>
         ) : null}
@@ -1272,6 +1348,18 @@ export default function RhythmToolScreen() {
               accessibilityLabel={`Search ${manifest.title}`}
               onChangeText={setSearch}
               placeholder="Search catalog"
+              right={({ color, style, testID }) =>
+                search.trim() ? (
+                  <IconButton
+                    accessibilityLabel={`Clear ${manifest.title} search`}
+                    icon="close"
+                    iconColor={color}
+                    onPress={() => setSearch('')}
+                    style={style}
+                    testID={`${testID}-clear`}
+                  />
+                ) : null
+              }
               value={search}
             />
             <View style={styles.catalogControlRow}>
@@ -1279,8 +1367,8 @@ export default function RhythmToolScreen() {
                 <Text variant="labelLarge">Group by</Text>
                 <SegmentedButtons
                   buttons={[
-                    { label: 'Category', value: 'category' },
-                    { label: 'None', value: 'none' },
+                    { label: 'Category', value: 'category', showSelectedCheck: true },
+                    { label: 'None', value: 'none', showSelectedCheck: true },
                   ]}
                   density="small"
                   onValueChange={(value) =>
@@ -1293,8 +1381,8 @@ export default function RhythmToolScreen() {
                 <Text variant="labelLarge">Sort by</Text>
                 <SegmentedButtons
                   buttons={[
-                    { label: 'A–Z', value: 'asc' },
-                    { label: 'Z–A', value: 'desc' },
+                    { label: 'A–Z', value: 'asc', showSelectedCheck: true },
+                    { label: 'Z–A', value: 'desc', showSelectedCheck: true },
                   ]}
                   density="small"
                   onValueChange={(value) =>
@@ -1322,7 +1410,11 @@ export default function RhythmToolScreen() {
         {selected && tool === 'brain' ? (
           <Surface style={styles.detail}>
             <Text accessibilityRole="header" variant="titleMedium">Memory details</Text>
-            <Text accessibilityRole="header" variant="titleLarge">
+            <Text
+              accessibilityLabel={recordTitle(tool, selected)}
+              accessibilityRole="header"
+              numberOfLines={2}
+              variant="titleLarge">
               {recordTitle(tool, selected)}
             </Text>
             <Text>{String(selected.content ?? 'No memory content.')}</Text>
@@ -1339,12 +1431,47 @@ export default function RhythmToolScreen() {
         ) : null}
         {selected && tool === 'research' ? (
           <Surface style={styles.detail}>
-            <Text accessibilityRole="header" variant="titleLarge">
+            <Text accessibilityRole="header" variant="titleMedium">
+              Research report
+            </Text>
+            <Text
+              accessibilityLabel={recordTitle(tool, selected)}
+              numberOfLines={2}
+              style={{ color: palette.muted }}
+              variant="bodyMedium">
               {recordTitle(tool, selected)}
             </Text>
-            <Text variant="titleMedium">Research report</Text>
-            <Text>{String(selected.report ?? 'The report is still being prepared.')}</Text>
-            <Button onPress={() => setSelected(null)}>Close report</Button>
+            <View style={styles.actions}>
+              <Button onPress={() => setSelected(null)}>Close report</Button>
+            </View>
+            <ResearchMarkdown
+              color={palette.text}
+              mutedColor={palette.muted}
+              text={String(selected.report ?? 'The report is still being prepared.')}
+            />
+          </Surface>
+        ) : null}
+        {selected && tool === 'email' ? (
+          <Surface style={styles.detail}>
+            <Text accessibilityRole="header" variant="titleMedium">Email signal details</Text>
+            <Text
+              accessibilityLabel={recordTitle(tool, selected)}
+              numberOfLines={2}
+              variant="titleMedium">
+              {recordTitle(tool, selected)}
+            </Text>
+            {selected.fromName || selected.fromEmail || selected.from ? (
+              <Text>
+                From: {String(selected.fromName ?? selected.fromEmail ?? selected.from)}
+              </Text>
+            ) : null}
+            {selected.receivedAt ? (
+              <Text>Received: {String(selected.receivedAt)}</Text>
+            ) : null}
+            <Text selectable style={styles.detailUrl}>
+              {decodePlainTextEntities(String(selected.snippet ?? 'No message preview was supplied.'))}
+            </Text>
+            <Button onPress={() => setSelected(null)}>Close details</Button>
           </Surface>
         ) : null}
         {selected && ['schedules', 'webhooks', 'cookbook'].includes(tool) ? (
@@ -1360,7 +1487,9 @@ export default function RhythmToolScreen() {
               </>
             ) : null}
             {tool === 'webhooks' ? (
-              <Text selectable>{String(selected.url ?? 'Webhook URL unavailable')}</Text>
+              <Text selectable style={styles.detailUrl}>
+                {String(selected.url ?? 'Webhook URL unavailable')}
+              </Text>
             ) : null}
             {tool === 'cookbook' ? (
               <Text>{String(selected.description ?? selected.prompt ?? 'No instructions.')}</Text>
@@ -1424,17 +1553,32 @@ export default function RhythmToolScreen() {
         )}
       </ScrollView>
       <Portal>
-        <Dialog
+        <ToolDialog
+          actions={[
+            galleryProjectLink ? (
+              <Button
+                key="open-project-link"
+                onPress={() => void WebBrowser.openBrowserAsync(galleryProjectLink)}>
+                Open project link
+              </Button>
+            ) : null,
+            <Button key="close" onPress={() => setGalleryPreview(null)}>
+              Close
+            </Button>,
+          ]}
+          contentStyle={styles.galleryPreviewContent}
           onDismiss={() => setGalleryPreview(null)}
+          testID="gallery-preview-dialog"
+          title="Gallery details"
           visible={galleryPreview !== null}>
-          <Dialog.Title>
-            {galleryPreview?.status === 'unavailable'
-              ? 'Artifact unavailable'
-              : galleryPreview
-                ? recordTitle('gallery', galleryPreview.item)
-                : 'Gallery artifact'}
-          </Dialog.Title>
-          <Dialog.Content style={styles.galleryPreviewContent}>
+            {galleryPreview ? (
+              <Text
+                accessibilityLabel={recordTitle('gallery', galleryPreview.item)}
+                numberOfLines={2}
+                variant="titleMedium">
+                {recordTitle('gallery', galleryPreview.item)}
+              </Text>
+            ) : null}
             {galleryPreview?.status === 'loading' ? (
               <Text>Opening securely through Rhythm Cloud Gateway…</Text>
             ) : null}
@@ -1466,36 +1610,52 @@ export default function RhythmToolScreen() {
               />
             ) : null}
             {galleryPreview?.status === 'unavailable' ? (
-              <Text>
-                This Gallery item does not have a finished image or video available on mobile.
-              </Text>
+              <>
+                <Text>Preview unavailable on this device.</Text>
+                <Text accessibilityRole="header" variant="titleSmall">Item details</Text>
+                {galleryPreviewDetails.length > 0 ? (
+                  galleryPreviewDetails.map(([label, value]) => (
+                    <Text key={label}>{label}: {value}</Text>
+                  ))
+                ) : (
+                  <Text>No additional item metadata was supplied.</Text>
+                )}
+                {galleryProjectLink ? (
+                  <Text>A supported project link is available below.</Text>
+                ) : null}
+              </>
             ) : null}
-          </Dialog.Content>
-          <Dialog.Actions>
-            {galleryPreview?.status === 'unavailable' &&
-            safeGalleryLink(
-              galleryPreview.item.projectUrl ?? galleryPreview.item.canvaUrl,
-            ) ? (
-              <Button
-                onPress={() =>
-                  void WebBrowser.openBrowserAsync(
-                    safeGalleryLink(
-                      galleryPreview.item.projectUrl ?? galleryPreview.item.canvaUrl,
-                    )!,
-                  )
-                }>
-                Open project link
-              </Button>
-            ) : null}
-            <Button onPress={() => setGalleryPreview(null)}>Close</Button>
-          </Dialog.Actions>
-        </Dialog>
-        <Dialog
+        </ToolDialog>
+        <ToolDialog
+          actions={[
+            <Button key="cancel" onPress={() => setDialog(null)}>
+              Cancel
+            </Button>,
+            <Button
+              accessibilityLabel={
+                tool === 'research'
+                  ? 'Start research'
+                  : tool === 'schedules'
+                    ? 'Save scheduled job'
+                    : tool === 'profiles'
+                      ? 'Create profile'
+                      : tool === 'cookbook'
+                        ? 'Save recipe'
+                        : tool === 'brain'
+                          ? 'Save memory'
+                          : `Save ${manifest.title}`
+              }
+              disabled={submitting}
+              key="save"
+              onPress={() => void submitCreate()}>
+              Save
+            </Button>,
+          ]}
+          contentStyle={styles.dialogFields}
           onDismiss={() => setDialog(null)}
+          testID="tool-create-dialog"
+          title={CREATE_LABEL[tool]}
           visible={dialog === 'create'}>
-          <Dialog.Title>{CREATE_LABEL[tool]}</Dialog.Title>
-          <Dialog.ScrollArea>
-            <ScrollView contentContainerStyle={styles.dialogFields}>
               {tool === 'brain' ? (
                 <>
                   <TextInput
@@ -1678,38 +1838,44 @@ export default function RhythmToolScreen() {
                   />
                 </>
               ) : null}
-            </ScrollView>
-          </Dialog.ScrollArea>
-          <Dialog.Actions>
-            <Button onPress={() => setDialog(null)}>Cancel</Button>
+        </ToolDialog>
+        <ToolDialog
+          actions={[
+            <Button key="cancel" onPress={() => setDialog(null)}>
+              Cancel
+            </Button>,
             <Button
               accessibilityLabel={
-                tool === 'research'
-                  ? 'Start research'
+                tool === 'brain'
+                  ? 'Save memory changes'
                   : tool === 'schedules'
-                    ? 'Save scheduled job'
-                    : tool === 'profiles'
-                      ? 'Create profile'
+                    ? 'Save scheduled job changes'
                     : tool === 'cookbook'
-                      ? 'Save recipe'
-                      : tool === 'brain'
-                        ? 'Save memory'
-                        : `Save ${manifest.title}`
+                      ? 'Save recipe changes'
+                      : tool === 'skills'
+                        ? 'Save skill changes'
+                        : 'Save playbook changes'
               }
               disabled={submitting}
-              onPress={() => void submitCreate()}>
-              Save
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-        <Dialog
+              key="save"
+              onPress={() => void saveEdit()}>
+              Save changes
+            </Button>,
+          ]}
+          contentStyle={styles.dialogFields}
           onDismiss={() => setDialog(null)}
+          testID="tool-edit-dialog"
+          title={editDialogTitle(tool)}
           visible={dialog === 'edit'}>
-          <Dialog.Title>
-            Edit {selected ? recordTitle(tool, selected) : manifest.title}
-          </Dialog.Title>
-          <Dialog.ScrollArea>
-            <ScrollView contentContainerStyle={styles.dialogFields}>
+              {selected ? (
+                <Text
+                  accessibilityLabel={`Editing ${recordTitle(tool, selected)}`}
+                  numberOfLines={2}
+                  style={styles.dialogContext}
+                  variant="bodyMedium">
+                  Editing: {recordTitle(tool, selected)}
+                </Text>
+              ) : null}
               {tool === 'brain' ? (
                 <>
                   <TextInput
@@ -1792,33 +1958,34 @@ export default function RhythmToolScreen() {
                   />
                 </>
               ) : null}
-            </ScrollView>
-          </Dialog.ScrollArea>
-          <Dialog.Actions>
-            <Button onPress={() => setDialog(null)}>Cancel</Button>
+        </ToolDialog>
+        <ToolDialog
+          actions={[
+            <Button key="cancel" onPress={() => setDialog(null)}>
+              Cancel
+            </Button>,
             <Button
-              accessibilityLabel={
-                tool === 'brain'
-                  ? 'Save memory changes'
-                  : tool === 'schedules'
-                    ? 'Save scheduled job changes'
-                    : tool === 'cookbook'
-                      ? 'Save recipe changes'
-                      : tool === 'skills'
-                        ? 'Save skill changes'
-                        : 'Save playbook changes'
-              }
+              accessibilityLabel="Save profile"
               disabled={submitting}
-              onPress={() => void saveEdit()}>
-              Save changes
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-        <Dialog
+              key="save"
+              onPress={() => void saveProfile()}>
+              Save profile
+            </Button>,
+          ]}
+          contentStyle={styles.dialogFields}
           onDismiss={() => setDialog(null)}
+          testID="tool-profile-dialog"
+          title="Edit profile"
           visible={dialog === 'profile'}>
-          <Dialog.Title>Edit {selected ? recordTitle('profiles', selected) : 'profile'}</Dialog.Title>
-          <Dialog.Content style={styles.dialogFields}>
+            {selected ? (
+              <Text
+                accessibilityLabel={`Editing ${recordTitle('profiles', selected)}`}
+                numberOfLines={2}
+                style={styles.dialogContext}
+                variant="bodyMedium">
+                Editing: {recordTitle('profiles', selected)}
+              </Text>
+            ) : null}
             <TextInput
               accessibilityLabel="Profile prompt"
               label="Profile prompt"
@@ -1880,22 +2047,34 @@ export default function RhythmToolScreen() {
                 value={form.scope ?? ''}
               />
             ) : null}
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setDialog(null)}>Cancel</Button>
+        </ToolDialog>
+        <ToolDialog
+          actions={[
+            <Button key="cancel" onPress={() => setDialog(null)}>
+              Cancel
+            </Button>,
             <Button
-              accessibilityLabel="Save profile"
-              disabled={submitting}
-              onPress={() => void saveProfile()}>
-              Save profile
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-        <Dialog
+              accessibilityLabel="Complete MCP authorization"
+              disabled={submitting || !oauthCode.trim()}
+              key="complete"
+              onPress={() => void finishMcpOAuth()}>
+              Complete authorization
+            </Button>,
+          ]}
+          contentStyle={styles.dialogFields}
           onDismiss={() => setDialog(null)}
+          testID="tool-mcp-oauth-dialog"
+          title="Complete MCP authorization"
           visible={dialog === 'mcp-oauth'}>
-          <Dialog.Title>Complete {oauthName} authorization</Dialog.Title>
-          <Dialog.Content style={styles.dialogFields}>
+            {oauthName ? (
+              <Text
+                accessibilityLabel={`Authorizing ${oauthName}`}
+                numberOfLines={2}
+                style={styles.dialogContext}
+                variant="bodyMedium">
+                Authorizing: {oauthName}
+              </Text>
+            ) : null}
             <Text>
               Finish signing in in the browser, then paste the authorization code.
             </Text>
@@ -1907,24 +2086,34 @@ export default function RhythmToolScreen() {
               value={oauthCode}
             />
             {notice && dialog === 'mcp-oauth' ? <Text>{notice}</Text> : null}
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setDialog(null)}>Cancel</Button>
+        </ToolDialog>
+        <ToolDialog
+          actions={[
+            <Button key="cancel" onPress={() => setDialog(null)}>
+              Cancel
+            </Button>,
             <Button
-              accessibilityLabel="Complete MCP authorization"
+              accessibilityLabel="Complete provider authorization"
               disabled={submitting || !oauthCode.trim()}
-              onPress={() => void finishMcpOAuth()}>
+              key="complete"
+              onPress={() => void finishProviderOAuth()}>
               Complete authorization
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-        <Dialog
+            </Button>,
+          ]}
+          contentStyle={styles.dialogFields}
           onDismiss={() => setDialog(null)}
+          testID="tool-provider-oauth-dialog"
+          title="Complete provider authorization"
           visible={dialog === 'provider-oauth'}>
-          <Dialog.Title>
-            Complete {selected ? recordTitle('models', selected) : oauthName} authorization
-          </Dialog.Title>
-          <Dialog.Content style={styles.dialogFields}>
+            {oauthName ? (
+              <Text
+                accessibilityLabel={`Authorizing ${oauthName}`}
+                numberOfLines={2}
+                style={styles.dialogContext}
+                variant="bodyMedium">
+                Authorizing: {oauthName}
+              </Text>
+            ) : null}
             <Text>
               Finish provider sign-in in the browser, then paste the authorization code.
             </Text>
@@ -1936,17 +2125,7 @@ export default function RhythmToolScreen() {
               value={oauthCode}
             />
             {notice && dialog === 'provider-oauth' ? <Text>{notice}</Text> : null}
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setDialog(null)}>Cancel</Button>
-            <Button
-              accessibilityLabel="Complete provider authorization"
-              disabled={submitting || !oauthCode.trim()}
-              onPress={() => void finishProviderOAuth()}>
-              Complete authorization
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
+        </ToolDialog>
       </Portal>
     </View>
   );
@@ -1955,9 +2134,13 @@ export default function RhythmToolScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: { gap: 14, padding: 16, paddingBottom: 40 },
-  card: { borderRadius: 16 },
-  cardHeader: { gap: 4, paddingTop: 16 },
-  cardActions: { paddingBottom: 16, paddingTop: 8 },
+  card: { borderRadius: 16, overflow: 'hidden' },
+  cardHeader: { gap: 4, paddingBottom: 12, paddingTop: 16 },
+  cardTitle: { flexShrink: 1, lineHeight: 25, minWidth: 0 },
+  cardSubtitle: { flexShrink: 1, lineHeight: 21, minWidth: 0 },
+  cardBody: { gap: 8, paddingBottom: 12, paddingTop: 12 },
+  cardBodyText: { flexShrink: 1, lineHeight: 21, minWidth: 0 },
+  cardActions: { minHeight: 56, paddingBottom: 12, paddingTop: 12 },
   catalogControls: { borderRadius: 16, gap: 12, padding: 12 },
   catalogControlRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   catalogControl: { flex: 1, gap: 6, minWidth: 220 },
@@ -1966,11 +2149,13 @@ const styles = StyleSheet.create({
   notice: { borderRadius: 12, padding: 14 },
   secret: { borderRadius: 16, gap: 10, padding: 16 },
   detail: { borderRadius: 16, gap: 12, padding: 16 },
+  detailUrl: { flexShrink: 1, lineHeight: 21, minWidth: 0 },
   runtimeInspection: { borderRadius: 16, gap: 10, padding: 14 },
   runtimeHeader: { alignItems: 'center', flexDirection: 'row', gap: 10 },
   runtimeCopy: { flex: 1, minWidth: 0 },
   mono: { fontFamily: 'monospace', fontSize: 12 },
   dialogFields: { gap: 14, paddingVertical: 8 },
+  dialogContext: { flexShrink: 1, minWidth: 0 },
   galleryPreviewContent: { gap: 12 },
   galleryImage: { height: 320, width: '100%' },
   galleryVideo: { height: 320, width: '100%' },

@@ -55,7 +55,7 @@ export class ManagedWorkstreamContextAssembler {
       `Revision: ${input.workstream.revision}`,
       `Target profile: ${input.targetProfileId}`,
       `Host epoch: ${input.hostEpoch}`,
-      `Authorized turn budget: 1; declared token ceiling: ${input.policy.maxTokens}; wall-time budget: ${input.policy.maxWallTimeSeconds}s. Actual usage may exceed an estimate and must be reported honestly.`,
+      `Authorized turn budget: 1; soft total-token authorization: ${input.policy.maxTokens} across input, output, reasoning, and cache; wall-time budget: ${input.policy.maxWallTimeSeconds}s. Engine, profile, tool, and system input overhead is unknown. This is not an output cap and actual usage may exceed it; report actual usage honestly.`,
       '',
       'Exact goal:', input.workstream.goal,
       '', 'Exact constraints:', input.workstream.constraints,

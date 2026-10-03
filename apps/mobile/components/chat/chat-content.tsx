@@ -13,6 +13,7 @@ import {
 import { ActivityIndicator, Button, Card, IconButton, Text, TouchableRipple } from 'react-native-paper';
 
 import { Colors } from '@/constants/theme';
+import { AgentTypingBubble } from '@/components/chat/agent-typing-bubble';
 import { DiffCard, PendingInteractionsCard, SessionDiffCard, TranscriptMessage } from '@/components/chat/chat-cards';
 import type { TranscriptEntry } from '@/lib/opencode/format';
 import type { FileDiff, Session, SessionStatus, Todo } from '@/lib/opencode/types';
@@ -31,7 +32,6 @@ type ChatContentProps = {
   awaitingUserInput: boolean;
   connection: { status: GatewayConnectionStatus; message: string };
   copiedMessageId?: string;
-  currentActivityLabel?: string;
   currentDiffs: FileDiff[];
   currentPendingPermissions: PendingPermissionRequest[];
   currentPendingQuestions: PendingQuestionRequest[];
@@ -69,7 +69,6 @@ export function ChatContent({
   awaitingUserInput,
   connection,
   copiedMessageId,
-  currentActivityLabel,
   currentDiffs,
   currentPendingPermissions,
   currentPendingQuestions,
@@ -261,13 +260,8 @@ export function ChatContent({
                 </Card>
               ) : null}
 
-              {running && !awaitingUserInput ? (
-                <View style={styles.loadingRow}>
-                  <ActivityIndicator color={palette.muted} size="small" />
-                  <Text style={{ color: palette.muted }}>
-                    {currentActivityLabel ? `OpenCode is ${currentActivityLabel.toLowerCase()}...` : 'OpenCode is working through the current step...'}
-                  </Text>
-                </View>
+              {running && !awaitingUserInput && pendingInteractions === 0 ? (
+                <AgentTypingBubble />
               ) : null}
 
               {pendingInteractions === 0 && currentTodos.length > 0 && (running || completedTodoCount < currentTodos.length) ? (

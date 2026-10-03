@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import {
   ActivityIndicator,
   Button,
+  Checkbox,
   Divider,
   List,
   Menu,
@@ -123,6 +124,7 @@ export function MobileWorkstreamsPanel({
   const [profileMenuVisible, setProfileMenuVisible] = useState(false);
   const [maxWallTimeSeconds, setMaxWallTimeSeconds] = useState('300');
   const [maxTokens, setMaxTokens] = useState('20000');
+  const [softTokenBudgetAcknowledged, setSoftTokenBudgetAcknowledged] = useState(false);
   const [commandKeys, setCommandKeys] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -143,6 +145,9 @@ export function MobileWorkstreamsPanel({
     if (!selectedId || !items.some((item) => item.workstream.id === selectedId)) setSelectedId(items[0].workstream.id);
   }, [items, selectedId]);
   const selected = items.find((item) => item.workstream.id === selectedId);
+  useEffect(() => {
+    setSoftTokenBudgetAcknowledged(false);
+  }, [selected?.workstream.id, selected?.workstream.revision]);
   const selectedProfile = eligibleProfiles.find((profile) => profile.profileId === targetProfileId);
 
   const refresh = () => {
@@ -221,6 +226,10 @@ export function MobileWorkstreamsPanel({
       setLocalError('Run limits must be 30–3600 seconds and 1–2,000,000 tokens.');
       return;
     }
+    if (!softTokenBudgetAcknowledged) {
+      setLocalError('Acknowledge the soft total-token authorization before Run next.');
+      return;
+    }
     const queuedJob = selected.jobs.find((job) => job.id === selected.workstream.lastJobId);
     const commandKey = queuedJob?.state === 'queued'
       ? queuedJob.commandKey
@@ -233,6 +242,7 @@ export function MobileWorkstreamsPanel({
       commandKey,
       targetProfileId,
       parentSessionId,
+      softTokenBudgetAcknowledged: true,
       policy: { maxTurns: 1, maxWallTimeSeconds: wall, maxTokens: tokens, queueDeadlineAt: null },
       references: selected.workstream.checkpoint.references,
     }).then((next) => {
@@ -310,8 +320,9 @@ export function MobileWorkstreamsPanel({
           {eligibleProfiles.map((profile) => <Menu.Item key={profile.profileId} title={profile.label} onPress={() => { setTargetProfileId(profile.profileId); setProfileMenuVisible(false); }} />)}
         </Menu>
         <TextInput label="Wall time (seconds)" mode="outlined" keyboardType="number-pad" value={maxWallTimeSeconds} onChangeText={setMaxWallTimeSeconds} disabled={busy} />
-        <TextInput label="Token authorization" mode="outlined" keyboardType="number-pad" value={maxTokens} onChangeText={setMaxTokens} disabled={busy} />
-        <Button testID="mobile-workstreams-run-next" mode="contained" loading={busy} disabled={busy || !executorAvailable || !!budgetHeld || !parentSessionId || !targetProfileId || (selected.workstream.state !== 'ready' && !retryingQueuedIntent)} onPress={run}>{retryingQueuedIntent ? 'Try queued worker' : 'Run next'}</Button>
+        <TextInput label="Soft total-token authorization" mode="outlined" keyboardType="number-pad" value={maxTokens} onChangeText={setMaxTokens} disabled={busy} />
+        <Checkbox.Item testID="mobile-workstreams-soft-token-acknowledgement" label="I understand this is a soft total-token authorization for input, output, reasoning, and cache. Input overhead is unknown; no output cap is enforced and this turn can overrun." status={softTokenBudgetAcknowledged ? 'checked' : 'unchecked'} onPress={() => setSoftTokenBudgetAcknowledged((value) => !value)} disabled={busy || !executorAvailable || !!budgetHeld} />
+        <Button testID="mobile-workstreams-run-next" mode="contained" loading={busy} disabled={busy || !softTokenBudgetAcknowledged || !executorAvailable || !!budgetHeld || !parentSessionId || !targetProfileId || (selected.workstream.state !== 'ready' && !retryingQueuedIntent)} onPress={run}>{retryingQueuedIntent ? 'Try queued worker' : 'Run next'}</Button>
         {!parentSessionId ? <Text style={{ color: palette.warning }}>Open a root chat before starting a worker.</Text> : null}
         {budgetHeld ? <Text style={{ color: palette.warning }}>A new worker is blocked until the durable authorization hold is resolved; Resume cannot clear this hold.</Text> : null}
       </View>

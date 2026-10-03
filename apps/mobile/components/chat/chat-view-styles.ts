@@ -64,7 +64,6 @@ export const styles = StyleSheet.create({
   diffGroup: { borderWidth: 1, borderRadius: Radii.grouped, gap: 12, padding: 14 },
   paginationRow: { alignItems: 'center', flexDirection: 'row', gap: 6, height: 44, justifyContent: 'center', marginBottom: 8 },
   paginationLabel: { fontFamily: Fonts.sans, fontSize: 13 },
-  loadingRow: { flexDirection: 'row', gap: 10, alignItems: 'center', paddingHorizontal: 8, paddingBottom: 8 },
   composer: {
     paddingHorizontal: 12,
     paddingTop: 4,

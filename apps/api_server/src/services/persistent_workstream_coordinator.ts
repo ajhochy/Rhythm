@@ -158,6 +158,8 @@ export interface WorkstreamRunRequest {
   commandKey: string;
   targetProfileId: string;
   parentSessionId: string;
+  /** Explicit, authenticated acknowledgement of soft total-token semantics. */
+  softTokenBudgetAcknowledged: true;
   policy: WorkstreamRunPolicy;
   references: WorkstreamReferenceInput[];
 }
@@ -459,6 +461,9 @@ export class PersistentWorkstreamCoordinator {
     input: WorkstreamRunRequest,
   ): Promise<WorkstreamStatusView> {
     this.assertActor(auth);
+    if (input.softTokenBudgetAcknowledged !== true) {
+      throw AppError.badRequest('Run next requires explicit acknowledgement of the soft total-token authorization');
+    }
     const initial = this.requireWorkstream(auth.user.id, projectId, workstreamId);
     if (initial.revision !== input.expectedRevision) {
       throw AppError.conflict('workstream revision changed; refresh before Run next');
@@ -529,6 +534,15 @@ export class PersistentWorkstreamCoordinator {
       });
       return this.view(this.requireWorkstream(auth.user.id, projectId, workstreamId), readiness);
     }
+    // This is only a conservative preflight against the already assembled
+    // authored control. It is not a complete input or total-use estimate:
+    // engine, profile, tool, and system overhead remain deliberately unknown.
+    if (policy.maxTokens < assembled.estimatedAddedTokens) {
+      this.publishRuntime(initial, initial.lastJobId, 'blocked', 'token_authorization_below_authored_control_estimate', {
+        expectedStates: retryingQueuedIntent ? ['queued', 'blocked'] : ['ready'],
+      });
+      return this.view(this.requireWorkstream(auth.user.id, projectId, workstreamId), readiness);
+    }
 
     // Resolve the actual request model before the durable intent is written.
     // This is the resolved per-profile request, not a guess made from a later
@@ -587,7 +601,29 @@ export class PersistentWorkstreamCoordinator {
       queueDeadlineAt: policy.queueDeadlineAt,
       now,
     });
-    const metadata = this.coordinatorMetadata(input, policy, budgetAuthorization, currentProfile, parent, assembled, profileScope);
+    // A queued replay is the same already-acknowledged user command, not a
+    // new authorization event. Reuse its immutable acknowledgement timestamp
+    // so idempotency does not turn a safe retry into a different job payload.
+    if (retryingQueuedIntent && (!native.replay || currentAtAdmission.lastJobId !== native.row.id)) {
+      throw AppError.conflict('workstream is not ready for a new explicit Run next');
+    }
+    const acknowledgementAt = native.replay
+      ? this.replaySoftTokenAcknowledgementAt(native.row, auth.user.id)
+      : now;
+    if (!acknowledgementAt) {
+      throw AppError.conflict('queued worker lacks a durable soft total-token acknowledgement');
+    }
+    const metadata = this.coordinatorMetadata(
+      input,
+      policy,
+      budgetAuthorization,
+      currentProfile,
+      parent,
+      assembled,
+      profileScope,
+      auth.user.id,
+      acknowledgementAt,
+    );
     const configured = this.jobs.configureCoordinatorNativeJob({
       localUserId: auth.user.id,
       workstreamId,
@@ -596,11 +632,8 @@ export class PersistentWorkstreamCoordinator {
       now,
     });
 
-    // Replays are owned by the native ledger.  A different key cannot piggyback
+    // Replays are owned by the native ledger. A different key cannot piggyback
     // on an active workstream, and a replay never sends another prompt.
-    if (retryingQueuedIntent && (!native.replay || currentAtAdmission.lastJobId !== configured.id)) {
-      throw AppError.conflict('workstream is not ready for a new explicit Run next');
-    }
     if (TERMINAL_JOB_STATES.has(configured.state) || configured.state === 'running' || configured.state === 'unknown') {
       return this.view(this.requireWorkstream(auth.user.id, projectId, workstreamId), readiness);
     }
@@ -1451,6 +1484,8 @@ export class PersistentWorkstreamCoordinator {
     parent: AgentSession,
     assembled: ReturnType<ManagedWorkstreamContextAssembler['assemble']>,
     profileScope: ProfileScope,
+    acknowledgedByUserId: number,
+    acknowledgedAt: string,
   ): Record<string, unknown> {
     return {
       schemaVersion: 1,
@@ -1464,17 +1499,31 @@ export class PersistentWorkstreamCoordinator {
       },
       policy,
       budget: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         // This remains the user-authorized workstream cap across runs. The
         // per-job policy may be lower because prior actual/charged usage spent
         // part of it; it is not a claimed hard intra-turn enforcement cap.
         authorizedTokens,
         units: 'tokens',
+        authorizationKind: 'soft_total_tokens',
+        softTokenBudgetAcknowledgement: {
+          schemaVersion: 1,
+          accepted: input.softTokenBudgetAcknowledged,
+          actorUserId: acknowledgedByUserId,
+          acknowledgedAt,
+          includes: ['input', 'output', 'reasoning', 'cache'],
+          inputOverhead: 'unknown_engine_profile_tool_system',
+          outputCapEnforced: false,
+        },
       },
       estimate: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         basis: 'assembled_control_bytes_div_4',
         addedTokens: assembled.estimatedAddedTokens,
+        scope: 'authored_control_only',
+        fullInputEstimate: 'unknown',
+        totalUsageEstimate: 'unknown',
+        outputCapEnforced: false,
         authorizedTokens: policy.maxTokens,
         actualUsage: 'pending',
       },
@@ -1485,6 +1534,25 @@ export class PersistentWorkstreamCoordinator {
         observedHash: reference.observedHash,
       })),
     };
+  }
+
+  /** A retry can only reuse a previously durable, exact acknowledgement. */
+  private replaySoftTokenAcknowledgementAt(
+    job: AgentBridgeJobRow,
+    actorUserId: number,
+  ): string | null {
+    const budget = asRecord(jsonRecord(job.native_metadata_json)?.budget);
+    const acknowledgement = asRecord(budget?.softTokenBudgetAcknowledgement);
+    const acknowledgedAt = acknowledgement?.acknowledgedAt;
+    if (
+      acknowledgement?.schemaVersion !== 1 ||
+      acknowledgement?.accepted !== true ||
+      acknowledgement?.actorUserId !== actorUserId ||
+      typeof acknowledgedAt !== 'string' ||
+      !Number.isFinite(Date.parse(acknowledgedAt)) ||
+      new Date(acknowledgedAt).toISOString() !== acknowledgedAt
+    ) return null;
+    return acknowledgedAt;
   }
 
   private managedMcpScope(profile: AgentConfig): McpRoleConfig {
@@ -1700,59 +1768,82 @@ export class PersistentWorkstreamCoordinator {
       });
       return;
     }
-    if (job.state === 'claimed' || !job.native_child_session_id || !job.native_child_sdk_session_id) {
+    if (job.state === 'claimed') {
       this.markUnknown(workstream, job, 'child_binding_incomplete');
       return;
     }
-    const child = this.sessions.findById(job.native_child_session_id);
-    if (!child || child.sdkSessionId !== job.native_child_sdk_session_id) {
-      this.markUnknown(workstream, job, 'child_binding_mismatch');
+    const binding = this.boundCoordinatorTerminalSessions(workstream, job);
+    if (!binding) {
+      this.markUnknown(workstream, job, 'terminal_binding_incomplete');
       return;
     }
-    const statuses = await this.withProbeTimeout(
-      this.dependencies.engine.getSessionStatuses(child.cwd),
+    // An omitted /session/status map entry is documented idle behavior, not a
+    // terminal receipt on its own.  It can be used only after this strict
+    // inspection confirms the exact known SDK child, its directory, and
+    // complete current status/question/permission responses under one owned
+    // engine identity. Convenience wrapper fallbacks ({}/[]) are never proof.
+    const beforeLifecycle = await this.readiness();
+    if (!beforeLifecycle.available || !beforeLifecycle.engine) {
+      this.markUnknown(workstream, job, 'terminal_engine_readiness_unavailable');
+      return;
+    }
+    const inspection = await this.withProbeTimeout(
+      this.dependencies.engine.inspectBoundSessionLifecycles(
+        [binding.child.sdkSessionId!],
+        binding.child.cwd,
+      ),
     );
-    if (!statuses) {
-      this.markUnknown(workstream, job, 'engine_status_probe_timed_out');
+    const afterEngine = await this.terminalOwnedEngineIdentity();
+    if (!afterEngine || afterEngine.bootId !== beforeLifecycle.engine.bootId) {
+      this.markUnknown(workstream, job, 'terminal_engine_identity_changed_during_inspection');
       return;
     }
-    const status = statuses[child.sdkSessionId];
-    if (!status) {
-      this.markUnknown(workstream, job, 'engine_status_missing_or_unavailable');
+    if (
+      !inspection?.available ||
+      !inspection.knownSessionIds.includes(binding.child.sdkSessionId!)
+    ) {
+      this.markUnknown(workstream, job, 'terminal_lifecycle_probe_unavailable');
       return;
     }
-    if (status.type === 'busy') {
+    const currentJob = this.currentCoordinatorTerminalJob(workstream, job);
+    if (!currentJob) return;
+    const currentBinding = this.boundCoordinatorTerminalSessions(workstream, currentJob);
+    if (!currentBinding) {
+      this.markUnknown(workstream, currentJob, 'terminal_binding_changed_during_inspection');
+      return;
+    }
+    const sdkSessionId = currentBinding.child.sdkSessionId!;
+    const status = inspection.statusBySessionId[sdkSessionId];
+    const pendingQuestion = inspection.pendingQuestionSessionIds.includes(sdkSessionId);
+    const pendingPermission = inspection.pendingPermissionSessionIds.includes(sdkSessionId);
+    const interactionReason = pendingQuestion
+      ? 'worker_question_pending'
+      : pendingPermission
+        ? 'worker_permission_pending'
+        : null;
+    if (status?.type === 'busy') {
       // A busy observation is not a terminal receipt.  Keep an already
       // unknown job fenced rather than reclassifying it as running.
-      if (reconcilingUnknown) return;
+      if (reconcilingUnknown || currentJob.state === 'unknown') return;
       this.jobs.touchCoordinatorProgress({
         localUserId: workstream.ownerUserId,
         workstreamId: workstream.id,
-        jobId: job.id,
+        jobId: currentJob.id,
         now,
       });
-      const interaction = await this.pendingInteractionReason(child.sdkSessionId, child.cwd);
-      if (!interaction) {
-        this.markUnknown(workstream, job, 'interaction_probe_timed_out');
-        return;
-      }
-      this.publishRuntime(workstream, job.id, interaction.reason ? 'blocked' : 'running', interaction.reason, {
+      this.publishRuntime(workstream, currentJob.id, interactionReason ? 'blocked' : 'running', interactionReason, {
         expectedStates: ['queued', 'running', 'blocked'],
         executorEpoch: this.hostEpoch,
       });
       return;
     }
-    if (status.type !== 'idle') {
-      this.markUnknown(workstream, job, 'engine_status_unrecognized');
+    if (status && status.type !== 'idle') {
+      this.markUnknown(workstream, currentJob, 'engine_status_unrecognized');
       return;
     }
-    const idleInteraction = await this.pendingInteractionReason(child.sdkSessionId, child.cwd);
-    if (idleInteraction === null) {
-      this.markUnknown(workstream, job, 'interaction_probe_timed_out');
-      return;
-    }
-    if (idleInteraction.reason) {
-      this.publishRuntime(workstream, job.id, 'blocked', idleInteraction.reason, {
+    if (interactionReason) {
+      if (reconcilingUnknown || currentJob.state === 'unknown') return;
+      this.publishRuntime(workstream, currentJob.id, 'blocked', interactionReason, {
         expectedStates: ['queued', 'running', 'blocked'],
         executorEpoch: this.hostEpoch,
       });
@@ -1760,24 +1851,62 @@ export class PersistentWorkstreamCoordinator {
     }
     let messages: Array<{ info: unknown }>;
     try {
-      const response = await this.listAllMessages(child.sdkSessionId, child.cwd);
+      const response = await this.listAllMessages(sdkSessionId, currentBinding.child.cwd);
       if (!response) {
-        this.markUnknown(workstream, job, 'terminal_message_lookup_timed_out');
+        this.markUnknown(workstream, currentJob, 'terminal_message_lookup_timed_out');
         return;
       }
       messages = response;
     } catch {
-      this.markUnknown(workstream, job, 'terminal_message_lookup_unavailable');
+      this.markUnknown(workstream, currentJob, 'terminal_message_lookup_unavailable');
+      return;
+    }
+    // The message page is asynchronous too. Re-read the exact lifecycle
+    // boundary before applying accounting so a newly pending interaction or
+    // changed engine cannot turn an earlier idle observation into completion.
+    const finalInspection = await this.withProbeTimeout(
+      this.dependencies.engine.inspectBoundSessionLifecycles(
+        [sdkSessionId],
+        currentBinding.child.cwd,
+      ),
+    );
+    const finalEngine = await this.terminalOwnedEngineIdentity();
+    if (!finalEngine || finalEngine.bootId !== beforeLifecycle.engine.bootId) {
+      this.markUnknown(workstream, currentJob, 'terminal_engine_identity_changed_during_message_read');
+      return;
+    }
+    if (!finalInspection?.available) {
+      this.markUnknown(workstream, currentJob, 'terminal_lifecycle_probe_unavailable');
+      return;
+    }
+    if (!finalInspection.knownSessionIds.includes(sdkSessionId)) {
+      this.markUnknown(workstream, currentJob, 'terminal_lifecycle_known_session_missing');
+      return;
+    }
+    const finalStatus = finalInspection.statusBySessionId[sdkSessionId];
+    if (
+      (finalStatus && finalStatus.type !== 'idle') ||
+      finalInspection.pendingQuestionSessionIds.includes(sdkSessionId) ||
+      finalInspection.pendingPermissionSessionIds.includes(sdkSessionId)
+    ) {
+      this.markUnknown(workstream, currentJob, 'terminal_lifecycle_changed_during_message_read');
+      return;
+    }
+    const applyingJob = this.currentCoordinatorTerminalJob(workstream, currentJob);
+    if (!applyingJob) return;
+    const applyingBinding = this.boundCoordinatorTerminalSessions(workstream, applyingJob);
+    if (!applyingBinding) {
+      this.markUnknown(workstream, applyingJob, 'terminal_binding_changed_during_message_read');
       return;
     }
     const matches = messages.filter((message) => {
       const info = message.info as {
         id?: unknown; role?: unknown; parentID?: unknown;
       };
-      return info.role === 'assistant' && info.parentID === job.native_sdk_user_message_id && typeof info.id === 'string';
+      return info.role === 'assistant' && info.parentID === applyingJob.native_sdk_user_message_id && typeof info.id === 'string';
     });
     if (matches.length === 0) {
-      this.markUnknown(workstream, job, 'terminal_message_binding_missing');
+      this.markUnknown(workstream, applyingJob, 'terminal_message_binding_missing');
       return;
     }
     const infos = matches.map((message) => message.info as {
@@ -1785,19 +1914,20 @@ export class PersistentWorkstreamCoordinator {
       providerID?: unknown; modelID?: unknown; finish?: unknown; tokens?: unknown; cost?: unknown;
     });
     if (infos.some((info) => !info.time || typeof info.time.completed !== 'number')) {
-      this.markUnknown(workstream, job, 'turn_assistant_step_incomplete');
+      this.markUnknown(workstream, applyingJob, 'turn_assistant_step_incomplete');
       return;
     }
     const terminal = infos.filter((info) => info.finish === 'stop');
     if (terminal.length !== 1) {
-      this.markUnknown(workstream, job, terminal.length > 1
+      this.markUnknown(workstream, applyingJob, terminal.length > 1
         ? 'terminal_message_binding_ambiguous'
         : 'terminal_message_not_authoritative');
       return;
     }
     const info = terminal[0];
-    const usage = usageFromAssistantSteps(infos, this.policyFor(job));
+    const usage = usageFromAssistantSteps(infos, this.policyFor(applyingJob));
     const errored = !!info.error;
+    const priorResult = jsonRecord(applyingJob.native_result_json);
     const result = {
       schemaVersion: 1,
       status: usage ? (errored ? 'failed' : 'succeeded') : 'unknown',
@@ -1809,17 +1939,34 @@ export class PersistentWorkstreamCoordinator {
       finish: safeIdentifier(info.finish),
       errorCode: errored ? safeReason(info.error?.name) ?? 'engine_terminal_error' : null,
       usageStatus: usage ? 'actual' : 'unknown',
+      terminalObservation: {
+        schemaVersion: 1,
+        kind: 'strict_bound_session_lifecycle',
+        status: finalStatus?.type === 'idle' ? 'idle_explicit' : 'idle_omitted_after_complete_snapshot',
+        originalHostEpoch: safeIdentifier(applyingJob.host_epoch),
+        originalParentRuntimeInstance: safeIdentifier(applyingJob.parent_runtime_instance),
+        observedEngineBootId: safeIdentifier(finalEngine.bootId),
+      },
+      priorUnknownBoundary: applyingJob.state === 'unknown' ? {
+        stateReason: safeReason(applyingJob.state_reason),
+        resultReason: safeReason(priorResult?.reason),
+        cancellationRequestedAt: applyingJob.cancel_requested_at,
+      } : null,
     };
     if (!usage) {
+      // A recheck cannot trade an existing unknown/cancellation receipt for a
+      // different incomplete observation. Keep that original durable safety
+      // boundary until a complete exact terminal usage receipt arrives.
+      if (applyingJob.state === 'unknown') return;
       this.jobs.holdCoordinatorUsageUnknown({
         localUserId: workstream.ownerUserId,
         workstreamId: workstream.id,
-        jobId: job.id,
+        jobId: applyingJob.id,
         result,
         reason: 'turn_usage_incomplete',
         now,
       });
-      this.publishRuntime(workstream, job.id, 'unknown', 'usage_unknown_ack_required', {
+      this.publishRuntime(workstream, applyingJob.id, 'unknown', 'usage_unknown_ack_required', {
         expectedStates: ['queued', 'running', 'blocked', 'unknown'],
         executorEpoch: this.hostEpoch,
       });
@@ -1828,25 +1975,33 @@ export class PersistentWorkstreamCoordinator {
     const completed = this.jobs.completeCoordinator({
       localUserId: workstream.ownerUserId,
       workstreamId: workstream.id,
-      jobId: job.id,
+      jobId: applyingJob.id,
       state: errored ? 'failed' : 'succeeded',
       result,
       usage,
       now,
     });
+    // A completed terminal receipt can be durable even if a later feature,
+    // capture, MCP, or profile check is no longer admissible. Recheck that
+    // authority after completion and re-read controls after the await: the
+    // receipt stays visible, but its application/runtime projection is stale.
+    const applicationReadiness = await this.readiness();
     const current = this.workstreams.find(workstream.ownerUserId, workstream.projectId, workstream.id);
     const fencedByControls = !current ||
-      current.revision !== job.workstream_revision ||
+      current.revision !== applyingJob.workstream_revision ||
       current.executorEpoch !== this.hostEpoch ||
-      current.lastJobId !== job.id ||
+      current.lastJobId !== applyingJob.id ||
       current.state === 'paused' || current.state === 'cancelled' || current.state === 'completed' ||
       current.stateReason === 'controls_revised';
-    const authorityReason = current ? this.resultAuthorityReason(current, completed) : 'workstream_missing';
+    const authorityReason = !current
+      ? 'workstream_missing'
+      : this.resultAuthorityReason(current, completed) ??
+        (applicationReadiness.available ? null : 'runtime_readiness_changed_before_result');
     const fenced = fencedByControls || authorityReason !== null;
     this.jobs.recordCoordinatorApplication({
       localUserId: workstream.ownerUserId,
       workstreamId: workstream.id,
-      jobId: job.id,
+      jobId: applyingJob.id,
       application: {
         schemaVersion: 1,
         status: fenced ? 'stale' : 'quarantined',
@@ -1886,7 +2041,85 @@ export class PersistentWorkstreamCoordinator {
     }
   }
 
+  /**
+   * Terminal accounting consumes only one already-bound coordinator child.
+   * The child and parent rows are local ownership evidence; engine metadata
+   * and lifecycle status are verified separately by the strict inspection.
+   * A cached local child status is deliberately not terminal evidence: stream
+   * updates can lag the current owned engine status response in either
+   * direction.
+   */
+  private boundCoordinatorTerminalSessions(
+    workstream: AgentWorkstream,
+    job: AgentBridgeJobRow,
+  ): { child: AgentSession; parent: AgentSession } | null {
+    if (
+      job.direction !== 'rhythm_to_native' ||
+      job.native_execution_kind !== 'coordinator' ||
+      job.local_user_id !== workstream.ownerUserId ||
+      job.workstream_id !== workstream.id ||
+      job.workstream_project_id !== workstream.projectId ||
+      job.parent_runtime !== 'opencode' ||
+      !job.parent_runtime_instance ||
+      !job.host_epoch ||
+      typeof job.workstream_revision !== 'number' ||
+      !Number.isSafeInteger(job.workstream_revision) || job.workstream_revision < 1 ||
+      !job.native_child_session_id || !job.native_child_sdk_session_id ||
+      !job.native_dispatch_id || !job.native_sdk_user_message_id
+    ) return null;
+    const child = this.sessions.findById(job.native_child_session_id);
+    const parent = this.sessions.findById(job.parent_session_id);
+    if (
+      !child || !parent ||
+      child.sdkSessionId !== job.native_child_sdk_session_id ||
+      child.ownerUserId !== workstream.ownerUserId ||
+      child.projectId !== workstream.projectId ||
+      child.parentSessionId !== job.parent_session_id ||
+      !child.cwd ||
+      parent.ownerUserId !== workstream.ownerUserId ||
+      parent.projectId !== workstream.projectId ||
+      parent.parentSessionId !== null ||
+      !parent.sdkSessionId ||
+      parent.cwd !== child.cwd
+    ) return null;
+    return { child, parent };
+  }
+
+  /** A late read may account only the same immutable durable worker binding. */
+  private currentCoordinatorTerminalJob(
+    workstream: AgentWorkstream,
+    observed: AgentBridgeJobRow,
+  ): AgentBridgeJobRow | null {
+    const current = this.jobs.getNativeForWorkstream({
+      localUserId: workstream.ownerUserId,
+      workstreamId: workstream.id,
+      jobId: observed.id,
+    });
+    if (!current || TERMINAL_JOB_STATES.has(current.state)) return null;
+    return (
+      current.direction === observed.direction &&
+      current.native_execution_kind === observed.native_execution_kind &&
+      current.local_user_id === observed.local_user_id &&
+      current.workstream_id === observed.workstream_id &&
+      current.workstream_project_id === observed.workstream_project_id &&
+      current.workstream_revision === observed.workstream_revision &&
+      current.host_epoch === observed.host_epoch &&
+      current.parent_runtime === observed.parent_runtime &&
+      current.parent_runtime_instance === observed.parent_runtime_instance &&
+      current.parent_session_id === observed.parent_session_id &&
+      current.native_child_session_id === observed.native_child_session_id &&
+      current.native_child_sdk_session_id === observed.native_child_sdk_session_id &&
+      current.native_dispatch_id === observed.native_dispatch_id &&
+      current.native_sdk_user_message_id === observed.native_sdk_user_message_id &&
+      current.native_metadata_json === observed.native_metadata_json
+    ) ? current : null;
+  }
+
   private markUnknown(workstream: AgentWorkstream, job: AgentBridgeJobRow, reason: string): void {
+    // An existing unknown record may contain a cancellation request or an
+    // incomplete terminal observation. A failed follow-up probe never erases
+    // that durable safety evidence merely to restate that it is unknown.
+    if (job.state === 'unknown') return;
     this.jobs.markCoordinatorUnknown({
       localUserId: workstream.ownerUserId,
       workstreamId: workstream.id,
@@ -1925,6 +2158,24 @@ export class PersistentWorkstreamCoordinator {
       } catch {
         // Deliberately keep the unknown/cancelling record unchanged.
       }
+    }
+  }
+
+  /**
+   * Terminal evidence needs the current owned engine identity, but not a
+   * still-enabled coordinator feature flag. A flag/capture/profile drift after
+   * an already-observed terminal must fence application, not erase the exact
+   * receipt as though the engine observation had failed.
+   */
+  private async terminalOwnedEngineIdentity(): Promise<OpencodeEngineIdentity | null> {
+    if (
+      this.disposed || !this.initialized ||
+      !this.dependencies.engine.isReady || !this.dependencies.engine.hasOwnedEngine
+    ) return null;
+    try {
+      return await this.dependencies.engine.getEngineIdentity();
+    } catch {
+      return null;
     }
   }
 

@@ -108,6 +108,7 @@ export interface WorkstreamRunInput {
   commandKey: string;
   targetProfileId: string;
   parentSessionId: string;
+  softTokenBudgetAcknowledged: true;
   policy: WorkstreamRunPolicy;
   references: WorkstreamReference[];
 }

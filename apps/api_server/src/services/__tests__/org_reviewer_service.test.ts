@@ -19,6 +19,7 @@ import { AgentScheduledTasksRepository } from '../../repositories/agent_schedule
 import { AgentSessionMessagesRepository } from '../../repositories/agent_session_messages_repository';
 import { AgentSessionsRepository } from '../../repositories/agent_sessions_repository';
 import { AgentSkillsRepository } from '../../repositories/agent_skills_repository';
+import { UsersRepository } from '../../repositories/users_repository';
 import { opencodeClient } from '../opencode_engine';
 import { registerAllProposalAppliers } from '../org_proposal_appliers_wiring';
 import { resetProposalPluginsForTests } from '../org_proposal_apply_service';
@@ -34,6 +35,13 @@ const managedRoot = useTempManagedSkillsRoot('org-reviewer-service');
 const originalPrompt = 'Write the weekly report with the heading OLD REPORT.';
 const repairedPrompt = 'Write the weekly report with the heading WEEKLY REPORT.';
 const failure = 'The requested WEEKLY REPORT heading was replaced with OLD REPORT.';
+const manualReviewerProfile = {
+  modelProvider: 'openai',
+  modelId: 'gpt-6.1-sol',
+  sessionSelectable: true,
+  schedulable: true,
+  ocAgent: ORG_REVIEWER_PROFILE_ID,
+};
 type Evidence = { sessionId: string; messageId: string; quote: string };
 
 let db: Database.Database;
@@ -382,6 +390,108 @@ describe('OrgReviewerService proposal boundary', () => {
 });
 
 describe('OrgReviewerService bounded context and identity', () => {
+  it('authorizes the intended manually selectable reviewer and reads bounded synthetic context', async () => {
+    const users = new UsersRepository();
+    const currentOwner = users.create({ name: 'Manual mobile owner', email: 'manual-mobile-owner@example.invalid' });
+    const foreignOwner = users.create({ name: 'Foreign mobile owner', email: 'foreign-mobile-owner@example.invalid' });
+    configs.update(ORG_REVIEWER_PROFILE_ID, manualReviewerProfile);
+
+    const { row: manualSession, sdkSessionId } = session(ORG_REVIEWER_PROFILE_ID, { ownerUserId: currentOwner.id });
+    const manualReviewer = await service.authorize({
+      sdkSessionId,
+      agentName: ORG_REVIEWER_PROFILE_ID,
+      turnId: 'turn-fixture',
+      toolCallId: 'call-fixture',
+    });
+    expect(manualReviewer).toMatchObject({
+      ownerUserId: currentOwner.id,
+      session: {
+        id: manualSession.id,
+        ownerUserId: currentOwner.id,
+        profileId: ORG_REVIEWER_PROFILE_ID,
+        opencodeAgentId: ORG_REVIEWER_PROFILE_ID,
+        sdkSessionId,
+      },
+    });
+
+    const { row: sameOwner } = session(targetId, { ownerUserId: currentOwner.id });
+    const { row: foreignOwnerSession } = session(targetId, { ownerUserId: foreignOwner.id });
+    const { row: legacy } = session(targetId);
+    messages.upsertStructured(sameOwner.id, 'msg_same_owner', 'output', JSON.stringify([{ type: 'text', text: 'Current owner diagnostic evidence.' }]), null, null);
+    messages.upsertStructured(foreignOwnerSession.id, 'msg_foreign_owner', 'output', JSON.stringify([{ type: 'text', text: 'Foreign owner diagnostic evidence.' }]), null, null);
+    messages.upsertStructured(legacy.id, 'msg_legacy', 'output', JSON.stringify([{ type: 'text', text: 'Legacy unowned diagnostic evidence.' }]), null, null);
+
+    const context = await service.context({ windowDays: 7, sessionLimit: 100 }, manualReviewer) as {
+      sessions: Array<{ sessionId: string }>;
+      collectionStats: Record<string, unknown>;
+    };
+    const visibleSessionIds = context.sessions.map((item) => item.sessionId);
+
+    expect(visibleSessionIds).toEqual(expect.arrayContaining([sameOwner.id, legacy.id]));
+    expect(visibleSessionIds).not.toContain(foreignOwnerSession.id);
+    expect(context.collectionStats).toEqual(expect.any(Object));
+    expect(Buffer.byteLength(JSON.stringify(context), 'utf8')).toBeLessThan(44_000);
+    await expect(service.session({ sessionId: foreignOwnerSession.id }, manualReviewer)).rejects.toMatchObject({ statusCode: 404 });
+    await expect(service.session({ sessionId: sameOwner.id }, manualReviewer)).resolves.toMatchObject({
+      sessionId: sameOwner.id,
+      profileId: targetId,
+      messages: [{ messageId: 'msg_same_owner', text: 'Current owner diagnostic evidence.', textComplete: true }],
+    });
+    await expect(service.session({ sessionId: legacy.id }, manualReviewer)).resolves.toMatchObject({
+      sessionId: legacy.id,
+      profileId: targetId,
+      messages: [{ messageId: 'msg_legacy', text: 'Legacy unowned diagnostic evidence.', textComplete: true }],
+    });
+  });
+
+  it.each([
+    ['a locked profile', () => db.prepare('UPDATE agent_configs SET enabled = 1, locked = 1 WHERE id = ?').run(ORG_REVIEWER_PROFILE_ID)],
+    ['an image-enabled profile', () => configs.update(ORG_REVIEWER_PROFILE_ID, { imageGenerationEnabled: true })],
+    ['an auto-approve profile', () => configs.update(ORG_REVIEWER_PROFILE_ID, { autoApproveActions: true })],
+    ['a profile with delegates', () => configs.update(ORG_REVIEWER_PROFILE_ID, { allowedDelegatesJson: '["foreign-agent"]' })],
+  ])('fails closed for %s', async (_label, changeProfile) => {
+    changeProfile();
+    await expect(authorize()).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it.each([
+    ['MCP grants', () => ({ allowedMcpsJson: JSON.stringify({ rhythm: [
+      ...JSON.parse(ORG_REVIEWER_ALLOWED_MCPS_JSON).rhythm,
+      'rhythm_create_task',
+    ] }) })],
+    ['skill grants', () => ({ allowedSkillsJson: JSON.stringify(['review-agent-org-health', 'foreign-editor-skill']) })],
+    ['core permissions', () => {
+      const permissions = JSON.parse(ORG_REVIEWER_CORE_PERMISSIONS_JSON) as Record<string, unknown>;
+      return { corePermissionsJson: JSON.stringify({ ...permissions, task: 'allow' }) };
+    }],
+  ])('fails closed when the manual profile widens %s', async (_label, widenProfile) => {
+    configs.update(ORG_REVIEWER_PROFILE_ID, { ...manualReviewerProfile, ...widenProfile() });
+    const owner = new UsersRepository().create({ name: 'Manual scope owner', email: 'manual-scope-owner@example.invalid' });
+    await expect(authorize({ ownerUserId: owner.id })).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it('denies mismatched trusted reviewer identities', async () => {
+    const foreignSession = session(targetId);
+    await expect(service.authorize({
+      sdkSessionId: foreignSession.sdkSessionId,
+      agentName: ORG_REVIEWER_PROFILE_ID,
+      turnId: 'turn-fixture',
+      toolCallId: 'call-fixture',
+    })).rejects.toMatchObject({ statusCode: 403 });
+
+    const reviewerSession = session(ORG_REVIEWER_PROFILE_ID);
+    await expect(service.authorize({
+      sdkSessionId: reviewerSession.sdkSessionId,
+      agentName: 'foreign-agent',
+      turnId: 'turn-fixture',
+      toolCallId: 'call-fixture',
+    })).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it('denies a session with an explicit approval bypass', async () => {
+    await expect(authorize({ approvalBypassExplicit: true })).rejects.toMatchObject({ statusCode: 403 });
+  });
+
   it('fails closed when complete current skill content cannot fit the context budget', async () => {
     const name = `large-reviewer-fixture-${randomUUID()}`;
     const body = 'A concrete report rule. '.repeat(4000);
@@ -656,5 +766,21 @@ describe('OrgReviewerService bounded context and identity', () => {
       ...overrides,
     });
     await expect(authorize({ scheduledTaskId: task.id })).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it('denies a scheduled reviewer session bound to another owner or profile', async () => {
+    db.prepare(`INSERT INTO users (id, name, email) VALUES (4242, 'Other owner', 'other-owner@example.invalid')`).run();
+    const wrongOwner = await schedules.createAsync({
+      name: 'Other owner reviewer schedule', scheduleType: 'weekly', scheduledDay: 1, scheduledTime: '08:30',
+      prompt: 'Review recent organization failures.', agentKind: 'opencode', agentConfigId: ORG_REVIEWER_PROFILE_ID,
+      createdByUserId: 4242,
+    });
+    const wrongProfile = await schedules.createAsync({
+      name: 'Other profile reviewer schedule', scheduleType: 'weekly', scheduledDay: 1, scheduledTime: '08:30',
+      prompt: 'Review recent organization failures.', agentKind: 'opencode', agentConfigId: targetId,
+    });
+
+    await expect(authorize({ scheduledTaskId: wrongOwner.id })).rejects.toMatchObject({ statusCode: 403 });
+    await expect(authorize({ scheduledTaskId: wrongProfile.id })).rejects.toMatchObject({ statusCode: 403 });
   });
 });

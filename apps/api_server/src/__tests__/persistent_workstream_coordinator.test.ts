@@ -6,6 +6,7 @@ import { installAgentWorkstreamsSchema } from '../database/agent_workstreams_sch
 import { AgentWorkstreamsRepository } from '../repositories/agent_workstreams_repository';
 import { AgentBridgeJobsRepository } from '../shared_agents/delegation_jobs_repository';
 import { installAgentBridgeSchema } from '../shared_agents/bridge_schema';
+import { parseRunNext } from '../contracts/agent_workstream_contract';
 import {
   PersistentWorkstreamCoordinator,
   type WorkstreamRunRequest,
@@ -54,6 +55,7 @@ function fixture(options: {
   }).row;
   const child = {
     id: 'local-worker-1', sdkSessionId: 'sdk-worker-1', cwd: '/safe/project',
+    status: 'idle', ownerUserId: OWNER, projectId: PROJECT, parentSessionId: 'parent-local',
   };
   const parent = {
     id: 'parent-local',
@@ -133,7 +135,7 @@ function fixture(options: {
     artifactResolver: options.artifactResolver,
   });
   coordinator.initialize();
-  return { db, coordinator, engine, jobs, workstream, workstreams, child, profile };
+  return { db, coordinator, engine, jobs, workstream, workstreams, child, parent, profile };
 }
 
 const RUN_SCOPE: ProfileScope = {
@@ -151,7 +153,8 @@ function runInput(context: Fixture, commandKey = 'run-capacity'): WorkstreamRunR
     commandKey,
     targetProfileId: 'worker-profile',
     parentSessionId: 'parent-local',
-    policy: { maxTurns: 1, maxWallTimeSeconds: 300, maxTokens: 100, queueDeadlineAt: null },
+    softTokenBudgetAcknowledged: true,
+    policy: { maxTurns: 1, maxWallTimeSeconds: 300, maxTokens: 20_000, queueDeadlineAt: null },
     references: [],
   };
 }
@@ -225,7 +228,7 @@ function seedLegacyCapacityDelegation(
   return { parentId, childId, sdkSessionId };
 }
 
-function bindRunningJob(context: Fixture, now = NOW, maxTokens = 100) {
+function bindRunningJob(context: Fixture, now = new Date().toISOString(), maxTokens = 100) {
   const created = context.jobs.createNativeOrReplay({
     localUserId: OWNER,
     workstreamId: context.workstream.id,
@@ -332,9 +335,34 @@ function assistantStep(
       modelID: 'model',
       finish,
       tokens,
+      cost: 0,
     },
     parts: [{ type: 'text', text: 'worker prose must never be persisted in result metadata' }],
   };
+}
+
+function assistantStepForParent(
+  id: string,
+  finish: string,
+  parentID: string,
+  tokens?: Record<string, unknown>,
+) {
+  const step = assistantStep(id, finish, tokens);
+  step.info.parentID = parentID;
+  return step;
+}
+
+function capturedShapeTerminalStep() {
+  const step = assistantStep('assistant-fictional-terminal', 'stop', {
+    total: 4_742,
+    input: 4_634,
+    output: 37,
+    reasoning: 71,
+    cache: { read: 0, write: 0 },
+  });
+  step.info.providerID = 'openai';
+  step.info.modelID = 'gpt-6.1-sol';
+  return step;
 }
 
 afterEach(() => setDb(null));
@@ -347,6 +375,7 @@ describe('persistent workstream coordinator', () => {
       commandKey: 'run-off',
       targetProfileId: 'worker-profile',
       parentSessionId: 'parent-local',
+      softTokenBudgetAcknowledged: true,
       policy: { maxTurns: 1, maxWallTimeSeconds: 300, maxTokens: 100, queueDeadlineAt: null },
       references: [],
     });
@@ -627,6 +656,280 @@ describe('persistent workstream coordinator', () => {
     context.db.close();
   });
 
+  it('R7: an explicit strict omitted-idle recheck records complete actual usage without reopening paused controls', async () => {
+    const context = fixture({ terminalMessages: [capturedShapeTerminalStep()] });
+    const job = bindRunningJob(context, new Date().toISOString(), 512);
+    await context.coordinator.reconcileAfterEngineReady();
+    const cancellationAt = new Date().toISOString();
+    expect(context.jobs.requestCoordinatorCancellation({
+      localUserId: OWNER,
+      workstreamId: context.workstream.id,
+      jobId: job.id,
+      reason: 'termination_unconfirmed',
+      now: cancellationAt,
+    })).toMatchObject({ state: 'unknown', cancel_requested_at: cancellationAt });
+    expect(context.workstreams.pause(OWNER, PROJECT, context.workstream.id, 1)).toMatchObject({
+      state: 'paused', stateReason: 'user_paused', revision: 2,
+    });
+    const pausedControls = context.db.prepare('SELECT * FROM agent_workstreams WHERE id=?').get(context.workstream.id);
+
+    const reconciled = await context.coordinator.reconcileUnknownFromEngine(
+      auth, PROJECT, context.workstream.id, 2, job.id,
+    );
+
+    expect(context.db.prepare('SELECT * FROM agent_workstreams WHERE id=?').get(context.workstream.id))
+      .toEqual(pausedControls);
+    expect(reconciled.workstream).toMatchObject({ state: 'paused', stateReason: 'user_paused', revision: 2 });
+    expect(reconciled.workstream.checkpoint.criteria).toEqual([
+      expect.objectContaining({ id: 'criterion-1', status: 'pending' }),
+    ]);
+    expect(reconciled.jobs.find((item) => item.id === job.id)).toMatchObject({
+      state: 'succeeded',
+      cancellationRequestedAt: cancellationAt,
+      usage: {
+        status: 'actual', totalTokens: 4_742, inputTokens: 4_634,
+        outputTokens: 37, reasoningTokens: 71, cacheReadTokens: 0,
+        cacheWriteTokens: 0, authorizedTokens: 512, overshoot: true,
+      },
+      result: {
+        status: 'succeeded', terminalMessageId: 'assistant-fictional-terminal',
+        servedProviderId: 'openai', servedModelId: 'gpt-6.1-sol',
+        usageStatus: 'actual',
+        terminalObservation: {
+          kind: 'strict_bound_session_lifecycle',
+          status: 'idle_omitted_after_complete_snapshot',
+          originalHostEpoch: 'epoch-current', originalParentRuntimeInstance: 'boot-test',
+          observedEngineBootId: 'boot-test',
+        },
+        priorUnknownBoundary: {
+          stateReason: 'native_status_unknown', resultReason: 'termination_unconfirmed',
+          cancellationRequestedAt: cancellationAt,
+        },
+      },
+      application: { status: 'stale', reason: 'controls_or_user_state_changed_before_result' },
+    });
+    expect(reconciled.budget).toMatchObject({
+      authorizedTokens: 512, actualTokens: 4_742, committedTokens: 4_742,
+      remainingTokens: 0, overshoot: true, holdReason: 'budget_overshoot',
+    });
+    expect(context.engine.createSession).not.toHaveBeenCalled();
+    expect(context.engine.promptAsync).not.toHaveBeenCalled();
+    expect(context.engine.abortSession).not.toHaveBeenCalled();
+    const terminalRow = context.db.prepare('SELECT * FROM agent_bridge_jobs WHERE id=?').get(job.id);
+    const messageCalls = context.engine.listMessagesPage.mock.calls.length;
+    await context.coordinator.status(auth, PROJECT, context.workstream.id);
+    expect(context.db.prepare('SELECT * FROM agent_bridge_jobs WHERE id=?').get(job.id)).toEqual(terminalRow);
+    expect(context.engine.listMessagesPage).toHaveBeenCalledTimes(messageCalls);
+    context.db.close();
+  });
+
+  it('R7: a current strict busy observation keeps a locally lagged working child running', async () => {
+    const context = fixture();
+    const job = bindRunningJob(context, new Date().toISOString());
+    context.child.status = 'working';
+    context.engine.inspectBoundSessionLifecycles.mockResolvedValue({
+      available: true,
+      knownSessionIds: [context.child.sdkSessionId],
+      statusBySessionId: { [context.child.sdkSessionId]: { type: 'busy' } },
+      pendingQuestionSessionIds: [],
+      pendingPermissionSessionIds: [],
+    });
+    await context.coordinator.reconcileAfterEngineReady();
+
+    const view = await context.coordinator.status(auth, PROJECT, context.workstream.id);
+
+    expect(view.workstream).toMatchObject({ state: 'running' });
+    expect(view.jobs.find((item) => item.id === job.id)).toMatchObject({
+      state: 'running', usage: null, result: null,
+    });
+    expect(context.engine.inspectBoundSessionLifecycles).toHaveBeenCalledTimes(1);
+    expect(context.engine.listMessagesPage).not.toHaveBeenCalled();
+    expect(context.engine.createSession).not.toHaveBeenCalled();
+    expect(context.engine.promptAsync).not.toHaveBeenCalled();
+    expect(context.engine.abortSession).not.toHaveBeenCalled();
+    context.db.close();
+  });
+
+  it('R7: a strict omitted-idle terminal receipt accounts despite a locally lagged working child', async () => {
+    const context = fixture({ terminalMessages: [capturedShapeTerminalStep()] });
+    const job = bindRunningJob(context, new Date().toISOString(), 512);
+    context.child.status = 'working';
+    await context.coordinator.reconcileAfterEngineReady();
+
+    const view = await context.coordinator.status(auth, PROJECT, context.workstream.id);
+
+    expect(view.jobs.find((item) => item.id === job.id)).toMatchObject({
+      state: 'succeeded',
+      usage: {
+        status: 'actual', totalTokens: 4_742, authorizedTokens: 512, overshoot: true,
+      },
+      result: {
+        terminalMessageId: 'assistant-fictional-terminal',
+        terminalObservation: { status: 'idle_omitted_after_complete_snapshot' },
+      },
+    });
+    expect(view.budget).toMatchObject({
+      authorizedTokens: 512, actualTokens: 4_742, remainingTokens: 0,
+      overshoot: true, holdReason: 'budget_overshoot',
+    });
+    expect(context.engine.inspectBoundSessionLifecycles).toHaveBeenCalledTimes(2);
+    expect(context.engine.createSession).not.toHaveBeenCalled();
+    expect(context.engine.promptAsync).not.toHaveBeenCalled();
+    expect(context.engine.abortSession).not.toHaveBeenCalled();
+    context.db.close();
+  });
+
+  it('R7: identity drift during terminal reads holds unknown, while an MCP drift records only a stale receipt', async () => {
+    const identity = fixture();
+    const identityJob = bindRunningJob(identity);
+    let bootId = 'boot-test';
+    identity.engine.getEngineIdentity.mockImplementation(async () => ({ version: 'test-engine', pid: 991, bootId }));
+    await identity.coordinator.reconcileAfterEngineReady();
+    identity.engine.listMessagesPage.mockImplementation(async () => {
+      bootId = 'boot-after-terminal-read';
+      return { messages: [capturedShapeTerminalStep()], nextCursor: null };
+    });
+
+    const identityView = await identity.coordinator.status(auth, PROJECT, identity.workstream.id);
+
+    expect(identityView.jobs.find((item) => item.id === identityJob.id)).toMatchObject({
+      state: 'unknown', usage: null, application: null,
+    });
+    expect(identity.engine.createSession).not.toHaveBeenCalled();
+    expect(identity.engine.promptAsync).not.toHaveBeenCalled();
+    expect(identity.engine.abortSession).not.toHaveBeenCalled();
+    identity.db.close();
+
+    const mcp = fixture();
+    const mcpJob = bindRunningJob(mcp);
+    await mcp.coordinator.reconcileAfterEngineReady();
+    mcp.engine.listMessagesPage.mockImplementation(async () => {
+      mcp.engine.listMcp.mockResolvedValue({ rhythm: { status: 'connecting' } });
+      return { messages: [capturedShapeTerminalStep()], nextCursor: null };
+    });
+
+    const mcpView = await mcp.coordinator.status(auth, PROJECT, mcp.workstream.id);
+
+    expect(mcpView.workstream).toMatchObject({
+      state: 'blocked', stateReason: 'coordinator_runtime_authority_changed',
+    });
+    expect(mcpView.readiness).toMatchObject({ available: false, reason: 'managed_mcp_unavailable' });
+    expect(mcpView.jobs.find((item) => item.id === mcpJob.id)).toMatchObject({
+      state: 'succeeded', application: { status: 'stale', reason: 'runtime_authority_changed_before_result' },
+    });
+    expect(mcp.engine.createSession).not.toHaveBeenCalled();
+    expect(mcp.engine.promptAsync).not.toHaveBeenCalled();
+    expect(mcp.engine.abortSession).not.toHaveBeenCalled();
+    mcp.db.close();
+  });
+
+  it('R7: a strict recheck retains an existing unknown boundary for incomplete lifecycle, binding, terminal, or usage proof', async () => {
+    const cases: Array<{
+      name: string;
+      terminalMessages?: unknown[];
+      prepare?: (context: Fixture) => void;
+    }> = [
+      {
+        name: 'unavailable status, question, or permission snapshot',
+        prepare: (context) => context.engine.inspectBoundSessionLifecycles.mockResolvedValue({
+          available: false, knownSessionIds: [], statusBySessionId: {},
+          pendingQuestionSessionIds: [], pendingPermissionSessionIds: [],
+        }),
+      },
+      {
+        name: 'missing exact engine session metadata',
+        prepare: (context) => context.engine.inspectBoundSessionLifecycles.mockResolvedValue({
+          available: true, knownSessionIds: [], statusBySessionId: {},
+          pendingQuestionSessionIds: [], pendingPermissionSessionIds: [],
+        }),
+      },
+      {
+        name: 'pending permission',
+        prepare: (context) => context.engine.inspectBoundSessionLifecycles.mockResolvedValue({
+          available: true, knownSessionIds: [context.child.sdkSessionId], statusBySessionId: {},
+          pendingQuestionSessionIds: [], pendingPermissionSessionIds: [context.child.sdkSessionId],
+        }),
+      },
+      {
+        name: 'wrong local child owner',
+        prepare: (context) => { context.child.ownerUserId = OWNER + 1; },
+      },
+      {
+        name: 'wrong local child project',
+        prepare: (context) => { context.child.projectId = 'other-project'; },
+      },
+      {
+        name: 'wrong local child directory',
+        prepare: (context) => { context.child.cwd = '/different/project'; },
+      },
+      {
+        name: 'wrong anchored assistant',
+        terminalMessages: [assistantStepForParent('assistant-wrong-anchor', 'stop', 'foreign-user-anchor')],
+      },
+      {
+        name: 'missing explicit total where reasoning may overlap output',
+        terminalMessages: [assistantStep('assistant-incomplete-usage', 'stop', {
+          input: 4_634, output: 37, reasoning: 71, cache: { read: 0, write: 0 },
+        })],
+      },
+    ];
+    for (const testCase of cases) {
+      const context = fixture({ terminalMessages: testCase.terminalMessages });
+      const job = bindRunningJob(context);
+      await context.coordinator.reconcileAfterEngineReady();
+      context.jobs.markCoordinatorUnknown({
+        localUserId: OWNER, workstreamId: context.workstream.id, jobId: job.id,
+        reason: 'termination_unconfirmed', now: new Date().toISOString(),
+      });
+      testCase.prepare?.(context);
+      const before = context.db.prepare('SELECT * FROM agent_bridge_jobs WHERE id=?').get(job.id);
+
+      const view = await context.coordinator.reconcileUnknownFromEngine(
+        auth, PROJECT, context.workstream.id, context.workstream.revision, job.id,
+      );
+
+      expect(view.jobs.find((item) => item.id === job.id), testCase.name).toMatchObject({ state: 'unknown' });
+      expect(context.db.prepare('SELECT * FROM agent_bridge_jobs WHERE id=?').get(job.id), testCase.name).toEqual(before);
+      expect(context.engine.createSession, testCase.name).not.toHaveBeenCalled();
+      expect(context.engine.promptAsync, testCase.name).not.toHaveBeenCalled();
+      expect(context.engine.abortSession, testCase.name).not.toHaveBeenCalled();
+      context.db.close();
+    }
+  });
+
+  it('R7: Run next requires server-validated soft total-token acknowledgement and rejects an impossible authored-control floor', async () => {
+    const context = fixture();
+    const withoutAcknowledgement = {
+      ...runInput(context, 'missing-soft-token-ack'),
+      softTokenBudgetAcknowledged: false,
+    } as unknown as WorkstreamRunRequest;
+    await expect(context.coordinator.runNext(
+      auth, PROJECT, context.workstream.id, withoutAcknowledgement,
+    )).rejects.toThrow('explicit acknowledgement');
+    expect(() => parseRunNext({
+      expectedRevision: 1,
+      commandKey: 'missing-soft-token-ack',
+      targetProfileId: 'worker-profile',
+      parentSessionId: 'parent-local',
+      policy: { maxTurns: 1, maxWallTimeSeconds: 300, maxTokens: 512, queueDeadlineAt: null },
+      references: [],
+    })).toThrow('invalid workstream run payload');
+    await context.coordinator.reconcileAfterEngineReady();
+
+    const blocked = await context.coordinator.runNext(auth, PROJECT, context.workstream.id, {
+      ...runInput(context, 'below-authored-control-floor'),
+      policy: { maxTurns: 1, maxWallTimeSeconds: 300, maxTokens: 1, queueDeadlineAt: null },
+    });
+
+    expect(blocked.workstream).toMatchObject({
+      state: 'blocked', stateReason: 'token_authorization_below_authored_control_estimate',
+    });
+    expect(context.engine.createSession).not.toHaveBeenCalled();
+    expect(context.engine.promptAsync).not.toHaveBeenCalled();
+    expect(context.engine.abortSession).not.toHaveBeenCalled();
+    context.db.close();
+  });
+
   it('C02/C05: an explicit status read past the wall limit requests termination and remains unknown', async () => {
     const context = fixture();
     const job = bindRunningJob(context, new Date(Date.now() - 301_000).toISOString());
@@ -674,7 +977,13 @@ describe('persistent workstream coordinator', () => {
   it('R2: an idle pending question is a block, not a completed worker', async () => {
     const context = fixture();
     const job = bindRunningJob(context);
-    context.engine.listQuestions.mockResolvedValue([{ sessionID: context.child.sdkSessionId }]);
+    context.engine.inspectBoundSessionLifecycles.mockResolvedValue({
+      available: true,
+      knownSessionIds: [context.child.sdkSessionId],
+      statusBySessionId: {},
+      pendingQuestionSessionIds: [context.child.sdkSessionId],
+      pendingPermissionSessionIds: [],
+    });
     await context.coordinator.reconcileAfterEngineReady();
 
     const view = await context.coordinator.status(auth, PROJECT, context.workstream.id);
@@ -896,7 +1205,8 @@ describe('persistent workstream coordinator', () => {
       commandKey: 'run-flag-drift-during-preparation',
       targetProfileId: 'worker-profile',
       parentSessionId: 'parent-local',
-      policy: { maxTurns: 1, maxWallTimeSeconds: 300, maxTokens: 100, queueDeadlineAt: null },
+      softTokenBudgetAcknowledged: true,
+      policy: { maxTurns: 1, maxWallTimeSeconds: 300, maxTokens: 20_000, queueDeadlineAt: null },
       references: [],
     });
     await started;
@@ -919,7 +1229,7 @@ describe('persistent workstream coordinator', () => {
 
   it('R4: an actual overshoot blocks resume and a forged ready projection cannot admit another Run next', async () => {
     const context = fixture();
-    const job = bindRunningJob(context, NOW, 1);
+    const job = bindRunningJob(context, new Date().toISOString(), 1);
     await context.coordinator.reconcileAfterEngineReady();
     const terminal = await context.coordinator.status(auth, PROJECT, context.workstream.id);
     expect(terminal.workstream).toMatchObject({ state: 'blocked', stateReason: 'budget_overshoot_hold' });
@@ -939,6 +1249,7 @@ describe('persistent workstream coordinator', () => {
       commandKey: 'run-after-overshoot',
       targetProfileId: 'worker-profile',
       parentSessionId: 'not-reached-parent',
+      softTokenBudgetAcknowledged: true,
       policy: { maxTurns: 1, maxWallTimeSeconds: 300, maxTokens: 100, queueDeadlineAt: null },
       references: [],
     });
@@ -949,7 +1260,7 @@ describe('persistent workstream coordinator', () => {
 
   it('R4: actual usage that exactly exhausts authorization stays blocked after reconciliation', async () => {
     const context = fixture();
-    const job = bindRunningJob(context, NOW, 30);
+    const job = bindRunningJob(context, new Date().toISOString(), 30);
     await context.coordinator.reconcileAfterEngineReady();
 
     const terminal = await context.coordinator.status(auth, PROJECT, context.workstream.id);
@@ -983,6 +1294,7 @@ describe('persistent workstream coordinator', () => {
       commandKey: 'run-after-malformed-usage',
       targetProfileId: 'worker-profile',
       parentSessionId: 'not-reached-parent',
+      softTokenBudgetAcknowledged: true,
       policy: { maxTurns: 1, maxWallTimeSeconds: 300, maxTokens: 100, queueDeadlineAt: null },
       references: [],
     });
@@ -1059,6 +1371,26 @@ describe('persistent workstream coordinator', () => {
     );
     expect(context.engine.createSession).toHaveBeenCalledTimes(1);
     expect(context.engine.promptAsync).toHaveBeenCalledTimes(1);
+    const admitted = context.jobs.listNativeForWorkstream({
+      localUserId: OWNER,
+      workstreamId: context.workstream.id,
+    })[0];
+    expect(JSON.parse(admitted!.native_metadata_json!)).toMatchObject({
+      budget: {
+        authorizationKind: 'soft_total_tokens',
+        softTokenBudgetAcknowledgement: {
+          accepted: true, actorUserId: OWNER,
+          includes: ['input', 'output', 'reasoning', 'cache'],
+          inputOverhead: 'unknown_engine_profile_tool_system',
+          outputCapEnforced: false,
+        },
+      },
+      estimate: {
+        scope: 'authored_control_only', fullInputEstimate: 'unknown',
+        totalUsageEstimate: 'unknown', outputCapEnforced: false,
+      },
+    });
+    expect(context.engine.promptAsync.mock.calls[0]?.[1]).toContain('This is not an output cap and actual usage may exceed it');
     expect(context.db.prepare(`SELECT id, status, updated_at
       FROM agent_async_delegations ORDER BY id`).all()).toEqual(before);
     expect(context.db.prepare(`SELECT COUNT(*) AS count FROM agent_async_delegations

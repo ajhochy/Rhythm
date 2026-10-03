@@ -51,7 +51,10 @@ export interface WorkstreamRunPolicy {
   /** This slice intentionally admits one engine turn per explicit request. */
   maxTurns: 1;
   maxWallTimeSeconds: number;
-  /** A declared authorization ceiling, reconciled to actual usage afterward. */
+  /**
+   * A soft total-token authorization reconciled to actual input, output,
+   * reasoning, and cache usage afterward. It is not an output-token cap.
+   */
   maxTokens: number;
   /** Optional queue deadline; absent means no implicit timeout/retry. */
   queueDeadlineAt: string | null;
@@ -99,6 +102,7 @@ function parseIsoOrNull(value: unknown, name: string): string | null {
 export function parseRunNext(value: unknown) {
   if (!plain(value) || Object.keys(value).some((key) => ![
     'expectedRevision', 'commandKey', 'targetProfileId', 'parentSessionId', 'policy', 'references',
+    'softTokenBudgetAcknowledged',
   ].includes(key))) throw AppError.badRequest('invalid workstream run payload');
   const expectedRevision = parseRevision(value);
   if (typeof value.commandKey !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(value.commandKey) ||
@@ -108,6 +112,7 @@ export function parseRunNext(value: unknown) {
       // resolves either one back to the authenticated root session before it
       // can create a worker.
       typeof value.parentSessionId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(value.parentSessionId) ||
+      value.softTokenBudgetAcknowledged !== true ||
       !plain(value.policy) || Object.keys(value.policy).some((key) => !['maxTurns', 'maxWallTimeSeconds', 'maxTokens', 'queueDeadlineAt'].includes(key))) {
     throw AppError.badRequest('invalid workstream run payload');
   }
@@ -122,6 +127,9 @@ export function parseRunNext(value: unknown) {
     commandKey: value.commandKey,
     targetProfileId: value.targetProfileId,
     parentSessionId: value.parentSessionId,
+    // The authenticated route owns the actor and timestamp recorded with this
+    // explicit acknowledgement. Callers cannot substitute a receipt later.
+    softTokenBudgetAcknowledged: true as const,
     policy: {
       maxTurns: 1 as const,
       maxWallTimeSeconds: policy.maxWallTimeSeconds as number,

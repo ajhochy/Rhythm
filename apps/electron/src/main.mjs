@@ -12,6 +12,7 @@ import { runDesktopGoogleOAuth } from './desktop-google-oauth.mjs';
 import * as humanApprovalSigner from './human-approval-main-signer.mjs';
 import { createHermesSupervisor } from './hermes-server.mjs';
 import { createExternalOpenLimiter, deepLinkFromArgv, externalHttpUrl, resolveAsset, validateRequest, webDist } from './policy.mjs';
+import { createManualWorkstreamsPreference, manualWorkstreamsPreferenceStatus } from './manual-workstreams-preference.mjs';
 import { createProductionApiConfig, createProductionApiSetHandler } from './production-api-config.mjs';
 import { resolveGoogleDesktopClientId } from './runtime-config.mjs';
 import { validateSecuritySmokeReceipt } from './security-smoke-receipt.mjs';
@@ -47,6 +48,8 @@ if (smokeUserDataPath) app.on('will-quit', () => rmSync(smokeUserDataPath, { rec
 const productionApiConfigPath = resolve(app.getPath('userData'), 'server-config.json');
 const productionApiConfig = createProductionApiConfig({ configPath: productionApiConfigPath, defaultBase: RHYTHM_AUTH_API_BASE, env: process.env });
 let productionApiBase = productionApiConfig.load();
+const manualWorkstreamsPreferencePath = resolve(app.getPath('userData'), 'manual-workstreams-preference.json');
+const manualWorkstreamsPreference = createManualWorkstreamsPreference({ configPath: manualWorkstreamsPreferencePath });
 const authSessionPath = resolve(app.getPath('userData'), 'auth-session.bin');
 const remoteAttachGrantPath = resolve(app.getPath('userData'), 'remote-attach-grant.bin');
 process.env.RHYTHM_PRODUCTION_API_URL = productionApiBase;
@@ -887,6 +890,7 @@ if (hasSingleInstanceLock) {
   // Interactive smoke renders normally, but the manager owns the external sandbox lifecycle.
   agentServer = isInteractiveSmoke ? undefined : new AgentServerService({
     relayConfigurationProvider: () => ({ token: productionSessionToken, productionApiBase }),
+    manualWorkstreamsPreferenceProvider: () => manualWorkstreamsPreference.load(),
   });
   const isHermesSelfTest = isSmoke || isMissingDistSmoke;
   /** @param {string} text */
@@ -918,13 +922,30 @@ if (hasSingleInstanceLock) {
       if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('hermes:status', snapshot);
     }
   });
-  const externalRuntimeStatus = { status: 'stopped', ownership: 'none', owned: false, failureReason: null, stderrTail: null, errorMessage: null };
+  const externalRuntimeStatus = { status: 'stopped', ownership: 'none', owned: false, failureReason: null, stderrTail: null, errorMessage: null, manualWorkstreamsLaunch: null };
   if (!allowTestRuntimePorts) {
     process.env.RHYTHM_LIVE_API_URL = AGENT_SERVER_BASE_URL;
     process.env.RHYTHM_LIVE_ENGINE_URL = `http://127.0.0.1:${AGENT_SERVER_ENGINE_PORT}`;
   }
 
   ipcMain.handle('rhythm:agent-server:status', () => agentServer?.status ?? externalRuntimeStatus);
+  const manualWorkstreamsStatus = (configured = manualWorkstreamsPreference.load()) => manualWorkstreamsPreferenceStatus({
+    configured,
+    runtime: agentServer?.status ?? externalRuntimeStatus,
+  });
+  ipcMain.handle('rhythm:agent-server:manual-workstreams:get', (event, ...args) => {
+    requireOwnedDocument(event); requireNoPayload(args);
+    return manualWorkstreamsStatus();
+  });
+  ipcMain.handle('rhythm:agent-server:manual-workstreams:set', async (event, value, ...args) => {
+    requireOwnedDocument(event);
+    if (args.length || typeof value !== 'boolean') throw new Error('Invalid manual workstreams preference');
+    if (accountsBlocked || !productionSessionToken || !productionSessionUser || !accountsAuth.getSnapshot().authenticated) throw new Error('Signed-in session required to change manual workstreams');
+    const configured = await manualWorkstreamsPreference.save(value);
+    // Saving is intentionally inert: it changes only the next owned launch's
+    // source of truth. It never starts, restarts, dispatches, or resumes work.
+    return manualWorkstreamsStatus(configured);
+  });
   const requireOwnedApprovalRuntime = () => {
     if (!agentServer) throw new Error('runtime_unowned');
   };

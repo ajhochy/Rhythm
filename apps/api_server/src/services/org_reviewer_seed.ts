@@ -77,8 +77,8 @@ function matchesJson(value: string | null, expected: unknown): boolean {
 function hasReviewerPolicy(config: AgentConfig, mcps: unknown = REVIEW_MCPS, permissions: unknown = REVIEW_PERMISSIONS): boolean {
   return config.isAgent && !config.isManager && !config.locked &&
     !config.imageGenerationEnabled && !config.autoApproveActions &&
-    config.modelProvider === 'openai' && config.modelId === 'gpt-5.6-sol' &&
-    config.schedulable === true && !config.sessionSelectable && config.ocAgent === null &&
+    config.schedulable === true &&
+    (config.ocAgent === null || config.ocAgent === ORG_REVIEWER_PROFILE_ID) &&
     matchesJson(config.allowedMcpsJson, mcps) &&
     matchesJson(config.allowedSkillsJson, REVIEW_SKILLS) &&
     matchesJson(config.corePermissionsJson, permissions) &&
@@ -88,8 +88,6 @@ function hasReviewerPolicy(config: AgentConfig, mcps: unknown = REVIEW_MCPS, per
 function hasReviewerTaskPolicy(task: AgentScheduledTask): boolean {
   return task.agentConfigId === ORG_REVIEWER_PROFILE_ID &&
     task.agentKind === 'opencode' &&
-    (task.modelProvider === null || task.modelProvider === 'openai') &&
-    (task.modelId === null || task.modelId === 'gpt-5.6-sol') &&
     matchesJson(task.allowedMcpsJson, REVIEW_MCPS) &&
     matchesJson(task.allowedSkillsJson, REVIEW_SKILLS);
 }

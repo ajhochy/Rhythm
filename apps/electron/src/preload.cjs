@@ -38,6 +38,8 @@ const agentServer = Object.freeze({
     return () => ipcRenderer.removeListener('rhythm:agent-server:status-changed', listener);
   },
   restart: () => ipcRenderer.invoke('rhythm:agent-server:restart'),
+  getManualWorkstreams: () => ipcRenderer.invoke('rhythm:agent-server:manual-workstreams:get'),
+  setManualWorkstreams: (/** @type {boolean} */ enabled) => ipcRenderer.invoke('rhythm:agent-server:manual-workstreams:set', enabled),
 });
 const updates = Object.freeze({ openDownloadPage: () => ipcRenderer.invoke('rhythm:updates:open-download') });
 const hermes = Object.freeze({

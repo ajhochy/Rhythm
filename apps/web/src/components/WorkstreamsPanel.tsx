@@ -9,10 +9,15 @@ import type {
   WorkstreamReference,
   WorkstreamStatus,
 } from '../gateway/workstreams';
+import { navigate } from './Shell';
 import './WorkstreamsPanel.css';
 
 const ACTIVE_JOB_STATES = new Set(['queued', 'claimed', 'running', 'unknown']);
 const TERMINAL_JOB_STATES = new Set(['succeeded', 'failed', 'cancelled']);
+
+function OpenManualWorkstreamsRuntimeSettings() {
+  return <button className="secondary-button compact" type="button" onClick={() => navigate('/tools/agent-settings?settingsSection=runtime')} data-testid="workstreams-open-runtime-settings">Open Runtime settings</button>;
+}
 
 function opaqueKey(prefix: string): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
@@ -91,6 +96,7 @@ export function WorkstreamsPanel({
   const [targetProfileId, setTargetProfileId] = useState('');
   const [maxWallTimeSeconds, setMaxWallTimeSeconds] = useState(300);
   const [maxTokens, setMaxTokens] = useState(20_000);
+  const [softTokenBudgetAcknowledged, setSoftTokenBudgetAcknowledged] = useState(false);
   const [commandKeys, setCommandKeys] = useState<Record<string, string>>({});
   const [evidenceByKey, setEvidenceByKey] = useState<Record<string, WorkstreamEvidence>>({});
 
@@ -120,6 +126,9 @@ export function WorkstreamsPanel({
   }, [eligibleProfiles, targetProfileId]);
 
   const selected = views.find((item) => item.workstream.id === selectedId) ?? null;
+  useEffect(() => {
+    setSoftTokenBudgetAcknowledged(false);
+  }, [selected?.workstream.id, selected?.workstream.revision]);
   const replace = (next: WorkstreamStatus) => {
     setViews((current) => {
       const existing = current.some((item) => item.workstream.id === next.workstream.id);
@@ -228,6 +237,10 @@ export function WorkstreamsPanel({
       setError('Run limits must be 30–3600 seconds and 1–2,000,000 tokens.');
       return;
     }
+    if (!softTokenBudgetAcknowledged) {
+      setError('Acknowledge the soft total-token authorization before Run next.');
+      return;
+    }
     const queuedJob = selected.jobs.find((job) => job.id === selected.workstream.lastJobId);
     const commandKey = queuedJob?.state === 'queued'
       ? queuedJob.commandKey
@@ -238,6 +251,7 @@ export function WorkstreamsPanel({
       commandKey,
       targetProfileId,
       parentSessionId,
+      softTokenBudgetAcknowledged: true,
       policy: { maxTurns: 1, maxWallTimeSeconds: wall, maxTokens: tokens, queueDeadlineAt: null },
       references: selected.workstream.checkpoint.references,
     }));
@@ -246,6 +260,7 @@ export function WorkstreamsPanel({
   if (gateway.mode !== 'live' || !api) {
     return <section className="workstreams-panel" data-testid="workstreams-panel" aria-label="Workstreams">
       <p className="workstreams-empty" role="status">Workstreams are available only in an authenticated live Rhythm workspace.</p>
+      <OpenManualWorkstreamsRuntimeSettings />
     </section>;
   }
   if (!projectId || !parentSessionId) {
@@ -255,11 +270,12 @@ export function WorkstreamsPanel({
   }
 
   const currentJob = selected?.jobs.find((job) => job.id === selected.workstream.lastJobId) ?? null;
+  const emptyUnavailable = Boolean(error) && !loading && views.length === 0;
   const retryingQueuedIntent = Boolean(
     currentJob?.state === 'queued' &&
     (selected?.workstream.state === 'queued' || selected?.workstream.state === 'blocked'),
   );
-  const canRun = Boolean(selected && (selected.workstream.state === 'ready' || retryingQueuedIntent) && selected.readiness.available && !selected.budget.holdReason && targetProfileId);
+  const canPrepareRun = Boolean(selected && (selected.workstream.state === 'ready' || retryingQueuedIntent) && selected.readiness.available && !selected.budget.holdReason && targetProfileId);
   const usageUnknown = currentJob?.result && recordText(currentJob.result, 'usageStatus') === 'unknown' && !currentJob.usage;
   const estimatedTokens = numberAt(currentJob?.estimate ?? null, 'authorizedTokens');
   const actualTokens = numberAt(currentJob?.usage ?? null, 'totalTokens');
@@ -287,6 +303,7 @@ export function WorkstreamsPanel({
     </header>
     <p className="workstreams-safety-note">Every Run next creates one fresh, read-only worker. It never continues itself or applies output as completion.</p>
     {error && <p className="workstreams-error" role="alert">{error}</p>}
+    {emptyUnavailable && <div className="workstreams-ack" data-testid="workstreams-runtime-settings-unavailable"><p>The local Workstreams service is unavailable for this workspace. Runtime settings can prepare the next owned launch; they do not change this runtime.</p><OpenManualWorkstreamsRuntimeSettings /></div>}
 
     {createOpen && <form className="workstreams-form" onSubmit={(event) => void create(event)} data-testid="workstreams-create-form">
       <label>Goal<textarea name="goal" rows={2} required data-autofocus placeholder="The exact outcome to inspect" /></label>
@@ -329,14 +346,15 @@ export function WorkstreamsPanel({
             <footer><button className="secondary-button" type="button" onClick={() => setEditOpen(false)} disabled={busy}>Cancel</button><button className="primary-button" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save controls'}</button></footer>
           </form>}
 
-          <fieldset className="workstreams-run-controls" disabled={busy || !canRun}>
+          <fieldset className="workstreams-run-controls" disabled={busy || !canPrepareRun}>
             <legend>Explicit Run next</legend>
             <label>Worker profile<select value={targetProfileId} onChange={(event) => setTargetProfileId(event.target.value)}>{eligibleProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.label}</option>)}</select></label>
             <label>Wall time (seconds)<input type="number" min="30" max="3600" value={maxWallTimeSeconds} onChange={(event) => setMaxWallTimeSeconds(Number(event.target.value))} /></label>
-            <label>Token authorization<input type="number" min="1" max="2000000" value={maxTokens} onChange={(event) => setMaxTokens(Number(event.target.value))} /></label>
-            <button className="primary-button" type="button" onClick={run} data-testid="workstreams-run-next">{retryingQueuedIntent ? 'Try queued worker' : 'Run next'}</button>
+            <label>Soft total-token authorization<input type="number" min="1" max="2000000" value={maxTokens} onChange={(event) => setMaxTokens(Number(event.target.value))} /></label>
+            <label className="workstreams-safety-note"><input type="checkbox" checked={softTokenBudgetAcknowledged} onChange={(event) => setSoftTokenBudgetAcknowledged(event.target.checked)} data-testid="workstreams-soft-token-acknowledgement" />I understand this is a soft total-token authorization for input, output, reasoning, and cache. Engine, profile, tool, and system input overhead is unknown; there is no output-cap enforcement and this turn can overrun.</label>
+            <button className="primary-button" type="button" disabled={!softTokenBudgetAcknowledged} onClick={run} data-testid="workstreams-run-next">{retryingQueuedIntent ? 'Try queued worker' : 'Run next'}</button>
           </fieldset>
-          {!selected.readiness.available && <p className="workstreams-safety-note">Run next is unavailable: {stateLabel(selected.readiness.reason ?? 'executor unavailable')}.</p>}
+          {!selected.readiness.available && <><p className="workstreams-safety-note">Run next is unavailable: {stateLabel(selected.readiness.reason ?? 'executor unavailable')}.</p><OpenManualWorkstreamsRuntimeSettings /></>}
           {selected.budget.holdReason && <p className="workstreams-safety-note">A new worker is blocked by the durable authorization ledger. Resume cannot clear this hold.</p>}
 
           <div className="workstreams-actions">

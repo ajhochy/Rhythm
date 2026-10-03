@@ -49,6 +49,11 @@ jest.mock('expo-router', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
 }));
 
+jest.mock('react-native-safe-area-context', () => ({
+  ...jest.requireActual('react-native-safe-area-context'),
+  useSafeAreaInsets: () => ({ bottom: 34, left: 0, right: 0, top: 47 }),
+}));
+
 jest.mock('@/providers/opencode-provider', () => ({
   useOpencode: () => ({
     activeProjectPath: mockActiveProjectPath,

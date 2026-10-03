@@ -129,6 +129,7 @@ export type MobileWorkstreamRun = {
   commandKey: string;
   targetProfileId: string;
   parentSessionId: string;
+  softTokenBudgetAcknowledged: true;
   policy: MobileWorkstreamRunPolicy;
   references: MobileWorkstreamReference[];
 };

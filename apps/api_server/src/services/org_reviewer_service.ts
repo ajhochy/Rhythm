@@ -391,6 +391,14 @@ function exactReviewerScopes(config: AgentConfig): boolean {
     canonicalJson(core) === canonicalJson(JSON.parse(ORG_REVIEWER_CORE_PERMISSIONS_JSON));
 }
 
+function hasNoReviewerDelegates(config: AgentConfig): boolean {
+  try {
+    return canonicalJson(JSON.parse(config.allowedDelegatesJson ?? 'null')) === canonicalJson([]);
+  } catch {
+    return false;
+  }
+}
+
 function stableStringLeaves(value: unknown, result = new Set<string>()): Set<string> {
   if (typeof value === 'string') result.add(value);
   else if (Array.isArray(value)) value.forEach((entry) => stableStringLeaves(entry, result));
@@ -635,9 +643,9 @@ export class OrgReviewerService {
     }
     const profile = this.configs.getById(ORG_REVIEWER_PROFILE_ID);
     if (
-      !profile || !profile.enabled || !profile.isAgent || profile.isManager ||
-      profile.sessionSelectable || !(profile.schedulable ?? profile.sessionSelectable) ||
-      profile.modelProvider !== 'openai' || profile.modelId !== 'gpt-5.6-sol' ||
+      !profile || !profile.enabled || !profile.isAgent || profile.isManager || profile.locked ||
+      profile.imageGenerationEnabled || profile.autoApproveActions ||
+      !profile.schedulable || !hasNoReviewerDelegates(profile) ||
       !exactReviewerScopes(profile)
     ) {
       throw AppError.forbidden('Org Reviewer profile is not in its least-privilege configuration');

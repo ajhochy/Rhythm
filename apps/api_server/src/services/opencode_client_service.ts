@@ -3364,12 +3364,14 @@ export class OpencodeClientService {
   }
 
   /**
-   * Strict capacity-only lifecycle inspection for already-bound SDK sessions.
+   * Strict read-only lifecycle inspection for already-bound SDK sessions.
    *
    * The engine removes idle sessions from `/session/status`, so an omitted map
    * key can mean idle only after this method has independently confirmed that
    * the exact SDK session still exists in the same directory and that all
-   * three current lifecycle reads succeeded with complete shapes.  Any HTTP,
+   * three current lifecycle reads succeeded with complete shapes. It is used
+   * only for bounded capacity admission and exact terminal-accounting
+   * reconciliation. Any HTTP,
    * SDK, transport, or shape failure returns `available: false`; callers must
    * retain occupancy rather than treating an empty fallback as success.
    */
