@@ -66,6 +66,20 @@ export interface WorkstreamReadiness {
   engine: { version: string; pid: number; bootId: string } | null;
 }
 
+/**
+ * A restart scan is complete only after every outside-epoch page has been
+ * inspected under one current owned-engine identity.  Waiting and failed are
+ * intentionally distinct: an explicit later status read may retry either,
+ * but neither may publish coordinator readiness.
+ */
+export interface RestartReconciliationResult {
+  status: 'completed' | 'waiting' | 'failed' | 'skipped';
+  reason: string | null;
+  examined: number;
+  reattached: number;
+  unknown: number;
+}
+
 export interface WorkstreamJobView {
   id: string;
   /** Opaque durable key needed only to retry this exact queued user command. */
@@ -199,7 +213,10 @@ export class PersistentWorkstreamCoordinator {
   private readonly artifactResolver: WorkstreamArtifactAuthorityResolver;
   private initialized = false;
   private bootReconciled = false;
+  private reconciledEngineBootId: string | null = null;
   private disposed = false;
+  private reconciliationGeneration = 0;
+  private restartReconciliationInFlight: Promise<RestartReconciliationResult> | null = null;
 
   constructor(private readonly dependencies: PersistentWorkstreamCoordinatorDependencies) {
     this.hostEpoch = dependencies.hostEpoch ?? randomUUID();
@@ -215,10 +232,13 @@ export class PersistentWorkstreamCoordinator {
   initialize(): void {
     this.initialized = true;
     this.bootReconciled = false;
+    this.reconciledEngineBootId = null;
+    this.reconciliationGeneration += 1;
   }
 
   dispose(): void {
     this.disposed = true;
+    this.reconciliationGeneration += 1;
   }
 
   /**
@@ -226,89 +246,173 @@ export class PersistentWorkstreamCoordinator {
    * child can be reattached to this coordinator epoch.  Everything ambiguous
    * stays unknown; no old intent is ever replayed.
    */
-  async reconcileAfterEngineReady(): Promise<{ examined: number; reattached: number; unknown: number }> {
-    if (!this.initialized || this.disposed) return { examined: 0, reattached: 0, unknown: 0 };
-    const readiness = await this.evaluateReadiness({ allowPendingReconciliation: true });
-    if (!readiness.available) return { examined: 0, reattached: 0, unknown: 0 };
-
-    let examined = 0;
-    let reattached = 0;
-    let unknown = 0;
-    let cursor: { createdAt: string; id: string } | undefined;
-    do {
-      const page = this.jobs.listCoordinatorOutsideEpochPage({
-        currentEpoch: this.hostEpoch,
-        cursor,
-        limit: 20,
-      });
-      cursor = page.nextCursor ?? undefined;
-      for (const job of page.items) {
-        examined += 1;
-        const now = new Date().toISOString();
-        if (!job.workstream_id || !job.workstream_project_id) {
-          // Preserve the ledger fact even if an old corrupt row no longer has
-          // a visible workstream; it can never be admitted by this boot.
-          unknown += 1;
-          continue;
-        }
-        const workstream = this.workstreams.find(job.local_user_id, job.workstream_project_id, job.workstream_id);
-        if (!workstream) {
-          this.jobs.markCoordinatorUnknown({
-            localUserId: job.local_user_id,
-            workstreamId: job.workstream_id,
-            jobId: job.id,
-            reason: 'restart_reconciliation_workstream_missing',
-            now,
-          });
-          unknown += 1;
-          continue;
-        }
-        const child = job.native_child_session_id
-          ? this.sessions.findById(job.native_child_session_id)
-          : null;
-        if (
-          job.state === 'running' && child?.sdkSessionId &&
-          child.sdkSessionId === job.native_child_sdk_session_id && job.host_epoch
-        ) {
-          const statuses = await this.withProbeTimeout(
-            this.dependencies.engine.getSessionStatuses(child.cwd),
-          );
-          if (statuses?.[child.sdkSessionId]?.type === 'busy') {
-            try {
-              this.jobs.reattachCoordinatorEpoch({
-                localUserId: job.local_user_id,
-                projectId: job.workstream_project_id,
-                workstreamId: job.workstream_id,
-                jobId: job.id,
-                priorEpoch: job.host_epoch,
-                currentEpoch: this.hostEpoch,
-                expectedRevision: workstream.revision,
-                expectedExecutorEpoch: workstream.executorEpoch,
-                expectedLastJobId: workstream.lastJobId,
-                expectedStates: ['queued', 'running', 'blocked', 'unknown'],
-                now,
-              });
-              this.publishRuntime(workstream, job.id, 'running', 'worker_reattached_after_restart', {
-                executorEpoch: this.hostEpoch,
-                expectedStates: ['queued', 'running', 'blocked', 'unknown'],
-              });
-              reattached += 1;
-              continue;
-            } catch {
-              // Fall through to an explicit unknown record.
-            }
-          }
-        }
-        this.markUnknown(workstream, job, 'restart_reconciliation_ambiguous');
-        unknown += 1;
+  async reconcileAfterEngineReady(): Promise<RestartReconciliationResult> {
+    if (this.restartReconciliationInFlight) return this.restartReconciliationInFlight;
+    if (this.bootReconciled) {
+      // A later engine-ready callback is a real lifecycle boundary.  Reuse a
+      // completed scan only for this exact owned engine boot; a changed boot
+      // must be scanned again before it can admit a new worker.
+      const current = await this.evaluateReadiness({ allowPendingReconciliation: true });
+      if (!current.available || !current.engine) {
+        return this.restartResult(this.restartUnavailableStatus(current.reason), current.reason);
       }
-    } while (cursor);
-    this.bootReconciled = true;
-    return { examined, reattached, unknown };
+      if (this.reconciledEngineBootId === current.engine.bootId) {
+        return this.restartResult('completed', null);
+      }
+      this.bootReconciled = false;
+      this.reconciledEngineBootId = null;
+      if (this.restartReconciliationInFlight) return this.restartReconciliationInFlight;
+    }
+    const generation = this.reconciliationGeneration;
+    const pending = this.performRestartReconciliation(generation);
+    this.restartReconciliationInFlight = pending;
+    try {
+      return await pending;
+    } finally {
+      if (this.restartReconciliationInFlight === pending) {
+        this.restartReconciliationInFlight = null;
+      }
+    }
   }
 
   async readiness(): Promise<WorkstreamReadiness> {
-    return this.evaluateReadiness({ allowPendingReconciliation: false });
+    const reconciliation = await this.reconcileAfterEngineReady();
+    const readiness = await this.evaluateReadiness({ allowPendingReconciliation: false });
+    // A scan exception is not a generic pending state: surface its bounded,
+    // safe reason so the normal client can distinguish a retryable scan
+    // failure from an engine/MCP precondition that is still waiting.
+    if (
+      !readiness.available &&
+      readiness.reason === 'restart_reconciliation_pending' &&
+      reconciliation.status === 'failed'
+    ) {
+      return { ...readiness, reason: reconciliation.reason };
+    }
+    return readiness;
+  }
+
+  private async performRestartReconciliation(
+    generation: number,
+  ): Promise<RestartReconciliationResult> {
+    let examined = 0;
+    let reattached = 0;
+    let unknown = 0;
+    let initial: WorkstreamReadiness;
+    try {
+      initial = await this.evaluateReadiness({ allowPendingReconciliation: true });
+    } catch {
+      return this.restartResult('failed', 'restart_reconciliation_scan_failed');
+    }
+    if (!initial.available || !initial.engine) {
+      return this.restartResult(this.restartUnavailableStatus(initial.reason), initial.reason);
+    }
+    const snapshot = { generation, engineBootId: initial.engine.bootId };
+
+    try {
+      let cursor: { createdAt: string; id: string } | undefined;
+      do {
+        const page = this.jobs.listCoordinatorOutsideEpochPage({
+          currentEpoch: this.hostEpoch,
+          cursor,
+          limit: 20,
+        });
+        cursor = page.nextCursor ?? undefined;
+        for (const job of page.items) {
+          examined += 1;
+          // An unknown record is an immutable safety hold during automatic
+          // restart reconciliation.  Its cancellation/result/usage receipt
+          // and any user control row must remain exactly as they were.
+          if (job.state === 'unknown') {
+            unknown += 1;
+            continue;
+          }
+          const now = new Date().toISOString();
+          if (!job.workstream_id || !job.workstream_project_id) {
+            // Preserve the ledger fact even if an old corrupt row no longer has
+            // a visible workstream; it can never be admitted by this boot.
+            unknown += 1;
+            continue;
+          }
+          const workstream = this.workstreams.find(job.local_user_id, job.workstream_project_id, job.workstream_id);
+          if (!workstream) {
+            this.jobs.markCoordinatorUnknown({
+              localUserId: job.local_user_id,
+              workstreamId: job.workstream_id,
+              jobId: job.id,
+              reason: 'restart_reconciliation_workstream_missing',
+              now,
+            });
+            unknown += 1;
+            continue;
+          }
+          const child = job.native_child_session_id
+            ? this.sessions.findById(job.native_child_session_id)
+            : null;
+          if (
+            job.state === 'running' && child?.sdkSessionId &&
+            child.sdkSessionId === job.native_child_sdk_session_id && job.host_epoch
+          ) {
+            const statuses = await this.withProbeTimeout(
+              this.dependencies.engine.getSessionStatuses(child.cwd),
+            );
+            const current = await this.restartReadinessForSnapshot(snapshot);
+            if (!current.available) {
+              return this.restartResult(this.restartUnavailableStatus(current.reason), current.reason, {
+                examined,
+                reattached,
+                unknown,
+              });
+            }
+            if (statuses?.[child.sdkSessionId]?.type === 'busy') {
+              try {
+                this.jobs.reattachCoordinatorEpoch({
+                  localUserId: job.local_user_id,
+                  projectId: job.workstream_project_id,
+                  workstreamId: job.workstream_id,
+                  jobId: job.id,
+                  priorEpoch: job.host_epoch,
+                  currentEpoch: this.hostEpoch,
+                  expectedRevision: workstream.revision,
+                  expectedExecutorEpoch: workstream.executorEpoch,
+                  expectedLastJobId: workstream.lastJobId,
+                  expectedStates: ['queued', 'running', 'blocked', 'unknown'],
+                  now,
+                });
+                this.publishRuntime(workstream, job.id, 'running', 'worker_reattached_after_restart', {
+                  executorEpoch: this.hostEpoch,
+                  expectedStates: ['queued', 'running', 'blocked', 'unknown'],
+                });
+                reattached += 1;
+                continue;
+              } catch {
+                // Fall through to an explicit unknown record.
+              }
+            }
+          }
+          this.markUnknown(workstream, job, 'restart_reconciliation_ambiguous');
+          unknown += 1;
+        }
+      } while (cursor);
+      const current = await this.restartReadinessForSnapshot(snapshot);
+      if (!current.available) {
+        return this.restartResult(this.restartUnavailableStatus(current.reason), current.reason, {
+          examined,
+          reattached,
+          unknown,
+        });
+      }
+      this.bootReconciled = true;
+      this.reconciledEngineBootId = snapshot.engineBootId;
+      return this.restartResult('completed', null, { examined, reattached, unknown });
+    } catch {
+      // A partial walk is never evidence of completion.  The next explicit
+      // readiness/status/read request may retry from the durable ledger.
+      return this.restartResult('failed', 'restart_reconciliation_scan_failed', {
+        examined,
+        reattached,
+        unknown,
+      });
+    }
   }
 
   async list(auth: AuthContext, projectId: string, limit: number, cursor?: string): Promise<{
@@ -317,6 +421,10 @@ export class PersistentWorkstreamCoordinator {
   }> {
     this.assertActor(auth);
     const items = this.workstreams.list(auth.user.id, projectId, limit, cursor);
+    // A list/Refresh is an explicit status read even when the project has no
+    // visible workstreams.  Let it finish a previously waiting boot scan once
+    // current prerequisites become available; this never schedules a worker.
+    const readiness = await this.readiness();
     // A list is an explicit user status read, not a scheduler.  Bound it to
     // ten current entries so it never becomes an unbounded engine sweep.
     const reconciled = await Promise.all(items.slice(0, 10).map((item) => this.status(auth, projectId, item.id)));
@@ -324,7 +432,7 @@ export class PersistentWorkstreamCoordinator {
     return {
       // Keep pagination truthful: only reconciliation is bounded.  Rows beyond
       // that bound still appear with an explicitly unprobed readiness state.
-      items: items.map((item) => viewsById.get(item.id) ?? this.view(item)),
+      items: items.map((item) => viewsById.get(item.id) ?? this.view(item, readiness)),
       nextCursor: items.length === limit ? items.at(-1)?.id ?? null : null,
     };
   }
@@ -1026,43 +1134,120 @@ export class PersistentWorkstreamCoordinator {
     };
   }
 
-  private async evaluateReadiness(options: { allowPendingReconciliation: boolean }): Promise<WorkstreamReadiness> {
-    const unavailable = (reason: string): WorkstreamReadiness => ({
+  private restartResult(
+    status: RestartReconciliationResult['status'],
+    reason: string | null,
+    counters: Partial<Pick<RestartReconciliationResult, 'examined' | 'reattached' | 'unknown'>> = {},
+  ): RestartReconciliationResult {
+    return {
+      status,
+      reason,
+      examined: counters.examined ?? 0,
+      reattached: counters.reattached ?? 0,
+      unknown: counters.unknown ?? 0,
+    };
+  }
+
+  private restartUnavailableStatus(
+    reason: string | null,
+  ): Extract<RestartReconciliationResult['status'], 'waiting' | 'skipped'> {
+    return reason === 'coordinator_disposed' ||
+      reason === 'coordinator_not_initialized' ||
+      reason === 'coordinator_lifecycle_changed_during_reconciliation'
+      ? 'skipped'
+      : 'waiting';
+  }
+
+  /** Recheck every async scan observation against the current owned runtime. */
+  private async restartReadinessForSnapshot(snapshot: {
+    generation: number;
+    engineBootId: string;
+  }): Promise<WorkstreamReadiness> {
+    const readiness = await this.evaluateReadiness({ allowPendingReconciliation: true });
+    if (!readiness.available) return readiness;
+    if (snapshot.generation !== this.reconciliationGeneration || this.disposed) {
+      return this.unavailableReadiness(
+        this.disposed ? 'coordinator_disposed' : 'coordinator_lifecycle_changed_during_reconciliation',
+      );
+    }
+    if (!readiness.engine || readiness.engine.bootId !== snapshot.engineBootId) {
+      return this.unavailableReadiness('owned_engine_identity_changed_during_reconciliation');
+    }
+    return readiness;
+  }
+
+  private unavailableReadiness(reason: string): WorkstreamReadiness {
+    return {
       available: false,
       reason,
       hostEpoch: this.initialized ? this.hostEpoch : null,
       engine: null,
-    });
-    if (this.disposed) return unavailable('coordinator_disposed');
-    if (!this.initialized) return unavailable('coordinator_not_initialized');
-    if (!this.dependencies.enabled()) return unavailable('workstreams_opt_in_required');
-    if (this.dependencies.dbClient !== 'sqlite') return unavailable('local_sqlite_executor_required');
-    if (this.dependencies.role !== 'local' && this.dependencies.role !== 'all') return unavailable('local_executor_role_required');
+    };
+  }
+
+  /** Preconditions that do not cross an async engine boundary. */
+  private readinessPreconditionReason(): string | null {
+    if (this.disposed) return 'coordinator_disposed';
+    if (!this.initialized) return 'coordinator_not_initialized';
+    if (!this.dependencies.enabled()) return 'workstreams_opt_in_required';
+    if (this.dependencies.dbClient !== 'sqlite') return 'local_sqlite_executor_required';
+    if (this.dependencies.role !== 'local' && this.dependencies.role !== 'all') return 'local_executor_role_required';
     if (!this.captureReady() || !this.dependencies.rhythmMcpServerName) {
-      return unavailable('managed_capture_unavailable');
-    }
-    if (!options.allowPendingReconciliation && !this.bootReconciled) {
-      return unavailable('restart_reconciliation_pending');
+      return 'managed_capture_unavailable';
     }
     if (!this.dependencies.engine.isReady || !this.dependencies.engine.hasOwnedEngine) {
-      return unavailable('owned_engine_not_ready');
+      return 'owned_engine_not_ready';
     }
-    const identity = await this.dependencies.engine.getEngineIdentity();
-    if (!identity) return unavailable('owned_engine_identity_unavailable');
-    let mcp: Record<string, { status?: unknown }>;
+    return null;
+  }
+
+  private async evaluateReadiness(options: { allowPendingReconciliation: boolean }): Promise<WorkstreamReadiness> {
+    const initialReason = this.readinessPreconditionReason();
+    if (initialReason) return this.unavailableReadiness(initialReason);
+    let identity: OpencodeEngineIdentity | null;
+    try {
+      identity = await this.dependencies.engine.getEngineIdentity();
+    } catch {
+      return this.unavailableReadiness('owned_engine_identity_unavailable');
+    }
+    if (!identity) return this.unavailableReadiness('owned_engine_identity_unavailable');
+    let mcp: Record<string, { status?: unknown }> | null;
     try {
       mcp = await this.dependencies.engine.listMcp();
     } catch {
-      return unavailable('managed_mcp_status_unavailable');
+      return this.unavailableReadiness('managed_mcp_status_unavailable');
     }
-    if (mcp[this.dependencies.rhythmMcpServerName]?.status !== 'connected') {
-      return unavailable('managed_mcp_unavailable');
+    const afterMcpReason = this.readinessPreconditionReason();
+    if (afterMcpReason) return this.unavailableReadiness(afterMcpReason);
+    if (!mcp || mcp[this.dependencies.rhythmMcpServerName]?.status !== 'connected') {
+      return this.unavailableReadiness('managed_mcp_unavailable');
+    }
+    // listMcp is asynchronous too. Confirm the owned engine identity after
+    // it returns so a restart cannot turn a prior runtime's MCP response into
+    // current readiness or restart-scan completion.
+    let confirmedIdentity: OpencodeEngineIdentity | null;
+    try {
+      confirmedIdentity = await this.dependencies.engine.getEngineIdentity();
+    } catch {
+      return this.unavailableReadiness('owned_engine_identity_unavailable');
+    }
+    if (!confirmedIdentity) return this.unavailableReadiness('owned_engine_identity_unavailable');
+    const finalReason = this.readinessPreconditionReason();
+    if (finalReason) return this.unavailableReadiness(finalReason);
+    if (confirmedIdentity.bootId !== identity.bootId) {
+      return this.unavailableReadiness('owned_engine_identity_changed_during_readiness');
+    }
+    if (
+      !options.allowPendingReconciliation &&
+      (!this.bootReconciled || this.reconciledEngineBootId !== confirmedIdentity.bootId)
+    ) {
+      return this.unavailableReadiness('restart_reconciliation_pending');
     }
     return {
       available: true,
       reason: null,
       hostEpoch: this.hostEpoch,
-      engine: identity,
+      engine: confirmedIdentity,
     };
   }
 

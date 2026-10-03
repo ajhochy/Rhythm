@@ -29,6 +29,7 @@ type Fixture = ReturnType<typeof fixture>;
 function fixture(options: {
   terminalMessages?: unknown[];
   enabled?: boolean | (() => boolean);
+  captureAvailable?: boolean | (() => boolean);
   artifactResolver?: WorkstreamArtifactAuthorityResolver;
   profileScopeResolver?: (profileId: string) => Promise<ProfileScope>;
 } = {}) {
@@ -116,7 +117,9 @@ function fixture(options: {
   const coordinator = new PersistentWorkstreamCoordinator({
     engine: engine as never,
     records: {} as ManagedWorkstreamContextRepository,
-    captureAvailable: () => true,
+    captureAvailable: () => typeof options.captureAvailable === 'function'
+      ? options.captureAvailable()
+      : options.captureAvailable ?? true,
     enabled: () => typeof options.enabled === 'function' ? options.enabled() : options.enabled ?? true,
     dbClient: 'sqlite',
     role: 'local',
@@ -276,6 +279,42 @@ function bindRunningJob(context: Fixture, now = NOW, maxTokens = 100) {
   return created;
 }
 
+function seedOutsideEpochCoordinatorJob(
+  context: Fixture,
+  input: { workstreamId: string; revision: number; commandKey: string; now?: string },
+) {
+  const now = input.now ?? NOW;
+  const created = context.jobs.createNativeOrReplay({
+    localUserId: OWNER,
+    workstreamId: input.workstreamId,
+    projectId: PROJECT,
+    capturedRevision: input.revision,
+    hostEpoch: 'epoch-before-restart',
+    commandKey: input.commandKey,
+    targetAgentId: 'worker-profile',
+    targetRevision: 1,
+    parent: {
+      runtimeInstance: 'boot-before-restart', sessionId: 'parent-local', agentId: 'parent', projectionId: null,
+    },
+    now,
+  }).row;
+  context.jobs.configureCoordinatorNativeJob({
+    localUserId: OWNER,
+    workstreamId: input.workstreamId,
+    jobId: created.id,
+    metadata: {
+      policy: { maxTurns: 1, maxWallTimeSeconds: 300, maxTokens: 100, queueDeadlineAt: null },
+      budget: { schemaVersion: 1, authorizedTokens: 100, units: 'tokens' },
+      estimate: { authorizedTokens: 100 },
+      targetProfileId: 'worker-profile',
+      targetProfileRevision: 1,
+      requestedModel: { providerId: 'requested-provider', modelId: 'requested-model' },
+    },
+    now,
+  });
+  return created;
+}
+
 function assistantStep(
   id: string,
   finish: string,
@@ -312,8 +351,11 @@ describe('persistent workstream coordinator', () => {
       references: [],
     });
     expect(view.workstream).toMatchObject({ state: 'blocked', stateReason: 'workstreams_opt_in_required' });
+    expect(context.engine.getEngineIdentity).not.toHaveBeenCalled();
+    expect(context.engine.listMcp).not.toHaveBeenCalled();
     expect(context.engine.createSession).not.toHaveBeenCalled();
     expect(context.engine.promptAsync).not.toHaveBeenCalled();
+    expect(context.engine.abortSession).not.toHaveBeenCalled();
     context.db.close();
   });
 
@@ -1186,6 +1228,323 @@ describe('persistent workstream coordinator', () => {
     context.db.close();
   });
 
+  it('R5: a later empty-list Refresh completes an empty scan once MCP is actually connected', async () => {
+    const context = fixture();
+    context.engine.listMcp.mockResolvedValue({ rhythm: { status: 'connecting' } });
+
+    const waiting = await context.coordinator.reconcileAfterEngineReady();
+    expect(waiting).toEqual({
+      status: 'waiting', reason: 'managed_mcp_unavailable', examined: 0, reattached: 0, unknown: 0,
+    });
+
+    context.engine.listMcp.mockResolvedValue({ rhythm: { status: 'connected' } });
+    const refreshed = await context.coordinator.list(auth, 'project-empty-refresh', 50);
+    const readiness = await context.coordinator.readiness();
+
+    expect(refreshed.items).toEqual([]);
+    expect(readiness).toMatchObject({ available: true, reason: null, hostEpoch: 'epoch-current' });
+    expect(await context.coordinator.reconcileAfterEngineReady()).toEqual({
+      status: 'completed', reason: null, examined: 0, reattached: 0, unknown: 0,
+    });
+    expect(context.engine.createSession).not.toHaveBeenCalled();
+    expect(context.engine.promptAsync).not.toHaveBeenCalled();
+    expect(context.engine.abortSession).not.toHaveBeenCalled();
+    context.db.close();
+  });
+
+  it('R5: an existing unknown cancellation receipt stays byte-exact while another workstream can use the remaining slot', async () => {
+    const context = fixture({ profileScopeResolver: async () => RUN_SCOPE });
+    const job = bindRunningJob(context);
+    context.db.prepare(`UPDATE agent_bridge_jobs
+      SET host_epoch=?, state='unknown', state_reason='native_status_unknown',
+          cancel_requested_at=?, native_usage_json=NULL, native_result_json=?, updated_at=?
+      WHERE id=?`).run(
+      'epoch-before-restart',
+      '2026-10-03T12:01:00.000Z',
+      JSON.stringify({
+        schemaVersion: 1,
+        status: 'unknown',
+        reason: 'termination_unconfirmed',
+        cancellation: 'cancelling',
+      }),
+      '2026-10-03T12:01:00.000Z',
+      job.id,
+    );
+    expect(context.workstreams.pause(OWNER, PROJECT, context.workstream.id, 1))
+      .toMatchObject({ state: 'paused', revision: 2, stateReason: 'user_paused' });
+    const beforeJob = context.db.prepare('SELECT * FROM agent_bridge_jobs WHERE id=?').get(job.id);
+    const beforeWorkstream = context.db.prepare('SELECT * FROM agent_workstreams WHERE id=?').get(context.workstream.id);
+
+    const reconciled = await context.coordinator.reconcileAfterEngineReady();
+    const status = await context.coordinator.status(auth, PROJECT, context.workstream.id);
+
+    expect(reconciled).toMatchObject({ status: 'completed', examined: 1, reattached: 0, unknown: 1 });
+    expect(context.db.prepare('SELECT * FROM agent_bridge_jobs WHERE id=?').get(job.id)).toEqual(beforeJob);
+    expect(context.db.prepare('SELECT * FROM agent_workstreams WHERE id=?').get(context.workstream.id))
+      .toEqual(beforeWorkstream);
+    expect(status.workstream).toMatchObject({ state: 'paused', revision: 2, stateReason: 'user_paused' });
+    expect(status.budget).toMatchObject({ holdReason: 'budget_usage_unknown', unknownJobIds: [job.id] });
+
+    const fresh = context.workstreams.create(OWNER, {
+      projectId: PROJECT,
+      goal: 'Fresh separate bounded read',
+      constraints: 'Do not mutate anything',
+      criteria: 'fresh criterion',
+      checkpoint: {
+        version: 1,
+        criteria: [{ id: 'fresh-criterion', status: 'pending' }],
+        references: [],
+        nextAction: { kind: 'review', scope: PROJECT },
+      },
+      createKey: 'r5-fresh-workstream',
+    }).row;
+    context.engine.createSession.mockResolvedValue({ id: 'r5-fresh-sdk-session' });
+    context.engine.promptAsync.mockResolvedValue(true);
+
+    await context.coordinator.runNext(auth, PROJECT, fresh.id, {
+      ...runInput(context, 'r5-fresh-run'),
+      expectedRevision: fresh.revision,
+    });
+
+    expect(context.engine.createSession).toHaveBeenCalledTimes(1);
+    expect(context.engine.promptAsync).toHaveBeenCalledTimes(1);
+    expect(context.engine.abortSession).not.toHaveBeenCalled();
+    context.db.close();
+  });
+
+  it('R5: two retained unknown native workers keep the host-global cap of two', async () => {
+    const context = fixture({ profileScopeResolver: async () => RUN_SCOPE });
+    const first = seedOutsideEpochCoordinatorJob(context, {
+      workstreamId: context.workstream.id,
+      revision: context.workstream.revision,
+      commandKey: 'r5-unknown-first',
+    });
+    context.jobs.markCoordinatorUnknown({
+      localUserId: OWNER, workstreamId: context.workstream.id, jobId: first.id,
+      reason: 'termination_unconfirmed', now: NOW,
+    });
+    const secondWorkstream = context.workstreams.create(OWNER, {
+      projectId: PROJECT,
+      goal: 'Second retained native hold',
+      constraints: 'Do not mutate anything',
+      criteria: 'second criterion',
+      checkpoint: {
+        version: 1,
+        criteria: [{ id: 'second-criterion', status: 'pending' }],
+        references: [],
+        nextAction: { kind: 'review', scope: PROJECT },
+      },
+      createKey: 'r5-unknown-second-workstream',
+    }).row;
+    const second = seedOutsideEpochCoordinatorJob(context, {
+      workstreamId: secondWorkstream.id,
+      revision: secondWorkstream.revision,
+      commandKey: 'r5-unknown-second',
+    });
+    context.jobs.markCoordinatorUnknown({
+      localUserId: OWNER, workstreamId: secondWorkstream.id, jobId: second.id,
+      reason: 'termination_unconfirmed', now: NOW,
+    });
+    await context.coordinator.reconcileAfterEngineReady();
+    const third = context.workstreams.create(OWNER, {
+      projectId: PROJECT,
+      goal: 'Third bounded read',
+      constraints: 'Do not mutate anything',
+      criteria: 'third criterion',
+      checkpoint: {
+        version: 1,
+        criteria: [{ id: 'third-criterion', status: 'pending' }],
+        references: [],
+        nextAction: { kind: 'review', scope: PROJECT },
+      },
+      createKey: 'r5-capacity-third-workstream',
+    }).row;
+
+    const view = await context.coordinator.runNext(auth, PROJECT, third.id, {
+      ...runInput(context, 'r5-capacity-third'),
+      expectedRevision: third.revision,
+    });
+
+    expect(view.workstream).toMatchObject({ state: 'queued', stateReason: 'worker_capacity_full' });
+    expect(context.engine.createSession).not.toHaveBeenCalled();
+    expect(context.engine.promptAsync).not.toHaveBeenCalled();
+    expect(context.engine.abortSession).not.toHaveBeenCalled();
+    context.db.close();
+  });
+
+  it('R5: simultaneous startup and status reads share one bounded restart scan', async () => {
+    const context = fixture();
+    const job = bindRunningJob(context);
+    context.db.prepare('UPDATE agent_bridge_jobs SET host_epoch=? WHERE id=?')
+      .run('epoch-before-restart', job.id);
+    context.db.prepare('UPDATE agent_workstreams SET executor_epoch=? WHERE id=?')
+      .run('epoch-before-restart', context.workstream.id);
+    let scanStarted!: () => void;
+    const started = new Promise<void>((resolve) => { scanStarted = resolve; });
+    let release!: (value: Record<string, { type: string }>) => void;
+    const delayed = new Promise<Record<string, { type: string }>>((resolve) => { release = resolve; });
+    context.engine.getSessionStatuses.mockImplementation(async () => {
+      scanStarted();
+      return delayed;
+    });
+
+    const startup = context.coordinator.reconcileAfterEngineReady();
+    await started;
+    const status = context.coordinator.readiness();
+    release({ [context.child.sdkSessionId]: { type: 'busy' } });
+    const [reconciled, readiness] = await Promise.all([startup, status]);
+
+    expect(reconciled).toMatchObject({ status: 'completed', examined: 1, reattached: 1, unknown: 0 });
+    expect(readiness).toMatchObject({ available: true, reason: null });
+    expect(context.engine.getSessionStatuses).toHaveBeenCalledTimes(1);
+    expect(context.engine.createSession).not.toHaveBeenCalled();
+    expect(context.engine.promptAsync).not.toHaveBeenCalled();
+    expect(context.engine.abortSession).not.toHaveBeenCalled();
+    context.db.close();
+  });
+
+  it('R5: a later owned-engine boot reopens the bounded scan at its lifecycle callback', async () => {
+    let bootId = 'boot-before-reload';
+    const context = fixture();
+    context.engine.getEngineIdentity.mockImplementation(async () => ({
+      version: 'test-engine', pid: 991, bootId,
+    }));
+    await context.coordinator.reconcileAfterEngineReady();
+    const pageSpy = vi.spyOn(context.jobs, 'listCoordinatorOutsideEpochPage');
+
+    bootId = 'boot-after-reload';
+    const reconciled = await context.coordinator.reconcileAfterEngineReady();
+
+    expect(reconciled).toEqual({
+      status: 'completed', reason: null, examined: 0, reattached: 0, unknown: 0,
+    });
+    expect(pageSpy).toHaveBeenCalledTimes(1);
+    expect(context.engine.createSession).not.toHaveBeenCalled();
+    expect(context.engine.promptAsync).not.toHaveBeenCalled();
+    expect(context.engine.abortSession).not.toHaveBeenCalled();
+    context.db.close();
+  });
+
+  it('R5: incomplete scans fail closed, expose a safe reason, and retry only on a later explicit read', async () => {
+    const context = fixture();
+    for (let index = 0; index < 21; index += 1) {
+      seedOutsideEpochCoordinatorJob(context, {
+        workstreamId: context.workstream.id,
+        revision: context.workstream.revision,
+        commandKey: `r5-partial-${index}`,
+        now: `2026-10-03T12:00:${String(index).padStart(2, '0')}.000Z`,
+      });
+    }
+    const original = context.jobs.listCoordinatorOutsideEpochPage.bind(context.jobs);
+    let pageCalls = 0;
+    const pageSpy = vi.spyOn(context.jobs, 'listCoordinatorOutsideEpochPage').mockImplementation((input) => {
+      pageCalls += 1;
+      if (pageCalls >= 2) throw new Error('injected_page_failure');
+      return original(input);
+    });
+
+    const failed = await context.coordinator.reconcileAfterEngineReady();
+    const held = await context.coordinator.readiness();
+
+    expect(failed).toMatchObject({
+      status: 'failed', reason: 'restart_reconciliation_scan_failed', examined: 20, unknown: 20,
+    });
+    expect(held).toMatchObject({ available: false, reason: 'restart_reconciliation_scan_failed' });
+    pageSpy.mockRestore();
+    const recovered = await context.coordinator.readiness();
+
+    expect(recovered).toMatchObject({ available: true, reason: null });
+    expect(context.engine.createSession).not.toHaveBeenCalled();
+    expect(context.engine.promptAsync).not.toHaveBeenCalled();
+    expect(context.engine.abortSession).not.toHaveBeenCalled();
+    context.db.close();
+  });
+
+  it('R5: authority drift during an awaited restart probe never publishes completion or mutates the observed worker', async () => {
+    const cases: Array<{
+      name: string;
+      expectedStatus: 'waiting' | 'skipped';
+      expectedReason: string;
+      change: (context: Fixture, controls: { setEnabled: (value: boolean) => void; setCapture: (value: boolean) => void; setBootId: (value: string) => void }) => void;
+    }> = [
+      {
+        name: 'feature flag', expectedStatus: 'waiting', expectedReason: 'workstreams_opt_in_required',
+        change: (_context, controls) => controls.setEnabled(false),
+      },
+      {
+        name: 'capture proof', expectedStatus: 'waiting', expectedReason: 'managed_capture_unavailable',
+        change: (_context, controls) => controls.setCapture(false),
+      },
+      {
+        name: 'owned engine', expectedStatus: 'waiting', expectedReason: 'owned_engine_not_ready',
+        change: (context) => { context.engine.hasOwnedEngine = false; },
+      },
+      {
+        name: 'MCP status', expectedStatus: 'waiting', expectedReason: 'managed_mcp_unavailable',
+        change: (context) => { context.engine.listMcp.mockResolvedValue({ rhythm: { status: 'connecting' } }); },
+      },
+      {
+        name: 'engine identity', expectedStatus: 'waiting', expectedReason: 'owned_engine_identity_changed_during_reconciliation',
+        change: (_context, controls) => controls.setBootId('boot-after-restart'),
+      },
+      {
+        name: 'disposal', expectedStatus: 'skipped', expectedReason: 'coordinator_disposed',
+        change: (context) => { context.coordinator.dispose(); },
+      },
+    ];
+
+    for (const testCase of cases) {
+      let enabled = true;
+      let capture = true;
+      let bootId = 'boot-test';
+      const context = fixture({
+        enabled: () => enabled,
+        captureAvailable: () => capture,
+      });
+      context.engine.getEngineIdentity.mockImplementation(async () => ({
+        version: 'test-engine', pid: 991, bootId,
+      }));
+      const job = bindRunningJob(context);
+      context.db.prepare('UPDATE agent_bridge_jobs SET host_epoch=? WHERE id=?')
+        .run('epoch-before-restart', job.id);
+      context.db.prepare('UPDATE agent_workstreams SET executor_epoch=? WHERE id=?')
+        .run('epoch-before-restart', context.workstream.id);
+      const before = context.db.prepare('SELECT * FROM agent_bridge_jobs WHERE id=?').get(job.id);
+      let probeStarted!: () => void;
+      const started = new Promise<void>((resolve) => { probeStarted = resolve; });
+      let release!: (value: Record<string, { type: string }>) => void;
+      const delayed = new Promise<Record<string, { type: string }>>((resolve) => { release = resolve; });
+      context.engine.getSessionStatuses.mockImplementation(async () => {
+        probeStarted();
+        return delayed;
+      });
+
+      const reconciliation = context.coordinator.reconcileAfterEngineReady();
+      await started;
+      testCase.change(context, {
+        setEnabled: (value) => { enabled = value; },
+        setCapture: (value) => { capture = value; },
+        setBootId: (value) => { bootId = value; },
+      });
+      release({ [context.child.sdkSessionId]: { type: 'busy' } });
+      const result = await reconciliation;
+
+      expect(result, testCase.name).toMatchObject({
+        status: testCase.expectedStatus,
+        reason: testCase.expectedReason,
+        examined: 1,
+        reattached: 0,
+        unknown: 0,
+      });
+      expect(context.db.prepare('SELECT * FROM agent_bridge_jobs WHERE id=?').get(job.id), testCase.name)
+        .toEqual(before);
+      expect(context.engine.createSession, testCase.name).not.toHaveBeenCalled();
+      expect(context.engine.promptAsync, testCase.name).not.toHaveBeenCalled();
+      expect(context.engine.abortSession, testCase.name).not.toHaveBeenCalled();
+      context.db.close();
+    }
+  });
+
   it('R7: boot walks every outside-epoch page before admitting readiness', async () => {
     const context = fixture();
     for (let index = 0; index < 21; index += 1) {
@@ -1219,7 +1578,7 @@ describe('persistent workstream coordinator', () => {
     const reconciliation = await context.coordinator.reconcileAfterEngineReady();
     const readiness = await context.coordinator.readiness();
 
-    expect(reconciliation).toMatchObject({ examined: 21, reattached: 0, unknown: 21 });
+    expect(reconciliation).toMatchObject({ status: 'completed', reason: null, examined: 21, reattached: 0, unknown: 21 });
     expect(context.jobs.listNativeForWorkstream({ localUserId: OWNER, workstreamId: context.workstream.id })
       .every((job) => job.state === 'unknown')).toBe(true);
     expect(readiness).toMatchObject({ available: true, hostEpoch: 'epoch-current' });

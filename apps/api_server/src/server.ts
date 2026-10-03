@@ -823,7 +823,8 @@ async function main() {
         try {
           const reconciled = await workstreamCoordinator.reconcileAfterEngineReady();
           logger.info(
-            `[server] workstream restart reconciliation: examined=${reconciled.examined} ` +
+            `[server] workstream restart reconciliation: status=${reconciled.status} ` +
+              `reason=${reconciled.reason ?? 'none'} examined=${reconciled.examined} ` +
               `reattached=${reconciled.reattached} unknown=${reconciled.unknown}`,
           );
         } catch (e) {
