@@ -1,7 +1,7 @@
 import { Router } from 'express';
 
 import { env } from '../config/env';
-import { requireAuth } from '../middleware/auth_middleware';
+import { requireLocalOrCloudAuth } from '../middleware/auth_middleware';
 import { AgentWorkstreamsController } from '../controllers/agent_workstreams_controller';
 import type { PersistentWorkstreamCoordinator } from '../services/persistent_workstream_coordinator';
 
@@ -11,7 +11,7 @@ export function createAgentWorkstreamsRouter(
   const router = Router();
   const controller = new AgentWorkstreamsController(coordinator);
   router.use((_req, res, next) => env.workstreamsEnabled ? next() : res.sendStatus(404));
-  router.use(requireAuth);
+  router.use(requireLocalOrCloudAuth);
   router.post('/', (req, res, next) => controller.create(req, res, next));
   router.get('/', (req, res, next) => void controller.list(req, res, next));
   router.get('/:id/evidence', (req, res, next) => void controller.inspectEvidence(req, res, next));
