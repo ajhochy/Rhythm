@@ -100,6 +100,23 @@ describe('Engraph HTTP client', () => {
     await expect(new EngraphHttpClient('http://127.0.0.1:7777', fetchImpl, 1).search('query', 5)).resolves.toEqual([]);
   });
 
+  it('distinguishes an unavailable client from an HTTP search timeout with fake fetches', async () => {
+    const unavailableFetch = vi.fn();
+    const unavailable = new EngraphHttpClient('', unavailableFetch);
+    await unavailable.search('synthetic query', 5);
+    expect(unavailable.lastSearchResult()?.status).toBe('backend_unavailable');
+    expect(unavailableFetch).not.toHaveBeenCalled();
+
+    const timeoutError = new Error('synthetic raw error must not escape diagnostics');
+    timeoutError.name = 'TimeoutError';
+    const timedOut = new EngraphHttpClient(
+      'http://127.0.0.1:7777',
+      vi.fn().mockRejectedValue(timeoutError),
+    );
+    await timedOut.search('synthetic query', 5);
+    expect(timedOut.lastSearchResult()?.status).toBe('timeout');
+  });
+
   it('preserves heading-plus-body snippets but never substitutes a full content field', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       results: [
@@ -201,6 +218,59 @@ describe('hybrid memory retrieval', () => {
     const fakeRepo = repo([first, second], []);
     await expect(getRelevantMemoriesSemantic('query', 1, 2, fakeRepo, { search: vi.fn().mockResolvedValue([]) }))
       .resolves.toEqual([first, second]);
+  });
+
+  it('initiates native search before a synchronous FTS probe consumes the shared deadline', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-03T12:00:00.000Z'));
+    process.env.AGENT_MEMORY_SEMANTIC_BUDGET_MS = '50';
+    const phases: string[] = [];
+    const fakeRepo = {
+      searchAsync: vi.fn(() => {
+        phases.push('fts');
+        vi.setSystemTime(new Date(Date.now() + 60));
+        return Promise.resolve([]);
+      }),
+      findBySourceIdsAsync: vi.fn().mockResolvedValue([]),
+    };
+    const engraph = {
+      search: vi.fn(() => {
+        phases.push('native');
+        return Promise.resolve([]);
+      }),
+    };
+
+    try {
+      await expect(getRelevantMemoriesSemantic('timing', 1, 2, fakeRepo, engraph)).resolves.toEqual([]);
+      expect(phases[0]).toBe('native');
+      expect(engraph.search).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retains the FTS fallback when a canonical native candidate is not injectable', async () => {
+    const fallback = memory({
+      id: 'fts-fallback',
+      sourceId: 'fact/fallback.md',
+      content: 'The rehearsal service plan keeps the fallback context available.',
+    });
+    const discarded = memory({
+      id: 'native-not-injectable',
+      sourceId: 'fact/native-not-injectable.md',
+      content: 'The rehearsal service plan must remain explicit-reference only.',
+      autoInjectable: false,
+    });
+    const fakeRepo = repo([fallback], [discarded]);
+
+    const result = await getRelevantMemoriesSemantic('rehearsal service plan', 1, 2, fakeRepo, {
+      search: vi.fn().mockResolvedValue([{
+        file: discarded.sourceId,
+        snippet: discarded.content,
+      }]),
+    });
+
+    expect(result.map(({ id }) => id)).toEqual(['fts-fallback']);
   });
 
   it('uses hybrid by default but fails RRF-only HTTP hits closed', async () => {

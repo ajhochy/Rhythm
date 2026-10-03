@@ -530,14 +530,14 @@ export function fuseMemoryRanks(
 
 type DeadlineResult<T> =
   | { ok: true; value: T }
-  | { ok: false };
+  | { ok: false; reason: 'deadline' | 'error' };
 
 async function settleBeforeDeadline<T>(
   deadline: number,
   operation: () => Promise<T>,
 ): Promise<DeadlineResult<T>> {
   const remaining = deadline - Date.now();
-  if (remaining <= 0) return { ok: false };
+  if (remaining <= 0) return { ok: false, reason: 'deadline' };
 
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const expired = Symbol('semantic-deadline-expired');
@@ -548,9 +548,9 @@ async function settleBeforeDeadline<T>(
         timeout = setTimeout(() => resolve(expired), remaining);
       }),
     ]);
-    return value === expired ? { ok: false } : { ok: true, value };
+    return value === expired ? { ok: false, reason: 'deadline' } : { ok: true, value };
   } catch {
-    return { ok: false };
+    return { ok: false, reason: 'error' };
   } finally {
     if (timeout !== undefined) clearTimeout(timeout);
   }
@@ -586,6 +586,51 @@ interface SemanticRetrievalResult {
   memories: AgentMemory[];
   status: Exclude<MemorySemanticStatus, 'disabled'>;
   hitCount: number;
+  diagnostic?: SemanticRetrievalDiagnostic;
+}
+
+type SemanticRetrievalDiagnosticPhase =
+  | 'backend_unavailable'
+  | 'http_timeout'
+  | 'native_search_deadline'
+  | 'native_search_failed'
+  | 'downstream_deadline'
+  | 'downstream_failed'
+  | 'native_search_complete';
+
+/** Internal-only, body-free retrieval timing. It is emitted only to the existing log seam. */
+interface SemanticRetrievalDiagnostic {
+  phase: SemanticRetrievalDiagnosticPhase;
+  preSearchMs: number;
+  elapsedMs: number;
+  remainingMs: number;
+}
+
+interface NativeMemoryReferenceCollection {
+  references: NativeReference[];
+  status: Exclude<MemorySemanticStatus, 'disabled'>;
+  hitCount: number;
+  diagnostic: SemanticRetrievalDiagnostic;
+}
+
+function boundedTimingMs(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(60_000, Math.max(0, Math.floor(value)));
+}
+
+function nativeRetrievalDiagnostic(
+  phase: SemanticRetrievalDiagnosticPhase,
+  startedAt: number,
+  nativeSearchStartedAt: number,
+  deadline: number,
+): SemanticRetrievalDiagnostic {
+  const now = Date.now();
+  return {
+    phase,
+    preSearchMs: boundedTimingMs(nativeSearchStartedAt - startedAt),
+    elapsedMs: boundedTimingMs(now - startedAt),
+    remainingMs: boundedTimingMs(deadline - now),
+  };
 }
 
 async function searchEngraph(
@@ -777,12 +822,29 @@ async function collectNativeMemoryReferences(
   engraph: EngraphClient,
   deadline: number,
   automaticOnly: boolean,
-): Promise<{ references: NativeReference[]; status: Exclude<MemorySemanticStatus, 'disabled'>; hitCount: number }> {
+  startedAt = Date.now(),
+): Promise<NativeMemoryReferenceCollection> {
+  const nativeSearchStartedAt = Date.now();
+  const diagnostic = (phase: SemanticRetrievalDiagnosticPhase) => nativeRetrievalDiagnostic(
+    phase,
+    startedAt,
+    nativeSearchStartedAt,
+    deadline,
+  );
   const searched = await settleBeforeDeadline(
     deadline,
     () => searchEngraph(engraph, query, NATIVE_REFERENCE_CANDIDATE_LIMIT),
   );
-  if (!searched.ok) return { references: [], status: 'timeout', hitCount: 0 };
+  if (!searched.ok) {
+    return {
+      references: [],
+      status: 'timeout',
+      hitCount: 0,
+      diagnostic: diagnostic(
+        searched.reason === 'deadline' ? 'native_search_deadline' : 'native_search_failed',
+      ),
+    };
+  }
   const { status } = searched.value;
   // Clients and test doubles must not be able to bypass the requested native
   // page size by returning an oversized response body.
@@ -792,6 +854,13 @@ async function collectNativeMemoryReferences(
       references: [],
       status: status === 'no_hits' ? 'no_hits' : status,
       hitCount: hits.length,
+      diagnostic: diagnostic(
+        status === 'backend_unavailable'
+          ? 'backend_unavailable'
+          : status === 'timeout'
+            ? 'http_timeout'
+            : 'native_search_complete',
+      ),
     };
   }
 
@@ -813,7 +882,14 @@ async function collectNativeMemoryReferences(
     seenSourceIds.add(sourceId);
     candidates.push({ sourceId, hit: { ...hit, snippet }, nativeRank: index + 1 });
   }
-  if (candidates.length === 0) return { references: [], status: 'unmapped', hitCount: hits.length };
+  if (candidates.length === 0) {
+    return {
+      references: [],
+      status: 'unmapped',
+      hitCount: hits.length,
+      diagnostic: diagnostic('native_search_complete'),
+    };
+  }
 
   const joined = await settleBeforeDeadline(
     deadline,
@@ -823,7 +899,16 @@ async function collectNativeMemoryReferences(
       wanted ?? undefined,
     ),
   );
-  if (!joined.ok) return { references: [], status: 'timeout', hitCount: hits.length };
+  if (!joined.ok) {
+    return {
+      references: [],
+      status: 'timeout',
+      hitCount: hits.length,
+      diagnostic: diagnostic(
+        joined.reason === 'deadline' ? 'downstream_deadline' : 'downstream_failed',
+      ),
+    };
+  }
 
   const candidatesBySourceId = new Map<string, AgentMemory[]>();
   for (const memory of joined.value) {
@@ -854,7 +939,16 @@ async function collectNativeMemoryReferences(
       deadline,
       () => validateCanonicalNativeReference(memoryRoot, sourceId, memory, excerpt),
     );
-    if (!canonical.ok) break;
+    if (!canonical.ok) {
+      return {
+        references,
+        status: references.length > 0 ? 'used' : 'unmapped',
+        hitCount: hits.length,
+        diagnostic: diagnostic(
+          canonical.reason === 'deadline' ? 'downstream_deadline' : 'downstream_failed',
+        ),
+      };
+    }
     if (!canonical.value) continue;
     const origin = originForMemory(memory);
     references.push({
@@ -878,6 +972,7 @@ async function collectNativeMemoryReferences(
     references,
     status: references.length > 0 ? 'used' : 'unmapped',
     hitCount: hits.length,
+    diagnostic: diagnostic('native_search_complete'),
   };
 }
 
@@ -953,23 +1048,32 @@ async function getRelevantMemoriesSemanticDetailed(
 ): Promise<SemanticRetrievalResult> {
   if (topN <= 0) return { memories: [], status: 'no_hits', hitCount: 0 };
 
-  const deadline = Date.now() + getSemanticSearchBudgetMs();
-  const ftsPromise = getRelevantMemories(query, ownerUserId, topN, repo);
-  const settledFtsPromise = settleBeforeDeadline(deadline, () => ftsPromise);
-  const native = await collectNativeMemoryReferences(
+  const startedAt = Date.now();
+  const deadline = startedAt + getSemanticSearchBudgetMs();
+  // Start the loopback HTTP operation before SQLite's synchronous FTS probes.
+  // Both lanes still consume the same deadline below.
+  const nativePromise = collectNativeMemoryReferences(
     query,
     ownerUserId,
     repo,
     engraph,
     deadline,
     true,
+    startedAt,
   );
+  const ftsPromise = getRelevantMemories(query, ownerUserId, topN, repo);
+  const settledFtsPromise = settleBeforeDeadline(deadline, () => ftsPromise);
+  const [native, settledFts] = await Promise.all([nativePromise, settledFtsPromise]);
   // Both lanes share the one prompt deadline. A slow FTS fallback must never
   // hold an already-authorized native reference past that budget.
-  const settledFts = await settledFtsPromise;
   const fts = settledFts.ok ? settledFts.value : [];
   if (native.references.length === 0) {
-    return { memories: fts, status: native.status, hitCount: native.hitCount };
+    return {
+      memories: fts,
+      status: native.status,
+      hitCount: native.hitCount,
+      diagnostic: native.diagnostic,
+    };
   }
   for (const reference of native.references) {
     retrievalEvidence.set(reference.memory, {
@@ -991,6 +1095,7 @@ async function getRelevantMemoriesSemanticDetailed(
     memories: [...nativeMemories, ...fallback].slice(0, topN),
     status: 'used',
     hitCount: native.hitCount,
+    diagnostic: native.diagnostic,
   };
 }
 
@@ -1042,8 +1147,16 @@ function emptyMemoryPreface(
   return { text: '', memoryIds: [], notePaths: [], items: [], semanticStatus, semanticHitCount };
 }
 
-function logSemanticStatus(status: MemorySemanticStatus, hitCount: number): void {
-  logger.info(`[MemoryRetrieval] semantic status=${status} hits=${hitCount}`);
+function logSemanticStatus(
+  status: MemorySemanticStatus,
+  hitCount: number,
+  diagnostic?: SemanticRetrievalDiagnostic,
+): void {
+  const phase = diagnostic
+    ? ` phase=${diagnostic.phase} pre_search_ms=${diagnostic.preSearchMs}`
+      + ` elapsed_ms=${diagnostic.elapsedMs} remaining_ms=${diagnostic.remainingMs}`
+    : '';
+  logger.info(`[MemoryRetrieval] semantic status=${status} hits=${hitCount}${phase}`);
 }
 
 function boundedRelevantExcerpt(query: string, content: string): string {
@@ -1209,6 +1322,7 @@ async function buildLexicalMemoryPreface(
   const mode = getAgentMemoryRetrievalMode();
   let semanticStatus: MemorySemanticStatus = 'disabled';
   let semanticHitCount = 0;
+  let semanticDiagnostic: SemanticRetrievalDiagnostic | undefined;
   let matches: AgentMemory[];
   try {
     if (opts.getRelevant) {
@@ -1224,6 +1338,7 @@ async function buildLexicalMemoryPreface(
       matches = result.memories;
       semanticStatus = result.status;
       semanticHitCount = result.hitCount;
+      semanticDiagnostic = result.diagnostic;
     } else {
       matches = await getRelevantMemories(query, ownerUserId, opts.topN ?? DEFAULT_TOP_N);
     }
@@ -1231,10 +1346,10 @@ async function buildLexicalMemoryPreface(
     // A retrieval failure must never produce a partial/garbled preface — and the
     // call sites also wrap this in try/catch as a second backstop.
     semanticStatus = mode === 'hybrid' ? 'backend_unavailable' : 'disabled';
-    logSemanticStatus(semanticStatus, semanticHitCount);
+    logSemanticStatus(semanticStatus, semanticHitCount, semanticDiagnostic);
     return emptyMemoryPreface(semanticStatus, semanticHitCount);
   }
-  logSemanticStatus(semanticStatus, semanticHitCount);
+  logSemanticStatus(semanticStatus, semanticHitCount, semanticDiagnostic);
   return assembleMemoryPreface(
     query,
     matches,

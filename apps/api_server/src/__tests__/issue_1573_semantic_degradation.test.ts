@@ -34,7 +34,10 @@ function useRepository(fts: AgentMemory[], joined: AgentMemory[] = []): void {
   vi.spyOn(AgentMemoryRepository.prototype, 'findBySourceIdsAsync').mockResolvedValue(joined);
 }
 
-function useEngraph(client: { search: (query: string, topN: number) => Promise<unknown[]> }): void {
+function useEngraph(client: {
+  search: (query: string, topN: number) => Promise<unknown[]>;
+  lastSearchResult?: () => unknown;
+}): void {
   vi.spyOn(engraphManager, 'getRetrievalClient').mockReturnValue(client as never);
 }
 
@@ -103,6 +106,79 @@ describe('#1573 semantic degradation observability', () => {
 
     expect(result.semanticStatus).toBe('timeout');
     expect(result.items[0].semanticStatus).toBe('timeout');
+  });
+
+  it('records bounded body-free phase timing without exposing adversarial retrieval data', async () => {
+    const fts = memory({ content: 'private FTS body sentinel must stay out of logs' });
+    useRepository([fts], [fts]);
+    useEngraph({
+      search: vi.fn().mockResolvedValue([]),
+      lastSearchResult: () => ({
+        hits: [],
+        status: 'http_error' as const,
+        rawError: 'private raw error sentinel',
+        metadata: 'private native metadata sentinel',
+      }),
+    });
+    const info = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
+
+    const result = await buildMemoryPreface('private query sentinel', 1);
+
+    expect(result.semanticStatus).toBe('http_error');
+    const line = String(info.mock.calls[0]?.[0]);
+    expect(line).toContain('semantic status=http_error hits=0');
+    expect(line).toMatch(/phase=[a-z_]+/);
+    expect(line).toMatch(/pre_search_ms=\d+/);
+    expect(line).toMatch(/elapsed_ms=\d+/);
+    expect(line).toMatch(/remaining_ms=\d+/);
+    expect(line).not.toContain('private query sentinel');
+    expect(line).not.toContain('private FTS body sentinel');
+    expect(line).not.toContain('private raw error sentinel');
+    expect(line).not.toContain('private native metadata sentinel');
+  });
+
+  it.each([
+    ['unavailable client', () => new EngraphHttpClient('', vi.fn()), 'backend_unavailable'],
+    ['HTTP timeout', () => {
+      const timeout = new Error('private timeout error sentinel');
+      timeout.name = 'TimeoutError';
+      return new EngraphHttpClient('http://127.0.0.1:7777', vi.fn().mockRejectedValue(timeout));
+    }, 'http_timeout'],
+  ] as const)('logs a distinct body-free phase for %s', async (_name, createClient, phase) => {
+    const fts = memory();
+    useRepository([fts], []);
+    useEngraph(createClient());
+    const info = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
+
+    await buildMemoryPreface('synthetic diagnostic query', 1);
+
+    expect(String(info.mock.calls[0]?.[0])).toContain(`phase=${phase}`);
+  });
+
+  it('records downstream deadline exhaustion separately from HTTP search timeout', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-03T12:00:00.000Z'));
+    process.env.AGENT_MEMORY_SEMANTIC_BUDGET_MS = '5';
+    const fts = memory();
+    vi.spyOn(AgentMemoryRepository.prototype, 'searchAsync').mockResolvedValue([fts]);
+    vi.spyOn(AgentMemoryRepository.prototype, 'findBySourceIdsAsync')
+      .mockImplementation(() => new Promise<AgentMemory[]>(() => undefined));
+    useEngraph({
+      search: vi.fn().mockResolvedValue([{
+        file: 'fact/collector.md',
+        snippet: 'collector cup fact',
+      }]),
+    });
+    const info = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
+
+    try {
+      const pending = buildMemoryPreface('collector cup', 1);
+      await vi.advanceTimersByTimeAsync(5);
+      await expect(pending).resolves.toMatchObject({ semanticStatus: 'timeout' });
+      expect(String(info.mock.calls[0]?.[0])).toContain('phase=downstream_deadline');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('1573:1573-A-semantic-degradation-observability:4 distinguishes unmapped semantic hits', async () => {
