@@ -1,6 +1,6 @@
 // Regression: a permissive asset resolver or preload bridge could expose files or Node APIs.
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { EventEmitter } from 'node:events';
 import { createContext, runInNewContext, SourceTextModule, SyntheticModule } from 'node:vm';
 import { tmpdir } from 'node:os';
@@ -194,26 +194,33 @@ test('task-safe-external-links-c8: external dispatch rejects foreign sender, fra
   await new Promise((done) => setImmediate(done));
 });
 
-test('directory-picker: owned native dialog returns only the first path string or null', async () => {
-  let response;
-  const dialogs = [];
-  const runtime = await interactiveRuntime(['--interactive-smoke'], undefined, async (owner, options) => {
-    dialogs.push({ owner, options }); return response;
-  });
-  const owner = runtime.windows[0];
-  const event = { sender: owner.webContents, senderFrame: owner.webContents.mainFrame };
-  const handler = runtime.handlers.get('shell:select-directory');
-  for (const [result, expected] of [
-    [{ canceled: false, filePaths: ['/Users/AJ/Project with spaces', '/second'], bookmarks: ['never exposed'] }, '/Users/AJ/Project with spaces'],
-    [{ canceled: true, filePaths: ['/discarded'] }, null],
-    [{ canceled: false, filePaths: [] }, null],
-    [{ canceled: false, filePaths: [''] }, null],
-    [{ canceled: false, filePaths: [123] }, '123'],
-  ]) {
-    response = result;
-    assert.equal(await handler(event), expected);
-    assert.equal(dialogs.at(-1).owner, owner);
-    assert.deepEqual(JSON.parse(JSON.stringify(dialogs.at(-1).options)), { properties: ['openDirectory', 'createDirectory'] });
+test('directory-picker: owned native dialog returns only a canonical existing directory or null', async () => {
+  const parent = await mkdtemp(resolve(tmpdir(), 'rhythm-directory-picker-'));
+  const dir = resolve(parent, 'workspace ');
+  await mkdir(dir);
+  try {
+    let response;
+    const dialogs = [];
+    const runtime = await interactiveRuntime(['--interactive-smoke'], undefined, async (owner, options) => {
+      dialogs.push({ owner, options }); return response;
+    });
+    const owner = runtime.windows[0];
+    const event = { sender: owner.webContents, senderFrame: owner.webContents.mainFrame };
+    const handler = runtime.handlers.get('shell:select-directory');
+    for (const [result, expected] of [
+      [{ canceled: false, filePaths: [dir, '/second'], bookmarks: ['never exposed'] }, await realpath(dir)],
+      [{ canceled: true, filePaths: [dir] }, null],
+      [{ canceled: false, filePaths: [] }, null],
+      [{ canceled: false, filePaths: [''] }, null],
+      [{ canceled: false, filePaths: [123] }, null],
+    ]) {
+      response = result;
+      assert.equal(await handler(event), expected);
+      assert.equal(dialogs.at(-1).owner, owner);
+      assert.deepEqual(JSON.parse(JSON.stringify(dialogs.at(-1).options)), { properties: ['openDirectory', 'createDirectory'] });
+    }
+  } finally {
+    await rm(parent, { recursive: true, force: true });
   }
 });
 
@@ -235,6 +242,38 @@ test('directory-picker: foreign senders, frames, hosts and payloads cannot open 
   owner.isDestroyed = () => true;
   await assert.rejects(handler(event), /owner unavailable/);
   assert.equal(opened, 0);
+});
+
+test('directory-selection: owned host canonicalizes only the directory returned by the native picker', async () => {
+  const dir = await mkdtemp(resolve(tmpdir(), 'rhythm-directory-validation-'));
+  try {
+    const file = resolve(dir, 'not-a-directory.txt');
+    await writeFile(file, 'fixture', 'utf8');
+    let selected = dir;
+    let canceled = false;
+    const runtime = await interactiveRuntime(
+      ['--interactive-smoke'],
+      undefined,
+      async () => ({ canceled, filePaths: selected ? [selected] : [] }),
+    );
+    const owner = runtime.windows[0];
+    const event = { sender: owner.webContents, senderFrame: owner.webContents.mainFrame };
+    const handler = runtime.handlers.get('shell:select-directory');
+
+    assert.equal(await handler(event), await realpath(dir));
+    selected = file;
+    assert.equal(await handler(event), null);
+    selected = resolve(dir, 'missing');
+    assert.equal(await handler(event), null);
+    canceled = true;
+    assert.equal(await handler(event), null);
+    await assert.rejects(handler(event, dir), /Invalid IPC payload/);
+    await assert.rejects(handler({ sender: {}, senderFrame: event.senderFrame }), /denied/);
+    runtime.app.emit('before-quit', { preventDefault() {} });
+    await new Promise((done) => setImmediate(done));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('save-file: owned document saves text only where the native dialog points, with a sanitized suggested name', async () => {

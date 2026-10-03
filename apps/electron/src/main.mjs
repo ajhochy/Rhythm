@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, net, Notification, protocol, safeStorage, session, shell } from 'electron';
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir, userInfo } from 'node:os';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -799,7 +799,13 @@ if (hasSingleInstanceLock) {
     if (!win || win.isDestroyed()) throw new Error('Directory picker owner unavailable');
     const { canceled, filePaths } = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'] });
     requireOwnedDocument(event);
-    return canceled || !filePaths[0] ? null : String(filePaths[0]);
+    if (canceled || !filePaths[0]) return null;
+    try {
+      const canonical = await realpath(String(filePaths[0]));
+      return (await stat(canonical)).isDirectory() ? canonical : null;
+    } catch {
+      return null;
+    }
   });
   // Renderer-built exports (research magazine/report). Downloads are denied app-wide, so the only
   // write path is this: the renderer proposes a basename + text, the user picks the path natively.

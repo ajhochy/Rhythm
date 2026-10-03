@@ -408,6 +408,11 @@ export async function handleInputFrame(
   const perTurnAgent = typeof msg.agent === 'string' && msg.agent.length > 0
     ? msg.agent
     : null;
+  // The profile is a Rhythm config id; `agent` is only an OpenCode engine name.
+  // Several profiles can use the same engine name (for example `build`).
+  const perTurnProfileId = typeof msg.profileId === 'string' && msg.profileId.trim().length > 0
+    ? msg.profileId.trim()
+    : null;
   // Server-only scope override for callers that already resolved a stored
   // Rhythm profile. This is deliberately separate from the client frame so a
   // request cannot self-assert trusted profile scope or replace engine
@@ -417,6 +422,10 @@ export async function handleInputFrame(
     : null;
 
   if (!id || typeof data !== 'string') {
+    return;
+  }
+  if (msg.profileId !== undefined && perTurnProfileId === null) {
+    ws.send(JSON.stringify({ v: 1, type: 'error', id, message: 'Selected profile ID is invalid.' }));
     return;
   }
 
@@ -429,6 +438,7 @@ export async function handleInputFrame(
   let opencodeId = opencodeSessionMap.get(id);
   let cwd: string | undefined;
   let agentKind: string | undefined;
+  let sessionProfileId: string | null = null;
   let sessionName: string | undefined;
   let sessionProviderId: string | null = null;
   let sessionModelId: string | null = null;
@@ -449,6 +459,7 @@ export async function handleInputFrame(
     if (session) {
       cwd = session.cwd;
       agentKind = session.agentKind;
+      sessionProfileId = session.profileId;
       sessionName = session.name;
       sessionProviderId = session.providerId;
       sessionModelId = session.modelId;
@@ -499,35 +510,43 @@ export async function handleInputFrame(
     return;
   }
 
-  // #765 — Resolve profile scope (model + MCP config) for the profile that
-  // ACTUALLY drives this turn.
-  //
-  // The interactive create path (POST /agent-sessions, agents_view.dart) makes
-  // agent-LESS sessions (agentId:null → agent_kind '' or a base kind like
-  // 'claude-code'). The real profile (e.g. 'secretary') is picked per-turn in
-  // the composer and arrives on the frame as `agent` (perTurnAgent). Resolving
-  // scope from the row's stored agentKind therefore loses the chosen profile's
-  // MCP restriction entirely (base kinds carry no allowed_mcps_json → null
-  // config → ALL tools). We must prefer the per-turn picked profile, falling
-  // back to the session's agentKind only when no per-turn agent was sent.
-  //
-  // No override is passed (undefined) so the helper derives MCP scope from the
-  // resolved profile's own allowed_mcps_json column — giving interactive
-  // sessions the same MCP restriction the scheduled path enforces. This must
-  // happen BEFORE any createSession call so the mcpRoleConfig is available for
-  // init-time scoping. Non-fatal: a missing/unknown profile id returns null
-  // mcpRoleConfig (no restriction).
-  const scopeAgentId = trustedScopeAgent ?? perTurnAgent ?? agentKind ?? null;
+  // Rhythm profile IDs own model/tool/skill policy; `agent` and agentKind are
+  // OpenCode execution names. A disabled config named `build` must not shadow
+  // an enabled session profile whose ocAgent is also `build`. Explicit profile
+  // switches carry profileId. Older clients sometimes put a profile ID in
+  // `agent`: recognize only an unambiguous ID whose engine name differs.
+  let legacyCanonicalProfileId: string | null = null;
+  if (!perTurnProfileId && perTurnAgent && perTurnAgent !== agentKind) {
+    try {
+      const candidate = new AgentConfigsRepository().getById(perTurnAgent);
+      if (candidate && (candidate.ocAgent?.trim() || candidate.id) !== perTurnAgent) {
+        legacyCanonicalProfileId = candidate.id;
+      }
+    } catch {
+      // The profile guard below handles unavailable storage.
+    }
+  }
+  const scopeAgentId = trustedScopeAgent ?? perTurnProfileId ?? legacyCanonicalProfileId ?? sessionProfileId ?? perTurnAgent ?? agentKind ?? null;
   if (scopeAgentId) {
     try {
       const configsRepo = new AgentConfigsRepository();
       const config =
         configsRepo.getById(scopeAgentId) ??
-        configsRepo.list().find((candidate) => candidate.ocAgent === scopeAgentId);
+        (sessionProfileId || perTurnProfileId || trustedScopeAgent
+          ? undefined
+          : configsRepo.list().find((candidate) => candidate.ocAgent === scopeAgentId));
+      if (!config && (sessionProfileId || perTurnProfileId || trustedScopeAgent)) {
+        ws.send(JSON.stringify({ v: 1, type: 'error', id, message: `agent not configured: '${scopeAgentId}'` }));
+        return;
+      }
       if (config) {
         const blockReason = agentConfigExecutionBlockReason(config);
         if (blockReason) {
           ws.send(JSON.stringify({ v: 1, type: 'error', id, message: blockReason }));
+          return;
+        }
+        if (perTurnProfileId && perTurnAgent && perTurnAgent !== (config.ocAgent?.trim() || config.id)) {
+          ws.send(JSON.stringify({ v: 1, type: 'error', id, message: 'Selected profile does not match the requested engine agent.' }));
           return;
         }
       }
@@ -556,11 +575,11 @@ export async function handleInputFrame(
   } | undefined;
   const turnModelMode: 'auto' | 'fixed' = frameModelMode ?? sessionModelMode;
   const turnSessionAuto = turnModelMode === 'auto';
-  if (agentKind) {
+  if (scopeAgentId && (agentKind || sessionProfileId || perTurnProfileId || legacyCanonicalProfileId || trustedScopeAgent)) {
     try {
       const { resolveModelForSessionTurnWithProvenance } = await import('./agent_model_resolver');
       const resolution = await resolveModelForSessionTurnWithProvenance({
-        agentId: trustedScopeAgent ?? agentKind,
+        agentId: scopeAgentId,
         sessionProviderId,
         sessionModelId,
         perTurnOverride,
@@ -587,7 +606,7 @@ export async function handleInputFrame(
           sessionRow: routingRow,
           sessionId: id,
           prompt: data ?? '',
-          agentId: trustedScopeAgent ?? agentKind,
+          agentId: scopeAgentId,
           requestedSource: resolution.requestedSource,
           requestedTier: resolution.requestedTier,
           baseRoute: resolution.route,
@@ -859,7 +878,7 @@ export async function handleInputFrame(
     // silently no-ops on undefined model — it stores the user message
     // part and publishes message.updated events, but never fires an
     // LLM call, leaving the UI stuck on "working" indefinitely.
-    if (!model && agentKind) {
+    if (!model && (agentKind || sessionProfileId || perTurnProfileId || legacyCanonicalProfileId || trustedScopeAgent)) {
       console.error(
         `[ws_gateway] session ${id}: could not resolve model for agentKind='${agentKind}' — no route in catalog`,
       );
@@ -913,7 +932,7 @@ export async function handleInputFrame(
     //   provider kind — forwarding it is safe and different from the #738 guardrail.
     //   wsOcAgent is null when the profile has no ocAgent; perTurnAgent is null when
     //   the Flutter client didn't send an explicit per-turn agent override.
-    const effectiveAgent: string | null = perTurnAgent ?? wsOcAgent;
+    const effectiveAgent: string | null = legacyCanonicalProfileId ? wsOcAgent : perTurnAgent ?? wsOcAgent;
     let sdkOpts = (effectiveThinkingBudget !== null || effectiveFastMode || effectiveAgent !== null || sessionPermissionMode !== 'default' || wsSystemPrompt !== null)
       ? {
           ...(effectiveThinkingBudget !== null

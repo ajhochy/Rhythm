@@ -231,7 +231,7 @@ export interface SessionGateway {
   projectLabels?(): Promise<AgentProject[]>;
   createProject?(input: { name: string; cwd: string }): Promise<AgentProject>;
   detail(localId: string): Promise<Session>;
-  create(input: { profileId: string; cwd: string; name: string; projectId?: string; isolateWorktree: boolean; worktreeName?: string; branch?: string; createBranch?: boolean; stash?: 'stash' | 'discard'; taskId?: string; anthropicAccountId?: string }): Promise<Session>;
+  create(input: { profileId: string; cwd: string; name: string; projectId?: string; isolateWorktree: boolean; worktreeName?: string; branch?: string; createBranch?: boolean; stash?: 'stash' | 'discard'; taskId?: string; taskTitle?: string; anthropicAccountId?: string }): Promise<Session>;
   // post-m1-phase-6 c1b/c2a: GET /:id/files/find-files?query&limit&type — returns relative paths.
   findFiles(localId: string, query: string, opts?: { limit?: number; type?: 'file' | 'directory' }): Promise<string[]>;
   // GET /:id/files/list?path — engine-shaped entries scoped to the session/worktree directory.
