@@ -30,7 +30,10 @@ import {
 import {
   acknowledgeMobileGatewayWorkstreamUsage,
   cancelMobileGatewayWorkstream,
+  configureMobileGatewayWorkstreamAutomation,
   createMobileGatewayWorkstream,
+  disableMobileGatewayWorkstreamAutomation,
+  getMobileGatewayWorkstreamAutomation,
   inspectMobileGatewayWorkstreamEvidence,
   pauseMobileGatewayWorkstream,
   reconcileMobileGatewayWorkstreamUnknown,
@@ -42,6 +45,8 @@ import {
   waiveMobileGatewayWorkstreamCriteria,
   waiveMobileGatewayWorkstreamCriterion,
   type MobileWorkstream,
+  type MobileWorkstreamAutomation,
+  type MobileWorkstreamAutomationStatus,
   type MobileWorkstreamCreate,
   type MobileWorkstreamPatch,
   type MobileWorkstreamRun,
@@ -91,6 +96,9 @@ interface AgentChatContextValue {
   createWorkstream: (projectId: string, input: MobileWorkstreamCreate) => Promise<MobileWorkstream>;
   reviseWorkstream: (projectId: string, workstreamId: string, input: MobileWorkstreamPatch) => Promise<MobileWorkstream>;
   runWorkstream: (projectId: string, workstreamId: string, input: MobileWorkstreamRun) => Promise<MobileWorkstreamStatus>;
+  getWorkstreamAutomation: (projectId: string, workstreamId: string) => Promise<MobileWorkstreamAutomationStatus>;
+  configureWorkstreamAutomation: (projectId: string, workstreamId: string, input: MobileWorkstreamAutomation) => Promise<MobileWorkstreamAutomationStatus>;
+  disableWorkstreamAutomation: (projectId: string, workstreamId: string, input: { expectedRevision: number; planId: string }) => Promise<MobileWorkstreamAutomationStatus>;
   pauseWorkstream: (projectId: string, workstreamId: string, expectedRevision: number) => Promise<MobileWorkstreamStatus>;
   resumeWorkstream: (projectId: string, workstreamId: string, expectedRevision: number) => Promise<MobileWorkstreamStatus>;
   cancelWorkstream: (projectId: string, workstreamId: string, input: { expectedRevision: number; jobId: string }) => Promise<MobileWorkstreamStatus>;
@@ -249,6 +257,20 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
     });
   }, []);
 
+  const commitWorkstreamAutomation = useCallback((projectId: string, next: MobileWorkstreamAutomationStatus) => {
+    setWorkstreamsProjectId(projectId);
+    setWorkstreams((current) => current.map((item) => item.workstream.id === next.workstreamId
+      ? {
+        ...item,
+        workstream: {
+          ...item.workstream,
+          revision: next.revision,
+          automation: next.plan,
+        },
+      }
+      : item));
+  }, []);
+
   // Workstream reads are user-initiated by the panel.  Unlike chat discovery,
   // this provider deliberately has no reachability/timer refresh that could
   // become a hidden status sweep or imply an engine wake.
@@ -302,6 +324,39 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
     commitWorkstreamStatus(projectId, next);
     return next;
   }, [commitWorkstreamStatus, requireWorkstreamClient]);
+
+  const getWorkstreamAutomation = useCallback(async (projectId: string, workstreamId: string) => {
+    assertOnlineMutation(isOnlineRef.current);
+    const next = await getMobileGatewayWorkstreamAutomation(requireWorkstreamClient(), projectId, workstreamId);
+    commitWorkstreamAutomation(projectId, next);
+    return next;
+  }, [commitWorkstreamAutomation, requireWorkstreamClient]);
+
+  const configureWorkstreamAutomation = useCallback(async (
+    projectId: string,
+    workstreamId: string,
+    input: MobileWorkstreamAutomation,
+  ) => {
+    assertOnlineMutation(isOnlineRef.current);
+    const next = await configureMobileGatewayWorkstreamAutomation(
+      requireWorkstreamClient(), projectId, workstreamId, input,
+    );
+    commitWorkstreamAutomation(projectId, next);
+    return next;
+  }, [commitWorkstreamAutomation, requireWorkstreamClient]);
+
+  const disableWorkstreamAutomation = useCallback(async (
+    projectId: string,
+    workstreamId: string,
+    input: { expectedRevision: number; planId: string },
+  ) => {
+    assertOnlineMutation(isOnlineRef.current);
+    const next = await disableMobileGatewayWorkstreamAutomation(
+      requireWorkstreamClient(), projectId, workstreamId, input,
+    );
+    commitWorkstreamAutomation(projectId, next);
+    return next;
+  }, [commitWorkstreamAutomation, requireWorkstreamClient]);
 
   const pauseWorkstream = useCallback(async (
     projectId: string,
@@ -650,6 +705,9 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
     createWorkstream,
     reviseWorkstream,
     runWorkstream,
+    getWorkstreamAutomation,
+    configureWorkstreamAutomation,
+    disableWorkstreamAutomation,
     pauseWorkstream,
     resumeWorkstream,
     cancelWorkstream,
@@ -666,9 +724,12 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
     cancelWorkstream,
     createChat,
     createWorkstream,
+    configureWorkstreamAutomation,
     deleteChat,
+    disableWorkstreamAutomation,
     error,
     forkChat,
+    getWorkstreamAutomation,
     isLoading,
     isLoadingWorkstreams,
     isOfflineCache,

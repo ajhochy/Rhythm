@@ -15,6 +15,10 @@ import {
   parseEvidenceSelector,
   parseEvidenceVerification,
 } from '../contracts/agent_workstream_contract';
+import {
+  parseOneShotAutomationDisableRequest,
+  parseOneShotAutomationRequest,
+} from '../contracts/agent_workstream_automation_contract';
 import { AgentWorkstreamsRepository } from '../repositories/agent_workstreams_repository';
 import type { PersistentWorkstreamCoordinator } from '../services/persistent_workstream_coordinator';
 
@@ -139,6 +143,36 @@ export class AgentWorkstreamsController {
         scope,
         req.params.id,
         parseRunNextForProject(req.body, scope),
+      ));
+    } catch (error) { next(error); }
+  }
+
+  async automationStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!this.coordinator) throw AppError.notFound('Workstream coordinator');
+      res.json(await this.coordinator.automationStatus(auth(req), project(req), req.params.id));
+    } catch (error) { next(error); }
+  }
+
+  async configureAutomation(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!this.coordinator) throw AppError.notFound('Workstream coordinator');
+      const context = auth(req);
+      res.json(await this.coordinator.configureAutomation(
+        context,
+        project(req),
+        req.params.id,
+        parseOneShotAutomationRequest(req.body, new Date()),
+      ));
+    } catch (error) { next(error); }
+  }
+
+  async disableAutomation(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!this.coordinator) throw AppError.notFound('Workstream coordinator');
+      const parsed = parseOneShotAutomationDisableRequest(req.body);
+      res.json(await this.coordinator.disableAutomation(
+        auth(req), project(req), req.params.id, parsed.expectedRevision, parsed.planId,
       ));
     } catch (error) { next(error); }
   }

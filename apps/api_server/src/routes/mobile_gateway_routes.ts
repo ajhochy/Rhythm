@@ -60,6 +60,10 @@ import {
   parseEvidenceSelector,
   parseEvidenceVerification,
 } from '../contracts/agent_workstream_contract';
+import {
+  parseOneShotAutomationDisableRequest,
+  parseOneShotAutomationRequest,
+} from '../contracts/agent_workstream_automation_contract';
 import { AgentWorkstreamsRepository } from '../repositories/agent_workstreams_repository';
 import type { PersistentWorkstreamCoordinator } from '../services/persistent_workstream_coordinator';
 
@@ -317,6 +321,48 @@ export function createMobileGatewayRouter(dependencies: MobileGatewayRouterDepen
           return;
         }
         res.status(created.replay ? 200 : 201).json(created.row);
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.get(
+    '/workstreams/:id/automation',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    async (req, res, next) => {
+      try {
+        res.json(await requireWorkstreamCoordinator().automationStatus(
+          mobileWorkstreamAuth(req), mobileWorkstreamProject(req), req.params.id,
+        ));
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.put(
+    '/workstreams/:id/automation',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    async (req, res, next) => {
+      try {
+        const coordinator = requireWorkstreamCoordinator();
+        res.json(await coordinator.configureAutomation(
+          mobileWorkstreamAuth(req),
+          mobileWorkstreamProject(req),
+          req.params.id,
+          parseOneShotAutomationRequest(req.body, new Date()),
+        ));
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.post(
+    '/workstreams/:id/automation/disable',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    async (req, res, next) => {
+      try {
+        const parsed = parseOneShotAutomationDisableRequest(req.body);
+        res.json(await requireWorkstreamCoordinator().disableAutomation(
+          mobileWorkstreamAuth(req), mobileWorkstreamProject(req), req.params.id,
+          parsed.expectedRevision, parsed.planId,
+        ));
       } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
     },
   );

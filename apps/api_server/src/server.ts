@@ -548,7 +548,11 @@ async function main() {
       logger.warn(`[server] org-optimizer seed failed (non-fatal): ${String(err)}`);
     }
     if (legacyOrgSchedulesRetired) {
-      agentSchedulerJob = startAgentSchedulerJob();
+      agentSchedulerJob = startAgentSchedulerJob({
+        // Reuses the scheduler's existing minute tick; this callback owns no
+        // timer and remains a no-op unless the local coordinator was opted in.
+        onOneShotWorkstreamTick: () => workstreamCoordinator?.sweepOneShotAutomation(),
+      });
     } else {
       logger.error('[server] agent scheduler not started because legacy org schedules were not safely retired');
     }

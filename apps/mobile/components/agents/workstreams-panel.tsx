@@ -49,6 +49,20 @@ function textAt(value: Record<string, unknown> | null, key: string): string | nu
   return typeof result === 'string' && result.length ? result : null;
 }
 
+function canonicalUtc(value: string): string | null {
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.valueOf()) && parsed.toISOString() === value ? value : null;
+}
+
+function automationLabel(workstream: MobileWorkstream): string {
+  const plan = workstream.automation;
+  if (!plan) return 'off';
+  if (workstream.state === 'queued' || workstream.state === 'running') return 'running';
+  if (workstream.state === 'unknown' || plan.status === 'blocked') return 'review needed';
+  if (workstream.stateReason === 'automation_expired') return 'expired';
+  return plan.status;
+}
+
 function checkpointFor(
   projectId: string,
   criteria: string,
@@ -100,6 +114,8 @@ export function MobileWorkstreamsPanel({
     createWorkstream,
     reviseWorkstream,
     runWorkstream,
+    configureWorkstreamAutomation,
+    disableWorkstreamAutomation,
     pauseWorkstream,
     resumeWorkstream,
     cancelWorkstream,
@@ -125,6 +141,12 @@ export function MobileWorkstreamsPanel({
   const [maxWallTimeSeconds, setMaxWallTimeSeconds] = useState('300');
   const [maxTokens, setMaxTokens] = useState('20000');
   const [softTokenBudgetAcknowledged, setSoftTokenBudgetAcknowledged] = useState(false);
+  const [automationOpen, setAutomationOpen] = useState(false);
+  const [automationDueAt, setAutomationDueAt] = useState('');
+  const [automationExpiresAt, setAutomationExpiresAt] = useState('');
+  const [automationWallTimeSeconds, setAutomationWallTimeSeconds] = useState('300');
+  const [automationMaxTokens, setAutomationMaxTokens] = useState('');
+  const [automationAcknowledged, setAutomationAcknowledged] = useState(false);
   const [commandKeys, setCommandKeys] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -256,6 +278,67 @@ export function MobileWorkstreamsPanel({
       .finally(() => setBusy(false));
   };
 
+  const scheduleOneShot = () => {
+    if (!projectId || !parentSessionId || !selected || !selectedProfile || busy) return;
+    const dueAt = canonicalUtc(automationDueAt);
+    const expiresAt = canonicalUtc(automationExpiresAt);
+    const wall = Number(automationWallTimeSeconds);
+    const tokens = Number(automationMaxTokens);
+    if (!dueAt || !expiresAt || Date.parse(expiresAt) <= Date.parse(dueAt)) {
+      setLocalError('Enter canonical UTC due and expiry instants, with expiry after due.');
+      return;
+    }
+    const providerId = selectedProfile.defaults?.providerId;
+    const modelId = selectedProfile.defaults?.modelId;
+    if (!providerId || !modelId) {
+      setLocalError('Choose a worker profile with an explicit provider and model before scheduling.');
+      return;
+    }
+    if (!Number.isSafeInteger(wall) || wall < 30 || wall > 3600 || !Number.isSafeInteger(tokens) || tokens < 1 || tokens > 2_000_000) {
+      setLocalError('Scheduled limits must be 30–3600 seconds and 1–2,000,000 tokens.');
+      return;
+    }
+    if (!automationAcknowledged) {
+      setLocalError('Acknowledge the soft total-token authorization before scheduling.');
+      return;
+    }
+    setBusy(true);
+    setLocalError(undefined);
+    void configureWorkstreamAutomation(projectId, selected.workstream.id, {
+      expectedRevision: selected.workstream.revision,
+      authorizationKey: opaqueKey('one-shot'),
+      dueAt,
+      expiresAt,
+      targetProfileId: selectedProfile.profileId,
+      parentSessionId,
+      requestedModel: { providerId, modelId },
+      maxWallTimeSeconds: wall,
+      maxTokens: tokens,
+      softTotalBudgetAcknowledged: true,
+    }).then(() => {
+      setAutomationOpen(false);
+      setAutomationAcknowledged(false);
+      // The provider committed the returned control receipt.  Do not turn a
+      // save into an implicit runtime/status refresh.
+    }).catch((reason) => setLocalError(reason instanceof Error ? reason.message : 'Could not save scheduled authorization.'))
+      .finally(() => setBusy(false));
+  };
+
+  const disableOneShot = () => {
+    const plan = selected?.workstream.automation;
+    if (!projectId || !selected || !plan || busy) return;
+    setBusy(true);
+    setLocalError(undefined);
+    void disableWorkstreamAutomation(projectId, selected.workstream.id, {
+      expectedRevision: selected.workstream.revision,
+      planId: plan.planId,
+    }).then(() => {
+      // The provider committed the returned disabled receipt; leave engine
+      // state for an explicit user refresh.
+    }).catch((reason) => setLocalError(reason instanceof Error ? reason.message : 'Could not disable scheduled authorization.'))
+      .finally(() => setBusy(false));
+  };
+
   const currentJob = selected?.jobs.find((job) => job.id === selected.workstream.lastJobId);
   const executorAvailable = selected?.readiness.available === true;
   const retryingQueuedIntent = currentJob?.state === 'queued' &&
@@ -271,6 +354,10 @@ export function MobileWorkstreamsPanel({
     ? usageAcknowledgement as Record<string, unknown>
     : null;
   const budgetHeld = selected?.budget.holdReason ?? null;
+  const canConfigureAutomation = Boolean(
+    selected && selected.workstream.state === 'ready' && !budgetHeld && parentSessionId &&
+    selectedProfile?.defaults?.providerId && selectedProfile?.defaults?.modelId,
+  );
   const waivableJobId = currentJob?.state === 'succeeded' &&
     textAt(currentJob.application, 'status') === 'quarantined' &&
     selected?.workstream.state !== 'paused' && selected?.workstream.state !== 'cancelled'
@@ -325,6 +412,31 @@ export function MobileWorkstreamsPanel({
         <Button testID="mobile-workstreams-run-next" mode="contained" loading={busy} disabled={busy || !softTokenBudgetAcknowledged || !executorAvailable || !!budgetHeld || !parentSessionId || !targetProfileId || (selected.workstream.state !== 'ready' && !retryingQueuedIntent)} onPress={run}>{retryingQueuedIntent ? 'Try queued worker' : 'Run next'}</Button>
         {!parentSessionId ? <Text style={{ color: palette.warning }}>Open a root chat before starting a worker.</Text> : null}
         {budgetHeld ? <Text style={{ color: palette.warning }}>A new worker is blocked until the durable authorization hold is resolved; Resume cannot clear this hold.</Text> : null}
+      </View>
+
+      <View style={styles.runBox} testID="mobile-workstreams-one-shot-automation">
+        <Text variant="titleSmall" style={{ color: palette.text }}>Schedule one read-only run</Text>
+        <Text style={{ color: palette.muted }}>Status: {automationLabel(selected.workstream)}{selected.workstream.automation ? ` · due ${compactTime(selected.workstream.automation.dueAt)} local / ${selected.workstream.automation.dueAt} UTC` : ' · off by default'}</Text>
+        {selected.workstream.automation ? <Text style={{ color: palette.muted }}>Authorized: {selected.workstream.automation.resolvedModel.providerId}/{selected.workstream.automation.resolvedModel.modelId} · expiry {compactTime(selected.workstream.automation.expiresAt)} local / {selected.workstream.automation.expiresAt} UTC · one turn · {selected.workstream.automation.maxWallTimeSeconds}s · {selected.workstream.automation.maxTokens.toLocaleString()} soft tokens.</Text> : null}
+        {selected.workstream.stateReason?.startsWith('automation_') ? <Text style={{ color: palette.warning }}>{stateLabel(selected.workstream.stateReason)}</Text> : null}
+        {!selected.workstream.automation || selected.workstream.automation.status === 'disabled' || selected.workstream.automation.status === 'blocked'
+          ? <Button testID="mobile-workstreams-schedule-one-shot" mode="outlined" disabled={busy || !canConfigureAutomation} onPress={() => setAutomationOpen((open) => !open)}>{automationOpen ? 'Close scheduled-run form' : 'Schedule one read-only run'}</Button>
+          : <Button testID="mobile-workstreams-disable-one-shot" mode="outlined" disabled={busy || selected.workstream.automation.status !== 'scheduled'} onPress={disableOneShot}>Disable scheduled run</Button>}
+        {automationOpen ? <View style={styles.form}>
+          <Menu visible={profileMenuVisible} onDismiss={() => setProfileMenuVisible(false)} anchor={<Button mode="outlined" onPress={() => setProfileMenuVisible(true)} disabled={busy || eligibleProfiles.length === 0}>{selectedProfile?.label ?? 'Select worker profile'}</Button>}>
+            {eligibleProfiles.map((profile) => <Menu.Item key={profile.profileId} title={`${profile.label} · ${profile.defaults?.providerId && profile.defaults?.modelId ? `${profile.defaults.providerId}/${profile.defaults.modelId}` : 'model unavailable'}`} onPress={() => { setTargetProfileId(profile.profileId); setProfileMenuVisible(false); }} />)}
+          </Menu>
+          <TextInput label="Due time (canonical UTC ISO)" mode="outlined" value={automationDueAt} onChangeText={setAutomationDueAt} placeholder="2026-10-05T17:00:00.000Z" disabled={busy} />
+          {canonicalUtc(automationDueAt) ? <Text style={{ color: palette.muted }}>Due local projection: {compactTime(automationDueAt)}</Text> : null}
+          <TextInput label="Expiry time (canonical UTC ISO)" mode="outlined" value={automationExpiresAt} onChangeText={setAutomationExpiresAt} placeholder="2026-10-05T18:00:00.000Z" disabled={busy} />
+          {canonicalUtc(automationExpiresAt) ? <Text style={{ color: palette.muted }}>Expiry local projection: {compactTime(automationExpiresAt)}</Text> : null}
+          <TextInput label="Wall time (seconds)" mode="outlined" keyboardType="number-pad" value={automationWallTimeSeconds} onChangeText={setAutomationWallTimeSeconds} disabled={busy} />
+          <TextInput label="Soft total-token authorization" mode="outlined" keyboardType="number-pad" value={automationMaxTokens} onChangeText={setAutomationMaxTokens} placeholder="Required; no budget is prefilled" disabled={busy} />
+          <Text style={{ color: palette.muted }}>Exactly one fresh read-only worker may be admitted. This is not a hard output cap; input, output, reasoning, cache, and unknown engine/profile/tool overhead can overrun.</Text>
+          <Checkbox.Item testID="mobile-workstreams-one-shot-soft-token-acknowledgement" label="I authorize this exact one-turn soft total-token budget and understand that expiry, profile/model, controls, runtime, and ledger checks can still withhold it." status={automationAcknowledged ? 'checked' : 'unchecked'} onPress={() => setAutomationAcknowledged((value) => !value)} disabled={busy || !canConfigureAutomation} />
+          <Button testID="mobile-workstreams-save-one-shot" mode="contained" loading={busy} disabled={busy || !automationAcknowledged || !canConfigureAutomation} onPress={scheduleOneShot}>Save one-shot authorization</Button>
+        </View> : null}
+        {!canConfigureAutomation && !selected.workstream.automation ? <Text style={{ color: palette.warning }}>Scheduling is unavailable until this workstream is ready, a root session and explicit profile/model are selected, and no durable budget hold remains.</Text> : null}
       </View>
 
       <View style={styles.actions}>

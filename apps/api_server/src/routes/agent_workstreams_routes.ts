@@ -14,10 +14,13 @@ export function createAgentWorkstreamsRouter(
   router.use(requireLocalOrCloudAuth);
   router.post('/', (req, res, next) => controller.create(req, res, next));
   router.get('/', (req, res, next) => void controller.list(req, res, next));
+  router.get('/:id/automation', (req, res, next) => void controller.automationStatus(req, res, next));
   router.get('/:id/evidence', (req, res, next) => void controller.inspectEvidence(req, res, next));
   router.get('/:id', (req, res, next) => void controller.get(req, res, next));
   router.patch('/:id', (req, res, next) => controller.revise(req, res, next));
   router.post('/:id/run-next', (req, res, next) => void controller.runNext(req, res, next));
+  router.put('/:id/automation', (req, res, next) => void controller.configureAutomation(req, res, next));
+  router.post('/:id/automation/disable', (req, res, next) => void controller.disableAutomation(req, res, next));
   router.post('/:id/pause', (req, res, next) => void controller.pause(req, res, next));
   router.post('/:id/resume', (req, res, next) => void controller.resume(req, res, next));
   router.post('/:id/cancel', (req, res, next) => void controller.cancel(req, res, next));

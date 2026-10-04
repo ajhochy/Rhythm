@@ -30,10 +30,59 @@ export interface Workstream {
   closedReason: 'user_paused' | 'user_cancelled' | null;
   executorEpoch: string | null;
   lastJobId: string | null;
+  automation: WorkstreamAutomationPlan | null;
   revision: number;
   createKey: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export type WorkstreamAutomationPlanStatus = 'scheduled' | 'disabled' | 'consumed' | 'blocked';
+
+export interface WorkstreamAutomationPlan {
+  schemaVersion: 1;
+  planId: string;
+  workstreamId: string;
+  expectedRevision: number;
+  workstreamRevision: number;
+  authorizationKey: string;
+  dueAt: string;
+  expiresAt: string;
+  targetProfileId: string;
+  targetProfileRevision: number;
+  parentSessionId: string;
+  requestedModel: { providerId: string; modelId: string };
+  resolvedModel: { providerId: string; modelId: string };
+  maxTurns: 1;
+  maxWallTimeSeconds: number;
+  maxTokens: number;
+  softTotalBudgetAcknowledged: true;
+  acknowledgedByUserId: number;
+  acknowledgedAt: string;
+  status: WorkstreamAutomationPlanStatus;
+}
+
+export interface WorkstreamAutomationInput {
+  expectedRevision: number;
+  authorizationKey: string;
+  dueAt: string;
+  expiresAt: string;
+  targetProfileId: string;
+  parentSessionId: string;
+  requestedModel: { providerId: string; modelId: string };
+  maxWallTimeSeconds: number;
+  maxTokens: number;
+  softTotalBudgetAcknowledged: true;
+}
+
+export interface WorkstreamAutomationStatus {
+  workstreamId: string;
+  revision: number;
+  plan: WorkstreamAutomationPlan | null;
+  decision: {
+    status: 'off' | 'scheduled' | 'expired' | 'consumed' | 'disabled' | 'blocked' | 'eligible';
+    reason: string;
+  };
 }
 
 export interface WorkstreamReadiness {
@@ -137,6 +186,9 @@ export interface WorkstreamGateway {
   create(projectId: string, input: WorkstreamCreateInput): Promise<Workstream>;
   revise(projectId: string, workstreamId: string, input: WorkstreamPatchInput): Promise<Workstream>;
   runNext(projectId: string, workstreamId: string, input: WorkstreamRunInput): Promise<WorkstreamStatus>;
+  getAutomation(projectId: string, workstreamId: string): Promise<WorkstreamAutomationStatus>;
+  configureAutomation(projectId: string, workstreamId: string, input: WorkstreamAutomationInput): Promise<WorkstreamAutomationStatus>;
+  disableAutomation(projectId: string, workstreamId: string, input: { expectedRevision: number; planId: string }): Promise<WorkstreamAutomationStatus>;
   pause(projectId: string, workstreamId: string, expectedRevision: number): Promise<WorkstreamStatus>;
   resume(projectId: string, workstreamId: string, expectedRevision: number): Promise<WorkstreamStatus>;
   cancel(projectId: string, workstreamId: string, input: { expectedRevision: number; jobId: string }): Promise<WorkstreamStatus>;
@@ -215,6 +267,15 @@ export function createLiveWorkstreamsGateway(
     ),
     runNext: (projectId, workstreamId, input) => response<WorkstreamStatus>(
       'Run next', request(projectId, `/${encodeURIComponent(workstreamId)}/run-next`, { method: 'POST', body: JSON.stringify(input) }),
+    ),
+    getAutomation: (projectId, workstreamId) => response<WorkstreamAutomationStatus>(
+      'Load scheduled run', request(projectId, `/${encodeURIComponent(workstreamId)}/automation`),
+    ),
+    configureAutomation: (projectId, workstreamId, input) => response<WorkstreamAutomationStatus>(
+      'Schedule one read-only run', request(projectId, `/${encodeURIComponent(workstreamId)}/automation`, { method: 'PUT', body: JSON.stringify(input) }),
+    ),
+    disableAutomation: (projectId, workstreamId, input) => response<WorkstreamAutomationStatus>(
+      'Disable scheduled run', request(projectId, `/${encodeURIComponent(workstreamId)}/automation/disable`, { method: 'POST', body: JSON.stringify(input) }),
     ),
     pause: (projectId, workstreamId, expectedRevision) => response<WorkstreamStatus>(
       'Pause workstream', request(projectId, `/${encodeURIComponent(workstreamId)}/pause`, { method: 'POST', body: JSON.stringify({ expectedRevision }) }),

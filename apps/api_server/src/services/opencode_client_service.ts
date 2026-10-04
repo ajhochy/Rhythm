@@ -748,8 +748,28 @@ export function augmentPathForOpencode(): void {
 
 type OpencodeServerHandle = { url: string; close(): void };
 
+/**
+ * Internal-only authority for the coordinator's already authenticated,
+ * persisted one-shot consent.  It intentionally cannot carry a bearer or be
+ * decoded from an HTTP body.  The coordinator creates this capability from
+ * its exact durable plan/native binding and this service invokes it at every
+ * managed prompt boundary.
+ */
+export interface PersistedManagedConsentAuthority {
+  readonly kind: 'one_shot_workstream';
+  readonly actorUserId: number;
+  validate(input: {
+    phase: 'prepare' | 'before_sdk' | 'sdk_exposure';
+    scope: Omit<ManagedContextScope, 'dispatchId' | 'sdkTurnId'>;
+    workerJobId: string | undefined;
+  }): boolean | Promise<boolean>;
+}
+
 export interface ManagedPromptDispatchContext {
-  auth: AuthContext;
+  /** Existing interactive managed path; unchanged when present. */
+  auth?: AuthContext;
+  /** Narrow saved-consent capability for exactly one coordinator worker. */
+  persistedConsent?: PersistedManagedConsentAuthority;
   scope: Omit<ManagedContextScope, 'dispatchId' | 'sdkTurnId'>;
   records: Pick<ManagedWorkstreamContextRepository, 'append' | 'enroll' | 'markUnsafe' | 'read'>;
   policy: {
@@ -773,6 +793,31 @@ export interface ManagedPromptDispatchContext {
   }) => void;
   /** Identifier-only dependencies that must be durable before prompt exposure. */
   initialReferences?: ManagedContextReference[];
+}
+
+async function managedAuthorityIsCurrent(
+  managed: ManagedPromptDispatchContext,
+  scope: Omit<ManagedContextScope, 'dispatchId' | 'sdkTurnId'>,
+  phase: 'prepare' | 'before_sdk' | 'sdk_exposure',
+): Promise<boolean> {
+  // Never blend a saved capability with a bearer-backed path.  Either exact
+  // authority shape may authorize a worker, but no caller can weaken one by
+  // supplying a partial version of the other.
+  if (Boolean(managed.auth) === Boolean(managed.persistedConsent)) return false;
+  if (managed.auth) {
+    return !!managed.auth.sessionToken && managed.auth.user.id === scope.ownerUserId;
+  }
+  const consent = managed.persistedConsent;
+  if (
+    !consent || consent.kind !== 'one_shot_workstream' ||
+    !Number.isSafeInteger(consent.actorUserId) || consent.actorUserId !== scope.ownerUserId ||
+    scope.role !== 'worker' || !managed.workerJobId
+  ) return false;
+  try {
+    return (await consent.validate({ phase, scope, workerJobId: managed.workerJobId })) === true;
+  } catch {
+    return false;
+  }
 }
 
 interface CurrentManagedDispatchRow {
@@ -801,20 +846,19 @@ interface CurrentManagedDispatchRow {
   workstream_revision: number;
 }
 
-function assertCurrentManagedPromptDispatch(
+async function assertCurrentManagedPromptDispatch(
   managed: ManagedPromptDispatchContext,
   scope: ManagedContextScope,
   sdkUserMessageId: string,
   sdkSessionId: string,
-): void {
+): Promise<void> {
   const currentEpoch = managed.policy.currentHostEpoch();
   if (
     !managed.captureReady ||
     !managed.policy.enabled() ||
     managed.policy.dbClient !== 'sqlite' ||
     (managed.policy.role !== 'local' && managed.policy.role !== 'all') ||
-    !managed.auth.sessionToken ||
-    managed.auth.user.id !== scope.ownerUserId ||
+    !(await managedAuthorityIsCurrent(managed, scope, 'before_sdk')) ||
     (scope.role !== 'parent' && scope.role !== 'worker') ||
     (scope.role === 'worker' && !managed.workerJobId) ||
     scope.sdkTurnId !== null ||
@@ -2361,8 +2405,7 @@ export class OpencodeClientService {
           !managed.policy.enabled() ||
           managed.policy.dbClient !== 'sqlite' ||
           (managed.policy.role !== 'local' && managed.policy.role !== 'all') ||
-          !managed.auth.sessionToken ||
-          managed.auth.user.id !== managed.scope.ownerUserId ||
+          !(await managedAuthorityIsCurrent(managed, managed.scope, 'prepare')) ||
           (managed.scope.role !== 'parent' && managed.scope.role !== 'worker') ||
           (managed.scope.role === 'worker' && !managed.workerJobId) ||
           managed.scope.sdkSessionId !== sessionId ||
@@ -2437,7 +2480,7 @@ export class OpencodeClientService {
     if (managed) {
       try {
         if (!managedScope || !managedMessageID) throw new Error('managed prompt scope unavailable');
-        assertCurrentManagedPromptDispatch(managed, managedScope, managedMessageID, sessionId);
+        await assertCurrentManagedPromptDispatch(managed, managedScope, managedMessageID, sessionId);
       } catch {
         settleDispatch(managedDispatchId, 'rejected');
         throw new Error('OpencodeClientService: managed prompt authority changed — prompt not sent');
@@ -2450,6 +2493,9 @@ export class OpencodeClientService {
     if (managed) {
       try {
         assertManagedSdkSessionMayBeExposed(sessionId, managedDispatchId);
+        if (!managedScope || !(await managedAuthorityIsCurrent(managed, managedScope, 'sdk_exposure'))) {
+          throw new Error('managed prompt scope unavailable');
+        }
       } catch {
         settleDispatch(dispatchId, 'rejected');
         throw new Error('OpencodeClientService: managed SDK session reuse refused — prompt not sent');
@@ -2522,8 +2568,7 @@ export class OpencodeClientService {
           !managed.policy.enabled() ||
           managed.policy.dbClient !== 'sqlite' ||
           (managed.policy.role !== 'local' && managed.policy.role !== 'all') ||
-          !managed.auth.sessionToken ||
-          managed.auth.user.id !== managed.scope.ownerUserId ||
+          !(await managedAuthorityIsCurrent(managed, managed.scope, 'prepare')) ||
           (managed.scope.role !== 'parent' && managed.scope.role !== 'worker') ||
           (managed.scope.role === 'worker' && !managed.workerJobId) ||
           managed.scope.sdkSessionId !== sessionId ||
@@ -2606,7 +2651,7 @@ export class OpencodeClientService {
     if (managed) {
       try {
         if (!managedScope || !managedMessageID) throw new Error('managed prompt scope unavailable');
-        assertCurrentManagedPromptDispatch(managed, managedScope, managedMessageID, sessionId);
+        await assertCurrentManagedPromptDispatch(managed, managedScope, managedMessageID, sessionId);
       } catch {
         settleDispatch(managedDispatchId, 'rejected');
         throw new Error('OpencodeClientService: managed prompt authority changed — prompt not sent');
@@ -2618,6 +2663,9 @@ export class OpencodeClientService {
     if (managed) {
       try {
         assertManagedSdkSessionMayBeExposed(sessionId, managedDispatchId);
+        if (!managedScope || !(await managedAuthorityIsCurrent(managed, managedScope, 'sdk_exposure'))) {
+          throw new Error('managed prompt scope unavailable');
+        }
       } catch {
         settleDispatch(dispatchId, 'rejected');
         throw new Error('OpencodeClientService: managed SDK session reuse refused — prompt not sent');

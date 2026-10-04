@@ -6,6 +6,14 @@ import type {
   WorkstreamReferenceInput,
   WorkstreamRunPolicy,
 } from '../contracts/agent_workstream_contract';
+import {
+  type OneShotAutomationPlan,
+  type OneShotAutomationRequest,
+} from '../contracts/agent_workstream_automation_contract';
+import {
+  evaluateOneShotAutomation,
+  type OneShotAutomationDecision,
+} from './workstream_automation_policy';
 import type { NativeTerminationReceipt } from '../shared_agents/native_workstream_job_contract';
 import {
   AgentBridgeJobsRepository,
@@ -51,6 +59,7 @@ import {
 import type {
   OpencodeClientService,
   OpencodeEngineIdentity,
+  PersistedManagedConsentAuthority,
 } from './opencode_client_service';
 import { opencodeSessionMap } from './opencode_engine';
 
@@ -109,6 +118,13 @@ export interface WorkstreamStatusView {
   budget: CoordinatorBudgetState;
 }
 
+export interface WorkstreamAutomationStatusView {
+  workstreamId: string;
+  revision: number;
+  plan: OneShotAutomationPlan | null;
+  decision: OneShotAutomationDecision;
+}
+
 export interface WorkstreamEvidenceView {
   selector: string;
   available: boolean;
@@ -163,6 +179,26 @@ export interface WorkstreamRunRequest {
   policy: WorkstreamRunPolicy;
   references: WorkstreamReferenceInput[];
 }
+
+/**
+ * The only non-interactive path is a consumed, server-created one-shot plan.
+ * It deliberately has no bearer/session token: the SDK boundary receives a
+ * narrow, synchronous capability that re-reads the durable plan and native
+ * binding immediately before inference.
+ */
+type WorkstreamDispatchAuthority =
+  | {
+    kind: 'interactive';
+    ownerUserId: number;
+    auth: AuthContext;
+    acknowledgementAt: string | null;
+  }
+  | {
+    kind: 'one_shot_automation';
+    ownerUserId: number;
+    plan: OneShotAutomationPlan;
+    acknowledgementAt: string;
+  };
 
 export interface PersistentWorkstreamCoordinatorDependencies {
   engine: Pick<
@@ -219,6 +255,8 @@ export class PersistentWorkstreamCoordinator {
   private disposed = false;
   private reconciliationGeneration = 0;
   private restartReconciliationInFlight: Promise<RestartReconciliationResult> | null = null;
+  private automationSweepInFlight: Promise<void> | null = null;
+  private automationSweepCursor: string | undefined;
 
   constructor(private readonly dependencies: PersistentWorkstreamCoordinatorDependencies) {
     this.hostEpoch = dependencies.hostEpoch ?? randomUUID();
@@ -454,6 +492,289 @@ export class PersistentWorkstreamCoordinator {
     return this.view(refreshed, await this.readiness());
   }
 
+  /** Save a single server-resolved future authorization; saving never dispatches. */
+  async configureAutomation(
+    auth: AuthContext,
+    projectId: string,
+    workstreamId: string,
+    requested: OneShotAutomationRequest,
+  ): Promise<WorkstreamAutomationStatusView> {
+    this.assertActor(auth);
+    const initial = this.requireWorkstream(auth.user.id, projectId, workstreamId);
+    if (initial.revision !== requested.expectedRevision || initial.state !== 'ready') {
+      throw AppError.conflict('workstream is not ready at the requested revision');
+    }
+    if (this.hasActiveCoordinatorJob(initial)) {
+      throw AppError.conflict('workstream has an active or uncertain worker');
+    }
+    const parent = this.resolveParent(auth.user.id, projectId, requested.parentSessionId);
+    const profile = this.resolveProfile(requested.targetProfileId);
+    if (this.profileBlockReason(profile)) throw AppError.conflict('target profile is unavailable');
+    const profileScope = await (this.dependencies.profileScopeResolver ?? resolveProfileScope)(profile.id);
+    if (
+      profileScope.model.providerID !== requested.requestedModel.providerId ||
+      profileScope.model.modelID !== requested.requestedModel.modelId
+    ) {
+      throw AppError.conflict('selected profile no longer resolves to the requested model');
+    }
+    const current = this.requireWorkstream(auth.user.id, projectId, workstreamId);
+    const currentProfile = this.resolveProfile(profile.id);
+    let currentParent: AgentSession;
+    try {
+      currentParent = this.resolveParent(auth.user.id, projectId, parent.id);
+    } catch {
+      throw AppError.conflict('selected parent session changed while saving automation');
+    }
+    if (
+      current.revision !== initial.revision || current.state !== 'ready' ||
+      !this.profileStillAuthorized(currentProfile) ||
+      (currentProfile.revision ?? 1) !== (profile.revision ?? 1) ||
+      currentParent.sdkSessionId !== parent.sdkSessionId || Date.now() >= Date.parse(requested.dueAt)
+    ) {
+      throw AppError.conflict('workstream or target profile changed while saving automation');
+    }
+    const requestedPolicy: WorkstreamRunPolicy = {
+      maxTurns: 1,
+      maxWallTimeSeconds: requested.maxWallTimeSeconds,
+      maxTokens: requested.maxTokens,
+      queueDeadlineAt: requested.expiresAt,
+    };
+    const admission = this.admissionPolicy(current, requestedPolicy);
+    if ('reason' in admission || admission.policy.maxTokens !== requested.maxTokens) {
+      throw AppError.conflict('current authorized budget cannot reserve the selected automation');
+    }
+    const acknowledgedAt = new Date().toISOString();
+    const plan: OneShotAutomationPlan = {
+      ...requested,
+      schemaVersion: 1,
+      planId: randomUUID(),
+      workstreamId: current.id,
+      // Parent lookup normalizes a paired mobile SDK handle to the durable
+      // local root id before it can become a saved authority.
+      parentSessionId: parent.id,
+      requestedModel: {
+        providerId: profileScope.model.providerID,
+        modelId: profileScope.model.modelID,
+      },
+      resolvedModel: {
+        providerId: profileScope.model.providerID,
+        modelId: profileScope.model.modelID,
+      },
+      workstreamRevision: current.revision,
+      targetProfileRevision: currentProfile.revision ?? 1,
+      acknowledgedByUserId: auth.user.id,
+      acknowledgedAt,
+      status: 'scheduled',
+    };
+    const saved = this.workstreams.configureAutomation({
+      ownerUserId: auth.user.id,
+      projectId,
+      id: current.id,
+      expectedRevision: current.revision,
+      plan,
+    });
+    if (saved.conflict || !saved.row) {
+      throw AppError.conflict('workstream automation changed; refresh before saving');
+    }
+    // Persisting consent is deliberately inert: it must not initiate a
+    // restart/status reconciliation just to decorate the save response.
+    return this.automationStatusFor(saved.row, this.unprobedAutomationReadiness());
+  }
+
+  async disableAutomation(
+    auth: AuthContext,
+    projectId: string,
+    workstreamId: string,
+    expectedRevision: number,
+    planId: string,
+  ): Promise<WorkstreamAutomationStatusView> {
+    this.assertActor(auth);
+    const row = this.workstreams.disableAutomation({
+      ownerUserId: auth.user.id,
+      projectId,
+      id: workstreamId,
+      expectedRevision,
+      planId,
+    });
+    if (!row) throw AppError.conflict('workstream automation changed; refresh before disabling');
+    // Disabling is likewise a durable control write only.  A later explicit
+    // status/readiness action may probe runtime state.
+    return this.automationStatusFor(row, this.unprobedAutomationReadiness());
+  }
+
+  async automationStatus(
+    auth: AuthContext,
+    projectId: string,
+    workstreamId: string,
+  ): Promise<WorkstreamAutomationStatusView> {
+    this.assertActor(auth);
+    const row = this.requireWorkstream(auth.user.id, projectId, workstreamId);
+    return this.automationStatusFor(row, await this.readiness());
+  }
+
+  /**
+   * Existing minute scheduler callback.  It has no timer of its own, never
+   * scans when the local coordinator is off, and coalesces concurrent ticks.
+   */
+  async sweepOneShotAutomation(): Promise<void> {
+    if (this.automationSweepInFlight) return this.automationSweepInFlight;
+    if (
+      this.disposed || !this.dependencies.enabled() || this.dependencies.dbClient !== 'sqlite' ||
+      (this.dependencies.role !== 'local' && this.dependencies.role !== 'all')
+    ) return;
+    const pending = this.performOneShotAutomationSweep();
+    this.automationSweepInFlight = pending;
+    try {
+      await pending;
+    } finally {
+      if (this.automationSweepInFlight === pending) this.automationSweepInFlight = null;
+    }
+  }
+
+  private async performOneShotAutomationSweep(): Promise<void> {
+    // A bounded page prevents the legacy minute job from becoming a new queue
+    // executor.  The cursor rotates only through opted-in rows.
+    const candidates = this.workstreams.listAutomationCandidates(20, this.automationSweepCursor);
+    if (candidates.length === 0 && this.automationSweepCursor) {
+      this.automationSweepCursor = undefined;
+      return;
+    }
+    this.automationSweepCursor = candidates.length === 20 ? candidates.at(-1)?.workstream.id : undefined;
+    for (const candidate of candidates) {
+      if (this.disposed || !this.dependencies.enabled()) return;
+      const plan = candidate.automation.plan;
+      if (!plan || candidate.automation.serialized === null) continue;
+      if (plan.status === 'consumed') {
+        // Consumption is a once-only admission receipt, not a terminal
+        // receipt.  A later scheduler tick may inspect only the exact active
+        // child it admitted so durable actual usage can be recorded.  It
+        // cannot create, retry, wake, or reconcile an unknown worker.
+        await this.reconcileConsumedOneShotAutomation(candidate.workstream, plan);
+        continue;
+      }
+      if (plan.status !== 'scheduled') continue;
+      // A future authorization is inert.  Do not touch engine/MCP status
+      // before its due instant merely because the existing minute scheduler
+      // happened to tick.
+      const now = Date.now();
+      if (now < Date.parse(plan.dueAt)) continue;
+      if (now >= Date.parse(plan.expiresAt)) {
+        this.workstreams.blockAutomation({
+          ownerUserId: candidate.workstream.ownerUserId,
+          projectId: candidate.workstream.projectId,
+          id: candidate.workstream.id,
+          expectedRevision: candidate.workstream.revision,
+          planId: plan.planId,
+          serialized: candidate.automation.serialized,
+          reason: 'automation_expired',
+        });
+        continue;
+      }
+      const readiness = await this.readiness();
+      const decision = await this.automationDecisionFor(candidate.workstream, candidate.automation.value, readiness);
+      if (decision.status === 'off' || decision.status === 'scheduled' ||
+          decision.status === 'consumed' || decision.status === 'disabled') continue;
+      if (decision.status === 'expired' || decision.status === 'blocked') {
+        this.workstreams.blockAutomation({
+          ownerUserId: candidate.workstream.ownerUserId,
+          projectId: candidate.workstream.projectId,
+          id: candidate.workstream.id,
+          expectedRevision: candidate.workstream.revision,
+          planId: plan.planId,
+          serialized: candidate.automation.serialized,
+          reason: `automation_${decision.reason}`,
+        });
+        continue;
+      }
+      const consumed = this.workstreams.consumeAutomation({
+        ownerUserId: candidate.workstream.ownerUserId,
+        projectId: candidate.workstream.projectId,
+        id: candidate.workstream.id,
+        expectedRevision: candidate.workstream.revision,
+        planId: plan.planId,
+        serialized: candidate.automation.serialized,
+      });
+      if (!consumed) continue;
+      const consumedRecord = this.workstreams.getAutomation(
+        consumed.ownerUserId, consumed.projectId, consumed.id,
+      );
+      if (!consumedRecord?.plan || consumedRecord.plan.status !== 'consumed' || !consumedRecord.serialized) continue;
+      try {
+        await this.runNextAuthorized({
+          kind: 'one_shot_automation',
+          ownerUserId: consumed.ownerUserId,
+          plan: consumedRecord.plan,
+          acknowledgementAt: consumedRecord.plan.acknowledgedAt,
+        }, consumed.projectId, consumed.id, this.automationRunRequest(consumedRecord.plan, consumed));
+      } catch {
+        // The consumed record remains the once-only receipt.  If no native
+        // intent became visible, fence it for human review rather than retry.
+        const after = this.workstreams.find(consumed.ownerUserId, consumed.projectId, consumed.id);
+        if (after?.state === 'ready') {
+          this.workstreams.blockAutomation({
+            ownerUserId: consumed.ownerUserId,
+            projectId: consumed.projectId,
+            id: consumed.id,
+            expectedRevision: after.revision,
+            planId: consumedRecord.plan.planId,
+            serialized: consumedRecord.serialized,
+            reason: 'automation_dispatch_not_admitted',
+          });
+        }
+      }
+    }
+  }
+
+  /**
+   * The minute callback is allowed to observe an already-consumed run, but
+   * never to extend its authority.  Every field below is re-read from the
+   * owner-scoped durable row before the existing strict terminal-accounting
+   * path can touch the engine.  A user control revision, cancellation,
+   * unknown receipt, different command, or replacement last-job binding is
+   * therefore a no-op rather than a scheduler recovery attempt.
+   */
+  private async reconcileConsumedOneShotAutomation(
+    observed: AgentWorkstream,
+    observedPlan: OneShotAutomationPlan,
+  ): Promise<void> {
+    if (
+      this.disposed || !this.dependencies.enabled() || this.dependencies.dbClient !== 'sqlite' ||
+      (this.dependencies.role !== 'local' && this.dependencies.role !== 'all')
+    ) return;
+    const current = this.workstreams.find(observed.ownerUserId, observed.projectId, observed.id);
+    const record = current
+      ? this.workstreams.getAutomation(current.ownerUserId, current.projectId, current.id)
+      : null;
+    const plan = record?.plan;
+    if (
+      !current || !record?.serialized || !plan || plan.status !== 'consumed' ||
+      plan.planId !== observedPlan.planId || plan.authorizationKey !== observedPlan.authorizationKey ||
+      plan.workstreamId !== observedPlan.workstreamId ||
+      plan.workstreamRevision !== observedPlan.workstreamRevision ||
+      plan.workstreamId !== current.id || plan.expectedRevision !== plan.workstreamRevision ||
+      plan.workstreamRevision !== current.revision ||
+      plan.acknowledgedByUserId !== current.ownerUserId ||
+      current.executorEpoch !== this.hostEpoch || !current.lastJobId ||
+      (current.state !== 'queued' && current.state !== 'running' && current.state !== 'blocked') ||
+      current.stateReason === 'controls_revised'
+    ) return;
+    const job = this.jobs.getNativeForWorkstream({
+      localUserId: current.ownerUserId,
+      workstreamId: current.id,
+      jobId: current.lastJobId,
+    });
+    if (
+      !job || job.state !== 'claimed' && job.state !== 'running' || job.cancel_requested_at !== null ||
+      job.direction !== 'rhythm_to_native' || job.native_execution_kind !== 'coordinator' ||
+      job.local_user_id !== current.ownerUserId || job.workstream_id !== current.id ||
+      job.workstream_project_id !== current.projectId || job.workstream_revision !== current.revision ||
+      job.host_epoch !== this.hostEpoch || job.idempotency_key !== plan.authorizationKey ||
+      job.parent_session_id !== plan.parentSessionId || job.target_agent_id !== plan.targetProfileId ||
+      job.target_revision !== plan.targetProfileRevision
+    ) return;
+    await this.reconcileJob(current, job);
+  }
+
   async runNext(
     auth: AuthContext,
     projectId: string,
@@ -461,16 +782,35 @@ export class PersistentWorkstreamCoordinator {
     input: WorkstreamRunRequest,
   ): Promise<WorkstreamStatusView> {
     this.assertActor(auth);
+    return this.runNextAuthorized({
+      kind: 'interactive',
+      ownerUserId: auth.user.id,
+      auth,
+      acknowledgementAt: null,
+    }, projectId, workstreamId, input);
+  }
+
+  /** Shared explicit/saved-consent admission; only the public wrapper owns bearer auth. */
+  private async runNextAuthorized(
+    authority: WorkstreamDispatchAuthority,
+    projectId: string,
+    workstreamId: string,
+    input: WorkstreamRunRequest,
+  ): Promise<WorkstreamStatusView> {
+    const ownerUserId = authority.ownerUserId;
     if (input.softTokenBudgetAcknowledged !== true) {
       throw AppError.badRequest('Run next requires explicit acknowledgement of the soft total-token authorization');
     }
-    const initial = this.requireWorkstream(auth.user.id, projectId, workstreamId);
+    const initial = this.requireWorkstream(ownerUserId, projectId, workstreamId);
     if (initial.revision !== input.expectedRevision) {
       throw AppError.conflict('workstream revision changed; refresh before Run next');
     }
+    if (authority.kind === 'one_shot_automation' && !this.oneShotAdmissionStillAuthorized(authority.plan, initial, input)) {
+      throw AppError.conflict('saved one-shot authorization is no longer current');
+    }
     const existingQueued = initial.lastJobId
       ? this.jobs.getNativeForWorkstream({
-          localUserId: auth.user.id,
+          localUserId: ownerUserId,
           workstreamId,
           jobId: initial.lastJobId,
         })
@@ -484,6 +824,9 @@ export class PersistentWorkstreamCoordinator {
       throw AppError.conflict('workstream is not ready for a new explicit Run next');
     }
     if (retryingQueuedIntent) {
+      if (authority.kind === 'one_shot_automation') {
+        throw AppError.conflict('a consumed scheduled authorization cannot retry a queued worker');
+      }
       if (!existingQueued || existingQueued.idempotency_key !== input.commandKey) {
         throw AppError.conflict('the queued worker has a different command key');
       }
@@ -494,7 +837,7 @@ export class PersistentWorkstreamCoordinator {
       this.publishRuntime(initial, initial.lastJobId, 'blocked', admission.reason, {
         expectedStates: ['ready', 'blocked', 'unknown'],
       });
-      return this.view(this.requireWorkstream(auth.user.id, projectId, workstreamId), await this.readiness());
+      return this.view(this.requireWorkstream(ownerUserId, projectId, workstreamId), await this.readiness());
     }
     const policy = admission?.policy ?? input.policy;
     const budgetAuthorization = admission?.budget.authorizedTokens ?? input.policy.maxTokens;
@@ -504,17 +847,17 @@ export class PersistentWorkstreamCoordinator {
       this.publishRuntime(initial, initial.lastJobId, 'blocked', readiness.reason ?? 'coordinator_unavailable', {
         expectedStates: retryingQueuedIntent ? ['queued', 'blocked'] : ['ready'],
       });
-      return this.view(this.requireWorkstream(auth.user.id, projectId, workstreamId), readiness);
+      return this.view(this.requireWorkstream(ownerUserId, projectId, workstreamId), readiness);
     }
 
-    const parent = this.resolveParent(auth.user.id, projectId, input.parentSessionId);
+    const parent = this.resolveParent(ownerUserId, projectId, input.parentSessionId);
     const profile = this.resolveProfile(input.targetProfileId);
     const profileBlock = this.profileBlockReason(profile);
     if (profileBlock) {
       this.publishRuntime(initial, initial.lastJobId, 'blocked', profileBlock, {
         expectedStates: retryingQueuedIntent ? ['queued', 'blocked'] : ['ready'],
       });
-      return this.view(this.requireWorkstream(auth.user.id, projectId, workstreamId), readiness);
+      return this.view(this.requireWorkstream(ownerUserId, projectId, workstreamId), readiness);
     }
 
     let references: ManagedContextReference[];
@@ -532,7 +875,7 @@ export class PersistentWorkstreamCoordinator {
       this.publishRuntime(initial, initial.lastJobId, 'blocked', this.referenceFailureReason(error), {
         expectedStates: retryingQueuedIntent ? ['queued', 'blocked'] : ['ready'],
       });
-      return this.view(this.requireWorkstream(auth.user.id, projectId, workstreamId), readiness);
+      return this.view(this.requireWorkstream(ownerUserId, projectId, workstreamId), readiness);
     }
     // This is only a conservative preflight against the already assembled
     // authored control. It is not a complete input or total-use estimate:
@@ -541,14 +884,14 @@ export class PersistentWorkstreamCoordinator {
       this.publishRuntime(initial, initial.lastJobId, 'blocked', 'token_authorization_below_authored_control_estimate', {
         expectedStates: retryingQueuedIntent ? ['queued', 'blocked'] : ['ready'],
       });
-      return this.view(this.requireWorkstream(auth.user.id, projectId, workstreamId), readiness);
+      return this.view(this.requireWorkstream(ownerUserId, projectId, workstreamId), readiness);
     }
 
     // Resolve the actual request model before the durable intent is written.
     // This is the resolved per-profile request, not a guess made from a later
     // terminal message; the served identity is recorded independently.
     const profileScope = await (this.dependencies.profileScopeResolver ?? resolveProfileScope)(profile.id);
-    const currentBeforeIntent = this.requireWorkstream(auth.user.id, projectId, workstreamId);
+    const currentBeforeIntent = this.requireWorkstream(ownerUserId, projectId, workstreamId);
     if (
       currentBeforeIntent.revision !== initial.revision ||
       (!retryingQueuedIntent && currentBeforeIntent.state !== 'ready') ||
@@ -561,7 +904,7 @@ export class PersistentWorkstreamCoordinator {
       this.publishRuntime(currentBeforeIntent, currentBeforeIntent.lastJobId, 'blocked', 'target_profile_changed_during_preparation', {
         expectedStates: retryingQueuedIntent ? ['queued', 'blocked'] : ['ready'],
       });
-      return this.view(this.requireWorkstream(auth.user.id, projectId, workstreamId), readiness);
+      return this.view(this.requireWorkstream(ownerUserId, projectId, workstreamId), readiness);
     }
     // Re-probe immediately before durable admission. A captured flag/profile
     // cannot authorize a worker after asynchronous source/model preparation.
@@ -571,9 +914,9 @@ export class PersistentWorkstreamCoordinator {
         readiness.reason ?? 'coordinator_unavailable', {
           expectedStates: retryingQueuedIntent ? ['queued', 'blocked'] : ['ready'],
         });
-      return this.view(this.requireWorkstream(auth.user.id, projectId, workstreamId), readiness);
+      return this.view(this.requireWorkstream(ownerUserId, projectId, workstreamId), readiness);
     }
-    const currentAtAdmission = this.requireWorkstream(auth.user.id, projectId, workstreamId);
+    const currentAtAdmission = this.requireWorkstream(ownerUserId, projectId, workstreamId);
     if (
       currentAtAdmission.revision !== initial.revision ||
       (!retryingQueuedIntent && currentAtAdmission.state !== 'ready') ||
@@ -584,7 +927,7 @@ export class PersistentWorkstreamCoordinator {
     const now = new Date().toISOString();
     const targetRevision = currentProfile.revision ?? 1;
     const native = this.jobs.createNativeOrReplay({
-      localUserId: auth.user.id,
+      localUserId: ownerUserId,
       workstreamId,
       projectId,
       capturedRevision: currentAtAdmission.revision,
@@ -608,8 +951,8 @@ export class PersistentWorkstreamCoordinator {
       throw AppError.conflict('workstream is not ready for a new explicit Run next');
     }
     const acknowledgementAt = native.replay
-      ? this.replaySoftTokenAcknowledgementAt(native.row, auth.user.id)
-      : now;
+      ? this.replaySoftTokenAcknowledgementAt(native.row, ownerUserId)
+      : authority.acknowledgementAt ?? now;
     if (!acknowledgementAt) {
       throw AppError.conflict('queued worker lacks a durable soft total-token acknowledgement');
     }
@@ -621,11 +964,11 @@ export class PersistentWorkstreamCoordinator {
       parent,
       assembled,
       profileScope,
-      auth.user.id,
+      ownerUserId,
       acknowledgementAt,
     );
     const configured = this.jobs.configureCoordinatorNativeJob({
-      localUserId: auth.user.id,
+      localUserId: ownerUserId,
       workstreamId,
       jobId: native.row.id,
       metadata,
@@ -635,7 +978,7 @@ export class PersistentWorkstreamCoordinator {
     // Replays are owned by the native ledger. A different key cannot piggyback
     // on an active workstream, and a replay never sends another prompt.
     if (TERMINAL_JOB_STATES.has(configured.state) || configured.state === 'running' || configured.state === 'unknown') {
-      return this.view(this.requireWorkstream(auth.user.id, projectId, workstreamId), readiness);
+      return this.view(this.requireWorkstream(ownerUserId, projectId, workstreamId), readiness);
     }
 
     const queued = this.publishRuntime(currentAtAdmission, configured.id, 'queued', null, {
@@ -645,20 +988,20 @@ export class PersistentWorkstreamCoordinator {
     });
     if (!queued) {
       this.jobs.markCoordinatorUnknown({
-        localUserId: auth.user.id,
+        localUserId: ownerUserId,
         workstreamId,
         jobId: configured.id,
         reason: 'dispatch_controls_changed_before_claim',
         now: new Date().toISOString(),
       });
-      return this.view(this.requireWorkstream(auth.user.id, projectId, workstreamId), readiness);
+      return this.view(this.requireWorkstream(ownerUserId, projectId, workstreamId), readiness);
     }
 
     // This status-only probe belongs exclusively to this explicit Run next.
     // It cannot start, retry, complete, or wake legacy work.  The repository
     // will re-read every qualifying durable row inside its claim transaction.
     const legacyCapacityAssessment = await this.assessLegacyCoordinatorCapacity(readiness);
-    const controlsAfterCapacityProbe = this.requireWorkstream(auth.user.id, projectId, workstreamId);
+    const controlsAfterCapacityProbe = this.requireWorkstream(ownerUserId, projectId, workstreamId);
     if (
       controlsAfterCapacityProbe.revision !== queued.revision ||
       controlsAfterCapacityProbe.state !== 'queued' ||
@@ -676,14 +1019,14 @@ export class PersistentWorkstreamCoordinator {
         expectedStates: ['queued'],
         executorEpoch: this.hostEpoch,
       });
-      return this.view(this.requireWorkstream(auth.user.id, projectId, workstreamId), readiness);
+      return this.view(this.requireWorkstream(ownerUserId, projectId, workstreamId), readiness);
     }
     if (!this.profileStillAuthorized(currentProfile)) {
       this.publishRuntime(queued, configured.id, 'blocked', 'target_profile_changed_during_preparation', {
         expectedStates: ['queued'],
         executorEpoch: this.hostEpoch,
       });
-      return this.view(this.requireWorkstream(auth.user.id, projectId, workstreamId), readiness);
+      return this.view(this.requireWorkstream(ownerUserId, projectId, workstreamId), readiness);
     }
     if (
       legacyCapacityAssessment &&
@@ -693,12 +1036,12 @@ export class PersistentWorkstreamCoordinator {
       // current host-global slot.  Preserve the unexecuted intent as unknown
       // rather than replaying it under the changed runtime identity.
       this.markUnknown(queued, configured, 'capacity_engine_identity_changed_before_claim');
-      return this.view(this.requireWorkstream(auth.user.id, projectId, workstreamId), readiness);
+      return this.view(this.requireWorkstream(ownerUserId, projectId, workstreamId), readiness);
     }
     let claim: { row: AgentBridgeJobRow; admitted: boolean };
     try {
       claim = this.jobs.claimCoordinatorForExplicitDispatch({
-        localUserId: auth.user.id,
+        localUserId: ownerUserId,
         workstreamId,
         jobId: configured.id,
         hostEpoch: this.hostEpoch,
@@ -708,24 +1051,24 @@ export class PersistentWorkstreamCoordinator {
       });
     } catch {
       this.jobs.markCoordinatorUnknown({
-        localUserId: auth.user.id,
+        localUserId: ownerUserId,
         workstreamId,
         jobId: configured.id,
         reason: 'dispatch_controls_changed_before_claim',
         now: new Date().toISOString(),
       });
-      return this.view(this.requireWorkstream(auth.user.id, projectId, workstreamId), readiness);
+      return this.view(this.requireWorkstream(ownerUserId, projectId, workstreamId), readiness);
     }
     if (!claim.admitted) {
       this.publishRuntime(queued, configured.id, 'queued', 'worker_capacity_full', {
         expectedStates: ['queued'],
         executorEpoch: this.hostEpoch,
       });
-      return this.view(this.requireWorkstream(auth.user.id, projectId, workstreamId), readiness);
+      return this.view(this.requireWorkstream(ownerUserId, projectId, workstreamId), readiness);
     }
 
     await this.dispatchFreshWorker({
-      auth,
+      authority,
       workstream: queued,
       parent,
       profile: currentProfile,
@@ -734,7 +1077,7 @@ export class PersistentWorkstreamCoordinator {
       assembled,
       declaredReferences: input.references,
     });
-    return this.view(this.requireWorkstream(auth.user.id, projectId, workstreamId), readiness);
+    return this.view(this.requireWorkstream(ownerUserId, projectId, workstreamId), readiness);
   }
 
   async pause(
@@ -1387,6 +1730,256 @@ export class PersistentWorkstreamCoordinator {
     }
   }
 
+  private hasActiveCoordinatorJob(workstream: AgentWorkstream): boolean {
+    return this.jobs.listNativeForWorkstream({
+      localUserId: workstream.ownerUserId,
+      workstreamId: workstream.id,
+    }).some((job) => ACTIVE_JOB_STATES.has(job.state));
+  }
+
+  private oneShotAdmissionStillAuthorized(
+    plan: OneShotAutomationPlan,
+    workstream: AgentWorkstream,
+    input: WorkstreamRunRequest,
+  ): boolean {
+    const stored = this.workstreams.getAutomation(workstream.ownerUserId, workstream.projectId, workstream.id)?.plan;
+    return !!stored && stored.planId === plan.planId && stored.status === 'consumed' &&
+      stored.workstreamId === workstream.id && stored.workstreamRevision === workstream.revision &&
+      stored.acknowledgedByUserId === workstream.ownerUserId && workstream.state === 'ready' &&
+      input.commandKey === stored.authorizationKey && input.parentSessionId === stored.parentSessionId &&
+      input.targetProfileId === stored.targetProfileId && input.expectedRevision === stored.workstreamRevision &&
+      input.policy.maxTurns === 1 && input.policy.maxWallTimeSeconds === stored.maxWallTimeSeconds &&
+      input.policy.maxTokens === stored.maxTokens && input.policy.queueDeadlineAt === stored.expiresAt &&
+      Date.now() >= Date.parse(stored.dueAt) && Date.now() < Date.parse(stored.expiresAt);
+  }
+
+  private automationRunRequest(
+    plan: OneShotAutomationPlan,
+    workstream: AgentWorkstream,
+  ): WorkstreamRunRequest {
+    return {
+      expectedRevision: workstream.revision,
+      commandKey: plan.authorizationKey,
+      targetProfileId: plan.targetProfileId,
+      parentSessionId: plan.parentSessionId,
+      softTokenBudgetAcknowledged: true,
+      policy: {
+        maxTurns: 1,
+        maxWallTimeSeconds: plan.maxWallTimeSeconds,
+        maxTokens: plan.maxTokens,
+        queueDeadlineAt: plan.expiresAt,
+      },
+      references: workstream.checkpoint.references.map((reference) => ({ ...reference })),
+    };
+  }
+
+  private async automationStatusFor(
+    workstream: AgentWorkstream,
+    readiness: WorkstreamReadiness,
+  ): Promise<WorkstreamAutomationStatusView> {
+    const record = this.workstreams.getAutomation(workstream.ownerUserId, workstream.projectId, workstream.id);
+    return {
+      workstreamId: workstream.id,
+      revision: workstream.revision,
+      plan: record?.plan ?? null,
+      decision: await this.automationDecisionFor(workstream, record?.value ?? null, readiness),
+    };
+  }
+
+  /** Current facts come from existing scoped repositories; no scheduler state is trusted. */
+  private async automationDecisionFor(
+    workstream: AgentWorkstream,
+    planValue: unknown,
+    readiness: WorkstreamReadiness,
+  ): Promise<OneShotAutomationDecision> {
+    const record = this.workstreams.getAutomation(workstream.ownerUserId, workstream.projectId, workstream.id);
+    const plan = record?.plan ?? null;
+    let parentSessionId: string | null = null;
+    let profile: { id: string; revision: number; model: { providerId: string; modelId: string } } | null = null;
+    if (plan) {
+      try {
+        parentSessionId = this.resolveParent(
+          workstream.ownerUserId, workstream.projectId, plan.parentSessionId,
+        ).id;
+      } catch {
+        parentSessionId = null;
+      }
+      try {
+        const currentProfile = this.resolveProfile(plan.targetProfileId);
+        if (!this.profileBlockReason(currentProfile)) {
+          const scope = await (this.dependencies.profileScopeResolver ?? resolveProfileScope)(currentProfile.id);
+          profile = {
+            id: currentProfile.id,
+            revision: currentProfile.revision ?? 1,
+            model: { providerId: scope.model.providerID, modelId: scope.model.modelID },
+          };
+        }
+      } catch {
+        profile = null;
+      }
+    }
+    const requested: WorkstreamRunPolicy | null = plan
+      ? {
+        maxTurns: 1,
+        maxWallTimeSeconds: plan.maxWallTimeSeconds,
+        maxTokens: plan.maxTokens,
+        queueDeadlineAt: plan.expiresAt,
+      }
+      : null;
+    const admission = requested ? this.admissionPolicy(workstream, requested) : null;
+    const admissionEligible = !!requested && workstream.state === 'ready' && !this.hasActiveCoordinatorJob(workstream) &&
+      !!admission && !('reason' in admission) && admission.policy.maxTokens === requested.maxTokens;
+    // Candidate pages can be stale across awaited readiness/profile reads.
+    // Evaluate only the current repository value; the caller-supplied value
+    // is retained solely for the deliberately guarded no-record case.
+    return evaluateOneShotAutomation(record?.value ?? planValue, {
+      now: new Date(),
+      workstreamRevision: workstream.revision,
+      workstreamState: workstream.state,
+      parentSessionId,
+      profile,
+      runtimeEligible: readiness.available && readiness.engine !== null && !this.disposed,
+      admissionEligible,
+    });
+  }
+
+  /**
+   * A save/disable response must not turn into a hidden restart scan.  It is
+   * intentionally an unavailable runtime snapshot; only explicit status,
+   * Run preparation, or the existing scheduler callback can probe readiness.
+   */
+  private unprobedAutomationReadiness(): WorkstreamReadiness {
+    return {
+      available: false,
+      reason: 'runtime_not_probed',
+      hostEpoch: this.disposed ? null : this.hostEpoch,
+      engine: null,
+    };
+  }
+
+  private dispatchAuthorityStillAuthorized(
+    authority: WorkstreamDispatchAuthority,
+    workstream: AgentWorkstream,
+    parent: AgentSession,
+    profile: AgentConfig,
+    profileScope: ProfileScope,
+    job: AgentBridgeJobRow,
+  ): boolean {
+    if (authority.kind === 'interactive') return true;
+    return this.oneShotConsentStillAuthorized(authority.plan, workstream, parent, profile, profileScope, job);
+  }
+
+  private oneShotConsentStillAuthorized(
+    plan: OneShotAutomationPlan,
+    workstream: AgentWorkstream,
+    parent: AgentSession,
+    profile: AgentConfig,
+    profileScope: ProfileScope,
+    job: AgentBridgeJobRow,
+  ): boolean {
+    const current = this.workstreams.find(workstream.ownerUserId, workstream.projectId, workstream.id);
+    const stored = this.workstreams.getAutomation(workstream.ownerUserId, workstream.projectId, workstream.id)?.plan;
+    // `job` is the admission-time claim.  Child/session/dispatch binding is
+    // written later, so every control decision must inspect the current,
+    // owner-scoped native row rather than treating that stale claim as truth.
+    const currentJob = this.jobs.getNativeForWorkstream({
+      localUserId: workstream.ownerUserId,
+      workstreamId: workstream.id,
+      jobId: job.id,
+    });
+    const currentParent = this.sessions.findById(plan.parentSessionId);
+    if (
+      !current || !currentJob || !stored || stored.planId !== plan.planId || stored.status !== 'consumed' ||
+      stored.workstreamId !== workstream.id || stored.workstreamRevision !== workstream.revision ||
+      stored.acknowledgedByUserId !== workstream.ownerUserId ||
+      current.revision !== plan.workstreamRevision || current.executorEpoch !== this.hostEpoch ||
+      current.lastJobId !== currentJob.id || (current.state !== 'queued' && current.state !== 'running') ||
+      currentParent?.id !== parent.id || currentParent.ownerUserId !== workstream.ownerUserId ||
+      currentParent.projectId !== workstream.projectId || currentParent.parentSessionId !== null ||
+      currentParent.sdkSessionId !== parent.sdkSessionId ||
+      profile.id !== plan.targetProfileId || (profile.revision ?? 1) !== plan.targetProfileRevision ||
+      profileScope.model.providerID !== plan.resolvedModel.providerId ||
+      profileScope.model.modelID !== plan.resolvedModel.modelId || !this.profileStillAuthorized(profile) ||
+      !this.dependencies.enabled() || this.disposed || !this.captureReady() ||
+      this.dependencies.dbClient !== 'sqlite' ||
+      (this.dependencies.role !== 'local' && this.dependencies.role !== 'all') ||
+      !this.dependencies.engine.isReady || !this.dependencies.engine.hasOwnedEngine ||
+      currentJob.idempotency_key !== plan.authorizationKey || currentJob.direction !== 'rhythm_to_native' ||
+      currentJob.native_execution_kind !== 'coordinator' || currentJob.local_user_id !== workstream.ownerUserId ||
+      currentJob.workstream_id !== workstream.id || currentJob.workstream_project_id !== workstream.projectId ||
+      currentJob.workstream_revision !== workstream.revision || currentJob.host_epoch !== this.hostEpoch ||
+      currentJob.parent_session_id !== parent.id || currentJob.target_agent_id !== profile.id ||
+      (currentJob.state !== 'claimed' && currentJob.state !== 'running')
+    ) return false;
+    const now = Date.now();
+    return Number.isFinite(now) && now < Date.parse(plan.expiresAt) && Date.parse(plan.dueAt) <= now;
+  }
+
+  private persistedConsentAuthority(
+    plan: OneShotAutomationPlan,
+    workstream: AgentWorkstream,
+    parent: AgentSession,
+    job: AgentBridgeJobRow,
+  ): PersistedManagedConsentAuthority {
+    return {
+      kind: 'one_shot_workstream',
+      actorUserId: plan.acknowledgedByUserId,
+      validate: async ({ scope, workerJobId }) => {
+        const currentWorkerBinding = (): AgentBridgeJobRow | null => {
+          const current = this.jobs.getNativeForWorkstream({
+            localUserId: workstream.ownerUserId,
+            workstreamId: workstream.id,
+            jobId: job.id,
+          });
+          if (
+            !current || current.id !== job.id ||
+            current.native_child_session_id !== scope.sessionId ||
+            current.native_child_sdk_session_id !== scope.sdkSessionId
+          ) return null;
+          return current;
+        };
+        const currentProfileScope = async (): Promise<{ profile: AgentConfig; scope: ProfileScope } | null> => {
+          try {
+            const refreshedProfile = this.resolveProfile(plan.targetProfileId);
+            if (this.profileBlockReason(refreshedProfile)) return null;
+            const refreshedScope = await (this.dependencies.profileScopeResolver ?? resolveProfileScope)(
+              refreshedProfile.id,
+            );
+            return { profile: refreshedProfile, scope: refreshedScope };
+          } catch {
+            return null;
+          }
+        };
+        if (
+          workerJobId !== job.id || !currentWorkerBinding() ||
+          scope.ownerUserId !== workstream.ownerUserId || scope.projectId !== workstream.projectId ||
+          scope.workstreamId !== workstream.id || scope.workstreamRevision !== workstream.revision ||
+          scope.hostEpoch !== this.hostEpoch || scope.role !== 'worker'
+        ) return false;
+        const beforeIdentity = await currentProfileScope();
+        if (!beforeIdentity || !this.oneShotConsentStillAuthorized(
+          plan, workstream, parent, beforeIdentity.profile, beforeIdentity.scope, job,
+        )) return false;
+        try {
+          const identity = await this.dependencies.engine.getEngineIdentity();
+          // A profile resolver and engine identity are both awaited boundaries.
+          // Re-read the profile/model, controls, native binding, and runtime
+          // after them; an identical profile revision alone is not a model-pin
+          // proof when the resolver's answer has drifted.
+          const afterIdentity = await currentProfileScope();
+          const currentJob = currentWorkerBinding();
+          return !!identity && !!afterIdentity && !!currentJob &&
+            identity.bootId === currentJob.parent_runtime_instance &&
+            this.oneShotConsentStillAuthorized(
+              plan, workstream, parent, afterIdentity.profile, afterIdentity.scope, job,
+            );
+        } catch {
+          return false;
+        }
+      },
+    };
+  }
+
   /**
    * Current runtime authority for applying an already-observed terminal
    * result.  This is intentionally re-read after every awaited engine path;
@@ -1570,7 +2163,7 @@ export class PersistentWorkstreamCoordinator {
   }
 
   private async dispatchFreshWorker(input: {
-    auth: AuthContext;
+    authority: WorkstreamDispatchAuthority;
     workstream: AgentWorkstream;
     parent: AgentSession;
     profile: AgentConfig;
@@ -1579,13 +2172,14 @@ export class PersistentWorkstreamCoordinator {
     assembled: ReturnType<ManagedWorkstreamContextAssembler['assemble']>;
     declaredReferences: WorkstreamReferenceInput[];
   }): Promise<void> {
-    const { auth, workstream, parent, profile, profileScope, job, assembled, declaredReferences } = input;
+    const { authority, workstream, parent, profile, profileScope, job, assembled, declaredReferences } = input;
     // The source authority and controls are checked again directly before a
     // fresh session can expose the assembled metadata to an SDK request.
     try {
       const recheckedReferences = await this.resolveQualifiedReferences(workstream, declaredReferences);
       if (!this.sameReferences(recheckedReferences, assembled.references) ||
-          !this.dispatchStillAuthorized(workstream, job.id, profile)) {
+          !this.dispatchStillAuthorized(workstream, job.id, profile) ||
+          !this.dispatchAuthorityStillAuthorized(authority, workstream, parent, profile, profileScope, job)) {
         throw new WorkstreamArtifactResolutionError('dispatch_preparation_fenced');
       }
     } catch (error) {
@@ -1628,7 +2222,10 @@ export class PersistentWorkstreamCoordinator {
       sdkSessionId = created.id;
       // Session creation is not an inference. Still, a user control or flag
       // drift after this await wins and prevents the prompt from being sent.
-      if (!this.dispatchStillAuthorized(workstream, job.id, profile)) {
+      if (
+        !this.dispatchStillAuthorized(workstream, job.id, profile) ||
+        !this.dispatchAuthorityStillAuthorized(authority, workstream, parent, profile, profileScope, job)
+      ) {
         throw new Error('dispatch_controls_changed_before_prompt');
       }
       this.sessions.setSdkSessionId(localWorker.id, sdkSessionId);
@@ -1669,7 +2266,13 @@ export class PersistentWorkstreamCoordinator {
           reasonCode: 'managed_workstream',
         },
         {
-          auth,
+          ...(authority.kind === 'interactive'
+            ? { auth: authority.auth }
+            : {
+              persistedConsent: this.persistedConsentAuthority(
+                authority.plan, workstream, parent, job,
+              ),
+            }),
           scope: {
             sessionId: localWorker.id,
             ownerUserId: workstream.ownerUserId,
@@ -1691,7 +2294,10 @@ export class PersistentWorkstreamCoordinator {
           workerJobId: job.id,
           initialReferences: assembled.references,
           onPrepared: ({ dispatchId, sdkUserMessageId }) => {
-            if (!this.dispatchStillAuthorized(workstream, job.id, profile)) {
+            if (
+              !this.dispatchStillAuthorized(workstream, job.id, profile) ||
+              !this.dispatchAuthorityStillAuthorized(authority, workstream, parent, profile, profileScope, job)
+            ) {
               throw new Error('dispatch_controls_changed_before_sdk_call');
             }
             this.jobs.bindCoordinatorDispatch({

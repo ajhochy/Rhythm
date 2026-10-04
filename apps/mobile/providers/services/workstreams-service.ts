@@ -34,10 +34,54 @@ export type MobileWorkstream = {
   closedReason: 'user_paused' | 'user_cancelled' | null;
   executorEpoch: string | null;
   lastJobId: string | null;
+  automation: MobileWorkstreamAutomationPlan | null;
   revision: number;
   createKey: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type MobileWorkstreamAutomationPlan = {
+  schemaVersion: 1;
+  planId: string;
+  workstreamId: string;
+  expectedRevision: number;
+  workstreamRevision: number;
+  authorizationKey: string;
+  dueAt: string;
+  expiresAt: string;
+  targetProfileId: string;
+  targetProfileRevision: number;
+  parentSessionId: string;
+  requestedModel: { providerId: string; modelId: string };
+  resolvedModel: { providerId: string; modelId: string };
+  maxTurns: 1;
+  maxWallTimeSeconds: number;
+  maxTokens: number;
+  softTotalBudgetAcknowledged: true;
+  acknowledgedByUserId: number;
+  acknowledgedAt: string;
+  status: 'scheduled' | 'disabled' | 'consumed' | 'blocked';
+};
+
+export type MobileWorkstreamAutomation = {
+  expectedRevision: number;
+  authorizationKey: string;
+  dueAt: string;
+  expiresAt: string;
+  targetProfileId: string;
+  parentSessionId: string;
+  requestedModel: { providerId: string; modelId: string };
+  maxWallTimeSeconds: number;
+  maxTokens: number;
+  softTotalBudgetAcknowledged: true;
+};
+
+export type MobileWorkstreamAutomationStatus = {
+  workstreamId: string;
+  revision: number;
+  plan: MobileWorkstreamAutomationPlan | null;
+  decision: { status: 'off' | 'scheduled' | 'expired' | 'consumed' | 'disabled' | 'blocked' | 'eligible'; reason: string };
 };
 
 export type MobileWorkstreamReadiness = {
@@ -201,6 +245,43 @@ export function runMobileGatewayWorkstream(
   input: MobileWorkstreamRun,
 ): Promise<MobileWorkstreamStatus> {
   return client.request(path(workstreamId, '/run-next'), {
+    method: 'POST',
+    headers: projectHeaders(projectId, true),
+    body: JSON.stringify(input),
+  });
+}
+
+export function getMobileGatewayWorkstreamAutomation(
+  client: PairedMacClient,
+  projectId: string,
+  workstreamId: string,
+): Promise<MobileWorkstreamAutomationStatus> {
+  return client.request(path(workstreamId, '/automation'), {
+    method: 'GET',
+    headers: projectHeaders(projectId),
+  });
+}
+
+export function configureMobileGatewayWorkstreamAutomation(
+  client: PairedMacClient,
+  projectId: string,
+  workstreamId: string,
+  input: MobileWorkstreamAutomation,
+): Promise<MobileWorkstreamAutomationStatus> {
+  return client.request(path(workstreamId, '/automation'), {
+    method: 'PUT',
+    headers: projectHeaders(projectId, true),
+    body: JSON.stringify(input),
+  });
+}
+
+export function disableMobileGatewayWorkstreamAutomation(
+  client: PairedMacClient,
+  projectId: string,
+  workstreamId: string,
+  input: { expectedRevision: number; planId: string },
+): Promise<MobileWorkstreamAutomationStatus> {
+  return client.request(path(workstreamId, '/automation/disable'), {
     method: 'POST',
     headers: projectHeaders(projectId, true),
     body: JSON.stringify(input),

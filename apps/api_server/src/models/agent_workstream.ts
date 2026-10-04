@@ -30,6 +30,12 @@ export interface AgentWorkstream {
   /** Local coordinator boot which admitted the most recent run, if any. */
   executorEpoch: string | null;
   lastJobId: string | null;
+  /**
+   * A server-created, one-shot future authorization.  `null` is default-off.
+   * Malformed stored data is never surfaced as an authorization; the
+   * coordinator exposes it as a blocked status through its scoped API.
+   */
+  automation: OneShotAutomationPlan | null;
   revision: number;
   createKey: string;
   createdAt: string;
@@ -47,3 +53,4 @@ export interface AgentWorkstreamCheckpoint {
   references: Array<{ sourceId: string; expectedVersion: string; scope: string; provenance: 'trusted_reference' | 'user_reference' }>;
   nextAction: { kind: 'review' | 'clarify'; scope: string };
 }
+import type { OneShotAutomationPlan } from '../contracts/agent_workstream_automation_contract';
