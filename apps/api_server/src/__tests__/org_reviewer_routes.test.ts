@@ -56,12 +56,17 @@ describe('Org Reviewer authentication route contract', () => {
   it('org-reviewer-c13: review context requires authenticated reviewer authority', async () => {
     // Regression: transcript/config reads using the local operator bypass
     // disclose organizational evidence to an unrelated agent or local caller.
-    const response = await fetch(`${baseUrl}/agent-org-proposals/reviewer/context`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ windowDays: 7, sessionLimit: 40 }),
-    });
-    expect([401, 403], await response.text()).toContain(response.status);
+    for (const body of [
+      { windowDays: 7, sessionLimit: 40 },
+      { targetRef: 'agent_config:target', windowDays: 7, sessionLimit: 40, targetCursor: 'forged-page-cursor' },
+    ]) {
+      const response = await fetch(`${baseUrl}/agent-org-proposals/reviewer/context`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      expect([401, 403], await response.text()).toContain(response.status);
+    }
   });
 
   it.each(['session', 'catalog'])('org-reviewer-session-context: reviewer %s pages require authenticated reviewer authority', async (route) => {

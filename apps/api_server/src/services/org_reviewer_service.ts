@@ -25,6 +25,7 @@ import { resolveCoreCapabilitySurface } from './profile_capability_surface';
 import { readManagedSkillBody, readManagedSkillBytes } from './rhythm_managed_skills';
 import { parseScopeMutation } from './scope_mutation_contract';
 import type { TrustedMcpCallIdentity } from '../security/trusted_mcp_call';
+import { scanContextContent } from '../security/context_scanner';
 import { opencodeClient } from './opencode_engine';
 import {
   ORG_REVIEWER_ALLOWED_MCPS_JSON,
@@ -54,6 +55,9 @@ const ALL_PROPOSAL_STATUSES = [
 // ORG_REVIEWER_SESSION_TOOL in pages of at most MAX_SESSION_PAGE_BYTES, so no
 // response ever needs clipping. Both leave headroom for the MCP fence.
 const MAX_CONTEXT_BYTES = 44_000;
+// Target-state pages are deliberately smaller than the overview. This leaves
+// more than 11 KiB for the MCP untrusted-content fence below its 50 KiB cap.
+const MAX_TARGET_STATE_PAGE_BYTES = 40_000;
 const MAX_SESSION_PAGE_BYTES = 40_000;
 // Messages per session the reviewer may read and cite (the verified view).
 const REVIEW_MESSAGE_LIMIT = 200;
@@ -308,12 +312,21 @@ function toolErrorCount(messages: StructuredAgentSessionMessage[]): number {
  * End index of the longest slice of `text` from `start` whose JSON-escaped
  * UTF-8 size fits `budget`. Never splits a surrogate pair.
  */
+function isUnicodeSafeOffset(text: string, offset: number): boolean {
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > text.length) return false;
+  if (offset === 0 || offset === text.length) return true;
+  const before = text.charCodeAt(offset - 1);
+  const after = text.charCodeAt(offset);
+  return !(before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff);
+}
+
 function fitText(text: string, start: number, budget: number): number {
   let bytes = 0;
   let index = start;
   while (index < text.length) {
     const code = text.charCodeAt(index);
-    const width = code >= 0xd800 && code <= 0xdbff && index + 1 < text.length ? 2 : 1;
+    const next = text.charCodeAt(index + 1);
+    const width = code >= 0xd800 && code <= 0xdbff && next >= 0xdc00 && next <= 0xdfff ? 2 : 1;
     const cost = Buffer.byteLength(JSON.stringify(text.slice(index, index + width)), 'utf8') - 2;
     if (bytes + cost > budget) break;
     bytes += cost;
@@ -323,6 +336,29 @@ function fitText(text: string, start: number, budget: number): number {
 }
 
 interface SessionCursor { sessionId: string; messageId: string; offset: number }
+
+/**
+ * An opaque, stateless page binding. It is deliberately not an authorization
+ * credential: every request still has to pass the engine-signed tool-argument
+ * check and current reviewer/owner authorization before this is considered.
+ */
+interface TargetStateCursor {
+  version: 1;
+  targetRef: string;
+  ownerUserId: number | null;
+  windowDays: number;
+  sessionLimit: number;
+  targetRevision: number | string;
+  targetStateHash: string;
+  offset: number;
+}
+
+interface ContextArguments {
+  windowDays: number;
+  sessionLimit: number;
+  targetRef?: string;
+  targetCursor?: TargetStateCursor;
+}
 
 function encodeCursor(cursor: SessionCursor): string {
   return Buffer.from(JSON.stringify([cursor.sessionId, cursor.messageId, cursor.offset]), 'utf8').toString('base64url');
@@ -339,6 +375,54 @@ function decodeCursor(raw: string): SessionCursor {
     }
   } catch { /* fall through */ }
   throw AppError.badRequest('cursor must be a nextCursor value returned by this tool');
+}
+
+function isStableRevision(value: unknown): value is number | string {
+  return (typeof value === 'number' && Number.isSafeInteger(value)) ||
+    (typeof value === 'string' && value.length > 0 && value.length <= 200 && value.trim() === value);
+}
+
+function encodeTargetStateCursor(cursor: TargetStateCursor): string {
+  return Buffer.from(JSON.stringify([
+    cursor.version,
+    cursor.targetRef,
+    cursor.ownerUserId,
+    cursor.windowDays,
+    cursor.sessionLimit,
+    cursor.targetRevision,
+    cursor.targetStateHash,
+    cursor.offset,
+  ]), 'utf8').toString('base64url');
+}
+
+function decodeTargetStateCursor(raw: string): TargetStateCursor {
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
+    if (!Array.isArray(parsed) || parsed.length !== 8) throw new Error('invalid cursor');
+    const [version, targetRef, ownerUserId, windowDays, sessionLimit, targetRevision, targetStateHash, offset] = parsed;
+    if (
+      version === 1 &&
+      typeof targetRef === 'string' && targetRef.length > 0 && targetRef.length <= 300 && targetRef.trim() === targetRef &&
+      (ownerUserId === null || (typeof ownerUserId === 'number' && Number.isSafeInteger(ownerUserId))) &&
+      typeof windowDays === 'number' && Number.isSafeInteger(windowDays) && windowDays >= 1 && windowDays <= MAX_WINDOW_DAYS &&
+      typeof sessionLimit === 'number' && Number.isSafeInteger(sessionLimit) && sessionLimit >= 1 && sessionLimit <= MAX_SESSION_LIMIT &&
+      isStableRevision(targetRevision) &&
+      typeof targetStateHash === 'string' && /^[A-Za-z0-9_-]{20,200}$/.test(targetStateHash) &&
+      typeof offset === 'number' && Number.isSafeInteger(offset) && offset >= 0
+    ) {
+      return {
+        version,
+        targetRef,
+        ownerUserId,
+        windowDays,
+        sessionLimit,
+        targetRevision,
+        targetStateHash,
+        offset,
+      };
+    }
+  } catch { /* fall through */ }
+  throw AppError.badRequest('targetCursor must be a bounded nextCursor value returned by this tool');
 }
 
 function fitCollection(
@@ -406,12 +490,8 @@ function stableStringLeaves(value: unknown, result = new Set<string>()): Set<str
   return result;
 }
 
-function parseContextArguments(value: JsonRecord): {
-  windowDays: number;
-  sessionLimit: number;
-  targetRef?: string;
-} {
-  const allowed = ['windowDays', 'sessionLimit', 'targetRef'];
+function parseContextArguments(value: JsonRecord): ContextArguments {
+  const allowed = ['windowDays', 'sessionLimit', 'targetRef', 'targetCursor'];
   const extras = Object.keys(value).filter((key) => !allowed.includes(key));
   if (extras.length > 0) throw AppError.badRequest('Reviewer context request contains unsupported fields');
   const windowDays = value.windowDays ?? DEFAULT_WINDOW_DAYS;
@@ -425,7 +505,18 @@ function parseContextArguments(value: JsonRecord): {
   const targetRef = value.targetRef === undefined || value.targetRef === null
     ? undefined
     : exactString(value.targetRef, 'targetRef', 300);
-  return { windowDays: Number(windowDays), sessionLimit: Number(sessionLimit), ...(targetRef ? { targetRef } : {}) };
+  const targetCursor = value.targetCursor === undefined || value.targetCursor === null
+    ? undefined
+    : decodeTargetStateCursor(exactString(value.targetCursor, 'targetCursor', 2_000));
+  if (targetCursor && !targetRef) {
+    throw AppError.badRequest('targetCursor requires the exact targetRef from the previous page');
+  }
+  return {
+    windowDays: Number(windowDays),
+    sessionLimit: Number(sessionLimit),
+    ...(targetRef ? { targetRef } : {}),
+    ...(targetCursor ? { targetCursor } : {}),
+  };
 }
 
 function parseSessionArguments(value: JsonRecord): { sessionId: string; cursor?: SessionCursor } {
@@ -746,8 +837,123 @@ export class OrgReviewerService {
     return { profiles, skills, schedules, queue };
   }
 
+  private assertTargetStateCursor(
+    cursor: TargetStateCursor,
+    args: ContextArguments,
+    target: CurrentTarget,
+    canonicalState: string,
+    reviewer: AuthorizedOrgReviewer,
+  ): void {
+    if (
+      !args.targetRef ||
+      cursor.targetRef !== args.targetRef ||
+      cursor.targetRef !== target.targetRef ||
+      cursor.ownerUserId !== reviewer.ownerUserId ||
+      cursor.windowDays !== args.windowDays ||
+      cursor.sessionLimit !== args.sessionLimit
+    ) {
+      throw AppError.badRequest('targetCursor does not match this target review request');
+    }
+    if (
+      cursor.targetRevision !== target.targetRevision ||
+      cursor.targetStateHash !== target.targetStateHash
+    ) {
+      throw AppError.conflict('Reviewer current-state page is stale; restart without a targetCursor');
+    }
+    if (cursor.offset >= canonicalState.length || !isUnicodeSafeOffset(canonicalState, cursor.offset)) {
+      throw AppError.badRequest('targetCursor offset is outside a Unicode-safe current-state boundary');
+    }
+  }
+
+  /**
+   * Return a fragment only after scanning both whole-state representations.
+   * The legacy complete-target path scans insertion-order JSON.stringify()
+   * while pages emit canonical JSON; key sorting can otherwise move the two
+   * halves of a cross-field injection pattern apart. Scanning individual
+   * fragments would also miss a pattern split at a page boundary, so a blocked
+   * target is withheld as a whole rather than partially released or silently
+   * skipped.
+   */
+  private currentStatePage(
+    args: ContextArguments,
+    target: CurrentTarget,
+    canonicalState: string,
+    offset: number,
+    reviewer: AuthorizedOrgReviewer,
+  ): JsonRecord {
+    const legacyScan = scanContextContent(JSON.stringify(target.state), 'Org Reviewer current target state');
+    const canonicalScan = scanContextContent(canonicalState, 'Org Reviewer canonical current target state');
+    if (legacyScan.blocked || canonicalScan.blocked) {
+      throw AppError.conflict('Current target validation was withheld by the content safety boundary');
+    }
+    if (!isUnicodeSafeOffset(canonicalState, offset) || offset >= canonicalState.length) {
+      throw AppError.badRequest('targetCursor offset is outside a Unicode-safe current-state boundary');
+    }
+
+    const worstCaseCursor = encodeTargetStateCursor({
+      version: 1,
+      targetRef: target.targetRef,
+      ownerUserId: reviewer.ownerUserId,
+      windowDays: args.windowDays,
+      sessionLimit: args.sessionLimit,
+      targetRevision: target.targetRevision,
+      targetStateHash: target.targetStateHash,
+      offset: Number.MAX_SAFE_INTEGER,
+    });
+    const currentStatePage: JsonRecord = {
+      offset,
+      totalChars: canonicalState.length,
+      textComplete: false,
+      text: '',
+      // Measure with the longest possible cursor before adding text. The
+      // emitted nextCursor can only be smaller, so JSON stays strictly below
+      // the page cap even after escaping and cursor serialization.
+      nextCursor: worstCaseCursor,
+    };
+    const page: JsonRecord = {
+      windowDays: args.windowDays,
+      sessionLimit: args.sessionLimit,
+      targetRef: target.targetRef,
+      targetRevision: target.targetRevision,
+      targetStateHash: target.targetStateHash,
+      currentStatePage,
+    };
+    const textBudget = MAX_TARGET_STATE_PAGE_BYTES - jsonBytes(page) - 1;
+    const end = fitText(canonicalState, offset, Math.max(textBudget, 0));
+    if (end <= offset) {
+      throw AppError.conflict('Verified current target state cannot produce a bounded page');
+    }
+    currentStatePage.text = canonicalState.slice(offset, end);
+    currentStatePage.textComplete = end === canonicalState.length;
+    currentStatePage.nextCursor = end < canonicalState.length
+      ? encodeTargetStateCursor({
+        version: 1,
+        targetRef: target.targetRef,
+        ownerUserId: reviewer.ownerUserId,
+        windowDays: args.windowDays,
+        sessionLimit: args.sessionLimit,
+        targetRevision: target.targetRevision,
+        targetStateHash: target.targetStateHash,
+        offset: end,
+      })
+      : null;
+    if (jsonBytes(page) >= MAX_TARGET_STATE_PAGE_BYTES) {
+      throw AppError.conflict('Verified current target state cannot produce a bounded page');
+    }
+    return page;
+  }
+
   async context(argumentsValue: JsonRecord, reviewer: AuthorizedOrgReviewer): Promise<JsonRecord> {
     const args = parseContextArguments(argumentsValue);
+    if (args.targetCursor) {
+      // A continuation never recomputes/returns overview data. It re-resolves
+      // the complete target first so a changed skill or live catalog cannot be
+      // mixed with a fragment from an earlier state.
+      const target = await this.resolveCurrentTarget(args.targetRef!, reviewer.ownerUserId);
+      const canonicalState = canonicalJson(target.state);
+      this.assertTargetStateCursor(args.targetCursor, args, target, canonicalState, reviewer);
+      return this.currentStatePage(args, target, canonicalState, args.targetCursor.offset, reviewer);
+    }
     const candidates = this.reviewableSessions(args.windowDays, args.sessionLimit, reviewer.ownerUserId);
 
     // A compact index only: transcripts are read through the session tool.
@@ -798,8 +1004,9 @@ export class OrgReviewerService {
     let boundedCatalog: JsonRecord | null = null;
     let mcpToolIds: string[] = [];
     let liveSkills: string[] = [];
+    let target: CurrentTarget | null = null;
     if (args.targetRef) {
-      const target = await this.resolveCurrentTarget(args.targetRef, reviewer.ownerUserId);
+      target = await this.resolveCurrentTarget(args.targetRef, reviewer.ownerUserId);
       result.targetRef = target.targetRef;
       result.targetRevision = target.targetRevision;
       result.targetStateHash = target.targetStateHash;
@@ -822,6 +1029,9 @@ export class OrgReviewerService {
       boundedCatalog = result.liveCapabilityCatalog as JsonRecord;
     }
     if (jsonBytes(result) >= MAX_CONTEXT_BYTES) {
+      if (target) {
+        return this.currentStatePage(args, target, canonicalJson(target.state), 0, reviewer);
+      }
       throw AppError.conflict('Verified reviewer context exceeds the bounded review window');
     }
     const fit = (name: keyof typeof collectionTotals, items: unknown[]) => {

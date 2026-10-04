@@ -49,6 +49,13 @@ async function downgradeToV1(): Promise<string> {
   return skillPath;
 }
 
+/** Put only the owned skill back to the exact R13 shipped asset. */
+function downgradeSkillToV2(): string {
+  const skillPath = path.join(skillsRoot(), ORG_REVIEWER_SKILL, 'SKILL.md');
+  writeFileSync(skillPath, readFileSync(path.join(__dirname, 'fixtures', 'review-agent-org-health.v2.SKILL.md'), 'utf8'));
+  return skillPath;
+}
+
 describe('Org Reviewer owned profile and skill seed', () => {
   it('creates one resolvable weekly reviewer with only its four review tools and owned skill', async () => {
     const first = await seedOrgOptimizerTask();
@@ -86,6 +93,18 @@ describe('Org Reviewer owned profile and skill seed', () => {
     expect(task.enabled).toBe(true);
     expect(JSON.parse(task.allowedMcpsJson!)).toEqual({ rhythm: REVIEW_TOOLS_V2 });
     expect(readFileSync(skillPath, 'utf8')).toContain('rhythm_read_org_review_session');
+  });
+
+  it('upgrades only the exact prior shipped reviewer skill to the target-page instructions', async () => {
+    await seedOrgOptimizerTask();
+    const skillPath = downgradeSkillToV2();
+
+    const result = await seedOrgOptimizerTask();
+
+    expect(result.reviewerTaskSkippedReason).toContain('existing reviewer task preserved');
+    const upgraded = readFileSync(skillPath, 'utf8');
+    expect(upgraded).toContain('currentStatePage');
+    expect(upgraded).toContain('targetCursor');
   });
 
   it('preserves the approved manual profile and canonical schedule runtime settings during reconciliation', async () => {

@@ -38,11 +38,11 @@
     },
     {
       "criterion_id": "org-reviewer-context-budget-c5",
-      "text": "Never silently truncate completeness-required verification fields: session/message evidence references that are returned remain trustworthy; targetRef, targetRevision, targetStateHash, and complete currentState used to compute that hash remain exact. If a completeness-required target state alone cannot fit, fail closed rather than returning misleading partial state.",
+      "text": "Never silently truncate completeness-required verification fields: session/message evidence references that are returned remain trustworthy. A small target retains the complete `currentState` shape. An oversized target is reconstructed exactly from contiguous Unicode-safe `currentStatePage` canonical-JSON fragments whose root and every continuation retain exact targetRef, targetRevision, targetStateHash, windowDays, and sessionLimit; fragments are never labeled `currentState`. A caller must not propose from incomplete, withheld, stale, or receipt-mismatched pages. Before any page is released, scan both the legacy insertion-order complete target and the emitted canonical target; malformed, unsafe, or unusable bounded pages fail closed.",
       "mode": "unit",
       "test": "apps/api_server/src/services/__tests__/org_reviewer_service.test.ts",
       "status": "pass",
-      "reason": ""
+      "reason": "2026-10-04 source/synthetic coverage reassembles oversized profile, skill, and catalog targets; checks canonical SHA-256 receipts, escaping and Unicode boundaries, <40,000-byte compact pages, <50 KiB fenced pages, cursor binding/staleness, legacy insertion-order plus canonical cross-field scanning, and cross-page hostile-content rejection. No runtime acceptance is implied."
     },
     {
       "criterion_id": "org-reviewer-context-budget-c6",
@@ -73,17 +73,20 @@
       "text": "Add/run a real live sandbox API/MCP behavioral check proving the signed/default and sessionLimit:1 context path succeeds through the running backend/engine. If expanding the existing live suite is disproportionate, add the smallest env-gated live assertion against the real API surface and record any fixture limitation precisely.",
       "mode": "live",
       "test": "apps/api_server/src/__tests__/org_reviewer_live.test.ts",
-      "status": "pass",
-      "reason": ""
+      "status": "pending",
+      "reason": "The prior live result predates target-state pagination and is retained as historical context only, not evidence for this change. This task explicitly authorized source/focused synthetic verification only; normal-app integration remains pending."
     },
     {
       "criterion_id": "org-reviewer-context-budget-c10",
       "text": "Run focused unit tests, API TypeScript build/typecheck, and the relevant live sandbox verification. Record exact commands/results in the run note.",
       "mode": "manual",
       "test": null,
-      "status": "pass",
-      "reason": "Focused unit, API build, sandbox restart/status, live signed MCP check, and GitNexus change detection are recorded in the run note."
+      "status": "pending",
+      "reason": "Focused synthetic suites and API/MCP builds are recorded for the 2026-10-04 change, but the requested source-only scope excludes a live sandbox or normal-app run. Earlier live acceptance is not evidence for target-state pagination."
     }
   ],
-  "not_tested": []
+  "not_tested": [
+    "org-reviewer-context-budget-c9",
+    "org-reviewer-context-budget-c10"
+  ]
 }

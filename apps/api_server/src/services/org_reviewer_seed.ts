@@ -44,6 +44,7 @@ const V1_REVIEW_PERMISSIONS = {
 // an untouched copy of one of these is replaced by the current owned asset.
 const PRIOR_OWNED_SKILL_SHA256 = new Set<string>([
   'c3020dba37ccfec66961ac70903feb97cf418b6e1b0345a8af765a2166ce63e5', // v1, PR #1492
+  'ad2049e2a2f136553d47a0198db52ffeffe97bb81993cade2029f475cf22d3b7', // v2, exact R13 shipped asset
 ]);
 export const ORG_REVIEWER_ALLOWED_MCPS_JSON = JSON.stringify(REVIEW_MCPS);
 export const ORG_REVIEWER_ALLOWED_SKILLS_JSON = JSON.stringify(REVIEW_SKILLS);
