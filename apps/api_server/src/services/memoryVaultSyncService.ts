@@ -100,7 +100,8 @@ export function toVaultRelativeKey(vaultRoot: string, absNotePath: string): stri
  * BOTH layouts.
  */
 export function resolveVaultRootForMemoryDir(memoryDir: string): string {
-  const sub = process.env.MEMORY_VAULT_SUBDIR ?? 'memory';
+  const sub =
+    process.env.MEMORY_VAULT_SUBDIR ?? (process.env.MEMORY_VAULT_PATH ? 'memory' : '');
   const resolved = path.resolve(memoryDir);
   return sub ? path.dirname(resolved) : resolved;
 }

@@ -662,6 +662,35 @@ describe('hybrid memory retrieval', () => {
     },
   );
 
+  it('skips a heading-only top hit and retains a canonical multiline rank-two path with spaces', async () => {
+    const valid = memory({
+      id: 'announcement-preference',
+      sourceId: 'preference/for announcement slides/reuse verified clips when details remain.md',
+      content: '## Announcement slides\nReuse verified clips when current details remain incomplete.',
+    });
+    const nativeSearch = vi.fn().mockResolvedValue([
+      {
+        file: 'preference/heading-only synthesis.md',
+        snippet: '# Announcement preferences',
+      },
+      {
+        file: valid.sourceId,
+        snippet: '## <b>Announcement slides</b>\nReuse verified clips when current details remain incomplete. ...',
+      },
+    ]);
+
+    const result = await getRelevantMemoriesSemantic(
+      'announcement slides',
+      1,
+      2,
+      repo([], [valid]),
+      { search: nativeSearch },
+    );
+
+    expect(nativeSearch).toHaveBeenCalledWith('announcement slides', 20);
+    expect(result.map(({ id }) => id)).toEqual(['announcement-preference']);
+  });
+
   it('continues past an invalid top native candidate to a lower-ranked canonical reference', async () => {
     const stale = memory({ id: 'stale-rank-one', sourceId: 'fact/stale-rank-one.md', content: 'The obsolete first setting must not be used today.' });
     const valid = memory({ id: 'valid-rank-two', sourceId: 'fact/valid-rank-two.md', content: 'The current second setting is the valid approved option.' });
