@@ -412,12 +412,16 @@ export class AgentMemoryRepository {
     }
   }
 
-  /** Exact, owner-scoped lookup for trusted vault source ids (Engraph join). */
+  /** Exact source-id lookup; canonical vault rows may be instance-global. */
   async findBySourceIdsAsync(source: string, sourceIds: string[], ownerUserId?: number): Promise<AgentMemory[]> {
     if (sourceIds.length === 0) return [];
     if (env.dbClient === 'postgres') {
       const params: unknown[] = [source, sourceIds];
-      const ownerFilter = ownerUserId != null ? `AND owner_user_id = $3` : 'AND owner_user_id IS NULL';
+      const ownerFilter = ownerUserId == null
+        ? 'AND owner_user_id IS NULL'
+        : source === 'obsidian-memory'
+          ? 'AND (owner_user_id = $3 OR owner_user_id IS NULL)'
+          : 'AND owner_user_id = $3';
       if (ownerUserId != null) params.push(ownerUserId);
       const r = await getPostgresPool().query(
         `SELECT id, kind, content, source, source_id, tags_json,
@@ -431,7 +435,11 @@ export class AgentMemoryRepository {
     }
 
     const placeholders = sourceIds.map(() => '?').join(',');
-    const ownerFilter = ownerUserId != null ? 'AND owner_user_id = ?' : 'AND owner_user_id IS NULL';
+    const ownerFilter = ownerUserId == null
+      ? 'AND owner_user_id IS NULL'
+      : source === 'obsidian-memory'
+        ? 'AND (owner_user_id = ? OR owner_user_id IS NULL)'
+        : 'AND owner_user_id = ?';
     const params: unknown[] = [source, ...sourceIds];
     if (ownerUserId != null) params.push(ownerUserId);
     const rows = getDb().prepare(
