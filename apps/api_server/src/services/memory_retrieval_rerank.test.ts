@@ -233,4 +233,43 @@ describe('memory_ranking rerank integration', () => {
     const [row] = listDecisions({ feature: 'memory_ranking' });
     expect(row).toMatchObject({ applied: true, chosen: 'eg-mine', baseline: '' });
   });
+
+  it('uses a bounded native rank-only query while preserving the original FTS and reranker query', async () => {
+    setMode('on');
+    process.env.AGENT_MEMORY_RETRIEVAL_MODE = 'hybrid';
+    process.env.MEMORY_VAULT_PATH = '/tmp/rhythm-rerank-test-vault';
+    process.env.MEMORY_VAULT_SUBDIR = '';
+    const query = [
+      'Canonical announcement preference should identify the Sunday gathering in a clear first sentence.',
+      'Execution guardrails require owner filtering, canonical validation, and injectable memory handling.',
+      'Additional synthetic scheduling background makes this request intentionally long.',
+    ].join(' ');
+    const candidate = mem({
+      id: 'rank-only-announcement',
+      source: 'obsidian-memory',
+      sourceId: 'fact/announcement.md',
+      content: 'Canonical announcement preference leads with the Sunday gathering time.',
+    });
+    const client = fakeClient([['Canonical announcement', 0.92]]);
+    setRerankClientForTests(client);
+    const getRelevant = vi.fn().mockResolvedValue([]);
+    const nativeSearch = vi.fn().mockResolvedValue([{ file: candidate.sourceId, score: 0.03 }]);
+
+    const preface = await buildMemoryPreface(query, 1, {
+      getRelevant,
+      engraphClient: { search: nativeSearch },
+      linkRepository: {
+        searchAsync: async () => [],
+        findBySourceIdsAsync: async () => [candidate],
+      },
+    });
+
+    expect(getRelevant).toHaveBeenCalledWith(query, 1, 20);
+    expect(nativeSearch.mock.calls[0]?.[0]).not.toBe(query);
+    expect(nativeSearch.mock.calls[0]?.[0].length).toBeLessThanOrEqual(128);
+    expect(nativeSearch.mock.calls[0]?.[0]).toContain('canonical');
+    expect(nativeSearch.mock.calls[0]?.[0]).toContain('announcement');
+    expect(client.calls[0]?.query).toBe(query);
+    expect(preface.memoryIds).toEqual(['rank-only-announcement']);
+  });
 });

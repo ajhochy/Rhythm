@@ -249,6 +249,120 @@ describe('hybrid memory retrieval', () => {
     }
   });
 
+  it('uses a bounded meaningful native query for a long automatic request while retaining FTS probes', async () => {
+    const query = [
+      'Canonical announcement preference should identify the Sunday gathering in a clear first sentence.',
+      'Execution guardrails require owner filtering, canonical validation, and injectable memory handling.',
+      'Additional synthetic scheduling background makes this request intentionally long.',
+    ].join(' ');
+    const matched = memory({
+      id: 'announcement',
+      sourceId: 'fact/announcement.md',
+      content: 'The canonical announcement preference leads with the Sunday gathering time.',
+    });
+    const fakeRepo = repo([matched], [matched]);
+    const nativeSearch = vi.fn().mockResolvedValue([{
+      file: matched.sourceId,
+      snippet: matched.content,
+    }]);
+
+    const result = await getRelevantMemoriesSemantic(
+      query,
+      1,
+      2,
+      fakeRepo,
+      { search: nativeSearch },
+    );
+
+    const [[nativeQuery, limit]] = nativeSearch.mock.calls;
+    expect(nativeQuery).not.toBe(query);
+    expect(nativeQuery.length).toBeLessThanOrEqual(128);
+    expect(nativeQuery).toContain('canonical');
+    expect(nativeQuery).toContain('announcement');
+    expect(nativeQuery).toContain('preference');
+    expect(limit).toBe(20);
+    expect(fakeRepo.searchAsync.mock.calls.map(([probe]) => probe)).toEqual(expect.arrayContaining([
+      'canonical', 'announcement', 'guardrails',
+    ]));
+    expect(result.map(({ id }) => id)).toEqual(['announcement']);
+  });
+
+  it('keeps short automatic and explicit long native query contracts unchanged', async () => {
+    const shortQuery = 'canonical announcement preference';
+    const automaticSearch = vi.fn().mockResolvedValue([]);
+    await getRelevantMemoriesSemantic(shortQuery, 1, 2, repo([], []), { search: automaticSearch });
+    expect(automaticSearch).toHaveBeenCalledWith(shortQuery, 20);
+
+    const explicitQuery = 'explicit native references must retain their full caller supplied query '.repeat(4);
+    const explicitSearch = vi.fn().mockResolvedValue([]);
+    await searchMemoryReferences(explicitQuery, 1, {
+      repo: repo([], []),
+      engraph: { search: explicitSearch },
+    });
+    expect(explicitSearch).toHaveBeenCalledWith(explicitQuery, 20);
+  });
+
+  it.each([
+    ['a giant token', 'x'.repeat(512)],
+    ['a no-ASCII multilingual query', '記録😀नमस्ते '.repeat(80)],
+  ])('bounds %s without malformed Unicode and leaves the original FTS input intact', async (_name, query) => {
+    const fakeRepo = repo([], []);
+    const nativeSearch = vi.fn().mockResolvedValue([]);
+
+    await getRelevantMemoriesSemantic(query, 1, 2, fakeRepo, { search: nativeSearch });
+
+    const [[nativeQuery]] = nativeSearch.mock.calls;
+    expect(nativeQuery).not.toBe('');
+    expect(nativeQuery.length).toBeLessThanOrEqual(128);
+    expect(new TextDecoder().decode(new TextEncoder().encode(nativeQuery))).toBe(nativeQuery);
+    expect(fakeRepo.searchAsync.mock.calls[0]?.[0]).toBe(query);
+  });
+
+  it('keeps long-query native candidates fail-closed for owner, injectability, and canonical checks', async () => {
+    const query = [
+      'Canonical announcement preference should identify the Sunday gathering in a clear first sentence.',
+      'Execution guardrails require owner filtering, canonical validation, and injectable memory handling.',
+      'Additional synthetic scheduling background makes this request intentionally long.',
+    ].join(' ');
+    const fallback = memory({
+      id: 'fts-fallback',
+      sourceId: 'fact/fallback.md',
+      content: 'The retained FTS fallback is safe for the automatic prompt.',
+    });
+    const notInjectable = memory({
+      id: 'not-injectable',
+      sourceId: 'fact/not-injectable.md',
+      content: 'This candidate must remain explicit-reference only.',
+      autoInjectable: false,
+    });
+    const otherOwner = memory({
+      id: 'other-owner',
+      sourceId: 'fact/other-owner.md',
+      content: 'This candidate belongs to another owner.',
+      ownerUserId: 2,
+    });
+    const changedCanonical = memory({
+      id: 'changed-canonical',
+      sourceId: 'fact/changed-canonical.md',
+      content: 'This canonical candidate changed after indexing.',
+    });
+    const fakeRepo = repo([fallback], [notInjectable, otherOwner, changedCanonical]);
+    writeFileSync(
+      path.join(canonicalRoot, changedCanonical.sourceId!),
+      '---\nkind: fact\nstatus: stable\n---\nThis canonical candidate no longer matches the index.\n',
+    );
+    const nativeSearch = vi.fn().mockResolvedValue([
+      { file: notInjectable.sourceId, snippet: notInjectable.content },
+      { file: otherOwner.sourceId, snippet: otherOwner.content },
+      { file: changedCanonical.sourceId, snippet: changedCanonical.content },
+    ]);
+
+    const result = await getRelevantMemoriesSemantic(query, 1, 2, fakeRepo, { search: nativeSearch });
+
+    expect(nativeSearch.mock.calls[0]?.[0].length).toBeLessThanOrEqual(128);
+    expect(result.map(({ id }) => id)).toEqual(['fts-fallback']);
+  });
+
   it('retains the FTS fallback when a canonical native candidate is not injectable', async () => {
     const fallback = memory({
       id: 'fts-fallback',

@@ -98,6 +98,8 @@ const MAX_LINK_LOOKUP_SOURCE_IDS = 200;
 const MIN_TOKEN_LEN = 3;
 /** Cap how many distinct prompt tokens we probe so a huge prompt can't fan out. */
 const MAX_QUERY_TOKENS = 12;
+/** Native retrieval keeps the shared deadline; bound only automatic long prompts. */
+const AUTOMATIC_NATIVE_QUERY_MAX_CHARS = 128;
 const RRF_K = 60;
 
 interface RetrievalEvidence {
@@ -235,6 +237,31 @@ export function extractQueryTokens(query: string): string[] {
     if (out.length >= MAX_QUERY_TOKENS) break;
   }
   return out;
+}
+
+/**
+ * Keep native automatic retrieval within its prompt budget without changing the
+ * original query used for FTS, relevance, excerpts, or reranker scoring.
+ */
+function compactAutomaticNativeQuery(query: string): string {
+  if (query.length <= AUTOMATIC_NATIVE_QUERY_MAX_CHARS) return query;
+  const candidate = extractQueryTokens(query).join(' ') || query;
+  let result = '';
+  for (let index = 0; index < candidate.length;) {
+    const code = candidate.charCodeAt(index);
+    const next = candidate.charCodeAt(index + 1);
+    const isHighSurrogate = code >= 0xd800 && code <= 0xdbff;
+    const isLowSurrogate = code >= 0xdc00 && code <= 0xdfff;
+    const value = isHighSurrogate && next >= 0xdc00 && next <= 0xdfff
+      ? candidate.slice(index, index + 2)
+      : isHighSurrogate || isLowSurrogate
+        ? '\uFFFD'
+        : candidate[index];
+    if (result.length + value.length > AUTOMATIC_NATIVE_QUERY_MAX_CHARS) break;
+    result += value;
+    index += value.length === 2 && isHighSurrogate ? 2 : 1;
+  }
+  return result;
 }
 
 // Superset of the probe STOPWORDS: interrogatives and auxiliaries carry no
@@ -1053,7 +1080,7 @@ async function getRelevantMemoriesSemanticDetailed(
   // Start the loopback HTTP operation before SQLite's synchronous FTS probes.
   // Both lanes still consume the same deadline below.
   const nativePromise = collectNativeMemoryReferences(
-    query,
+    compactAutomaticNativeQuery(query),
     ownerUserId,
     repo,
     engraph,
@@ -1562,7 +1589,10 @@ async function getEngraphRankOnlyMemories(
 ): Promise<{ memories: AgentMemory[]; status: MemorySemanticStatus; hitCount: number }> {
   const wanted = ownerUserId == null ? null : ownerUserId;
   const deadline = Date.now() + getSemanticSearchBudgetMs();
-  const searched = await settleBeforeDeadline(deadline, () => searchEngraph(engraph, query, limit));
+  const searched = await settleBeforeDeadline(
+    deadline,
+    () => searchEngraph(engraph, compactAutomaticNativeQuery(query), limit),
+  );
   if (!searched.ok) return { memories: [], status: 'timeout', hitCount: 0 };
   const { hits, status } = searched.value;
   if (status !== 'ok') {
