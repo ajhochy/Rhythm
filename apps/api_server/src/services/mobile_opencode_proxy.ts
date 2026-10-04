@@ -20,7 +20,10 @@ import {
   asRhythmProfileId,
 } from '../models/agent_session';
 import { logger } from '../utils/logger';
-import { routeMobilePromptBody } from './decision/mobile_prompt_routing';
+import {
+  promptTextFromParts,
+  routeMobilePromptBody,
+} from './decision/mobile_prompt_routing';
 import {
   expandProfileSkillAllowlist,
   resolveProfileScope,
@@ -64,6 +67,10 @@ import {
   canUpdateMobileSessionState,
   hasMobileSessionExecutionBinding,
 } from './mobile_session_state_scope';
+import {
+  appendAutomaticMemoryPrefaceToPromptBody,
+  prepareAutomaticMemoryPreface,
+} from './automatic_memory_preface';
 
 export { MOBILE_OPENCODE_OPERATION_MANIFEST };
 export type { MobileOpenCodeOperation } from './mobile_opencode_proxy_types';
@@ -1412,6 +1419,11 @@ export class MobileOpenCodeProxy {
           }
         }
       }
+      if (operation.operationId === 'session.prompt_async' && addressedSessionId) {
+        // Recheck after all authorization/idempotency I/O but before any
+        // automatic retrieval can read local memory for this prompt.
+        assertMobileSessionHistoryMayForward(addressedSessionId, operation.operationId);
+      }
       const sanitizedBody = !acceptsBody || requestBody === undefined
         ? undefined
         : await sanitizeRequestBody(
@@ -1437,9 +1449,40 @@ export class MobileOpenCodeProxy {
           body: createScopedBody,
         })
         : createScopedBody;
-      const encodedBody = scopedBody === undefined
+      let bodyWithAutomaticMemory = scopedBody;
+      if (
+        operation.operationId === 'session.prompt_async' &&
+        addressedSessionId &&
+        scopedBody &&
+        typeof scopedBody === 'object' &&
+        !Array.isArray(scopedBody)
+      ) {
+        let localSession: ReturnType<AgentSessionsRepository['findBySdkSessionId']> = null;
+        try {
+          localSession = new AgentSessionsRepository().findBySdkSessionId(addressedSessionId);
+        } catch {
+          // The mobile transport remains authorized even when the local
+          // catalog is unavailable; skip only automatic memory assembly.
+        }
+        if (
+          localSession?.ownerUserId === input.userId &&
+          canUpdateMobileSessionState(localSession, input.userId, input.project.id) &&
+          localSession.cwd === requestProject.root
+        ) {
+          const preface = await prepareAutomaticMemoryPreface({
+            query: promptTextFromParts(scopedBody as Record<string, unknown>),
+            sessionId: localSession.id,
+            ownerUserId: localSession.ownerUserId,
+          });
+          bodyWithAutomaticMemory = appendAutomaticMemoryPrefaceToPromptBody(
+            scopedBody,
+            preface,
+          );
+        }
+      }
+      const encodedBody = bodyWithAutomaticMemory === undefined
         ? undefined
-        : JSON.stringify(scopedBody);
+        : JSON.stringify(bodyWithAutomaticMemory);
       if (
         encodedBody !== undefined &&
         Buffer.byteLength(encodedBody, 'utf8') > requestBodyLimitBytes
