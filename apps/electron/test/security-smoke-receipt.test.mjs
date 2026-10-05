@@ -5,7 +5,7 @@ import { runInNewContext } from 'node:vm';
 
 import {
   AGENT_SERVER_KEYS, AI_ACCOUNTS_KEYS, AUTH_KEYS, BRIDGE_KEYS, COLONY_VIEW_KEYS,
-  GATEWAY_KEYS, HERMES_KEYS, HERMES_VIEW_KEYS, HUMAN_APPROVAL_KEYS, REMOTE_ENVIRONMENTS_KEYS, UPDATE_KEYS,
+  DAYFLOW_DESKTOP_KEYS, GATEWAY_KEYS, HERMES_KEYS, HERMES_VIEW_KEYS, HUMAN_APPROVAL_KEYS, OPEN_DESIGN_VIEW_KEYS, REMOTE_ENVIRONMENTS_KEYS, UPDATE_KEYS,
   validateSecuritySmokeReceipt,
 } from '../src/security-smoke-receipt.mjs';
 
@@ -23,9 +23,11 @@ const validReceipt = {
     hermes: { keys: HERMES_KEYS, frozen: true },
     hermesView: { keys: HERMES_VIEW_KEYS, frozen: true },
     colonyView: { keys: COLONY_VIEW_KEYS, frozen: true },
+    openDesignView: { keys: OPEN_DESIGN_VIEW_KEYS, frozen: true },
     aiAccounts: { keys: AI_ACCOUNTS_KEYS, frozen: true },
     remoteEnvironments: { keys: REMOTE_ENVIRONMENTS_KEYS, frozen: true },
     updates: { keys: UPDATE_KEYS, frozen: true },
+    dayflowDesktop: { keys: DAYFLOW_DESKTOP_KEYS, frozen: true },
     nodeExposed: false,
     value: { version: 7 },
   },
@@ -62,9 +64,11 @@ async function receiptFromRealPreload() {
       hermes: keys(bridge.hermes),
       hermesView: keys(bridge.hermesView),
       colonyView: keys(bridge.colonyView),
+      openDesignView: keys(bridge.openDesignView),
       aiAccounts: keys(bridge.aiAccounts),
       remoteEnvironments: keys(bridge.remoteEnvironments),
       updates: keys(bridge.updates),
+      dayflowDesktop: keys(bridge.dayflowDesktop),
       nodeExposed: false,
       value: { version: bridge.version },
     },
@@ -95,6 +99,52 @@ test('review:security-smoke-receipt.mjs:5 rejects an unexpected real colonyView 
   assert.deepEqual(validateSecuritySmokeReceipt(receipt), {
     ok: false,
     reason: 'bridge.colonyView.keys does not match the closed capability surface',
+  });
+});
+
+test('Dayflow desktop receipt requires the exact frozen metadata-only bridge', () => {
+  assert.deepEqual(validateSecuritySmokeReceipt(validReceipt), { ok: true });
+  const mutations = [
+    (receipt) => { delete receipt.bridge.dayflowDesktop; },
+    (receipt) => { receipt.bridge.dayflowDesktop.keys.push('filesystem'); },
+    (receipt) => { receipt.bridge.dayflowDesktop.keys.reverse(); },
+  ];
+  for (const mutate of mutations) {
+    const receipt = structuredClone(validReceipt);
+    mutate(receipt);
+    assert.deepEqual(validateSecuritySmokeReceipt(receipt), {
+      ok: false,
+      reason: 'bridge.dayflowDesktop.keys does not match the closed capability surface',
+    });
+  }
+  const unfrozen = structuredClone(validReceipt);
+  unfrozen.bridge.dayflowDesktop.frozen = false;
+  assert.deepEqual(validateSecuritySmokeReceipt(unfrozen), {
+    ok: false,
+    reason: 'bridge.dayflowDesktop.frozen must be true',
+  });
+});
+
+test('OpenDesign receipt requires the exact frozen metadata-only bridge', () => {
+  assert.deepEqual(validateSecuritySmokeReceipt(validReceipt), { ok: true });
+  const mutations = [
+    (receipt) => { delete receipt.bridge.openDesignView; },
+    (receipt) => { receipt.bridge.openDesignView.keys.push('filesystem'); },
+    (receipt) => { receipt.bridge.openDesignView.keys.reverse(); },
+  ];
+  for (const mutate of mutations) {
+    const receipt = structuredClone(validReceipt);
+    mutate(receipt);
+    assert.deepEqual(validateSecuritySmokeReceipt(receipt), {
+      ok: false,
+      reason: 'bridge.openDesignView.keys does not match the closed capability surface',
+    });
+  }
+  const unfrozen = structuredClone(validReceipt);
+  unfrozen.bridge.openDesignView.frozen = false;
+  assert.deepEqual(validateSecuritySmokeReceipt(unfrozen), {
+    ok: false,
+    reason: 'bridge.openDesignView.frozen must be true',
   });
 });
 
@@ -151,7 +201,7 @@ test('main.mjs security-smoke receipt collects every object sub-bridge the valid
   // The packaged --security-smoke receipt is built in main.mjs, not from preload directly; a bridge the
   // validator checks but main.mjs never collects fails every signed release smoke (regressed once by #1374).
   const main = await readFile(new URL('../src/main.mjs', import.meta.url), 'utf8');
-  const objectBridges = ['gateway', 'auth', 'humanApproval', 'agentServer', 'hermes', 'hermesView', 'colonyView', 'aiAccounts', 'remoteEnvironments'];
+  const objectBridges = ['gateway', 'auth', 'humanApproval', 'agentServer', 'hermes', 'hermesView', 'colonyView', 'openDesignView', 'aiAccounts', 'remoteEnvironments', 'dayflowDesktop'];
   for (const bridge of objectBridges) {
     assert.ok(BRIDGE_KEYS.includes(bridge), `${bridge} is a validated bridge`);
     assert.match(main, new RegExp(`Object\\.keys\\(window\\.rhythmShell\\?\\.${bridge}\\b`), `main.mjs receipt must collect ${bridge}`);

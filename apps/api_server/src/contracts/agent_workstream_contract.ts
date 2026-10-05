@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer';
+
 import { AppError } from '../errors/app_error';
 import type { AgentWorkstreamCheckpoint } from '../models/agent_workstream';
 
@@ -58,6 +60,100 @@ export interface WorkstreamRunPolicy {
   maxTokens: number;
   /** Optional queue deadline; absent means no implicit timeout/retry. */
   queueDeadlineAt: string | null;
+  /**
+   * Internal-only bounded response contract. Public Run-next parsing never
+   * accepts this field: C2 adds it only after an authenticated finite outer
+   * authority has been durably consumed. Undefined preserves ordinary
+   * managed-worker behavior byte-for-byte.
+   */
+  outputContract?: 'structured_read_only_proposal_v1';
+}
+
+/**
+ * A deliberately small, non-authoritative proposal from a finite read-only
+ * worker. It is not worker prose, a completion receipt, a tool grant, or an
+ * artifact assertion. The coordinator may only add its pending/blocked
+ * criteria to the existing checkpoint after strict terminal accounting.
+ */
+export interface ManagedWorkstreamStructuredProposal {
+  schemaVersion: 1;
+  kind: 'workstream_proposal';
+  criteria: Array<{ id: string; status: 'pending' | 'blocked' }>;
+  nextAction: { kind: 'review' | 'clarify'; scope: string };
+}
+
+const MAX_MANAGED_WORKSTREAM_PROPOSAL_BYTES = 12_000;
+
+/**
+ * The engine records its own terminal delimiters around assistant text.  They
+ * are transport markers, not model-authored content, so accept only the one
+ * documented `step-start`, text, `step-finish` envelope (or the legacy exact
+ * single-text test shape).  Any other part type, additional text, tool call,
+ * reasoning, or prose wrapper remains non-authoritative.
+ */
+function exactManagedWorkstreamProposalText(parts: unknown): string | null {
+  if (!Array.isArray(parts)) return null;
+  if (
+    parts.length === 1 &&
+    plain(parts[0]) && parts[0].type === 'text' && typeof parts[0].text === 'string'
+  ) return parts[0].text;
+  if (
+    parts.length === 3 &&
+    plain(parts[0]) && parts[0].type === 'step-start' &&
+    plain(parts[1]) && parts[1].type === 'text' && typeof parts[1].text === 'string' &&
+    plain(parts[2]) && parts[2].type === 'step-finish'
+  ) return parts[1].text;
+  return null;
+}
+
+/**
+ * Parses the one exact JSON response shape requested from a finite C2 worker.
+ * This accepts no prose wrapper, references, verified/waived criterion, or
+ * caller-selected scope. It returns null rather than throwing because a bad
+ * model response is a truthful terminal hold, never a malformed-plan retry.
+ */
+export function parseManagedWorkstreamStructuredProposal(
+  parts: unknown,
+  scope: string,
+): ManagedWorkstreamStructuredProposal | null {
+  const text = exactManagedWorkstreamProposalText(parts);
+  if (text === null) return null;
+  if (Buffer.byteLength(text, 'utf8') === 0 || Buffer.byteLength(text, 'utf8') > MAX_MANAGED_WORKSTREAM_PROPOSAL_BYTES) {
+    return null;
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!plain(value) || Object.keys(value).some((key) => !['schemaVersion', 'kind', 'criteria', 'nextAction'].includes(key)) ||
+      value.schemaVersion !== 1 || value.kind !== 'workstream_proposal' || !Array.isArray(value.criteria) || !plain(value.nextAction) ||
+      value.criteria.length < 1 || value.criteria.length > 20) {
+    return null;
+  }
+  const ids = new Set<string>();
+  const criteria: ManagedWorkstreamStructuredProposal['criteria'] = [];
+  for (const entry of value.criteria) {
+    if (!plain(entry) || Object.keys(entry).some((key) => key !== 'id' && key !== 'status') ||
+        typeof entry.id !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(entry.id) ||
+        (entry.status !== 'pending' && entry.status !== 'blocked') || ids.has(entry.id)) {
+      return null;
+    }
+    ids.add(entry.id);
+    criteria.push({ id: entry.id, status: entry.status });
+  }
+  const next = value.nextAction;
+  if (Object.keys(next).some((key) => key !== 'kind' && key !== 'scope') ||
+      (next.kind !== 'review' && next.kind !== 'clarify') || next.scope !== scope) {
+    return null;
+  }
+  return {
+    schemaVersion: 1,
+    kind: 'workstream_proposal',
+    criteria,
+    nextAction: { kind: next.kind, scope: next.scope },
+  };
 }
 
 export interface WorkstreamReferenceInput {

@@ -9,6 +9,7 @@ import { LiveArtifactsShell } from './pages/dashboard/LiveArtifactsShell';
 import { MobileAccessPage } from './pages/mobile-access';
 import { HermesPage } from './pages/hermes';
 import { ColonyPage } from './pages/colony';
+import { OpenDesignPage } from './pages/open-design';
 import { SettingsPage } from './pages/settings';
 import { PlannerPage } from './pages/planner';
 import { TasksPage } from './pages/tasks';
@@ -68,6 +69,7 @@ export function App() {
   else if (route === '/endpoint-map') content = <EndpointMap />;
   else if (route === '/hermes') content = <HermesPage />;
   else if (route === '/colony') content = <ColonyPage />;
+  else if (route === '/open-design') content = <OpenDesignPage />;
   else if (route === '/mobile-access') content = <MobileAccessPage />;
   else if (route === '/settings') content = <SettingsPage />;
   else if (route.startsWith('/tools/')) content = <ToolWorkspace slug={route.split('/')[2]} />;

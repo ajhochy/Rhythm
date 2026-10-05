@@ -4,6 +4,10 @@ import { useFixtures } from '../store';
 import type { DemoState } from '../types';
 import { hermesShell } from '../pages/hermes/bridge';
 import { colonyShell } from '../pages/colony/bridge';
+import { AGENT_TOOL_DESCRIPTORS, type AgentToolDescriptor } from '../agentTools/registry';
+import { readAgentToolPins, subscribeAgentToolPins } from '../agentTools/pins';
+import { availableAgentToolIds } from '../agentTools/hosts';
+import { useAuthUser } from '../gateway/auth';
 import { Splitter } from './Splitter';
 
 type OverlayRect = { height: number; left: number; top: number; width: number };
@@ -16,7 +20,10 @@ const nativeMenuFallbackWidths: Record<string, number> = {
 };
 
 const destinations = ['Dashboard', 'Planner', 'Tasks', 'Rhythms', 'Projects', 'Messages', 'Facilities', 'Automations', 'Integrations', 'Agents', 'Settings'];
-const optional = new Set(['Facilities', 'Automations', 'Integrations', 'Settings', 'Hermes', 'Bot Crossing']);
+const optional = new Set(['Facilities', 'Automations', 'Integrations', 'Settings', 'Hermes', 'Bot Crossing', 'OpenDesign', 'Dayflow']);
+const toolByLabel = new Map<string, AgentToolDescriptor>(AGENT_TOOL_DESCRIPTORS.map((tool) => [tool.label, tool]));
+// Keeps the existing nav-hermes / nav-colony test IDs.
+const toolNavKey = (tool: AgentToolDescriptor) => tool.id === 'bot-crossing' ? 'colony' : tool.id;
 
 const destinationKey = (destination: string) => destination === 'Bot Crossing' ? 'colony' : destination.toLowerCase();
 
@@ -95,7 +102,24 @@ const demoLabels: Record<DemoState, string> = {
 };
 
 export function Shell({ route, children }: { route: string; children: React.ReactNode }) {
-  const visibleDestinations = [...destinations, ...(hermesShell()?.hermes?.enabled === true ? ['Hermes'] : []), ...(colonyShell()?.colonyView ? ['Bot Crossing'] : [])];
+  const pinScope = useAuthUser()?.user.id;
+  const [pins, setPins] = useState(() => readAgentToolPins(pinScope));
+  useEffect(() => {
+    const refresh = () => setPins(readAgentToolPins(pinScope));
+    refresh();
+    return subscribeAgentToolPins(pinScope, refresh);
+  }, [pinScope]);
+  const pinnedIds = (pins.scope === pinScope ? pins : readAgentToolPins(pinScope)).ids;
+  const hostIds = availableAgentToolIds();
+  // Existing Hermes/Bot Crossing defaults stay visible through the same
+  // owner-scoped pin contract. The permanent Rhythm conversation is not a
+  // descriptor and therefore cannot be pinned or removed here.
+  const visibleDestinations = [
+    ...destinations,
+    ...AGENT_TOOL_DESCRIPTORS
+      .filter((tool) => hostIds.includes(tool.id) && pinnedIds.includes(tool.id))
+      .map((tool) => tool.label),
+  ];
   const { theme, setTheme, demo, setDemo, toast, resetFixtures, notify, unreadThreads, sessionGatewayMode, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, pendingApprovals, approvalError, approvalsLoading, approvalsUpdatedAt, decidingApprovalIds, refreshPendingApprovals, decideApproval } = useFixtures();
   const live = sessionGatewayMode === 'live';
   const entityDestination = (entityType: string, entityId: string) => ({
@@ -197,7 +221,7 @@ export function Shell({ route, children }: { route: string; children: React.Reac
     report();
     return () => { observer.disconnect(); window.removeEventListener('resize', report); };
   }, [toastReserve, toastVisible]);
-  const nativeRoute = route === '/hermes' || route === '/colony';
+  const nativeRoute = route === '/hermes' || route === '/colony' || route === '/open-design';
   const menuEntries = Object.entries(openMenus);
   const widestMenu = Math.max(0, ...menuEntries.map(([menuId, value]) => value === true ? nativeMenuFallbackWidths[menuId] ?? 270 : value.width));
   const stackedOverlay = nativeRoute && menuEntries.length > 0 && window.innerWidth < widestMenu + 300;
@@ -206,10 +230,13 @@ export function Shell({ route, children }: { route: string; children: React.Reac
   const footerReserve = toastReserve && toastRect ? Math.max(0, window.innerHeight - toastRect.top + 12) : 0;
 
   const destinationButton = (destination: string, inMenu = false) => {
-    const key = destinationKey(destination);
-    const selected = key === activeKey;
+    const tool = toolByLabel.get(destination);
+    const key = tool ? toolNavKey(tool) : destinationKey(destination);
+    const selected = tool
+      ? route === tool.route
+      : key === activeKey && !visibleDestinations.some((item) => toolByLabel.get(item)?.route === route);
     return (
-      <button key={destination} type="button" role={inMenu ? 'menuitem' : undefined} className={inMenu ? 'menu-item' : `destination ${optional.has(destination) ? 'nav-optional' : ''} ${!['Dashboard', 'Agents'].includes(destination) ? 'nav-compact' : ''} ${selected ? 'selected' : ''}`} aria-current={selected ? 'page' : undefined} onClick={() => navigate(`/${key}`)} data-testid={`nav-${key}${inMenu ? '-overflow' : ''}`}>
+      <button key={destination} type="button" role={inMenu ? 'menuitem' : undefined} className={inMenu ? 'menu-item' : `destination ${optional.has(destination) ? 'nav-optional' : ''} ${!['Dashboard', 'Agents'].includes(destination) ? 'nav-compact' : ''} ${selected ? 'selected' : ''}`} aria-current={selected ? 'page' : undefined} onClick={() => navigate(tool ? tool.route : `/${key}`)} data-testid={`nav-${key}${inMenu ? '-overflow' : ''}`}>
         {destination}{destination === 'Messages' && unreadThreads > 0 && <span className="unread-badge" aria-label={`${unreadThreads} unread`}>{unreadThreads}</span>}
       </button>
     );

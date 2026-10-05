@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   FlatList,
   Pressable,
@@ -31,6 +31,7 @@ type ChatContentProps = {
   activeTab: 'session' | 'changes';
   awaitingUserInput: boolean;
   connection: { status: GatewayConnectionStatus; message: string };
+  coordinatorStatus?: ReactNode;
   copiedMessageId?: string;
   currentDiffs: FileDiff[];
   currentPendingPermissions: PendingPermissionRequest[];
@@ -59,6 +60,8 @@ type ChatContentProps = {
   palette: Palette;
   pendingInteractions: number;
   running: boolean;
+  /** A server-primary history without an SDK row is readable but not mutable. */
+  readOnlyTranscript?: boolean;
   speakingMessageId?: string;
   status?: SessionStatus;
 };
@@ -68,6 +71,7 @@ export function ChatContent({
   activeTab,
   awaitingUserInput,
   connection,
+  coordinatorStatus,
   copiedMessageId,
   currentDiffs,
   currentPendingPermissions,
@@ -96,6 +100,7 @@ export function ChatContent({
   palette,
   pendingInteractions,
   running,
+  readOnlyTranscript = false,
   speakingMessageId,
   status,
 }: ChatContentProps) {
@@ -113,8 +118,8 @@ export function ChatContent({
   });
   const completedTodoCount = currentTodos.filter((todo) => todo.status === 'completed').length;
   const transcriptExtraData = useMemo(
-    () => [copiedMessageId, speakingMessageId],
-    [copiedMessageId, speakingMessageId],
+    () => [copiedMessageId, speakingMessageId, coordinatorStatus],
+    [copiedMessageId, coordinatorStatus, speakingMessageId],
   );
 
   useLayoutEffect(() => {
@@ -189,8 +194,8 @@ export function ChatContent({
                 copied={copiedMessageId === entry.id}
                 entry={entry}
                 onCopy={() => onCopyMessage(entry)}
-                onFork={entry.role === 'user' ? () => onForkMessage(entry.id) : undefined}
-                onRevert={entry.role === 'user' ? () => onRevertMessage(entry.id) : undefined}
+                onFork={!readOnlyTranscript && entry.role === 'user' ? () => onForkMessage(entry.id) : undefined}
+                onRevert={!readOnlyTranscript && entry.role === 'user' ? () => onRevertMessage(entry.id) : undefined}
                 onToggleSpeak={() => onToggleSpeak(entry)}
                 speaking={speakingMessageId === entry.id}
               />
@@ -241,6 +246,7 @@ export function ChatContent({
           )}
           ListFooterComponent={(
             <View style={styles.transcriptFooter}>
+              {coordinatorStatus}
               {pendingInteractions > 0 ? (
                 <PendingInteractionsCard
                   permissions={currentPendingPermissions}

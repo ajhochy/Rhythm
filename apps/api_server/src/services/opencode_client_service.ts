@@ -1,5 +1,5 @@
 import { homedir } from 'os';
-import { join } from 'path';
+import { isAbsolute, join, relative, resolve, sep } from 'path';
 import { readFileSync, existsSync } from 'fs';
 import { createHmac, randomBytes } from 'node:crypto';
 import { promisify } from 'util';
@@ -39,6 +39,8 @@ import type {
   ManagedWorkstreamContextRepository,
 } from '../repositories/managed_workstream_context_repository';
 import { hasManagedSdkSessionHistory } from '../repositories/managed_workstream_context_repository';
+import { hasDayflowSdkSessionHistory } from '../repositories/dayflow_receiving_context_repository';
+import type { DayflowSdkHistoryGuard } from './dayflow_receiving_history_guard';
 
 const modelProvenanceRepo = new ModelProvenanceRepository();
 
@@ -750,13 +752,13 @@ type OpencodeServerHandle = { url: string; close(): void };
 
 /**
  * Internal-only authority for the coordinator's already authenticated,
- * persisted one-shot consent.  It intentionally cannot carry a bearer or be
- * decoded from an HTTP body.  The coordinator creates this capability from
- * its exact durable plan/native binding and this service invokes it at every
- * managed prompt boundary.
+ * persisted finite consent. It intentionally cannot carry a bearer or be
+ * decoded from an HTTP body. The coordinator creates this capability from an
+ * exact durable one-shot plan or conversation control/native binding, and this
+ * service invokes it at every managed prompt boundary.
  */
 export interface PersistedManagedConsentAuthority {
-  readonly kind: 'one_shot_workstream';
+  readonly kind: 'one_shot_workstream' | 'finite_conversation_workstream';
   readonly actorUserId: number;
   validate(input: {
     phase: 'prepare' | 'before_sdk' | 'sdk_exposure';
@@ -809,7 +811,7 @@ async function managedAuthorityIsCurrent(
   }
   const consent = managed.persistedConsent;
   if (
-    !consent || consent.kind !== 'one_shot_workstream' ||
+    !consent || (consent.kind !== 'one_shot_workstream' && consent.kind !== 'finite_conversation_workstream') ||
     !Number.isSafeInteger(consent.actorUserId) || consent.actorUserId !== scope.ownerUserId ||
     scope.role !== 'worker' || !managed.workerJobId
   ) return false;
@@ -987,6 +989,52 @@ export const MANAGED_READ_ONLY_PERMISSION = [
   { permission: 'rhythm_rhythm_search_memory', pattern: '*', action: 'allow' },
 ] as const;
 
+/**
+ * Narrow internal-only session rules for a finite coordinator execution
+ * authority. Ordinary callers cannot construct this through an HTTP payload.
+ */
+type FiniteExecutionPermissionRule = {
+  permission: 'edit' | 'write' | 'bash' | 'external_directory' | '*';
+  pattern: string;
+  action: 'allow' | 'ask' | 'deny';
+};
+
+function validFiniteExecutionWorkspacePattern(pattern: string, directory: string | undefined): boolean {
+  if (
+    typeof directory !== 'string' || !isAbsolute(directory) || directory === sep ||
+    resolve(directory) !== directory || !isAbsolute(pattern) ||
+    pattern.startsWith('~') || pattern.includes('..') || pattern.includes('\\') || pattern.includes('://') ||
+    resolve(pattern) !== pattern
+  ) return false;
+  const inside = relative(directory, pattern);
+  return inside.length > 0 && inside !== '..' && !inside.startsWith(`..${sep}`) && !isAbsolute(inside);
+}
+
+function validFiniteExecutionPermissionRules(
+  value: readonly FiniteExecutionPermissionRule[],
+  directory: string | undefined,
+): boolean {
+  const baseline = new Set(['*:deny', 'bash:deny', 'external_directory:deny']);
+  const seen = new Set<string>();
+  let usable = false;
+  for (const rule of value) {
+    if (!rule || typeof rule.pattern !== 'string' || rule.pattern.length === 0 || rule.pattern.length > 512) return false;
+    if (!['edit', 'write', 'bash', 'external_directory', '*'].includes(rule.permission)) return false;
+    if (!['allow', 'ask', 'deny'].includes(rule.action)) return false;
+    if (rule.permission === '*' || rule.permission === 'bash' || rule.permission === 'external_directory') {
+      if (rule.pattern !== '*' || rule.action !== 'deny') return false;
+      baseline.delete(`${rule.permission}:deny`);
+      continue;
+    }
+    if (!validFiniteExecutionWorkspacePattern(rule.pattern, directory)) return false;
+    const key = `${rule.permission}:${rule.pattern}:${rule.action}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    if (rule.action !== 'deny') usable = true;
+  }
+  return baseline.size === 0 && usable;
+}
+
 /** Same predicate as the async-delegation gate in agent_delegation_service.ts. */
 export function isInteractiveChatSession(
   session: Pick<AgentSession, 'category' | 'isSystem' | 'scheduledTaskId'> | null | undefined,
@@ -1006,6 +1054,52 @@ export class OpencodeClientService {
   private providerSnapshotPending?: Promise<ProviderSnapshot>;
   /** Set to true by the shutdown handler before dispose() is called. */
   private _shuttingDown = false;
+  /** Installed only by the fully composed Dayflow server path. */
+  private dayflowSdkHistoryGuard: DayflowSdkHistoryGuard | null = null;
+
+  setDayflowSdkHistoryGuard(guard: DayflowSdkHistoryGuard | null): void {
+    this.dayflowSdkHistoryGuard = guard;
+  }
+
+  private async maybeMintDayflowPromptAnchor(
+    sdkSessionId: string,
+    directory: string | undefined,
+    provenance: DispatchInput | undefined,
+  ): Promise<string | undefined> {
+    // A missing optional Dayflow composition must preserve ordinary chat. If
+    // it is composed but cannot mint a real engine anchor, the later tool call
+    // is unavailable rather than inferred from a session id.
+    if (!this.dayflowSdkHistoryGuard || provenance?.routeAuthed !== true) return undefined;
+    try {
+      if (!(await this.dayflowSdkHistoryGuard.shouldBindPrompt(sdkSessionId))) return undefined;
+      return await this.mintPromptAnchor(sdkSessionId, directory) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async assertDayflowSdkHistoryMayBeReused(sdkSessionId: string): Promise<void> {
+    if (env.dbClient !== 'sqlite') return;
+    let hasHistory = false;
+    try {
+      hasHistory = hasDayflowSdkSessionHistory(getDb(), sdkSessionId);
+    } catch (error) {
+      // A pre-migration database has no Dayflow columns and therefore cannot
+      // contain a durable Dayflow dependency. Any other DB failure is unknown
+      // history and must block native SDK exposure.
+      if (error instanceof Error && /no such column: dayflow_context_/iu.test(error.message)) return;
+      throw AppError.reconciliationRequired(
+        'SDK history is withheld because Dayflow dependency state is unreadable',
+      );
+    }
+    if (!hasHistory) return;
+    if (!this.dayflowSdkHistoryGuard ||
+        !(await this.dayflowSdkHistoryGuard.revalidateBeforeSdk(sdkSessionId))) {
+      throw AppError.reconciliationRequired(
+        'SDK history is withheld because retained Dayflow evidence is unavailable or changed',
+      );
+    }
+  }
 
   /**
    * Test-only seam (#765). The real SDK client is normally created inside
@@ -1846,6 +1940,12 @@ export class OpencodeClientService {
     // This is deliberately trailing and optional so ordinary session callers
     // retain their exact existing behavior.
     managedReadOnly = false,
+    /**
+     * A server-derived finite execution scope. It is accepted only alongside
+     * default worker mode and an explicit deny baseline; ordinary callers omit
+     * it and retain their established session behavior.
+     */
+    finiteExecutionPermissions?: readonly FiniteExecutionPermissionRule[],
     // #1222 — root-cause of the discarded-error bug: every failure branch
     // below used to collapse to a bare `null`, so callers (AgentRunner in
     // particular) could only ever report the generic "failed to create
@@ -1944,7 +2044,43 @@ export class OpencodeClientService {
       if (permissionMode === 'plan') {
         body.permission = [
           { permission: 'bash', pattern: '*', action: 'deny' },
-        ];
+];
+
+/**
+ * Narrow internal-only session rules for a finite coordinator execution
+ * authority.  This is intentionally structural rather than exported from the
+ * conversation layer: ordinary callers cannot select it through a route.
+ */
+type FiniteExecutionPermissionRule = {
+  permission: 'edit' | 'write' | 'bash' | 'external_directory' | '*';
+  pattern: string;
+  action: 'allow' | 'ask' | 'deny';
+};
+
+function validFiniteExecutionPermissionRules(
+  value: readonly FiniteExecutionPermissionRule[],
+  directory: string | undefined,
+): boolean {
+  const baseline = new Set(['*:deny', 'bash:deny', 'external_directory:deny']);
+  const seen = new Set<string>();
+  let usable = false;
+  for (const rule of value) {
+    if (!rule || typeof rule.pattern !== 'string' || rule.pattern.length === 0 || rule.pattern.length > 512) return false;
+    if (!['edit', 'write', 'bash', 'external_directory', '*'].includes(rule.permission)) return false;
+    if (!['allow', 'ask', 'deny'].includes(rule.action)) return false;
+    if (rule.permission === '*' || rule.permission === 'bash' || rule.permission === 'external_directory') {
+      if (rule.pattern !== '*' || rule.action !== 'deny') return false;
+      baseline.delete(`${rule.permission}:deny`);
+      continue;
+    }
+    if (!validFiniteExecutionWorkspacePattern(rule.pattern, directory)) return false;
+    const key = `${rule.permission}:${rule.pattern}:${rule.action}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    if (rule.action !== 'deny') usable = true;
+  }
+  return baseline.size === 0 && usable;
+}
       } else if (permissionMode === 'bypassPermissions') {
         // Keep read/edit/external_directory independent of SSE, but force bash
         // through the bridge where #878's hardline command blocklist runs.
@@ -1962,6 +2098,18 @@ export class OpencodeClientService {
       }
       if (managedReadOnly) {
         body.permission = [...MANAGED_READ_ONLY_PERMISSION];
+      }
+      if (finiteExecutionPermissions !== undefined) {
+        if (
+          managedReadOnly || permissionMode !== 'default' || interactive ||
+          !validFiniteExecutionPermissionRules(finiteExecutionPermissions, directory)
+        ) {
+          return { error: 'finite execution session scope is invalid or conflicts with worker policy' };
+        }
+        // The fork's supported Session.CreateInput permission field persists
+        // this exact ruleset on the child session. No caller-provided path or
+        // broad bypass policy is merged into it.
+        body.permission = finiteExecutionPermissions.map((rule) => ({ ...rule }));
       }
       // #775 (skill-scope): pass the per-session skill allowlist on the create body.
       // The fork reads `skillAllowlist.skills` to scope the model's available skills.
@@ -2391,6 +2539,7 @@ export class OpencodeClientService {
     if (!this.client) return null;
     let managedDispatchId: string | undefined;
     let managedMessageID: string | undefined;
+    let dayflowMessageID: string | undefined;
     let managedScope: ManagedContextScope | undefined;
     if (managed) {
       try {
@@ -2456,13 +2605,14 @@ export class OpencodeClientService {
         throw new Error('OpencodeClientService: managed prompt preparation failed — prompt not sent');
       }
     }
+    if (!managed) dayflowMessageID = await this.maybeMintDayflowPromptAnchor(sessionId, directory, provenance);
     const requestArgs = {
       path: { id: sessionId },
       body: {
         model,
         parts: [{ type: 'text' as const, text }],
         ...(opts ?? {}),
-        ...(managedMessageID ? { messageID: managedMessageID } : {}),
+        ...(managedMessageID ? { messageID: managedMessageID } : dayflowMessageID ? { messageID: dayflowMessageID } : {}),
       },
       ...(directory ? { query: { directory } } : {}),
     };
@@ -2486,7 +2636,9 @@ export class OpencodeClientService {
         throw new Error('OpencodeClientService: managed prompt authority changed — prompt not sent');
       }
     }
-    const dispatchId = managedDispatchId ?? beginDispatch(provenance);
+    const dispatchId = managedDispatchId ?? beginDispatch(dayflowMessageID && provenance
+      ? { ...provenance, sdkUserMessageId: dayflowMessageID }
+      : provenance);
     // This is deliberately the last decision before the SDK call. It covers
     // omitted managed context (ordinary callers), feature/policy drift, and a
     // second managed request that reused a session after an awaited callback.
@@ -2509,6 +2661,15 @@ export class OpencodeClientService {
         );
         return null;
       }
+    }
+    // Dayflow evidence is retained independently of managed workstream
+    // enrollment. Recheck it on both ordinary and managed prompt paths just
+    // before the SDK call; a managed dispatch must not bypass its marker.
+    try {
+      await this.assertDayflowSdkHistoryMayBeReused(sessionId);
+    } catch {
+      settleDispatch(dispatchId, 'rejected');
+      return null;
     }
     try {
       const raw = await this.client.session.prompt(requestArgs);
@@ -2556,6 +2717,7 @@ export class OpencodeClientService {
     if (!this.client) return false;
     let managedDispatchId: string | undefined;
     let managedMessageID: string | undefined;
+    let dayflowMessageID: string | undefined;
     let managedScope: ManagedContextScope | undefined;
     if (managed) {
       try {
@@ -2619,6 +2781,7 @@ export class OpencodeClientService {
         throw new Error('OpencodeClientService: managed prompt preparation failed — prompt not sent');
       }
     }
+    if (!managed) dayflowMessageID = await this.maybeMintDayflowPromptAnchor(sessionId, directory, provenance);
     // OPC-M4-1: use the caller-supplied parts array when present; otherwise
     // fall back to a single text part so all existing call-sites are unchanged.
     const sdkParts: Array<import('@opencode-ai/sdk').PartInput> = parts && parts.length > 0
@@ -2630,7 +2793,7 @@ export class OpencodeClientService {
         model,
         parts: sdkParts,
         ...(opts ?? {}),
-        ...(managedMessageID ? { messageID: managedMessageID } : {}),
+        ...(managedMessageID ? { messageID: managedMessageID } : dayflowMessageID ? { messageID: dayflowMessageID } : {}),
       },
       ...(directory ? { query: { directory } } : {}),
     };
@@ -2657,7 +2820,9 @@ export class OpencodeClientService {
         throw new Error('OpencodeClientService: managed prompt authority changed — prompt not sent');
       }
     }
-    const dispatchId = managedDispatchId ?? beginDispatch(provenance);
+    const dispatchId = managedDispatchId ?? beginDispatch(dayflowMessageID && provenance
+      ? { ...provenance, sdkUserMessageId: dayflowMessageID }
+      : provenance);
     // Keep this immediately adjacent to the SDK exposure; `beforeDispatch`
     // and managed authority checks above may both have awaited.
     if (managed) {
@@ -2679,6 +2844,14 @@ export class OpencodeClientService {
         );
         return false;
       }
+    }
+    // See prompt(): retained Dayflow history is independent from managed
+    // enrollment and must close both SDK dispatch paths on a failed recheck.
+    try {
+      await this.assertDayflowSdkHistoryMayBeReused(sessionId);
+    } catch {
+      settleDispatch(dispatchId, 'rejected');
+      return false;
     }
     try {
       const raw = await this.client.session.promptAsync(requestArgs);
@@ -3186,6 +3359,15 @@ export class OpencodeClientService {
     }
   }
 
+  /** Generic name for the same engine-owned anchor; managed callers keep the
+   * legacy method above while ordinary Dayflow dispatches use this opt-in. */
+  async mintPromptAnchor(
+    sdkSessionId: string,
+    directory?: string,
+  ): Promise<string | null> {
+    return this.mintManagedPromptAnchor(sdkSessionId, directory);
+  }
+
   /** Read one live runner-owned MCP call from this service's owned engine. */
   async getManagedActiveToolCall(
     sdkSessionId: string,
@@ -3233,6 +3415,16 @@ export class OpencodeClientService {
     } catch {
       return null;
     }
+  }
+
+  /** Current server-owned tool inspection; no consumer/bridge-origin fallback. */
+  async getCurrentTrustedMcpToolCall(
+    sdkSessionId: string,
+    assistantId: string,
+    toolCallId: string,
+    directory?: string,
+  ): Promise<ManagedActiveToolCall | null> {
+    return this.getManagedActiveToolCall(sdkSessionId, assistantId, toolCallId, directory);
   }
 
   /** Base URL of the spawned opencode server (falls back to the default port). */
@@ -3784,6 +3976,7 @@ export class OpencodeClientService {
     const body: Record<string, unknown> = { command, agent };
     if (model) body.model = model;
     assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session shell');
+    await this.assertDayflowSdkHistoryMayBeReused(sdkId);
     const res = await fetch(`${this.serverUrl}/session/${encodeURIComponent(sdkId)}/shell${qs}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -3809,6 +4002,7 @@ export class OpencodeClientService {
     assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session init');
     const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
     assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session init');
+    await this.assertDayflowSdkHistoryMayBeReused(sdkId);
     const res = await fetch(`${this.serverUrl}/session/${encodeURIComponent(sdkId)}/init${qs}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -3838,6 +4032,7 @@ export class OpencodeClientService {
       body: { command, arguments: args },
     };
     assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session command');
+    await this.assertDayflowSdkHistoryMayBeReused(sdkId);
     const raw = await client.session.command(request);
     if (raw.error || !raw.data) {
       logger.error(`[OpencodeClientService] dispatchCommand error for ${sdkId}:`, raw.error);
@@ -4069,6 +4264,7 @@ export class OpencodeClientService {
       ...(directory ? { query: { directory } } : {}),
     };
     assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session summarize');
+    await this.assertDayflowSdkHistoryMayBeReused(sdkId);
     const raw = await client.session.summarize(request);
     if (raw.error) {
       throw new AppError(
@@ -4096,6 +4292,7 @@ export class OpencodeClientService {
       body: messageId ? { messageID: messageId } : undefined,
     };
     assertOrdinarySdkSessionMayUseHistoryOperation(sdkId, 'session fork');
+    await this.assertDayflowSdkHistoryMayBeReused(sdkId);
     const raw = await client.session.fork(request);
     if (raw.error || !raw.data) {
       throw new AppError(

@@ -332,7 +332,7 @@ async function mainFixture({ enabled = '1', argv = [] } = {}) {
     getPath: () => '/fixture', setPath() {}, requestSingleInstanceLock: () => true, isReady: () => false,
     whenReady: async () => {}, getVersion: () => 'test', quit: () => calls.push('quit'), exit() {},
   });
-  const context = createContext({ process: Object.assign(new EventEmitter(), { argv, env: { RHYTHM_HERMES_ENABLED: enabled, RHYTHM_SHELL_USER_DATA: '/fixture' }, cwd: () => '/fixture', stderr: { write() {} } }), URL, Response, console });
+  const context = createContext({ process: Object.assign(new EventEmitter(), { argv, env: { RHYTHM_HERMES_ENABLED: enabled, RHYTHM_SHELL_USER_DATA: '/fixture' }, resourcesPath: '/fixture/Resources', arch: 'arm64', cwd: () => '/fixture', stderr: { write() {} } }), URL, Response, console });
   const file = new URL('../src/main.mjs', import.meta.url);
   const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = '/fixture'; } });
   await module.link(async (name) => {
@@ -348,7 +348,9 @@ async function mainFixture({ enabled = '1', argv = [] } = {}) {
     else { values = { ...await import(name.startsWith('.') ? new URL(name, file).href : name) }; if (name === 'node:fs') values.existsSync = () => true; }
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
   });
-  await module.evaluate(); await tick();
+  await module.evaluate();
+  for (let attempt = 0; attempt < 20 && windows.length === 0; attempt += 1) await tick();
+  assert.equal(windows.length, 1, 'synthetic main did not create a window');
   const event = { sender: windows[0].webContents, senderFrame: windows[0].webContents.mainFrame };
   return { calls, windows, handlers, app, options, dialogs, event, publish: (value) => listener(value), extraWindow: () => new Window(), release: () => releaseStop(), boundSupervisor: () => boundSupervisor, supervisor };
 }

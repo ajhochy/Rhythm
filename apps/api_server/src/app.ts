@@ -72,7 +72,10 @@ import { engraphManagerRouter } from './routes/engraph_manager_routes';
 import { createMobileGatewayRouter } from './routes/mobile_gateway_routes';
 import { createAgentMemoryImportRouter } from './routes/agent_memory_import_routes';
 import { createDayflowIntegrationRouter } from './routes/dayflow_integration_routes';
+import { createDayflowAuthenticatedManagementRouter, type DayflowAuthenticatedConsentService } from './routes/dayflow_authenticated_management_routes';
+import { createDayflowReferencesRouter } from './routes/dayflow_references_routes';
 import type { DayflowManagementService } from './integrations/dayflow/public_contract';
+import type { DayflowQualifiedEvidenceService } from './services/dayflow_qualified_evidence_service';
 import { agentActivityRouter } from './routes/agent_activity_routes';
 import { creativePlatformRouter } from './routes/creative_platform_routes';
 import { setupReadinessRouter } from './routes/setup_readiness_routes';
@@ -88,8 +91,10 @@ import { createAgentBridgeRouter } from './routes/agent_bridge_routes';
 import { sharedAgentsCatalogRouter } from './shared_agents/bridge/catalog';
 import { requireLocalOrCloudAuth } from './middleware/auth_middleware';
 import { createAgentWorkstreamsRouter } from './routes/agent_workstreams_routes';
+import { createCoordinatorConversationsRouter } from './routes/coordinator_conversations_routes';
 import type { ManagedMemorySearchService } from './services/managed_workstream_evidence_capture';
 import type { PersistentWorkstreamCoordinator } from './services/persistent_workstream_coordinator';
+import type { CoordinatorConversationService } from './services/coordinator_conversation_service';
 
 export function isLoopbackAddress(address: string | undefined): boolean {
   return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
@@ -98,8 +103,11 @@ export function isLoopbackAddress(address: string | undefined): boolean {
 export function createApp(options: {
   mobileGatewayRouter?: Router;
   dayflowService?: DayflowManagementService;
+  dayflowAuthenticatedConsent?: DayflowAuthenticatedConsentService;
+  dayflowQualifiedEvidence?: DayflowQualifiedEvidenceService;
   managedMemorySearch?: ManagedMemorySearchService;
   workstreamCoordinator?: PersistentWorkstreamCoordinator;
+  coordinatorConversationService?: CoordinatorConversationService;
 } = {}) {
   const app = express();
   const dayflowLocalSurface = Boolean(
@@ -168,11 +176,26 @@ export function createApp(options: {
     // Its own router retains the same local Host/Origin and loopback guards.
     app.use('/dayflow-integration', createDayflowIntegrationRouter(options.dayflowService!));
   }
+  // Explicit consent uses the normal signed-app bearer and server-resolved
+  // session/project records. It is intentionally separate from local source
+  // configuration and stays absent until composition supplies the service.
+  if (env.agentExecutionEnabled && options.dayflowAuthenticatedConsent) {
+    app.use('/dayflow-agent', createDayflowAuthenticatedManagementRouter({
+      service: options.dayflowAuthenticatedConsent,
+    }));
+  }
   // Allow larger bodies for OAuth token exchange and session creation.
   // The OpenAI OAuth access token alone can exceed 4 KB; the default 100 KB
   // limit is sufficient for normal requests but we raise it to 1 MB as a
   // safety margin.
   app.use(express.json({ limit: '1mb' }));
+  // Signed evidence tools are default-off until both current receiving and
+  // persisted source qualification authorities are composed in server.ts.
+  if (env.agentExecutionEnabled && options.dayflowQualifiedEvidence) {
+    app.use('/dayflow-agent', createDayflowReferencesRouter({
+      evidence: options.dayflowQualifiedEvidence,
+    }));
+  }
 
   app.use('/health', healthRouter);
   app.use('/dashboard', dashboardRouter);
@@ -272,6 +295,16 @@ export function createApp(options: {
     // role never runs agents, so it has no run outcomes to serve.
     app.use('/agent-run-outcomes', runOutcomeRouter);
     app.use('/agent-workstreams', createAgentWorkstreamsRouter(options.workstreamCoordinator));
+    // C2 is mounted only with the same explicit local SQLite workstream
+    // coordinator. An unset flag/service remains a normal 404/default-off.
+    if (options.coordinatorConversationService) {
+      app.use('/coordinator-conversations', createCoordinatorConversationsRouter({
+        service: options.coordinatorConversationService,
+        enabled: () => Boolean(
+          env.workstreamsEnabled && env.dbClient === 'sqlite' && options.workstreamCoordinator,
+        ),
+      }));
+    }
     app.use('/agents/models', agentsModelsRouter);
     app.use('/agent-configs', agentConfigsRouter);
     if (env.bridgeEnabled) {

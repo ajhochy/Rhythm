@@ -25,6 +25,11 @@ export class ManagedWorkstreamContextAssembler {
     references: ManagedContextReference[];
     targetProfileId: string;
     hostEpoch: string;
+    /**
+     * Server-derived only. It carries no raw workspace path, permission rule,
+     * tool list, or browser-selected capability into the prompt.
+     */
+    scopedExecution?: boolean;
   }): ManagedWorkstreamAssembledRequest {
     const unique = new Map<string, ManagedContextReference>();
     for (const reference of input.references) {
@@ -48,9 +53,27 @@ export class ManagedWorkstreamContextAssembler {
     const referenceLines = references.length === 0
       ? '- none declared'
       : references.map((reference) => `- ${reference.canonicalId} @ ${reference.observedVersion} (${reference.sourceNamespace})`).join('\n');
+    const structuredProposalInstruction = input.policy.outputContract === 'structured_read_only_proposal_v1'
+      ? [
+        '',
+        'Return exactly one JSON object and no prose, Markdown, tool call, or code fence.',
+        'Its exact schema is:',
+        '{"schemaVersion":1,"kind":"workstream_proposal","criteria":[{"id":"new_pending_or_blocked_criterion","status":"pending"}],"nextAction":{"kind":"review","scope":"' + input.workstream.projectId + '"}}',
+        'Propose 1..20 NEW criterion ids only. Do not repeat, remove, verify, waive, or complete existing criteria. Do not include references, source content, paths, commands, permissions, or results.',
+      ]
+      : ['', 'Return a concise inspection result with explicit uncertainty. Do not automatically continue after this turn.'];
+    const executionInstruction = input.scopedExecution === true
+      ? [
+        'A separate current server authorization permits only the engine-enforced edit/write scope for this fresh owned workspace.',
+        'Do not use bash, network, external-directory, delegation, scheduling, messaging, or any capability not explicitly allowed by the engine. Do not invent a path, tool, permission, or result.',
+        'Any report remains non-authoritative: it cannot verify, waive, or complete a criterion.',
+      ]
+      : [
+        'This is a read-only inspection step. Do not edit files, run shell commands, use network tools, delegate, schedule work, send messages, or claim a criterion is complete without an authoritative receipt.',
+      ];
     const prompt = [
       'You are a bounded Rhythm managed worker.',
-      'This is a read-only inspection step. Do not edit files, run shell commands, use network tools, delegate, schedule work, send messages, or claim a criterion is complete without an authoritative receipt.',
+      ...executionInstruction,
       `Workstream ID: ${input.workstream.id}`,
       `Revision: ${input.workstream.revision}`,
       `Target profile: ${input.targetProfileId}`,
@@ -63,7 +86,7 @@ export class ManagedWorkstreamContextAssembler {
       '', 'Criterion state:', criteria || '- none declared',
       '', 'Declared reference identities only (not source content):', referenceLines,
       '', 'Next action:', `${input.workstream.checkpoint.nextAction.kind} / ${input.workstream.checkpoint.nextAction.scope}`,
-      '', 'Return a concise inspection result with explicit uncertainty. Do not automatically continue after this turn.',
+      ...structuredProposalInstruction,
     ].join('\n');
     const estimatedAddedTokens = Math.ceil(Buffer.byteLength(prompt, 'utf8') / 4);
     if (estimatedAddedTokens > MANAGED_WORKSTREAM_MAX_ADDED_TOKENS) throw new ManagedWorkstreamPromptOverflow();

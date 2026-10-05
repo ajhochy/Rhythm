@@ -66,6 +66,19 @@ export type MobileSession = Session & {
   rhythm?: SessionExecutionState;
 };
 
+/**
+ * Ephemeral proof that a session/root was observed in the current paired
+ * catalog. It is local UI eligibility data, never coordinator authority or a
+ * replacement for the server's owner/project checks.
+ */
+export type MobileCoordinatorSessionProvenance = {
+  actorKey: string;
+  localSessionId: string;
+  pairedClient: object;
+  projectId: string;
+  uiSessionId: string;
+};
+
 export type CreateSessionOptions = {
   projectId?: string;
   preferences?: ChatPreferences;
@@ -130,6 +143,10 @@ export type OpencodeContextValue = {
   activeProject?: OpencodeProject;
   selectProject: (path: string) => void;
   serverProjects: Project[];
+  /** Exact paired gateway project IDs, never inferred from a filesystem path. */
+  registeredGatewayProjectIds: ReadonlySet<string>;
+  /** Present only after this session was seen in the current paired catalog. */
+  coordinatorSessionProvenance?: MobileCoordinatorSessionProvenance;
   currentProjectPath?: string;
   serverRootPath?: string;
   isRefreshingWorkspaceCatalog: boolean;

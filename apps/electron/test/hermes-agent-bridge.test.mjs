@@ -283,7 +283,7 @@ test('EB-9: real main wiring merges bridge material, retires attempts, gates aut
   const app = Object.assign(new EventEmitter(), { getPath: () => '/fixture', requestSingleInstanceLock: () => true, isReady: () => false, whenReady: async () => {}, getVersion: () => 'test', quit() {}, exit() {} });
   const contents = Object.assign(new EventEmitter(), { mainFrame: { url: 'rhythm://app/index.html#/agents' }, send() {}, isDestroyed: () => false, setWindowOpenHandler() {}, executeJavaScript: async () => {} });
   class Window { static getAllWindows() { return []; } constructor() { this.webContents = contents; this.destroyed = false; } isDestroyed() { return this.destroyed; } destroy() { this.destroyed = true; } async loadURL() { contents.emit('did-finish-load'); } }
-  const context = createContext({ process: Object.assign(new EventEmitter(), { argv: [], env: {}, cwd: () => '/fixture', stderr: { write() {} } }), URL, Response, Headers, console });
+  const context = createContext({ process: Object.assign(new EventEmitter(), { argv: [], env: {}, resourcesPath: '/fixture/Resources', arch: 'arm64', cwd: () => '/fixture', stderr: { write() {} } }), URL, Response, Headers, console });
   const file = new URL('../src/main.mjs', import.meta.url);
   const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = '/fixture'; } });
   await module.link(async (name) => {
@@ -300,7 +300,7 @@ test('EB-9: real main wiring merges bridge material, retires attempts, gates aut
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
   });
   await module.evaluate();
-  await tick();
+  await waitFor(() => calls.find(([name]) => name === 'ready'), 'agent-server readiness did not notify the bridge host');
   const options = hostOptions.getBackendCredentialOptions();
   const attemptId = randomUUID();
   options.onOwnedBackendAttempt({ attemptId, phase: 'starting', profile: 'default', acceptedEnvNames: [] });

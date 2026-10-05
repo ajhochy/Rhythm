@@ -17,6 +17,7 @@ import type { CommandEntry } from '../gateway/commands';
 import type { SessionSettings } from '../gateway/sessions';
 import { FocusDialog } from './FocusDialog';
 import { compressImageFile } from '../compressImage';
+import { submitCoordinatorComposerInput } from './use-coordinator-conversation';
 
 const slashCommands = ['/summarize', '/review', '/status', '/compact'];
 // post-m1-phase-5 c1e: canonical PermissionMode values persisted across the PATCH boundary —
@@ -79,8 +80,12 @@ function mentionMatch(value: string) {
 
 const AUTO_MODEL_VALUE = '__auto__';
 
-export function Composer({ renderSecondaryChatActions }: {
+export function Composer({ renderSecondaryChatActions, coordinator }: {
   renderSecondaryChatActions?: (closeConfigurationThen: (action: () => void) => void) => ReactNode;
+  coordinator?: {
+    active: boolean;
+    onSend: (message: string) => Promise<{ accepted: boolean } | boolean>;
+  };
 }) {
   const { selected, profiles, models, catalogError, turnOverride, stageTurnOverride, saveSessionSettings, sendInput, sendLiveInput, sendLiveCommand, sessionGatewayMode, cancelSession, reconnect, updateSession, runShell, notify, liveChildView } = useFixtures();
   const gateway = useGateway();
@@ -88,6 +93,13 @@ export function Composer({ renderSecondaryChatActions }: {
   const preferenceUserId = auth?.user.id ?? 'fixture';
   const [sendKey, setSendKey] = useState<SendMessageKey>(() => readLocalUserPreferences(preferenceUserId).sendKey);
   const [draft, setDraft] = useState('');
+  const draftRef = useRef(draft);
+  const draftEditRevisionRef = useRef(0);
+  draftRef.current = draft;
+  const setEditedDraft = (value: string) => {
+    draftEditRevisionRef.current += 1;
+    setDraft(value);
+  };
   const [pendingModel, setPendingModel] = useState<string | null>(null);
   const [pendingProfile, setPendingProfile] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState('');
@@ -168,9 +180,10 @@ export function Composer({ renderSecondaryChatActions }: {
   const pickerRef = useRef<HTMLDivElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const attachments = selected.pendingAttachments ?? [];
+  const coordinatorActive = Boolean(coordinator?.active);
 
   useEffect(() => {
-    setDraft(takeComposerSeed(selected.id) ?? (selected.queuedDraft || '')); setPickerOpen(false); setAttachmentFeedback(''); setSuggestionsDismissed(false); setHighlighted(0);
+    setEditedDraft(takeComposerSeed(selected.id) ?? (selected.queuedDraft || '')); setPickerOpen(false); setAttachmentFeedback(''); setSuggestionsDismissed(false); setHighlighted(0);
   }, [selected.id, selected.queuedDraft]);
   useEffect(() => { setPendingModel(null); setPendingProfile(null); setSettingsError(''); }, [selected.id]);
   useEffect(() => {
@@ -246,7 +259,7 @@ export function Composer({ renderSecondaryChatActions }: {
   const atMatch = mentionMatch(draft);
   const atQuery = atMatch?.[1].toLowerCase() ?? '';
   const mentionOptions = useMemo(() => fileFixtures.filter((file) => file.path.toLowerCase().includes(atQuery)), [atQuery]);
-  const suggestionType = disabledReason || suggestionsDismissed ? null : draft.startsWith('/') ? 'slash' : atMatch ? 'mention' : draft.startsWith('!') ? 'shell' : null;
+  const suggestionType = coordinatorActive || disabledReason || suggestionsDismissed ? null : draft.startsWith('/') ? 'slash' : atMatch ? 'mention' : draft.startsWith('!') ? 'shell' : null;
   const slashOptions = sessionGatewayMode === 'live'
     ? liveCommands.map((command) => `/${command.name}`).filter((command) => command.startsWith(draft))
     : slashCommands.filter((command) => command.startsWith(draft));
@@ -283,7 +296,7 @@ export function Composer({ renderSecondaryChatActions }: {
   // session-scoped content fetch — never retains the transient dropdown/display token.
   const chooseLiveMention = (path: string) => {
     const match = mentionMatch(draft);
-    if (match && match.index !== undefined) setDraft(`${draft.slice(0, match.index)}${draft.slice(match.index + match[0].length)}`.trimStart());
+    if (match && match.index !== undefined) setEditedDraft(`${draft.slice(0, match.index)}${draft.slice(match.index + match[0].length)}`.trimStart());
     setSuggestionsDismissed(false);
     const filename = path.split('/').at(-1) ?? path;
     void gateway.domains.sessions!.fileContent(selected.id, path).then((content) => {
@@ -339,12 +352,40 @@ export function Composer({ renderSecondaryChatActions }: {
 
   const chooseMention = (file: FileFixture) => {
     const match = mentionMatch(draft);
-    if (match && match.index !== undefined) setDraft(`${draft.slice(0, match.index)}${draft.slice(match.index + match[0].length)}`.trimStart());
+    if (match && match.index !== undefined) setEditedDraft(`${draft.slice(0, match.index)}${draft.slice(match.index + match[0].length)}`.trimStart());
     addFixture(file); setSuggestionsDismissed(false); requestAnimationFrame(() => textareaRef.current?.focus());
   };
 
   const submit = async () => {
     if (disabledReason) { notify(disabledReason); return; }
+    const submittedDraft = draft;
+    const submittedDraftEditRevision = draftEditRevisionRef.current;
+    const submittedSessionId = selected.id;
+    const coordinatorSubmission = await submitCoordinatorComposerInput({
+      active: coordinatorActive,
+      attachmentCount: sessionGatewayMode === 'live'
+        ? liveFiles.length + liveMentionAttachments.length
+        : attachments.length,
+      message: submittedDraft,
+      send: coordinator?.onSend ?? (async () => false),
+    });
+    if (coordinatorSubmission.handled) {
+      if (coordinatorSubmission.reason) {
+        setAttachmentFeedback(coordinatorSubmission.reason);
+        notify(coordinatorSubmission.reason);
+      }
+      if (coordinatorSubmission.accepted) {
+        // A late coordinator acknowledgement must never erase text typed
+        // while it was in flight, nor a draft from another selected chat.
+        if (activeContext.current.id === submittedSessionId &&
+          draftRef.current === submittedDraft &&
+          draftEditRevisionRef.current === submittedDraftEditRevision) {
+          setEditedDraft('');
+          setAttachmentFeedback('');
+        }
+      }
+      return;
+    }
     const value = draft.trim();
     if (sessionGatewayMode === 'live') {
       if (!value && liveFiles.length === 0 && liveMentionAttachments.length === 0) { notify('Enter a message or attach a file before sending'); textareaRef.current?.focus(); return; }
@@ -353,7 +394,7 @@ export function Composer({ renderSecondaryChatActions }: {
       const commandMatch = value.match(/^\/(\S+)(?:\s+([\s\S]*))?$/);
       if (commandMatch && liveCommandNames.has(commandMatch[1])) {
         sendLiveCommand(commandMatch[1], commandMatch[2] ?? '');
-        setLiveFiles([]); setLiveMentionAttachments([]); setDraft(''); setAttachmentFeedback('');
+        setLiveFiles([]); setLiveMentionAttachments([]); setEditedDraft(''); setAttachmentFeedback('');
         return;
       }
       const oversized = liveFiles.find((file) => file.size > MAX_LIVE_PARTS_BYTES);
@@ -371,21 +412,21 @@ export function Composer({ renderSecondaryChatActions }: {
       // confirm what was delivered instead of a content-free "Message sent".
       const textPreview = resolved.find((attachment) => attachment.content !== undefined)?.content;
       if (textPreview) notify(`Message sent · attached: ${textPreview.slice(0, 200)}`);
-      setLiveFiles([]); setLiveMentionAttachments([]); setDraft(''); setAttachmentFeedback('');
+      setLiveFiles([]); setLiveMentionAttachments([]); setEditedDraft(''); setAttachmentFeedback('');
       return;
     }
     if (!value && attachments.length === 0) { notify('Enter a message or attach a file before sending'); textareaRef.current?.focus(); return; }
     if (value.startsWith('\\!')) sendInput(value.slice(1), attachments);
     else if (value.startsWith('!')) { runShell(value.slice(1).trim()); notify('Shell command completed in the fixture terminal'); }
     else sendInput(value, attachments);
-    setDraft(''); setAttachmentFeedback('');
+    setEditedDraft(''); setAttachmentFeedback('');
   };
 
   const useHighlightedSuggestion = () => {
     if (suggestionType === 'mention' && sessionGatewayMode === 'live') { if (liveMentionResults[highlighted]) chooseLiveMention(liveMentionResults[highlighted]); }
     else if (suggestionType === 'mention' && mentionOptions[highlighted]) chooseMention(mentionOptions[highlighted]);
-    else if (suggestionType === 'slash' && slashOptions[highlighted]) { setDraft(`${slashOptions[highlighted]} `); requestAnimationFrame(() => textareaRef.current?.focus()); }
-    else if (suggestionType === 'shell') { setDraft('!git status --short'); requestAnimationFrame(() => textareaRef.current?.focus()); }
+    else if (suggestionType === 'slash' && slashOptions[highlighted]) { setEditedDraft(`${slashOptions[highlighted]} `); requestAnimationFrame(() => textareaRef.current?.focus()); }
+    else if (suggestionType === 'shell') { setEditedDraft('!git status --short'); requestAnimationFrame(() => textareaRef.current?.focus()); }
   };
 
   const handleComposerKey = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -425,9 +466,9 @@ export function Composer({ renderSecondaryChatActions }: {
         {liveFiles.map((file, index) => <div className="attachment-chip" key={`${file.name}-${index}`} data-testid={`live-attachment-${index}`}><Icon name="file" size={14} /><span><strong>{file.name}</strong><small>{file.type || 'application/octet-stream'}</small></span><button type="button" onClick={() => setLiveFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Remove ${file.name}`}><Icon name="close" size={13} /></button></div>)}
       </div>}
       {attachmentFeedback && <div className={`attachment-feedback ${attachmentFeedback.startsWith('Could not') ? 'error' : ''}`} id="composer-attachment-feedback" role={attachmentFeedback.startsWith('Could not') ? 'alert' : 'status'} data-testid="attachment-feedback"><span>{attachmentFeedback}</span>{attachmentFeedback.startsWith('Could not') && <button type="button" className="text-button" onClick={() => { setAttachmentFeedback(''); textareaRef.current?.focus(); }}>Dismiss</button>}</div>}
-      <label className="composer-label" htmlFor="composer-input">Message the agent</label>
+      <label className="composer-label" htmlFor="composer-input">{coordinatorActive ? 'Message Rhythm' : 'Message the agent'}</label>
       <div className="composer-input-row">
-        <textarea id="composer-input" ref={textareaRef} value={draft} onChange={(event) => { setDraft(event.target.value); setSuggestionsDismissed(false); }} onKeyDown={handleComposerKey} placeholder="Message the agent · / command · @ file · ! shell" rows={2} role="combobox" aria-autocomplete="list" aria-controls="composer-suggestions-list" aria-expanded={Boolean(suggestionType)} aria-activedescendant={suggestionType && suggestionCount > 0 ? `composer-${suggestionType}-option-${highlighted}` : undefined} aria-describedby={`composer-help${attachmentFeedback ? ' composer-attachment-feedback' : ''}`} disabled={Boolean(disabledReason)} data-testid="composer-input" />
+        <textarea id="composer-input" ref={textareaRef} value={draft} onChange={(event) => { setEditedDraft(event.target.value); setSuggestionsDismissed(false); }} onKeyDown={handleComposerKey} placeholder={coordinatorActive ? 'Message Rhythm about this project…' : 'Message the agent · / command · @ file · ! shell'} rows={2} role="combobox" aria-autocomplete={coordinatorActive ? 'none' : 'list'} aria-controls={coordinatorActive ? undefined : 'composer-suggestions-list'} aria-expanded={Boolean(suggestionType)} aria-activedescendant={suggestionType && suggestionCount > 0 ? `composer-${suggestionType}-option-${highlighted}` : undefined} aria-describedby={`composer-help${attachmentFeedback ? ' composer-attachment-feedback' : ''}`} disabled={Boolean(disabledReason)} data-testid="composer-input" />
         {selected.status === 'working' && !offline
           // Pre-existing gotcha (unrelated to Phase 4 attachments/streaming/parts/pagination):
           // without distinct `key`s, React patches this button's `type` in place (button→submit)
@@ -439,7 +480,7 @@ export function Composer({ renderSecondaryChatActions }: {
           : <button key="composer-send" className="send-button" type="submit" aria-label={offline ? 'Queue draft locally' : 'Send message'} data-testid="composer-send" disabled={Boolean(disabledReason)}><Icon name="send" size={17} /></button>}
       </div>
       {suggestionType && <div ref={suggestionsRef} id="composer-suggestions-list" className="composer-suggestions" role="listbox" aria-label={`${suggestionType} suggestions`} data-testid="composer-suggestions">
-        {suggestionType === 'slash' && slashOptions.map((command, index) => <button id={`composer-slash-option-${index}`} role="option" aria-selected={highlighted === index} type="button" key={command} onClick={() => { setDraft(`${command} `); textareaRef.current?.focus(); }} data-testid={`command-${command.slice(1)}`}><Icon name="command" size={14} /><strong>{command}</strong><small>{sessionGatewayMode === 'live' ? (liveCommands.find((entry) => entry.name === command.slice(1))?.description || 'Command') : 'Fixture command'}</small></button>)}
+        {suggestionType === 'slash' && slashOptions.map((command, index) => <button id={`composer-slash-option-${index}`} role="option" aria-selected={highlighted === index} type="button" key={command} onClick={() => { setEditedDraft(`${command} `); textareaRef.current?.focus(); }} data-testid={`command-${command.slice(1)}`}><Icon name="command" size={14} /><strong>{command}</strong><small>{sessionGatewayMode === 'live' ? (liveCommands.find((entry) => entry.name === command.slice(1))?.description || 'Command') : 'Fixture command'}</small></button>)}
         {suggestionType === 'slash' && sessionGatewayMode === 'live' && commandsUnavailable && <div className="suggestion-empty" role="status">Commands are unavailable. Try again after reconnecting.</div>}
         {suggestionType === 'slash' && sessionGatewayMode === 'live' && !commandsUnavailable && slashOptions.length === 0 && <div className="suggestion-empty" role="status">No matching commands</div>}
         {suggestionType === 'mention' && sessionGatewayMode === 'live' && liveMentionResults.map((path, index) => <button id={`composer-mention-option-${index}`} role="option" aria-selected={highlighted === index} type="button" key={path} onClick={() => chooseLiveMention(path)} data-testid={`mention-option-live-${index}`}><Icon name="file" size={14} /><strong>{path}</strong></button>)}
@@ -448,13 +489,13 @@ export function Composer({ renderSecondaryChatActions }: {
         {suggestionType === 'mention' && sessionGatewayMode === 'live' && mentionState === 'ready' && liveMentionResults.length === 0 && <div className="suggestion-empty" role="status" data-testid="mention-no-results">No matching files</div>}
         {suggestionType === 'mention' && sessionGatewayMode !== 'live' && mentionOptions.map((file, index) => <button id={`composer-mention-option-${index}`} role="option" aria-selected={highlighted === index} type="button" key={file.id} onClick={() => chooseMention(file)} data-testid={`mention-option-${file.id}`}><Icon name="file" size={14} /><strong>{file.path}</strong><small>{file.description}</small></button>)}
         {suggestionType === 'mention' && sessionGatewayMode !== 'live' && mentionOptions.length === 0 && <div className="suggestion-empty" role="status" data-testid="mention-no-results">No matching files</div>}
-        {suggestionType === 'shell' && <button id="composer-shell-option-0" role="option" aria-selected="true" type="button" onClick={() => { setDraft('!git status --short'); textareaRef.current?.focus(); }} data-testid="shell-shortcut-option"><Icon name="terminal" size={14} /><strong>!git status --short</strong><small>Run through session shell</small></button>}
+        {suggestionType === 'shell' && <button id="composer-shell-option-0" role="option" aria-selected="true" type="button" onClick={() => { setEditedDraft('!git status --short'); textareaRef.current?.focus(); }} data-testid="shell-shortcut-option"><Icon name="terminal" size={14} /><strong>!git status --short</strong><small>Run through session shell</small></button>}
       </div>}
       <div className="composer-toolbar">
         <div className="composer-selects">
           {sessionGatewayMode === 'live'
-            ? <label className="icon-button small live-file-label" aria-label="Attach files" data-testid="composer-attach"><Icon name="attach" size={15} /><input type="file" multiple className="sr-only" onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length > 0) setLiveFiles((current) => [...current, ...files]); event.target.value = ''; }} disabled={Boolean(disabledReason)} data-testid="composer-live-file-input" /></label>
-            : <div className="attachment-picker-anchor"><button ref={attachButtonRef} className="icon-button small" type="button" onClick={() => setPickerOpen((value) => !value)} aria-label="Attach files" aria-haspopup="menu" aria-expanded={pickerOpen} data-testid="composer-attach" disabled={Boolean(disabledReason)}><Icon name="attach" size={15} /></button>{pickerOpen && <div ref={pickerRef} className="attachment-picker menu-popover" role="menu" aria-label="Fixture files" data-testid="attachment-picker"><div className="menu-heading"><span>Attach files</span><small>Local fixture</small></div>{fileFixtures.map((file) => <button className="menu-item stacked" role="menuitem" type="button" key={file.id} onClick={() => { addFixture(file); setPickerOpen(false); requestAnimationFrame(() => attachButtonRef.current?.focus()); }} data-testid={`attachment-option-${file.id}`}><Icon name={file.outcome === 'binary' ? 'command' : 'file'} size={14} /><span><strong>{file.path}</strong><small>{file.description}</small></span></button>)}</div>}</div>}
+            ? <label className="icon-button small live-file-label" aria-label="Attach files" data-testid="composer-attach"><Icon name="attach" size={15} /><input type="file" multiple className="sr-only" onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length > 0) setLiveFiles((current) => [...current, ...files]); event.target.value = ''; }} disabled={Boolean(disabledReason) || coordinatorActive} data-testid="composer-live-file-input" /></label>
+            : <div className="attachment-picker-anchor"><button ref={attachButtonRef} className="icon-button small" type="button" onClick={() => setPickerOpen((value) => !value)} aria-label="Attach files" aria-haspopup="menu" aria-expanded={pickerOpen} data-testid="composer-attach" disabled={Boolean(disabledReason) || coordinatorActive}><Icon name="attach" size={15} /></button>{pickerOpen && <div ref={pickerRef} className="attachment-picker menu-popover" role="menu" aria-label="Fixture files" data-testid="attachment-picker"><div className="menu-heading"><span>Attach files</span><small>Local fixture</small></div>{fileFixtures.map((file) => <button className="menu-item stacked" role="menuitem" type="button" key={file.id} onClick={() => { addFixture(file); setPickerOpen(false); requestAnimationFrame(() => attachButtonRef.current?.focus()); }} data-testid={`attachment-option-${file.id}`}><Icon name={file.outcome === 'binary' ? 'command' : 'file'} size={14} /><span><strong>{file.path}</strong><small>{file.description}</small></span></button>)}</div>}</div>}
         </div>
         <small id="composer-help">{sendKey === 'Enter' ? 'Enter to send · Shift+Enter for newline' : `${sendMessageKeyLabel(sendKey)} to send · Enter for newline`}</small>
       </div>

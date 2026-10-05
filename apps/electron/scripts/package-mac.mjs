@@ -12,6 +12,7 @@ import { PINNED_HERMES_DESKTOP_SOURCE_COMMIT } from '../src/hermes-desktop-confi
 import { refreshHermesDesktopArtifactIntegrity, resolveHermesDesktopArtifact } from '../src/hermes-desktop-artifact.mjs';
 import { EXPECTED_COLONY_ELECTRON_MAJOR, PINNED_COLONY_SOURCE_COMMIT } from '../src/colony-desktop-config.mjs';
 import { refreshColonyArtifactIntegrity, resolveColonyArtifact } from '../src/colony-desktop-artifact.mjs';
+import { stageDayflowDesktopArtifact } from '../src/dayflow-desktop-artifact.mjs';
 
 const run = promisify(execFile);
 
@@ -245,6 +246,7 @@ await run('npm', ['--prefix', '../mcp_server', 'run', 'build'], { cwd: electronR
 await cp(sourceApp, stagingArtifact, { recursive: true, verbatimSymlinks: true });
 await stageHermesDesktopArtifact({ resources });
 await stageColonyArtifact({ resources });
+await stageDayflowDesktopArtifact({ resources, execute: run });
 await stageRhythmIcon({
   appiconsetDir: resolve(electronRoot, '../desktop_flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset'),
   resources,
@@ -353,7 +355,9 @@ const approvalHelper = resolve(resources, 'human-approval/rhythm-approval-signer
 await hardenElectronFuses(resolve(stagingArtifact, 'Contents/MacOS/Rhythm'));
 await run('codesign', ['--force', '--identifier', 'com.rhythm.desktop.approval-signer', '--sign', '-', approvalHelper]);
 await run('codesign', ['--verify', '--strict', approvalHelper]);
-await run('codesign', ['--force', '--deep', '--sign', '-', stagingArtifact]);
+// Do not use --deep here: it would re-sign the independently verified upstream Dayflow.app.
+// The outer seal covers the resource while retaining Dayflow's upstream Developer ID signature.
+await run('codesign', ['--force', '--sign', '-', stagingArtifact]);
 const stagedHermesArtifact = resolve(resources, 'hermes-desktop');
 await refreshHermesDesktopArtifactIntegrity({ artifactRoot: stagedHermesArtifact });
 await resolveHermesDesktopArtifact({

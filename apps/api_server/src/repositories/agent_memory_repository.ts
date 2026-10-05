@@ -453,6 +453,36 @@ export class AgentMemoryRepository {
   }
 
   /**
+   * Reclaim a canonical vault projection only after a caller has independently
+   * verified its immutable source receipt. Generic startup rebuilds create
+   * null-owner rows, so this narrow CAS restores the owner without ever
+   * overwriting a foreign owner.
+   */
+  async claimOwnerForSourceIfNull(source: string, sourceId: string, ownerUserId: number): Promise<boolean> {
+    if (source !== 'obsidian-memory' || typeof sourceId !== 'string' || sourceId.length === 0 ||
+        sourceId.length > 512 || !Number.isSafeInteger(ownerUserId) || ownerUserId <= 0) {
+      throw new Error('Invalid canonical owner claim');
+    }
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        `UPDATE agent_memory SET owner_user_id = $3
+         WHERE source = $1 AND source_id = $2 AND owner_user_id IS NULL`,
+        [source, sourceId, ownerUserId],
+      );
+      const row = await getPostgresPool().query(
+        `SELECT owner_user_id FROM agent_memory WHERE source = $1 AND source_id = $2 LIMIT 1`,
+        [source, sourceId],
+      );
+      return row.rows.length === 1 && row.rows[0].owner_user_id === ownerUserId;
+    }
+    getDb().prepare(`UPDATE agent_memory SET owner_user_id = ?
+      WHERE source = ? AND source_id = ? AND owner_user_id IS NULL`).run(ownerUserId, source, sourceId);
+    const row = getDb().prepare(`SELECT owner_user_id FROM agent_memory
+      WHERE source = ? AND source_id = ? LIMIT 1`).get(source, sourceId) as { owner_user_id: number | null } | undefined;
+    return row?.owner_user_id === ownerUserId;
+  }
+
+  /**
    * List order: non-deprecated first, then most recently updated, then id.
    * `includeDeprecated` defaults to true here so internal full-scan callers
    * keep seeing every row; the HTTP list endpoint opts out by default.

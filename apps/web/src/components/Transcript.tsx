@@ -1,5 +1,5 @@
 import './Transcript.css';
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Icon } from '../icons';
 import { useFixtures } from '../store';
 import { useAuthUser } from '../gateway/auth';
@@ -279,7 +279,18 @@ type ReadingPosition = {
   firstId?: string; latestId?: string; revision?: string; unread: boolean; restorePending?: boolean; wheelUnpinned?: boolean;
 };
 
-export function Transcript() {
+type CoordinatorTranscript = {
+  /** Existing canonical rows mapped through the normal session mapper. */
+  messages: RichTranscriptMessage[];
+  hasMore: boolean;
+  loadingOlder?: boolean;
+  loadOlder(): Promise<boolean>;
+};
+
+export function Transcript({ coordinatorStatus, coordinatorTranscript }: {
+  coordinatorStatus?: ReactNode;
+  coordinatorTranscript?: CoordinatorTranscript;
+}) {
   const { selected, sessions, selectSession, demo: fixtureDemo, loading, notify, loadOlder, revertSession, unrevertSession, forkSession, summarizeSession, sendInput: sendFixtureInput, sendLiveInput, sessionGatewayMode, liveChildView, openLiveChildSession, isCompletionArmed, toggleCompletionArm } = useFixtures();
   const demo = sessionGatewayMode === 'live' ? undefined : fixtureDemo;
   const sendInput = sessionGatewayMode === 'live' ? sendLiveInput : sendFixtureInput;
@@ -292,9 +303,9 @@ export function Transcript() {
   // ponytail: workspace-lifetime positions, not persisted history or virtualization.
   const positions = useRef(new Map<string, ReadingPosition>());
   const activeKey = useRef('');
-  const key = liveChildView ? `child:${liveChildView.parentId}:${liveChildView.childId}` : `session:${selected.id}`;
+  const key = liveChildView ? `child:${liveChildView.parentId}:${liveChildView.childId}` : coordinatorTranscript ? `coordinator:${selected.id}` : `session:${selected.id}`;
   const reasoningScope = liveChildView ? `${liveChildView.parentId}/${liveChildView.childId}` : selected.id;
-  const messages = liveChildView?.messages ?? selected.messages;
+  const messages = liveChildView?.messages ?? coordinatorTranscript?.messages ?? selected.messages;
   const contentRevision = messages.map((rawMessage) => {
     const message = rawMessage as RichTranscriptMessage;
     return `${message.id}:${message.interrupted ? 1 : 0}:${message.cost ?? ''}:${message.tokens?.input ?? ''}:${message.tokens?.output ?? ''}:${message.tokens?.cache?.read ?? ''}:${message.tokens?.cache?.write ?? ''}:${message.blocks.map((rawBlock) => {
@@ -410,7 +421,8 @@ export function Transcript() {
     pendingOlder.current.add(id);
     setOlderStatus((current) => ({ ...current, [id]: 'pending' }));
     try {
-      await loadOlder(id);
+      if (coordinatorTranscript) await coordinatorTranscript.loadOlder();
+      else await loadOlder(id);
       setOlderStatus((current) => ({ ...current, [id]: undefined }));
     } catch {
       setOlderStatus((current) => ({ ...current, [id]: 'error' }));
@@ -455,15 +467,21 @@ export function Transcript() {
   if (demo === 'error') return <section className="state-panel" data-testid="error-state"><Icon name="background" size={26} /><h2>Session service unavailable</h2><p>The session list could not be loaded. Existing transcript content remains unchanged.</p><button className="primary-button" type="button" onClick={() => location.hash = '#/agents?demo=running'}>Retry</button></section>;
   if (demo === 'no-provider') return <section className="state-panel" data-testid="no-provider-state"><Icon name="profile" size={26} /><h2>Choose a model to begin</h2><p>This session has no available agent model. Open Profiles to choose a provider and model.</p><button className="primary-button" type="button" onClick={() => location.hash = '#/profiles'}>Open Profiles</button></section>;
   if (demo === 'resumable') return <section className="state-panel" data-testid="resumable-state"><Icon name="background" size={26} /><h2>Agent runtime unavailable</h2><p>The transcript and artifacts remain readable. Resume when the desktop runtime is available.</p><button className="primary-button" type="button" onClick={() => location.hash = '#/agents?demo=running'}>Resume fixture session</button></section>;
-  if (demo === 'empty' || selected.messages.length === 0) return <section className="state-panel" data-testid="empty-state"><Icon name="agents" size={28} /><h2>{demo === 'empty' ? 'No sessions in this view' : 'Start this conversation'}</h2><p>{demo === 'empty' ? 'Adjust filters or start a new chat.' : 'Choose a starter or write a precise request below.'}</p><div className="starter-row"><button type="button" onClick={() => sendInput('Review the project context and propose the next safe step.')}>Review project context</button><button type="button" onClick={() => sendInput('Summarize current changes and unresolved decisions.')}>Summarize changes</button></div></section>;
+  if (demo === 'empty' || messages.length === 0) {
+    // Coordinator mode has one deliberately separate message path. Starter
+    // prompts call the ordinary SDK sender, so never offer them while this
+    // transcript is backed by the server-owned coordinator root.
+    if (coordinatorTranscript && demo !== 'empty') return <section className="state-panel" data-testid="coordinator-empty-state"><Icon name="agents" size={28} /><h2>Start this Rhythm conversation</h2><p>Write a plaintext message below. Rhythm will keep this conversation on its server-bound root.</p></section>;
+    return <section className="state-panel" data-testid="empty-state"><Icon name="agents" size={28} /><h2>{demo === 'empty' ? 'No sessions in this view' : 'Start this conversation'}</h2><p>{demo === 'empty' ? 'Adjust filters or start a new chat.' : 'Choose a starter or write a precise request below.'}</p><div className="starter-row"><button type="button" onClick={() => sendInput('Review the project context and propose the next safe step.')}>Review project context</button><button type="button" onClick={() => sendInput('Summarize current changes and unresolved decisions.')}>Summarize changes</button></div></section>;
+  }
   return (
     <section className="transcript" aria-label={`${sessionLabel(selected).label} transcript`} data-testid="transcript">
-      {(sessionGatewayMode !== 'live' || selected.transcriptHasMore !== false) && <div className="load-older-wrap"><button className="text-button" type="button" disabled={olderStatus[selected.id] === 'pending'} onClick={() => void requestOlder()} data-testid="load-older"><Icon name="history" size={14} />{olderStatus[selected.id] === 'pending' ? 'Loading older messages…' : 'Load older messages'}</button>{olderStatus[selected.id] === 'error' && <p role="alert">Older messages could not be loaded. Try again.</p>}</div>}
+      {(coordinatorTranscript ? coordinatorTranscript.hasMore : sessionGatewayMode !== 'live' || selected.transcriptHasMore !== false) && <div className="load-older-wrap"><button className="text-button" type="button" disabled={olderStatus[selected.id] === 'pending' || coordinatorTranscript?.loadingOlder} onClick={() => void requestOlder()} data-testid="load-older"><Icon name="history" size={14} />{olderStatus[selected.id] === 'pending' || coordinatorTranscript?.loadingOlder ? 'Loading older messages…' : 'Load older messages'}</button>{olderStatus[selected.id] === 'error' && <p role="alert">Older messages could not be loaded. Try again.</p>}</div>}
       {selected.retry && <div className="retry-banner" role="status" data-testid="retry-status"><Icon name="refresh" className="spin" size={13} /><span>Retrying · attempt {selected.retry.attempt} · {selected.retry.reason}</span></div>}
       {selected.status === 'error' && selected.statusMessage && <p role="alert">{selected.statusMessage}</p>}
       {(selected.permission?.status === 'pending' || selected.question?.status === 'pending') && <div className="pending-trigger-banner" role="status"><span className="status-dot waiting" />Agent paused · {selected.permission?.status === 'pending' ? 'permission required before the tool can continue' : 'answer required before the plan can continue'}</div>}
       {selected.revertedMessageId && <div className="reverted-banner" role="status" data-testid="reverted-banner"><Icon name="undo" /><span>History is reverted at message {selected.revertedMessageId}. The retained transcript remains readable; restore to use it again.</span><button className="secondary-button" type="button" onClick={() => void unrevertSession(selected.id)} data-testid="unrevert">Restore history</button></div>}
-      {selected.messages.map((message) => <article id={`agent-message-${message.id}`} className={`message ${message.role}`} key={message.id} data-message-id={message.id} tabIndex={-1} data-testid={`message-${message.id}`} aria-busy={message.blocks.some((block) => block.streaming) || undefined} onContextMenu={(event) => { event.preventDefault(); setOpenMessageActions(message.id); }}>
+      {messages.map((message) => <article id={`agent-message-${message.id}`} className={`message ${message.role}`} key={message.id} data-message-id={message.id} tabIndex={-1} data-testid={`message-${message.id}`} aria-busy={message.blocks.some((block) => block.streaming) || undefined} onContextMenu={(event) => { event.preventDefault(); setOpenMessageActions(message.id); }}>
         <header><span className="message-role">{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Rhythm agent' : 'Session'}</span><Timestamp value={message.createdAt} />{message.interrupted && <span className="message-interrupted">Interrupted</span>}</header>
         <div className="message-blocks">{messageBlocks(message)}</div>
         <MessageUsage message={message} />
@@ -482,5 +500,5 @@ export function Transcript() {
     </section>
   );
   };
-  return <><div className="transcript-scroll" ref={viewport} onScroll={remember} onWheel={(event) => { const position = positions.current.get(activeKey.current); if (!position) return; if (event.deltaY < 0) { position.wheelUnpinned = true; position.pinned = false; } else if (event.deltaY > 0) position.wheelUnpinned = false; }} role="region" tabIndex={0} aria-label="Transcript reading area">{renderContent()}{sessionGatewayMode === 'live' && !liveChildView && <>{[...pending.permissions.values()].map(permission => <LivePermissionCard key={`${selected.id}:${permission.permissionID}`} sessionId={selected.id} permission={permission} />)}{[...pending.questions.values()].map(question => <LiveQuestionCard key={`${selected.id}:${question.requestId}`} sessionId={selected.id} question={question} />)}</>}</div>{newOutput && <button className="primary-button transcript-new-output" type="button" onClick={jumpToLatest}>New output</button>}</>;
+  return <><div className="transcript-scroll" ref={viewport} onScroll={remember} onWheel={(event) => { const position = positions.current.get(activeKey.current); if (!position) return; if (event.deltaY < 0) { position.wheelUnpinned = true; position.pinned = false; } else if (event.deltaY > 0) position.wheelUnpinned = false; }} role="region" tabIndex={0} aria-label="Transcript reading area">{renderContent()}{sessionGatewayMode === 'live' && !liveChildView && <>{[...pending.permissions.values()].map(permission => <LivePermissionCard key={`${selected.id}:${permission.permissionID}`} sessionId={selected.id} permission={permission} />)}{[...pending.questions.values()].map(question => <LiveQuestionCard key={`${selected.id}:${question.requestId}`} sessionId={selected.id} question={question} />)}</>}{!liveChildView && coordinatorStatus}</div>{newOutput && <button className="primary-button transcript-new-output" type="button" onClick={jumpToLatest}>New output</button>}</>;
 }

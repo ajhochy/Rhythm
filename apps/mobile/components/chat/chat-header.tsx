@@ -26,6 +26,7 @@ type Palette = typeof Colors.light;
 
 type ChatHeaderProps = {
   connectionStatus: GatewayConnectionStatus;
+  coordinatorEligible?: boolean;
   availableModels: ModelOption[];
   availableProfiles: AgentOption[];
   availableProviders: ProviderOption[];
@@ -43,6 +44,7 @@ type ChatHeaderProps = {
   showingChanges: boolean;
   onBack: () => void;
   onCloseMenu: () => void;
+  onOpenCoordinator?: () => void;
   onConfirmStopConversation: () => void;
   onCreateSession: () => void;
   onOpenSession: (sessionId: string) => void;
@@ -71,6 +73,7 @@ export function ChatHeader({
   availableProviders,
   chatPreferences,
   connectionStatus,
+  coordinatorEligible = false,
   conversation,
   currentSessionId,
   contextLimit,
@@ -81,6 +84,7 @@ export function ChatHeader({
   showingChanges,
   onBack,
   onCloseMenu,
+  onOpenCoordinator,
   onConfirmStopConversation,
   onCreateSession,
   onOpenSession,
@@ -199,6 +203,18 @@ export function ChatHeader({
         palette={palette}
         preferences={chatPreferences}
         visible={actionsVisible}>
+        {coordinatorEligible ? (
+          <Button
+            accessibilityRole="menuitem"
+            icon="message-text-outline"
+            onPress={() => {
+              setActionsVisible(false);
+              onOpenCoordinator?.();
+            }}
+            testID="chat-coordinate-with-rhythm">
+            Coordinate with Rhythm
+          </Button>
+        ) : null}
         <Button
           accessibilityRole="menuitem"
           icon="plus"

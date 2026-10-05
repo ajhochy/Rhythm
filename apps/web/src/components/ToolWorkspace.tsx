@@ -25,7 +25,11 @@ import { researchExportName, saveTextFile } from '../saveTextFile';
 import { guidanceFrom, magazineState, publishMagazine } from '../research/magazineArtifact';
 import { FixtureAgentSettingsTool, LiveSettingsTool } from './tools/AgentSettingsTool';
 import { SharedAgentsTool } from './tools/SharedAgentsTool';
+import { AgentToolsCatalog } from './tools/AgentToolsCatalog';
+import { DayflowTool } from './tools/DayflowTool';
 import { GalleryFolders, matchesGalleryFilter, type GalleryFilter } from './tools/GalleryFolders';
+import { availableAgentToolIds } from '../agentTools/hosts';
+import { useAuthUser } from '../gateway/auth';
 import './ToolWorkspace.css';
 
 // Parses a JSON array field defensively — live rows always carry these as JSON text
@@ -1802,7 +1806,8 @@ function GalleryTool() {
 
 export function ToolWorkspace({ slug }: { slug: string }) {
   const { sessionGatewayMode } = useFixtures();
+  const pinScope = useAuthUser()?.user.id;
   const live = sessionGatewayMode === 'live';
-  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': live ? <LiveResearchTool /> : <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: live ? <LiveWebhooksUnavailable /> : <WebhooksTool />, skills: live ? <LiveSkillsTool /> : <ManagedCatalog key="skills" kind="skills" />, playbooks: live ? <LivePlaybooksTool /> : <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: live ? <LiveCookbookTool /> : <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: live ? <LiveEmailTool /> : <FixtureEmailTool />, gallery: live ? <LiveGalleryTool /> : <GalleryTool />, 'agent-settings': live ? <LiveSettingsTool Frame={ToolFrame} /> : <FixtureAgentSettingsTool Frame={ToolFrame} />, 'shared-agents': <SharedAgentsTool />  };
+  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': live ? <LiveResearchTool /> : <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: live ? <LiveWebhooksUnavailable /> : <WebhooksTool />, skills: live ? <LiveSkillsTool /> : <ManagedCatalog key="skills" kind="skills" />, playbooks: live ? <LivePlaybooksTool /> : <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: live ? <LiveCookbookTool /> : <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: live ? <LiveEmailTool /> : <FixtureEmailTool />, gallery: live ? <LiveGalleryTool /> : <GalleryTool />, 'agent-settings': live ? <LiveSettingsTool Frame={ToolFrame} /> : <FixtureAgentSettingsTool Frame={ToolFrame} />, 'shared-agents': <SharedAgentsTool />, dayflow: <DayflowTool />, 'agent-tools': <AgentToolsCatalog scope={pinScope} availableIds={availableAgentToolIds()} onOpen={(tool) => navigate(tool.route)} /> };
   return <div key={slug} className="tool-route-boundary">{tools[slug] ?? (live ? <LiveBrainTool /> : <FixtureBrainTool />)}</div>;
 }

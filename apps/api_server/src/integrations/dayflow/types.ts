@@ -48,11 +48,33 @@ export interface DayflowConfig {
   sourceVersion: string | null;
   /** Generated locally and never taken from a Dayflow export. */
   sourceNamespace: string;
+  /** Durable private rotation token for reader/consent invalidation. */
+  qualificationGeneration: string;
+  /**
+   * A server-authenticated, explicitly granted source consent. It is never
+   * accepted from a reader/tool request and is intentionally private config.
+   * Revoked records remain durable so a later config read cannot mistake a
+   * prior grant for fresh authority.
+   */
+  sourceConsent: DayflowSourceConsent | null;
   timezone: string | null;
   rolloverHour: 4;
   exclusions: string[];
   retentionDays: number | null;
   maxRecordsPerRun: number;
+}
+
+export interface DayflowSourceConsent {
+  schemaVersion: 1;
+  ownerUserId: number;
+  projectId: string;
+  authorizingSessionId: string;
+  namespace: string;
+  sourceInstance: string;
+  configurationGeneration: string;
+  consentGeneration: string;
+  grantedAt: string;
+  revokedAt?: string;
 }
 
 export interface DayflowJournalBinding {
@@ -64,7 +86,7 @@ export interface DayflowSource {
   read(): Promise<DayflowFixtureExport>;
 }
 
-export const DEFAULT_DAYFLOW_CONFIG: Omit<DayflowConfig, 'sourceNamespace'> = {
+export const DEFAULT_DAYFLOW_CONFIG: Omit<DayflowConfig, 'sourceNamespace' | 'qualificationGeneration'> = {
   schemaVersion: 1,
   enabled: false,
   automaticImport: false,
@@ -72,6 +94,7 @@ export const DEFAULT_DAYFLOW_CONFIG: Omit<DayflowConfig, 'sourceNamespace'> = {
   journalBinding: null,
   executablePath: null,
   sourceVersion: null,
+  sourceConsent: null,
   timezone: null,
   rolloverHour: 4,
   exclusions: [],

@@ -21,6 +21,7 @@ async function interactiveRuntime(argv, userData, selectDirectory = async () => 
   const calls = [], windows = [], handlers = new Map(), paths = new Map();
   const processBoundary = Object.assign(new EventEmitter(), {
     argv, env: { RHYTHM_LIVE_API_URL: 'http://127.0.0.1:4098', RHYTHM_LIVE_ENGINE_URL: 'http://127.0.0.1:4097', ...(userData ? { RHYTHM_SHELL_USER_DATA: userData } : {}) },
+    resourcesPath: '/fixture/Resources', arch: 'arm64',
     cwd: () => '/fixture', stderr: { write: (message) => calls.push(message) }, versions: { electron: '40.10.2' },
   });
   const app = Object.assign(new EventEmitter(), {
@@ -53,7 +54,8 @@ async function interactiveRuntime(argv, userData, selectDirectory = async () => 
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
   });
   await module.evaluate();
-  await new Promise((done) => setImmediate(done));
+  for (let attempt = 0; attempt < 20 && windows.length === 0; attempt += 1) await new Promise((done) => setImmediate(done));
+  assert.equal(windows.length, 1, 'synthetic main did not create a window');
   return { app, calls, windows, handlers, paths, processBoundary };
 }
 

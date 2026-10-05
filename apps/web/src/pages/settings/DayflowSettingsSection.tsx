@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { DayflowGatewayError, type DayflowCommit, type DayflowConfig, type DayflowGateway, type DayflowPreview, type DayflowStatus, type OwnedNotesPage } from '../../gateway/dayflow';
+import { DayflowDesktopSettings } from '../../components/tools/DayflowDesktopSettings';
 
 const today = () => new Date().toLocaleDateString('en-CA');
 const message = (error: unknown) => error instanceof DayflowGatewayError ? error.message : 'Dayflow is unavailable.';
@@ -26,8 +27,8 @@ export function DayflowSettingsSection({ dayflow }: { dayflow?: DayflowGateway }
   }, [dayflow]);
   useEffect(() => { journalPathRef.current = journalPath; }, [journalPath]);
   const run = async (work: (generation: number) => Promise<void>) => { if (busy || disabling) return; const generation = operationGeneration.current; setBusy(true); setNotice(''); try { await work(generation); } catch (error) { if (current(generation)) setNotice(message(error)); } finally { if (mounted.current) setBusy(false); } };
-  if (!dayflow || loadFailed) return <p className="settings-empty" role="status">Dayflow metadata is unavailable. No source access or import is active.</p>;
-  if (!status || !config) return <p className="settings-feedback" role="status">Checking local Dayflow metadata…</p>;
+  if (!dayflow || loadFailed) return <><DayflowDesktopSettings /><p className="settings-empty" role="status">Dayflow bridge metadata is unavailable. No source access or import is active.</p></>;
+  if (!status || !config) return <><DayflowDesktopSettings /><p className="settings-feedback" role="status">Checking local Dayflow metadata…</p></>;
   const configDirty = configSignature(config) !== savedConfig;
   const appendOwned = async (generation: number) => {
     if (!owned?.nextCursor || !dayflow) return;
@@ -41,6 +42,7 @@ export function DayflowSettingsSection({ dayflow }: { dayflow?: DayflowGateway }
     }
   };
   return <section data-testid="dayflow-settings">
+    <DayflowDesktopSettings />
     <p className="settings-section-intro">Local Dayflow journal import. Observations stay unverified; selecting or checking a journal never reads its activity.</p>
     <dl className="settings-properties" data-testid="dayflow-status"><div><dt>State</dt><dd>{status.enabled ? 'Enabled' : 'Off'}</dd></div><div><dt>Readiness</dt><dd>{status.readiness.state}</dd></div><div><dt>Automatic import</dt><dd>{status.automaticImport ? 'On' : 'Off'}</dd></div><div><dt>Stored observations</dt><dd>{status.importedCount}</dd></div></dl>
     {notice && <p role="alert" className="form-error">{notice}</p>}

@@ -1,4 +1,4 @@
-export const BRIDGE_KEYS = Object.freeze(['version', 'appVersion', 'platform', 'openExternal', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'selectDirectory', 'saveFile', 'hermes', 'hermesView', 'colonyView', 'aiAccounts', 'remoteEnvironments']);
+export const BRIDGE_KEYS = Object.freeze(['version', 'appVersion', 'platform', 'openExternal', 'gateway', 'auth', 'humanApproval', 'agentServer', 'updates', 'dayflowDesktop', 'selectDirectory', 'saveFile', 'hermes', 'hermesView', 'colonyView', 'openDesignView', 'aiAccounts', 'remoteEnvironments']);
 export const GATEWAY_KEYS = Object.freeze(['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase']);
 export const AUTH_KEYS = Object.freeze(['signInWithGoogle', 'currentSession', 'logout']);
 export const HUMAN_APPROVAL_KEYS = Object.freeze(['capability', 'signDecision']);
@@ -11,6 +11,8 @@ export const AI_ACCOUNTS_KEYS = Object.freeze(['getStatus', 'setGrant', 'setMemo
 // operations do. See src/remote-environments.mjs.
 export const REMOTE_ENVIRONMENTS_KEYS = Object.freeze(['enabled', 'list', 'connect', 'disconnect', 'request', 'subscribe']);
 export const UPDATE_KEYS = Object.freeze(['openDownloadPage']);
+export const DAYFLOW_DESKTOP_KEYS = Object.freeze(['getDayflowDesktopStatus', 'openDayflowDesktop']);
+export const OPEN_DESIGN_VIEW_KEYS = Object.freeze(['getStatus', 'attach', 'setBounds', 'detach']);
 const DENIAL_KEYS = ['navigation', 'popup', 'permission', 'download', 'malformedProtocol'];
 
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
@@ -50,9 +52,11 @@ export function validateSecuritySmokeReceipt(receipt) {
     [['bridge', 'humanApproval', 'keys'], HUMAN_APPROVAL_KEYS],
     [['bridge', 'agentServer', 'keys'], AGENT_SERVER_KEYS],
     [['bridge', 'updates', 'keys'], UPDATE_KEYS],
+    [['bridge', 'dayflowDesktop', 'keys'], DAYFLOW_DESKTOP_KEYS],
     [['bridge', 'hermes', 'keys'], HERMES_KEYS],
     [['bridge', 'hermesView', 'keys'], HERMES_VIEW_KEYS],
     [['bridge', 'colonyView', 'keys'], COLONY_VIEW_KEYS],
+    [['bridge', 'openDesignView', 'keys'], OPEN_DESIGN_VIEW_KEYS],
     [['bridge', 'aiAccounts', 'keys'], AI_ACCOUNTS_KEYS],
     [['bridge', 'remoteEnvironments', 'keys'], REMOTE_ENVIRONMENTS_KEYS],
   ];
@@ -71,9 +75,11 @@ export function validateSecuritySmokeReceipt(receipt) {
     ['bridge', 'humanApproval', 'frozen'],
     ['bridge', 'agentServer', 'frozen'],
     ['bridge', 'updates', 'frozen'],
+    ['bridge', 'dayflowDesktop', 'frozen'],
     ['bridge', 'hermes', 'frozen'],
     ['bridge', 'hermesView', 'frozen'],
     ['bridge', 'colonyView', 'frozen'],
+    ['bridge', 'openDesignView', 'frozen'],
     ['bridge', 'aiAccounts', 'frozen'],
     ['bridge', 'remoteEnvironments', 'frozen'],
   ]) {

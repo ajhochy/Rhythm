@@ -13,6 +13,7 @@ import {
 import { installAgentBridgeSchema } from '../shared_agents/bridge_schema';
 import { installAgentWorkstreamsSchema } from './agent_workstreams_schema';
 import { installManagedWorkstreamContextSchema } from './managed_workstream_context_schema';
+import { installCoordinatorConversationSchema } from './coordinator_conversation_schema';
 
 /**
  * W1 corrective-6 package B — monotonic persistence revisions.
@@ -1381,6 +1382,28 @@ export function runMigrations(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_projects_archived ON projects(archived_at);
   `);
+  // C2 fresh coordinator setup is the one explicit way to establish project
+  // provenance without adopting a generic catalog row or hunting a chat. The
+  // fields are additive; NULL continues to mean an ordinary unproved project.
+  const projectColsC2 = (db.pragma('table_info(projects)') as { name: string }[]).map((c) => c.name);
+  if (!projectColsC2.includes('coordinator_owner_user_id')) {
+    db.exec('ALTER TABLE projects ADD COLUMN coordinator_owner_user_id INTEGER');
+  }
+  if (!projectColsC2.includes('coordinator_setup_key')) {
+    db.exec('ALTER TABLE projects ADD COLUMN coordinator_setup_key TEXT');
+  }
+  if (!projectColsC2.includes('coordinator_setup_provenance')) {
+    db.exec('ALTER TABLE projects ADD COLUMN coordinator_setup_provenance TEXT');
+  }
+  if (!projectColsC2.includes('coordinator_workspace_generation')) {
+    db.exec('ALTER TABLE projects ADD COLUMN coordinator_workspace_generation INTEGER');
+  }
+  if (!projectColsC2.includes('coordinator_profile_id')) {
+    db.exec('ALTER TABLE projects ADD COLUMN coordinator_profile_id TEXT');
+  }
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_coordinator_owner_setup
+    ON projects(coordinator_owner_user_id, coordinator_setup_key)
+    WHERE coordinator_owner_user_id IS NOT NULL AND coordinator_setup_key IS NOT NULL`);
 
   // M2-1 (issue #593) — session-level provider/model/agentMode overrides.
   const m2Cols = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
@@ -4837,4 +4860,9 @@ If someone asks for creative work that needs a local capability:
       PRIMARY KEY (run_id, loop_id, item_key, item_id)
     );
   `);
+
+  // C2 is a local SQLite-only, default-off conversation control plane. The
+  // nullable column grants nothing by itself; routes remain absent unless the
+  // server composes an enabled coordinator service.
+  installCoordinatorConversationSchema(db);
 }

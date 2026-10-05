@@ -61,11 +61,23 @@ import {
   parseEvidenceVerification,
 } from '../contracts/agent_workstream_contract';
 import {
+  parseCoordinatorConversationAddGoal,
+  parseCoordinatorConversationContinuePlan,
+  parseCoordinatorConversationHistory,
+  parseCoordinatorConversationMessage,
+  parseCoordinatorConversationOpen,
+  parseCoordinatorConversationPreparePlan,
+  parseCoordinatorConversationResolve,
+  parseCoordinatorConversationSetup,
+} from '../contracts/coordinator_conversation_contract';
+import { coordinatorConversationResponseStatus } from '../controllers/coordinator_conversations_controller';
+import {
   parseOneShotAutomationDisableRequest,
   parseOneShotAutomationRequest,
 } from '../contracts/agent_workstream_automation_contract';
 import { AgentWorkstreamsRepository } from '../repositories/agent_workstreams_repository';
 import type { PersistentWorkstreamCoordinator } from '../services/persistent_workstream_coordinator';
+import type { CoordinatorConversationService } from '../services/coordinator_conversation_service';
 
 export { buildSafeMobileProfileCatalog };
 export { canUpdateMobileSessionState };
@@ -84,6 +96,7 @@ export interface MobileGatewayRouterDependencies {
   opencodeProxy?: MobileOpenCodeProxy;
   sseProxy?: MobileSseProxy;
   workstreamCoordinator?: PersistentWorkstreamCoordinator;
+  coordinatorConversationService?: CoordinatorConversationService;
 }
 
 export function createMobileGatewayRouter(dependencies: MobileGatewayRouterDependencies = {}): Router {
@@ -98,6 +111,7 @@ export function createMobileGatewayRouter(dependencies: MobileGatewayRouterDepen
   const mediaArtifacts = new MediaArtifactsController();
   const requireArtifactProjectScope = requireMobileProjectScope();
   const workstreamCoordinator = dependencies.workstreamCoordinator;
+  const coordinatorConversationService = dependencies.coordinatorConversationService;
   const workstreams = new AgentWorkstreamsRepository();
   const getPairingService = (): MobilePairingService =>
     getMobilePairingService();
@@ -123,6 +137,12 @@ export function createMobileGatewayRouter(dependencies: MobileGatewayRouterDepen
   const requireWorkstreamCoordinator = (): PersistentWorkstreamCoordinator => {
     if (!env.workstreamsEnabled || !workstreamCoordinator) throw AppError.notFound('Workstream coordinator');
     return workstreamCoordinator;
+  };
+  const requireCoordinatorConversationService = (): CoordinatorConversationService => {
+    if (!env.workstreamsEnabled || !workstreamCoordinator || !coordinatorConversationService) {
+      throw AppError.notFound('Coordinator conversation');
+    }
+    return coordinatorConversationService;
   };
 
   const getController = (): MobileGatewayController => {
@@ -279,6 +299,145 @@ export function createMobileGatewayRouter(dependencies: MobileGatewayRouterDepen
       } catch (error) {
         next(error instanceof AppError ? error : AppError.internal());
       }
+    },
+  );
+  // The paired client projects the exact authenticated service; it supplies no
+  // owner, SDK, model, context, authority, or dispatch data of its own.
+  // Setup precedes project selection by design: it is the closed server-owned
+  // fresh workspace path, not a way to claim a selected/catalog project.
+  router.post(
+    '/coordinator-conversations/setup',
+    requireMobileDevice(getPairingService),
+    async (req, res, next) => {
+      try {
+        const result = await requireCoordinatorConversationService().setupPrimary(
+          mobileWorkstreamAuth(req),
+          parseCoordinatorConversationSetup(req.body),
+        );
+        res.status(coordinatorConversationResponseStatus(result.kind)).json(result);
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.post(
+    '/coordinator-conversations/resolve',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    (req, res, next) => {
+      try {
+        const input = parseCoordinatorConversationResolve(req.body);
+        const selectedProject = mobileWorkstreamProject(req);
+        if (input.projectId !== undefined && input.projectId !== selectedProject) {
+          throw AppError.badRequest('projectId must match the selected mobile project');
+        }
+        const result = requireCoordinatorConversationService().resolvePrimary(mobileWorkstreamAuth(req), input);
+        // The normal per-project guards remain in force for every follow-up
+        // call. An owner-bound primary root may live in another currently
+        // authorized project, however, so return only its canonical opaque
+        // project/session metadata for the existing authenticated selector to
+        // switch before it replays resolve. This never returns a chat catalog
+        // or disables the selected-project middleware.
+        if (result.kind === 'resolved' && result.projectId !== selectedProject) {
+          res.status(200).json({
+            kind: 'canonical_project_switch_required',
+            projectId: result.projectId,
+            sessionId: result.sessionId,
+            controlRevision: result.conversation.controlRevision,
+          });
+          return;
+        }
+        res.status(coordinatorConversationResponseStatus(result.kind)).json(result);
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.post(
+    '/coordinator-conversations/open',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    (req, res, next) => {
+      try {
+        const input = parseCoordinatorConversationOpen(req.body);
+        if (input.projectId !== mobileWorkstreamProject(req)) throw AppError.badRequest('projectId must match the selected mobile project');
+        const result = requireCoordinatorConversationService().open(mobileWorkstreamAuth(req), input);
+        res.status(coordinatorConversationResponseStatus(result.kind)).json(result);
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.post(
+    '/coordinator-conversations/status',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    async (req, res, next) => {
+      try {
+        const input = parseCoordinatorConversationOpen(req.body);
+        if (input.projectId !== mobileWorkstreamProject(req)) throw AppError.badRequest('projectId must match the selected mobile project');
+        const result = await requireCoordinatorConversationService().status(mobileWorkstreamAuth(req), input);
+        res.status(coordinatorConversationResponseStatus(result.kind)).json(result);
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.post(
+    '/coordinator-conversations/message',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    async (req, res, next) => {
+      try {
+        const input = parseCoordinatorConversationMessage(req.body);
+        if (input.projectId !== mobileWorkstreamProject(req)) throw AppError.badRequest('projectId must match the selected mobile project');
+        const result = await requireCoordinatorConversationService().receiveMessage(mobileWorkstreamAuth(req), input);
+        res.status(coordinatorConversationResponseStatus(result.kind)).json(result);
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.post(
+    '/coordinator-conversations/history',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    (req, res, next) => {
+      try {
+        const input = parseCoordinatorConversationHistory(req.body);
+        if (input.projectId !== mobileWorkstreamProject(req)) throw AppError.badRequest('projectId must match the selected mobile project');
+        const result = requireCoordinatorConversationService().history(mobileWorkstreamAuth(req), input);
+        res.status(coordinatorConversationResponseStatus(result.kind)).json(result);
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.post(
+    '/coordinator-conversations/goals',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    (req, res, next) => {
+      try {
+        const input = parseCoordinatorConversationAddGoal(req.body);
+        if (input.projectId !== mobileWorkstreamProject(req)) throw AppError.badRequest('projectId must match the selected mobile project');
+        const result = requireCoordinatorConversationService().addGoal(mobileWorkstreamAuth(req), input);
+        res.status(coordinatorConversationResponseStatus(result.kind)).json(result);
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.post(
+    '/coordinator-conversations/prepare-plan',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    async (req, res, next) => {
+      try {
+        const input = parseCoordinatorConversationPreparePlan(req.body);
+        if (input.projectId !== mobileWorkstreamProject(req)) throw AppError.badRequest('projectId must match the selected mobile project');
+        const result = await requireCoordinatorConversationService().preparePlan(mobileWorkstreamAuth(req), input);
+        res.status(coordinatorConversationResponseStatus(result.kind)).json(result);
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
+    },
+  );
+  router.post(
+    '/coordinator-conversations/continue-plan',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    async (req, res, next) => {
+      try {
+        const input = parseCoordinatorConversationContinuePlan(req.body);
+        if (input.projectId !== mobileWorkstreamProject(req)) throw AppError.badRequest('projectId must match the selected mobile project');
+        const result = await requireCoordinatorConversationService().continuePlan(mobileWorkstreamAuth(req), input);
+        res.status(coordinatorConversationResponseStatus(result.kind)).json(result);
+      } catch (error) { next(error instanceof AppError ? error : AppError.internal()); }
     },
   );
   // Mobile is a projection of the same coordinator, not a second queue or

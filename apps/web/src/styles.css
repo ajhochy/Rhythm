@@ -160,7 +160,7 @@ button:disabled, input:disabled, textarea:disabled, select:disabled { cursor: no
 .rail-title-search { min-width: 0; flex: 1; display: flex; align-items: center; gap: 7px; color: var(--muted); }
 .rail-title-search input { min-width: 0; width: 100%; min-height: 34px; border-color: transparent; background: transparent; }
 .rail-title-search input:focus { border-color: var(--border); background: color-mix(in oklab, var(--surface), var(--bg) 8%); }
-.rail-primary-actions { display: grid; grid-template-columns: minmax(0, 1fr) 44px; gap: 6px; padding: 10px 12px 6px; }
+.rail-primary-actions { display: grid; grid-template-columns: max-content minmax(0, 1fr) 44px; gap: 6px; padding: 10px 12px 6px; }
 .primary-button, .secondary-button, .danger-button, .text-danger-button, .text-button { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 12px; border-radius: var(--r-sm); cursor: pointer; font-weight: 580; letter-spacing: .02em; }
 .primary-button { border: 1px solid var(--accent); color: var(--accent-on); background: var(--accent); }
 .primary-button:hover { color: var(--accent-on); border-color: var(--accent-hover); background: var(--accent-hover); }

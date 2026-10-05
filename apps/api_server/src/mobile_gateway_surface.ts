@@ -30,6 +30,12 @@ function isPhoneGatewayRoute(method: string, path: string): boolean {
     return true;
   }
   if (
+    method === 'POST' &&
+    /^\/mobile-gateway\/coordinator-conversations\/(?:setup|resolve|open|status|message|history|goals|prepare-plan|continue-plan)$/.test(path)
+  ) {
+    return true;
+  }
+  if (
     ['GET', 'POST', 'PATCH'].includes(method) &&
     /^\/mobile-gateway\/workstreams(?:\/[^/]+(?:\/(?:run-next|pause|resume|cancel|usage-acknowledgement|reconcile-unknown|evidence)|\/criteria\/(?:waive|waive-batch|verify))?)?$/.test(path)
   ) {

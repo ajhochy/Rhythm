@@ -1,0 +1,12 @@
+.agent-tools-catalog { display: grid; gap: 18px; max-width: 1080px; padding: 24px; color: var(--fg); }
+.agent-tools-catalog header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.agent-tools-catalog header h2 { margin: 2px 0 6px; }
+.agent-tools-catalog header p { max-width: 680px; margin: 0; color: var(--muted); }
+.agent-tools-catalog .eyebrow { color: var(--accent); font-size: .78rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.agent-tools-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.agent-tool-card { display: grid; align-content: start; gap: 12px; min-height: 190px; padding: 18px; border: 1px solid var(--border-soft); border-radius: var(--r-md); background: var(--surface); }
+.agent-tool-card h3, .agent-tool-card p { margin: 0; }
+.agent-tool-card p { color: var(--muted); line-height: 1.45; }
+.agent-tool-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; }
+.agent-tool-pin { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: .88rem; }
+.agent-tool-card .agent-tool-unavailable, .agent-tools-preference-error { color: var(--warning); }

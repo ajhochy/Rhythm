@@ -41,6 +41,9 @@ export interface GatewayDomainContracts {
   sharedAgents?: SharedAgentsPort;
   remoteSessions?: RemoteSessionsGateway;
   workstreams?: WorkstreamGateway;
+  coordinatorConversations?: CoordinatorConversationGateway;
+  /** Authenticated, root-scoped Dayflow source management only. */
+  dayflowSourceConsent?: DayflowSourceConsentGateway;
 }
 
 export interface GatewayHealth {
@@ -200,6 +203,13 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
           : (window as unknown as { rhythmShell?: { remoteEnvironments?: RemoteEnvironmentsBridge } }).rhythmShell?.remoteEnvironments,
       ),
       workstreams: createLiveWorkstreamsGateway(apiBase, config.taskToken, fetcher),
+      // Coordinator is the one protected local surface that requires the
+      // signed-in bearer (requireLocalOrCloudAuth). Keep localFetcher for all
+      // established local routes, where its credential stripping is required.
+      coordinatorConversations: createLiveCoordinatorConversationGateway(apiBase, fetcher, undefined, config.taskToken),
+      // This is another protected local route. It intentionally keeps the
+      // signed-in bearer while established local routes continue to strip it.
+      dayflowSourceConsent: createLiveDayflowSourceConsentGateway(apiBase, fetcher, config.taskToken),
     },
     health: {
       api: () => check('api', `${apiBase}/health`),
@@ -261,6 +271,8 @@ import { createLiveSettingsGateway } from './settings';
 import { createLiveRuntimeGateway, type RuntimeGateway } from './runtime';
 import { createLiveDayflowGateway, type DayflowGateway } from './dayflow';
 import { createLiveWorkstreamsGateway, type WorkstreamGateway } from './workstreams';
+import { createLiveCoordinatorConversationGateway, type CoordinatorConversationGateway } from './coordinator-conversations';
+import { createLiveDayflowSourceConsentGateway, type DayflowSourceConsentGateway } from './dayflow-source-consent';
 import { createLiveSharedAgentsPort } from './shared-agents';
 import type { SharedAgentsPort } from '@ajhochy/rhythm-workspace-ui';
 import { createLiveRemoteSessionsGateway, type RemoteEnvironmentsBridge, type RemoteSessionsGateway } from './remote-sessions';

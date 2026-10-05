@@ -88,6 +88,27 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW})
     );
 
+    -- Generic projects remain unowned unless an explicit C2 fresh-setup
+    -- receipt is present. This is additive parity for the shared project
+    -- store; local C2 execution itself remains SQLite-gated elsewhere.
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      cwd TEXT NOT NULL,
+      icon TEXT,
+      vcs_root TEXT,
+      vcs_branch TEXT,
+      vcs_dirty BOOLEAN NOT NULL DEFAULT FALSE,
+      vcs_checked_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      archived_at TEXT,
+      coordinator_owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      coordinator_setup_key TEXT,
+      coordinator_setup_provenance TEXT,
+      coordinator_workspace_generation INTEGER,
+      coordinator_profile_id TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS project_instance_steps (
       id TEXT PRIMARY KEY,
       instance_id TEXT NOT NULL REFERENCES project_instances(id) ON DELETE CASCADE,
@@ -305,6 +326,16 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       last_read_at TEXT,
       PRIMARY KEY (thread_id, user_id)
     );
+  `);
+  await pool.query(`
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS coordinator_owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS coordinator_setup_key TEXT;
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS coordinator_setup_provenance TEXT;
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS coordinator_workspace_generation INTEGER;
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS coordinator_profile_id TEXT;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_coordinator_owner_setup
+      ON projects(coordinator_owner_user_id, coordinator_setup_key)
+      WHERE coordinator_owner_user_id IS NOT NULL AND coordinator_setup_key IS NOT NULL;
   `);
 
   // #1243 — first-class season goals and optional links. Keep this block

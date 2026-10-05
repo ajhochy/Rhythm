@@ -70,6 +70,15 @@ const externalReads = new Map<string, string>([
   ["rhythm_get_live_artifact", "live-artifact.get"],
 ]);
 
+// These reads return external activity evidence, but the accepted Dayflow
+// contract assigns scan/taint/fence admission to the authoritative backend
+// managed-evidence pipeline. The MCP consumer must carry the exact signed call
+// envelope and must not create a second client-side ingress path.
+const managedExternalEvidenceReads = new Map<string, string>([
+  ["rhythm_search_dayflow_activity", "dayflow.activity.search"],
+  ["rhythm_recent_dayflow_summaries", "dayflow.activity.recent-summaries"],
+]);
+
 const trustedNonUserReads = new Set([
   "rhythm_ping",
   // Rhythm's own delegation metadata. Returns NO child content by construction
@@ -444,6 +453,7 @@ describe("#1175 external-content role graph", () => {
     for (const [tool, sourceFile] of registered) {
       const classifications = [
         externalReads.has(tool),
+        managedExternalEvidenceReads.has(tool),
         trustedNonUserReads.has(tool),
         protectedWrites.has(tool),
         retiredNoopTools.has(tool),
@@ -458,6 +468,7 @@ describe("#1175 external-content role graph", () => {
     }
     for (const tool of [
       ...externalReads.keys(),
+      ...managedExternalEvidenceReads.keys(),
       ...trustedNonUserReads,
       ...protectedWrites.keys(),
       ...retiredNoopTools.keys(),
@@ -535,13 +546,14 @@ describe("#1175 external-content role graph", () => {
         ? [...registered.keys()]
         : configuredTools;
       const reads = tools.filter(
-        (tool) => externalReads.has(tool) || reviewerReadTools.has(tool),
+        (tool) => externalReads.has(tool) || managedExternalEvidenceReads.has(tool) || reviewerReadTools.has(tool),
       );
       const writes = tools.filter((tool) => protectedWrites.has(tool));
 
       for (const tool of tools) {
         const classifications = [
           externalReads.has(tool),
+          managedExternalEvidenceReads.has(tool),
           trustedNonUserReads.has(tool),
           protectedWrites.has(tool),
           retiredNoopTools.has(tool),
@@ -606,6 +618,9 @@ describe("#1175 external-content role graph", () => {
     expect(dev).toBeDefined();
     expect(rhythmTools(dev!)).toContain("*");
     expect([...registered.keys()].some((tool) => externalReads.has(tool))).toBe(
+      true,
+    );
+    expect([...registered.keys()].some((tool) => managedExternalEvidenceReads.has(tool))).toBe(
       true,
     );
     expect([...registered.keys()].some((tool) => protectedWrites.has(tool))).toBe(
@@ -751,6 +766,27 @@ describe("#1175 external-content role graph", () => {
     expect(boundary).toMatch(
       /scanContextContent[\s\S]+await recordExternalContentTaint[\s\S]+untrustedContext/,
     );
+  });
+
+  it("keeps Dayflow activity evidence behind the accepted backend-managed scan, taint, and fence boundary", () => {
+    const source = readFileSync(join(toolsDir, "dayflow.ts"), "utf8");
+    const expectedEndpoints = new Map([
+      ["rhythm_search_dayflow_activity", "/dayflow-agent/activity/search"],
+      ["rhythm_recent_dayflow_summaries", "/dayflow-agent/activity/recent-summaries"],
+    ]);
+    expect(source, "Dayflow must obtain the engine-signed current call in its shared invocation path").toContain("currentTrustedSecurityCall");
+    expect(source, "Dayflow must forward only the signed call envelope").toMatch(/apiPost\([\s\S]*\{ trustedCall \}/);
+    for (const [tool, endpoint] of expectedEndpoints) {
+      const block = toolBlock(source, tool);
+      expect(managedExternalEvidenceReads.has(tool), `${tool} must be an external activity evidence read`).toBe(true);
+      expect(trustedNonUserReads.has(tool), `${tool} must not be treated as trusted non-user metadata`).toBe(false);
+      expect(block, `${tool} must use the accepted managed-evidence route`).toContain(endpoint);
+    }
+    expect(source, "Dayflow must reject unknown/changed response shapes").toContain("Object.keys(item).length !== 4");
+    expect(source, "Dayflow must fail closed for unavailable/not-configured source text").toContain("status !== 'available' && (item.text.length !== 0 || item.blocked)");
+    expect(source, "Dayflow must return the bounded generic unavailable result").toContain("Dayflow activity is unavailable.");
+    expect(source, "Dayflow evidence reads never grant/select/import a source").not.toMatch(/authorizeOutboundAction|sourceSelectionToken|checkReadiness/);
+    expect(source, "Dayflow consumer must not duplicate backend ingress scanning").not.toContain("scanContextContentAndRecordExternalContentTaint");
   });
 
   it("church-admin malicious message and calendar reads stay blocked until a signed human approval is consumed", async () => {

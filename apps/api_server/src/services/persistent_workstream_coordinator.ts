@@ -2,9 +2,11 @@ import { randomUUID } from 'node:crypto';
 
 import type { AuthContext } from '../middleware/auth_middleware';
 import { AppError } from '../errors/app_error';
-import type {
-  WorkstreamReferenceInput,
-  WorkstreamRunPolicy,
+import {
+  parseManagedWorkstreamStructuredProposal,
+  type ManagedWorkstreamStructuredProposal,
+  type WorkstreamReferenceInput,
+  type WorkstreamRunPolicy,
 } from '../contracts/agent_workstream_contract';
 import {
   type OneShotAutomationPlan,
@@ -36,7 +38,7 @@ import {
   asRhythmProfileId,
   type AgentSession,
 } from '../models/agent_session';
-import type { AgentWorkstream } from '../models/agent_workstream';
+import type { AgentWorkstream, AgentWorkstreamCheckpoint } from '../models/agent_workstream';
 import {
   ManagedWorkstreamContextRepository,
   type ManagedContextReference,
@@ -56,6 +58,7 @@ import {
   type McpRoleConfig,
   type ProfileScope,
 } from './agent_profile_scope';
+import type { FiniteExecutionPermissionRule } from './coordinator_finite_execution_scope';
 import type {
   OpencodeClientService,
   OpencodeEngineIdentity,
@@ -116,6 +119,61 @@ export interface WorkstreamStatusView {
   readiness: WorkstreamReadiness;
   jobs: WorkstreamJobView[];
   budget: CoordinatorBudgetState;
+}
+
+/**
+ * Server-internal finite conversation authority. It is never accepted by an
+ * HTTP route and cannot be represented by a browser bearer or scheduler.
+ * The conversation service derives it only from a current durable outer grant
+ * after owner, root, profile, budget, and source controls are rechecked.
+ */
+export interface CoordinatorFiniteConversationAuthority {
+  kind: 'conversation_finite';
+  ownerUserId: number;
+  conversationId: string;
+  authorizationId: string;
+  acknowledgementAt: string;
+  /**
+   * Synchronous control fence used around local admission/session creation.
+   * The stricter asynchronous validator below runs at every managed SDK
+   * boundary, after all awaited preparation has completed.
+   */
+  stillAuthorized(): boolean;
+  /**
+   * A server-only capability derived from the exact durable finite authority.
+   * It intentionally contains no browser bearer and is re-read immediately
+   * before managed SDK preparation and exposure.
+   */
+  validate: PersistedManagedConsentAuthority['validate'];
+  /**
+   * Present only for a fresh `execute` acknowledgement.  The closure is
+   * server-created from the persisted scope snapshot; it re-derives the
+   * profile/project target before each exposure and never accepts a browser
+   * path, MCP list, skill list, or permission rule.
+   */
+  executionScope?: {
+    scopeSignature: string;
+    resolve(): Promise<{
+      targetCwd: string;
+      permissionRules: FiniteExecutionPermissionRule[];
+      mcpRoleConfig: McpRoleConfig;
+      skillAllowlist: string[];
+      scopeSignature: string;
+    } | null>;
+  };
+}
+
+/** Status-only post-reconciliation event; it deliberately carries no prose. */
+export interface CoordinatorTerminalObserver {
+  onCoordinatorTerminal(input: {
+    ownerUserId: number;
+    projectId: string;
+    workstreamId: string;
+    parentSessionId: string;
+    jobId: string;
+    state: 'succeeded' | 'failed';
+    hostEpoch: string;
+  }): Promise<void> | void;
 }
 
 export interface WorkstreamAutomationStatusView {
@@ -198,7 +256,8 @@ type WorkstreamDispatchAuthority =
     ownerUserId: number;
     plan: OneShotAutomationPlan;
     acknowledgementAt: string;
-  };
+  }
+  | CoordinatorFiniteConversationAuthority;
 
 export interface PersistentWorkstreamCoordinatorDependencies {
   engine: Pick<
@@ -231,6 +290,8 @@ export interface PersistentWorkstreamCoordinatorDependencies {
   artifactResolver?: WorkstreamArtifactAuthorityResolver;
   /** Injectable only for local contract tests; production uses the shared resolver. */
   profileScopeResolver?: (profileId: string) => Promise<ProfileScope>;
+  /** C2 composition may consume only a reconciled finite conversation turn. */
+  terminalObserver?: CoordinatorTerminalObserver;
   hostEpoch?: string;
 }
 
@@ -790,6 +851,62 @@ export class PersistentWorkstreamCoordinator {
     }, projectId, workstreamId, input);
   }
 
+  /**
+   * Internal C2 continuation entrypoint. There is intentionally no route for
+   * this method: it accepts only a server-derived finite authority after a
+   * reconciled terminal receipt, never an HTTP bearer or a scheduler payload.
+   */
+  async runNextFromFiniteConversation(
+    authority: CoordinatorFiniteConversationAuthority,
+    projectId: string,
+    workstreamId: string,
+    input: WorkstreamRunRequest,
+  ): Promise<WorkstreamStatusView> {
+    if (
+      authority.kind !== 'conversation_finite' ||
+      !Number.isSafeInteger(authority.ownerUserId) || authority.ownerUserId <= 0 ||
+      !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(authority.conversationId) ||
+      !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(authority.authorizationId) ||
+      Number.isNaN(Date.parse(authority.acknowledgementAt)) ||
+      typeof authority.stillAuthorized !== 'function' || typeof authority.validate !== 'function' ||
+      !authority.stillAuthorized()
+    ) {
+      throw AppError.forbidden('finite conversation authority is invalid');
+    }
+    return this.runNextAuthorized(authority, projectId, workstreamId, input);
+  }
+
+  /**
+   * Existing scheduler/native-completion seam for an already-admitted C2
+   * child. This is deliberately status-only: it can reconcile one exact
+   * durable job and emit the existing terminal observer, but it cannot create
+   * a worker, reserve an ordinal, wake a parent, or replay an unknown job.
+   */
+  async reconcileFiniteConversationJob(
+    authority: CoordinatorFiniteConversationAuthority,
+    projectId: string,
+    workstreamId: string,
+    jobId: string,
+  ): Promise<void> {
+    if (
+      authority.kind !== 'conversation_finite' ||
+      !Number.isSafeInteger(authority.ownerUserId) || authority.ownerUserId <= 0 ||
+      typeof authority.stillAuthorized !== 'function' || !authority.stillAuthorized()
+    ) return;
+    const workstream = this.workstreams.find(authority.ownerUserId, projectId, workstreamId);
+    if (!workstream || workstream.lastJobId !== jobId) return;
+    const job = this.jobs.getNativeForWorkstream({
+      localUserId: authority.ownerUserId,
+      workstreamId,
+      jobId,
+    });
+    if (!job || job.state === 'unknown' || TERMINAL_JOB_STATES.has(job.state)) return;
+    // `reconcileJob` owns strict engine/receipt accounting and all durable
+    // CAS fences. If authority changes during its awaits, the observer's own
+    // rereads hold continuation; this method never dispatches by itself.
+    await this.reconcileJob(workstream, job);
+  }
+
   /** Shared explicit/saved-consent admission; only the public wrapper owns bearer auth. */
   private async runNextAuthorized(
     authority: WorkstreamDispatchAuthority,
@@ -808,6 +925,9 @@ export class PersistentWorkstreamCoordinator {
     if (authority.kind === 'one_shot_automation' && !this.oneShotAdmissionStillAuthorized(authority.plan, initial, input)) {
       throw AppError.conflict('saved one-shot authorization is no longer current');
     }
+    if (authority.kind === 'conversation_finite' && !authority.stillAuthorized()) {
+      throw AppError.conflict('finite conversation authorization is no longer current');
+    }
     const existingQueued = initial.lastJobId
       ? this.jobs.getNativeForWorkstream({
           localUserId: ownerUserId,
@@ -824,8 +944,8 @@ export class PersistentWorkstreamCoordinator {
       throw AppError.conflict('workstream is not ready for a new explicit Run next');
     }
     if (retryingQueuedIntent) {
-      if (authority.kind === 'one_shot_automation') {
-        throw AppError.conflict('a consumed scheduled authorization cannot retry a queued worker');
+      if (authority.kind !== 'interactive') {
+        throw AppError.conflict('a consumed server authority cannot retry a queued worker');
       }
       if (!existingQueued || existingQueued.idempotency_key !== input.commandKey) {
         throw AppError.conflict('the queued worker has a different command key');
@@ -860,6 +980,28 @@ export class PersistentWorkstreamCoordinator {
       return this.view(this.requireWorkstream(ownerUserId, projectId, workstreamId), readiness);
     }
 
+    let finiteExecutionScope: {
+      targetCwd: string;
+      permissionRules: FiniteExecutionPermissionRule[];
+      mcpRoleConfig: McpRoleConfig;
+      skillAllowlist: string[];
+      scopeSignature: string;
+    } | null = null;
+    const profileScope = await (this.dependencies.profileScopeResolver ?? resolveProfileScope)(profile.id);
+    if (authority.kind === 'conversation_finite' && authority.executionScope) {
+      finiteExecutionScope = await authority.executionScope.resolve();
+      if (
+        !finiteExecutionScope ||
+        finiteExecutionScope.scopeSignature !== authority.executionScope.scopeSignature ||
+        finiteExecutionScope.targetCwd !== parent.cwd
+      ) {
+        this.publishRuntime(initial, initial.lastJobId, 'blocked', 'finite_execution_scope_unavailable', {
+          expectedStates: retryingQueuedIntent ? ['queued', 'blocked'] : ['ready'],
+        });
+        return this.view(this.requireWorkstream(ownerUserId, projectId, workstreamId), readiness);
+      }
+    }
+
     let references: ManagedContextReference[];
     let assembled: ReturnType<ManagedWorkstreamContextAssembler['assemble']>;
     try {
@@ -870,6 +1012,7 @@ export class PersistentWorkstreamCoordinator {
         references,
         targetProfileId: profile.id,
         hostEpoch: this.hostEpoch,
+        scopedExecution: finiteExecutionScope !== null,
       });
     } catch (error) {
       this.publishRuntime(initial, initial.lastJobId, 'blocked', this.referenceFailureReason(error), {
@@ -890,7 +1033,6 @@ export class PersistentWorkstreamCoordinator {
     // Resolve the actual request model before the durable intent is written.
     // This is the resolved per-profile request, not a guess made from a later
     // terminal message; the served identity is recorded independently.
-    const profileScope = await (this.dependencies.profileScopeResolver ?? resolveProfileScope)(profile.id);
     const currentBeforeIntent = this.requireWorkstream(ownerUserId, projectId, workstreamId);
     if (
       currentBeforeIntent.revision !== initial.revision ||
@@ -1076,6 +1218,7 @@ export class PersistentWorkstreamCoordinator {
       job: claim.row,
       assembled,
       declaredReferences: input.references,
+      finiteExecutionScope,
     });
     return this.view(this.requireWorkstream(ownerUserId, projectId, workstreamId), readiness);
   }
@@ -1866,7 +2009,18 @@ export class PersistentWorkstreamCoordinator {
     job: AgentBridgeJobRow,
   ): boolean {
     if (authority.kind === 'interactive') return true;
+    if (authority.kind === 'conversation_finite') return authority.stillAuthorized();
     return this.oneShotConsentStillAuthorized(authority.plan, workstream, parent, profile, profileScope, job);
+  }
+
+  private finiteConversationConsentAuthority(
+    authority: CoordinatorFiniteConversationAuthority,
+  ): PersistedManagedConsentAuthority {
+    return {
+      kind: 'finite_conversation_workstream',
+      actorUserId: authority.ownerUserId,
+      validate: authority.validate,
+    };
   }
 
   private oneShotConsentStillAuthorized(
@@ -2171,8 +2325,17 @@ export class PersistentWorkstreamCoordinator {
     job: AgentBridgeJobRow;
     assembled: ReturnType<ManagedWorkstreamContextAssembler['assemble']>;
     declaredReferences: WorkstreamReferenceInput[];
+    finiteExecutionScope: {
+      targetCwd: string;
+      permissionRules: FiniteExecutionPermissionRule[];
+      mcpRoleConfig: McpRoleConfig;
+      skillAllowlist: string[];
+      scopeSignature: string;
+    } | null;
   }): Promise<void> {
-    const { authority, workstream, parent, profile, profileScope, job, assembled, declaredReferences } = input;
+    const {
+      authority, workstream, parent, profile, profileScope, job, assembled, declaredReferences, finiteExecutionScope,
+    } = input;
     // The source authority and controls are checked again directly before a
     // fresh session can expose the assembled metadata to an SDK request.
     try {
@@ -2186,6 +2349,24 @@ export class PersistentWorkstreamCoordinator {
       this.markUnknown(workstream, job, this.referenceFailureReason(error));
       return;
     }
+    // A finite execution scope is a separate current authority from the
+    // read-only finite grant. Re-derive it after every await before a child
+    // can be created. A vanished/revised profile target is not repaired from
+    // the captured scope or caller input.
+    if (authority.kind === 'conversation_finite' && authority.executionScope) {
+      const currentScope = await authority.executionScope.resolve();
+      if (
+        !currentScope || !finiteExecutionScope ||
+        currentScope.scopeSignature !== authority.executionScope.scopeSignature ||
+        currentScope.scopeSignature !== finiteExecutionScope.scopeSignature ||
+        currentScope.targetCwd !== parent.cwd
+      ) {
+        this.markUnknown(workstream, job, 'finite_execution_scope_unavailable');
+        return;
+      }
+    }
+    const workerMcpScope = finiteExecutionScope?.mcpRoleConfig ?? this.managedMcpScope(profile);
+    const workerSkillAllowlist = finiteExecutionScope?.skillAllowlist ?? [];
     const localWorker = this.sessions.insert({
       agentKind: 'claude-code',
       profileId: asRhythmProfileId(profile.id),
@@ -2196,8 +2377,8 @@ export class PersistentWorkstreamCoordinator {
       name: `Workstream worker ${workstream.id.slice(0, 8)}`,
       projectId: workstream.projectId,
       permissionMode: 'default',
-      mcpRole: this.managedMcpScope(profile).role,
-      mcpAllowedToolsJson: this.managedMcpScope(profile).allowedToolsJson,
+      mcpRole: workerMcpScope.role,
+      mcpAllowedToolsJson: workerMcpScope.allowedToolsJson,
       ownerUserId: workstream.ownerUserId,
       parentSessionId: parent.id,
       delegationDepth: parent.delegationDepth + 1,
@@ -2210,13 +2391,14 @@ export class PersistentWorkstreamCoordinator {
       const created = await this.dependencies.engine.createSession(
         `Workstream worker ${workstream.id.slice(0, 8)}`,
         parent.cwd,
-        this.managedMcpScope(profile),
-        [],
+        workerMcpScope,
+        workerSkillAllowlist,
         profileScope.model.providerID,
         parent.sdkSessionId!,
         'default',
         false,
-        true,
+        finiteExecutionScope === null,
+        finiteExecutionScope?.permissionRules,
       );
       if (!created.id) throw new Error('fresh_managed_session_not_confirmed');
       sdkSessionId = created.id;
@@ -2227,6 +2409,15 @@ export class PersistentWorkstreamCoordinator {
         !this.dispatchAuthorityStillAuthorized(authority, workstream, parent, profile, profileScope, job)
       ) {
         throw new Error('dispatch_controls_changed_before_prompt');
+      }
+      if (authority.kind === 'conversation_finite' && authority.executionScope) {
+        const currentScope = await authority.executionScope.resolve();
+        if (
+          !currentScope || !finiteExecutionScope ||
+          currentScope.scopeSignature !== authority.executionScope.scopeSignature ||
+          currentScope.scopeSignature !== finiteExecutionScope.scopeSignature ||
+          currentScope.targetCwd !== parent.cwd
+        ) throw new Error('finite_execution_scope_changed_before_prompt');
       }
       this.sessions.setSdkSessionId(localWorker.id, sdkSessionId);
       this.sessions.updateStatus(localWorker.id, 'working');
@@ -2269,9 +2460,9 @@ export class PersistentWorkstreamCoordinator {
           ...(authority.kind === 'interactive'
             ? { auth: authority.auth }
             : {
-              persistedConsent: this.persistedConsentAuthority(
-                authority.plan, workstream, parent, job,
-              ),
+              persistedConsent: authority.kind === 'one_shot_automation'
+                ? this.persistedConsentAuthority(authority.plan, workstream, parent, job)
+                : this.finiteConversationConsentAuthority(authority),
             }),
           scope: {
             sessionId: localWorker.id,
@@ -2455,7 +2646,7 @@ export class PersistentWorkstreamCoordinator {
       });
       return;
     }
-    let messages: Array<{ info: unknown }>;
+    let messages: Array<{ info: unknown; parts?: unknown }>;
     try {
       const response = await this.listAllMessages(sdkSessionId, currentBinding.child.cwd);
       if (!response) {
@@ -2523,16 +2714,27 @@ export class PersistentWorkstreamCoordinator {
       this.markUnknown(workstream, applyingJob, 'turn_assistant_step_incomplete');
       return;
     }
-    const terminal = infos.filter((info) => info.finish === 'stop');
+    const terminal = matches.filter((message) => (message.info as { finish?: unknown }).finish === 'stop');
     if (terminal.length !== 1) {
       this.markUnknown(workstream, applyingJob, terminal.length > 1
         ? 'terminal_message_binding_ambiguous'
         : 'terminal_message_not_authoritative');
       return;
     }
-    const info = terminal[0];
-    const usage = usageFromAssistantSteps(infos, this.policyFor(applyingJob));
+    const terminalMessage = terminal[0];
+    const info = terminalMessage.info as {
+      id: string; error?: { name?: unknown }; time?: { completed?: unknown };
+      providerID?: unknown; modelID?: unknown; finish?: unknown; tokens?: unknown; cost?: unknown;
+    };
+    const policy = this.policyFor(applyingJob);
+    const usage = usageFromAssistantSteps(infos, policy);
     const errored = !!info.error;
+    // No raw assistant text is retained. A finite C2 worker may carry one
+    // exact, bounded JSON proposal; all other prose/tool-shaped output is a
+    // non-authoritative hold for continuation purposes.
+    const structuredProposal = !errored && policy?.outputContract === 'structured_read_only_proposal_v1'
+      ? parseManagedWorkstreamStructuredProposal(terminalMessage.parts, workstream.projectId)
+      : null;
     const priorResult = jsonRecord(applyingJob.native_result_json);
     const result = {
       schemaVersion: 1,
@@ -2558,6 +2760,11 @@ export class PersistentWorkstreamCoordinator {
         resultReason: safeReason(priorResult?.reason),
         cancellationRequestedAt: applyingJob.cancel_requested_at,
       } : null,
+      structuredProposal: policy?.outputContract === 'structured_read_only_proposal_v1'
+        ? structuredProposal
+          ? { schemaVersion: 1, state: 'parsed', criteria: structuredProposal.criteria, nextAction: structuredProposal.nextAction }
+          : { schemaVersion: 1, state: 'unavailable' }
+        : null,
     };
     if (!usage) {
       // A recheck cannot trade an existing unknown/cancellation receipt for a
@@ -2604,6 +2811,51 @@ export class PersistentWorkstreamCoordinator {
       : this.resultAuthorityReason(current, completed) ??
         (applicationReadiness.available ? null : 'runtime_readiness_changed_before_result');
     const fenced = fencedByControls || authorityReason !== null;
+    // A finite structured proposal is never completion evidence. It can only
+    // add new pending/blocked controls after all exact terminal, runtime, and
+    // source fences held. The update preserves revision and every existing
+    // criterion/reference, so it cannot erase a user pause/revise or turn a
+    // model statement into verified work.
+    let runtimeWorkstream = current;
+    let proposalStored = false;
+    if (!fenced && current && !errored && structuredProposal) {
+      const checkpoint = checkpointWithStructuredProposal(current.checkpoint, structuredProposal);
+      if (checkpoint) {
+        const updated = this.workstreams.updateCheckpointForApplication({
+          ownerUserId: current.ownerUserId,
+          projectId: current.projectId,
+          id: current.id,
+          expectedRevision: current.revision,
+          checkpoint,
+          state: 'ready',
+          reason: null,
+        });
+        if (updated) {
+          runtimeWorkstream = updated;
+          proposalStored = true;
+        }
+      }
+    }
+    const structuredProposalState = policy?.outputContract === 'structured_read_only_proposal_v1'
+      ? proposalStored
+        ? 'stored'
+        : structuredProposal
+          ? 'apply_conflict'
+          : 'unavailable'
+      : null;
+    const applicationReason = fencedByControls
+      ? 'controls_or_user_state_changed_before_result'
+      : authorityReason
+        ? 'runtime_authority_changed_before_result'
+        : errored
+          ? 'worker_terminal_error_no_application'
+          : structuredProposalState === 'apply_conflict'
+            ? 'structured_proposal_apply_conflict'
+            : structuredProposalState === 'unavailable'
+              ? 'structured_proposal_unavailable'
+              : structuredProposalState === 'stored'
+                ? 'read_only_proposal_pending_authoritative_criterion_receipt'
+                : 'read_only_result_requires_authoritative_criterion_receipt';
     this.jobs.recordCoordinatorApplication({
       localUserId: workstream.ownerUserId,
       workstreamId: workstream.id,
@@ -2611,24 +2863,25 @@ export class PersistentWorkstreamCoordinator {
       application: {
         schemaVersion: 1,
         status: fenced ? 'stale' : 'quarantined',
-        reason: fencedByControls
-          ? 'controls_or_user_state_changed_before_result'
-          : authorityReason
-            ? 'runtime_authority_changed_before_result'
-          : errored
-            ? 'worker_terminal_error_no_application'
-            : 'read_only_result_requires_authoritative_criterion_receipt',
+        reason: applicationReason,
         terminalMessageId: info.id,
         workstreamRevision: current?.revision ?? workstream.revision,
+        structuredProposal: structuredProposalState === null
+          ? null
+          : {
+            state: structuredProposalState,
+            criteriaCount: proposalStored ? structuredProposal!.criteria.length : 0,
+            nextAction: proposalStored ? structuredProposal!.nextAction.kind : null,
+          },
       },
       now,
     });
-    if (!fencedByControls && current) {
+    if (!fencedByControls && runtimeWorkstream) {
       const budget = this.jobs.coordinatorBudgetState({
         localUserId: workstream.ownerUserId,
         workstreamId: workstream.id,
       });
-      this.publishRuntime(current, completed.id,
+      this.publishRuntime(runtimeWorkstream, completed.id,
         authorityReason || budget.holdReason !== null || errored ? 'blocked' : 'ready',
         authorityReason
           ? 'coordinator_runtime_authority_changed'
@@ -2643,7 +2896,24 @@ export class PersistentWorkstreamCoordinator {
             : 'result_quarantined_requires_receipt', {
           expectedStates: ['queued', 'running', 'blocked', 'unknown'],
           executorEpoch: this.hostEpoch,
-        });
+      });
+    }
+    // This is an observation-only hand-off after the existing durable terminal
+    // receipt/application sequence. It cannot revive legacy parent wakes,
+    // retry an unknown job, or infer a result. The conversation service must
+    // independently re-read its finite authority before it can admit another
+    // ordinal; failures here remain a durable status-only hold.
+    const observer = this.dependencies.terminalObserver;
+    if (observer) {
+      void Promise.resolve(observer.onCoordinatorTerminal({
+        ownerUserId: workstream.ownerUserId,
+        projectId: workstream.projectId,
+        workstreamId: workstream.id,
+        parentSessionId: applyingJob.parent_session_id,
+        jobId: applyingJob.id,
+        state: errored ? 'failed' : 'succeeded',
+        hostEpoch: this.hostEpoch,
+      })).catch(() => undefined);
     }
   }
 
@@ -2829,8 +3099,8 @@ export class PersistentWorkstreamCoordinator {
   private async listAllMessages(
     sdkSessionId: string,
     cwd: string,
-  ): Promise<Array<{ info: unknown }> | null> {
-    const messages: Array<{ info: unknown }> = [];
+  ): Promise<Array<{ info: unknown; parts?: unknown }> | null> {
+    const messages: Array<{ info: unknown; parts?: unknown }> = [];
     const cursors = new Set<string>();
     let before: string | undefined;
     for (;;) {
@@ -2844,7 +3114,7 @@ export class PersistentWorkstreamCoordinator {
         },
       ));
       if (!page) return null;
-      messages.push(...page.messages as Array<{ info: unknown }>);
+      messages.push(...page.messages as Array<{ info: unknown; parts?: unknown }>);
       if (!page.nextCursor) return messages;
       if (cursors.has(page.nextCursor)) throw new Error('message_page_cursor_repeated');
       cursors.add(page.nextCursor);
@@ -2856,16 +3126,23 @@ export class PersistentWorkstreamCoordinator {
     const policy = jsonRecord(job.native_metadata_json)?.policy;
     if (!policy || typeof policy !== 'object' || Array.isArray(policy)) return null;
     const value = policy as Record<string, unknown>;
+    const outputContract = value.outputContract === undefined
+      ? undefined
+      : value.outputContract === 'structured_read_only_proposal_v1'
+        ? 'structured_read_only_proposal_v1' as const
+        : null;
     if (
       value.maxTurns !== 1 || !Number.isSafeInteger(value.maxWallTimeSeconds) ||
       !Number.isSafeInteger(value.maxTokens) ||
-      (value.queueDeadlineAt !== null && typeof value.queueDeadlineAt !== 'string')
+      (value.queueDeadlineAt !== null && typeof value.queueDeadlineAt !== 'string') ||
+      outputContract === null
     ) return null;
     return {
       maxTurns: 1,
       maxWallTimeSeconds: value.maxWallTimeSeconds as number,
       maxTokens: value.maxTokens as number,
       queueDeadlineAt: value.queueDeadlineAt as string | null,
+      ...(outputContract === undefined ? {} : { outputContract }),
     };
   }
 
@@ -2944,6 +3221,33 @@ function jsonRecord(value: unknown): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * A model proposal can add bounded pending/blocked criteria, never rewrite a
+ * user/server criterion, verification receipt, reference, or goal. Returning
+ * null makes the terminal result a durable hold rather than guessing how to
+ * merge a conflicting model control.
+ */
+function checkpointWithStructuredProposal(
+  current: AgentWorkstreamCheckpoint,
+  proposal: ManagedWorkstreamStructuredProposal,
+): AgentWorkstreamCheckpoint | null {
+  const ids = new Set(current.criteria.map((criterion) => criterion.id));
+  if (current.criteria.length + proposal.criteria.length > 100 || proposal.criteria.some((criterion) => ids.has(criterion.id))) {
+    return null;
+  }
+  return {
+    version: 1,
+    criteria: [
+      ...current.criteria.map((criterion) => ({ ...criterion })),
+      ...proposal.criteria.map((criterion) => ({ ...criterion })),
+    ],
+    // References are an independent qualified-source control. A model cannot
+    // add, remove, or reinterpret them through a structured proposal.
+    references: current.references.map((reference) => ({ ...reference })),
+    nextAction: { ...proposal.nextAction },
+  };
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

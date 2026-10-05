@@ -10,7 +10,7 @@ import { spawn } from 'node:child_process';
 import test from 'node:test';
 import {
   AGENT_SERVER_KEYS, AUTH_KEYS, BRIDGE_KEYS, COLONY_VIEW_KEYS, GATEWAY_KEYS,
-  HERMES_KEYS, HERMES_VIEW_KEYS, HUMAN_APPROVAL_KEYS, UPDATE_KEYS,
+  DAYFLOW_DESKTOP_KEYS, HERMES_KEYS, HERMES_VIEW_KEYS, HUMAN_APPROVAL_KEYS, UPDATE_KEYS,
 } from '../src/security-smoke-receipt.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -25,6 +25,7 @@ async function interactiveRuntime(argv, userData = '/fixture/interactive-user-da
   const calls = [], windows = [], handlers = new Map(), paths = new Map();
   const processBoundary = Object.assign(new EventEmitter(), {
     argv, env: { RHYTHM_LIVE_API_URL: 'http://127.0.0.1:4098', RHYTHM_LIVE_ENGINE_URL: 'http://127.0.0.1:4097', ...(userData ? { RHYTHM_SHELL_USER_DATA: userData } : {}) },
+    resourcesPath: '/fixture/Resources', arch: 'arm64',
     cwd: () => '/fixture', stderr: { write: (message) => calls.push(message) },
   });
   const app = Object.assign(new EventEmitter(), {
@@ -135,6 +136,24 @@ test('1555:electron-local-runtime-restart-ipc:5 preload exposes a frozen restart
   assert.equal(Object.isFrozen(bridge.agentServer), true);
   assert.equal(await bridge.selectDirectory({ properties: ['openFile'] }), '/selected/project');
   assert.deepEqual(calls, [['shell:select-directory']]);
+});
+
+test('Dayflow preload exposes exactly a frozen zero-payload capability bridge', async () => {
+  let bridge;
+  const calls = [];
+  runInNewContext(await readFile(resolve(shellRoot, 'src/preload.cjs'), 'utf8'), {
+    require: () => ({
+      contextBridge: { exposeInMainWorld: (_key, value) => { bridge = value; } },
+      ipcRenderer: { on() {}, send() {}, sendSync: () => 'https://example.invalid', invoke: async (...args) => { calls.push(args); return { status: 'unavailable', code: 'BRIDGE_UNAVAILABLE' }; } },
+    }),
+    process: { argv: [], env: {}, platform: 'darwin' },
+    window: { addEventListener() {}, dispatchEvent() {} },
+  });
+  assert.deepEqual(Object.keys(bridge.dayflowDesktop), DAYFLOW_DESKTOP_KEYS);
+  assert.equal(Object.isFrozen(bridge.dayflowDesktop), true);
+  await bridge.dayflowDesktop.getDayflowDesktopStatus({ ignored: true });
+  await bridge.dayflowDesktop.openDayflowDesktop(undefined, 'ignored');
+  assert.deepEqual(calls, [['dayflow-desktop:get-status'], ['dayflow-desktop:open']]);
 });
 
 test('task-safe-external-links-c2: preload exposes only openExternal to one IPC channel on bridge version 7', async () => {

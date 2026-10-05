@@ -1,10 +1,12 @@
 import { app, BrowserWindow, dialog, ipcMain, net, Notification, protocol, safeStorage, session, shell } from 'electron';
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { appendFileSync, existsSync, lstatSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir, userInfo } from 'node:os';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { promisify } from 'node:util';
 import { AGENT_SERVER_BASE_URL, AGENT_SERVER_ENGINE_PORT, AgentServerService, electronDbPath, legacyFlutterDbPath } from './agent-server.mjs';
 import { injectArtifactFrameBridge, isAllowedArtifactFrameNavigation, parseArtifactFrameRequest } from './artifact-frame-protocol.mjs';
 import { GOOGLE_DESKTOP_CLIENT_ID, RHYTHM_AUTH_API_BASE } from './build-config.mjs';
@@ -23,9 +25,14 @@ import { bindHermesViewSupervisor, registerHermesView } from './hermes-view.mjs'
 import { installHermesDesktopUpdate } from './hermes-desktop-updates.mjs';
 import { registerColonyHost } from './colony-host.mjs';
 import { runColonySmoke } from './colony-smoke.mjs';
+import { createDayflowDesktopHost, registerDayflowDesktopIpc } from './dayflow-desktop.mjs';
+import { registerOpenDesignView } from './open-design-view.mjs';
 import { createRemoteEnvironmentsCustody, registerRemoteEnvironments } from './remote-environments.mjs';
+import { createAgentToolAdapterRegistry, registerAgentToolAdapter } from './rhythm-agent-tools.mjs';
 
 export { deepLinkFromArgv } from './policy.mjs';
+
+const runDayflowDesktopCommand = promisify(execFile);
 
 // userData is redirected BEFORE the lock is requested. `requestSingleInstanceLock()` makes Electron
 // materialize the userData directory to place its lock, so acquiring the lock first creates the
@@ -84,6 +91,18 @@ if (hasSingleInstanceLock) {
   /** @type {ReturnType<typeof registerColonyHost> | undefined} */
   let colonyHost;
   const hermesView = registerHermesView({ ipcMain, getWindow: () => mainWindow, getUserDataPath: () => app.getPath('userData'), getBackendCredentialOptions: () => credentialHostOptions(), openExternal: (url) => shell.openExternal(url) });
+  // Closed registry: only the four known tool IDs, each registered once. The
+  // existing owners are registered as-is; nothing is recreated.
+  const agentToolAdapters = createAgentToolAdapterRegistry();
+  registerAgentToolAdapter(agentToolAdapters, 'hermes', hermesView);
+  const openDesignView = registerOpenDesignView({
+    ipcMain,
+    getWindow: () => mainWindow,
+    // Evaluated per IPC call, after these bindings are initialised. This is in
+    // addition to the view's own exact main-frame/route ownership check.
+    isTrustedSender: (/** @type {Electron.IpcMainEvent | Electron.IpcMainInvokeEvent} */ event) => ownsDocument(event) && !accountsBlocked && accountsAuth.getSnapshot().authenticated,
+  });
+  registerAgentToolAdapter(agentToolAdapters, 'open-design', openDesignView);
   // #1374 — secondary-desktop continuation. The Device grant is a distinct secret from the
   // production session (auth-session.bin) and gets its own encrypted-at-rest file; it is cleared
   // whenever the production session itself is invalidated (see invalidateAuthentication below).
@@ -345,7 +364,7 @@ if (hasSingleInstanceLock) {
     const authInvalidation = accountsAuth.invalidate();
     const brokerInvalidation = accountsMain?.identityChanged();
     const previous = accountsTransition;
-    accountsTransition = Promise.all([previous, authInvalidation, brokerInvalidation, bridgeHost.revokeAll(), hermesView.disposeCurrent(), colonyHost?.invalidateProfile(), remoteEnvironmentsCustody.disconnect()]).then(() => { accountsBlocked = false; });
+    accountsTransition = Promise.all([previous, authInvalidation, brokerInvalidation, bridgeHost.revokeAll(), hermesView.disposeCurrent(), openDesignView.disposeCurrent(), colonyHost?.invalidateProfile(), remoteEnvironmentsCustody.disconnect()]).then(() => { accountsBlocked = false; });
     void accountsTransition.catch(() => {});
     authGeneration += 1;
     clearAgentNotifications();
@@ -372,6 +391,63 @@ if (hasSingleInstanceLock) {
   const requireNoPayload = (args) => {
     if (args.length) throw new Error('Invalid IPC payload');
   };
+  /** @typedef {(event: Electron.IpcMainInvokeEvent, payload?: unknown) => unknown | Promise<unknown>} DayflowDesktopIpcHandler */
+  /**
+   * @param {string} channel
+   * @param {DayflowDesktopIpcHandler} handler
+   */
+  const registerDayflowDesktopHandler = (channel, handler) => {
+    /**
+     * @param {Electron.IpcMainInvokeEvent} event
+     * @param {...unknown} args
+    */
+    const invoke = (event, ...args) => {
+      // The owner helper accepts `undefined`, including an explicit payload.
+      // Enforce zero supplied arguments here without changing its closed denial shape.
+      if (args.length !== 0) return { status: 'unavailable', code: 'UNAUTHORIZED' };
+      return handler(event);
+    };
+    ipcMain.handle(channel, invoke);
+  };
+  const installedDayflowDesktopPath = resolve(app.getPath('home'), 'Applications', 'Dayflow.app');
+  /** @type {string | undefined} */
+  let installedDayflowDesktopAppPath;
+  try {
+    // This is presence metadata only. The accepted helper performs all artifact
+    // validation after a trusted renderer explicitly requests status or open.
+    lstatSync(installedDayflowDesktopPath);
+    installedDayflowDesktopAppPath = installedDayflowDesktopPath;
+  } catch (error) {
+    const missing = Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT');
+    // An inaccessible path is not evidence it is absent: preserve it so a failed
+    // helper validation returns unavailable instead of silently using the bundle.
+    if (!missing) installedDayflowDesktopAppPath = installedDayflowDesktopPath;
+  }
+  // Candidates are main-owned constants. Construction and IPC registration are
+  // inert; validation and the system open command happen only after a trusted
+  // document explicitly invokes one of the two narrow channels.
+  const dayflowDesktopHost = createDayflowDesktopHost({
+    candidates: {
+      installedAppPath: installedDayflowDesktopAppPath,
+      bundledAppPath: resolve(process.resourcesPath, 'dayflow-desktop', 'Dayflow.app'),
+      arch: process.arch,
+    },
+    /** @param {string} command @param {string[]} args */
+    execute: async (command, args) => {
+      const { stdout, stderr } = await runDayflowDesktopCommand(command, args, { shell: false });
+      return { stdout, stderr };
+    },
+  });
+  // The helper permits an undefined payload; this facade rejects every supplied
+  // renderer argument before it reaches the helper and preserves its closed result.
+  registerDayflowDesktopIpc({
+    ipcMain: {
+      handle: registerDayflowDesktopHandler,
+    },
+    isTrustedSender: ownsDocument,
+    host: dayflowDesktopHost,
+  });
+  registerAgentToolAdapter(agentToolAdapters, 'dayflow', dayflowDesktopHost);
   /** @type {string | undefined} */
   let productionSessionToken = isArtifactFrameSmoke ? 'artifact-smoke-token' : undefined;
   /** @type {{ loaded: boolean, protocol: string, bridge: unknown, request: { url: string, authenticated: boolean } | undefined } | undefined} */
@@ -1007,7 +1083,7 @@ if (hasSingleInstanceLock) {
   // real exit, SIGKILL if still alive), triggered from the same three places Flutter triggers it:
   // normal app quit, and OS SIGINT/SIGTERM (main.dart:182-192; SIGTERM is skipped on Windows there
   // because it isn't catchable — not a concern here since this Electron build targets macOS only).
-  const stopRuntimes = async () => { await Promise.all([agentServer?.stopForQuit(), hermes.stop(), hermesView.dispose(), colonyHost?.dispose()]); };
+  const stopRuntimes = async () => { await Promise.all([agentServer?.stopForQuit(), hermes.stop(), hermesView.dispose(), openDesignView.dispose(), colonyHost?.dispose()]); };
   app.on('before-quit', (event) => {
     if (isHermesSelfTest || shuttingDown) return;
     shuttingDown = true;
@@ -1044,6 +1120,7 @@ if (hasSingleInstanceLock) {
     colonyHost = registerColonyHost({ ipcMain, getWindow: () => mainWindow, userDataPath: app.getPath('userData'), resourcesPath: process.resourcesPath,
       home: userInfo().homedir, isPackaged: app.isPackaged, environment: process.env, app, shell, dialog,
       emitReset: () => mainWindow?.webContents.send('colony:host:reset') });
+    registerAgentToolAdapter(agentToolAdapters, 'bot-crossing', colonyHost);
     if (productionSessionUser) await colonyHost.activateProfile({ productionApiBase, userId: String(productionSessionUser.id) });
     registerRemoteEnvironments({ ipcMain, getWindow: () => mainWindow, custody: remoteEnvironmentsCustody });
     if (!isSmoke && agentServer && !existsSync(electronDbPath()) && existsSync(legacyFlutterDbPath())) {
@@ -1362,6 +1439,10 @@ if (hasSingleInstanceLock) {
       keys: Object.keys(window.rhythmShell?.colonyView || {}),
       frozen: Object.isFrozen(window.rhythmShell?.colonyView),
     },
+    openDesignView: {
+      keys: Object.keys(window.rhythmShell?.openDesignView || {}),
+      frozen: Object.isFrozen(window.rhythmShell?.openDesignView),
+    },
     aiAccounts: {
       keys: Object.keys(window.rhythmShell?.aiAccounts || {}),
       frozen: Object.isFrozen(window.rhythmShell?.aiAccounts),
@@ -1377,6 +1458,10 @@ if (hasSingleInstanceLock) {
     updates: {
       keys: Object.keys(window.rhythmShell?.updates || {}),
       frozen: Object.isFrozen(window.rhythmShell?.updates),
+    },
+    dayflowDesktop: {
+      keys: Object.keys(window.rhythmShell?.dayflowDesktop || {}),
+      frozen: Object.isFrozen(window.rhythmShell?.dayflowDesktop),
     },
   nodeExposed: typeof process !== 'undefined' || typeof require !== 'undefined',
   value: { version: window.rhythmShell?.version }

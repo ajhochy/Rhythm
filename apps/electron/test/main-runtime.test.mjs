@@ -7,10 +7,11 @@ import test from 'node:test';
 test('e11-c6 / 1555:electron-local-runtime-restart-ipc:6 / review:main.mjs:774 restart IPC fails closed during shutdown', async () => {
   const handlers = new Map(), sent = [], dialogs = [];
   let service;
+  let started = false;
   class Server {
     constructor() { service = this; this.status = { status: 'starting' }; }
     onStatusChange(fn) { this.listener = fn; }
-    async start() { throw new Error('filesystem rejected'); }
+    async start() { started = true; throw new Error('filesystem rejected'); }
     async restart() {
       this.listener({ status: 'failed', failureReason: 'startupFailed', errorMessage: 'restart failed' });
       return { ok: false, reason: 'startup_failed' };
@@ -24,7 +25,7 @@ test('e11-c6 / 1555:electron-local-runtime-restart-ipc:6 / review:main.mjs:774 r
   });
   const contents = Object.assign(new EventEmitter(), { mainFrame: { url: 'rhythm://app/index.html#/agents' }, isDestroyed: () => false, send: (...args) => sent.push(args), setWindowOpenHandler() {}, executeJavaScript: async () => {} });
   class Window { constructor() { this.webContents = contents; } isDestroyed() { return false; } async loadURL() { contents.emit('did-finish-load'); } }
-  const context = createContext({ process: Object.assign(new EventEmitter(), { argv: [], env: {}, cwd: () => '/fixture', stderr: { write() {} } }), URL, Response, console });
+  const context = createContext({ process: Object.assign(new EventEmitter(), { argv: [], env: {}, resourcesPath: '/fixture/Resources', arch: 'arm64', cwd: () => '/fixture', stderr: { write() {} } }), URL, Response, console });
   const file = new URL('../src/main.mjs', import.meta.url);
   const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = '/fixture'; } });
   await module.link(async (name) => {
@@ -40,6 +41,8 @@ test('e11-c6 / 1555:electron-local-runtime-restart-ipc:6 / review:main.mjs:774 r
   // A source assertion first prevents executing that known unsafe path in RED.
   assert.match(await readFile(file, 'utf8'), /agentServer\.start\(\)\.catch/);
   await module.evaluate();
+  for (let attempt = 0; attempt < 20 && !started; attempt += 1) await new Promise((r) => setImmediate(r));
+  assert.equal(started, true, 'initial runtime start did not begin');
   await new Promise((r) => setImmediate(r));
   assert.equal(handlers.get('rhythm:agent-server:status')().failureReason, 'startupFailed');
   assert.ok(sent.some(([channel, snapshot]) => channel === 'rhythm:agent-server:status-changed' && snapshot.failureReason === 'startupFailed'));
@@ -76,7 +79,7 @@ test('1584: failure dialog Retry routes through restart(), which respawns, not t
   });
   const contents = Object.assign(new EventEmitter(), { mainFrame: { url: 'rhythm://app/index.html#/agents' }, isDestroyed: () => false, send() {}, setWindowOpenHandler() {}, executeJavaScript: async () => {} });
   class Window { constructor() { this.webContents = contents; } isDestroyed() { return false; } async loadURL() { contents.emit('did-finish-load'); } }
-  const context = createContext({ process: Object.assign(new EventEmitter(), { argv: [], env: {}, cwd: () => '/fixture', stderr: { write() {} } }), URL, Response, console });
+  const context = createContext({ process: Object.assign(new EventEmitter(), { argv: [], env: {}, resourcesPath: '/fixture/Resources', arch: 'arm64', cwd: () => '/fixture', stderr: { write() {} } }), URL, Response, console });
   const file = new URL('../src/main.mjs', import.meta.url);
   const module = new SourceTextModule(await readFile(file, 'utf8'), { context, initializeImportMeta(meta) { meta.dirname = '/fixture'; } });
   await module.link(async (name) => {
@@ -89,7 +92,8 @@ test('1584: failure dialog Retry routes through restart(), which respawns, not t
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
   });
   await module.evaluate();
-  await new Promise((r) => setImmediate(r));
+  for (let attempt = 0; attempt < 20 && !calls.includes('start'); attempt += 1) await new Promise((r) => setImmediate(r));
+  assert.ok(calls.includes('start'), 'initial runtime start did not settle');
   calls.length = 0;
   service.listener({ status: 'failed', failureReason: 'healthCheckTimeout', errorMessage: 'The local runtime did not respond within 45 seconds.' });
   await new Promise((r) => setImmediate(r));
@@ -149,6 +153,7 @@ async function hermesRuntimeFixture({ argv = ['--interactive-smoke'], enabled = 
   const processBoundary = Object.assign(new EventEmitter(), {
     argv,
     env: { RHYTHM_HERMES_ENABLED: enabled, RHYTHM_SHELL_USER_DATA: '/fixture' },
+    resourcesPath: '/fixture/Resources', arch: 'arm64',
     cwd: () => '/fixture',
     stdout: { write: (text) => stdout.push(String(text)) },
     stderr: { write: (text) => calls.push(['stderr', String(text)]) },

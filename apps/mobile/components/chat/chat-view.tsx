@@ -10,6 +10,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ChatComposer } from '@/components/chat/chat-composer';
 import { ChatContent } from '@/components/chat/chat-content';
+import {
+  coordinatorDraftScope,
+  routeCoordinatorComposerInput,
+  shouldApplyCoordinatorAcknowledgement,
+} from '@/components/chat/coordinator-composer-routing';
+import { CoordinatorConversationCard } from '@/components/chat/coordinator-conversation-card';
+import {
+  routeCoordinatorConversationToggle,
+  stopConversationBeforeCoordinatorOpen,
+} from '@/components/chat/coordinator-voice-routing';
 import { CameraAttachmentSheet } from '@/components/chat/camera-attachment-sheet';
 import {
   createSessionDraftStore,
@@ -31,6 +41,8 @@ import { summarizeError } from '@/lib/transport/api-error';
 import { speakText, stopSpeaking } from '@/lib/voice/speech-output';
 import { useSpeechInput } from '@/lib/voice/use-speech-input';
 import { useOpencode } from '@/providers/opencode-provider';
+import { useCoordinatorConversation } from '@/providers/coordinator-conversation-provider';
+import { mapMobileCoordinatorHistory } from '@/providers/services/coordinator-history-transcript';
 import type { ChatPreferences } from '@/providers/opencode-provider-types';
 import { AUTO_MODEL_LABEL, routerPickLabel } from '@/providers/opencode-provider-utils';
 
@@ -89,10 +101,22 @@ export function ChatView() {
     updateSessionPreferences,
     abortSession,
   } = useOpencode();
+  const coordinator = useCoordinatorConversation();
 
   const draftStoreRef = useRef(createSessionDraftStore());
   const [, setDraftRevision] = useState(0);
-  const draftSessionId = currentSessionId ?? '__new-session__';
+  // A server-resolved primary can be visible before the paired SDK catalog
+  // has a session row. Its view key is local-only and never sent as an SDK id.
+  const serverPrimaryDraftScope = coordinator.binding?.source === 'server_primary'
+    ? coordinator.binding.uiSessionId
+    : undefined;
+  // A server-primary view can intentionally sit over the unchanged ordinary
+  // selection while its catalog row is absent. Its draft must stay distinct
+  // from that ordinary chat and never move into the SDK prompt path.
+  const draftSessionId = coordinatorDraftScope({
+    currentSessionId,
+    serverPrimaryUiSessionId: serverPrimaryDraftScope,
+  });
   const { attachments, draft } = draftStoreRef.current.get(draftSessionId);
   const [activeTab, setActiveTab] = useState<'session' | 'changes'>('session');
   const [sessionMenuVisible, setSessionMenuVisible] = useState(false);
@@ -117,24 +141,46 @@ export function ChatView() {
   const attachmentsRef = useRef<ChatAttachment[]>([]);
   const lastSentAttachmentsRef = useRef<{ uri: string; mime?: string; filename?: string }[]>([]);
   const lastAutoSpokenMessageIdRef = useRef<string | undefined>(undefined);
+  const currentSessionIdRef = useRef(currentSessionId);
+  const sessionGenerationRef = useRef(0);
+  if (currentSessionIdRef.current !== currentSessionId) {
+    currentSessionIdRef.current = currentSessionId;
+    sessionGenerationRef.current += 1;
+  }
 
   const status = currentSessionId ? sessionStatuses[currentSessionId] : undefined;
   const running = sendingState.active || (!!status && status.type !== 'idle');
   const conversationActive = conversation.active;
   const hasDraftInput = !!draft.trim() || attachments.length > 0;
   const showSendAction = !running || hasDraftInput;
-  const diffDetails = useMemo(
-    () => currentTranscript.flatMap((entry) => entry.details.filter((detail) => detail.kind === 'patch')),
-    [currentTranscript],
-  );
-  const diffCount = currentDiffs.length || new Set(diffDetails.flatMap((detail) => detail.body.split('\n').filter(Boolean))).size;
   const pendingInteractions = currentPendingPermissions.length + currentPendingQuestions.length;
   const awaitingUserInput = pendingInteractions > 0;
-  const displayTranscript = useMemo(() => currentTranscript.filter(isTranscriptDisplayMessage), [currentTranscript]);
+  const displayTranscript = useMemo(() => {
+    const ordinary = currentTranscript.filter(isTranscriptDisplayMessage);
+    const history = coordinator.state.canonicalHistory;
+    if (!coordinator.state.enabled || !history) return ordinary;
+    const rows = new Map(mapMobileCoordinatorHistory(history.messages).map((entry) => [entry.id, entry]));
+    // Only an actual SDK/event stream for this exact canonical root may refine
+    // the stored page while the first reply streams. An origin chat beneath an
+    // inert server-primary pointer is never blended into this transcript.
+    if (
+      currentSessionId === history.conversation.sessionId &&
+      activeProjectPath === history.conversation.projectId
+    ) {
+      ordinary.forEach((entry) => rows.set(entry.id, entry));
+    }
+    return [...rows.values()].sort((left, right) => left.createdAt - right.createdAt || left.id.localeCompare(right.id));
+  }, [activeProjectPath, coordinator.state.canonicalHistory, coordinator.state.enabled, currentSessionId, currentTranscript]);
+  const diffDetails = useMemo(
+    () => displayTranscript.flatMap((entry) => entry.details.filter((detail) => detail.kind === 'patch')),
+    [displayTranscript],
+  );
+  const diffCount = currentDiffs.length || new Set(diffDetails.flatMap((detail) => detail.body.split('\n').filter(Boolean))).size;
   const selectedSession = useMemo(
     () => sessions.find((session) => session.id === currentSessionId) || activeSession,
     [activeSession, currentSessionId, sessions],
   );
+  const coordinatorEligible = coordinator.eligibility.available;
   const contextModel = useMemo(
     () => availableModels.find((model) => model.providerID === selectedSession?.model?.providerID && model.modelID === selectedSession?.model?.id),
     [availableModels, selectedSession?.model?.id, selectedSession?.model?.providerID],
@@ -242,6 +288,55 @@ export function ChatView() {
     const nextDraft = promptOverride ?? draftRef.current;
     const nextAttachments = attachmentsRef.current;
     const prompt = nextDraft.trim();
+    if (coordinator.state.enabled) {
+      // Keep this callback self-contained: the source-level late-ACK test
+      // executes the real initializer with only its React closure values.
+      const coordinatorScopeForDraft = (sessionId?: string) =>
+        coordinator.binding?.source === 'server_primary'
+          ? coordinator.binding.uiSessionId
+          : sessionId ?? '__new-session__';
+      const submittedSessionId = currentSessionId;
+      const submittedGeneration = sessionGenerationRef.current;
+      const submittedDraftScope = coordinatorScopeForDraft(currentSessionId);
+      const submittedDraftRevision = draftStoreRef.current.getRevision(submittedDraftScope);
+      const submission = await routeCoordinatorComposerInput({
+        active: true,
+        attachmentCount: nextAttachments.length,
+        message: nextDraft,
+        send: coordinator.send,
+      });
+      const stillSubmittedChat = currentSessionIdRef.current === submittedSessionId &&
+        sessionGenerationRef.current === submittedGeneration;
+      if (submission.reason && stillSubmittedChat) {
+        setSendFeedback(submission.reason);
+      }
+      const currentDraft = draftStoreRef.current.get(submittedDraftScope).draft;
+      const currentDraftRevision = draftStoreRef.current.getRevision(submittedDraftScope);
+      if (shouldApplyCoordinatorAcknowledgement({
+        accepted: submission.accepted && stillSubmittedChat,
+        currentDraft,
+        currentDraftRevision,
+        latestDraftScope: coordinatorScopeForDraft(currentSessionIdRef.current),
+        latestDraftGeneration: sessionGenerationRef.current,
+        latestSessionId: currentSessionIdRef.current,
+        latestSessionGeneration: sessionGenerationRef.current,
+        submittedDraft: nextDraft,
+        submittedDraftRevision,
+        submittedDraftScope,
+        submittedDraftGeneration: submittedGeneration,
+        submittedSessionGeneration: submittedGeneration,
+        submittedSessionId,
+      })) {
+        // A late acknowledgement cannot erase text typed after the immutable
+        // coordinator command was admitted.
+        draftStoreRef.current.updateDraft(submittedDraftScope, '');
+        setDraftRevision((revision) => revision + 1);
+        setSendFeedback(undefined);
+      }
+      // Coordinator mode never falls through to OpenCode prompt, command, or
+      // shell dispatch, including unavailable/held/error outcomes.
+      return;
+    }
     if ((!prompt && nextAttachments.length === 0) || connection.status !== 'connected') {
       return;
     }
@@ -276,7 +371,7 @@ export function ChatView() {
       if (attempt) restoreSendAttempt(attempt);
       setSendFeedback(summarizeError(error, 'OpenCode could not send that message.'));
     }
-  }, [commands, connection.status, currentSessionId, draftSessionId, ensureActiveSession, executeCommand, restoreSendAttempt, sendPrompt]);
+  }, [commands, connection.status, coordinator.binding?.source, coordinator.binding?.uiSessionId, coordinator.send, coordinator.state.enabled, currentSessionId, draftSessionId, ensureActiveSession, executeCommand, restoreSendAttempt, sendPrompt]);
 
   useEffect(() => {
     if (pendingInteractions > 0) {
@@ -350,6 +445,7 @@ export function ChatView() {
 
   async function handleToggleRecording() {
     if (conversationActive) {
+      setVoiceFeedback('Stop conversation mode before dictating a message.');
       return;
     }
 
@@ -534,6 +630,35 @@ export function ChatView() {
     }
   }
 
+  const handleOpenCoordinator = useCallback(() => {
+    void (async () => {
+      try {
+        await stopConversationBeforeCoordinatorOpen({
+          conversationActive: conversation.active,
+          toggleConversationMode,
+        });
+        setActiveTab('session');
+        await coordinator.open();
+      } catch (error) {
+        setVoiceFeedback(summarizeError(error, 'Could not stop conversation mode before coordinating.'));
+      }
+    })();
+  }, [conversation.active, coordinator, toggleConversationMode]);
+
+  const handleToggleConversationMode = useCallback(() => {
+    void routeCoordinatorConversationToggle({
+      coordinatorActive: coordinator.state.enabled,
+      conversationActive: conversation.active,
+      toggleConversationMode,
+    }).then((result) => {
+      if (result === 'blocked') {
+        setVoiceFeedback('Conversation mode is unavailable while coordinating with Rhythm. Use dictation to fill this message instead.');
+      }
+    }).catch((error) => {
+      setVoiceFeedback(summarizeError(error, 'Could not change conversation mode.'));
+    });
+  }, [conversation.active, coordinator.state.enabled, toggleConversationMode]);
+
   async function runSessionTool(action: () => Promise<void>) {
     setSessionToolBusy(true);
     try {
@@ -585,6 +710,7 @@ export function ChatView() {
           availableProviders={configuredProviders}
           chatPreferences={chatPreferences}
           connectionStatus={connection.status}
+          coordinatorEligible={coordinatorEligible}
           conversation={conversation}
           contextLimit={contextModel?.contextLimit}
           contextTokens={selectedSession?.tokens?.input}
@@ -598,6 +724,7 @@ export function ChatView() {
           showingChanges={activeTab === 'changes'}
           onBack={navigateBackToChats}
           onCloseMenu={() => setSessionMenuVisible(false)}
+          onOpenCoordinator={handleOpenCoordinator}
           onConfirmStopConversation={handleConfirmStopConversation}
           onCreateSession={() => setNewSessionSheetVisible(true)}
           onOpenSession={(sessionId) => {
@@ -614,7 +741,7 @@ export function ChatView() {
           onManage={() => setSessionToolsVisible((visible) => !visible)}
           onOpenSettings={() => router.push('/(tabs)/settings' as never)}
           onShowChanges={() => setActiveTab((tab) => tab === 'changes' ? 'session' : 'changes')}
-          onToggleConversationMode={() => void toggleConversationMode()}
+          onToggleConversationMode={handleToggleConversationMode}
           onUpdateSessionPreferences={(preferences) => {
             if (!currentSessionId) {
               return Promise.reject(
@@ -793,6 +920,21 @@ export function ChatView() {
           activeTab={activeTab}
           awaitingUserInput={awaitingUserInput}
           connection={connection}
+          coordinatorStatus={coordinator.state.enabled ? (
+            <CoordinatorConversationCard
+              state={coordinator.state}
+              palette={palette}
+              onRefresh={() => { void coordinator.refresh(); }}
+              onRetry={() => { void coordinator.retry(); }}
+              onRetryPlan={() => { void coordinator.retryPlan(); }}
+              onPreparePlan={(goalId, consent) => { void coordinator.preparePlan(goalId, consent); }}
+              onContinuePlan={(goalId, authorizationId) => { void coordinator.continuePlan(goalId, authorizationId); }}
+              onReviewConflict={() => { void coordinator.reviewConflict(); }}
+              onBeginNewMessageAfterReview={coordinator.beginNewMessageAfterReview}
+              onReturnToNormal={coordinator.returnToNormal}
+              onInspectWorkstream={() => router.push('/agents/workspace' as never)}
+            />
+          ) : undefined}
           copiedMessageId={copiedMessageId}
           currentDiffs={currentDiffs}
           currentPendingPermissions={currentPendingPermissions}
@@ -804,14 +946,18 @@ export function ChatView() {
           displayTranscript={displayTranscript}
           expandedDiffId={expandedDiffId}
           isRefreshingDiffs={isRefreshingDiffs}
-          isRefreshingMessages={isRefreshingMessages}
-          hasOlderMessages={hasOlderMessages}
+          isRefreshingMessages={coordinator.state.enabled ? Boolean(coordinator.state.canonicalHistoryLoading) : isRefreshingMessages}
+          hasOlderMessages={coordinator.state.enabled && coordinator.state.canonicalHistory
+            ? coordinator.state.canonicalHistory.hasMore
+            : hasOlderMessages}
           onCopyMessage={(entry) => void handleCopyMessage(entry)}
           onExpandDiff={setExpandedDiffId}
-          onRefresh={() => void refreshCurrentSession()}
-          onLoadOlderMessages={() => currentSessionId
-            ? void loadOlderMessages(currentSessionId)
-            : undefined}
+          onRefresh={() => coordinator.state.enabled
+            ? void coordinator.refresh()
+            : void refreshCurrentSession()}
+          onLoadOlderMessages={() => coordinator.state.enabled
+            ? void coordinator.loadOlderHistory()
+            : currentSessionId ? void loadOlderMessages(currentSessionId) : undefined}
           onRejectQuestion={(requestId) => void rejectQuestion(requestId).catch((error) => setSendFeedback(summarizeError(error, 'Could not reject the question.')))}
           onReplyToPermission={(requestId, reply) => void replyToPermission(requestId, reply).catch((error) => setSendFeedback(summarizeError(error, 'Could not reply to the permission request.')))}
           onReplyToQuestion={(requestId, answers) => void replyToQuestion(requestId, answers).catch((error) => setSendFeedback(summarizeError(error, 'Could not answer the question.')))}
@@ -838,6 +984,10 @@ export function ChatView() {
           palette={palette}
           pendingInteractions={pendingInteractions}
           running={running}
+          readOnlyTranscript={coordinator.state.enabled && (
+            coordinator.binding?.sessionId !== currentSessionId ||
+            coordinator.binding?.projectId !== activeProjectPath
+          )}
           speakingMessageId={speakingMessageId}
           status={status}
         />
@@ -896,6 +1046,7 @@ export function ChatView() {
           onToggleRecording={() => void handleToggleRecording()}
           palette={palette}
           showSendAction={showSendAction}
+          coordinatorActive={coordinator.state.enabled}
         /> : null}
         </KeyboardAvoidingView>
       </View>

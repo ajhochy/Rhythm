@@ -137,6 +137,46 @@ describe('OpencodeClientService — SDK response unwrap (.data)', () => {
     });
   });
 
+  it('accepts only a server-derived finite execution deny baseline on a fresh default child session', async () => {
+    const create = vi.fn().mockResolvedValue({ data: { id: 'finite-child' }, request: {}, response: {} });
+    const svc = makeService({ session: { create } });
+    const rules = [
+      { permission: '*', pattern: '*', action: 'deny' },
+      { permission: 'bash', pattern: '*', action: 'deny' },
+      { permission: 'external_directory', pattern: '*', action: 'deny' },
+      { permission: 'edit', pattern: '/server-owned/workspace/notes/*.md', action: 'ask' },
+      { permission: 'write', pattern: '/server-owned/workspace/notes/*.md', action: 'allow' },
+    ] as const;
+    expect(await svc.createSession(
+      'finite', '/server-owned/workspace', undefined, [], 'provider-a', 'sdk-parent', 'default', false, false, rules,
+    )).toEqual({ id: 'finite-child' });
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0][0].body.permission).toEqual(rules);
+    expect(create.mock.calls[0][0].body.parentID).toBe('sdk-parent');
+
+    expect(await svc.createSession(
+      'invalid finite', '/server-owned/workspace', undefined, [], 'provider-a', 'sdk-parent', 'default', false, false,
+      [
+        { permission: '*', pattern: '*', action: 'deny' },
+        { permission: 'bash', pattern: '*', action: 'deny' },
+        { permission: 'external_directory', pattern: '*', action: 'deny' },
+        { permission: 'edit', pattern: '/caller-path', action: 'allow' },
+      ],
+    )).toMatchObject({ error: expect.stringContaining('finite execution session scope is invalid') });
+    expect(create).toHaveBeenCalledTimes(1);
+
+    expect(await svc.createSession(
+      'relative finite', '/server-owned/workspace', undefined, [], 'provider-a', 'sdk-parent', 'default', false, false,
+      [
+        { permission: '*', pattern: '*', action: 'deny' },
+        { permission: 'bash', pattern: '*', action: 'deny' },
+        { permission: 'external_directory', pattern: '*', action: 'deny' },
+        { permission: 'write', pattern: 'notes/*.md', action: 'allow' },
+      ],
+    )).toMatchObject({ error: expect.stringContaining('finite execution session scope is invalid') });
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
   it('prompt returns res.data on success and null on error wrapper', async () => {
     const ok = makeService({
       session: {

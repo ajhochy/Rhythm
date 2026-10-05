@@ -98,7 +98,7 @@ async function hostFixture({ fetcher, supported = true, supportThrow = false, fo
   };
   const context = createContext({ Date: ClockDate, process: Object.assign(new EventEmitter(), {
     argv, env: { RHYTHM_SHELL_USER_DATA: userData, RHYTHM_LIVE_API_URL: apiBase },
-    cwd: () => '/fixture', stdout: { write() {} }, stderr: { write() {} }, platform: 'darwin',
+    resourcesPath: '/fixture/Resources', arch: 'arm64', cwd: () => '/fixture', stdout: { write() {} }, stderr: { write() {} }, platform: 'darwin',
   }), URL, Response, Headers, AbortSignal, TextDecoder, Buffer, console, setTimeout: fixtureSetTimeout, clearTimeout: fixtureClearTimeout,
   fetch: fetcher ?? (async (url, init) => {
     requests.push({ url: String(url), authorization: new Headers(init.headers).get('authorization'), redirect: init.redirect });
@@ -124,7 +124,8 @@ async function hostFixture({ fetcher, supported = true, supportThrow = false, fo
     return new SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context });
   });
   await module.evaluate();
-  await new Promise((resolveTick) => setImmediate(resolveTick));
+  for (let attempt = 0; attempt < 20 && windows.length === 0; attempt += 1) await new Promise((resolveTick) => setImmediate(resolveTick));
+  assert.equal(windows.length, 1, 'synthetic main did not create a window');
   return {
     app, contents, listeners, handlers, shown, requests, windows, permissions, actions, sent, timers, receiptWrites, state, clock,
     runCompletionTimers: () => { for (const timer of timers) if (timer.active) { timer.active = false; timer.callback(...timer.args); } },

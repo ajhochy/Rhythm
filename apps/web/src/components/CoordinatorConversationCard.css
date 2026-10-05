@@ -1,0 +1,81 @@
+.coordinator-conversation-card {
+  width: min(100%, 900px);
+  margin: 0 auto 18px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in oklab, var(--accent), var(--border-soft) 70%);
+  border-radius: 18px;
+  background: color-mix(in oklab, var(--surface), var(--accent) 4%);
+}
+
+.coordinator-conversation-card > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.coordinator-conversation-eyebrow {
+  margin: 0 0 2px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.coordinator-conversation-card h2 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.coordinator-conversation-phase {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.coordinator-conversation-phase.is-busy { color: var(--accent); }
+.coordinator-conversation-notice,
+.coordinator-conversation-empty { margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+
+.coordinator-goal-list { display: grid; gap: 7px; margin-top: 11px; }
+.coordinator-goal { padding: 9px 10px; border-radius: 12px; background: color-mix(in oklab, var(--surface-warm), var(--surface) 40%); }
+.coordinator-goal p { margin: 0; font-size: 13px; line-height: 1.4; }
+.coordinator-goal small { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
+.coordinator-goal .link-button {
+  width: fit-content;
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+.coordinator-goal .link-button:hover,
+.coordinator-goal .link-button:focus-visible { text-decoration: underline; }
+
+.coordinator-context { margin-top: 11px; }
+.coordinator-context summary { cursor: pointer; color: var(--fg); font-size: 12px; font-weight: 700; }
+.coordinator-context ul { display: grid; gap: 5px; margin: 8px 0 0; padding-left: 17px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.coordinator-holds { display: grid; gap: 5px; margin: 11px 0 0; padding-left: 17px; color: var(--fg); font-size: 12px; font-weight: 700; line-height: 1.4; }
+.coordinator-conversation-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.coordinator-plan-consent { display: grid; gap: 10px; margin-top: 12px; padding: 12px; border: 1px solid var(--border-soft); border-radius: 14px; background: color-mix(in oklab, var(--surface), var(--accent) 3%); }
+.coordinator-plan-consent h3 { margin: 0; font-size: 13px; }
+.coordinator-plan-consent p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.coordinator-plan-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.coordinator-plan-grid label, .coordinator-plan-ack { display: grid; gap: 4px; color: var(--muted); font-size: 11px; font-weight: 700; }
+.coordinator-plan-grid input { min-width: 0; min-height: 36px; padding: 6px 8px; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--surface); color: var(--fg); font: inherit; }
+.coordinator-plan-ack { grid-template-columns: 16px minmax(0, 1fr); align-items: start; line-height: 1.4; }
+.coordinator-plan-ack input { margin: 1px 0 0; }
+.coordinator-managed-status { display: grid; gap: 4px; margin-top: 12px; padding: 10px; border-radius: 12px; background: color-mix(in oklab, var(--surface-warm), var(--surface) 55%); }
+.coordinator-managed-status strong { font-size: 12px; }
+.coordinator-managed-status p, .coordinator-managed-status small { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
+
+@container conversation (max-width: 460px) {
+  .coordinator-conversation-card { margin-bottom: 12px; border-radius: 14px; padding: 12px; }
+  .coordinator-plan-grid { grid-template-columns: 1fr; }
+}

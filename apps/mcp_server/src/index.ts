@@ -27,6 +27,7 @@ import { registerAgentProfileTools } from './tools/agentProfiles.js';
 import { registerCreativePlatformTools } from './tools/creativePlatform.js';
 import { registerSetupReadinessTool } from './tools/setupReadiness.js';
 import { registerLiveArtifactTools } from './tools/liveArtifacts.js';
+import { registerDayflowTools } from './tools/dayflow.js';
 
 const RHYTHM_API_URL = process.env.RHYTHM_API_URL ?? 'https://api.vcrcapps.com';
 const RHYTHM_API_TOKEN = process.env.RHYTHM_API_TOKEN ?? '';
@@ -78,6 +79,10 @@ registerAgentDelegationTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
 registerAgentMemoryTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN, {
   managedMemorySelector: true,
 });
+// Dayflow evidence is emitted only by the authoritative local managed-evidence
+// pipeline. These two read tools carry the same engine-signed call envelope;
+// they do not grant scope or accept owner/project identifiers from the model.
+registerDayflowTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
 // #806 — rhythm_list_sessions reads agent sessions/messages from the LOCAL
 // agent server (:4001), the store that owns sessions. The seeded Memory
 // Consolidation task calls it to review the past day's sessions before
