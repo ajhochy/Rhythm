@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -838,6 +838,140 @@ describe('qualified Dayflow producer', () => {
     expect(await service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' })).toMatchObject({
       status: 'unavailable', references: [], candidates: [],
     });
+  });
+
+  it('excludes only durable-identity-distinct unqualified pending creates from a nonempty current signed selection', async () => {
+    const stage = root();
+    const ledgerPath = join(stage, 'ledger.json');
+    const ledger = new MemoryLedger(ledgerPath);
+    const store = configured(stage);
+    const dayflowSource = source(Array.from({ length: 27 }, (_, index) => ({
+      id: `qualified-current-${index}`,
+      start: '2026-10-04T08:00:00Z',
+      summary: `Synthetic signed observation ${index}.`,
+    })));
+    const persistedAuthority = new DayflowPersistedQualificationAuthority(store, ledger, () => NOW);
+    const memoryClient = new AuthenticatedDayflowMemoryClient(persistedAuthority, {
+      indexForOwner: () => ({} as never),
+      claimOwner: async () => true,
+      createOnly: async (input) => ({
+        id: input.id,
+        path: `memory/context/import-${input.id.toLowerCase()}.md`,
+        kind: 'context' as const,
+        disposition: 'created' as const,
+        canonicalContentHash: createHash('sha256').update(input.content).digest('hex'),
+        sourceRevision: input.sourceRevision,
+        normalizerVersion: input.normalizerVersion,
+      }),
+    });
+    const service = new DayflowIntegrationService({
+      source: dayflowSource,
+      memoryClient,
+      ledger,
+      configStore: store,
+      now: () => NOW,
+      qualificationAuthority: persistedAuthority,
+      ...verifiedJournalBinding(dayflowSource),
+    });
+
+    // These pending rows intentionally have no qualification or canonical
+    // source key. Their timestamps are not used by the reader: only the
+    // durable create-only identity proves they cannot affect the signed set.
+    const pendingSourceIds = Array.from({ length: 19 }, (_, index) => {
+      const sourceId = JSON.stringify(['unqualified-pending', index]);
+      ledger.journalCreate({
+        sourceId,
+        revisionHash: createHash('sha256').update(`pending-revision-${index}`).digest('hex'),
+        memoryId: stableMemoryId(sourceId),
+        contentHash: createHash('sha256').update(`pending-content-${index}`).digest('hex'),
+        exportVersion: 'fixture-v1',
+        importedAt: new Date(NOW - index - 1).toISOString(),
+        operationId: `legacy_pending_${String(index).padStart(2, '0')}`,
+      });
+      return sourceId;
+    });
+    service.grantAuthenticatedSourceConsent({
+      ownerUserId: 7,
+      projectId: 'project:dayflow',
+      authorizingSessionId: 'session:mixed-ledger-current-scope',
+    });
+    await importOne(service);
+
+    const currentEntries = ledger.currentEntries().filter((entry) => !entry.pendingCreateAt && entry.qualification);
+    expect(currentEntries).toHaveLength(27);
+    expect(ledger.currentEntries().filter((entry) => entry.pendingCreateAt && !entry.qualification)).toHaveLength(19);
+    const current = structuredClone(currentEntries[0]!);
+    const initial = await service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow', limit: 3000 });
+    expect(initial).toMatchObject({ status: 'available' });
+    expect(initial.candidates).toHaveLength(27);
+    expect(initial.candidates.some((candidate) => candidate.reference.canonicalId === stableMemoryId(pendingSourceIds[0]!))).toBe(false);
+
+    // A matching canonical ID could overwrite a current signed canonical
+    // record, so it remains an unavailable result even with 27 other proofs.
+    const collisionSourceId = JSON.stringify(['unqualified-pending', 'canonical-collision']);
+    ledger.journalCreate({
+      sourceId: collisionSourceId,
+      revisionHash: createHash('sha256').update('collision-revision').digest('hex'),
+      memoryId: current.memoryId,
+      contentHash: createHash('sha256').update('collision-content').digest('hex'),
+      exportVersion: 'fixture-v1',
+      importedAt: new Date(NOW).toISOString(),
+      operationId: 'collision_pending_01',
+    });
+    await expect(service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' })).resolves.toMatchObject({
+      status: 'unavailable', references: [], candidates: [],
+    });
+    ledger.tombstone(collisionSourceId);
+
+    // A real current create or delete is never excluded as a historical
+    // pending row, even if the durable identity remains otherwise valid.
+    ledger.journalCreate(current);
+    await expect(service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' })).resolves.toMatchObject({
+      status: 'unavailable', references: [], candidates: [],
+    });
+    ledger.save(current);
+    ledger.markPendingDelete(current.sourceId, '2026-10-04T12:00:01.000Z');
+    await expect(service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' })).resolves.toMatchObject({
+      status: 'unavailable', references: [], candidates: [],
+    });
+    ledger.save(current);
+
+    // A canonical key without an authority receipt is ambiguous rather than
+    // a safe historical pending create, so it must also hold the reader.
+    const ambiguousSourceId = JSON.stringify(['unqualified-pending', 'canonical-key']);
+    ledger.journalCreate({
+      sourceId: ambiguousSourceId,
+      revisionHash: createHash('sha256').update('canonical-key-revision').digest('hex'),
+      memoryId: stableMemoryId(ambiguousSourceId),
+      contentHash: createHash('sha256').update('canonical-key-content').digest('hex'),
+      exportVersion: 'fixture-v1',
+      importedAt: new Date(NOW).toISOString(),
+      operationId: 'canonical_key_pending',
+      canonicalSourceKey: 'memory/context/unqualified-pending.md',
+    });
+    await expect(service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' })).resolves.toMatchObject({
+      status: 'unavailable', references: [], candidates: [],
+    });
+    ledger.tombstone(ambiguousSourceId);
+
+    // The persisted ledger parser refuses malformed state before the reader
+    // can classify it. Restoring the synthetic file proves no sticky fallback
+    // was created by that hold.
+    const validLedger = readFileSync(ledgerPath, 'utf8');
+    writeFileSync(ledgerPath, JSON.stringify({ version: 1, entries: { malformed: { sourceId: 'different-key' } } }));
+    const malformed = await service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' });
+    expect(malformed.status).not.toBe('available');
+    expect(malformed.candidates).toEqual([]);
+    writeFileSync(ledgerPath, validLedger);
+    await expect(service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' })).resolves.toMatchObject({
+      status: 'available', candidates: expect.arrayContaining([expect.any(Object)]),
+    });
+
+    await service.updateConfig({ exclusions: ['category:synthetic-private'] });
+    const revoked = await service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' });
+    expect(revoked.status).not.toBe('available');
+    expect(revoked.candidates).toEqual([]);
+    service.dispose();
   });
 
   it('rotates reader eligibility across disable and re-enable rather than reviving an old receipt', async () => {

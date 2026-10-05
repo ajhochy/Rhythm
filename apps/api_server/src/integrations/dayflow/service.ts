@@ -78,6 +78,8 @@ type QualifiedEvidenceStateCandidate = {
   qualifiedAt: string;
 };
 
+type CurrentQualifiedLedgerIdentity = Pick<LedgerEntry, 'sourceId' | 'memoryId' | 'operationId'>;
+
 export class DayflowIntegrationService {
   private config: DayflowConfig;
   private previews = new Map<string, DayflowPreview>();
@@ -566,12 +568,17 @@ export class DayflowIntegrationService {
     catch { return null; }
     const now = (this.deps.now ?? Date.now)();
     const candidates = new Map<string, QualifiedEvidenceStateCandidate>();
+    const currentScopeIdentities: CurrentQualifiedLedgerIdentity[] = [];
+    const unqualifiedEntries: LedgerEntry[] = [];
     for (const entry of entries) {
       // A completed retraction is safe historical state. A pending write or
       // delete is not: it may be the current scope changing underneath this
       // read, so it cannot be silently converted into an empty result.
       if (entry.tombstonedAt) continue;
-      if (!entry.qualification) return null;
+      if (!entry.qualification) {
+        unqualifiedEntries.push(entry);
+        continue;
+      }
       let receipt;
       try { receipt = parseDayflowQualifiedReceipt(entry.qualification); }
       catch { return null; }
@@ -584,6 +591,13 @@ export class DayflowIntegrationService {
       // A foreign receipt is never a reason to expose or reject the current
       // actor's complete scope; it is simply not part of this scope.
       if (reference.ownerUserId !== scope.ownerUserId || reference.projectId !== scope.projectId) continue;
+      if (this.receiptCouldBelongToCurrentScope(reference, scope, preparation)) {
+        currentScopeIdentities.push({
+          sourceId: entry.sourceId,
+          memoryId: entry.memoryId,
+          operationId: entry.operationId,
+        });
+      }
       if (
         reference.namespace !== scope.namespace ||
         reference.sourceInstance !== scope.sourceInstance ||
@@ -609,6 +623,14 @@ export class DayflowIntegrationService {
       ) return null;
       if (!existing || isNewerQualifiedCandidate(candidate, existing)) candidates.set(reference.canonicalId, candidate);
     }
+    // An unqualified pending create is not evidence and is never selected.
+    // It may be excluded only after a non-empty current signed selection is
+    // known, and only when its durable create-only identity cannot affect any
+    // receipt in that selection. This avoids treating unrelated legacy
+    // pending operations as scope authority while preserving holds for an
+    // empty result, a malformed row, a delete, or a possible canonical clash.
+    if (unqualifiedEntries.some((entry) =>
+      !this.isDistinctUnqualifiedPendingCreate(entry, currentScopeIdentities, candidates.size > 0))) return null;
     const ordered = [...candidates.values()].sort((left, right) =>
       right.reference.observedEnd.localeCompare(left.reference.observedEnd) ||
       right.qualifiedAt.localeCompare(left.qualifiedAt) ||
@@ -645,6 +667,25 @@ export class DayflowIntegrationService {
         nextCursor,
       },
     };
+  }
+  private isDistinctUnqualifiedPendingCreate(
+    entry: LedgerEntry,
+    currentScopeIdentities: readonly CurrentQualifiedLedgerIdentity[],
+    hasCurrentQualifiedCandidate: boolean,
+  ): boolean {
+    if (!hasCurrentQualifiedCandidate || !entry.pendingCreateAt || entry.pendingDeleteAt ||
+        entry.canonicalSourceKey !== undefined || entry.qualification !== undefined ||
+        typeof entry.sourceId !== 'string' || entry.sourceId.length === 0 ||
+        typeof entry.operationId !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(entry.operationId) ||
+        !/^[0-9A-HJKMNP-TV-Z]{26}$/.test(entry.memoryId) ||
+        !/^[a-f0-9]{64}$/.test(entry.revisionHash) || !/^[a-f0-9]{64}$/.test(entry.contentHash) ||
+        (entry.exportVersion !== 'fixture-v1' && entry.exportVersion !== 'v2.6.0') ||
+        !Number.isFinite(Date.parse(entry.pendingCreateAt))) return false;
+    return currentScopeIdentities.every((identity) =>
+      identity.sourceId !== entry.sourceId &&
+      identity.memoryId !== entry.memoryId &&
+      identity.operationId !== entry.operationId,
+    );
   }
   /** The existing importer owns this bounded current-plus-two-prior-day window. */
   isReferenceWithinAutomaticWindow(reference: { observedStart: string; namespace: string; sourceInstance: string; configurationGeneration: string }): boolean {

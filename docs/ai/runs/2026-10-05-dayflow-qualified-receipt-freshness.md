@@ -119,3 +119,64 @@ final file hash is reported with the handoff rather than recursively embedded.
   authenticated HTTP/status/context check. This source result does not claim
   live restoration, useful coordinator context, or end-to-end automatic import
   success.
+
+## R3 — mixed-ledger current-qualified selection
+
+Source derivative frozen at `2026-10-05T22:25:09Z`. This is the bounded delta
+from the locally loaded R2 source state; it does not alter R1/R2 behavior,
+native source identity, source consent, configuration, ledger data, or runtime
+composition.
+
+| Application path | R2 local SHA-256 | R3 frozen SHA-256 | R3 Git blob |
+| --- | --- | --- | --- |
+| `apps/api_server/src/integrations/dayflow/service.ts` | `9f898da91dd559af89e1c254542cdb98ce9f6c5ddc55a13ff7f3af00a82bcddb` | `f6ac5b9a794e604b4356a83ff7c714507f2496e757eabe6e1287ac17fa1c68c0` | `30de784693b3043a0a52da021d59482dd5f0d2b2` |
+| `apps/api_server/src/__tests__/dayflow_qualified_reader.test.ts` | `8c473222102fb9ca8a98063e914f966699c568eeca2a588362f146f13100cbb2` | `0b839a58ce136ae803091b51e3121412dc32d01240447b41aa62518563ece016` | `0639ef0ff1baf2ab3fb1674f716beb183309394e` |
+
+- `qualifiedEvidenceStateNow` now first reconstructs the complete signed,
+  exact-current-scope selection. An entry without a qualification is never
+  evidence and never grants scope.
+- It can exclude an unqualified pending create only when the signed selection
+  is nonempty; the pending row has no canonical key or receipt, no pending
+  delete, has a structurally valid durable source/canonical/operation identity,
+  and all three identifiers differ from every exact current-scope signed row.
+  No timestamp, count, grant time, or ledger-management metadata is used as
+  authority.
+- Empty signed selections, completed-but-unqualified rows, pending deletes,
+  missing or malformed durable identity, canonical-key-bearing pending rows,
+  and any source/canonical/operation collision remain closed. The old
+  same-current-row pending-create and pending-delete holds are unchanged.
+- The strict receipt-to-ledger match, persisted current-scope snapshot,
+  revocation fence, source/journal revalidation, final admission proof, and
+  R2 re-attestation rules are unchanged. No new authority store, grant,
+  timer, queue, reader fallback, or canonical-writer policy was introduced.
+
+### R3 focused evidence
+
+- PASS — `cd apps/api_server && ./node_modules/.bin/vitest run src/__tests__/dayflow_qualified_reader.test.ts` — 35/35.
+- PASS — `cd apps/api_server && ./node_modules/.bin/vitest run src/__tests__/dayflow_qualified_reader.test.ts -t 'excludes only durable-identity-distinct' --no-file-parallelism` — 1/1 (34 intentionally skipped).
+  - Uses the actual `DayflowPersistedQualificationAuthority` and
+    `AuthenticatedDayflowMemoryClient` with synthetic content only.
+  - Seeds 27 active current signed receipts and 19 unqualified pending creates;
+    the qualified page remains available with exactly the 27 signed candidates.
+  - Holds a canonical-ID collision, a current qualified pending create, a
+    pending delete, a pending row carrying a canonical key without a receipt,
+    a malformed persisted ledger, and a consent/configuration change.
+- PASS — `cd apps/api_server && ./node_modules/.bin/tsc --noEmit`.
+- PASS — `git diff --check`.
+- GitNexus exact-checkout attempt:
+  `node .gitnexus/run.cjs impact qualifiedEvidenceStateNow --direction upstream`
+  failed because this checkout has no `.gitnexus/run.cjs`. No index creation,
+  alternate-checkout substitution, or graph fallback was used. Manual caller
+  review covered `readQualifiedEvidence`,
+  `readQualifiedEvidenceWithAdmission`,
+  `captureQualifiedEvidenceAdmission`,
+  `isQualifiedEvidenceAdmissionCurrent`, and their evidence-service callers.
+
+### R3 remaining gate
+
+The metadata-only receipt counts diagnosed the mixed-ledger condition but are
+not a qualification proof. This source patch makes no live-context or
+automatic-import-success claim. Root must mechanically compose the frozen
+application bytes and re-run the normal stock authenticated status/context
+scenario before treating the current 27-receipt selection as coordinator
+context.
