@@ -82,6 +82,7 @@ type FixtureState = {
   historyCalls: number;
   sessionInputFrames: Record<string, unknown>[];
   rootExists: boolean;
+  rootPermissionReads: number;
   retryFailed: boolean;
   setupRelease?: () => void;
 };
@@ -92,6 +93,7 @@ async function openRhythmFixture(page: Page, options: {
   holdSetup?: boolean;
   rootStatus?: 'idle' | 'error';
   ordinaryStatus?: 'idle' | 'error';
+  rejectSdklessRootPermissions?: boolean;
 } = {}): Promise<FixtureState> {
   const state: FixtureState = {
     resolveCalls: 0,
@@ -101,6 +103,7 @@ async function openRhythmFixture(page: Page, options: {
     historyCalls: 0,
     sessionInputFrames: [],
     rootExists: options.existingRoot ?? false,
+    rootPermissionReads: 0,
     retryFailed: false,
   };
   const origin = { ...session('ordinary-root', 'project-ordinary', 'Ordinary chat'), status: options.ordinaryStatus ?? 'idle' };
@@ -190,6 +193,12 @@ async function openRhythmFixture(page: Page, options: {
       return respond({ error: 'Unexpected coordinator operation' }, 500);
     }
 
+    if (request.method() === 'GET' && url.pathname === `/agent-sessions/${rhythmRoot.id}/pending-permissions`) {
+      state.rootPermissionReads += 1;
+      return options.rejectSdklessRootPermissions
+        ? respond({ error: { code: 'SDK_SESSION_UNAVAILABLE' } }, 409)
+        : respond([]);
+    }
     if (request.method() === 'GET' && url.pathname === '/agent-sessions') {
       const sessions = state.rootExists ? [rhythmRoot, origin, alternateOrigin] : [origin, alternateOrigin];
       return respond({ sessions, ancestors: [], pageInfo: { nextCursor: null, hasMore: false } });
@@ -366,7 +375,7 @@ test('an existing server root reopens after navigation and repeated entry clicks
 });
 
 test('ready inert coordinator accepts composition after restart while ordinary error without SDK stays disabled', async ({ page }) => {
-  const state = await openRhythmFixture(page, { existingRoot: true, rootStatus: 'error', ordinaryStatus: 'error' });
+  const state = await openRhythmFixture(page, { existingRoot: true, rootStatus: 'error', ordinaryStatus: 'error', rejectSdklessRootPermissions: true });
   await expect(page.getByTestId('composer-input')).toBeDisabled();
   await page.getByTestId('rhythm-primary-entry').click();
   await expectRhythmRoot(page, state);
@@ -378,6 +387,10 @@ test('ready inert coordinator accepts composition after restart while ordinary e
   await expectRhythmRoot(page, state);
   await expect(page.getByTestId('composer-input')).toBeEnabled();
   await expect(page.locator('.composer-disabled-reason')).toHaveCount(0);
+  await expect(page.getByTestId('rhythm-primary-status')).toContainText('Rhythm is ready.');
+  await expect(page.getByTestId('connection-status')).not.toContainText('Pending decisions could not be loaded');
+  await expect(page.locator('.conversation-pane .status-label')).not.toContainText('Error');
+  await expect(page.getByTestId('composer-input')).not.toHaveAttribute('placeholder', /this project/);
   expect(state.setupBodies).toHaveLength(0);
   expect(state.sessionInputFrames).toHaveLength(0);
 });

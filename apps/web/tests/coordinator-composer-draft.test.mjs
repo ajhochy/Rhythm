@@ -144,6 +144,8 @@ test('a ready coordinator root remains composable after an SDK-less restart erro
   });
   const input = tree.root.findByProps({ 'data-testid': 'composer-input' });
   assert.equal(input.props.disabled, false);
+  assert.equal(input.props.placeholder, 'Message Rhythm about your work…');
+  assert.doesNotMatch(input.props.placeholder, /this project/i);
   assert.equal(tree.root.findByProps({ 'data-testid': 'composer-send' }).props.disabled, false);
   assert.equal(tree.root.findByProps({ 'data-testid': 'composer-live-file-input' }).props.disabled, true);
   await act(async () => { input.props.onChange({ target: { value: 'What should I do today?' } }); });

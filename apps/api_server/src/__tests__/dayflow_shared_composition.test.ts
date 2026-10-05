@@ -21,6 +21,7 @@ import { DayflowReceivingContextRepository } from '../repositories/dayflow_recei
 import { resolveAuthenticatedDayflowConsentScope } from '../routes/dayflow_authenticated_management_routes';
 import { DayflowReceivingContextAuthorityService } from '../services/dayflow_receiving_context_authority';
 import { DayflowReceivingHistoryGuard } from '../services/dayflow_receiving_history_guard';
+import { createDayflowCoordinatorReferenceAdapter } from '../services/dayflow_coordinator_reference_adapter';
 import { DayflowCanonicalEvidenceResolver, DayflowQualifiedEvidenceService, type DayflowQualifiedReader } from '../services/dayflow_qualified_evidence_service';
 import { MemoryIndexService } from '../services/memory_index_service';
 import { createObservationIfAbsentInVault, generateUlid } from '../services/memoryVaultWriteService';
@@ -104,7 +105,9 @@ function receivingDb(): Database.Database {
 
 /** Real proposal-01 source/consent/ledger producer; only the Dayflow fixture
  * record and canonical resolver content below are invented test edges. */
-async function qualifiedProducerForCrossAuthority() {
+async function qualifiedProducerForCrossAuthority(records = [
+  { id: 'cross-authority-card', start: '2026-10-05T00:00:00Z', summary: 'Synthetic qualified handoff detail.' },
+]) {
   const root = mkdtempSync(join(tmpdir(), 'dayflow-cross-authority-'));
   roots.push(root);
   const store = new DayflowConfigStore(join(root, 'config.json'));
@@ -125,7 +128,7 @@ async function qualifiedProducerForCrossAuthority() {
     read: async () => ({
       contractVersion: 'fixture-v1',
       sourceInstanceId: 'cross-authority-fixture',
-      records: [{ id: 'cross-authority-card', start: '2026-10-05T00:00:00Z', summary: 'Synthetic qualified handoff detail.' }],
+      records,
     }),
     hasVerifiedBinding: () => true,
   };
@@ -196,6 +199,91 @@ function promptBoundaryDb(): Database.Database {
 }
 
 describe('Dayflow authenticated shared composition', () => {
+  it('projects only a current persisted qualified producer into coordinator metadata, never task-completion evidence', async () => {
+    const { producer, authority } = await qualifiedProducerForCrossAuthority();
+    try {
+      const adapter = createDayflowCoordinatorReferenceAdapter({
+        reader: () => producer,
+        authority: () => authority,
+      });
+      const context = await adapter.read({
+        ownerUserId: 7,
+        projectId: 'project:1',
+        conversationId: 'coordinator:1',
+        now: new Date(CROSS_NOW),
+      });
+      expect(context).toMatchObject({
+        availability: 'available',
+        complete: true,
+        authoritative: true,
+        items: [{ state: 'active', namespace: expect.any(String), canonicalId: expect.any(String) }],
+        dependencyManifest: {
+          namespace: expect.any(String), sourceHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+          sourceRevision: expect.stringMatching(/^qualified:[A-Za-z0-9_-]+$/),
+        },
+      });
+      expect(JSON.stringify(context)).not.toContain('Synthetic qualified handoff detail.');
+      expect(JSON.stringify(context)).not.toContain('criterionState');
+
+      await expect(adapter.read({
+        ownerUserId: 9,
+        projectId: 'project:other',
+        conversationId: 'coordinator:foreign',
+        now: new Date(CROSS_NOW),
+      })).resolves.toMatchObject({ availability: 'unavailable', reason: 'authorization_unavailable', items: [] });
+
+      producer.revokeAuthenticatedSourceConsent({
+        ownerUserId: 7,
+        projectId: 'project:1',
+        authorizingSessionId: 'session:later',
+      });
+      await expect(adapter.read({
+        ownerUserId: 7,
+        projectId: 'project:1',
+        conversationId: 'coordinator:revoked',
+        now: new Date(CROSS_NOW),
+      })).resolves.toMatchObject({ availability: 'not_configured', items: [] });
+    } finally {
+      producer.dispose();
+    }
+  });
+
+  it('bounds a complete 27-reference persisted qualified producer page without treating it as partial', async () => {
+    const records = Array.from({ length: 27 }, (_, index) => ({
+      id: `cross-authority-card-${String(index).padStart(2, '0')}`,
+      start: '2026-10-05T00:00:00Z',
+      summary: `Synthetic bounded qualified handoff detail ${index}.`,
+    }));
+    const { producer, authority } = await qualifiedProducerForCrossAuthority(records);
+    try {
+      const page = await producer.readQualifiedReferences({ ownerUserId: 7, projectId: 'project:1', limit: 3_000 });
+      expect(page).toMatchObject({ status: 'available', nextCursor: null });
+      expect(page.references).toHaveLength(27);
+
+      const adapter = createDayflowCoordinatorReferenceAdapter({
+        reader: () => producer,
+        authority: () => authority,
+      });
+      const context = await adapter.read({
+        ownerUserId: 7,
+        projectId: 'project:1',
+        conversationId: 'coordinator:bounded',
+        now: new Date(CROSS_NOW),
+      });
+      if (context.availability !== 'available' || context.complete !== true || context.authoritative !== true) {
+        throw new Error('expected a current qualified bounded context');
+      }
+      expect(context.coverage).toEqual({
+        strategy: 'bounded_relevance', totalItems: 27, selectedItems: 25, maxItems: 25,
+      });
+      expect(context.items).toHaveLength(25);
+      expect(context.dependencyManifest?.references).toHaveLength(25);
+      expect(JSON.stringify(context)).not.toContain('Synthetic bounded qualified handoff detail');
+    } finally {
+      producer.dispose();
+    }
+  });
+
   it('requires durable explicit source consent and rechecks it around canonical import', async () => {
     const { store, authority } = consentedAuthority();
     const active = authority.activeScope()!;

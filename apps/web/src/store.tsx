@@ -358,6 +358,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
 
   const selected = sessions.find((session) => session.id === selectedId) ?? (live ? emptyLiveSession() : sessions[0]) ?? emptyLiveSession();
   const pendingSessionRef = useRef(selected);
+  const decisionRehydrateAbortRef = useRef<AbortController | null>(null);
   pendingSessionRef.current = selected;
   useEffect(() => {
     clearPendingDecisions();
@@ -393,7 +394,18 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     childViewRequestRef.current++;
     childStack.current = [];
     setLiveChildView(null);
-    if (live && selected.id) void rehydrateDecisions(gateway, selected).catch(() => setLiveSessionError('Pending decisions could not be loaded'));
+    decisionRehydrateAbortRef.current?.abort();
+    const controller = new AbortController();
+    decisionRehydrateAbortRef.current = controller;
+    if (live && selected.id) {
+      void rehydrateDecisions(gateway, selected, controller.signal).catch(() => {
+        if (!controller.signal.aborted) setLiveSessionError('Pending decisions could not be loaded');
+      });
+    }
+    return () => {
+      controller.abort();
+      if (decisionRehydrateAbortRef.current === controller) decisionRehydrateAbortRef.current = null;
+    };
   }, [gateway, live, accountId, selected.id, selected.sdkSessionId, selected.cwd]);
   const notify = (message: string) => setToast((current) => ({ message, id: current.id + 1 }));
   const setTheme = (next: Theme) => { setThemeState(next); persistTheme(next); };
@@ -774,12 +786,18 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     const onReconnect = () => {
       if (!active) return;
       const id = selectedIdRef.current;
-      if (id) { sessionSocketRef.current?.send({ v: 1, type: 'session.subscribe', id }); rehydratePendingPermission(id); }
+      if (id) {
+        sessionSocketRef.current?.send({ v: 1, type: 'session.subscribe', id });
+        if (pendingSessionRef.current.id === id && pendingSessionRef.current.sdkSessionId) rehydratePendingPermission(id);
+      }
       void requestReconcile().catch(onError);
     };
     sessionSocketRef.current = sessionGateway.connect(onEvent, onError, () => {
       onReconnect();
-      void rehydrateDecisions(gateway, pendingSessionRef.current).catch(onError);
+      const session = pendingSessionRef.current;
+      void rehydrateDecisions(gateway, session).catch(() => {
+        if (active && selectedIdRef.current === session.id && pendingSessionRef.current.sdkSessionId === session.sdkSessionId) onError();
+      });
     });
     // The hash listener above is installed before main flushes a pre-ready native click.
     emitAgentNotification({ v: 1, type: 'ready' }, live);

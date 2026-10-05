@@ -15,6 +15,8 @@ import { DayflowConfigStore } from '../integrations/dayflow/config_store';
 import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { MemoryLedger } from '../integrations/dayflow/ledger';
+import { AuthenticatedDayflowMemoryClient } from '../integrations/dayflow/authenticated_memory_client';
+import { DayflowPersistedQualificationAuthority } from '../integrations/dayflow/persisted_qualification_authority';
 import { stableMemoryId } from '../integrations/dayflow/plan';
 import { DayflowIntegrationService } from '../integrations/dayflow/service';
 import type { DayflowMemoryClient } from '../integrations/dayflow/memory_client';
@@ -190,6 +192,387 @@ describe('qualified Dayflow producer', () => {
     service.dispose();
   });
 
+  it('re-attests an unchanged expired receipt through the existing automatic cadence and authenticated canonical writer', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    let now = NOW;
+    const stage = root();
+    const ledger = new MemoryLedger(join(stage, 'ledger.json'));
+    const store = configured(stage);
+    const dayflowSource = source([{ id: 'automatic-refresh', start: '2026-10-04T08:00:00Z', summary: 'Synthetic automatic renewal.' }]);
+    const persistedAuthority = new DayflowPersistedQualificationAuthority(store, ledger, () => now);
+    let canonicalWrites = 0;
+    const memoryClient = new AuthenticatedDayflowMemoryClient(persistedAuthority, {
+      indexForOwner: () => ({} as never),
+      claimOwner: async () => true,
+      createOnly: async (input) => {
+        canonicalWrites++;
+        return {
+          id: input.id,
+          path: `memory/context/import-${input.id.toLowerCase()}.md`,
+          kind: 'context' as const,
+          disposition: canonicalWrites === 1 ? 'created' as const : 'already_present' as const,
+          canonicalContentHash: createHash('sha256').update(input.content).digest('hex'),
+          sourceRevision: input.sourceRevision,
+          normalizerVersion: input.normalizerVersion,
+        };
+      },
+    });
+    const service = new DayflowIntegrationService({
+      source: dayflowSource,
+      memoryClient,
+      ledger,
+      configStore: store,
+      now: () => now,
+      qualificationAuthority: persistedAuthority,
+      ...verifiedJournalBinding(dayflowSource),
+    });
+    service.grantAuthenticatedSourceConsent({ ownerUserId: 7, projectId: 'project:dayflow', authorizingSessionId: 'session:automatic-refresh' });
+    await importOne(service);
+    const first = ledger.currentEntries()[0]!;
+    const firstExpiry = first.qualification!.reference.expiresAt;
+    now = Date.parse(firstExpiry) + 1;
+
+    // An expired receipt is deliberately withheld until the existing cadence
+    // replays the immutable canonical observation and gets a new receipt.
+    await expect(service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' })).resolves.toMatchObject({
+      status: 'available', candidates: [], references: [],
+    });
+    await vi.advanceTimersByTimeAsync(15 * 60_000);
+
+    const renewed = ledger.currentEntries()[0]!;
+    expect(canonicalWrites).toBe(2);
+    expect(renewed.pendingCreateAt).toBeUndefined();
+    expect(renewed.qualification?.reference.expiresAt).not.toBe(firstExpiry);
+    expect(Date.parse(renewed.qualification!.reference.expiresAt)).toBeGreaterThan(now);
+    await expect(service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' })).resolves.toMatchObject({
+      status: 'available', candidates: [expect.any(Object)],
+    });
+    service.dispose();
+  });
+
+  it('re-attests an unchanged canonical observation only after a new same-owner explicit grant', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const stage = root();
+    const ledger = new MemoryLedger(join(stage, 'ledger.json'));
+    const store = configured(stage);
+    const dayflowSource = source([{ id: 'same-owner-regrant', start: '2026-10-04T08:00:00Z', summary: 'Synthetic same-owner regrant.' }]);
+    const persistedAuthority = new DayflowPersistedQualificationAuthority(store, ledger, () => NOW);
+    const dispositions: Array<'created' | 'already_present'> = [];
+    const memoryClient = new AuthenticatedDayflowMemoryClient(persistedAuthority, {
+      indexForOwner: () => ({} as never),
+      claimOwner: async () => true,
+      createOnly: async (input) => {
+        const disposition = dispositions.length === 0 ? 'created' as const : 'already_present' as const;
+        dispositions.push(disposition);
+        return {
+          id: input.id,
+          path: `memory/context/import-${input.id.toLowerCase()}.md`,
+          kind: 'context' as const,
+          disposition,
+          canonicalContentHash: createHash('sha256').update(input.content).digest('hex'),
+          sourceRevision: input.sourceRevision,
+          normalizerVersion: input.normalizerVersion,
+        };
+      },
+    });
+    const service = new DayflowIntegrationService({
+      source: dayflowSource,
+      memoryClient,
+      ledger,
+      configStore: store,
+      now: () => NOW,
+      qualificationAuthority: persistedAuthority,
+      ...verifiedJournalBinding(dayflowSource),
+    });
+    service.grantAuthenticatedSourceConsent({ ownerUserId: 7, projectId: 'project:dayflow', authorizingSessionId: 'session:initial-grant' });
+    await importOne(service);
+    const oldEntry = structuredClone(ledger.currentEntries()[0]!);
+    const oldReceipt = structuredClone(oldEntry.qualification!);
+
+    await service.updateConfig({ exclusions: ['category:private'] });
+    expect(ledger.isSourceConsentGenerationRevoked(oldReceipt.reference.consentGeneration)).toBe(true);
+    await expect(service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' })).resolves.toMatchObject({
+      status: 'unavailable', references: [], candidates: [],
+    });
+    await vi.advanceTimersByTimeAsync(15 * 60_000);
+    expect(dispositions).toEqual(['created']);
+
+    // This is only a synthetic source fixture: production must obtain this
+    // scope through the existing authenticated explicit-consent action.
+    service.grantAuthenticatedSourceConsent({ ownerUserId: 7, projectId: 'project:dayflow', authorizingSessionId: 'session:restored-grant' });
+    await expect(service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' })).resolves.toMatchObject({
+      status: 'unavailable', references: [], candidates: [],
+    });
+    await vi.advanceTimersByTimeAsync(15 * 60_000);
+
+    const reattested = ledger.currentEntries()[0]!;
+    expect(dispositions).toEqual(['created', 'already_present']);
+    expect(reattested).toMatchObject({
+      memoryId: oldEntry.memoryId,
+      operationId: oldEntry.operationId,
+      canonicalSourceKey: oldEntry.canonicalSourceKey,
+      qualification: {
+        canonicalContentHash: oldReceipt.canonicalContentHash,
+        canonicalSourceKey: oldReceipt.canonicalSourceKey,
+      },
+    });
+    expect(reattested.qualification?.reference.consentGeneration).not.toBe(oldReceipt.reference.consentGeneration);
+    expect(reattested.qualification?.reference.configurationGeneration).not.toBe(oldReceipt.reference.configurationGeneration);
+    expect(oldReceipt.reference.consentGeneration).toBe(oldEntry.qualification!.reference.consentGeneration);
+    expect(oldReceipt.reference.configurationGeneration).toBe(oldEntry.qualification!.reference.configurationGeneration);
+    await expect(service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' })).resolves.toMatchObject({
+      status: 'available', candidates: [{ reference: { ownerUserId: 7, projectId: 'project:dayflow' } }],
+    });
+    service.dispose();
+  });
+
+  it('does not transfer a fenced canonical observation to a different explicit owner or project', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const stage = root();
+    const ledger = new MemoryLedger(join(stage, 'ledger.json'));
+    const store = configured(stage);
+    const dayflowSource = source([{ id: 'foreign-regrant', start: '2026-10-04T08:00:00Z', summary: 'Synthetic foreign regrant.' }]);
+    const persistedAuthority = new DayflowPersistedQualificationAuthority(store, ledger, () => NOW);
+    let canonicalWrites = 0;
+    const memoryClient = new AuthenticatedDayflowMemoryClient(persistedAuthority, {
+      indexForOwner: () => ({} as never),
+      claimOwner: async () => true,
+      createOnly: async (input) => {
+        canonicalWrites++;
+        return {
+          id: input.id,
+          path: `memory/context/import-${input.id.toLowerCase()}.md`,
+          kind: 'context' as const,
+          disposition: canonicalWrites === 1 ? 'created' as const : 'already_present' as const,
+          canonicalContentHash: createHash('sha256').update(input.content).digest('hex'),
+          sourceRevision: input.sourceRevision,
+          normalizerVersion: input.normalizerVersion,
+        };
+      },
+    });
+    const service = new DayflowIntegrationService({
+      source: dayflowSource,
+      memoryClient,
+      ledger,
+      configStore: store,
+      now: () => NOW,
+      qualificationAuthority: persistedAuthority,
+      ...verifiedJournalBinding(dayflowSource),
+    });
+    service.grantAuthenticatedSourceConsent({ ownerUserId: 7, projectId: 'project:dayflow', authorizingSessionId: 'session:initial-owner' });
+    await importOne(service);
+    const oldReceipt = structuredClone(ledger.currentEntries()[0]!.qualification!);
+
+    await service.updateConfig({ exclusions: ['category:private'] });
+    service.grantAuthenticatedSourceConsent({ ownerUserId: 8, projectId: 'project:other', authorizingSessionId: 'session:foreign-owner' });
+    await vi.advanceTimersByTimeAsync(15 * 60_000);
+
+    expect(canonicalWrites).toBe(1);
+    expect(ledger.currentEntries()[0]!.qualification).toEqual(oldReceipt);
+    await expect(service.readQualifiedEvidence({ ownerUserId: 8, projectId: 'project:other' })).resolves.toMatchObject({
+      status: 'unavailable', references: [], candidates: [],
+    });
+    service.dispose();
+  });
+
+  it('recovers a same-revision pending create through the existing cadence only after a current explicit scope exists', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const stage = root();
+    const ledger = new MemoryLedger(join(stage, 'ledger.json'));
+    const store = configured(stage);
+    const dayflowSource = source([{ id: 'pending-current-scope', start: '2026-10-04T08:00:00Z', summary: 'Synthetic pending recovery.' }]);
+    const persistedAuthority = new DayflowPersistedQualificationAuthority(store, ledger, () => NOW);
+    let canonicalWrites = 0;
+    const memoryClient = new AuthenticatedDayflowMemoryClient(persistedAuthority, {
+      indexForOwner: () => ({} as never),
+      claimOwner: async () => true,
+      createOnly: async (input) => {
+        canonicalWrites++;
+        return {
+          id: input.id,
+          path: `memory/context/import-${input.id.toLowerCase()}.md`,
+          kind: 'context' as const,
+          disposition: 'created' as const,
+          canonicalContentHash: createHash('sha256').update(input.content).digest('hex'),
+          sourceRevision: input.sourceRevision,
+          normalizerVersion: input.normalizerVersion,
+        };
+      },
+    });
+    const service = new DayflowIntegrationService({
+      source: dayflowSource,
+      memoryClient,
+      ledger,
+      configStore: store,
+      now: () => NOW,
+      qualificationAuthority: persistedAuthority,
+      ...verifiedJournalBinding(dayflowSource),
+    });
+    const preview = await service.preview();
+    const initial = await service.commit(preview.token, preview.candidates.map((candidate) => candidate.candidateId));
+    const pending = structuredClone(ledger.currentEntries()[0]!);
+    expect(initial.failed).toHaveLength(1);
+    expect(canonicalWrites).toBe(0);
+    expect(pending.pendingCreateAt).toEqual(expect.any(String));
+    expect(pending.qualification).toBeUndefined();
+
+    service.grantAuthenticatedSourceConsent({ ownerUserId: 7, projectId: 'project:dayflow', authorizingSessionId: 'session:pending-recovery' });
+    await vi.advanceTimersByTimeAsync(15 * 60_000);
+
+    const recovered = ledger.currentEntries()[0]!;
+    expect(canonicalWrites).toBe(1);
+    expect(recovered).toMatchObject({
+      sourceId: pending.sourceId,
+      revisionHash: pending.revisionHash,
+      memoryId: pending.memoryId,
+      operationId: pending.operationId,
+      qualification: { reference: { ownerUserId: 7, projectId: 'project:dayflow' } },
+    });
+    expect(recovered.pendingCreateAt).toBeUndefined();
+    await expect(service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' })).resolves.toMatchObject({
+      status: 'available', candidates: [expect.any(Object)],
+    });
+    service.dispose();
+  });
+
+  it.each([
+    { name: 'recreates a missing canonical note', disposition: 'created' as const, key: 'same', hash: 'same' },
+    { name: 'returns a different canonical note', disposition: 'already_present' as const, key: 'different', hash: 'different' },
+  ])('keeps a same-owner regrant withheld when canonical replay %s', async (scenario) => {
+    const stage = root();
+    const ledger = new MemoryLedger(join(stage, 'ledger.json'));
+    const store = configured(stage);
+    const dayflowSource = source([{ id: `canonical-${scenario.key}-${scenario.hash}`, start: '2026-10-04T08:00:00Z', summary: 'Synthetic canonical provenance hold.' }]);
+    const persistedAuthority = new DayflowPersistedQualificationAuthority(store, ledger, () => NOW);
+    let canonicalWrites = 0;
+    const memoryClient = new AuthenticatedDayflowMemoryClient(persistedAuthority, {
+      indexForOwner: () => ({} as never),
+      claimOwner: async () => true,
+      createOnly: async (input) => {
+        canonicalWrites++;
+        const first = canonicalWrites === 1;
+        return {
+          id: input.id,
+          path: first || scenario.key === 'same'
+            ? `memory/context/import-${input.id.toLowerCase()}.md`
+            : `memory/context/other-${input.id.toLowerCase()}.md`,
+          kind: 'context' as const,
+          disposition: first ? 'created' as const : scenario.disposition,
+          canonicalContentHash: first || scenario.hash === 'same'
+            ? createHash('sha256').update(input.content).digest('hex')
+            : HASH_B,
+          sourceRevision: input.sourceRevision,
+          normalizerVersion: input.normalizerVersion,
+        };
+      },
+    });
+    const service = new DayflowIntegrationService({
+      source: dayflowSource,
+      memoryClient,
+      ledger,
+      configStore: store,
+      now: () => NOW,
+      qualificationAuthority: persistedAuthority,
+      ...verifiedJournalBinding(dayflowSource),
+    });
+    service.grantAuthenticatedSourceConsent({ ownerUserId: 7, projectId: 'project:dayflow', authorizingSessionId: 'session:canonical-initial' });
+    await importOne(service);
+    const oldReceipt = structuredClone(ledger.currentEntries()[0]!.qualification!);
+
+    await service.updateConfig({ exclusions: ['category:private'] });
+    service.grantAuthenticatedSourceConsent({ ownerUserId: 7, projectId: 'project:dayflow', authorizingSessionId: 'session:canonical-restored' });
+    const preview = await service.preview();
+    const result = await service.commit(preview.token, preview.candidates.map((candidate) => candidate.candidateId));
+
+    expect(result.failed).toHaveLength(1);
+    expect(canonicalWrites).toBe(2);
+    expect(ledger.currentEntries()[0]!.qualification).toEqual(oldReceipt);
+    await expect(service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' })).resolves.toMatchObject({
+      status: 'unavailable', references: [], candidates: [],
+    });
+    service.dispose();
+  });
+
+  it.each(['consent_revocation', 'journal_change'] as const)(
+    'leaves an expired receipt withheld when %s occurs during its canonical re-attestation await',
+    async (mutation) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(NOW);
+      let now = NOW;
+      let changedJournal = false;
+      const stage = root();
+      const ledger = new MemoryLedger(join(stage, `${mutation}.json`));
+      const store = configured(stage);
+      const dayflowSource = source([{ id: mutation, start: '2026-10-04T08:00:00Z', summary: 'Synthetic re-attestation race.' }]);
+      const persistedAuthority = new DayflowPersistedQualificationAuthority(store, ledger, () => now);
+      let canonicalWrites = 0;
+      let service!: DayflowIntegrationService;
+      const memoryClient = new AuthenticatedDayflowMemoryClient(persistedAuthority, {
+        indexForOwner: () => ({} as never),
+        claimOwner: async () => true,
+        createOnly: async (input) => {
+          canonicalWrites++;
+          if (canonicalWrites === 2) {
+            if (mutation === 'consent_revocation') {
+              service.revokeAuthenticatedSourceConsent({
+                ownerUserId: 7,
+                projectId: 'project:dayflow',
+                authorizingSessionId: 'session:re-attestation-revoke',
+              });
+            } else {
+              changedJournal = true;
+            }
+          }
+          return {
+            id: input.id,
+            path: `memory/context/import-${input.id.toLowerCase()}.md`,
+            kind: 'context' as const,
+            disposition: canonicalWrites === 1 ? 'created' as const : 'already_present' as const,
+            canonicalContentHash: createHash('sha256').update(input.content).digest('hex'),
+            sourceRevision: input.sourceRevision,
+            normalizerVersion: input.normalizerVersion,
+          };
+        },
+      });
+      service = new DayflowIntegrationService({
+        source: dayflowSource,
+        memoryClient,
+        ledger,
+        configStore: store,
+        now: () => now,
+        qualificationAuthority: persistedAuthority,
+        journalVerifier: {
+          verify: () => ({
+            canonicalPath: '/private/tmp/sanitized-dayflow.sqlite',
+            fileIdentity: '1:2',
+            schemaFingerprint: changedJournal ? HASH_B : HASH_A,
+          }),
+        },
+        sourceForJournal: () => dayflowSource,
+      });
+      service.grantAuthenticatedSourceConsent({ ownerUserId: 7, projectId: 'project:dayflow', authorizingSessionId: `session:${mutation}` });
+      await importOne(service);
+      const firstExpiry = ledger.currentEntries()[0]!.qualification!.reference.expiresAt;
+      now = Date.parse(firstExpiry) + 1;
+
+      const preview = await service.preview();
+      await service.commit(preview.token, preview.candidates.map((candidate) => candidate.candidateId));
+
+      const held = ledger.currentEntries()[0]!;
+      expect(canonicalWrites).toBe(2);
+      expect(held.pendingCreateAt).toBeUndefined();
+      expect(held.qualification?.reference.expiresAt).toBe(firstExpiry);
+      await expect(service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' })).resolves.toMatchObject({
+        candidates: [], references: [],
+      });
+      service.dispose();
+    },
+  );
+
   it('persists only a server-issued receipt, reads the qualified reference, and holds it after retraction', async () => {
     const stage = root();
     const ledger = new MemoryLedger(join(stage, 'ledger.json'));
@@ -289,6 +672,48 @@ describe('qualified Dayflow producer', () => {
     await expect(service.readQualifiedEvidence({ ownerUserId: 7, projectId: 'project:dayflow' })).resolves.toMatchObject({
       status: 'available', candidates: [{ reference: { canonicalId: second.candidates[0].reference.canonicalId } }],
     });
+  });
+
+  it('keeps a changed source revision pending after an uncertain original create rather than adopting a replacement', async () => {
+    const stage = root();
+    const ledger = new MemoryLedger(join(stage, 'ledger.json'));
+    const records = [{ id: 'pending-revision', start: '2026-10-04T08:00:00Z', summary: 'Original pending observation.' }];
+    const dayflowSource = source(records);
+    let canonicalCalls = 0;
+    const service = new DayflowIntegrationService({
+      source: dayflowSource,
+      memoryClient: {
+        create: async (input) => ({ id: input.id }),
+        createOnly: async () => {
+          canonicalCalls++;
+          throw new Error('synthetic uncertain canonical create');
+        },
+        remove: async () => undefined,
+      },
+      ledger,
+      configStore: configured(stage),
+      now: () => NOW,
+      ...verifiedJournalBinding(dayflowSource),
+    });
+    const originalPreview = await service.preview();
+    const original = await service.commit(originalPreview.token, originalPreview.candidates.map((candidate) => candidate.candidateId));
+    expect(original.failed).toHaveLength(1);
+    const pending = ledger.currentEntries()[0]!;
+    expect(pending.pendingCreateAt).toEqual(expect.any(String));
+
+    records.splice(0, 1, { id: 'pending-revision', start: '2026-10-04T08:00:00Z', summary: 'Corrected replacement observation.' });
+    const replacementPreview = await service.preview();
+    const replacement = await service.commit(replacementPreview.token, replacementPreview.candidates.map((candidate) => candidate.candidateId));
+
+    expect(replacement.conflicts).toEqual([pending.sourceId]);
+    expect(canonicalCalls).toBe(1);
+    expect(ledger.currentEntries()[0]).toMatchObject({
+      sourceId: pending.sourceId,
+      revisionHash: pending.revisionHash,
+      memoryId: pending.memoryId,
+      pendingCreateAt: pending.pendingCreateAt,
+    });
+    service.dispose();
   });
 
   it('holds default-off state without invoking authority, rejects a foreign scope, and invalidates a restarted reader after revoke', async () => {

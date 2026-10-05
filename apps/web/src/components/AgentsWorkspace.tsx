@@ -190,6 +190,25 @@ export function AgentsWorkspace() {
     gateway.domains.coordinatorConversations,
     auth?.user.id ? `user:${auth.user.id}` : 'desktop-local',
   );
+  // A server-ready primary root can remain intentionally SDK-less after a
+  // normal restart. Treat its coordinator state as authoritative only for
+  // this exact writable root; ordinary, child, held, unavailable, and real
+  // connection-error sessions continue to use their normal presentation.
+  const coordinatorReadyForSelectedRoot = Boolean(
+    coordinatorScope &&
+    !readOnlyChild &&
+    !selected.sdkSessionId &&
+    !liveSessionError &&
+    selected.connectionState !== 'offline' &&
+    selected.connectionState !== 'unavailable' &&
+    coordinator.state.enabled &&
+    coordinator.state.phase === 'ready' &&
+    coordinator.state.conversation?.primaryOwnerRoot === true &&
+    coordinator.state.conversation.sessionId === selected.id &&
+    coordinator.state.conversation.projectId === selected.projectId,
+  );
+  const coordinatorReadyForSelectedRootRef = useRef(coordinatorReadyForSelectedRoot);
+  coordinatorReadyForSelectedRootRef.current = coordinatorReadyForSelectedRoot;
   // Coordinator history is never synthesized from an acknowledgement: these
   // rows are the bounded server page mapped by the same normal-session
   // mapper. If the actual root is selected, live SDK events can refine the
@@ -280,21 +299,38 @@ export function AgentsWorkspace() {
       rhythmActorRef.current !== input.actorId ||
       rhythmGatewayRef.current !== input.requestGateway
     ) return false;
-    if (
-      rhythmSelectionRef.current.sessionId !== input.requestSelection.sessionId ||
-      rhythmSelectionRef.current.projectId !== input.requestSelection.projectId
-    ) {
+    const currentSelection = rhythmSelectionRef.current;
+    const rootAlreadySelected = currentSelection.sessionId === resolved.sessionId && currentSelection.projectId === resolved.projectId;
+    const originStillSelected = currentSelection.sessionId === input.requestSelection.sessionId && currentSelection.projectId === input.requestSelection.projectId;
+    if (!rootAlreadySelected && !originStillSelected && currentSelection.sessionId !== '') {
       rhythmPrimaryRef.current = null;
       setRhythmEntry({ opening: false, notice: 'Rhythm selection changed. Your ordinary chats are unchanged.' });
       return false;
     }
     rhythmPrimaryRef.current.selectionRequested = true;
-    await selectLiveSession(resolved.sessionId);
-    if (
-      input.generation !== rhythmResolveGeneration.current ||
-      rhythmActorRef.current !== input.actorId ||
-      rhythmGatewayRef.current !== input.requestGateway
-    ) return false;
+    // Selecting an already-current server root needlessly starts a second
+    // detail handoff. That handoff can briefly publish its empty placeholder
+    // and make the original primary-entry continuation look like a user
+    // navigation away. The resolved root is already the authoritative target,
+    // so advance only the coordinator-open revision in that case.
+    if (!rootAlreadySelected) {
+      await selectLiveSession(resolved.sessionId);
+      if (
+        input.generation !== rhythmResolveGeneration.current ||
+        rhythmActorRef.current !== input.actorId ||
+        rhythmGatewayRef.current !== input.requestGateway
+      ) return false;
+      const afterSelection = rhythmSelectionRef.current;
+      if (
+        afterSelection.sessionId !== '' &&
+        (afterSelection.sessionId !== resolved.sessionId || afterSelection.projectId !== resolved.projectId)
+        && (afterSelection.sessionId !== input.requestSelection.sessionId || afterSelection.projectId !== input.requestSelection.projectId)
+      ) {
+        rhythmPrimaryRef.current = null;
+        setRhythmEntry({ opening: false, notice: 'Rhythm selection changed. Your ordinary chats are unchanged.' });
+        return false;
+      }
+    }
     setRhythmPrimaryNavigationRevision((revision) => revision + 1);
     setRhythmEntry({ opening: true, notice: 'Opening Rhythm…' });
     return true;
@@ -535,15 +571,26 @@ export function AgentsWorkspace() {
     pendingPrimary.opening = true;
     void coordinator.open().then((opened) => {
       if (rhythmPrimaryRef.current !== pendingPrimary || pendingPrimary.generation !== rhythmResolveGeneration.current) return;
+      const currentSelection = rhythmSelectionRef.current;
+      if (currentSelection.sessionId !== pendingPrimary.sessionId || currentSelection.projectId !== pendingPrimary.projectId) {
+        rhythmPrimaryRef.current = null;
+        releaseRhythmOpening(pendingPrimary.generation);
+        return;
+      }
       rhythmPrimaryRef.current = null;
       releaseRhythmOpening(pendingPrimary.generation);
-      setRhythmEntry(opened
+      // A newer current-root open can have established authoritative ready
+      // state before this older promise settles. Preserve that ready result;
+      // it must not be repainted as a failed primary entry.
+      setRhythmEntry(opened || coordinatorReadyForSelectedRootRef.current
         ? { opening: false, notice: 'Rhythm is ready.' }
         : { opening: false, notice: 'Rhythm could not be opened. Your ordinary chats are unchanged.' });
     });
   }, [auth?.user.id, coordinator, coordinatorScope, gateway, releaseRhythmOpening, rhythmPrimaryNavigationRevision, selected.id, selected.projectId]);
   const backToParent = () => { if (liveChildView) closeLiveChildView(); else if (parent) selectSession(parent.id); };
-  const presentation = sessionPresentation(selected);
+  const presentation = coordinatorReadyForSelectedRoot && selected.status === 'error'
+    ? { label: 'Ready', tone: 'idle' as const, waiting: false }
+    : sessionPresentation(selected);
   const recoverableConnection = Boolean(live && liveSessionError) || isSessionOffline(selected) || selected.connectionState === 'unavailable' || Boolean(selected.stuckSince);
   const lifecycleDisabled = lifecycleBusy || live && (!selected.id || readOnlyChild || selected.status === 'working' || selected.status === 'starting');
   const compactSession = async () => {

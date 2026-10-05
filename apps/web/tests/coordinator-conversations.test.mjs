@@ -17,6 +17,29 @@ const gatewayModule = await import(
   'data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'),
 );
 
+const pendingSource = await readFile(
+  new URL('../src/pending-decisions.ts', import.meta.url),
+  'utf8',
+);
+const pendingModule = { exports: {} };
+new Function('require', 'module', 'exports', 'fetch', 'AbortSignal', ts.transpileModule(pendingSource, {
+  compilerOptions: {
+    module: ts.ModuleKind.CommonJS,
+    target: ts.ScriptTarget.ES2022,
+  },
+}).outputText)(
+  (id) => {
+    if (id === 'react') return { useRef() {}, useState() {}, useSyncExternalStore() {} };
+    if (id === './gateway/context') return { useGateway: () => null };
+    throw new Error('Unexpected pending-decisions test import: ' + id);
+  },
+  pendingModule,
+  pendingModule.exports,
+  async () => ({ ok: true, json: async () => [] }),
+  AbortSignal,
+);
+const pendingDecisions = pendingModule.exports;
+
 const scope = { actorKey: 'local-view-only', sessionId: 'root-a', projectId: 'project-a' };
 const conversation = (revision = 1) => ({
   schemaVersion: 1,
@@ -105,6 +128,38 @@ test('coordinator gateway holds locally when no signed-in token is available and
     (error) => error.name === 'CoordinatorTransportError' && error.status === 401 && error.retryable === false,
   );
   assert.equal(calls, 0);
+});
+
+test('SDK-less coordinator roots skip ordinary decision reads, and a stale decision failure is ignored', async () => {
+  let permissionCalls = 0;
+  const inertGateway = {
+    mode: 'live',
+    environment: { enginePort: 4001 },
+    domains: { permissions: { pending: async () => { permissionCalls += 1; return []; } } },
+  };
+  await pendingDecisions.rehydrateDecisions(inertGateway, {
+    id: 'coordinator-root',
+    cwd: '/fixture/coordinator-root',
+  });
+  assert.equal(permissionCalls, 0);
+
+  let rejectPermission;
+  const deferredPermission = new Promise((_resolve, reject) => { rejectPermission = reject; });
+  const staleGateway = {
+    mode: 'live',
+    environment: { enginePort: 4001 },
+    domains: { permissions: { pending: () => { permissionCalls += 1; return deferredPermission; } } },
+  };
+  const controller = new AbortController();
+  const staleRead = pendingDecisions.rehydrateDecisions(staleGateway, {
+    id: 'previous-sdk-chat',
+    sdkSessionId: 'sdk-previous',
+    cwd: '/fixture/previous-sdk-chat',
+  }, controller.signal);
+  assert.equal(permissionCalls, 1);
+  controller.abort();
+  rejectPermission(new Error('previous chat permission read failed after selection changed'));
+  await staleRead;
 });
 
 test('coordinator gateway preserves its draft-safe auth hold for a rejected bearer', async () => {

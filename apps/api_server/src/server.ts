@@ -65,7 +65,7 @@ async function main() {
     { CoordinatorConversationService },
     { selectCoordinatorSetupProfile, validateCoordinatorSetupReplay },
     { createCoordinatorConversationContextAdapters },
-    { DayflowCoordinatorReferenceAdapter },
+    { createDayflowCoordinatorReferenceAdapter },
     { AgentWorkstreamsRepository },
     { AgentSessionsRepository, listPage: listAgentSessionsPage },
     { AgentSessionMessagesRepository },
@@ -170,6 +170,12 @@ async function main() {
   let workstreamCoordinator: InstanceType<typeof PersistentWorkstreamCoordinator> | undefined;
   let managedMemorySearch: InstanceType<typeof ManagedMemorySearchService> | undefined;
   let coordinatorConversationService: InstanceType<typeof CoordinatorConversationService> | undefined;
+  // These are initialized by the authenticated Dayflow composition below.
+  // The coordinator receives lazy ports because its durable conversation
+  // service is constructed first; status reads remain inactive until both
+  // current qualified dependencies are present.
+  let dayflowService: import('./integrations/dayflow/service').DayflowIntegrationService | undefined;
+  let dayflowQualificationAuthority: import('./integrations/dayflow/persisted_qualification_authority').DayflowPersistedQualificationAuthority | undefined;
   if (env.workstreamsEnabled && env.dbClient === 'sqlite' && env.agentExecutionEnabled) {
     let coordinatorRef: InstanceType<typeof PersistentWorkstreamCoordinator> | undefined;
     const contextPolicy = {
@@ -207,11 +213,13 @@ async function main() {
       },
     });
     workstreamCoordinator = coordinatorRef;
-    // The current frozen Dayflow management/ledger seams do not attest the
-    // owner/project/consent reader contract. Keep its adapter honestly
-    // not-configured until that separately owned producer supplies one; this
-    // never blocks tasks, schedules, workstreams, or explicit plan admission.
-    const dayflowReferences = new DayflowCoordinatorReferenceAdapter();
+    // The adapter sees only the existing qualified metadata reader plus its
+    // current persisted-consent authority. It never receives management
+    // status, a ledger, raw activity, or a generic memory-search fallback.
+    const dayflowReferences = createDayflowCoordinatorReferenceAdapter({
+      reader: () => dayflowService,
+      authority: () => dayflowQualificationAuthority,
+    });
     const conversationSessions = new AgentSessionsRepository();
     const conversationMessages = new AgentSessionMessagesRepository();
     const conversationConfigs = new AgentConfigsRepository();
@@ -979,7 +987,6 @@ async function main() {
   // Dayflow's private config/ledger live beside the app database. Selection is
   // always explicit in Settings; startup never discovers a journal or reads
   // activity. Missing setup is a normal, visible "unconfigured" state.
-  let dayflowService: import('./integrations/dayflow/service').DayflowIntegrationService | undefined;
   let dayflowManagementService: import('./integrations/dayflow/public_contract').DayflowManagementService | undefined;
   let dayflowQualifiedEvidence: import('./services/dayflow_qualified_evidence_service').DayflowQualifiedEvidenceService | undefined;
   if (env.agentExecutionEnabled && env.agentLocal && env.agentOriginGuardEnabled) {
@@ -1000,15 +1007,15 @@ async function main() {
     ]);
     const dayflowConfigStore = new DayflowConfigStore(path.join(resolvedStateRoot, 'config.json'));
     const dayflowLedger = new MemoryLedger(path.join(resolvedStateRoot, 'ownership-ledger.json'));
-    const dayflowAuthority = new DayflowPersistedQualificationAuthority(dayflowConfigStore, dayflowLedger);
+    dayflowQualificationAuthority = new DayflowPersistedQualificationAuthority(dayflowConfigStore, dayflowLedger);
     dayflowService = new DayflowIntegrationService({
       source: new DayflowSqliteSource(),
-      memoryClient: new AuthenticatedDayflowMemoryClient(dayflowAuthority),
+      memoryClient: new AuthenticatedDayflowMemoryClient(dayflowQualificationAuthority),
       configStore: dayflowConfigStore,
       ledger: dayflowLedger,
       journalVerifier: { verify: verifyDayflowJournal },
       sourceForJournal: (journal) => new DayflowSqliteSource(journal),
-      qualificationAuthority: dayflowAuthority,
+      qualificationAuthority: dayflowQualificationAuthority,
     });
     dayflowManagementService = createDayflowManagementAdapter(dayflowService);
     const dayflowRecords = new DayflowReceivingContextRepository(getDb());
@@ -1023,7 +1030,7 @@ async function main() {
     opencodeClient.setDayflowSdkHistoryGuard(new DayflowReceivingHistoryGuard({
       records: dayflowRecords,
       reader: dayflowService,
-      authority: dayflowAuthority,
+      authority: dayflowQualificationAuthority,
     }));
   }
   const app = createApp({

@@ -101,9 +101,15 @@ function useCoordinatorConversation(scope) {
     setEnabled(true);
     return true;
   }, [scope]);
+  const conversation = enabled ? {
+    schemaVersion: 3,
+    primaryOwnerRoot: true,
+    sessionId: scope?.sessionId,
+    projectId: scope?.projectId,
+  } : undefined;
   return {
-    state: { enabled, phase: enabled ? 'ready' : 'inactive', canonicalHistory: enabled ? {
-      conversation: { sessionId: scope?.sessionId, projectId: scope?.projectId }, messages: [], hasMore: false,
+    state: { enabled, phase: enabled ? 'ready' : 'inactive', conversation, canonicalHistory: enabled ? {
+      conversation, messages: [], hasMore: false,
     } : undefined },
     open, refresh: async () => false, retry: async () => false, retryPlan: async () => false,
     preparePlan: async () => false, continuePlan: async () => false, reviewConflict: async () => false,
@@ -115,7 +121,12 @@ const imports = {
   react: React,
   'react/jsx-runtime': jsxRuntime,
   '../icons': { Icon: () => null },
-  '../sessionState': { isSessionOffline: () => false, sessionPresentation: () => ({ tone: 'idle', label: 'Idle' }) },
+  '../sessionState': {
+    isSessionOffline: () => false,
+    sessionPresentation: (item) => item.status === 'error'
+      ? { tone: 'error', label: 'Error', waiting: false }
+      : { tone: 'idle', label: 'Idle', waiting: false },
+  },
   '../store': { emptyLiveProfile: () => ({ id: '', label: 'Profile', icon: 'AG' }), useFixtures },
   './Composer': { Composer },
   './FocusDialog': { FocusDialog },
@@ -298,6 +309,40 @@ test('an already-selected server root still opens the coordinator history and co
   assert.equal(gateway.__coordinatorOpenCalls, 1);
   assert.equal(calls.ordinaryPrompt, 0);
   assert.equal(tree.root.findByProps({ 'data-testid': 'composer-input' }).props['data-coordinator-active'], 'true');
+  assert.match(String(tree.root.findByProps({ 'data-testid': 'rhythm-primary-status' }).children.join('')), /Rhythm is ready/);
+  await act(async () => { tree.unmount(); });
+});
+
+test('a ready already-selected root does not start a stale detail navigation or repaint its entry as failed', async () => {
+  const { calls, rhythm } = setup('existing');
+  let detailCalls = 0;
+  selectLiveSessionOverride = async () => {
+    detailCalls += 1;
+    throw new Error('an already-selected canonical root needs no second detail handoff');
+  };
+  let tree;
+  await act(async () => { tree = create(React.createElement(workspaceModule.exports.AgentsWorkspace)); });
+  await act(async () => { entry(tree).props.onClick(); await settle(); });
+  assert.equal(detailCalls, 0);
+  assert.equal(calls.resolve, 1);
+  assert.equal(gateway.__coordinatorOpenCalls, 1);
+  const status = String(tree.root.findByProps({ 'data-testid': 'rhythm-primary-status' }).children.join(''));
+  assert.match(status, /Rhythm is ready/);
+  assert.doesNotMatch(status, /could not be opened|selection changed/);
+  await act(async () => { tree.unmount(); });
+});
+
+test('a ready SDK-less coordinator root presents Ready instead of the ordinary restart error', async () => {
+  const { rhythm } = setup('existing');
+  rhythm.status = 'error';
+  rhythm.sdkSessionId = undefined;
+  let tree;
+  await act(async () => { tree = create(React.createElement(workspaceModule.exports.AgentsWorkspace)); });
+  await act(async () => { entry(tree).props.onClick(); await settle(); });
+  const headerStatus = tree.root.findAll((node) => typeof node.props.className === 'string' && node.props.className.includes('status-label'))[0];
+  assert.match(headerStatus.props.className, /idle/);
+  assert.match(String(headerStatus.children.join('')), /Ready/);
+  assert.doesNotMatch(String(headerStatus.children.join('')), /Error/);
   await act(async () => { tree.unmount(); });
 });
 

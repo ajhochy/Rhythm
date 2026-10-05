@@ -798,6 +798,58 @@ export class DayflowIntegrationService {
         continue;
       }
       if (prior?.pendingDeleteAt) { skipped.push(sourceId); continue; }
+      // A qualified receipt is deliberately short-lived.  An unchanged
+      // observation may be re-attested only by replaying the existing
+      // create-only operation: that path revalidates the immutable canonical
+      // note and authenticated owner before a new authority receipt is
+      // persisted. Never turn a prior ledger receipt alone into fresh
+      // authority.
+      if (prior && this.reattestableQualification(prior, candidate)) {
+        if (!this.deps.memoryClient.createOnly ||
+            prior.contentHash !== createHash('sha256').update(contentFor(candidate)).digest('hex') ||
+            !prior.operationId) {
+          skipped.push(sourceId);
+          continue;
+        }
+        try {
+          const receipt = await this.deps.memoryClient.createOnly({
+            operationId: prior.operationId,
+            id: prior.memoryId,
+            content: contentFor(candidate),
+            sourceId,
+            observation: candidate,
+          });
+          // Renewal may only adopt the immutable note already represented by
+          // this completed ledger row. A newly-created response is not proof
+          // that a missing canonical note may be silently recreated here.
+          const priorQualification = parseDayflowQualifiedReceipt(prior.qualification);
+          if (receipt.id !== prior.memoryId || receipt.disposition !== 'already_present' ||
+              receipt.canonicalSourceKey !== prior.canonicalSourceKey ||
+              receipt.canonicalSourceKey !== priorQualification.canonicalSourceKey ||
+              receipt.canonicalContentHash !== priorQualification.canonicalContentHash) {
+            throw new Error('Dayflow canonical renewal receipt is unexpected.');
+          }
+          if (!(await this.producerStillCurrent(generation))) break;
+          const completed = await this.attachQualification(
+            { ...prior, memoryId: receipt.id, canonicalSourceKey: priorQualification.canonicalSourceKey },
+            candidate,
+            priorQualification.canonicalContentHash,
+          );
+          // `attachQualification` intentionally returns the original entry
+          // when current authority cannot mint a receipt.  Keep that expired
+          // entry unchanged rather than accidentally treating it as renewed.
+          if (!this.hasFreshQualification(completed.qualification)) {
+            skipped.push(sourceId);
+            continue;
+          }
+          if (!(await this.producerStillCurrent(generation, completed.qualification)) || !this.isCurrentGeneration(generation)) break;
+          ledger?.save(completed);
+          // Canonical content already existed; renewal is not a new imported
+          // observation and must not be reported as a task/completion import.
+          skipped.push(sourceId);
+        } catch (error) { if (error instanceof DayflowImportConflictError) conflicts.push(sourceId); else failed.push(sourceId); }
+        continue;
+      }
       if (prior?.tombstonedAt || (prior && prior.revisionHash === candidate.revisionHash && !prior.pendingCreateAt)) { skipped.push(sourceId); continue; }
       // The historical non-create-only writer cannot attest an immutable
       // replacement's canonical hash/source key. Preserve its established
@@ -994,6 +1046,53 @@ export class DayflowIntegrationService {
       return entry;
     }
   }
+  /**
+   * A prior receipt identifies only immutable canonical provenance, never
+   * current authority. It may be re-attested under a new explicit current
+   * consent only when that current persisted scope belongs to the same owner,
+   * project, namespace, and native source. The later create-only replay then
+   * proves the exact canonical note still exists before a new receipt is
+   * requested.
+   */
+  private reattestableQualification(entry: LedgerEntry, observation: DayflowCandidate): boolean {
+    if (!entry.qualification || entry.pendingCreateAt || entry.pendingDeleteAt || entry.tombstonedAt ||
+        entry.revisionHash !== observation.revisionHash || entry.exportVersion !== observation.exportVersion ||
+        entry.contentHash !== createHash('sha256').update(contentFor(observation)).digest('hex')) return false;
+    const preparation = this.qualifiedReaderPreparation();
+    if (!preparation) return false;
+    const snapshot = this.currentQualificationScopeSnapshot(preparation);
+    if (!snapshot.supported || !snapshot.scope) return false;
+    try {
+      const receipt = parseDayflowQualifiedReceipt(entry.qualification);
+      const reference = receipt.reference;
+      if (reference.eligibility !== 'active' ||
+          !this.receiptMatchesStoredQualificationProvenance(receipt, entry) ||
+          reference.namespace !== preparation.namespace ||
+          reference.sourceInstance !== preparation.sourceInstance ||
+          snapshot.scope.namespace !== preparation.namespace ||
+          snapshot.scope.sourceInstance !== preparation.sourceInstance ||
+          snapshot.scope.configurationGeneration !== preparation.configurationGeneration ||
+          reference.ownerUserId !== snapshot.scope.ownerUserId ||
+          reference.projectId !== snapshot.scope.projectId) return false;
+      if (this.receiptCouldBelongToCurrentScope(reference, snapshot.scope, preparation)) {
+        return Date.parse(reference.expiresAt) <= (this.deps.now ?? Date.now)();
+      }
+      // A scope mismatch may only be the new consent/configuration
+      // generations. All owner/project/native bindings above remain exact.
+      return reference.consentGeneration !== snapshot.scope.consentGeneration ||
+        reference.configurationGeneration !== preparation.configurationGeneration;
+    } catch {
+      return false;
+    }
+  }
+  private hasFreshQualification(qualification: LedgerEntry['qualification']): boolean {
+    if (!qualification) return false;
+    try {
+      return Date.parse(parseDayflowQualifiedReceipt(qualification).reference.expiresAt) > (this.deps.now ?? Date.now)();
+    } catch {
+      return false;
+    }
+  }
   private receiptMatchesLedgerEntry(
     receipt: ReturnType<typeof parseDayflowQualifiedReceipt>,
     entry: LedgerEntry,
@@ -1012,6 +1111,23 @@ export class DayflowIntegrationService {
       reference.canonicalVersion === dayflowCanonicalVersion(receipt.canonicalContentHash) &&
       receipt.canonicalSourceKey === entry.canonicalSourceKey &&
       reference.configurationGeneration === preparation.configurationGeneration;
+  }
+  /** Same immutable provenance check used only before a canonical re-play.
+   * The reader keeps its stricter current-generation receipt check above. */
+  private receiptMatchesStoredQualificationProvenance(
+    receipt: ReturnType<typeof parseDayflowQualifiedReceipt>,
+    entry: LedgerEntry,
+  ): boolean {
+    const reference = receipt.reference;
+    return typeof entry.canonicalSourceKey === 'string' &&
+      reference.sourceId === opaqueReaderId('card', entry.sourceId) &&
+      reference.sourceRevision === opaqueReaderId('revision', entry.revisionHash) &&
+      reference.sourceHash === entry.revisionHash &&
+      reference.exporterVersion === entry.exportVersion &&
+      reference.normalizerVersion === entry.exportVersion &&
+      reference.canonicalId === entry.memoryId &&
+      reference.canonicalVersion === dayflowCanonicalVersion(receipt.canonicalContentHash) &&
+      receipt.canonicalSourceKey === entry.canonicalSourceKey;
   }
   private receiptCouldBelongToCurrentScope(
     reference: DayflowWorkstreamReferenceV1,
