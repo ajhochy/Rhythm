@@ -160,7 +160,7 @@ test('a deferred status acknowledgement never acknowledges an unsent desktop mes
   controller.activate(scope);
   assert.equal(statusCalls, 0);
   assert.equal(messageCalls, 0);
-  await controller.open(scope);
+  const opening = controller.open(scope);
   await settle();
   assert.equal(statusCalls, 1);
   assert.equal(
@@ -169,8 +169,56 @@ test('a deferred status acknowledgement never acknowledges an unsent desktop mes
   );
   assert.equal(messageCalls, 0);
   pendingStatus.resolve(contextResult());
+  assert.equal(await opening, true);
   await settle();
   assert.equal(controller.get(scope).pendingCommand, undefined);
+});
+
+test('a repeated current-root open joins status and history reconciliation before reporting ready', async () => {
+  const pendingStatus = deferred();
+  const pendingHistory = deferred();
+  let openCalls = 0;
+  let statusCalls = 0;
+  let historyCalls = 0;
+  const controller = new CoordinatorConversationController(() => ({
+    open: async () => {
+      openCalls += 1;
+      return { kind: 'replay', conversation: conversation() };
+    },
+    status: async () => {
+      statusCalls += 1;
+      return pendingStatus.promise;
+    },
+    history: async () => {
+      historyCalls += 1;
+      return pendingHistory.promise;
+    },
+    message: async () => ({ kind: 'created', conversation: conversation(2) }),
+  }), createMemoryCoordinatorConversationJournal());
+
+  const firstOpen = controller.open(scope);
+  await settle();
+  const repeatedOpen = controller.open(scope);
+  await settle();
+  assert.equal(openCalls, 1);
+  assert.equal(statusCalls, 1);
+  assert.equal(historyCalls, 1);
+  assert.equal(controller.get(scope).phase, 'refreshing');
+  assert.equal(controller.get(scope).openingReconciliation, true);
+
+  pendingStatus.resolve(contextResult());
+  pendingHistory.resolve({
+    kind: 'history',
+    conversation: conversation(),
+    messages: [],
+    nextCursor: null,
+    hasMore: false,
+  });
+  assert.equal(await firstOpen, true);
+  assert.equal(await repeatedOpen, true);
+  assert.equal(controller.get(scope).phase, 'ready');
+  assert.equal(controller.get(scope).openingReconciliation, false);
+  assert.equal(controller.get(scope).canonicalHistory?.messages.length, 0);
 });
 
 test('retains actual bounded canonical rows after coordinator open without manufacturing an acknowledgement', async () => {

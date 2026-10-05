@@ -57,6 +57,8 @@ export type CoordinatorConversationViewState = {
   /** Existing persisted root rows only; acknowledgements never populate this. */
   canonicalHistory?: CoordinatorHistoryResult;
   canonicalHistoryLoading?: boolean;
+  /** Current `open` still awaits its scoped status/history reconciliation. */
+  openingReconciliation?: boolean;
 };
 
 export type CoordinatorPlanConsent = Omit<CoordinatorPlanAdmission, 'commandKey'>;
@@ -90,6 +92,14 @@ type ScopedRecord = Omit<CoordinatorConversationViewState, 'canonicalHistory' | 
   request?: Promise<boolean>;
   requestKind?: RequestKind;
   requestToken?: symbol;
+  /**
+   * The primary-entry open is not complete until its server status and
+   * canonical-history reconciliation have both settled. A second current-root
+   * entry must join this work instead of treating the status read as a failed
+   * open.
+   */
+  openReconciliation?: Promise<boolean>;
+  openReconciliationToken?: symbol;
 };
 
 function commandKey(): string {
@@ -417,6 +427,8 @@ export class CoordinatorConversationController {
         previous.request = undefined;
         previous.requestToken = undefined;
         previous.requestKind = undefined;
+        previous.openReconciliation = undefined;
+        previous.openReconciliationToken = undefined;
       }
     }
     this.activeKey = nextKey;
@@ -458,6 +470,17 @@ export class CoordinatorConversationController {
     this.controllers.clear();
     this.historyControllers.forEach((controller) => controller.abort());
     this.historyControllers.clear();
+    // `open` continues with status/history after its acknowledgement. Invalidate
+    // that local continuation too, so an unmounted controller cannot reactivate
+    // a scope after its network aborts have been issued.
+    this.records.forEach((record) => {
+      record.requestVersion += 1;
+      record.request = undefined;
+      record.requestToken = undefined;
+      record.requestKind = undefined;
+      record.openReconciliation = undefined;
+      record.openReconciliationToken = undefined;
+    });
     this.activeKey = '';
     this.activeEpoch += 1;
     this.emit();
@@ -494,6 +517,7 @@ export class CoordinatorConversationController {
       plannedWorkstream: record.plannedWorkstream,
       canonicalHistory: record.canonicalHistory,
       canonicalHistoryLoading: record.canonicalHistoryLoading,
+      openingReconciliation: Boolean(record.openReconciliation),
     };
   }
 
@@ -640,6 +664,11 @@ export class CoordinatorConversationController {
     this.activate(scope);
     const key = coordinatorScopeKey(scope);
     const existing = this.record(key);
+    // An open acknowledgement only establishes the server root. Keep its
+    // follow-up status/history work as one scoped operation so an entry click
+    // during that reconciliation never sees `refresh` as an unrelated failed
+    // open and overwrites a ready primary view.
+    if (existing.openReconciliation) return existing.openReconciliation;
     if (existing.journalBlocked) {
       this.update(key, (record) => {
         record.enabled = true;
@@ -655,38 +684,60 @@ export class CoordinatorConversationController {
     const retryAfterOpen = Boolean(existing.pendingCommand && existing.notice?.retryable);
     this.update(key, (record) => { record.enabled = true; });
     this.persistLater(scope, key);
-    const opened = await this.run(
-      scope,
-      'opening',
-      'open',
-      (gateway, signal) => gateway.open({ sessionId: scope.sessionId, projectId: scope.projectId }, signal),
-      (record, result) => {
-        if (result.kind !== 'created' && result.kind !== 'replay') {
+    const reconciliationToken = Symbol('coordinator-open-reconciliation');
+    const reconciliation = (async () => {
+      const opened = await this.run(
+        scope,
+        'opening',
+        'open',
+        (gateway, signal) => gateway.open({ sessionId: scope.sessionId, projectId: scope.projectId }, signal),
+        (record, result) => {
+          if (result.kind !== 'created' && result.kind !== 'replay') {
+            installConversation(record, result);
+            record.enabled = true;
+            if (record.pendingProvenance === 'rejected') record.reviewedConflictRevision = undefined;
+            record.phase = isConflict(result) ? 'review' : 'unavailable';
+            record.notice = unavailableNotice(result);
+            record.journalRevision += 1;
+            this.emit();
+            return false;
+          }
           installConversation(record, result);
           record.enabled = true;
-          if (record.pendingProvenance === 'rejected') record.reviewedConflictRevision = undefined;
-          record.phase = isConflict(result) ? 'review' : 'unavailable';
-          record.notice = unavailableNotice(result);
+          record.phase = 'ready';
+          record.notice = undefined;
           record.journalRevision += 1;
           this.emit();
-          return false;
-        }
-        installConversation(record, result);
-        record.enabled = true;
-        record.phase = 'ready';
-        record.notice = undefined;
-        record.journalRevision += 1;
+          return true;
+        },
+      );
+      if (!opened || this.records.get(key)?.openReconciliationToken !== reconciliationToken) return false;
+      // These are independent server reads after the actual open response.
+      // Wait for both to settle before the entry reports ready; a history read
+      // failure itself does not demote an otherwise authoritative status root.
+      const [refreshed] = await Promise.all([
+        this.refresh(scope, reviewAfterOpen, retryAfterOpen, false),
+        this.loadCanonicalHistory(scope),
+      ]);
+      if (!refreshed || this.records.get(key)?.openReconciliationToken !== reconciliationToken) return false;
+      const current = this.get(scope);
+      return current.enabled &&
+        current.phase === 'ready' &&
+        current.conversation?.sessionId === scope.sessionId &&
+        current.conversation.projectId === scope.projectId;
+    })();
+    existing.openReconciliation = reconciliation;
+    existing.openReconciliationToken = reconciliationToken;
+    const clearReconciliation = () => {
+      const latest = this.records.get(key);
+      if (latest?.openReconciliation === reconciliation && latest.openReconciliationToken === reconciliationToken) {
+        latest.openReconciliation = undefined;
+        latest.openReconciliationToken = undefined;
         this.emit();
-        return true;
-      },
-    );
-    // This runs after the open promise has settled, so it is an actual status
-    // read rather than a reused open acknowledgement.
-    if (opened) {
-      void this.refresh(scope, reviewAfterOpen, retryAfterOpen, false);
-      void this.loadCanonicalHistory(scope);
-    }
-    return opened;
+      }
+    };
+    void reconciliation.then(clearReconciliation, clearReconciliation);
+    return reconciliation;
   }
 
   async refresh(
@@ -1135,6 +1186,8 @@ export class CoordinatorConversationController {
       record.request = undefined;
       record.requestToken = undefined;
       record.requestKind = undefined;
+      record.openReconciliation = undefined;
+      record.openReconciliationToken = undefined;
       record.enabled = false;
     });
     this.persistLater(scope, key);

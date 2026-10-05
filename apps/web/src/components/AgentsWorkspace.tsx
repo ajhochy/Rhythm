@@ -203,12 +203,30 @@ export function AgentsWorkspace() {
     selected.connectionState !== 'unavailable' &&
     coordinator.state.enabled &&
     coordinator.state.phase === 'ready' &&
+    !coordinator.state.openingReconciliation &&
     coordinator.state.conversation?.primaryOwnerRoot === true &&
     coordinator.state.conversation.sessionId === selected.id &&
     coordinator.state.conversation.projectId === selected.projectId,
   );
   const coordinatorReadyForSelectedRootRef = useRef(coordinatorReadyForSelectedRoot);
   coordinatorReadyForSelectedRootRef.current = coordinatorReadyForSelectedRoot;
+  // Preserve the last server-confirmed primary conversation while a fresh
+  // open/status reconciliation is underway. It is not a success claim: the
+  // header says Opening until the controller has completed that current scoped
+  // reconciliation, and held/offline/error results still replace it normally.
+  const coordinatorReconcilingSelectedRoot = Boolean(
+    coordinatorScope &&
+    !readOnlyChild &&
+    !selected.sdkSessionId &&
+    !liveSessionError &&
+    selected.connectionState !== 'offline' &&
+    selected.connectionState !== 'unavailable' &&
+    coordinator.state.enabled &&
+    (coordinator.state.openingReconciliation || coordinator.state.phase === 'opening' || coordinator.state.phase === 'refreshing') &&
+    coordinator.state.conversation?.primaryOwnerRoot === true &&
+    coordinator.state.conversation.sessionId === selected.id &&
+    coordinator.state.conversation.projectId === selected.projectId,
+  );
   // Coordinator history is never synthesized from an acknowledgement: these
   // rows are the bounded server page mapped by the same normal-session
   // mapper. If the actual root is selected, live SDK events can refine the
@@ -588,9 +606,11 @@ export function AgentsWorkspace() {
     });
   }, [auth?.user.id, coordinator, coordinatorScope, gateway, releaseRhythmOpening, rhythmPrimaryNavigationRevision, selected.id, selected.projectId]);
   const backToParent = () => { if (liveChildView) closeLiveChildView(); else if (parent) selectSession(parent.id); };
-  const presentation = coordinatorReadyForSelectedRoot && selected.status === 'error'
+  const presentation = selected.status === 'error' && coordinatorReadyForSelectedRoot
     ? { label: 'Ready', tone: 'idle' as const, waiting: false }
-    : sessionPresentation(selected);
+    : selected.status === 'error' && coordinatorReconcilingSelectedRoot
+      ? { label: 'Opening', tone: 'idle' as const, waiting: true }
+      : sessionPresentation(selected);
   const recoverableConnection = Boolean(live && liveSessionError) || isSessionOffline(selected) || selected.connectionState === 'unavailable' || Boolean(selected.stuckSince);
   const lifecycleDisabled = lifecycleBusy || live && (!selected.id || readOnlyChild || selected.status === 'working' || selected.status === 'starting');
   const compactSession = async () => {

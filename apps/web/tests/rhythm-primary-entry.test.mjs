@@ -33,6 +33,8 @@ let fixtureState;
 let gateway;
 let fixtureRerender;
 let selectLiveSessionOverride;
+let coordinatorInitialState;
+let coordinatorOpenOverride;
 
 function blank() {}
 function session(id, projectId, name) {
@@ -93,14 +95,7 @@ function CoordinatorConversationCard() {
   return React.createElement('section', { 'data-testid': 'coordinator-conversation-card' }, 'Coordination');
 }
 
-function useCoordinatorConversation(scope) {
-  const [enabled, setEnabled] = React.useState(false);
-  const open = React.useCallback(async () => {
-    if (!scope) return false;
-    gateway.__coordinatorOpenCalls += 1;
-    setEnabled(true);
-    return true;
-  }, [scope]);
+function coordinatorView(scope, enabled, phase) {
   const conversation = enabled ? {
     schemaVersion: 3,
     primaryOwnerRoot: true,
@@ -108,9 +103,26 @@ function useCoordinatorConversation(scope) {
     projectId: scope?.projectId,
   } : undefined;
   return {
-    state: { enabled, phase: enabled ? 'ready' : 'inactive', conversation, canonicalHistory: enabled ? {
+    enabled,
+    phase,
+    conversation,
+    canonicalHistory: enabled ? {
       conversation, messages: [], hasMore: false,
-    } : undefined },
+    } : undefined,
+  };
+}
+
+function useCoordinatorConversation(scope) {
+  const [state, setState] = React.useState(() => coordinatorInitialState ?? coordinatorView(scope, false, 'inactive'));
+  const open = React.useCallback(async () => {
+    if (!scope) return false;
+    gateway.__coordinatorOpenCalls += 1;
+    if (coordinatorOpenOverride) return coordinatorOpenOverride({ scope, setState });
+    setState(coordinatorView(scope, true, 'ready'));
+    return true;
+  }, [scope]);
+  return {
+    state,
     open, refresh: async () => false, retry: async () => false, retryPlan: async () => false,
     preparePlan: async () => false, continuePlan: async () => false, reviewConflict: async () => false,
     beginNewMessageAfterReview: blank, returnToNormal: blank, loadOlderHistory: async () => false,
@@ -168,6 +180,8 @@ new Function('require', 'module', 'exports', ts.transpileModule(source, {
 
 function setup(mode = 'single') {
   selectLiveSessionOverride = undefined;
+  coordinatorInitialState = undefined;
+  coordinatorOpenOverride = undefined;
   const ordinary = session('ordinary-root', 'project-ordinary', 'Ordinary chat');
   const rhythm = session('rhythm-root', 'project-rhythm', 'Rhythm');
   const calls = { resolve: 0, resolveInputs: [], setup: [], ordinaryPrompt: 0 };
@@ -332,17 +346,35 @@ test('a ready already-selected root does not start a stale detail navigation or 
   await act(async () => { tree.unmount(); });
 });
 
-test('a ready SDK-less coordinator root presents Ready instead of the ordinary restart error', async () => {
+test('an SDK-less current root stays Opening through reconciliation, then returns Ready without a failed entry notice', async () => {
   const { rhythm } = setup('existing');
   rhythm.status = 'error';
   rhythm.sdkSessionId = undefined;
+  let releaseReconciliation;
+  const reconciliation = new Promise((resolve) => { releaseReconciliation = resolve; });
+  coordinatorInitialState = coordinatorView({ sessionId: rhythm.id, projectId: rhythm.projectId }, true, 'ready');
+  coordinatorOpenOverride = async ({ scope, setState }) => {
+    setState(coordinatorView(scope, true, 'refreshing'));
+    await reconciliation;
+    setState(coordinatorView(scope, true, 'ready'));
+    return true;
+  };
   let tree;
   await act(async () => { tree = create(React.createElement(workspaceModule.exports.AgentsWorkspace)); });
   await act(async () => { entry(tree).props.onClick(); await settle(); });
   const headerStatus = tree.root.findAll((node) => typeof node.props.className === 'string' && node.props.className.includes('status-label'))[0];
   assert.match(headerStatus.props.className, /idle/);
-  assert.match(String(headerStatus.children.join('')), /Ready/);
+  assert.match(String(headerStatus.children.join('')), /Opening/);
   assert.doesNotMatch(String(headerStatus.children.join('')), /Error/);
+  const openingNotice = String(tree.root.findByProps({ 'data-testid': 'rhythm-primary-status' }).children.join(''));
+  assert.match(openingNotice, /Opening Rhythm/);
+  assert.doesNotMatch(openingNotice, /could not be opened|Rhythm is ready/);
+  await act(async () => { releaseReconciliation(); await settle(); });
+  const settledHeader = tree.root.findAll((node) => typeof node.props.className === 'string' && node.props.className.includes('status-label'))[0];
+  assert.match(String(settledHeader.children.join('')), /Ready/);
+  const settledNotice = String(tree.root.findByProps({ 'data-testid': 'rhythm-primary-status' }).children.join(''));
+  assert.match(settledNotice, /Rhythm is ready/);
+  assert.doesNotMatch(settledNotice, /could not be opened/);
   await act(async () => { tree.unmount(); });
 });
 
