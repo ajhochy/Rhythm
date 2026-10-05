@@ -797,6 +797,67 @@ export interface ManagedPromptDispatchContext {
   initialReferences?: ManagedContextReference[];
 }
 
+/**
+ * Internal-only binding for one authenticated C2 foreground command.  It is
+ * deliberately narrower than managed worker authority: it cannot carry a
+ * tool, a workspace path, a permission rule, or a model override.  The
+ * composed server creates it from the durable command reservation and checks
+ * the live owner/root/project/profile binding again at every await boundary.
+ */
+export interface CoordinatorForegroundPromptDispatchContext {
+  readonly kind: 'coordinator_foreground_v1';
+  readonly actorUserId: number;
+  readonly localSessionId: string;
+  readonly sdkSessionId: string;
+  readonly projectId: string;
+  readonly profileId: string;
+  /** Durable C2 control epoch captured with the reserved command. */
+  readonly controlRevision: number;
+  readonly commandKey: string;
+  validate(input: {
+    phase: 'prepare' | 'before_sdk' | 'sdk_exposure';
+    dispatchId?: string;
+    sdkUserMessageId?: string;
+  }): boolean | Promise<boolean>;
+}
+
+function isCoordinatorForegroundPromptContext(
+  value: CoordinatorForegroundPromptDispatchContext | undefined,
+  sessionId: string,
+  provenance: DispatchInput | undefined,
+): value is CoordinatorForegroundPromptDispatchContext {
+  return Boolean(
+    value &&
+    value.kind === 'coordinator_foreground_v1' &&
+    Number.isSafeInteger(value.actorUserId) && value.actorUserId > 0 &&
+    typeof value.localSessionId === 'string' && value.localSessionId.length > 0 &&
+    typeof value.sdkSessionId === 'string' && value.sdkSessionId === sessionId &&
+    typeof value.projectId === 'string' && value.projectId.length > 0 &&
+    typeof value.profileId === 'string' && value.profileId.length > 0 &&
+    Number.isSafeInteger(value.controlRevision) && value.controlRevision > 0 &&
+    typeof value.commandKey === 'string' && value.commandKey.length > 0 &&
+    typeof value.validate === 'function' &&
+    provenance &&
+    provenance.sessionId === value.localSessionId &&
+    provenance.sdkSessionId === sessionId &&
+    provenance.origin === 'prompt_api' &&
+    provenance.requestedSource === 'session' &&
+    provenance.routeAuthed === true
+  );
+}
+
+async function coordinatorForegroundAuthorityIsCurrent(
+  context: CoordinatorForegroundPromptDispatchContext,
+  phase: 'prepare' | 'before_sdk' | 'sdk_exposure',
+  binding?: { dispatchId: string; sdkUserMessageId: string },
+): Promise<boolean> {
+  try {
+    return (await context.validate({ phase, ...binding })) === true;
+  } catch {
+    return false;
+  }
+}
+
 async function managedAuthorityIsCurrent(
   managed: ManagedPromptDispatchContext,
   scope: Omit<ManagedContextScope, 'dispatchId' | 'sdkTurnId'>,
@@ -2720,10 +2781,15 @@ function validFiniteExecutionPermissionRules(
     beforeDispatch?: () => Promise<void>,
     provenance?: DispatchInput,
     managed?: ManagedPromptDispatchContext,
+    foreground?: CoordinatorForegroundPromptDispatchContext,
   ): Promise<boolean> {
     if (!this.client) return false;
+    if (foreground && (managed || !isCoordinatorForegroundPromptContext(foreground, sessionId, provenance))) {
+      return false;
+    }
     let managedDispatchId: string | undefined;
     let managedMessageID: string | undefined;
+    let foregroundMessageID: string | undefined;
     let dayflowMessageID: string | undefined;
     let managedScope: ManagedContextScope | undefined;
     if (managed) {
@@ -2788,7 +2854,20 @@ function validFiniteExecutionPermissionRules(
         throw new Error('OpencodeClientService: managed prompt preparation failed — prompt not sent');
       }
     }
-    if (!managed) dayflowMessageID = await this.maybeMintDayflowPromptAnchor(sessionId, directory, provenance);
+    if (foreground) {
+      try {
+        if (!(await coordinatorForegroundAuthorityIsCurrent(foreground, 'prepare'))) {
+          return false;
+        }
+        // The fork generates this identifier; it becomes the exact persisted
+        // native user-message identity when the SDK accepts the request.
+        foregroundMessageID = await this.mintPromptAnchor(sessionId, directory) ?? undefined;
+        if (!foregroundMessageID) return false;
+      } catch {
+        return false;
+      }
+    }
+    if (!managed && !foreground) dayflowMessageID = await this.maybeMintDayflowPromptAnchor(sessionId, directory, provenance);
     // OPC-M4-1: use the caller-supplied parts array when present; otherwise
     // fall back to a single text part so all existing call-sites are unchanged.
     const sdkParts: Array<import('@opencode-ai/sdk').PartInput> = parts && parts.length > 0
@@ -2800,7 +2879,7 @@ function validFiniteExecutionPermissionRules(
         model,
         parts: sdkParts,
         ...(opts ?? {}),
-        ...(managedMessageID ? { messageID: managedMessageID } : dayflowMessageID ? { messageID: dayflowMessageID } : {}),
+        ...(managedMessageID ? { messageID: managedMessageID } : foregroundMessageID ? { messageID: foregroundMessageID } : dayflowMessageID ? { messageID: dayflowMessageID } : {}),
       },
       ...(directory ? { query: { directory } } : {}),
     };
@@ -2827,7 +2906,28 @@ function validFiniteExecutionPermissionRules(
         throw new Error('OpencodeClientService: managed prompt authority changed — prompt not sent');
       }
     }
-    const dispatchId = managedDispatchId ?? beginDispatch(dayflowMessageID && provenance
+    let dispatchId = managedDispatchId;
+    if (!dispatchId && foreground) {
+      try {
+        // Unlike optional provenance for ordinary legacy callers, C2's
+        // signed-tool receiver requires this exact local row before the SDK
+        // can append the user message. A write failure is a closed hold.
+        dispatchId = modelProvenanceRepo.insert({
+          ...provenance!,
+          sdkUserMessageId: foregroundMessageID!,
+        }).id;
+      } catch {
+        return false;
+      }
+      if (!(await coordinatorForegroundAuthorityIsCurrent(foreground, 'before_sdk', {
+        dispatchId,
+        sdkUserMessageId: foregroundMessageID!,
+      }))) {
+        settleDispatch(dispatchId, 'rejected');
+        return false;
+      }
+    }
+    dispatchId ??= beginDispatch(dayflowMessageID && provenance
       ? { ...provenance, sdkUserMessageId: dayflowMessageID }
       : provenance);
     // Keep this immediately adjacent to the SDK exposure; `beforeDispatch`
@@ -2857,6 +2957,15 @@ function validFiniteExecutionPermissionRules(
     try {
       await this.assertDayflowSdkHistoryMayBeReused(sessionId);
     } catch {
+      settleDispatch(dispatchId, 'rejected');
+      return false;
+    }
+    if (foreground && !(
+      await coordinatorForegroundAuthorityIsCurrent(foreground, 'sdk_exposure', {
+        dispatchId: dispatchId!,
+        sdkUserMessageId: foregroundMessageID!,
+      })
+    )) {
       settleDispatch(dispatchId, 'rejected');
       return false;
     }

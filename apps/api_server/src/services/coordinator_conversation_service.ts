@@ -201,6 +201,12 @@ export interface CoordinatorConversationServiceDependencies {
       modelId: string;
       cwd: string;
       message: string;
+      /** Exact durable command held while the ordinary SDK turn is prepared. */
+      commandKey: string;
+      /** Current C2 control epoch; any revision drift revokes the send. */
+      controlRevision: number;
+      /** Server-only reread; no browser state is accepted as authority. */
+      reservationCurrent(): boolean;
     }): Promise<{ kind: 'accepted' } | { kind: 'unavailable' | 'uncertain' }>;
   };
   /** Existing coordinator is the sole inference/admission/accounting authority. */
@@ -563,6 +569,7 @@ export class CoordinatorConversationService {
     if (
       !initialized || latest.kind !== 'found' || !finalSelection || !finalSelection.session.sdkSessionId ||
       !this.sameSelection(initialized, finalSelection) ||
+      latest.conversation.controlRevision !== reserved.conversation.controlRevision ||
       stillReserved?.kind !== 'foreground' || stillReserved.state !== 'reserved'
     ) {
       return this.foregroundSettledResult(this.repository.settleForegroundMessage({
@@ -572,6 +579,19 @@ export class CoordinatorConversationService {
         outcome: 'uncertain',
       }));
     }
+    const foregroundEpoch = reserved.conversation.controlRevision;
+    const reservationCurrent = (): boolean => {
+      const current = this.repository.get(scope(actor.user.id, request));
+      const currentSelection = this.currentRootSelection(actor, request);
+      const command = current.kind === 'found'
+        ? current.conversation.commandDedupe.find((candidate) => candidate.key === request.commandKey)
+        : null;
+      return current.kind === 'found' &&
+        current.conversation.primaryOwnerRoot === true &&
+        current.conversation.controlRevision === foregroundEpoch &&
+        command?.kind === 'foreground' && command.state === 'reserved' &&
+        Boolean(currentSelection && this.sameSelection(finalSelection, currentSelection));
+    };
     try {
       const sent = await this.dependencies.foreground.send({
         actor,
@@ -583,6 +603,9 @@ export class CoordinatorConversationService {
         modelId: finalSelection.requestedModel.modelId,
         cwd: finalSelection.session.cwd,
         message: request.message,
+        commandKey: request.commandKey,
+        controlRevision: foregroundEpoch,
+        reservationCurrent,
       });
       return this.foregroundSettledResult(this.repository.settleForegroundMessage({
         ...scope(actor.user.id, request),

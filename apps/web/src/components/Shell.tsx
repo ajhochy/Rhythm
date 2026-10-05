@@ -8,6 +8,7 @@ import { AGENT_TOOL_DESCRIPTORS, type AgentToolDescriptor } from '../agentTools/
 import { readAgentToolPins, subscribeAgentToolPins } from '../agentTools/pins';
 import { availableAgentToolIds } from '../agentTools/hosts';
 import { useAuthUser } from '../gateway/auth';
+import type { PendingApproval } from '../gateway/approvals';
 import { Splitter } from './Splitter';
 
 type OverlayRect = { height: number; left: number; top: number; width: number };
@@ -26,6 +27,51 @@ const toolByLabel = new Map<string, AgentToolDescriptor>(AGENT_TOOL_DESCRIPTORS.
 const toolNavKey = (tool: AgentToolDescriptor) => tool.id === 'bot-crossing' ? 'colony' : tool.id;
 
 const destinationKey = (destination: string) => destination === 'Bot Crossing' ? 'colony' : destination.toLowerCase();
+
+type TaskCreatePreview = { dueDate: string | null; notes: string | null; title: string | null };
+
+function taskCreatePreview(action: string, preview: string | null): TaskCreatePreview | null {
+  const prefix = 'task.create: ';
+  if (action !== 'Authorize task.create' || !preview?.startsWith(prefix)) return null;
+  try {
+    const payload: unknown = JSON.parse(preview.slice(prefix.length));
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+    const fields = payload as Record<string, unknown>;
+    const text = (value: unknown) => typeof value === 'string' && value.trim() ? value : null;
+    const task = { dueDate: text(fields.due_date), notes: text(fields.notes), title: text(fields.title) };
+    return task.dueDate || task.notes || task.title ? task : null;
+  } catch {
+    return null;
+  }
+}
+
+function ApprovalCard({ approval, deciding, onDecide }: { approval: PendingApproval; deciding: boolean; onDecide(id: string, status: 'approved' | 'rejected'): void }) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const task = taskCreatePreview(approval.action, approval.preview);
+  const title = task?.title ?? approval.action;
+  const summary = task ? task.notes : approval.preview;
+  const detailsId = `approval-details-${approval.id}`;
+  const disabled = !approval.decisionNonce || deciding;
+  return (
+    <div className="menu-item stacked approval-card" data-testid={`approval-card-${approval.id}`}>
+      <div className="approval-heading">
+        <strong className="approval-title">{title}</strong>
+        <div className="approval-actions">
+          <button type="button" role="menuitem" className="approval-action approve" aria-label="Approve" title="Approve" disabled={disabled} data-menu-keep-open onClick={() => onDecide(approval.id, 'approved')}><Icon name="check" size={14} /></button>
+          <button type="button" role="menuitem" className="approval-action reject" aria-label="Reject" title="Reject" disabled={disabled} data-menu-keep-open onClick={() => onDecide(approval.id, 'rejected')}><Icon name="close" size={14} /></button>
+        </div>
+      </div>
+      <div className="approval-meta"><small>Action: {approval.action}</small>{task?.dueDate && <small>Due: {task.dueDate}</small>}</div>
+      {summary && <p className="approval-preview">{summary}</p>}
+      {approval.consequence && <small className="approval-consequence">{approval.consequence}</small>}
+      {approval.preview && <>
+        <button type="button" role="menuitem" className="approval-details-toggle" aria-expanded={detailsOpen} aria-controls={detailsId} data-menu-keep-open onClick={() => setDetailsOpen((open) => !open)}>{detailsOpen ? 'Hide details' : 'Show details'}</button>
+        <div id={detailsId} className="approval-details" hidden={!detailsOpen}>{detailsOpen && <pre>{approval.preview}</pre>}</div>
+      </>}
+      {!approval.decisionNonce && <small>This legacy approval cannot be signed. Ask the agent to request approval again.</small>}
+    </div>
+  );
+}
 
 function moveMenuFocus(event: React.KeyboardEvent<HTMLElement>) {
   if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
@@ -271,16 +317,7 @@ export function Shell({ route, children }: { route: string; children: React.Reac
               {/* post-m1-phase-7 c4d: pending approvals as actionable cards, not just a read-only row —
                   Approve/Reject attempt the real decide() boundary; see decideApproval's doc comment in
                   store.tsx for why that boundary is presently an honest rejection (no native signer yet). */}
-              {pendingApprovals.map((approval) => <div key={`approval-${approval.id}`} className="menu-item stacked approval-card" data-testid={`approval-card-${approval.id}`}>
-                <strong>{approval.action}</strong>
-                {approval.preview && <p>{approval.preview}</p>}
-                {approval.consequence && <small>{approval.consequence}</small>}
-                {!approval.decisionNonce && <small>This legacy approval cannot be signed. Ask the agent to request approval again.</small>}
-                <div className="dialog-actions">
-                  <button type="button" role="menuitem" className="primary-button compact" disabled={!approval.decisionNonce || decidingApprovalIds.includes(approval.id)} data-menu-keep-open onClick={() => void decideApproval(approval.id, 'approved')}>Approve</button>
-                  <button type="button" role="menuitem" className="secondary-button compact" disabled={!approval.decisionNonce || decidingApprovalIds.includes(approval.id)} data-menu-keep-open onClick={() => void decideApproval(approval.id, 'rejected')}>Reject</button>
-                </div>
-              </div>)}
+              {pendingApprovals.map((approval) => <ApprovalCard key={`approval-${approval.id}`} approval={approval} deciding={decidingApprovalIds.includes(approval.id)} onDecide={(id, status) => void decideApproval(id, status)} />)}
               {notifications.map((item) => <button key={`domain-${item.id}`} role="menuitem" className="menu-item stacked" type="button" onClick={() => openDomainNotification(item.id, item.entityType, item.entityId)}><strong>{item.message}</strong><small>{item.type}</small></button>)}
               {pushNotifications.map((item) => <button key={`push-${item.id}`} role="menuitem" className="menu-item stacked" type="button" onClick={openPushNotification}><strong>{item.title}</strong><small>{item.body}</small></button>)}
               <button role="menuitem" className="menu-item stacked" type="button" onClick={markAllNotificationsRead}><strong>Mark all read</strong><small>Clears unread status</small></button>

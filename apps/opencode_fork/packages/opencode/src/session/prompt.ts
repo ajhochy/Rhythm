@@ -2046,6 +2046,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         const slog = elog.with({ sessionID })
         let structured: unknown
         let step = 0
+        const internalUserMessageIDs = new Set<MessageID>()
+        const autoCompactedAssistantIDs = new Set<MessageID>()
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
 
         while (true) {
@@ -2055,10 +2057,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           let msgs = yield* MessageV2.filterCompactedEffect(sessionID)
           if (throughUserMessageID) {
             // Later queued user messages are already persisted, but they
-            // belong to later provider turns. Assistant/tool messages remain
-            // visible so this turn can continue through its normal tool loop.
+            // belong to later provider turns. Only controls created while
+            // handling this pinned turn are admitted alongside it.
             msgs = msgs.filter(
-              (message) => message.info.role !== "user" || message.info.id <= throughUserMessageID,
+              (message) =>
+                message.info.role !== "user" ||
+                message.info.id <= throughUserMessageID ||
+                internalUserMessageIDs.has(message.info.id),
             )
           }
 
@@ -2093,7 +2098,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             !["tool-calls"].includes(lastAssistant.finish) &&
             !hasToolCalls &&
             (throughUserMessageID
-              ? lastAssistant.parentID === throughUserMessageID
+              ? lastAssistant.parentID === lastUser.id
               : lastUser.id < lastAssistant.id)
           ) {
             yield* slog.info("exiting loop")
@@ -2125,7 +2130,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               auto: task.auto,
               overflow: task.overflow,
             })
-            if (result === "stop") break
+            if (result.followup) internalUserMessageIDs.add(result.followup)
+            if (result.status === "stop") break
             continue
           }
 
@@ -2134,7 +2140,18 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             lastFinished.summary !== true &&
             (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model }))
           ) {
-            yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
+            if (autoCompactedAssistantIDs.has(lastFinished.id)) {
+              yield* slog.warn("auto compaction made no progress", { messageID: lastFinished.id })
+              break
+            }
+            autoCompactedAssistantIDs.add(lastFinished.id)
+            const control = yield* compaction.create({
+              sessionID,
+              agent: lastUser.agent,
+              model: lastUser.model,
+              auto: true,
+            })
+            internalUserMessageIDs.add(control.id)
             continue
           }
 
@@ -2275,13 +2292,14 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
             if (result === "stop") return "break" as const
             if (result === "compact") {
-              yield* compaction.create({
+              const control = yield* compaction.create({
                 sessionID,
                 agent: lastUser.agent,
                 model: lastUser.model,
                 auto: true,
                 overflow: !handle.message.finish,
               })
+              internalUserMessageIDs.add(control.id)
             }
             return "continue" as const
             }).pipe(Effect.ensuring(instruction.clear(handle.message.id))),

@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { afterAll, beforeAll, describe, it, expect, beforeEach, vi } from 'vitest';
 import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
+import { ModelProvenanceRepository } from '../repositories/model_provenance_repository';
 import { OpencodeClientService } from '../services/opencode_client_service';
 import { OpencodeAuthStore } from '../services/opencode_auth_store';
 
@@ -319,6 +320,154 @@ describe('OpencodeClientService — SDK response unwrap (.data)', () => {
       const svc = makeService({ session: { promptAsync: sdkPromptAsync } });
       expect(await svc.promptAsync('sid', 'hi')).toBe(true);
       expect(sdkPromptAsync).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('C2 foreground durable ordinary dispatch', () => {
+    it('mints the native user-message id, reserves the exact authenticated dispatch before the SDK call, and settles it only from SDK acknowledgement', async () => {
+      const sessionId = 'c2-root-dispatch';
+      const sdkSessionId = 'sdk-c2-dispatch';
+      boundaryDb!.prepare('DELETE FROM agent_turn_dispatches WHERE session_id=?').run(sessionId);
+      boundaryDb!.prepare('DELETE FROM agent_sessions WHERE id=?').run(sessionId);
+      boundaryDb!.prepare(`INSERT INTO agent_sessions (id, sdk_session_id, agent_kind, cwd, name)
+        VALUES (?, ?, 'build', '/safe/c2', 'C2 root')`).run(sessionId, sdkSessionId);
+      const callbacks: string[] = [];
+      const sdkPromptAsync = vi.fn(async (input: { body: Record<string, unknown> }) => {
+        expect(input.body.messageID).toBe('native-user-c2');
+        expect(new ModelProvenanceRepository().list(sessionId)).toEqual([
+          expect.objectContaining({
+            sdkSessionId,
+            sdkUserMessageId: 'native-user-c2',
+            origin: 'prompt_api',
+            requestedSource: 'session',
+            routeAuthed: true,
+            outcome: 'pending',
+          }),
+        ]);
+        return { response: { status: 204 } };
+      });
+      const svc = makeService({ session: { promptAsync: sdkPromptAsync } });
+      (svc as unknown as { server: { url: string; close(): void } }).server = {
+        url: 'http://engine.test', close() {},
+      };
+      const previousExports = process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS;
+      process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS = '1';
+      vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+        expect(url).toBe(`http://engine.test/session/${sdkSessionId}/rhythm-prompt-anchor?directory=%2Fsafe%2Fc2`);
+        return { ok: true, json: async () => ({ messageID: 'native-user-c2' }) };
+      }));
+      try {
+        await expect(svc.promptAsync(
+          sdkSessionId,
+          'ordinary C2 message',
+          { providerID: 'provider-c2', modelID: 'model-c2' },
+          '/safe/c2',
+          undefined,
+          undefined,
+          undefined,
+          {
+            sessionId,
+            sdkSessionId,
+            origin: 'prompt_api',
+            requestedSource: 'session',
+            requestedProviderId: 'provider-c2',
+            requestedModelId: 'model-c2',
+            resolvedProviderId: 'provider-c2',
+            resolvedModelId: 'model-c2',
+            finalProviderId: 'provider-c2',
+            finalModelId: 'model-c2',
+            routeAuthed: true,
+            reasonCode: 'c2_foreground',
+          },
+          undefined,
+          {
+            kind: 'coordinator_foreground_v1',
+            actorUserId: 7,
+            localSessionId: sessionId,
+            sdkSessionId,
+            projectId: 'project-c2',
+            profileId: 'profile-c2',
+            controlRevision: 4,
+            commandKey: 'ordinary-c2-command',
+            validate: ({ phase, dispatchId, sdkUserMessageId }) => {
+              callbacks.push(phase);
+              if (phase !== 'prepare') {
+                expect(dispatchId).toEqual(expect.any(String));
+                expect(sdkUserMessageId).toBe('native-user-c2');
+              }
+              return true;
+            },
+          },
+        )).resolves.toBe(true);
+        expect(callbacks).toEqual(['prepare', 'before_sdk', 'sdk_exposure']);
+        expect(sdkPromptAsync).toHaveBeenCalledTimes(1);
+        expect(new ModelProvenanceRepository().list(sessionId)).toEqual([
+          expect.objectContaining({ sdkUserMessageId: 'native-user-c2', outcome: 'accepted' }),
+        ]);
+      } finally {
+        vi.unstubAllGlobals();
+        if (previousExports === undefined) delete process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS;
+        else process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS = previousExports;
+        boundaryDb!.prepare('DELETE FROM agent_turn_dispatches WHERE session_id=?').run(sessionId);
+        boundaryDb!.prepare('DELETE FROM agent_sessions WHERE id=?').run(sessionId);
+      }
+    });
+
+    it('holds a revoked C2 foreground reservation after its durable row is written and before any SDK exposure', async () => {
+      const sessionId = 'c2-root-revoked';
+      const sdkSessionId = 'sdk-c2-revoked';
+      boundaryDb!.prepare('DELETE FROM agent_turn_dispatches WHERE session_id=?').run(sessionId);
+      boundaryDb!.prepare('DELETE FROM agent_sessions WHERE id=?').run(sessionId);
+      boundaryDb!.prepare(`INSERT INTO agent_sessions (id, sdk_session_id, agent_kind, cwd, name)
+        VALUES (?, ?, 'build', '/safe/c2', 'C2 root')`).run(sessionId, sdkSessionId);
+      const sdkPromptAsync = vi.fn();
+      const svc = makeService({ session: { promptAsync: sdkPromptAsync } });
+      (svc as unknown as { server: { url: string; close(): void } }).server = {
+        url: 'http://engine.test', close() {},
+      };
+      const previousExports = process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS;
+      process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS = '1';
+      vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ messageID: 'native-user-revoked' }) })));
+      try {
+        await expect(svc.promptAsync(
+          sdkSessionId,
+          'hold after revocation',
+          { providerID: 'provider-c2', modelID: 'model-c2' },
+          '/safe/c2',
+          undefined,
+          undefined,
+          undefined,
+          {
+            sessionId,
+            sdkSessionId,
+            origin: 'prompt_api',
+            requestedSource: 'session',
+            routeAuthed: true,
+          },
+          undefined,
+          {
+            kind: 'coordinator_foreground_v1',
+            actorUserId: 7,
+            localSessionId: sessionId,
+            sdkSessionId,
+            projectId: 'project-c2',
+            profileId: 'profile-c2',
+            controlRevision: 4,
+            commandKey: 'revoked-command',
+            validate: ({ phase }) => phase !== 'sdk_exposure',
+          },
+        )).resolves.toBe(false);
+        expect(sdkPromptAsync).not.toHaveBeenCalled();
+        expect(new ModelProvenanceRepository().list(sessionId)).toEqual([
+          expect.objectContaining({ sdkUserMessageId: 'native-user-revoked', outcome: 'rejected' }),
+        ]);
+      } finally {
+        vi.unstubAllGlobals();
+        if (previousExports === undefined) delete process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS;
+        else process.env.RHYTHM_MANAGED_CONTEXT_EXPORTS = previousExports;
+        boundaryDb!.prepare('DELETE FROM agent_turn_dispatches WHERE session_id=?').run(sessionId);
+        boundaryDb!.prepare('DELETE FROM agent_sessions WHERE id=?').run(sessionId);
+      }
     });
   });
 

@@ -313,7 +313,9 @@ describe('dedicated primary Rhythm conversation resolution', () => {
           expect(input).toMatchObject({
             localSessionId: 'chat-a', sdkSessionId: 'sdk-a', projectId: 'project-a',
             profileId: 'profile-a', providerId: 'provider-a', modelId: 'model-a',
+            commandKey: 'ordinary-one', controlRevision: 1,
           });
+          expect(input.reservationCurrent()).toBe(true);
           return { kind: 'unavailable' };
         },
       },
@@ -327,6 +329,39 @@ describe('dedicated primary Rhythm conversation resolution', () => {
     expect(calls).toBe(1);
     expect(db.prepare('SELECT COUNT(*) AS count FROM agent_session_messages WHERE session_id=?').get('chat-a'))
       .toEqual({ count: 0 });
+  });
+
+  it('withholds a reserved foreground command when current project authority is revoked during adapter preparation', async () => {
+    db = database();
+    const allowed = new Map([[7, new Set(['project-a'])]]);
+    const repository = new CoordinatorConversationsRepository(db, () => now);
+    expect(repository.designatePrimaryOwnerRoot({ ownerUserId: 7, projectId: 'project-a', sessionId: 'chat-a' }))
+      .toMatchObject({ kind: 'found', conversation: { primaryOwnerRoot: true, controlRevision: 1 } });
+    let calls = 0;
+    const coordinator = service(repository, db, allowed, {
+      foreground: {
+        send: async (input) => {
+          calls += 1;
+          expect(input.reservationCurrent()).toBe(true);
+          allowed.set(7, new Set());
+          expect(input.reservationCurrent()).toBe(false);
+          return { kind: 'unavailable' };
+        },
+      },
+    });
+    const request = {
+      sessionId: 'chat-a', projectId: 'project-a', expectedControlRevision: 1,
+      commandKey: 'ordinary-revoked', message: 'Please hold this foreground turn.',
+    };
+    await expect(coordinator.receiveMessage(auth, request)).resolves.toMatchObject({ kind: 'foreground_uncertain' });
+    // A caller that has lost project access gets only the generic route hold;
+    // it cannot learn or replay the retained command state.
+    await expect(coordinator.receiveMessage(auth, request)).resolves.toMatchObject({ kind: 'not_found' });
+    expect(calls).toBe(1);
+    expect(repository.get({ ownerUserId: 7, sessionId: 'chat-a', projectId: 'project-a' }))
+      .toMatchObject({ kind: 'found', conversation: { commandDedupe: [expect.objectContaining({
+        key: 'ordinary-revoked', kind: 'foreground', state: 'uncertain',
+      })] } });
   });
 
   it('returns only the existing local canonical history page after current owner/project authorization', () => {

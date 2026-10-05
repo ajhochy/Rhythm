@@ -189,7 +189,7 @@ function createCompactionMarker(sessionID: SessionID) {
 
 function fake(
   input: Parameters<SessionProcessorModule.SessionProcessor.Interface["create"]>[0],
-  result: "continue" | "compact",
+  result: SessionProcessorModule.SessionProcessor.Result,
 ) {
   const msg = input.assistantMessage
   return {
@@ -203,7 +203,7 @@ function fake(
   } satisfies SessionProcessorModule.SessionProcessor.Handle
 }
 
-function layer(result: "continue" | "compact") {
+function layer(result: SessionProcessorModule.SessionProcessor.Result) {
   return Layer.succeed(
     SessionProcessorModule.SessionProcessor.Service,
     SessionProcessorModule.SessionProcessor.Service.of({
@@ -242,7 +242,7 @@ const compactionEnv = Layer.mergeAll(SessionNs.defaultLayer, CrossSpawnSpawner.d
 const itCompaction = testEffect(compactionEnv)
 
 type CompactionProcessOptions = {
-  result?: "continue" | "compact"
+  result?: SessionProcessorModule.SessionProcessor.Result
   llm?: Layer.Layer<LLM.Service>
   plugin?: Layer.Layer<Plugin.Service>
   provider?: ReturnType<typeof ProviderTest.fake>
@@ -866,7 +866,7 @@ describe("session.compaction.process", () => {
       })
 
       yield* Deferred.await(done).pipe(Effect.timeout("500 millis"))
-      expect(result).toBe("continue")
+      expect(result.status).toBe("continue")
       expect(seen).toBe(true)
     }),
   )
@@ -890,13 +890,35 @@ describe("session.compaction.process", () => {
         (msg) => msg.info.role === "assistant" && msg.info.summary,
       )
 
-      expect(result).toBe("stop")
+      expect(result.status).toBe("stop")
       expect(summary?.info.role).toBe("assistant")
       if (summary?.info.role === "assistant") {
         expect(summary.info.finish).toBe("error")
         expect(JSON.stringify(summary.info.error)).toContain("Session too large to compact")
       }
     }).pipe(withCompaction({ result: "compact" })),
+  )
+
+  itCompaction.instance(
+    "preserves a processor stop without requiring an assistant error",
+    Effect.gen(function* () {
+      const ssn = yield* SessionNs.Service
+      const session = yield* ssn.create({})
+      const msg = yield* createUserMessage(session.id, "hello")
+      const result = yield* SessionCompaction.use.process({
+        parentID: msg.id,
+        messages: yield* ssn.messages({ sessionID: session.id }),
+        sessionID: session.id,
+        auto: true,
+      })
+
+      const summary = (yield* ssn.messages({ sessionID: session.id })).find(
+        (item) => item.info.role === "assistant" && item.info.summary,
+      )
+      expect(result).toEqual({ status: "stop" })
+      expect(summary?.info.role).toBe("assistant")
+      if (summary?.info.role === "assistant") expect(summary.info.error).toBeUndefined()
+    }).pipe(withCompaction({ result: "stop" })),
   )
 
   it.instance(
@@ -917,8 +939,9 @@ describe("session.compaction.process", () => {
       const all = yield* ssn.messages({ sessionID: session.id })
       const last = all.at(-1)
 
-      expect(result).toBe("continue")
+      expect(result.status).toBe("continue")
       expect(last?.info.role).toBe("user")
+      if (last?.info.role === "user") expect(result.followup).toBe(last.info.id)
       expect(last?.parts[0]).toMatchObject({
         type: "text",
         synthetic: true,
@@ -927,6 +950,36 @@ describe("session.compaction.process", () => {
       if (last?.parts[0]?.type === "text") {
         expect(last.parts[0].text).toContain("Continue if you have next steps")
       }
+    }),
+  )
+
+  it.instance(
+    "stops an auto-compaction sequence after the no-progress cap",
+    Effect.gen(function* () {
+      const compact = yield* SessionCompaction.Service
+      const ssn = yield* SessionNs.Service
+      const session = yield* ssn.create({})
+      yield* createUserMessage(session.id, "keep working")
+      const results = []
+
+      for (let index = 0; index < SessionCompaction.AUTO_CONTINUE_CAP; index++) {
+        const marker = yield* compact.create({ sessionID: session.id, agent: "build", model: ref, auto: true })
+        const result = yield* compact.process({
+          parentID: marker.id,
+          messages: yield* ssn.messages({ sessionID: session.id }),
+          sessionID: session.id,
+          auto: true,
+        })
+        results.push(result)
+      }
+
+      expect(results.map((result) => result.status)).toEqual(["continue", "continue", "stop"])
+      expect(results.at(-1)?.followup).toBeUndefined()
+      expect(
+        (yield* ssn.messages({ sessionID: session.id })).filter(
+          (message) => message.info.role === "user" && message.parts.some((part) => part.type === "compaction"),
+        ),
+      ).toHaveLength(SessionCompaction.AUTO_CONTINUE_CAP)
     }),
   )
 
@@ -1115,7 +1168,7 @@ describe("session.compaction.process", () => {
       const all = yield* ssn.messages({ sessionID: session.id })
       const last = all.at(-1)
 
-      expect(result).toBe("continue")
+      expect(result.status).toBe("continue")
       expect(last?.info.role).toBe("assistant")
       expect(
         all.some(
@@ -1158,8 +1211,9 @@ describe("session.compaction.process", () => {
 
       const last = (yield* ssn.messages({ sessionID: session.id })).at(-1)
 
-      expect(result).toBe("continue")
+      expect(result.status).toBe("continue")
       expect(last?.info.role).toBe("user")
+      if (last?.info.role === "user") expect(result.followup).toBe(last.info.id)
       expect(last?.parts.some((part) => part.type === "file")).toBe(false)
       expect(
         last?.parts.some((part) => part.type === "text" && part.text.includes("Attached image/png: cat.png")),
@@ -1186,7 +1240,7 @@ describe("session.compaction.process", () => {
 
       const last = (yield* ssn.messages({ sessionID: session.id })).at(-1)
 
-      expect(result).toBe("continue")
+      expect(result.status).toBe("continue")
       expect(last?.info.role).toBe("user")
       if (last?.parts[0]?.type === "text") {
         expect(last.parts[0].text).toContain("previous request exceeded the provider's size limit")

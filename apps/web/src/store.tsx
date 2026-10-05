@@ -3,7 +3,7 @@ import { FIXED_NOW, seedDiff, seedFiles, seedProfiles, seedSessions, seedTodos }
 import { useGateway } from './gateway/context';
 import type { GatewayMode } from './gateway';
 import { SessionGatewayError, toSessionViewModel, createGenerationGuard, type ProfileMutation, type RichTranscriptMessage, type SessionSocket, type SessionWireEvent, type IdentityProfile, type ModelChoice, type AccountChoice, type SessionSettings, type TurnOverride } from './gateway/sessions';
-import { applyTranscriptEvent, emptyTranscript, mergeTranscriptPage, type TranscriptPageOptions, type TranscriptState } from './gateway/transcript-reducer';
+import { mergeCachedTranscriptPage, reduceCachedTranscriptEvent, type TranscriptPageOptions, type TranscriptState } from './gateway/transcript-reducer';
 import { useAuthUser } from './gateway/auth';
 import type { DomainNotification } from './gateway/notifications';
 import type { MessageThread } from './gateway/messages';
@@ -451,22 +451,19 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   }, [live, selectedId]);
 
   const mergeSessionTranscript = (session: Session, page: RichTranscriptMessage[], options: TranscriptPageOptions): TranscriptState => {
-    const stored = transcriptStatesRef.current.get(session.id) ?? emptyTranscript();
-    const seeded = mergeTranscriptPage(stored, session.messages as RichTranscriptMessage[], {
-      mode: 'merge', hasMore: session.transcriptHasMore ?? false, nextCursor: session.transcriptCursor,
-    });
-    const next = mergeTranscriptPage(seeded, page, options);
-    transcriptStatesRef.current.set(session.id, next);
-    return next;
+    return mergeCachedTranscriptPage(transcriptStatesRef.current, session.id, {
+      messages: session.messages as RichTranscriptMessage[],
+      hasMore: session.transcriptHasMore,
+      nextCursor: session.transcriptCursor,
+    }, page, options);
   };
 
   const reduceSessionTranscript = (session: Session, event: SessionWireEvent): TranscriptState => {
-    const seeded = mergeSessionTranscript(session, [], {
-      mode: 'merge', hasMore: session.transcriptHasMore ?? false, nextCursor: session.transcriptCursor,
-    });
-    const next = applyTranscriptEvent(seeded, event);
-    transcriptStatesRef.current.set(session.id, next);
-    return next;
+    return reduceCachedTranscriptEvent(transcriptStatesRef.current, session.id, {
+      messages: session.messages as RichTranscriptMessage[],
+      hasMore: session.transcriptHasMore,
+      nextCursor: session.transcriptCursor,
+    }, event);
   };
 
   const replaceLiveSession = (incoming: Session, options: { transcriptMode?: 'merge' | 'replace'; boundary?: { revertedMessageId?: string } } = {}) => {
@@ -812,7 +809,15 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       rememberLiveSelection(chosen);
       if (chosen) {
         const detail = await sessionGateway.detail(chosen);
-        if (active) setSessions((current) => current.map((session) => session.id === chosen ? hydrateWorkingState(detail, session) : session));
+        if (active) setSessions((current) => current.map((session) => {
+          if (session.id !== chosen) return session;
+          // This initial detail can resolve after a WS frame. Merge it through the same
+          // explicit REST boundary so it fills an absent cache without clobbering live text.
+          const transcript = mergeSessionTranscript(session, detail.messages as RichTranscriptMessage[], {
+            mode: 'merge', hasMore: detail.transcriptHasMore ?? false, nextCursor: detail.transcriptCursor,
+          });
+          return { ...hydrateWorkingState(detail, session), messages: transcript.messages };
+        }));
         rehydratePendingPermission(chosen);
       }
     }).catch(onError).finally(() => { if (active) setLoading(false); });
@@ -1005,16 +1010,20 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     const trimmed = input.trim();
     if (!selected.id || (!trimmed && attachments.length === 0)) return;
     const messageId = `local-user-${Date.now()}`;
-    setSessions((current) => current.map((session) => session.id === selected.id ? {
-      ...session,
-      status: 'working',
-      messages: [...session.messages, {
-        id: messageId, role: 'user', createdAt: new Date().toISOString(),
-        blocks: [{ id: `${messageId}-text`, kind: 'markdown', content: trimmed || 'Attached file context.' }],
-        attachments: structuredClone(attachments),
-      }],
-      pendingAttachments: [],
-    } : session));
+    const optimisticMessage: RichTranscriptMessage = {
+      id: messageId, role: 'user', createdAt: new Date().toISOString(),
+      blocks: [{ id: `${messageId}-text`, kind: 'markdown', content: trimmed || 'Attached file context.' }],
+      attachments: structuredClone(attachments),
+    };
+    setSessions((current) => current.map((session) => {
+      if (session.id !== selected.id) return session;
+      // Keep the reducer cache current at the only live optimistic-write boundary. A later
+      // WS confirmation can still alias this row without rehydrating every historical row.
+      const transcript = mergeSessionTranscript(session, [optimisticMessage], {
+        mode: 'merge', hasMore: session.transcriptHasMore ?? false, nextCursor: session.transcriptCursor,
+      });
+      return { ...session, status: 'working', messages: transcript.messages, pendingAttachments: [] };
+    }));
     const override = turnOverrides.current[selected.id] ?? {};
     delete turnOverrides.current[selected.id];
     setOverrideVersion(v => v + 1);

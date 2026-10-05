@@ -112,9 +112,27 @@ button:disabled, input:disabled, textarea:disabled, select:disabled { cursor: no
 .menu-spacer { width: 14px; }
 .menu-popover hr { width: 100%; height: 1px; margin: 4px 0; border: 0; background: var(--border-soft); }
 .notifications-menu { width: min(360px, calc(100vw - 20px)); max-height: calc(100vh - 92px); overflow-x: hidden; overflow-y: auto; }
-.notifications-menu .approval-card { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; overflow-wrap: anywhere; }
+.notifications-menu .approval-card { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 3px; padding: 6px 8px; overflow-wrap: anywhere; }
 .notifications-menu .approval-card :is(strong, p, small) { min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
-.notifications-menu .approval-card .dialog-actions { flex-wrap: wrap; justify-content: flex-start; }
+.notifications-menu .approval-card .approval-heading { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.notifications-menu .approval-card .approval-title { min-width: 0; flex: 1 1 140px; display: -webkit-box; overflow: hidden; line-height: 1.35; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.notifications-menu .approval-card .approval-actions { flex: 0 0 60px; display: flex; flex-wrap: nowrap; gap: 4px; }
+.notifications-menu .approval-card .approval-action { width: 28px; height: 28px; min-width: 28px; min-height: 28px; display: inline-grid; place-items: center; padding: 0; border: 1px solid var(--border-soft); border-radius: var(--r-sm); background: transparent; cursor: pointer; }
+.notifications-menu .approval-card .approval-action.approve { border-color: color-mix(in oklab, var(--accent), var(--border-soft) 58%); color: var(--accent); background: color-mix(in oklab, var(--accent), transparent 92%); }
+.notifications-menu .approval-card .approval-action.reject { color: var(--fg-2); }
+.notifications-menu .approval-card .approval-action:hover { border-color: var(--border); color: var(--fg); background: color-mix(in oklab, var(--surface-raised), var(--fg) 8%); }
+.notifications-menu .approval-card .approval-action.approve:hover { border-color: var(--accent); color: var(--accent); background: color-mix(in oklab, var(--accent), transparent 86%); }
+.notifications-menu .approval-card .approval-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.notifications-menu .approval-card .approval-action:disabled { opacity: .45; cursor: not-allowed; }
+.notifications-menu .approval-card .approval-action:disabled:hover { border-color: var(--border-soft); color: var(--fg-2); background: transparent; }
+.notifications-menu .approval-card .approval-meta { display: flex; flex-wrap: wrap; gap: 2px 7px; align-items: baseline; }
+.notifications-menu .approval-card .approval-preview { margin: 0; display: -webkit-box; overflow: hidden; color: var(--fg-2); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.notifications-menu .approval-card .approval-consequence { display: block; font-size: 11px; line-height: 1.45; }
+.notifications-menu .approval-card .approval-details-toggle { width: fit-content; min-height: 24px; display: inline-flex; align-items: center; padding: 0 7px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); color: var(--fg-2); background: transparent; cursor: pointer; font-size: 10px; }
+.notifications-menu .approval-card .approval-details-toggle:hover { color: var(--fg); border-color: var(--border); background: color-mix(in oklab, var(--surface-raised), var(--fg) 8%); }
+.notifications-menu .approval-card .approval-details { min-width: 0; max-height: 160px; overflow: auto; padding: 7px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); background: var(--bg); }
+.notifications-menu .approval-card .approval-details[hidden] { display: none; }
+.notifications-menu .approval-card .approval-details pre { min-width: 0; max-width: 100%; margin: 0; overflow-wrap: anywhere; word-break: break-word; white-space: pre-wrap; color: var(--fg-2); font-family: var(--font-mono); font-size: 11px; line-height: 1.45; }
 .account-card { display: flex; align-items: center; gap: 10px; padding: 8px 8px 12px; border-bottom: 1px solid var(--border-soft); }
 .account-card div { display: grid; }
 .account-card small { color: var(--muted); }

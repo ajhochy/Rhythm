@@ -426,7 +426,10 @@ async function main() {
       // exposure and returns only an acknowledgement. Assistant/history rows
       // are emitted by the existing stream bridge, never manufactured here.
       foreground: {
-        send: async ({ actor, localSessionId, sdkSessionId, projectId, profileId, providerId, modelId, cwd, message }) => {
+        send: async ({
+          actor, localSessionId, sdkSessionId, projectId, profileId, providerId, modelId, cwd, message,
+          commandKey, controlRevision, reservationCurrent,
+        }) => {
           const valid = (session: ReturnType<InstanceType<typeof AgentSessionsRepository>['findById']>, profile: ReturnType<InstanceType<typeof AgentConfigsRepository>['getById']>): boolean => Boolean(
             session && profile && session.id === localSessionId && session.sdkSessionId === sdkSessionId &&
             session.ownerUserId === actor.user.id && session.projectId === projectId &&
@@ -453,16 +456,69 @@ async function main() {
             !valid(current, currentProfile) ||
             resolved.model.providerID !== providerId || resolved.model.modelID !== modelId
           ) return { kind: 'unavailable' as const };
+          // This closure is passed only to the internal SDK adapter. It joins
+          // the durable C2 command reservation to the current actor/root,
+          // project/profile, and resolved model at each of that adapter's
+          // await boundaries. No browser-provided capability is carried here.
+          const foregroundAuthorityCurrent = async (): Promise<boolean> => {
+            if (!reservationCurrent()) return false;
+            const beforeScopeSession = conversationSessions.findById(localSessionId);
+            const beforeScopeProfile = conversationConfigs.getById(profileId);
+            if (!valid(beforeScopeSession, beforeScopeProfile)) return false;
+            let currentScope: Awaited<ReturnType<typeof resolveProfileScope>>;
+            try {
+              currentScope = await resolveProfileScope(profileId);
+            } catch {
+              return false;
+            }
+            const afterScopeSession = conversationSessions.findById(localSessionId);
+            const afterScopeProfile = conversationConfigs.getById(profileId);
+            return reservationCurrent() &&
+              valid(afterScopeSession, afterScopeProfile) &&
+              currentScope.model.providerID === providerId &&
+              currentScope.model.modelID === modelId &&
+              (currentScope.ocAgent ?? null) === (resolved.ocAgent ?? null);
+          };
+          if (!(await foregroundAuthorityCurrent())) return { kind: 'unavailable' as const };
           // `promptAsync` performs its own immediate ordinary-vs-managed
-          // history boundary immediately before the SDK call. This closure
-          // intentionally supplies no managed context or caller-selected tool,
-          // path, permission, provider, model, or session authority.
+          // history boundary immediately before the SDK call. C2 also uses a
+          // strict durable ordinary-dispatch binding so a signed Dayflow tool
+          // can resolve the real native user-message id; it intentionally
+          // supplies no managed context or caller-selected tool/path/rule.
           const accepted = await opencodeClient.promptAsync(
             sdkSessionId,
             message,
             { providerID: providerId, modelID: modelId },
             cwd,
             resolved.ocAgent ? { agent: resolved.ocAgent } : undefined,
+            undefined,
+            undefined,
+            {
+              sessionId: localSessionId,
+              sdkSessionId,
+              origin: 'prompt_api',
+              requestedSource: 'session',
+              requestedProviderId: providerId,
+              requestedModelId: modelId,
+              resolvedProviderId: providerId,
+              resolvedModelId: modelId,
+              finalProviderId: providerId,
+              finalModelId: modelId,
+              routeAuthed: true,
+              reasonCode: 'c2_foreground',
+            },
+            undefined,
+            {
+              kind: 'coordinator_foreground_v1',
+              actorUserId: actor.user.id,
+              localSessionId,
+              sdkSessionId,
+              projectId,
+              profileId,
+              controlRevision,
+              commandKey,
+              validate: async () => foregroundAuthorityCurrent(),
+            },
           );
           return accepted ? { kind: 'accepted' as const } : { kind: 'uncertain' as const };
         },
