@@ -44,6 +44,14 @@ function session(id, projectId, name) {
   };
 }
 
+const specialistProfileChoices = [
+  { id: 'profile-coding-workflow', label: 'Coding Workflow' },
+  { id: 'profile-workflow-retrospective', label: 'Workflow Retrospective' },
+  { id: 'profile-worship-planning', label: 'Worship Planning' },
+  { id: 'profile-worship-production', label: 'Worship Production' },
+  { id: 'profile-theological-researcher', label: 'Theological Researcher' },
+];
+
 function useFixtures() {
   const [, rerender] = React.useState(0);
   fixtureRerender = rerender;
@@ -151,7 +159,7 @@ function setup(mode = 'single') {
   selectLiveSessionOverride = undefined;
   const ordinary = session('ordinary-root', 'project-ordinary', 'Ordinary chat');
   const rhythm = session('rhythm-root', 'project-rhythm', 'Rhythm');
-  const calls = { resolve: 0, setup: [], ordinaryPrompt: 0 };
+  const calls = { resolve: 0, resolveInputs: [], setup: [], ordinaryPrompt: 0 };
   fixtureState = {
     selected: mode === 'existing' ? rhythm : ordinary, sessions: [ordinary, rhythm], profiles: [{ id: 'profile-a', label: 'Current profile', enabled: true, selectable: true }],
     models: [], accounts: [], openaiAccounts: [], refreshCatalog: async () => {}, sessionGatewayMode: 'live',
@@ -166,8 +174,9 @@ function setup(mode = 'single') {
     mode: 'live', __coordinatorOpenCalls: 0,
     domains: {
       coordinatorConversations: {
-        resolve: async () => {
+        resolve: async (input) => {
           calls.resolve += 1;
+          calls.resolveInputs.push({ ...input });
           if (mode === 'existing') {
             return {
               kind: 'resolved', sessionId: rhythm.id, projectId: rhythm.projectId,
@@ -179,7 +188,7 @@ function setup(mode = 'single') {
         setup: async (input) => {
           calls.setup.push({ ...input });
           if (mode === 'multiple' && input.profileId === undefined) {
-            return { kind: 'setup_profile_choice_required', profileChoices: [{ id: 'profile-a', label: 'Current profile' }, { id: 'profile-b', label: 'Planning profile' }] };
+            return { kind: 'setup_profile_choice_required', profileChoices: specialistProfileChoices };
           }
           if (mode === 'retry' && calls.setup.length === 1) return { kind: 'setup_unavailable' };
           return {
@@ -223,9 +232,13 @@ test('rendered primary entry requires the offered profile choice and reuses its 
   await act(async () => { entry(tree).props.onClick(); await settle(); });
   const dialog = tree.root.findByProps({ 'data-testid': 'rhythm-setup-dialog' });
   assert.ok(dialog);
-  await act(async () => { tree.root.findByProps({ 'data-testid': 'rhythm-setup-profile-profile-b' }).props.onClick(); await settle(); });
+  const choiceList = tree.root.findByProps({ 'data-testid': 'rhythm-setup-choice-list' });
+  assert.equal(choiceList.props.role, 'group');
+  assert.equal(choiceList.findAllByType('button').length, specialistProfileChoices.length);
+  assert.ok(tree.root.findByProps({ 'data-testid': 'rhythm-setup-footer' }));
+  await act(async () => { tree.root.findByProps({ 'data-testid': 'rhythm-setup-profile-profile-worship-production' }).props.onClick(); await settle(); });
   assert.equal(fixtureState.selected.id, rhythm.id);
-  assert.deepEqual(calls.setup.map((input) => input.profileId), [undefined, 'profile-b']);
+  assert.deepEqual(calls.setup.map((input) => input.profileId), [undefined, 'profile-worship-production']);
   assert.equal(calls.setup[0].commandKey, calls.setup[1].commandKey);
   await act(async () => { tree.unmount(); });
 });
@@ -284,6 +297,20 @@ test('an already-selected server root still opens the coordinator history and co
   assert.equal(fixtureState.selected.id, rhythm.id);
   assert.equal(gateway.__coordinatorOpenCalls, 1);
   assert.equal(calls.ordinaryPrompt, 0);
+  assert.equal(tree.root.findByProps({ 'data-testid': 'composer-input' }).props['data-coordinator-active'], 'true');
+  await act(async () => { tree.unmount(); });
+});
+
+test('a server-owned primary root remains the opened conversation after changing ordinary project selection', async () => {
+  const { calls, rhythm } = setup('existing');
+  const other = session('ordinary-other-root', 'project-other', 'Another ordinary chat');
+  fixtureState = { ...fixtureState, sessions: [...fixtureState.sessions, other], selected: other };
+  let tree;
+  await act(async () => { tree = create(React.createElement(workspaceModule.exports.AgentsWorkspace)); });
+  await act(async () => { entry(tree).props.onClick(); await settle(); });
+  assert.deepEqual(calls.resolveInputs, [{ projectId: 'project-other' }]);
+  assert.equal(fixtureState.selected.id, rhythm.id);
+  assert.equal(gateway.__coordinatorOpenCalls, 1);
   assert.equal(tree.root.findByProps({ 'data-testid': 'composer-input' }).props['data-coordinator-active'], 'true');
   await act(async () => { tree.unmount(); });
 });

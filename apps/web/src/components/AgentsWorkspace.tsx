@@ -785,15 +785,20 @@ export function AgentsWorkspace() {
         onClose={deferRhythmSetup}
         title="Set up Rhythm"
         description={rhythmEntry.setup?.profileChoices?.length
-          ? 'Choose a profile to finish setting up Rhythm.'
+          ? 'One Rhythm conversation stays with you across projects.'
           : 'Rhythm could not confirm setup. Retry, or keep using ordinary chat.'}
         testId="rhythm-setup-dialog"
         returnFocusTo={chatMenuTriggerRef.current}>
-        <div className="dialog-actions vertical-actions">
-          {rhythmEntry.setup?.profileChoices?.length
-            ? rhythmEntry.setup.profileChoices.map((choice) => <button className="secondary-button" type="button" key={choice.id} onClick={() => { void startRhythmSetup(choice.id); }} data-testid={`rhythm-setup-profile-${choice.id}`}>{choice.label}</button>)
-            : <button className="secondary-button" type="button" onClick={() => { void startRhythmSetup(); }} data-testid="rhythm-setup-retry">Retry setup</button>}
-          <button className="text-button" type="button" onClick={deferRhythmSetup} data-testid="rhythm-setup-keep-ordinary">Keep using ordinary chat</button>
+        <div className="rhythm-setup">
+          {rhythmEntry.setup?.profileChoices?.length ? <p className="rhythm-setup-copy">Choose the existing profile Rhythm should use for its configured model and tools. This does not change permissions.</p> : null}
+          <div className="rhythm-setup-choice-list" role="group" aria-label="Choose a Rhythm profile" data-testid="rhythm-setup-choice-list">
+            {rhythmEntry.setup?.profileChoices?.length
+              ? rhythmEntry.setup.profileChoices.map((choice) => <button className="secondary-button rhythm-setup-choice" type="button" key={choice.id} onClick={() => { void startRhythmSetup(choice.id); }} data-testid={`rhythm-setup-profile-${choice.id}`}>{choice.label}</button>)
+              : <button className="secondary-button rhythm-setup-choice" type="button" onClick={() => { void startRhythmSetup(); }} data-testid="rhythm-setup-retry">Retry setup</button>}
+          </div>
+          <footer className="rhythm-setup-footer" data-testid="rhythm-setup-footer">
+            <button className="text-button" type="button" onClick={deferRhythmSetup} data-testid="rhythm-setup-keep-ordinary">Keep using ordinary chat</button>
+          </footer>
         </div>
       </FocusDialog>
       <FocusDialog open={workstreamsOpen} onClose={() => setWorkstreamsOpen(false)} title="Workstreams" description="Explicit, bounded read-only workers for this project. Ordinary chat remains separate." testId="workstreams-dialog" wide>

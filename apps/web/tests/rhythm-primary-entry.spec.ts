@@ -30,6 +30,17 @@ const rootConversation = () => ({
   continuations: [],
 });
 
+// These labels deliberately exercise the longest ordinary catalog labels that
+// prompted the reported overflow. Their fixture IDs remain opaque server data;
+// the client does not choose a default profile.
+const specialistProfileChoices = [
+  { id: 'profile-coding-workflow', label: 'Coding Workflow' },
+  { id: 'profile-workflow-retrospective', label: 'Workflow Retrospective' },
+  { id: 'profile-worship-planning', label: 'Worship Planning' },
+  { id: 'profile-worship-production', label: 'Worship Production' },
+  { id: 'profile-theological-researcher', label: 'Theological Researcher' },
+] as const;
+
 const context = () => {
   const available = { state: 'available' };
   return {
@@ -65,6 +76,7 @@ const context = () => {
 
 type FixtureState = {
   resolveCalls: number;
+  resolveBodies: Record<string, unknown>[];
   setupBodies: Record<string, unknown>[];
   coordinatorOpenCalls: number;
   historyCalls: number;
@@ -81,6 +93,7 @@ async function openRhythmFixture(page: Page, options: {
 } = {}): Promise<FixtureState> {
   const state: FixtureState = {
     resolveCalls: 0,
+    resolveBodies: [],
     setupBodies: [],
     coordinatorOpenCalls: 0,
     historyCalls: 0,
@@ -89,6 +102,7 @@ async function openRhythmFixture(page: Page, options: {
     retryFailed: false,
   };
   const origin = session('ordinary-root', 'project-ordinary', 'Ordinary chat');
+  const alternateOrigin = session('ordinary-other-root', 'project-other', 'Another ordinary chat');
   const rhythmRoot = session('rhythm-root', 'project-rhythm', 'Rhythm');
   let releaseSetup = () => {};
   const heldSetup = new Promise<void>((resolve) => { releaseSetup = resolve; });
@@ -114,6 +128,7 @@ async function openRhythmFixture(page: Page, options: {
       expect(request.headers().authorization).toBe('Bearer synthetic-rhythm-entry-token');
       if (url.pathname.endsWith('/resolve')) {
         state.resolveCalls += 1;
+        state.resolveBodies.push(body ?? {});
         return state.rootExists
           ? respond({ kind: 'resolved', created: false, sessionId: rhythmRoot.id, projectId: rhythmRoot.projectId, conversation: rootConversation() })
           : respond({ kind: 'setup_unavailable' }, 503);
@@ -129,10 +144,7 @@ async function openRhythmFixture(page: Page, options: {
         if (options.mode === 'multiple' && body?.profileId === undefined) {
           return respond({
             kind: 'setup_profile_choice_required',
-            profileChoices: [
-              { id: 'profile-a', label: 'Current profile' },
-              { id: 'profile-b', label: 'Planning profile' },
-            ],
+            profileChoices: specialistProfileChoices,
           });
         }
         state.rootExists = true;
@@ -140,7 +152,7 @@ async function openRhythmFixture(page: Page, options: {
           kind: 'setup_created',
           sessionId: rhythmRoot.id,
           projectId: rhythmRoot.projectId,
-          profileId: String(body?.profileId ?? 'profile-a'),
+          profileId: String(body?.profileId ?? specialistProfileChoices[0].id),
           workspaceGeneration: 1,
           conversation: rootConversation(),
         }, 201);
@@ -177,11 +189,14 @@ async function openRhythmFixture(page: Page, options: {
     }
 
     if (request.method() === 'GET' && url.pathname === '/agent-sessions') {
-      const sessions = state.rootExists ? [rhythmRoot, origin] : [origin];
+      const sessions = state.rootExists ? [rhythmRoot, origin, alternateOrigin] : [origin, alternateOrigin];
       return respond({ sessions, ancestors: [], pageInfo: { nextCursor: null, hasMore: false } });
     }
     if (request.method() === 'GET' && url.pathname === `/agent-sessions/${origin.id}`) {
       return respond({ session: origin, messages: [] });
+    }
+    if (request.method() === 'GET' && url.pathname === `/agent-sessions/${alternateOrigin.id}`) {
+      return respond({ session: alternateOrigin, messages: [] });
     }
     if (request.method() === 'GET' && url.pathname === `/agent-sessions/${rhythmRoot.id}`) {
       return respond({ session: rhythmRoot, messages: [] });
@@ -228,6 +243,44 @@ async function expectRhythmRoot(page: Page, state: FixtureState) {
   expect(state.sessionInputFrames).toEqual([]);
 }
 
+async function expectSpecialistChoiceLayout(page: Page, expectedColumns: 1 | 2) {
+  const dialog = page.getByTestId('rhythm-setup-dialog');
+  const list = page.getByTestId('rhythm-setup-choice-list');
+  await expect(list).toBeVisible();
+  await expect(page.getByTestId('rhythm-setup-footer')).toBeVisible();
+  const dialogWidth = await dialog.evaluate((element) => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth }));
+  expect(dialogWidth.scrollWidth).toBeLessThanOrEqual(dialogWidth.clientWidth + 1);
+  const layout = await list.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    return {
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      list: { left: bounds.left, right: bounds.right },
+      buttons: [...element.querySelectorAll('button')].map((button) => {
+        const box = button.getBoundingClientRect();
+        return { left: box.left, right: box.right, top: box.top, bottom: box.bottom, height: box.height };
+      }),
+    };
+  });
+  expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth + 1);
+  expect(layout.buttons).toHaveLength(specialistProfileChoices.length);
+  for (const button of layout.buttons) {
+    expect(button.height).toBeGreaterThanOrEqual(44);
+    expect(button.left).toBeGreaterThanOrEqual(layout.list.left - 1);
+    expect(button.right).toBeLessThanOrEqual(layout.list.right + 1);
+  }
+  if (expectedColumns === 2) {
+    expect(Math.abs(layout.buttons[0].top - layout.buttons[1].top)).toBeLessThanOrEqual(1);
+    expect(layout.buttons[2].top).toBeGreaterThan(layout.buttons[0].top + 1);
+  } else {
+    for (let index = 1; index < layout.buttons.length; index += 1) {
+      expect(Math.abs(layout.buttons[index].left - layout.buttons[0].left)).toBeLessThanOrEqual(1);
+      expect(layout.buttons[index].top).toBeGreaterThan(layout.buttons[index - 1].top + 1);
+    }
+  }
+  await expect(dialog).toContainText('This does not change permissions.');
+}
+
 test('first primary-entry click visibly sets up one eligible profile, opens the server root, and never sends an SDK prompt', async ({ page }) => {
   const state = await openRhythmFixture(page, { mode: 'single', holdSetup: true });
   await page.getByTestId('rhythm-primary-entry').click();
@@ -248,8 +301,7 @@ test('multiple server-offered profiles reopen after Escape or keep-chat without 
   await page.getByTestId('rhythm-primary-entry').click();
   const dialog = page.getByTestId('rhythm-setup-dialog');
   await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText('Current profile');
-  await expect(dialog).toContainText('Planning profile');
+  for (const choice of specialistProfileChoices) await expect(dialog).toContainText(choice.label);
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
   await page.getByTestId('rhythm-primary-entry').click();
@@ -260,11 +312,25 @@ test('multiple server-offered profiles reopen after Escape or keep-chat without 
   await page.getByTestId('rhythm-primary-entry').click();
   await expect(dialog).toBeVisible();
   expect(state.setupBodies).toHaveLength(1);
-  await page.getByTestId('rhythm-setup-profile-profile-b').click();
+  await page.getByTestId('rhythm-setup-profile-profile-worship-production').click();
   await expectRhythmRoot(page, state);
   expect(state.setupBodies).toHaveLength(2);
   expect(state.setupBodies[0]).toEqual({ commandKey: state.setupBodies[0].commandKey });
-  expect(state.setupBodies[1]).toEqual({ commandKey: state.setupBodies[0].commandKey, profileId: 'profile-b' });
+  expect(state.setupBodies[1]).toEqual({ commandKey: state.setupBodies[0].commandKey, profileId: 'profile-worship-production' });
+});
+
+test('five long server-offered profile choices remain contained and touchable at desktop, 390px, and 320px widths', async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 900 });
+  const state = await openRhythmFixture(page, { mode: 'multiple' });
+  await page.getByTestId('rhythm-primary-entry').click();
+  await expectSpecialistChoiceLayout(page, 2);
+  expect(state.setupBodies).toHaveLength(1);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expectSpecialistChoiceLayout(page, 1);
+  await page.setViewportSize({ width: 320, height: 720 });
+  await expectSpecialistChoiceLayout(page, 1);
+  expect(state.setupBodies).toHaveLength(1);
 });
 
 test('a setup hold is visible and retries the exact setup request rather than leaving setup buried in the chat menu', async ({ page }) => {
@@ -281,10 +347,14 @@ test('a setup hold is visible and retries the exact setup request rather than le
 
 test('an existing server root reopens after navigation and repeated entry clicks do not create another setup request', async ({ page }) => {
   const state = await openRhythmFixture(page, { existingRoot: true });
+  await page.getByTestId('group-project-project-other').click();
+  await page.getByTestId('session-ordinary-other-root').click();
+  await expect(page.getByTestId('session-ordinary-other-root')).toHaveAttribute('aria-current', 'true');
   await page.getByTestId('rhythm-primary-entry').dblclick();
   await expectRhythmRoot(page, state);
   expect(state.setupBodies).toEqual([]);
   expect(state.resolveCalls).toBe(1);
+  expect(state.resolveBodies).toEqual([{ projectId: 'project-other' }]);
   await page.reload();
   await expect(page.getByTestId('rhythm-primary-entry')).toBeVisible();
   await page.getByTestId('rhythm-primary-entry').click();

@@ -28,20 +28,47 @@ also starts the existing coordinator open/history/composer path when the
 server-returned root was already selected. No ordinary SDK prompt is sent by
 opening.
 
+## Setup-choice layout follow-up
+
+The supplied rendered-app reference was inspected locally. It showed the
+520px setup dialog placing every profile choice and the ordinary-chat action in
+one nonwrapping action row: the leading button was clipped and the last action
+wrapped into an unusable narrow column.
+
+The setup flow now keeps its server-returned opaque choices and exact setup key
+unchanged, but renders the choices as a bounded, scrollable two-column grid at
+desktop widths and a single column at narrow widths. Choices have at least a
+48px visual target and wrap their own labels. The ordinary-chat action is a
+separate 44px footer action, rather than another squeezed choice. The copy
+makes the explicit selection clear: it creates one persistent Rhythm
+conversation across projects; the chosen existing profile supplies its
+configured model and tools; it does not change permissions. There is no client
+default or implied general-coordinator specialist.
+
+The focused intercepted-browser fixture now serves five existing long profile
+labels and checks containment, grid-to-single-column reflow, and touch-target
+height at 1366px, 390px, and 320px. It also changes ordinary project selection
+before opening an existing server-owned primary root, verifying the same
+server-returned root/history/composer path remains used.
+
 ## Changed paths and source hashes
 
 Base commit: `b60dbddf6cfa87287b2c299b658180fb4dc64e96`.
 
 - `apps/web/src/components/AgentsWorkspace.tsx`
   - preimage Git blob: `3c7a60083f00ea82872a250b5e555ebb302c913f`
-  - postimage Git blob: `812c49dff6ab2f2d199be130d78ef64501c73903`
-  - postimage SHA-256: `958e79e57772fbfd8b04c3c824d818ee8491fd2cc5339b947173c7e7953c23e2`
+  - postimage Git blob: `11749dd5f3d1108cd1bc4519288b2293ea6feda1`
+  - postimage SHA-256: `96a9c24c19769b4ad484cceb3249f6cc97f248f305684401d457bebe9b0f8588`
+- `apps/web/src/styles.css`
+  - preimage Git blob: `5d7198939aa436d481badb2218c142b8f83ee5ed`
+  - postimage Git blob: `e3e1009390014f51d29cd436ba6dab5bce924488`
+  - postimage SHA-256: `b80012c91444d454224815f90baa3b1c7141eb8146f1d96f3362251f447697c8`
 - `apps/web/tests/rhythm-primary-entry.spec.ts` (new)
-  - postimage Git blob: `370a52122b28da6b36e44da0d91e05bf37a53045`
-  - postimage SHA-256: `acf467069b9e6fdc993b0245e1a80f69cbe22ac7b6a3348cae767dfb80f3d0a0`
+  - postimage Git blob: `7086061c9261cc44bdb9482a3166bc024b822c1e`
+  - postimage SHA-256: `8c18c64d96c780613d28541f210122d76bad6600eee3b1c8ccd9b0549fbba966`
 - `apps/web/tests/rhythm-primary-entry.test.mjs` (new)
-  - postimage Git blob: `dc28b8d8adb7946c94eab8a0b4b06c270a35aa53`
-  - postimage SHA-256: `15709d74ba40066cd38a29267db8363d9ac77f4b62509e57b8a7d9b0c5323af0`
+  - postimage Git blob: `40283631c55693452d7aa14fc757d47fd24dd8fa`
+  - postimage SHA-256: `a80e1f2c63b60b4247576ba4ab5dccbeaf0f16ac49a2724147614d9de3b96fc3`
 
 `git diff --check` passes. The only pre-existing worktree artifact is the
 read-only shared `apps/web/node_modules` symlink; it was not modified.
@@ -70,24 +97,26 @@ Manual caller/path review covered:
 
 ## Checks
 
-- `node --test tests/rhythm-primary-entry.test.mjs` — pass, 8/8 rendered
+- `node --test tests/rhythm-primary-entry.test.mjs` — pass, 9/9 rendered
   `AgentsWorkspace` regressions: one eligible profile/root/composer/no ordinary
   prompt; explicit multi-profile choice; same-key retry; synchronous repeated
   click deduplication; ordinary-chat dismissal/reopen of the same offered
   choices; already-selected root opening; transient empty-row root-detail
-  handoff; and a real third-chat selection that fences a late completion.
+  handoff; a real third-chat selection that fences a late completion; and a
+  changed ordinary-project selection that still opens the authoritative root.
 - The 30 existing coordinator gateway/controller cases passed before this
   final focused component correction; they were intentionally not rerun under
   the bounded-check instruction.
 - `npm run typecheck` — pass.
-- `npm run build` — pass. Vite emitted its existing chunk-size advisory only.
+- `git diff --check` — pass.
 - Root's authorized intercepted-browser run of the earlier candidate passed
   first-use and multi-profile root/history/composer/no-prompt cases, then
   exposed the already-selected-root trigger and stale retry-copy assertion.
-  The four-case fixture now also covers Escape and Keep using ordinary chat
-  dismissal/reopen, but this final fixture was not executed here because this
-  sandbox cannot bind its loopback web server. Root must run it with the
-  supplied supported browser executable.
+  The updated fixture additionally checks five long choices at desktop, 390px,
+  and 320px, plus an ordinary-project change before resolving an existing
+  owner root. It was not executed here because this sandbox cannot bind its
+  loopback web server. Root must run it with the supplied supported browser
+  executable and capture the requested light/dark preview before packaging.
 
 No web lint command exists in this package, and no dependency/network install
 was attempted.
@@ -95,15 +124,17 @@ was attempted.
 ## Boundaries and remaining acceptance
 
 - No backend/API/SDK/engine/provider/auth gateway/session authority, mobile,
-  Shell/styles, Dayflow/OpenDesign/native host, dependency, config, or runtime
-  source changed.
+  Shell/notification, Dayflow/OpenDesign/native host, dependency, config, or
+  runtime source changed. The only stylesheet change is the scoped
+  `.rhythm-setup*` layout described above.
 - The coordinator bearer path is untouched; this repair only consumes the
   already-supported `resolve` and `setup` results.
 - No live database/API/model prompt, browser UI, application, engine, or phone
   action occurred. No commit was created.
 - Root must still run the intercepted browser test where loopback binding is
-  permitted, then perform the authorized signed-app click/navigation/reopen
+  permitted, render light/dark previews at the specified desktop and narrow
+  widths, then perform the authorized signed-app click/navigation/reopen
   verification. That runtime check must confirm first-use setup, visible
-  profile/retry state, dismiss/reopen behavior, an already-selected root,
-  canonical history, ordinary composer, and absence of an unintended SDK/model
-  turn.
+  profile/retry state, dismissal/reopen behavior, an already-selected root,
+  canonical history, ordinary composer, no clipped controls, and absence of an
+  unintended SDK/model turn.
