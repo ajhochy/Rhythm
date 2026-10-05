@@ -2358,22 +2358,6 @@ export class PersistentWorkstreamCoordinator {
       }
       return;
     }
-    if (job.state === 'running' && this.wallTimeExceeded(job, now)) {
-      // This occurs only during an explicit status/boot reconciliation read;
-      // there is no background timer or follow-up dispatch.  The cancellation
-      // transport is deliberately not treated as a completion receipt.
-      await this.requestBestEffortCancellation(
-        workstream.ownerUserId,
-        workstream.id,
-        job.id,
-        'wall_time_exceeded_termination_unconfirmed',
-      );
-      this.publishRuntime(workstream, job.id, 'unknown', 'wall_time_exceeded_termination_unconfirmed', {
-        expectedStates: ['queued', 'running', 'blocked', 'unknown'],
-        executorEpoch: this.hostEpoch,
-      });
-      return;
-    }
     if (job.state === 'claimed') {
       this.markUnknown(workstream, job, 'child_binding_incomplete');
       return;
@@ -2428,6 +2412,22 @@ export class PersistentWorkstreamCoordinator {
         ? 'worker_permission_pending'
         : null;
     if (status?.type === 'busy') {
+      // A late read is not proof that the turn exceeded its wall budget:
+      // completed children must reach exact terminal accounting below. Only
+      // a freshly confirmed busy child still needs deadline cancellation.
+      if (currentJob.state === 'running' && this.wallTimeExceeded(currentJob, new Date().toISOString())) {
+        await this.requestBestEffortCancellation(
+          workstream.ownerUserId,
+          workstream.id,
+          currentJob.id,
+          'wall_time_exceeded_termination_unconfirmed',
+        );
+        this.publishRuntime(workstream, currentJob.id, 'unknown', 'wall_time_exceeded_termination_unconfirmed', {
+          expectedStates: ['queued', 'running', 'blocked', 'unknown'],
+          executorEpoch: this.hostEpoch,
+        });
+        return;
+      }
       // A busy observation is not a terminal receipt.  Keep an already
       // unknown job fenced rather than reclassifying it as running.
       if (reconcilingUnknown || currentJob.state === 'unknown') return;

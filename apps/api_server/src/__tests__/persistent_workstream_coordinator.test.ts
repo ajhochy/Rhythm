@@ -1113,6 +1113,11 @@ describe('persistent workstream coordinator', () => {
   it('C02/C05: an explicit status read past the wall limit requests termination and remains unknown', async () => {
     const context = fixture();
     const job = bindRunningJob(context, new Date(Date.now() - 301_000).toISOString());
+    context.engine.inspectBoundSessionLifecycles.mockImplementation(async (ids) => ({
+      available: true, knownSessionIds: ids,
+      statusBySessionId: { [context.child.sdkSessionId]: { type: 'busy' } },
+      pendingQuestionSessionIds: [], pendingPermissionSessionIds: [],
+    }));
 
     const view = await context.coordinator.status(auth, PROJECT, context.workstream.id);
 
@@ -1128,6 +1133,31 @@ describe('persistent workstream coordinator', () => {
     expect(context.engine.promptAsync).not.toHaveBeenCalled();
     context.db.close();
   });
+
+  it.each(['explicit_idle', 'omitted_idle'] as const)(
+    'a completed worker first observed after the wall deadline is accounted without cancellation (%s)',
+    async (idleReceipt) => {
+      const context = fixture();
+      const job = bindRunningJob(context, new Date(Date.now() - 301_000).toISOString());
+      context.engine.inspectBoundSessionLifecycles.mockImplementation(async (ids) => ({
+        available: true, knownSessionIds: ids,
+        statusBySessionId: idleReceipt === 'explicit_idle'
+          ? { [context.child.sdkSessionId]: { type: 'idle' } } : {},
+        pendingQuestionSessionIds: [], pendingPermissionSessionIds: [],
+      }));
+
+      const view = await context.coordinator.status(auth, PROJECT, context.workstream.id);
+
+      expect(view.jobs.find((item) => item.id === job.id)).toMatchObject({
+        state: 'succeeded', usage: { status: 'actual', totalTokens: 30 },
+        result: { terminalMessageId: 'assistant-exact-anchor', usageStatus: 'actual' },
+      });
+      expect(view.budget).toMatchObject({ actualTokens: 30, unknownJobIds: [], holdReason: null });
+      expect(context.engine.abortSession).not.toHaveBeenCalled();
+      expect(context.engine.promptAsync).not.toHaveBeenCalled();
+      context.db.close();
+    },
+  );
 
   it('R2: accounts for every assistant step in the exact turn while choosing only the final stop answer', async () => {
     const context = fixture({ terminalMessages: [
