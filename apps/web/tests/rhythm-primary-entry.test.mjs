@@ -327,6 +327,40 @@ test('an already-selected server root still opens the coordinator history and co
   await act(async () => { tree.unmount(); });
 });
 
+test('startup hydration to the exact resolved primary root is not treated as a selection change', async () => {
+  const { calls, rhythm } = setup('existing');
+  let releaseResolve;
+  gateway.domains.coordinatorConversations.resolve = () => {
+    calls.resolve += 1;
+    return new Promise((resolve) => {
+      releaseResolve = () => resolve({
+        kind: 'resolved', sessionId: rhythm.id, projectId: rhythm.projectId,
+        conversation: { id: 'conversation-rhythm', sessionId: rhythm.id, projectId: rhythm.projectId, primaryOwnerRoot: true, goals: [] },
+      });
+    });
+  };
+  // A fresh renderer can paint an unqualified placeholder before the catalog
+  // supplies the already server-owned root. The resolve is still in flight.
+  fixtureState = { ...fixtureState, selected: session('', '', 'Loading Rhythm') };
+  let tree;
+  await act(async () => { tree = create(React.createElement(workspaceModule.exports.AgentsWorkspace)); });
+  await act(async () => { entry(tree).props.onClick(); await settle(); });
+  assert.equal(calls.resolve, 1);
+  await act(async () => {
+    fixtureState = { ...fixtureState, selected: rhythm };
+    fixtureRerender((value) => value + 1);
+    await settle();
+  });
+  await act(async () => { releaseResolve(); await settle(); });
+  assert.equal(fixtureState.selected.id, rhythm.id);
+  assert.equal(gateway.__coordinatorOpenCalls, 1);
+  assert.equal(calls.ordinaryPrompt, 0);
+  const status = String(tree.root.findByProps({ 'data-testid': 'rhythm-primary-status' }).children.join(''));
+  assert.match(status, /Rhythm is ready/);
+  assert.doesNotMatch(status, /selection changed|could not be opened/);
+  await act(async () => { tree.unmount(); });
+});
+
 test('a ready already-selected root does not start a stale detail navigation or repaint its entry as failed', async () => {
   const { calls, rhythm } = setup('existing');
   let detailCalls = 0;

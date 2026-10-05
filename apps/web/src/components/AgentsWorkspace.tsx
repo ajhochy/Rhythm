@@ -481,10 +481,20 @@ export function AgentsWorkspace() {
         selected.projectId?.trim() ? { projectId: selected.projectId } : {},
       );
       if (generation !== rhythmResolveGeneration.current || rhythmActorRef.current !== actorId || rhythmGatewayRef.current !== requestGateway) return;
-      if (
-        rhythmSelectionRef.current.sessionId !== requestSelection.sessionId ||
-        rhythmSelectionRef.current.projectId !== requestSelection.projectId
-      ) {
+      const currentSelection = rhythmSelectionRef.current;
+      const originStillSelected =
+        currentSelection.sessionId === requestSelection.sessionId &&
+        currentSelection.projectId === requestSelection.projectId;
+      // Startup catalog hydration can replace an empty placeholder with the
+      // exact root that this already-authoritative resolve returned. That is
+      // not a navigation away: accept only this precise server-proven primary
+      // root after the actor/gateway/generation fences above have held.
+      const resolvedPrimaryAlreadySelected =
+        resolved.kind === 'resolved' &&
+        resolved.conversation.primaryOwnerRoot === true &&
+        currentSelection.sessionId === resolved.sessionId &&
+        currentSelection.projectId === resolved.projectId;
+      if (!originStillSelected && !resolvedPrimaryAlreadySelected) {
         releaseRhythmOpening(generation);
         setRhythmEntry({ opening: false, notice: 'Rhythm selection changed. Your ordinary chats are unchanged.' });
         return;
