@@ -124,6 +124,53 @@ test('the rendered desktop composer preserves a newly edited identical draft aft
   await act(async () => { tree.unmount(); });
 });
 
+test('a ready coordinator root remains composable after an SDK-less restart error and sends only through coordinator admission', async () => {
+  resetFixtures();
+  const coordinatorMessages = [];
+  const ordinarySdkInputs = [];
+  fixtureState = {
+    ...fixtureState,
+    selected: { ...fixtureState.selected, status: 'error', sdkSessionId: undefined },
+    sendLiveInput: (...input) => ordinarySdkInputs.push(input),
+  };
+  let tree;
+  await act(async () => {
+    tree = create(React.createElement(composerModule.exports.Composer, {
+      coordinator: {
+        active: true,
+        onSend: async (message) => { coordinatorMessages.push(message); return { accepted: true }; },
+      },
+    }));
+  });
+  const input = tree.root.findByProps({ 'data-testid': 'composer-input' });
+  assert.equal(input.props.disabled, false);
+  assert.equal(tree.root.findByProps({ 'data-testid': 'composer-send' }).props.disabled, false);
+  assert.equal(tree.root.findByProps({ 'data-testid': 'composer-live-file-input' }).props.disabled, true);
+  await act(async () => { input.props.onChange({ target: { value: 'What should I do today?' } }); });
+  await act(async () => { tree.root.findByType('form').props.onSubmit({ preventDefault() {} }); await Promise.resolve(); });
+  assert.deepEqual(coordinatorMessages, ['What should I do today?']);
+  assert.deepEqual(ordinarySdkInputs, []);
+  await act(async () => { tree.unmount(); });
+});
+
+test('an ordinary SDK-less error session remains disabled without coordinator authority', async () => {
+  resetFixtures();
+  const ordinarySdkInputs = [];
+  fixtureState = {
+    ...fixtureState,
+    selected: { ...fixtureState.selected, status: 'error', sdkSessionId: undefined },
+    sendLiveInput: (...input) => ordinarySdkInputs.push(input),
+  };
+  let tree;
+  await act(async () => { tree = create(React.createElement(composerModule.exports.Composer)); });
+  assert.equal(tree.root.findByProps({ 'data-testid': 'composer-input' }).props.disabled, true);
+  assert.equal(tree.root.findByProps({ 'data-testid': 'composer-send' }).props.disabled, true);
+  assert.match(JSON.stringify(tree.toJSON()), /This run has ended/);
+  await act(async () => { tree.root.findByType('form').props.onSubmit({ preventDefault() {} }); await Promise.resolve(); });
+  assert.deepEqual(ordinarySdkInputs, []);
+  await act(async () => { tree.unmount(); });
+});
+
 test('the rendered desktop coordinator card keeps details collapsed while surfacing holds without opaque workstream IDs', async () => {
   const availability = { state: 'available' };
   const state = {

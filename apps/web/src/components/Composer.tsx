@@ -236,13 +236,23 @@ export function Composer({ renderSecondaryChatActions, coordinator }: {
         : (selected.status === 'closed' || selected.status === 'error') && !recoverableSdk
           ? 'This run has ended. Resume it or start fresh if its runtime session is unavailable.'
           : '';
+  // A ready coordinator root has its own server-authoritative admission and
+  // plaintext sender. An absent SDK session after a normal restart must not
+  // turn that root into an ordinary closed/error transcript. Keep the ordinary
+  // lifecycle reason for profile/model controls, attachments, and all
+  // non-coordinator chats; only the coordinator's own send path can bypass it.
+  const coordinatorOwnsComposition = coordinatorActive && !liveChildView && selected.group !== 'archived';
+  const composerDisabledReason = coordinatorOwnsComposition ? '' : disabledReason;
+  const attachmentDisabledReason = coordinatorOwnsComposition
+    ? 'Coordinator messages are plaintext. Remove attachments before sending.'
+    : disabledReason;
   const isFileDrag = (event: React.DragEvent) => event.dataTransfer.types.includes('Files');
   const handleFileDrag = (event: React.DragEvent<HTMLFormElement>) => {
     if (!isFileDrag(event)) return;
     event.preventDefault();
     if (event.type === 'dragenter' || event.type === 'dragover') {
-      event.dataTransfer.dropEffect = disabledReason || !live ? 'none' : 'copy';
-      setFileDragActive(live && !disabledReason);
+      event.dataTransfer.dropEffect = attachmentDisabledReason || !live ? 'none' : 'copy';
+      setFileDragActive(live && !attachmentDisabledReason);
     } else if (event.type === 'dragleave' && !event.currentTarget.contains(event.relatedTarget as Node | null)) {
       setFileDragActive(false);
     }
@@ -251,7 +261,7 @@ export function Composer({ renderSecondaryChatActions, coordinator }: {
     if (!isFileDrag(event)) return;
     event.preventDefault();
     setFileDragActive(false);
-    if (disabledReason) { setAttachmentFeedback(disabledReason); notify(disabledReason); return; }
+    if (attachmentDisabledReason) { setAttachmentFeedback(attachmentDisabledReason); notify(attachmentDisabledReason); return; }
     if (!live) return;
     const files = Array.from(event.dataTransfer.files);
     if (files.length > 0) setLiveFiles((current) => [...current, ...files]);
@@ -357,7 +367,7 @@ export function Composer({ renderSecondaryChatActions, coordinator }: {
   };
 
   const submit = async () => {
-    if (disabledReason) { notify(disabledReason); return; }
+    if (composerDisabledReason) { notify(composerDisabledReason); return; }
     const submittedDraft = draft;
     const submittedDraftEditRevision = draftEditRevisionRef.current;
     const submittedSessionId = selected.id;
@@ -459,7 +469,7 @@ export function Composer({ renderSecondaryChatActions, coordinator }: {
       {live && (settingsError || catalogError) && <p role="alert">{settingsError || catalogError}</p>}
       {live && (turnOverride.profileId || turnOverride.modelOverride) && <p role="status">Next turn only: {profiles.find(p => p.id === turnOverride.profileId)?.label} {turnOverride.modelOverride?.modelId}</p>}
       {offline && <div className="offline-queue" role="status" data-testid="offline-queue"><span><Icon name="background" size={15} /><strong>Desktop offline</strong> · input remains local until you reconnect.</span><button className="secondary-button" type="button" onClick={reconnect} data-testid="reconnect-button"><Icon name="refresh" size={14} />Reconnect &amp; flush</button></div>}
-      {disabledReason && <div className="composer-disabled-reason" role="status"><Icon name="background" size={14} />{disabledReason}</div>}
+      {composerDisabledReason && <div className="composer-disabled-reason" role="status"><Icon name="background" size={14} />{composerDisabledReason}</div>}
       {attachments.length > 0 && <div className="attachment-list" role="region" aria-label="Pending attachments" data-testid="attachment-list">{attachments.map((attachment) => <div className="attachment-chip" key={attachment.id} data-testid={`attachment-${attachment.id.replace('attachment-', '')}`}><Icon name={attachment.type === 'file' ? 'command' : 'file'} size={14} /><span><strong>{attachment.filename}</strong><small>{attachment.truncated ? 'first 100 KB · truncated' : attachment.type === 'file' ? 'local file reference' : attachment.mime}</small></span><button type="button" onClick={() => removeAttachment(attachment.id)} aria-label={`Remove ${attachment.filename}`} disabled={Boolean(disabledReason)} data-testid={`attachment-remove-${attachment.id.replace('attachment-', '')}`}><Icon name="close" size={13} /></button></div>)}</div>}
       {sessionGatewayMode === 'live' && (liveFiles.length > 0 || liveMentionAttachments.length > 0) && <div className="attachment-list" role="region" aria-label="Pending attachments" data-testid="live-attachment-list">
         {liveMentionAttachments.map((attachment) => <div className="attachment-chip" key={attachment.id} data-testid={`live-mention-${attachment.id}`}><Icon name={attachment.type === 'file' ? 'command' : 'file'} size={14} /><span><strong>{attachment.filename}</strong><small>{attachment.mime}</small></span><button type="button" onClick={() => setLiveMentionAttachments((current) => current.filter((item) => item.id !== attachment.id))} aria-label={`Remove ${attachment.filename}`}><Icon name="close" size={13} /></button></div>)}
@@ -468,7 +478,7 @@ export function Composer({ renderSecondaryChatActions, coordinator }: {
       {attachmentFeedback && <div className={`attachment-feedback ${attachmentFeedback.startsWith('Could not') ? 'error' : ''}`} id="composer-attachment-feedback" role={attachmentFeedback.startsWith('Could not') ? 'alert' : 'status'} data-testid="attachment-feedback"><span>{attachmentFeedback}</span>{attachmentFeedback.startsWith('Could not') && <button type="button" className="text-button" onClick={() => { setAttachmentFeedback(''); textareaRef.current?.focus(); }}>Dismiss</button>}</div>}
       <label className="composer-label" htmlFor="composer-input">{coordinatorActive ? 'Message Rhythm' : 'Message the agent'}</label>
       <div className="composer-input-row">
-        <textarea id="composer-input" ref={textareaRef} value={draft} onChange={(event) => { setEditedDraft(event.target.value); setSuggestionsDismissed(false); }} onKeyDown={handleComposerKey} placeholder={coordinatorActive ? 'Message Rhythm about this project…' : 'Message the agent · / command · @ file · ! shell'} rows={2} role="combobox" aria-autocomplete={coordinatorActive ? 'none' : 'list'} aria-controls={coordinatorActive ? undefined : 'composer-suggestions-list'} aria-expanded={Boolean(suggestionType)} aria-activedescendant={suggestionType && suggestionCount > 0 ? `composer-${suggestionType}-option-${highlighted}` : undefined} aria-describedby={`composer-help${attachmentFeedback ? ' composer-attachment-feedback' : ''}`} disabled={Boolean(disabledReason)} data-testid="composer-input" />
+        <textarea id="composer-input" ref={textareaRef} value={draft} onChange={(event) => { setEditedDraft(event.target.value); setSuggestionsDismissed(false); }} onKeyDown={handleComposerKey} placeholder={coordinatorActive ? 'Message Rhythm about this project…' : 'Message the agent · / command · @ file · ! shell'} rows={2} role="combobox" aria-autocomplete={coordinatorActive ? 'none' : 'list'} aria-controls={coordinatorActive ? undefined : 'composer-suggestions-list'} aria-expanded={Boolean(suggestionType)} aria-activedescendant={suggestionType && suggestionCount > 0 ? `composer-${suggestionType}-option-${highlighted}` : undefined} aria-describedby={`composer-help${attachmentFeedback ? ' composer-attachment-feedback' : ''}`} disabled={Boolean(composerDisabledReason)} data-testid="composer-input" />
         {selected.status === 'working' && !offline
           // Pre-existing gotcha (unrelated to Phase 4 attachments/streaming/parts/pagination):
           // without distinct `key`s, React patches this button's `type` in place (button→submit)
@@ -476,8 +486,8 @@ export function Composer({ renderSecondaryChatActions, coordinator }: {
           // node's type attribute mutates to "submit" before the browser's native default action
           // for that same click runs — silently firing a second, empty form submit right after
           // cancel. Distinct keys force a real remount so the swap can't hijack the click.
-          ? <button key="composer-cancel" className="danger-icon-button" type="button" onClick={() => cancelSession(selected.id)} aria-label="Cancel running session" data-testid="composer-cancel" disabled={Boolean(disabledReason)}><Icon name="cancel" size={15} /></button>
-          : <button key="composer-send" className="send-button" type="submit" aria-label={offline ? 'Queue draft locally' : 'Send message'} data-testid="composer-send" disabled={Boolean(disabledReason)}><Icon name="send" size={17} /></button>}
+          ? <button key="composer-cancel" className="danger-icon-button" type="button" onClick={() => cancelSession(selected.id)} aria-label="Cancel running session" data-testid="composer-cancel" disabled={Boolean(composerDisabledReason)}><Icon name="cancel" size={15} /></button>
+          : <button key="composer-send" className="send-button" type="submit" aria-label={offline ? 'Queue draft locally' : 'Send message'} data-testid="composer-send" disabled={Boolean(composerDisabledReason)}><Icon name="send" size={17} /></button>}
       </div>
       {suggestionType && <div ref={suggestionsRef} id="composer-suggestions-list" className="composer-suggestions" role="listbox" aria-label={`${suggestionType} suggestions`} data-testid="composer-suggestions">
         {suggestionType === 'slash' && slashOptions.map((command, index) => <button id={`composer-slash-option-${index}`} role="option" aria-selected={highlighted === index} type="button" key={command} onClick={() => { setEditedDraft(`${command} `); textareaRef.current?.focus(); }} data-testid={`command-${command.slice(1)}`}><Icon name="command" size={14} /><strong>{command}</strong><small>{sessionGatewayMode === 'live' ? (liveCommands.find((entry) => entry.name === command.slice(1))?.description || 'Command') : 'Fixture command'}</small></button>)}

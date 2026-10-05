@@ -90,6 +90,8 @@ async function openRhythmFixture(page: Page, options: {
   mode?: SetupMode;
   existingRoot?: boolean;
   holdSetup?: boolean;
+  rootStatus?: 'idle' | 'error';
+  ordinaryStatus?: 'idle' | 'error';
 } = {}): Promise<FixtureState> {
   const state: FixtureState = {
     resolveCalls: 0,
@@ -101,9 +103,9 @@ async function openRhythmFixture(page: Page, options: {
     rootExists: options.existingRoot ?? false,
     retryFailed: false,
   };
-  const origin = session('ordinary-root', 'project-ordinary', 'Ordinary chat');
+  const origin = { ...session('ordinary-root', 'project-ordinary', 'Ordinary chat'), status: options.ordinaryStatus ?? 'idle' };
   const alternateOrigin = session('ordinary-other-root', 'project-other', 'Another ordinary chat');
-  const rhythmRoot = session('rhythm-root', 'project-rhythm', 'Rhythm');
+  const rhythmRoot = { ...session('rhythm-root', 'project-rhythm', 'Rhythm'), status: options.rootStatus ?? 'idle', sdkSessionId: null };
   let releaseSetup = () => {};
   const heldSetup = new Promise<void>((resolve) => { releaseSetup = resolve; });
   state.setupRelease = releaseSetup;
@@ -361,4 +363,21 @@ test('an existing server root reopens after navigation and repeated entry clicks
   await expectRhythmRoot(page, state);
   expect(state.setupBodies).toEqual([]);
   expect(state.resolveCalls).toBe(2);
+});
+
+test('ready inert coordinator accepts composition after restart while ordinary error without SDK stays disabled', async ({ page }) => {
+  const state = await openRhythmFixture(page, { existingRoot: true, rootStatus: 'error', ordinaryStatus: 'error' });
+  await expect(page.getByTestId('composer-input')).toBeDisabled();
+  await page.getByTestId('rhythm-primary-entry').click();
+  await expectRhythmRoot(page, state);
+  await expect(page.getByTestId('composer-input')).toBeEnabled();
+  await expect(page.getByTestId('composer-send')).toBeEnabled();
+  await expect(page.locator('.composer-disabled-reason')).toHaveCount(0);
+  await page.reload();
+  await page.getByTestId('rhythm-primary-entry').click();
+  await expectRhythmRoot(page, state);
+  await expect(page.getByTestId('composer-input')).toBeEnabled();
+  await expect(page.locator('.composer-disabled-reason')).toHaveCount(0);
+  expect(state.setupBodies).toHaveLength(0);
+  expect(state.sessionInputFrames).toHaveLength(0);
 });
