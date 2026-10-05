@@ -180,3 +180,64 @@ automatic-import-success claim. Root must mechanically compose the frozen
 application bytes and re-run the normal stock authenticated status/context
 scenario before treating the current 27-receipt selection as coordinator
 context.
+
+## R4 — proven former revoked-configuration receipt exclusion
+
+Source derivative frozen at `2026-10-05T22:56:31Z`. The R3 application bytes
+were the preimage; this remains uncommitted source-only work in the same
+isolated checkout.
+
+| Application path | R3 SHA-256 | R4 frozen SHA-256 |
+| --- | --- | --- |
+| `apps/api_server/src/integrations/dayflow/service.ts` | `f6ac5b9a794e604b4356a83ff7c714507f2496e757eabe6e1287ac17fa1c68c0` | `d85f98468e6dd502c1af949f1b35d3a930a314d363c3873804cf935d85276461` |
+| `apps/api_server/src/__tests__/dayflow_qualified_reader.test.ts` | `0b839a58ce136ae803091b51e3121412dc32d01240447b41aa62518563ece016` | `b93425a8a74355e8cfc71785b25cb6fdec5002ee7ca3e24306109d11bcf2a5ab` |
+
+- The strict current-generation receipt matcher remains the default. A failed
+  match is excluded only when the parsed completed receipt has exact stored
+  immutable canonical provenance, is active, matches the current owner,
+  project, namespace, source instance, and prepared scope, has both a former
+  consent/configuration generation, and its former consent is durably revoked
+  in the existing ledger fence.
+- A former receipt alone cannot produce an authoritative empty `available`
+  result. The complete scan must also contain at least one active, unexpired,
+  strict current-scope candidate; otherwise the reader remains unavailable.
+- The excluded former receipt never enters the current candidate set or
+  current identity set. A retained old manifest consequently fails the
+  producer's synchronous admission recomputation. Pending deletes, current
+  pending creates, source/canonical/operation collisions, malformed receipts,
+  canonical provenance tampering, source changes, and consent changes retain
+  their existing closed behavior.
+
+### R4 focused evidence
+
+- Read-only metadata receipt review only:
+  `../../rhythm-qualified-reader-recovery-delivery-20261005/activation/`
+  `final-runtime-metadata.json`, `dayflow-consent-preservation-after.json`,
+  `coordinator-dayflow-import-context.json`,
+  `after-current-refresh-coordinator-dayflow-status.json`,
+  `current-reader-flat-ledger-metadata.json`, and
+  `current-reader-receipt-generation-metadata.json`.
+  Their counts/timestamps were diagnostic only and were not used as authority.
+- PASS — `cd apps/api_server && ./node_modules/.bin/vitest run src/__tests__/dayflow_qualified_reader.test.ts` — 36/36.
+- PASS — `cd apps/api_server && ./node_modules/.bin/vitest run src/__tests__/dayflow_qualified_reader.test.ts -t 'selects only the current scope' --no-file-parallelism` — 1/1 (35 intentionally skipped).
+  - Synthetic path: initial two receipts → configuration rotation/durable
+    revoke → explicit same-owner synthetic grant → one `already_present`
+    re-attestation plus one retained former receipt and 15 identity-distinct
+    unqualified pending creates.
+  - The reader exposes only the new current receipt; the retained old manifest
+    is not current, and a former-row canonical-key mismatch closes the reader.
+- PASS — `cd apps/api_server && ./node_modules/.bin/tsc --noEmit`.
+- PASS — `git diff --check`.
+- GitNexus exact-checkout impact remains unavailable because
+  `.gitnexus/run.cjs` is absent. No index, alternate checkout, or graph
+  substitution was used; manual flow review covered the direct reader,
+  admission capture/recomputation, and evidence-service final-admission
+  callers.
+
+### R4 remaining gate
+
+No live source, API, engine, SDK/model turn, UI, grant, import, configuration,
+ledger/database, package, or service action was performed here. Root must
+mechanically compose these frozen application bytes and re-run the normal
+stock authenticated reader/status/context scenario. This source handoff does
+not claim live qualified context or automatic import success.

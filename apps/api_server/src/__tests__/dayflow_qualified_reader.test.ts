@@ -328,6 +328,111 @@ describe('qualified Dayflow producer', () => {
     service.dispose();
   });
 
+  it('selects only the current scope when a valid former revoked receipt remains beside partial re-attestation', async () => {
+    const stage = root();
+    const ledger = new MemoryLedger(join(stage, 'ledger.json'));
+    const store = configured(stage);
+    const records = [
+      { id: 'former-config-replayed', start: '2026-10-04T08:00:00Z', summary: 'Synthetic re-attested observation.' },
+      { id: 'former-config-retained', start: '2026-10-04T09:00:00Z', summary: 'Synthetic retained former observation.' },
+    ];
+    const dayflowSource = source(records);
+    const persistedAuthority = new DayflowPersistedQualificationAuthority(store, ledger, () => NOW);
+    const completedCanonicalIds = new Set<string>();
+    const memoryClient = new AuthenticatedDayflowMemoryClient(persistedAuthority, {
+      indexForOwner: () => ({} as never),
+      claimOwner: async () => true,
+      createOnly: async (input) => {
+        const disposition = completedCanonicalIds.has(input.id) ? 'already_present' as const : 'created' as const;
+        completedCanonicalIds.add(input.id);
+        return {
+          id: input.id,
+          path: `memory/context/import-${input.id.toLowerCase()}.md`,
+          kind: 'context' as const,
+          disposition,
+          canonicalContentHash: createHash('sha256').update(input.content).digest('hex'),
+          sourceRevision: input.sourceRevision,
+          normalizerVersion: input.normalizerVersion,
+        };
+      },
+    });
+    const service = new DayflowIntegrationService({
+      source: dayflowSource,
+      memoryClient,
+      ledger,
+      configStore: store,
+      now: () => NOW,
+      qualificationAuthority: persistedAuthority,
+      ...verifiedJournalBinding(dayflowSource),
+    });
+    const input = { ownerUserId: 7, projectId: 'project:dayflow', limit: 3000 };
+    service.grantAuthenticatedSourceConsent({ ownerUserId: 7, projectId: 'project:dayflow', authorizingSessionId: 'session:former-config-initial' });
+    await importOne(service);
+    const oldManifest = await service.readQualifiedEvidenceWithAdmission(input);
+    expect(oldManifest.page).toMatchObject({ status: 'available' });
+    expect(oldManifest.page.candidates).toHaveLength(2);
+    expect(oldManifest.admission).not.toBeNull();
+    const oldConfigurationGeneration = oldManifest.page.candidates[0]!.reference.configurationGeneration;
+    const oldConsentGeneration = oldManifest.page.candidates[0]!.reference.consentGeneration;
+
+    await service.updateConfig({ exclusions: ['category:private'] });
+    expect(ledger.isSourceConsentGenerationRevoked(oldConsentGeneration)).toBe(true);
+    service.grantAuthenticatedSourceConsent({ ownerUserId: 7, projectId: 'project:dayflow', authorizingSessionId: 'session:former-config-restored' });
+
+    // The bounded importer sees only the first unchanged card after the new
+    // explicit grant. The second canonical row remains valid former-scope
+    // provenance but must never become current authority.
+    records.splice(1, 1);
+    const partialPreview = await service.preview();
+    await service.commit(partialPreview.token, partialPreview.candidates.map((candidate) => candidate.candidateId));
+    const currentEntry = ledger.currentEntries().find((entry) =>
+      entry.qualification?.reference.configurationGeneration !== oldConfigurationGeneration)!;
+    const formerEntry = structuredClone(ledger.currentEntries().find((entry) =>
+      entry.qualification?.reference.configurationGeneration === oldConfigurationGeneration)!);
+    expect(currentEntry.qualification?.reference.consentGeneration).not.toBe(oldConsentGeneration);
+    expect(formerEntry.qualification?.reference.consentGeneration).toBe(oldConsentGeneration);
+
+    for (let index = 0; index < 15; index++) {
+      const sourceId = JSON.stringify(['former-config-pending', index]);
+      ledger.journalCreate({
+        sourceId,
+        revisionHash: createHash('sha256').update(`former-config-pending-revision-${index}`).digest('hex'),
+        memoryId: stableMemoryId(sourceId),
+        contentHash: createHash('sha256').update(`former-config-pending-content-${index}`).digest('hex'),
+        exportVersion: 'fixture-v1',
+        importedAt: new Date(NOW - index - 1).toISOString(),
+        operationId: `former_config_pending_${String(index).padStart(2, '0')}`,
+      });
+    }
+    const pending = ledger.currentEntries().filter((entry) => entry.pendingCreateAt && !entry.qualification);
+    expect(pending).toHaveLength(15);
+    expect(pending.every((entry) => entry.sourceId !== currentEntry.sourceId &&
+      entry.memoryId !== currentEntry.memoryId && entry.operationId !== currentEntry.operationId)).toBe(true);
+
+    const current = await service.readQualifiedEvidence(input);
+    expect(current).toMatchObject({ status: 'available' });
+    expect(current.candidates).toHaveLength(1);
+    expect(current.candidates[0]!.reference).toMatchObject({
+      canonicalId: currentEntry.memoryId,
+      consentGeneration: currentEntry.qualification!.reference.consentGeneration,
+      configurationGeneration: currentEntry.qualification!.reference.configurationGeneration,
+    });
+    expect(current.candidates.some((candidate) => candidate.reference.canonicalId === formerEntry.memoryId)).toBe(false);
+    expect(service.isQualifiedEvidenceAdmissionCurrent(input, oldManifest.page, oldManifest.admission!)).toBe(false);
+
+    // The former row can be omitted only while its stored immutable canonical
+    // provenance remains exact. A valid-looking key mismatch holds all reads.
+    ledger.save({ ...formerEntry, canonicalSourceKey: 'memory/context/tampered-former-proof.md' });
+    await expect(service.readQualifiedEvidence(input)).resolves.toMatchObject({
+      status: 'unavailable', references: [], candidates: [],
+    });
+    ledger.save(formerEntry);
+    await expect(service.readQualifiedEvidence(input)).resolves.toMatchObject({
+      status: 'available', candidates: [{ reference: { canonicalId: currentEntry.memoryId } }],
+    });
+    service.dispose();
+  });
+
   it('does not transfer a fenced canonical observation to a different explicit owner or project', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);

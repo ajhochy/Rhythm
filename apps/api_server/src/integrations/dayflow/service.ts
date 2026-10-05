@@ -570,6 +570,7 @@ export class DayflowIntegrationService {
     const candidates = new Map<string, QualifiedEvidenceStateCandidate>();
     const currentScopeIdentities: CurrentQualifiedLedgerIdentity[] = [];
     const unqualifiedEntries: LedgerEntry[] = [];
+    let formerRevokedConfigurationReceiptPresent = false;
     for (const entry of entries) {
       // A completed retraction is safe historical state. A pending write or
       // delete is not: it may be the current scope changing underneath this
@@ -586,7 +587,13 @@ export class DayflowIntegrationService {
         if (this.receiptCouldBelongToCurrentScope(receipt.reference, scope, preparation)) return null;
         continue;
       }
-      if (!this.receiptMatchesLedgerEntry(receipt, entry, preparation)) return null;
+      if (!this.receiptMatchesLedgerEntry(receipt, entry, preparation)) {
+        if (this.isProvenFormerRevokedConfigurationReceipt(receipt, entry, scope, preparation)) {
+          formerRevokedConfigurationReceiptPresent = true;
+          continue;
+        }
+        return null;
+      }
       const reference = receipt.reference;
       // A foreign receipt is never a reason to expose or reject the current
       // actor's complete scope; it is simply not part of this scope.
@@ -623,12 +630,12 @@ export class DayflowIntegrationService {
       ) return null;
       if (!existing || isNewerQualifiedCandidate(candidate, existing)) candidates.set(reference.canonicalId, candidate);
     }
-    // An unqualified pending create is not evidence and is never selected.
-    // It may be excluded only after a non-empty current signed selection is
-    // known, and only when its durable create-only identity cannot affect any
-    // receipt in that selection. This avoids treating unrelated legacy
-    // pending operations as scope authority while preserving holds for an
-    // empty result, a malformed row, a delete, or a possible canonical clash.
+    // A former revoked receipt and an unqualified pending create are never
+    // evidence. Either may be excluded only after a non-empty current signed
+    // selection is known. This avoids turning old/failing state into an
+    // authoritative empty result while preserving holds for a malformed row,
+    // delete, or possible canonical clash.
+    if (formerRevokedConfigurationReceiptPresent && candidates.size === 0) return null;
     if (unqualifiedEntries.some((entry) =>
       !this.isDistinctUnqualifiedPendingCreate(entry, currentScopeIdentities, candidates.size > 0))) return null;
     const ordered = [...candidates.values()].sort((left, right) =>
@@ -1169,6 +1176,39 @@ export class DayflowIntegrationService {
       reference.canonicalId === entry.memoryId &&
       reference.canonicalVersion === dayflowCanonicalVersion(receipt.canonicalContentHash) &&
       receipt.canonicalSourceKey === entry.canonicalSourceKey;
+  }
+  /**
+   * A completed receipt from a former configuration can never authorize a
+   * current read. It may be omitted from a non-empty current qualified
+   * selection only after its immutable canonical provenance still matches and
+   * the durable ledger fence proves its old explicit consent was revoked. Any
+   * foreign, malformed, pending, retracted, or source/provenance-mismatched
+   * receipt remains a closed reader state.
+   */
+  private isProvenFormerRevokedConfigurationReceipt(
+    receipt: ReturnType<typeof parseDayflowQualifiedReceipt>,
+    entry: LedgerEntry,
+    scope: ReturnType<typeof parseDayflowQualificationScope>,
+    preparation: { namespace: string; sourceInstance: string; configurationGeneration: string },
+  ): boolean {
+    const reference = receipt.reference;
+    if (entry.pendingCreateAt || entry.pendingDeleteAt || entry.tombstonedAt ||
+        reference.eligibility !== 'active' ||
+        !this.receiptMatchesStoredQualificationProvenance(receipt, entry) ||
+        scope.namespace !== preparation.namespace ||
+        scope.sourceInstance !== preparation.sourceInstance ||
+        scope.configurationGeneration !== preparation.configurationGeneration ||
+        reference.namespace !== preparation.namespace ||
+        reference.sourceInstance !== preparation.sourceInstance ||
+        reference.ownerUserId !== scope.ownerUserId ||
+        reference.projectId !== scope.projectId ||
+        reference.consentGeneration === scope.consentGeneration ||
+        reference.configurationGeneration === scope.configurationGeneration) return false;
+    try {
+      return this.deps.ledger?.isSourceConsentGenerationRevoked(reference.consentGeneration) === true;
+    } catch {
+      return false;
+    }
   }
   private receiptCouldBelongToCurrentScope(
     reference: DayflowWorkstreamReferenceV1,
