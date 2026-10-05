@@ -224,6 +224,12 @@ export function AgentsWorkspace() {
   const rhythmSelectionRef = useRef({ sessionId: selected.id, projectId: selected.projectId });
   rhythmSelectionRef.current = { sessionId: selected.id, projectId: selected.projectId };
   const rhythmSetupRef = useRef<PendingRhythmSetup | null>(null);
+  // The rail disables after React commits, but two native click events can be
+  // delivered before that commit. Keep the one primary-entry operation
+  // synchronous as well, so a first-use setup key is never replaced by a
+  // second click.
+  const rhythmOpeningRef = useRef(false);
+  const rhythmSetupRequestRef = useRef<string | null>(null);
   const rhythmPrimaryRef = useRef<{
     generation: number;
     actorId: number;
@@ -239,12 +245,22 @@ export function AgentsWorkspace() {
   const dayflowConsentAbort = useRef<AbortController | null>(null);
   const [dayflowConsentNotice, setDayflowConsentNotice] = useState<string>();
   const [rhythmEntry, setRhythmEntry] = useState<RhythmEntry>({ opening: false });
+  // Selecting an already-active server root does not change the ordinary
+  // selection dependencies below. Keep a small local navigation revision so
+  // the primary handoff still starts its existing coordinator open path.
+  const [rhythmPrimaryNavigationRevision, setRhythmPrimaryNavigationRevision] = useState(0);
+  const releaseRhythmOpening = useCallback((generation: number) => {
+    // A selection/account/gateway change increments this generation before a
+    // later click may begin. An old completion must never unlock that newer
+    // primary-entry operation.
+    if (generation === rhythmResolveGeneration.current) rhythmOpeningRef.current = false;
+  }, []);
   const navigateRhythmRoot = useCallback(async (
     resolved: Extract<CoordinatorResolveResult, { kind: 'resolved' }> | Extract<CoordinatorSetupResult, { kind: 'setup_created' | 'setup_replay' }>,
     input: { generation: number; actorId: number; requestGateway: typeof gateway; requestSelection: { sessionId: string; projectId?: string } },
   ): Promise<boolean> => {
     if (resolved.conversation.primaryOwnerRoot !== true) {
-      setRhythmEntry({ opening: false, notice: 'Rhythm could not confirm its server-bound root. Your ordinary chats are unchanged.' });
+      setRhythmEntry({ opening: false, notice: 'Rhythm could not open its chat. Your ordinary chats are unchanged.' });
       return false;
     }
     rhythmPrimaryRef.current = {
@@ -279,79 +295,32 @@ export function AgentsWorkspace() {
       rhythmActorRef.current !== input.actorId ||
       rhythmGatewayRef.current !== input.requestGateway
     ) return false;
-    setRhythmEntry({ opening: true, notice: 'Opening the server-bound Rhythm chat…' });
+    setRhythmPrimaryNavigationRevision((revision) => revision + 1);
+    setRhythmEntry({ opening: true, notice: 'Opening Rhythm…' });
     return true;
   }, [refreshCatalog, selectLiveSession]);
-  const openRhythmPrimary = useCallback(async () => {
-    const coordinatorGateway = gateway.domains.coordinatorConversations;
-    const actorId = auth?.user.id;
-    const requestGateway = gateway;
-    const requestSelection = { ...rhythmSelectionRef.current };
-    const generation = ++rhythmResolveGeneration.current;
-    rhythmPrimaryRef.current = null;
-    rhythmSetupRef.current = null;
-    if (!live || !actorId || !coordinatorGateway?.resolve) {
-      setRhythmEntry({ opening: false, notice: 'Rhythm is unavailable here. Your ordinary chats are unchanged.' });
-      return;
-    }
-    setRhythmEntry({ opening: true, notice: 'Opening Rhythm…' });
-    try {
-      const resolved = await coordinatorGateway.resolve(
-        selected.projectId?.trim() ? { projectId: selected.projectId } : {},
-      );
-      if (generation !== rhythmResolveGeneration.current || rhythmActorRef.current !== actorId || rhythmGatewayRef.current !== requestGateway) return;
-      if (
-        rhythmSelectionRef.current.sessionId !== requestSelection.sessionId ||
-        rhythmSelectionRef.current.projectId !== requestSelection.projectId
-      ) {
-        setRhythmEntry({ opening: false, notice: 'Rhythm selection changed. Your ordinary chats are unchanged.' });
-        return;
-      }
-      if (resolved.kind === 'setup_unavailable') {
-        const setup: PendingRhythmSetup = {
-          generation,
-          actorId,
-          gateway: requestGateway,
-          originSessionId: requestSelection.sessionId,
-          originProjectId: requestSelection.projectId,
-          commandKey: rhythmSetupCommandKey(),
-        };
-        rhythmSetupRef.current = setup;
-        setRhythmEntry({
-          opening: false,
-          notice: 'Set up Rhythm to create its server-bound chat. Your ordinary chats are unchanged.',
-          setup: { commandKey: setup.commandKey },
-        });
-        return;
-      }
-      if (resolved.kind !== 'resolved' || resolved.conversation.primaryOwnerRoot !== true) {
-        setRhythmEntry({ opening: false, notice: 'Rhythm is not available for this signed-in workspace. Your ordinary chats are unchanged.' });
-        return;
-      }
-      await navigateRhythmRoot(resolved, { generation, actorId, requestGateway, requestSelection });
-    } catch {
-      if (generation === rhythmResolveGeneration.current && rhythmActorRef.current === actorId && rhythmGatewayRef.current === requestGateway) {
-        setRhythmEntry({ opening: false, notice: 'Rhythm could not be opened. Your ordinary chats are unchanged.' });
-      }
-    }
-  }, [auth?.user.id, gateway, live, navigateRhythmRoot, selected.projectId]);
   const startRhythmSetup = useCallback(async (profileId?: string): Promise<boolean> => {
     const pending = rhythmSetupRef.current;
     const coordinatorGateway = gateway.domains.coordinatorConversations;
     const actorId = auth?.user.id;
     const requestGateway = gateway;
     if (!pending || !coordinatorGateway?.setup || !actorId || pending.actorId !== actorId || pending.gateway !== requestGateway) {
-      setRhythmEntry({ opening: false, notice: 'Rhythm setup is not available for this signed-in workspace. Your ordinary chats are unchanged.' });
+      rhythmOpeningRef.current = false;
+      setRhythmEntry({ opening: false, notice: 'Rhythm setup is not available for this chat. Your ordinary chats are unchanged.' });
       return false;
     }
     if (profileId !== undefined && !pending.profileChoices?.some((choice) => choice.id === profileId)) {
-      setRhythmEntry({ opening: false, notice: 'Choose one of the currently offered Rhythm profiles.', setup: { commandKey: pending.commandKey, profileChoices: pending.profileChoices } });
+      rhythmOpeningRef.current = false;
+      setRhythmEntry({ opening: false, notice: 'Choose one of the listed Rhythm profiles.', setup: { commandKey: pending.commandKey, profileChoices: pending.profileChoices } });
       return false;
     }
+    if (rhythmSetupRequestRef.current === pending.commandKey) return false;
+    rhythmSetupRequestRef.current = pending.commandKey;
+    rhythmOpeningRef.current = true;
     const generation = ++rhythmResolveGeneration.current;
     const attempt: PendingRhythmSetup = { ...pending, generation };
     rhythmSetupRef.current = attempt;
-    setRhythmEntry({ opening: true, notice: 'Setting up the server-bound Rhythm chat…', setup: { commandKey: attempt.commandKey, profileChoices: attempt.profileChoices } });
+    setRhythmEntry({ opening: true, notice: 'Setting up Rhythm…', setup: { commandKey: attempt.commandKey, profileChoices: attempt.profileChoices } });
     try {
       // This is an explicit user action. The closed setup request contains
       // only its idempotency key and an optional opaque server-returned choice.
@@ -369,28 +338,37 @@ export function AgentsWorkspace() {
         rhythmSelectionRef.current.sessionId !== attempt.originSessionId ||
         rhythmSelectionRef.current.projectId !== attempt.originProjectId
       ) {
+        releaseRhythmOpening(generation);
         setRhythmEntry({ opening: false, notice: 'Rhythm selection changed. Your ordinary chats are unchanged.' });
         return false;
       }
       if (result.kind === 'setup_profile_choice_required') {
         attempt.profileChoices = result.profileChoices;
+        releaseRhythmOpening(generation);
         setRhythmEntry({
           opening: false,
-          notice: 'Choose a currently eligible Rhythm profile. This does not grant model or workspace authority.',
+          notice: 'Choose a Rhythm profile to finish setup.',
           setup: { commandKey: attempt.commandKey, profileChoices: result.profileChoices },
         });
         return false;
       }
       if (result.kind === 'setup_created' || result.kind === 'setup_replay') {
+        // The server-created root is now the authoritative setup replay
+        // target. Clear this local menu pointer before selecting that root so
+        // the origin-selection fence does not mistake the normal handoff for
+        // a user navigation away from setup.
         rhythmSetupRef.current = null;
-        return navigateRhythmRoot(result, {
+        const navigated = await navigateRhythmRoot(result, {
           generation,
           actorId,
           requestGateway,
           requestSelection: { sessionId: attempt.originSessionId, projectId: attempt.originProjectId },
         });
+        if (!navigated) releaseRhythmOpening(generation);
+        return navigated;
       }
-      setRhythmEntry({ opening: false, notice: 'Rhythm setup is unavailable right now. No chat, model turn, or workspace was created from this screen.', setup: { commandKey: attempt.commandKey, profileChoices: attempt.profileChoices } });
+      releaseRhythmOpening(generation);
+      setRhythmEntry({ opening: false, notice: 'Rhythm setup is unavailable right now. Your ordinary chats are unchanged.', setup: { commandKey: attempt.commandKey, profileChoices: attempt.profileChoices } });
       return false;
     } catch {
       if (
@@ -401,12 +379,98 @@ export function AgentsWorkspace() {
       ) {
         // A failed acknowledgement can still have reached the server. Keep
         // the exact setup key instead of making a second allocation request.
-        setRhythmEntry({ opening: false, notice: 'Rhythm setup could not be confirmed. Retry this same setup request when ready.', setup: { commandKey: attempt.commandKey, profileChoices: attempt.profileChoices } });
+        releaseRhythmOpening(generation);
+        setRhythmEntry({ opening: false, notice: 'Rhythm setup could not be confirmed. Retry when you are ready.', setup: { commandKey: attempt.commandKey, profileChoices: attempt.profileChoices } });
       }
       return false;
+    } finally {
+      if (rhythmSetupRequestRef.current === attempt.commandKey) rhythmSetupRequestRef.current = null;
     }
-  }, [auth?.user.id, gateway, navigateRhythmRoot]);
-  useEffect(() => () => { rhythmResolveGeneration.current += 1; rhythmSetupRef.current = null; }, []);
+  }, [auth?.user.id, gateway, navigateRhythmRoot, releaseRhythmOpening]);
+  const openRhythmPrimary = useCallback(async () => {
+    if (rhythmOpeningRef.current) return;
+    const coordinatorGateway = gateway.domains.coordinatorConversations;
+    const actorId = auth?.user.id;
+    const requestGateway = gateway;
+    const requestSelection = { ...rhythmSelectionRef.current };
+    if (!live || !actorId || !coordinatorGateway?.resolve) {
+      setRhythmEntry({ opening: false, notice: 'Rhythm is unavailable here. Your ordinary chats are unchanged.' });
+      return;
+    }
+    const existingSetup = rhythmSetupRef.current;
+    if (
+      existingSetup &&
+      existingSetup.actorId === actorId &&
+      existingSetup.gateway === requestGateway &&
+      existingSetup.originSessionId === requestSelection.sessionId &&
+      existingSetup.originProjectId === requestSelection.projectId
+    ) {
+      if (existingSetup.profileChoices?.length) {
+        setRhythmEntry({
+          opening: false,
+          notice: 'Choose a Rhythm profile to finish setup.',
+          setup: { commandKey: existingSetup.commandKey, profileChoices: existingSetup.profileChoices },
+        });
+        return;
+      }
+      rhythmOpeningRef.current = true;
+      await startRhythmSetup();
+      return;
+    }
+    const generation = ++rhythmResolveGeneration.current;
+    rhythmOpeningRef.current = true;
+    rhythmPrimaryRef.current = null;
+    rhythmSetupRef.current = null;
+    setRhythmEntry({ opening: true, notice: 'Opening Rhythm…' });
+    try {
+      const resolved = await coordinatorGateway.resolve(
+        selected.projectId?.trim() ? { projectId: selected.projectId } : {},
+      );
+      if (generation !== rhythmResolveGeneration.current || rhythmActorRef.current !== actorId || rhythmGatewayRef.current !== requestGateway) return;
+      if (
+        rhythmSelectionRef.current.sessionId !== requestSelection.sessionId ||
+        rhythmSelectionRef.current.projectId !== requestSelection.projectId
+      ) {
+        releaseRhythmOpening(generation);
+        setRhythmEntry({ opening: false, notice: 'Rhythm selection changed. Your ordinary chats are unchanged.' });
+        return;
+      }
+      if (resolved.kind === 'setup_unavailable') {
+        const setup: PendingRhythmSetup = {
+          generation,
+          actorId,
+          gateway: requestGateway,
+          originSessionId: requestSelection.sessionId,
+          originProjectId: requestSelection.projectId,
+          commandKey: rhythmSetupCommandKey(),
+        };
+        rhythmSetupRef.current = setup;
+        // Resolve intentionally does not allocate an inert root. Immediately
+        // continue through the explicit, server-validated setup exchange so
+        // first use either reaches the root or visibly asks for a profile.
+        await startRhythmSetup();
+        return;
+      }
+      if (resolved.kind !== 'resolved' || resolved.conversation.primaryOwnerRoot !== true) {
+        releaseRhythmOpening(generation);
+        setRhythmEntry({ opening: false, notice: 'Rhythm is not available for this chat. Your ordinary chats are unchanged.' });
+        return;
+      }
+      const navigated = await navigateRhythmRoot(resolved, { generation, actorId, requestGateway, requestSelection });
+      if (!navigated) releaseRhythmOpening(generation);
+    } catch {
+      if (generation === rhythmResolveGeneration.current && rhythmActorRef.current === actorId && rhythmGatewayRef.current === requestGateway) {
+        releaseRhythmOpening(generation);
+        setRhythmEntry({ opening: false, notice: 'Rhythm could not be opened. Your ordinary chats are unchanged.' });
+      }
+    }
+  }, [auth?.user.id, gateway, live, navigateRhythmRoot, releaseRhythmOpening, selected.projectId, startRhythmSetup]);
+  useEffect(() => () => {
+    rhythmResolveGeneration.current += 1;
+    rhythmSetupRef.current = null;
+    rhythmSetupRequestRef.current = null;
+    rhythmOpeningRef.current = false;
+  }, []);
   useEffect(() => {
     dayflowConsentGeneration.current += 1;
     dayflowConsentAbort.current?.abort();
@@ -419,9 +483,11 @@ export function AgentsWorkspace() {
     if (!setup || (setup.originSessionId === selected.id && setup.originProjectId === selected.projectId)) return;
     rhythmResolveGeneration.current += 1;
     rhythmSetupRef.current = null;
-    setRhythmEntry((current) => current.setup
-      ? { opening: false, notice: 'Rhythm selection changed. Your ordinary chats are unchanged.' }
-      : current);
+    rhythmSetupRequestRef.current = null;
+    rhythmOpeningRef.current = false;
+    // A dismissed dialog intentionally has no visible `setup` state, but its
+    // retained pointer still belongs only to the origin chat.
+    setRhythmEntry({ opening: false, notice: 'Rhythm selection changed. Your ordinary chats are unchanged.' });
   }, [selected.id, selected.projectId]);
   useEffect(() => {
     const pendingPrimary = rhythmPrimaryRef.current;
@@ -432,6 +498,7 @@ export function AgentsWorkspace() {
       pendingPrimary.gateway !== rhythmGatewayRef.current
     ) {
       rhythmPrimaryRef.current = null;
+      releaseRhythmOpening(pendingPrimary.generation);
       return;
     }
     const currentSelection = rhythmSelectionRef.current;
@@ -445,10 +512,22 @@ export function AgentsWorkspace() {
       // not permission for this late resolve to move it back.
       if (
         pendingPrimary.selectionRequested &&
+        // `selectLiveSession` sets the selected local id before its detail
+        // row reaches the store. During that normal handoff the workspace
+        // briefly renders the empty live-session placeholder. It is neither
+        // an actor/project switch nor a user navigation away from the root.
+        // A nonempty third session still cancels this late entry request.
+        currentSelection.sessionId !== '' &&
+        currentSelection.sessionId !== pendingPrimary.sessionId &&
         (currentSelection.sessionId !== pendingPrimary.originSessionId ||
           currentSelection.projectId !== pendingPrimary.originProjectId)
       ) {
+        // Fence the still-awaited selectLiveSession continuation as well as
+        // the visible card effect. Otherwise its late completion can repaint
+        // "Opening" after a user deliberately chose another chat.
+        rhythmResolveGeneration.current += 1;
         rhythmPrimaryRef.current = null;
+        rhythmOpeningRef.current = false;
         setRhythmEntry({ opening: false, notice: 'Rhythm selection changed. Your ordinary chats are unchanged.' });
       }
       return;
@@ -457,11 +536,12 @@ export function AgentsWorkspace() {
     void coordinator.open().then((opened) => {
       if (rhythmPrimaryRef.current !== pendingPrimary || pendingPrimary.generation !== rhythmResolveGeneration.current) return;
       rhythmPrimaryRef.current = null;
+      releaseRhythmOpening(pendingPrimary.generation);
       setRhythmEntry(opened
         ? { opening: false, notice: 'Rhythm is ready.' }
         : { opening: false, notice: 'Rhythm could not be opened. Your ordinary chats are unchanged.' });
     });
-  }, [auth?.user.id, coordinator, coordinatorScope, gateway, selected.id, selected.projectId]);
+  }, [auth?.user.id, coordinator, coordinatorScope, gateway, releaseRhythmOpening, rhythmPrimaryNavigationRevision, selected.id, selected.projectId]);
   const backToParent = () => { if (liveChildView) closeLiveChildView(); else if (parent) selectSession(parent.id); };
   const presentation = sessionPresentation(selected);
   const recoverableConnection = Boolean(live && liveSessionError) || isSessionOffline(selected) || selected.connectionState === 'unavailable' || Boolean(selected.stuckSince);
@@ -582,8 +662,26 @@ export function AgentsWorkspace() {
       if (dayflowConsentAbort.current === controller) dayflowConsentAbort.current = null;
     }
   }, [auth?.user.id, coordinator.state.conversation, gateway, selected.id, selected.projectId]);
+  const deferRhythmSetup = () => {
+    rhythmOpeningRef.current = false;
+    setRhythmEntry((current) => current.setup ? {
+      opening: false,
+      notice: current.setup.profileChoices?.length
+        ? 'Rhythm setup is waiting for your profile choice.'
+        : 'Rhythm setup is ready to retry.',
+    } : current);
+  };
   const secondaryChatActions = (closeConfigurationThen: (action: () => void) => void) => <>
-    {rhythmEntry.setup ? <button type="button" className="secondary-button" disabled={rhythmEntry.opening} onClick={() => closeConfigurationThen(() => { void startRhythmSetup(); })} data-testid="session-actions-rhythm-setup"><Icon name="agents" size={14} />Set up Rhythm</button> : null}
+    {rhythmEntry.setup ? <button type="button" className="secondary-button" disabled={rhythmEntry.opening} onClick={() => closeConfigurationThen(() => {
+      const pendingSetup = rhythmSetupRef.current;
+      if (pendingSetup?.profileChoices?.length) {
+        setRhythmEntry({
+          opening: false,
+          notice: 'Choose a Rhythm profile to finish setup.',
+          setup: { commandKey: pendingSetup.commandKey, profileChoices: pendingSetup.profileChoices },
+        });
+      } else void startRhythmSetup();
+    })} data-testid="session-actions-rhythm-setup"><Icon name="agents" size={14} />Set up Rhythm</button> : null}
     {coordinatorScope ? <button type="button" className="secondary-button" onClick={() => closeConfigurationThen(() => { void coordinator.open(); })} data-testid="session-actions-coordinate"><Icon name="agents" size={14} />Coordinate with Rhythm</button> : null}
     {canManageDayflowSource ? <>
       <button type="button" className="secondary-button" onClick={() => closeConfigurationThen(() => { void requestDayflowSourceConsent('grant'); })} data-testid="session-actions-dayflow-allow">Allow Dayflow context</button>
@@ -619,7 +717,7 @@ export function AgentsWorkspace() {
               <div className="identity-line"><strong>{profile.label}</strong>{selected.account && <button type="button" onClick={openChatConfiguration}>{selected.account}<Icon name="chevronDown" size={11} /></button>}<span className={`status-label ${presentation.tone}`}><i />{presentation.label}</span></div>
               <h1 className={!liveChildView && sessionLabel(selected).fallback ? 'session-name-fallback' : undefined}>{liveChildView ? liveChildView.title : sessionLabel(selected).label}</h1>
               <div className="session-meta"><span><Icon name="branch" size={13} />{selected.branch}</span>{selected.dirtyCount > 0 && <span className="dirty-badge">{selected.dirtyCount} changed</span>}{selected.isolateWorktree && <span className="worktree-badge"><Icon name="worktree" size={12} />worktree</span>}{readOnlyChild && <span className="readonly-badge">Read only</span>}<span className="session-connection" aria-live="polite" data-testid="connection-status"><i className={`status-dot ${connectionMessage.toLowerCase().includes('offline') || connectionMessage.toLowerCase().includes('unavailable') ? 'offline' : 'working'}`} />{connectionMessage}</span></div>
-              {rhythmEntry.notice ? <p className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="rhythm-primary-status">{rhythmEntry.notice}</p> : null}
+              {rhythmEntry.notice ? <p className="coordinator-conversation-notice" role="status" aria-live="polite" aria-atomic="true" data-testid="rhythm-primary-status">{rhythmEntry.notice}</p> : null}
               {dayflowConsentNotice ? <p className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="dayflow-source-consent-status">{dayflowConsentNotice}</p> : null}
               {resumeGone && resumeGone.id === selected.id && <div className="form-error" role="alert" data-testid="resume-gone-alert"><p>{resumeGone.message}</p><button className="secondary-button" type="button" disabled={lifecycleBusy} onClick={async () => { setLifecycleBusy(true); try { await startFreshSession(selected.id); } finally { setLifecycleBusy(false); } }}>Start fresh</button></div>}
             </div>
@@ -683,23 +781,19 @@ export function AgentsWorkspace() {
       </FocusDialog>
       <FocusDialog open={prepareOpen} onClose={() => setPrepareOpen(false)} title="Prepare project for agents" description="Initialize project instructions through POST /agent-sessions/:id/init." testId="prepare-project-dialog" returnFocusTo={prepareReturnFocusRef.current}>{live ? <p>The configured model will inspect this project and write instructions. This can use provider tokens and modify AGENTS.md.</p> : <div className="prepare-list"><span><Icon name="check" />Git repository available</span><span><Icon name="check" />Worktree can be isolated</span><span><Icon name="check" />AGENTS.md discovered</span></div>}<div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setPrepareOpen(false)}>Cancel</button><button className="primary-button" type="button" disabled={lifecycleDisabled} onClick={() => void prepareProject()} data-testid="confirm-prepare-project">{lifecycleBusy ? 'Preparing…' : 'Prepare project'}</button></div></FocusDialog>
       <FocusDialog
-        open={Boolean(rhythmEntry.setup?.profileChoices?.length) && !rhythmEntry.opening}
-        onClose={() => setRhythmEntry((current) => current.setup ? {
-          opening: false,
-          notice: 'Rhythm setup is waiting for a profile choice. Your ordinary chats are unchanged.',
-          setup: { commandKey: current.setup.commandKey },
-        } : current)}
+        open={Boolean(rhythmEntry.setup) && !rhythmEntry.opening}
+        onClose={deferRhythmSetup}
         title="Set up Rhythm"
-        description="Choose one currently eligible profile for the server to validate. This does not grant a model, permission, or workspace scope."
+        description={rhythmEntry.setup?.profileChoices?.length
+          ? 'Choose a profile to finish setting up Rhythm.'
+          : 'Rhythm could not confirm setup. Retry, or keep using ordinary chat.'}
         testId="rhythm-setup-dialog"
         returnFocusTo={chatMenuTriggerRef.current}>
         <div className="dialog-actions vertical-actions">
-          {rhythmEntry.setup?.profileChoices?.map((choice) => <button className="secondary-button" type="button" key={choice.id} onClick={() => { void startRhythmSetup(choice.id); }} data-testid={`rhythm-setup-profile-${choice.id}`}>{choice.label}</button>)}
-          <button className="text-button" type="button" onClick={() => setRhythmEntry((current) => current.setup ? {
-            opening: false,
-            notice: 'Rhythm setup is waiting for a profile choice. Your ordinary chats are unchanged.',
-            setup: { commandKey: current.setup.commandKey },
-          } : current)}>Keep using ordinary chat</button>
+          {rhythmEntry.setup?.profileChoices?.length
+            ? rhythmEntry.setup.profileChoices.map((choice) => <button className="secondary-button" type="button" key={choice.id} onClick={() => { void startRhythmSetup(choice.id); }} data-testid={`rhythm-setup-profile-${choice.id}`}>{choice.label}</button>)
+            : <button className="secondary-button" type="button" onClick={() => { void startRhythmSetup(); }} data-testid="rhythm-setup-retry">Retry setup</button>}
+          <button className="text-button" type="button" onClick={deferRhythmSetup} data-testid="rhythm-setup-keep-ordinary">Keep using ordinary chat</button>
         </div>
       </FocusDialog>
       <FocusDialog open={workstreamsOpen} onClose={() => setWorkstreamsOpen(false)} title="Workstreams" description="Explicit, bounded read-only workers for this project. Ordinary chat remains separate." testId="workstreams-dialog" wide>
