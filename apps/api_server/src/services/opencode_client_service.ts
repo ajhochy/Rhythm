@@ -1002,11 +1002,18 @@ type FiniteExecutionPermissionRule = {
 function validFiniteExecutionWorkspacePattern(pattern: string, directory: string | undefined): boolean {
   if (
     typeof directory !== 'string' || !isAbsolute(directory) || directory === sep ||
-    resolve(directory) !== directory || !isAbsolute(pattern) ||
+    resolve(directory) !== directory || isAbsolute(pattern) ||
     pattern.startsWith('~') || pattern.includes('..') || pattern.includes('\\') || pattern.includes('://') ||
-    resolve(pattern) !== pattern
+    pattern !== relative(sep, resolve(sep, pattern))
   ) return false;
-  const inside = relative(directory, pattern);
+  const nativeWorkspaceRoot = relative(sep, directory);
+  if (
+    nativeWorkspaceRoot.length === 0 || nativeWorkspaceRoot === '..' ||
+    nativeWorkspaceRoot.startsWith(`..${sep}`) || isAbsolute(nativeWorkspaceRoot) ||
+    resolve(sep, nativeWorkspaceRoot) !== directory
+  ) return false;
+  const absolutePattern = resolve(sep, pattern);
+  const inside = relative(directory, absolutePattern);
   return inside.length > 0 && inside !== '..' && !inside.startsWith(`..${sep}`) && !isAbsolute(inside);
 }
 

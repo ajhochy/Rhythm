@@ -144,8 +144,8 @@ describe('OpencodeClientService — SDK response unwrap (.data)', () => {
       { permission: '*', pattern: '*', action: 'deny' },
       { permission: 'bash', pattern: '*', action: 'deny' },
       { permission: 'external_directory', pattern: '*', action: 'deny' },
-      { permission: 'edit', pattern: '/server-owned/workspace/notes/*.md', action: 'ask' },
-      { permission: 'write', pattern: '/server-owned/workspace/notes/*.md', action: 'allow' },
+      { permission: 'edit', pattern: 'server-owned/workspace/notes/*.md', action: 'ask' },
+      { permission: 'write', pattern: 'server-owned/workspace/notes/*.md', action: 'allow' },
     ] as const;
     expect(await svc.createSession(
       'finite', '/server-owned/workspace', undefined, [], 'provider-a', 'sdk-parent', 'default', false, false, rules,
@@ -160,13 +160,13 @@ describe('OpencodeClientService — SDK response unwrap (.data)', () => {
         { permission: '*', pattern: '*', action: 'deny' },
         { permission: 'bash', pattern: '*', action: 'deny' },
         { permission: 'external_directory', pattern: '*', action: 'deny' },
-        { permission: 'edit', pattern: '/caller-path', action: 'allow' },
+        { permission: 'edit', pattern: '/server-owned/workspace/notes/*.md', action: 'allow' },
       ],
     )).toMatchObject({ error: expect.stringContaining('finite execution session scope is invalid') });
     expect(create).toHaveBeenCalledTimes(1);
 
     expect(await svc.createSession(
-      'relative finite', '/server-owned/workspace', undefined, [], 'provider-a', 'sdk-parent', 'default', false, false,
+      'off-root finite', '/server-owned/workspace', undefined, [], 'provider-a', 'sdk-parent', 'default', false, false,
       [
         { permission: '*', pattern: '*', action: 'deny' },
         { permission: 'bash', pattern: '*', action: 'deny' },

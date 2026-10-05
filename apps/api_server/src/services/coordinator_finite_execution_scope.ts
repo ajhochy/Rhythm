@@ -45,11 +45,17 @@ function normalizedOwnedWorkspaceRoot(value: string): string | null {
 }
 
 /**
- * The engine resolves file tool inputs to absolute paths before matching its
- * session rules. Profile grants remain relative policy inputs, but the
- * server turns them into canonical patterns beneath the fresh owned root.
+ * The current fork resolves a file tool input to an absolute path, then asks
+ * permission for `path.relative(instance.worktree, filepath)`. Its non-git
+ * project implementation reports `/` as that worktree. Fresh coordinator
+ * workspaces use that non-git project shape, so the persisted rule must be
+ * the canonical path relative to `/`, not an absolute filesystem pattern.
+ *
+ * Profile policy remains relative and server-owned. This never accepts a
+ * caller path, and it fails closed if the derived native ask pattern cannot
+ * round-trip to a descendant of the owned workspace.
  */
-function absoluteOwnedWorkspacePattern(workspaceRoot: string, pattern: string): string | null {
+function nativeNonGitWorkspacePattern(workspaceRoot: string, pattern: string): string | null {
   if (!safeWorkspacePattern(pattern)) return null;
   const absolute = resolve(workspaceRoot, pattern);
   const inside = relative(workspaceRoot, absolute);
@@ -57,7 +63,14 @@ function absoluteOwnedWorkspacePattern(workspaceRoot: string, pattern: string): 
     inside.length === 0 || inside === '..' || inside.startsWith(`..${sep}`) ||
     isAbsolute(inside)
   ) return null;
-  return absolute;
+  const nativePattern = relative(sep, absolute);
+  if (
+    nativePattern.length === 0 || nativePattern === '..' ||
+    nativePattern.startsWith(`..${sep}`) || isAbsolute(nativePattern) ||
+    nativePattern.includes('\\') || nativePattern.includes('://') ||
+    resolve(sep, nativePattern) !== absolute
+  ) return null;
+  return nativePattern;
 }
 
 function explicitSkills(value: string | null): string[] | null {
@@ -77,7 +90,7 @@ function explicitSkills(value: string | null): string[] | null {
  * Project only explicit current write/edit grants into the engine's Ruleset.
  * Catch-all, bash, and external-directory stay denied. Pattern rules are
  * accepted only when they are relative to the server-selected workspace, then
- * normalized to the absolute shape the engine actually matches.
+ * normalized to the exact non-git native ask shape the engine matches.
  */
 function workspacePermissionRules(
   profile: AgentConfig,
@@ -99,12 +112,12 @@ function workspacePermissionRules(
       ? [['*', configured] as const]
       : Object.entries(configured);
     for (const [pattern, action] of entries) {
-      const absolutePattern = absoluteOwnedWorkspacePattern(workspaceRoot, pattern);
-      if (!absolutePattern || (action !== 'allow' && action !== 'ask' && action !== 'deny')) return null;
+      const nativePattern = nativeNonGitWorkspacePattern(workspaceRoot, pattern);
+      if (!nativePattern || (action !== 'allow' && action !== 'ask' && action !== 'deny')) return null;
       // The leading catch-all already denies this action. Preserve an explicit
       // deny by omission, and never turn ask into allow.
       if (action === 'deny') continue;
-      rules.push({ permission, pattern: absolutePattern, action });
+      rules.push({ permission, pattern: nativePattern, action });
       usable = true;
     }
   }

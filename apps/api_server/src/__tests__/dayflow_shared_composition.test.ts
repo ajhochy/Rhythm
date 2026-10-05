@@ -268,6 +268,76 @@ describe('Dayflow authenticated shared composition', () => {
     })).resolves.toBeNull();
   });
 
+  it('keeps the real authenticated canonical writer receiver on a first import', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dayflow-first-import-receiver-'));
+    roots.push(root);
+    const store = new DayflowConfigStore(join(root, 'config.json'));
+    const ledger = new MemoryLedger(join(root, 'ledger.json'));
+    const config = freshDayflowConfig();
+    config.enabled = true;
+    config.automaticImport = true;
+    config.timezone = 'UTC';
+    config.journalPath = '/private/tmp/sanitized-dayflow-first-import.sqlite';
+    config.journalBinding = { fileIdentity: '1:4', schemaFingerprint: 'e'.repeat(64) };
+    store.write(config);
+    const journal = {
+      canonicalPath: config.journalPath,
+      fileIdentity: config.journalBinding.fileIdentity,
+      schemaFingerprint: config.journalBinding.schemaFingerprint,
+    };
+    const fixtureSource = {
+      read: async () => ({
+        contractVersion: 'fixture-v1',
+        sourceInstanceId: 'first-import-receiver-fixture',
+        records: [{ id: 'first-import-card', start: '2026-10-05T00:00:00Z', summary: 'Synthetic first import detail.' }],
+      }),
+      hasVerifiedBinding: () => true,
+    };
+    const authority = new DayflowPersistedQualificationAuthority(store, ledger, () => CROSS_NOW);
+    let writerCalls = 0;
+    const memoryClient = new AuthenticatedDayflowMemoryClient(authority, {
+      indexForOwner: (ownerUserId) => {
+        expect(ownerUserId).toBe(7);
+        return {} as never;
+      },
+      claimOwner: async (_source, _sourceId, ownerUserId) => ownerUserId === 7,
+      createOnly: async (input) => {
+        writerCalls++;
+        return {
+          id: input.id,
+          path: `memory/context/import-${input.id.toLowerCase()}.md`,
+          kind: 'context' as const,
+          disposition: 'created' as const,
+          canonicalContentHash: createHash('sha256').update(input.content).digest('hex'),
+          sourceRevision: input.sourceRevision,
+          normalizerVersion: input.normalizerVersion,
+        };
+      },
+    });
+    const producer = new DayflowIntegrationService({
+      source: fixtureSource as never,
+      memoryClient,
+      configStore: store,
+      ledger,
+      now: () => CROSS_NOW,
+      qualificationAuthority: authority,
+      journalVerifier: { verify: () => journal } as never,
+      sourceForJournal: () => fixtureSource as never,
+    });
+    producer.grantAuthenticatedSourceConsent({ ownerUserId: 7, projectId: 'project:1', authorizingSessionId: 'session:1' });
+
+    const preview = await producer.previewDate('2026-10-05');
+    const result = await producer.commit(preview.token, preview.candidates.map((candidate) => candidate.candidateId));
+
+    expect(result.imported).toHaveLength(1);
+    expect(result.failed).toEqual([]);
+    expect(writerCalls).toBe(1);
+    const [entry] = ledger.currentEntries();
+    expect(entry?.pendingCreateAt).toBeUndefined();
+    expect(entry?.qualification?.reference.ownerUserId).toBe(7);
+    producer.dispose();
+  });
+
   it('allows the same authenticated owner/project to revoke from a later root chat', () => {
     const root = mkdtempSync(join(tmpdir(), 'dayflow-source-consent-'));
     roots.push(root);

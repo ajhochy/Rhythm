@@ -613,7 +613,7 @@ describe('C2 conversation to existing workstream vertical', () => {
       { permission: '*', pattern: '*', action: 'deny' as const },
       { permission: 'bash', pattern: '*', action: 'deny' as const },
       { permission: 'external_directory', pattern: '*', action: 'deny' as const },
-      { permission: 'edit', pattern: '/safe/project/notes/*.md', action: 'ask' as const },
+      { permission: 'edit', pattern: 'safe/project/notes/*.md', action: 'ask' as const },
     ];
     const scopePreview = {
       schemaVersion: 1 as const,

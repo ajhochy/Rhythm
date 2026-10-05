@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
+import { relative, resolve, sep } from 'node:path';
 
 import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
@@ -130,9 +131,17 @@ describe('C2 fresh setup provenance and finite execution scope', () => {
       { permission: '*', pattern: '*', action: 'deny' },
       { permission: 'bash', pattern: '*', action: 'deny' },
       { permission: 'external_directory', pattern: '*', action: 'deny' },
-      { permission: 'edit', pattern: '/server-owned/rhythm-1/notes/*.md', action: 'ask' },
-      { permission: 'write', pattern: '/server-owned/rhythm-1/notes/*.md', action: 'allow' },
+      { permission: 'edit', pattern: 'server-owned/rhythm-1/notes/*.md', action: 'ask' },
+      { permission: 'write', pattern: 'server-owned/rhythm-1/notes/*.md', action: 'allow' },
     ]));
+    // The current non-git engine asks write/edit permission with
+    // path.relative(instance.worktree, absoluteFilepath), and its worktree is
+    // `/`. Exercise that native ask shape rather than merely checking a mocked
+    // session-create body.
+    const nativeWriteAsk = relative(sep, resolve(project.cwd, 'notes/first.md'));
+    expect(nativeWriteAsk).toBe('server-owned/rhythm-1/notes/first.md');
+    const writeRule = resolved?.permissionRules.find((rule) => rule.permission === 'write');
+    expect(writeRule?.pattern.replace('*.md', 'first.md')).toBe(nativeWriteAsk);
     expect(resolved?.preview).toMatchObject({
       projectId: project.id, workspaceGeneration: 1, profileId: 'profile-a', profileRevision: 4,
     });

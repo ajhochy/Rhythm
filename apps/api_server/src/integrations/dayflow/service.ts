@@ -818,11 +818,11 @@ export class DayflowIntegrationService {
         const entry = { sourceId, revisionHash: candidate.revisionHash, memoryId, contentHash, exportVersion: candidate.exportVersion, operationId: randomUUID(), importedAt: new Date((this.deps.now ?? Date.now)()).toISOString() };
         ledger?.journalCreate(entry);
         const pending = ledger?.get(sourceId) ?? entry;
-        const createOnly = this.deps.memoryClient.createOnly;
+        const memoryClient = this.deps.memoryClient;
         let completed: LedgerEntry;
         let createdId: string;
-        if (createOnly) {
-          const created = await createOnly({ operationId: pending.operationId!, id: pending.memoryId, content, sourceId, observation: candidate });
+        if (memoryClient.createOnly) {
+          const created = await memoryClient.createOnly({ operationId: pending.operationId!, id: pending.memoryId, content, sourceId, observation: candidate });
           if (created.id !== pending.memoryId) throw new Error('Dayflow canonical import receipt has an unexpected id.');
           createdId = created.id;
           if (!(await this.producerStillCurrent(generation))) break;
