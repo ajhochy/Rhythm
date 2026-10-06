@@ -136,9 +136,13 @@ export type CoordinatorPlanAdmission = {
   expiresInSeconds: number;
   acknowledgesSoftTotalTokenAuthorization: true;
   /** `execute` is a separately acknowledged, server-derived workspace scope. */
-  purpose: 'decompose' | 'continue' | 'execute';
+  purpose: 'decompose' | 'continue' | 'execute' | 'workflow';
   /** Required only for the fresh `execute` purpose; never inferred from prose. */
   acknowledgesScopedWorkspaceExecution?: true;
+  /** Required only for the `workflow` purpose (Coding Workflow); a deliberate user acknowledgement. */
+  acknowledgesCodingWorkflowCoverage?: true;
+  /** Required only for `workflow`: the user-selected reference the server validates. */
+  workflowCheck?: { kind: 'selected_reference_summary_v1'; sourceId: string; expectedVersion: string };
 };
 
 export type CoordinatorPreparePlanInput = Pick<CoordinatorConversationScope, 'sessionId' | 'projectId'> & {
@@ -709,6 +713,16 @@ export function createLiveCoordinatorConversationGateway(
         purpose: input.admission.purpose,
         ...(input.admission.purpose === 'execute'
           ? { acknowledgesScopedWorkspaceExecution: input.admission.acknowledgesScopedWorkspaceExecution }
+          : {}),
+        ...(input.admission.purpose === 'workflow'
+          ? {
+            acknowledgesCodingWorkflowCoverage: input.admission.acknowledgesCodingWorkflowCoverage,
+            workflowCheck: input.admission.workflowCheck && {
+              kind: input.admission.workflowCheck.kind,
+              sourceId: input.admission.workflowCheck.sourceId,
+              expectedVersion: input.admission.workflowCheck.expectedVersion,
+            },
+          }
           : {}),
       },
     }, (body, status) => parseCoordinatorPlanResult(body, input, status), signal),
