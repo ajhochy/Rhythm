@@ -30,10 +30,37 @@
       "criterion_id": "issue-1605-c4",
       "text": "**Actual native interaction (manual).** In the signed app with the original Dayflow view at 1280×800 and no outer Rhythm Dayflow header or footer, the native view fills the available tab height. Then shrink the window to a short native viewport below the measured 558-point document minimum (target window size 1280×560, recording actual viewport/document dimensions); a native trackpad or mouse-wheel check through CUA reaches the bottom timeline controls and scrolling back restores the top. At 3440×1300, the full content remains visible without unnecessary scrolling. Record CUA/native-input evidence separately from physical-human evidence. This must be checked against the actual native view; a browser facade, synthetic DOM wheel, AppKit `scrollToPoint` fixture, or source-string check does not satisfy this criterion.",
       "mode": "manual",
-      "status": "UNVERIFIED",
-      "reason": "Requires root-owned CUA validation against the rebuilt signed app at normal, deliberately short, and tall window sizes. Frozen C7 has a recorded native scroll failure; the isolated AppKit fixture is not actual signed-app interaction or physical-human evidence."
+      "status": "pass",
+      "reason": "Root CUA verified the signed C9 normal-profile app at 1280×800, 1280×560, and a tall target of 3440×1300. macOS zoom produced an actual 3440×1296 usable window. Native scroll reached the requested content and returned to the top; approximate screenshot measurements are disclosed below, not direct native geometry.",
+      "receipt": {
+        "source_sha": "54888e924c5b31cb7700b6eb1f5da7c4c450e930",
+        "apps_tree": "47f1828030f1b14c2175975e47e72a5796b0cb47",
+        "path": "codex-dayflow-cascade-c9-build/dayflow-C9-signed-native-CUA-receipt.json",
+        "normal_window": "1280x800",
+        "short_window": "1280x560",
+        "tall_requested": "3440x1300",
+        "tall_actual": "3440x1296 (macOS zoom)",
+        "native_scroll": "Two native CUA pages down reached Copy timeline, original Settings, and Review cards; two pages up restored Today/Timeline/Daily. Tall native wheel confirmed full bottom content without outer-document movement.",
+        "outer_header_footer_absent": true,
+        "original_native_controls_preserved": true,
+        "rhythm_navigation_stayed_fixed": true,
+        "left_running": "Dayflow at 1280x800, Timeline top",
+        "existing_pending_approvals": 2,
+        "approval_actions_performed": false
+      },
+      "measurement_limit": "Approximate screenshot estimates only: short purple surface 402px, visible document extent 576px, vertical movement 174px. The public native getter does not expose exact NSRect/intrinsic/fitting dimensions. This is not direct native geometry introspection or physical-human proof.",
+      "physical_human_proof": "NOT RUN"
     }
   ],
   "stack": "typescript",
-  "not_tested": ["issue-1605-c4"]
+  "not_tested": [],
+  "qualification_receipt": {
+    "status": "pass",
+    "source_sha": "54888e924c5b31cb7700b6eb1f5da7c4c450e930",
+    "apps_tree": "47f1828030f1b14c2175975e47e72a5796b0cb47",
+    "actual_signed_app": true,
+    "actual_native_cua_scroll": true,
+    "physical_human_proof": "NOT RUN",
+    "native_geometry_measurement": "Approximate screenshot estimate; exact NSRect unavailable"
+  }
 }

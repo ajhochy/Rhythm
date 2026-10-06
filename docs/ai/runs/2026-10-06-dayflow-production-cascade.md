@@ -1,11 +1,12 @@
 ---
 date: 2026-10-06
 repo: Rhythm
-branch: codex/chat-only-bounded-workflow
-pr: null
-issues: []
-status: unverified
-tags: [run, rhythm]
+branch: integration/2026-10-06-resume
+pr: 1604
+issues: [1605]
+status: pass
+tags: [run, rhythm, dayflow]
+index: "[[Rhythm]]"
 ---
 
 # Dayflow production CSS cascade
@@ -56,5 +57,6 @@ Observed `tsc -b`, exit 0. No dependency installation or API startup occurred. B
 ## Notes
 
 - Root's settled normal-profile C8 signed-app CUA check at 1280×800 showed blank Dayflow, with no outer header/footer or failure text: installed behavior FAIL. The web entry imports component CSS before global styles. Equal-specificity `.dayflow-workspace` lost to the later shared three-row grid, leaving the only body in the auto row and its flex host at zero height. The old browser harness imported these styles in the opposite order and masked the defect. A native-wrapper failure is not established by this symptom.
-- C8 browser/full-gate/package successes do not qualify this repaired source. Required next candidate C9: root-owned exact-source full gate and signed installed Dayflow/native requalification, including height/resize/scroll behavior. These gates are NOT RUN by this worker; retain `status: unverified`.
-- Decisions: selector specificity makes the scoped one-row layout independent of CSS source order. Deviations from request: none. No global memory, dashboard publisher, dependency install, GUI/profile action, commit, push, or packaging by this worker.
+- C8 browser/full-gate/package successes did not qualify the repaired source. Exact C9 gates and signed native CUA now close that qualification gap; the historical C8 blank-app failure remains in `runs/2026-10-06-issue-1605-c8-cascade-postmortem.json` unchanged.
+- Selector specificity makes the scoped one-row layout independent of CSS source order. C9 issue 4/4, PR 22/22, chat browser 1/1, Dayflow/Sol 16/16, and native AppKit C1–C3 passed. Actual signed normal-profile CUA at normal/short/tall sizes passed; the 3440×1300 target yielded 3440×1296 after macOS zoom. Short-window native scrolling reached Copy timeline, Settings, and Review cards and restored the top. Geometry figures are approximate screenshot estimates, not direct NSRect measurements; physical-human proof remains unrun.
+- C9 package/sign/stable-copy/strict-verifier/signed-smoke/launch checks passed. The app is signed and not notarized. Root preserves C8 failure and writes the separate C9 PASS postmortem. Provider semantics, human-native P256 fixture, physical phone, native 16-screen matrix, final-doc CI, and owned cleanup remain unrun/pending.

@@ -1,11 +1,12 @@
 ---
 date: 2026-10-06
 repo: Rhythm
-branch: codex/chat-only-bounded-workflow
-pr: null
+branch: integration/2026-10-06-resume
+pr: 1604
 issues: []
-status: unverified
+status: pass
 tags: [run, rhythm]
+index: "[[Rhythm]]"
 ---
 
 # Dayflow panel chrome
@@ -48,6 +49,14 @@ Observed output: `tsc -b`, exit 0. No dependency installation occurred. Full PR 
 
 ## Notes
 
-- Current plan's earlier Settings/footer reachability requirement is superseded by this direct user request. Root reports C7 qualification green; this next candidate (C8) still awaits full-gate and signed installed/native verification.
+- Historical handoff note: the original Settings/footer requirement was superseded by the direct user request. At this run's handoff, C8 full-gate and signed installed/native verification were still pending; exact C9 full gates and signed native CUA later passed as recorded below.
 - No backend change; no sandbox/API/fork test is required for this panel chrome change. Browser facade proof does not establish installed native rendering or scrolling.
-- Deviations from request: none. Full verification and exact-source packaging remain root-owned; this implementation handoff is unverified until those gates run.
+- Deviations from request: none. At the original implementation handoff, full verification and exact-source packaging remained root-owned and this handoff was unverified. Exact C9 verification and signed native interaction now close that status as recorded below.
+
+## Final C9 native signed-app qualification
+
+The earlier C7 observation above is historical: its signed UI showed a clipped original view that did not move under wheel input. C8 later produced a blank Dayflow UI at 1280×800; that failure remains documented separately in `issue-1605-c8-cascade-postmortem.json`. Exact C9 source `54888e924c5b31cb7700b6eb1f5da7c4c450e930` (apps tree `47f1828030f1b14c2175975e47e72a5796b0cb47`) now passes the signed normal-profile CUA check.
+
+At 1280×800, the original Timeline appeared without the Rhythm-authored outer header/footer and retained its original controls. At 1280×560, two native macOS CUA scroll pages down reached Copy timeline, Settings, and Review cards while global navigation stayed fixed; two pages up restored Today/Timeline/Daily. At the tall target 3440×1300, macOS zoom produced an actual 3440×1296 window; all content remained visible and native wheel input did not move the outer document. The app was restored to 1280×800 with Timeline at the top. Receipt: `/Users/ajhochhalter/Documents/Codex/2026-10-06/codex-dayflow-cascade-c9-build/dayflow-C9-signed-native-CUA-receipt.json`; signed manifest SHA-256 `6302833146ba3edff3ffc31ae88d9c7e91d03ab454eca54ddf65e47d096915e9`.
+
+The estimated short purple surface (402px), visible document extent (576px), and movement (174px) are screenshot approximations only. The public native getter does not expose exact `NSRect`/intrinsic geometry. This is native CUA evidence, not physical-human proof. Two existing pending approvals remained untouched; no approval, onboarding, TCC, capture, provider, or settings action was performed.

@@ -1,17 +1,18 @@
 ---
 date: 2026-10-06
 repo: Rhythm
-branch: codex/chat-only-bounded-workflow
+branch: integration/2026-10-06-resume
 pr: 1604
 issues: [1605]
-status: pending
+status: pass
 tags: [run, rhythm, dayflow]
+index: "[[Rhythm]]"
 ---
 
 ## Files
 
 - Follow-up: [issue #1605](https://github.com/ajhochy/Rhythm/issues/1605), generated body at `docs/ai/generated-issues/2026-10-06-dayflow-native-short-viewport-scroll.md`.
-- Contract: `docs/ai/contracts/issue-1605.json` (3 isolated AppKit lifecycle tests; actual signed-app CUA remains manual and unverified).
+- Contract: `docs/ai/contracts/issue-1605.json` (3 isolated AppKit lifecycle tests; at the time of this original run, actual signed-app CUA remained manual and unverified; exact C9 CUA closure is recorded below).
 - Harness: `apps/electron/test/native-dayflow-viewport-contract.mm` and `apps/electron/test/native-dayflow-viewport-contract.test.mjs`.
 - Postmortem: `docs/ai/runs/2026-10-06-issue-1605-native-dayflow-postmortem.json`.
 - Frozen native lifecycle fixture source SHA-256: `15426b7987b89773c0df74609efb02655f6b4cb7273b55146f6e7fcf0d9061a1`.
@@ -31,4 +32,12 @@ tags: [run, rhythm, dayflow]
 
 ## Notes
 
-The three executable lifecycle contract criteria are now `pass` for the focused dirty-source checks. Signed-app acceptance remains pending until root rebuilds the signed app and repeats CUA at 1280×800 with the outer Dayflow header/footer removed, at a deliberately short viewport (target window size 1280×560; record actual dimensions), and at 3440×1300. The AppKit test process uses hidden local windows only; it does not start Rhythm/Electron, access DB/TCC/capture, or synthesize OS-wide input. Focus restoration, native input reachability, and physical-human evidence are not inferred from the fixture.
+At the time of this original postmortem, the three executable lifecycle contract criteria were `pass` for the focused dirty-source checks, while signed-app acceptance remained pending. The AppKit test process used hidden local windows only; it did not start Rhythm/Electron, access DB/TCC/capture, or synthesize OS-wide input. Focus restoration, native input reachability, and physical-human evidence were not inferred from the fixture. Exact signed-app native CUA acceptance is now recorded in the final C9 section below; physical-human evidence remains separate and unrun.
+
+## Final C9 native signed-app qualification
+
+The earlier C7 observation above is historical: its signed UI showed a clipped original view that did not move under wheel input. C8 later produced a blank Dayflow UI at 1280×800; that failure remains documented separately in `issue-1605-c8-cascade-postmortem.json`. Exact C9 source `54888e924c5b31cb7700b6eb1f5da7c4c450e930` (apps tree `47f1828030f1b14c2175975e47e72a5796b0cb47`) now passes the signed normal-profile CUA check.
+
+At 1280×800, the original Timeline appeared without the Rhythm-authored outer header/footer and retained its original controls. At 1280×560, two native macOS CUA scroll pages down reached Copy timeline, Settings, and Review cards while global navigation stayed fixed; two pages up restored Today/Timeline/Daily. At the tall target 3440×1300, macOS zoom produced an actual 3440×1296 window; all content remained visible and native wheel input did not move the outer document. The app was restored to 1280×800 with Timeline at the top. Receipt: `/Users/ajhochhalter/Documents/Codex/2026-10-06/codex-dayflow-cascade-c9-build/dayflow-C9-signed-native-CUA-receipt.json`; signed manifest SHA-256 `6302833146ba3edff3ffc31ae88d9c7e91d03ab454eca54ddf65e47d096915e9`.
+
+The estimated short purple surface (402px), visible document extent (576px), and movement (174px) are screenshot approximations only. The public native getter does not expose exact `NSRect`/intrinsic geometry. This is native CUA evidence, not physical-human proof. Two existing pending approvals remained untouched; no approval, onboarding, TCC, capture, provider, or settings action was performed.

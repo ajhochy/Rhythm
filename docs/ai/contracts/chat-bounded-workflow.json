@@ -31,9 +31,31 @@
     {
       "criterion_id": "chat-bounded-c4",
       "text": "Through the real API, built fork, and MCP tool entrypoint in the approved sandbox, a real manager and reviewer finish the selected-reference case. Chat reports `selected_reference_current` and `reviewed_summary_with_citation` as server-checked, exact ordinals 1 and 2, and no third ordinal after 65 seconds of quiescence. Prose-only success, missing citation/reviewer membership, source drift, missing usage accounting, budget/expiry hold, or duplicate callback cannot verify criteria or spawn extra work.",
-      "mode": "manual",
-      "reason": "Must run the env-gated live behavioral test through the real API and built fork in tools/dev/sandbox.sh using approved sanitized fixtures; this assigned contract-only phase has no approved fixture or sandbox run. Keep explicitly UNVERIFIED until the implementer records its exact run output.",
-      "status": "UNVERIFIED"
+      "mode": "integration",
+      "reason": "Exact C9 env-gated formal live qualification passed idle and stock API/engine restart through actual API, built fork, and MCP. Model transport and semantic ranking were synthetic.",
+      "status": "pass",
+      "test_file": "apps/api_server/src/__tests__/live_chat_bounded_workflow.test.ts",
+      "test_ids": [
+        "consumes exact same-chat consent after idle, checks two ordinals and stops",
+        "consumes exact same-chat consent after stock API/engine restart, checks two ordinals and stops"
+      ],
+      "receipt": {
+        "source_sha": "54888e924c5b31cb7700b6eb1f5da7c4c450e930",
+        "apps_tree": "47f1828030f1b14c2175975e47e72a5796b0cb47",
+        "command": "PATH=/Users/ajhochhalter/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_SOURCE_SHA=54888e924c5b31cb7700b6eb1f5da7c4c450e930 RHYTHM_CHAT_LIVE_TEST_OUT=/Users/ajhochhalter/Documents/Codex/2026-10-06/codex-dayflow-cascade-c9-build ./node_modules/.bin/vitest run src/__tests__/live_chat_bounded_workflow.test.ts --reporter=verbose",
+        "tests_passed": 2,
+        "duration_seconds": 375.56,
+        "actual_mcp_tool_count": 111,
+        "idle_qualification_checks": "19/19",
+        "idle_operational_checks": "5/5",
+        "restart_qualification_checks": "20/20",
+        "restart_operational_checks": "5/5",
+        "quiescence_seconds": [
+          65.26,
+          65.25
+        ],
+        "evidence": "codex-dayflow-cascade-c9-build/formal-live-C9-summary.json and formal-live-C9-54888e92.log"
+      }
     },
     {
       "criterion_id": "chat-bounded-c5",
@@ -45,10 +67,15 @@
     }
   ],
   "stack": "typescript",
-  "not_tested": ["chat-bounded-c4"],
+  "not_tested": [],
   "test_commands": [
     "cd apps/api_server && PATH=/Users/ajhochhalter/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin ./node_modules/.bin/vitest run src/contract/chat_bounded_workflow.contract.test.ts",
     "cd apps/mcp_server && PATH=/Users/ajhochhalter/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin ./node_modules/.bin/vitest run src/tools/__tests__/chatBoundedWorkflow.contract.test.ts",
     "cd apps/web && PATH=/Users/ajhochhalter/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin ./node_modules/.bin/playwright test --config tests/chat-bounded-workflow-playwright.config.ts --workers=1"
+  ],
+  "limitations": [
+    "Formal live qualification used synthetic external model transport and semantic ranking; provider-semantic behavior was not tested.",
+    "No real human-native P256 approval fixture or physical human/device proof was recorded.",
+    "The chat workflow result does not itself qualify native Dayflow issue-1605-c4."
   ]
 }
