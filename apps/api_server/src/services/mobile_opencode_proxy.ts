@@ -1480,6 +1480,37 @@ export class MobileOpenCodeProxy {
           );
         }
       }
+      if (
+        operation.operationId === 'session.prompt_async' &&
+        addressedSessionId &&
+        bodyWithAutomaticMemory &&
+        typeof bodyWithAutomaticMemory === 'object' &&
+        !Array.isArray(bodyWithAutomaticMemory)
+      ) {
+        // Persisted truth wins: the phone saves thinking budget / Fast mode on
+        // the session row but never sends them, so mirror ws_gateway.ts
+        // (~L900-940: reasoningConfig {type:'enabled',budgetTokens} + fastMode:true)
+        // from the row and overwrite any client-supplied values. ws_gateway has
+        // no clamp/capability check on these, so none is duplicated here.
+        let row: ReturnType<AgentSessionsRepository['findBySdkSessionId']> = null;
+        try {
+          row = new AgentSessionsRepository().findBySdkSessionId(addressedSessionId);
+        } catch {
+          // Local catalog unavailable: forward unchanged.
+        }
+        if (row && row.ownerUserId === input.userId) {
+          const { reasoningConfig: _r, fastMode: _f, ...rest } =
+            bodyWithAutomaticMemory as Record<string, unknown>;
+          const budget = row.thinkingBudget;
+          bodyWithAutomaticMemory = {
+            ...rest,
+            ...(typeof budget === 'number' && Number.isInteger(budget) && budget > 0
+              ? { reasoningConfig: { type: 'enabled', budgetTokens: budget } }
+              : {}),
+            ...(row.fastMode ? { fastMode: true } : {}),
+          };
+        }
+      }
       const encodedBody = bodyWithAutomaticMemory === undefined
         ? undefined
         : JSON.stringify(bodyWithAutomaticMemory);
