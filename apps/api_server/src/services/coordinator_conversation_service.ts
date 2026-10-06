@@ -37,6 +37,8 @@ import { AgentWorkstreamsRepository } from '../repositories/agent_workstreams_re
 import { ProjectsRepository } from '../repositories/projects_repository';
 import { AgentBridgeJobsRepository, type AgentBridgeJobRow } from '../shared_agents/delegation_jobs_repository';
 import type { CoordinatorWorkflowMembership } from '../shared_agents/delegation_jobs_repository';
+import { computeCodingWorkflowCapability, renderCodingWorkflowCapabilityLine } from './coding_workflow_capability';
+import { selectedReferenceCitation } from './workstream_artifact_verifier';
 import type {
   WorkflowProviderPendingExport,
   WorkflowProviderRequest,
@@ -294,7 +296,7 @@ export interface CoordinatorConversationServiceDependencies {
   /** Existing coordinator is the sole inference/admission/accounting authority. */
   coordinator?: Pick<
     PersistentWorkstreamCoordinator,
-    'runNextFromFiniteConversation' | 'reconcileFiniteConversationJob' | 'status'
+    'runNextFromFiniteConversation' | 'reconcileFiniteConversationJob' | 'status' | 'checkWorkflowResult'
   >;
   /** Explicit local coordinator gate; omitted is default-off. */
   enabled?: () => boolean;
@@ -342,6 +344,23 @@ function isAuthenticatedActor(actor: ConversationActor): actor is AuthContext {
 
 function scope(actorUserId: number, request: { sessionId: string; projectId: string }): CoordinatorConversationScope {
   return { ownerUserId: actorUserId, sessionId: request.sessionId, projectId: request.projectId };
+}
+
+/**
+ * Server-authored step instruction appended to the human's goal for the fixed
+ * manager. It states the output contract only; it grants nothing and its
+ * fulfilment is checked by the server, never trusted.
+ */
+function workflowOrdinalObjective(
+  objective: string,
+  ordinal: number,
+  check: { sourceId: string; observedVersion: string },
+): string {
+  const citation = selectedReferenceCitation(check.sourceId, check.observedVersion);
+  const step = ordinal === 1
+    ? 'Step 1 of 2: read the selected source with your existing tools and confirm it is the one named. The server re-resolves the source independently; your statement completes nothing.'
+    : `Step 2 of 2: the source is server-verified current. End your final message with exactly one JSON object {"kind":"selected_reference_summary_v1","sourceId":"${check.sourceId}","version":"${check.observedVersion}","summary":"<brief containing ${citation}>"}. Delegate review to verification-gate, which must end with exactly one JSON object {"kind":"selected_reference_review_v1","criterionId":"reviewed_summary_with_citation","verdict":"pass"|"fail","sourceId":"${check.sourceId}","version":"${check.observedVersion}","summarySha256":"<sha256 hex of the summary string>"}.`;
+  return `${objective}\n\n[Rhythm server, selected_reference_summary_v1] ${step}`;
 }
 
 /** The suffix is never model-normalized; authored content is preserved exactly. */
@@ -1455,22 +1474,10 @@ export class CoordinatorConversationService {
     if (selected.session.permissionMode !== 'plan' || selected.session.approvalBypassExplicit === true) {
       return { kind: 'planning_authority_unavailable', conversation: initial };
     }
-    const manager = this.dependencies.configs.getById('workflow-orchestrator');
-    const reviewer = this.dependencies.configs.getById('verification-gate');
-    const managerAllowsReviewer = (() => {
-      try {
-        const value: unknown = manager?.allowedDelegatesJson ? JSON.parse(manager.allowedDelegatesJson) : [];
-        return Array.isArray(value) && value.includes('verification-gate');
-      } catch {
-        return false;
-      }
-    })();
-    if (
-      !manager || !reviewer || manager.id === reviewer.id || !manager.enabled || !manager.isAgent ||
-      manager.locked === true || agentConfigExecutionBlockReason(manager) !== null ||
-      !reviewer.enabled || !reviewer.isAgent || reviewer.locked === true ||
-      agentConfigExecutionBlockReason(reviewer) !== null || !managerAllowsReviewer
-    ) return { kind: 'planning_authority_unavailable', conversation: initial };
+    // One source of truth with the prompt/context capability line (S7).
+    if (!computeCodingWorkflowCapability({
+      configs: this.dependencies.configs, projectAuthorized: true, enrollmentAvailable: true,
+    }).available) return { kind: 'planning_authority_unavailable', conversation: initial };
 
     const existing = this.authorityForGoal(initial, initialGoal.id);
     const existingLive = existing !== null && new Date(existing.expiresAt).valueOf() > this.now().valueOf();
@@ -1661,6 +1668,47 @@ export class CoordinatorConversationService {
       !this.authorityStillCurrent(latest.conversation, latestAuthority, latestSelection, latestWorkstream)
     ) return { kind: 'planning_dispatch_hold', conversation: latest.kind === 'found' ? latest.conversation : reserved.conversation, workstreamId };
 
+    return this.dispatchWorkflowOrdinal({
+      actor,
+      request,
+      conversation: latest.conversation,
+      authority: latestAuthority,
+      workstream: latestWorkstream,
+      selection: latestSelection,
+      objective: linkedGoal.objective,
+      fallback: reserved.conversation,
+    });
+  }
+
+  /**
+   * One existing native coordinator job for the authority's CURRENT consumed
+   * ordinal. Shared by the human admission (ordinal 1) and the checked-result
+   * continuation (n+1). The deterministic command key makes a replay return
+   * the same job; nothing here reserves an ordinal or retries an unknown one.
+   */
+  private async dispatchWorkflowOrdinal(input: {
+    actor: AuthContext;
+    request: { sessionId: string; projectId: string };
+    conversation: CoordinatorConversation;
+    authority: CoordinatorConversationContinuationAuthority;
+    workstream: NonNullable<ReturnType<AgentWorkstreamsRepository['find']>>;
+    selection: ManagedSelection;
+    objective: string;
+    fallback: CoordinatorConversation;
+  }): Promise<CoordinatorConversationMessageResult> {
+    const { actor, request, authority: latestAuthority, workstream: latestWorkstream, selection: latestSelection } = input;
+    const ownerUserId = actor.user.id;
+    const workstreamId = latestWorkstream.id;
+    const check = latestAuthority.workflow?.check;
+    if (!this.dependencies.coordinator || !check) {
+      return { kind: 'planning_dispatch_hold', conversation: input.fallback, workstreamId };
+    }
+    const reference = {
+      sourceId: check.sourceId,
+      expectedVersion: check.expectedVersion,
+      scope: request.projectId,
+      provenance: 'user_reference' as const,
+    };
     const workflowAuthorization = {
       authorizationId: latestAuthority.authorizationId,
       ordinal: latestAuthority.consumedTurns as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8,
@@ -1727,7 +1775,7 @@ export class CoordinatorConversationService {
             parentSessionId: parent.id,
             parentSdkSessionId: parent.sdkSessionId!,
             parentProfileId: latestSelection.profile.id,
-            objective: linkedGoal.objective,
+            objective: workflowOrdinalObjective(input.objective, latestAuthority.consumedTurns, check),
             workflow: privateWorkflow,
           });
           if (!dispatched || dispatched.targetAgentConfigId !== 'workflow-orchestrator') return 'rejected';
@@ -1741,7 +1789,7 @@ export class CoordinatorConversationService {
       const dispatched = await this.dependencies.coordinator.runNextFromFiniteConversation(
         this.finiteConversationAuthority({
           ownerUserId,
-          conversation: latest.conversation,
+          conversation: input.conversation,
           authority: latestAuthority,
           ordinal: latestAuthority.consumedTurns,
         }),
@@ -1750,7 +1798,7 @@ export class CoordinatorConversationService {
         {
           expectedRevision: latestWorkstream.revision,
           commandKey: this.conversationCommandKey(
-            latest.conversation.id, latestAuthority.goalId, latestAuthority.authorizationId, latestAuthority.consumedTurns,
+            input.conversation.id, latestAuthority.goalId, latestAuthority.authorizationId, latestAuthority.consumedTurns,
           ),
           targetProfileId: 'workflow-orchestrator',
           parentSessionId: latestSelection.session.id,
@@ -1769,10 +1817,10 @@ export class CoordinatorConversationService {
       const after = this.repository.get(scope(ownerUserId, request));
       // Same truth as the legacy lanes: a blocked/unknown workstream is a hold, never 'planned'.
       return ['queued', 'running'].includes(dispatched.workstream.state)
-        ? { kind: 'planned', conversation: after.kind === 'found' ? after.conversation : reserved.conversation, workstream: dispatched }
-        : { kind: 'planning_dispatch_hold', conversation: after.kind === 'found' ? after.conversation : reserved.conversation, workstreamId };
+        ? { kind: 'planned', conversation: after.kind === 'found' ? after.conversation : input.fallback, workstream: dispatched }
+        : { kind: 'planning_dispatch_hold', conversation: after.kind === 'found' ? after.conversation : input.fallback, workstreamId };
     } catch {
-      return { kind: 'planning_dispatch_hold', conversation: reserved.conversation, workstreamId };
+      return { kind: 'planning_dispatch_hold', conversation: input.fallback, workstreamId };
     }
   }
 
@@ -2155,14 +2203,21 @@ export class CoordinatorConversationService {
     const requestScope = scope(input.ownerUserId, request);
     const initial = this.repository.get(requestScope);
     if (initial.kind !== 'found') return;
+    // Separate checked-result branch: a final ordinal (consumed == max) still
+    // needs its result applied, so it is selected before the C2 filter.
+    const workflowCandidates = initial.conversation.continuations.filter((candidate) =>
+      candidate.purpose === 'workflow' && candidate.workstreamId === input.workstreamId &&
+      candidate.parentSessionId === input.parentSessionId && candidate.status === 'consumed' && candidate.consumedTurns >= 1);
+    if (workflowCandidates.length === 1) {
+      await this.onWorkflowTerminal(input, workflowCandidates[0].authorizationId);
+      return;
+    }
     const candidates = initial.conversation.continuations.filter((candidate) =>
       candidate.workstreamId === input.workstreamId && candidate.parentSessionId === input.parentSessionId &&
       candidate.status === 'consumed' && candidate.consumedTurns >= 1 && candidate.consumedTurns < candidate.maxTurns,
     );
-    if (candidates.length !== 1) return;
-    // ponytail: workflow grants are held here (never advanced by the C2
-    // proposal predicate) until the separate checked-result branch exists.
-    if (candidates[0].purpose === 'workflow') return;
+    // Workflow grants never take the C2 proposal predicate.
+    if (candidates.length !== 1 || candidates[0].purpose === 'workflow') return;
     const authority = candidates[0];
     const goal = initial.conversation.goals.find((candidate) => candidate.id === authority.goalId);
     const workstream = this.dependencies.workstreams!.find(input.ownerUserId, input.projectId, input.workstreamId);
@@ -2288,6 +2343,124 @@ export class CoordinatorConversationService {
   }
 
   /**
+   * G2 checked-result consumer. The coordinator writes a criterion receipt only
+   * from its own fresh source resolution (and, for the brief, citation checks
+   * plus the enrolled independent reviewer). Only a durable checked
+   * INTERMEDIATE result may reserve exactly the next ordinal through the
+   * existing CAS; final/hold/pause/cancel/expiry/unknown/cap reserve nothing.
+   * Re-entrant and duplicate-safe: the CAS replay is a no-op.
+   */
+  private async onWorkflowTerminal(
+    input: Parameters<CoordinatorTerminalObserver['onCoordinatorTerminal']>[0],
+    authorizationId: string,
+  ): Promise<void> {
+    const coordinator = this.dependencies.coordinator;
+    if (!coordinator || !this.currentOwnerProjectAuthorized(input.ownerUserId, input.projectId)) return;
+    const request = { sessionId: input.parentSessionId, projectId: input.projectId };
+    const requestScope = scope(input.ownerUserId, request);
+    const read = () => {
+      const found = this.repository.get(requestScope);
+      const conversation = found.kind === 'found' ? found.conversation : null;
+      const authority = conversation ? this.authorityForId(conversation, authorizationId) : null;
+      const goal = authority ? conversation!.goals.find((candidate) => candidate.id === authority.goalId) ?? null : null;
+      const workstream = authority
+        ? this.dependencies.workstreams!.find(input.ownerUserId, input.projectId, authority.workstreamId)
+        : null;
+      const selection = this.currentInternalManagedSelection(input.ownerUserId, request);
+      return { conversation, authority, goal, workstream, selection };
+    };
+    const initial = read();
+    const check = initial.authority?.workflow?.check;
+    if (
+      !initial.conversation || !initial.authority || !initial.goal || !initial.workstream || !initial.selection || !check ||
+      initial.authority.purpose !== 'workflow' || initial.authority.status !== 'consumed' ||
+      initial.authority.consumedTurns < 1 || initial.workstream.id !== input.workstreamId ||
+      initial.workstream.lastJobId !== input.jobId
+    ) return;
+    const ordinal = initial.authority.consumedTurns;
+    const job = this.dependencies.jobs!.getNativeForWorkstream({
+      localUserId: input.ownerUserId, workstreamId: input.workstreamId, jobId: input.jobId,
+    });
+    if (
+      !job || job.parent_session_id !== input.parentSessionId ||
+      job.idempotency_key !== this.conversationCommandKey(
+        initial.conversation.id, initial.goal.id, authorizationId, ordinal,
+      )
+    ) return;
+    // Same goal/authorization/ordinal and root selection (incl. expiry); the
+    // workstream revision is fenced by the criterion transaction itself.
+    const current = (): boolean => {
+      const now = read();
+      return Boolean(
+        now.conversation && now.authority && now.goal && now.selection && now.workstream &&
+        this.currentOwnerProjectAuthorized(input.ownerUserId, input.projectId) &&
+        now.authority.status === 'consumed' && now.authority.consumedTurns === ordinal &&
+        now.authority.goalRevision === initial.authority!.goalRevision &&
+        now.goal.state === 'linked' && now.goal.revision === now.authority.goalRevision &&
+        now.goal.linkedWorkstreamId === input.workstreamId && now.workstream.lastJobId === input.jobId &&
+        this.authoritySelectionStillCurrent(now.authority, now.selection),
+      );
+    };
+    if (!current()) return;
+    const outcome = await coordinator.checkWorkflowResult({
+      ownerUserId: input.ownerUserId,
+      projectId: input.projectId,
+      workstreamId: input.workstreamId,
+      jobId: input.jobId,
+      expectation: {
+        sourceId: check.sourceId,
+        canonicalId: check.canonicalId,
+        observedVersion: check.observedVersion,
+        observedHash: check.observedHash,
+        sourceInstance: check.sourceInstance,
+      },
+      current,
+    });
+    if (outcome.kind !== 'intermediate') return;
+    const before = read();
+    if (
+      !current() || !before.conversation || !before.authority || !before.workstream || !before.selection ||
+      before.workstream.state !== 'ready' || before.workstream.revision !== outcome.workstreamRevision ||
+      ordinal >= before.authority.maxTurns ||
+      this.dependencies.jobs!.coordinatorBudgetState({ localUserId: input.ownerUserId, workstreamId: input.workstreamId }).holdReason !== null
+    ) return;
+    const dependencies = await this.currentDayflowDependency(before.conversation);
+    if (dependencies.kind === 'hold' || !this.sameDayflowDependency(before.authority.dayflowDependency, dependencies.manifest) ||
+        !current()) return;
+    const latestBeforeReserve = read();
+    if (!latestBeforeReserve.conversation || !latestBeforeReserve.authority) return;
+    const reserved = this.repository.reserveContinuationTurn({
+      ...requestScope,
+      expectedControlRevision: latestBeforeReserve.conversation.controlRevision,
+      expectedGoalRevision: latestBeforeReserve.authority.goalRevision,
+      authorizationId,
+      expectedConsumedTurns: ordinal,
+      // The checked application advanced the workstream; the grant rebases to it.
+      workstreamRevision: outcome.workstreamRevision,
+    });
+    if (reserved.kind !== 'updated') return;
+    const after = read();
+    if (
+      !after.conversation || !after.authority || !after.goal || !after.workstream || !after.selection ||
+      after.authority.consumedTurns !== ordinal + 1 || after.workstream.state !== 'ready' ||
+      !this.authorityStillCurrent(after.conversation, after.authority, after.selection, after.workstream)
+    ) return;
+    // Server-internal continuation actor: the owner's id only, never a bearer.
+    // Every downstream gate re-proves owner/project/root itself.
+    const internalActor = { sessionToken: '', user: { id: input.ownerUserId } } as AuthContext;
+    await this.dispatchWorkflowOrdinal({
+      actor: internalActor,
+      request,
+      conversation: after.conversation,
+      authority: after.authority,
+      workstream: after.workstream,
+      selection: after.selection,
+      objective: after.goal.objective,
+      fallback: after.conversation,
+    });
+  }
+
+  /**
    * Reuse the existing scheduler minute callback to inspect a bounded page of
    * already-consumed ordinary finite children. It is not a planner/queue: no
    * row without a current finite authority is touched, and the coordinator
@@ -2325,6 +2498,26 @@ export class CoordinatorConversationService {
           conversation.projectId,
           authority.workstreamId,
         );
+        if (authority.purpose === 'workflow' && goal && workstream?.lastJobId) {
+          const job = this.dependencies.jobs!.getNativeForWorkstream({
+            localUserId: conversation.ownerUserId, workstreamId: workstream.id, jobId: workstream.lastJobId,
+          });
+          // A terminal workflow job whose observer event was missed (restart,
+          // reconstructed service) is re-read through the same checked branch;
+          // its CAS makes a duplicate a no-op. Unknown/failed are never touched.
+          if (job?.state === 'succeeded') {
+            await this.onWorkflowTerminal({
+              ownerUserId: conversation.ownerUserId,
+              projectId: conversation.projectId,
+              workstreamId: workstream.id,
+              parentSessionId: conversation.sessionId,
+              jobId: job.id,
+              state: 'succeeded',
+              hostEpoch: job.host_epoch ?? '',
+            }, authority.authorizationId);
+            continue;
+          }
+        }
         if (
           !goal || !workstream || !workstream.lastJobId ||
           !this.authorityStillCurrent(current.conversation, authority, selected, workstream)
@@ -3131,6 +3324,7 @@ export class CoordinatorConversationService {
       ...(context.calendarMirror || context.projectSessions
         ? ['Calendar and project-session entries in the snapshot are cached/local observations with the stated sync age and coverage: the calendar mirror has unproven account binding and unknown external completeness (an empty window never means the calendar is clear), and project sessions are persisted status from a recent window (not live, not completion, and never a dispatch grant for another project). For detail use the signed status tool only if it is actually in your active profile scope; otherwise say detail is unavailable.']
         : []),
+      ...(context.codingWorkflow ? [renderCodingWorkflowCapabilityLine(context.codingWorkflow)] : []),
       `Current bounded coordinator snapshot: ${JSON.stringify(snapshot)}`,
     ].join('\n\n');
   }
@@ -3285,6 +3479,9 @@ export class CoordinatorConversationService {
   /** Compact source STATE only (no event/session bodies): system text and the oversize fallback. */
   private optionalSummary(context: CoordinatorConversationContextProjection): Record<string, unknown> {
     const out: Record<string, unknown> = {};
+    if (context.codingWorkflow) {
+      out.codingWorkflowLane = { available: context.codingWorkflow.available, reason: context.codingWorkflow.reason };
+    }
     if (context.calendarMirror) out.calendarMirror = this.calendarQualifications(context.calendarMirror);
     if (context.projectSessions) {
       out.projectSessions = {
@@ -3304,8 +3501,10 @@ export class CoordinatorConversationService {
   private optionalSemantics(context: CoordinatorConversationContextProjection): Record<string, unknown> | undefined {
     const calendar = context.calendarMirror;
     const projects = context.projectSessions;
-    if (!calendar && !projects) return undefined;
+    const lane = context.codingWorkflow;
+    if (!calendar && !projects && !lane) return undefined;
     return {
+      ...(lane ? { codingWorkflowLane: [lane.available, lane.reason] } : {}),
       calendar: calendar && {
         state: calendar.state, selection: calendar.selection, window: calendar.window,
         lastSuccessfulSyncAt: calendar.lastSuccessfulSyncAt, hasMore: calendar.hasMore,
@@ -3322,6 +3521,69 @@ export class CoordinatorConversationService {
         ]),
       },
     };
+  }
+
+  /**
+   * Honest chat-visible state of one G2 workflow grant, derived only from the
+   * durable workstream/job rows. Manager prose never maps to "done".
+   */
+  workflowStatus(
+    conversation: CoordinatorConversation,
+    authority: CoordinatorConversationContinuationAuthority,
+  ): { state: string; text: string } {
+    const status = (state: string, text: string) => ({ state, text });
+    let workstream: ReturnType<AgentWorkstreamsRepository['find']> = null;
+    let job: AgentBridgeJobRow | null = null;
+    try {
+      workstream = this.dependencies.workstreams?.find(conversation.ownerUserId, conversation.projectId, authority.workstreamId) ?? null;
+      job = workstream?.lastJobId
+        ? this.dependencies.jobs?.getNativeForWorkstream({
+          localUserId: conversation.ownerUserId, workstreamId: workstream.id, jobId: workstream.lastJobId,
+        }) ?? null
+        : null;
+    } catch {
+      return status('unavailable', 'Workflow state could not be read; nothing is assumed done.');
+    }
+    const ordinal = `ordinal ${authority.consumedTurns} of ${authority.maxTurns}`;
+    if (authority.status === 'authorized') return status('authorized', 'Acknowledged; no manager has started yet.');
+    if (workstream?.state === 'completed') {
+      return status('completed', 'Completed: the source is server-verified current and the cited brief passed server citation checks plus independent verification-gate review.');
+    }
+    if (workstream?.state === 'paused') return status('paused', `Paused at ${ordinal}; nothing runs or advances while paused.`);
+    if (workstream?.state === 'cancelled') return status('cancelled', `Cancelled at ${ordinal}; no further ordinal will run.`);
+    const result = (() => { try { return job?.native_result_json ? JSON.parse(job.native_result_json) as Record<string, unknown> : null; } catch { return null; } })();
+    if (job?.state === 'failed') {
+      return result?.reason === 'workflow_delivery_rejected'
+        ? status('refused', `Refused before the manager was exposed (${ordinal}); nothing ran and the ordinal is not retried.`)
+        : status('failed', `The manager run failed (${ordinal}); nothing is verified and nothing advances.`);
+    }
+    if (typeof result?.workflowCoverageHold === 'string') {
+      return status('membership_unavailable', `Held (${ordinal}): the workflow's sessions and usage could not be fully proven, so nothing advances.`);
+    }
+    if (job?.state === 'unknown' && !(() => { try { return JSON.parse(job.native_metadata_json ?? '{}').workflow?.prepared; } catch { return null; } })()) {
+      // Never prepared = never exposed: the claim was fenced before any SDK request.
+      return status('planning_dispatch_hold', `Held before the manager ran (${ordinal}); it is not retried automatically.`);
+    }
+    if (job?.state === 'unknown') {
+      return status('unknown', `Delivery or usage is unknown (${ordinal}); it is never retried or treated as done.`);
+    }
+    if (new Date(authority.expiresAt).valueOf() <= this.now().valueOf()) {
+      return status('expired', `Authorization expired at ${ordinal}; no further ordinal will run.`);
+    }
+    if (!job || job.idempotency_key !== this.conversationCommandKey(conversation.id, authority.goalId, authority.authorizationId, authority.consumedTurns)) {
+      return status('planning_dispatch_hold', `Held before dispatch (${ordinal}): no manager is running for this ordinal and it is not retried automatically.`);
+    }
+    if (job.state !== 'succeeded' && workstream?.state === 'blocked') {
+      return status('planning_dispatch_hold', `Held before the manager ran (${ordinal}); it is not retried automatically.`);
+    }
+    if (['queued', 'claimed', 'running'].includes(job.state)) {
+      return status('running', `Running ${ordinal}; manager output is unverified until the server checks it.`);
+    }
+    const sourceVerified = workstream?.checkpoint.criteria.some((c) => c.id === 'selected_reference_current' && c.status === 'verified');
+    if (sourceVerified && authority.consumedTurns >= authority.maxTurns) {
+      return status('cap_reached', 'Source verified, but the acknowledged ordinal cap is reached; the brief will not be produced.');
+    }
+    return status('awaiting_check', `Manager finished ${ordinal}; no criterion is resolved until the server check passes (a model "done" completes nothing).`);
   }
 
   private modelStatusText(
@@ -3360,6 +3622,7 @@ export class CoordinatorConversationService {
       finite: conversation.continuations.slice(0, 12).map((authority) => ({
         goalId: authority.goalId, status: authority.status, consumedTurns: authority.consumedTurns,
         maxTurns: authority.maxTurns, expiresAt: authority.expiresAt,
+        ...(authority.purpose === 'workflow' ? { workflow: this.workflowStatus(conversation, authority) } : {}),
       })),
       codingWorkflow: conversation.commandDedupe
         .filter((command) => command.kind === 'delegate_goal')

@@ -844,6 +844,12 @@ export interface CoordinatorForegroundPromptDispatchContext {
 export interface CoordinatorCallbackPromptDispatchContext {
   readonly kind: 'coordinator_callback_v1';
   validate(): boolean | Promise<boolean>;
+  /**
+   * Exact bound Coding Workflow callback only. When present the native anchor
+   * is minted even with no Dayflow receiver, its dispatch row is durable, and
+   * this synchronous hook must return true before any SDK exposure.
+   */
+  onPrepared?(binding: { dispatchId: string; sdkUserMessageId: string }): boolean;
 }
 
 function isCoordinatorForegroundPromptContext(
@@ -3112,6 +3118,7 @@ function validFiniteExecutionPermissionRules(
     if (callback && (
       managed || foreground || callback.kind !== 'coordinator_callback_v1' ||
       typeof callback.validate !== 'function' || !provenance ||
+      (callback.onPrepared !== undefined && typeof callback.onPrepared !== 'function') ||
       provenance.sdkSessionId !== sessionId || provenance.routeAuthed != null ||
       !isCoordinatorCallbackProvenance(provenance)
     )) {
@@ -3226,7 +3233,11 @@ function validFiniteExecutionPermissionRules(
       // active for this root, its real native user-message id must exist
       // before the SDK request: a missing anchor holds (the provider guard may
       // not guess a binding from a later oldest-unlinked heuristic).
-      const anchor = await this.mintCallbackDayflowAnchor(sessionId, directory);
+      // A bound workflow callback always needs its real anchor (charged root
+      // turn), receiver or not; the same id also serves a Dayflow binding.
+      const anchor = callback.onPrepared
+        ? (await this.mintPromptAnchor(sessionId, directory).catch(() => null)) ?? 'missing'
+        : await this.mintCallbackDayflowAnchor(sessionId, directory);
       if (anchor === 'missing') return false;
       dayflowMessageID = anchor ?? undefined;
     } else if (!managed && !approvalResume && !codingWorkflow) {
@@ -3358,6 +3369,20 @@ function validFiniteExecutionPermissionRules(
     dispatchId ??= beginDispatch(dayflowMessageID && provenance
       ? { ...provenance, sdkUserMessageId: dayflowMessageID }
       : provenance);
+    if (callback?.onPrepared) {
+      // Durable pre-exposure receipt: no row/anchor or a refused hook = no SDK.
+      let prepared = false;
+      try {
+        prepared = Boolean(dispatchId && dayflowMessageID) &&
+          callback.onPrepared({ dispatchId: dispatchId!, sdkUserMessageId: dayflowMessageID! }) === true;
+      } catch {
+        prepared = false;
+      }
+      if (!prepared) {
+        settleDispatch(dispatchId, 'rejected');
+        return false;
+      }
+    }
     // Keep this immediately adjacent to the SDK exposure; `beforeDispatch`
     // and managed authority checks above may both have awaited.
     if (managed) {

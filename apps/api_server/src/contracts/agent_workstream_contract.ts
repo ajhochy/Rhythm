@@ -338,3 +338,44 @@ export function parseEvidenceSelector(value: unknown): string {
   }
   return value;
 }
+
+// ── G2 selected_reference_summary_v1 checked result (S5) ─────────────────────
+/** The two fixed criteria of the only supported Coding Workflow check. */
+export const SELECTED_REFERENCE_SOURCE_CRITERION = 'selected_reference_current' as const;
+export const SELECTED_REFERENCE_SUMMARY_CRITERION = 'reviewed_summary_with_citation' as const;
+export type SelectedReferenceCriterionId =
+  | typeof SELECTED_REFERENCE_SOURCE_CRITERION
+  | typeof SELECTED_REFERENCE_SUMMARY_CRITERION;
+
+/** Exact receipt bases. Model review is labelled as model review, never as proof. */
+export const SELECTED_REFERENCE_RECEIPT_BASES = {
+  [SELECTED_REFERENCE_SOURCE_CRITERION]: ['server_resolved_source'],
+  [SELECTED_REFERENCE_SUMMARY_CRITERION]: ['server_resolved_source_and_structural_checks', 'independent_model_review'],
+} as const satisfies Record<SelectedReferenceCriterionId, readonly string[]>;
+
+/**
+ * Server-written criterion receipt. It carries identities and digests only;
+ * the summary/review text never enters the ledger.
+ */
+export interface WorkflowCriterionReceipt {
+  schemaVersion: 1;
+  kind: 'selected_reference_summary_v1';
+  criterionId: SelectedReferenceCriterionId;
+  bases: readonly string[];
+  sourceId: string;
+  canonicalId: string;
+  observedVersion: string;
+  observedHash: string;
+  sourceInstance: string;
+  /** Present only for the reviewed summary criterion. */
+  review: {
+    managerTerminalMessageId: string;
+    reviewerSdkSessionId: string;
+    reviewerTerminalMessageId: string;
+    summarySha256: string;
+  } | null;
+}
+
+export function workflowCriterionReceiptId(receipt: Pick<WorkflowCriterionReceipt, 'criterionId' | 'observedHash' | 'review'>): string {
+  return `workflow:${receipt.criterionId}:${receipt.observedHash}${receipt.review ? `:${receipt.review.summarySha256}` : ''}`;
+}

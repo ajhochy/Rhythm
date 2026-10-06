@@ -5,6 +5,11 @@ import { AppError } from '../errors/app_error';
 import {
   parseManagedWorkstreamStructuredProposal,
   type ManagedWorkstreamStructuredProposal,
+  SELECTED_REFERENCE_RECEIPT_BASES,
+  SELECTED_REFERENCE_SOURCE_CRITERION,
+  SELECTED_REFERENCE_SUMMARY_CRITERION,
+  workflowCriterionReceiptId,
+  type WorkflowCriterionReceipt,
   type WorkstreamReferenceInput,
   type WorkstreamRunPolicy,
 } from '../contracts/agent_workstream_contract';
@@ -50,7 +55,10 @@ import {
 import {
   WorkstreamArtifactAuthorityResolver,
   WorkstreamArtifactResolutionError,
+  checkSelectedReferenceSummary,
+  selectedReferenceCurrent,
   type QualifiedWorkstreamArtifact,
+  type SelectedReferenceExpectation,
 } from './workstream_artifact_verifier';
 import {
   resolveProfileMcpScope,
@@ -327,6 +335,13 @@ export interface PersistentWorkstreamCoordinatorDependencies {
   profileScopeResolver?: (profileId: string) => Promise<ProfileScope>;
   /** C2 composition may consume only a reconciled finite conversation turn. */
   terminalObserver?: CoordinatorTerminalObserver;
+  /**
+   * G2: complete manager + descendants + charged callback accounting. Absent
+   * means a workflow job's usage is never known (it holds, never advances).
+   */
+  workflowCoverage?: Pick<CodingWorkflowCoverageInspector, 'inspect'>;
+  /** G2 reviewer identification (exact async delegation target). */
+  delegations?: Pick<AgentAsyncDelegationsRepository, 'findByChildSessionId'>;
   hostEpoch?: string;
 }
 
@@ -940,6 +955,172 @@ export class PersistentWorkstreamCoordinator {
     // CAS fences. If authority changes during its awaits, the observer's own
     // rereads hold continuation; this method never dispatches by itself.
     await this.reconcileJob(workstream, job);
+  }
+
+  /**
+   * G2 `selected_reference_summary_v1` checked result for one reconciled
+   * workflow job. Model output, a stop step, a valid proposal or a callback
+   * never resolve a criterion: only this method's fresh server resolution
+   * (plus, for the brief, the deterministic citation check and the enrolled
+   * independent reviewer's verdict) writes the receipt, through the existing
+   * criterion transaction. Re-entrant: an already applied job replays its
+   * outcome; it never dispatches anything itself.
+   */
+  async checkWorkflowResult(input: {
+    ownerUserId: number;
+    projectId: string;
+    workstreamId: string;
+    jobId: string;
+    expectation: SelectedReferenceExpectation;
+    /** Synchronous same-goal authority proof, re-run after every await. */
+    current(): boolean;
+  }): Promise<CodingWorkflowCheckOutcome> {
+    const hold = (reason: string): CodingWorkflowCheckOutcome => ({ kind: 'hold', reason });
+    const read = () => {
+      const workstream = this.workstreams.find(input.ownerUserId, input.projectId, input.workstreamId);
+      const job = this.jobs.getNativeForWorkstream({
+        localUserId: input.ownerUserId, workstreamId: input.workstreamId, jobId: input.jobId,
+      });
+      return { workstream, job };
+    };
+    if (!input.current()) return hold('authority_changed');
+    const { workstream, job } = read();
+    const record = job ? codingWorkflowRecord(job) : null;
+    if (
+      !workstream || !job || !record || workstream.lastJobId !== job.id || job.state !== 'succeeded' ||
+      job.host_epoch !== this.hostEpoch || job.cancel_requested_at !== null
+    ) return hold('job_not_checkable');
+    if (['paused', 'cancelled'].includes(workstream.state)) return hold(`workstream_${workstream.state}`);
+    const application = jsonRecord(job.native_application_json);
+    const priorReceipts = application?.status === 'applied' && Array.isArray(application.workflowReceipts)
+      ? application.workflowReceipts as WorkflowCriterionReceipt[]
+      : null;
+    if (priorReceipts) {
+      // Duplicate terminal / concurrent sweep: replay the durable outcome only
+      // while the workstream is still exactly the applied revision.
+      if (workstream.revision !== Number(application!.workstreamRevision) + 1) return hold('application_superseded');
+      return priorReceipts[0]?.criterionId === SELECTED_REFERENCE_SUMMARY_CRITERION
+        ? { kind: 'final', workstreamRevision: workstream.revision }
+        : { kind: 'intermediate', workstreamRevision: workstream.revision };
+    }
+    if (application?.status !== 'quarantined') return hold('application_fenced');
+    if (this.jobs.coordinatorBudgetState({ localUserId: input.ownerUserId, workstreamId: input.workstreamId }).holdReason !== null) {
+      return hold('usage_incomplete_or_budget_hold');
+    }
+    const status = (id: string) => workstream.checkpoint.criteria.find((candidate) => candidate.id === id)?.status;
+    const criterionId = status(SELECTED_REFERENCE_SOURCE_CRITERION) === 'pending'
+      ? SELECTED_REFERENCE_SOURCE_CRITERION
+      : status(SELECTED_REFERENCE_SOURCE_CRITERION) === 'verified' && status(SELECTED_REFERENCE_SUMMARY_CRITERION) === 'pending'
+        ? SELECTED_REFERENCE_SUMMARY_CRITERION
+        : null;
+    const reference = workstream.checkpoint.references.find((candidate) => candidate.sourceId === input.expectation.sourceId);
+    if (!criterionId || !reference || reference.expectedVersion !== input.expectation.observedVersion) {
+      return hold('criterion_unavailable');
+    }
+
+    let review: WorkflowCriterionReceipt['review'] = null;
+    if (criterionId === SELECTED_REFERENCE_SUMMARY_CRITERION) {
+      const reviewed = await this.readWorkflowReview(job, input.expectation);
+      if ('reason' in reviewed) return hold(reviewed.reason);
+      review = reviewed;
+    }
+    // The fresh server resolution is the last await before the CAS.
+    let resolved: QualifiedWorkstreamArtifact;
+    try {
+      resolved = await this.artifactResolver.resolveReference({
+        ownerUserId: input.ownerUserId,
+        projectId: input.projectId,
+        workstreamId: input.workstreamId,
+        workstreamRevision: workstream.revision,
+        reference,
+      });
+    } catch {
+      return hold('source_unavailable');
+    }
+    if (!selectedReferenceCurrent(input.expectation, resolved)) return hold('source_changed');
+    const after = read();
+    if (
+      !input.current() || !after.workstream || !after.job || after.workstream.revision !== workstream.revision ||
+      after.workstream.lastJobId !== job.id || after.job.native_application_json !== job.native_application_json ||
+      after.job.state !== 'succeeded'
+    ) return hold('changed_during_check');
+    const receipt: WorkflowCriterionReceipt = {
+      schemaVersion: 1,
+      kind: 'selected_reference_summary_v1',
+      criterionId,
+      bases: SELECTED_REFERENCE_RECEIPT_BASES[criterionId],
+      sourceId: input.expectation.sourceId,
+      canonicalId: resolved.receipt.canonicalId,
+      observedVersion: resolved.receipt.observedVersion,
+      observedHash: resolved.receipt.observedHash,
+      sourceInstance: resolved.receipt.sourceInstance!,
+      review,
+    };
+    const outcome = this.jobs.applyCoordinatorCriteria({
+      localUserId: input.ownerUserId,
+      projectId: input.projectId,
+      workstreamId: input.workstreamId,
+      jobId: job.id,
+      expectedRevision: workstream.revision,
+      currentEpoch: this.hostEpoch,
+      authorityCurrent: this.resultAuthorityReason(after.workstream, after.job) === null,
+      criteria: [{ criterionId, criterionStatus: 'verified', receiptId: workflowCriterionReceiptId(receipt) }],
+      workflowReceipts: [receipt],
+      application: { authority: 'server_checked_selected_reference_summary_v1' },
+      now: new Date().toISOString(),
+    });
+    if (outcome.outcome !== 'applied') return hold(`criterion_${outcome.outcome}`);
+    const applied = this.workstreams.find(input.ownerUserId, input.projectId, input.workstreamId);
+    if (!applied) return hold('workstream_missing');
+    return criterionId === SELECTED_REFERENCE_SUMMARY_CRITERION
+      ? { kind: 'final', workstreamRevision: applied.revision }
+      : { kind: 'intermediate', workstreamRevision: applied.revision };
+  }
+
+  /**
+   * The manager's cited brief and the exactly-one covered `verification-gate`
+   * async child's strict verdict. Reviewer identity comes from the durable
+   * delegation row + the job's covered descendant set, never from text.
+   */
+  private async readWorkflowReview(
+    job: AgentBridgeJobRow,
+    expectation: SelectedReferenceExpectation,
+  ): Promise<NonNullable<WorkflowCriterionReceipt['review']> | { reason: string }> {
+    const result = jsonRecord(job.native_result_json);
+    const coverage = result?.workflowCoverage as { descendantSdkSessionIds?: unknown } | null | undefined;
+    const descendants = Array.isArray(coverage?.descendantSdkSessionIds) ? coverage!.descendantSdkSessionIds as string[] : null;
+    const manager = job.native_child_session_id ? this.sessions.findById(job.native_child_session_id) : null;
+    if (!descendants || !manager?.cwd || !manager.sdkSessionId) return { reason: 'review_coverage_unavailable' };
+    const delegations = this.dependencies.delegations ?? new AgentAsyncDelegationsRepository();
+    const reviewers = descendants.flatMap((sdkSessionId) => {
+      const child = this.sessions.findBySdkSessionId(sdkSessionId);
+      const delegation = child ? delegations.findByChildSessionId(child.id) : null;
+      return child?.cwd && child.parentSessionId === manager.id && delegation?.parentSessionId === manager.id &&
+        delegation.targetAgentConfigId === 'verification-gate'
+        ? [child]
+        : [];
+    });
+    if (reviewers.length !== 1) return { reason: reviewers.length === 0 ? 'review_absent' : 'review_ambiguous' };
+    const reviewer = reviewers[0];
+    let managerMessages: Array<{ info: unknown; parts?: unknown }> | null;
+    let reviewerMessages: Array<{ info: unknown; parts?: unknown }> | null;
+    try {
+      managerMessages = await this.listAllMessages(manager.sdkSessionId, manager.cwd);
+      reviewerMessages = await this.listAllMessages(reviewer.sdkSessionId!, reviewer.cwd!);
+    } catch {
+      return { reason: 'review_messages_unavailable' };
+    }
+    const brief = managerMessages ? closingAssistantText(managerMessages, job.native_sdk_user_message_id) : null;
+    const verdict = reviewerMessages ? closingAssistantText(reviewerMessages, null) : null;
+    if (!brief || !verdict) return { reason: 'review_messages_unavailable' };
+    const checked = checkSelectedReferenceSummary({ expectation, managerText: brief.text, reviewerText: verdict.text });
+    if (!checked.ok) return { reason: checked.reason };
+    return {
+      managerTerminalMessageId: brief.messageId,
+      reviewerSdkSessionId: reviewer.sdkSessionId!,
+      reviewerTerminalMessageId: verdict.messageId,
+      summarySha256: checked.summarySha256,
+    };
   }
 
   /** Shared explicit/saved-consent admission; only the public wrapper owns bearer auth. */
@@ -2666,6 +2847,13 @@ export class PersistentWorkstreamCoordinator {
     // A thrown transport call or any missing/changed durable prepared receipt
     // may have reached the engine.  Preserve the consumed ordinal as unknown;
     // neither this path nor a later scheduler pass retries it.
+    if (latest.state === 'unknown') {
+      // The durable outcome hook already fenced the job; project it honestly.
+      this.publishRuntime(workstream, job.id, 'unknown', 'native_status_unknown', {
+        expectedStates: ['queued', 'running', 'blocked', 'unknown'], executorEpoch: this.hostEpoch,
+      });
+      return;
+    }
     this.markUnknown(workstream, latest, 'workflow_delivery_unknown');
   }
 
@@ -2874,8 +3062,43 @@ export class PersistentWorkstreamCoordinator {
       providerID?: unknown; modelID?: unknown; finish?: unknown; tokens?: unknown; cost?: unknown;
     };
     const policy = this.policyFor(applyingJob);
-    const usage = usageFromAssistantSteps(infos, policy);
+    let usage = usageFromAssistantSteps(infos, policy);
     const errored = !!info.error;
+    // G2: the manager's own steps are never the workflow's whole cost. Only a
+    // complete manager + descendants + charged-callback inspection is usage.
+    let workflowCoverage: CodingWorkflowCoverageIds | null = null;
+    let workflowCoverageHold: string | null = null;
+    const workflowRecord = codingWorkflowRecord(applyingJob);
+    if (workflowRecord && usage && errored) {
+      // An errored manager turn is terminal but never a closed accounting
+      // group: record it failed with usage explicitly NOT complete (budget
+      // stays unknown), rather than waiting forever or claiming a total.
+      usage = { ...usage, status: 'manager_only_incomplete' };
+    } else if (workflowRecord && usage) {
+      const coverage = this.dependencies.workflowCoverage
+        ? await this.dependencies.workflowCoverage.inspect({
+          receipt: codingWorkflowReceipt(workflowRecord),
+          rootTurns: codingWorkflowRootTurns(workflowRecord),
+          current: () => this.currentCoordinatorTerminalJob(workstream, applyingJob) !== null,
+        })
+        : { status: 'hold' as const, reason: 'scope_unsupported' as const, coverage: null, usage: null };
+      if (coverage.status === 'hold' && TRANSIENT_WORKFLOW_HOLDS.has(coverage.reason)) {
+        // A still-open charged turn: keep the reservation and re-read on the
+        // next existing sweep/observation. Nothing is completed or released.
+        return;
+      }
+      if (coverage.status === 'complete') {
+        usage = {
+          ...coverage.usage,
+          authorizedTokens: policy?.maxTokens ?? null,
+          overshoot: policy ? coverage.usage.totalTokens > policy.maxTokens : null,
+        };
+        workflowCoverage = coverage.coverage;
+      } else {
+        usage = null;
+        workflowCoverageHold = coverage.reason;
+      }
+    }
     // No raw assistant text is retained. A finite C2 worker may carry one
     // exact, bounded JSON proposal; all other prose/tool-shaped output is a
     // non-authoritative hold for continuation purposes.
@@ -2893,7 +3116,7 @@ export class PersistentWorkstreamCoordinator {
       servedModelId: safeIdentifier(info.modelID),
       finish: safeIdentifier(info.finish),
       errorCode: errored ? safeReason(info.error?.name) ?? 'engine_terminal_error' : null,
-      usageStatus: usage ? 'actual' : 'unknown',
+      usageStatus: usage?.status === 'actual' ? 'actual' : 'unknown',
       terminalObservation: {
         schemaVersion: 1,
         kind: 'strict_bound_session_lifecycle',
@@ -2912,6 +3135,7 @@ export class PersistentWorkstreamCoordinator {
           ? { schemaVersion: 1, state: 'parsed', criteria: structuredProposal.criteria, nextAction: structuredProposal.nextAction }
           : { schemaVersion: 1, state: 'unavailable' }
         : null,
+      ...(workflowRecord ? { workflowCoverage, workflowCoverageHold } : {}),
     };
     if (!usage) {
       // A recheck cannot trade an existing unknown/cancellation receipt for a
@@ -2923,7 +3147,7 @@ export class PersistentWorkstreamCoordinator {
         workstreamId: workstream.id,
         jobId: applyingJob.id,
         result,
-        reason: 'turn_usage_incomplete',
+        reason: workflowCoverageHold ? 'workflow_coverage_incomplete' : 'turn_usage_incomplete',
         now,
       });
       this.publishRuntime(workstream, applyingJob.id, 'unknown', 'usage_unknown_ack_required', {
@@ -3420,6 +3644,66 @@ function tokenCount(value: unknown): number | null {
     ? value
     : null;
 }
+
+/** Holds that mean "a charged turn is still open": re-read later, never complete. */
+const TRANSIENT_WORKFLOW_HOLDS = new Set<CodingWorkflowHoldReason>([
+  'turn_not_terminal', 'turn_incomplete', 'session_busy', 'pending_interaction', 'lifecycle_changed',
+  'native_tree_changed',
+]);
+
+type CodingWorkflowJobRecord = Record<string, unknown> & { prepared: Record<string, unknown> };
+
+/** The exact durable workflow block of a coordinator job, or null for every other lane. */
+function codingWorkflowRecord(job: AgentBridgeJobRow): CodingWorkflowJobRecord | null {
+  const workflow = jsonRecord(job.native_metadata_json)?.workflow;
+  if (!workflow || typeof workflow !== 'object' || Array.isArray(workflow)) return null;
+  const record = workflow as Record<string, unknown>;
+  return record.kind === 'coding_workflow' && record.prepared && typeof record.prepared === 'object'
+    ? record as CodingWorkflowJobRecord
+    : null;
+}
+
+/** The typed dispatch receipt re-derived from durable job JSON (strictly re-parsed by the inspector). */
+function codingWorkflowReceipt(record: CodingWorkflowJobRecord): unknown {
+  const prepared = record.prepared;
+  return {
+    schemaVersion: 1,
+    adapter: 'coding_workflow_v1',
+    authorization: record.authorization,
+    owner: prepared.owner,
+    delegation: prepared.delegation,
+    dispatch: { ...(prepared.dispatch as Record<string, unknown>), delivery: record.delivery },
+    engine: prepared.engine,
+  };
+}
+
+/** Exact charged callback anchors persisted before their exposure; never inferred. */
+function codingWorkflowRootTurns(record: CodingWorkflowJobRecord): unknown {
+  const anchors = Array.isArray(record.callbackAnchors) ? record.callbackAnchors as Array<Record<string, unknown>> : [];
+  return anchors.map((anchor) => ({ dispatchId: anchor.dispatchId, sdkUserMessageId: anchor.sdkUserMessageId }));
+}
+
+/** Text of the one closing assistant step answering `parentId` (null when absent/ambiguous). */
+function closingAssistantText(
+  messages: Array<{ info: unknown; parts?: unknown }>,
+  parentId: string | null,
+): { messageId: string; text: string } | null {
+  const closing = messages.filter((message) => {
+    const info = message.info as { role?: unknown; parentID?: unknown; finish?: unknown; id?: unknown };
+    return info.role === 'assistant' && info.finish === 'stop' && typeof info.id === 'string' &&
+      (parentId === null || info.parentID === parentId);
+  });
+  if (closing.length !== 1) return null;
+  const parts = Array.isArray(closing[0].parts) ? closing[0].parts as Array<{ type?: unknown; text?: unknown }> : [];
+  return {
+    messageId: (closing[0].info as { id: string }).id,
+    text: parts.filter((part) => part.type === 'text' && typeof part.text === 'string').map((part) => part.text).join('\n'),
+  };
+}
+
+export type CodingWorkflowCheckOutcome =
+  | { kind: 'intermediate' | 'final'; workstreamRevision: number }
+  | { kind: 'hold'; reason: string };
 
 function usageFromAssistantSteps(
   infos: Array<{ tokens?: unknown; cost?: unknown }>,

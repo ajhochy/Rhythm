@@ -19,6 +19,13 @@ import {
 } from './native_workstream_wake_contract';
 import type { CodingWorkflowAuthorization, CodingWorkflowEngineIdentity } from '../contracts/coordinator_conversation_contract';
 import type { WorkflowBinding } from '../contracts/dayflow_provider_admission_contract';
+import {
+  SELECTED_REFERENCE_RECEIPT_BASES,
+  SELECTED_REFERENCE_SOURCE_CRITERION,
+  SELECTED_REFERENCE_SUMMARY_CRITERION,
+  workflowCriterionReceiptId,
+  type WorkflowCriterionReceipt,
+} from '../contracts/agent_workstream_contract';
 
 export type LegacyAgentBridgeJobDirection = 'rhythm_to_hermes' | 'hermes_to_rhythm';
 export type AgentBridgeJobDirection = LegacyAgentBridgeJobDirection | 'rhythm_to_native';
@@ -460,6 +467,35 @@ function hasValidCoordinatorPolicy(row: AgentBridgeJobRow): boolean {
     coordinatorAuthorizationTokens(row) !== null;
 }
 
+/**
+ * Exactly one fixed criterion, in order, carrying its exact server bases and
+ * bound to the workstream's own stored reference/version.
+ */
+function workflowSubsetReceipted(
+  checkpoint: AgentWorkstreamCheckpoint,
+  requested: Map<string, CoordinatorCriterionInput>,
+  receipts: WorkflowCriterionReceipt[] | undefined,
+): boolean {
+  if (requested.size !== 1 || !Array.isArray(receipts) || receipts.length !== 1) return false;
+  const [criterion] = [...requested.values()];
+  const receipt = receipts[0];
+  const status = (id: string) => checkpoint.criteria.find((candidate) => candidate.id === id)?.status;
+  const unresolved = (id: string) => status(id) === 'pending' || status(id) === 'blocked';
+  const ordered = criterion.criterionId === SELECTED_REFERENCE_SOURCE_CRITERION
+    ? unresolved(SELECTED_REFERENCE_SOURCE_CRITERION) && unresolved(SELECTED_REFERENCE_SUMMARY_CRITERION)
+    : criterion.criterionId === SELECTED_REFERENCE_SUMMARY_CRITERION &&
+      status(SELECTED_REFERENCE_SOURCE_CRITERION) === 'verified' && unresolved(SELECTED_REFERENCE_SUMMARY_CRITERION);
+  const reference = checkpoint.references.find((candidate) => candidate.sourceId === receipt?.sourceId);
+  return Boolean(
+    ordered && receipt && receipt.schemaVersion === 1 && receipt.kind === 'selected_reference_summary_v1' &&
+    receipt.criterionId === criterion.criterionId && criterion.criterionStatus === 'verified' &&
+    sameJson(receipt.bases, SELECTED_REFERENCE_RECEIPT_BASES[receipt.criterionId]) &&
+    (receipt.criterionId === SELECTED_REFERENCE_SUMMARY_CRITERION) === (receipt.review !== null) &&
+    reference && reference.expectedVersion === receipt.observedVersion &&
+    /^[0-9a-f]{64}$/.test(receipt.observedHash) && criterion.receiptId === workflowCriterionReceiptId(receipt),
+  );
+}
+
 function parseCheckpointForApplication(value: string): AgentWorkstreamCheckpoint | null {
   const parsed = parseRecord(value);
   if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.criteria) ||
@@ -659,6 +695,16 @@ export class AgentBridgeJobsRepository {
       SELECT * FROM agent_bridge_jobs
        WHERE id=? AND direction='rhythm_to_native' AND native_execution_kind='coordinator'
     `).get(jobId) as AgentBridgeJobRow | undefined ?? null;
+  }
+
+  /** Exact durable member proof for the provider finalizer (membership precedes the request). */
+  hasCoordinatorWorkflowMember(jobId: string, nativeSessionId: string, nativeUserMessageId: string): boolean {
+    const workflow = parseRecord(this.findCoordinatorWorkflowJob(jobId)?.native_metadata_json ?? null)?.workflow as
+      { membership?: unknown } | undefined;
+    return Array.isArray(workflow?.membership) && workflow.membership.some((item) => {
+      const member = item as Record<string, unknown> | null;
+      return member?.nativeSessionId === nativeSessionId && member.nativeUserMessageId === nativeUserMessageId;
+    });
   }
 
   listNativeForWorkstream(input: {
@@ -1079,10 +1125,16 @@ export class AgentBridgeJobsRepository {
         RETURNING *`).get(
         serializedMetadata(next),
         terminal ? 'failed' : uncertain ? 'unknown' : 'running',
-        terminal ? 'workflow_delivery_rejected' : uncertain ? 'native_status_unknown' : null,
-        uncertain,
-        uncertain ? JSON.stringify({ schemaVersion: 1, status: 'unknown', reason: 'workflow_delivery_unknown' }) : null,
-        terminal,
+        // The table CHECK allows only the native state_reason vocabulary; the
+        // rejection reason lives in the result JSON instead.
+        uncertain ? 'native_status_unknown' : null,
+        // better-sqlite3 cannot bind booleans: a raw boolean threw here and the
+        // (swallowed) outcome was never recorded, leaving delivery 'prepared'.
+        uncertain || terminal ? 1 : 0,
+        uncertain
+          ? JSON.stringify({ schemaVersion: 1, status: 'unknown', reason: 'workflow_delivery_unknown' })
+          : terminal ? JSON.stringify({ schemaVersion: 1, status: 'failed', reason: 'workflow_delivery_rejected' }) : null,
+        terminal ? 1 : 0,
         terminal ? input.now : null,
         input.now,
         input.now,
@@ -1414,6 +1466,11 @@ export class AgentBridgeJobsRepository {
     authorityCurrent?: boolean;
     criteria: CoordinatorCriterionInput[];
     application: Record<string, unknown>;
+    /**
+     * Coding Workflow jobs only: one server-written receipt per requested
+     * criterion. Without it a workflow job never resolves a criterion.
+     */
+    workflowReceipts?: WorkflowCriterionReceipt[];
     now: string;
   }): CoordinatorCriterionApplicationResult {
     return this.db.transaction<() => CoordinatorCriterionApplicationResult>(() => {
@@ -1480,7 +1537,16 @@ export class AgentBridgeJobsRepository {
       const unresolved = checkpoint.criteria.filter(
         (candidate) => candidate.status === 'pending' || candidate.status === 'blocked',
       );
-      if (unresolved.length === 0 || unresolved.length !== requested.size ||
+      const workflowJob = (parseRecord(job.native_metadata_json)?.workflow as { kind?: unknown } | undefined)?.kind ===
+        'coding_workflow';
+      if (workflowJob || input.workflowReceipts !== undefined) {
+        // The fixed two-step check applies exactly one server-receipted
+        // criterion per job; the other stays pending. Old lanes keep the
+        // all-unresolved rule below and can never carry workflow receipts.
+        if (!workflowJob || !workflowSubsetReceipted(checkpoint, requested, input.workflowReceipts)) {
+          return { outcome: 'criterion_unavailable', job };
+        }
+      } else if (unresolved.length === 0 || unresolved.length !== requested.size ||
           unresolved.some((candidate) => !requested.has(candidate.id))) {
         return { outcome: 'criterion_unavailable', job };
       }
@@ -1506,6 +1572,7 @@ export class AgentBridgeJobsRepository {
         schemaVersion: 1,
         status: 'applied',
         criteria: input.criteria.map((criterion) => ({ ...criterion })),
+        ...(input.workflowReceipts ? { workflowReceipts: input.workflowReceipts } : {}),
         workstreamRevision: input.expectedRevision,
         hostEpoch: input.currentEpoch,
       });
