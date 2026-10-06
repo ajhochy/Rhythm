@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
-import '../src/styles.css';
 import '../src/components/ToolWorkspace.css';
+// Match main.tsx: component styles are evaluated before the global stylesheet.
+import '../src/styles.css';
 import { DayflowTool } from '../src/components/tools/DayflowTool';
 
 // Synthetic rhythmShell.dayflowView: records calls only. This is not the native host and proves no native pixels.
