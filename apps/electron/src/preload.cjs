@@ -46,6 +46,40 @@ const dayflowDesktop = Object.freeze({
   getDayflowDesktopStatus: () => ipcRenderer.invoke('dayflow-desktop:get-status'),
   openDayflowDesktop: () => ipcRenderer.invoke('dayflow-desktop:open'),
 });
+// Native Dayflow view: the lease stays in this closure (never exposed), with a local monotonic
+// epoch. A stale attach result is dropped WITHOUT detaching; detach revokes locally first.
+let dayflowViewEpoch = 0;
+/** @type {string | undefined} */
+let dayflowViewLease;
+const dayflowViewCall = (/** @type {string} */ channel, /** @type {Record<string, unknown>} */ extra) => {
+  const lease = dayflowViewLease;
+  return lease ? ipcRenderer.invoke(channel, { attachment: lease, ...extra }).then((result) => result === true, () => false) : Promise.resolve(false);
+};
+const dayflowView = Object.freeze({
+  getStatus: () => ipcRenderer.invoke('dayflow:view:status').catch(() => ({ state: 'unavailable', code: 'unavailable' })),
+  attach: async () => {
+    const epoch = ++dayflowViewEpoch;
+    dayflowViewLease = undefined;
+    /** @type {any} */
+    let result;
+    try { result = await ipcRenderer.invoke('dayflow:view:attach'); } catch { result = undefined; }
+    if (epoch !== dayflowViewEpoch) return { ok: false, reason: 'detached' };
+    if (result && result.ok === true && typeof result.lease === 'string') {
+      dayflowViewLease = result.lease;
+      return { ok: true };
+    }
+    return { ok: false, reason: result && (result.reason === 'denied' || result.reason === 'detached') ? result.reason : 'unavailable' };
+  },
+  setBounds: (/** @type {unknown} */ bounds) => dayflowViewCall('dayflow:view:bounds', { bounds }),
+  setBlocked: (/** @type {boolean} */ blocked) => dayflowViewCall('dayflow:view:blocked', { blocked }),
+  detach: () => {
+    ++dayflowViewEpoch;
+    const call = dayflowViewCall('dayflow:view:detach', {});
+    dayflowViewLease = undefined;
+    return call;
+  },
+  returnFocus: () => dayflowViewCall('dayflow:view:return-focus', {}),
+});
 const hermes = Object.freeze({
   enabled: process.env.RHYTHM_HERMES_ENABLED !== '0',
   getStatus: () => ipcRenderer.invoke('hermes:get-status'),
@@ -270,6 +304,7 @@ contextBridge.exposeInMainWorld('rhythmShell', Object.freeze({
   agentServer,
   updates,
   dayflowDesktop,
+  dayflowView,
   selectDirectory: () => ipcRenderer.invoke('shell:select-directory'),
   saveFile: (/** @type {string} */ suggestedName, /** @type {string} */ contents) => ipcRenderer.invoke('shell:save-file', { suggestedName, contents }),
   hermes,

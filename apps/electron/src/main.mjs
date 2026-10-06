@@ -4,7 +4,8 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, lstatSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir, userInfo } from 'node:os';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { createRequire } from 'node:module';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { AGENT_SERVER_BASE_URL, AGENT_SERVER_ENGINE_PORT, AgentServerService, electronDbPath, legacyFlutterDbPath } from './agent-server.mjs';
@@ -26,6 +27,7 @@ import { installHermesDesktopUpdate } from './hermes-desktop-updates.mjs';
 import { registerColonyHost } from './colony-host.mjs';
 import { runColonySmoke } from './colony-smoke.mjs';
 import { createDayflowDesktopHost, registerDayflowDesktopIpc } from './dayflow-desktop.mjs';
+import { RHYTHM_BUNDLE_IDENTIFIER, registerNativeDayflowProductionHost } from './native-dayflow-production-host.mjs';
 import { registerOpenDesignView } from './open-design-view.mjs';
 import { createRemoteEnvironmentsCustody, registerRemoteEnvironments } from './remote-environments.mjs';
 import { createAgentToolAdapterRegistry, registerAgentToolAdapter } from './rhythm-agent-tools.mjs';
@@ -103,6 +105,37 @@ if (hasSingleInstanceLock) {
     isTrustedSender: (/** @type {Electron.IpcMainEvent | Electron.IpcMainInvokeEvent} */ event) => ownsDocument(event) && !accountsBlocked && accountsAuth.getSnapshot().authenticated,
   });
   registerAgentToolAdapter(agentToolAdapters, 'open-design', openDesignView);
+  // Native Dayflow: the ORIGINAL SwiftUI + services embedded in this window. Construction is inert (no addon
+  // load, install, service start or permission request). The wrapper is a pinned builder sidecar in the native root; the legacy
+  // external-app opener below stays a separate explicit action.
+  const requireNative = createRequire(import.meta.url);
+  const nativeDayflowRoot = join(process.resourcesPath, 'native-dayflow');
+  const openRhythmDownloadPage = () => shell.openExternal('https://github.com/ajhochy/Rhythm/releases');
+  const nativeDayflowHost = registerNativeDayflowProductionHost({
+    ipcMain,
+    getWindow: () => mainWindow,
+    isTrustedSender: (/** @type {Electron.IpcMainEvent | Electron.IpcMainInvokeEvent} */ event) => ownsDocument(event) && !accountsBlocked && accountsAuth.getSnapshot().authenticated,
+    // Fixed sidecar inside the trusted native root (beside addon/dylib); the host builds the path and never falls back.
+    loadModule: (/** @type {string} */ wrapperPath) => requireNative(wrapperPath),
+    loadAddon: (/** @type {string} */ addonPath) => requireNative(addonPath),
+    nativeRoot: nativeDayflowRoot,
+    appBundlePath: resolve(dirname(app.getPath('exe')), '..', '..'),
+    dataRoot: join(app.getPath('userData'), 'df'), // short physical root: it holds agent.sock
+    identity: { bundleIdentifier: RHYTHM_BUNDLE_IDENTIFIER, displayName: 'Rhythm', shortVersion: app.getVersion(), build: app.getVersion() },
+    isSupported: () => process.platform === 'darwin',
+    exists: (/** @type {string} */ path) => existsSync(path),
+    openDownloadPage: openRhythmDownloadPage,
+    loginItem: { get: () => app.getLoginItemSettings().openAtLogin === true, set: (/** @type {boolean} */ enabled) => app.setLoginItemSettings({ openAtLogin: enabled }) },
+    showQuitReopenInstruction: () => nativeDayflowHost.runModal(() => dialog.showMessageBox({ type: 'info', title: 'Quit and reopen Rhythm',
+      message: 'Dayflow needs Rhythm to quit and reopen.', detail: 'Quit Rhythm manually, then open it again. Rhythm will not quit or relaunch itself.' })),
+    log: (message) => process.stderr.write(`${message}\n`),
+  });
+  registerAgentToolAdapter(agentToolAdapters, 'dayflow', nativeDayflowHost);
+  // Every existing main-process dialog hides the native view while it is up.
+  const modalDialog = new Proxy(dialog, { get: (target, key) => (typeof target[key] === 'function' ? (/** @type {unknown[]} */ ...args) => nativeDayflowHost.runModal(() => target[key](...args)) : target[key]) });
+  // The UN delegate must be registered before launch finishes for cold-start taps; this loads no data,
+  // storage, services or permission and never touches Electron's own notification delegate.
+  app.on('will-finish-launching', () => { nativeDayflowHost.startNotifications(); });
   // #1374 — secondary-desktop continuation. The Device grant is a distinct secret from the
   // production session (auth-session.bin) and gets its own encrypted-at-rest file; it is cleared
   // whenever the production session itself is invalidated (see invalidateAuthentication below).
@@ -252,7 +285,7 @@ if (hasSingleInstanceLock) {
       const win = mainWindow;
       if (!win || win.isDestroyed()) return false;
       const detail = summary.fields.map((field) => `${field.name}: ${String(field.before)} → ${String(field.after)}`).join('\n');
-      const result = await dialog.showMessageBox(win, {
+      const result = await modalDialog.showMessageBox(win, {
         type: 'question', buttons: ['Apply', 'Reject'], defaultId: 1, cancelId: 1,
         title: 'Confirm shared agent change',
         message: `Allow changes to ${summary.agentLabel} (${summary.agentId})?`,
@@ -277,7 +310,7 @@ if (hasSingleInstanceLock) {
         confirmNative: async (mutation) => {
           const win = mainWindow;
           if (!win || win.isDestroyed()) return false;
-          const result = await dialog.showMessageBox(win, { type: 'question', buttons: ['Confirm', 'Cancel'], defaultId: 1, cancelId: 1,
+          const result = await modalDialog.showMessageBox(win, { type: 'question', buttons: ['Confirm', 'Cancel'], defaultId: 1, cancelId: 1,
             title: 'Hermes account sharing', message: `${mutation.action === 'enable' ? 'Share' : 'Stop sharing'} the ${mutation.provider} API key with Hermes?`,
             detail: 'Applies to the next Hermes backend start. Existing running work may retain a previously shared key until it stops.' });
           return result.response === 0;
@@ -364,7 +397,7 @@ if (hasSingleInstanceLock) {
     const authInvalidation = accountsAuth.invalidate();
     const brokerInvalidation = accountsMain?.identityChanged();
     const previous = accountsTransition;
-    accountsTransition = Promise.all([previous, authInvalidation, brokerInvalidation, bridgeHost.revokeAll(), hermesView.disposeCurrent(), openDesignView.disposeCurrent(), colonyHost?.invalidateProfile(), remoteEnvironmentsCustody.disconnect()]).then(() => { accountsBlocked = false; });
+    accountsTransition = Promise.all([previous, authInvalidation, brokerInvalidation, bridgeHost.revokeAll(), hermesView.disposeCurrent(), openDesignView.disposeCurrent(), nativeDayflowHost.disposeCurrent(), colonyHost?.invalidateProfile(), remoteEnvironmentsCustody.disconnect()]).then(() => { accountsBlocked = false; });
     void accountsTransition.catch(() => {});
     authGeneration += 1;
     clearAgentNotifications();
@@ -447,7 +480,6 @@ if (hasSingleInstanceLock) {
     isTrustedSender: ownsDocument,
     host: dayflowDesktopHost,
   });
-  registerAgentToolAdapter(agentToolAdapters, 'dayflow', dayflowDesktopHost);
   /** @type {string | undefined} */
   let productionSessionToken = isArtifactFrameSmoke ? 'artifact-smoke-token' : undefined;
   /** @type {{ loaded: boolean, protocol: string, bridge: unknown, request: { url: string, authenticated: boolean } | undefined } | undefined} */
@@ -864,7 +896,7 @@ if (hasSingleInstanceLock) {
   });
   ipcMain.handle('rhythm:updates:open-download', async (event, ...args) => {
     requireOwnedDocument(event); requireNoPayload(args);
-    await shell.openExternal('https://github.com/ajhochy/Rhythm/releases');
+    await openRhythmDownloadPage();
   });
   ipcMain.handle('rhythm:shell:open-external', async (event, value, ...args) => {
     requireOwnedDocument(event);
@@ -876,7 +908,7 @@ if (hasSingleInstanceLock) {
     requireOwnedDocument(event); requireNoPayload(args);
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win || win.isDestroyed()) throw new Error('Directory picker owner unavailable');
-    const { canceled, filePaths } = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'] });
+    const { canceled, filePaths } = await modalDialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'] });
     requireOwnedDocument(event);
     if (canceled || !filePaths[0]) return null;
     try {
@@ -901,7 +933,7 @@ if (hasSingleInstanceLock) {
     if (!extension || payload.contents.length > SAVE_FILE_MAX_CHARS) throw new Error('Invalid IPC payload');
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win || win.isDestroyed()) throw new Error('Save dialog owner unavailable');
-    const { canceled, filePath } = await dialog.showSaveDialog(win, {
+    const { canceled, filePath } = await modalDialog.showSaveDialog(win, {
       defaultPath: resolve(app.getPath('downloads'), suggestedName), filters: [SAVE_FILE_TYPES[extension]],
     });
     requireOwnedDocument(event);
@@ -925,7 +957,7 @@ if (hasSingleInstanceLock) {
     try {
       const win = BrowserWindow.fromWebContents(event.sender);
       if (!win || win.isDestroyed()) throw new Error('Hermes Desktop update picker owner unavailable');
-      const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      const { canceled, filePaths } = await modalDialog.showOpenDialog(win, {
         title: 'Install Hermes Desktop update',
         properties: ['openFile'],
         filters: [{ name: 'Hermes Desktop manifest', extensions: ['json'] }],
@@ -975,7 +1007,7 @@ if (hasSingleInstanceLock) {
     env: process.env,
     installLogPath: resolve(app.getPath('userData'), 'hermes-install.log'),
     log: writeHermesLog,
-    showConsent: (options) => dialog.showMessageBox(options),
+    showConsent: (options) => modalDialog.showMessageBox(options),
   });
   bindHermesViewSupervisor(hermes);
   for (const [channel, action] of /** @type {const} */ ([
@@ -1067,7 +1099,7 @@ if (hasSingleInstanceLock) {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('rhythm:agent-server:status-changed', snapshot);
     // ponytail: native error dialog keeps failures actionable without expanding E12's renderer UI.
     if (!isSmoke && !intentionalAgentServerRestart && snapshot.status === 'failed') {
-      void dialog.showMessageBox({ type: 'error', title: 'Rhythm local runtime unavailable',
+      void modalDialog.showMessageBox({ type: 'error', title: 'Rhythm local runtime unavailable',
         message: snapshot.errorMessage ?? 'Rhythm could not start its local runtime.',
         buttons: ['Retry', 'Close'], defaultId: 0, cancelId: 1,
       }).then(({ response }) => {
@@ -1083,7 +1115,7 @@ if (hasSingleInstanceLock) {
   // real exit, SIGKILL if still alive), triggered from the same three places Flutter triggers it:
   // normal app quit, and OS SIGINT/SIGTERM (main.dart:182-192; SIGTERM is skipped on Windows there
   // because it isn't catchable — not a concern here since this Electron build targets macOS only).
-  const stopRuntimes = async () => { await Promise.all([agentServer?.stopForQuit(), hermes.stop(), hermesView.dispose(), openDesignView.dispose(), colonyHost?.dispose()]); };
+  const stopRuntimes = async () => { await Promise.all([agentServer?.stopForQuit(), hermes.stop(), hermesView.dispose(), openDesignView.dispose(), nativeDayflowHost.dispose(), colonyHost?.dispose()]); };
   app.on('before-quit', (event) => {
     if (isHermesSelfTest || shuttingDown) return;
     shuttingDown = true;
@@ -1118,13 +1150,13 @@ if (hasSingleInstanceLock) {
     if (isMissingDistSmoke || !existsSync(webDist)) throw new Error(`Rhythm Electron shell requires built web assets at ${webDist}`);
     await restoreAuthentication();
     colonyHost = registerColonyHost({ ipcMain, getWindow: () => mainWindow, userDataPath: app.getPath('userData'), resourcesPath: process.resourcesPath,
-      home: userInfo().homedir, isPackaged: app.isPackaged, environment: process.env, app, shell, dialog,
+      home: userInfo().homedir, isPackaged: app.isPackaged, environment: process.env, app, shell, dialog: modalDialog,
       emitReset: () => mainWindow?.webContents.send('colony:host:reset') });
     registerAgentToolAdapter(agentToolAdapters, 'bot-crossing', colonyHost);
     if (productionSessionUser) await colonyHost.activateProfile({ productionApiBase, userId: String(productionSessionUser.id) });
     registerRemoteEnvironments({ ipcMain, getWindow: () => mainWindow, custody: remoteEnvironmentsCustody });
     if (!isSmoke && agentServer && !existsSync(electronDbPath()) && existsSync(legacyFlutterDbPath())) {
-      const choice = await dialog.showMessageBox({ type: 'question', title: 'Import existing Rhythm data?', message: 'Rhythm found data from the Flutter desktop app.', detail: 'Import copies the database into Electron using SQLite backup. The original remains untouched. Imported schedules start disabled for review.', buttons: ['Import existing data', 'Start fresh', 'Cancel'], defaultId: 0, cancelId: 2 });
+      const choice = await modalDialog.showMessageBox({ type: 'question', title: 'Import existing Rhythm data?', message: 'Rhythm found data from the Flutter desktop app.', detail: 'Import copies the database into Electron using SQLite backup. The original remains untouched. Imported schedules start disabled for review.', buttons: ['Import existing data', 'Start fresh', 'Cancel'], defaultId: 0, cancelId: 2 });
       if (choice.response === 2) { app.quit(); return; }
       process.env.RHYTHM_ELECTRON_MIGRATE_LEGACY = choice.response === 0 ? '1' : '0';
     }
@@ -1282,6 +1314,7 @@ if (hasSingleInstanceLock) {
       },
     });
     mainWindow = window;
+    nativeDayflowHost.bindWindow(window);
     window.webContents.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
       if (isMainFrame && !isInPlace && rendererReady) {
         if (/^rhythm:\/\/app\/index\.html(?:#.*)?$/.test(url)) {
@@ -1321,6 +1354,7 @@ if (hasSingleInstanceLock) {
     });
     window.webContents.on('did-finish-load', () => {
       rendererReady = true;
+      nativeDayflowHost.windowReady();
       if (agentNotificationPermissionPrimed) reportAgentNotificationPermission();
       window.webContents.send('rhythm:agent-server:status-changed', agentServer?.status ?? externalRuntimeStatus);
       window.webContents.send('hermes:status', hermes.getStatus());
@@ -1335,7 +1369,7 @@ if (hasSingleInstanceLock) {
       if (shuttingDown || details?.reason === 'clean-exit' || window.isDestroyed()) return;
       process.stderr.write(`Rhythm renderer exited: ${details?.reason}\n`);
       if (Date.now() - lastRendererCrash < 10_000) {
-        dialog.showErrorBox('Rhythm window stopped', `The Rhythm window stopped responding (${details?.reason}). Quit and reopen Rhythm.`);
+        modalDialog.showErrorBox('Rhythm window stopped', `The Rhythm window stopped responding (${details?.reason}). Quit and reopen Rhythm.`);
         return;
       }
       lastRendererCrash = Date.now();
