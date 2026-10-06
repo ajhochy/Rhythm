@@ -3602,7 +3602,17 @@ export class CoordinatorConversationService {
     const ordinal = `ordinal ${authority.consumedTurns} of ${authority.maxTurns}`;
     if (authority.status === 'authorized') return status('authorized', 'Acknowledged; no manager has started yet.');
     if (workstream?.state === 'completed') {
-      return status('completed', 'Completed: the source is server-verified current and the cited brief passed server citation checks plus independent verification-gate review.');
+      const criteria = workstream.checkpoint.criteria;
+      const verified = criteria.length === 2 &&
+        ['selected_reference_current', 'reviewed_summary_with_citation']
+          .every((id) => criteria.filter((criterion) => criterion.id === id).length === 1) &&
+        criteria.every((criterion) => criterion.status === 'verified' &&
+          typeof criterion.receiptId === 'string' && criterion.receiptId.trim().length > 0) &&
+        new Set(criteria.map((criterion) => criterion.receiptId!.trim())).size === 2;
+      if (!verified) {
+        return status('unavailable', `Held at ${ordinal}: the current checkpoint is not server-verified; no completion is claimed.`);
+      }
+      return status('completed', `Completed: selected_reference_current is server-checked and verified; reviewed_summary_with_citation is server-checked and verified through citation checks and independent verification-gate review. Checked stop at ${ordinal}; no further ordinal will run.`);
     }
     if (workstream?.state === 'paused') return status('paused', `Paused at ${ordinal}; nothing runs or advances while paused.`);
     if (workstream?.state === 'cancelled') return status('cancelled', `Cancelled at ${ordinal}; no further ordinal will run.`);

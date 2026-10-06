@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
-  admit, auth, authority, build, closeWorld, managerErrors, managerFinishes, reviewText, reviewerFinishes, scope,
+  admit, auth, authority, build, closeWorld, criteria, managerErrors, managerFinishes, reviewText, reviewerFinishes, scope,
   settle, summaryText, workstream, world, type Built, type World,
 } from './helpers/coding_workflow_s5_harness';
 
@@ -25,12 +25,118 @@ async function statusOf(h: Built): Promise<{ state: string; text: string }> {
   return finite[0].workflow;
 }
 
+async function statusTextOf(h: Built): Promise<string> {
+  const status = await h.service.modelStatus(auth, {
+    sessionId: scope.sessionId, projectId: scope.projectId, sdkSessionId: 'sdk-root', bindingCurrent: async () => true,
+  });
+  if (status.kind !== 'available') throw new Error('status unavailable');
+  return status.text;
+}
+
+function statusPayload(text: string): { state: string; finite: Array<{ workflow: { state: string; text: string } }> } {
+  return JSON.parse(text.slice(text.indexOf('{')));
+}
+
+function claimsCriterionVerified(text: string, criterionId: string): boolean {
+  const escaped = criterionId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:${escaped}[^\\n.]{0,96}\\bverified\\b|\\bverified\\b[^\\n.]{0,96}${escaped})`, 'i').test(text);
+}
+
 async function sweep(h: Built) {
   await h.service.sweepFiniteConversationReconciliation();
   await settle();
 }
 
 describe('G2 S5-G workflow state in the coordinator status text', () => {
+  it('C5-SIGNED-CHECKED-STATUS-1: exposes only the two server-checked criteria and the exact 2-of-2 stop', async () => {
+    w = world();
+    const h = build(w, { observe: false });
+    await admit(w, h);
+
+    const runningText = await statusTextOf(h);
+    const running = statusPayload(runningText).finite[0].workflow;
+    expect(running.state).toBe('running');
+    expect(running.text).toMatch(/unverified/i);
+    expect(claimsCriterionVerified(running.text, 'selected_reference_current')).toBe(false);
+    expect(claimsCriterionVerified(running.text, 'reviewed_summary_with_citation')).toBe(false);
+
+    managerFinishes(w, 1, 'The note is current and the brief is done.');
+    await h.service.sweepFiniteConversationReconciliation();
+    const proseOnly = await statusOf(h);
+    expect(proseOnly.state).toBe('awaiting_check');
+    expect(criteria(h)).toEqual({ selected_reference_current: 'pending', reviewed_summary_with_citation: 'pending' });
+    expect(claimsCriterionVerified(proseOnly.text, 'selected_reference_current')).toBe(false);
+    expect(claimsCriterionVerified(proseOnly.text, 'reviewed_summary_with_citation')).toBe(false);
+
+    await sweep(h);
+    managerFinishes(w, 2, summaryText());
+    reviewerFinishes(w, 2, reviewText());
+    await sweep(h);
+    await sweep(h);
+    expect(workstream(h).state).toBe('completed');
+    expect(criteria(h)).toEqual({ selected_reference_current: 'verified', reviewed_summary_with_citation: 'verified' });
+    const receipts = workstream(h).checkpoint.criteria.map((criterion) => criterion.receiptId);
+    expect(receipts).toHaveLength(2);
+    expect(receipts.every((receipt) => typeof receipt === 'string' && receipt.length > 0)).toBe(true);
+    expect(new Set(receipts).size).toBe(2);
+
+    const completedText = await statusTextOf(h);
+    const payload = statusPayload(completedText);
+    expect(Buffer.byteLength(completedText, 'utf8')).toBeLessThanOrEqual(3_800);
+    expect(payload.state).toBe('authoritative_current_projection');
+    expect(payload.finite).toHaveLength(1);
+    const completed = payload.finite[0].workflow;
+    expect.soft(completed.state).toBe('completed');
+    expect.soft(completed.text).toContain('ordinal 2 of 2');
+    expect.soft(completed.text).toMatch(/server[- ]check|server verified/i);
+    expect.soft(claimsCriterionVerified(completed.text, 'selected_reference_current')).toBe(true);
+    expect.soft(claimsCriterionVerified(completed.text, 'reviewed_summary_with_citation')).toBe(true);
+    expect.soft(completed.text).not.toMatch(/ordinal 3 of/i);
+
+    w.clock.value = new Date(w.clock.value.valueOf() + 65_000);
+    await sweep(h);
+    expect(h.dispatch).toHaveBeenCalledTimes(2);
+    expect(h.nativeJobs()).toHaveLength(2);
+    expect(workstream(h).state).toBe('completed');
+  });
+
+  it('C5-SIGNED-CHECKED-STATUS-2: a completed row with revised pending criteria is not reported as verified completion', async () => {
+    w = world();
+    const h = build(w, { observe: false });
+    await admit(w, h);
+    managerFinishes(w, 1);
+    await h.service.sweepFiniteConversationReconciliation();
+    await sweep(h);
+    managerFinishes(w, 2, summaryText());
+    reviewerFinishes(w, 2, reviewText());
+    await sweep(h);
+    await sweep(h);
+    expect(workstream(h).state).toBe('completed');
+    expect(criteria(h)).toEqual({ selected_reference_current: 'verified', reviewed_summary_with_citation: 'verified' });
+
+    const before = workstream(h);
+    const revised = h.workstreams.revise(scope.ownerUserId, scope.projectId, before.id, before.revision, {
+      checkpoint: {
+        ...before.checkpoint,
+        criteria: before.checkpoint.criteria.map(({ id }) => ({ id, status: 'pending' as const })),
+      },
+    });
+    expect(revised?.state).toBe('completed');
+    expect(revised?.checkpoint.criteria).toEqual([
+      { id: 'selected_reference_current', status: 'pending' },
+      { id: 'reviewed_summary_with_citation', status: 'pending' },
+    ]);
+
+    const current = await statusOf(h);
+    expect.soft(current.state).not.toBe('completed');
+    expect.soft(current.state).toMatch(/unverified|unavailable|held/i);
+    expect.soft(current.text).toMatch(/unverified|not verified|could not be proved|held/i);
+    expect.soft(current.text).not.toMatch(/source is server-verified current/i);
+    expect.soft(current.text).not.toMatch(/passed server citation checks plus independent verification-gate review/i);
+    expect.soft(claimsCriterionVerified(current.text, 'selected_reference_current')).toBe(false);
+    expect.soft(claimsCriterionVerified(current.text, 'reviewed_summary_with_citation')).toBe(false);
+  });
+
   it('running → awaiting_check (model "done" is not done) → completed', async () => {
     w = world();
     const h = build(w, { observe: false });
