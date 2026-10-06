@@ -1149,7 +1149,7 @@ export class AgentBridgeJobsRepository {
 
   /**
    * Append an exact native provider/accounting member. Duplicate retry is a
-   * replay; a conflicting attempt for the same native user anchor holds. No
+   * replay; a conflicting payload for the same accounting step holds. No
    * member is evicted when the bounded job metadata would overflow.
    */
   appendCoordinatorWorkflowMembership(input: {
@@ -1185,10 +1185,20 @@ export class AgentBridgeJobsRepository {
         throw new BridgeJobError('workflow_membership_unavailable');
       }
       const membership = record.membership as unknown[];
-      const existing = membership.find((item) => {
+      const anchorMembers = membership.filter((item) => {
         const value = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : null;
         return value?.nativeUserMessageId === member.nativeUserMessageId;
-      });
+      }) as Array<Record<string, unknown>>;
+      // Tool continuations retain the native user anchor but mint fresh
+      // persisted assistant steps. Their owned lineage/generations cannot change.
+      if (anchorMembers.some((value) =>
+        value.nativeSessionId !== member.nativeSessionId || value.parentNativeSessionId !== member.parentNativeSessionId ||
+        value.engineGeneration !== member.engineGeneration || value.runnerGeneration !== member.runnerGeneration ||
+        value.accountingKind !== member.accountingKind || value.parentMessageId !== member.parentMessageId
+      )) throw new BridgeJobError('workflow_membership_conflict');
+      const existing = anchorMembers.find((value) =>
+        value.assistantMessageId === member.assistantMessageId && value.attempt === member.attempt,
+      );
       if (existing) {
         if (!sameJson(existing, member)) throw new BridgeJobError('workflow_membership_conflict');
         return current;
