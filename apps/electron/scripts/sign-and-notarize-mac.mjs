@@ -26,6 +26,7 @@ import { refreshHermesDesktopArtifactIntegrity, resolveHermesDesktopArtifact } f
 import { EXPECTED_COLONY_ELECTRON_MAJOR, PINNED_COLONY_SOURCE_COMMIT } from '../src/colony-desktop-config.mjs';
 import { refreshColonyArtifactIntegrity, resolveColonyArtifact } from '../src/colony-desktop-artifact.mjs';
 import { findNestedCodeSignTargets, isMachO, validateDayflowDesktopArtifact } from '../src/dayflow-desktop-artifact.mjs';
+import { DEFAULT_SIGNING_INPUTS, verifyPackagedNativeDayflow } from './verify-packaged-native-dayflow.mjs';
 import { requireManifestSigningKey, signHermesDesktopManifest } from './sign-hermes-desktop-manifest.mjs';
 import { resolveSigningIdentityWithRunner } from './signing-identity.mjs';
 
@@ -75,6 +76,7 @@ async function codesign(target, { deep = false } = {}) {
 const contentsDir = resolve(artifact, 'Contents');
 const engine = resolve(contentsDir, 'Resources/opencode_bin/opencode');
 const approvalHelper = resolve(contentsDir, 'Resources/human-approval/rhythm-approval-signer');
+const nativeDayflowHelper = resolve(contentsDir, 'Helpers/rhythm-dayflow');
 const dayflowDesktopArtifact = resolve(contentsDir, 'Resources/dayflow-desktop/Dayflow.app');
 const targets = await findNestedCodeSignTargets(contentsDir, { excludedRoots: [dayflowDesktopArtifact] });
 if (!targets.includes(approvalHelper) || !(await isMachO(approvalHelper))) {
@@ -89,10 +91,19 @@ for (const target of targets) {
     // Native helper needs no Electron JIT/library-validation exceptions. Keep Keychain identity stable.
     await run('codesign', ['--force', '--options', 'runtime', '--timestamp', '--identifier',
       'com.rhythm.desktop.approval-signer', '--sign', identity, target]);
+  } else if (target === nativeDayflowHelper) {
+    // Standalone native Dayflow helper: Developer ID + hardened runtime + timestamp, and NO
+    // --entitlements (accepted handoff forbids weaker/ad-hoc entitlements on it).
+    await run('codesign', ['--force', '--options', 'runtime', '--timestamp', '--sign', identity,
+      '--identifier', 'com.rhythm.desktop.dayflow-helper', target]);
   } else await codesign(target);
 }
 await run('codesign', ['--verify', '--strict', approvalHelper]);
 await run('codesign', ['--verify', '--strict', engine]);
+if (existsSync(resolve(contentsDir, 'Resources/native-dayflow'))) {
+  // Nested items are sealed; verify the native payload before the outer app seal. Throws => abort.
+  verifyPackagedNativeDayflow({ appDir: artifact, signingInputsPath: process.env.RHYTHM_NATIVE_DAYFLOW_SIGNING_INPUTS || DEFAULT_SIGNING_INPUTS });
+}
 const hermesDesktopArtifact = resolve(contentsDir, 'Resources/hermes-desktop');
 await refreshHermesDesktopArtifactIntegrity({ artifactRoot: hermesDesktopArtifact });
 await resolveHermesDesktopArtifact({
