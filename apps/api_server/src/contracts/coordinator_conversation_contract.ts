@@ -623,6 +623,20 @@ export interface CoordinatorConversationContextAdapters {
   projectSessions?: {
     read(scope: CoordinatorConversationContextScope): Promise<CoordinatorProjectSessionsProjection>;
   };
+  /** Optional, status-only: current server-computed Coding Workflow lane capability. */
+  codingWorkflowCapability?: {
+    read(scope: CoordinatorConversationContextScope): Promise<CoordinatorCodingWorkflowCapability> | CoordinatorCodingWorkflowCapability;
+  };
+}
+
+/** Server-derived lane capability; fixed fields can never be upgraded by an adapter. */
+export interface CoordinatorCodingWorkflowCapability {
+  lane: 'coding_workflow';
+  available: boolean;
+  /** Exact server reason when unavailable; null when available. */
+  reason: string | null;
+  supportedChecks: ['selected_reference_summary_v1'];
+  crossProject: 'unsupported';
 }
 
 export interface CoordinatorConversationContextProjection {
@@ -665,6 +679,7 @@ export interface CoordinatorConversationContextProjection {
    */
   calendarMirror?: CoordinatorCalendarMirrorProjection;
   projectSessions?: CoordinatorProjectSessionsProjection;
+  codingWorkflow?: CoordinatorCodingWorkflowCapability;
   /**
    * C1 never invokes a model port. C2 must still refuse an oversized context
    * before dependency capture or any SDK-facing adapter is called.
