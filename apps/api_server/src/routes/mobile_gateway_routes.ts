@@ -37,10 +37,20 @@ import {
 } from '../services/mobile_project_scope';
 import { MobileOpenCodeProxy } from '../services/mobile_opencode_proxy';
 import { MobileSseProxy } from '../services/mobile_sse_proxy';
-import { canUpdateMobileSessionState } from '../services/mobile_session_state_scope';
+import { CoordinatorConversationsRepository } from '../repositories/coordinator_conversations_repository';
+import { ProjectsRepository } from '../repositories/projects_repository';
+import { opencodeClient } from '../services/opencode_engine';
+import {
+  canUpdateMobileLocalPrimaryState,
+  canUpdateMobileSessionState,
+  parseMobileSettingsIdentity,
+  parseMobileSettingsPatch,
+  type MobileSettingsIdentity,
+} from '../services/mobile_session_state_scope';
 import {
   buildSafeMobileProfileCatalog,
   safeMobileSessionProfileState,
+  safeMobileSettingsState,
 } from '../services/mobile_profile_catalog';
 import { createMobileToolsRouter } from './mobile_tools_routes';
 import { MediaArtifactsController } from '../controllers/media_artifacts_controller';
@@ -97,6 +107,8 @@ export interface MobileGatewayRouterDependencies {
   sseProxy?: MobileSseProxy;
   workstreamCoordinator?: PersistentWorkstreamCoordinator;
   coordinatorConversationService?: CoordinatorConversationService;
+  /** Awaited authorization of a fixed provider/model for the session settings port (default: provider is authed). */
+  authorizeSessionModel?: (providerId: string, modelId: string) => Promise<boolean>;
 }
 
 export function createMobileGatewayRouter(dependencies: MobileGatewayRouterDependencies = {}): Router {
@@ -705,12 +717,95 @@ export function createMobileGatewayRouter(dependencies: MobileGatewayRouterDepen
     },
     (req, res, next) => void mediaArtifacts.serve(req, res, next),
   );
+  // ── Settings wire v1: explicit `?identity=local-primary|sdk` ────────────────
+  // The target is proven from server state on every call; no create-if-absent
+  // resolver, no SDK fabrication, no generic view key and no fallback between
+  // the two identities. 404 for any missing/replaced/wrong-scope target.
+  const authorizeSessionModel = dependencies.authorizeSessionModel ??
+    (async (providerId: string): Promise<boolean> =>
+      (await opencodeClient.listAuthedProviders()).includes(providerId));
+  const resolveSettingsTarget = (
+    identity: MobileSettingsIdentity,
+    id: string,
+    userId: number,
+    projectId: string,
+  ) => {
+    const sessions = new AgentSessionsRepository();
+    if (identity === 'sdk') {
+      const found = sessions.findBySdkSessionId(id);
+      return found && found.sdkSessionId === id && canUpdateMobileSessionState(found, userId, projectId)
+        ? found
+        : null;
+    }
+    const found = sessions.findById(id);
+    if (!found) return null;
+    const root = new CoordinatorConversationsRepository().findPrimaryOwnerRoot(userId);
+    const primary = root.kind === 'found'
+      ? { ownerUserId: root.conversation.ownerUserId, projectId: root.conversation.projectId, localSessionId: root.conversation.sessionId }
+      : null;
+    if (!canUpdateMobileLocalPrimaryState(found, userId, projectId, primary)) return null;
+    const project = new ProjectsRepository().findById(projectId);
+    const profile = found.profileId ? new AgentConfigsRepository().getById(found.profileId) : null;
+    return project && project.archivedAt === null && profile && profile.enabled === true &&
+      profile.isAgent === true && profile.locked !== true && agentConfigExecutionBlockReason(profile) === null
+      ? found
+      : null;
+  };
+  const settingsIdentity = (req: Request): MobileSettingsIdentity => {
+    const identity = parseMobileSettingsIdentity(req.query?.identity);
+    if (!identity) throw AppError.badRequest("identity must be 'local-primary' or 'sdk'");
+    return identity;
+  };
+  const patchSettings = async (
+    identity: MobileSettingsIdentity,
+    req: Request,
+    res: Response,
+  ): Promise<void> => {
+    const parsed = parseMobileSettingsPatch(req.body);
+    if (!parsed.ok) throw AppError.badRequest(parsed.message);
+    const { patch } = parsed;
+    const userId = req.mobileDevice!.userId;
+    const projectId = req.mobileProject!.id;
+    const target = resolveSettingsTarget(identity, req.params.id, userId, projectId);
+    if (!target) throw AppError.notFound('Mobile session');
+    if (patch.modelMode === 'fixed' && !(await authorizeSessionModel(patch.providerId!, patch.modelId!))) {
+      throw AppError.forbidden('model is not authorized for this session');
+    }
+    // Re-prove after the await: the same row, still the exact current target
+    // with the same profile/agent/project, before anything is written.
+    const current = resolveSettingsTarget(identity, req.params.id, userId, projectId);
+    if (
+      !current || current.id !== target.id || current.projectId !== target.projectId ||
+      current.profileId !== target.profileId || current.opencodeAgentId !== target.opencodeAgentId ||
+      current.sdkSessionId !== target.sdkSessionId
+    ) throw AppError.notFound('Mobile session');
+    const sessions = new AgentSessionsRepository();
+    sessions.updateFields(current.id, {
+      ...(patch.modelMode !== undefined ? { modelMode: patch.modelMode } : {}),
+      ...(patch.providerId !== undefined ? { providerId: patch.providerId, modelId: patch.modelId } : {}),
+      ...(patch.thinkingBudget !== undefined ? { thinkingBudget: patch.thinkingBudget } : {}),
+      ...(patch.fastMode !== undefined ? { fastMode: patch.fastMode } : {}),
+    });
+    // The returned state IS the readback, of the exact proven row (no re-lookup by identity).
+    const written = sessions.findById(current.id);
+    if (!written) throw AppError.notFound('Mobile session');
+    res.json(safeMobileSettingsState(written, new AgentConfigsRepository().list(), identity));
+  };
   router.patch(
     '/sessions/:id/state',
     requireMobileDevice(getPairingService),
     requireMobileProjectScope(),
     (req, res, next) => {
       try {
+        const identity = parseMobileSettingsIdentity(req.query?.identity);
+        if (identity === null) throw AppError.badRequest("identity must be 'local-primary' or 'sdk'");
+        if (identity !== undefined) {
+          patchSettings(identity, req, res).catch((error: unknown) => {
+            next(error instanceof AppError ? error : AppError.internal());
+          });
+          return;
+        }
+        // No selector: the legacy SDK-keyed full-profile PATCH, unchanged.
         const sessions = new AgentSessionsRepository();
         const session = sessions.findBySdkSessionId(req.params.id);
         if (
@@ -824,6 +919,23 @@ export function createMobileGatewayRouter(dependencies: MobileGatewayRouterDepen
           sessions.findById(session.id)!,
           new AgentConfigsRepository().list(),
         ));
+      } catch (error) {
+        next(error instanceof AppError ? error : AppError.internal());
+      }
+    },
+  );
+  // Registered after the PATCH route on purpose: existing harnesses locate this
+  // path's first layer and expect the legacy PATCH handler.
+  router.get(
+    '/sessions/:id/state',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    (req, res, next) => {
+      try {
+        const identity = settingsIdentity(req);
+        const session = resolveSettingsTarget(identity, req.params.id, req.mobileDevice!.userId, req.mobileProject!.id);
+        if (!session) throw AppError.notFound('Mobile session');
+        res.json(safeMobileSettingsState(session, new AgentConfigsRepository().list(), identity));
       } catch (error) {
         next(error instanceof AppError ? error : AppError.internal());
       }

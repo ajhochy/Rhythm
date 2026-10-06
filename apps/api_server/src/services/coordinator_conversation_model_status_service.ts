@@ -155,8 +155,12 @@ export class CoordinatorConversationModelStatusService {
       // A project revoke between the earlier context read and this response is
       // non-disclosing even when the active SDK tool itself is unchanged.
       if (!(await this.authority.isCurrent(binding, auth, verified, TOOL_NAME))) return unavailable();
-      return this.dependencies.conversations.modelStatusScopeCurrent(auth, binding)
-        ? { schemaVersion: 1, status: 'available', text: result.text }
+      if (!this.dependencies.conversations.modelStatusScopeCurrent(auth, binding)) return unavailable();
+      // Final synchronous render AFTER this wrapper's last await: an optional
+      // source that changed during it loses only its own observations.
+      const text = result.finalize ? result.finalize() : result.text;
+      return Buffer.byteLength(text, 'utf8') <= 3_800
+        ? { schemaVersion: 1, status: 'available', text }
         : unavailable();
     } catch {
       return unavailable();

@@ -423,11 +423,125 @@ export interface CoordinatorDayflowDependencyManifest {
   }>;
 }
 
+/** Optional-source bounds: an optional projection can never grow the status past these. */
+export const MAX_COORDINATOR_CALENDAR_OBSERVATIONS = 8;
+export const MAX_COORDINATOR_PROJECT_SESSION_ROOTS = 12;
+export const MAX_COORDINATOR_PROJECT_SESSION_PAGES = 2;
+export const COORDINATOR_CALENDAR_WINDOW_DAYS = 8; // today + the next seven local days
+
+export type CoordinatorCalendarMirrorState =
+  | 'observed'
+  | 'not_configured'
+  | 'account_unavailable'
+  | 'never_synced'
+  | 'invalid_sync_time'
+  | 'preferences_corrupt'
+  | 'disabled_by_selection'
+  | 'read_failed'
+  | 'changed_during_read';
+
+/**
+ * Cached owner-local mirror observation. Source data only: never a claim that
+ * the calendar is clear/current/complete, never a statement about which Google
+ * identity the mirror belongs to.
+ */
+export interface CoordinatorCalendarEventObservation {
+  id: string;
+  /** Bounded, sanitized source data — not instructions. */
+  title: string;
+  calendarLabel: string;
+  start: string;
+  end: string | null;
+  allDay: boolean;
+}
+
+export interface CoordinatorCalendarMirrorProjection {
+  source: 'owner_local_google_calendar_mirror';
+  state: CoordinatorCalendarMirrorState;
+  /** The mirror carries no external account binding. */
+  accountBinding: 'unproven';
+  /** One sync page per calendar, no completeness receipt: even an empty window proves nothing. */
+  externalCompleteness: 'unknown';
+  window: { startDay: string; endDayExclusive: string; timeZone: typeof COORDINATOR_CONVERSATION_TIME_ZONE } | null;
+  /** Observed local sync state. No freshness TTL is invented. */
+  lastSuccessfulSyncAt: string | null;
+  syncAgeSeconds: number | null;
+  selection: 'default_all_at_sync_time' | 'explicit_ids' | 'explicit_none' | 'unknown';
+  selectedCount: number;
+  hasMore: boolean;
+  /** Null: the window was not counted exhaustively. */
+  totalCount: null;
+  events: CoordinatorCalendarEventObservation[];
+}
+
+export type CoordinatorProjectSessionStatus = 'starting' | 'working' | 'idle' | 'error' | 'closed' | 'resumable' | 'unknown';
+
+/** Persisted session state only: not a live heartbeat, completion proof or goal verification. */
+export interface CoordinatorProjectSessionObservation {
+  sessionId: string;
+  label: string;
+  status: CoordinatorProjectSessionStatus;
+  lastActivityAt: string | null;
+  profile: {
+    profileId: string | null;
+    label: string | null;
+    /** exact workflow-orchestrator identity only; never inferred from title/kind/path. */
+    codingWorkflow: boolean;
+    /** False for a missing/disabled/locked profile: historical status, no execution assertion. */
+    executionAvailable: boolean;
+  };
+}
+
+export interface CoordinatorProjectSessionGroup {
+  projectId: string;
+  projectLabel: string;
+  sessions: CoordinatorProjectSessionObservation[];
+}
+
+/**
+ * Internal, NON-serialized proof that a prepared optional projection still
+ * matches its local sources. It lives in a WeakMap keyed by the projection
+ * object, so it can never reach a response, fingerprint or persisted value.
+ * The check is synchronous: it is run after the LAST await before exposure.
+ */
+const optionalSourceProofs = new WeakMap<object, () => boolean>();
+
+export function attachOptionalSourceProof<T extends object>(projection: T, check: () => boolean): T {
+  optionalSourceProofs.set(projection, check);
+  return projection;
+}
+
+export function optionalSourceProofOf(projection: object): (() => boolean) | undefined {
+  return optionalSourceProofs.get(projection);
+}
+
+/** False when the projection has no proof or its proof fails/throws (unknown ⇒ withheld). */
+export function optionalSourceProofCurrent(projection: object): boolean {
+  const check = optionalSourceProofs.get(projection);
+  if (!check) return false;
+  try {
+    return check() === true;
+  } catch {
+    return false;
+  }
+}
+
+export interface CoordinatorProjectSessionsProjection {
+  source: 'owner_project_session_roots';
+  state: 'observed' | 'not_configured' | 'read_failed' | 'changed_during_read';
+  /** Recent-window scan through the existing pager: never an exact total or all-projects claim. */
+  coverage: 'recent_window_truncated' | 'recent_window_exhausted' | 'unknown';
+  selectedCount: number;
+  groups: CoordinatorProjectSessionGroup[];
+}
+
 export interface CoordinatorConversationContextScope {
   ownerUserId: number;
   projectId: string;
   conversationId: string;
   now: Date;
+  /** Current coordinator root, so the Secretary never counts itself as project work. */
+  sessionId?: string;
 }
 
 export interface CoordinatorConversationContextAdapters {
@@ -449,6 +563,13 @@ export interface CoordinatorConversationContextAdapters {
   /** Optional by design: inactive/unavailable Dayflow never blocks chat status. */
   manualActivity?: {
     read(scope: CoordinatorConversationContextScope): Promise<CoordinatorContextRead<CoordinatorManualActivityReference>>;
+  };
+  /** Optional, status-only, local reads: they never join mandatory model-context qualification. */
+  calendarMirror?: {
+    read(scope: CoordinatorConversationContextScope): Promise<CoordinatorCalendarMirrorProjection>;
+  };
+  projectSessions?: {
+    read(scope: CoordinatorConversationContextScope): Promise<CoordinatorProjectSessionsProjection>;
   };
 }
 
@@ -485,6 +606,13 @@ export interface CoordinatorConversationContextProjection {
   manualActivity: CoordinatorManualActivityReference[];
   /** Complete Dayflow envelope retained for revalidation, including an authoritative empty scan. */
   manualActivityDependency: CoordinatorDayflowDependencyManifest | null;
+  /**
+   * Optional cached/local observations, present only when their adapter is
+   * composed. They are excluded from `modelContext` qualification and bytes:
+   * their own caps bound them, and they can never make chat unavailable.
+   */
+  calendarMirror?: CoordinatorCalendarMirrorProjection;
+  projectSessions?: CoordinatorProjectSessionsProjection;
   /**
    * C1 never invokes a model port. C2 must still refuse an oversized context
    * before dependency capture or any SDK-facing adapter is called.

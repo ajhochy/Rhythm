@@ -2,8 +2,17 @@ import { Buffer } from 'node:buffer';
 
 import {
   COORDINATOR_CONVERSATION_TIME_ZONE,
+  MAX_COORDINATOR_CALENDAR_OBSERVATIONS,
   MAX_COORDINATOR_CONTEXT_TEXT_CHARS,
   MAX_COORDINATOR_MODEL_CONTEXT_BYTES,
+  MAX_COORDINATOR_PROJECT_SESSION_ROOTS,
+  attachOptionalSourceProof,
+  optionalSourceProofOf,
+  type CoordinatorCalendarEventObservation,
+  type CoordinatorCalendarMirrorProjection,
+  type CoordinatorProjectSessionGroup,
+  type CoordinatorProjectSessionObservation,
+  type CoordinatorProjectSessionsProjection,
   type CoordinatorContextAvailability,
   type CoordinatorContextCoverage,
   type CoordinatorContextRead,
@@ -426,6 +435,111 @@ function safeManualActivity(
   return { items: result, invalid: false, manifest: dependencyManifest };
 }
 
+/** Source data labels: bounded, control characters removed. Never instructions. */
+function cleanLabel(value: unknown, max: number): string | null {
+  if (typeof value !== 'string') return null;
+  const cleaned = value.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return cleaned.length === 0 ? null : cleaned.slice(0, max);
+}
+
+const CALENDAR_STATES = new Set<string>([
+  'observed', 'not_configured', 'account_unavailable', 'never_synced', 'invalid_sync_time',
+  'preferences_corrupt', 'disabled_by_selection', 'read_failed', 'changed_during_read',
+]);
+
+function failedCalendar(state: CoordinatorCalendarMirrorProjection['state'] = 'read_failed'): CoordinatorCalendarMirrorProjection {
+  return {
+    source: 'owner_local_google_calendar_mirror', state, accountBinding: 'unproven', externalCompleteness: 'unknown',
+    window: null, lastSuccessfulSyncAt: null, syncAgeSeconds: null, selection: 'unknown',
+    selectedCount: 0, hasMore: false, totalCount: null, events: [],
+  };
+}
+
+/** A malformed adapter reply becomes an explicit read failure, never an empty calendar. */
+function safeCalendar(value: unknown): CoordinatorCalendarMirrorProjection {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return failedCalendar();
+  const candidate = value as Partial<CoordinatorCalendarMirrorProjection>;
+  if (
+    candidate.source !== 'owner_local_google_calendar_mirror' || typeof candidate.state !== 'string' ||
+    !CALENDAR_STATES.has(candidate.state) || !Array.isArray(candidate.events)
+  ) return failedCalendar();
+  const events: CoordinatorCalendarEventObservation[] = [];
+  for (const event of candidate.events.slice(0, MAX_COORDINATOR_CALENDAR_OBSERVATIONS)) {
+    const title = cleanLabel(event?.title, 160);
+    const calendarLabel = cleanLabel(event?.calendarLabel, 80) ?? 'calendar';
+    if (!event || !boundedId(event.id) || title === null || typeof event.start !== 'string' ||
+        (event.end !== null && typeof event.end !== 'string') || typeof event.allDay !== 'boolean') {
+      return failedCalendar();
+    }
+    events.push({ id: event.id, title, calendarLabel, start: event.start, end: event.end, allDay: event.allDay });
+  }
+  const observed = candidate.state === 'observed';
+  return {
+    source: 'owner_local_google_calendar_mirror',
+    state: candidate.state as CoordinatorCalendarMirrorProjection['state'],
+    // Fixed by contract: a reader cannot upgrade these claims.
+    accountBinding: 'unproven',
+    externalCompleteness: 'unknown',
+    window: observed && candidate.window ? candidate.window : null,
+    lastSuccessfulSyncAt: typeof candidate.lastSuccessfulSyncAt === 'string' ? candidate.lastSuccessfulSyncAt : null,
+    syncAgeSeconds: Number.isSafeInteger(candidate.syncAgeSeconds) ? candidate.syncAgeSeconds as number : null,
+    selection: candidate.selection === 'default_all_at_sync_time' || candidate.selection === 'explicit_ids' ||
+      candidate.selection === 'explicit_none' ? candidate.selection : 'unknown',
+    selectedCount: observed ? events.length : 0,
+    hasMore: observed && candidate.hasMore === true,
+    totalCount: null,
+    events: observed ? events : [],
+  };
+}
+
+const SESSION_STATUSES = new Set(['starting', 'working', 'idle', 'error', 'closed', 'resumable']);
+
+function failedProjects(state: 'not_configured' | 'read_failed' | 'changed_during_read' = 'read_failed'): CoordinatorProjectSessionsProjection {
+  return { source: 'owner_project_session_roots', state, coverage: 'unknown', selectedCount: 0, groups: [] };
+}
+
+function safeProjectSessions(value: unknown): CoordinatorProjectSessionsProjection {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return failedProjects();
+  const candidate = value as Partial<CoordinatorProjectSessionsProjection>;
+  if (candidate.source !== 'owner_project_session_roots' || !Array.isArray(candidate.groups) ||
+      !['observed', 'not_configured', 'read_failed', 'changed_during_read'].includes(candidate.state as string)) return failedProjects();
+  if (candidate.state !== 'observed') return failedProjects(candidate.state as 'not_configured' | 'read_failed' | 'changed_during_read');
+  const groups: CoordinatorProjectSessionGroup[] = [];
+  let selected = 0;
+  for (const group of candidate.groups) {
+    if (!group || !boundedId(group.projectId) || !Array.isArray(group.sessions)) return failedProjects();
+    const sessions: CoordinatorProjectSessionObservation[] = [];
+    for (const session of group.sessions) {
+      if (selected >= MAX_COORDINATOR_PROJECT_SESSION_ROOTS) break;
+      const label = cleanLabel(session?.label, 120);
+      if (!session || !boundedId(session.sessionId) || label === null || !session.profile) return failedProjects();
+      sessions.push({
+        sessionId: session.sessionId,
+        label,
+        status: SESSION_STATUSES.has(session.status) ? session.status : 'unknown',
+        lastActivityAt: typeof session.lastActivityAt === 'string' ? session.lastActivityAt : null,
+        profile: {
+          profileId: boundedId(session.profile.profileId) ? session.profile.profileId : null,
+          label: cleanLabel(session.profile.label, 80),
+          codingWorkflow: session.profile.codingWorkflow === true && session.profile.profileId === 'workflow-orchestrator',
+          executionAvailable: session.profile.executionAvailable === true,
+        },
+      });
+      selected += 1;
+    }
+    if (sessions.length > 0) {
+      groups.push({ projectId: group.projectId, projectLabel: cleanLabel(group.projectLabel, 120) ?? 'project', sessions });
+    }
+  }
+  return {
+    source: 'owner_project_session_roots',
+    state: 'observed',
+    coverage: candidate.coverage === 'recent_window_exhausted' ? 'recent_window_exhausted' : candidate.coverage === 'recent_window_truncated' ? 'recent_window_truncated' : 'unknown',
+    selectedCount: selected,
+    groups,
+  };
+}
+
 function unavailableWhenInvalid<T>(read: CoordinatorContextRead<T>, invalid: boolean): CoordinatorContextRead<T> {
   return invalid ? unavailable<T>('dependency_unqualified') : read;
 }
@@ -452,6 +566,7 @@ export class CoordinatorConversationContextAssembler {
       projectId: input.conversation.projectId,
       conversationId: input.conversation.id,
       now: input.now,
+      sessionId: input.conversation.sessionId,
     };
     const [rawTasksRead, rawSchedulesRead, rawRhythmsRead, rawWorkstreamsRead, rawReceiptsRead] = await Promise.all([
       readSafely(() => this.adapters.tasks.read(scope)),
@@ -496,6 +611,34 @@ export class CoordinatorConversationContextAssembler {
       ? safeManualActivity(rawManualActivityRead.items, manualDependencyManifest, input.now)
       : { items: [], invalid: false, manifest: null };
     const manualActivityRead = unavailableWhenInvalid(rawManualActivityRead, manualActivitySanitized.invalid);
+
+    // Optional local observations. Sequential on purpose: the project-session
+    // adapter rechecks each selected row/project/access synchronously AFTER the
+    // calendar's awaited reads. A failure is an explicit state, never absence,
+    // and neither joins mandatory qualification nor the model-context bytes.
+    let calendarMirror: CoordinatorCalendarMirrorProjection | undefined;
+    if (this.adapters.calendarMirror) {
+      try {
+        const raw = await this.adapters.calendarMirror.read(scope);
+        calendarMirror = safeCalendar(raw);
+        // The sanitized copy carries the SAME non-serialized dependency proof.
+        const proof = raw && typeof raw === 'object' ? optionalSourceProofOf(raw) : undefined;
+        if (proof) attachOptionalSourceProof(calendarMirror, proof);
+      } catch {
+        calendarMirror = failedCalendar();
+      }
+    }
+    let projectSessions: CoordinatorProjectSessionsProjection | undefined;
+    if (this.adapters.projectSessions) {
+      try {
+        const raw = await this.adapters.projectSessions.read(scope);
+        projectSessions = safeProjectSessions(raw);
+        const proof = raw && typeof raw === 'object' ? optionalSourceProofOf(raw) : undefined;
+        if (proof) attachOptionalSourceProof(projectSessions, proof);
+      } catch {
+        projectSessions = failedProjects();
+      }
+    }
 
     const today = losAngelesDay(input.now);
     const yesterday = shiftLosAngelesDay(today, -1);
@@ -572,6 +715,8 @@ export class CoordinatorConversationContextAssembler {
       .every((read) => completeAuthoritative(read));
     return {
       ...base,
+      ...(calendarMirror ? { calendarMirror } : {}),
+      ...(projectSessions ? { projectSessions } : {}),
       modelContext: !mandatoryModelContextIsQualified
         ? { kind: 'blocked', reason: 'context_unqualified', bytes }
         : bytes <= MAX_COORDINATOR_MODEL_CONTEXT_BYTES
