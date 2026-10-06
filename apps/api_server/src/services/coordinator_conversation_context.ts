@@ -10,6 +10,7 @@ import {
   optionalSourceProofOf,
   type CoordinatorCalendarEventObservation,
   type CoordinatorCalendarMirrorProjection,
+  type CoordinatorCodingWorkflowCapability,
   type CoordinatorProjectSessionGroup,
   type CoordinatorProjectSessionObservation,
   type CoordinatorProjectSessionsProjection,
@@ -29,6 +30,7 @@ import {
   type CoordinatorTaskContextItem,
   type CoordinatorWorkstreamContextItem,
 } from '../contracts/coordinator_conversation_contract';
+import { capability } from './coding_workflow_capability';
 import {
   NATIVE_WORKSTREAM_JOB_REASON_CODES,
   type NativeWorkstreamJobReason,
@@ -640,6 +642,19 @@ export class CoordinatorConversationContextAssembler {
       }
     }
 
+    let codingWorkflow: CoordinatorCodingWorkflowCapability | undefined;
+    if (this.adapters.codingWorkflowCapability) {
+      try {
+        const raw = await this.adapters.codingWorkflowCapability.read(scope);
+        // Only the server's available/reason survive; fixed fields are re-stamped.
+        codingWorkflow = raw && typeof raw === 'object' && typeof raw.available === 'boolean'
+          ? capability(raw.available ? null : cleanLabel(raw.reason, 200) ?? 'unspecified')
+          : capability('capability read failed');
+      } catch {
+        codingWorkflow = capability('capability read failed');
+      }
+    }
+
     const today = losAngelesDay(input.now);
     const yesterday = shiftLosAngelesDay(today, -1);
     const tasks = tasksRead.availability === 'available' ? tasksSanitized.items : [];
@@ -717,6 +732,7 @@ export class CoordinatorConversationContextAssembler {
       ...base,
       ...(calendarMirror ? { calendarMirror } : {}),
       ...(projectSessions ? { projectSessions } : {}),
+      ...(codingWorkflow ? { codingWorkflow } : {}),
       modelContext: !mandatoryModelContextIsQualified
         ? { kind: 'blocked', reason: 'context_unqualified', bytes }
         : bytes <= MAX_COORDINATOR_MODEL_CONTEXT_BYTES
