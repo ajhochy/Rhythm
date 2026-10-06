@@ -44,7 +44,15 @@ import { useOpencode } from '@/providers/opencode-provider';
 import { useCoordinatorConversation } from '@/providers/coordinator-conversation-provider';
 import { mapMobileCoordinatorHistory } from '@/providers/services/coordinator-history-transcript';
 import type { ChatPreferences } from '@/providers/opencode-provider-types';
-import { AUTO_MODEL_LABEL, routerPickLabel } from '@/providers/opencode-provider-utils';
+import {
+  AUTO_MODEL_LABEL,
+  changesProfileOrApproval,
+  diffSessionSettings,
+  hydratePreferencesFromSession,
+  routerPickLabel,
+  sessionSettingsKey,
+  type SessionSettingsTarget,
+} from '@/providers/opencode-provider-utils';
 
 export function ChatView() {
   const router = useRouter();
@@ -99,6 +107,9 @@ export function ChatView() {
     sessions,
     toggleConversationMode,
     updateSessionPreferences,
+    sessionSettings,
+    loadSessionSettings,
+    updateSessionSettings,
     abortSession,
   } = useOpencode();
   const coordinator = useCoordinatorConversation();
@@ -185,15 +196,86 @@ export function ChatView() {
     () => availableModels.find((model) => model.providerID === selectedSession?.model?.providerID && model.modelID === selectedSession?.model?.id),
     [availableModels, selectedSession?.model?.id, selectedSession?.model?.providerID],
   );
-  const selectedProfileLabel = availableAgents.find(
-    (profile) => profile.profileId === chatPreferences.profileId,
-  )?.label;
-  const routerPick = routerPickLabel(chatPreferences, currentMessages);
-  const selectedModelLabel = chatPreferences.modelMode === 'auto'
-    ? routerPick ?? AUTO_MODEL_LABEL
-    : availableModels.find(
-      (model) => model.id === chatPreferences.modelId,
-    )?.label ?? chatPreferences.modelId;
+  // Settings bind the exact visible chat: the canonical local primary while its
+  // coordinator view is enabled (server-primary or catalog-backed, never the
+  // ordinary chat beneath it), otherwise the actual ordinary SDK session.
+  const settingsTarget = useMemo<SessionSettingsTarget | undefined>(() => (
+    coordinator.state.enabled && coordinator.binding
+      ? { identity: 'local-primary', id: coordinator.binding.sessionId }
+      : currentSessionId ? { identity: 'sdk', id: currentSessionId } : undefined
+  ), [coordinator.binding, coordinator.state.enabled, currentSessionId]);
+  const settingsKey = settingsTarget && activeProjectPath
+    ? sessionSettingsKey(activeProjectPath, settingsTarget)
+    : undefined;
+  const settingsKeyRef = useRef(settingsKey);
+  settingsKeyRef.current = settingsKey;
+  const settingsEntry = settingsKey ? sessionSettings[settingsKey] : undefined;
+  const primarySettingsPending = settingsTarget?.identity === 'local-primary' && settingsEntry?.status !== 'ready';
+  const displayPreferences = useMemo<ChatPreferences>(() => {
+    if (settingsEntry?.status !== 'ready') return chatPreferences;
+    return hydratePreferencesFromSession(settingsEntry.state, chatPreferences);
+  }, [chatPreferences, settingsEntry]);
+  const settingsGate = useMemo(() => ({
+    modelOnly: settingsTarget?.identity === 'local-primary',
+    unavailableReason: settingsTarget?.identity === 'local-primary' && settingsEntry?.status !== 'ready'
+      ? settingsEntry?.status === 'unsupported'
+        ? 'Chat settings are not available for this chat on this Mac yet.'
+        : 'Loading chat settings…'
+      : undefined,
+    scopeNote: settingsTarget?.identity === 'local-primary'
+      ? 'Model, reasoning and Fast are saved to this Rhythm chat.'
+      : undefined,
+    showFast: settingsEntry?.status === 'ready',
+  }), [settingsEntry?.status, settingsTarget?.identity]);
+
+  // The persistent primary is the visible chat: read its canonical settings
+  // (read-only; never creates a session) once it is enabled.
+  useEffect(() => {
+    if (settingsTarget?.identity !== 'local-primary' || !settingsKey) return;
+    void loadSessionSettings(settingsTarget, () => settingsKeyRef.current === settingsKey);
+  }, [loadSessionSettings, settingsKey, settingsTarget]);
+
+  const handleSettingsOpened = useCallback(() => {
+    if (!settingsTarget || !settingsKey || settingsEntry) return;
+    void loadSessionSettings(settingsTarget, () => settingsKeyRef.current === settingsKey);
+  }, [loadSessionSettings, settingsEntry, settingsKey, settingsTarget]);
+
+  const handleUpdateSessionPreferences = useCallback(async (next: ChatPreferences): Promise<ChatPreferences> => {
+    if (!settingsTarget || !settingsKey) {
+      throw new Error('Open a chat before changing its configuration.');
+    }
+    const isCurrent = () => settingsKeyRef.current === settingsKey;
+    if (settingsTarget.identity === 'local-primary' && settingsEntry?.status !== 'ready') {
+      // No verified canonical state: never edit, retarget or use the ordinary path.
+      throw new Error('Chat settings are not available for this chat on this Mac yet.');
+    }
+    const profileOrApproval = changesProfileOrApproval(displayPreferences, next);
+    if (settingsTarget.identity === 'local-primary' || (settingsEntry?.status === 'ready' && !profileOrApproval)) {
+      if (profileOrApproval) throw new Error('Profile and approval cannot be changed here.');
+      const patch = diffSessionSettings(displayPreferences, next, { fastSupported: settingsEntry?.status === 'ready' });
+      if (Object.keys(patch).length === 0) return displayPreferences;
+      const state = await updateSessionSettings(settingsTarget, patch, isCurrent);
+      return hydratePreferencesFromSession(state, chatPreferences);
+    }
+    // Legacy ordinary-SDK full-state path: no v1 proof, so Fast is omitted entirely.
+    const { fastMode: _unknownFast, ...legacy } = next;
+    const saved = await updateSessionPreferences(settingsTarget.id, legacy);
+    if (settingsEntry?.status === 'ready') void loadSessionSettings(settingsTarget, isCurrent);
+    return saved;
+  }, [chatPreferences, displayPreferences, loadSessionSettings, settingsEntry?.status, settingsKey, settingsTarget, updateSessionPreferences, updateSessionSettings]);
+  const selectedProfileLabel = primarySettingsPending
+    ? undefined
+    : availableAgents.find(
+      (profile) => profile.profileId === displayPreferences.profileId,
+    )?.label;
+  const routerPick = routerPickLabel(displayPreferences, currentMessages);
+  const selectedModelLabel = primarySettingsPending
+    ? undefined
+    : displayPreferences.modelMode === 'auto'
+      ? routerPick ?? AUTO_MODEL_LABEL
+      : availableModels.find(
+        (model) => model.id === displayPreferences.modelId,
+      )?.label ?? displayPreferences.modelId;
   const contextLabel = [selectedProfileLabel, selectedModelLabel].filter(Boolean).join(' · ') || undefined;
   const presentationStatus = currentPendingPermissions.length > 0
     ? 'Waiting for approval'
@@ -215,7 +297,7 @@ export function ChatView() {
         `Time: ${new Date(promptError?.occurredAt || Date.now()).toISOString()}`,
         `Session: ${currentSessionId || 'unknown'}`,
         `Server: ${settings.serverUrl}`,
-        `Model: ${chatPreferences.modelId || 'unknown'}`,
+        `Model: ${displayPreferences.modelId || 'unknown'}`,
         `Attachments: ${lastSentAttachmentsRef.current.map((attachment) => attachment.filename || attachment.mime || 'unnamed').join(', ') || 'none'}`,
       ].join('\n')
     : '';
@@ -708,7 +790,7 @@ export function ChatView() {
           availableModels={availableModels}
           availableProfiles={availableAgents}
           availableProviders={configuredProviders}
-          chatPreferences={chatPreferences}
+          chatPreferences={displayPreferences}
           connectionStatus={connection.status}
           coordinatorEligible={coordinatorEligible}
           conversation={conversation}
@@ -742,17 +824,9 @@ export function ChatView() {
           onOpenSettings={() => router.push('/(tabs)/settings' as never)}
           onShowChanges={() => setActiveTab((tab) => tab === 'changes' ? 'session' : 'changes')}
           onToggleConversationMode={handleToggleConversationMode}
-          onUpdateSessionPreferences={(preferences) => {
-            if (!currentSessionId) {
-              return Promise.reject(
-                new Error('Open a chat before changing its configuration.'),
-              );
-            }
-            return updateSessionPreferences(
-              currentSessionId,
-              preferences,
-            );
-          }}
+          onSettingsOpened={handleSettingsOpened}
+          onUpdateSessionPreferences={(preferences) => handleUpdateSessionPreferences(preferences as ChatPreferences)}
+          settingsGate={settingsGate}
           palette={palette}
           selectedSession={selectedSession}
           sessionMenuVisible={sessionMenuVisible}

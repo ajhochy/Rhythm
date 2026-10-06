@@ -47,6 +47,9 @@ import type {
   ReasoningLevel as ProviderReasoningLevel,
   ResponseScope as ProviderResponseScope,
   SessionExecutionState,
+  SessionSettingsEntry,
+  SessionSettingsPatch,
+  SessionSettingsTarget,
 } from '@/providers/opencode-provider-utils';
 import type { GatewayConnectionStatus } from '@/lib/transport/presence';
 
@@ -59,6 +62,9 @@ export type {
   OpenCodeAgentId,
   RhythmProfileId,
   SessionExecutionState,
+  SessionSettingsEntry,
+  SessionSettingsPatch,
+  SessionSettingsTarget,
 } from '@/providers/opencode-provider-utils';
 export type { ProviderAuthMethod } from '@/lib/opencode/types';
 
@@ -211,6 +217,19 @@ export type OpencodeContextValue = {
     sessionId: string,
     patch: Partial<ChatPreferences>,
   ) => Promise<ChatPreferences>;
+  /**
+   * Verified settings-contract-v1 state by exact target (see
+   * `sessionSettingsKey`). Absent until probed; `unsupported` disables editing.
+   */
+  sessionSettings: Record<string, SessionSettingsEntry>;
+  /** Read-only probe of one exact target. `isCurrent` re-qualifies the visible chat. */
+  loadSessionSettings: (target: SessionSettingsTarget, isCurrent?: () => boolean) => Promise<void>;
+  /** Explicit partial edit; resolves with the server readback, rejects stale/unsupported. */
+  updateSessionSettings: (
+    target: SessionSettingsTarget,
+    patch: SessionSettingsPatch,
+    isCurrent?: () => boolean,
+  ) => Promise<SessionExecutionState>;
   conversation: ConversationState;
   clearConversationFeedback: () => void;
   toggleConversationMode: () => Promise<void>;

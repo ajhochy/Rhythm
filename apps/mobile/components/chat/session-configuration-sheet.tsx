@@ -8,6 +8,7 @@ import {
   Portal,
   Searchbar,
   SegmentedButtons,
+  Switch,
   Text,
   TextInput,
 } from 'react-native-paper';
@@ -50,7 +51,20 @@ type SessionConfigurationSheetProps = {
   palette: Palette;
   preferences: ChatPreferences;
   selectedProjectPath?: string;
+  /** Edit-mode gate for the exact visible target (e.g. a persistent Rhythm primary). */
+  settingsGate?: SessionSettingsGate;
   visible: boolean;
+};
+
+export type SessionSettingsGate = {
+  /** Only model, reasoning and Fast are editable; profile/approval stay read-only. */
+  modelOnly?: boolean;
+  /** Present while settings cannot be edited (loading, or unsupported by this Mac). */
+  unavailableReason?: string;
+  /** Visible scope note, e.g. that a choice is saved to this chat. */
+  scopeNote?: string;
+  /** Fast is supported and known for this target. */
+  showFast?: boolean;
 };
 
 const REASONING_OPTIONS: {
@@ -114,8 +128,11 @@ export function SessionConfigurationSheet({
   palette,
   preferences,
   selectedProjectPath,
+  settingsGate,
   visible,
 }: SessionConfigurationSheetProps) {
+  const settingsLocked = mode === 'edit' && Boolean(settingsGate?.unavailableReason);
+  const modelOnly = mode === 'edit' && Boolean(settingsGate?.modelOnly);
   const [page, setPage] = useState<'summary' | 'profiles' | 'models' | 'projects' | 'approvals'>(
     'summary',
   );
@@ -143,6 +160,12 @@ export function SessionConfigurationSheet({
         : preferences,
     );
   }, [availableProfiles, mode, preferences, visible]);
+
+  // Canonical settings can arrive or be saved while the edit sheet is open; the
+  // draft must follow them so an explicit edit never carries stale fields.
+  useEffect(() => {
+    if (visible && mode === 'edit' && !busy) setDraft(preferences);
+  }, [busy, mode, preferences, visible]);
 
   useEffect(() => {
     const projectChanged = previousProjectPathRef.current !== selectedProjectPath;
@@ -499,7 +522,7 @@ export function SessionConfigurationSheet({
                       <List.Item
                         accessibilityLabel={`Profile, ${selectedProfile?.label ?? 'Unassigned'}`}
                         accessibilityRole="button"
-                        disabled={busy || availableProfiles.length === 0}
+                        disabled={busy || availableProfiles.length === 0 || modelOnly}
                         description={selectedProfile?.label ?? 'Unassigned'}
                         descriptionNumberOfLines={1}
                         left={(props) => <List.Icon {...props} icon="account-outline" />}
@@ -518,7 +541,7 @@ export function SessionConfigurationSheet({
                       <List.Item
                         accessibilityLabel={`Model, ${selectedModelLabel(availableModels, draft.modelId, draft.modelMode)}`}
                         accessibilityRole="button"
-                        disabled={busy || modelGroups.length === 0}
+                        disabled={busy || modelGroups.length === 0 || settingsLocked}
                         description={selectedModelLabel(availableModels, draft.modelId, draft.modelMode)}
                         descriptionNumberOfLines={1}
                         left={(props) => <List.Icon {...props} icon="cube-outline" />}
@@ -562,7 +585,7 @@ export function SessionConfigurationSheet({
                         accessibilityRole="button"
                         description={selectedApproval?.label ?? 'Choose policy'}
                         descriptionNumberOfLines={1}
-                        disabled={busy}
+                        disabled={busy || modelOnly}
                         left={(props) => <List.Icon {...props} icon="shield-check-outline" />}
                         onPress={() => {
                           setQuery('');
@@ -581,7 +604,7 @@ export function SessionConfigurationSheet({
                         Reasoning
                       </Text>
                       <SegmentedButtons
-                        buttons={REASONING_OPTIONS}
+                        buttons={REASONING_OPTIONS.map((option) => ({ ...option, disabled: busy || settingsLocked }))}
                         density="small"
                         onValueChange={(value) => {
                           void commit({
@@ -592,6 +615,36 @@ export function SessionConfigurationSheet({
                         value={draft.reasoning}
                       />
                     </View>
+                    {mode === 'edit' && settingsGate?.showFast && draft.fastMode !== undefined ? (
+                      <List.Item
+                        accessibilityLabel={`Fast, ${draft.fastMode ? 'on' : 'off'}`}
+                        description="Priority service tier for this chat. Off unless you turn it on."
+                        descriptionNumberOfLines={0}
+                        left={(props) => <List.Icon {...props} icon="flash-outline" />}
+                        right={() => (
+                          <Switch
+                            accessibilityLabel="Fast"
+                            disabled={busy || settingsLocked}
+                            onValueChange={(value) => { void commit({ ...draft, fastMode: value }); }}
+                            testID="session-fast-switch"
+                            value={draft.fastMode === true}
+                          />
+                        )}
+                        style={styles.summaryRow}
+                        testID="session-fast-row"
+                        title="Fast"
+                        titleNumberOfLines={1}
+                        titleStyle={styles.rowLabel}
+                      />
+                    ) : null}
+                    {mode === 'edit' && (settingsGate?.unavailableReason || settingsGate?.scopeNote) ? (
+                      <Text
+                        accessibilityLabel={settingsGate.unavailableReason ?? settingsGate.scopeNote}
+                        style={{ color: palette.muted, fontSize: TypeScale.footnote }}
+                        testID="session-settings-note">
+                        {settingsGate.unavailableReason ?? settingsGate.scopeNote}
+                      </Text>
+                    ) : null}
                     {children ? (
                       <>
                         <Divider />

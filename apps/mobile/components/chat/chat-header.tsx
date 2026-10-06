@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Button, Portal, ProgressBar, Text } from 'react-native-paper';
 
 import { TopTab } from '@/components/chat/chat-controls';
-import { SessionConfigurationSheet } from '@/components/chat/session-configuration-sheet';
+import { SessionConfigurationSheet, type SessionSettingsGate } from '@/components/chat/session-configuration-sheet';
 import { Colors } from '@/constants/theme';
 import { getSessionSubtitle } from '@/lib/opencode/format';
 import type { Session } from '@/lib/opencode/types';
@@ -53,6 +53,9 @@ type ChatHeaderProps = {
   onOpenSettings: () => void;
   onShowChanges: () => void;
   onToggleConversationMode: () => void;
+  /** Opening the configuration is read-only; the owner may probe canonical settings. */
+  onSettingsOpened?: () => void;
+  settingsGate?: SessionSettingsGate;
   onUpdateSessionPreferences: (
     preferences: Partial<ChatPreferences>,
   ) => Promise<ChatPreferences>;
@@ -93,11 +96,13 @@ export function ChatHeader({
   onOpenSettings,
   onShowChanges,
   onToggleConversationMode,
+  onSettingsOpened,
   onUpdateSessionPreferences,
   palette,
   presentationStatus,
   selectedSession,
   sessionMenuVisible,
+  settingsGate,
   sessions,
   usage,
 }: ChatHeaderProps) {
@@ -159,7 +164,10 @@ export function ChatHeader({
               accessibilityHint="Session configuration"
               accessibilityLabel="Chat menu"
               accessibilityRole="button"
-              onPress={() => setActionsVisible(true)}
+              onPress={() => {
+                setActionsVisible(true);
+                onSettingsOpened?.();
+              }}
               style={({ pressed }) => [
                 styles.headerAction,
                 pressed && styles.headerActionPressed,
@@ -202,6 +210,7 @@ export function ChatHeader({
         onPreferencesChange={onUpdateSessionPreferences}
         palette={palette}
         preferences={chatPreferences}
+        settingsGate={settingsGate}
         visible={actionsVisible}>
         {coordinatorEligible ? (
           <Button

@@ -273,8 +273,11 @@ test('task-chat-polish-c3: messages use document flow without assistant chrome o
     paddingVertical: 10,
   }));
   expect(bubbleStyle.paddingRight).toBeUndefined();
-  expect(StyleSheet.flatten(user.getByTestId('message-actions').props.style)).toEqual(expect.objectContaining({ alignSelf: 'flex-end', minHeight: 44 }));
+  // Compact trailing slot inside the content row: exactly one touch target wide
+  // (no wider gutter), top aligned, and not an extra closed-menu row.
+  expect(StyleSheet.flatten(user.getByTestId('message-actions').props.style)).toEqual(expect.objectContaining({ alignSelf: 'flex-start', height: 44, width: 44 }));
   expect(StyleSheet.flatten(user.getByTestId('message-actions').props.style).position).toBeUndefined();
+  expect(StyleSheet.flatten(user.getByTestId('message-content-row').props.style)).toEqual(expect.objectContaining({ flexDirection: 'row', alignItems: 'flex-start' }));
 
   const assistant = render(
     <PaperProvider>
